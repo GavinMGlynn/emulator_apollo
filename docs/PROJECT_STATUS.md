@@ -26212,3 +26212,51 @@ That the kernel image is byte-identical on both machines is already established
 PCs, 95 emulated seconds with the prompt answered; this core's per-register
 counters from the same sync point; the instruction bytes from
 `--dump-logical`.*
+
+## RETRACTED: this core does write the DUART, and "kernel entry" was not a
+## matched moment
+
+Two corrections, and the second is the more important.
+
+**This core writes ACR and IMR from the kernel, exactly as the oracle does.**
+Stopping at `3C426612` catches it: instruction 295,095,687, `a1 = 3C44D040`,
+`a2 = 3FFFB000`. Logical `3FFFB000` is the page that maps to physical `010400`,
+so `9(a2)` is `010409` — ACR. The counters at that instant read **reg 4: 3
+writes, reg 5: 1 write**.
+
+The claim that we "never reach the routine" came from comparing our counters
+**at the kernel-entry sync point (instruction 208,170,082)** against the
+oracle's writes **over 95 emulated seconds**. Different windows. Our kernel had
+not run yet at the point I sampled; of course it had written nothing.
+
+**And the sync point itself is not matched.** The second visit to `01002024`
+happens on this core at instruction 208,170,082 — before its kernel programs
+anything — and on the oracle at 84.9 emulated seconds, *after* its kernel has
+already written `ACR = EA` at `3C426612`. The two machines reach "(PC `01002024`,
+visit 2)" by different routes, so the seven and five differences reported at
+"kernel entry" are differences between **two different moments**, not between
+two machines at one moment.
+
+A PC-and-count sync is only sound when both machines arrive at that pair having
+done the same things. Posted diagnostic codes have that property — they are
+emitted once each, in order, by the same firmware path — and a bare PC visit
+count does not. That is the distinction the earlier sync points had by luck and
+this one lacked.
+
+### What survives, and it is most of it
+
+* Both screens are identical through the kernel banner, and diverge at the next
+  line: `CRASH_STATUS` here, the calendar question there.
+* `TC` and `CRP` agree at comparable points (`80A28750`, `01001400`).
+* This core executes `3C4265C6`, `3C426612`, `3C409EBA` and `3C47A25A`; the
+  oracle executes `3C426612` and **not** `3C409EBA` or `3C47A25A`, with its exit
+  snapshot proving the run was meaningful.
+* The routine at `3C4265C6` is straight-line to `3C426612` with no branch, and
+  writes ACR from a structure field rather than a constant.
+
+So the divergence is still after the banner and before `3C409EBA`, and it is
+still a data difference. What is gone is the false lead that we never program
+the DUART.
+
+*Verification: `--boot-stop-pc 3C426612 --boot-trace-last 4`, registers read
+from the trace; per-register counters from the same run.*
