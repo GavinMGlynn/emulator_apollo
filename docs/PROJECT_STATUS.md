@@ -27146,11 +27146,27 @@ or the vector arithmetic -- the mask is the whole of it, which is what the older
 note found too and is now confirmed on the keyboard console with a display
 fitted.
 
-**The question to answer next is therefore narrow**: what does Domain/OS wait
-for before unmasking `IRQ1`, and does this core give it? The oracle unmasks it
--- 190 interrupts against none here -- so the two machines can be compared on
-the writes to the master's `OCW1`, which is one tap on each side and needs no
-new harness.
+**And Domain/OS never tries to unmask it.** Watching the master's `OCW1` at
+physical `011001` for a whole boot gives **sixteen writes**, ending:
+
+    12  A0  by PC 3C44F47C     Domain/OS re-initialises the master 8259:
+    13  08  by PC 3C44F482     ICW2 vector base, ICW3 cascade, ICW4,
+    14  01  by PC 3C44F488
+    15  FF  by PC 3C44F48E     mask everything,
+    16  F6  by PC 3C44F4B2     then unmask the timer and IRQ3 only.
+
+`F6` lands at instruction 373 M and **the register is never written again**
+through 900 M. So this is not an unmask that arrives and is overridden, nor one
+this core is late in delivering: the operating system sets that mask on purpose
+and leaves it, with `IRQ1` -- the DUARTs, and so the keyboard -- held down.
+
+The oracle takes 190 `A1` interrupts from the same operating system, so **it
+must write `OCW1` again after `F6` and this core must be giving it a reason not
+to**. The next measurement is one tap on the oracle at the same address: what it
+writes after `F6`, and from which PC. Both halves already exist -- this core's
+`--boot-watch-write 011001 --boot-log-watch-writes` produced the list above, and
+`APOLLO_SYNC_WRITE=11001` with a large `APOLLO_SYNC_COUNT` is its opposite
+number.
 
 **The real open item is `IRQ1`.** An older note in this document recorded the
 same absence -- vector `A1` 190 times on the oracle and 0 here, with the master
