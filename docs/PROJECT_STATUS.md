@@ -26772,3 +26772,53 @@ where to look.
 --boot-trace-last 140` against `APOLLO_SYNC_THEN=140`, diffed step for step;
 `m_mmu_sr` from an `APOLLO_SYNC_THEN=45` dump, which stops 5 instructions after
 the handler's `PMOVE` from `MMUSR` at `3C42CE30`.*
+
+### THE DIVERGENCE, LOCATED: a disk interrupt inside the page-fault handler
+
+Widened to 20,000 steps out of the same fault, the two machines are identical
+for **2,607 instructions** and then part at one instruction. Both are in the
+same three-instruction copy loop:
+
+    3C41EF86  14B5  move.b ...
+    3C41EF8C  5241  addq.w #1,d1
+    3C41EF8E  51C8  dbf d0,3C41EF86
+
+The **oracle finishes the loop** and exits to `3C41EF92`, `3C41EF94`, `3C41EFA4`.
+**This core takes an exception out of it**: the step is flagged `EXCEPTION`, `a7`
+drops by 8 -- a four-word interrupt frame -- and control vectors to `3C44E05C`,
+whose dispatcher reads the frame's vector offset `000002B8` and shifts it right
+by two to `000000AE`.
+
+**Vector `AE` is the disk.** `ap_i8259`'s vector is `vector_base | level`, and
+`0xAE` is base `0xA8` with level 6 -- the slave controller, `IRQ14`, the
+Winchester. So this core takes a disk interrupt inside the page-fault handler
+and the oracle does not.
+
+**The acceptance rule is not the defect.** `ap_m68030_interrupt_recognised`
+implements the manual exactly -- levels 1-6 recognised when the request "exceeds
+the current interrupt priority mask", level 7 transition-sensitive against the
+previous level -- and the board raises one CPU level for everything the 8259s
+drive (`AP_INTR_CPU_LEVEL`, measured at 5 by sweeping the mask: taken at 5,
+blocked at 6). Both machines had executed the same 2,607 instructions, so both
+had the same mask; the interrupt was legitimately acceptable on both. **What
+differs is that this core's disk raised `IRQ14` at a moment the oracle's did
+not.**
+
+That also explains the shape of the crash without any of the earlier stories:
+the fault handler is entered, is interrupted part-way through a copy, and what
+follows finds resource locks held. In 20,000 steps the oracle reaches
+`3C41A4DC` four times and **never** reaches `3C41A4F4` (the lock test that
+returns `FF` here), `3C42CF40`, or `3C42B928` (`crash_system`).
+
+**So the open question is now disk interrupt timing**, which is a device
+question with a manual behind it, and one where this project expects to
+out-accurate the oracle -- MAME's driver admits gaps in Winchester handling.
+Worth measuring first: this boot issues **1,337 disk commands** but takes only
+**31 vector-`AE` interrupts**, so most completions are polled and the few that
+interrupt are what matters.
+
+*Verification: `--boot-stop-on-mmu-fault-at 3C248001 --boot-stop-pc-then 20000
+--boot-trace-last 20000` against `APOLLO_SYNC_THEN=20000`, diffed step for step;
+first divergence at step 2608, our step 326,511,735 flagged `EXCEPTION`;
+`src/core/cpu/m68030/ap_m68030_exception.c` lines 229-249 for the acceptance
+rule and `src/core/board/ap_board.c` line 336 for the level.*
