@@ -2162,10 +2162,45 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       handler's copy loop and the kernel crashes with `00120020`.
 
       **The figure must come from the drive, not from MAME's 1 ms and not from
-      sweeping until the boot survives.** Needed: positioning time and rotation
-      from the fitted drive's specification, plus `[OMTI]`'s own command
-      timings; where a figure genuinely is not published, model the documented
-      one and mark it `PROVISIONAL` in code and in `PROJECT_STATUS.md`.
+      sweeping until the boot survives.** The references on disk do not settle
+      it and the search is recorded so it is not repeated: the three OMTI
+      manuals give the controller's commands but no access time, which is the
+      *drive's* property and not the controller's, and the Apollo handbooks and
+      `019411-A00` addendum are scans with nothing extractable on it. So the
+      resolution order moves to the web, per `CLAUDE.md`.
+
+      The DN3500 shipped 85, 170, 348 and 760 MB drives from Micropolis and
+      Maxtor; the 348 MB ESDI one is the `.awd`'s size class. For the Maxtor
+      XT-4380E (338 MB formatted, ESDI, 5.25" FH) the published figures are:
+
+      | | |
+      | --- | --- |
+      | rotation | 3600 RPM -> 16.67 ms/rev, **8.33 ms** average latency |
+      | average seek | **16 ms** typical, 18 ms maximum |
+      | track-to-track | 3.0 ms |
+      | full stroke | 29 ms typical, 34 ms maximum |
+      | transfer | 1.25 MB/s |
+
+      Seek + average latency is ~24 ms, which is consistent with MAME's "average
+      time would be 30 ms" and an order of magnitude off its 1 ms. **Model the
+      components** -- seek, rotational latency, transfer -- rather than one
+      lumped constant, so each carries its own citation.
+
+      **Mark the drive identification itself `PROVISIONAL`**: that the DN3500's
+      348 MB drive is specifically an XT-4380E is inferred from the capacity and
+      the era, not from Apollo documentation, and the geometry does not match
+      exactly (this core's conversion is 16 heads x 18 sectors, the drive is 15
+      x 36 of half the sector size -- the same bytes per track, a different
+      shape). Source:
+      <https://stason.org/TULARC/pc/hard-drives-hdd/maxtor/XT-4380E-338MB-5-25-FH-ESDI.html>
+
+      **Shape of the change**, since none of it exists yet: the OMTI is purely
+      reactive and has **no advance entry point** -- `ap_board_advance` ticks
+      the timer, calendar, SIO, tape and graphics but not the disk. It needs a
+      completion deadline and a pending-command state, an advance function in
+      the shape of `ap_sio_advance` called from the board, `IREQ` raised at the
+      deadline instead of at issue, and the new fields hashed -- which
+      re-baselines the identity hash in the same commit.
 
       Carries two tails the header already names: the `MSR` seek-in-progress
       bits (`SEEK_A`/`SEEK_B`) become observable once seeks take time, and so
