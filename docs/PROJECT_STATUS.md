@@ -27083,11 +27083,36 @@ I/O wait are separable at all. **Dwell cannot distinguish waiting for a person
 from waiting for a disk**, and raising the number is a search rather than a
 condition.
 
-What would distinguish them is the *console*: the question is printed, and
-nothing else prints before the answer. An arming rule keyed to output -- the
-last character written to the display, or a quiet period after one -- is the
-next thing to try, and `--boot-type-settled` should be kept only if it earns its
-place beside it.
+### The dwell rule does not answer the calendar question, and I stopped
+
+Five boots, four corrections, and it still types nothing at the prompt. Each
+version compiled and passed all 135 tests, because what is wrong each time is a
+*condition about a running machine*, which no unit test of the frontend can see:
+
+1. counted consecutive instructions at an address, when a poll is a loop --
+   `0 of 1`;
+2. governed every phase, so the firmware prompt that had always armed on arrival
+   stopped arming -- `0 of 2`;
+3. treated `AP_OMTI_PHASE_STATUS` as a busy drive, so a finished command whose
+   completion byte was unread read as I/O in progress -- `0 of 2`;
+4. discarded its count on every timer tick, ~7,900 a boot, making any threshold
+   above ~95,000 unreachable -- which explained `50000` arming and `200000` not.
+
+Widening the away window to span a handler was predicted to fix (4) and **did
+not**: `--boot-type-settled 200000` with the drive check still gives `0 of 2`.
+The prediction was wrong and the cause is not yet known.
+
+**Stopped there deliberately.** A fifth constant would be the parameter search
+`CLAUDE.md` forbids, and five 35-minute boots is already more than a harness
+convenience is worth. `--boot-type-settled` is committed because its diagnosis
+is worth keeping, it defaults to arm-on-arrival so nothing else changes, and its
+help now says outright that it does not arm at this prompt.
+
+**What to try instead**, and why it is better founded: the *console*. The
+question is printed and nothing else prints before the answer, so an arming rule
+keyed to output -- the last character written to the display, or a quiet period
+after one -- keys on the thing that actually distinguishes this moment. The
+dwell keys on a proxy for it and has now failed four times.
 
 **Check the clock before anything else**, because it is the trap class this
 investigation has already paid for four times. These runs pass

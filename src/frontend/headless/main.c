@@ -138,7 +138,10 @@ static void print_usage(const char *program_name) {
           "                        from the same two instructions it idles in --\n"
           "                        so arriving there is not the same as waiting\n"
           "                        there, and a step number would measure one\n"
-          "                        boot rather than state a condition\n");
+          "                        boot rather than state a condition.\n"
+          "                        DOES NOT yet arm at Domain/OS's calendar\n"
+          "                        question -- see docs/PROJECT_STATUS.md\n"
+          "                        before spending runs on it\n");
   fprintf(stdout,
           "  --dump-state FILE     write every field of machine state the hash\n"
           "                        covers, one line per field, and print the\n"
