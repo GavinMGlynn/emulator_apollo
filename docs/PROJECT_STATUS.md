@@ -27160,13 +27160,29 @@ through 900 M. So this is not an unmask that arrives and is overridden, nor one
 this core is late in delivering: the operating system sets that mask on purpose
 and leaves it, with `IRQ1` -- the DUARTs, and so the keyboard -- held down.
 
-The oracle takes 190 `A1` interrupts from the same operating system, so **it
-must write `OCW1` again after `F6` and this core must be giving it a reason not
-to**. The next measurement is one tap on the oracle at the same address: what it
-writes after `F6`, and from which PC. Both halves already exist -- this core's
-`--boot-watch-write 011001 --boot-log-watch-writes` produced the list above, and
-`APOLLO_SYNC_WRITE=11001` with a large `APOLLO_SYNC_COUNT` is its opposite
-number.
+**And the oracle writes it once more.** The same tap on its side gives
+**seventeen** writes to `011001` against this core's sixteen, identical PC for
+PC until the last:
+
+    ours     ... A0 3C44F47C, 08 3C44F482, 01 3C44F488, FF 3C44F48E, F6 3C44F4B2
+    oracle   ... A0 3C44F47C, 08 3C44F482, 01 3C44F488, FF 3C44F48E, F6 3C44F4B2,
+                 **F4 3C4E2ADC**
+
+`F6 -> F4` clears bit 1. **That is the write that unmasks `IRQ1`**, and it comes
+from `3C4E2ADC` -- a routine this core never executes. So the difference is not
+in the interrupt controller, the DUART or the mask arithmetic, none of which
+differ: it is that Domain/OS reaches `3C4E2ADC` there and not here.
+
+**That is the next thing to chase, and it is a control-flow question with a named
+address.** `--boot-stop-pc 3C4E2ADC` over a full boot says outright whether this
+core reaches it, and the call chain into it on the oracle -- via the frame walk
+that worked at `3C47A25A` -- names what has to happen first.
+
+*Verification: `--boot-watch-write 011001 --boot-log-watch-writes` on this core,
+sixteen writes ending `F6` at instruction 373 M and never written again through
+900 M; `APOLLO_SYNC_WRITE=11001` on the oracle, seventeen writes, decoded per
+byte lane because the tap covers the whole longword and `011000` carries 10,318
+`EOI`s that would otherwise swamp it.*
 
 **The real open item is `IRQ1`.** An older note in this document recorded the
 same absence -- vector `A1` 190 times on the oracle and 0 here, with the master
