@@ -3362,7 +3362,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
 | Constructed machine (`machine/`) | a 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and stalls while another master holds the bus, and advances the devices that keep time | `machine_suite`, 55 tests |
 | 68030 published timings (§11.6) | 59 rows from §11.6.6, §11.6.8, §11.6.9, §11.6.11, §11.6.12, §11.6.15 and §11.6.16, scheduled into the step as exposed microcode + measured operand bus + prefetch exposure, since the tables show a prefetch overlaps execution while an operand the operation consumes cannot (plain `max(microcode, bus)` was the retired first model — see above and `M68030_TIMING.md`). Branches are reached through their run-time outcome rather than by opcode. Seven instructions agree with the oracle (`FINDINGS.md` C8). Rows footnoted "Add Fetch Effective Address Time" are **declined**, not part-priced: their published figure is a component and the composition is open (C9). The four divides carry the manual's data-dependent marker and are `PROVISIONAL` | `timing_table_suite`, 16 tests; both published columns checked on a running machine by `machine_suite` |
-| 68030 ATC replacement | the history bit now means *recently used*, per `MC68851 PMMU User's Manual` §5.2.1.3 — a translating hit marks it, a `PTEST` probe does not. `PROVISIONAL` narrowed to victim choice among clear-history entries | `atc_suite`, 21 tests |
+| 68030 ATC replacement | the history bit now means *recently used*, per `MC68851 PMMU User's Manual` §5.2.1.3 — a translating hit marks it, a `PTEST` probe does not. `PROVISIONAL` narrowed to victim choice among clear-history entries | `atc_suite`, 24 tests |
 | 68030 prefetch marginal cost | `NCC − CC` over the published prefetch count, computed in code across every row; the two rows where it is not integral are named in the test rather than rounded away | `timing_table_suite`, 16 tests |
 | 68030 effective address timings (§11.6.1, §11.6.3) | fetch and calculate rows for the non-full-format modes, with the table's `-` and "2+op head" notations carried rather than flattened. Not yet composed into the step | `ea_timing_suite`, 26 tests |
 | 68030 instruction overlap (§11.3's Equations 11-1 and 11-2) | both compositions, deliberately without §11.6's per-instruction figures — those must be measured, not transcribed. The cache case through head and tail, the no-cache case by plain addition, and (11-2) shown to be (11-1) over *components* rather than a second rule | `overlap_suite`, 15 tests and `ea_timing_suite`, 12 — including both of the manual's own worked examples, at 6 clocks and **40** |
@@ -3391,7 +3391,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 programming model (registers, SR, three stack pointers) | working | `regs_suite`, 10 tests, `MC68030 User's Manual 3ed` §1.3 and `M68000 Family Programmer's Reference Manual 1992` §1.3.2 |
 | 68030 exception vectors, priority and stack frames | working; taking an exception needs the instruction unit | `exception_suite`, 16 tests, `MC68030 User's Manual 3ed` §8, Tables 8-1, 8-5, 8-6 |
 | 68030 special status word and bus fault frame layout | working: Figure 8-9's bits, the SIZ1/SIZ0 size code that counts bytes *remaining*, FC2-FC0, and Table 8-6's field offsets for both fault frames. The encoder enforces "a rerun bit is always set when the corresponding fault bit is set", while leaving a rerun *without* a fault expressible because that is how an address error is told from a bus error. The frame is chosen **from the SSW**, not passed in: §8.2.2's "data read faults only generate the long bus fault frame" is structural, since the short frame has no data input buffer for the handler to write the faulted read's value into. Fields Table 8-6 labels INTERNAL REGISTER are deliberately unnamed — this model has no source for them. **Wired into the taker**: `ap_m68030_take_bus_fault()` builds whichever frame the SSW selects, and `RTE` returns from both. Two `PROVISIONAL` approximations, marked in the code: the long frame's INTERNAL REGISTER fields are stacked as **zero** because this model has no microsequencer state, and `RTE` **re-executes** the faulted instruction from the start rather than resuming mid-instruction. The second is exact when the faulted access precedes any side effect — every case the boot PROM hits — and wrong for an instruction that had already committed one | `ssw_suite`, 11 tests, `step_suite`, `[030]` §8.2.1, Figure 8-9, Table 8-6, Table 7-3 |
-| 68030 ATC (22-entry, fully associative) | working; a translating hit marks the entry recently used, a `PTEST` probe does not. Replacement `PROVISIONAL` only in its victim choice | `atc_suite`, 21 tests, `MC68030 User's Manual 3ed` §9.4 |
+| 68030 ATC (22-entry, fully associative) | working; a translating hit marks the entry recently used, a `PTEST` probe does not, and a flush by function code and effective address applies the `MASK` operand — a zero mask flushes the address in **every** function code, which is the only masked form Domain/OS issues and used to invalidate nothing. Replacement `PROVISIONAL` only in its victim choice | `atc_suite`, 24 tests, `MC68030 User's Manual 3ed` §9.4, `[PRM]` `PFLUSH` |
 | 68030 descriptors + search protection state | working | `desc_suite`, 23 tests, `MC68030 User's Manual 3ed` §9.5.1.1 |
 | 68030 translation control (TC) + address split | working | `tc_suite`, 15 tests, `MC68030 User's Manual 3ed` §9.7.2 |
 | 68030 transparent translation (TT0/TT1) | working, bit layout now transcribed | `tt_suite`, 21 tests, `MC68030 User's Manual 3ed` §9.3, §9.7.3; layout from `M68000 Family Programmer's Reference Manual 1992` Figure 1-9 |
@@ -3426,7 +3426,7 @@ failure that cost a bit position in the 68020's module entry word.
 | OMTI command descriptor blocks | working: the 6-byte CDB decoded with the **cylinder reassembled from three bytes** (C10 in byte 1, C09/C08 in byte 2, low eight in byte 3), the command byte exposed both whole and split into class and opcode, and acceptance checked against the ESDI command set — which **refuses** `0C INITIALIZE DRIVE CHARACTERISTICS`, an ST506-only command that would make ESDI geometry look settable | `omti_cdb_suite`, 7 tests; `FINDINGS.md` C27 |
 | OMTI 862X ESDI/floppy controller (the part) | **register model complete for both halves**: the fixed disk's four ports with their read/write asymmetries and the status register's fixed bits, and the floppy's five at the standard PC layout. Modelled as two independent register sets sharing nothing, as `[OMTI]` §4.1 and §3.4 describe. Both measured dumps reproduced as tests. **Both command sets now modelled**: §5's fixed disk over `.awd`, and §6's floppy over `.afd` — ten commands and INVALID, with ST0–ST3 result bytes, and **no `WRITE DATA`**, which neither our §6 nor the sibling 8640's §5.3 lists. **`1E READ DATA TO BUFFER` implemented** -- §5.4.19's "reads data from the disk
 to the controller's buffer ... does not transfer the data to the host", paired
-with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both derived from the STATUS register as §4.2 and §4.3 give them: the interrupt from `IREQ` and the MASK byte's interrupt enable, the DMA request from `DREQ`, which the MASK byte's DMA enable gates. IRQ6 and DRQ2 are placed and not yet driven: the floppy side's completion is the FDC's result phase, not this one | `omti_suite`, 15 tests; `awd_suite`, 13; `afd_suite`, 26; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |
+with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both derived from the STATUS register as §4.2 and §4.3 give them: the interrupt from `IREQ` and the MASK byte's interrupt enable, the DMA request from `DREQ`, which the MASK byte's DMA enable gates. IRQ6 and DRQ2 are placed and not yet driven: the floppy side's completion is the FDC's result phase, not this one | `omti_suite`, 15 tests; `awd_suite`, 45; `afd_suite`, 26; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |
 | OMTI 8621 placement (the DN3500's disk) | measured, both halves. Placement characterised at `04D000`: the range is the card's (all `FF` without it, control verified by device enumeration), aliased on an eight-byte period, with offsets 1-3 driven. Offsets 0 and 4-7 read `FF`, which a read sweep cannot distinguish from undriven | `FINDINGS.md` C20 |
 | WD7000 ESDI/SCSI (DN4500) | not started | — |
 | Floppy, QIC cartridge tape | not started | — |
@@ -28237,3 +28237,137 @@ statics; `--dump-logical 3C4C7000:2800` for the naming globals; a block-by-block
 comparison of the run's disk against `media/dn3500-sr10.4-installed.awd` for the
 zero writes; and `[AEGIS]` Figures 4-4, 4-6 and 4-12 read from the page images
 for the volume walk.*
+
+## `E0007` is gone: `PFLUSH` was ignoring its mask
+
+The previous section ends on the shape of the question -- the same code, on the
+same bytes, finds a name in a one-page directory and not in a four-page one --
+and the answer is a **CPU defect**, found in the manual rather than in a boot.
+
+### The defect, from the page image
+
+`[PRM]`'s `PFLUSH` page gives the instruction three forms, and the mask belongs
+to two of them:
+
+> Each bit in the mask that is set to one indicates that the corresponding bit
+> of the FC operand applies to the operation. Each bit in the mask that is zero
+> indicates a bit of FC ... ignored.
+
+and, for the form that also names an address:
+
+> When the instruction also specifies an `<ea>`, the instruction invalidates the
+> page descriptor for that effective address entry **in each selected function
+> code**.
+
+This core applied the mask to `PFLUSH FC,MASK` (mode `100`, which has an entry
+point of its own in `ap_m68030_atc_flush_function_codes`) and **dropped it** from
+`PFLUSH FC,MASK,<ea>` (mode `110`), comparing the function code exactly. So a
+mask of zero -- meaning *every* function code -- selected only entries tagged
+function code 0, and a guest that remapped a page and flushed it kept
+translating that page through the **stale supervisor-data entry** until the ATC
+happened to evict it. Twenty-two entries, fully associative: a one-page window
+reused in a loop is precisely the case that never evicts.
+
+`ap_m68030_atc_flush_entry` now takes the mask, `entry_matches_masked` is
+separate from `entry_matches` so that a *lookup* can never acquire a mask it
+could get wrong, and the two callers that mean one entry -- `PLOAD`, whose
+encoding has no `MASK` field, and the replace-before-insert inside
+`ap_m68030_atc_insert` -- pass `AP_M68030_ATC_FC_EXACT` and say why.
+
+### The measurement, matched on both sides
+
+Same script, same pristine image, same clock and display; the only difference is
+the mask. The pre-fix side is the **committed code built in a throwaway
+worktree**, not an older log -- three screenshots already in scratch were a
+different configuration (they reach the 14-day calendar question, which
+`e0007-boot.sh` is built to avoid), and comparing against those would have been
+a fourth configuration-mismatched comparison in this investigation.
+
+| | pre-fix | with the mask |
+| --- | --- | --- |
+| screen | `Unable to resolve "/sys/node_data" -- E0007`, `CRASH_STATUS 000E0007  PC 3C4524E6 PID 0001`, then the PROM's `>` | the kernel banner, `@2D-03863-MS`, and **no crash message** |
+| ends | the 1.5 G limit, parked in the PROM at `3FFA2672` | `FAULT on 0000` at **482,901,418** |
+| state hash | `FF09B01D4FE9E539` | `E4574B930EED0323` |
+
+**The identity hash does not move**: `tools/identity-boot.sh` still reports
+`A354786119A3931D`. That is not a weaker result than a re-baseline -- it says the
+reference boot (1987 clock, 350 M instructions, no display) never issues a
+masked flush, so the change is invisible to it, and every earlier A/B against
+that number stands.
+
+**`MMU_$PURGE` is not the caller, and checking that was worth a run.** The
+volume's own load map puts it at `3C43DE58`, and stopping there and dumping the
+code shows `F000 2400` -- `PFLUSHA`, flush *everything*, which this core has
+always done correctly:
+
+```
+3C43DE54  60 02        BRA.B  -> 3C43DE58      MMU_$PURGE_TB
+3C43DE56  4E 75        RTS
+3C43DE58  F0 00 24 00  PFLUSHA                 MMU_$PURGE
+3C43DE5C  61 00 00 C6  BSR.W  -> 3C43DF24
+```
+
+So the guest reaches the masked form somewhere else, and one instrumented run --
+a `printf` on mode `110`, built in the same throwaway worktree so the tree being
+committed never carried it -- says where. **Every masked flush Domain/OS issues
+has mask zero**, and they come from two places:
+
+| issuer | times | address |
+| --- | --- | --- |
+| `MMU_$REMOVE_PMAPE+1E` (`3C43DD7A`) | 29 | `3C004C00`, **the same page every time** |
+| `FIM_$BUS_ERR+AE` (`3C42CE3E`) | 11 | a different demand-paged page each time |
+
+So the one-page window is real -- it belongs to `MMU_$REMOVE_PMAPE`, the routine
+that takes a page-map entry out -- and the **page-fault handler's own flush was
+equally dead**, which is the more alarming half: every one of the 287 pages this
+boot demand-pages was flushed by a `PFLUSH` that matched nothing.
+
+The comment that shipped with the first draft of this fix named "Domain/OS's
+Winchester driver" and a copy window it never measured. The mechanism was right
+and the attribution was invented; both the code comments and this file now say
+what the run says.
+
+### What is left, and it is a different failure
+
+The boot now dies 5,058,437 instructions later, and the last three hundred steps
+name where:
+
+```
+3C42C25A  FIM_$PROC2_STARTUP   MOVEA.L (d16,A7),A5
+3C42C25E                       BSR.W  -> 3C42C33E     FIM_$FAULT_RETURN+68
+   ...                         A0 from a table indexed by a counter, then
+3C42C264                       the frame written at -(A0)
+3C42C270                       MOVEA.L A0,A7          the new stack
+3C42C274                       JMP -> 3C42DD1C        FIM_$EXIT
+3C42DD1C  4E 73        RTE                             -> PC 00000000
+```
+
+The kernel gets far enough to **start its second process** and starts it on a
+null entry point -- an ordinary bus error on the instruction fetch at zero, with
+`00000000  1 time(s)  00000000  invalid on read` in the MMU fault profile to say
+so. Whether the entry point was never filled in or was filled in from something
+this core still gets wrong is the next question, and it is a *new* one: nothing
+above this line is about `FIM_$PROC2_STARTUP`.
+
+### The instrument that made the disk side legible
+
+A sector list says what came off the surface; it cannot say which command took
+it. `1E READ DATA TO BUFFER` and `0E READ DATA FROM SECTOR BUFFER` are separate
+commands, so a buffer refilled before it is drained loses a sector while both
+commands *succeed* -- no refusal, no sense byte, nothing any other line of the
+report can show. `--boot-disk-reads N` now prints the last N sectors **and** the
+last N commands as `command/blocks@lba:drained`, and `note_read` is called from
+every read path rather than only `08 READ`'s, which had been counting one
+command in four while presenting itself as the run's reads.
+
+On the run above the pairing is exactly right -- every `1E/n` is followed by an
+`0E/n` that drains `n * 1056` bytes -- so the disk delivered what was asked for,
+which is what moved the question to the ATC.
+
+*Verification: `tools/e0007-boot.sh` on a fresh copy of the pristine image for
+both sides of the table, the pre-fix side built from `HEAD` in a `git worktree`;
+`tools/identity-boot.sh` for the unchanged reference hash;
+`--boot-stop-pc 3C43DE58 --dump-logical 3C43DE54:96` for `MMU_$PURGE`;
+`--boot-trace-last 400` with `tools/kernel_symbols.py` for the final sequence;
+`atc_suite` 24 tests and `awd_suite` for the command log; `[PRM]` `PFLUSH` read
+from the page image.*

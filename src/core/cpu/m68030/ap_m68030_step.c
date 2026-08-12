@@ -4317,8 +4317,14 @@ static bool execute_pflush_or_pload(ap_m68030_cpu_t *cpu,
   }
 
   if (mode == 0x6u) {
-    /* "110 -- Flush by function code and effective address." */
-    ap_m68030_atc_flush_entry(atc, function_code, where.address,
+    /* "110 -- Flush by function code and effective address", and the MASK
+     * operand applies to *this* form as much as to `PFLUSH FC,MASK`: the
+     * instruction "invalidates the page descriptor for that effective address
+     * entry **in each selected function code**". The mask was dropped here and
+     * the function code compared exactly, which made `PFLUSH #0,#0,(An)` -- a
+     * flush of one page across every function code, and the only masked form
+     * Domain/OS ever issues -- flush nothing at all. */
+    ap_m68030_atc_flush_entry(atc, function_code, (uint8_t)mask, where.address,
                               mmu_page_size_bits(cpu));
     return true;
   }
@@ -4347,8 +4353,11 @@ static bool execute_pflush_or_pload(ap_m68030_cpu_t *cpu,
       .supervisor = (function_code & 0x4u) != 0u,
   };
 
-  ap_m68030_atc_flush_entry(atc, function_code, where.address,
-                            mmu_page_size_bits(cpu));
+  /* PLOAD names one function code and no mask -- its own encoding has the MASK
+   * field zero and the manual gives it no meaning -- so the entry it replaces
+   * is the one for exactly that code. */
+  ap_m68030_atc_flush_entry(atc, function_code, AP_M68030_ATC_FC_EXACT,
+                            where.address, mmu_page_size_bits(cpu));
 
   const ap_m68030_walk_result_t result = ap_m68030_walk(
       &cpu->tc, root_for(cpu, function_code), where.address, &access,

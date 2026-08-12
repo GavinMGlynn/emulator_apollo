@@ -186,6 +186,10 @@ static void print_usage(const char *program_name) {
           "                        path that recovers and again on one that\n"
           "                        does not is two events, and only the second\n"
           "                        is usually the question\n"
+          "  --boot-disk-reads N   with --boot-report, list the last N sector\n"
+          "                        numbers the disk served. A command that\n"
+          "                        fetched the *wrong* sector succeeds, so no\n"
+          "                        other line of the report can show it\n"
           "  --boot-trace-last N   keep the last N steps and print them when\n"
           "                        the run ends. A fault half a billion\n"
           "                        instructions in cannot be reached by\n"
@@ -1863,7 +1867,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t stop_physical_pc,
                           uint32_t stop_physical_length, bool service_mode,
                           unsigned stop_pc_skip, uint32_t stop_mmu_fault_at,
-                          unsigned stop_pc_then, uint32_t progress_from) {
+                          unsigned stop_pc_then, uint32_t progress_from,
+                          unsigned disk_reads_wanted) {
   /* Before the PROM is even opened: a script that does not parse is the
    * caller's mistake and should be reported as one, not hidden behind whichever
    * file happens to be missing first. */
@@ -3022,6 +3027,43 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
      * geometry and a driver asking for a thousand read identically without
      * this, and the geometry is printed beside it because the refusal is a
      * statement about the pair. */
+    /* The sectors this run read, newest first. Kept behind a flag rather than
+     * printed always because it is up to two thousand numbers, and asked for by
+     * address rather than by failure: a *successful* command that fetched the
+     * wrong sector leaves no refusal and no sense bytes, and is invisible to
+     * every other line of this report. That is exactly the shape of the defect
+     * it was added for -- a directory whose second page arrived holding the
+     * third page's block. */
+    if (disk_reads_wanted > 0u) {
+      printf("  disk reads    %u total, last %u:", ap_omti_reads(omti),
+             disk_reads_wanted);
+      for (unsigned k = 0; k < disk_reads_wanted; k++) {
+        uint32_t lba = 0;
+        if (!ap_omti_recent_read(omti, k, &lba)) {
+          break;
+        }
+        printf(" %u", lba);
+      }
+      printf("  (newest first)\n");
+      printf("  disk cmds     %u recorded, last %u (newest first):",
+             ap_omti_commands_recorded(omti), disk_reads_wanted);
+      for (unsigned k = 0; k < disk_reads_wanted; k++) {
+        uint8_t command = 0;
+        uint16_t blocks = 0;
+        uint32_t lba = 0;
+        uint32_t drained = 0;
+        if (!ap_omti_recent_command(omti, k, &command, &blocks, &lba,
+                                    &drained)) {
+          break;
+        }
+        if (lba == UINT32_MAX) {
+          printf(" %02X/%u@-:%u", command, blocks, drained);
+        } else {
+          printf(" %02X/%u@%u:%u", command, blocks, lba, drained);
+        }
+      }
+      printf("\n");
+    }
     if (ap_omti_refusals(omti) > 0u) {
       const ap_awd_geometry_t geometry = ap_awd_geometry_for(AP_AWD_DRIVE_348MB);
       printf("  disk refused  %u address(es), last c%u h%u s%u / lba %u, "
@@ -3795,6 +3837,7 @@ int main(int argc, char **argv) {
   unsigned boot_stop_pc_skip = 0u;
   uint32_t boot_stop_mmu_fault_at = 0u;
   unsigned boot_stop_pc_then = 0u;
+  unsigned boot_disk_reads = 0u;
   uint32_t boot_progress_from = 0u;
   uint32_t boot_stop_physical_pc = 0;
   uint32_t boot_stop_physical_length = 1u;
@@ -4139,6 +4182,11 @@ int main(int argc, char **argv) {
       i += 2;
       continue;
     }
+    if (strcmp(argv[i], "--boot-disk-reads") == 0 && i + 1 < argc) {
+      boot_disk_reads = (unsigned)strtoul(argv[i + 1], NULL, 10);
+      i += 2;
+      continue;
+    }
     if (strcmp(argv[i], "--boot-stop-pc-then") == 0 && i + 1 < argc) {
       boot_stop_pc_then = (unsigned)strtoul(argv[i + 1], NULL, 0);
       i += 2;
@@ -4283,7 +4331,7 @@ int main(int argc, char **argv) {
                           boot_stop_physical_pc, boot_stop_physical_length,
                           service_mode, boot_stop_pc_skip,
                           boot_stop_mmu_fault_at, boot_stop_pc_then,
-                          boot_progress_from);
+                          boot_progress_from, boot_disk_reads);
   }
 
   if (boot_tape != NULL) {

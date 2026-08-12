@@ -3379,6 +3379,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   documentation (`002398-04` ch. 12, `008778-03` §13.3), and not in the disk or
   the naming server. Truncation and pacing are already ruled out. Detail in
   `PROJECT_STATUS.md`.
+
+  **`E0007` IS CLOSED, and it was a CPU defect.** `PFLUSH FC,MASK,<ea>` dropped
+  its `MASK` operand and compared the function code exactly, so the *only*
+  masked form Domain/OS issues — mask zero, every function code — invalidated
+  nothing. Measured: `MMU_$REMOVE_PMAPE+1E` 29 times on the one page `3C004C00`,
+  `FIM_$BUS_ERR+AE` once per demand-paged page. Matched A/B on the same script
+  and image, pre-fix built from `HEAD` in a worktree: the screen's
+  `Unable to resolve "/sys/node_data" -- E0007` is **gone**, and the boot runs
+  5,058,437 instructions further. `tools/identity-boot.sh` is unchanged at
+  `A354786119A3931D`, so no re-baseline. Detail in `PROJECT_STATUS.md`.
+
+  **The next failure is a different one**: at 482,901,418 the kernel starts its
+  second process on a **null entry point** — `FIM_$PROC2_STARTUP` builds a frame
+  and `FIM_$EXIT`'s `RTE` lands on `PC 00000000`. Nothing above this line is
+  about `FIM_$PROC2_STARTUP`; treat it as a new question, not a continuation.
   - Then the oracle, out of a shared program event, on the **same image**. Its
     successful boots have been on `media/dn3500.awd`, which MAME mutates and
     which differs from `media/dn3500-sr10.4-installed.awd` by 563,262 bytes;

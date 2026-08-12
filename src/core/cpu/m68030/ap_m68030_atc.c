@@ -35,6 +35,19 @@ static bool entry_matches(const ap_m68030_atc_entry_t *e, uint8_t function_code,
          ((e->logical ^ tag_of(address)) & mask) == 0;
 }
 
+/* The same, with the function code compared only in the bits `PFLUSH`'s MASK
+ * operand selects. Separate from `entry_matches` because a *lookup* is always
+ * for one exact function code and must not acquire a mask it could get wrong. */
+static bool entry_matches_masked(const ap_m68030_atc_entry_t *e,
+                                 uint8_t function_code,
+                                 uint8_t function_code_mask, uint32_t address,
+                                 uint32_t mask) {
+  return e->valid &&
+         (((e->function_code ^ function_code) & function_code_mask & 0x07u) ==
+          0u) &&
+         ((e->logical ^ tag_of(address)) & mask) == 0;
+}
+
 void ap_m68030_atc_flush(ap_m68030_atc_t *atc) {
   for (unsigned i = 0; i < AP_M68030_ATC_ENTRIES; i++) {
     atc->entry[i].valid = false;
@@ -43,10 +56,12 @@ void ap_m68030_atc_flush(ap_m68030_atc_t *atc) {
 }
 
 void ap_m68030_atc_flush_entry(ap_m68030_atc_t *atc, uint8_t function_code,
-                               uint32_t address, uint8_t page_size_bits) {
+                               uint8_t function_code_mask, uint32_t address,
+                               uint8_t page_size_bits) {
   const uint32_t mask = tag_mask(page_size_bits);
   for (unsigned i = 0; i < AP_M68030_ATC_ENTRIES; i++) {
-    if (entry_matches(&atc->entry[i], function_code, address, mask)) {
+    if (entry_matches_masked(&atc->entry[i], function_code, function_code_mask,
+                             address, mask)) {
       atc->entry[i].valid = false;
     }
   }
@@ -178,7 +193,11 @@ int ap_m68030_atc_insert(ap_m68030_atc_t *atc, uint8_t function_code,
   /* An existing entry for this address is replaced rather than duplicated: a
    * fully associative cache holding two entries for one tag could answer with
    * either, which would make translation depend on search order. */
-  ap_m68030_atc_flush_entry(atc, function_code, address, page_size_bits);
+  /* Exactly this function code: a load replaces the entry for the access it
+   * was asked about, and must not evict the other function codes' entries for
+   * the same page. */
+  ap_m68030_atc_flush_entry(atc, function_code, AP_M68030_ATC_FC_EXACT, address,
+                            page_size_bits);
 
   const unsigned victim = choose_victim(atc);
   atc->entry[victim] = (ap_m68030_atc_entry_t){

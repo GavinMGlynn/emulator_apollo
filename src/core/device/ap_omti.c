@@ -168,6 +168,26 @@ bool ap_omti_recent_read(const ap_omti_t *omti, unsigned index, uint32_t *lba) {
   return true;
 }
 
+unsigned ap_omti_commands_recorded(const ap_omti_t *omti) {
+  return omti->recent_command_count;
+}
+
+bool ap_omti_recent_command(const ap_omti_t *omti, unsigned index,
+                            uint8_t *command, uint16_t *blocks, uint32_t *lba,
+                            uint32_t *drained) {
+  const unsigned kept =
+      sizeof omti->recent_commands / sizeof omti->recent_commands[0];
+  if (index >= kept || index >= omti->recent_command_count) {
+    return false;
+  }
+  const unsigned at = (omti->recent_command_count - 1u - index) % kept;
+  *command = omti->recent_commands[at].command;
+  *blocks = omti->recent_commands[at].blocks;
+  *lba = omti->recent_commands[at].lba;
+  *drained = omti->recent_commands[at].drained;
+  return true;
+}
+
 /* Record what was refused, so a run can say which address rather than only that
  * there was one. */
 static void finish(ap_omti_t *omti, bool error, uint8_t sense);
@@ -339,6 +359,28 @@ void ap_omti_advance(ap_omti_t *omti, ap_time_t now) {
   }
 }
 
+/* The linear block a CDB names, with no side effects and no refusal.
+ *
+ * Split out of `addressed` so the command log can record the *same* number the
+ * command will act on. Recording `ap_awd_lba`'s answer instead would be right
+ * only while `ENABLE SECTOR ADDRESS CONVERSION` is clear, and a log that is
+ * right most of the time is the worst kind. */
+static bool command_lba(const ap_awd_geometry_t geometry,
+                        const ap_omti_cdb_t *cdb, uint32_t *lba) {
+  if ((cdb->control & AP_OMTI_CONTROL_ADDRESS_CONVERSION) != 0u) {
+    const uint32_t converted =
+        ((uint32_t)cdb->cylinder * AP_OMTI_CONVERSION_HEADS + cdb->head) *
+            AP_OMTI_CONVERSION_SECTORS +
+        cdb->sector;
+    if (converted >= ap_awd_sector_count(geometry)) {
+      return false;
+    }
+    *lba = converted;
+    return true;
+  }
+  return ap_awd_lba(geometry, cdb->cylinder, cdb->head, cdb->sector, lba);
+}
+
 /* The address a data command names, and whether the drive has it. */
 static bool addressed(ap_omti_t *omti, const ap_omti_cdb_t *cdb,
                       uint32_t *lba) {
@@ -402,6 +444,23 @@ static bool addressed(ap_omti_t *omti, const ap_omti_cdb_t *cdb,
   return true;
 }
 
+/* Record a sector taken off the surface, whichever command took it.
+ *
+ * **Every** read path calls this, and until it did only `08 READ`'s did -- so a
+ * report that said "1265 sectors read" was counting one command out of four,
+ * and the sectors that filled a directory through `1E READ DATA TO BUFFER` were
+ * absent from a list that claimed to be what the run had read. A command that
+ * fetches the *wrong* sector completes normally and sets no sense bytes, so
+ * this list is the only thing in the report that can show it; a list with a
+ * whole command missing from it is worse than none, because it reads as
+ * evidence of absence. */
+static void note_read(ap_omti_t *omti, uint32_t lba) {
+  const unsigned kept =
+      sizeof omti->recent_reads / sizeof omti->recent_reads[0];
+  omti->recent_reads[omti->recent_read_count % kept] = lba;
+  omti->recent_read_count++;
+}
+
 /* Load the next sector of a read, or end the command when there are none. */
 static void feed(ap_omti_t *omti) {
   if (omti->blocks_left == 0u) {
@@ -416,12 +475,7 @@ static void feed(ap_omti_t *omti) {
     refuse(omti, c, h, sec, omti->next_lba);
     return;
   }
-  {
-    const unsigned kept =
-        sizeof omti->recent_reads / sizeof omti->recent_reads[0];
-    omti->recent_reads[omti->recent_read_count % kept] = omti->next_lba;
-    omti->recent_read_count++;
-  }
+  note_read(omti, omti->next_lba);
   omti->next_lba++;
   omti->blocks_left--;
   omti->buffer_index = 0u;
@@ -558,6 +612,29 @@ static void execute(ap_omti_t *omti) {
    * drive that is not fitted were answered out of drive 0's image. */
   omti->command_lun = cdb.lun;
   omti->selected = cdb.lun == 0u ? omti->drive : NULL;
+  {
+    /* Recorded before anything is checked, so a refused command is in the log
+     * too: "the command that was rejected" is as much of the sequence as the
+     * ones that ran. The address is the CDB's own, which for the buffer
+     * commands is meaningless and is recorded as absent rather than as zero. */
+    const unsigned kept =
+        sizeof omti->recent_commands / sizeof omti->recent_commands[0];
+    const unsigned at = omti->recent_command_count % kept;
+    uint32_t where = UINT32_MAX;
+    if (omti->selected != NULL &&
+        cdb.command != AP_OMTI_CMD_READ_SECTOR_BUFFER &&
+        cdb.command != AP_OMTI_CMD_WRITE_SECTOR_BUFFER) {
+      uint32_t at_lba = 0;
+      if (command_lba(omti->selected->geometry, &cdb, &at_lba)) {
+        where = at_lba;
+      }
+    }
+    omti->recent_commands[at].command = cdb.command;
+    omti->recent_commands[at].blocks = (uint16_t)block_count(&cdb);
+    omti->recent_commands[at].lba = where;
+    omti->recent_commands[at].drained = 0u;
+    omti->recent_command_count++;
+  }
   /* Any command at all ends whatever long write was outstanding. A WRITE LONG
    * the host abandoned mid-phase must not place its half-filled buffer when
    * some later data-out phase happens to complete. `WRITE LONG` sets it again
@@ -656,6 +733,7 @@ static void execute(ap_omti_t *omti) {
       return;
     }
     for (unsigned i = 0; i < (cdb.block_count == 0u ? 256u : cdb.block_count); i++) {
+      note_read(omti, lba + i);
       if (!ap_awd_read(omti->selected, lba + i, omti->buffer)) {
         finish(omti, true, SENSE_ILLEGAL_ADDRESS);
         return;
@@ -700,8 +778,12 @@ static void execute(ap_omti_t *omti) {
     }
     for (uint16_t c = 0; c < omti->selected->geometry.cylinders; c++) {
       uint32_t at = 0;
-      if (!ap_awd_lba(omti->selected->geometry, c, 0u, 1u, &at) ||
-          !ap_awd_read(omti->selected, at, omti->buffer)) {
+      if (!ap_awd_lba(omti->selected->geometry, c, 0u, 1u, &at)) {
+        finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+        return;
+      }
+      note_read(omti, at);
+      if (!ap_awd_read(omti->selected, at, omti->buffer)) {
         finish(omti, true, SENSE_ILLEGAL_ADDRESS);
         return;
       }
@@ -784,6 +866,7 @@ static void execute(ap_omti_t *omti) {
         refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block);
         return;
       }
+      note_read(omti, lba + block);
     }
     finish(omti, false, 0u);
     return;
@@ -884,6 +967,7 @@ static void execute(ap_omti_t *omti) {
     }
     const unsigned blocks = block_count(&cdb);
     for (unsigned block = 0; block < blocks; block++) {
+      note_read(omti, lba + block);
       if (!ap_awd_read(omti->selected, lba + block, omti->buffer) ||
           !ap_awd_write(omti->selected, to + block, omti->buffer)) {
         refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block);
@@ -996,6 +1080,7 @@ static void execute(ap_omti_t *omti) {
       ap_awd_ecc(omti->selected, lba + block,
                  &omti->buffer[block * AP_OMTI_LONG_BLOCK_BYTES +
                                AP_AWD_SECTOR_BYTES]);
+      note_read(omti, lba + block);
       if (!ap_awd_read(omti->selected, lba + block,
                        &omti->buffer[block * AP_OMTI_LONG_BLOCK_BYTES])) {
         refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block);
@@ -1040,8 +1125,12 @@ static void execute(ap_omti_t *omti) {
     for (uint16_t s = 0; s < omti->selected->geometry.sectors; s++) {
       uint32_t at = 0;
       if (!ap_awd_lba(omti->selected->geometry, cdb.cylinder, cdb.head,
-                      (uint8_t)s, &at) ||
-          !ap_awd_read(omti->selected, at, omti->buffer)) {
+                      (uint8_t)s, &at)) {
+        refuse(omti, cdb.cylinder, cdb.head, (uint8_t)s, at);
+        return;
+      }
+      note_read(omti, at);
+      if (!ap_awd_read(omti->selected, at, omti->buffer)) {
         refuse(omti, cdb.cylinder, cdb.head, (uint8_t)s, at);
         return;
       }
@@ -1239,10 +1328,20 @@ static void take_byte(ap_omti_t *omti, uint8_t value) {
 }
 
 /* A byte the host read from the data port. */
+static void note_drained(ap_omti_t *omti) {
+  if (omti->recent_command_count == 0u) {
+    return;
+  }
+  const unsigned kept =
+      sizeof omti->recent_commands / sizeof omti->recent_commands[0];
+  omti->recent_commands[(omti->recent_command_count - 1u) % kept].drained++;
+}
+
 static uint8_t give_byte(ap_omti_t *omti) {
   switch (omti->phase) {
   case AP_OMTI_PHASE_DATA_IN: {
     const uint8_t value = omti->buffer[omti->buffer_index++];
+    note_drained(omti);
     /* The read is the acknowledgement of the request that offered this byte. */
     omti->status = (uint8_t)(omti->status & ~AP_OMTI_ST_REQ);
     if (omti->buffer_index < omti->transfer_length) {

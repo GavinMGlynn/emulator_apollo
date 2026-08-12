@@ -180,7 +180,79 @@ static void test_flushing_one_entry_leaves_the_others(void) {
   ap_m68030_atc_insert(&atc, FC_SUPERVISOR_DATA, 0x00200000, PS_4K,
                        FRAME(0x00B00000), false, false, true, false);
 
-  ap_m68030_atc_flush_entry(&atc, FC_SUPERVISOR_DATA, 0x00100000, PS_4K);
+  ap_m68030_atc_flush_entry(&atc, FC_SUPERVISOR_DATA, AP_M68030_ATC_FC_EXACT,
+                            0x00100000, PS_4K);
+  TEST_ASSERT_EQUAL(AP_M68030_ATC_MISS, read_at(&atc, 0x00100000).status);
+  TEST_ASSERT_EQUAL(AP_M68030_ATC_HIT, read_at(&atc, 0x00200000).status);
+}
+
+/* `[PRM]` PFLUSH: "When the instruction also specifies an <ea>, the instruction
+ * invalidates the page descriptor for that effective address entry **in each
+ * selected function code**", where the mask says which function code bits have
+ * to agree -- so a **zero mask selects every function code**.
+ *
+ * This is the only masked form Domain/OS issues -- `PFLUSH #0,#0,(An)`, from
+ * `MMU_$REMOVE_PMAPE` on a one-page window and from `FIM_$BUS_ERR` on each
+ * demand-paged page. Against a flush that compared the function code exactly it
+ * matched only entries tagged 0, left the supervisor-data entry standing, and
+ * so invalidated nothing the kernel meant. `E0007` came out of the far end of
+ * that: a four-page directory read through a window still translating to the
+ * frame it had last been pointed at. */
+static void test_a_zero_mask_flushes_the_address_in_every_function_code(void) {
+  ap_m68030_atc_t atc = empty();
+  ap_m68030_atc_insert(&atc, FC_SUPERVISOR_DATA, 0x00100000, PS_4K,
+                       FRAME(0x00A00000), false, false, true, false);
+  ap_m68030_atc_insert(&atc, FC_USER_DATA, 0x00100000, PS_4K,
+                       FRAME(0x00B00000), false, false, true, false);
+
+  ap_m68030_atc_flush_entry(&atc, 0u, 0u, 0x00100000, PS_4K);
+
+  TEST_ASSERT_EQUAL(AP_M68030_ATC_MISS,
+                    ap_m68030_atc_lookup(&atc, FC_SUPERVISOR_DATA, 0x00100000,
+                                         PS_4K, false, false)
+                        .status);
+  TEST_ASSERT_EQUAL(AP_M68030_ATC_MISS,
+                    ap_m68030_atc_lookup(&atc, FC_USER_DATA, 0x00100000, PS_4K,
+                                         false, false)
+                        .status);
+}
+
+/* "For example, a mask operand of 100 causes the instruction to consider only
+ * the most significant bit of the FC operand. If the FC operand is 001,
+ * function codes 000, 001, 010, and 011 are selected." The masked form has to
+ * spare the codes it does not select, or it is `PFLUSHA` with extra steps. */
+static void test_a_partial_mask_spares_the_function_codes_it_excludes(void) {
+  ap_m68030_atc_t atc = empty();
+  ap_m68030_atc_insert(&atc, FC_USER_DATA, 0x00100000, PS_4K,
+                       FRAME(0x00A00000), false, false, true, false);
+  ap_m68030_atc_insert(&atc, FC_SUPERVISOR_DATA, 0x00100000, PS_4K,
+                       FRAME(0x00B00000), false, false, true, false);
+
+  /* Mask 100, FC 001: the user codes 000-011 are selected and the supervisor
+   * ones are not. */
+  ap_m68030_atc_flush_entry(&atc, 0x1u, 0x4u, 0x00100000, PS_4K);
+
+  TEST_ASSERT_EQUAL(AP_M68030_ATC_MISS,
+                    ap_m68030_atc_lookup(&atc, FC_USER_DATA, 0x00100000, PS_4K,
+                                         false, false)
+                        .status);
+  TEST_ASSERT_EQUAL(AP_M68030_ATC_HIT,
+                    ap_m68030_atc_lookup(&atc, FC_SUPERVISOR_DATA, 0x00100000,
+                                         PS_4K, false, false)
+                        .status);
+}
+
+/* And the address still bounds it: a full mask with a different page must not
+ * take the entry the driver is about to use. */
+static void test_a_masked_flush_still_only_touches_its_own_address(void) {
+  ap_m68030_atc_t atc = empty();
+  ap_m68030_atc_insert(&atc, FC_SUPERVISOR_DATA, 0x00100000, PS_4K,
+                       FRAME(0x00A00000), false, false, true, false);
+  ap_m68030_atc_insert(&atc, FC_SUPERVISOR_DATA, 0x00200000, PS_4K,
+                       FRAME(0x00B00000), false, false, true, false);
+
+  ap_m68030_atc_flush_entry(&atc, 0u, 0u, 0x00100000, PS_4K);
+
   TEST_ASSERT_EQUAL(AP_M68030_ATC_MISS, read_at(&atc, 0x00100000).status);
   TEST_ASSERT_EQUAL(AP_M68030_ATC_HIT, read_at(&atc, 0x00200000).status);
 }
@@ -351,7 +423,8 @@ static void test_an_invalid_entry_is_taken_before_any_valid_one(void) {
    * first entry" are different answers and the test can tell them apart. */
   const unsigned hole = 7u;
   const uint32_t hole_logical = 0x10000u + hole * 0x1000u;
-  ap_m68030_atc_flush_entry(&atc, 1u, hole_logical, 12u);
+  ap_m68030_atc_flush_entry(&atc, 1u, AP_M68030_ATC_FC_EXACT, hole_logical,
+                            12u);
 
   const int chosen = ap_m68030_atc_insert(&atc, 1u, 0x90000u, 12u, 0xA0000u,
                                           false, false, false, false);
@@ -375,6 +448,9 @@ int main(void) {
   RUN_TEST(test_a_bus_error_entry_faults_even_on_a_read_when_also_protected);
   RUN_TEST(test_cache_inhibit_is_reported_from_the_entry);
   RUN_TEST(test_flushing_one_entry_leaves_the_others);
+  RUN_TEST(test_a_zero_mask_flushes_the_address_in_every_function_code);
+  RUN_TEST(test_a_partial_mask_spares_the_function_codes_it_excludes);
+  RUN_TEST(test_a_masked_flush_still_only_touches_its_own_address);
   RUN_TEST(test_all_entries_are_used_before_any_is_evicted);
   RUN_TEST(test_reinserting_an_address_replaces_rather_than_duplicates);
   RUN_TEST(test_a_full_cache_still_admits_a_new_translation);

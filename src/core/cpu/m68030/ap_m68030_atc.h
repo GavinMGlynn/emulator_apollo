@@ -93,10 +93,37 @@ typedef struct {
 /* Invalidate every entry. "A flush operation clears the bit." */
 void ap_m68030_atc_flush(ap_m68030_atc_t *atc);
 
-/* Invalidate the entry matching this logical address and function code, as
- * PFLUSH does. */
+/* Invalidate this logical address's entry **in every function code the mask
+ * selects**, as `PFLUSH FC,MASK,<ea>` does.
+ *
+ * `[PRM]` PFLUSH, from the page image: "When the instruction also specifies an
+ * `<ea>`, the instruction invalidates the page descriptor for that effective
+ * address entry **in each selected function code**", and the mask is the same
+ * one `PFLUSH FC,MASK` uses -- "Each bit in the mask that is set to one
+ * indicates that the corresponding bit of the FC operand applies to the
+ * operation. Each bit in the mask that is zero indicates a bit of FC ...
+ * ignored."
+ *
+ * **The mask was missing here and the function code was compared exactly.**
+ * Measured on a Domain/OS SR10.4 boot, every masked flush the guest issues has
+ * mask **zero** -- meaning *every* function code -- and comes from one of two
+ * places: `MMU_$REMOVE_PMAPE+1E`, 29 times on the *same* page `3C004C00`, a
+ * one-page window it remaps and reflushes; and `FIM_$BUS_ERR+AE`, once per
+ * demand-paged page. Against an exact comparison both flushed **nothing**,
+ * because the entries they meant are supervisor data and the flush asked for
+ * function code 0, so the stale translation stood and the window kept
+ * answering with the frame it had last been pointed at.
+ * `docs/PROJECT_STATUS.md` has the chain from there to `E0007`.
+ *
+ * A caller that wants the exact function code passes mask 7, which is what the
+ * sentence above reduces to when every bit must agree. */
 void ap_m68030_atc_flush_entry(ap_m68030_atc_t *atc, uint8_t function_code,
-                               uint32_t address, uint8_t page_size_bits);
+                               uint8_t function_code_mask, uint32_t address,
+                               uint8_t page_size_bits);
+
+/* Every bit of the function code must agree: the mask a caller passes when it
+ * means one entry and not a family of them. */
+#define AP_M68030_ATC_FC_EXACT 0x7u
 
 /* Mark an entry as recently used, which is what the replacement algorithm's
  * history bit means: the `MC68851 PMMU User's Manual` §5.2.1.3, describing the

@@ -323,6 +323,63 @@ static void test_a_read_to_buffer_fills_the_buffer_without_a_data_phase(void) {
   }
 }
 
+/* ## The command log, and why the sector list could not be it
+ *
+ * A list of sectors says what came off the surface. It cannot say which command
+ * took them, how many blocks that command asked for, or how many bytes the host
+ * then drained -- and this pair is exactly where those come apart, because `1E`
+ * fills the buffer in one command and `0E` empties it in another. A buffer
+ * refilled before it is drained loses a sector while both commands *succeed*,
+ * so no refusal, sense byte or status code records it.
+ *
+ * The log is instrumentation and this test pins the three things a reader of it
+ * has to be able to trust: the pairing is visible, the newest command is index
+ * 0, and `drained` counts the bytes that actually left the data port. */
+static void test_the_command_log_pairs_a_buffer_fill_with_its_drain(void) {
+  build_controller();
+
+  issue(AP_OMTI_CMD_READ_TO_BUFFER, 0u, 0u, 2u, 1u);
+  settle();
+  TEST_ASSERT_EQUAL_HEX8(0u, take_status());
+
+  issue(AP_OMTI_CMD_READ_SECTOR_BUFFER, 0u, 0u, 0u, 1u);
+  for (unsigned i = 0; i < AP_AWD_SECTOR_BYTES; i++) {
+    (void)ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA);
+  }
+
+  TEST_ASSERT_EQUAL_UINT(2u, ap_omti_commands_recorded(&omti));
+
+  uint8_t command = 0;
+  uint16_t blocks = 0;
+  uint32_t lba = 0;
+  uint32_t drained = 0;
+
+  /* Index 0 is the newest, which is the `0E` that drained the buffer. It names
+   * no address at all, and an address it does not have is reported as absent
+   * rather than as sector zero -- a log that prints `0` for "no address" is a
+   * log that accuses the driver of reading the volume label. */
+  TEST_ASSERT_TRUE(
+      ap_omti_recent_command(&omti, 0u, &command, &blocks, &lba, &drained));
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_CMD_READ_SECTOR_BUFFER, command);
+  TEST_ASSERT_EQUAL_UINT(1u, blocks);
+  TEST_ASSERT_EQUAL_HEX32(UINT32_MAX, lba);
+  TEST_ASSERT_EQUAL_UINT(AP_AWD_SECTOR_BYTES, drained);
+
+  /* And behind it the `1E` that filled the buffer: it names the sector, and it
+   * handed the host nothing. Those two facts together are what makes a short
+   * drain legible in a report. */
+  TEST_ASSERT_TRUE(
+      ap_omti_recent_command(&omti, 1u, &command, &blocks, &lba, &drained));
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_CMD_READ_TO_BUFFER, command);
+  TEST_ASSERT_EQUAL_UINT(1u, blocks);
+  TEST_ASSERT_EQUAL_UINT(2u, lba);
+  TEST_ASSERT_EQUAL_UINT(0u, drained);
+
+  /* Past what was recorded answers false rather than a stale entry. */
+  TEST_ASSERT_FALSE(
+      ap_omti_recent_command(&omti, 2u, &command, &blocks, &lba, &drained));
+}
+
 /* §5.4.19 prints the same block-count table as `0E`: seven at 1056 bytes. */
 static void test_a_read_to_buffer_past_the_cap_is_refused(void) {
   build_controller();
@@ -1169,6 +1226,7 @@ int main(void) {
   RUN_TEST(test_a_malformed_or_short_sidecar_is_told_apart);
   RUN_TEST(test_a_read_command_delivers_the_addressed_sector);
   RUN_TEST(test_a_read_to_buffer_fills_the_buffer_without_a_data_phase);
+  RUN_TEST(test_the_command_log_pairs_a_buffer_fill_with_its_drain);
   RUN_TEST(test_a_read_to_buffer_past_the_cap_is_refused);
   RUN_TEST(test_write_from_buffer_places_what_write_sector_buffer_staged);
   RUN_TEST(test_a_long_read_is_the_sector_and_six_more);

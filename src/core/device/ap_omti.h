@@ -417,6 +417,30 @@ typedef struct {
    * all of them. */
   uint32_t recent_reads[2048];
   unsigned recent_read_count;
+
+  /* ## The commands themselves, which the sector list cannot substitute for
+   *
+   * A sector list says what came off the surface. It does not say *which
+   * command* took it, how many blocks that command asked for, or how many the
+   * host then drained -- and the pairing `1E READ DATA TO BUFFER` / `0E READ
+   * DATA FROM SECTOR BUFFER` is exactly where those three come apart: `1E`
+   * fills the buffer and `0E` empties it, in separate commands, so a buffer
+   * refilled before it is drained loses a sector without any command failing.
+   *
+   * Recorded for every command that names an address or moves data, newest
+   * last. `blocks` is what the CDB asked for; `lba` is the first sector, or
+   * `UINT32_MAX` for the commands that name none. */
+  struct {
+    uint8_t command;
+    uint16_t blocks;
+    uint32_t lba;
+    /* Bytes the host actually took out of the data port while this command was
+     * the current one. A command that offers 2,112 bytes and has 1,056 read is
+     * a *successful* command that delivered half a transfer, and nothing else
+     * in the model records that. */
+    uint32_t drained;
+  } recent_commands[512];
+  unsigned recent_command_count;
   /* Set by SEEK and RECALIBRATE, read and cleared by SENSE INTERRUPT STATUS --
    * which is the only way a driver learns a seek finished. */
   bool fdc_seek_done;
@@ -729,5 +753,13 @@ void ap_omti_attach_floppy(ap_omti_t *omti, ap_afd_t *floppy);
 [[nodiscard]] unsigned ap_omti_reads(const ap_omti_t *omti);
 [[nodiscard]] bool ap_omti_recent_read(const ap_omti_t *omti, unsigned index,
                                        uint32_t *lba);
+
+/* The same, for commands: how many have been recorded, and the `index`th
+ * counting back from the newest. `lba` answers `UINT32_MAX` for a command that
+ * addresses nothing. */
+[[nodiscard]] unsigned ap_omti_commands_recorded(const ap_omti_t *omti);
+[[nodiscard]] bool ap_omti_recent_command(const ap_omti_t *omti, unsigned index,
+                                          uint8_t *command, uint16_t *blocks,
+                                          uint32_t *lba, uint32_t *drained);
 
 #endif /* APOLLO_DEVICE_AP_OMTI_H */
