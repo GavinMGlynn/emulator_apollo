@@ -26872,6 +26872,31 @@ published, model the documented one, mark it `PROVISIONAL` and say so here.
 1000; `src/core/device/ap_omti.c` lines 62-65 and `ap_omti.h` lines 125-132; the
 `disk commands` histogram and `exceptions` line of a full boot report.*
 
+### Two more devices whose time never advances
+
+Asked after the disk fix, and worth having the list: `ap_board_advance` carries
+the timer, calendar, SIO, tape, disk and graphics. Of what is left, DMA is
+correct to be absent -- it is cycle-driven through `ap_board_bus_tick` -- and the
+8259 needs no time at all. **Two are gaps of the same shape as the disk's:**
+
+* **Keyboard auto-repeat.** `ap_kbd_advance` carries the keyboard to `now` and
+  reports a repeat when one is due, and its own comment reads "which is most
+  calls, since the board advances every device on every step". **Nothing calls
+  it.** The board drives the keyboard only reactively, through the SIO transmit
+  path, so `AP_KBD_REPEAT_KEYSTATE` (`7F`) and the repeat interval are modelled
+  from the manual, hashed, and unreachable. Invisible so far because nothing has
+  held a key down.
+* **The ring controller's two i8254 interval timers.** `ap_ring_ctl_clock` and
+  `ap_i8254_clock` have no callers anywhere, and the ring is not in
+  `ap_board_advance`. The counters can be programmed and read back -- they are
+  hashed and register-accurate -- but they never count. **Phase 6 will hit this
+  immediately**, since the ring firmware's own self-test is meant to be the
+  first real test of that controller.
+
+Neither is a defect in a *fitted, exercised* device today, which is why no boot
+has shown them. Recorded because the disk's zero access time was exactly this --
+a device whose state was right and whose clock was missing -- and it cost months.
+
 ### Landed: the drive takes time
 
 `AP_OMTI_PHASE_EXECUTING` and a `completion_at` deadline. `finish` now writes the
