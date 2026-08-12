@@ -3390,10 +3390,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   5,058,437 instructions further. `tools/identity-boot.sh` is unchanged at
   `A354786119A3931D`, so no re-baseline. Detail in `PROJECT_STATUS.md`.
 
-  **The next failure is a different one**: at 482,901,418 the kernel starts its
-  second process on a **null entry point** — `FIM_$PROC2_STARTUP` builds a frame
-  and `FIM_$EXIT`'s `RTE` lands on `PC 00000000`. Nothing above this line is
-  about `FIM_$PROC2_STARTUP`; treat it as a new question, not a continuation.
+  **The next failure is a different one**: the kernel starts its second process
+  on a **null entry point** — `FIM_$PROC2_STARTUP` builds a frame and
+  `FIM_$EXIT`'s `RTE` lands on `PC 00000000`. Traced end to end: the PC is
+  `OS_$INIT`'s frame slot `A6-$DC`, which takes `PROC2_$INIT`'s return value,
+  which is its local `A6-$14`, which is **copied from user address `3B3C0008`**
+  one instruction after that page is demand-paged in. `MST_$MAP_AT` and
+  `OS_$BOOT_ERRCHK` both run after the copy, the status checks **clean**, and
+  neither touches the slot — so nothing in the kernel thinks it failed. The page
+  is not empty either: it holds `{00800000, 0080000C, 00000000}` and then code
+  starting exactly at `+0C`. Whether `MST_$MAP_AT` should fill that slot as an
+  out-parameter, or the third field is legitimately zero, is **not established
+  and must not be guessed**. Detail in `PROJECT_STATUS.md`.
+  - [ ] **Next: the oracle at a shared program event.** Stop both machines at
+    `PC 3C45756C` and compare `D0`. One run says whether the value should be
+    non-zero. `ext/mame`'s `m68kcpu.cpp` is unmodified; recipe in
+    `tools/mame-oracle/FINDINGS.md`.
 
   **And a second CPU defect, which was hiding the kernel's own report of it.**
   `[030]` §7.5.1: a bus error on an instruction fetch is deferred until the

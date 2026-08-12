@@ -28486,3 +28486,65 @@ error_exception`, 281 tests; `tools/e0007-boot.sh --screenshot` for the screen
 above; `tools/identity-boot.sh` for the unchanged hash; `--dump-state` at the
 old halt for the `SR` and `ISP`; `[030]` §7.5.1 p. 7-82 and §8.1.2 read from the
 page images, and Table 8-6 for the frame.*
+
+## The null entry point, traced to one word of user memory
+
+With both CPU defects fixed the boot's remaining failure is the second process
+starting on `PC 00000000`. The chain is now measured end to end, every link from
+an executed instruction or a dump:
+
+```
+crash        RTE into SR 0000, PC 00000000       FIM_$PROC2_STARTUP -> FIM_$EXIT
+ <- the PC   OS_$INIT's frame at A6-$DC          MOVE.L D0,(-$DC,A6) at OS_$INIT+1226
+ <- D0       PROC2_$INIT returns its local A6-$14 = 3C4F98F4
+ <- copied   MOVE.L (A0)+,(A1)+ at PROC2_$INIT+5BE, from user address 3B3C0008
+ <- page     demand-paged in one instruction earlier, FIM_$BUS_ERR then RTE
+```
+
+**`3C4F9B10` is not a process control block** -- an earlier reading here, now
+withdrawn. It is `OS_$INIT`'s **own stack frame**: `A6-$E0` holds the user stack
+pointer and `A6-$DC` holds `PROC2_$INIT`'s return value, and `OS_$INIT` passes
+`A6-$E0` by address (`PEA (A2)`) to `FIM_$PROC2_STARTUP`, which reads `+0` as the
+USP and `+4` as the PC. That also explains why a physical watch on the slot shows
+boot-PROM and loader writes from instruction 6 M onward: it is stack memory, and
+the frame really was used by everything before.
+
+**Nothing thinks it failed.** `PROC2_$INIT` calls `MST_$MAP_AT` with a pointer to
+the adjacent local, then `OS_$BOOT_ERRCHK`, whose `TST.W` on the status finds
+**zero** and returns true; `PROC2_$INIT` then loads its local and returns it. So
+this is not an error path being taken -- it is a value never produced on a path
+that believes it succeeded.
+
+**And the page it came from is not empty**, which is what a mis-paged read would
+look like. At the copy, logical `3B3C0000` -> physical `0133F800`:
+
+```
+0133F800  00 80 00 00  00 80 00 0C  00 00 00 00  4F EF FF F4  ...
+                                                 ^ code begins at +0C
+```
+
+A base, a second field `0080000C` that is exactly where the code in that page
+starts, and a third field of zero. `PROC2_$INIT` copies `+4` to `A6-$18` and `+8`
+to `A6-$14`, hands `&(A6-$18)` to `MST_$MAP_AT`, and returns `A6-$14`. The locals
+confirm both halves: `011248F0` is `0080000C` and `011248F4` is `00000000`.
+
+**What is not yet established, and must not be guessed:** whether `MST_$MAP_AT`
+is supposed to write that slot as an out-parameter and does not, or whether the
+header's third field is legitimately zero and the entry point is meant to reach
+the process another way. Static reading of an unnamed calling convention cannot
+settle it.
+
+**The next instrument is the oracle**, and this is exactly what it is for: it
+boots *this same image* to `login:`, so stopping both machines at `PC 3C45756C`
+-- a shared program event, not an instruction count -- and comparing `D0` says in
+one run whether the value should be non-zero. `ext/mame`'s `m68kcpu.cpp` is
+unmodified and the narrow single-driver build recipe is in
+`tools/mame-oracle/FINDINGS.md`.
+
+*Verification: `tools/e0007-boot.sh --boot-stop-pc 3C45756C` with
+`--boot-trace-last 30000` for the exit path, `--dump-logical` per 1 KB page for
+`PROC2_$INIT`'s code (a window is translated only at its first address, so a
+1,632-byte routine must be dumped page by page), `--boot-watch-write 011248F4
+--boot-log-watch-writes` for the 19,781 writes to that stack slot and the last
+one before the return, and `--boot-stop-pc 3C451566 --dump-logical 3B3C0000:64`
+for the header. Names throughout from `tools/kernel_symbols.py`.*
