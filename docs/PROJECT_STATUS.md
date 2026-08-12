@@ -26871,3 +26871,89 @@ published, model the documented one, mark it `PROVISIONAL` and say so here.
 *Verification: `ext/mame/src/devices/bus/isa/omti8621.cpp` lines 840, 936 and
 1000; `src/core/device/ap_omti.c` lines 62-65 and `ap_omti.h` lines 125-132; the
 `disk commands` histogram and `exceptions` line of a full boot report.*
+
+### Landed: the drive takes time
+
+`AP_OMTI_PHASE_EXECUTING` and a `completion_at` deadline. `finish` now writes the
+result bytes and then either completes at once or sets the deadline; `complete`
+only *announces* a completion -- phase, status bits, `IREQ` -- and
+`ap_omti_advance`, called every tick from `ap_board_advance` beside the tape and
+the SIO, retires it when the instant arrives. While the deadline stands the
+controller holds `BSY` with `REQ`, `C/D`, `I/O` and `IREQ` all down, which is
+what a driver polling the status register sees while it waits.
+
+**The duration is built from the drive's published figures as three components**
+rather than one lumped constant, so replacing the drive replaces numbers and not
+structure:
+
+    AP_OMTI_AVERAGE_SEEK      16 ms      typical, against 3.0 ms track-to-track
+    AP_OMTI_AVERAGE_LATENCY   8.33 ms    half a turn at 3600 RPM
+    transfer                  bytes / 1.25 Mbyte/s, from the CDB's block count
+
+`ap_omti_cdb_touches_surface` decides which commands pay it, and the division is
+**physical rather than a list of opcodes that happen to be slow**: everything
+answered out of the controller's registers or its sector buffer completes at
+once, and everything that positions the heads waits. `SEEK` and `RECALIBRATE`
+are deliberately inside it -- they transfer nothing and still cost the
+positioning -- and `READ SECTOR BUFFER` and `READ CAPACITY` deliberately
+outside.
+
+**`PROVISIONAL`, and it is the drive and not the arithmetic**: that the DN3500's
+348 Mbyte drive is a Maxtor XT-4380E is inferred from capacity and era, not from
+Apollo documentation, and the geometry does not match exactly -- this core's
+address conversion is 16 heads x 18 sectors where that drive is 15 x 36 of half
+the sector size, the same bytes per track in a different shape.
+
+**A regression this introduced, and the test that now pins it.** The first
+version wrote the completion and sense bytes when the drive *arrived*. `refuse`
+calls `finish` and then overwrites `sense` with the address that failed, so
+deferring erased it and `A1` -- illegal address, address-valid set -- became
+`21`. The bytes belong to the moment the command ended; only their announcement
+is delayed. `test_a_refused_address_still_reports_it_after_the_wait` fails
+against the wrong order.
+
+`awd_suite` gains four tests, and they were checked against the old behaviour
+rather than assumed: forcing the duration back to zero fails
+`test_a_read_does_not_complete_in_the_instant_it_is_issued` (`Expected 5 Was 4`)
+and `test_the_access_time_is_a_seek_a_half_turn_and_the_transfer` (`Expected
+542397419520 Was 0`). Twenty-seven existing assertions that the controller has
+reached its status phase now call a `settle()` helper first -- those tests are
+about what a command does, not how long it takes, and a driver's wait is what
+`settle` stands for.
+
+The deadline and phase are **hashed**: a drive part-way through a seek is not a
+drive that has finished one, and two machines whose commands complete at
+different instants raise `IRQ14` at different instants, which is the whole
+difference this change exists to model. `ap_omti_disk_reset` clears the deadline
+so that two idle controllers reached by different routes still hash alike.
+
+### It works, and the machine fails somewhere else entirely
+
+With the access time in place the boot no longer crashes in the fault handler.
+The screen at 700 M instructions reads:
+
+    Domain/OS kernel(7), revision 10.4, February 14, 1992  11:42:25 am
+
+    Unable to resolve "/sys/node_data" -- E0007
+
+    CRASH_STATUS 000E0007  PC 3C4524E6 PID 0001
+
+against the old `CRASH_STATUS 00120020  PC 3C40E114` -- *supervisor fault while
+resource lock(s) set*, printed with no message before it. **The kernel now
+survives its page faults, finishes initialisation and reaches filesystem name
+resolution.** It still takes the two `3C47A25A` faults, as the oracle does; what
+changed is that it now handles them.
+
+`00120020` is closed. **The open question is `E0007` on `/sys/node_data`**, which
+is a name this machine resolves per node, so the node ID this core reports and
+what the installed volume holds are the first two things to compare -- and both
+are readable without a boot.
+
+**The approximation it still carries, named rather than glossed**: the data
+phase is not delayed, only the completion is. A `READ` offers its bytes to the
+host at once and spends the access time afterwards, where the drive would not
+raise `REQ` until the heads had arrived and the sector had come round. Cost to
+close: a driver timing its *transfer* rather than its command sees the bytes
+early. Nothing measured depends on it -- Domain/OS waits on the completion --
+and MAME makes the same approximation, marked `FIXME: should delay m_omti_state
+and m_status_port as well`.

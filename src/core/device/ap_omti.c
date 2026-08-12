@@ -26,6 +26,11 @@ void ap_omti_disk_reset(ap_omti_t *omti) {
   omti->command_index = 0u;
   omti->command_length = 0u;
   omti->buffer_index = 0u;
+  /* A reset abandons whatever the drive was working towards. Cleared rather
+   * than left standing because the deadline is hashed: two idle controllers
+   * that reached idle by different routes are the same machine and must hash
+   * alike. */
+  omti->completion_at = 0u;
 
   /* And the identification block, because §5.4.13's "after a RESET is done
    * (before any other command)" is a statement about the *buffer*: the reset
@@ -214,18 +219,40 @@ static void chs_of(ap_awd_geometry_t g, uint32_t lba, uint16_t *cylinder,
   *cylinder = (uint16_t)(track / g.heads);
 }
 
-static void finish(ap_omti_t *omti, bool error, uint8_t sense) {
-  /* §5.3: bit 1 is the command status, and **bit 5 "indicates the LUN address
-   * of the device associated with this command"**. Only bit 1 was ever set, so
-   * a driver reading the completion byte was told every command belonged to
-   * unit 0. Bits 7, 6, 4 and 0 are "set to zero", and the error-recovery field
-   * at bits 3 and 2 is left alone here. */
-  omti->completion = (uint8_t)((error ? COMPLETION_ERROR : 0u) |
-                               (omti->command_lun != 0u ? COMPLETION_LUN : 0u));
-  omti->sense[0] = error ? sense : 0u;
-  omti->sense[1] = 0u;
-  omti->sense[2] = 0u;
-  omti->sense[3] = 0u;
+/* How long the drive takes over the command in `omti->command`.
+ *
+ * Zero for everything the controller answers out of its own registers -- those
+ * never touch a surface, so there is nothing to wait for and pretending
+ * otherwise would be inventing time. Non-zero for the commands that position
+ * the heads, and built from the drive's published figures as separate
+ * components so that changing the drive changes numbers rather than structure.
+ * See the header for the `PROVISIONAL` marking on which drive this is. */
+static ap_time_t command_duration(const ap_omti_t *omti) {
+  if (!ap_omti_cdb_touches_surface(omti->command[0])) {
+    return 0u;
+  }
+  /* The block count the command asked for, which is what crossed the surface.
+   * Taken from the descriptor block rather than counted during the transfer,
+   * because a command that refused its address moved nothing and still cost the
+   * seek that discovered so. */
+  ap_omti_cdb_t cdb = {0};
+  ap_omti_cdb_decode(omti->command, &cdb);
+  const uint64_t bytes = (uint64_t)cdb.block_count * AP_AWD_SECTOR_BYTES;
+  const ap_time_t transfer = (ap_time_t)(
+      (uint64_t)AP_TIME_BASE_HZ * bytes / AP_OMTI_TRANSFER_BYTES_PER_SEC);
+  return AP_OMTI_AVERAGE_SEEK + AP_OMTI_AVERAGE_LATENCY + transfer;
+}
+
+/* Present the completion the drive has arrived at: the phase transition and the
+ * status bits, and nothing that a caller may still be filling in.
+ *
+ * **The result bytes are deliberately not written here.** `refuse` calls
+ * `finish` and then overwrites `sense` with the address that was refused, so a
+ * completion that rewrote them on arrival would erase it -- which is exactly
+ * what happened when the access time was first added, and what
+ * `test_a_bad_address_fails_and_the_sense_says_so` caught. The bytes belong to
+ * the moment the command *ended*; only their announcement is delayed. */
+static void complete(ap_omti_t *omti) {
   omti->phase = AP_OMTI_PHASE_STATUS;
   omti->buffer_index = 0u;
   omti->blocks_left = 0u;
@@ -261,6 +288,55 @@ static void finish(ap_omti_t *omti, bool error, uint8_t sense) {
    * ends rather than one that ends wrong -- and it was invisible while nothing
    * connected the bit to a DMA channel at all. */
   omti->status = (uint8_t)(omti->status & ~AP_OMTI_ST_DREQ);
+}
+
+/* A command has reached its end. Whether that end is *now* depends on whether
+ * the drive had to move: see `command_duration`, and the header for why a zero
+ * access time is not merely imprecise but fatal to Domain/OS.
+ *
+ * While the deadline stands the controller is executing, so `REQ`, `C/D`, `I/O`
+ * and `IREQ` are all down -- there is no byte to move and no completion to
+ * report yet -- and `BSY` stays up, which is what a driver polling the status
+ * register sees while it waits. */
+static void finish(ap_omti_t *omti, bool error, uint8_t sense) {
+  /* §5.3: bit 1 is the command status, and **bit 5 "indicates the LUN address
+   * of the device associated with this command"**. Only bit 1 was ever set, so
+   * a driver reading the completion byte was told every command belonged to
+   * unit 0. Bits 7, 6, 4 and 0 are "set to zero", and the error-recovery field
+   * at bits 3 and 2 is left alone here.
+   *
+   * Written now, at the end of the command, rather than when the drive
+   * announces it -- see `complete`. */
+  omti->completion = (uint8_t)((error ? COMPLETION_ERROR : 0u) |
+                               (omti->command_lun != 0u ? COMPLETION_LUN : 0u));
+  omti->sense[0] = error ? sense : 0u;
+  omti->sense[1] = 0u;
+  omti->sense[2] = 0u;
+  omti->sense[3] = 0u;
+
+  const ap_time_t duration = command_duration(omti);
+  if (duration == 0u) {
+    complete(omti);
+    return;
+  }
+  omti->phase = AP_OMTI_PHASE_EXECUTING;
+  omti->completion_at = omti->now + duration;
+  omti->status = (uint8_t)((omti->status &
+                            ~(AP_OMTI_ST_IREQ | AP_OMTI_ST_DREQ | AP_OMTI_ST_CD |
+                              AP_OMTI_ST_IO | AP_OMTI_ST_REQ)) |
+                           AP_OMTI_ST_BSY);
+}
+
+void ap_omti_advance(ap_omti_t *omti, ap_time_t now) {
+  omti->now = now;
+  if (omti->phase != AP_OMTI_PHASE_EXECUTING) {
+    return;
+  }
+  /* `>=` and not `>`: the deadline is the instant the completion is visible,
+   * and a device advanced exactly onto it has reached it. */
+  if (now >= omti->completion_at) {
+    complete(omti);
+  }
 }
 
 /* The address a data command names, and whether the drive has it. */
@@ -1154,8 +1230,10 @@ static void take_byte(ap_omti_t *omti, uint8_t value) {
 
   case AP_OMTI_PHASE_DATA_IN:
   case AP_OMTI_PHASE_STATUS:
-    /* A write while the controller is talking. Ignored rather than merged into
-     * the stream: the bus is the controller's in these phases. */
+  case AP_OMTI_PHASE_EXECUTING:
+    /* A write while the controller is talking, or while the drive is still
+     * positioning. Ignored rather than merged into the stream: the bus is the
+     * controller's in these phases. */
     return;
   }
 }
@@ -1208,6 +1286,11 @@ static uint8_t give_byte(ap_omti_t *omti) {
   case AP_OMTI_PHASE_IDLE:
   case AP_OMTI_PHASE_COMMAND:
   case AP_OMTI_PHASE_DATA_OUT:
+  case AP_OMTI_PHASE_EXECUTING:
+    /* Nothing to give: in `EXECUTING` the drive has not reached the sector yet,
+     * and `REQ` is down to say so. A driver polling the data register here gets
+     * the last value the register held, which is what a bus with no new byte on
+     * it presents. */
     break;
   }
   return (uint8_t)(omti->data & 0xFFu);

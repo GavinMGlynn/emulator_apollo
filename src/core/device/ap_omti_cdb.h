@@ -228,6 +228,20 @@ typedef struct {
 
 void ap_omti_cdb_decode(const uint8_t *bytes, ap_omti_cdb_t *out);
 
+/* Whether a command makes the drive move, and so whether it costs access time.
+ *
+ * The division is physical, not a list of opcodes that happen to be slow:
+ * everything the controller answers out of its own registers or its sector
+ * buffer touches no surface and completes at once, and everything that
+ * positions the heads waits for a seek and for the sector to come round. A
+ * command absent from this predicate is one the model asserts is register-local
+ * -- so `READ SECTOR BUFFER` and `READ CAPACITY` are deliberately outside it,
+ * and `SEEK` and `RECALIBRATE` deliberately inside.
+ *
+ * Why it matters beyond precision: a zero access time crashes Domain/OS. See
+ * `ap_omti.h`'s completion fields. */
+[[nodiscard]] bool ap_omti_cdb_touches_surface(uint8_t command);
+
 /* Whether an ESDI controller accepts this command. False for the ST506-only
  * command and for anything not in §5.1.2. */
 [[nodiscard]] bool ap_omti_cdb_accepted_by_esdi(uint8_t command);

@@ -225,7 +225,22 @@ static void issue(uint8_t command, uint16_t cylinder, uint8_t head,
   }
 }
 
+/* Wait out the drive's access time.
+ *
+ * A command that moves the heads no longer completes in the register write that
+ * issued it -- see `ap_omti.h`, where the access time exists because a zero one
+ * crashes Domain/OS. These tests are about what a command *does*, not how long
+ * it takes, so they advance straight to the deadline, which is what a driver's
+ * wait amounts to. The one test that is about the duration asserts on it
+ * directly instead. */
+static void settle(void) {
+  if (ap_omti_disk_phase(&omti) == AP_OMTI_PHASE_EXECUTING) {
+    ap_omti_advance(&omti, omti.completion_at);
+  }
+}
+
 static uint8_t take_status(void) {
+  settle();
   return ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA);
 }
 
@@ -259,6 +274,7 @@ static void test_a_read_command_delivers_the_addressed_sector(void) {
    * ran in programmed I/O. Asserting it here was asserting the reading this
    * core first took and Domain/OS later disproved by polling for `CF`. What a
    * polled driver waits on is `REQ`, and that is up. */
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   const uint8_t completed = ap_omti_disk_read(&omti, AP_OMTI_DISK_STATUS);
   TEST_ASSERT_TRUE((completed & AP_OMTI_ST_IREQ) == 0u);
@@ -289,6 +305,7 @@ static void test_a_read_to_buffer_fills_the_buffer_without_a_data_phase(void) {
   /* Straight to the status phase: no `DATA IN`, because the host is not being
    * offered anything. Offering it would leave a driver reading bytes it never
    * asked for. */
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   TEST_ASSERT_EQUAL_HEX8(0u, take_status());
 
@@ -310,6 +327,7 @@ static void test_a_read_to_buffer_fills_the_buffer_without_a_data_phase(void) {
 static void test_a_read_to_buffer_past_the_cap_is_refused(void) {
   build_controller();
   issue(AP_OMTI_CMD_READ_TO_BUFFER, 0u, 0u, 2u, 8u);
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   TEST_ASSERT_TRUE(take_status() != 0u);
 }
@@ -323,6 +341,7 @@ static void test_a_write_command_reaches_the_image(void) {
   for (unsigned i = 0; i < AP_AWD_SECTOR_BYTES; i++) {
     ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, 0xA5u);
   }
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   TEST_ASSERT_EQUAL_HEX8(0u, take_status());
 
@@ -354,6 +373,7 @@ static void test_a_block_count_of_zero_means_two_hundred_and_fifty_six(void) {
   /* It read every sector the drive has and then failed, rather than stopping
    * after one. */
   TEST_ASSERT_EQUAL_UINT(SMALL_SECTORS, sectors);
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   TEST_ASSERT_TRUE((take_status() & 0x02u) != 0u);
 }
@@ -369,6 +389,7 @@ static void test_a_multi_sector_read_walks_forward(void) {
                              ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
     }
   }
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   TEST_ASSERT_EQUAL_HEX8(0u, take_status());
 }
@@ -379,6 +400,7 @@ static void test_a_multi_sector_read_walks_forward(void) {
 static void test_a_bad_address_fails_and_the_sense_says_so(void) {
   build_controller();
   issue(AP_OMTI_CMD_READ, 7u, 0u, 0u, 1u);
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   TEST_ASSERT_TRUE((take_status() & 0x02u) != 0u);
 
@@ -398,6 +420,7 @@ static void test_a_bad_address_fails_and_the_sense_says_so(void) {
   TEST_ASSERT_EQUAL_HEX8(0x00u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
   TEST_ASSERT_EQUAL_HEX8(0x00u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
   TEST_ASSERT_EQUAL_HEX8(0x07u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
 }
 
@@ -446,6 +469,7 @@ static void test_write_from_buffer_places_what_write_sector_buffer_staged(void) 
   /* Cylinder 1, head 0, sector 2 is sector 10, which `build_drive` filled with
    * ten -- so a `1F` that wrote nothing is visible rather than merely wrong. */
   issue(AP_OMTI_CMD_WRITE_FROM_BUFFER, 1u, 0u, 2u, 1u);
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   TEST_ASSERT_EQUAL_HEX8(0u, take_status());
   for (unsigned i = 0; i < AP_AWD_SECTOR_BYTES; i++) {
@@ -471,6 +495,7 @@ static void test_a_long_read_is_the_sector_and_six_more(void) {
   for (unsigned i = 0; i < AP_OMTI_ECC_BYTES; i++) {
     TEST_ASSERT_EQUAL_HEX8(0u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
   }
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
 }
 
@@ -488,6 +513,7 @@ static void test_a_long_write_keeps_the_sector_and_drops_the_ecc(void) {
   for (unsigned i = 0; i < AP_OMTI_ECC_BYTES; i++) {
     ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, 0xEEu);
   }
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   TEST_ASSERT_EQUAL_HEX8(0u, take_status());
 
@@ -512,6 +538,7 @@ static void test_the_defect_list_is_a_header_and_a_terminator(void) {
   for (unsigned i = 0; i < sizeof list; i++) {
     list[i] = ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA);
   }
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
 
   /* Bytes 0-2 are the date the list was recorded: zero, because nothing
@@ -532,6 +559,7 @@ static void test_a_track_format_writes_six_c_over_that_track_alone(void) {
   build_controller();
 
   issue(AP_OMTI_CMD_FORMAT_TRACK, 0u, 1u, 0u, 0u); /* sectors 4 through 7 */
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   TEST_ASSERT_EQUAL_HEX8(0u, take_status());
 
@@ -551,6 +579,7 @@ static void test_a_drive_format_runs_to_the_end_of_the_unit(void) {
   build_controller();
 
   issue(AP_OMTI_CMD_FORMAT_DRIVE, 1u, 0u, 0u, 0u); /* sector 8 onwards */
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   TEST_ASSERT_EQUAL_HEX8(0u, take_status());
 
@@ -578,6 +607,7 @@ static void test_assigning_an_alternate_formats_the_track_the_host_names(void) {
     TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_OUT, ap_omti_disk_phase(&omti));
     ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, descriptor[i]);
   }
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   TEST_ASSERT_EQUAL_HEX8(0u, take_status());
 
@@ -604,6 +634,7 @@ static void test_a_copy_moves_blocks_between_two_addresses(void) {
     ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, cdb[i]);
   }
 
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   TEST_ASSERT_EQUAL_HEX8(0u, take_status());
   TEST_ASSERT_EQUAL_HEX8(1u, backing[12u * AP_AWD_SECTOR_BYTES]);
@@ -657,7 +688,8 @@ static void test_a_write_to_a_read_only_image_reports_write_protected(void) {
   };
   for (unsigned i = 0; i < sizeof writers; i++) {
     issue(writers[i], 0u, 0u, 1u, 1u);
-    TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+    settle();
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
     TEST_ASSERT_TRUE((take_status() & 0x02u) != 0u);
 
     issue(AP_OMTI_CMD_REQUEST_SENSE, 0u, 0u, 0u, 0u);
@@ -707,6 +739,7 @@ static void test_a_bad_track_format_is_refused_afterwards(void) {
 
   /* Now the track refuses, with the code that says why. */
   issue(AP_OMTI_CMD_READ, 0u, 1u, 0u, 1u);
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   TEST_ASSERT_TRUE((take_status() & 0x02u) != 0u);
   issue(AP_OMTI_CMD_REQUEST_SENSE, 0u, 0u, 0u, 0u);
@@ -766,6 +799,7 @@ static void test_a_controller_with_no_drive_says_so(void) {
 static void test_the_st506_only_command_is_refused_in_practice(void) {
   build_controller();
   issue(AP_OMTI_CMD_INITIALIZE_DRIVE_CHARACTERISTICS, 0u, 0u, 0u, 1u);
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   TEST_ASSERT_TRUE((take_status() & 0x02u) != 0u);
 }
@@ -822,6 +856,7 @@ static void test_each_command_byte_clears_and_re_asserts_the_request(void) {
   ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, 0x00u);
   /* The command ran, so what is waiting now is a *status* byte -- `C/D` set
    * again for a different reason, and `I/O` with it. */
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
 }
 
@@ -887,6 +922,7 @@ static void test_read_configuration_reports_the_highest_not_the_count(void) {
     TEST_ASSERT_EQUAL_HEX8(0x00u, reply[i]);
   }
 
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
 }
 
@@ -935,6 +971,7 @@ static void test_read_id_returns_the_address_the_disk_carries(void) {
   TEST_ASSERT_EQUAL_HEX8(0u, (uint8_t)(id[2] & (AP_OMTI_ID_FLAG_BAD |
                                                 AP_OMTI_ID_FLAG_ALTERNATE)));
   TEST_ASSERT_EQUAL_HEX8(0x03u, id[3]);
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
 }
 
@@ -945,6 +982,7 @@ static void test_read_verify_transfers_nothing_and_still_reads(void) {
   build_controller();
   issue(AP_OMTI_CMD_READ_VERIFY, 0u, 0u, 1u, 2u);
   /* Straight to the completion: no data phase at all. */
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   TEST_ASSERT_EQUAL_HEX8(0x00u, take_status());
 
@@ -952,6 +990,7 @@ static void test_read_verify_transfers_nothing_and_still_reads(void) {
    * check rather than an acknowledgement. */
   build_controller();
   issue(AP_OMTI_CMD_READ_VERIFY, 0u, 0u, 1u, 255u);
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   TEST_ASSERT_NOT_EQUAL_HEX8(0x00u, take_status());
 }
@@ -1001,6 +1040,7 @@ static void test_a_command_for_an_unfitted_lun_is_refused(void) {
   for (unsigned i = 0; i < sizeof lun0; i++) {
     ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, lun0[i]);
   }
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   /* §5.3 bit 1 clear: the command completed. And bit 5 clear: unit 0. */
   TEST_ASSERT_EQUAL_HEX8(0x00u, take_status());
@@ -1011,6 +1051,7 @@ static void test_a_command_for_an_unfitted_lun_is_refused(void) {
   for (unsigned i = 0; i < sizeof lun1; i++) {
     ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, lun1[i]);
   }
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   /* Bit 1 set for the error, and bit 5 set because §5.3 puts the addressed
    * LUN in the completion byte whether the command succeeded or not. */
@@ -1026,8 +1067,93 @@ static void test_a_read_for_an_unfitted_lun_returns_no_data(void) {
     ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, cdb[i]);
   }
   /* Status, not data: there is nothing to transfer. */
+  settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   TEST_ASSERT_EQUAL_HEX8(0x22u, take_status());
+}
+
+/* ## The access time, which is not a refinement but a requirement
+ *
+ * A command that moves the heads must not complete in the register write that
+ * issued it. Domain/OS is the arbiter: with a zero access time, `IRQ14` from a
+ * `READ DATA TO BUFFER` lands inside the kernel's page-fault handler and the
+ * kernel calls `crash_system`. MAME carries the same fix and its comment says
+ * why -- "Domain/OS doesn't expect zero access time".
+ */
+static void test_a_read_does_not_complete_in_the_instant_it_is_issued(void) {
+  build_controller();
+  ap_omti_disk_write(&omti, AP_OMTI_DISK_MASK, AP_OMTI_MASK_INTERRUPT_ENABLE);
+  issue(AP_OMTI_CMD_READ_TO_BUFFER, 0u, 0u, 0u, 1u);
+  /* The drive is positioning: no completion byte, and above all no interrupt,
+   * which is the whole point of the delay. */
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_EXECUTING, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_FALSE(ap_omti_disk_irq(&omti));
+  const uint8_t busy = ap_omti_disk_read(&omti, AP_OMTI_DISK_STATUS);
+  TEST_ASSERT_TRUE((busy & AP_OMTI_ST_BSY) != 0u);
+  TEST_ASSERT_TRUE((busy & AP_OMTI_ST_REQ) == 0u);
+
+  /* One base unit short of the deadline it is still positioning. */
+  ap_omti_advance(&omti, omti.completion_at - 1u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_EXECUTING, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_FALSE(ap_omti_disk_irq(&omti));
+
+  /* On it, the completion is announced and the interrupt is raised. */
+  ap_omti_advance(&omti, omti.completion_at);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_TRUE(ap_omti_disk_irq(&omti));
+}
+
+/* The duration is the drive's figures, not a number chosen to make a boot
+ * survive: an average seek, half a revolution, and the transfer itself. */
+static void test_the_access_time_is_a_seek_a_half_turn_and_the_transfer(void) {
+  build_controller();
+  issue(AP_OMTI_CMD_READ_TO_BUFFER, 0u, 0u, 0u, 1u);
+  const ap_time_t one_sector =
+      AP_OMTI_AVERAGE_SEEK + AP_OMTI_AVERAGE_LATENCY +
+      (ap_time_t)((uint64_t)AP_TIME_BASE_HZ * AP_AWD_SECTOR_BYTES /
+                  AP_OMTI_TRANSFER_BYTES_PER_SEC);
+  TEST_ASSERT_EQUAL_UINT64(one_sector, omti.completion_at);
+
+  /* Two sectors cost one more transfer and no more positioning: the heads are
+   * already there and the second sector follows the first. */
+  build_controller();
+  issue(AP_OMTI_CMD_READ_TO_BUFFER, 0u, 0u, 0u, 2u);
+  const ap_time_t two_sectors =
+      one_sector + (ap_time_t)((uint64_t)AP_TIME_BASE_HZ * AP_AWD_SECTOR_BYTES /
+                               AP_OMTI_TRANSFER_BYTES_PER_SEC);
+  TEST_ASSERT_EQUAL_UINT64(two_sectors, omti.completion_at);
+}
+
+/* The division is physical: a command answered out of the controller's own
+ * registers touches no surface, so it costs nothing and completes at once. */
+static void test_a_command_that_touches_no_surface_completes_at_once(void) {
+  build_controller();
+  issue(AP_OMTI_CMD_TEST_DRIVE_READY, 0u, 0u, 0u, 0u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_FALSE(ap_omti_cdb_touches_surface(AP_OMTI_CMD_TEST_DRIVE_READY));
+  TEST_ASSERT_FALSE(ap_omti_cdb_touches_surface(AP_OMTI_CMD_READ_SECTOR_BUFFER));
+  TEST_ASSERT_FALSE(ap_omti_cdb_touches_surface(AP_OMTI_CMD_READ_CAPACITY));
+  /* And the ones that do move the heads, including the two that only move
+   * them: a SEEK transfers nothing and still costs the positioning. */
+  TEST_ASSERT_TRUE(ap_omti_cdb_touches_surface(AP_OMTI_CMD_SEEK));
+  TEST_ASSERT_TRUE(ap_omti_cdb_touches_surface(AP_OMTI_CMD_RECALIBRATE));
+  TEST_ASSERT_TRUE(ap_omti_cdb_touches_surface(AP_OMTI_CMD_READ));
+  TEST_ASSERT_TRUE(ap_omti_cdb_touches_surface(AP_OMTI_CMD_WRITE));
+}
+
+/* A refusal costs the seek that discovered it, and -- the regression that the
+ * first version of this change introduced -- must still carry the address in
+ * its sense bytes after the wait. */
+static void test_a_refused_address_still_reports_it_after_the_wait(void) {
+  build_controller();
+  issue(AP_OMTI_CMD_READ, 0x3FFu, 0u, 0u, 1u);
+  settle();
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  /* `A1`: illegal address with bit 7, the address-valid flag, still set. The
+   * first version of this change wrote the sense bytes when the drive arrived
+   * rather than when the command ended, which erased what `refuse` had put
+   * there and turned this back into `21`. */
+  TEST_ASSERT_EQUAL_HEX8(0xA1u, omti.sense[0]);
 }
 
 int main(void) {
@@ -1072,5 +1198,9 @@ int main(void) {
   RUN_TEST(test_a_long_write_records_its_ecc_for_a_long_read);
   RUN_TEST(test_a_controller_with_no_drive_says_so);
   RUN_TEST(test_the_st506_only_command_is_refused_in_practice);
+  RUN_TEST(test_a_read_does_not_complete_in_the_instant_it_is_issued);
+  RUN_TEST(test_the_access_time_is_a_seek_a_half_turn_and_the_transfer);
+  RUN_TEST(test_a_command_that_touches_no_surface_completes_at_once);
+  RUN_TEST(test_a_refused_address_still_reports_it_after_the_wait);
   return UNITY_END();
 }

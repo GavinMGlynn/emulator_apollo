@@ -612,6 +612,10 @@ void ap_board_advance(ap_board_t *board, ap_time_t now) {
   /* The tape's command handshake, which is the only part of the drive that
    * moves with time -- §1.13.2's edges, at the bounds the figures publish. */
   ap_tape_advance(&board->tape, now);
+  /* The Winchester's access time. A command that moved the heads completes here
+   * rather than in the register write that issued it, and the interrupt it
+   * raises is the one Domain/OS requires not to be instantaneous. */
+  ap_omti_advance(&board->disk.controller, now);
 
   /* **The keyboard is on the other end of serial 1 channel A**, and it answers.
    * Anything the firmware transmits there reaches it, and what it says back

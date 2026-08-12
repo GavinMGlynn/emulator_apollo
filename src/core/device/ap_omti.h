@@ -45,6 +45,7 @@
 #include "device/ap_omti_cdb.h"
 #include "image/ap_afd.h"
 #include "image/ap_awd.h"
+#include "time/ap_time.h"
 
 /* `[OMTI]` Table 4-1, four ports, different meanings read and written. */
 #define AP_OMTI_DISK_REGISTERS 4u
@@ -217,7 +218,40 @@ typedef enum {
   AP_OMTI_PHASE_DATA_IN, /* the controller has bytes for the host */
   AP_OMTI_PHASE_DATA_OUT, /* the host is sending bytes */
   AP_OMTI_PHASE_STATUS,  /* the completion byte is waiting */
+  /* The drive is positioning and transferring. Added last so the values above
+   * keep their numbers, which are hashed. */
+  AP_OMTI_PHASE_EXECUTING,
 } ap_omti_phase_t;
+
+/* ## The drive's own figures, which is where an access time has to come from
+ *
+ * The controller does not determine access time -- the drive does -- and none
+ * of `[OMTI]`'s three manuals gives one, which is correct of them. The DN3500
+ * shipped 85, 170, 348 and 760 Mbyte drives from Micropolis and Maxtor, and the
+ * image this core is developed against is the 348 Mbyte class.
+ *
+ * **`PROVISIONAL`: the drive identification, not the arithmetic.** That the
+ * 348 Mbyte drive is specifically a Maxtor XT-4380E is inferred from capacity
+ * and era rather than from Apollo documentation, and the geometry does not
+ * match exactly -- this core's address conversion is 16 heads x 18 sectors
+ * where the drive is 15 x 36 of half the sector size, the same bytes per track
+ * in a different shape. The figures below are that drive's published ones and
+ * each is applied as its own component, so replacing the drive replaces
+ * numbers rather than structure. See `docs/PROJECT_STATUS.md`.
+ *
+ * Deliberately *not* MAME's figure: `omti8621.cpp` uses a flat 1 ms while its
+ * own comment puts the average at ~30 ms, so matching it would be matching a
+ * known approximation. */
+#define AP_OMTI_DRIVE_RPM 3600u
+/* Half a revolution is the average rotational wait for a sector to arrive. */
+#define AP_OMTI_ROTATION_TIME (AP_TIME_BASE_HZ * 60u / AP_OMTI_DRIVE_RPM)
+#define AP_OMTI_AVERAGE_LATENCY (AP_OMTI_ROTATION_TIME / 2u)
+/* "Average seek 16 ms typical", against 3.0 ms track-to-track and 29 ms full
+ * stroke. Distance-dependent seek is a tail: this core does not model where the
+ * heads are, so every seek costs the average. */
+#define AP_OMTI_AVERAGE_SEEK (AP_TIME_BASE_HZ / 1000u * 16u)
+/* 1.25 Mbyte/s sustained. */
+#define AP_OMTI_TRANSFER_BYTES_PER_SEC 1250000u
 
 /* ## The sector buffer, and the one command that reads it whole
  *
@@ -393,6 +427,43 @@ typedef struct {
 
   /* The command phase. */
   ap_omti_phase_t phase;
+
+  /* ## A command takes time, and Domain/OS requires that it does
+   *
+   * The completion this controller is working towards, and the instant it
+   * arrives. While `phase` is `AP_OMTI_PHASE_EXECUTING` the drive is busy and
+   * these hold what `finish` will apply when the deadline passes.
+   *
+   * **This exists because a zero access time crashes Domain/OS.** Measured
+   * 2026-08-12: with completion instantaneous, `IRQ14` from one of a boot's
+   * `READ DATA TO BUFFER` commands lands *inside* the kernel's page-fault
+   * handler, which is interrupted part-way through a copy; what follows finds
+   * resource locks held and calls `crash_system`, printing `CRASH_STATUS
+   * 00120020` -- `002398-04`'s *supervisor fault while resource lock(s) set*.
+   * MAME carries a deliberate fix for the same failure and says so in a
+   * comment: "Domain/OS doesn't expect zero access time". Detail in
+   * `docs/PROJECT_STATUS.md`.
+   *
+   * ### The approximation this still carries, named rather than glossed
+   *
+   * **The data phase is not delayed, only the completion is.** A `READ` fills
+   * the buffer and offers its bytes to the host at once, and the access time is
+   * spent afterwards, before the completion byte is announced. On the drive the
+   * order is the other way round: nothing can be read until the heads have
+   * arrived and the sector has come round, so `REQ` should not go up until
+   * then.
+   *
+   * Cost to close: a driver that times its *transfer* rather than its command
+   * sees the bytes arrive early. Nothing measured so far depends on it --
+   * Domain/OS waits on the completion -- and the fix is to move the deadline
+   * ahead of the phase change rather than after it, which is a change to when
+   * `enter_data_phase` is reached rather than to any figure here. MAME makes
+   * the same approximation and marks it `FIXME: should delay m_omti_state and
+   * m_status_port as well`. */
+  ap_time_t completion_at;
+  /* The clock this device is advanced against, so a deadline can be set from
+   * inside a register write that has no `now` of its own. */
+  ap_time_t now;
   /* The last descriptor block's opcode and how many have run. State, not
    * instrumentation: a caller uses them to know a command completed. */
   uint8_t last_command;
@@ -459,6 +530,12 @@ typedef struct {
 
 /* Power-on: both halves. */
 void ap_omti_reset(ap_omti_t *omti);
+
+/* Advance the controller to `now`, retiring a command whose access time has
+ * elapsed. Called every tick from the board, like every other timed device: the
+ * completion it retires raises `IRQ14`, and *when* it does is the difference
+ * between Domain/OS booting and crashing. */
+void ap_omti_advance(ap_omti_t *omti, ap_time_t now);
 
 /* The fixed disk's own reset, reached by writing its status port. It must not
  * touch the floppy half -- `[OMTI]` §4.1 has them independent and §3.4 has them

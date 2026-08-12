@@ -283,6 +283,13 @@ void ap_board_hash_disk(ap_hash_t *st, const ap_disk_t *disk) {
   ap_hash_u8(st, omti->fdc_data);
   ap_hash_u8(st, omti->fdc_control);
   hash_bool(st, omti->disk_change);
+  /* The command in flight, and when it lands. A controller waiting out a seek
+   * is not a controller that has finished one, and two machines whose drives
+   * complete at different instants raise `IRQ14` at different instants -- which
+   * is exactly the difference that decides whether Domain/OS boots. Hashing the
+   * phase alone would not separate them: the deadline is the state. */
+  ap_hash_u8(st, (uint8_t)omti->phase);
+  ap_hash_u64(st, omti->completion_at);
 }
 
 void ap_board_hash_tape(ap_hash_t *st, const ap_tape_t *tape) {

@@ -70,3 +70,39 @@ unsigned ap_omti_cdb_length(uint8_t command) {
    * the COPY command for the format of the 10 byte CDB". */
   return command == AP_OMTI_CMD_COPY ? AP_OMTI_CDB_LONG : AP_OMTI_CDB_SHORT;
 }
+
+bool ap_omti_cdb_touches_surface(uint8_t command) {
+  switch (command) {
+  /* Positioning, with or without a transfer. `SEEK` and `RECALIBRATE` move the
+   * heads and report completion when they arrive, which is the whole of what
+   * they do. */
+  case AP_OMTI_CMD_RECALIBRATE:
+  case AP_OMTI_CMD_SEEK:
+  /* Reads and writes of the surface, in every form the controller offers:
+   * direct, through the sector buffer, and the long variants that carry the
+   * ECC field with the data. */
+  case AP_OMTI_CMD_READ:
+  case AP_OMTI_CMD_WRITE:
+  case AP_OMTI_CMD_READ_VERIFY:
+  case AP_OMTI_CMD_READ_TO_BUFFER:
+  case AP_OMTI_CMD_WRITE_FROM_BUFFER:
+  case AP_OMTI_CMD_READ_LONG:
+  case AP_OMTI_CMD_WRITE_LONG:
+  case AP_OMTI_CMD_COPY:
+  /* Formatting writes every sector of a track or of the drive, so it is the
+   * most surface-bound command there is. The duration modelled for it is the
+   * same average as any other -- a full format is not a per-track cost and this
+   * core does not pretend to time one. */
+  case AP_OMTI_CMD_FORMAT_DRIVE:
+  case AP_OMTI_CMD_FORMAT_TRACK:
+  case AP_OMTI_CMD_FORMAT_BAD_TRACK:
+  case AP_OMTI_CMD_CHECK_TRACK_FORMAT:
+  case AP_OMTI_CMD_ASSIGN_ALTERNATE:
+    return true;
+  default:
+    /* Everything else is answered from the controller's registers or its
+     * sector buffer: TEST DRIVE READY, REQUEST SENSE, READ/WRITE SECTOR BUFFER,
+     * READ CAPACITY, the diagnostics, and INITIALIZE DRIVE CHARACTERISTICS. */
+    return false;
+  }
+}

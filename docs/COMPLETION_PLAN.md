@@ -2152,64 +2152,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         Detail in `PROJECT_STATUS.md`.
 ## Phase 4 — Storage, then a first boot
 
-- [ ] **Give the OMTI command completion a duration; Domain/OS requires one.**
-      This core sets `IREQ` in the instant a command is issued, so `IRQ14` has
-      **zero latency**. The oracle carries a deliberate fix for exactly this --
-      `// Domain/OS doesn't expect zero access time` above a 1 ms
-      `command_duration` on `READ DATA TO BUFFER` (`0x1E`), asserted from a
-      timer -- and its own comment puts the drive's average at ~30 ms. With no
-      delay, one of this boot's 25 `1E` reads lands inside the page-fault
-      handler's copy loop and the kernel crashes with `00120020`.
-
-      **The figure must come from the drive, not from MAME's 1 ms and not from
-      sweeping until the boot survives.** The references on disk do not settle
-      it and the search is recorded so it is not repeated: the three OMTI
-      manuals give the controller's commands but no access time, which is the
-      *drive's* property and not the controller's, and the Apollo handbooks and
-      `019411-A00` addendum are scans with nothing extractable on it. So the
-      resolution order moves to the web, per `CLAUDE.md`.
-
-      The DN3500 shipped 85, 170, 348 and 760 MB drives from Micropolis and
-      Maxtor; the 348 MB ESDI one is the `.awd`'s size class. For the Maxtor
-      XT-4380E (338 MB formatted, ESDI, 5.25" FH) the published figures are:
-
-      | | |
-      | --- | --- |
-      | rotation | 3600 RPM -> 16.67 ms/rev, **8.33 ms** average latency |
-      | average seek | **16 ms** typical, 18 ms maximum |
-      | track-to-track | 3.0 ms |
-      | full stroke | 29 ms typical, 34 ms maximum |
-      | transfer | 1.25 MB/s |
-
-      Seek + average latency is ~24 ms, which is consistent with MAME's "average
-      time would be 30 ms" and an order of magnitude off its 1 ms. **Model the
-      components** -- seek, rotational latency, transfer -- rather than one
-      lumped constant, so each carries its own citation.
-
-      **Mark the drive identification itself `PROVISIONAL`**: that the DN3500's
-      348 MB drive is specifically an XT-4380E is inferred from the capacity and
-      the era, not from Apollo documentation, and the geometry does not match
-      exactly (this core's conversion is 16 heads x 18 sectors, the drive is 15
-      x 36 of half the sector size -- the same bytes per track, a different
-      shape). Source:
-      <https://stason.org/TULARC/pc/hard-drives-hdd/maxtor/XT-4380E-338MB-5-25-FH-ESDI.html>
-
-      **Shape of the change**, since none of it exists yet: the OMTI is purely
-      reactive and has **no advance entry point** -- `ap_board_advance` ticks
-      the timer, calendar, SIO, tape and graphics but not the disk. It needs a
-      completion deadline and a pending-command state, an advance function in
-      the shape of `ap_sio_advance` called from the board, `IREQ` raised at the
-      deadline instead of at issue, and the new fields hashed -- which
-      re-baselines the identity hash in the same commit.
-
-      Carries two tails the header already names: the `MSR` seek-in-progress
-      bits (`SEEK_A`/`SEEK_B`) become observable once seeks take time, and so
-      does `MSR_BUSY` across a command. Detail in `PROJECT_STATUS.md`.
-      *Verification: the boot passes the `3C47A25A` fault without taking
-      vector `AE` inside the handler -- compared against the oracle out of the
-      fault with `--boot-stop-pc-then` and `APOLLO_SYNC_THEN`, which is the
-      instrument that found this.*
-
+- [x] **The OMTI takes access time, and `00120020` is closed.** This core set
+      `IREQ` in the instant a command was issued; Domain/OS requires that it
+      does not, and MAME carries the same fix with the comment "Domain/OS
+      doesn't expect zero access time". With zero latency one of the boot's
+      `READ DATA TO BUFFER` interrupts landed inside the kernel's page-fault
+      handler and the kernel crashed. Now `finish` sets a deadline built from
+      the drive's published seek, half-turn and transfer figures, and
+      `ap_omti_advance` retires it from the board tick.
+      **`PROVISIONAL`: which drive**, not the arithmetic -- the XT-4380E is
+      inferred from capacity and era. The data phase is still undelayed, named
+      as an approximation with its cost. Detail in `PROJECT_STATUS.md`.
+      *Verification: the boot no longer crashes in the handler -- the screen
+      reaches `Domain/OS kernel(7)` and then `Unable to resolve
+      "/sys/node_data" -- E0007`, where it used to print `CRASH_STATUS
+      00120020  PC 3C40E114` with no message. `awd_suite` +4, each checked to
+      fail against the old zero-time behaviour; 135/135 green.*
 
 - [x] **A DN3000 core board, and `dn3000` boots.** The board holds a *map* per
       model now — Table 2-6's DS3000 space against Table 2-8's — because the

@@ -344,6 +344,12 @@ static void drain(ap_omti_t *o) {
     case AP_OMTI_PHASE_DATA_OUT:
       ap_omti_disk_write(o, AP_OMTI_DISK_DATA, 0u);
       break;
+    case AP_OMTI_PHASE_EXECUTING:
+      /* The drive is positioning. A test that is not about access time says so
+       * by advancing straight to the deadline, which is the one place in this
+       * suite that has to know commands take any. */
+      ap_omti_advance(o, o->completion_at);
+      break;
     case AP_OMTI_PHASE_IDLE:
     case AP_OMTI_PHASE_COMMAND:
     case AP_OMTI_PHASE_STATUS:
