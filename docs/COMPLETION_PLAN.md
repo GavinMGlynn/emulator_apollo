@@ -3286,43 +3286,51 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   the picture. One fix closes both, and it is verified twice: a `login:` prompt
   on the console and a PNG of it.
 
-  **The question, stated correctly.** Not "why does the oracle ask for space 0"
-  — it asks for space **1**, measured. The oracle installs `01001400` at 11.7 s,
-  asks for space 1 at 12.15 s against a cache that already says 1 (so it very
-  likely skips, as ours does), and installs `0105BC00` at 36.2 s. **So a later
-  request succeeds there and none ever succeeds here.** Something updates
-  `$3C43FB14` between 12 s and 36 s on the oracle. That is the whole defect.
+  **The blocker, as of 2026-08-12.** The address-space chain below is refuted
+  and the `$3C43FB14` steps that were here have been deleted with it — they
+  planned four measurements against a premise the file itself retracts thirty
+  lines later. What actually stands in the way now:
 
-  **Step 1 — the cache's write history, both sides.** This is the measurement
-  that decides it, and neither side has it.
-  - 1a. Ours: `--boot-watch-write 01042714` with `--boot-stop-on-watch-write N`
-    for N = 1, 2, 3 … enumerates every write with its PC. Expect only the memory
-    sweep at `01002174`; the routine's own write at `3C43DDD2` is on the path we
-    never take.
-  - 1b. The oracle's: a **write** tap on the same word, held in `_G`, liveness
-    sampled. Write taps do fire — it was their lifetime that was broken, and
-    that is fixed. The address must be resolved on the oracle, not assumed:
-    the two machines page the kernel differently.
-  - 1c. Diff the sequences. **The first write ours does not make is the defect**,
-    and its PC names the code that should have run.
+  1. `00120020` — **closed.** The OMTI completed commands in the instant they
+     were issued, so an `IRQ14` landed inside the page-fault handler. A real
+     access time closed it. Detail in `PROJECT_STATUS.md`.
+  2. A **CPU defect** — closed. PC-relative operands were two bytes low behind
+     an immediate, which is why `IRQ1` never reached the keyboard.
+  3. `E0007`, `Unable to resolve "/sys/node_data"` — **live, and this is the
+     item.** Established: it is not a machine fault (all 294 MMU faults are
+     ordinary demand paging from the pager's own PCs); the volume carries
+     `node_12345`, matching this core's node ID `0x012345`; and the node-ID
+     PROM decodes correctly.
+  4. **`@2D-03863-MS` is a dead end.** It was recorded as "the obvious thing to
+     identify" because it appeared with the failure. It prints on every run,
+     including ones that never fail, so it is ordinary kernel banner output.
+     Dropped.
 
-  **Step 2 — if step 1 shows no divergence in the writes**, then the cache is
-  the same on both and the difference is in what *reads* it. Log every read of
-  the word on both sides the same way. One of the two must differ; the machines
-  demonstrably diverge.
+  **And the address-space switch now runs.** The boot that reaches `E0007` exits
+  with `crp 0105BC00`, 82 `PMOVE` loads and 294 `MMUSR` reads — twenty-four
+  loads from kernel `PC 3C43DDF0` alternating the two spaces. The runs that stop
+  earlier show `01001400`, 23 loads and no `MMUSR` at all. So `E0007` is *past*
+  the thing this section used to call the whole defect. Detail in
+  `PROJECT_STATUS.md`.
 
-  **Step 3 — the fallback that cannot fail.** If the Lua taps cannot see what is
-  needed, instrument `ext/mame` directly — `CLAUDE.md` sanctions exactly this
-  ("Build and instrument `ext/mame`"), and it is the one route not yet tried.
-  Add a log line in the m68k `PMOVE` path recording PC, register and value;
-  rebuild with the capped-scope recipe; **revert the checkout before any
-  commit**. This gives the oracle's root-pointer history exactly, with no
-  inference.
+  **The next measurement**, in this order:
+  - Reproduce `E0007` from a **recorded** invocation and trace into the crash PC
+    `3C4524E6`, so the code that gives up on the name is named rather than
+    guessed. The reproduction needs the machine to get *past* the calendar
+    question, and the cheap way is not to provoke it: `--clock 2026-08-09` is
+    within fourteen days of the volume's install, so the question is never asked
+    and no keystroke has to land. Typing the answer does not work — the second
+    phase arms and types at every threshold tried and the character is still
+    discarded unread.
+  - Then the oracle, out of a shared program event, on the **same image**. Its
+    successful boots have been on `media/dn3500.awd`, which MAME mutates and
+    which differs from `media/dn3500-sr10.4-installed.awd` by 563,262 bytes;
+    this core behaves identically on both, so the volume is not the variable,
+    but the comparison must still be like for like.
 
-  **Step 4 — fix and verify.** Land the defect with a test that fails without
-  it. Then the boot on `--clock 2026-08-09` must reach `login:`, and
-  `--screen c8p --screenshot` must show it. Re-baseline the identity hash in the
-  same commit, since the machine will legitimately have changed.
+  **Do not close this on a boot that merely gets further.** `E0007` was declared
+  solved once on exactly that reasoning, when the machine had only stopped at a
+  prompt instead of failing.
 
   **CORRECTED 2026-08-12 -- the chain below is refuted at its hinge.** It read:
   allocate space 1 -> derive `0105BC00` -> copy the live tree -> write mappings

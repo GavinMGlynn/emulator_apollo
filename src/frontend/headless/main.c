@@ -2200,6 +2200,13 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   unsigned typed_quiet_for = 0u;
   /* Carried across the phase switch, unlike `typed_sent`. */
   bool typed_first_done = false;
+  /* What the *first* phase managed, kept because `typed_sent` is reset when the
+   * cursor moves to the second. Without it the report cannot tell the two
+   * apart: `boot type 2 of 2` reads identically whether the first phase
+   * finished and the second never armed, or the second finished after the
+   * first. That ambiguity cost two boots -- a run that stopped at a prompt was
+   * read as a run that had answered it. */
+  size_t typed_phase_one_sent = 0u;
   size_t input_sent = 0;
   const size_t input_length = input != NULL ? strlen(input) : 0u;
 
@@ -2519,6 +2526,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       }
       if (typed_sent >= typed_length && typed_phase_at == 0u &&
           typed_phase[1] != NULL) {
+        typed_phase_one_sent = typed_sent;
         typed_phase_at = 1u;
         typed_now = typed_phase[1];
         typed_length = strlen(typed_now);
@@ -2833,6 +2841,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       }
       if (typed_sent >= typed_length && typed_phase_at == 0u &&
           typed_phase[1] != NULL) {
+        typed_phase_one_sent = typed_sent;
         typed_phase_at = 1u;
         typed_now = typed_phase[1];
         typed_length = strlen(typed_now);
@@ -3252,8 +3261,22 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * reported rather than left to be inferred from a screen that did not
    * change. */
   if (typed_length > 0u) {
-    printf("  boot type    %u of %u character(s) typed\n",
-           (unsigned)typed_sent, (unsigned)typed_length);
+    /* Two phases are reported separately, because one number cannot say which
+     * of them is being counted and the difference is the whole question when a
+     * machine sits at a prompt. A second phase that never armed reads `0 of N`
+     * here instead of hiding behind the first phase's completed count. */
+    if (typed_phase[1] != NULL) {
+      const size_t first =
+          typed_phase_at == 1u ? typed_phase_one_sent : typed_sent;
+      const size_t second = typed_phase_at == 1u ? typed_sent : 0u;
+      printf("  boot type    %u of %u then %u of %u character(s) typed\n",
+             (unsigned)first,
+             (unsigned)(typed_phase[0] != NULL ? strlen(typed_phase[0]) : 0u),
+             (unsigned)second, (unsigned)strlen(typed_phase[1]));
+    } else {
+      printf("  boot type    %u of %u character(s) typed\n",
+             (unsigned)typed_sent, (unsigned)typed_length);
+    }
     if (typed_sent < typed_length) {
       printf("               port: %u bit(s), receiver %s, %s, polls %u "
              "(need %u)\n",

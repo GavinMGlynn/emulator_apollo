@@ -27565,3 +27565,93 @@ catches a transposition, since any two masks swapped still pass a spot check --
 plus the crossing of the general-purpose flags at identical bits, the handshake
 flags belonging to the side that reads them, `ATTN`+`FLSH` as the hard reset,
 and `+2`/`+6` corrected. 135 CTest entries green.*
+
+## `E0007`: four things measured, three of them retractions
+
+The failure is unchanged -- `Unable to resolve "/sys/node_data" -- E0007`,
+`CRASH_STATUS 000E0007  PC 3C4524E6  PID 0001` -- but most of what was written
+about it yesterday was about the wrong thing.
+
+### The failing boot is the one that got *further*, not the one that got worse
+
+The run that reaches `E0007` and the runs that do not differ in a way no screen
+shows:
+
+| | `crp` at exit | `PMOVE` loads | `MMUSR` reads | outcome |
+| --- | --- | --- | --- | --- |
+| reaches `E0007` | `0105BC00` | 82 | 294 | crash |
+| stops at the calendar question | `01001400` | 23 | 0 | waits |
+
+`0105BC00` is the **second address space**. Twenty-four of those loads are from
+kernel `PC 3C43DDF0`, alternating `01001400` and `0105BC00`, and thirty-two of
+the `MMUSR` reads are from `3C42CE30`. That is a kernel switching contexts
+between two address spaces and walking the MMU to do it.
+
+**Phase 4's plan said this never happened here.** It read: "a later request
+succeeds there and none ever succeeds here. Something updates `$3C43FB14`
+between 12 s and 36 s on the oracle. That is the whole defect." It is no longer
+true and the section has been rewritten. The disk access time and the
+PC-relative fix between them carried the kernel through the switch, and
+`E0007` is *past* it.
+
+So a boot that no longer crashes is not necessarily a boot that improved. Three
+of the runs below "stopped failing" by never getting far enough to fail --
+which is the same mistake as reading a machine parked at a prompt as one that
+had answered it, for the third time in two days.
+
+### The volume is not the variable
+
+`media/dn3500.awd` -- the image the oracle boots, and which MAME mutates -- and
+`media/dn3500-sr10.4-installed.awd` differ by **563,262 bytes**. Booted through
+one identical invocation, this core produces the same screen and the same
+exception profile on both, down to `393 x vector 2`, `7902 x vector 160`,
+`13 x vector 161` and a final PC in the kernel's idle loop. Neither reaches
+`E0007`; neither is special. The two images were worth separating -- an oracle
+result on a mutated image is not a result about the pristine one -- but the
+difference does not decide this.
+
+### `@2D-03863-MS` is ordinary banner output
+
+It was recorded as "the first new evidence in this area and the obvious thing
+to identify", on the grounds that it appeared only with the failure. It does
+not: it prints immediately after the kernel revision line on **every** run,
+including the ones that never fail. Whatever composes it, it is not evidence
+about name resolution. Dropped.
+
+### MAME's "25 Years Ago" is a no-op in 2026, and the log line says otherwise
+
+Every oracle log prints `# 25 Years Ago ... = On (0x0080)`, because
+`mdsession.lua`'s `CONFIG` sets it deliberately. Read straight, that says the
+guest's calendar is 25 years behind the host's, which would put the installed
+volume's timestamps in the `01` era and make our `--clock 2026-…` twenty-five
+years fast.
+
+It does not. `apollo_m.cpp:1213` shifts only `if (year < 25 && ...)`, and the
+MC146818's two-digit year in 2026 is `26`. The setting fires for host years
+2000-2024 and does nothing after that. So the volume is `26`-era, `--clock
+2026-…` is the matching configuration, and the log line is a setting that is
+enabled and inert.
+
+Worth the two minutes it took to check in the source: the alternative was a
+plausible, entirely wrong 25-year correction applied to every future boot.
+
+### And the report could not tell a waiting machine from a finished one
+
+`--boot-type` has two phases, and the report printed one number for whichever
+was current. `boot type 2 of 2` therefore reads **identically** whether the
+first phase finished and the second never armed, or the second finished after
+the first -- which are exactly the two states that separate "answered the
+calendar question" from "did not". It now prints both:
+
+    boot type    2 of 2 then 2 of 2 character(s) typed
+
+and the first run with it settled in one line what two boots had not: the
+second phase *is* arming and typing, at every quiet threshold from 10,000 to
+200,000 instructions, and the machine still waits. So the answer is being typed
+and not received -- `sio1 A 5 discarded unread` -- and the arming rule was never
+the problem. That is the third time in this investigation a harness threshold
+was searched when the report should have been improved instead.
+
+*Verification: `q50000` and `q10000` print the two-phase line and hash
+identically to the 200,000 run, so the threshold changes nothing; 135 CTest
+entries green.*
