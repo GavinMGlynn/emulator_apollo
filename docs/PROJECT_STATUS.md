@@ -27762,3 +27762,52 @@ and no `node_data.<node id>` anywhere. The stack frame at the failure holds
 `00012345`, this machine's node ID, eight bytes below the word that decides
 whether to report. Whether those are connected is the next thing to measure, not
 the next thing to assert.
+
+## The failure reports a status it was *handed*, and the hand-off is on the stack
+
+Stopping at `3C452482` -- the reporting path, not the epilogue -- lands at
+instruction **478,736,082**, 893,101 after the quiet visit that
+`--boot-stop-pc 3C4524E6` had been stopping on. The call that reports is
+
+    3C4526AE  4FEF ....       lea    d16(sp),sp
+    3C4526B2  3002            move.w d2,d0          ; d0 was 000E0007 here
+    3C4526B4  48C0            ext.l  d0
+    3C4526B6  2F00            move.l d0,-(sp)
+    3C4526B8  4855            pea    (a5)
+    3C4526BA  487A ....       pea    (d16,PC)       ; the format
+    3C4526BE  6100 ....       bsr    3C452468
+
+and the quiet caller at `3C45260A` pushes `clr.l -(sp)` in place of that first
+argument. So the third argument is the thing that decides: zero means say
+nothing, and the `tst.w -2(a2)` in the formatter is reading it out of the
+caller's frame.
+
+**`000E0007` enters the trace at step 478,736,043**, at
+
+    3C47BFCA  2012            move.l (a2),d0        ; a2 = 3C4F9908
+
+-- i.e. it is **read out of a status slot on the stack**, at logical
+`3C4F9908`, which the earlier dump showed holding `00000000` at the quiet stop.
+That is the Domain convention: the caller passes a `status_$t` by reference and
+the callee writes it. What follows is two `cmpi.l` against `d0` and a `bne`,
+i.e. the caller checking whether this is a status it tolerates, deciding it is
+not, and propagating.
+
+So the code that *failed* is upstream of `3C47BFCA` and wrote `E0007` into
+`3C4F9908`; everything from there to the screen is error propagation. The 4,000
+steps kept behind the stop are all propagation and unwinding -- their PCs are
+`3C4015xx` (1,054 of 4,000, a leaf helper), `3C47B2xx` (346) and `3C41A5xx`
+(202), with the `3C47Bxxx` region the naming server's.
+
+**The next stop is therefore not a PC at all but the write**: a watch on the
+status slot names the instruction that produced `E0007`, and that instruction is
+the lookup. Two things make it awkward and neither is fatal -- the slot is a
+stack address, so it is reused, and `--boot-watch-write` takes a physical
+address while `3C4F9908` is logical (`01124908` under the mapping at the stop,
+which must be re-derived rather than assumed). A longer `--boot-trace-last` is
+the blunt alternative: the whole failing lookup is somewhere in the tens of
+thousands of instructions before the propagation begins.
+
+*Verification: `tools/e0007-boot.sh --boot-stop-pc 3C452482 --boot-trace-last
+4000`, stopping at 478,736,082; the status's first appearance located by
+searching the trace's register columns rather than by inspection.*

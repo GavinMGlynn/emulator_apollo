@@ -3328,10 +3328,16 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   *not* to print; the decision is `tst.w -2(a2)` on the **caller's** frame.
   Detail in `PROJECT_STATUS.md`.
 
-  **The next measurement**, in this order:
-  - Stop at `3C452482` — the first instruction of the reporting path, reached
-    only when that word is non-zero — with a trace kept behind it. That names
-    the caller that gave up on the name, which `3C4524E6` cannot.
+  **Done**: stopping at `3C452482` lands at instruction 478,736,082, and shows
+  that `000E0007` is *read* out of a status slot on the stack at `3C4F9908`
+  (`move.l (a2),d0` at `3C47BFCA`). Everything from there to the screen is error
+  propagation, so the code that failed is upstream of that read.
+
+  **The next measurement**: find the **write** of `E0007` into that slot — a
+  watch on it names the lookup that failed. The slot is a stack address and
+  `--boot-watch-write` takes a physical one, so the mapping has to be
+  re-derived at the stop rather than assumed; a much longer `--boot-trace-last`
+  is the blunt alternative.
   - Then the oracle, out of a shared program event, on the **same image**. Its
     successful boots have been on `media/dn3500.awd`, which MAME mutates and
     which differs from `media/dn3500-sr10.4-installed.awd` by 563,262 bytes;
