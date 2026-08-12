@@ -27042,6 +27042,16 @@ opened up, which is the whole point of the rule.
 whole self test, answered it, loaded the kernel, and got through initialisation.
 That is the furthest a boot has ever gone here.
 
+**Answering it needs the right arming address, and the kernel's idle loop is not
+it.** A first attempt armed the second typed phase on `3C43F5A8`, which the
+kernel reaches long before the prompt exists -- it is in the post-fault trace at
+step 2,827 -- so both characters were typed into a console with nothing reading
+and the report says so: `sio1 A  1 discarded unread`, prompt still on screen
+after 1.5 G instructions. The channel is right (`sio1 A` is the keyboard, and
+the firmware's `Y` is echoed on the same screen); only the moment was wrong.
+The arming address has to be the **prompt's own poll**, which a trace taken
+while the machine sits at it will name.
+
 **Check the clock before anything else**, because it is the trap class this
 investigation has already paid for four times. These runs pass
 `--clock 2026-08-09`; the oracle is given **no clock option at all** and takes
