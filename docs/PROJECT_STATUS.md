@@ -26944,6 +26944,19 @@ survives its page faults, finishes initialisation and reaches filesystem name
 resolution.** It still takes the two `3C47A25A` faults, as the oracle does; what
 changed is that it now handles them.
 
+**Confirmed at instruction granularity, not just on the screen.** Re-run out of
+the same fault with the access time in place, the two machines are identical for
+**2,825 instructions** -- against 2,607 before, where ours then took the disk
+interrupt the oracle did not. What the diff flags at 2,826 is not a divergence:
+both execute the same `RTE` at `3C42DD1C` and return into the same
+two-instruction idle loop at `3C43F5A8`/`3C43F5AC` (`andi.w #imm,SR` to lower the
+mask, then `bra` back), **one instruction out of phase**, because the interrupt
+each is returning from arrived at a different point of the spin. Both are idling.
+
+A step-for-step diff cannot tell a phase offset in a spin loop from a real
+parting, and this is the first time that has mattered -- worth knowing before
+the next comparison is read.
+
 `00120020` is closed. **The open question is `E0007` on `/sys/node_data`.**
 
 What the volume itself says, read straight out of the image without a boot:
