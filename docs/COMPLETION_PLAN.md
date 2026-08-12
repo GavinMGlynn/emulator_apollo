@@ -3158,6 +3158,18 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     once, for space 1. The value is **read from memory**, not computed. It is
     not taking a wrong branch; it is being handed the number by something it
     built earlier.
+    **REFUTED 2026-08-12, and `00120020` is now closed by a different cause.**
+    Everything from here to the end of this item reads the fault, the lock and
+    the skipped install as "one event, not three". They are not one event: the
+    oracle takes **the same fault at the same instruction with the same
+    registers** and byte-identical page tables, so the fault is ordinary demand
+    paging and the skipped install does not produce it. The real cause was that
+    this core's OMTI completed disk commands in zero time, landing `IRQ14`
+    inside the page-fault handler. Fixed; the boot now reaches
+    `Unable to resolve "/sys/node_data" -- E0007` instead. Detail in
+    `PROJECT_STATUS.md`. **Kept below only as the record of a wrong turn**, since
+    several later items were written on top of it.
+
     **And the sequence is now visible end to end.** Forty instructions before the
     request, a loop at `3C46FE86` writes entries at indices **`ED`, `EE`, `EF`**
     into a structure at `3C5BFC00` — and `EF` is the index the crash's
@@ -4232,8 +4244,10 @@ boot below, and the boot is not attempted until they are done.
       the interface header. 37 ink bands against the oracle's 38, both ending
       on identical rows.
       What remains is still the *subject* of the picture: the verification asks
-      for a **login prompt**, and that waits on Phase 4's `CRASH_STATUS
-      00120020`. Detail in `PROJECT_STATUS.md`.
+      for a **login prompt**. `CRASH_STATUS 00120020` no longer blocks it -- the
+      OMTI's access time closed that on 2026-08-12 -- and the boot now stops at
+      `Unable to resolve "/sys/node_data" -- E0007` instead. Detail in
+      `PROJECT_STATUS.md`.
       *Verification: a decoded PNG showing Domain/OS's login prompt.*
 - [x] **SDL3 interactive frontend, implemented rather than stubbed.**
       `apollo-sdl` opens a window on the emulated screen: scanout to an ARGB
