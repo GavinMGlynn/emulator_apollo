@@ -49,6 +49,21 @@ Three columns of marker, eight of address, two of space, then the name. The
 characters (`ETHERNET_$BUFFER_P`); the unmarked lines are symbols and carry the
 whole name (`NETWORK_$MULT_PAGIN_RQST_CNT`). Only the unmarked lines are taken,
 which is why the table has no truncated entries in it.
+
+## The one thing this tool cannot tell you, and says so
+
+**The map lists entry points, not extents.** A compiler puts a module's
+unexported statics *between* its exported entries, so an address past a
+routine's `rts` is attributed to the entry before it and arrives as a large
+offset into a routine it is not in. `3C4524E6` resolves to `DIR_$OLD_INIT+122`;
+`DIR_$OLD_INIT` in fact ends at `3C452460`, `+9C`, and `3C452468` begins an
+unnamed static. The offset was right and the name was wrong, and the answer read
+as authoritative both times.
+
+So every resolution reports the distance to the next symbol -- `reach()` -- and
+an offset near it is a warning rather than a reading. What settles it is
+disassembling from the entry and finding the `rts`, which is a different
+instrument.
 """
 
 import argparse
@@ -210,6 +225,29 @@ class LoadMap:
         name, offset, _ = hit
         return name if offset == 0 else "%s+%X" % (name, offset)
 
+    def reach(self, address):
+        """How far the named symbol's *region* extends, and what follows it.
+
+        **The map lists entry points, not extents**, and this is the trap the
+        tool cannot remove: a compiler puts a module's unexported statics
+        between the exported entries, so an address past a routine's `rts` is
+        attributed to the entry before it and looks like a large offset into it.
+        `3C4524E6` resolves to `DIR_$OLD_INIT+122`, and disassembly shows
+        `DIR_$OLD_INIT` ending at `3C452460` -- `+9C` -- with an unnamed static
+        starting eight bytes later. The name was wrong and the arithmetic was
+        not.
+
+        So every answer carries the distance to the next symbol. An offset near
+        that distance is a warning, not a reading: the only thing that settles
+        it is disassembling from the entry and finding the `rts`.
+
+        Returns `(span, next_name)`, or `(None, None)` for the last symbol.
+        """
+        i = bisect.bisect_right(self._addresses, address) - 1
+        if i < 0 or i + 1 >= len(self.symbols):
+            return None, None
+        return self.symbols[i + 1][0] - self.symbols[i][0], self.symbols[i + 1][1]
+
 
 def load_maps(volume):
     """Every load map on the volume, newest-looking first is not implied."""
@@ -302,7 +340,11 @@ def main(argv):
 
     for text in args.address:
         address = int(text, 16)
-        print("%08X  %s" % (address, chosen.describe(address)))
+        span, following = chosen.reach(address)
+        note = ""
+        if span is not None:
+            note = "   (%s begins at +%X)" % (following, span)
+        print("%08X  %s%s" % (address, chosen.describe(address), note))
     return 0
 
 

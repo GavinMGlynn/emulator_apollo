@@ -3325,16 +3325,31 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   the volume's install, so the calendar question is never asked and no keystroke
   has to land. Typing the answer does not work at any threshold tried.
 
-  **And `PC 3C4524E6` is not the fault** -- it is a *caller*, and it now has a
-  name. **The volume carries the kernel's own load map**, seven of them, and
+  **And the failure is now a named request, not an inference.** **The volume
+  carries the kernel's own load map**, seven of them, and
   `tools/kernel_symbols.py` reads one off it without a filesystem: every block
   header names its object and page, which is what SALVOL is built on
-  (`[AEGIS]` §4.1). `3C4524E6` is `DIR_$OLD_INIT+122` and `3C47BF58` is
-  `DIR_$RESOLVE+17A`, so **the failing operation is a directory resolve issued
-  from the directory subsystem's boot-time initialisation**. Five earlier
-  inferences are confirmed by name (`MMU_$INSTALL_ASID`, `MST_$ALLOC_ASID`,
-  `FIM_$BUS_ERR`, `MMU_$PURGE`, the status on the stack) and the
-  "message-formatting helper" reading of `3C452468` is withdrawn. Detail in
+  (`[AEGIS]` §4.1). With it and a disassembly of the dumped code:
+
+    OS_$INIT -> NAME_$INIT -> NAME_$RESOLVE -> NAME_$VALIDATE
+             -> DIR_$GET_ENTRYU -> DIR_$DO_OP,  which answers 000E0007
+    for the name "node_data" in directory UID a45aa7fc.60012345
+
+  `3C4524E6` is the **return address of `JSR CRASH_SYSTEM`**, which is why it is
+  the crash record's `PC`. Five earlier inferences are confirmed by name
+  (`MMU_$INSTALL_ASID`, `MST_$ALLOC_ASID`, `FIM_$BUS_ERR`, `MMU_$PURGE`, the
+  status on the stack). The map lists **entry points, not extents**, so
+  `DIR_$OLD_INIT+122` and `DIR_$RESOLVE+17A` are both mis-attributions of
+  unnamed statics -- the tool now prints the distance to the next symbol so that
+  is visible where it is used.
+
+  **And the volume is right, from this side too.** `[AEGIS]` ch. 4 walks the
+  artefact from its label without booting: `/` and `//` are byte-identical to
+  this core's `NAME_$NODE_UID` and `NAME_$ROOT_UID`, `/sys` is the UID in the
+  failing request, and `node_data` is an entry in `/sys`. This core also writes
+  **nothing** to the disk -- all 345,553 blocks identical after the run -- so the
+  static reading is exactly the bytes the boot saw. `sys` in `/` (one page)
+  resolved; `node_data` in `/sys` (four pages) did not. Detail in
   `PROJECT_STATUS.md`.
 
   **Done**: stopping at `3C452482` lands at instruction 478,736,082, and shows

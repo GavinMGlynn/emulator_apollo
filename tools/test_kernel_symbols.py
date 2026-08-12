@@ -142,6 +142,12 @@ def main():
     check("an address on a symbol has no offset",
           found.describe(0x3C452524) == "NAME_$INIT",
           found.describe(0x3C452524))
+    # The map lists entry points, so a large offset has to be visible as such.
+    check("the distance to the next symbol is reported",
+          found.reach(0x3C4524E6) == (0x160, "NAME_$INIT"),
+          str(found.reach(0x3C4524E6)))
+    check("the last symbol has no next", found.reach(0x3C47BDDE) == (None, None),
+          str(found.reach(0x3C47BDDE)))
     check("an address below the first symbol is unattributed",
           ks.LoadMap(b"u" * 8,
                      b"Build ID: x\n   3C000000  A\n").describe(0x1000) == "?",

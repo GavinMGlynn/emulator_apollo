@@ -28092,14 +28092,19 @@ Five separate inferences made over three sessions are confirmed by name:
 address space, `FIM_$BUS_ERR` is the page-fault handler doing the `MMUSR` reads,
 `MMU_$PURGE` is the flush entry, and the status really is read out of the stack.
 
-**And one is withdrawn.** `3C452468` and `3C4524E6` were read as "a
-message-formatting helper and its shared `unlk`/`rts` epilogue". They are `+A4`
-and `+122` **inside `DIR_$OLD_INIT`**, a routine that begins at `3C4523C4` and
-ends before `NAME_$INIT` at `3C452524`. So the crash record's PC is in the
-**directory subsystem's boot-time initialisation**, and the failing operation is
-a directory resolve issued from it -- which is a much narrower statement than
-"the naming server", and it is a statement the instruction-level reading could
-not reach.
+**And the map lists entry points, not extents, which is the one trap it cannot
+remove.** `3C4524E6` resolves to `DIR_$OLD_INIT+122` and `3C47BF58` to
+`DIR_$RESOLVE+17A`, and **both names are wrong**: disassembly of the same
+addresses (next section) shows `DIR_$OLD_INIT` ending at `3C452460`, `+9C`, and
+`DIR_$RESOLVE` at `3C47BEEA`, `+10C`. What follows each is an *unnamed static* --
+a routine the compiler placed between two exported entries, which no load map
+lists. The offsets were right and the names were not, and an over-attribution
+was written into this file before the disassembly was read.
+
+So every resolution now reports the distance to the next symbol
+(`DIR_$OLD_INIT+122   (NAME_$INIT begins at +160)`), and an offset near that
+distance is a warning rather than a reading. Only disassembling from the entry
+and finding the `rts` settles it.
 
 ### The annotated trace, which is the other half of the instrument
 
@@ -28126,3 +28131,109 @@ media/dn3500-sr10.4-installed.awd --list` on the artefact for the seven builds;
 `tools/e0007-boot.sh --boot-stop-pc 3C47BF58 --boot-stop-pc-skip 1
 --boot-trace-last 500000`, which stops at 478,736,036 instructions, for the
 annotated trace.*
+
+## `E0007`: the whole request, the whole call stack, and a volume that is right
+
+With the load map and a disassembler the failure is no longer inferred. At the
+instant the status is handed back, the frame chain reads:
+
+    OS_$INIT+10F4
+      NAME_$INIT+18A
+        NAME_$RESOLVE+42
+          NAME_$VALIDATE+288
+            DIR_$GET_ENTRYU+3C
+              (unnamed static at 3C47BEEC)  <- DIR_$DO_OP answered 000E0007
+
+and the request in that static's frame is, byte for byte:
+
+    name        "node_data", length 9
+    directory   UID a45aa7fc.60012345
+    opcode      44
+    status out  000E0007
+
+So **`NAME_$INIT` -- the naming server's own boot-time initialisation -- asks for
+the entry `node_data` in a directory, and is told it is not there.**
+
+### Both unnamed statics, decoded
+
+`3C452468` is a **crash reporter**, not part of `DIR_$OLD_INIT`, which ends at
+`3C452460`. It takes the status from `-4` of the **caller's** frame and a flag
+from `-2`; `tst.w -2(a2)` / `beq 3C4524E6` is the *skip* path, and the printing
+path assembles the message from three fragments that are sitting in the code:
+
+    3C4524F6  "%/%/%/%/%/%/%/"      seven newlines
+    3C452504  "Unable to %$"
+    3C452512  "\"%a\" -- %lh%."
+
+then calls `CRASH_SYSTEM` at `3C4524E0`. **`3C4524E6` is that call's return
+address**, which is exactly why it is the crash record's `PC` -- and it is also
+where the skip path lands, which is what the earlier `unlk`/`rts` reading was
+seeing. The helper is real; the epilogue was not the whole story.
+
+`3C47BEEC` is a **directory entry lookup**: it copies a name (length from
+`$10(caller fp)`, bytes from `$c`) and an eight-byte UID (from `-8`) into a
+request, sets opcode `44` and request type `$33d6(a5)+len`, calls `DIR_$DO_OP`,
+and at `3C47BF58` stores the returned status through the out-pointer at
+`$8(a6)` -- `3C4F9908`, which is where `DIR_$GET_ENTRYU+3E` reads it from one
+instruction later. Both halves of the earlier reading now have code behind them.
+
+### The volume, read without booting anything
+
+`[AEGIS]` ch. 4 is enough to walk the artefact from its label:
+
+  * the **logical volume label** is at physical block 1 -- "the logical volume
+    label begins at logical DADDR 0, physical DADDR 1" -- and reads version 2,
+    name `DN3500`, LV UID `a45aa7cd.20012345`, **last mounted node `00012345`**;
+  * its **VTOC header** (Figure 4-6) gives the four objects "the system requires
+    to boot successfully": network root `//` = VTOCX `002716E2`, disk entry
+    directory `/` = `002716E1`, OS paging file = `002716F1`, SYSBOOT =
+    `002716D0`;
+  * a **VTOCX** (Figure 4-12) is `DADDR << 4 | index`, the DADDR logical, so
+    physical is one more.
+
+Two things the manual states did **not** survive contact with an SR10.4 volume,
+and both are recorded because a reader who assumes them gets nonsense: a VTOCE
+here is **336 bytes and three fit in a block**, not the five §4.4.1 describes,
+and the directory format is not §8.3's at all. The 1986 book documents SR9.
+
+With that, the objects fall out -- and they can be reassembled without a file map
+at all, because every block header names its object and page:
+
+    /      a45aa7fc.40012345   1 page    == this core's NAME_$NODE_UID
+    //     a45aa7fc.50012345   1 page    == this core's NAME_$ROOT_UID
+    /sys   a45aa7fc.60012345   4 pages   == the UID in the failing request
+    node_data  a45aa7fc.70012345, VTOCX 002716D2, DAD = /sys, 4 pages
+
+**`node_data` is in `/sys`, three times over** -- at page 0 offset `3D4` with
+type byte `82`, and at pages 2 and 3 with type `02` -- and `/sys`'s own
+twenty-four-word hash table at offset `80` points at the page-0 copy.
+
+### What that eliminates, and what is left
+
+  * **The volume is complete and correct**, now from this side as well as the
+    oracle's. `/sys` exists, `node_data` is in it, and its parent UID points back
+    at `/sys`.
+  * **This core's roots are correct.** `NAME_$NODE_UID` and `NAME_$ROOT_UID` are
+    byte-identical to the VTOC header's two directories.
+    `NAME_$NODE_DATA_UID` is still zero, which is the failure rather than a
+    cause of it.
+  * **This core writes nothing to the disk.** All 345,553 blocks of the image are
+    byte-identical after a run that reaches `E0007`, so no write path is
+    implicated and the static reading above describes exactly the bytes the boot
+    saw.
+  * **The previous component resolved.** The kernel held the *right* `/sys` UID
+    when it asked, so `sys` in `/` succeeded and `node_data` in `/sys` failed.
+    `/` is one page; `/sys` is four.
+
+That last line is the shape of the remaining question, and it is no longer
+"which subsystem" but "which byte": the same code, on the same bytes, finds a
+name in a one-page directory and not in a four-page one.
+
+*Verification: `tools/e0007-boot.sh --boot-stop-pc 3C47BF58 --boot-stop-pc-skip 1
+--dump-logical 3C4F9000:1000 --dump-logical 3C4FA000:1000`, stopping at
+478,736,036 instructions, for the frame chain and the request; `--dump-logical
+3C4523C4:160` and `3C47BDDE:280` from the same stop, disassembled, for the two
+statics; `--dump-logical 3C4C7000:2800` for the naming globals; a block-by-block
+comparison of the run's disk against `media/dn3500-sr10.4-installed.awd` for the
+zero writes; and `[AEGIS]` Figures 4-4, 4-6 and 4-12 read from the page images
+for the volume walk.*
