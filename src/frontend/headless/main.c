@@ -1746,9 +1746,38 @@ static void typed_deliver(ap_machine_t *machine, ap_board_t *board,
  * far less than the shortest excursion out of one. */
 #define AP_TYPE_SETTLE_AWAY 4096u
 
+/* ## And a dwell alone still cannot tell the two kinds of waiting apart
+ *
+ * Corrected twice and it still did not answer the question: the character was
+ * typed and discarded with the prompt on screen at 1.5 G instructions. The
+ * reason follows from the disk's access time -- **the kernel idles in this very
+ * loop while it waits for disk interrupts**, and a command takes about 24 ms,
+ * on the order of 400,000 instructions per wait. Any threshold big enough to
+ * exclude an I/O wait is a number found by search, which is what a condition is
+ * supposed to replace.
+ *
+ * What separates them is not how long the machine waits but **what it is
+ * waiting for**: at a prompt no command is outstanding, and during I/O one is.
+ * The controller says which, because a command in flight is exactly what
+ * `AP_OMTI_PHASE_EXECUTING` means -- state this core only acquired when the
+ * access time was modelled. So a visit counts unless a command is in flight,
+ * and one in flight discards the count outright.
+ *
+ * **`EXECUTING`, not "anything but `IDLE`".** Written the second way first, and
+ * it armed nothing: a finished command leaves the controller in
+ * `AP_OMTI_PHASE_STATUS` until the driver reads its completion byte, so the
+ * drive reads as busy while it is doing nothing at all. The comment above was
+ * right and the code beneath it was not. */
 static bool typed_arm(uint32_t pc, uint32_t want, unsigned settle,
-                      unsigned *visits, unsigned *away) {
+                      bool drive_busy, unsigned *visits, unsigned *away) {
   if (want == 0u) {
+    return false;
+  }
+  if (drive_busy) {
+    /* Waiting for the drive, not for a person. Not merely "does not count":
+     * discarded, so a run of I/O cannot accumulate a dwell between commands. */
+    *visits = 0u;
+    *away = 0u;
     return false;
   }
   if (pc == want) {
@@ -2428,6 +2457,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                      * The phase that needs it is the one deep inside an
                      * operating system, which is what `--boot-type-then` is. */
                     typed_phase_at == 1u ? typed_settle : 1u,
+                    typed_phase_at == 1u &&
+                        ap_omti_disk_phase(&board->disk.controller) ==
+                            AP_OMTI_PHASE_EXECUTING,
                     &typed_settled_for, &typed_settled_away)) {
         typed_armed = true;
       }
@@ -2734,6 +2766,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                      * The phase that needs it is the one deep inside an
                      * operating system, which is what `--boot-type-then` is. */
                     typed_phase_at == 1u ? typed_settle : 1u,
+                    typed_phase_at == 1u &&
+                        ap_omti_disk_phase(&board->disk.controller) ==
+                            AP_OMTI_PHASE_EXECUTING,
                     &typed_settled_for, &typed_settled_away)) {
         typed_armed = true;
       }
