@@ -27003,11 +27003,18 @@ So `E0007` is **not** a disk-command divergence, and the driver, the CDB
 construction and the command sequencing are all excluded. Two cautions the
 measurement itself produced:
 
-* The two machines do **not** move data the same way. This core transfers by
-  DMA, so only descriptor blocks cross the data port -- 8,069 byte writes and
-  2,640 word writes -- where the oracle's tap sees 302,096 wider accesses over
-  the same address. Comparing raw write counts at that port compares two
-  different quantities; only the single-lane command bytes are common ground.
+* **A write tap cannot see a read, and this core's disk data arrives by
+  reads.** The claim first written here -- that this core transfers by DMA --
+  is wrong. Its data path is **PIO 16-bit reads** of the data port: a boot
+  reads `disk reg 0` **683,549** times against the 667,920 words that 1,265
+  sectors of 1,056 bytes require, the remainder being descriptor and status
+  traffic. `DREQ` is wired (`ap_board.c` line 534) but the driver does not use
+  it for these reads. So this core's 8,069 byte and 2,640 word *writes* at that
+  port are descriptor blocks and nothing else, while the oracle's tap reports
+  302,096 wider accesses over the same address -- **what those are has not been
+  identified here and is not asserted.** Comparing raw write counts compares two
+  quantities that are not the same; only the single-lane command bytes are
+  common ground.
 * A byte-count comparison would have read 10,709 against 327,662 and called it a
   divergence. The streams agree completely once the right quantity is selected.
 
