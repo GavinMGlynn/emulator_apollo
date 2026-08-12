@@ -26971,6 +26971,18 @@ output, the interrupts that end the idle -- and those are comparable across a
 run of any length. The sound-sync rule is unchanged; only the quantity being
 compared should be.
 
+**And both halves already exist, which is not obvious from the flags.** The
+oracle's write tap logs *every* write before it decides whether to dump, so a
+large `APOLLO_SYNC_COUNT` bounded by `APOLLO_SYNC_GIVEUP` turns it into a
+logging tap with no code change; this core's `--boot-watch-write ADDR
+--boot-log-watch-writes` is the matching side. The fixed disk's registers are at
+physical **`04D000`** (`AP_DISK_FIXED_ADDR`), and its data port is where the
+command descriptor blocks cross, so tapping it yields the CDB byte stream in
+order -- the same shape as the posted-code sequence that carried the firmware
+comparison for 1,963 writes.
+
+That is the next measurement, and it needs no new harness work.
+
 `00120020` is closed. **The open question is `E0007` on `/sys/node_data`.**
 
 What the volume itself says, read straight out of the image without a boot:
