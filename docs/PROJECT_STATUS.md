@@ -26889,8 +26889,15 @@ correct to be absent -- it is cycle-driven through `ap_board_bus_tick` -- and th
   same queue a strike uses -- `7F` in the keystate set, where `[kbd]` gives the
   repeat as a *distinct byte* precisely so it cannot be read as a second strike,
   and the key's own code otherwise.
-* **The ring controller's two i8254 interval timers -- BLOCKED ON A SOURCE, and
-  deliberately not guessed.** `ap_ring_ctl_clock` and `ap_i8254_clock` have no
+* **The ring controller's two 8254s -- UNBLOCKED, and they are not timers.**
+  `002398-04` p. 12-32 names the registers: `RCV_HDR_CNT`, `RCV_PKT_CNT`,
+  `RCV_MAX_CNT`, `XMIT_HDR_CNT`, `XMIT_PKT_CNT`, `BAD_PKT_CNT`, "implemented
+  with Intel 8254 Chips". They are **packet counters clocked by ring traffic**,
+  not interval timers clocked by an oscillator, so the input frequency recorded
+  below as a blocker does not exist to be found -- a rate invented for one would
+  have been wrong in kind, not merely in value. `RING.md` finding 41a. What they
+  need is a clock pulse per header and per packet crossing the interface, which
+  this core generates itself. The superseded framing: `ap_ring_ctl_clock` and `ap_i8254_clock` have no
   callers, and the ring is not in `ap_board_advance`. The counters can be
   programmed and read back -- they are hashed and register-accurate -- but they
   never count.
