@@ -26957,6 +26957,20 @@ A step-for-step diff cannot tell a phase offset in a spin loop from a real
 parting, and this is the first time that has mattered -- worth knowing before
 the next comparison is read.
 
+**And the window then ran out rather than finding anything.** Of our 20,000
+steps, **17,174 are that idle loop**. The oracle enters the same loop at step
+2,827 and leaves it at step **19,968**, thirty-two steps before the window
+closes, for a second idle pair at `3C46F024`/`3C46F026`. So the two machines
+idle together for some seventeen thousand instructions and the comparison simply
+ended; nothing was found because there was nothing left in range to find.
+
+**So instruction-by-instruction is the wrong instrument for this phase.** A
+window dominated by a spin loop measures the spin. What distinguishes the two
+machines from here is *events* -- disk commands issued and their order, console
+output, the interrupts that end the idle -- and those are comparable across a
+run of any length. The sound-sync rule is unchanged; only the quantity being
+compared should be.
+
 `00120020` is closed. **The open question is `E0007` on `/sys/node_data`.**
 
 What the volume itself says, read straight out of the image without a boot:
