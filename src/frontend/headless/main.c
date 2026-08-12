@@ -1730,16 +1730,36 @@ static void typed_deliver(ap_machine_t *machine, ap_board_t *board,
  * from the passing visits is a *property of the machine*: at a prompt it stays
  * in the poll, and everywhere else it does not. So the rule is a count of
  * consecutive instructions spent at the address, reset by leaving it. */
+/* ## The first version of this counted the wrong thing, and a boot said so
+ *
+ * It counted *consecutive instructions with `pc == want`*. A poll is a loop, so
+ * the address comes round once per iteration and the count resets on every
+ * instruction in between: with a two-instruction loop it never exceeds one.
+ * Measured -- `--boot-type-settled 200000` armed nothing at all, and the report
+ * read `boot type 0 of 1 character(s) typed` where the plain rule had typed
+ * both phases.
+ *
+ * What "still here" means for a loop is that the address keeps coming round,
+ * not that the processor stands on it. So visits are counted, and the count is
+ * discarded only once the machine has been *away* long enough to have left --
+ * `AP_TYPE_SETTLE_AWAY` instructions, comfortably more than any poll's body and
+ * far less than the shortest excursion out of one. */
+#define AP_TYPE_SETTLE_AWAY 4096u
+
 static bool typed_arm(uint32_t pc, uint32_t want, unsigned settle,
-                      unsigned *settled_for) {
-  if (want == 0u || pc != want) {
-    *settled_for = 0u;
+                      unsigned *visits, unsigned *away) {
+  if (want == 0u) {
     return false;
   }
-  if (*settled_for < 0xFFFFFFFFu) {
-    (*settled_for)++;
+  if (pc == want) {
+    *away = 0u;
+    if (*visits < 0xFFFFFFFFu) {
+      (*visits)++;
+    }
+  } else if (++(*away) > AP_TYPE_SETTLE_AWAY) {
+    *visits = 0u;
   }
-  return *settled_for >= settle;
+  return *visits >= settle;
 }
 
 static int boot_from_prom(const char *path, unsigned limit, bool trace,
@@ -2099,6 +2119,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * `--boot-type-settled`. See `typed_arm` for why a count of *consecutive*
    * visits is the thing that distinguishes a prompt from a passing visit. */
   unsigned typed_settled_for = 0u;
+  unsigned typed_settled_away = 0u;
   /* Carried across the phase switch, unlike `typed_sent`. */
   bool typed_first_done = false;
   size_t input_sent = 0;
@@ -2400,7 +2421,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * poll. */
       if (!typed_armed &&
           typed_arm(machine.cpu.regs.pc, typed_phase_pc[typed_phase_at],
-                    typed_settle, &typed_settled_for)) {
+                    typed_settle, &typed_settled_for, &typed_settled_away)) {
         typed_armed = true;
       }
       if (typed_sent >= typed_length && typed_phase_at == 0u &&
@@ -2414,6 +2435,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
         /* Restart the dwell: the phase before it may have been standing at the
          * same address, and inheriting that count would arm this one at once. */
         typed_settled_for = 0u;
+        typed_settled_away = 0u;
       }
       typed_deliver(&machine, board, typed_now, typed_length, &typed_sent,
                     &typed_at, &typed_flushed_was, &typed_reads_was,
@@ -2698,7 +2720,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * poll. */
       if (!typed_armed &&
           typed_arm(machine.cpu.regs.pc, typed_phase_pc[typed_phase_at],
-                    typed_settle, &typed_settled_for)) {
+                    typed_settle, &typed_settled_for, &typed_settled_away)) {
         typed_armed = true;
       }
       if (typed_sent >= typed_length && typed_phase_at == 0u &&
@@ -2712,6 +2734,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
         /* Restart the dwell: the phase before it may have been standing at the
          * same address, and inheriting that count would arm this one at once. */
         typed_settled_for = 0u;
+        typed_settled_away = 0u;
       }
       typed_deliver(&machine, board, typed_now, typed_length, &typed_sent,
                     &typed_at, &typed_flushed_was, &typed_reads_was,
