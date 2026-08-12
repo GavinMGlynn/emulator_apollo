@@ -27021,6 +27021,27 @@ measurement itself produced:
 **What remains, therefore, is what the kernel does with data it read
 successfully** -- the data path rather than the command path.
 
+### E0007 WAS THE CLOCK, and this core now reaches the calendar question
+
+**One boot settled it.** Same invocation, same disk, same everything but the
+date:
+
+| `--clock` | outcome |
+| --- | --- |
+| `2026-08-09` | `Unable to resolve "/sys/node_data" -- E0007`, `CRASH_STATUS 000E0007` |
+| `2026-08-12` | *no crash* -- `More than 14 days have elapsed since the last shutdown.` / `Do you want to run DOMAIN_OS with the current calendar?` |
+
+**So `E0007` was never an emulator defect.** It is Domain/OS taking an error
+path on a calendar it will not accept, and the fifth configuration mismatch this
+investigation has produced -- after `--screen`, service mode against normal,
+cross-run instruction counts, and the two-prompt keypress. It was found in one
+boot only because the configuration was checked *before* the data path was
+opened up, which is the whole point of the rule.
+
+**This core now reaches the same prompt the oracle sits at**, having drawn the
+whole self test, answered it, loaded the kernel, and got through initialisation.
+That is the furthest a boot has ever gone here.
+
 **Check the clock before anything else**, because it is the trap class this
 investigation has already paid for four times. These runs pass
 `--clock 2026-08-09`; the oracle is given **no clock option at all** and takes
