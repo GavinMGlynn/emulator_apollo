@@ -27392,6 +27392,37 @@ that is necessary but not obviously sufficient.
 
 `00120020` is closed. **The open question is `E0007` on `/sys/node_data`.**
 
+### What is established about `E0007`, and what to try next
+
+Measured, not inferred:
+
+* **It is not a machine fault.** The run's 294 MMU faults are all `invalid on
+  write` from the pager's own PCs -- ordinary demand paging. `E0007` is
+  Domain/OS's own name resolution refusing, so the evidence is in what it was
+  given, not in a trap.
+* **The volume has the node directory this machine should want.** Searching the
+  image for `node_*` gives `node_12345`, `node_1223e`, `node_1749d`,
+  `node_22ee0`, `node_8e4`, `node_a` -- a networked install -- and **`node_12345`
+  matches this core's node ID `0x012345` exactly**.
+* **The node-ID PROM decodes correctly.** For `0x012345` it returns `00 01 23 45`
+  across its four registers with checksum `69`, per `ap_nodeid_read`.
+* **`@2D-03863-MS`, printed immediately before the failure, is *not on the
+  volume*.** The kernel composes it. It appears only now that the calendar
+  question can be answered, which makes it the first new evidence in this area
+  and the obvious thing to identify.
+
+**Next, in this order.** Find what `@2D-03863-MS` is composed from -- it is a
+string built at run time, so a watch on the buffer it is printed from, or the
+routine that formats it, names its inputs. If one of those inputs is a node
+identity that is not `12345`, the resolution failure follows directly, because
+the volume has no directory for any other id this machine could name. Then
+compare the same line against the oracle, which boots this volume to a login
+prompt and must therefore compose something the volume can satisfy.
+
+**Do not close this on a boot that merely gets further**: `E0007` was declared
+solved once today on exactly that reasoning, and the machine had only stopped at
+a prompt instead of failing.
+
 What the volume itself says, read straight out of the image without a boot:
 
 * `node_data` appears 1,762 times, so the directory is present.
