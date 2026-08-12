@@ -26822,3 +26822,52 @@ interrupt are what matters.
 first divergence at step 2608, our step 326,511,735 flagged `EXCEPTION`;
 `src/core/cpu/m68030/ap_m68030_exception.c` lines 229-249 for the acceptance
 rule and `src/core/board/ap_board.c` line 336 for the level.*
+
+### THE CAUSE: this core's disk has no access time, and Domain/OS requires one
+
+`ap_omti_disk_irq` is right -- `MASK` interrupt-enable AND `ST_IREQ`, per §4.2
+and §4.3 -- but **nothing in this core delays the completion that sets `IREQ`**.
+The header says so in as many words about the seek bits: they are "never set,
+and that is the model being honest", because `SEEK` and `RECALIBRATE` "complete
+within the command that issues them -- there is no interval during which one is
+outstanding", and they "become real when seeks take time". Reads are the same:
+issue and completion are one instant, so `IRQ14` is asserted with **zero
+latency**.
+
+**The oracle carries a deliberate fix for exactly this**, in
+`ext/mame/src/devices/bus/isa/omti8621.cpp` under `OMTI_CMD_READ_DATA_TO_BUFFER`
+(`0x1E`):
+
+    // Domain/OS doesn't expect zero access time
+    command_duration += 1;   // 1 ms is enough, average time would be 30 ms)
+
+and it asserts the interrupt from a timer, `m_timer->adjust(attotime::from_msec(
+command_duration), 0)`, rather than at once. So the ladder is:
+
+| | duration of `READ DATA TO BUFFER` |
+| --- | --- |
+| the drive, per MAME's own comment | ~30 ms average |
+| the oracle | 1 ms |
+| **this core** | **0 -- immediate** |
+
+This boot issues `1E` **25 times** out of 1,337 disk commands and takes **31**
+vector-`AE` interrupts, so those reads are essentially the whole of the disk's
+interrupt traffic. With zero latency one of them lands inside the page-fault
+handler's copy loop, 2,607 instructions after the fault, and everything the
+crash investigation has been chasing follows from there.
+
+**This was reached from the other end and independently**: by diffing the two
+machines out of a shared program event until they parted at one instruction, and
+only then reading the oracle's source, which turned out to name the failure. It
+is also a case where the oracle is approximate too -- 1 ms against a documented
+~30 ms -- so matching MAME is not the target.
+
+**Open, and now a named plan item**: give the OMTI real command timing. The
+value must come from the drive's positioning and rotation figures, not from
+MAME's 1 ms and not from sweeping until the boot survives -- which would be the
+parameter search `CLAUDE.md` forbids. Where the figure genuinely is not
+published, model the documented one, mark it `PROVISIONAL` and say so here.
+
+*Verification: `ext/mame/src/devices/bus/isa/omti8621.cpp` lines 840, 936 and
+1000; `src/core/device/ap_omti.c` lines 62-65 and `ap_omti.h` lines 125-132; the
+`disk commands` histogram and `exceptions` line of a full boot report.*

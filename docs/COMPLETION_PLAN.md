@@ -2152,6 +2152,30 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         Detail in `PROJECT_STATUS.md`.
 ## Phase 4 — Storage, then a first boot
 
+- [ ] **Give the OMTI command completion a duration; Domain/OS requires one.**
+      This core sets `IREQ` in the instant a command is issued, so `IRQ14` has
+      **zero latency**. The oracle carries a deliberate fix for exactly this --
+      `// Domain/OS doesn't expect zero access time` above a 1 ms
+      `command_duration` on `READ DATA TO BUFFER` (`0x1E`), asserted from a
+      timer -- and its own comment puts the drive's average at ~30 ms. With no
+      delay, one of this boot's 25 `1E` reads lands inside the page-fault
+      handler's copy loop and the kernel crashes with `00120020`.
+
+      **The figure must come from the drive, not from MAME's 1 ms and not from
+      sweeping until the boot survives.** Needed: positioning time and rotation
+      from the fitted drive's specification, plus `[OMTI]`'s own command
+      timings; where a figure genuinely is not published, model the documented
+      one and mark it `PROVISIONAL` in code and in `PROJECT_STATUS.md`.
+
+      Carries two tails the header already names: the `MSR` seek-in-progress
+      bits (`SEEK_A`/`SEEK_B`) become observable once seeks take time, and so
+      does `MSR_BUSY` across a command. Detail in `PROJECT_STATUS.md`.
+      *Verification: the boot passes the `3C47A25A` fault without taking
+      vector `AE` inside the handler -- compared against the oracle out of the
+      fault with `--boot-stop-pc-then` and `APOLLO_SYNC_THEN`, which is the
+      instrument that found this.*
+
+
 - [x] **A DN3000 core board, and `dn3000` boots.** The board holds a *map* per
       model now — Table 2-6's DS3000 space against Table 2-8's — because the
       difference is not a shift: the device block moves from `010000` to
