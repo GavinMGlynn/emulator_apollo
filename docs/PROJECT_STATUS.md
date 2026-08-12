@@ -27073,7 +27073,26 @@ measurement itself produced:
 **What remains, therefore, is what the kernel does with data it read
 successfully** -- the data path rather than the command path.
 
-### E0007 WAS THE CLOCK, and this core now reaches the calendar question
+### RETRACTED 2026-08-12: "E0007 was the clock" -- it was the prompt not being answered
+
+The A/B below is real and the conclusion drawn from it is not. With
+`--clock 2026-08-09` the machine reached `E0007` without the calendar question
+ever being answered; with `2026-08-12` it **waited at the question**, and a
+boot that waits looks exactly like a boot that has stopped failing. It had not.
+
+Once the `IRQ1` fix let the keyboard deliver an answer, the same run prints the
+question, takes the answer -- the question is echoed **twice**, which only
+happens if input was consumed, and a new line `@2D-03863-MS` appears -- and then
+fails with `Unable to resolve "/sys/node_data" -- E0007` exactly as before.
+
+**So the clock changed whether the question was asked, not whether the failure
+behind it happens.** `E0007` is a live defect again and the entry below is kept
+only as the record of how it was mis-closed. The lesson is narrow and worth
+having: **a machine sitting at a prompt is not a machine that has got past it**,
+which is the same mistake as reading an idle oracle as one that declined to run
+the code -- twice in one session, at opposite ends of the same investigation.
+
+### Superseded: E0007 read as the clock, and this core now reaches the calendar question
 
 **One boot settled it.** Same invocation, same disk, same everything but the
 date:
