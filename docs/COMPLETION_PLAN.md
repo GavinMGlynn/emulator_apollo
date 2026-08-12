@@ -3306,10 +3306,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
      demand paging from the pager's own PCs); the volume carries `node_12345`,
      matching this core's node ID `0x012345`; and the node-ID PROM decodes
      correctly. Detail in `PROJECT_STATUS.md`.
-  4. **`@2D-03863-MS` is a dead end.** It was recorded as "the obvious thing to
-     identify" because it appeared with the failure. It prints on every run,
-     including ones that never fail, so it is ordinary kernel banner output.
-     Dropped.
+  4. **`@2D-03863-MS` is back, and it is the cheapest lead in the boot.** It was
+     dropped on the finding that it prints on runs of *this core* that never
+     fail — true, and the wrong comparison. **The oracle prints a blank line
+     there**, on the same volume, between two lines the machines agree on
+     exactly. It is the first line-level console divergence in the Domain/OS
+     boot. Detail in `PROJECT_STATUS.md`.
 
   **And the address-space switch now runs.** The boot that reaches `E0007` exits
   with `crp 0105BC00`, 82 `PMOVE` loads and 294 `MMUSR` reads — twenty-four
@@ -3341,16 +3343,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   found here. Network explanations are closed off. Detail in
   `PROJECT_STATUS.md`.
 
-  **Two candidates remain, and one experiment separates them:**
-  the volume does not carry `/sys/node_data`, or this core hands the name server
-  the wrong block. **Boot the same pristine image under the oracle.** It has
-  been started — `screencap.lua` with `APOLLO_SNAP_AT` — and reaches
-  `DO YOU WISH TO CONTINUE (Y,N)?` and stops, because nothing types on the
-  oracle's keyboard. That prompt has to be answered there the way
-  `--boot-type-after-pc 2670` answers it here; then compare the screens.
-  The 300 s snapshot already shows one difference worth noting on its own:
-  the oracle prints `802.3 NETWORK CONTROLLER-AT TEST PASSED.` where this core
-  prints nothing, because MAME fits a 3c505 and we do not.
+  **Two candidates remain:** the volume does not carry `/sys/node_data`, or this
+  core hands the name server the wrong block. The oracle now boots the pristine
+  image — `screencap.lua` gained `APOLLO_SNAP_KEYS`, without which every capture
+  stopped at SELF_TEST looking stuck — and reaches the calendar question. It
+  does **not** answer it: the `Numpad Enter` presses were scheduled before the
+  question was asked. Schedule one after it and the oracle's behaviour past the
+  question is measurable, which separates the two candidates directly.
+
+  **And chase `@2D-03863-MS` first**, because it is one line, it is between two
+  lines the machines agree on, and it is the only place in the boot where this
+  core says something the oracle does not.
   - Then the oracle, out of a shared program event, on the **same image**. Its
     successful boots have been on `media/dn3500.awd`, which MAME mutates and
     which differs from `media/dn3500-sr10.4-installed.awd` by 563,262 bytes;

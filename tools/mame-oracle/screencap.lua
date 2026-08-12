@@ -66,6 +66,31 @@ local at      = parse_times(os.getenv("APOLLO_SNAP_AT") or "1,3,6")
 local normal  = (os.getenv("APOLLO_SNAP_MODE") or "normal") ~= "service"
 local until_s = tonumber(os.getenv("APOLLO_SNAP_UNTIL") or "") or (at[#at] or 6.0)
 
+-- `APOLLO_SNAP_KEYS`: `PORT_NAME@seconds`, comma separated, e.g.
+-- `Y@45,Return@46`. Without this the oracle cannot get past SELF_TEST's
+-- "DO YOU WISH TO CONTINUE (Y,N)?", which is not a fault but a setup step, and
+-- every capture stops there showing a machine that looks stuck.
+--
+-- Pressed by `PORT_NAME` directly rather than through MAME's natural keyboard,
+-- for the reason `mdsession.lua` records: `apollo_kbd.cpp` defines no
+-- `PORT_CHAR` entries, so the translation layer has nothing to work with and
+-- silently does nothing. A press is held for `APOLLO_SNAP_KEY_HOLD` seconds
+-- (default 0.4) and then released -- a key that is never released repeats.
+local function parse_keys(spec)
+	local out = {}
+	for item in spec:gmatch("[^,]+") do
+		local name, when = item:match("^%s*(.-)%s*@%s*([%d%.]+)%s*$")
+		if name ~= nil then
+			out[#out + 1] = { name = name, at = tonumber(when), done = false }
+		end
+	end
+	table.sort(out, function(a, b) return a.at < b.at end)
+	return out
+end
+
+local keys     = parse_keys(os.getenv("APOLLO_SNAP_KEYS") or "")
+local key_hold = tonumber(os.getenv("APOLLO_SNAP_KEY_HOLD") or "") or 0.4
+
 local G = _G
 G.APOLLO_SNAP = G.APOLLO_SNAP or { armed = false, base = 0, next = 1 }
 local S = G.APOLLO_SNAP
@@ -96,6 +121,34 @@ local function set_mode()
 	out("# no Service field found in :apollo_config\n")
 end
 
+local held = nil
+local held_until = 0
+
+local function press_key(name)
+	for tag, port in pairs(manager.machine.ioport.ports) do
+		if tag:find("kbd") then
+			for field_name, field in pairs(port.fields) do
+				if field_name == name then
+					held = field
+					field:set_value(1)
+					out("# pressed %q on %s at %.3fs\n", name, tag, now_s())
+					return
+				end
+			end
+		end
+	end
+	-- Naming what is present, because "not found" cannot distinguish a
+	-- misspelled `PORT_NAME` from a machine with no keyboard fitted.
+	out("# key %q not found; keyboard fields present:\n", name)
+	for tag, port in pairs(manager.machine.ioport.ports) do
+		if tag:find("kbd") then
+			for field_name, _ in pairs(port.fields) do
+				out("#   %s %s\n", tag, field_name)
+			end
+		end
+	end
+end
+
 -- Named by the instant rather than by a counter, so a file cannot be matched to
 -- the wrong moment when several runs land in one directory.
 local function snap(when)
@@ -123,6 +176,21 @@ emu.register_periodic(function()
 		return
 	end
 	local now = now_s()
+	if held ~= nil and now >= held_until then
+		held:set_value(0)
+		out("# released at %.3fs\n", now)
+		held = nil
+	end
+	if held == nil then
+		for _, k in ipairs(keys) do
+			if not k.done and now >= k.at then
+				k.done = true
+				press_key(k.name)
+				held_until = now + key_hold
+				break
+			end
+		end
+	end
 	while S.next <= #at and now >= at[S.next] do
 		snap(at[S.next])
 		S.next = S.next + 1

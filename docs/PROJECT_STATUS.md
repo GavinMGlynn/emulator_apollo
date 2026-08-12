@@ -27888,3 +27888,52 @@ wrong block.
 01124908 --boot-log-watch-writes`, 2,737 writes, the last two quoted above; the
 compared node ID read from the 250,000-step trace at the same instruction
 numbers, both runs stopping at 478,736,082.*
+
+## The oracle boots the pristine image, and it does **not** print `@2D-03863-MS`
+
+`screencap.lua` gains `APOLLO_SNAP_KEYS` -- `PORT_NAME@seconds`, comma
+separated -- because without it every oracle capture stops at SELF_TEST's
+"DO YOU WISH TO CONTINUE (Y,N)?" showing a machine that looks stuck and is
+merely unanswered. Keys are pressed by `PORT_NAME` and released after a hold,
+for the reason `mdsession.lua` already records: `apollo_kbd.cpp` defines no
+`PORT_CHAR` entries, so MAME's natural keyboard silently does nothing.
+
+With `Y@45` the oracle gets through SELF_TEST and reaches, on the **pristine**
+`dn3500-sr10.4-installed.awd`:
+
+    SELF TESTS PASSED.
+    >LOW: 01002000 HIGH: 010E986C START: 01002024
+    Domain/OS kernel(7), revision 10.4, February 14, 1992  11:42:25 am
+
+    More than 14 days have elapsed since the last shutdown.
+    Do you want to run DOMAIN_OS with the current calendar?
+
+### RETRACTED: `@2D-03863-MS` is not "ordinary banner output"
+
+Two entries above concluded it was, on the grounds that it prints on runs of
+*this core* that never fail. That is true and it is the wrong comparison. The
+oracle, on the same volume with the same PROM and the same kernel, prints a
+**blank line** where this core prints `@2D-03863-MS`, immediately after the
+kernel revision line and immediately before "More than 14 days".
+
+So it is a divergence between the machines after all -- just not one correlated
+with failure *within* this machine, which is what the earlier test measured.
+"It appears on runs that do not fail" rules out a link to the failure; it says
+nothing at all about whether the oracle prints it. Two different questions, and
+the first was answered as if it settled the second.
+
+It is the **first line-level console divergence found in the Domain/OS boot**,
+it is one line, and it sits between two lines the machines agree on exactly.
+That makes it the cheapest divergence in the boot to chase, which is what the
+earlier entry mistakenly dropped.
+
+The one other console difference at this point is known and expected:
+`802.3 NETWORK CONTROLLER-AT TEST PASSED.` in the PROM's driver search, which
+MAME prints because it fits a 3c505 and this core does not.
+
+*Verification: `screencap.lua` with `APOLLO_SNAP_KEYS="Y@45,…"` and
+`APOLLO_SNAP_AT="240,330,420,510,600,690"` on a copy of
+`media/dn3500-sr10.4-installed.awd`; the 510 s and 690 s snapshots both show the
+kernel banner followed by a blank line. The oracle does not answer the calendar
+question -- the `Numpad Enter` presses were scheduled before it was asked -- so
+what happens past it there is still unmeasured.*
