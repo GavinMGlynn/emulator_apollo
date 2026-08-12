@@ -27315,6 +27315,15 @@ which lays the operand out so one byte decides it: `01` at the correct address
 and `00` two bytes lower, tested with `BTST #0` so the Z flag names which was
 read. Against the unfixed core it fails `Expected FALSE Was TRUE`.
 
+**The identity hash does not move: still `A354786119A3931D`.** I expected a
+re-baseline and warned that the fix was broad -- every PC-relative operand behind
+an immediate, across all firmware and kernel code. The reference boot's 350 M
+instructions are byte-identical across the change, so **no re-baseline is
+needed** and the effect is narrower than the reach: the defect only bites where
+such an operand's *value* changes a decision, and on this machine that was one
+kernel branch. Worth stating because "this touches everything" and "this changes
+everything" are different claims, and only the first was true.
+
 **Found from a boot, not from reading the code.** The `IRQ1` chase reached a
 `btst` whose operand address the arithmetic put at `3C4E2000`, and the byte
 there contradicted the branch the machine actually took. The contradiction was
