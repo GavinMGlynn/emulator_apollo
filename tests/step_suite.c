@@ -263,6 +263,46 @@ static void plant_vector(machine_t *m, unsigned vector, uint32_t handler) {
 
 
 /* NOP executes and advances the PC by two. */
+/* ## Which word a PC-relative displacement is measured from, when an immediate
+ * comes first
+ *
+ * `[030]` section 2: a program-counter-relative effective address is formed from
+ * "the address of the extension word" -- the word holding the *displacement*.
+ * For most instructions that is the word straight after the opcode and the
+ * distinction never shows. `BTST #imm,(d16,PC)` carries **two** extension
+ * words, the immediate and then the displacement, and the two candidate bases
+ * are two bytes apart.
+ *
+ * Written because a boot suggested this core might take the earlier one, which
+ * would put every such operand two bytes low. Laid out so the answer is a single
+ * byte and cannot be read two ways: the byte at the correct address is `01`, its
+ * bit 0 set so `BTST #0` clears Z, and the byte two lower is `00`, which would
+ * leave Z set. The condition code then names which address was read.
+ */
+static void test_a_pc_relative_operand_is_measured_from_the_displacement_word(
+    void) {
+  machine_t m = {0};
+  /* BTST #0,(d16,PC) at PROGRAM_BASE: 083A, immediate 0000, displacement d16.
+   * The displacement word sits at PROGRAM_BASE+4, so a base of PROGRAM_BASE+4
+   * with d16 = +12 reaches PROGRAM_BASE+16, and the wrong base
+   * (PROGRAM_BASE+2) would reach PROGRAM_BASE+14. */
+  static const uint16_t program[] = {0x083Au, 0x0000u, 0x000Cu, 0x4E71u,
+                                     /* +8 */ 0x4E71u, 0x4E71u, 0x4E71u,
+                                     0x0000u};
+  load(&m, program, 8);
+  /* PROGRAM_BASE+14 = 00 (the wrong operand), PROGRAM_BASE+16 = 01 (the right
+   * one). Written after `load`, which fills the rest with NOPs. */
+  m.memory.bytes[PROGRAM_BASE + 14u] = 0x00u;
+  m.memory.bytes[PROGRAM_BASE + 16u] = 0x01u;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  /* "Z -- Set if the bit tested is zero; cleared otherwise." Bit 0 of the byte
+   * at the displacement word's address is 1, so Z must be clear. Z set means the
+   * operand came from two bytes lower, which is the defect this pins. */
+  TEST_ASSERT_FALSE((ap_m68030_read_ccr(&m.cpu.regs) & (1u << AP_M68030_SR_Z_BIT)) != 0u);
+}
+
 static void test_a_nop_executes_and_advances_the_pc(void) {
   static const uint16_t program[] = {0x4E71u, 0x4E71u, 0x4E71u, 0x4E71u};
   machine_t m = {0};
@@ -7955,6 +7995,7 @@ int main(void) {
   RUN_TEST(test_ori_to_the_status_register_sets_the_interrupt_mask);
   RUN_TEST(test_andi_to_the_condition_codes_leaves_the_high_byte);
   RUN_TEST(test_ori_to_the_status_register_is_privileged);
+  RUN_TEST(test_a_pc_relative_operand_is_measured_from_the_displacement_word);
   RUN_TEST(test_a_nop_executes_and_advances_the_pc);
   RUN_TEST(test_moveq_sign_extends_to_a_long);
   RUN_TEST(test_moveq_sets_the_documented_condition_codes);

@@ -322,7 +322,14 @@ static bool gather_address_input(ap_m68030_cpu_t *cpu, ap_m68030_ea_kind_t kind,
     /* The displacement is signed, and the PC forms are relative to this very
      * word -- which is the address the pipe just delivered. */
     input->displacement = (int32_t)(int16_t)word;
-    input->extension_address = cpu->regs.pc + 2u;
+    /* **The word this displacement came in, not the first one.** `[030]`
+     * section 2 measures a PC-relative address from "the address of the
+     * extension word", and with an immediate ahead of the effective address --
+     * `BTST #imm,(d16,PC)` is the case that found this -- that is not `pc + 2`.
+     * Using `pc + 2` put every such operand two bytes low, which is a wrong
+     * *address*, silent, and reachable by ordinary kernel code. */
+    input->extension_address =
+        cpu->regs.pc + 2u * (uint32_t)cpu->extension_words;
     return true;
   }
 
@@ -355,7 +362,14 @@ static bool gather_address_input(ap_m68030_cpu_t *cpu, ap_m68030_ea_kind_t kind,
       return false;
     }
     input->extension_word = word;
-    input->extension_address = cpu->regs.pc + 2u;
+    /* **The word this displacement came in, not the first one.** `[030]`
+     * section 2 measures a PC-relative address from "the address of the
+     * extension word", and with an immediate ahead of the effective address --
+     * `BTST #imm,(d16,PC)` is the case that found this -- that is not `pc + 2`.
+     * Using `pc + 2` put every such operand two bytes low, which is a wrong
+     * *address*, silent, and reachable by ordinary kernel code. */
+    input->extension_address =
+        cpu->regs.pc + 2u * (uint32_t)cpu->extension_words;
 
     const ap_m68030_extension_t extension =
         ap_m68030_ea_decode_extension(word);
