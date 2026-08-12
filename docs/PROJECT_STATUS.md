@@ -27042,15 +27042,23 @@ opened up, which is the whole point of the rule.
 whole self test, answered it, loaded the kernel, and got through initialisation.
 That is the furthest a boot has ever gone here.
 
-**Answering it needs the right arming address, and the kernel's idle loop is not
-it.** A first attempt armed the second typed phase on `3C43F5A8`, which the
-kernel reaches long before the prompt exists -- it is in the post-fault trace at
-step 2,827 -- so both characters were typed into a console with nothing reading
-and the report says so: `sio1 A  1 discarded unread`, prompt still on screen
-after 1.5 G instructions. The channel is right (`sio1 A` is the keyboard, and
-the firmware's `Y` is echoed on the same screen); only the moment was wrong.
-The arming address has to be the **prompt's own poll**, which a trace taken
-while the machine sits at it will name.
+**Answering it needs the right *occurrence*, not a different address.** A first
+attempt armed the second typed phase on `3C43F5A8` and both characters were
+discarded -- `sio1 A  1 discarded unread`, prompt still on screen after 1.5 G
+instructions. The obvious reading, written here first, was that the idle loop is
+not the prompt's poll. **A trace says otherwise**: at the prompt the machine is
+in exactly `3C43F5A8`/`3C43F5AC`, `andi.w #imm,SR` and `bra`, for the last forty
+instructions of a 700 M boot. The address is right.
+
+What is wrong is *which visit*. The same loop serves early initialisation -- it
+is in the post-fault trace at step 2,827 -- so arming on it fires long before the
+question is printed. The channel is right too: `sio1 A` is the keyboard and the
+firmware's own `Y` is echoed on the same screen.
+
+So what is needed is an arming point that **occurs only after the question is
+printed**, or a visit count on the existing one. `--boot-type-await-pushback`
+does not help: it paces characters against the firmware's type-ahead slot, which
+is a different problem.
 
 **Check the clock before anything else**, because it is the trap class this
 investigation has already paid for four times. These runs pass
