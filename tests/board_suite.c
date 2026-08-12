@@ -572,6 +572,43 @@ static void test_a_typed_command_arrives_character_for_character(void) {
  *
  * So this asserts the *rate*: the reply is not all there at once, and it is
  * complete once the line has had time to carry it. */
+/* ## A held key repeats, which nothing used to make happen
+ *
+ * `ap_kbd_advance` reported a due repeat from the day it was written and had no
+ * caller, so a key held down was a key struck once and the repeat delay, period
+ * and code were all unreachable. `[kbd]` gives the keystate repeat as a
+ * distinct byte -- "transmitting a `7F` ... when any key has been pressed for
+ * longer than the repeat rate time" -- precisely so a repeat cannot be mistaken
+ * for a second strike.
+ */
+static void test_a_held_key_repeats_after_the_delay(void) {
+  ap_board_t b;
+  init(&b);
+
+  ap_time_t now = 1u;
+  ap_board_advance(&b, now);
+  TEST_ASSERT_TRUE(ap_board_key_press(&b, 0x10u));
+  /* A strike is not yet a repeat: the first interval is the delay. */
+  TEST_ASSERT_FALSE(b.keyboard.repeating);
+
+  /* Advanced to just inside the delay, the part is still waiting. */
+  ap_board_advance(&b, AP_KBD_REPEAT_DELAY - 1u);
+  TEST_ASSERT_FALSE(b.keyboard.repeating);
+
+  /* Past it, the board carries the keyboard forward and the repeat is due.
+   * `repeating` is set nowhere but inside `ap_kbd_advance`, so this asserts the
+   * board *calls* it -- which is the thing that was missing. Against a board
+   * that never advances the keyboard the flag stays false for ever, however
+   * long the run. */
+  ap_board_advance(&b, AP_KBD_REPEAT_DELAY + 1u);
+  TEST_ASSERT_TRUE(b.keyboard.repeating);
+
+  /* And a release ends it, so the flag is state and not a latch. */
+  TEST_ASSERT_TRUE(ap_board_key_release(&b, 0x10u));
+  ap_board_advance(&b, AP_KBD_REPEAT_DELAY + AP_KBD_REPEAT_PERIOD * 4u);
+  TEST_ASSERT_FALSE(b.keyboard.repeating);
+}
+
 static void test_the_keyboards_reply_arrives_at_the_lines_rate(void) {
   ap_board_t b;
   bool ok = false;
@@ -1234,5 +1271,6 @@ int main(void) {
   RUN_TEST(test_the_boot_prom_region_is_reported_absent);
   RUN_TEST(test_every_region_has_a_name);
   RUN_TEST(test_peeking_memory_reads_it_by_physical_address);
+  RUN_TEST(test_a_held_key_repeats_after_the_delay);
   return UNITY_END();
 }

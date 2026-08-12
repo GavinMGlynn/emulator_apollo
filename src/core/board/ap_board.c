@@ -598,6 +598,12 @@ void ap_board_bus_tick(ap_board_t *board) {
   }
 }
 
+/* Defined below, beside the press and release entry points it shares a queue
+ * with. Declared here because a *repeat* is delivered from the advance rather
+ * than from a caller's keystroke -- it is the one key event the board originates
+ * itself. */
+static bool deliver_key(ap_board_t *board, uint8_t code);
+
 void ap_board_advance(ap_board_t *board, ap_time_t now) {
   /* Each to the same instant, and each carrying its own remainder. Order does
    * not matter and must not: two devices advanced to the same absolute time
@@ -616,6 +622,28 @@ void ap_board_advance(ap_board_t *board, ap_time_t now) {
    * rather than in the register write that issued it, and the interrupt it
    * raises is the one Domain/OS requires not to be instantaneous. */
   ap_omti_advance(&board->disk.controller, now);
+
+  /* ## The keyboard repeats a held key, and nothing used to make it
+   *
+   * `ap_kbd_advance` has carried the part to `now` and reported a due repeat
+   * since it was written, and **nothing called it** -- so a key held down was a
+   * key struck once, and `AP_KBD_REPEAT_PERIOD`, `AP_KBD_REPEAT_DELAY` and
+   * `AP_KBD_REPEAT_KEYSTATE` were all modelled from the manual and unreachable.
+   * The header even said "nothing in this core advances time yet", which stopped
+   * being true a long time before this.
+   *
+   * The repeat is **not the code again** in the keystate set. `[kbd]`: "The
+   * repeat function is handled by the keyboard by transmitting a `7F` ... when
+   * any key (except CAPS LOCK) has been pressed for longer than the repeat rate
+   * time." A repeat that resent the down code would be indistinguishable from
+   * the key being struck a second time, which is the whole reason the part
+   * sends a distinct byte. */
+  unsigned repeat_key = 0u;
+  if (ap_kbd_advance(&board->keyboard, now, &repeat_key)) {
+    (void)deliver_key(board, board->keyboard.keystate_mode
+                                 ? AP_KBD_REPEAT_KEYSTATE
+                                 : (uint8_t)repeat_key);
+  }
 
   /* **The keyboard is on the other end of serial 1 channel A**, and it answers.
    * Anything the firmware transmits there reaches it, and what it says back
