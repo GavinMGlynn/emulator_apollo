@@ -26983,6 +26983,37 @@ comparison for 1,963 writes.
 
 That is the next measurement, and it needs no new harness work.
 
+### Measured: the disk command stream is byte-identical, so the driver is exonerated
+
+Tapping physical `04D000` on both sides and comparing the **command** bytes --
+the oracle's *single-lane* byte writes, which is what distinguishes a CDB byte
+from the word-wide data traffic around it -- gives:
+
+    ours 8068 command byte(s), oracle 25566
+    aligned with the oracle 0 byte(s) ahead; 8068 agree from there
+    no divergence inside the overlap
+
+**Every command byte this core issues matches the oracle's, in order, from the
+very first, with no alignment offset at all.** Ours simply stops where it
+crashes; the oracle carries on with the same repeating `1E` / `0E` pairs -- read
+to buffer, then read the buffer out -- all written by the byte-copy loop at
+`3C41EF86`.
+
+So `E0007` is **not** a disk-command divergence, and the driver, the CDB
+construction and the command sequencing are all excluded. Two cautions the
+measurement itself produced:
+
+* The two machines do **not** move data the same way. This core transfers by
+  DMA, so only descriptor blocks cross the data port -- 8,069 byte writes and
+  2,640 word writes -- where the oracle's tap sees 302,096 wider accesses over
+  the same address. Comparing raw write counts at that port compares two
+  different quantities; only the single-lane command bytes are common ground.
+* A byte-count comparison would have read 10,709 against 327,662 and called it a
+  divergence. The streams agree completely once the right quantity is selected.
+
+**What remains, therefore, is what the kernel does with data it read
+successfully** -- the data path rather than the command path.
+
 `00120020` is closed. **The open question is `E0007` on `/sys/node_data`.**
 
 What the volume itself says, read straight out of the image without a boot:
