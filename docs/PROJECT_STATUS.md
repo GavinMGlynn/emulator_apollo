@@ -27268,6 +27268,31 @@ disagreement between the two would itself be a defect worth having found.
 Published one commit too early: the arithmetic was checked and the *result* was
 not, and the check was one dump away.
 
+### HYPOTHESIS, not a finding: PC-relative EAs may be two bytes low behind an immediate
+
+`gather_address_input` sets `input->extension_address = cpu->regs.pc + 2u` for
+`AP_M68030_EA_PC_DISPLACEMENT`, with the comment "the PC forms are relative to
+this very word". For an instruction carrying **one** extension word that is
+right. `btst #imm,(d16,PC)` carries **two** -- the immediate and then the
+displacement -- and `[030]` makes the base the word holding the *displacement*.
+
+If this core uses the immediate's address instead, every PC-relative EA behind an
+immediate resolves **two bytes low**, which is exactly the discrepancy above:
+hardware reads `3C4E2000` and this core reads `3C4E1FFE`. It would also explain
+the whole `IRQ1` chain -- wrong byte, wrong bit, branch over the unmask, keyboard
+never armed -- from one addressing-mode defect.
+
+**It is a hypothesis and nothing here has confirmed it.** What settles it is a
+unit test rather than a boot: assemble `btst #n,(d16,PC)` at a known address,
+run one step, and assert which address the read lands on, against `[030]`
+section 2's rule read from the page image. If the two disagree the defect is
+real and is a CPU bug of the first order; if they agree, the `3C4E2000`
+arithmetic above is what is wrong and the operand is elsewhere.
+
+**Do that before touching anything else**: it is cheap, it is decisive either
+way, and it would be the first defect this investigation has found in the
+processor itself rather than in a device.
+
 Here bit 7 is **clear** -- the `bne.s` at `3C4E2A70` is not taken, the helper
 falls into `move.l #$001E000A,d0`, stores it through `a1` and returns it, and
 `3C4E2ACA` then branches over the unmask. On the oracle that branch falls
