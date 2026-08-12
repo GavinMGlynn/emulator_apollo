@@ -27811,3 +27811,80 @@ thousands of instructions before the propagation begins.
 *Verification: `tools/e0007-boot.sh --boot-stop-pc 3C452482 --boot-trace-last
 4000`, stopping at 478,736,082; the status's first appearance located by
 searching the trace's register columns rather than by inspection.*
+
+## The machine is *waiting* when it fails, and the wait ends in an interrupt
+
+A 250,000-step trace behind the reporting stop is 90% idle:
+
+    112,478 x 3C43F5A8  +  112,476 x 3C43F5AC     the two-instruction spin
+
+and `000E0007` **never appears in a register anywhere in it**. Its first
+occurrence in 250,000 steps is the `move.l (a2),d0` that reads it back out of
+the stack slot. So the status was stored as an **immediate to memory** -- the
+one way a value reaches a `status_$t` without passing through a register the
+trace can see -- and a register search cannot find its author. That is worth
+knowing before the next person greps a trace for a constant and concludes it
+was never computed.
+
+What the trace does show is the **shape** of the failure. There are exactly two
+entries to `3C44E05C` in the window, at steps 478,494,683 and 478,713,206, and
+the second is reached from `3C43F5A8` with no instruction in between -- an
+exception. Between them the machine spins 112,478 times and does nothing else.
+Twenty-three thousand instructions after that second interrupt, it reports
+`name not found`.
+
+So the sequence is **issue, spin, interrupt, decide** -- not a lookup that ran
+to completion and came up empty. 225,000 instructions of spin is 40-55 ms at
+this machine's rate, which is the order of a disk access (the modelled drive is
+16 ms average seek plus an 8.33 ms half-turn), and the boot takes only 34
+`IRQ14`s in total. The reading that fits is: the naming server read a directory
+block, waited for the drive, and concluded on the data that came back.
+
+That matters because it separates the two remaining explanations cleanly. If
+the block was read and the name genuinely is not in it, this is a volume that
+does not carry `/sys/node_data` and the emulator is faithful. If the block that
+came back is the wrong one, it is ours. **The experiment that decides it is the
+oracle on the same pristine image** -- which is why the next entry is about
+getting the oracle to boot it at all.
+
+*Verification: `tools/e0007-boot.sh --boot-stop-pc 3C452482 --boot-trace-last
+250000`, stopping at 478,736,082 exactly as the 4,000-step run did; the idle
+count and the two handler entries counted from the trace, not sampled.*
+
+### The status is written by `3C47BF58`, and the node ID is what was compared
+
+A watch on the slot's physical address settles what a register search could not.
+`--boot-watch-write 01124908 --boot-log-watch-writes` records **2,737** writes,
+and the last two are the same instruction:
+
+    2736  value 00000000  by PC 3C47BF58  after 478,063,658
+    2737  value 000E0007  by PC 3C47BF58  after 478,736,036
+
+`3C47BF58` is `move.l (d16,a6),(a2)` -- a routine copying a status out of its
+own frame into the caller's slot. So it is a propagation point and not the
+origin, but it is a *specific* one, it runs rarely, and **it succeeded once and
+failed once**: two resolutions, or two components of one path, and only the
+second gives up.
+
+Seven instructions further back the trace shows what the naming server was
+actually deciding:
+
+    478736011  3C47B9D4  B0B9 ........   cmp.l  (abs).l,d0    ; d0 = 00012345
+    478736012  3C47B9DA  6746            beq    3C47BA22      ; taken
+
+`00012345` is **this machine's node ID**, and the comparison against a global it
+matches is the "is this name on my own node?" test. It answers *yes*, the
+lookup goes local, and a short chain of `tst`/`cmpi` in `3C47B1xx` returns the
+failure that `3C47BF58` then copies out.
+
+So the naming server did not fail to find a *node*; it decided the name was
+this node's own and did not find it **here**. That closes off the whole family
+of network explanations -- no helper, unreachable partner, skewed clocks -- each
+of which has its own status code anyway, and leaves exactly the two candidates
+already named: the volume does not carry it, or we handed the name server the
+wrong block.
+
+*Verification: `tools/e0007-boot.sh --boot-stop-pc 3C452482 --boot-watch-write
+01124908 --boot-log-watch-writes`, 2,737 writes, the last two quoted above; the
+compared node ID read from the 250,000-step trace at the same instruction
+numbers, both runs stopping at 478,736,082.*

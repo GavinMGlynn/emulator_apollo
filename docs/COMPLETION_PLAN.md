@@ -3333,11 +3333,24 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   (`move.l (a2),d0` at `3C47BFCA`). Everything from there to the screen is error
   propagation, so the code that failed is upstream of that read.
 
-  **The next measurement**: find the **write** of `E0007` into that slot — a
-  watch on it names the lookup that failed. The slot is a stack address and
-  `--boot-watch-write` takes a physical one, so the mapping has to be
-  re-derived at the stop rather than assumed; a much longer `--boot-trace-last`
-  is the blunt alternative.
+  **Also done**: the write is `3C47BF58`, which copies a status out of its own
+  frame and runs rarely — once with `00000000` and once with `000E0007`. Seven
+  instructions earlier the naming server compares `d0 = 00012345`, **this
+  machine's node ID**, against a global it matches, and takes the branch: the
+  name is decided to be *this node's own*, the lookup goes local, and it is not
+  found here. Network explanations are closed off. Detail in
+  `PROJECT_STATUS.md`.
+
+  **Two candidates remain, and one experiment separates them:**
+  the volume does not carry `/sys/node_data`, or this core hands the name server
+  the wrong block. **Boot the same pristine image under the oracle.** It has
+  been started — `screencap.lua` with `APOLLO_SNAP_AT` — and reaches
+  `DO YOU WISH TO CONTINUE (Y,N)?` and stops, because nothing types on the
+  oracle's keyboard. That prompt has to be answered there the way
+  `--boot-type-after-pc 2670` answers it here; then compare the screens.
+  The 300 s snapshot already shows one difference worth noting on its own:
+  the oracle prints `802.3 NETWORK CONTROLLER-AT TEST PASSED.` where this core
+  prints nothing, because MAME fits a 3c505 and we do not.
   - Then the oracle, out of a shared program event, on the **same image**. Its
     successful boots have been on `media/dn3500.awd`, which MAME mutates and
     which differs from `media/dn3500-sr10.4-installed.awd` by 563,262 bytes;
