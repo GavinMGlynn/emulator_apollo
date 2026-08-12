@@ -18,17 +18,33 @@
  * is not made here. The register interface is the same either way, which is why
  * it is worth building first.
  *
- * ## The map, `[DEV]` §1.3.3
+ * ## The map, `[HIS]` §2-3 and §3-1
  *
- *     +0  Host Command Register      full duplex, byte wide
+ *     +0  Host Command Register      full duplex, byte wide, read and write
  *     +2  read:  Host Status Register
- *     +2  write: Host Control Register
+ *     +2  write: Host Aux DMA Register
  *     +4  Data Register              20-byte half duplex FIFO
- *     +6  read:  Host Control Register
+ *     +6  Host Control Register      write; also readable on Rev 3 hardware
  *
- * Two shapes in that table catch a reader out, and both are the manual's:
- * `+2` is **two different registers by direction**, and the control register is
- * **readable at a different offset than it is written**.
+ * `+2` is **two different registers by direction**, which is the shape that
+ * catches a reader out and is the manual's.
+ *
+ * **This corrects `[DEV]` §1.3.3, which this header used to follow.** That
+ * table puts the Host Control Register at `+2` on a write and readable at `+6`,
+ * and it contradicts `[DEV]`'s *own* register summary in §2.1 -- which gives
+ * Control at host `6` and AUX DMA at host `2`, write only -- and §2.5, which is
+ * titled "Host Aux DMA Register". `[HIS]`, three years later, prints the same
+ * summary twice (§2-3 as an address list, §3-1 as an offset table) and agrees
+ * with §2.1 both times. So the model that read `+2` back as a control register
+ * would have been reading the DMA burst control the host had written, and a
+ * driver's read-modify-write of `HCR` would have gone to the wrong register
+ * entirely. Found by the sibling-manual step, on a document that had been on
+ * disk for a day.
+ *
+ * `[HIS]` §3-1's footnote is why `+6` is not simply "read/write": the Host
+ * Control Register is **write-only on Rev 2 hardware**, and readable only on
+ * Rev 3, which has the large gate array. A model must therefore decide which
+ * revision it is; the DN3500's card is not yet established either way.
  *
  * Base is jumpered; the factory setting is `300H`, which through this machine's
  * AT decode -- `physical = 0x040000 + (ISA << 7)` -- puts the card at physical
@@ -64,12 +80,13 @@
 #define AP_3C505_IO_BASE_DEFAULT 0x300u
 #define AP_3C505_IO_SIZE 16u
 
-/* Offsets from the base. `+2` names two registers, by direction. */
-#define AP_3C505_REG_COMMAND 0u        /* read and write */
-#define AP_3C505_REG_STATUS 2u         /* read */
-#define AP_3C505_REG_CONTROL_WRITE 2u  /* write */
-#define AP_3C505_REG_DATA 4u           /* read and write */
-#define AP_3C505_REG_CONTROL_READ 6u   /* read */
+/* Offsets from the base, `[HIS]` §2-3 and §3-1. `+2` names two registers, by
+ * direction. */
+#define AP_3C505_REG_COMMAND 0u  /* read and write */
+#define AP_3C505_REG_STATUS 2u   /* read: Host Status Register */
+#define AP_3C505_REG_AUX_DMA 2u  /* write: Host Aux DMA Register */
+#define AP_3C505_REG_DATA 4u     /* read and write */
+#define AP_3C505_REG_CONTROL 6u  /* write, and read on Rev 3 hardware */
 
 /* `[DEV]` §1.9.2: "a half duplex 20 byte FIFO". */
 #define AP_3C505_DATA_FIFO 20u
@@ -82,21 +99,88 @@
 #define AP_3C505_PCB_MAX 64u
 #define AP_3C505_PCB_DATA_MAX 62u
 
-/* The named flags. **Positions are not known** -- `[DEV]` §1.9 defers them to a
- * document this project does not hold -- so these are an enumeration of what
- * exists, not a bit layout, and nothing here assigns them numbers. Naming them
- * without positions is the honest state: it records what the interface has
- * while making it impossible to use a position nobody has established. */
+/* ## The four flag registers, `[HIS]` §3-2, §3-3, §3-5 and §3-6
+ *
+ * `[DEV]` §1.9 names the flags and defers their positions to a *3C505 Hardware
+ * Interface Specification*; that document is `[HIS]`, and it has been found.
+ * These are read from its page images -- every table is drawn most-significant
+ * bit leftmost, as `CMD7 … CMD0` on §3-1 establishes -- so `bit 7` below is the
+ * leftmost cell of each row.
+ *
+ * The pairing is the part worth stating, because it is what "general purpose,
+ * not decoded by the hardware" means concretely: **each side writes its flags
+ * into its own control register and reads the other side's out of its own
+ * status register.** `HSF1`/`HSF2` are written by the host in `HCR` and appear
+ * to the adapter in `ASR`; `ASF1`-`ASF3` are written by the adapter in `ACR`
+ * and appear to the host in `HSR`. A model passes them through and interprets
+ * none of them.
+ *
+ * The command-register handshake flags are likewise mirrored, and their names
+ * are a trap: the *host*'s status register carries `HCRE` and `ACRF`, and the
+ * *adapter*'s carries `ACRE` and `HCRF`. Each side is told whether its own
+ * outgoing byte has been taken and whether an incoming one is waiting.
+ */
+
+/* Host Control Register, host `+6`. Written by the host. */
+#define AP_3C505_HCR_HSF1 0x01u /* host status flag 1, seen by the adapter */
+#define AP_3C505_HCR_HSF2 0x02u /* host status flag 2, seen by the adapter */
+#define AP_3C505_HCR_CMDE 0x04u /* command register interrupt enable */
+#define AP_3C505_HCR_TCEN 0x08u /* terminal count interrupt enable */
+#define AP_3C505_HCR_DIR 0x10u  /* clear host->adapter, set adapter->host */
+#define AP_3C505_HCR_DMAE 0x20u /* DMA enable */
+#define AP_3C505_HCR_FLSH 0x40u /* flush the data register FIFO */
+#define AP_3C505_HCR_ATTN 0x80u /* attention: NMI to the adapter's 80186 */
+/* `[HIS]` §3-2: `ATTN` alone is a soft reset, and `ATTN` **and** `FLSH`
+ * together are decoded by the hardware as a hard reset -- 80186, 82586, both
+ * status registers, both control registers and the FIFO. The machine stays in
+ * reset until both bits are cleared, so this is a level, not an edge. */
+#define AP_3C505_HCR_HARD_RESET (AP_3C505_HCR_ATTN | AP_3C505_HCR_FLSH)
+
+/* Host Status Register, host `+2` on a read. Written by the hardware. */
+#define AP_3C505_HSR_ASF1 0x01u /* adapter status flag 1, from `ACR` */
+#define AP_3C505_HSR_ASF2 0x02u /* adapter status flag 2, from `ACR` */
+#define AP_3C505_HSR_ASF3 0x04u /* adapter status flag 3, from `ACR` */
+#define AP_3C505_HSR_DONE 0x08u /* DMA terminal count reached */
+#define AP_3C505_HSR_DIR 0x10u  /* the direction the host set in `HCR` */
+#define AP_3C505_HSR_ACRF 0x20u /* adapter command register full: a byte waits */
+#define AP_3C505_HSR_HCRE 0x40u /* host command register empty: send another */
+#define AP_3C505_HSR_HRDY 0x80u /* data register ready, in the current direction */
+
+/* Adapter Control Register, adapter `+3` on a write and `+2` on a read.
+ * Written by the adapter's firmware; the host never touches it. */
+#define AP_3C505_ACR_ASF1 0x01u /* adapter status flag 1, seen by the host */
+#define AP_3C505_ACR_ASF2 0x02u /* adapter status flag 2, seen by the host */
+#define AP_3C505_ACR_ASF3 0x04u /* adapter status flag 3, seen by the host */
+#define AP_3C505_ACR_LED1 0x08u /* set lights LED 1 */
+#define AP_3C505_ACR_LED2 0x10u /* set lights LED 2 */
+#define AP_3C505_ACR_R586 0x20u /* hold the 82586 in reset */
+#define AP_3C505_ACR_FLSH 0x40u /* flush the data register FIFO */
+#define AP_3C505_ACR_LPBK 0x80u /* clear enables loopback at the 8023 */
+
+/* Adapter Status Register, adapter `+3` on a read. */
+#define AP_3C505_ASR_HSF1 0x01u /* host status flag 1, from `HCR` */
+#define AP_3C505_ASR_HSF2 0x02u /* host status flag 2, from `HCR` */
+#define AP_3C505_ASR_SWTC 0x04u /* the TEST jumper's state */
+#define AP_3C505_ASR_8_16 0x08u /* set: the card is in a 16-bit slot */
+#define AP_3C505_ASR_DIR 0x10u  /* the direction the host set in `HCR` */
+#define AP_3C505_ASR_HCRF 0x20u /* host command register full: a byte waits */
+#define AP_3C505_ASR_ACRE 0x40u /* adapter command register empty: send another */
+#define AP_3C505_ASR_ARDY 0x80u /* data register ready, in the current direction */
+
+/* The flags `[DEV]` §1.9 named, kept as an enumeration because it is the one
+ * place the eleven appear together and because two of them (`ACRE`/`HCRE`,
+ * `ACRF`/`HCRF`) are easy to mistake for one another. The masks above are what
+ * a model uses; this is what a reader reads. */
 typedef enum {
   /* Command register handshake, `[DEV]` §1.9.1. */
-  AP_3C505_FLAG_ACRE, /* adapter command register empty */
-  AP_3C505_FLAG_ACRF, /* adapter command register full */
-  AP_3C505_FLAG_HCRE, /* host command register empty */
-  AP_3C505_FLAG_HCRF, /* host command register full */
+  AP_3C505_FLAG_ACRE, /* adapter command register empty, in `ASR` */
+  AP_3C505_FLAG_ACRF, /* adapter command register full, in `HSR` */
+  AP_3C505_FLAG_HCRE, /* host command register empty, in `HSR` */
+  AP_3C505_FLAG_HCRF, /* host command register full, in `ASR` */
   /* Data register, §1.9.2. */
-  AP_3C505_FLAG_ARDY, /* adapter data register ready */
-  AP_3C505_FLAG_HRDY, /* host data register ready */
-  AP_3C505_FLAG_DIR,  /* transfer direction: clear host->adapter, set adapter->host */
+  AP_3C505_FLAG_ARDY, /* adapter data register ready, in `ASR` */
+  AP_3C505_FLAG_HRDY, /* host data register ready, in `HSR` */
+  AP_3C505_FLAG_DIR,  /* transfer direction, in `HCR`, `HSR` and `ASR` */
   /* General purpose, §1.9.5, and *not decoded by the hardware*. */
   AP_3C505_FLAG_ASF1,
   AP_3C505_FLAG_ASF2,

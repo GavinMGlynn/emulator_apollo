@@ -4458,8 +4458,11 @@ discipline throughout.
 - [ ] 3c505 802.3 controller, so Domain networking can also be checked against
       MAME the way MAME does it. *Verification: oracle diff — this is the one
       networking path with a runnable reference.*
-      **Awaiting:** the device itself. The references are in place and the one
-      documentary gap is named (see the child below); what remains is the code.
+      **Awaiting:** the device itself. The references are complete — `[HIS]`
+      closed the last documentary gap — so what remains is the code, and one
+      design decision: whether the adapter's 80186 firmware is emulated behind
+      the mailbox or its PCB protocol implemented host-side. The register
+      interface is the same either way, which is why it was built first.
       The reference on disk was **half a file** — 1,851,086
       bytes of 3,677,170, a truncated download that opens with a valid header
       and fails only when read. Re-fetched from the Internet Archive's bitsavers
@@ -4473,18 +4476,11 @@ discipline throughout.
   - [x] `src/core/device/ap_3c505.h`, the interface, transcribed from `[DEV]`
         §1.3.3 and §1.9: the five registers in sixteen I/O locations, the
         20-byte half duplex FIFO, the PCB's 64-byte limit, and the eleven named
-        flags **without positions**, because §1.9 defers those to a document
-        this project does not hold. Naming them unpositioned is the honest
-        state: it records what the interface has while making it impossible to
-        use a bit number nobody has established.
-        Two shapes in the map catch a reader out and both are the manual's:
-        `+2` is two different registers by direction, and the control register
-        is readable at a different offset than it is written.
-        *Verification: `etherlink_suite`, 5 tests — the sixteen-location decode
-        from a jumpered base, both asymmetries, the manual's sizes, the factory
-        base landing on `058000` through this machine's AT decode, and one test
-        that pins the **absence** of flag positions so that giving a flag a bit
-        number without a source fails there first.*
+        flags — at the time **without positions**, because §1.9 defers those to
+        a document this project did not then hold. Superseded in both respects
+        by the `[HIS]` item below: the map's `+2`/`+6` reading was wrong and
+        the flags now have positions.
+        *Verification: `etherlink_suite`, 5 tests at the time.*
   - [x] The PCB command set, `[DEV]` §3.1 and Table 1 — all seventeen commands,
         the `00`-`2f` / `30`-`5f` split, and the invariant that **a response
         code is its command plus `0x30`**. The two codes Table 1 marks `n/a`
@@ -4497,18 +4493,26 @@ discipline throughout.
         to have no response while their DMA counterparts do, and the reserved
         codes proved not to be commands.*
   - [x] `docs/references/ETHERNET.md`, the findings file, written from the
-        manual before any code — the map (`+0` command, `+2` status on read and
-        control on write, `+4` data, `+6` control on read), the 20-byte half
-        duplex data FIFO with its `DIR` bit, the five general-purpose status
-        flags the hardware "does not decode in any way", and the two adapter
-        interrupts. Base `300H` puts the card at physical `058000` through this
-        machine's AT decode, agreeing with `ap_board.h` from a *manual* rather
-        than from the oracle.
-        **The one gap is bounded and named:** §1.9 defers bit-level detail to a
-        *3C505 Hardware Interface Specification* we do not hold, so eleven flag
-        *names* are known and their positions are not. Unlike the ring's gap,
-        the oracle can close this one honestly — the document was read first and
-        says what it lacks.
+        manual before any code — the map, the 20-byte half duplex data FIFO
+        with its `DIR` bit, the five general-purpose status flags the hardware
+        "does not decode in any way", and the two adapter interrupts. Base
+        `300H` puts the card at physical `058000` through this machine's AT
+        decode, agreeing with `ap_board.h` from a *manual* rather than from the
+        oracle. Detail in `PROJECT_STATUS.md`.
+  - [x] **`[HIS]` read, and it corrects the map as well as filling the gap.**
+        All four flag registers (`HCR`, `HSR`, `ACR`, `ASR`) transcribed from
+        the page images, closing open question A. It also settles a host I/O
+        map that `[DEV]` §1.3.3 gave wrongly and `[DEV]`'s *own* §2.1 and §2.5
+        contradict: `+2` on a write is the **Aux DMA Register**, and the Host
+        Control Register is at `+6` — three tables to one. The header and one
+        test had followed §1.3.3. Detail in `PROJECT_STATUS.md`.
+        *Verification: `etherlink_suite`, now 12 tests — each register eight
+        distinct bits covering the byte, the general-purpose flags crossing at
+        the same bit, the handshake flags belonging to the side that reads
+        them, `ATTN`+`FLSH` as the hard reset, and the corrected `+2`/`+6`.
+        Independently, the layout decodes finding 10a's option-ROM handshake
+        exactly — `C0` and `50` at `+2` are an empty FIFO in the two
+        directions — which a day-old oracle measurement had left ambiguous.*
 
 ## Phase 7 — Completing the model range
 

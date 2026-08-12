@@ -27455,3 +27455,113 @@ close: a driver timing its *transfer* rather than its command sees the bytes
 early. Nothing measured depends on it -- Domain/OS waits on the completion --
 and MAME makes the same approximation, marked `FIXME: should delay m_omti_state
 and m_status_port as well`.
+
+## `[HIS]` read: the 3c505's four flag registers, and a map that was wrong
+
+`[DEV]` §1.9 names eleven flags and defers their bit positions to a *3C505
+Hardware Interface Specification*. That document is 3Com **1569-03**,
+*EtherLink Plus Technical Reference*, January 1989, and it has been on disk
+since yesterday. Reading it does two things: it closes the gap it was named
+for, and it **corrects a fact this core had already encoded, tested and
+believed**.
+
+### The correction, which is the part worth reading
+
+`[DEV]` §1.3.3, the host I/O map, says:
+
+    Base address + 2 (302) write    Host Control Register
+    Base address + 6 (306) Read     Host Control Register
+
+and `ap_3c505.h` transcribed it faithfully, with a test named
+`test_offset_two_is_two_registers_and_control_reads_elsewhere` asserting the
+asymmetry as "the manual's, not this core's".
+
+It is not the manual's. `[DEV]`'s **own** register summary in §2.1, eight pages
+later, gives host offset `6` for Control (write only) and host offset `2` for
+**AUX DMA** (write only), and §2.5 is titled *Host Aux DMA Register*. `[HIS]`
+prints the same summary twice -- §2-3 as an address list, §3-1 as an offset
+table -- and agrees with §2.1 both times. **Three tables to one**, and the odd
+one out is the one we had read.
+
+So `+2` on a write is the Aux DMA Register, and the Host Control Register lives
+at `+6` alone -- write-only on Rev 2 hardware, readable on Rev 3, which is the
+gate-array revision. A model following §1.3.3 puts the host's control word into
+the DMA burst register and reads its control word back from the right place,
+which is the shape of failure that passes every test you would think to write.
+
+Two things about how it was found. It was **not** found by grepping for
+uncertainty -- the header did not hedge, it cited a section. It was found by
+walking the register tables against a sibling document, which is the step
+`CLAUDE.md` puts first and which is the step most often skipped. And the
+sibling had been sitting beside `[DEV]` in the references tree for a day,
+downloaded for an unrelated reason.
+
+### The four registers, from the page images
+
+Each `[HIS]` table is drawn most-significant bit leftmost, which §3-1
+establishes with `CMD7 … CMD0`, so these are bit 7 down to bit 0 as printed:
+
+| register | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `HCR` host `+6` | `ATTN` | `FLSH` | `DMAE` | `DIR` | `TCEN` | `CMDE` | `HSF2` | `HSF1` |
+| `HSR` host `+2` read | `HRDY` | `HCRE` | `ACRF` | `DIR` | `DONE` | `ASF3` | `ASF2` | `ASF1` |
+| `ACR` adapter `+3` write | `LPBK` | `FLSH` | `R586` | `LED2` | `LED1` | `ASF3` | `ASF2` | `ASF1` |
+| `ASR` adapter `+3` read | `ARDY` | `ACRE` | `HCRF` | `DIR` | `8/16` | `SWTC` | `HSF2` | `HSF1` |
+
+**Each register is named from the point of view of the side that reads it**,
+which is why `HCRE` and `ACRF` are in the *host's* status register and `ACRE`
+and `HCRF` in the *adapter's*. Both sides are told the same two things about
+the one full-duplex command register: whether the byte they sent has been
+taken, and whether one is waiting for them.
+
+The general-purpose flags cross at the **same bit** -- `[HIS]` §3-3 and §3-5
+both say "routed directly" -- so `HSF1`/`HSF2` written in `HCR` bits 0-1 appear
+in `ASR` bits 0-1, and `ASF1`-`ASF3` written in `ACR` bits 0-2 appear in `HSR`
+bits 0-2. That is §1.9.5's "not decoded by the hardware in any way" made
+concrete, and it is the reason a model passes them through and interprets none.
+
+`ATTN` and `FLSH` **set together** are decoded by the hardware as a hard reset
+-- 80186, 82586, both status and both control registers, and the FIFO -- and
+the card stays in reset until both are cleared. It is a level, not an edge.
+`ATTN` alone is a soft reset, an NMI to the 80186 that leaves the registers
+alone. A model that treated the pair as two independent bits would reset on the
+way in to a flush.
+
+### It decodes a measurement that was recorded as ambiguous
+
+Yesterday's oracle tap of the Apollo option ROM's probe (finding 10a) recorded a
+four-step cycle: a read-modify-write at `+6` alternately setting and clearing
+**bit 4**, and `+2` reading `C0` while that bit was clear and `50` while it was
+set. Finding 10b recorded, correctly, that this is a *relationship* and not an
+assignment, that two readings fitted it, and that neither would be written down.
+
+`[HIS]` assigns it completely. Bit 4 of `+6` is `HCR_DIR`. `C0` is
+`HRDY|HCRE`; `50` is `HCRE|DIR`. Both are what an **empty FIFO** reads in the
+two directions -- downloading, `HRDY` set means "not full, send more";
+uploading, `HRDY` clear means "empty, nothing to read" -- and `HCRE` set
+throughout is a command register the host has not written to. Every bit of both
+bytes is accounted for, the ROM is probing an idle card, and **a layout
+recovered from a document explains traffic measured a day earlier from an
+oracle**, neither derived from the other.
+
+### What the oracle detour got right, and what it got wrong
+
+Between finding 10b and today, the positions were taken from
+`ext/mame/src/devices/bus/isa/3c505.h` as facts about a register layout. **The
+positions were right and the sides were swapped**: the write-up labelled the
+`ARDY`/`ACRE`/`HCRF` register "read by the host at `+2`" and the
+`HRDY`/`HCRE`/`ACRF` one "the adapter's view", which is backwards in both
+cases. A host polling `+2` for `ARDY` would have been reading `HRDY` -- the
+same bit, the wrong name, and nothing failing until the two sides disagreed
+about who was waiting.
+
+That is a fair summary of what the oracle is for and what it is not. It carries
+numbers well and meaning badly, because a register layout in C tells you what
+the bits are and not who is entitled to read them.
+
+*Verification: `etherlink_suite`, 12 tests (was 8). The four registers are each
+checked to be eight distinct bits covering the whole byte -- the property that
+catches a transposition, since any two masks swapped still pass a spot check --
+plus the crossing of the general-purpose flags at identical bits, the handshake
+flags belonging to the side that reads them, `ATTN`+`FLSH` as the hard reset,
+and `+2`/`+6` corrected. 135 CTest entries green.*
