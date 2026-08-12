@@ -27056,9 +27056,38 @@ question is printed. The channel is right too: `sio1 A` is the keyboard and the
 firmware's own `Y` is echoed on the same screen.
 
 So what is needed is an arming point that **occurs only after the question is
-printed**, or a visit count on the existing one. `--boot-type-await-pushback`
-does not help: it paces characters against the firmware's type-ahead slot, which
-is a different problem.
+printed**. `--boot-type-await-pushback` does not help: it paces characters
+against the firmware's type-ahead slot, a different problem.
+
+**A dwell rule was built, corrected twice, and is still not sufficient.**
+`--boot-type-settled N` arms a phase only after the machine has visited the
+address N times without being away for more than 4,096 instructions. Two
+versions were wrong and each was caught by running it, never by reading it:
+
+1. It counted *consecutive instructions* at the address. A poll is a loop, so
+   the address comes round once per iteration and the count reset in between --
+   with a two-instruction loop it never exceeded one. `boot type 0 of 1`.
+2. It governed *every* phase, so the firmware's prompt poll, which armed on
+   arrival perfectly well before this existed, was suddenly held to the same
+   dwell and armed nothing. `boot type 0 of 2`.
+
+Scoped to the second phase and counting visits, it arms -- and the character is
+**still discarded**, with the question still on screen at 1.5 G instructions.
+
+**Why, and it follows from the access time landed this same session:** the
+kernel idles in that loop while waiting for *disk* interrupts too, and a command
+now takes ~24 ms, which is on the order of 400,000 instructions of idling per
+wait. A dwell threshold large enough to exclude those would have to exceed an
+I/O wait, and there is no reason to think the prompt's dwell and the longest
+I/O wait are separable at all. **Dwell cannot distinguish waiting for a person
+from waiting for a disk**, and raising the number is a search rather than a
+condition.
+
+What would distinguish them is the *console*: the question is printed, and
+nothing else prints before the answer. An arming rule keyed to output -- the
+last character written to the display, or a quiet period after one -- is the
+next thing to try, and `--boot-type-settled` should be kept only if it earns its
+place beside it.
 
 **Check the clock before anything else**, because it is the trap class this
 investigation has already paid for four times. These runs pass
