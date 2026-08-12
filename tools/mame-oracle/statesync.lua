@@ -106,6 +106,9 @@ rd_pc = rd_pc and tonumber(rd_pc, 16) or nil
 local wr_value = os.getenv("APOLLO_SYNC_VALUE")
 wr_value = wr_value and tonumber(wr_value, 16) or nil
 local skip     = tonumber(os.getenv("APOLLO_SYNC_SKIP") or "0") or 0
+-- The oracle's half of `--boot-stop-pc-then`: step this many instructions past
+-- the hit, printing each PC, before dumping.
+local then_steps = tonumber(os.getenv("APOLLO_SYNC_THEN") or "0") or 0
 local dump_to  = os.getenv("APOLLO_SYNC_DUMP") or "oracle.state"
 local normal   = (os.getenv("APOLLO_SYNC_MODE") or "normal") ~= "service"
 local giveup_s = tonumber(os.getenv("APOLLO_SYNC_GIVEUP") or "120") or 120
@@ -570,7 +573,23 @@ emu.register_periodic(function()
 		-- the pre-step machine and looks like it worked.
 		local pc = current_pc()
 		if debugger.execution_state == "stop" and pc ~= nil and pc ~= S.hit_pc then
-			out("# stepped %08X -> %08X -- dumping\n", S.hit_pc, pc)
+			-- `APOLLO_SYNC_THEN=N` keeps stepping and prints each PC, which is
+			-- the oracle's half of `--boot-stop-pc-then`: what a fault handler
+			-- *does* is entirely after the event, so the window worth comparing
+			-- is the one that follows it. The event -- a fault at a named
+			-- address -- happens once and in order on both machines, so it is a
+			-- sound sync point in a way no instruction count is.
+			if then_steps > 0 then
+				S.then_seen = (S.then_seen or 0) + 1
+				out("# then %4d %08X\n", S.then_seen, pc)
+				S.hit_pc = pc
+				if S.then_seen < then_steps then
+					S.cpu.debug:step(1)
+					debugger.execution_state = "run"
+					return
+				end
+			end
+			out("# stepped -> %08X -- dumping\n", pc)
 			S.dumped = true
 			manager.machine:apollo_dump_state(dump_to)
 			finish(string.format("dumped to %s at PC %08X", dump_to, pc))
