@@ -27250,11 +27250,21 @@ oracle falls through. So the whole difference is one conditional, and its
 condition is produced by the helper at `3C4E2A68` -- which sets `d0` from a
 `btst` against a PC-relative byte, stores it through `a1`, and returns it.
 
-**Next**: read that `btst`'s operand. It is PC-relative, so the byte lives in the
-kernel image at a fixed offset from `3C4E2A6A` and can be dumped without a boot;
-what sets it is then the question, and `--boot-watch-write` on its address
-answers that in one run. This is now a data question at a named address, which is
-the shape the `00120020` hunt ended in as well.
+**The tested byte is `3C4E2000`, bit 7.** Dumped: `3C4E2A6A` holds
+`083A 0007 F592`, which is `btst #7,(d16,PC)` with `d16 = F592` = -2670. The
+PC-relative base is the displacement word's own address, `3C4E2A6E`, so the
+operand is `3C4E2A6E - 0xA6E = 3C4E2000`.
+
+Here bit 7 is **clear** -- the `bne.s` at `3C4E2A70` is not taken, the helper
+falls into `move.l #$001E000A,d0`, stores it through `a1` and returns it, and
+`3C4E2ACA` then branches over the unmask. On the oracle that branch falls
+through, so its `3C4E2000` must differ.
+
+**Next, and it is now a one-byte question**: read `3C4E2000` on both machines and
+watch what writes it. `--boot-watch-write` on its physical address does this side
+and `APOLLO_SYNC_WRITE` the other, which is the pair that has resolved every
+question in this investigation since the fault-as-sync-point instrument was
+built.
 
 *Verification: `--boot-watch-write 011001 --boot-log-watch-writes` on this core,
 sixteen writes ending `F6` at instruction 373 M and never written again through
