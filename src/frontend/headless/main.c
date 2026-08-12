@@ -1783,6 +1783,36 @@ static void typed_deliver(ap_machine_t *machine, ap_board_t *board,
  * `AP_OMTI_PHASE_STATUS` until the driver reads its completion byte, so the
  * drive reads as busy while it is doing nothing at all. The comment above was
  * right and the code beneath it was not. */
+/* ## What actually distinguishes the moment: the console stopped printing
+ *
+ * The dwell above keys on *how long* the machine waits, which four measured
+ * failures say is a proxy and not the thing. A prompt is distinguished by
+ * output: the question is printed, and **nothing else prints until it is
+ * answered**. `graphics_cycles` counts blits into image memory -- pixels, not
+ * register traffic -- so "the console has drawn something and then gone quiet"
+ * is directly observable.
+ *
+ * A phase armed this way waits for a screen that has stopped changing, which is
+ * what a person at a terminal is looking at when they type. */
+static bool typed_quiet(unsigned drawn, unsigned settle, unsigned *was,
+                        unsigned *quiet_for) {
+  if (drawn != *was) {
+    *was = drawn;
+    *quiet_for = 0u;
+    return false;
+  }
+  /* Nothing has been drawn since the last check. Only counts once something has
+   * been drawn at all -- a machine that has never printed is not a machine
+   * sitting at a prompt. */
+  if (drawn == 0u) {
+    return false;
+  }
+  if (*quiet_for < 0xFFFFFFFFu) {
+    (*quiet_for)++;
+  }
+  return *quiet_for >= settle;
+}
+
 static bool typed_arm(uint32_t pc, uint32_t want, unsigned settle,
                       bool drive_busy, unsigned *visits, unsigned *away) {
   if (want == 0u) {
@@ -1813,6 +1843,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           unsigned key, const char *typed, bool type_after_os,
                           uint32_t type_after_pc, const char *typed2,
                           uint32_t type2_after_pc, unsigned typed_settle,
+                          unsigned typed_quiet_settle,
                           bool type_await_pushback,
                           const ap_mc146818_time_t *clock, bool boot_report,
                           bool console,
@@ -2164,6 +2195,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * visits is the thing that distinguishes a prompt from a passing visit. */
   unsigned typed_settled_for = 0u;
   unsigned typed_settled_away = 0u;
+  /* For `--boot-type-quiet`: the screen as it was, and how long it has been so. */
+  unsigned typed_drawn_was = 0u;
+  unsigned typed_quiet_for = 0u;
   /* Carried across the phase switch, unlike `typed_sent`. */
   bool typed_first_done = false;
   size_t input_sent = 0;
@@ -2463,7 +2497,12 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * re-evaluated per phase, so the command waits for MD's prompt while the
        * two characters that produce that prompt waited only for the console
        * poll. */
+      const bool arm_by_quiet =
+          typed_phase_at == 1u && typed_quiet_settle > 0u &&
+          typed_quiet(board->graphics_cycles, typed_quiet_settle,
+                      &typed_drawn_was, &typed_quiet_for);
       if (!typed_armed &&
+          (arm_by_quiet ||
           typed_arm(machine.cpu.regs.pc, typed_phase_pc[typed_phase_at],
                     /* The dwell governs the *second* phase only. Applying it to
                      * the first broke a case that worked: the firmware's prompt
@@ -2475,7 +2514,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                     typed_phase_at == 1u &&
                         ap_omti_disk_phase(&board->disk.controller) ==
                             AP_OMTI_PHASE_EXECUTING,
-                    &typed_settled_for, &typed_settled_away)) {
+                    &typed_settled_for, &typed_settled_away))) {
         typed_armed = true;
       }
       if (typed_sent >= typed_length && typed_phase_at == 0u &&
@@ -2772,7 +2811,12 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * re-evaluated per phase, so the command waits for MD's prompt while the
        * two characters that produce that prompt waited only for the console
        * poll. */
+      const bool arm_by_quiet =
+          typed_phase_at == 1u && typed_quiet_settle > 0u &&
+          typed_quiet(board->graphics_cycles, typed_quiet_settle,
+                      &typed_drawn_was, &typed_quiet_for);
       if (!typed_armed &&
+          (arm_by_quiet ||
           typed_arm(machine.cpu.regs.pc, typed_phase_pc[typed_phase_at],
                     /* The dwell governs the *second* phase only. Applying it to
                      * the first broke a case that worked: the firmware's prompt
@@ -2784,7 +2828,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                     typed_phase_at == 1u &&
                         ap_omti_disk_phase(&board->disk.controller) ==
                             AP_OMTI_PHASE_EXECUTING,
-                    &typed_settled_for, &typed_settled_away)) {
+                    &typed_settled_for, &typed_settled_away))) {
         typed_armed = true;
       }
       if (typed_sent >= typed_length && typed_phase_at == 0u &&
@@ -3715,6 +3759,9 @@ int main(int argc, char **argv) {
    * spend at the arming address before a phase is armed. 1 is "on arrival",
    * which is the behaviour every run before this had. */
   unsigned boot_type_settled = 1u;
+  /* `--boot-type-quiet N`: arm the second phase once the screen has drawn
+   * something and then not changed for N instructions. */
+  unsigned boot_type_quiet = 0u;
   uint32_t boot_type_after_pc = 0;
   const char *boot_typed2 = NULL;
   uint32_t boot_type2_after_pc = 0;
@@ -3925,6 +3972,11 @@ int main(int argc, char **argv) {
        * silent -- the run completes and reports `0 of 2 character(s) typed` --
        * which is exactly the shape that wastes a fifteen-minute boot. */
       boot_type_after_pc = (uint32_t)strtoul(argv[i + 1], NULL, 16);
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-type-quiet") == 0 && i + 1 < argc) {
+      boot_type_quiet = (unsigned)strtoul(argv[i + 1], NULL, 0);
       i += 2;
       continue;
     }
@@ -4193,7 +4245,8 @@ int main(int argc, char **argv) {
                           (uint8_t)boot_input_rate, boot_input_interval_us,
                           boot_key, boot_typed, boot_type_after_os,
                           boot_type_after_pc, boot_typed2, boot_type2_after_pc,
-                          boot_type_settled, boot_type_await_pushback,
+                          boot_type_settled, boot_type_quiet,
+                          boot_type_await_pushback,
                           boot_clock_set ? &boot_clock : NULL, boot_report,
                           boot_console,
                           boot_screen, node_id, opt.model->id, screenshot,
