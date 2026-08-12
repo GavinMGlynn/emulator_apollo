@@ -27233,10 +27233,28 @@ Reading the oracle's stack needs the same physical mapping as ours, `logical -
 0x3B3D5000`, which holds because both machines put the kernel's stack at the
 same physical addresses.
 
-**Bisect from there**: test each caller here with `--boot-stop-pc`. The first one
-this core does reach brackets the divergence between itself and the next link,
-which is a handful of runs rather than a search. `3C4568D6` is the outer of the
-two and so the one to try first.
+**Bisected, and then traced to one branch.** This core reaches `3C4568D6` at
+instruction 439,986,859 and `3C455A50` at 439,975,396 -- both callers run -- and
+never reaches `3C4E2ADC`. Tracing the 400 instructions into the return shows
+why, and it is not that the routine is skipped:
+
+    439975376  3C4E2AC2  movem.l              the routine IS entered
+    439975377  3C4E2AC8  bsr.s  3C4E2A68      it calls a helper
+    439975379  3C4E2A6A  btst   #n,(d16,pc)   which decides on a PC-relative bit
+    439975387  3C4E2A98  rts
+    439975388  3C4E2ACA  bne.s  3C4E2AE0      TAKEN, over 3C4E2ADC
+    439975389  3C4E2AE0  rts
+
+**`3C4E2ACA` branches over `3C4E2ADC`**, the `F4` write that unmasks `IRQ1`. The
+oracle falls through. So the whole difference is one conditional, and its
+condition is produced by the helper at `3C4E2A68` -- which sets `d0` from a
+`btst` against a PC-relative byte, stores it through `a1`, and returns it.
+
+**Next**: read that `btst`'s operand. It is PC-relative, so the byte lives in the
+kernel image at a fixed offset from `3C4E2A6A` and can be dumped without a boot;
+what sets it is then the question, and `--boot-watch-write` on its address
+answers that in one run. This is now a data question at a named address, which is
+the shape the `00120020` hunt ended in as well.
 
 *Verification: `--boot-watch-write 011001 --boot-log-watch-writes` on this core,
 sixteen writes ending `F6` at instruction 373 M and never written again through
