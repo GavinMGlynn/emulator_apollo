@@ -27655,3 +27655,63 @@ was searched when the report should have been improved instead.
 *Verification: `q50000` and `q10000` print the two-phase line and hash
 identically to the 200,000 run, so the threshold changes nothing; 135 CTest
 entries green.*
+
+## `E0007` reproduces from a recorded invocation, and its `PC` is not the fault
+
+### The invocation, at last written down
+
+`tools/e0007-boot.sh`. The whole trick is `--clock 2026-08-09`: the volume was
+installed 2026-08-02, so a calendar within fourteen days of it never provokes
+"More than 14 days have elapsed ... run DOMAIN_OS with the current calendar?",
+and nothing has to be typed at a prompt that cannot be answered. An hour went
+into reconstructing an invocation that had been recorded only as a screenshot,
+and the answer turned out to be a flag none of the four attempts varied.
+
+It is deterministic to the instruction. Two runs with different trailing flags
+both stop at `PC 3C4524E6` after **477,842,981** instructions, with `crp
+0105BC00`, 68 `PMOVE` loads and 286 `MMUSR` reads. Run to the limit instead and
+the exception profile is the crash's -- `687 x vector 2`, `957 x vector 160`,
+final PC back in the boot PROM -- against the `393`/`7902` of a machine still
+waiting at the calendar question.
+
+### `CRASH_STATUS ... PC 3C4524E6` names a shared epilogue, not the failure
+
+Dumped and decoded, `3C452468` is a message-formatting helper:
+
+    3C452468  4E56 FFF8       link   a6,#-8
+    3C45246C  4854 4853 4852   pea (a4) / pea (a3) / pea (a2)
+    3C452472  266E 000C       movea.l 12(a6),a3      ; second pushed argument
+    3C452476  286E 0008       movea.l 8(a6),a4       ; first pushed argument
+    3C45247A  2456            movea.l (a6),a2        ; the *caller's* frame
+    3C45247C  4A6A FFFE       tst.w  -2(a2)
+    3C452480  6764            beq.s  3C4524E6        ; <- taken: say nothing
+    3C452482  487A 009C       pea    (0x9C,PC)       ; the reporting path
+    ...       4EB9 3C4D1F68   jsr    3C4D1F68
+    3C4524E6  246E FFEC …     movea.l -20(a6),a2 … unlk a6 / rts
+
+`3C4524E6` is the **`unlk`/`rts` epilogue**, reached by every call that decides
+not to print. The strings the printing path uses are immediately below it --
+`Unable to ` at `3C452507`, `" -- %lh"` at `3C452512` -- so this is the routine
+that emits the failure line, but the PC the crash record carries is the address
+*every* caller returns through.
+
+Two consequences, and the second is the useful one:
+
+* **`--boot-stop-pc 3C4524E6` stops on the first visit, which is not the
+  failing one.** The 477,842,981 above is a real, repeatable number about a
+  routine that returned quietly.
+* **The condition is `tst.w -2(a2)` on the caller's frame**, so whether the
+  kernel reports a failure is decided by a word the *caller* set. The stop that
+  finds the failure is therefore `3C452482` -- the first instruction of the
+  reporting path, reached only when that word is non-zero -- and a trace kept
+  behind it names the caller that gave up on the name.
+
+That is what a status code printed with a PC is worth: the PC is where the
+message came from, not where the decision was made. Chasing `3C4524E6` as the
+fault site would have been a session.
+
+*Verification: `tools/e0007-boot.sh --boot-stop-pc 3C4524E6` twice with
+different trailing flags, both stopping at instruction 477,842,981;
+`--dump-logical 3C452400:400` for the disassembly above and `3C4F9880:100` for
+the frame, which confirms `8(a6)`/`12(a6)` against the trace's `a4`/`a3` and
+`(a6)` against `a2`.*

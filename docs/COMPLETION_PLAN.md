@@ -3313,15 +3313,20 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   the thing this section used to call the whole defect. Detail in
   `PROJECT_STATUS.md`.
 
+  **The reproduction is recorded**: `tools/e0007-boot.sh`, deterministic to the
+  instruction. `--clock 2026-08-09` is the whole trick — within fourteen days of
+  the volume's install, so the calendar question is never asked and no keystroke
+  has to land. Typing the answer does not work at any threshold tried.
+
+  **And `PC 3C4524E6` is not the fault.** It is the `unlk`/`rts` epilogue of the
+  message-formatting helper at `3C452468`, reached by every caller that decides
+  *not* to print; the decision is `tst.w -2(a2)` on the **caller's** frame.
+  Detail in `PROJECT_STATUS.md`.
+
   **The next measurement**, in this order:
-  - Reproduce `E0007` from a **recorded** invocation and trace into the crash PC
-    `3C4524E6`, so the code that gives up on the name is named rather than
-    guessed. The reproduction needs the machine to get *past* the calendar
-    question, and the cheap way is not to provoke it: `--clock 2026-08-09` is
-    within fourteen days of the volume's install, so the question is never asked
-    and no keystroke has to land. Typing the answer does not work — the second
-    phase arms and types at every threshold tried and the character is still
-    discarded unread.
+  - Stop at `3C452482` — the first instruction of the reporting path, reached
+    only when that word is non-zero — with a trace kept behind it. That names
+    the caller that gave up on the name, which `3C4524E6` cannot.
   - Then the oracle, out of a shared program event, on the **same image**. Its
     successful boots have been on `media/dn3500.awd`, which MAME mutates and
     which differs from `media/dn3500-sr10.4-installed.awd` by 563,262 bytes;
