@@ -67,7 +67,34 @@ interrupts; ch. 3 host software interface.
 
 None yet: nothing is implemented.
 
-## The flag bit positions, from the oracle (2026-08-12)
+## `[HIS]` IS FOUND: 1569-03, *EtherLink Plus Technical Reference*, Jan 1989
+
+`3com/1569-03_EtherLink_Plus_Technical_Reference_Jan89.pdf`, 84 pages, from
+bitsavers via the Internet Archive
+(`bitsavers_3Com156903calReferenceJan89_4120018`).
+
+**This is the document `[DEV]` §1.9 defers to** and which `device/ap_3c505.h`
+recorded as not held. Its contents index alone settles what was missing: *Host
+Status Register* at 3-3 and *Adapter Status Register* at 3-6, with `HCRE`,
+`ACRF`, `HRDY` and `ARDY` named in the handshake prose -- "the host should
+monitor the Host Status Register port for the HCRE bit ... before writing a byte
+in the Command Register", and "poll the Host Status Register port for the ACRF
+bit" for responses.
+
+**So the oracle-sourced positions below are now second-best and should be
+replaced by this document's**, per the resolution order: reference first, and
+the oracle only when the documents genuinely run out. They had run out; they no
+longer have. Read the register layouts from the **page images** at 3-3 and 3-6
+rather than from a text extraction -- a bit table is exactly what OCR mangles,
+and this project has already been bitten by that.
+
+**A trap this download hit, worth recording**: the first fetch returned
+3,571,244 bytes of an expected 4,120,018 and `pdftotext` failed with "Couldn't
+find trailer dictionary". A truncated PDF is not obviously truncated -- `file`
+still calls it a PDF. Check the byte count against the source's metadata, or
+`pdfinfo` for a page count, before concluding a document lacks something.
+
+## The flag bit positions, from the oracle (2026-08-12), now superseded
 
 `[DEV]` §1.9 names eleven flags and defers their positions to a *3C505 Hardware
 Interface Specification* this project does not hold. The header
