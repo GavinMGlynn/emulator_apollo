@@ -3343,13 +3343,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   found here. Network explanations are closed off. Detail in
   `PROJECT_STATUS.md`.
 
-  **Two candidates remain:** the volume does not carry `/sys/node_data`, or this
-  core hands the name server the wrong block. The oracle now boots the pristine
-  image — `screencap.lua` gained `APOLLO_SNAP_KEYS`, without which every capture
-  stopped at SELF_TEST looking stuck — and reaches the calendar question. It
-  does **not** answer it: the `Numpad Enter` presses were scheduled before the
-  question was asked. Schedule one after it and the oracle's behaviour past the
-  question is measurable, which separates the two candidates directly.
+  **Settled: `E0007` is ours.** The oracle boots the *same pristine image* to a
+  **`login:` prompt** — `screencap.lua` gained `APOLLO_SNAP_KEYS`, and Return is
+  `Unnamed Key` (the one field `apollo_kbd.cpp` leaves without a `PORT_NAME`;
+  `Numpad Enter` is a different key and Domain/OS does not accept it). So the
+  volume carries `/sys/node_data` and resolves it, and the "the install is
+  incomplete" branch is dead. Detail in `PROJECT_STATUS.md`.
 
   **And `@2D-03863-MS` is identified: it is the keyboard's own identification
   reply**, `AP_KBD_IDENTIFICATION` in `device/ap_kbd.h`, found once in a full

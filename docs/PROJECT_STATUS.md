@@ -27979,3 +27979,46 @@ place to look -- five characters of an answer nobody read.
 *Verification: `tools/e0007-boot.sh --boot-stop-pc 3C452482 --dump-mem
 01000000:1000000`, one hit; `grep` of `src/core` for the literal, one
 definition; `ext/mame/src/mame/apollo/apollo_kbd.cpp:588` for the same string.*
+
+## The oracle reaches `login:` on the pristine image, so `E0007` is ours
+
+The fork is closed. On a copy of the same `media/dn3500-sr10.4-installed.awd`
+this core fails with `Unable to resolve "/sys/node_data" -- E0007`, the oracle
+boots Domain/OS to a **`login:` prompt** with the Display Manager's status line
+and function-key legend drawn.
+
+    APOLLO_SNAP_KEYS="Y@45,Y@500,Unnamed Key@502,Unnamed Key@620,Unnamed Key@740"
+    APOLLO_SNAP_AT="560,660,760,860,960"
+
+`Y@45` answers SELF_TEST; `Y@500` then **Return** answers the calendar question.
+The 860-second capture is the login prompt.
+
+**Return is `Unnamed Key`.** `apollo_kbd.cpp` line 77 gives the main Return
+`PORT_CODE(KEYCODE_ENTER)` and no `PORT_NAME`, so MAME calls it *Unnamed Key* --
+and there is exactly one such field on the whole keyboard, in `:kbd:keyboard1`,
+which makes it unambiguous. `Numpad Enter` is a **different key** and Domain/OS
+does not accept it as the answer: two runs typed `yy` and `yyy` at the question
+and sat there, which reads exactly like a machine that has stopped responding.
+That is the fourth time in this investigation an unanswered prompt has been
+mistaken for a stuck machine, and the first time it was the oracle.
+
+### What it settles
+
+Of the two candidates left for `E0007` -- the volume does not carry
+`/sys/node_data`, or this core hands the name server the wrong block -- **the
+first is dead**. The volume resolves the name on the oracle. `E0007` is a defect
+in this core.
+
+It also retires a question that has been open since the artifact was built:
+whether that image is bootable to a login prompt at all. It is, and the picture
+Phase 5 asks for exists -- from the oracle, which is what it is for.
+
+The remaining lead is unchanged and now sharper, because it is the only known
+place where the two machines' consoles differ before the failure: this core
+prints its **keyboard identification** where the oracle prints nothing.
+
+*Verification: `screencap.lua` with the keys above on a copy of
+`media/dn3500-sr10.4-installed.awd`, snapshot at 860 emulated seconds; the
+keyboard field enumeration that named `Unnamed Key` came from a three-second run
+with a deliberately bogus key, which `press_key` answers by listing every field
+present.*
