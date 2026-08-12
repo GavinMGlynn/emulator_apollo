@@ -26889,12 +26889,29 @@ correct to be absent -- it is cycle-driven through `ap_board_bus_tick` -- and th
   same queue a strike uses -- `7F` in the keystate set, where `[kbd]` gives the
   repeat as a *distinct byte* precisely so it cannot be read as a second strike,
   and the key's own code otherwise.
-* **The ring controller's two i8254 interval timers.** `ap_ring_ctl_clock` and
-  `ap_i8254_clock` have no callers anywhere, and the ring is not in
-  `ap_board_advance`. The counters can be programmed and read back -- they are
-  hashed and register-accurate -- but they never count. **Phase 6 will hit this
-  immediately**, since the ring firmware's own self-test is meant to be the
-  first real test of that controller.
+* **The ring controller's two i8254 interval timers -- BLOCKED ON A SOURCE, and
+  deliberately not guessed.** `ap_ring_ctl_clock` and `ap_i8254_clock` have no
+  callers, and the ring is not in `ap_board_advance`. The counters can be
+  programmed and read back -- they are hashed and register-accurate -- but they
+  never count.
+
+  Wiring the tick needs one number this project does not have: **the frequency
+  feeding those 8254s**. `RING.md` finding 41 confirms the parts, their
+  registers and how the firmware programs them (`$30`/`$70`/`$B0`, LSB-then-MSB,
+  mode 0, and the `$E4` read-back that only an 8254 has), all from the ROM
+  disassembly -- and says nothing about their input clock. The ring's own
+  documented clocks are the 12 MHz data and 24 MHz line domains of finding 10a,
+  neither of which is stated to drive these counters, and **the ring has no
+  runnable oracle** to measure against.
+
+  So a rate here would be invented, which `CLAUDE.md` forbids in as many words:
+  "Never invent a point number to fill a gap." The structure is one call in
+  `ap_board_advance` once the rate exists; what is missing is the source, not
+  the code. **What would settle it**: the ring board's schematic or parts list,
+  a `010005-00` section on the controller's clock tree, or a firmware sequence
+  that programs a counter and waits a known interval, from which the input
+  frequency falls out. Until one of those, this stays a named gap rather than a
+  plausible number.
 
 Neither is a defect in a *fitted, exercised* device today, which is why no boot
 has shown them. Recorded because the disk's zero access time was exactly this --
