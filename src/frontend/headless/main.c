@@ -1744,7 +1744,19 @@ static void typed_deliver(ap_machine_t *machine, ap_board_t *board,
  * discarded only once the machine has been *away* long enough to have left --
  * `AP_TYPE_SETTLE_AWAY` instructions, comfortably more than any poll's body and
  * far less than the shortest excursion out of one. */
-#define AP_TYPE_SETTLE_AWAY 4096u
+/* ## And an interrupt is not leaving the poll
+ *
+ * At 4,096 this discarded the count on every timer tick. A boot takes ~7,900 of
+ * them, about one per 190,000 instructions, and a handler runs for longer than
+ * 4,096 -- so a threshold above roughly 95,000 visits could never be reached,
+ * and `--boot-type-settled 200000` armed nothing while 50,000 armed. That is
+ * the flaw being in the rule and looking like it is in the constant.
+ *
+ * A handler is not the machine leaving its poll: it services a device and
+ * returns. The window therefore has to span one comfortably, while staying far
+ * below any real excursion -- the shortest of those is the whole of a command's
+ * work between two waits, which is orders of magnitude larger. */
+#define AP_TYPE_SETTLE_AWAY 65536u
 
 /* ## And a dwell alone still cannot tell the two kinds of waiting apart
  *
