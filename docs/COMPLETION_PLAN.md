@@ -3297,10 +3297,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   2. A **CPU defect** — closed. PC-relative operands were two bytes low behind
      an immediate, which is why `IRQ1` never reached the keyboard.
   3. `E0007`, `Unable to resolve "/sys/node_data"` — **live, and this is the
-     item.** Established: it is not a machine fault (all 294 MMU faults are
-     ordinary demand paging from the pager's own PCs); the volume carries
-     `node_12345`, matching this core's node ID `0x012345`; and the node-ID
-     PROM decodes correctly.
+     item.** `002398-04` p. 4-5 decodes it: **`name not found`**, from the
+     naming server, whose neighbouring codes separately cover a missing
+     directory in the path (`E0020`), refused rights (`E0013`) and a bad link
+     (`E0006`/`E0008`). So the lookup completed and found nothing — it is not
+     an I/O failure, and the disk path is not implicated by this code.
+     Also established: not a machine fault (all 294 MMU faults are ordinary
+     demand paging from the pager's own PCs); the volume carries `node_12345`,
+     matching this core's node ID `0x012345`; and the node-ID PROM decodes
+     correctly. Detail in `PROJECT_STATUS.md`.
   4. **`@2D-03863-MS` is a dead end.** It was recorded as "the obvious thing to
      identify" because it appeared with the failure. It prints on every run,
      including ones that never fail, so it is ordinary kernel banner output.

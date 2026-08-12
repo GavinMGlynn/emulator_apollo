@@ -27715,3 +27715,50 @@ different trailing flags, both stopping at instruction 477,842,981;
 `--dump-logical 3C452400:400` for the disassembly above and `3C4F9880:100` for
 the frame, which confirms `8(a6)`/`12(a6)` against the trace's `a4`/`a3` and
 `(a6)` against `a2`.*
+
+## `E0007` is `name not found`, and it was in a manual this file already cites
+
+`002398-04` p. 4-5, read as a page image:
+
+    (000E0007)  name not found
+
+The whole `000Exxxx` block is the **naming server's**, and its neighbours are
+what make the code specific rather than generic: `000E0006` not a link,
+`000E0008` invalid link operation, `000E000A` invalid leaf, `000E000D` branch is
+not a directory, `000E0013` no rights, `000E0020` **directory not found in
+pathname**, `000E0021` too many components in pathname, `000E0022` cache entry
+is stale.
+
+So the kernel asked the naming server to resolve `/sys/node_data` and was told
+the **name** was not found -- not that a directory in the path was missing
+(`E0020`), not that rights were refused (`E0013`), not that a link was bad
+(`E0006`/`E0008`), and not that anything failed to read. Every one of those is a
+separate code and none of them was returned.
+
+**This is the same chapter this document already cites for `00120020`.** The
+entry twelve thousand lines above quotes `002398-04` p. 4-7 for "supervisor
+fault while resource lock(s) set" and even names the section, *Error Codes and
+Messages*. `E0007` was two pages earlier in the same table, and instead a trace,
+a stop-PC and two memory dumps were spent establishing where the message came
+from. The disassembly is worth keeping and the order was wrong: **reference
+first** is not advice about hard questions, it is advice about the ones that
+look too specific to be printed in a book.
+
+What it re-frames:
+
+* It is **not** an I/O failure, so the OMTI, the disk geometry and the block
+  addressing are not implicated by this code. A read that failed would say so.
+* It is **not** a rights or link failure, which rules out most of what a
+  half-installed volume would produce.
+* It is a **lookup that completed and found nothing**. So either the name is
+  genuinely absent from the volume, or this machine is resolving it against the
+  wrong directory -- and the second is the only one that can be an emulator
+  defect.
+
+`/sys` and `node_data` are worth separating here. The image carries 1,762
+occurrences of `node_data`, all in the form `` `node_data `` -- AEGIS's
+**variant link** syntax, a name resolved per node rather than a fixed path --
+and no `node_data.<node id>` anywhere. The stack frame at the failure holds
+`00012345`, this machine's node ID, eight bytes below the word that decides
+whether to report. Whether those are connected is the next thing to measure, not
+the next thing to assert.
