@@ -27021,6 +27021,17 @@ measurement itself produced:
 **What remains, therefore, is what the kernel does with data it read
 successfully** -- the data path rather than the command path.
 
+**Check the clock before anything else**, because it is the trap class this
+investigation has already paid for four times. These runs pass
+`--clock 2026-08-09`; the oracle is given **no clock option at all** and takes
+MAME's default. The kernel's calendar question -- which the oracle asks at about
+this point and this core does not -- is *about the calendar*, so a difference
+there is not a detail. Neither side's calendar has been read out and compared,
+and until it is, "the machines are configured alike" is an assumption rather
+than a measurement. `--calendar-ram` and the oracle's `rtc` file are the two
+inputs; the volume was installed 2026-08-02, so both clocks being later than
+that is necessary but not obviously sufficient.
+
 `00120020` is closed. **The open question is `E0007` on `/sys/node_data`.**
 
 What the volume itself says, read straight out of the image without a boot:
