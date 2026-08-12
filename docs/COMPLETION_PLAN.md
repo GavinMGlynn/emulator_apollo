@@ -3295,13 +3295,23 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   `--screen c8p --screenshot` must show it. Re-baseline the identity hash in the
   same commit, since the machine will legitimately have changed.
 
-  **What is already settled and must not be re-derived**: the crash chain end to
-  end (allocate space 1 → derive `0105BC00` from frame `0x416F` → record at
-  `$3C43C96E` entry 1 → copy the live tree → write mappings `ED`–`EF` → ask to
-  switch → gate taken → fault on `EF`, invalid in the live tree, inside a lock →
-  `00120020`); that Domain/OS executes no `PMOVE` of its own; that the MMU is
-  never read before the switch; and that both clocks are the same machine to
-  288,640,117 instructions.
+  **CORRECTED 2026-08-12 -- the chain below is refuted at its hinge.** It read:
+  allocate space 1 -> derive `0105BC00` -> copy the live tree -> write mappings
+  `ED`-`EF` -> ask to switch -> gate taken -> **fault because the mappings are in
+  a tree the MMU is not walking** -> `00120020`. The last step does not hold: the
+  oracle takes **the same fault, at the same instruction, with the same
+  registers** (`a0 = 3C248000`) and byte-identical page tables, and its ATC
+  records that fault as a bus error. Neither machine ever maps the page -- the
+  descriptor at `011E6A48` is written five times in a boot, every one of them
+  from firmware, and holds the memory test's address-in-address pattern. So the
+  fault is **ordinary demand paging**, not a consequence of a skipped switch, and
+  what differs is only what the handler does with it. Detail in
+  `PROJECT_STATUS.md`.
+
+  **What is still settled**: that Domain/OS executes no `PMOVE` of its own (8 in
+  326 M instructions, every one from a firmware PC); that the MMU is never read
+  before the switch; and that both clocks are the same machine to 288,640,117
+  instructions.
 
 
 **Order matters here, and this file had it wrong.** The boot is a *test*, and
