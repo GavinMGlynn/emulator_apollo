@@ -27937,3 +27937,45 @@ MAME prints because it fits a 3c505 and this core does not.
 kernel banner followed by a blank line. The oracle does not answer the calendar
 question -- the `Numpad Enter` presses were scheduled before it was asked -- so
 what happens past it there is still unmeasured.*
+
+## `@2D-03863-MS` is the keyboard's identification, echoed onto the screen
+
+Dumping all sixteen megabytes at the failure and searching it finds the line
+once, at physical **`0104F9B0`**, in a region of kernel data structures:
+
+    0104F9A0  3C 44 CD 9C 3C 44 CD 9C  00 10 00 10 00 01 02 00
+    0104F9B0  40 32 44 2D 30 33 38 36  33 2D 4D 53 0D FF 00 00   @2D-03863-MS..
+
+`0D FF` terminates it, and the sixteen bytes before it look like a buffer
+descriptor -- two equal pointers and a pair of `0010` lengths.
+
+The bytes come from **this core's keyboard**. `device/ap_kbd.h`:
+
+    #define AP_KBD_IDENTIFICATION "3-@\r2-0\rSD-03863-MS\r"
+
+which `ap_kbd.c` sends on `FF 12 21`, after echoing the command byte and before
+announcing the mode. **It is byte-identical to MAME's**, which carries the same
+string in `apollo_kbd.cpp` (and a `3-A…` variant for a German keyboard we do not
+claim to be). So the *content* is not the divergence.
+
+What the screen shows is that string after Domain/OS has parsed it: three
+CR-separated fields `3-@`, `2-0`, `SD-03863-MS` becoming `@2D-03863-MS`, which
+keeps the whole of the third field's tail and one character from each of the
+first two. The buffer holds the parse, not the wire.
+
+**So the divergence is in the keyboard identify exchange, not in the disk or the
+naming server**, and that is a bounded subsystem with documentation --
+`002398-04` ch. 12 and `008778-03` §13.3. Two things are already ruled out:
+the reply is not truncated (the queue is `AP_KBD_REPLY_MAX * 2` = 64 bytes
+against a 22-byte answer) and it is not delivered faster than the wire (each
+byte is one `ap_sio_character_time` apart at the channel's own rate, and the
+first is a character time after the burst is queued).
+
+What is left, and what the next measurement has to separate: whether Domain/OS
+on the oracle asks at a different moment, gets a differently *framed* answer, or
+asks and does not display it. The run's `sio1 A 5 discarded unread` is the first
+place to look -- five characters of an answer nobody read.
+
+*Verification: `tools/e0007-boot.sh --boot-stop-pc 3C452482 --dump-mem
+01000000:1000000`, one hit; `grep` of `src/core` for the literal, one
+definition; `ext/mame/src/mame/apollo/apollo_kbd.cpp:588` for the same string.*

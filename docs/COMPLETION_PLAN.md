@@ -3351,9 +3351,13 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   question was asked. Schedule one after it and the oracle's behaviour past the
   question is measurable, which separates the two candidates directly.
 
-  **And chase `@2D-03863-MS` first**, because it is one line, it is between two
-  lines the machines agree on, and it is the only place in the boot where this
-  core says something the oracle does not.
+  **And `@2D-03863-MS` is identified: it is the keyboard's own identification
+  reply**, `AP_KBD_IDENTIFICATION` in `device/ap_kbd.h`, found once in a full
+  sixteen-megabyte dump at physical `0104F9B0` and byte-identical to MAME's
+  string. So the divergence is in the **keyboard identify exchange**, which has
+  documentation (`002398-04` ch. 12, `008778-03` §13.3), and not in the disk or
+  the naming server. Truncation and pacing are already ruled out. Detail in
+  `PROJECT_STATUS.md`.
   - Then the oracle, out of a shared program event, on the **same image**. Its
     successful boots have been on `media/dn3500.awd`, which MAME mutates and
     which differs from `media/dn3500-sr10.4-installed.awd` by 563,262 bytes;
