@@ -2421,7 +2421,14 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * poll. */
       if (!typed_armed &&
           typed_arm(machine.cpu.regs.pc, typed_phase_pc[typed_phase_at],
-                    typed_settle, &typed_settled_for, &typed_settled_away)) {
+                    /* The dwell governs the *second* phase only. Applying it to
+                     * the first broke a case that worked: the firmware's prompt
+                     * poll armed on arrival before this existed, and demanding a
+                     * dwell there armed nothing at all -- `boot type 0 of 2`.
+                     * The phase that needs it is the one deep inside an
+                     * operating system, which is what `--boot-type-then` is. */
+                    typed_phase_at == 1u ? typed_settle : 1u,
+                    &typed_settled_for, &typed_settled_away)) {
         typed_armed = true;
       }
       if (typed_sent >= typed_length && typed_phase_at == 0u &&
@@ -2720,7 +2727,14 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * poll. */
       if (!typed_armed &&
           typed_arm(machine.cpu.regs.pc, typed_phase_pc[typed_phase_at],
-                    typed_settle, &typed_settled_for, &typed_settled_away)) {
+                    /* The dwell governs the *second* phase only. Applying it to
+                     * the first broke a case that worked: the firmware's prompt
+                     * poll armed on arrival before this existed, and demanding a
+                     * dwell there armed nothing at all -- `boot type 0 of 2`.
+                     * The phase that needs it is the one deep inside an
+                     * operating system, which is what `--boot-type-then` is. */
+                    typed_phase_at == 1u ? typed_settle : 1u,
+                    &typed_settled_for, &typed_settled_away)) {
         typed_armed = true;
       }
       if (typed_sent >= typed_length && typed_phase_at == 0u &&
