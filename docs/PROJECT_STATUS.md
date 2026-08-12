@@ -26944,10 +26944,31 @@ survives its page faults, finishes initialisation and reaches filesystem name
 resolution.** It still takes the two `3C47A25A` faults, as the oracle does; what
 changed is that it now handles them.
 
-`00120020` is closed. **The open question is `E0007` on `/sys/node_data`**, which
-is a name this machine resolves per node, so the node ID this core reports and
-what the installed volume holds are the first two things to compare -- and both
-are readable without a boot.
+`00120020` is closed. **The open question is `E0007` on `/sys/node_data`.**
+
+What the volume itself says, read straight out of the image without a boot:
+
+* `node_data` appears 1,762 times, so the directory is present.
+* The occurrences are in **code**, and the form is `` `node_data `` -- AEGIS's
+  **variant link** syntax, a name resolved per node rather than a fixed path.
+* There is **no** `node_data.<node id>` instance anywhere in the image, so this
+  volume expects the name to resolve directly, as a standalone node's would.
+* It does carry `node_data_uid`, `node_data_dir` and `node_data_flag`, which
+  suggests resolution goes by **UID** rather than by a directory lookup.
+
+**Node ID is excluded**: this core defaults to `0x012345`, the same value as
+MAME's `DEFAULT_NODE_ID`, so the two machines agree on it.
+
+The useful clue is elsewhere: at this point the oracle asks the **calendar
+question** and this core does not, so the two are once again on different paths
+at the same place -- which is what the fault-as-sync-point instrument was built
+for. Compare there, out of a shared program event, rather than sampling.
+
+**The identity hash re-baselines to `A354786119A3931D`**, retiring
+`F442814C47D34D7D`. The move is legitimate and expected: the completion deadline
+and the controller's phase are hashed, so a machine whose drive takes time is
+not the machine whose drive did not. Same invocation as before,
+`tools/identity-boot.sh` -- a hash without its invocation is not a reference.
 
 **The approximation it still carries, named rather than glossed**: the data
 phase is not delayed, only the completion is. A `READ` offers its bytes to the
