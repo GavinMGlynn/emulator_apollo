@@ -27250,10 +27250,23 @@ oracle falls through. So the whole difference is one conditional, and its
 condition is produced by the helper at `3C4E2A68` -- which sets `d0` from a
 `btst` against a PC-relative byte, stores it through `a1`, and returns it.
 
-**The tested byte is `3C4E2000`, bit 7.** Dumped: `3C4E2A6A` holds
-`083A 0007 F592`, which is `btst #7,(d16,PC)` with `d16 = F592` = -2670. The
-PC-relative base is the displacement word's own address, `3C4E2A6E`, so the
-operand is `3C4E2A6E - 0xA6E = 3C4E2000`.
+**WITHDRAWN: "the tested byte is `3C4E2000`".** `3C4E2A6A` holds
+`083A 0007 F592` -- `btst #7,(d16,PC)`, `d16 = F592` = -2670 -- and the operand
+was computed as `3C4E2A6E - 0xA6E = 3C4E2000`, taking the PC base to be the
+displacement word's own address. **The machine says otherwise.** Dumped,
+`3C4E2000` is physical `0110D000` and holds `88`, whose bit 7 is **set**, while
+the trace shows the `bne.s` at `3C4E2A70` **not taken**, which requires it
+clear. Both cannot be true, so the address is wrong.
+
+The open question is which extension word the PC base is. The immediate occupies
+`3C4E2A6C` and the displacement `3C4E2A6E`, giving `3C4E1FFE` or `3C4E2000`, and
+the measured branch rules out the second. **Settle it from `[030]` section 2's
+program-counter-relative addressing before dumping anything else** -- this core
+implements the rule and its own decoder is the third opinion, so a byte-for-byte
+disagreement between the two would itself be a defect worth having found.
+
+Published one commit too early: the arithmetic was checked and the *result* was
+not, and the check was one dump away.
 
 Here bit 7 is **clear** -- the `bne.s` at `3C4E2A70` is not taken, the helper
 falls into `move.l #$001E000A,d0`, stores it through `a1` and returns it, and
