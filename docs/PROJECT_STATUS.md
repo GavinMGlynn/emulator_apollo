@@ -27108,11 +27108,38 @@ convenience is worth. `--boot-type-settled` is committed because its diagnosis
 is worth keeping, it defaults to arm-on-arrival so nothing else changes, and its
 help now says outright that it does not arm at this prompt.
 
-**What to try instead**, and why it is better founded: the *console*. The
-question is printed and nothing else prints before the answer, so an arming rule
-keyed to output -- the last character written to the display, or a quiet period
-after one -- keys on the thing that actually distinguishes this moment. The
-dwell keys on a proxy for it and has now failed four times.
+### And then the console rule armed, which showed the harness was never the problem
+
+`--boot-type-quiet N` arms the second phase once the screen has drawn something
+and then not changed for N instructions -- `graphics_cycles` counts blits into
+image memory, so "has printed, and has gone quiet" is directly observable rather
+than inferred from how long a poll runs. **It armed on the first attempt**:
+`boot type 1 of 2 character(s) typed`, where four versions of the dwell had
+typed nothing.
+
+**And the question is still unanswered**, because the character cannot be read.
+The run's exceptions are
+
+    687 x vector 2   1 x 11   1 x 31   1 x 47   957 x 160   1 x 173   34 x 174
+
+with **no vector `A1`** -- the DUART interrupt never fires here, where the oracle
+takes 190 of them. Domain/OS arms keyboard interrupts and waits for one; the
+typed character sits in the receiver and the report says so, `sio1 A  1 discarded
+unread`.
+
+**So no arming rule could ever have worked**, and the five boots spent on the
+dwell were spent on the wrong layer. The thing to have measured first was
+whether a character *can* be delivered at all, which one line of the existing
+report answers. That is the same lesson as the clock: check the cheap
+configuration-shaped question before building machinery.
+
+**The real open item is `IRQ1`.** An older note in this document recorded the
+same absence -- vector `A1` 190 times on the oracle and 0 here, with the master
+`8259`'s `IMR` masking it and `F6` read back as what Domain/OS itself wrote.
+That was attributed to the console being driven over the serial port rather than
+the keyboard, and this run is on the *keyboard* with a display fitted, so that
+explanation no longer covers it. It is now the thing standing between this
+machine and a login prompt.
 
 **Check the clock before anything else**, because it is the trap class this
 investigation has already paid for four times. These runs pass
