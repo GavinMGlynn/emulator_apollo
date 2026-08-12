@@ -66,3 +66,57 @@ interrupts; ch. 3 host software interface.
 ## Divergences from the oracle
 
 None yet: nothing is implemented.
+
+## The flag bit positions, from the oracle (2026-08-12)
+
+`[DEV]` §1.9 names eleven flags and defers their positions to a *3C505 Hardware
+Interface Specification* this project does not hold. The header
+`device/ap_3c505.h` therefore declared the names and refused to assign numbers,
+and recorded that positions would come from `[HIS]` if it were found "or from
+the oracle -- which is legitimate here, unlike for the ring, because MAME has a
+runnable 3c505 and the document has been read first and found wanting."
+
+The document has been read and found wanting, so these are the oracle's, read
+out of `ext/mame/src/devices/bus/isa/3c505.h` as **facts about a register
+layout** and not as code. They are `PROVISIONAL` in the sense every
+oracle-sourced number here is: believed, and to be replaced by `[HIS]` if it
+turns up.
+
+**Adapter Status Register**, read by the host at `+2`:
+
+| bit | mask | flag |
+| --- | --- | --- |
+| 0 | `01` | `HSF1` host status flag 1 |
+| 1 | `02` | `HSF2` host status flag 2 |
+| 2 | `04` | `SWTC` external switch |
+| 3 | `08` | `8_16` 8/16-bit |
+| 4 | `10` | `DIR` direction |
+| 5 | `20` | `HCRF` host command register full |
+| 6 | `40` | `ACRE` adapter command register empty |
+| 7 | `80` | `ARDY` data register ready |
+
+**Host Status Register**, the adapter's view:
+
+| bit | mask | flag |
+| --- | --- | --- |
+| 0-2 | `01`/`02`/`04` | `ASF1`, `ASF2`, `ASF3` |
+| 3 | `08` | `DONE` DMA done |
+| 4 | `10` | `DIR` direction |
+| 5 | `20` | `ACRF` adapter command register full |
+| 6 | `40` | `HCRE` host command register empty |
+| 7 | `80` | `HRDY` data register ready |
+
+**Adapter Control Register**: `ASF1`-`ASF3` in bits 0-2, then `LED1` `08`,
+`LED2` `10`, `R586` `20` (reset the 82586), `FLSH` `40` (flush the data
+register), `LPBK` `80` (loopback).
+
+**Host Control Register**: `HSF1` `01`, `HSF2` `02`, `CMDE` `04` (command
+register interrupt enable), `TCEN` `08` (terminal count interrupt enable).
+
+Two things worth noting before building on this. `ASF1`-`ASF3` and `HSF1`-`HSF2`
+appear in **both** a status and a control register, which is what §1.9.5's "they
+are not decoded by the hardware in any way" means concretely -- one side writes
+them in its control register and the other reads them in its status register,
+and nothing between the two interprets them. And the reset state is
+`ASR = ACRE | 8_16`, `HSR = HCRE`: both command registers empty, which is the
+idle the driver's handshake starts from.
