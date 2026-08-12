@@ -3325,10 +3325,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   the volume's install, so the calendar question is never asked and no keystroke
   has to land. Typing the answer does not work at any threshold tried.
 
-  **And `PC 3C4524E6` is not the fault.** It is the `unlk`/`rts` epilogue of the
-  message-formatting helper at `3C452468`, reached by every caller that decides
-  *not* to print; the decision is `tst.w -2(a2)` on the **caller's** frame.
-  Detail in `PROJECT_STATUS.md`.
+  **And `PC 3C4524E6` is not the fault** -- it is a *caller*, and it now has a
+  name. **The volume carries the kernel's own load map**, seven of them, and
+  `tools/kernel_symbols.py` reads one off it without a filesystem: every block
+  header names its object and page, which is what SALVOL is built on
+  (`[AEGIS]` §4.1). `3C4524E6` is `DIR_$OLD_INIT+122` and `3C47BF58` is
+  `DIR_$RESOLVE+17A`, so **the failing operation is a directory resolve issued
+  from the directory subsystem's boot-time initialisation**. Five earlier
+  inferences are confirmed by name (`MMU_$INSTALL_ASID`, `MST_$ALLOC_ASID`,
+  `FIM_$BUS_ERR`, `MMU_$PURGE`, the status on the stack) and the
+  "message-formatting helper" reading of `3C452468` is withdrawn. Detail in
+  `PROJECT_STATUS.md`.
 
   **Done**: stopping at `3C452482` lands at instruction 478,736,082, and shows
   that `000E0007` is *read* out of a status slot on the stack at `3C4F9908`

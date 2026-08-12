@@ -28022,3 +28022,107 @@ prints its **keyboard identification** where the oracle prints nothing.
 keyboard field enumeration that named `Unnamed Key` came from a three-second run
 with a deliberately bogus key, which `press_key` answers by listing every field
 present.*
+
+## The kernel's own symbol map is on the volume, and every `PC` now has a name
+
+Every kernel address this project has chased has been a bare number, named by
+disassembly and inference over several sessions. **Domain/OS ships the load map
+of the kernel it installs**, as an ordinary file, one line per symbol, and the
+SR10.4 artefact carries **seven** of them -- one per kernel variant, 2,467 to
+2,798 symbols each:
+
+    domain_os7!14-Feb-1992.11:12:45   2639 symbols   <- the one this core boots
+    domain_os8!14-Feb-1992.11:20:57   2495
+    domain_os9!14-Feb-1992.10:42:45   2467
+    domain_os11!26-Feb-1992.14:19:40  2798
+    domain_os12!14-Feb-1992.11:40:36  2685
+    domain_os14!26-Feb-1992.14:36:14  2716
+
+`domain_os7` is the one to read: the console banner says
+`Domain/OS kernel(7), revision 10.4`. Two of the seven UIDs carry byte-identical
+`domain_os7` text -- the same map twice -- so several maps matching one build
+name is ordinary rather than an ambiguity.
+
+### Reading a file off the volume without a filesystem
+
+`tools/kernel_symbols.py` does not implement the AEGIS directory hierarchy and
+does not need to. `[AEGIS]` §4.1, from the page image: "The AEGIS system defines
+a disk block as 1024 bytes of data plus a 32-byte disk block header ... The UID
+of the object that owns the block. The block's page number within the object".
+**Every block says which object it belongs to and where in it it goes**, so an
+object reassembles from a scan of 345,000 block headers -- which is the property
+SALVOL is built on: "the disk block header exists to aid in volume recovery ...
+SALVOL can reconstruct the disk even if the volume table of contents has been
+destroyed."
+
+The format check is the header's own last longword, the block's physical DADDR,
+"its sequence number relative to the start of the physical volume":
+`DADDR * 1056` is exactly the byte offset the block was found at, on every
+written block of the artefact. A file that fails that is refused rather than
+mined for plausible rubbish.
+
+Two properties of the map's own layout are load-bearing and invisible to a text
+extraction, and both are in the tests:
+
+  * the address column is **right-aligned** in eight characters, so a symbol at
+    zero is seven spaces and a `0`. A grammar reading hex *at* the column
+    boundary drops every symbol below `0x10000000` -- 2,495 of them on
+    `domain_os8`, the whole trap page and every absolute -- and still returns a
+    confident 2,631 for `domain_os7`, which is why the first count in this file
+    was wrong before it was written down;
+  * the `D`-marked lines are **sections**, and their name field is truncated to
+    eighteen characters (`ETHERNET_$BUFFER_P`), so a table built from them
+    answers with names that do not exist. Only the unmarked lines are taken.
+
+### What it says about the addresses already in this file
+
+    3C4524E6  DIR_$OLD_INIT+122      the crash record's PC
+    3C452482  DIR_$OLD_INIT+BE
+    3C47BF58  DIR_$RESOLVE+17A       the status hand-off
+    3C47BFCA  DIR_$GET_ENTRYU+3E     the read of 000E0007
+    3C4F9908  STACK+1908             the slot it is read from
+    3C43DDF0  MMU_$INSTALL_ASID+70   the address-space switch
+    3C43DE58  MMU_$PURGE             the "flush-and-cache" entry
+    3C43C96E  MMU_$RARS_PHADDR       the root pointer table store
+    3C46FE16  MST_$ALLOC_ASID+6C     the ADDQ that "creates the value 1"
+    3C42CE30  FIM_$BUS_ERR+A0        the 290 MMUSR reads
+
+Five separate inferences made over three sessions are confirmed by name:
+`MMU_$INSTALL_ASID` is the switch, `MST_$ALLOC_ASID` is what allocates the
+address space, `FIM_$BUS_ERR` is the page-fault handler doing the `MMUSR` reads,
+`MMU_$PURGE` is the flush entry, and the status really is read out of the stack.
+
+**And one is withdrawn.** `3C452468` and `3C4524E6` were read as "a
+message-formatting helper and its shared `unlk`/`rts` epilogue". They are `+A4`
+and `+122` **inside `DIR_$OLD_INIT`**, a routine that begins at `3C4523C4` and
+ends before `NAME_$INIT` at `3C452524`. So the crash record's PC is in the
+**directory subsystem's boot-time initialisation**, and the failing operation is
+a directory resolve issued from it -- which is a much narrower statement than
+"the naming server", and it is a statement the instruction-level reading could
+not reach.
+
+### The annotated trace, which is the other half of the instrument
+
+`--annotate` names the PC column of a `--boot-trace-last` dump -- the *second*
+field, because the first is a decimal step count and an eight-digit step count
+is indistinguishable from an address by shape alone.
+
+A 500,000-step trace ending at the status hand-off reduces to 1,446 symbol runs,
+and they read as a kernel: `NULL_LOOP`, then `ATBUS8_$INT` -> `WIN8_$INT` ->
+`WIN_$EMPTY_CTL_BUF` -> `DISK_$READ` -> `VTOCE_$READ` -> `OBJ_$DIR_CACHE_ENTER`
+-> `AST_$UPDATE`, and at the end `DIR_$DO_OP` -> `REM_NAME_$FIND_UID` ->
+`DIR_$RESOLVE`. A wrong base would not produce a coherent call structure, so the
+trace is a check on the map as much as the map is a reading of the trace.
+
+It also measures the wait that was inferred two entries ago: **465,162 of those
+500,000 instructions are `NULL_LOOP`** -- 93% of the last half-million
+instructions before the failure are the idle loop. The machine is not spinning
+on the failure; it is asleep between disk interrupts.
+
+*Verification: `kernel_symbols` (a new CTest entry) builds its own AEGIS volume
+and checks the two column traps, the reassembly, the DADDR refusal and the trace
+annotation, so it needs no `media/`; `tools/kernel_symbols.py
+media/dn3500-sr10.4-installed.awd --list` on the artefact for the seven builds;
+`tools/e0007-boot.sh --boot-stop-pc 3C47BF58 --boot-stop-pc-skip 1
+--boot-trace-last 500000`, which stops at 478,736,036 instructions, for the
+annotated trace.*

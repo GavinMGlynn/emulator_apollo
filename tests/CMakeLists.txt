@@ -226,6 +226,18 @@ if(Python3_Interpreter_FOUND AND NOT WIN32)
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/mame-oracle/test_encoder.py)
   set_tests_properties(probe_encoder PROPERTIES LABELS tools)
 
+  # Kernel symbol names for Domain/OS addresses, out of the load map the volume
+  # itself carries. Every answer it gives becomes a sentence in a status
+  # document, so a fault in it is a wrong name wearing the authority of a
+  # measurement -- which is what the bare numbers it replaces were. Two of the
+  # map's properties are load-bearing and neither is visible from a text
+  # extraction: the address column is right-aligned, and the section lines'
+  # names are truncated. Builds its own volume, so it needs no `media/`.
+  add_test(NAME kernel_symbols
+           COMMAND ${Python3_EXECUTABLE}
+                   ${CMAKE_SOURCE_DIR}/tools/test_kernel_symbols.py)
+  set_tests_properties(kernel_symbols PROPERTIES LABELS tools)
+
   # The headless frontend's flags, each one. Phase 5 asks for exactly this and
   # until it existed not one was checked -- and the flags are the project's own
   # instruments, so one that breaks silently takes a measurement with it. Needs
