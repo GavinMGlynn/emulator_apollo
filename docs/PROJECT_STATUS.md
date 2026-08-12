@@ -26722,3 +26722,53 @@ fault; `five/theirs.txt` registers and ATC against
 `ext/mame/src/devices/cpu/m68000/m68kmmu.h` lines 40-47 and 119-134;
 `--boot-watch-write 011E6A48 --boot-log-watch-writes` on this core and
 `APOLLO_SYNC_WRITE=11E6A48` on the oracle.*
+
+### The fault is a sound sync point, and the handlers agree out of it
+
+The fault is a **program event that happens once, in order, on both machines**,
+so it synchronises them in a way no instruction count or emulated instant can.
+`--boot-stop-pc-then` already held the window *after* such an event on this side;
+`APOLLO_SYNC_THEN=N` now does the same on the oracle, stepping N instructions
+past the breakpoint and printing each PC.
+
+Compared out of the fault on `3C248001`, the two machines are
+**instruction-for-instruction identical for 139 steps** -- the same exception
+vector to `3C42CD90`, the same handler through `3C42CDE6` and `3C42CE0C`-`CE84`,
+then the same `3C41218A`, `3C412080`, `3C40DCA2` sequence.
+
+### Retired: "the handler branches on MMUSR's N"
+
+The standing account was that the handler splits at
+
+    3C42CE5C  C203        AND.B D3,D1     D1 = MMUSR & 7 = N
+    3C42CE5E  B23C ..     CMP.B #1,D1
+    3C42CE62  6700 00DC   BEQ.W $3C42CF40
+
+with this core reporting `N = 1` where the oracle reports `2`, and Domain/OS
+treating `N = 1` as an unrecoverable whole-region absence. **For this fault that
+is not what happens.** Both machines execute `3C42CE62` and **both fall through**
+to `3C42CE66`.
+
+The `N` values agree, and agree with the arithmetic. For `3C248001` the search
+fetches `010017C0` (valid, long-format table) and then `011E6A48` (zeros,
+invalid), so two tables are accessed:
+
+| | N |
+| --- | --- |
+| this core (`levels_walked`, set after each successful fetch) | 2 |
+| MAME (`level++` per table descriptor followed) | 2 |
+| **oracle, measured** (`m_mmu_sr` = `0402`) | **2** |
+
+An earlier reading this session of `0402` here against `0403` there looked like
+an off-by-one and **was not** -- those were two different `PTEST` targets sampled
+at two different moments, the same error this document has now recorded three
+times in one session.
+
+So the divergence is **further downstream than 140 instructions**, and this core
+reaches `crash_system` roughly 17,000 instructions after the fault, which bounds
+where to look.
+
+*Verification: `--boot-stop-on-mmu-fault-at 3C248001 --boot-stop-pc-then 140
+--boot-trace-last 140` against `APOLLO_SYNC_THEN=140`, diffed step for step;
+`m_mmu_sr` from an `APOLLO_SYNC_THEN=45` dump, which stops 5 instructions after
+the handler's `PMOVE` from `MMUSR` at `3C42CE30`.*
