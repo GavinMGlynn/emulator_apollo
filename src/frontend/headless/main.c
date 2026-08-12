@@ -129,6 +129,17 @@ static void print_usage(const char *program_name) {
           "");
   /* And once more. */
   fprintf(stdout,
+          "  --boot-type-settled N   how many consecutive instructions the\n"
+          "                        machine must sit at the arming address before\n"
+          "                        a typed phase is armed. Default 1, arm on\n"
+          "                        arrival. A prompt deep in an operating system\n"
+          "                        may wait in a loop the kernel also uses when\n"
+          "                        idle -- Domain/OS answers its calendar question\n"
+          "                        from the same two instructions it idles in --\n"
+          "                        so arriving there is not the same as waiting\n"
+          "                        there, and a step number would measure one\n"
+          "                        boot rather than state a condition\n");
+  fprintf(stdout,
           "  --dump-state FILE     write every field of machine state the hash\n"
           "                        covers, one line per field, and print the\n"
           "                        hash of that same walk beside it. The two\n"
@@ -1699,13 +1710,45 @@ static void typed_deliver(ap_machine_t *machine, ap_board_t *board,
   }
 }
 
+/* Arm a typed phase when the machine reaches its address -- and, if asked, only
+ * once it has *stayed* there.
+ *
+ * ## Why a plain "has reached this PC" is not enough
+ *
+ * Measured 2026-08-12 against Domain/OS's calendar question. The kernel waits
+ * for that answer in a two-instruction loop at `3C43F5A8`/`3C43F5AC`, which is
+ * the right address: a trace of the last forty instructions of a 700 M boot
+ * sitting at the prompt is nothing else. But the **same loop is the kernel's
+ * idle loop**, entered and left throughout initialisation hundreds of millions
+ * of instructions earlier, so arming on first arrival typed both characters
+ * into a console with nothing reading them -- `sio1 A  1 discarded unread`,
+ * with the question still unanswered at 1.5 G instructions.
+ *
+ * A step number would have solved that boot and nothing else: it is a
+ * measurement of one run, not a condition, and the help text for
+ * `--boot-type-after-os` already says as much. What distinguishes the prompt
+ * from the passing visits is a *property of the machine*: at a prompt it stays
+ * in the poll, and everywhere else it does not. So the rule is a count of
+ * consecutive instructions spent at the address, reset by leaving it. */
+static bool typed_arm(uint32_t pc, uint32_t want, unsigned settle,
+                      unsigned *settled_for) {
+  if (want == 0u || pc != want) {
+    *settled_for = 0u;
+    return false;
+  }
+  if (*settled_for < 0xFFFFFFFFu) {
+    (*settled_for)++;
+  }
+  return *settled_for >= settle;
+}
+
 static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t watch, const char *input, unsigned input_unit,
                           unsigned input_channel, uint8_t input_rate,
                           unsigned input_interval_us,
                           unsigned key, const char *typed, bool type_after_os,
                           uint32_t type_after_pc, const char *typed2,
-                          uint32_t type2_after_pc,
+                          uint32_t type2_after_pc, unsigned typed_settle,
                           bool type_await_pushback,
                           const ap_mc146818_time_t *clock, bool boot_report,
                           bool console,
@@ -2052,6 +2095,10 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   bool typed_pending = false;
   /* `--boot-type-after-pc`: unset means armed from reset. */
   bool typed_armed = typed_phase_pc[0] == 0u;
+  /* How long the machine has sat at the arming address without leaving it, for
+   * `--boot-type-settled`. See `typed_arm` for why a count of *consecutive*
+   * visits is the thing that distinguishes a prompt from a passing visit. */
+  unsigned typed_settled_for = 0u;
   /* Carried across the phase switch, unlike `typed_sent`. */
   bool typed_first_done = false;
   size_t input_sent = 0;
@@ -2351,7 +2398,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * re-evaluated per phase, so the command waits for MD's prompt while the
        * two characters that produce that prompt waited only for the console
        * poll. */
-      if (!typed_armed && machine.cpu.regs.pc == typed_phase_pc[typed_phase_at]) {
+      if (!typed_armed &&
+          typed_arm(machine.cpu.regs.pc, typed_phase_pc[typed_phase_at],
+                    typed_settle, &typed_settled_for)) {
         typed_armed = true;
       }
       if (typed_sent >= typed_length && typed_phase_at == 0u &&
@@ -2362,6 +2411,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
         typed_sent = 0u;
         typed_pending = false;
         typed_armed = typed_phase_pc[1] == 0u;
+        /* Restart the dwell: the phase before it may have been standing at the
+         * same address, and inheriting that count would arm this one at once. */
+        typed_settled_for = 0u;
       }
       typed_deliver(&machine, board, typed_now, typed_length, &typed_sent,
                     &typed_at, &typed_flushed_was, &typed_reads_was,
@@ -2644,7 +2696,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * re-evaluated per phase, so the command waits for MD's prompt while the
        * two characters that produce that prompt waited only for the console
        * poll. */
-      if (!typed_armed && machine.cpu.regs.pc == typed_phase_pc[typed_phase_at]) {
+      if (!typed_armed &&
+          typed_arm(machine.cpu.regs.pc, typed_phase_pc[typed_phase_at],
+                    typed_settle, &typed_settled_for)) {
         typed_armed = true;
       }
       if (typed_sent >= typed_length && typed_phase_at == 0u &&
@@ -2655,6 +2709,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
         typed_sent = 0u;
         typed_pending = false;
         typed_armed = typed_phase_pc[1] == 0u;
+        /* Restart the dwell: the phase before it may have been standing at the
+         * same address, and inheriting that count would arm this one at once. */
+        typed_settled_for = 0u;
       }
       typed_deliver(&machine, board, typed_now, typed_length, &typed_sent,
                     &typed_at, &typed_flushed_was, &typed_reads_was,
@@ -3567,6 +3624,10 @@ int main(int argc, char **argv) {
   bool boot_clock_set = false;
   bool boot_report = false;
   bool boot_type_after_os = false;
+  /* `--boot-type-settled N`: how many consecutive instructions the machine must
+   * spend at the arming address before a phase is armed. 1 is "on arrival",
+   * which is the behaviour every run before this had. */
+  unsigned boot_type_settled = 1u;
   uint32_t boot_type_after_pc = 0;
   const char *boot_typed2 = NULL;
   uint32_t boot_type2_after_pc = 0;
@@ -3777,6 +3838,14 @@ int main(int argc, char **argv) {
        * silent -- the run completes and reports `0 of 2 character(s) typed` --
        * which is exactly the shape that wastes a fifteen-minute boot. */
       boot_type_after_pc = (uint32_t)strtoul(argv[i + 1], NULL, 16);
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-type-settled") == 0 && i + 1 < argc) {
+      boot_type_settled = (unsigned)strtoul(argv[i + 1], NULL, 0);
+      if (boot_type_settled == 0u) {
+        boot_type_settled = 1u;
+      }
       i += 2;
       continue;
     }
@@ -4037,7 +4106,7 @@ int main(int argc, char **argv) {
                           (uint8_t)boot_input_rate, boot_input_interval_us,
                           boot_key, boot_typed, boot_type_after_os,
                           boot_type_after_pc, boot_typed2, boot_type2_after_pc,
-                          boot_type_await_pushback,
+                          boot_type_settled, boot_type_await_pushback,
                           boot_clock_set ? &boot_clock : NULL, boot_report,
                           boot_console,
                           boot_screen, node_id, opt.model->id, screenshot,
