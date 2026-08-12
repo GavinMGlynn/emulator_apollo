@@ -27133,6 +27133,25 @@ whether a character *can* be delivered at all, which one line of the existing
 report answers. That is the same lesson as the clock: check the cheap
 configuration-shaped question before building machinery.
 
+**Measured at the prompt, and it is a pending request behind a mask.** A state
+dump taken while the machine waits gives
+
+    interrupts.000 (IRR) = 02    IRQ1 *is* being requested
+    interrupts.002 (IMR) = F6    IRQ1 is masked, bit 1 set
+    interrupts.005       = A0    vector base, so IRQ1 is vector A1
+
+So the character arrives, the DUART raises its request, and the request sits
+pending because `IRQ1` is masked. Nothing is missing in the device, the wiring
+or the vector arithmetic -- the mask is the whole of it, which is what the older
+note found too and is now confirmed on the keyboard console with a display
+fitted.
+
+**The question to answer next is therefore narrow**: what does Domain/OS wait
+for before unmasking `IRQ1`, and does this core give it? The oracle unmasks it
+-- 190 interrupts against none here -- so the two machines can be compared on
+the writes to the master's `OCW1`, which is one tap on each side and needs no
+new harness.
+
 **The real open item is `IRQ1`.** An older note in this document recorded the
 same absence -- vector `A1` 190 times on the oracle and 0 here, with the master
 `8259`'s `IMR` masking it and `F6` read back as what Domain/OS itself wrote.
