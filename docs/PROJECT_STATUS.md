@@ -27173,10 +27173,17 @@ from `3C4E2ADC` -- a routine this core never executes. So the difference is not
 in the interrupt controller, the DUART or the mask arithmetic, none of which
 differ: it is that Domain/OS reaches `3C4E2ADC` there and not here.
 
-**That is the next thing to chase, and it is a control-flow question with a named
-address.** `--boot-stop-pc 3C4E2ADC` over a full boot says outright whether this
-core reaches it, and the call chain into it on the oracle -- via the frame walk
-that worked at `3C47A25A` -- names what has to happen first.
+**Measured: this core never executes `3C4E2ADC` at all.** `--boot-stop-pc
+3C4E2ADC` over 900 M instructions never fires. So the unmask is not a branch
+taken differently inside a routine both machines run -- the routine is code this
+core never enters, and the divergence is upstream of it.
+
+**Next, and it is the technique that already worked once**: take the oracle's
+call chain into `3C4E2ADC` by walking its `a6` frames at a breakpoint there, the
+way the chain into `3C47A25A` was recovered, then test each caller in turn with
+`--boot-stop-pc` here. The first one this core does reach brackets the
+divergence between itself and the next link, which is a bisection over a handful
+of runs rather than a search.
 
 *Verification: `--boot-watch-write 011001 --boot-log-watch-writes` on this core,
 sixteen writes ending `F6` at instruction 373 M and never written again through
