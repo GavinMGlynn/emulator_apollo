@@ -27178,12 +27178,20 @@ differ: it is that Domain/OS reaches `3C4E2ADC` there and not here.
 taken differently inside a routine both machines run -- the routine is code this
 core never enters, and the divergence is upstream of it.
 
-**Next, and it is the technique that already worked once**: take the oracle's
-call chain into `3C4E2ADC` by walking its `a6` frames at a breakpoint there, the
-way the chain into `3C47A25A` was recovered, then test each caller in turn with
-`--boot-stop-pc` here. The first one this core does reach brackets the
-divergence between itself and the next link, which is a bisection over a handful
-of runs rather than a search.
+**The oracle's chain into it, recovered by the same frame walk that worked at
+`3C47A25A`**: it hits `3C4E2ADC` at **61.98 s emulated -- before the calendar
+prompt, not after** -- with `a6 = 3C4F9884`, and the frames give
+
+    3C4E2ADC  <-  returns to 3C455A50  <-  returns to 3C4568D6
+
+Reading the oracle's stack needs the same physical mapping as ours, `logical -
+0x3B3D5000`, which holds because both machines put the kernel's stack at the
+same physical addresses.
+
+**Bisect from there**: test each caller here with `--boot-stop-pc`. The first one
+this core does reach brackets the divergence between itself and the next link,
+which is a handful of runs rather than a search. `3C4568D6` is the outer of the
+two and so the one to try first.
 
 *Verification: `--boot-watch-write 011001 --boot-log-watch-writes` on this core,
 sixteen writes ending `F6` at instruction 373 M and never written again through
