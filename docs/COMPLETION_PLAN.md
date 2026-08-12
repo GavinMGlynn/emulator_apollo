@@ -3394,6 +3394,18 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   second process on a **null entry point** — `FIM_$PROC2_STARTUP` builds a frame
   and `FIM_$EXIT`'s `RTE` lands on `PC 00000000`. Nothing above this line is
   about `FIM_$PROC2_STARTUP`; treat it as a new question, not a continuation.
+
+  **And a second CPU defect, which was hiding the kernel's own report of it.**
+  `[030]` §7.5.1: a bus error on an instruction fetch is deferred until the
+  processor "attempts to use that instruction word". This core deferred it and
+  then never took it — the step returned its default `FAULT` and vectored
+  nowhere — so a jump to an unmapped address stopped the machine where the
+  hardware raises vector 2. Fixed, and **verified by the guest**: Domain/OS now
+  prints `FAULT IN DOMAIN/OS: SR:0000 PC:00000000 FF:A008 (B) FA:00000000
+  SW:F000`, decoding this core's short bus fault frame, its vector offset and
+  its stage B/C fault bits field for field. The machine then reboots and
+  salvages. Identity hash still `A354786119A3931D`. Detail in
+  `PROJECT_STATUS.md`.
   - Then the oracle, out of a shared program event, on the **same image**. Its
     successful boots have been on `media/dn3500.awd`, which MAME mutates and
     which differs from `media/dn3500-sr10.4-installed.awd` by 563,262 bytes;
@@ -4325,9 +4337,11 @@ boot below, and the boot is not attempted until they are done.
       on identical rows.
       What remains is still the *subject* of the picture: the verification asks
       for a **login prompt**. `CRASH_STATUS 00120020` no longer blocks it -- the
-      OMTI's access time closed that on 2026-08-12 -- and the boot now stops at
-      `Unable to resolve "/sys/node_data" -- E0007` instead. Detail in
-      `PROJECT_STATUS.md`.
+      OMTI's access time closed that on 2026-08-12 -- and neither does
+      `E0007`, which the `PFLUSH` mask closed on 2026-08-13. The screen now
+      shows the kernel banner and no crash message at all; the boot ends
+      earlier than the prompt because the kernel starts its second process on a
+      null entry point. Detail in `PROJECT_STATUS.md`.
       *Verification: a decoded PNG showing Domain/OS's login prompt.*
 - [x] **SDL3 interactive frontend, implemented rather than stubbed.**
       `apollo-sdl` opens a window on the emulated screen: scanout to an ARGB

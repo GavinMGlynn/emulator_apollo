@@ -510,6 +510,63 @@ test_a_faulting_operand_read_takes_the_bus_error_exception(void) {
   TEST_ASSERT_EQUAL_UINT8(5u, ssw.function_code); /* supervisor data */
 }
 
+/* `[030]` §7.5.1, from the page image: "If a bus error occurs on an instruction
+ * fetch, the processor does not take the exception until it attempts to use
+ * that instruction word." §8.1.2 puts it from the other side -- the processor
+ * "may delay taking the exception until it attempts to use the prefetched
+ * information".
+ *
+ * The delay was modelled and the *taking* was not: a step whose instruction word
+ * never arrived returned the status enum's default, `FAULT`, without vectoring
+ * anywhere. So a program that jumped somewhere unmapped stopped this core dead
+ * where the hardware raises vector 2 and lets the handler deal with it -- which
+ * is not a corner case. Domain/OS starting a process on a null entry point does
+ * exactly this, and its own crash diagnostic never got the chance to print.
+ *
+ * The frame is the long one and its stage B and C fault bits are what say the
+ * *instruction stream* faulted rather than an operand, which is the whole
+ * difference a handler acts on. */
+static void test_a_faulting_instruction_fetch_takes_the_bus_error_exception(
+    void) {
+  static const uint16_t program[] = {0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 2);
+  plant_vector(&m, AP_M68030_VECTOR_BUS_ERROR, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.memory.berr_from = 0x0000C000u;
+  /* Fetching from there, as a branch to an unmapped address leaves the
+   * processor: the pipe is reset onto the faulting address and the next thing
+   * the step does is try to use a word from it. */
+  ap_m68030_cpu_reset(&m.cpu, 0x0000C000u);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  /* And the **short** frame, 16 words, which is the other half of the fact.
+   * Table 8-6 splits the two bus fault frames by where the execution unit
+   * stands: format $A is "Execution Unit at Instruction Boundary" and format
+   * $B is "Instruction Execution in Progress". A word that never arrived is
+   * discovered *before* an instruction begins, so there is no instruction in
+   * progress to describe -- the opposite of a faulted operand, which is always
+   * partway through one. */
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 32u, m.cpu.regs.isp);
+  const uint16_t format_word =
+      (uint16_t)(read_ram_long(&m, m.cpu.regs.isp + 4u) & 0xFFFFu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_SHORT_BUS_FAULT,
+                        ap_m68030_frame_format_of(format_word));
+
+  const ap_m68030_ssw_t ssw = ap_m68030_ssw_decode((uint16_t)(
+      read_ram_long(&m, m.cpu.regs.isp + AP_M68030_BUS_FAULT_SSW) >> 16));
+  TEST_ASSERT_TRUE(ssw.stage_c_fault);
+  TEST_ASSERT_TRUE(ssw.stage_b_fault);
+  TEST_ASSERT_FALSE(ssw.data_fault);
+}
+
 /* The control the test above is worthless without: the identical instruction
  * over memory that answers must execute. Without this, a step that reported
  * FAULT for every immediate operation would pass -- and the claim being made is
@@ -8005,6 +8062,7 @@ int main(void) {
   RUN_TEST(test_a_conditional_branch_reads_the_previous_result);
   RUN_TEST(test_an_unimplemented_instruction_is_reported_not_skipped);
   RUN_TEST(test_a_faulting_operand_read_takes_the_bus_error_exception);
+  RUN_TEST(test_a_faulting_instruction_fetch_takes_the_bus_error_exception);
   RUN_TEST(test_the_same_instruction_over_memory_that_answers_executes);
   RUN_TEST(test_a_write_nothing_accepts_takes_the_bus_error_exception);
   RUN_TEST(test_a_refused_write_is_not_left_in_the_cache);

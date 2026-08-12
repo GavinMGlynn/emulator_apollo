@@ -5873,6 +5873,38 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   const uint32_t instruction_address = cpu->regs.pc;
 
   if (!fill_to_decoded(cpu, &out.clocks, &word, &abnormal) || abnormal) {
+    /* The instruction word did not arrive, and **this is where the deferred
+     * bus error is taken**. `[030]` §7.5.1, from the page image: "If a bus
+     * error occurs on an instruction fetch, the processor does not take the
+     * exception until it attempts to use that instruction word. Should an
+     * intervening instruction cause a branch or should a task switch occur,
+     * the bus error exception does not occur." §8.1.2 says the same from the
+     * exception side.
+     *
+     * Half of that was modelled and half was not. The *deferral* is the pipe's
+     * abnormal mark, and a branch discarding it is `ap_m68030_fetch_reset` --
+     * both right. But the attempt to use it returned the step's default
+     * `FAULT` **without taking any exception**, so a program that jumped
+     * somewhere unmapped stopped this core dead where the hardware vectors
+     * through 2 and lets the handler report it. Domain/OS starting a process
+     * on a null entry point is exactly that, and the kernel's own diagnostic
+     * never got the chance to print.
+     *
+     * Both arms are the same fault -- a prefetch that never returned, and a
+     * word the pipe had already marked because its prefetch had -- and the
+     * state below is what `next_word` records for an extension word, for the
+     * same reason and in the same terms. `fault_ssw` turns
+     * `fault_instruction_stream` into the stage B and C fault bits, which is
+     * what tells a handler to repair the instruction stream rather than an
+     * operand. */
+    cpu->access_faulted = true;
+    cpu->fault_instruction_stream = true;
+    cpu->fault_address = cpu->regs.pc;
+    cpu->fault_size = 2u;
+    cpu->fault_read = true;
+    cpu->fault_function_code = cpu->fetch.function_code;
+    cpu->fault_data_output = 0u;
+    out.status = fault_or_unimplemented(cpu, &out, instruction_address);
     cpu->clocks += out.clocks;
     return out;
   }

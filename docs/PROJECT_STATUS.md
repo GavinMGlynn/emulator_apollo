@@ -3356,7 +3356,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 bus arbitration control unit | working: the five-state machine of `[030]` §7.7.4, the processor at lowest priority, both documented deferrals (a committed bus cycle, and a locked read-modify-write) and the single-wire BGACK-alone path. Figure 7-61 did not survive the scan and the states are recovered from the prose walking it; one edge is marked `INFERRED` in code against the two passages supporting it. The input synchroniser is `PROVISIONAL` | `arb_suite`, 16 tests, `MC68030 User's Manual 3ed` §7.7 |
 | 68030 on-chip instruction and data caches | working, including the bus-timing join: a hit costs 0 clocks, a burst line fill 5 | `cache_suite`, 30 tests and `bus_suite`, 25 tests, `MC68030 User's Manual 3ed` §6, §7.3.7 |
 | 68030 integer ALU (results and condition codes) | working: ADD, SUB, CMP, AND, OR, EOR, NEG, NOT, and the shifts and rotates | `alu_suite`, 20 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-18; the byte space verified exhaustively |
-| 68030 exception taking (stack the frame, fetch the vector through the VBR, load the PC) | working for the four- and six-word frames and the throwaway frame, wired to divide-by-zero, `TRAP #N`, `TRAPV`, `CHK`, `ILLEGAL`, privilege violations, MMU configuration errors, **interrupts** and **trace**; **the fault frames now build and return**, wired to bus error (vector 2) on any faulted access and address error (vector 3) on a prefetch from an odd program counter; **the coprocessor mid-instruction frame (`$9`) now builds too**, wired to the main-detected protocol violation the source operand transfer raises, with its four INTERNAL REGISTER words written as zero and marked `PROVISIONAL`; reset and the interrupt M-bit second frame decline rather than approximate | `step_suite` (10 of its tests), `exception_suite`, 16 tests, `[030]` §8.1 and Table 8-6 |
+| 68030 exception taking (stack the frame, fetch the vector through the VBR, load the PC) | working for the four- and six-word frames and the throwaway frame, wired to divide-by-zero, `TRAP #N`, `TRAPV`, `CHK`, `ILLEGAL`, privilege violations, MMU configuration errors, **interrupts** and **trace**; **the fault frames now build and return**, wired to bus error (vector 2) on any faulted access -- **an instruction fetch included**, which `[030]` §7.5.1 defers until "it attempts to use that instruction word" and this core used to defer for ever -- and address error (vector 3) on a prefetch from an odd program counter; **the coprocessor mid-instruction frame (`$9`) now builds too**, wired to the main-detected protocol violation the source operand transfer raises, with its four INTERNAL REGISTER words written as zero and marked `PROVISIONAL`; reset and the interrupt M-bit second frame decline rather than approximate | `step_suite` (10 of its tests), `exception_suite`, 16 tests, `[030]` §8.1 and Table 8-6 |
 | 68030 family `0000` size-11 escape (`CMP2`/`CHK2`/`CAS`/`CAS2`) | decoded; the opcode map now has no holes. Semantics open: `CAS`/`CAS2` need an indivisible read-modify-write | `bounds_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` |
 | Per-instruction timing report (`--time-instructions`) | bus and cache time only, pinned as a golden; the 0/2 alternation is the cache holding register serving two instruction words per fetch | `tests/goldens/timing.txt`; oracle side by `tools/mame-oracle/steptime.lua` |
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
@@ -3369,7 +3369,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 state hash (the identity harness's CPU half) | working: every architectural register, the MMU and cache control registers, the pipe, both caches, the ATC, and the accumulated clock — host pointers excluded by construction, since `ap_hash.h` has no pointer helper | `state_suite`, 12 tests sweeping every field; `step_suite`'s same-program-twice check |
 | 68030 addressing mode categories (Data / Memory / Control / Alterable) | working; derived from §2.3's definitions rather than transcribed from Table 2-4, whose Alterable column is exchanged between two row pairs in the scan | `category_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §2.3 |
 | 68030 operand access (read/write through an effective address) | working; a sub-long-word operand is selected from the long word by position, and one straddling two long words is split into a bus cycle per long word in address order | `operand_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` |
-| 68030 instruction step (fetch → decode → execute → advance) | working for `NOP`, `MOVEQ`, 8-bit `BRA`/`Bcc`, `MOVE`/`MOVEA`, the six ALU operations, the `xxxI` immediate forms, `CLR`/`NEG`/`NOT`/`TST`, `ADDQ`/`SUBQ`/`Scc`/`DBcc`, `ADDA`/`SUBA`/`CMPA`, `BTST`/`BCHG`/`BCLR`/`BSET`, the shifts and rotates, `MULU`/`MULS` and `DIVU`/`DIVS` at both the word and the 68020's 32-bit widths, `ADDX`/`SUBX`/`ABCD`/`SBCD` in both the register and the `-(An),-(An)` forms, `CMPM` and all three `EXG` exchanges; everything else reports unimplemented, including divide-by-zero, which needs the exception machinery | `step_suite`, 280 tests |
+| 68030 instruction step (fetch → decode → execute → advance) | working for `NOP`, `MOVEQ`, 8-bit `BRA`/`Bcc`, `MOVE`/`MOVEA`, the six ALU operations, the `xxxI` immediate forms, `CLR`/`NEG`/`NOT`/`TST`, `ADDQ`/`SUBQ`/`Scc`/`DBcc`, `ADDA`/`SUBA`/`CMPA`, `BTST`/`BCHG`/`BCLR`/`BSET`, the shifts and rotates, `MULU`/`MULS` and `DIVU`/`DIVS` at both the word and the 68020's 32-bit widths, `ADDX`/`SUBX`/`ABCD`/`SBCD` in both the register and the `-(An),-(An)` forms, `CMPM` and all three `EXG` exchanges; everything else reports unimplemented, including divide-by-zero, which needs the exception machinery | `step_suite`, 281 tests |
 | 68030 instruction prefetch (pipe driven from memory) | working | `fetch_suite`, 5 tests, `MC68030 User's Manual 3ed` §11.2.2 and §6.1 |
 | 68030 logical memory access path (cache → MMU → bus) | working, reads and writes | `access_suite`, 16 tests, `MC68030 User's Manual 3ed` §6.1 |
 | 68030 effective address calculation (with register side effects) | working; memory-indirect modes report the pending indirection | `addr_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` §2.2 |
@@ -3384,7 +3384,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 family 0100 `$4E` control group (TRAP/LINK/UNLK/MOVE USP/RESET/NOP/STOP/RTE/RTD/RTS/TRAPV/RTR/JSR/JMP) | working; the rest of family 0100 not yet decoded | `control_suite`, 11 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 |
 | 68030 family 0101 (ADDQ/SUBQ/Scc/DBcc/TRAPcc) decode | working | `quick_suite`, 10 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and each instruction page |
 | 68030 branch family (Bcc/BSR/BRA) decode | working | `branch_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and the Bcc/BRA/BSR pages |
-| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 280 tests, and the per-subsystem suites |
+| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 281 tests, and the per-subsystem suites |
 | 68030 operation code map (top-level instruction family) | working | `opcode_suite`, 6 tests, `M68000 Family Programmer's Reference Manual 1992` Table 8-2 |
 | 68030 conditional tests (the 16 Bcc/Scc/DBcc/TRAPcc conditions) | working | `cond_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-19 |
 | 68030 effective address decode (modes, extension words, lengths) | decode and extension-word counts working; address *calculation* needs the instruction unit | `ea_suite`, 17 tests, `M68000 Family Programmer's Reference Manual 1992` §2, Tables 2-1, 2-2, 2-4 |
@@ -28343,11 +28343,14 @@ name where:
 ```
 
 The kernel gets far enough to **start its second process** and starts it on a
-null entry point -- an ordinary bus error on the instruction fetch at zero, with
-`00000000  1 time(s)  00000000  invalid on read` in the MMU fault profile to say
-so. Whether the entry point was never filled in or was filled in from something
-this core still gets wrong is the next question, and it is a *new* one: nothing
-above this line is about `FIM_$PROC2_STARTUP`.
+null entry point. Whether the entry point was never filled in or was filled in
+from something this core still gets wrong is the next question, and it is a
+*new* one: nothing above this line is about `FIM_$PROC2_STARTUP`.
+
+**How that failure *presented* was this core's fault, and the next section is
+about that**: the run ended `FAULT on 0000` rather than letting the kernel's own
+handler report it, because a faulting instruction fetch never took its
+exception.
 
 ### The instrument that made the disk side legible
 
@@ -28371,3 +28374,115 @@ both sides of the table, the pre-fix side built from `HEAD` in a `git worktree`;
 `--boot-trace-last 400` with `tools/kernel_symbols.py` for the final sequence;
 `atc_suite` 24 tests and `awd_suite` for the command log; `[PRM]` `PFLUSH` read
 from the page image.*
+
+## A faulting instruction fetch never took its exception
+
+The section above ends with the boot halting at `PC 00000000` and the report
+saying `FAULT on 0000`. **That halt was this core's, not the kernel's**, and it
+is a second CPU defect in the same family as the first: a behaviour that was
+half-modelled, where the missing half only appears under a real operating
+system.
+
+### What the manual says, from the page image
+
+`[030]` §7.5.1, p. 7-82:
+
+> When the bus error signal is issued to terminate a bus cycle, the MC68030 may
+> enter exception processing immediately following the bus cycle, or it may
+> defer processing the exception. The instruction prefetch mechanism requests
+> instruction words from the bus controller and the instruction cache before it
+> is ready to execute them. **If a bus error occurs on an instruction fetch, the
+> processor does not take the exception until it attempts to use that
+> instruction word.** Should an intervening instruction cause a branch or should
+> a task switch occur, the bus error exception does not occur.
+
+§8.1.2 states it from the exception side: an aborted prefetch means the
+processor "may delay taking the exception until it attempts to use the
+prefetched information".
+
+**The deferral was modelled and the taking was not.** The pipe marks a word
+whose prefetch faulted, and a branch discarding it is `ap_m68030_fetch_reset` --
+both correct, both tested. But when the step *attempted to use* such a word it
+returned `out` unchanged, and `out` is initialised to `AP_M68030_STEP_FAULT`, so
+the status was a memory fault reported to the frontend and no exception at all.
+`next_word` had done the right thing for extension words since it was written;
+the instruction word never did.
+
+### The reading it disproved first
+
+The report's wording -- `stopped FAULT on 0000` -- reads as a double fault, and
+`FAULT` genuinely does mean that in the other three places it is returned. A
+`--dump-state` at the halt says otherwise:
+
+```
+cpu.sp.000 (USP)     3B3C0000
+cpu.sp.001 (ISP)     3C4F9C00     <- valid, in the page the stack was already using
+cpu.sp.active        3B3C0000
+cpu.ctl.001 (SR)     0000         <- S never set
+```
+
+`take_bus_fault_with` sets S before it reads A7, and leaves it set on failure.
+An `SR` of zero at the halt means the taker was **never entered**. Speculating
+about which frame write had faulted -- which is what an hour could have gone
+into -- was answered by one field of a dump the differential work already built.
+
+### The fix, and the frame Table 8-6 selects
+
+The instruction-word path now records the same fault state `next_word` records
+and goes through `fault_or_unimplemented`, so `fault_ssw` turns
+`fault_instruction_stream` into the stage B and C fault bits.
+
+The frame is the **short** one, 16 words, and the first draft of the test
+asserted the long one and was corrected by the failure. Table 8-6 splits the two
+by where the execution unit stands -- format `$A` is "Execution Unit at
+Instruction Boundary", format `$B` "Instruction Execution in Progress" -- and a
+word that never arrived is discovered *before* an instruction begins. A faulted
+operand is the opposite case: always partway through one.
+
+### The verification is the guest's own fault printer
+
+The same boot now reaches this, which is a stronger check than any assertion in
+this repository because **Domain/OS decodes the frame this core built**:
+
+```
+FAULT IN DOMAIN/OS:
+3C4F9BE0: SR:0000  PC:00000000  FF:A008 (B)  FA:00000000  SW:F000
+
+CRASH_STATUS 00040004  PC 3C42BC2E PID 0001
+>REBOOTING
+```
+
+Field for field: `FF:A008` is format `$A` with vector offset `008`, vector 2,
+and the kernel's own `(B)` for bus error -- so its frame decoder agrees with the
+short-frame choice. `SW:F000` is `FC`, `FB`, `RC`, `RB`: stage C and stage B
+faulted, both rerun bits added by the encoder, exactly what `fault_ssw` builds
+and nothing else set. `PC:00000000` and `FA:00000000` are the null entry point
+from the section above.
+
+**The identity hash does not move**, still `A354786119A3931D` -- the reference
+boot never fetches from a faulting address either. The crash boot's hash moves
+from `E4574B930EED0323` to `864FD15835895049` and it now runs the full
+1,500,000,000 instructions instead of halting at 482.9 M, with vector 2 going
+699 -> 1024.
+
+### What this opens, and one caution
+
+The kernel takes its own crash, **reboots**, and starts `SALVAGING BOOT VOLUME`;
+`Salvol - Offline(7)` then reports `status code = 80012` reading a VTOC block at
+`daddr 1E01FF (logical), 2835D (physical)`. That is recorded as an observation
+and not diagnosed: it is downstream of a crash, and this run's controller
+refused nothing and completed its last command with clean sense bytes.
+
+**The caution is against my own earlier reading.** `--boot-watch-write` takes a
+*physical* address, and the six writes to `01124B14` include four from the boot
+PROM and one from the loader, at instruction 6 M to 354 M. With 1 KB pages and
+frames reused across a boot, those are almost certainly a different logical
+object, so "`OS_$INIT+1226` zeroes the process entry point" is **not**
+established -- only that it wrote zero to that frame. See
+[[dump-is-not-evidence-about-earlier-code]], which is the same trap.
+
+*Verification: `step_suite`, `test_a_faulting_instruction_fetch_takes_the_bus_
+error_exception`, 281 tests; `tools/e0007-boot.sh --screenshot` for the screen
+above; `tools/identity-boot.sh` for the unchanged hash; `--dump-state` at the
+old halt for the `SR` and `ISP`; `[030]` §7.5.1 p. 7-82 and §8.1.2 read from the
+page images, and Table 8-6 for the frame.*
