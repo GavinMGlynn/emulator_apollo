@@ -3451,6 +3451,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   two of them caught the hand-rolled `WRITE` path. Detail in
   `PROJECT_STATUS.md`.
 
+  **The crash is gone** — no `CRASH_STATUS`, no reboot, no salvage; the screen
+  ends at `Loading Init.` / `... loading global libraries` with a live cursor,
+  and `1F` goes 11 → 81. 
+  - [ ] **Next: 17.5 M vector 2 exceptions**, one every 85 instructions, against
+    4.5 M before, with no further console output. 17,584,417 of them are past the
+    report's fault-list cap so that run cannot attribute them. Paging hard
+    through real work and turning in a fault loop look identical from outside —
+    trace the end state before treating it as either.
+
   **And a second CPU defect, which was hiding the kernel's own report of it.**
   `[030]` §7.5.1: a bus error on an instruction fetch is deferred until the
   processor "attempts to use that instruction word". This core deferred it and

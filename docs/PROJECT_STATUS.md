@@ -28813,7 +28813,22 @@ buffer-cap change derived from §5.4.19's sentence, arrived at from the table an
 then confirmed on a different page. The same summary gives `CHECK TRACK FORMAT`
 as `10`, which is where this core already put it.
 
+### What it bought
+
+**The crash is gone.** No `CRASH_STATUS`, no reboot, no salvage: the screen ends
+at `Loading Init.` / `... loading global libraries` with a live cursor. The write
+commands go through in numbers for the first time -- `1F WRITE DATA FROM BUFFER`
+11 -> **81**, `0F` 13 -> 81 -- which is the handshake working.
+
+**And it exposes the next thing rather than finishing the job.** That run takes
+**17,585,328** vector 2 exceptions, one every 85 instructions, against 4.5 M
+before; 17,584,417 of them come from PCs past the report's list cap, so this run
+cannot say which. The machine produces no further console output, so it is either
+paging hard through real work or turning in a fault loop, and those are not the
+same thing. Measured next, not guessed.
+
 *Verification: `tools/e0007-boot.sh --boot-stop-pc 3C42B928 --boot-trace-last
 20000` for the spin loop and its registers, and `--dump-logical` at that stop for
 the driver's `CMPI.W #$00CF`; `[OMTI] AT Controller Series Jan87` §4.3 p. 4-4 and
-§5.1.2 p. 5-2 read as page images; `awd_suite`, 49 tests.*
+§5.1.2 p. 5-2 read as page images; `awd_suite`, 49 tests; the boot above,
+`--screenshot`, hash `9533EBC0CCED00BD`, identity unchanged.*
