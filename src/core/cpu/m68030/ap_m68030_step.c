@@ -2750,6 +2750,25 @@ static ap_m68030_step_status_t fault_or_unimplemented(
     }
     return AP_M68030_STEP_UNIMPLEMENTED;
   }
+  /* Put the registers back to where the instruction found them, because this
+   * model restarts the instruction rather than resuming it -- see `entry_regs`
+   * in the header for the manual's two recovery methods and the measurement
+   * that forced this. An addressing mode's side effect applied once before the
+   * fault and once again on the restart moves the operand, and moves it
+   * silently: the access succeeds the second time, at the wrong address.
+   *
+   * The program counter and status register are deliberately not restored. The
+   * frame builder sets the status register itself and chooses its stacked PC
+   * from the frame format, and both of those are transcribed from Table 8-6
+   * and tested; a blanket restore here would quietly overrule them. */
+  for (unsigned i = 0; i < 8u; i++) {
+    cpu->regs.d[i] = cpu->entry_regs.d[i];
+    cpu->regs.a[i] = cpu->entry_regs.a[i];
+  }
+  cpu->regs.usp = cpu->entry_regs.usp;
+  cpu->regs.isp = cpu->entry_regs.isp;
+  cpu->regs.msp = cpu->entry_regs.msp;
+
   const ap_m68030_exception_result_t taken = ap_m68030_take_bus_fault(
       cpu, AP_M68030_VECTOR_BUS_ERROR, instruction_address);
   out->clocks += taken.clocks;
@@ -5871,6 +5890,11 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
    * step through the instruction that disables it. */
   const ap_m68030_trace_mode_t trace = ap_m68030_trace_mode(&cpu->regs);
   const uint32_t instruction_address = cpu->regs.pc;
+
+  /* Before anything can commit an addressing mode's side effect. See
+   * `entry_regs` in the header: this model restarts a faulted instruction, so
+   * the restart must find the registers as the first attempt did. */
+  cpu->entry_regs = cpu->regs;
 
   if (!fill_to_decoded(cpu, &out.clocks, &word, &abnormal) || abnormal) {
     /* The instruction word did not arrive, and **this is where the deferred

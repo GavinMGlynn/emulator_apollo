@@ -3369,7 +3369,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 state hash (the identity harness's CPU half) | working: every architectural register, the MMU and cache control registers, the pipe, both caches, the ATC, and the accumulated clock — host pointers excluded by construction, since `ap_hash.h` has no pointer helper | `state_suite`, 12 tests sweeping every field; `step_suite`'s same-program-twice check |
 | 68030 addressing mode categories (Data / Memory / Control / Alterable) | working; derived from §2.3's definitions rather than transcribed from Table 2-4, whose Alterable column is exchanged between two row pairs in the scan | `category_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §2.3 |
 | 68030 operand access (read/write through an effective address) | working; a sub-long-word operand is selected from the long word by position, and one straddling two long words is split into a bus cycle per long word in address order | `operand_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` |
-| 68030 instruction step (fetch → decode → execute → advance) | working for `NOP`, `MOVEQ`, 8-bit `BRA`/`Bcc`, `MOVE`/`MOVEA`, the six ALU operations, the `xxxI` immediate forms, `CLR`/`NEG`/`NOT`/`TST`, `ADDQ`/`SUBQ`/`Scc`/`DBcc`, `ADDA`/`SUBA`/`CMPA`, `BTST`/`BCHG`/`BCLR`/`BSET`, the shifts and rotates, `MULU`/`MULS` and `DIVU`/`DIVS` at both the word and the 68020's 32-bit widths, `ADDX`/`SUBX`/`ABCD`/`SBCD` in both the register and the `-(An),-(An)` forms, `CMPM` and all three `EXG` exchanges; everything else reports unimplemented, including divide-by-zero, which needs the exception machinery | `step_suite`, 281 tests |
+| 68030 instruction step (fetch → decode → execute → advance) | working for `NOP`, `MOVEQ`, 8-bit `BRA`/`Bcc`, `MOVE`/`MOVEA`, the six ALU operations, the `xxxI` immediate forms, `CLR`/`NEG`/`NOT`/`TST`, `ADDQ`/`SUBQ`/`Scc`/`DBcc`, `ADDA`/`SUBA`/`CMPA`, `BTST`/`BCHG`/`BCLR`/`BSET`, the shifts and rotates, `MULU`/`MULS` and `DIVU`/`DIVS` at both the word and the 68020's 32-bit widths, `ADDX`/`SUBX`/`ABCD`/`SBCD` in both the register and the `-(An),-(An)` forms, `CMPM` and all three `EXG` exchanges; everything else reports unimplemented, including divide-by-zero, which needs the exception machinery | `step_suite`, 284 tests |
 | 68030 instruction prefetch (pipe driven from memory) | working | `fetch_suite`, 5 tests, `MC68030 User's Manual 3ed` §11.2.2 and §6.1 |
 | 68030 logical memory access path (cache → MMU → bus) | working, reads and writes | `access_suite`, 16 tests, `MC68030 User's Manual 3ed` §6.1 |
 | 68030 effective address calculation (with register side effects) | working; memory-indirect modes report the pending indirection | `addr_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` §2.2 |
@@ -3384,13 +3384,13 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 family 0100 `$4E` control group (TRAP/LINK/UNLK/MOVE USP/RESET/NOP/STOP/RTE/RTD/RTS/TRAPV/RTR/JSR/JMP) | working; the rest of family 0100 not yet decoded | `control_suite`, 11 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 |
 | 68030 family 0101 (ADDQ/SUBQ/Scc/DBcc/TRAPcc) decode | working | `quick_suite`, 10 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and each instruction page |
 | 68030 branch family (Bcc/BSR/BRA) decode | working | `branch_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and the Bcc/BRA/BSR pages |
-| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 281 tests, and the per-subsystem suites |
+| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 284 tests, and the per-subsystem suites |
 | 68030 operation code map (top-level instruction family) | working | `opcode_suite`, 6 tests, `M68000 Family Programmer's Reference Manual 1992` Table 8-2 |
 | 68030 conditional tests (the 16 Bcc/Scc/DBcc/TRAPcc conditions) | working | `cond_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-19 |
 | 68030 effective address decode (modes, extension words, lengths) | decode and extension-word counts working; address *calculation* needs the instruction unit | `ea_suite`, 17 tests, `M68000 Family Programmer's Reference Manual 1992` §2, Tables 2-1, 2-2, 2-4 |
 | 68030 programming model (registers, SR, three stack pointers) | working | `regs_suite`, 10 tests, `MC68030 User's Manual 3ed` §1.3 and `M68000 Family Programmer's Reference Manual 1992` §1.3.2 |
 | 68030 exception vectors, priority and stack frames | working; taking an exception needs the instruction unit | `exception_suite`, 16 tests, `MC68030 User's Manual 3ed` §8, Tables 8-1, 8-5, 8-6 |
-| 68030 special status word and bus fault frame layout | working: Figure 8-9's bits, the SIZ1/SIZ0 size code that counts bytes *remaining*, FC2-FC0, and Table 8-6's field offsets for both fault frames. The encoder enforces "a rerun bit is always set when the corresponding fault bit is set", while leaving a rerun *without* a fault expressible because that is how an address error is told from a bus error. The frame is chosen **from the SSW**, not passed in: §8.2.2's "data read faults only generate the long bus fault frame" is structural, since the short frame has no data input buffer for the handler to write the faulted read's value into. Fields Table 8-6 labels INTERNAL REGISTER are deliberately unnamed — this model has no source for them. **Wired into the taker**: `ap_m68030_take_bus_fault()` builds whichever frame the SSW selects, and `RTE` returns from both. Two `PROVISIONAL` approximations, marked in the code: the long frame's INTERNAL REGISTER fields are stacked as **zero** because this model has no microsequencer state, and `RTE` **re-executes** the faulted instruction from the start rather than resuming mid-instruction. The second is exact when the faulted access precedes any side effect — every case the boot PROM hits — and wrong for an instruction that had already committed one | `ssw_suite`, 11 tests, `step_suite`, `[030]` §8.2.1, Figure 8-9, Table 8-6, Table 7-3 |
+| 68030 special status word and bus fault frame layout | working: Figure 8-9's bits, the SIZ1/SIZ0 size code that counts bytes *remaining*, FC2-FC0, and Table 8-6's field offsets for both fault frames. The encoder enforces "a rerun bit is always set when the corresponding fault bit is set", while leaving a rerun *without* a fault expressible because that is how an address error is told from a bus error. The frame is chosen **from the SSW**, not passed in: §8.2.2's "data read faults only generate the long bus fault frame" is structural, since the short frame has no data input buffer for the handler to write the faulted read's value into. Fields Table 8-6 labels INTERNAL REGISTER are deliberately unnamed — this model has no source for them. **Wired into the taker**: `ap_m68030_take_bus_fault()` builds whichever frame the SSW selects, and `RTE` returns from both. Two `PROVISIONAL` approximations, marked in the code: the long frame's INTERNAL REGISTER fields are stacked as **zero** because this model has no microsequencer state, and `RTE` **re-executes** the faulted instruction from the start rather than resuming mid-instruction, where `[030]` §8.2.2 and §8.2.3 both *continue* the faulted bus cycle. The second is exact only while the instruction has committed nothing, so a faulted access now **rolls the register file back** to where the instruction found it (`entry_regs`) — without which a postincrement applied before the fault is applied again by the restart, which is how Domain/OS's first process came to be started on a null entry point | `ssw_suite`, 11 tests, `step_suite`, `[030]` §8.2.1, Figure 8-9, Table 8-6, Table 7-3 |
 | 68030 ATC (22-entry, fully associative) | working; a translating hit marks the entry recently used, a `PTEST` probe does not, and a flush by function code and effective address applies the `MASK` operand — a zero mask flushes the address in **every** function code, which is the only masked form Domain/OS issues and used to invalidate nothing. Replacement `PROVISIONAL` only in its victim choice | `atc_suite`, 24 tests, `MC68030 User's Manual 3ed` §9.4, `[PRM]` `PFLUSH` |
 | 68030 descriptors + search protection state | working | `desc_suite`, 23 tests, `MC68030 User's Manual 3ed` §9.5.1.1 |
 | 68030 translation control (TC) + address split | working | `tc_suite`, 15 tests, `MC68030 User's Manual 3ed` §9.7.2 |
@@ -28548,3 +28548,101 @@ unmodified and the narrow single-driver build recipe is in
 --boot-log-watch-writes` for the 19,781 writes to that stack slot and the last
 one before the return, and `--boot-stop-pc 3C451566 --dump-logical 3B3C0000:64`
 for the header. Names throughout from `tools/kernel_symbols.py`.*
+
+## A faulted access committed its side effect, and the restart applied it again
+
+This is the third CPU defect of the day and the one the null entry point came
+out of. It was found with the oracle, at a **shared program event** rather than
+an instruction count, which is the only cross-machine comparison this project
+trusts.
+
+### The measurement, both machines at the same instruction
+
+Tapping `PC 3C45756C` -- the `MOVE.L D0,(-$DC,A6)` that stores `PROC2_$INIT`'s
+return -- on a MAME instrumented for one PC, against this core's own trace:
+
+| | `D0` at `3C45756C` | `A6` |
+| --- | --- | --- |
+| oracle | **`0080000C`** | `3C4F9BF0` |
+| ours | `00000000` | `3C4F9BF0` |
+
+Same frame, different answer, and `0080000C` is the header's *second* field --
+the one this core had copied into the **adjacent** local. Tapping the copy
+itself, `MOVE.L (A0)+,(A1)+` at `3C451560`, says why:
+
+| | first visit | after the handler's `RTE` |
+| --- | --- | --- |
+| oracle | `a0=3B3C0000 a1=3C4F98F0` | `a0=3B3C0000 a1=3C4F98F0` |
+| ours | `a0=3B3C0000` | **`a0=3B3C0004`** |
+
+The oracle visits the faulting instruction twice with its registers untouched.
+This core had already advanced `A0` when the fault was taken, so the restart read
+the *next* long: every field of the start record arrived one place early, and the
+entry point became the word after the real one -- zero.
+
+### The manual, and why this was our approximation coming due
+
+`[030]` §8.2.2 and §8.2.3 give two ways to recover from a data fault and **both
+continue the faulted bus cycle**: the handler emulates it "in a manner that is
+transparent to the instruction that caused the fault", writing into the frame's
+data input buffer, or `RTE` reruns the cycle. Only a read-modify-write "reruns
+the entire instruction".
+
+This model restarts instead, which the `RTE` row of the summary table has carried
+as `PROVISIONAL` since the fault frames landed, in these words: *exact when the
+faulted access precedes any side effect ... and wrong for an instruction that had
+already committed one*. An addressing mode with a postincrement commits one
+**before** the access whose address it computed, so the note described this
+defect before it was found. What was missing was making the restart *sound*.
+
+### The fix
+
+`ap_m68030_cpu_t` gains `entry_regs`, the register file as the instruction found
+it, snapshotted in `ap_m68030_step` before anything can commit. On a faulted
+access `fault_or_unimplemented` -- the one function all twenty-five fault returns
+funnel through -- puts `d[]`, `a[]` and the three stack pointers back before the
+frame is built.
+
+Registers only, and deliberately: a repeated *memory* write is idempotent, and
+the program counter and status register belong to the frame builder, whose
+stacked-PC and status rules come from Table 8-6 and are tested. **A boundary that
+is left where it is**: the `refused_vector` path (illegal instruction, F-line)
+does not roll back. It is arguably the same class, but nothing has measured it,
+and `CLAUDE.md` names "this could explain a failure" as the tell to stop.
+
+**The identity hash does not move** -- still `A354786119A3931D`, the third fix in
+a row that leaves it alone. The added struct field is not in the state walk,
+which enumerates its fields by name.
+
+### What it bought, on the screen
+
+The boot now reaches **user space**:
+
+```
+Apollo Phase II Environment    Revision 10.4   Jan 25, 1992  12:59:03 pm
+
+Loading Init.
+... loading global libraries
+Fault status 80080012, pc 81C16C
+fa 3B2FC2A0 (access info = 1453B2F)
+Unhandled signal status 80080012
+CRASH_STATUS 00080016  PC 3C41F8BA PID 0005
+```
+
+and the **HP logo is drawn** at the top of the display, which is the Display
+Manager starting. The exception profile changes shape entirely: **30,601 ×
+vector 36** (`TRAP #4`) and vectors 32-40 besides, where the previous boot had
+none. Those are system calls -- user processes are running and calling into the
+kernel, which nothing before this had done.
+
+`PID 0005` is the fifth process. The failure is now a **user-mode fault** at
+`PC 81C16C` on `3B2FC2A0`, which is a different question again, and the first one
+in this investigation that is not about the kernel.
+
+*Verification: `tools/e0007-boot.sh --screenshot`, hash `602F38CEFF3BE2AB`;
+`tools/identity-boot.sh` unchanged; `step_suite` 284 tests, including the control
+that an access which answers still increments both registers, and a predecrement
+case; `[030]` §8.2.2 and §8.2.3. The oracle taps were a `getenv`-gated `fprintf`
+in `ext/mame`'s `m68kcpu.cpp` main loop, reverted from a copy afterwards -- never
+with `git checkout`, which would have taken the nine legitimate local edits
+with it.*

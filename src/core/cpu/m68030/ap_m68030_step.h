@@ -168,6 +168,35 @@ typedef struct {
    * machine, and a stale one would mislabel the next failure. */
   bool access_faulted;
 
+  /* The register file as it stood *before* this instruction began, so that a
+   * faulted access can put it back.
+   *
+   * This exists because of the approximation next to `RTE`: this model
+   * **re-executes** the faulted instruction from the start, where the 68030
+   * completes the faulted bus cycle and carries on -- `[030]` §8.2.2 has the
+   * handler emulate the cycle "in a manner that is transparent to the
+   * instruction that caused the fault", and §8.2.3 has `RTE` rerun it. Only a
+   * read-modify-write "reruns the entire instruction".
+   *
+   * Re-execution is only equivalent while the instruction has committed
+   * nothing, and an addressing mode with a side effect commits something
+   * before the access it computes the address for. `MOVE.L (A0)+,(A1)+` that
+   * faults on its read had already advanced `A0`, so the restart read the
+   * *next* long -- and every field of the structure being copied arrived one
+   * place early. Domain/OS copies its first process's start record with
+   * exactly that instruction, across a page it demand-pages in on the spot, and
+   * the entry point it then jumped to was the word after the real one: zero.
+   *
+   * Measured on both machines at the same instruction: the oracle visits the
+   * faulting `MOVE.L (A0)+,(A1)+` twice with `A0` unchanged, this core visited
+   * it the second time with `A0` four higher. `docs/PROJECT_STATUS.md` has the
+   * chain from there to a null program counter.
+   *
+   * Registers only -- a repeated *memory* write is idempotent, and the
+   * program counter and status register are left to the frame builder, which
+   * has its own tested rules about which of them a frame carries. */
+  ap_m68030_regs_t entry_regs;
+
   /* The encoding is one the *processor* refuses, not one this core has yet to
    * implement. The same distinction `access_faulted` draws, for the same
    * reason, at the other end of the instruction.

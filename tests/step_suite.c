@@ -567,6 +567,86 @@ static void test_a_faulting_instruction_fetch_takes_the_bus_error_exception(
   TEST_ASSERT_FALSE(ssw.data_fault);
 }
 
+/* A faulted access must leave the registers where the instruction found them,
+ * because this model **restarts** the instruction where the 68030 resumes it.
+ *
+ * `[030]` §8.2.2 has the handler emulate the faulted cycle "in a manner that is
+ * transparent to the instruction that caused the fault"; §8.2.3 has `RTE` rerun
+ * the cycle, and only a read-modify-write "reruns the entire instruction". A
+ * restart is equivalent to either **only while nothing has been committed** --
+ * and a postincrement is committed before the access whose address it computed.
+ *
+ * `MOVE.L (A0)+,(A1)+` is the case, and it is not hypothetical. Domain/OS copies
+ * its first process's start record with that instruction, over a page it
+ * demand-pages in on the spot; with `A0` advanced by the first attempt, the
+ * restart read the *next* long, every field of the record arrived one place
+ * early, and the entry point became the word after the real one -- zero. The
+ * machine then `RTE`d to `PC 00000000`.
+ *
+ * Measured on both machines at that instruction: the oracle visits it twice with
+ * `A0` unchanged, this core visited it the second time with `A0` four higher. */
+static void test_a_faulted_access_leaves_its_address_register_alone(void) {
+  /* MOVE.L (A0)+,(A1)+ */
+  static const uint16_t program[] = {0x22D8u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 2);
+  plant_vector(&m, AP_M68030_VECTOR_BUS_ERROR, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.a[0] = 0x0000C000u; /* the source faults */
+  m.cpu.regs.a[1] = 0x00005000u;
+  m.memory.berr_from = 0x0000C000u;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  /* Both of them: the destination's increment is as much a side effect as the
+   * source's, and a restart that found either one moved would copy the wrong
+   * long or copy it to the wrong place. */
+  TEST_ASSERT_EQUAL_HEX32(0x0000C000u, m.cpu.regs.a[0]);
+  TEST_ASSERT_EQUAL_HEX32(0x00005000u, m.cpu.regs.a[1]);
+}
+
+/* The control: the same instruction over memory that answers must still
+ * increment. A rollback that fired unconditionally would pass the test above
+ * while breaking every postincrement in the instruction set. */
+static void test_an_access_that_answers_still_increments(void) {
+  static const uint16_t program[] = {0x22D8u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 2);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.a[0] = 0x00004000u;
+  m.cpu.regs.a[1] = 0x00005000u;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0x00004004u, m.cpu.regs.a[0]);
+  TEST_ASSERT_EQUAL_HEX32(0x00005004u, m.cpu.regs.a[1]);
+}
+
+/* And a predecrement, which moves the register *before* the access rather than
+ * after it -- so it is the mode where a restart is most obviously wrong, and it
+ * must roll back too. */
+static void test_a_faulted_predecrement_leaves_its_register_alone(void) {
+  /* MOVE.L D0,-(A1) */
+  static const uint16_t program[] = {0x2300u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 2);
+  plant_vector(&m, AP_M68030_VECTOR_BUS_ERROR, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.d[0] = 0x12345678u;
+  m.cpu.regs.a[1] = 0x0000C004u; /* -(A1) lands on the faulting region */
+  m.memory.berr_from = 0x0000C000u;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0x0000C004u, m.cpu.regs.a[1]);
+}
+
 /* The control the test above is worthless without: the identical instruction
  * over memory that answers must execute. Without this, a step that reported
  * FAULT for every immediate operation would pass -- and the claim being made is
@@ -8063,6 +8143,9 @@ int main(void) {
   RUN_TEST(test_an_unimplemented_instruction_is_reported_not_skipped);
   RUN_TEST(test_a_faulting_operand_read_takes_the_bus_error_exception);
   RUN_TEST(test_a_faulting_instruction_fetch_takes_the_bus_error_exception);
+  RUN_TEST(test_a_faulted_access_leaves_its_address_register_alone);
+  RUN_TEST(test_an_access_that_answers_still_increments);
+  RUN_TEST(test_a_faulted_predecrement_leaves_its_register_alone);
   RUN_TEST(test_the_same_instruction_over_memory_that_answers_executes);
   RUN_TEST(test_a_write_nothing_accepts_takes_the_bus_error_exception);
   RUN_TEST(test_a_refused_write_is_not_left_in_the_cache);

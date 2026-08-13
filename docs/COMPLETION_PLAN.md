@@ -3402,10 +3402,25 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   starting exactly at `+0C`. Whether `MST_$MAP_AT` should fill that slot as an
   out-parameter, or the third field is legitimately zero, is **not established
   and must not be guessed**. Detail in `PROJECT_STATUS.md`.
-  - [ ] **Next: the oracle at a shared program event.** Stop both machines at
-    `PC 3C45756C` and compare `D0`. One run says whether the value should be
-    non-zero. `ext/mame`'s `m68kcpu.cpp` is unmodified; recipe in
-    `tools/mame-oracle/FINDINGS.md`.
+  **ANSWERED BY THE ORACLE, AND IT IS A THIRD CPU DEFECT.** Tapping `PC
+  3C45756C` on both machines: the oracle returns `D0 = 0080000C` where this core
+  returned `00000000`, same frame. Tapping the faulting `MOVE.L (A0)+,(A1)+`:
+  the oracle visits it twice with `A0` unchanged, this core the second time with
+  `A0` **four higher**. `[030]` §8.2.2/§8.2.3 *continue* a faulted bus cycle;
+  this model restarts it, which is sound only if nothing was committed — and a
+  postincrement is committed before the access it addressed. A faulted access
+  now rolls the register file back (`entry_regs`). Identity hash unchanged.
+  Detail in `PROJECT_STATUS.md`.
+
+  **The boot now reaches user space**: `Apollo Phase II Environment Revision
+  10.4`, `Loading Init`, `... loading global libraries`, the **HP logo drawn**,
+  and **30,601 `TRAP #4`s** where the previous boot had no traps at all — those
+  are system calls, so user processes are running. It ends on a *user-mode*
+  fault, `Fault status 80080012, pc 81C16C, fa 3B2FC2A0`, `CRASH_STATUS
+  00080016 PID 0005`.
+  - [ ] **Next: the fault at `PC 81C16C` in PID 5.** The first failure in this
+    investigation that is not in the kernel. Same method: the oracle at a shared
+    program event, not an instruction count.
 
   **And a second CPU defect, which was hiding the kernel's own report of it.**
   `[030]` §7.5.1: a bus error on an instruction fetch is deferred until the
