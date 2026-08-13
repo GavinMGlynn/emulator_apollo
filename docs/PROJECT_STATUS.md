@@ -29237,3 +29237,46 @@ oracle -- eight hits, none, and eight -- against this core's
 `--boot-stop-on-mmu-fault-at 3B3BC7FE --boot-trace-last 4000`. The oracle
 instrumentation was reverted from a copy and `ext/mame` carries only its nine
 standing edits.*
+
+### RETRACTED: `A3` does not differ. It was the sixth sampling error
+
+The section above is wrong and is retracted. `A3` at the dispatcher, taken from a
+trace that spans the trap rather than from two unrelated stops:
+
+| visit to `3C42D444` | step | `A0` | `A1` | `A3` |
+| --- | --- | --- | --- | --- |
+| **first after the trap** | 662950103 | `3C43F728` | `3C25F800` | **`3B3C82C6`** |
+| second | 662950449 | `3C43F728` | `3C25F800` | `3C4F98BE` |
+| last before the fault | 663003663 | `3C43F728` | `3C25F800` | `3C42BEE0` |
+
+**The first visit matches the oracle's first visit in all three registers.** The
+`3C4F98BE` that looked like a divergence is the *second* visit: the dispatcher
+runs **101 times** in this 60,000-instruction window, and the comparison put our
+later visit beside the oracle's first. That is precisely
+[[cross-machine-comparisons-need-sample-free-quantities]], for the sixth time,
+and the rule it keeps proving is that a register read at "the same PC" is not the
+same event unless the *occurrence* is matched too.
+
+**A second error, in the instrument rather than the reading.** The script that
+enumerated the writers indexed `parts[12]`, which is `A2`: the trace's fields are
+step, PC, `d0`-`d7`, then `a0`-`a7`, so `A3` is `parts[13]`. Every "A3 change" it
+listed was `A2`'s. Corrected.
+
+### What the same trace does establish
+
+**The lazy floating-point mechanism works.** The trapping instruction is executed
+successfully on retry:
+
+```
+662950054  3B5AA42C  F227  EXCEPTION   traps
+662950150  3B5AA42C  F227  EXECUTED    the same instruction, then runs
+```
+
+So the trap, the handler and the return are all sound, and the crash 53,000
+instructions later is a *different* floating-point event, not this one.
+
+What still stands, and is now the whole of the open question: the oracle never
+enters `FIM_$FSAVE` and this core does, while the two agree completely at the
+first dispatch after the trap. So the divergence is at a **later** dispatch, and
+finding it means matching occurrences across the two machines rather than
+addresses -- the same discipline the retraction above is about.

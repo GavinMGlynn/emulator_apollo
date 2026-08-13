@@ -3506,8 +3506,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   at `3B3BC800`. At the shared dispatcher instruction `3C42D444`, `A0` and `A1`
   match the oracle exactly and **`A3` does not** — ours `3C4F98BE`, the oracle's
   `3B3C82C6`, which is the value *both* held at the trapping instruction.
-  - [ ] **Next: what writes `A3` between the F-line and `3C42D444`.** Everything
-    downstream hangs off that one register. `SW:0105` is a supervisor
+  **RETRACTED — `A3` does not differ.** Traced across the trap: our *first*
+  dispatcher visit has `A0/A1/A3 = 3C43F728/3C25F800/3B3C82C6`, matching the
+  oracle's first exactly. The `3C4F98BE` was our *second* visit — the dispatcher
+  runs 101 times in the window, and the comparison paired our later visit with
+  the oracle's first. Sixth instance of
+  `cross-machine-comparisons-need-sample-free-quantities`. (The enumeration
+  script also indexed `A2` as `A3`; fixed.)
+  **What the trace does establish**: the trapping `F227` is **executed on
+  retry** (`662950054` EXCEPTION, `662950150` EXECUTED), so the lazy-FP trap,
+  handler and return all work, and the crash 53,000 instructions later is a
+  different FP event.
+  - [ ] **Next: which *later* dispatch reaches `FIM_$FSAVE`.** The oracle never
+    enters it; we do. Match occurrences, not addresses. `SW:0105` is a supervisor
     *write* fault at `3B3BC7F0`, taken in the handler with interrupts masked. The
     same stack region demand-pages fine five times down to `3B3BD940`, so the
     page is not special and the *context* is. Stop on the refusal
