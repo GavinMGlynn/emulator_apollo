@@ -412,6 +412,40 @@ Last updated: 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The boot's fatal is a livelock, and the framebuffer PNG works (2026-08-14)
+
+**How far it gets.** `tools/e0007-boot.sh --screenshot FILE` decodes the screen,
+which exercises Phase 5's verification mechanism: the picture reads
+`Domain/OS kernel(7), revision 10.4`, the `Apollo Phase II Environment` banner,
+`Loading Init.`, `... global libraries loaded.`, then `FAULT IN DOMAIN/OS:
+3C4F9A36: SR:2704 PC:3C42D596 FF:A008 (B) FA:3B3BC7FE SW:0125`,
+`CRASH_STATUS 0012000A`, and a reboot into `SALVAGING BOOT VOLUME`. Phase 5's
+remaining gap is the *subject* of the picture, not the mechanism.
+
+**What the fatal is.** A livelock, fifty cycles of exactly 1,078 instructions,
+each re-faulting at user `PC 0081B14A` whose page has no translation. Domain/OS
+answers it as `FIM_$UII` — *unimplemented instruction* — and delivers it to the
+process rather than paging it in; each delivery spends 232 bytes of user stack,
+and the fiftieth runs off the resident page, so the write fault at `3B3BC7FE` is
+the *symptom* and `0012000A` is the diagnosis the kernel was already carrying.
+Detail, including the named cycle and what is ruled out, in
+`COMPLETION_PLAN.md`.
+
+**Six CPU behaviours verified against the page images while chasing it**, all
+correct and none of them the bug: the short bus fault frame `$A` is right for a
+*write* fault (`[030]` p. 8-30 — only read faults force the long frame, which is
+why our `ap_m68030_bus_fault_frame` splits on exactly that); the data output
+buffer is recorded right-justified; `FSAVE`'s frame length is state-dependent,
+4 bytes in the null state; `M` clears before the throwaway frame; `SRE` is clear
+in the kernel's live `TC` (`80A28750`, so both spaces walk `CRP`); and `MMUSR`'s
+`N` counts only tables successfully fetched. The disk is clear too: all 1,433
+reads in a boot drained exactly what they asked for.
+
+**Two measurement traps, both of which cost a run.** A faulted *prefetch*
+reports the longword-aligned bus address — stop on `0081B148`, not `0081B14A`.
+And `mmu_fault_sites` fills, dropping ~1,186 sites a boot, so a `PC` absent from
+that list is not evidence.
+
 ## Domain/OS SR10.4 is installed, and boots from its own disk
 
 The gate this file carried from the start — *"no bootable Domain/OS media: all

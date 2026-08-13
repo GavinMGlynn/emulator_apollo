@@ -3558,15 +3558,45 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   `04` by `AST_$LOAD_AOTE+43C`. A value like that in an invalid descriptor is the
   shape of a **backing-store address**. So the page is known, its location
   recorded, and the kernel still delivers the fault instead of fetching it.
-  - [ ] **Next: why the kernel declines to fetch a page it has recorded.** Either
-    `0001042C` is not what it expects to find, or its software tables disagree
-    with the hardware ones it built. `FM_$READ` and `AST_$LOAD_AOTE` are both
-    reachable with `--boot-log-pc`. `SW:0105` is a supervisor
-    *write* fault at `3B3BC7F0`, taken in the handler with interrupts masked. The
-    same stack region demand-pages fine five times down to `3B3BD940`, so the
-    page is not special and the *context* is. Stop on the refusal
-    (`--boot-stop-on-mmu-fault-at 3B3BC7F0`), not on `CRASH_SYSTEM` — that lands
-    three thousand instructions into the crash printer.
+  - [ ] **Next: why the kernel declines to fetch a page it has recorded.**
+    **The fatal is now measured end to end, and the stack overrun is a
+    *symptom*.** The machine livelocks: fifty cycles, each exactly **1,078
+    instructions**, with `FIM_$FSAVE`'s registers byte-identical every time
+    (`d1=00008400 a0=3C43F728 a1=3C26E400`). One cycle is
+    `FIM_$BUS_ERR` → `FIM_$UII` → `FIM_$BUILD_DF` → `PROC2_$DELIVER_FIM` →
+    `ML_$EXCLUSION_START`/`STOP` → resume → re-fault at the same user `PC`.
+    Each delivery spends **232 bytes** of user stack, so after fifty rounds it
+    crosses `3B3BC800`, the copy loop at `FIM_$FP_INIT+F0`
+    (`MOVE.W -(A0),D2 / ADD.L D2,D3 / MOVE.W D2,-(A1) / DBF`, 30 words = the
+    MC68882 idle frame) faults at `3B3BC7FE`, and the kernel dies *delivering*
+    the fault. So `0012000A` is the diagnosis it was already carrying, not a new
+    one, and the write fault is downstream of the loop.
+    **What the loop is:** the process is executing at `0081B14A`, whose page has
+    no translation (`walk 0081B14A STOPPED after 3 level(s), last descriptor at
+    0129C1B0`) — reached by an *indirect call*, so the address is a linkage-table
+    pointer rather than a wild `PC`. Domain/OS answers it as
+    `FIM_$UII`, *unimplemented instruction*, and hands it to the process instead
+    of paging it in. Blocks `66604`–`66606` are never requested from the disk in
+    the whole boot and `AST_$TOUCH` is never called for those three pages, while
+    the neighbours either side are and recover.
+    **Ruled out by measurement, so do not re-run these:** every one of the 1,433
+    disk reads drained exactly what it asked for (`1E/4`→4224, `1E/3`→3168,
+    `1E/2`→2112, `1E/1`→1056), so the transfer accounting is clean; our vector is
+    right (the fault dispatches to `FIM_$BUS_ERR`, not to a wrong handler); and
+    six CPU behaviours were walked against the page images and hold — the short
+    frame `$A` is *correct* for a write fault (p. 8-30: only read faults force
+    the long frame), the `DOB` is recorded right-justified, `FSAVE`'s length is
+    state-dependent with a 4-byte null frame, the `M` bit clears before the
+    throwaway frame, `SRE` is clear in the kernel's `TC` (`80A28750`), and
+    `MMUSR`'s `N` counts only successfully fetched tables.
+    **Two instrument notes that each cost a run.** A faulted *prefetch* reports
+    the longword-**aligned** bus address, so stop on `0081B148`, not `0081B14A`
+    — the flag is not at fault. And `mmu_fault_sites` fills up: a boot drops
+    ~1,186 sites, so a `PC` missing from that list is not evidence of anything.
+    The open question is why the kernel's software tables do not cover a page
+    whose hardware descriptor it filled with a backing-store address. The
+    documents cannot answer it; the oracle can, at the shared program event
+    `FIM_$BUS_ERR` with the fault address matched.
   - [ ] ~~`0012000A`, *unimplemented instruction*~~ (`002398-04` p. 4-6).
     `FAULT IN DOMAIN/OS: PC:3C42D602 FF:A008 (B) FA:3B3BC7F0 SW:0105`, which is
     `FIM_$FSAVE+60` — the fault manager saving coprocessor state — taking a bus
