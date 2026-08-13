@@ -412,7 +412,50 @@ Last updated: 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
-## The boot's fatal is a livelock, and the framebuffer PNG works (2026-08-14)
+## The FP trap survived a status write, and that was the fatal (2026-08-14)
+
+**Fixed.** `AP_BOARDREG_STATUS_WRITE_KEEPS` kept `STATUS_FP_TRAP` across a write
+to the CPU status register. It no longer does, and the boot stops crashing: the
+screen reaches `... global libraries loaded.` and sits there live, with no
+`FAULT IN DOMAIN/OS`, no `CRASH_STATUS 0012000A`, and no reboot into
+`SALVAGING BOOT VOLUME`.
+
+**The chain, every link measured.** At 662,950,054 an `F227` at `3B5AA42C`
+takes an F-line -- Domain/OS holds the coprocessor off for lazy floating-point
+switching -- which latches the board's FP trap. 1,212 instructions later a
+fetch fault arrives at `0081B148`, and `FIM_$BUS_ERR` reads the status register
+at `+10` (`MOVE.W ($3FFFB400).L,D1` -> `8005`), masks bit 2, and branches at
+`+24` straight past its own `PTEST` to `FIM_$UII` -- *unimplemented
+instruction* -- then `PROC2_$DELIVER_FIM`. Its write at `+20` should have
+cleared the trap; ours kept it, so every later fault read the same stale bit.
+Fifty deliveries at 232 bytes of user stack each ran the stack off its page,
+and the kernel died delivering the fault it was already carrying.
+
+**Why the old reading looked right, and what settles it.** A bit with its own
+`Clear FPU Trap` location at `016404` looks like one that needs that location.
+`008778-03` §3.2 says otherwise in general terms -- "Writing to the status
+register clears the interrupt status" -- and our own `STATUS_CONDITIONS` already
+counted the FP trap as a condition. The probe that produced the mask could not
+tell the two apart: it ran in *service* mode with no trap pending, where a kept
+trap and a cleared one both read `8000`, and the comment on `store` said so.
+What settles it is the guest. `FIM_$BUS_ERR` reads the register and then writes
+it, 340 times in a boot, which is read-then-acknowledge and means nothing unless
+the write clears what was read -- and Domain/OS **never writes `016404` at
+all**, the only write to it being the PROM's at `01004700` after its own
+`CPU (fp trap)` self test. A kept bit could therefore never be cleared, and the
+first lazy-FP trap would wedge paging for ever on real hardware too.
+
+**The test agreed with the code, which is why neither caught it.**
+`test_a_status_write_keeps_the_switch_and_the_fp_trap` asserted the assumption
+its own comment flagged as unmeasured. It is now
+`test_a_status_write_clears_the_fp_trap_and_keeps_the_switch`, checked to fail
+against the old mask before the fix was restored. 136/136 green.
+
+**Not yet `login:`.** The boot runs past the fault and has not reached a prompt
+within 1.5 G instructions, so Phase 4 stays open on how much further it needs to
+go, not on a crash.
+
+## The boot's fatal was a livelock, and the framebuffer PNG works (2026-08-14)
 
 **How far it gets.** `tools/e0007-boot.sh --screenshot FILE` decodes the screen,
 which exercises Phase 5's verification mechanism: the picture reads

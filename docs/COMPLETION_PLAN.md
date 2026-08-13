@@ -3627,12 +3627,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     claim that was narrower than it sounded: the 1,433-read check verified
     transfer *counts*, and a command that fetches the wrong sector succeeds
     silently -- this is the first check of *content*, and it passes.
-    What remains is the divergence itself: the oracle never makes that page
-    resident in 890 s and boots anyway, so it never executes this thunk, while
-    we do. Either our kernel refuses a fault it should serve -- note the
-    neighbours were paged in by *data* reads from the loader and this is the
-    only *instruction fetch* into the object -- or our control flow reaches a
-    library routine the oracle never calls. The next measurement is which.
+    **FOUND AND FIXED: the board's FP trap survived a status-register write.**
+    Neither branch above was it. `FIM_$BUS_ERR` reads the status register at
+    `+10` and branches at `+24` on bit 2 -- the FP trap -- *before* its own
+    `PTEST`, so with that bit set it never asks the MMU anything and answers
+    every bus error with `FIM_$UII`. An `F227` at `3B5AA42C` latches the trap
+    1,212 instructions before the first fault, and our
+    `AP_BOARDREG_STATUS_WRITE_KEEPS` kept it across the handler's own
+    acknowledging write, so it never cleared. Removing it from that mask stops
+    the crash: the screen now reaches `... global libraries loaded.` and sits
+    live, with no `CRASH_STATUS`. The page at `0081B14A` was never the subject
+    -- the machine had simply stopped being able to serve *any* fault, and that
+    page was the next one to arrive, which is why the oracle boots happily with
+    it unmapped. Detail in `PROJECT_STATUS.md`.
   - [ ] ~~`0012000A`, *unimplemented instruction*~~ (`002398-04` p. 4-6).
     `FAULT IN DOMAIN/OS: PC:3C42D602 FF:A008 (B) FA:3B3BC7F0 SW:0105`, which is
     `FIM_$FSAVE+60` — the fault manager saving coprocessor state — taking a bus

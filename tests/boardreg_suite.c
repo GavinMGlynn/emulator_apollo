@@ -88,7 +88,7 @@ static void test_no_written_bit_survives_in_the_status_register(void) {
  * that cleared bit 0 with the rest, so a normal machine became a service one on
  * the first clear.
  */
-static void test_a_status_write_keeps_the_switch_and_the_fp_trap(void) {
+static void test_a_status_write_clears_the_fp_trap_and_keeps_the_switch(void) {
   ap_boardreg_t regs;
   ap_boardreg_init(&regs);
 
@@ -99,10 +99,11 @@ static void test_a_status_write_keeps_the_switch_and_the_fp_trap(void) {
 
   ap_boardreg_write16(&regs, AP_BOARDREG_CPU_STATUS_ADDR, 0x0000);
 
-  /* The conditions the write acknowledges are gone; the switch input and the
-   * trap with its own clear location are not. */
+  /* Every condition the write acknowledges is gone, the FP trap with them --
+   * `FIM_$BUS_ERR` reads this register and then writes it, and Domain/OS never
+   * writes `016404`, so a kept trap could never be cleared at all. What stands
+   * is the switch input, which is not storage, and bit 15. */
   TEST_ASSERT_EQUAL_HEX16(AP_BOARDREG_STATUS_ALWAYS_SET |
-                              AP_BOARDREG_STATUS_FP_TRAP |
                               AP_BOARDREG_STATUS_NORMAL_MODE,
                           ap_boardreg_read16(&regs,
                                              AP_BOARDREG_CPU_STATUS_ADDR));
@@ -507,7 +508,7 @@ int main(void) {
   RUN_TEST(test_writing_the_status_register_clears_what_was_latched);
   RUN_TEST(test_no_written_bit_survives_in_the_status_register);
   RUN_TEST(test_the_cache_register_reports_the_master_request);
-  RUN_TEST(test_a_status_write_keeps_the_switch_and_the_fp_trap);
+  RUN_TEST(test_a_status_write_clears_the_fp_trap_and_keeps_the_switch);
   RUN_TEST(test_each_selective_clear_location_clears_only_its_own);
   RUN_TEST(test_clear_all_clears_every_condition_and_nothing_else);
   RUN_TEST(test_the_graphics_trap_location_decodes_and_clears_nothing);

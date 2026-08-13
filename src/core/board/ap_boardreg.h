@@ -254,10 +254,33 @@ typedef enum {
   (AP_BOARDREG_STATUS_FP_TRAP | AP_BOARDREG_STATUS_PARITY_MASK |               \
    AP_BOARDREG_STATUS_BUS_ERROR)
 
-/* The three bits a write to the status register keeps; see above. */
+/* The two bits a write to the status register keeps: the switch input, which is
+ * an input and not storage, and bit 15, which reads 1 whatever is written.
+ *
+ * **The FP trap used to be a third, and Domain/OS says it is not.** The reading
+ * was that a bit with its own `Clear FPU Trap` location at `016404` must need
+ * that location, so a blanket write left it standing. `008778-03` §3.2 says the
+ * opposite in general terms -- "Writing to the status register clears the
+ * interrupt status" -- and the case could not be told apart by the probe that
+ * produced this mask, which ran in *service* mode with no trap pending, where a
+ * kept FP trap and a cleared one both read `8000`. The comment on `store` said
+ * as much.
+ *
+ * What settles it is the guest. `FIM_$BUS_ERR` reads this register at `+10`
+ * (`MOVE.W ($3FFFB400).L,D1`) and writes it at `+20`, 340 times in a boot --
+ * read-then-acknowledge, which means nothing unless the write clears what was
+ * read. And Domain/OS **never writes `016404` at all**: the only write to it in
+ * a whole boot is the PROM's, at `01004700`, tidying up after its own
+ * `CPU (fp trap)` self test. So if a status write did not clear this bit, the
+ * first lazy-floating-point trap would latch it for ever, `FIM_$BUS_ERR` would
+ * read it set on every subsequent bus error, and the kernel could never page
+ * again -- which is exactly what this core did, and Domain/OS plainly did not
+ * do on the hardware it shipped on.
+ *
+ * The selective location keeps its purpose: clearing *only* the FP trap and
+ * leaving the other conditions standing, which a blanket write cannot do. */
 #define AP_BOARDREG_STATUS_WRITE_KEEPS                                         \
-  (AP_BOARDREG_STATUS_ALWAYS_SET | AP_BOARDREG_STATUS_FP_TRAP |                \
-   AP_BOARDREG_STATUS_NORMAL_MODE)
+  (AP_BOARDREG_STATUS_ALWAYS_SET | AP_BOARDREG_STATUS_NORMAL_MODE)
 
 /* ## The control register's low byte, which the firmware writes separately
  *
