@@ -55,6 +55,10 @@ typedef enum {
 typedef struct {
   ap_m68030_control_kind_t kind;
   unsigned reg;      /* LINK, UNLK, MOVE USP: the address register */
+  /* LINK only: `$4E5x` carries a 16-bit displacement and the 68020's `$480x`
+   * form a 32-bit one. The two are the same instruction and differ in nothing
+   * else, so they share a kind and this says which word count to read. */
+  bool long_displacement;
   unsigned vector;   /* TRAP: the 4-bit vector number from the instruction */
   ap_m68030_ea_t ea; /* JSR and JMP */
 } ap_m68030_control_t;

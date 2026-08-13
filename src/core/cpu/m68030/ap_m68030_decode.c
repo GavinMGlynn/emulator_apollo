@@ -19,6 +19,28 @@ static ap_m68030_decoded_t decode_family_0100(uint16_t instruction) {
     return out;
   }
 
+  /* `$4808`-`$480F` is **LINK.L**, the 68020's long-displacement form, and it
+   * has to be taken before the single-operand group because it sits *inside*
+   * `NBCD`'s `$4800`-`$483F`. There is no collision to resolve: the words are
+   * `NBCD` with an address register direct destination, which `NBCD` may not
+   * have, so the encoding was free for the wider `LINK` to take.
+   *
+   * Missing it did not read as a gap. The opcode sweep asks whether every word
+   * reports `UNIMPLEMENTED`, and this one did not -- it decoded as an `NBCD`
+   * with an illegal effective address and took **vector 4**, which is a
+   * perfectly ordinary answer for a word that really was illegal. Domain/OS
+   * found it: `Init` fell over with `Returned status (from pm_$init): 120002`,
+   * which `002398-04` p. 4-6 gives as *illegal instruction*, on a `LINK.L A6`
+   * at `3B418E30`. The timing table has carried `ROW_LINK_L` for `$480x` the
+   * whole time, so the part was known and only the decode was absent. */
+  if ((instruction & 0xFFF8u) == 0x4808u) {
+    out.kind = AP_M68030_DECODED_CONTROL;
+    out.as.control.kind = AP_M68030_CTL_LINK;
+    out.as.control.reg = (unsigned)(instruction & 0x7u);
+    out.as.control.long_displacement = true;
+    return out;
+  }
+
   /* LEA, CHK and the $48/$4C forms all carry bit 8 set; the single-operand
    * group requires it clear, so these two cannot collide. */
   const ap_m68030_misc_t misc = ap_m68030_misc_decode(instruction);

@@ -3101,9 +3101,22 @@ static bool execute_control(ap_m68030_cpu_t *cpu,
      * which is what makes LINK A6 build a frame chain. And "The user should
      * specify a negative displacement in order to allocate stack area" -- the
      * displacement is added, so allocation is a negative number. */
-    uint16_t displacement = 0;
-    if (!next_word(cpu, clocks, &displacement)) {
-      return false;
+    uint32_t displacement = 0;
+    if (control->long_displacement) {
+      /* `$480x`: the 68020 widened the displacement to a long word, and it is
+       * read high half first like every other extension. */
+      uint16_t high = 0;
+      uint16_t low = 0;
+      if (!next_word(cpu, clocks, &high) || !next_word(cpu, clocks, &low)) {
+        return false;
+      }
+      displacement = ((uint32_t)high << 16) | (uint32_t)low;
+    } else {
+      uint16_t word = 0;
+      if (!next_word(cpu, clocks, &word)) {
+        return false;
+      }
+      displacement = (uint32_t)(int32_t)(int16_t)word;
     }
     const uint32_t saved =
         ap_m68030_read_address_register(&cpu->regs, control->reg);
@@ -3112,8 +3125,10 @@ static bool execute_control(ap_m68030_cpu_t *cpu,
     }
     const uint32_t sp = ap_m68030_read_a7(&cpu->regs);
     ap_m68030_write_address_register(&cpu->regs, control->reg, sp);
-    ap_m68030_write_a7(&cpu->regs,
-                       sp + (uint32_t)(int32_t)(int16_t)displacement);
+    /* Sign extension already happened above, at the width the encoding gave --
+     * re-applying `(int16_t)` here would truncate the long form's displacement
+     * to its low half. */
+    ap_m68030_write_a7(&cpu->regs, sp + displacement);
     return true;
   }
 

@@ -539,6 +539,40 @@ test_a_faulting_operand_read_takes_the_bus_error_exception(void) {
  * The frame is the long one and its stage B and C fault bits are what say the
  * *instruction stream* faulted rather than an operand, which is the whole
  * difference a handler acts on. */
+/* `LINK.L`, the 68020's long-displacement form at `$4808`-`$480F`.
+ *
+ * It sits inside `NBCD`'s `$4800`-`$483F` -- the words are `NBCD` with an
+ * address register direct destination, which `NBCD` may not have, so the
+ * encoding was free. Decoding it as `NBCD` gives a perfectly ordinary vector 4,
+ * which is why the opcode sweep never flagged it: the sweep asks which words
+ * report `UNIMPLEMENTED`, and a word wrongly reported *illegal* answers that
+ * question correctly. Domain/OS found it instead -- `Init` returned `120002`,
+ * *illegal instruction*, on a `LINK.L A6`.
+ *
+ * The displacement is what makes the two forms different, so the test uses one
+ * that cannot survive being read as a word: `$0001_0000` truncates to zero. */
+static void test_link_long_takes_a_thirty_two_bit_displacement(void) {
+  static const uint16_t program[] = {0x480Eu, 0x0001u, 0x0000u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  ap_m68030_write_address_register(&m.cpu.regs, 6u, 0x11223344u);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
+
+  /* "SP - 4 -> SP; An -> (SP); SP -> An; SP + dn -> SP". A6 holds the pushed
+   * frame pointer, and the stack has moved by the *long* displacement. */
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 4u,
+                          ap_m68030_read_address_register(&m.cpu.regs, 6u));
+  TEST_ASSERT_EQUAL_HEX32(0x11223344u,
+                          read_ram_long(&m, SUPERVISOR_STACK - 4u));
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 4u + 0x00010000u,
+                          ap_m68030_read_a7(&m.cpu.regs));
+}
+
 /* §7.5.1: a bus error on an instruction prefetch is deferred until the
  * processor "attempts to use that instruction word". The instruction *before*
  * the boundary therefore runs to completion -- its own word arrived -- and the
@@ -8525,6 +8559,7 @@ int main(void) {
   RUN_TEST(test_a_conditional_branch_reads_the_previous_result);
   RUN_TEST(test_an_unimplemented_instruction_is_reported_not_skipped);
   RUN_TEST(test_a_faulting_operand_read_takes_the_bus_error_exception);
+  RUN_TEST(test_link_long_takes_a_thirty_two_bit_displacement);
   RUN_TEST(test_a_faulted_prefetch_waits_for_the_word_to_be_used);
   RUN_TEST(test_a_faulting_instruction_fetch_takes_the_bus_error_exception);
   RUN_TEST(test_no_word_in_the_instruction_space_reports_unimplemented);
