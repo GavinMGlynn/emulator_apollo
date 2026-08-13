@@ -3477,7 +3477,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   floating-point context switching, so the trap is correct and `0012000A` is the
   OS naming it. Also checked and sound: the `FSAVE` state frame is 60 (`$3C`)
   bytes, exactly what `[FPCP]` gives for the MC68882.
-  - [ ] **Next: the write fault inside `FIM_$FSAVE`.** `SW:0105` is a supervisor
+  **A REAL DEFECT FOUND UNDER IT, AND IT IS NOT THE CAUSE.** `regs.a` is
+  `uint32_t[7]` — A7 is deliberately absent, since the active stack pointer is
+  `usp`/`isp`/`msp` by the SR — and the coprocessor block indexed the array
+  directly at **thirteen sites** (`FMOVEM`, `FMOVE` control, `FSAVE`,
+  `FRESTORE`). With register 7 every one read *past the end of the array* onto
+  the field declared next, **`usp`**, so a coprocessor instruction naming A7 used
+  and moved the *user* stack pointer in supervisor state. It matched the boot to
+  the byte: USP `3B3BC82C`, minus the MC68882's sixty-byte frame, is `3B3BC7F0`.
+  Fixed and tested. **But the crash persists** one instruction earlier and
+  fourteen bytes higher in the same page (`FIM_$FP_INIT+F0`, `3B3BC7FE`), so the
+  page at `3B3BC7xx` was never resident and the stack pointer only decided which
+  access noticed. Detail in `PROJECT_STATUS.md`.
+  - [ ] **Next: why `3B3BC7xx` is not resident.** `SW:0105` is a supervisor
     *write* fault at `3B3BC7F0`, taken in the handler with interrupts masked. The
     same stack region demand-pages fine five times down to `3B3BD940`, so the
     page is not special and the *context* is. Stop on the refusal

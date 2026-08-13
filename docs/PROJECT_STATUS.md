@@ -3362,7 +3362,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 bus arbitration control unit | working: the five-state machine of `[030]` §7.7.4, the processor at lowest priority, both documented deferrals (a committed bus cycle, and a locked read-modify-write) and the single-wire BGACK-alone path. Figure 7-61 did not survive the scan and the states are recovered from the prose walking it; one edge is marked `INFERRED` in code against the two passages supporting it. The input synchroniser is `PROVISIONAL` | `arb_suite`, 16 tests, `MC68030 User's Manual 3ed` §7.7 |
 | 68030 on-chip instruction and data caches | working, including the bus-timing join: a hit costs 0 clocks, a burst line fill 5 | `cache_suite`, 30 tests and `bus_suite`, 25 tests, `MC68030 User's Manual 3ed` §6, §7.3.7 |
 | 68030 integer ALU (results and condition codes) | working: ADD, SUB, CMP, AND, OR, EOR, NEG, NOT, and the shifts and rotates | `alu_suite`, 20 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-18; the byte space verified exhaustively |
-| 68030 exception taking (stack the frame, fetch the vector through the VBR, load the PC) | working for the four- and six-word frames and the throwaway frame, wired to divide-by-zero, `TRAP #N`, `TRAPV`, `CHK`, `ILLEGAL`, privilege violations, MMU configuration errors, **interrupts** and **trace**; **the fault frames now build and return**, wired to bus error (vector 2) on any faulted access -- **an instruction fetch included**, which `[030]` §7.5.1 defers until "it attempts to use that instruction word" and this core used to defer for ever -- and address error (vector 3) on a prefetch from an odd program counter; **the coprocessor mid-instruction frame (`$9`) now builds too**, wired to the main-detected protocol violation the source operand transfer raises, with its four INTERNAL REGISTER words written as zero and marked `PROVISIONAL`; reset and the interrupt M-bit second frame decline rather than approximate | `step_suite` (10 of its tests), `exception_suite`, 16 tests, `[030]` §8.1 and Table 8-6 |
+| 68030 exception taking (stack the frame, fetch the vector through the VBR, load the PC) | working for the four- and six-word frames and the throwaway frame, wired to divide-by-zero, `TRAP #N`, `TRAPV`, `CHK`, `ILLEGAL`, privilege violations, MMU configuration errors, **interrupts** and **trace**; **the fault frames now build and return**, wired to bus error (vector 2) on any faulted access -- **an instruction fetch included**, which `[030]` §7.5.1 defers until "it attempts to use that instruction word" and this core used to defer for ever -- and address error (vector 3) on a prefetch from an odd program counter; **the coprocessor mid-instruction frame (`$9`) now builds too**, wired to the main-detected protocol violation the source operand transfer raises, with its four INTERNAL REGISTER words written as zero and marked `PROVISIONAL`; **the interrupt M-bit second frame builds too** -- §8.1's throwaway frame, with the M bit cleared *before* A7 is read so the frame lands on the interrupt stack and not the master's, and with the stacked status register carrying S set as the manual specifies; only reset declines rather than approximating, which is correct, since reset stacks nothing | `step_suite` (10 of its tests), `exception_suite`, 16 tests, `[030]` §8.1 and Table 8-6 |
 | 68030 family `0000` size-11 escape (`CMP2`/`CHK2`/`CAS`/`CAS2`) | decoded; the opcode map now has no holes. Semantics open: `CAS`/`CAS2` need an indivisible read-modify-write | `bounds_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` |
 | Per-instruction timing report (`--time-instructions`) | bus and cache time only, pinned as a golden; the 0/2 alternation is the cache holding register serving two instruction words per fetch | `tests/goldens/timing.txt`; oracle side by `tools/mame-oracle/steptime.lua` |
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
@@ -3375,7 +3375,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 state hash (the identity harness's CPU half) | working: every architectural register, the MMU and cache control registers, the pipe, both caches, the ATC, and the accumulated clock — host pointers excluded by construction, since `ap_hash.h` has no pointer helper | `state_suite`, 12 tests sweeping every field; `step_suite`'s same-program-twice check |
 | 68030 addressing mode categories (Data / Memory / Control / Alterable) | working; derived from §2.3's definitions rather than transcribed from Table 2-4, whose Alterable column is exchanged between two row pairs in the scan | `category_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §2.3 |
 | 68030 operand access (read/write through an effective address) | working; a sub-long-word operand is selected from the long word by position, and one straddling two long words is split into a bus cycle per long word in address order | `operand_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` |
-| 68030 instruction step (fetch → decode → execute → advance) | working for `NOP`, `MOVEQ`, 8-bit `BRA`/`Bcc`, `MOVE`/`MOVEA`, the six ALU operations, the `xxxI` immediate forms, `CLR`/`NEG`/`NOT`/`TST`, `ADDQ`/`SUBQ`/`Scc`/`DBcc`, `ADDA`/`SUBA`/`CMPA`, `BTST`/`BCHG`/`BCLR`/`BSET`, the shifts and rotates, `MULU`/`MULS` and `DIVU`/`DIVS` at both the word and the 68020's 32-bit widths, `ADDX`/`SUBX`/`ABCD`/`SBCD` in both the register and the `-(An),-(An)` forms, `CMPM` and all three `EXG` exchanges; everything else reports unimplemented, including divide-by-zero, which needs the exception machinery | `step_suite`, 289 tests |
+| 68030 instruction step (fetch → decode → execute → advance) | working for `NOP`, `MOVEQ`, 8-bit `BRA`/`Bcc`, `MOVE`/`MOVEA`, the six ALU operations, the `xxxI` immediate forms, `CLR`/`NEG`/`NOT`/`TST`, `ADDQ`/`SUBQ`/`Scc`/`DBcc`, `ADDA`/`SUBA`/`CMPA`, `BTST`/`BCHG`/`BCLR`/`BSET`, the shifts and rotates, `MULU`/`MULS` and `DIVU`/`DIVS` at both the word and the 68020's 32-bit widths, `ADDX`/`SUBX`/`ABCD`/`SBCD` in both the register and the `-(An),-(An)` forms, `CMPM` and all three `EXG` exchanges; everything else reports unimplemented, including divide-by-zero, which needs the exception machinery | `step_suite`, 291 tests |
 | 68030 instruction prefetch (pipe driven from memory) | working | `fetch_suite`, 5 tests, `MC68030 User's Manual 3ed` §11.2.2 and §6.1 |
 | 68030 logical memory access path (cache → MMU → bus) | working, reads and writes | `access_suite`, 16 tests, `MC68030 User's Manual 3ed` §6.1 |
 | 68030 effective address calculation (with register side effects) | working; memory-indirect modes report the pending indirection | `addr_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` §2.2 |
@@ -3390,7 +3390,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 family 0100 `$4E` control group (TRAP/LINK/UNLK/MOVE USP/RESET/NOP/STOP/RTE/RTD/RTS/TRAPV/RTR/JSR/JMP) | working; the rest of family 0100 not yet decoded | `control_suite`, 11 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 |
 | 68030 family 0101 (ADDQ/SUBQ/Scc/DBcc/TRAPcc) decode | working | `quick_suite`, 10 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and each instruction page |
 | 68030 branch family (Bcc/BSR/BRA) decode | working | `branch_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and the Bcc/BRA/BSR pages |
-| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 289 tests, and the per-subsystem suites |
+| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 291 tests, and the per-subsystem suites |
 | 68030 operation code map (top-level instruction family) | working | `opcode_suite`, 6 tests, `M68000 Family Programmer's Reference Manual 1992` Table 8-2 |
 | 68030 conditional tests (the 16 Bcc/Scc/DBcc/TRAPcc conditions) | working | `cond_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-19 |
 | 68030 effective address decode (modes, extension words, lengths) | decode and extension-word counts working; address *calculation* needs the instruction unit | `ea_suite`, 17 tests, `M68000 Family Programmer's Reference Manual 1992` §2, Tables 2-1, 2-2, 2-4 |
@@ -29018,3 +29018,54 @@ instructions deep in the crash printer and shows nothing of the cause.
 --boot-stop-pc-skip 1` for the two takings; `--dump-mem 010100:4` at the second
 for the control register; `[FPCP]`'s state frame sizes; the run's own MMU fault
 profile for the neighbouring recoveries.*
+
+## `A7` is not `regs.a[7]`, and the coprocessor block read past the array
+
+Chasing the boot fatal into `FIM_$FSAVE` found a defect that is worth more than
+the crash it was found under.
+
+`ap_m68030_regs_t` declares `uint32_t a[7]` -- **A0-A6, and A7 deliberately
+absent**, because the active stack pointer is whichever of `usp`, `isp` and `msp`
+the status register selects. `ap_m68030_read_address_register` dispatches index 7
+away from the array for exactly that reason, and the rest of this core never
+touches `regs.a[7]`.
+
+**The coprocessor block indexed the array directly at thirteen sites** --
+`FMOVEM` in both directions, `FMOVE` to and from the control registers, `FSAVE`
+and `FRESTORE`. With `coproc->ea.reg == 7` every one of them read *past the end
+of the array*, landing on the field declared next: **`usp`**. So in supervisor
+state a coprocessor instruction naming A7 used, and moved, the **user** stack
+pointer.
+
+The arithmetic matched the boot to the byte. Domain/OS traps the coprocessor for
+lazy floating-point context switching, and its handler saves state with
+`FSAVE -(A7)` -- `F327` at `FIM_$FSAVE+60`. The user stack pointer held
+`3B3BC82C`; sixty bytes -- the MC68882 frame -- below that is **`3B3BC7F0`**, the
+faulting address exactly.
+
+**It survived because the index was a variable.** `-Warray-bounds` catches
+`regs.a[7]` written as a constant instantly, and did: the first draft of the test
+for this fix reproduced the bug *in the test*, and the compiler refused it. That
+is also how the aliasing onto `usp` was identified rather than guessed.
+
+### And it was not the cause of the crash
+
+Stated plainly because the temptation is to claim the scalp. With A7 routed
+correctly the machine still dies, one instruction earlier and fourteen bytes
+higher in the same page:
+
+| | before | after |
+| --- | --- | --- |
+| PC | `3C42D602`, `FIM_$FSAVE+60` | `3C42D596`, `FIM_$FP_INIT+F0` |
+| fault | `3B3BC7F0`, sixty-byte frame | `3B3BC7FE`, a two-byte push |
+| SSW | `0105` | `0125` |
+
+Both are supervisor writes into `3B3BC7xx`, and that page was never resident.
+Correcting the stack pointer moved which access notices and changed nothing
+about why. Vector 2 falls 2,480 -> 2,459 and the hash moves to
+`6AC2B4E84A68C2FB`, so the fix is not inert -- it simply is not this.
+
+*Verification: `step_suite`, two tests -- `FSAVE -(A7)` off the interrupt stack
+with the user stack pointer untouched, and the same for `FMOVEM`'s predecrement;
+291 tests. `tools/identity-boot.sh` unchanged at `A354786119A3931D`. The boot
+above for the moved crash.*

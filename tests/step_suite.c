@@ -709,6 +709,71 @@ static void test_no_coprocessor_operation_reports_unimplemented(void) {
   }
 }
 
+/* **A7 is not `regs.a[7]`**, and every coprocessor instruction that named it
+ * used to act as though it were.
+ *
+ * The active stack pointer is one of `usp`, `isp` and `msp`, chosen by the
+ * status register -- which is why `ap_m68030_read_address_register` dispatches
+ * index 7 away from the array, and why the rest of this core never touches
+ * `regs.a[7]`. The coprocessor block indexed it directly at thirteen sites:
+ * `FMOVEM`, `FMOVE` to and from the control registers, `FSAVE` and `FRESTORE`.
+ *
+ * `FSAVE -(A7)` is the one that mattered. Domain/OS traps the coprocessor for
+ * lazy floating-point context switching, and its handler saves the state frame
+ * with exactly that instruction; stepping a stale scratch word instead of the
+ * stack pointer put the 60-byte frame at whatever `regs.a[7]` happened to hold.
+ * On the boot it held `3B3BC82C`, so the write landed on `3B3BC7F0` -- an
+ * unmapped page, a bus error inside an exception handler with interrupts
+ * masked, and a dead machine. */
+static void test_fsave_uses_the_active_stack_pointer_not_a7_the_array_slot(
+    void) {
+  /* FSAVE -(A7): F327. */
+  static const uint16_t program[] = {0xF327u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 2);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT); /* supervisor: ISP */
+  m.cpu.regs.isp = 0x00008000u;
+  /* `regs.a` is `uint32_t[7]` -- A7 is deliberately not in it -- so indexing it
+   * at 7 ran off the end and landed on the field that follows: `usp`. In
+   * supervisor state the instruction therefore used and decremented the **user**
+   * stack pointer. This is what that looked like on the boot, where the user
+   * stack was at `3B3BC82C` and the frame went 60 bytes below it. */
+  m.cpu.regs.usp = 0x00007000u;
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+
+  /* A null frame is four bytes, and it came off the **interrupt** stack. */
+  TEST_ASSERT_EQUAL_HEX32(0x00008000u - 4u, m.cpu.regs.isp);
+  /* And the user stack pointer is untouched, which is the half that made this
+   * fatal rather than merely wrong: the instruction moved it. */
+  TEST_ASSERT_EQUAL_HEX32(0x00007000u, m.cpu.regs.usp);
+}
+
+/* And the same for `FMOVEM`, which has the identical predecrement rule and was
+ * wrong in the identical way. */
+static void test_fmovem_predecrement_steps_the_active_stack_pointer(void) {
+  /* FMOVEM.X FP0,-(A7): F227 E000 -- opclass 111, predecrement, mask FP0. */
+  static const uint16_t program[] = {0xF227u, 0xE001u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = 0x00008000u;
+  m.cpu.regs.usp = 0x00007000u;
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  /* One extended register is twelve bytes, off the interrupt stack. */
+  TEST_ASSERT_EQUAL_HEX32(0x00008000u - 12u, m.cpu.regs.isp);
+  TEST_ASSERT_EQUAL_HEX32(0x00007000u, m.cpu.regs.usp);
+}
+
 /* The MMU's extension space, for the same reason as the coprocessor's: `PMOVE`,
  * `PFLUSH`, `PLOAD` and `PTEST` are all `F0xx` with cpID 0, and *which* of them
  * a word is lives in the extension word the opcode sweep leaves at zero.
@@ -8426,6 +8491,8 @@ int main(void) {
   RUN_TEST(test_a_faulting_instruction_fetch_takes_the_bus_error_exception);
   RUN_TEST(test_no_word_in_the_instruction_space_reports_unimplemented);
   RUN_TEST(test_no_coprocessor_operation_reports_unimplemented);
+  RUN_TEST(test_fsave_uses_the_active_stack_pointer_not_a7_the_array_slot);
+  RUN_TEST(test_fmovem_predecrement_steps_the_active_stack_pointer);
   RUN_TEST(test_no_mmu_extension_form_reports_unimplemented);
   RUN_TEST(test_the_stacked_fault_address_is_the_cycle_that_faulted);
   RUN_TEST(test_a_faulted_access_leaves_its_address_register_alone);

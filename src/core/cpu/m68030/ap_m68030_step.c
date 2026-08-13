@@ -4830,10 +4830,18 @@ static fp_source_result_t execute_fmovem(ap_m68030_cpu_t *cpu,
        * by 12 ... and the floating-point data register is then stored at the
        * resultant address." So the register is left pointing at the image it
        * stored last, not one slot past it. */
-      cpu->regs.a[coproc->ea.reg] -= 12u;
-      address = cpu->regs.a[coproc->ea.reg];
+      /* Through the accessor, because **A7 is not `regs.a[7]`**: the active
+       * stack pointer is one of `usp`, `isp` and `msp`, chosen by the status
+       * register, and `regs.a[7]` is a slot nothing else in this core writes.
+       * Every coprocessor site in this file indexed it directly, so any of
+       * these instructions naming A7 stepped a stale scratch word and read or
+       * wrote wherever it happened to point. */
+      ap_m68030_write_address_register(
+          &cpu->regs, coproc->ea.reg,
+          ap_m68030_read_address_register(&cpu->regs, coproc->ea.reg) - 12u);
+      address = ap_m68030_read_address_register(&cpu->regs, coproc->ea.reg);
     } else {
-      address = cpu->regs.a[coproc->ea.reg];
+      address = ap_m68030_read_address_register(&cpu->regs, coproc->ea.reg);
     }
 
     const ap_m68030_address_t where = {.address = address, .valid = true};
@@ -4854,7 +4862,9 @@ static fp_source_result_t execute_fmovem(ap_m68030_cpu_t *cpu,
       /* "After each register is loaded, the address register is incremented by
        * 12 ... the address register points to the byte immediately following
        * the image of the last floating-point data register loaded." */
-      cpu->regs.a[coproc->ea.reg] += 12u;
+      ap_m68030_write_address_register(
+          &cpu->regs, coproc->ea.reg,
+          ap_m68030_read_address_register(&cpu->regs, coproc->ea.reg) + 12u);
     }
     transferred++;
   }
@@ -4918,13 +4928,24 @@ static fp_source_result_t transfer_fp_control(ap_m68030_cpu_t *cpu,
     while ((control->select & (1u << bit)) == 0u) {
       bit--;
     }
-    uint32_t *const reg = (kind == AP_M68030_EA_DATA_REGISTER)
-                              ? &cpu->regs.d[coproc->ea.reg]
-                              : &cpu->regs.a[coproc->ea.reg];
+    /* Read and written through the accessors rather than by taking a pointer
+     * into `regs.a`, because **A7 is not `regs.a[7]`** -- it is whichever of
+     * `usp`, `isp` and `msp` the status register selects, and a pointer to the
+     * array slot cannot express that. `FMOVE FPCR,A7` would otherwise load a
+     * word nothing reads and leave the real stack pointer untouched. */
+    const bool to_data = kind == AP_M68030_EA_DATA_REGISTER;
     if (control->to_memory) {
-      *reg = ap_m68882_control_read(cpu->fpu, bit);
+      const uint32_t value = ap_m68882_control_read(cpu->fpu, bit);
+      if (to_data) {
+        cpu->regs.d[coproc->ea.reg] = value;
+      } else {
+        ap_m68030_write_address_register(&cpu->regs, coproc->ea.reg, value);
+      }
     } else {
-      ap_m68882_control_write(cpu->fpu, bit, *reg);
+      const uint32_t value =
+          to_data ? cpu->regs.d[coproc->ea.reg]
+                  : ap_m68030_read_address_register(&cpu->regs, coproc->ea.reg);
+      ap_m68882_control_write(cpu->fpu, bit, value);
     }
     return FP_SOURCE_FETCHED;
   }
@@ -4954,11 +4975,15 @@ static fp_source_result_t transfer_fp_control(ap_m68030_cpu_t *cpu,
   }
 
   if (kind == AP_M68030_EA_PREDECREMENT) {
-    cpu->regs.a[coproc->ea.reg] -= bytes_total;
-    base = cpu->regs.a[coproc->ea.reg];
+    ap_m68030_write_address_register(
+        &cpu->regs, coproc->ea.reg,
+        ap_m68030_read_address_register(&cpu->regs, coproc->ea.reg) -
+            bytes_total);
+    base = ap_m68030_read_address_register(&cpu->regs, coproc->ea.reg);
   } else if (kind == AP_M68030_EA_POSTINCREMENT) {
-    base = cpu->regs.a[coproc->ea.reg];
-    cpu->regs.a[coproc->ea.reg] += bytes_total;
+    base = ap_m68030_read_address_register(&cpu->regs, coproc->ea.reg);
+    ap_m68030_write_address_register(
+        &cpu->regs, coproc->ea.reg, base + bytes_total);
   } else {
     ap_m68030_address_input_t input = {0};
     if (!gather_address_input(cpu, kind, bytes_total, clocks, &input)) {
@@ -5036,8 +5061,10 @@ static fp_source_result_t execute_fp_state(ap_m68030_cpu_t *cpu,
 
     uint32_t base = 0;
     if (kind == AP_M68030_EA_PREDECREMENT) {
-      cpu->regs.a[coproc->ea.reg] -= length;
-      base = cpu->regs.a[coproc->ea.reg];
+      ap_m68030_write_address_register(
+          &cpu->regs, coproc->ea.reg,
+          ap_m68030_read_address_register(&cpu->regs, coproc->ea.reg) - length);
+      base = ap_m68030_read_address_register(&cpu->regs, coproc->ea.reg);
     } else {
       ap_m68030_address_input_t input = {0};
       if (!gather_address_input(cpu, kind, length, clocks, &input)) {
@@ -5063,7 +5090,7 @@ static fp_source_result_t execute_fp_state(ap_m68030_cpu_t *cpu,
   }
   uint32_t base = 0;
   if (kind == AP_M68030_EA_POSTINCREMENT) {
-    base = cpu->regs.a[coproc->ea.reg];
+    base = ap_m68030_read_address_register(&cpu->regs, coproc->ea.reg);
   } else {
     ap_m68030_address_input_t input = {0};
     if (!gather_address_input(cpu, kind, 4u, clocks, &input)) {
@@ -5097,7 +5124,9 @@ static fp_source_result_t execute_fp_state(ap_m68030_cpu_t *cpu,
   }
   ap_m68882_restore(cpu->fpu, frame);
   if (kind == AP_M68030_EA_POSTINCREMENT) {
-    cpu->regs.a[coproc->ea.reg] += length;
+    ap_m68030_write_address_register(
+        &cpu->regs, coproc->ea.reg,
+        ap_m68030_read_address_register(&cpu->regs, coproc->ea.reg) + length);
   }
   return FP_SOURCE_FETCHED;
 }
