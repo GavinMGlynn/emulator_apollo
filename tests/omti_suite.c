@@ -258,14 +258,22 @@ static void test_a_word_read_of_the_data_port_takes_two_buffer_bytes(void) {
                            4u);
 }
 
-static void test_a_block_count_past_the_manuals_cap_is_refused(void) {
+static void test_a_block_count_past_the_buffer_is_refused(void) {
   ap_omti_t o;
   ap_omti_reset(&o);
 
-  /* §5.4.13 caps the block count at seven for 1056-byte sectors. Eight is
-   * refused rather than truncated: a host told the transfer succeeded would
-   * read the tail of some earlier command's buffer as data. */
-  static const uint8_t cdb[6] = {0x0E, 0, 0, 0, 8, 0};
+  /* §5.4.13's block count is capped by the **controller's buffer**, which
+   * §5.4.19 states in those words and byte 14 of the identification block
+   * enumerates four sizes for. Past what a 32K part holds, the count is refused
+   * rather than truncated: a host told the transfer succeeded would read the
+   * tail of some earlier command's buffer as data.
+   *
+   * This test used to assert that *eight* was refused, from a table that
+   * belongs to an 8K part -- and Domain/OS issues eight. The suite was encoding
+   * the same misreading as the code, which is why a green tree proved nothing
+   * about it. */
+  const uint8_t past = (uint8_t)(AP_OMTI_MAX_BUFFER_BLOCKS + 1u);
+  const uint8_t cdb[6] = {0x0E, 0, 0, 0, past, 0};
   issue(&o, cdb);
 
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&o));
@@ -736,7 +744,7 @@ int main(void) {
   RUN_TEST(test_read_sector_buffer_enters_the_data_phase_without_a_drive);
   RUN_TEST(test_a_reset_leaves_the_identification_block_in_the_buffer);
   RUN_TEST(test_a_word_read_of_the_data_port_takes_two_buffer_bytes);
-  RUN_TEST(test_a_block_count_past_the_manuals_cap_is_refused);
+  RUN_TEST(test_a_block_count_past_the_buffer_is_refused);
   RUN_TEST(test_writing_the_sector_buffer_does_not_touch_the_drive);
   RUN_TEST(test_every_command_the_esdi_set_accepts_reaches_an_implementation);
   RUN_TEST(test_a_command_outside_the_esdi_set_reports_invalid_command);

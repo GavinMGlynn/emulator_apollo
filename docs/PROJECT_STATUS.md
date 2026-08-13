@@ -3426,7 +3426,7 @@ failure that cost a bit position in the 68020's module entry word.
 | OMTI command descriptor blocks | working: the 6-byte CDB decoded with the **cylinder reassembled from three bytes** (C10 in byte 1, C09/C08 in byte 2, low eight in byte 3), the command byte exposed both whole and split into class and opcode, and acceptance checked against the ESDI command set — which **refuses** `0C INITIALIZE DRIVE CHARACTERISTICS`, an ST506-only command that would make ESDI geometry look settable | `omti_cdb_suite`, 7 tests; `FINDINGS.md` C27 |
 | OMTI 862X ESDI/floppy controller (the part) | **register model complete for both halves**: the fixed disk's four ports with their read/write asymmetries and the status register's fixed bits, and the floppy's five at the standard PC layout. Modelled as two independent register sets sharing nothing, as `[OMTI]` §4.1 and §3.4 describe. Both measured dumps reproduced as tests. **Both command sets now modelled**: §5's fixed disk over `.awd`, and §6's floppy over `.afd` — ten commands and INVALID, with ST0–ST3 result bytes, and **no `WRITE DATA`**, which neither our §6 nor the sibling 8640's §5.3 lists. **`1E READ DATA TO BUFFER` implemented** -- §5.4.19's "reads data from the disk
 to the controller's buffer ... does not transfer the data to the host", paired
-with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both derived from the STATUS register as §4.2 and §4.3 give them: the interrupt from `IREQ` and the MASK byte's interrupt enable, the DMA request from `DREQ`, which the MASK byte's DMA enable gates. IRQ6 and DRQ2 are placed and not yet driven: the floppy side's completion is the FDC's result phase, not this one | `omti_suite`, 15 tests; `awd_suite`, 45; `afd_suite`, 26; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |
+with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both derived from the STATUS register as §4.2 and §4.3 give them: the interrupt from `IREQ` and the MASK byte's interrupt enable, the DMA request from `DREQ`, which the MASK byte's DMA enable gates. IRQ6 and DRQ2 are placed and not yet driven: the floppy side's completion is the FDC's result phase, not this one | `omti_suite`, 15 tests; `awd_suite`, 46; `afd_suite`, 26; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |
 | OMTI 8621 placement (the DN3500's disk) | measured, both halves. Placement characterised at `04D000`: the range is the card's (all `FF` without it, control verified by device enumeration), aliased on an eight-byte period, with offsets 1-3 driven. Offsets 0 and 4-7 read `FF`, which a read sweep cannot distinguish from undriven | `FINDINGS.md` C20 |
 | WD7000 ESDI/SCSI (DN4500) | not started | — |
 | Floppy, QIC cartridge tape | not started | — |
@@ -28675,3 +28675,70 @@ on a number that arrived wrong.
 *Verification: `002398-04` p. 4-3 read as a page image (the text layer splits the
 two columns and pairs codes with the wrong descriptions); the run's own report
 for the absent refusal line.*
+
+## The sector-buffer cap was another part's, and the machine contradicted itself
+
+`invalid disk address` was **ours**, and the command log built earlier that day
+named it in one line:
+
+```
+1E/8@164702:0     READ DATA TO BUFFER, 8 blocks, no data moved
+03/8@0:4          REQUEST SENSE -- the driver asking why
+```
+
+An eight-block `1E` refused, then the driver asking for sense. `refuse()`'s code
+is `SENSE_ILLEGAL_ADDRESS`, which `002398-04` p. 4-3 turns into `00080012`
+*invalid disk address* -- the status on the screen. The lba, 164702, sits beside
+the `2835D` = 164,701 in salvol's own message.
+
+**Why the cap was wrong, and it is a transcription defect of a kind worth
+naming.** The table was read correctly and attached to the wrong scope. §5.4.19's
+own sentence is
+
+> The number of data blocks that can be read is **limited by the controller's
+> Buffer size** as follows:  512 → 15,  1024 → 7,  1056 → 7
+
+and §5.4.20 adds "An error will be returned if the block count exceeds the above
+limits", so the refusal is real. But byte 14 of the identification block
+enumerates **four** buffer sizes -- 2K, 8K, 16K, 32K -- and one fixed table
+cannot describe four parts. The rows say which part they are: 15×512, 7×1024 and
+7×1056 all fall just under **8192**.
+
+**This machine's controller reports 32K**, in a constant this header already
+carried (`AP_OMTI_ID_BUFFER_32K`, bits 7 and 6 of byte 14). So the model told the
+host it had 32K and then refused eight 1056-byte blocks. That is the part's own
+identification contradicting its own behaviour, and it needed no oracle to see --
+only the two constants read side by side. Domain/OS asks for eight, so hardware
+that refused would have broken the real machine.
+
+The cap now derives from the reported buffer. Its **exact boundary is
+`PROVISIONAL`**: two of the table's three rows are `floor(8192/size) − 1` and the
+third is `floor(8192/1056)`, so whether a 32K part stops at 31 or 30 is not
+settled by the page. The ambiguity is one block wide and nothing observed comes
+near it.
+
+**Both tests that asserted the old cap failed when the constant changed**, which
+is the point rather than an inconvenience: the suite had encoded the same
+misreading as the code, so a green tree had never been evidence about it.
+`CLAUDE.md` says exactly this and it has now happened twice in one day.
+
+### What the guest says about it
+
+`Salvol` gets past the read it used to die on -- `Preparing file list...`,
+`Salvaging... % complete 20` where it previously reported `a hardware error that
+salvol cannot recover from` -- and the `Fault status 80080012` /
+`Unhandled signal` block is **gone from the Init sequence** as well. The same
+code in both places, closed by the same constant.
+
+The remaining failure is a **different** code: `CRASH_STATUS 00080016`, which
+p. 4-3 gives as *drive timed out before operation completed*. The 4.5 M vector 2
+exceptions in that run are the salvage paging its way through the volume, not a
+storm -- it is 20% in where it used to fail at once.
+
+**The identity hash does not move**, still `A354786119A3931D`; the crash boot's
+is now `589E8A3554349EC9`.
+
+*Verification: `tools/e0007-boot.sh --boot-disk-reads` for the command log and
+the screen; `[OMTI] AT Controller Series Jan87` §5.4.19 and §5.4.20 read as page
+images (that PDF has no text layer at all); `002398-04` p. 4-3 for both status
+codes; `awd_suite` 46 tests and `omti_suite` 24.*

@@ -3418,15 +3418,27 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   are system calls, so user processes are running. It ends on a *user-mode*
   fault, `Fault status 80080012, pc 81C16C, fa 3B2FC2A0`, `CRASH_STATUS
   00080016 PID 0005`.
-  - [ ] **Next: `invalid disk address`, and the reference named it first.**
-    `002398-04` p. 4-3: `00080012` is **invalid disk address** and `00080016`
-    **drive timed out before operation completed**, both in the OS / disk
-    manager block; `salvol`'s `80012` is the same code a third time. **Not this
-    core's controller** — that run refuses nothing and its last command
-    completes with clean sense bytes, so Domain/OS is rejecting an address *it
-    computed*. Salvol's `daddr 1E01FF` is 1,966,591 against a 345,553-block
-    volume, out of range by five times. Look at where the number comes from,
-    not at the OMTI.
+  **`invalid disk address` WAS ours, and the command log named it in one line**:
+  `1E/8@164702:0` then `03/8@0:4` — an eight-block `READ DATA TO BUFFER` refused,
+  then the driver asking for sense. The block-count cap was transcribed from
+  §5.4.19's table as an absolute when the section's own sentence makes it
+  "limited by the **controller's Buffer size**", and byte 14 of the
+  identification block enumerates four sizes. The table's rows are an **8K**
+  part's (15×512, 7×1024, 7×1056 all just under 8192); this controller reports
+  **32K** in a constant this core already carried, so the model announced 32K and
+  refused eight — its own identification against its own behaviour, visible
+  without any oracle. Exact boundary for a 32K part is `PROVISIONAL` (31 or 30;
+  the page does not settle it). **Both tests that asserted the old cap failed**,
+  which is the point: they encoded the same misreading. Detail in
+  `PROJECT_STATUS.md`.
+
+  **Verified by the guest**: `Salvol` now reaches `Salvaging... % complete 20`
+  where it died on `80012`, and the `Fault status 80080012` / `Unhandled signal`
+  block is gone from the Init sequence too.
+  - [ ] **Next: `00080016`, *drive timed out before operation completed*.** A
+    different code from a different failure. `CRASH_STATUS 00080016 PID 0005`.
+    Look at the OMTI's completion timing before anything else — the access time
+    is this core's, and a driver's timeout is a statement about it.
 
   **And a second CPU defect, which was hiding the kernel's own report of it.**
   `[030]` §7.5.1: a bus error on an instruction fetch is deferred until the

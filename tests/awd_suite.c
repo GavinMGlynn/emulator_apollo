@@ -380,13 +380,35 @@ static void test_the_command_log_pairs_a_buffer_fill_with_its_drain(void) {
       ap_omti_recent_command(&omti, 2u, &command, &blocks, &lba, &drained));
 }
 
-/* §5.4.19 prints the same block-count table as `0E`: seven at 1056 bytes. */
-static void test_a_read_to_buffer_past_the_cap_is_refused(void) {
+/* §5.4.19: "The number of data blocks that can be read is **limited by the
+ * controller's Buffer size** as follows", then the three rows -- and §5.4.20
+ * adds "An error will be returned if the block count exceeds the above limits".
+ * So the refusal is real and the limit is a *function of the buffer*, not the
+ * constant this suite used to assert.
+ *
+ * Past it, for a part that reports 32K. */
+static void test_a_read_to_buffer_past_the_buffer_is_refused(void) {
+  build_controller();
+  issue(AP_OMTI_CMD_READ_TO_BUFFER, 0u, 0u, 2u,
+        (uint8_t)(AP_OMTI_MAX_BUFFER_BLOCKS + 1u));
+  settle();
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_TRUE(take_status() != 0u);
+}
+
+/* And the case the old constant got wrong, which is not hypothetical: **eight**
+ * blocks. Domain/OS's salvage reads a VTOC block with `1E` for eight, and this
+ * model refused it with `refuse()`'s sense code -- which the operating system
+ * reports as `invalid disk address` (`002398-04` p. 4-3, `00080012`). The table
+ * that justified the refusal is an 8K part's: 15x512, 7x1024 and 7x1056 all
+ * fall just under 8192, and this controller's identification block reports
+ * 32K. */
+static void test_eight_blocks_fit_a_thirty_two_kilobyte_buffer(void) {
   build_controller();
   issue(AP_OMTI_CMD_READ_TO_BUFFER, 0u, 0u, 2u, 8u);
   settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
-  TEST_ASSERT_TRUE(take_status() != 0u);
+  TEST_ASSERT_EQUAL_HEX8(0u, take_status());
 }
 
 /* A write goes the other way and reaches the image. */
@@ -1227,7 +1249,8 @@ int main(void) {
   RUN_TEST(test_a_read_command_delivers_the_addressed_sector);
   RUN_TEST(test_a_read_to_buffer_fills_the_buffer_without_a_data_phase);
   RUN_TEST(test_the_command_log_pairs_a_buffer_fill_with_its_drain);
-  RUN_TEST(test_a_read_to_buffer_past_the_cap_is_refused);
+  RUN_TEST(test_a_read_to_buffer_past_the_buffer_is_refused);
+  RUN_TEST(test_eight_blocks_fit_a_thirty_two_kilobyte_buffer);
   RUN_TEST(test_write_from_buffer_places_what_write_sector_buffer_staged);
   RUN_TEST(test_a_long_read_is_the_sector_and_six_more);
   RUN_TEST(test_a_long_write_keeps_the_sector_and_drops_the_ecc);

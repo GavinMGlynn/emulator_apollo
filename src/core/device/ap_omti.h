@@ -269,12 +269,33 @@ typedef enum {
  *     1024           7
  *     1056           7
  *
- * This machine's sectors are 1056, so **seven** is the most the command can ask
- * for and seven sectors is the most that has to be staged at once. Sizing by
- * the manual's own cap rather than by the controller's RAM: byte `14` of the
- * identification block below reports a 32K buffer, which is what the *part*
- * has, and no command in §5 can move more than this from it. */
-#define AP_OMTI_MAX_BUFFER_BLOCKS 7u
+ * **That table is one buffer size's instance of a rule, not the rule.** It was
+ * transcribed as an absolute cap and it is not: §5.4.19 prints the same three
+ * rows and introduces them with "The number of data blocks that can be read is
+ * **limited by the controller's Buffer size** as follows", and byte `14` of the
+ * identification block below enumerates four buffer sizes -- 2K, 8K, 16K and
+ * 32K. A single fixed table cannot describe four parts. The rows themselves say
+ * which one they are: 15x512, 7x1024 and 7x1056 all fall just under **8192**.
+ *
+ * This machine's controller reports **32K**, so the cap it was refusing at was
+ * another part's. The machine told the host it had 32K and then refused eight
+ * 1056-byte blocks, which is its own identification contradicting its own
+ * behaviour -- and Domain/OS asks for exactly eight, so a real controller that
+ * refused would have broken the real machine. It arrived here as `invalid disk
+ * address`, which is `refuse()`'s sense code, in a run whose report showed no
+ * refusals because this arm never reaches the refusal counter.
+ *
+ * So the cap is derived from the buffer the part reports.
+ *
+ * `PROVISIONAL` in its exact boundary, and marked as such rather than rounded:
+ * the manual gives the rule and one table, not the table for 32K. Two of that
+ * table's rows are `floor(8192/size) - 1` and the third is `floor(8192/1056)`,
+ * so whether a 32K part stops at 31 or at 30 is not settled by anything on the
+ * page. The figure below is the plain division; the ambiguity is one block wide
+ * and no observed command comes near it. */
+#define AP_OMTI_BUFFER_RAM_BYTES 32768u
+#define AP_OMTI_MAX_BUFFER_BLOCKS                                              \
+  (AP_OMTI_BUFFER_RAM_BYTES / AP_AWD_SECTOR_BYTES)
 
 /* §5.4.27 and §5.4.28: READ LONG and WRITE LONG move "the jumper selected
  * sector size (512, 1024 or 1056) of data plus 4 bytes (for ST506/412 drives)
