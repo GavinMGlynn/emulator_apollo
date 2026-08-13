@@ -29069,3 +29069,44 @@ about why. Vector 2 falls 2,480 -> 2,459 and the hash moves to
 with the user stack pointer untouched, and the same for `FMOVEM`'s predecrement;
 291 tests. `tools/identity-boot.sh` unchanged at `A354786119A3931D`. The boot
 above for the moved crash.*
+
+### The divergence is inside the handler, not at the trap
+
+The oracle settles where the two machines part, and it is not where the fault is.
+
+**At the trapping instruction they agree completely.** Tapping `3B5AA42C` on both:
+
+| | `d0` | `d1` | `a0` | `a1` | user SP |
+| --- | --- | --- | --- | --- | --- |
+| oracle | `3B7F0000` | `3B7F850C` | `3B5C5B38` | `3B5C5B28` | `3B3BF470` |
+| ours | `3B7F0000` | `3B7F850C` | `3B5C5B38` | `3B5C5B28` | `3B3BF470` |
+
+(the user stack appears as `A6` in this core's trace because the registers are
+printed *after* the step, and the F-line exception had already switched to the
+supervisor stack -- an off-by-one-event that briefly read as a mode difference.)
+
+**And the oracle never executes the copy loop at all.** `--boot-stop-on-vector`
+found our fault inside `FIM_$FP_INIT`, at a descending word copy:
+
+```
+3C42D592  MOVE.W (A0),D2      A0 = 3C4F9A86, the kernel stack
+3C42D594  ADD.L  D2,D3        a checksum
+3C42D596  MOVE.W D2,-(A1)     A1 = 3B3BC800 -- exactly a 1 KB page boundary
+3C42D598  DBF    D1,...       22 words still to go
+```
+
+The first `-(A1)` write is `3B3BC7FE`, in the page *below* the boundary, which
+nothing in the run has ever touched: the deepest the user stack goes is
+`3B3BD940`, four kilobytes above. A tap on `3C42D596` under the oracle gets
+**zero hits** across a boot that reaches `login:`.
+
+So both machines take the same trap from the same state, and only ours ends up in
+this routine. The question is no longer "why is that page absent" -- it is **why
+this handler runs at all**, and the next measurement is the oracle at
+`FIM_$FP_INIT`'s entry rather than at its faulting instruction.
+
+*Verification: `APOLLO_PC_TAP=3B5AA42C` and `=3C42D596` under
+`ext/mame/apollo` with the boot key sequence, six hits and none; the register
+comparison above; `--boot-stop-on-mmu-fault-at 3B3BC7FE --boot-trace-last 300`
+for the loop and its registers. The oracle instrumentation was reverted from a
+copy afterwards.*
