@@ -466,7 +466,25 @@ refuses. The faulting instruction is a `BTST` on the user stack (`a6 3B3BF0CC`,
 `3B3BFxxx` throughout), and the `PTEST`'s FC field is `01000` -- function code
 from `D0`, which holds `FFFF0000`, so **FC 0** -- against a real user or
 supervisor code on the access. A protection check that differs between the two
-is the first thing to examine.
+was the first guess and it is **wrong**; the widened fault-site recorder names
+the real one.
+
+**The storm is one instruction: 16,158,489 of 16,160,277 faults are `PC
+3B4357FA` reading `3B435800`.** The `BTST` there is six bytes, `3B4357FA` to
+`3B4357FF`, so it ends *exactly* on the page boundary and `3B435800` is the
+**prefetch of the next instruction**, in the next page. The trace shows the
+exception taken on the `BTST` itself (`pc=3B4357FA 082E EXCEPTION`), so the
+kernel reads a stacked PC of `3B4357FA`, `PTEST`s that page, finds it valid,
+concludes the fault was a stale ATC entry, flushes and retries -- for ever.
+
+`[030]` §7.5.1 defers a prefetch bus error until the processor "attempts to use
+that instruction word", by which point the PC is `3B435800` and the kernel would
+page in the page that is actually missing. `ap_m68030_fetch_prefetch` says the
+same in its own comment -- "the fault must be taken where the word is *used*" --
+and fills the stage with `fault` set rather than raising. So the deferral is
+modelled and something downstream takes it a instruction early: the next thing
+to read is `fill_to_decoded`, which is where this core decides a stage's fault
+is now due, and which the vector-2 change of `812f272` touched.
 
 ## The boot's fatal was a livelock, and the framebuffer PNG works (2026-08-14)
 

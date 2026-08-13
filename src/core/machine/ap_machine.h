@@ -192,7 +192,7 @@ typedef struct {
    * has 287 translation faults recorded nowhere at all. Same shape as the
    * board's profile, keyed by the faulting instruction, over *logical*
    * addresses -- which is the only address a failed translation has. */
-  ap_mmu_fault_site_t mmu_fault_sites[64];
+  ap_mmu_fault_site_t mmu_fault_sites[1024];
   unsigned mmu_fault_site_count;
   unsigned mmu_fault_sites_dropped;
   unsigned mmu_faults;
