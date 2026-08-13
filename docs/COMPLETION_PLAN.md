@@ -3466,6 +3466,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   returned — an unbreakable loop. Table 8-6's data fault address is the faulted
   *bus cycle's*. Fixed; identity hash unchanged. Detail in `PROJECT_STATUS.md`.
 
+  **The storm is gone — vector 2 goes 17,585,328 → 2,480** — and a new stage
+  completes: the screen now prints **`... global libraries loaded.`**, a line
+  this core had never reached. Disk work multiplies with it, `1E`/`0E` 329 → 3,172.
+  - [ ] **Next: `0012000A`, *unimplemented instruction*** (`002398-04` p. 4-6).
+    `FAULT IN DOMAIN/OS: PC:3C42D602 FF:A008 (B) FA:3B3BC7F0 SW:0105`, which is
+    `FIM_$FSAVE+60` — the fault manager saving coprocessor state — taking a bus
+    error on a user address while handling it. The FPU is **not** trapped
+    (`control 0301`, bit `0004` clear) and this core models the 68882 including
+    `FSAVE`/`FRESTORE`. The run takes 2 × vector 11, but the PROM's self test
+    runs a deliberate `CPU (FP TRAP)` test, so that count does **not** name the
+    instruction. Name it before assuming which half is at fault — the
+    unimplemented instruction and the faulting `FSAVE` are two separate things.
+
   **And a second CPU defect, which was hiding the kernel's own report of it.**
   `[030]` §7.5.1: a bus error on an instruction fetch is deferred until the
   processor "attempts to use that instruction word". This core deferred it and

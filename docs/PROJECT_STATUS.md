@@ -28883,3 +28883,43 @@ not the one that could.
 
 **The identity hash does not move**, still `A354786119A3931D`: the sixth fix in a
 row that leaves the reference boot alone.
+
+### What it bought, and where the boot now stops
+
+**The fault storm was the loop, and it is gone**: vector 2 goes
+**17,585,328 → 2,480**, a factor of seven thousand. The disk work multiplies with
+it -- `1E`/`0E` from 329 each to **3,172** -- because the machine is doing work
+instead of turning on the spot.
+
+**And a new stage completes.** The screen now reads
+
+```
+Loading Init.
+... loading global libraries
+... global libraries loaded.
+
+FAULT IN DOMAIN/OS:
+3C4F9A78: SR:2708  PC:3C42D602  FF:A008 (B)  FA:3B3BC7F0  SW:0105
+CRASH_STATUS 0012000A  PC 3C42BC2E PID 0001
+```
+
+`... global libraries loaded.` is a line this core had never printed.
+
+**What the failure is, and what is not yet established.** `002398-04` p. 4-6 puts
+`0012000A` in the OS / fault handler block: **unimplemented instruction**. The PC
+is `FIM_$FSAVE+60` -- the fault manager saving coprocessor state -- in supervisor
+mode with interrupts masked, taking a **bus error** (`FF:A008`) on the user-space
+address `3B3BC7F0`. So two things are in play: something raised an unimplemented
+instruction, and the handler's `FSAVE` then faulted saving state for it.
+
+The coprocessor is **not** held off -- `control 0301` has the FPU trap bit
+(`0004`) clear -- and this core does model the 68882, `FSAVE` and `FRESTORE`
+included. The run takes **2 × vector 11**. That is *not* enough to name the
+instruction: the boot PROM's own self test runs a `CPU (FP TRAP)` test, which
+raises an F-line deliberately, so one or both may be its. **Naming which
+instruction is the next measurement, and it has not been made.**
+
+*Verification: `tools/e0007-boot.sh --screenshot`, hash `FE95BA7053153568`,
+against `9533EBC0CCED00BD` before; `tools/identity-boot.sh` unchanged;
+`002398-04` p. 4-6 read as a page image; `tools/kernel_symbols.py` for
+`FIM_$FSAVE`; the run's own `control` word for the FPU trap bit.*
