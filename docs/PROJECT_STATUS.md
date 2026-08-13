@@ -29110,3 +29110,45 @@ this handler runs at all**, and the next measurement is the oracle at
 comparison above; `--boot-stop-on-mmu-fault-at 3B3BC7FE --boot-trace-last 300`
 for the loop and its registers. The oracle instrumentation was reverted from a
 copy afterwards.*
+
+### `FPA_$SAVEP`: the machine takes the Floating Point Accelerator path
+
+Bisecting `FIM_$FP_INIT` against the oracle names the branch. The oracle enters
+the routine -- eight times, all with kernel-space stacks -- and never reaches
+either the copy loop at `3C42D592` or `3C42D562` a few instructions above it. So
+the two machines part *inside* the routine, and its first branch is the one:
+
+```
+3C42D4A6  TST.L ($3C42BDD0).L     FPA_$SAVEP
+3C42D4AC  BEQ  -> 3C42D4B8
+3C42D4AE  BSR  -> 3C42D2E6        inside the FPA_$ code
+3C42D4B2  TST.L D0
+3C42D4B4  BNE  -> 3C42D55C        <- this core's path, into the copy loop
+3C42D4B8  MOVEQ #0,D0
+3C42D4BA  TST.L ($3C42BDD4).L     FP_$SAVEP -- the plain 68882 path
+```
+
+**`FPA_$SAVEP` is the Floating Point Accelerator's save pointer.** The DN3500
+could carry an FPA board beside the 68882, and `FIM_$FP_INIT` checks for it
+*first*: non-zero, and the kernel saves FPA state instead of coprocessor state.
+The oracle goes to `FP_$SAVEP`; this core goes to the FPA.
+
+**This machine has no FPA.** The kernel's own probe for one is already recorded
+here -- `PC 3C443E8C` faulting on `FD800008`, and the boot PROM's device scan at
+`0000106A` sweeping `FD800000` a page at a time -- and MAME refuses the same
+addresses. So a core that ends up on the FPA path is being told an accelerator is
+present that is not, and the copy loop then writes an FPA save area into a page
+nothing has mapped.
+
+That reframes the fatal one more time, and in the direction the evidence points
+rather than the one the crash text suggested. It is not a paging failure, not a
+coprocessor gap and not the `A7` defect fixed above it: it is a **device
+presence** answer. What sets `FPA_$SAVEP`, and what this core answers to the
+probe that decides it, is the next measurement.
+
+*Verification: `APOLLO_PC_TAP=3C42D4A6` under the oracle, eight hits with
+`a7` in `3C37xxxx`/`3C4F9xxx`; `=3C42D562` and `=3C42D596`, zero hits each;
+`tools/kernel_symbols.py` for `FPA_$SAVEP` and `FP_$SAVEP`; the routine
+disassembled from `--dump-logical 3C42D400:1024`. The oracle instrumentation was
+reverted from a copy afterwards and `ext/mame` carries only its nine standing
+edits.*
