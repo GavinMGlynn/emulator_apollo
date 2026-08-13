@@ -29435,3 +29435,39 @@ routine's arguments live on the stack and registers alone answer "who" without
 "with what". It takes a comma-separated list because the real question is nearly
 always *which* of several entry points a subsystem goes through, and a boot costs
 ten minutes: one address at a time made that most of an hour for one answer.
+
+### The hole is exactly three pages, and the frames above it are sequential
+
+```
+0081B000  absent
+0081B400  absent
+0081B800  absent
+0081BC00 -> 01385000
+0081C000 -> 01385400
+0081C400 -> 01385800
+```
+
+Three 1 KB pages, `0081B000`-`0081BBFF`. The frames immediately above are
+**consecutive** -- `01385000`, `01385400`, `01385800` -- so those pages were
+installed as one run; the pages below the hole sit in scattered frames
+(`01374400`, `01373000`), which is what individual demand faults leave.
+
+Two readings fit and this run does not separate them:
+
+* **A short transfer.** A multi-page read delivered fewer pages than asked and
+  the kernel installed only what arrived. That is the shape the `drained` field
+  in `--boot-disk-reads` exists to catch, and it is the third time today the
+  disk's transfer accounting would be implicated -- the sector-buffer cap and the
+  data-out `REQ` handshake were both exactly this class.
+* **Two adjacent objects with a gap between them.** The kernel *delivers* the
+  fault rather than paging, which is the answer its tables give when the address
+  is in no object at all. An object ending at `0081B000` and another starting at
+  `0081BC00` produces exactly this, and then the question is whether the first
+  one's length is right.
+
+**What this run rules out**: a short transfer *near the fault*. The last sixty
+commands are all single-block `1E`/`0E` pairs draining exactly 1,056 bytes each.
+The pages in question were loaded much earlier and the command ring does not
+reach back to them, so the check has to be made at the time of loading, not at
+the time of the crash -- which is the same lesson as `--boot-log-pc`: an event
+early in a boot is invisible to an instrument that samples the end of it.
