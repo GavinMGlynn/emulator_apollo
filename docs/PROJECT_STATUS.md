@@ -29280,3 +29280,53 @@ enters `FIM_$FSAVE` and this core does, while the two agree completely at the
 first dispatch after the trap. So the divergence is at a **later** dispatch, and
 finding it means matching occurrences across the two machines rather than
 addresses -- the same discipline the retraction above is about.
+
+## The fatal is a fault-delivery loop, and `FSAVE` is only where the stack runs out
+
+Following `FIM_$FSAVE` back through its caller turns the crash from a
+floating-point problem into a paging one, and the evidence is all in a single
+60,000-instruction trace taken at the refusal.
+
+**`FIM_$FSAVE` is entered fifty times**, every **1,078 instructions**, with `A3`
+and `A7` identical each time -- a periodic event, not an incident. Its caller is
+`FIM_$BUILD_DF+458`: the Fault Intercept Manager **building a fault frame to
+deliver to a process**, which saves the coprocessor state as part of the frame.
+
+**And one instruction is faulting over and over.** Exceptions in that window, by
+program counter:
+
+```
+49  0081B14A     <- a user address, instruction word 0000
+ 1  3C43F5A8
+ 1  3C42D596     <- the FSAVE copy, the fatal one
+ 1  3B63E44E
+ 1  3B5AA42C     <- the lazy-FP trap, which succeeds on retry
+```
+
+An instruction word of `0000` in this core's trace means the **fetch itself
+faulted**: the word never arrived. So the process branches to `0081B14A`, its
+text page is not resident, the kernel builds and delivers a fault frame, the
+process retries, and it faults again. Forty-nine times.
+
+**Each delivery costs user stack.** The frame `FSAVE` writes goes to a user-space
+buffer read from `(A3+$A0)` and dereferenced, and it marches downward with each
+delivery; on the fiftieth the descending copy crosses the page boundary at
+`3B3BC800` onto a page nothing has mapped, and *that* is the crash the screen
+reports. The floating-point machinery is working correctly throughout -- the
+trapping `F227` executes on retry -- and `FSAVE` is simply the instruction
+standing where the stack finally runs out.
+
+**Which kind of fault it is, since that decides who is at fault.** The run's
+`bus errors 393` all end at the FPA probe from `PC 3C443E8C`, so `0081B14A` is
+not a board refusal; it is among the `mmu faults 1742`, of which 1,186 are past
+the report's list cap. An instruction page that is not resident, and that the
+kernel answers by *delivering* rather than by paging.
+
+So the question is no longer about floating point, the stack, or `A3`. It is:
+**why does the page holding `0081B14A` never become resident, and why does the
+kernel deliver that fault instead of servicing it.** Everything above this line
+in the last several sections was downstream of that.
+
+*Verification: `tools/e0007-boot.sh --boot-stop-on-mmu-fault-at 3B3BC7FE
+--boot-trace-last 60000`; exception counts and the `FIM_$FSAVE` entry interval
+read from that trace; `tools/kernel_symbols.py` for `FIM_$BUILD_DF`.*

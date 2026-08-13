@@ -3517,8 +3517,18 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   retry** (`662950054` EXCEPTION, `662950150` EXECUTED), so the lazy-FP trap,
   handler and return all work, and the crash 53,000 instructions later is a
   different FP event.
-  - [ ] **Next: which *later* dispatch reaches `FIM_$FSAVE`.** The oracle never
-    enters it; we do. Match occurrences, not addresses. `SW:0105` is a supervisor
+  **IT IS A FAULT-DELIVERY LOOP, and `FSAVE` is only where the stack runs out.**
+  `FIM_$FSAVE` is entered **50 times, every 1,078 instructions**, from
+  `FIM_$BUILD_DF+458` — the fault manager building a frame to deliver to a
+  process. In the same window **49 exceptions occur at one user address,
+  `0081B14A`, with instruction word `0000`**: the *fetch* faulted, so its text
+  page is not resident. The process retries and refaults; each delivery writes an
+  FP frame to a user buffer that marches down; the fiftieth crosses `3B3BC800`
+  and kills the kernel. The FP machinery is sound throughout — the trapping
+  `F227` executes on retry. It is an **MMU** fault, not a board one (`bus errors`
+  all end at the FPA probe).
+  - [ ] **Next: why the page holding `0081B14A` never becomes resident**, and why
+    the kernel delivers that fault instead of servicing it. `SW:0105` is a supervisor
     *write* fault at `3B3BC7F0`, taken in the handler with interrupts masked. The
     same stack region demand-pages fine five times down to `3B3BD940`, so the
     page is not special and the *context* is. Stop on the refusal
