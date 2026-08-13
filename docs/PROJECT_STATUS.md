@@ -29471,3 +29471,51 @@ The pages in question were loaded much earlier and the command ring does not
 reach back to them, so the check has to be made at the time of loading, not at
 the time of the crash -- which is the same lesson as `--boot-log-pc`: an event
 early in a boot is invisible to an instrument that samples the end of it.
+
+### The descriptor exists, is invalid, and holds something that is not a frame
+
+`--dump-walk`, added for this, reports where a table search *stops* -- which
+`--dump-logical`'s bool cannot, because "does not translate" covers two opposite
+diagnoses. At the fault:
+
+```
+0081A000  translated  after 3 level(s), last descriptor at 0129C1A0, physical 01373000
+0081B000  STOPPED     after 3 level(s), last descriptor at 0129C1B0
+```
+
+**The two descriptors are sixteen bytes apart** -- four entries, exactly the 4 KB
+address gap at 1 KB pages -- so they are adjacent slots of the *same page table*
+and the walk is trustworthy. This is not a region without tables: the address
+space covers `0081B000`, and its page descriptor is simply invalid.
+
+**What is in it, and who put it there.** Watching `0129C1B0` across the boot: 16
+writes, the last two 314 instructions apart at 488.95 M, and nothing after --
+the fault is at 663 M.
+
+```
+write  9  value 0001042C  size 4  by PC 3C462E74   FM_$READ+138
+write 16  value 00000004  size 1  by PC 3C403734   AST_$LOAD_AOTE+43C
+```
+
+`0001042C`'s low byte is `2C`, so DT = `2C & 3` = **00, invalid**, which is
+exactly where the walk stops. The writers are the **File Manager's read** and the
+**Active Segment Table**'s entry loader, and a value like `0001042C` in an
+invalid descriptor is the shape of a *backing store address* -- the classic use
+of an invalid entry's spare bits to record where the page lives while it is out.
+
+So the page is **known and not resident**, with its location recorded, and the
+kernel still answers the fault by delivering it to the process rather than
+fetching it. The ten neighbouring pages take the identical path and recover, so
+the mechanism works; what differs is this page's bookkeeping.
+
+**The open question, stated as narrowly as the evidence allows**: why the kernel
+declines to fetch a page whose descriptor it has filled in. Either `0001042C` is
+not what the kernel expects to find there -- in which case what wrote it, and
+from what -- or the kernel's software tables disagree with the hardware ones it
+built. `FM_$READ` and `AST_$LOAD_AOTE` are both named and both reachable with
+`--boot-log-pc`.
+
+*Verification: `--dump-walk 0081A000` and `0081B000` at
+`--boot-stop-on-mmu-fault-at 3B3BC7FE`; `--boot-watch-write 0129C1B0
+--boot-log-watch-writes` over the same boot; `tools/kernel_symbols.py` for the
+two writers.*

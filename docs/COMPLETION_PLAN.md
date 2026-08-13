@@ -3548,8 +3548,20 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   calls every one maps kernel space (`3C000000`…`3C4F0000`, `3FF60000`), none
   touches `0080xxxx`–`0089xxxx`, so the user text arrives by demand paging
   against an object. Detail in `PROJECT_STATUS.md`.
-  - [ ] **Next: why those two pages are absent** when the object's pages on both
-    sides are present. New instrument for it: `--boot-log-pc ADDR[,ADDR...]`. `SW:0105` is a supervisor
+  **THE DESCRIPTOR EXISTS AND IS INVALID.** `--dump-walk` (new, since
+  `--dump-logical`'s bool cannot tell "no tables here" from "not resident"):
+  `0081A000` translates after 3 levels via descriptor `0129C1A0`; `0081B000`
+  stops after 3 levels at `0129C1B0` — **16 bytes apart, adjacent slots of the
+  same page table**. So the region *is* mapped and this page is simply not
+  resident. Watching `0129C1B0`: 16 writes, the last two at 488.95 M and nothing
+  after — `0001042C` by `FM_$READ+138` (DT = `2C & 3` = 00, invalid) then a byte
+  `04` by `AST_$LOAD_AOTE+43C`. A value like that in an invalid descriptor is the
+  shape of a **backing-store address**. So the page is known, its location
+  recorded, and the kernel still delivers the fault instead of fetching it.
+  - [ ] **Next: why the kernel declines to fetch a page it has recorded.** Either
+    `0001042C` is not what it expects to find, or its software tables disagree
+    with the hardware ones it built. `FM_$READ` and `AST_$LOAD_AOTE` are both
+    reachable with `--boot-log-pc`. `SW:0105` is a supervisor
     *write* fault at `3B3BC7F0`, taken in the handler with interrupts masked. The
     same stack region demand-pages fine five times down to `3B3BD940`, so the
     page is not special and the *context* is. Stop on the refusal

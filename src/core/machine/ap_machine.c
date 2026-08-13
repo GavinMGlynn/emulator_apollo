@@ -655,6 +655,26 @@ bool ap_machine_read(const ap_machine_t *machine, uint32_t address,
   return true;
 }
 
+ap_m68030_walk_result_t ap_machine_walk(ap_machine_t *machine, uint32_t logical,
+                                        uint8_t function_code) {
+  ap_m68030_cpu_t *cpu = &machine->cpu;
+  ap_m68030_walk_result_t out = {0};
+  if (!cpu->tc.enable || cpu->data == NULL || cpu->data->table_fetch == NULL) {
+    return out;
+  }
+  const bool supervisor = (function_code & 0x4u) != 0u;
+  const ap_m68030_root_t *root =
+      (cpu->tc.supervisor_root && supervisor) ? &cpu->srp : &cpu->crp;
+  const ap_m68030_search_access_t access = {
+      .write = false, .read_modify_write = false, .supervisor = supervisor};
+  const bool was_probing = machine->probing;
+  machine->probing = true;
+  out = ap_m68030_walk(&cpu->tc, root, logical, &access, cpu->data->table_fetch,
+                       NULL, cpu->data->context);
+  machine->probing = was_probing;
+  return out;
+}
+
 bool ap_machine_translate(ap_machine_t *machine, uint32_t logical,
                           uint8_t function_code, uint32_t *physical) {
   ap_m68030_cpu_t *cpu = &machine->cpu;

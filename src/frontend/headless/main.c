@@ -99,6 +99,13 @@ static void print_usage(const char *program_name) {
   /* Split because a single literal outgrew C99's guaranteed 4095 characters,
    * which `-Werror` catches. Two calls, one list. */
   fprintf(stdout,
+          "  --dump-walk ADDR      walk the MMU tables for ADDR and say where\n"
+          "                        the search stopped. \"Does not translate\"\n"
+          "                        covers two opposite answers: a higher level\n"
+          "                        absent means nothing is mapped in that region\n"
+          "                        at all, while a page descriptor that exists\n"
+          "                        and is invalid means the region is mapped and\n"
+          "                        the page is merely not resident\n"
           "  --boot-log-pc ADDR    print the registers and the top of the\n"
           "                        stack at every visit to ADDR. A trace covers\n"
           "                        only the end of a run and a stop covers one\n"
@@ -1890,7 +1897,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t stop_physical_pc,
                           uint32_t stop_physical_length, bool service_mode,
                           unsigned stop_pc_skip, uint32_t stop_mmu_fault_at,
-                          unsigned stop_vector, const uint32_t *log_pc,
+                          unsigned stop_vector, uint32_t walk_address,
+                          bool walk_wanted, const uint32_t *log_pc,
                           unsigned log_pc_count,
                           unsigned stop_pc_then, uint32_t progress_from,
                           unsigned disk_reads_wanted) {
@@ -3453,6 +3461,27 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   }
 
   int status = 0;
+  if (walk_wanted) {
+    /* Where the search *stopped*, which is the whole point: a bool cannot tell
+     * "nothing is mapped in this region" from "this page is not resident", and
+     * those want different people to fix them. */
+    const ap_m68030_walk_result_t walk =
+        ap_machine_walk(&machine, walk_address, AP_M68030_FC_USER_PROGRAM);
+    printf("  walk %08X    %s after %u level(s), last descriptor at %08X",
+           walk_address, walk.ok ? "translated" : "STOPPED",
+           walk.levels_walked, walk.last_descriptor_address);
+    if (walk.ok) {
+      printf(", physical %08X", walk.physical);
+    }
+    if (walk.bus_error) {
+      printf(", bus error");
+    }
+    if (walk.early_termination) {
+      printf(", early termination");
+    }
+    printf("\n");
+  }
+
   if (screenshot != NULL) {
     status = write_screenshot(screenshot, &board->graphics,
                               board->graphics.reg.cr1);
@@ -3909,6 +3938,8 @@ int main(int argc, char **argv) {
   unsigned boot_stop_pc_skip = 0u;
   uint32_t boot_stop_mmu_fault_at = 0u;
   unsigned boot_stop_vector = 0u;
+  uint32_t dump_walk = 0u;
+  bool dump_walk_wanted = false;
   uint32_t boot_log_pc[AP_LOG_PCS] = {0};
   unsigned boot_log_pc_count = 0u;
   unsigned boot_stop_pc_then = 0u;
@@ -4262,6 +4293,12 @@ int main(int argc, char **argv) {
       i += 2;
       continue;
     }
+    if (strcmp(argv[i], "--dump-walk") == 0 && i + 1 < argc) {
+      dump_walk = (uint32_t)strtoul(argv[i + 1], NULL, 16);
+      dump_walk_wanted = true;
+      i += 2;
+      continue;
+    }
     if (strcmp(argv[i], "--boot-log-pc") == 0 && i + 1 < argc) {
       /* Comma separated, because the question is nearly always "which of these
        * several entry points does it go through" -- four mapping routines, say
@@ -4423,7 +4460,8 @@ int main(int argc, char **argv) {
                           dump_logical_specs, dump_logical_count,
                           boot_stop_physical_pc, boot_stop_physical_length,
                           service_mode, boot_stop_pc_skip,
-                          boot_stop_mmu_fault_at, boot_stop_vector, boot_log_pc,
+                          boot_stop_mmu_fault_at, boot_stop_vector, dump_walk,
+                          dump_walk_wanted, boot_log_pc,
                           boot_log_pc_count,
                           boot_stop_pc_then,
                           boot_progress_from, boot_disk_reads);

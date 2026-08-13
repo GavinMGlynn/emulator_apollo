@@ -488,6 +488,23 @@ typedef struct {
  * differ, because the field that differs is one it does not visit. Returning
  * the hash is what makes that checkable -- a dump whose hash does not match an
  * ordinary run's is a dump of a different machine or a different walk. */
+/* The table search itself, for when the answer "does not translate" is not
+ * enough.
+ *
+ * A logical address can fail to translate for reasons that mean opposite
+ * things: a *higher* level absent says nothing is mapped in that region at all,
+ * while a page descriptor that exists and is invalid says the region is mapped
+ * and that page is simply not resident. The first is a question for whoever
+ * built the address space, the second for whoever pages it -- and
+ * `ap_machine_translate`'s bool collapses them.
+ *
+ * Returns the walk verbatim, including `levels_walked` and the address of the
+ * last descriptor fetched, so a caller can say *where* the search stopped.
+ * Charged to the observer's counters like every other probe. */
+[[nodiscard]] ap_m68030_walk_result_t ap_machine_walk(ap_machine_t *machine,
+                                                      uint32_t logical,
+                                                      uint8_t function_code);
+
 [[nodiscard]] uint64_t ap_machine_dump_state(const ap_machine_t *machine,
                                              void *out);
 
