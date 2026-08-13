@@ -526,9 +526,25 @@ write-back that would have truncated it. `step_suite` +1, using a displacement
 of `$00010000` precisely because it truncates to zero if read as a word.
 
 **Init now runs** and prints the Domain/OS copyright banner -- the block that
-immediately precedes `login:`. Still not the prompt: MMU faults are back at
-30,837,461 on a 2.5 G run, so something loops after the banner, and that is the
-next thing to find.
+immediately precedes `login:`. Still not the prompt, and the next defect is
+already located: **30,835,213 of 30,837,461 faults are `PC 3B5AC3FE` reading
+`3B5AC3FC`, invalid on read.**
+
+`3B5AC3FE` is the *last word* of page `3B5AC000` -- 1 KB pages end at
+`3B5AC3FF` -- and `3B5AC3FC` is that word's longword-aligned fetch address. So
+the machine sits on the final instruction of a page it cannot fetch from, the
+kernel handles the fault, returns, and it faults again, exactly the
+non-progressing shape the prefetch-deferral fix cured at `3B4357FA`. It is *not*
+the same bug: that one stacked the previous instruction's PC, and here the PC
+and the fault address are in the same page, so the kernel is being told the
+right page and still does not make it resident.
+
+Two readings to separate first, and they need opposite work. Either the page is
+genuinely absent and the kernel declines -- in which case ask why, as with
+`0081B000`, and note the oracle is the tool that settled that one. Or the page is
+resident and our access refuses it for a reason `PTEST` does not see, which is
+where the `FIM_$BUS_ERR` read-then-`PFLUSH` cycle would loop for ever. Start with
+`--dump-walk 3B5AC3FE` at a limit just past the banner: it says which.
 
 ## The boot's fatal was a livelock, and the framebuffer PNG works (2026-08-14)
 
