@@ -3611,6 +3611,28 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     One caveat on the oracle log: it polls, so the `pc` column is the PC at
     *detection*, not the instruction that wrote the descriptor. Only our side's
     `--boot-watch-write` names writers.
+    **The chain back from the jump is now measured, and it exonerates the
+    disk.** The thunk's target is not computed: `008030F0` is a three-instruction
+    block copy (`MOVE.L (A3)+,(A2)+ / CMPA.L (d16,A5),A2 / BCS`) moving
+    `0083B9C8` to `008910EC`, and the source word was written by
+    `WIN_$EMPTY_CTL_BUF+1E` -- the Winchester driver draining the controller
+    buffer. So `0081B14A` is **file content**. It is in the volume image at
+    block 66487 offset 488, which is the 32-byte block header plus 456, exactly
+    the offset of `0083B9C8` in its page, and block 66487 is inside the
+    `1E/4@66485` read that served it. The hole's own blocks are real code too --
+    66603-66607 each carry 920-960 non-zero bytes under a header whose third
+    longword increments `6a,6b,6c,6d,6e` -- and our descriptor `0001042C` names
+    block 66604 correctly. **So the pointer is genuine, the sector served was
+    the right one, and the page has real backing.** Note this widens an earlier
+    claim that was narrower than it sounded: the 1,433-read check verified
+    transfer *counts*, and a command that fetches the wrong sector succeeds
+    silently -- this is the first check of *content*, and it passes.
+    What remains is the divergence itself: the oracle never makes that page
+    resident in 890 s and boots anyway, so it never executes this thunk, while
+    we do. Either our kernel refuses a fault it should serve -- note the
+    neighbours were paged in by *data* reads from the loader and this is the
+    only *instruction fetch* into the object -- or our control flow reaches a
+    library routine the oracle never calls. The next measurement is which.
   - [ ] ~~`0012000A`, *unimplemented instruction*~~ (`002398-04` p. 4-6).
     `FAULT IN DOMAIN/OS: PC:3C42D602 FF:A008 (B) FA:3B3BC7F0 SW:0105`, which is
     `FIM_$FSAVE+60` — the fault manager saving coprocessor state — taking a bus
