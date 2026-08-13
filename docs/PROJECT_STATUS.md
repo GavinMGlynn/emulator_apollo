@@ -441,6 +441,19 @@ in the kernel's live `TC` (`80A28750`, so both spaces walk `CRP`); and `MMUSR`'s
 `N` counts only tables successfully fetched. The disk is clear too: all 1,433
 reads in a boot drained exactly what they asked for.
 
+**The oracle says the page is *meant* to stay unmapped.** Watching the same
+two page-table descriptors in MAME's RAM across a boot that reaches `login:`
+(`tools/mame-oracle/pagescreen.lua`): the control `0129C1A0` goes resident as
+`01373109` while `0129C1B0` holds `0410B000` -- invalid, for the whole boot,
+out to 890 emulated seconds, with the machine idling in `NULL_LOOP`. Domain/OS
+is not failing to fetch that page; it never executes there, so refusing is
+right. **The defect is ours and upstream of the livelock**: our first fault is
+reached by `JSR $008910E4` into a thunk, `LEA $00891208,A0` then
+`JMP $0081B14A`, whose target is a *literal operand* bound into the stub. Two
+earlier oracle runs proved nothing and said so -- one never left the boot PROM,
+one pressed `Numpad Enter`, which Domain/OS ignores -- which is what the control
+descriptor is in the script for.
+
 **Two measurement traps, both of which cost a run.** A faulted *prefetch*
 reports the longword-aligned bus address — stop on `0081B148`, not `0081B14A`.
 And `mmu_fault_sites` fills, dropping ~1,186 sites a boot, so a `PC` absent from

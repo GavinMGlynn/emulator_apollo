@@ -3593,10 +3593,24 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
     the longword-**aligned** bus address, so stop on `0081B148`, not `0081B14A`
     — the flag is not at fault. And `mmu_fault_sites` fills up: a boot drops
     ~1,186 sites, so a `PC` missing from that list is not evidence of anything.
-    The open question is why the kernel's software tables do not cover a page
-    whose hardware descriptor it filled with a backing-store address. The
-    documents cannot answer it; the oracle can, at the shared program event
-    `FIM_$BUS_ERR` with the fault address matched.
+    **The oracle has now answered it, and it inverts the question.** Watching
+    the same two descriptors in MAME's RAM (`tools/mame-oracle/pagescreen.lua`)
+    across a boot that reaches `login:`: the control `0129C1A0` goes resident as
+    `01373109`, and `0129C1B0` holds `0410B000` -- **invalid, for the whole
+    boot, out to 890 emulated seconds** -- while the machine idles in
+    `NULL_LOOP`. So Domain/OS is not failing to page that page in. It is never
+    executed there, and *declining is correct*.
+    **The defect is ours and upstream.** Our first fault
+    (`--boot-stop-on-mmu-fault-at 0081B148`, the aligned address) is reached by
+    `JSR $008910E4` into a two-instruction thunk, `LEA $00891208,A0` then
+    **`JMP $0081B14A`** -- the target is a literal operand, bound into the stub,
+    not a computed pointer. So either our loader bound that stub to an address
+    the oracle binds elsewhere, or our control flow reaches a stub the oracle
+    never calls. Next: whether anything *writes* the thunk during
+    "loading global libraries", which separates the two.
+    One caveat on the oracle log: it polls, so the `pc` column is the PC at
+    *detection*, not the instruction that wrote the descriptor. Only our side's
+    `--boot-watch-write` names writers.
   - [ ] ~~`0012000A`, *unimplemented instruction*~~ (`002398-04` p. 4-6).
     `FAULT IN DOMAIN/OS: PC:3C42D602 FF:A008 (B) FA:3B3BC7F0 SW:0105`, which is
     `FIM_$FSAVE+60` — the fault manager saving coprocessor state — taking a bus
