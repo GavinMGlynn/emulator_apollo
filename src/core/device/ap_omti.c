@@ -670,7 +670,26 @@ static void execute(ap_omti_t *omti) {
     omti->blocks_left = block_count(&cdb);
     omti->buffer_index = 0u;
     omti->phase = AP_OMTI_PHASE_DATA_OUT;
-    omti->status = (uint8_t)((omti->status & ~AP_OMTI_ST_CD) | AP_OMTI_ST_DREQ);
+    /* The data state asks for its first word like every other, and this is the
+     * one command that entered it by hand instead of through `transfer` -- so
+     * it inherited neither of the two rules that path already had.
+     *
+     * **`REQ` was never asserted at all.** §4.3: "When the controller requires a
+     * word to be transferred, it will set the REQ bit in the STATUS byte", and a
+     * driver doing programmed I/O writes nothing until it sees that bit. This
+     * left the controller in `DATA OUT` at `C8` -- selected and busy, asking for
+     * nothing -- which is exactly the byte `WIN_$SPIN_DOWN` polled 3,301 times
+     * before returning `00080003`, disk controller time-out.
+     *
+     * **And `DREQ` was unconditional**, which is the defect the read path had
+     * and had fixed: §4.2 gates it on the MASK register's DMA enable, so a
+     * controller in programmed I/O was asking the 8237 for cycles nobody had
+     * arranged. Two lines below, `REQUEST SENSE` names that same fix. */
+    omti->status = (uint8_t)((omti->status & ~(AP_OMTI_ST_CD | AP_OMTI_ST_IO)) |
+                             AP_OMTI_ST_REQ);
+    if ((omti->mask & AP_OMTI_MASK_DMA_ENABLE) != 0u) {
+      omti->status |= AP_OMTI_ST_DREQ;
+    }
     return;
 
   case AP_OMTI_CMD_REQUEST_SENSE:
@@ -1248,6 +1267,21 @@ static void take_byte(ap_omti_t *omti, uint8_t value) {
      * ends by not writing to a disk differ in exactly this. */
     if (omti->blocks_left == 0u) {
       if (omti->buffer_index < omti->transfer_length) {
+        /* §4.3's data state, and the sentence this phase was missing: "When the
+         * controller requires a word to be transferred, it will set the REQ bit
+         * in the STATUS byte ... Either action will cause REQ to be cleared.
+         * These steps will be repeated until all the data required by the
+         * controller has been transferred", and it is "handshaking in the same
+         * fashion as the command transfer".
+         *
+         * `take_byte` clears `REQ` for every write, so a path that wants another
+         * byte has to ask for it again. The command phase does, and so does the
+         * `DATA IN` side in `give_byte` -- **this one did not**, so the
+         * controller took one byte and then sat with `REQ` down, which is the
+         * status byte `C8` that `WIN_$SPIN_DOWN` polled 3,301 times before
+         * giving up with `00080003`, disk controller time-out. Nothing caught it
+         * because every test here writes its bytes without consulting `REQ`. */
+        omti->status |= AP_OMTI_ST_REQ;
         return;
       }
       if (omti->assigning_alternate) {
@@ -1303,6 +1337,8 @@ static void take_byte(ap_omti_t *omti, uint8_t value) {
      * `0E` needed room for seven, and the constant used here was the wrong one
      * of the two all along. */
     if (omti->buffer_index < AP_AWD_SECTOR_BYTES) {
+      /* The same handshake, mid-sector. */
+      omti->status |= AP_OMTI_ST_REQ;
       return;
     }
     if (!ap_awd_write(omti->selected, omti->next_lba, omti->buffer)) {
@@ -1314,7 +1350,11 @@ static void take_byte(ap_omti_t *omti, uint8_t value) {
     omti->buffer_index = 0u;
     if (omti->blocks_left == 0u) {
       finish(omti, false, 0u);
+      return;
     }
+    /* And across a sector boundary: the next sector's first byte is still data
+     * "required by the controller", so it is asked for like every other. */
+    omti->status |= AP_OMTI_ST_REQ;
     return;
 
   case AP_OMTI_PHASE_DATA_IN:

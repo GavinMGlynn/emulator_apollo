@@ -3426,7 +3426,7 @@ failure that cost a bit position in the 68020's module entry word.
 | OMTI command descriptor blocks | working: the 6-byte CDB decoded with the **cylinder reassembled from three bytes** (C10 in byte 1, C09/C08 in byte 2, low eight in byte 3), the command byte exposed both whole and split into class and opcode, and acceptance checked against the ESDI command set — which **refuses** `0C INITIALIZE DRIVE CHARACTERISTICS`, an ST506-only command that would make ESDI geometry look settable | `omti_cdb_suite`, 7 tests; `FINDINGS.md` C27 |
 | OMTI 862X ESDI/floppy controller (the part) | **register model complete for both halves**: the fixed disk's four ports with their read/write asymmetries and the status register's fixed bits, and the floppy's five at the standard PC layout. Modelled as two independent register sets sharing nothing, as `[OMTI]` §4.1 and §3.4 describe. Both measured dumps reproduced as tests. **Both command sets now modelled**: §5's fixed disk over `.awd`, and §6's floppy over `.afd` — ten commands and INVALID, with ST0–ST3 result bytes, and **no `WRITE DATA`**, which neither our §6 nor the sibling 8640's §5.3 lists. **`1E READ DATA TO BUFFER` implemented** -- §5.4.19's "reads data from the disk
 to the controller's buffer ... does not transfer the data to the host", paired
-with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both derived from the STATUS register as §4.2 and §4.3 give them: the interrupt from `IREQ` and the MASK byte's interrupt enable, the DMA request from `DREQ`, which the MASK byte's DMA enable gates. IRQ6 and DRQ2 are placed and not yet driven: the floppy side's completion is the FDC's result phase, not this one | `omti_suite`, 15 tests; `awd_suite`, 46; `afd_suite`, 26; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |
+with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both derived from the STATUS register as §4.2 and §4.3 give them: the interrupt from `IREQ` and the MASK byte's interrupt enable, the DMA request from `DREQ`, which the MASK byte's DMA enable gates. IRQ6 and DRQ2 are placed and not yet driven: the floppy side's completion is the FDC's result phase, not this one | `omti_suite`, 15 tests; `awd_suite`, 49; `afd_suite`, 26; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |
 | OMTI 8621 placement (the DN3500's disk) | measured, both halves. Placement characterised at `04D000`: the range is the card's (all `FF` without it, control verified by device enumeration), aliased on an eight-byte period, with offsets 1-3 driven. Offsets 0 and 4-7 read `FF`, which a read sweep cannot distinguish from undriven | `FINDINGS.md` C20 |
 | WD7000 ESDI/SCSI (DN4500) | not started | — |
 | Floppy, QIC cartridge tape | not started | — |
@@ -28742,3 +28742,78 @@ is now `589E8A3554349EC9`.
 the screen; `[OMTI] AT Controller Series Jan87` §5.4.19 and §5.4.20 read as page
 images (that PDF has no text layer at all); `002398-04` p. 4-3 for both status
 codes; `awd_suite` 46 tests and `omti_suite` 24.*
+
+## The data-out phase never asked for its bytes
+
+`00080016` had one more layer under it, and the trace named it rather than
+suggesting it.
+
+### The measurement
+
+`--boot-stop-pc 3C41F8BA` -- the PC in the crash record -- **never fires**. It is
+the *return address* of `JSR CRASH_SYSTEM`, so it is never executed: the third
+time in this investigation a crash record's PC has been a printed value rather
+than an address this processor runs, after `3C40E114` and `3C4524E6`. Stopping on
+`CRASH_SYSTEM` itself, which does execute, gives the whole thing.
+
+The hottest PCs in the window are six instructions run **3,301 times**:
+
+```
+3C41EEBA  CLR.W   D3
+3C41EEBC  MOVE.B  (d16,A0),D3     poll the controller           A0 = 3FFFA800
+3C41EEC0  CMP.W   D1,D3           D1 = 000000C0, the IDLE controller
+3C41EEC2  BEQ     out
+3C41EEC4  CMP.L   (A1),D2         against a deadline
+3C41EEC6  BGE     loop
+```
+
+with `D3 = 000000C8` on every iteration. That is `WIN_$SPIN_DOWN`, waiting for
+`BSY` to drop, and `C8` is the fixed bits plus `BSY` alone -- **selected, busy,
+asking for nothing**. It returns `00080003`, *disk controller time-out*, and
+`WIN8_$DO_IO` then reads the status once more expecting `CF`
+(`CMPI.W #$00CF,D2`), does not get it, and calls `CRASH_SYSTEM`.
+
+### The defect, from §4.3's DATA STATE
+
+> In the programmed I/O mode, data is transferred by handshaking **in the same
+> fashion as the command transfer**. When the controller requires a word to be
+> transferred, it will **set the REQ bit** in the STATUS byte ... Either action
+> will cause REQ to be cleared. **These steps will be repeated until all the data
+> required by the controller has been transferred.**
+
+`take_byte` clears `REQ` on every host write, so a path that wants another byte
+must ask again. The command phase does. `give_byte`'s `DATA IN` side does. **The
+`DATA OUT` side did not**, at any of its three exits -- mid-buffer, mid-sector,
+or across a sector boundary.
+
+And under that, a worse one: **`WRITE` entered the data state by hand** instead of
+through `transfer`, so it inherited neither of that path's two rules. It never
+asserted `REQ` **at all**, and it asserted `DREQ` unconditionally -- the same
+DMA-gating defect the read path had already fixed, which the `REQUEST SENSE` case
+two lines below names in its own comment. One path skipped, two rules lost.
+
+### Why a green suite said nothing
+
+**Every existing write test in the suite writes its bytes without consulting
+`REQ`.** They were checking that the data arrived, which it did -- the model
+accepts a byte whether or not it asked for one. Three new tests drive writes the
+way a driver does, asserting `REQ` before every byte: the surface write, a
+multi-block write across the sector boundary, and the `0F` buffer write the boot
+actually hung on. Two of the three failed against the first fix and caught the
+hand-rolled `WRITE` path underneath it.
+
+This is the second time in a day that the tests encoded the same misreading as
+the code, after the sector-buffer cap.
+
+### A corroboration of the previous fix, found on the way
+
+§5.1.2's command set summary lists `1E READ DATA TO BUFFER` and `1F WRITE DATA
+FROM BUFFER` with a length of **"Up to buffer size"** -- the same rule the
+buffer-cap change derived from §5.4.19's sentence, arrived at from the table and
+then confirmed on a different page. The same summary gives `CHECK TRACK FORMAT`
+as `10`, which is where this core already put it.
+
+*Verification: `tools/e0007-boot.sh --boot-stop-pc 3C42B928 --boot-trace-last
+20000` for the spin loop and its registers, and `--dump-logical` at that stop for
+the driver's `CMPI.W #$00CF`; `[OMTI] AT Controller Series Jan87` §4.3 p. 4-4 and
+§5.1.2 p. 5-2 read as page images; `awd_suite`, 49 tests.*

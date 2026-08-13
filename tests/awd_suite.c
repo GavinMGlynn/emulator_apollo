@@ -1026,6 +1026,72 @@ static void test_the_data_phase_requests_each_byte_and_stops(void) {
 }
 
 
+/* The same handshake on the way **out**, which is the half that was missing.
+ *
+ * §4.3's data state: "In the programmed I/O mode, data is transferred by
+ * handshaking in the same fashion as the command transfer. When the controller
+ * requires a word to be transferred, it will set the REQ bit in the STATUS
+ * byte ... Either action will cause REQ to be cleared. These steps will be
+ * repeated until all the data required by the controller has been transferred."
+ *
+ * `take_byte` clears `REQ` on every write, and only the command phase and the
+ * data-in side asked for the next byte again. So a controller in `DATA OUT`
+ * took one byte and then sat at `C8` -- selected, busy, asking for nothing --
+ * and a driver that honours the handshake waits for ever. Domain/OS does honour
+ * it: `WIN_$SPIN_DOWN` polled that byte 3,301 times and returned `00080003`,
+ * disk controller time-out.
+ *
+ * Every other write test in this suite writes its bytes without consulting
+ * `REQ`, which is exactly why a green suite said nothing about it. This one
+ * consults it for every byte. */
+static void test_the_data_out_phase_requests_each_byte_too(void) {
+  build_controller();
+  issue(AP_OMTI_CMD_WRITE, 0u, 0u, 2u, 1u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_OUT, ap_omti_disk_phase(&omti));
+
+  for (unsigned i = 0; i < AP_AWD_SECTOR_BYTES; i++) {
+    /* The controller must be asking for this byte before the host writes it. */
+    TEST_ASSERT_TRUE((ap_omti_disk_read(&omti, AP_OMTI_DISK_STATUS) &
+                      AP_OMTI_ST_REQ) != 0u);
+    ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, (uint8_t)(i & 0xFFu));
+  }
+
+  /* And the sector that arrived that way reached the image. */
+  settle();
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_EQUAL_HEX8(0u, take_status());
+}
+
+/* A multi-block write asks across the sector boundary as well: the next
+ * sector's first byte is data the controller still requires. */
+static void test_a_multi_block_write_keeps_asking_across_sectors(void) {
+  build_controller();
+  issue(AP_OMTI_CMD_WRITE, 0u, 0u, 2u, 2u);
+
+  for (unsigned i = 0; i < 2u * AP_AWD_SECTOR_BYTES; i++) {
+    TEST_ASSERT_TRUE((ap_omti_disk_read(&omti, AP_OMTI_DISK_STATUS) &
+                      AP_OMTI_ST_REQ) != 0u);
+    ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, 0x5Au);
+  }
+  settle();
+  TEST_ASSERT_EQUAL_HEX8(0u, take_status());
+}
+
+/* And the buffer-only direction, `0F WRITE DATA TO SECTOR BUFFER`, which is the
+ * command the boot actually hung on. */
+static void test_a_buffer_write_requests_each_byte(void) {
+  build_controller();
+  issue(AP_OMTI_CMD_WRITE_SECTOR_BUFFER, 0u, 0u, 0u, 2u);
+
+  for (unsigned i = 0; i < 2u * AP_AWD_SECTOR_BYTES; i++) {
+    TEST_ASSERT_TRUE((ap_omti_disk_read(&omti, AP_OMTI_DISK_STATUS) &
+                      AP_OMTI_ST_REQ) != 0u);
+    ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, 0xA5u);
+  }
+  settle();
+  TEST_ASSERT_EQUAL_HEX8(0u, take_status());
+}
+
 /* §5.4.24's READ ID: the addressed sector's ID field, four bytes. It is the
  * address written back in the format the *disk* carries, which is why a driver
  * uses it to find out where a head actually is. */
@@ -1263,6 +1329,9 @@ int main(void) {
   RUN_TEST(test_dma_enable_is_what_asks_for_a_cycle);
   RUN_TEST(test_read_configuration_reports_the_highest_not_the_count);
   RUN_TEST(test_the_data_phase_requests_each_byte_and_stops);
+  RUN_TEST(test_the_data_out_phase_requests_each_byte_too);
+  RUN_TEST(test_a_multi_block_write_keeps_asking_across_sectors);
+  RUN_TEST(test_a_buffer_write_requests_each_byte);
   RUN_TEST(test_read_id_returns_the_address_the_disk_carries);
   RUN_TEST(test_read_verify_transfers_nothing_and_still_reads);
   RUN_TEST(test_the_diagnostics_report_what_they_can_see);

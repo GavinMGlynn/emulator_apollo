@@ -3435,10 +3435,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   **Verified by the guest**: `Salvol` now reaches `Salvaging... % complete 20`
   where it died on `80012`, and the `Fault status 80080012` / `Unhandled signal`
   block is gone from the Init sequence too.
-  - [ ] **Next: `00080016`, *drive timed out before operation completed*.** A
-    different code from a different failure. `CRASH_STATUS 00080016 PID 0005`.
-    Look at the OMTI's completion timing before anything else — the access time
-    is this core's, and a driver's timeout is a statement about it.
+  **`00080016` WAS the data-out handshake, and the trace named it.** The crash
+  record's PC `3C41F8BA` is the **return address** of `JSR CRASH_SYSTEM` and is
+  never executed — third time in this investigation, after `3C40E114` and
+  `3C4524E6`. Stopping on `CRASH_SYSTEM` instead: the window's hottest PCs are a
+  six-instruction loop run **3,301 times**, `WIN_$SPIN_DOWN` polling for
+  `D1 = C0` (the idle controller) and reading `C8` — busy, **asking for
+  nothing** — then returning `00080003` and crashing when the status is not `CF`.
+  §4.3: in programmed I/O the data state handshakes "in the same fashion as the
+  command transfer", setting `REQ` for each word. Our `DATA OUT` re-asserted it
+  at none of its three exits, and `WRITE` entered the phase by hand so it never
+  set `REQ` at all and set `DREQ` ungated — the very defect the read path had
+  already fixed. **Every existing write test wrote its bytes without consulting
+  `REQ`**, which is why the suite was green; three new ones do consult it, and
+  two of them caught the hand-rolled `WRITE` path. Detail in
+  `PROJECT_STATUS.md`.
 
   **And a second CPU defect, which was hiding the kernel's own report of it.**
   `[030]` §7.5.1: a bus error on an instruction fetch is deferred until the
