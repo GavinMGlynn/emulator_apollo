@@ -28958,3 +28958,63 @@ into a deliberate one and a real one.
 which stops at 239,690,900 instructions on `F200` at `010046B4` -- the self
 test's own -- and the same with `--boot-stop-pc-skip 1` for the one Domain/OS
 reports.*
+
+## The F-line is Domain/OS's own trap, and the fault is inside `FIM_$FSAVE`
+
+`0012000A` -- *unimplemented instruction* -- reads like a gap in this core, and
+after a day of finding exactly that it was the natural suspicion. It is not one.
+
+**Measured, with `--boot-stop-on-vector 11`:**
+
+| | where | word |
+| --- | --- | --- |
+| first taking | `PC 010046B4`, inside SELF_TEST | `F200` |
+| second taking | `PC 3B5AA42C`, supervisor (`A7 = 3C4F9BF8`) | `F227` |
+
+The first is the boot PROM's own `CPU (FP TRAP)` self test raising the trap on
+purpose, which is why the run's bare count of `2 x vector 11` could never have
+named the culprit and why the stop needed a skip.
+
+**And the second is legitimate too.** Dumping the board's control register at
+that instruction gives **`FC05`** -- bit 2, `AP_BOARDREG_CONTROL_FPU_TRAP`, is
+**set**. Domain/OS is deliberately holding the coprocessor off, which is lazy
+floating-point context switching: trap the first FP instruction a context
+executes, then save and restore the coprocessor around it. `F227` taking vector
+11 against a held-off coprocessor is the machine behaving correctly, and
+`0012000A` is the operating system naming its own trap.
+
+### What the failure actually is
+
+The kernel's handler runs `FIM_$FSAVE`, and *that* takes a **write** bus error:
+
+```
+FAULT IN DOMAIN/OS:
+3C4F9A78: SR:2708  PC:3C42D602  FF:A008 (B)  FA:3B3BC7F0  SW:0105
+```
+
+`SW:0105` against this core's transcribed Figure 8-9 is `DF` set, `RW` clear --
+a **write** -- and function code 5, supervisor data. (Read against the generic
+bit numbering instead of ours it looks like a read with no data fault at all,
+which is how it was first misread here.)
+
+**Two things checked rather than assumed, both sound:**
+
+* **The state frame is the right size.** `[FPCP]`: "This state frame is 28 ($1C)
+  bytes long in the MC68881, and 60 ($3C) bytes long" in the MC68882 -- which is
+  `AP_M68882_FRAME_IDLE_BYTES` exactly, with its `$38` size byte. An oversized
+  frame running off a mapped page was the obvious hypothesis and it is dead.
+* **The address is not special.** The same stack region demand-pages and recovers
+  five times from `PC 0081134A`, between `3B3BF56C` and `3B3BD940`; the fatal
+  `3B3BC7F0` is about four kilobytes further down the same growth. What differs
+  is the *context* -- supervisor, interrupts masked at 7 -- not the page.
+
+So the open question is why that nested fault cannot be serviced where the
+neighbouring ones can, and it is a question about the fault taken *inside* an
+exception handler. `--boot-stop-on-mmu-fault-at 3B3BC7F0` stops on the refusal
+itself, which is the event; stopping at `CRASH_SYSTEM` lands three thousand
+instructions deep in the crash printer and shows nothing of the cause.
+
+*Verification: `--boot-stop-on-vector 11` and `--boot-stop-on-vector 11
+--boot-stop-pc-skip 1` for the two takings; `--dump-mem 010100:4` at the second
+for the control register; `[FPCP]`'s state frame sizes; the run's own MMU fault
+profile for the neighbouring recoveries.*

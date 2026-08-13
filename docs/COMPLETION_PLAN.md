@@ -3469,7 +3469,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   **The storm is gone — vector 2 goes 17,585,328 → 2,480** — and a new stage
   completes: the screen now prints **`... global libraries loaded.`**, a line
   this core had never reached. Disk work multiplies with it, `1E`/`0E` 329 → 3,172.
-  - [ ] **Next: `0012000A`, *unimplemented instruction*** (`002398-04` p. 4-6).
+  **`0012000A` IS NOT OURS — the F-line is Domain/OS's own trap.** Measured with
+  the new `--boot-stop-on-vector 11`: the first taking is the boot PROM's
+  deliberate `CPU (FP TRAP)` self test (`F200` at `010046B4`), and at the second
+  (`F227` at `3B5AA42C`, supervisor) the board's control register reads **`FC05`**
+  — bit 2, the FPU trap, **set**. The OS holds the coprocessor off for lazy
+  floating-point context switching, so the trap is correct and `0012000A` is the
+  OS naming it. Also checked and sound: the `FSAVE` state frame is 60 (`$3C`)
+  bytes, exactly what `[FPCP]` gives for the MC68882.
+  - [ ] **Next: the write fault inside `FIM_$FSAVE`.** `SW:0105` is a supervisor
+    *write* fault at `3B3BC7F0`, taken in the handler with interrupts masked. The
+    same stack region demand-pages fine five times down to `3B3BD940`, so the
+    page is not special and the *context* is. Stop on the refusal
+    (`--boot-stop-on-mmu-fault-at 3B3BC7F0`), not on `CRASH_SYSTEM` — that lands
+    three thousand instructions into the crash printer.
+  - [ ] ~~`0012000A`, *unimplemented instruction*~~ (`002398-04` p. 4-6).
     `FAULT IN DOMAIN/OS: PC:3C42D602 FF:A008 (B) FA:3B3BC7F0 SW:0105`, which is
     `FIM_$FSAVE+60` — the fault manager saving coprocessor state — taking a bus
     error on a user address while handling it. The FPU is **not** trapped
