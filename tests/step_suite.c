@@ -435,23 +435,34 @@ static void test_an_unimplemented_instruction_is_reported_not_skipped(void) {
    * turned out to be registers rather than effective addresses -- every
    * placeholder so far has been implemented in turn, which is the point of
    * keeping one. */
-  /* An MMU instruction whose extension class the 68030 does not define. The
-   * step reports it as *our* gap rather than as an F-line trap, which is the
-   * distinction this test exists for. Privileged, so supervisor state first. */
+  /* **And the chain has ended, for a reason worth keeping.** The placeholder was
+   * not merely outgrown this time -- it was wrong. An undefined MMU extension
+   * class is not a form this model has yet to reach; it is a pattern the part
+   * does not define, and p. 8-10 makes it an F-line trap. Reported as our gap it
+   * stopped the machine where a 68030 vectors through 11 and carries on.
+   *
+   * With that corrected, **no word in the instruction space reports
+   * `UNIMPLEMENTED` at all** -- which is not a claim in prose but the standing
+   * assertion of `test_no_word_in_the_instruction_space_reports_unimplemented`
+   * and its two companions. So this test can no longer be written against an
+   * instruction, and what it checks now is the hardware answer that replaced it.
+   * The status itself is still reachable in `fault_or_unimplemented`, and still
+   * distinct, for the day the map grows something this model has not got to. */
   static const uint16_t program[] = {0xF010u, 0xA000u, 0x4E71u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_LINE_F, HANDLER);
   ap_m68030_write_sr(&m.cpu.regs, (uint16_t)(1u << AP_M68030_SR_S_BIT));
+  m.cpu.regs.isp = SUPERVISOR_STACK;
 
   const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
 
-  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, r.status);
-  TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_ILLEGAL, r.status);
-  TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_EXECUTED, r.status);
-  /* It decoded correctly -- the gap is in execution, not decode. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, r.status);
+  /* It decoded correctly -- what it is not is a form we failed to implement. */
   TEST_ASSERT_EQUAL_INT(AP_M68030_DECODED_COPROC, r.kind);
-  /* And the PC did not move past it. */
-  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, m.cpu.regs.pc);
+  /* Vector 11, the emulator trap, and not vector 4's illegal instruction. */
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
 }
 
 /* The other half of that property, and the one it is useless without: an
@@ -685,6 +696,57 @@ static void test_no_coprocessor_operation_reports_unimplemented(void) {
                    "%u coprocessor form(s) UNIMPLEMENTED, first %04X %04X",
                    unimplemented, (unsigned)first_opcode,
                    (unsigned)first_command);
+    TEST_FAIL_MESSAGE(message);
+  }
+}
+
+/* The MMU's extension space, for the same reason as the coprocessor's: `PMOVE`,
+ * `PFLUSH`, `PLOAD` and `PTEST` are all `F0xx` with cpID 0, and *which* of them
+ * a word is lives in the extension word the opcode sweep leaves at zero.
+ *
+ * The step reports our gap rather than F-line here, deliberately -- the MMU is
+ * fitted on this machine, so a real 68030 executes these and an F-line would
+ * dress a gap up as hardware. That makes `UNIMPLEMENTED` the right status *and*
+ * makes it invisible unless something looks, which is what this does. */
+static void test_no_mmu_extension_form_reports_unimplemented(void) {
+  unsigned unimplemented = 0;
+  uint16_t first_opcode = 0;
+  uint16_t first_extension = 0;
+
+  /* `F000` is cpID 0 with type 000: the MMU's general form. The effective
+   * address varies across the low six bits, and the extension word selects the
+   * instruction and its operands. */
+  for (unsigned ea = 0; ea < 0x40u; ea++) {
+    const uint16_t opcode = (uint16_t)(0xF000u | ea);
+    for (uint32_t ext = 0; ext <= 0xFFFFu; ext += 0x11u) {
+      const uint16_t extension = (uint16_t)ext;
+      const uint16_t program[6] = {opcode,  extension, 0x0000u,
+                                   0x0000u, 0x0000u,   0x4E71u};
+      machine_t m = {0};
+      load(&m, program, 6);
+      m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+      m.cpu.regs.isp = SUPERVISOR_STACK;
+      for (unsigned i = 0; i < 7u; i++) {
+        m.cpu.regs.a[i] = 0x00005000u + i * 0x100u;
+      }
+
+      const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+      if (r.status == AP_M68030_STEP_UNIMPLEMENTED) {
+        if (unimplemented == 0u) {
+          first_opcode = opcode;
+          first_extension = extension;
+        }
+        unimplemented++;
+      }
+    }
+  }
+
+  if (unimplemented != 0u) {
+    char message[112];
+    (void)snprintf(message, sizeof message,
+                   "%u MMU form(s) UNIMPLEMENTED, first %04X %04X",
+                   unimplemented, (unsigned)first_opcode,
+                   (unsigned)first_extension);
     TEST_FAIL_MESSAGE(message);
   }
 }
@@ -5342,10 +5404,13 @@ static void test_the_instruction_that_disables_tracing_is_still_traced(void) {
  * routine, which must handle the trace itself after emulating the instruction
  * -- if the processor had already traced, it would trace twice. */
 static void test_an_unexecuted_instruction_is_not_traced(void) {
-  /* An MMU instruction whose extension class the 68030 does not define:
-   * decoded, not executed. Supervisor state is set below, which this needs
-   * anyway for the trace frame. */
-  static const uint16_t program[] = {0xF010u, 0xA000u, 0x4E71u, 0x4E71u};
+  /* The manual's sentence covers "an illegal **or** unimplemented instruction",
+   * and the illegal half is the one a word can still reach: `$003D` is the
+   * lowest word the decoder classifies as illegal, and an illegal word is
+   * reported without vectoring, so nothing executes and nothing may trace. This
+   * used an undefined MMU extension class until that turned out to be an F-line
+   * trap -- which *does* execute an exception, and so is the wrong subject. */
+  static const uint16_t program[] = {0x003Du, 0x4E71u, 0x4E71u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 4);
   plant_vector(&m, AP_M68030_VECTOR_TRACE, HANDLER);
@@ -5353,9 +5418,8 @@ static void test_an_unexecuted_instruction_is_not_traced(void) {
                              (1u << AP_M68030_SR_T1_BIT));
   m.cpu.regs.isp = SUPERVISOR_STACK;
 
-  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED,
-                        ap_m68030_step(&m.cpu).status);
-  /* Nothing was stacked, and the PC did not move. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_ILLEGAL, ap_m68030_step(&m.cpu).status);
+  /* Nothing was stacked -- no trace frame -- and the PC did not move. */
   TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK, m.cpu.regs.isp);
   TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, m.cpu.regs.pc);
 }
@@ -6326,19 +6390,30 @@ static void test_an_undefined_extension_traps_with_a_coprocessor_fitted(void) {
  * the real 68030 would execute it. That distinction is the whole point of the
  * test and does not depend on which instruction carries it. */
 static void test_an_unimplemented_form_is_reported_as_our_gap(void) {
-  /* cpID 0, general type, with an extension class the MMU dispatch declines. */
+  /* cpID 0, general type, with an extension class the 68030 does not define.
+   *
+   * This asserted `UNIMPLEMENTED`, and that was the same misreading the dispatch
+   * carried: an undefined extension prefix is not a form this model has yet to
+   * reach, it is one the part refuses, and p. 8-10 gives it the F-line trap. The
+   * distinction the test is named for is real and still in the code -- a
+   * *defined* MMU form we had not reached would be our gap, because the fitted
+   * part executes it -- but no word exercises it, which the space sweeps now
+   * guarantee. */
   static const uint16_t program[] = {0xF000u, 0xA000u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 3);
+  plant_vector(&m, AP_M68030_VECTOR_LINE_F, HANDLER);
   m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
   m.cpu.regs.isp = SUPERVISOR_STACK;
 
   const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
-  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, r.status);
-  TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
-  /* And the program counter did not move, so "how far did this get" stays a
-   * real measure. */
-  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, m.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, r.status);
+  /* The program counter is the handler's: the machine carried on through the
+   * trap rather than stopping, which is the whole difference the correction
+   * made. The address it stacked is still the instruction's. */
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, read_ram_long(&m, m.cpu.regs.isp + 2u));
 }
 
 #define FP_OPERAND 0x00003000u
@@ -8305,6 +8380,7 @@ int main(void) {
   RUN_TEST(test_a_faulting_instruction_fetch_takes_the_bus_error_exception);
   RUN_TEST(test_no_word_in_the_instruction_space_reports_unimplemented);
   RUN_TEST(test_no_coprocessor_operation_reports_unimplemented);
+  RUN_TEST(test_no_mmu_extension_form_reports_unimplemented);
   RUN_TEST(test_the_stacked_fault_address_is_the_cycle_that_faulted);
   RUN_TEST(test_a_faulted_access_leaves_its_address_register_alone);
   RUN_TEST(test_an_access_that_answers_still_increments);

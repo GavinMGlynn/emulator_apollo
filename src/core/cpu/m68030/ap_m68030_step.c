@@ -4318,17 +4318,23 @@ static bool execute_pflush_or_pload(ap_m68030_cpu_t *cpu,
    * ... not the effective address describing where the PFLUSH operand is
    * located" -- so the calculated address *is* the operand, and is never read
    * through. */
-  ap_m68030_address_input_t input = {0};
-  if (!gather_address_input(cpu, coproc->ea.kind, 4u, clocks, &input)) {
+  /* **Legality first, then the operand.** An addressing mode the instruction's
+   * category forbids is an illegal encoding whether or not its extension words
+   * can be gathered -- and some cannot: an immediate has no address to take, so
+   * gathering one fails, and with these two checks the other way round that
+   * failure was reported as *our gap* for a word the hardware simply refuses.
+   *
+   * An F-line word with cpID 0, so **not** vector 4: p. 8-10 makes an undefined
+   * pattern in the MMU's own encodings "an unimplemented instruction with an
+   * F-line opcode", vector 11. The privilege check that precedes every MMU
+   * instruction has already sent a user-mode attempt to the privilege
+   * violation, which is the other half of the same paragraph. */
+  if (!ap_m68030_ea_is_control_alterable(coproc->ea.kind)) {
+    cpu->refused_vector = AP_M68030_VECTOR_LINE_F;
     return false;
   }
-  if (!ap_m68030_ea_is_control_alterable(coproc->ea.kind)) {
-    /* An F-line word with cpID 0, so **not** vector 4: p. 8-10 makes an
-     * undefined pattern in the MMU's own encodings "an unimplemented
-     * instruction with an F-line opcode", vector 11. The privilege check that
-     * precedes every MMU instruction has already sent a user-mode attempt to
-     * the privilege violation, which is the other half of the same paragraph. */
-    cpu->refused_vector = AP_M68030_VECTOR_LINE_F;
+  ap_m68030_address_input_t input = {0};
+  if (!gather_address_input(cpu, coproc->ea.kind, 4u, clocks, &input)) {
     return false;
   }
   const ap_m68030_address_t where =
@@ -4419,17 +4425,23 @@ static bool execute_ptest(ap_m68030_cpu_t *cpu,
     return false;
   }
 
-  ap_m68030_address_input_t input = {0};
-  if (!gather_address_input(cpu, coproc->ea.kind, 4u, clocks, &input)) {
+  /* **Legality first, then the operand.** An addressing mode the instruction's
+   * category forbids is an illegal encoding whether or not its extension words
+   * can be gathered -- and some cannot: an immediate has no address to take, so
+   * gathering one fails, and with these two checks the other way round that
+   * failure was reported as *our gap* for a word the hardware simply refuses.
+   *
+   * An F-line word with cpID 0, so **not** vector 4: p. 8-10 makes an undefined
+   * pattern in the MMU's own encodings "an unimplemented instruction with an
+   * F-line opcode", vector 11. The privilege check that precedes every MMU
+   * instruction has already sent a user-mode attempt to the privilege
+   * violation, which is the other half of the same paragraph. */
+  if (!ap_m68030_ea_is_control_alterable(coproc->ea.kind)) {
+    cpu->refused_vector = AP_M68030_VECTOR_LINE_F;
     return false;
   }
-  if (!ap_m68030_ea_is_control_alterable(coproc->ea.kind)) {
-    /* An F-line word with cpID 0, so **not** vector 4: p. 8-10 makes an
-     * undefined pattern in the MMU's own encodings "an unimplemented
-     * instruction with an F-line opcode", vector 11. The privilege check that
-     * precedes every MMU instruction has already sent a user-mode attempt to
-     * the privilege violation, which is the other half of the same paragraph. */
-    cpu->refused_vector = AP_M68030_VECTOR_LINE_F;
+  ap_m68030_address_input_t input = {0};
+  if (!gather_address_input(cpu, coproc->ea.kind, 4u, clocks, &input)) {
     return false;
   }
   const ap_m68030_address_t where =
@@ -4510,8 +4522,23 @@ static bool execute_mmu(ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc,
     return execute_pflush_or_pload(cpu, coproc, extension, clocks);
   case 0x4u: /* PTEST */
     return execute_ptest(cpu, coproc, extension, clocks);
-  default:
-    break;
+  case 0x5u:
+  case 0x6u:
+  case 0x7u:
+    /* Prefixes the 68030's reduced MMU set does not define. p. 8-10 governs
+     * them and this file already quotes it for the function code field:
+     * "undefined patterns in subsequent words" are "an unimplemented
+     * instruction with an F-line opcode", vector 11.
+     *
+     * Reported as the **machine's** trap and not as our gap, which is the
+     * opposite of the choice one frame up -- and deliberately so. A *defined*
+     * MMU form this model had not reached would be our gap, because the fitted
+     * part executes it; an undefined prefix is not a form at all, and the
+     * hardware's answer to it is the trap. Left as our gap, three of the eight
+     * prefixes stopped the machine where a 68030 raises vector 11 and carries
+     * on through the handler. */
+    cpu->refused_vector = AP_M68030_VECTOR_LINE_F;
+    return false;
   }
 
   return false;

@@ -474,12 +474,20 @@ static void test_a_runaway_program_ends_at_its_limit(void) {
 }
 
 /* A run ends when the processor stops making progress, and reports why — which
- * is what makes "how far did this probe get" answerable. */
-static void test_a_run_stops_on_an_unimplemented_instruction_and_says_so(void) {
-  /* MOVEQ, then an MMU instruction whose extension class the 68030 does not
-   * define, which decodes and has no semantics here. Every earlier placeholder
-   * -- BKPT, then CAS2 -- has since been implemented. */
-  static const uint16_t program[] = {0x7005u, 0xF010u, 0xA000u};
+ * is what makes "how far did this probe get" answerable.
+ *
+ * The subject is now an **illegal** word rather than an unimplemented one. Every
+ * placeholder this test has used -- `BKPT`, then `CAS2`, then an undefined MMU
+ * extension class -- stopped serving, and the last one for a different reason
+ * than the others: it was never a gap in this model at all, but a pattern the
+ * part refuses with an F-line trap, which *is* progress and does not stop a run.
+ * No word reports `UNIMPLEMENTED` any more, which `step_suite` sweeps and
+ * asserts, so `$003D` -- the lowest word the decoder calls illegal -- carries
+ * the property instead. `ILLEGAL` stops a run for the same reason: nothing
+ * executed. */
+static void test_a_run_stops_on_an_illegal_instruction_and_says_so(void) {
+  /* MOVEQ, then a word that decodes as illegal. */
+  static const uint16_t program[] = {0x7005u, 0x003Du, 0x4E71u};
   blank();
   ap_machine_t m;
   ap_machine_init(&m, ram, RAM_BYTES);
@@ -489,7 +497,7 @@ static void test_a_run_stops_on_an_unimplemented_instruction_and_says_so(void) {
   const ap_machine_run_t run = ap_machine_run(&m, 20u);
 
   TEST_ASSERT_EQUAL_UINT(1u, run.executed);
-  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, run.status);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_ILLEGAL, run.status);
   TEST_ASSERT_EQUAL_HEX32(5u, m.cpu.regs.d[0]);
 }
 
@@ -2360,7 +2368,7 @@ int main(void) {
   RUN_TEST(test_an_mmu_fault_records_the_logical_address);
   RUN_TEST(test_a_machine_that_translates_cleanly_reports_no_mmu_faults);
   RUN_TEST(test_a_runaway_program_ends_at_its_limit);
-  RUN_TEST(test_a_run_stops_on_an_unimplemented_instruction_and_says_so);
+  RUN_TEST(test_a_run_stops_on_an_illegal_instruction_and_says_so);
   RUN_TEST(test_writing_memory_does_not_leave_a_stale_cache_line);
   RUN_TEST(test_two_machines_run_the_same_way_hash_alike);
   RUN_TEST(test_the_machine_hash_covers_the_memory_a_run_left_behind);
