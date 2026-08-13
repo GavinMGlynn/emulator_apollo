@@ -5274,9 +5274,16 @@ static bool execute_callm(ap_m68030_cpu_t *cpu,
   const ap_m68020_module_control_t control =
       ap_m68020_module_control(fields[AP_M68020_DESCRIPTOR_CONTROL / 4u]);
   if (ap_m68020_module_validate(&control) != AP_M68020_MODULE_OK) {
-    /* A format error on the real part. Declined here, because reporting the
-     * exception without the rest of the instruction would be a guess about
-     * which frame it stacks. */
+    /* A format error on the real part, and now **taken** rather than declined.
+     *
+     * This used to decline on the grounds that stacking it "would be a guess
+     * about which frame it stacks" -- but the guess was already made, correctly,
+     * elsewhere in this same file: `RTE` raises exactly this vector on a format
+     * it cannot use, and `ap_m68030_stacks_next_instruction` gives vector 14 the
+     * four-word frame carrying the faulting instruction's *own* address. There
+     * was nothing left to decide, and declining reported our gap for a
+     * descriptor the hardware refuses. */
+    cpu->refused_vector = AP_M68030_VECTOR_FORMAT_ERROR;
     return false;
   }
   /* Type `$01` supplies its own stack pointer, and it is the *type* that

@@ -661,9 +661,17 @@ static void test_no_coprocessor_operation_reports_unimplemented(void) {
 
   for (unsigned o = 0; o < sizeof opcodes / sizeof opcodes[0]; o++) {
     for (unsigned opclass = 0; opclass < 8u; opclass++) {
+      for (unsigned rx = 0; rx < 8u; rx++) {
       for (unsigned operation = 0; operation < 0x80u; operation++) {
+        /* `rx` is swept because it is not always a register number: in the
+         * register-to-memory opclass it is the **destination format**, and in
+         * memory-to-register `111` selects the constant ROM. Leaving it at zero
+         * tested one format out of eight, which is the same blind spot as
+         * leaving the extension word at zero -- a field that selects *what the
+         * instruction is* must be swept, not defaulted. */
         const uint16_t command =
-            (uint16_t)(((uint16_t)opclass << 13) | (uint16_t)operation);
+            (uint16_t)(((uint16_t)opclass << 13) | ((uint16_t)rx << 10) |
+                       (uint16_t)operation);
         const uint16_t program[6] = {opcodes[o], command, 0x0000u,
                                      0x0000u,    0x0000u, 0x4E71u};
         machine_t m = {0};
@@ -686,6 +694,7 @@ static void test_no_coprocessor_operation_reports_unimplemented(void) {
           }
           unimplemented++;
         }
+      }
       }
     }
   }
@@ -8160,6 +8169,42 @@ test_a_module_call_on_a_68030_stacks_the_faulting_instruction(void) {
  * Checked through the frame rather than through the program counter alone,
  * because a `CALLM` that jumped correctly and saved nothing would look right
  * until the `RTM` that is not yet written tried to come back. */
+/* A descriptor the part refuses takes the **format error**, vector 14, rather
+ * than reporting a gap in this model.
+ *
+ * The step used to decline here, on the grounds that stacking the exception
+ * "would be a guess about which frame it stacks". It was not a guess: `RTE`
+ * raises this same vector a few hundred lines away, and
+ * `ap_m68030_stacks_next_instruction` gives vector 14 the four-word frame
+ * carrying the faulting instruction's own address. The uncertainty had already
+ * been resolved in the same file, so the decline was reporting our gap for a
+ * descriptor the hardware refuses. */
+static void test_a_callm_descriptor_the_part_refuses_takes_a_format_error(void) {
+  static const uint16_t program[] = {0x06F9u, 0x0000u, 0x0000u, 0x3000u,
+                                     0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 5);
+  plant_vector(&m, AP_M68030_VECTOR_FORMAT_ERROR, HANDLER);
+  m.cpu.has_module_calls = true;
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  /* Figure D-1 puts the type in bits 28-24, and "the MC68020 only recognizes
+   * descriptors of type $00 and $01, all others cause a format exception". Type
+   * $02, then -- opt 000, which is legal, so the type is the only thing wrong. */
+  write_ram_long(&m, 0x3000u, 0x02000000u);
+  write_ram_long(&m, 0x3004u, 0x00003100u);
+  write_ram_long(&m, 0x3008u, 0x00004000u);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_NOT_EQUAL_INT(AP_M68030_STEP_UNIMPLEMENTED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  /* Vector 14 stacks the instruction's own address, not the next one. */
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, read_ram_long(&m, m.cpu.regs.isp + 2u));
+}
+
 static void test_callm_builds_a_module_stack_frame(void) {
   /* CALLM #0,(descriptor).L -- $06F9 is mode 111 register 001, absolute long. */
   static const uint16_t program[] = {0x06F9u, 0x0000u, 0x0000u, 0x3000u,
@@ -8299,6 +8344,7 @@ int main(void) {
   RUN_TEST(test_an_unimplemented_form_is_reported_as_our_gap);
   RUN_TEST(test_a_dn3000_decodes_a_module_call_where_a_dn3500_does_not);
   RUN_TEST(test_a_module_call_on_a_68030_stacks_the_faulting_instruction);
+  RUN_TEST(test_a_callm_descriptor_the_part_refuses_takes_a_format_error);
   RUN_TEST(test_callm_builds_a_module_stack_frame);
   RUN_TEST(test_callm_and_rtm_return_the_caller_to_where_it_was);
   RUN_TEST(test_a_stack_changing_module_call_carries_its_arguments);
