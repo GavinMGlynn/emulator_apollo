@@ -3539,8 +3539,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   and its caller `0088909A` all return zero — but the oracle's boot *succeeds*,
   so it need not run this program at this moment, and zero hits cannot separate
   "we jump somewhere wrong" from "we get further here". Do not spend runs on it.
-  - [ ] **Next: was the region containing `0081B14A` ever mapped?** Watch the
-    loader's `MST_$MAP_AT` calls for the object that should cover `0081B000`. `SW:0105` is a supervisor
+  **A HOLE, NOT A TRUNCATION.** At the fault the MMU says `00819000` and
+  `0081A000` translate, `0081B000` and `0081B400` **do not**, and the fault
+  profile has `0081BD58`, `0081EBD4` and `0081FC9C` faulting once and recovering
+  — so pages above the gap are mapped too. Two 1 KB pages are missing from the
+  *middle* of an object present on both sides, which rules out a length read
+  wrong. And no mapping call explains the region: of 29 `MST_$MAP_CANNED_AT`
+  calls every one maps kernel space (`3C000000`…`3C4F0000`, `3FF60000`), none
+  touches `0080xxxx`–`0089xxxx`, so the user text arrives by demand paging
+  against an object. Detail in `PROJECT_STATUS.md`.
+  - [ ] **Next: why those two pages are absent** when the object's pages on both
+    sides are present. New instrument for it: `--boot-log-pc ADDR[,ADDR...]`. `SW:0105` is a supervisor
     *write* fault at `3B3BC7F0`, taken in the handler with interrupts masked. The
     same stack region demand-pages fine five times down to `3B3BD940`, so the
     page is not special and the *context* is. Stop on the refusal

@@ -28,6 +28,12 @@
 #include "device/ap_mc68681.h"
 #include "board/ap_graphics.h"
 #include "ap_png.h"
+
+/* How many program counters `--boot-log-pc` will watch at once. Four because
+ * that is how many entry points a subsystem tends to have -- the MST layer's
+ * four mapping routines are what prompted it -- and a boot costs ten minutes,
+ * so asking about them one at a time is most of an hour for one answer. */
+#define AP_LOG_PCS 8u
 #include "device/ap_bt458.h"
 #include "device/ap_kbd.h"
 #include "machine/ap_machine.h"
@@ -93,6 +99,13 @@ static void print_usage(const char *program_name) {
   /* Split because a single literal outgrew C99's guaranteed 4095 characters,
    * which `-Werror` catches. Two calls, one list. */
   fprintf(stdout,
+          "  --boot-log-pc ADDR    print the registers and the top of the\n"
+          "                        stack at every visit to ADDR. A trace covers\n"
+          "                        only the end of a run and a stop covers one\n"
+          "                        visit, so a routine called early and often --\n"
+          "                        a loader mapping segments -- is invisible to\n"
+          "                        both. The stack words are where a callee's\n"
+          "                        arguments are\n"
           "  --boot-stop-on-vector N\n"
           "                        end the run when exception vector N is\n"
           "                        *taken*, and report the instruction address\n"
@@ -1877,7 +1890,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t stop_physical_pc,
                           uint32_t stop_physical_length, bool service_mode,
                           unsigned stop_pc_skip, uint32_t stop_mmu_fault_at,
-                          unsigned stop_vector,
+                          unsigned stop_vector, const uint32_t *log_pc,
+                          unsigned log_pc_count,
                           unsigned stop_pc_then, uint32_t progress_from,
                           unsigned disk_reads_wanted) {
   /* Before the PROM is even opened: a script that does not parse is the
@@ -2307,7 +2321,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       trace || trace_last > 0u || input_length > 0u || console ||
       script.steps > 0u || key < AP_KBD_KEYS ||
       progress_every > 0u || stop_pc != 0u || stop_physical_pc != 0u ||
-      stop_mmu_fault_at != 0u || stop_vector != 0u ||
+      stop_mmu_fault_at != 0u || stop_vector != 0u || log_pc_count > 0u ||
       stop_on_watch != 0u || stop_on_watch_read != 0u || stop_on_refusal ||
       g_log_watch_writes;
   if (wants_steps) {
@@ -2564,6 +2578,41 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                     &typed_pending, type_after_os, typed_armed,
                     type_await_pushback, &typed_first_done);
       const uint32_t step_pc = machine.cpu.regs.pc;
+      /* Every visit to one address, with the registers and the top of the
+       * stack. The oracle side has had this all along as a `getenv`-gated
+       * `printf`, and its absence here is why several questions this session
+       * were answered by taps on MAME rather than on the machine that has the
+       * defect: a *trace* only covers the end of a run, and a *stop* covers one
+       * visit, so a routine called early and often -- a loader mapping
+       * segments, say -- is invisible to both.
+       *
+       * The stack words are printed because that is where a called routine's
+       * arguments are: registers alone answer "who" and never "with what". */
+      bool logging_this_pc = false;
+      for (unsigned k = 0; k < log_pc_count; k++) {
+        if (log_pc[k] == step_pc) {
+          logging_this_pc = true;
+          break;
+        }
+      }
+      if (logging_this_pc) {
+        printf("  log pc       %08X d0=%08X d1=%08X a0=%08X a1=%08X a7=%08X",
+               step_pc, machine.cpu.regs.d[0], machine.cpu.regs.d[1],
+               machine.cpu.regs.a[0], machine.cpu.regs.a[1],
+               ap_m68030_read_a7(&machine.cpu.regs));
+        const uint32_t sp = ap_m68030_read_a7(&machine.cpu.regs);
+        for (unsigned w = 0; w < 8u; w++) {
+          uint32_t value = 0;
+          if (ap_machine_read_logical(&machine, sp + w * 4u,
+                                      AP_M68030_FC_SUPERVISOR_DATA, 4u,
+                                      &value)) {
+            printf(" %08X", value);
+          } else {
+            printf(" --------");
+          }
+        }
+        printf("  at %u\n", i);
+      }
       /* One instruction through the *machine*, not through the processor.
        *
        * This called `ap_m68030_step` directly, which is the CPU and nothing
@@ -3860,6 +3909,8 @@ int main(int argc, char **argv) {
   unsigned boot_stop_pc_skip = 0u;
   uint32_t boot_stop_mmu_fault_at = 0u;
   unsigned boot_stop_vector = 0u;
+  uint32_t boot_log_pc[AP_LOG_PCS] = {0};
+  unsigned boot_log_pc_count = 0u;
   unsigned boot_stop_pc_then = 0u;
   unsigned boot_disk_reads = 0u;
   uint32_t boot_progress_from = 0u;
@@ -4211,6 +4262,19 @@ int main(int argc, char **argv) {
       i += 2;
       continue;
     }
+    if (strcmp(argv[i], "--boot-log-pc") == 0 && i + 1 < argc) {
+      /* Comma separated, because the question is nearly always "which of these
+       * several entry points does it go through" -- four mapping routines, say
+       * -- and one boot per address is four boots for one answer. */
+      const char *at = argv[i + 1];
+      while (*at != '\0' && boot_log_pc_count < AP_LOG_PCS) {
+        boot_log_pc[boot_log_pc_count++] = (uint32_t)strtoul(at, NULL, 16);
+        const char *comma = strchr(at, ',');
+        at = (comma != NULL) ? comma + 1 : at + strlen(at);
+      }
+      i += 2;
+      continue;
+    }
     if (strcmp(argv[i], "--boot-stop-on-vector") == 0 && i + 1 < argc) {
       boot_stop_vector = (unsigned)strtoul(argv[i + 1], NULL, 0);
       i += 2;
@@ -4359,7 +4423,8 @@ int main(int argc, char **argv) {
                           dump_logical_specs, dump_logical_count,
                           boot_stop_physical_pc, boot_stop_physical_length,
                           service_mode, boot_stop_pc_skip,
-                          boot_stop_mmu_fault_at, boot_stop_vector,
+                          boot_stop_mmu_fault_at, boot_stop_vector, boot_log_pc,
+                          boot_log_pc_count,
                           boot_stop_pc_then,
                           boot_progress_from, boot_disk_reads);
   }

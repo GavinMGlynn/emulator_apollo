@@ -29380,3 +29380,58 @@ object that should cover `0081B000` is the measurement, not another oracle tap.
 the 49 faults, the zero successful executions in `0081Bxxx`, and the stub; four
 `APOLLO_PC_TAP` runs under the oracle, all zero. The oracle instrumentation was
 reverted from a copy and `ext/mame` carries only its nine standing edits.*
+
+### It is a hole, not a truncation: two pages missing from a mapped object
+
+Asking the MMU directly at the moment of the fault, rather than inferring from
+call logs:
+
+```
+logical 00819000 -> 01374400        mapped
+logical 0081A000 -> 01373000        mapped
+logical 0081B000 does not translate
+logical 0081B400 does not translate
+```
+
+and the full-boot fault profile has `0081BD58`, `0081EBD4` and `0081FC9C` each
+faulting **once and recovering**, so the pages *above* the gap are mapped as
+well. Two 1 KB pages are missing from the **middle** of an object whose
+neighbours on both sides are present. That rules out the obvious shape -- an
+object mapped too short, its length read wrong -- because a truncation has
+nothing above it.
+
+**And no mapping call explains the region at all.** `--boot-log-pc`, watching all
+four MST entry points and `MST_$INSTALL` across the whole boot:
+
+| routine | calls |
+| --- | --- |
+| `MST_$INSTALL` | 3,437 |
+| `MST_$MAP_CANNED_AT` | 29 |
+| `MST_$MAP_AT` | 2 |
+| `MST_$MAP_CANNED_USER` | 1 |
+| `MST_$MAP_CANNED` | 0 |
+
+Every one of the 29 `MST_$MAP_CANNED_AT` calls maps **kernel** space --
+`3C000000`, `3C400000`, `3C460000` … `3C4F0000`, `3FF60000`, `3C320000`-`3C368000`
+-- and not one touches `0080xxxx`-`0089xxxx`. So the user program's text is not
+established by a mapping call; it arrives by demand paging against an object,
+which is exactly what the ten neighbours faulting once each and recovering shows.
+
+*Verification: `--boot-stop-on-mmu-fault-at 3B3BC7FE` with `--dump-logical` on
+each page; `--boot-log-pc 3C451B94,3C451BEA,3C46FF14,3C470118,3C43DB6C` over the
+same boot for the call census.*
+
+### `--boot-log-pc ADDR[,ADDR...]`, and why it had to exist
+
+The headless could stop at a program counter and could trace the *end* of a run,
+and neither can see a routine that is called early and often. A loader mapping
+segments at 373 M instructions is invisible to a 60,000-step trace taken at 663 M
+and to a stop that fires once. That gap is why several questions this session
+were answered by tapping MAME instead of the machine that has the defect -- the
+oracle has had a `getenv`-gated `printf` in its instruction loop all along.
+
+It prints the registers **and the top eight stack words**, because a called
+routine's arguments live on the stack and registers alone answer "who" without
+"with what". It takes a comma-separated list because the real question is nearly
+always *which* of several entry points a subsystem goes through, and a boot costs
+ten minutes: one address at a time made that most of an hour for one answer.
