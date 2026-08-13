@@ -3418,9 +3418,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   are system calls, so user processes are running. It ends on a *user-mode*
   fault, `Fault status 80080012, pc 81C16C, fa 3B2FC2A0`, `CRASH_STATUS
   00080016 PID 0005`.
-  - [ ] **Next: the fault at `PC 81C16C` in PID 5.** The first failure in this
-    investigation that is not in the kernel. Same method: the oracle at a shared
-    program event, not an instruction count.
+  - [ ] **Next: `invalid disk address`, and the reference named it first.**
+    `002398-04` p. 4-3: `00080012` is **invalid disk address** and `00080016`
+    **drive timed out before operation completed**, both in the OS / disk
+    manager block; `salvol`'s `80012` is the same code a third time. **Not this
+    core's controller** — that run refuses nothing and its last command
+    completes with clean sense bytes, so Domain/OS is rejecting an address *it
+    computed*. Salvol's `daddr 1E01FF` is 1,966,591 against a 345,553-block
+    volume, out of range by five times. Look at where the number comes from,
+    not at the OMTI.
 
   **And a second CPU defect, which was hiding the kernel's own report of it.**
   `[030]` §7.5.1: a bus error on an instruction fetch is deferred until the

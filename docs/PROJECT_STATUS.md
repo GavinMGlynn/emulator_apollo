@@ -28646,3 +28646,32 @@ case; `[030]` §8.2.2 and §8.2.3. The oracle taps were a `getenv`-gated `fprint
 in `ext/mame`'s `m68kcpu.cpp` main loop, reverted from a copy afterwards -- never
 with `git checkout`, which would have taken the nine legitimate local edits
 with it.*
+
+### The next failure, named from the handbook rather than instrumented
+
+`002398-04` p. 4-3, read as a page image, puts both of the new run's codes in the
+**OS / disk manager** block:
+
+    (00080012)  invalid disk address
+    (00080016)  drive timed out before operation completed
+
+So `Fault status 80080012` is the pager being told *invalid disk address*, and
+`CRASH_STATUS 00080016` is a *drive timeout*. `Salvol`'s own `status code =
+80012`, reading a VTOC block at `daddr 1E01FF (logical), 2835D (physical)`, is
+the same code a third time.
+
+**And it is not this core's controller saying no.** That run shows **no
+refusals** -- the `disk refused` line is absent entirely -- and `disk last 0E,
+completed, sense 00 00 00 00`. 2,074 commands issued, none of them a write to the
+surface. So Domain/OS's disk manager is rejecting an address **it computed**,
+before any command is issued to us, which makes this a question about the values
+it computed from and not about the OMTI's answers.
+
+The logical daddr in salvol's message is worth noting beside that: `1E01FF` is
+1,966,591, and the volume has 345,553 blocks. That is out of range by a factor
+of five, which is consistent with "invalid disk address" being an honest verdict
+on a number that arrived wrong.
+
+*Verification: `002398-04` p. 4-3 read as a page image (the text layer splits the
+two columns and pairs codes with the wrong descriptions); the run's own report
+for the absent refusal line.*
