@@ -3497,7 +3497,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   eight times and never reaches the loop; we reach it with `A1 = 3B3BC800`, a
   user-space destination on an unmapped page, copying from `A0 = 3C4F9A86` on
   the kernel stack.
-  - [ ] **Next: where `A1 = 3B3BC800` comes from.** `SW:0105` is a supervisor
+  **LOCALISED TO ONE REGISTER.** The oracle enters `FIM_$FP_INIT` eight times and
+  `FIM_$FSAVE` never; this core does the reverse — same trap, same state,
+  different routine. The copy loop is reached by a `JSR` at `3C42D710` *inside
+  `FIM_$FSAVE`*, so it was never `FIM_$FP_INIT` code (entry points, not extents,
+  again). `A1` comes from `MOVEA.L ($A0,A3),A1` then `MOVEA.L (A1),A1` =
+  `3B3BCAC8`, a user pointer; the loop walks down 712 bytes to the page boundary
+  at `3B3BC800`. At the shared dispatcher instruction `3C42D444`, `A0` and `A1`
+  match the oracle exactly and **`A3` does not** — ours `3C4F98BE`, the oracle's
+  `3B3C82C6`, which is the value *both* held at the trapping instruction.
+  - [ ] **Next: what writes `A3` between the F-line and `3C42D444`.** Everything
+    downstream hangs off that one register. `SW:0105` is a supervisor
     *write* fault at `3B3BC7F0`, taken in the handler with interrupts masked. The
     same stack region demand-pages fine five times down to `3B3BD940`, so the
     page is not special and the *context* is. Stop on the refusal

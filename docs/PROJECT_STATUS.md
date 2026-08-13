@@ -29185,3 +29185,55 @@ kernel-space stacks and never reaches the loop, and this core does reach it with
 to from `A0 = 3C4F9A86` on the kernel stack. Where `A1` comes from is the open
 question, and it is now the *only* one: no branch in this routine has been shown
 to differ.
+
+### The two machines call different routines on the same trap, and `A3` is why
+
+The divergence is now localised to one register at one shared instruction.
+
+**It is a complete split, not a shade of difference:**
+
+| | `FIM_$FP_INIT` (`3C42D4A6`) | `FIM_$FSAVE` (`3C42D5A2`) |
+| --- | --- | --- |
+| oracle | enters **8 times** | **never** |
+| this core | **never** | enters, and dies inside it |
+
+Both machines take the same F-line from the same state, and then run different
+code. `3C42D562` -- the copy loop -- is reached from a `JSR` at `3C42D710`
+*inside `FIM_$FSAVE`*, so it was never part of `FIM_$FP_INIT` at all; the symbol
+resolution said `FIM_$FP_INIT+F0` because a load map lists entry points and not
+extents, which this document already records as a trap and fell into again.
+
+**Where `A1` comes from**, from the caller two instructions above the `JSR`:
+
+```
+3C42D708  MOVEA.L A7,A0          the kernel stack, A0 = 3C4F9A5A
+3C42D70A  MOVEA.L ($A0,A3),A1    A3 = 3C4F9A98, so A1 <- (3C4F9B38)
+3C42D70E  MOVEA.L (A1),A1        A1 = 3B3BCAC8, a **user-space** pointer
+```
+
+The loop then copies downward from `3B3BCAC8` and crosses the page boundary at
+`3B3BC800` after 712 bytes, onto a page nothing has mapped.
+
+**And the deciding register is `A3`.** Both machines execute the dispatcher's
+`TST.W D0` at `3C42D444`:
+
+| | `A0` | `A1` | `A3` |
+| --- | --- | --- | --- |
+| oracle | `3C43F728` | `3C25F800` | **`3B3C82C6`** |
+| this core | `3C43F728` | `3C25F800` | **`3C4F98BE`** |
+
+`A0` and `A1` agree exactly -- `A1` is `FP_$SAVEP`'s value on both. `A3` does
+not, and the oracle's `3B3C82C6` is **the value both machines held at the
+trapping instruction** `3B5AA42C`. So this core changed `A3` between taking the
+trap and reaching the dispatcher, and the oracle did not.
+
+That is the next measurement and it is a narrow one: what writes `A3` between the
+F-line and `3C42D444`. Everything downstream -- the routine chosen, the
+user-space destination pointer, the page that is not resident, the crash -- hangs
+off that one register.
+
+*Verification: `APOLLO_PC_TAP` at `3C42D4A6`, `3C42D5A2` and `3C42D444` under the
+oracle -- eight hits, none, and eight -- against this core's
+`--boot-stop-on-mmu-fault-at 3B3BC7FE --boot-trace-last 4000`. The oracle
+instrumentation was reverted from a copy and `ext/mame` carries only its nine
+standing edits.*
