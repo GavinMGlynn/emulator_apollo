@@ -379,15 +379,16 @@ static ap_m68882_status_t execute_general(
     return AP_M68882_EXECUTED;
   }
 
-  /* What is left is the rounding and remainder forms -- `FMOD`, `FREM`,
-   * `FSGLDIV`, `FSGLMUL`. Every transcendental is now computed. Listed
-   * individually rather than caught by a `default`, because `-Wswitch-enum` is
-   * what will force a decision here when one of them lands -- the same
-   * discipline the 68030's step uses for its own families.
+  /* Unreachable: every operation Table 4-13 defines has a case above, which
+   * `step_suite` sweeps and asserts. It is kept because `-Wswitch-enum` needs
+   * the enum exhausted and C needs a return, and it reports **our** gap rather
+   * than F-line so that if the table ever grows an operation this switch does
+   * not, the machine says so instead of dressing it up as hardware behaviour.
    *
-   * Reported as unimplemented and **not** as F-line: the hardware executes
-   * these, and dressing our gap up as the machine's behaviour would make it
-   * invisible. */
+   * This comment used to name `FMOD`, `FREM`, `FSGLDIV` and `FSGLMUL` as still
+   * missing, three lines above the cases that compute them. It outlived them by
+   * long enough to be reported to the user as a gap. Prose cannot carry a
+   * completeness claim; the sweep can. */
     return AP_M68882_UNIMPLEMENTED;
   }
 
@@ -461,12 +462,15 @@ static ap_m68882_status_t decode_general(const ap_m68882_t *fpu,
      * not our own gap. */
     return AP_M68882_TAKE_LINE_F;
   }
+  /* A redundant encoding is **executed**, as the operation it aliases. Footnote
+   * 3 is explicit that these "do not cause an F-line exception if executed", so
+   * trapping is wrong; and declining made this model report a gap for a form the
+   * part runs, which is worse than either. `ap_m68882_decode_command` has
+   * resolved the alias, so `command.operation` is already a defined one and
+   * nothing further is needed here -- the case is kept so the class is visibly
+   * accounted for rather than falling through unremarked. */
   if (command.extension_class == AP_M68882_EXTENSION_REDUNDANT) {
-    /* Footnote 3: redundant with a defined instruction and explicitly *not* an
-     * F-line exception. Which defined instruction is not stated, so this
-     * declines rather than picking one -- guessing would run an instruction the
-     * program did not write. */
-    return AP_M68882_UNIMPLEMENTED;
+    return AP_M68882_EXECUTED;
   }
 
   return AP_M68882_EXECUTED;
@@ -566,6 +570,15 @@ ap_m68882_status_t ap_m68882_execute(ap_m68882_t *fpu, uint16_t operation_word,
     /* FMOVECR. It lives in the memory-to-register opclass and touches no
      * memory, which is why it arrives here rather than through a transfer. */
     return execute_move_constant(fpu, &command);
+  }
+
+  if (command.opclass == AP_M68882_OPCLASS_RESERVED_1) {
+    /* Table 4-11 gives opclass `001` as "Undefined, reserved", which is the
+     * same standing as an undefined extension field: the part takes the F-line
+     * emulator trap, and that is the **machine's** answer rather than a gap in
+     * this model. Reporting our gap here made 128 reserved forms stop a machine
+     * the hardware would have run through a handler. */
+    return AP_M68882_TAKE_LINE_F;
   }
 
   if (command.opclass != AP_M68882_OPCLASS_REGISTER) {

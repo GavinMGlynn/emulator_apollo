@@ -12,6 +12,8 @@
  * machine never takes.
  */
 
+#include <stdio.h>
+
 #include "cpu/m68030/ap_m68030_step.h"
 #include "cpu/m68030/ap_m68030_exception.h"
 #include "cpu/m68030/ap_m68030_operand.h"
@@ -565,6 +567,126 @@ static void test_a_faulting_instruction_fetch_takes_the_bus_error_exception(
   TEST_ASSERT_TRUE(ssw.stage_c_fault);
   TEST_ASSERT_TRUE(ssw.stage_b_fault);
   TEST_ASSERT_FALSE(ssw.data_fault);
+}
+
+/* ## The completeness property, which no prose claim can carry
+ *
+ * `decode_suite` sweeps the 16-bit space and proves every word is *classified*.
+ * Nothing proved every word is *executed*, and the difference is exactly where a
+ * documentation claim can rot unnoticed: this file and `PROJECT_STATUS.md` both
+ * carried a list of instructions "not executing" long after they executed, and
+ * `ap_m68882.c` carried a comment naming four floating-point operations as
+ * missing three lines above the switch that computes them. A reader -- including
+ * me, this session -- reported a gap that did not exist, from prose.
+ *
+ * `AP_M68030_STEP_UNIMPLEMENTED` is the one status that means *this model has no
+ * semantics for that word*. Every other outcome is the machine's own answer:
+ * `ILLEGAL` is a word the hardware refuses, `EXCEPTION` is a trap it takes,
+ * `FAULT` is the memory system declining. So the property is narrow and exact --
+ * **no word in the space may report UNIMPLEMENTED** -- and it is checked here
+ * rather than asserted anywhere in words.
+ *
+ * The coprocessor is attached, because an F-line for an absent FPU is the
+ * board's behaviour rather than a gap, and leaving it off would hide the whole
+ * floating-point set behind a legitimate exception. */
+static void test_no_word_in_the_instruction_space_reports_unimplemented(void) {
+  unsigned unimplemented = 0;
+  uint16_t first_gap = 0;
+
+  for (uint32_t word = 0; word <= 0xFFFFu; word++) {
+    const uint16_t opcode = (uint16_t)word;
+    /* The word, then extension words that are valid for the forms that read
+     * them: zero is a legal extension for the indexed modes and a legal
+     * immediate, and a following NOP keeps a fetch past the end in bounds. */
+    const uint16_t program[6] = {opcode, 0x0000u, 0x0000u,
+                                 0x0000u, 0x0000u, 0x4E71u};
+    machine_t m = {0};
+    load(&m, program, 6);
+    m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT); /* supervisor */
+    m.cpu.regs.isp = SUPERVISOR_STACK;
+    for (unsigned i = 0; i < 7u; i++) {
+      m.cpu.regs.a[i] = 0x00005000u + i * 0x100u;
+      m.cpu.regs.d[i] = 0u;
+    }
+
+    ap_m68882_t fpu;
+    ap_m68882_reset(&fpu);
+    m.cpu.fpu = &fpu;
+
+    const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+    if (r.status == AP_M68030_STEP_UNIMPLEMENTED) {
+      if (unimplemented == 0u) {
+        first_gap = opcode;
+      }
+      unimplemented++;
+    }
+  }
+
+  if (unimplemented != 0u) {
+    char message[96];
+    (void)snprintf(message, sizeof message,
+                   "%u word(s) report UNIMPLEMENTED, first %04X", unimplemented,
+                   (unsigned)first_gap);
+    TEST_FAIL_MESSAGE(message);
+  }
+}
+
+/* And the same property for the coprocessor, whose *operation* lives in the
+ * extension word rather than the opcode -- so the sweep above, which leaves the
+ * extension at zero, only ever asks the FPU for `FMOVE`.
+ *
+ * This is the half that matters for the claim that the floating-point set is
+ * complete: `ap_m68882.c` carried a comment naming `FMOD`, `FREM`, `FSGLDIV` and
+ * `FSGLMUL` as unimplemented three lines above the switch that computes them,
+ * and nothing contradicted it. Table 4-13's operation field is seven bits, so
+ * the space is small enough to walk exhaustively across all four opclasses. */
+static void test_no_coprocessor_operation_reports_unimplemented(void) {
+  unsigned unimplemented = 0;
+  uint16_t first_opcode = 0;
+  uint16_t first_command = 0;
+
+  /* `F200` is cpID 1 -- the FPU's -- with type 000, the general instruction. */
+  static const uint16_t opcodes[] = {0xF200u, 0xF210u, 0xF218u, 0xF220u};
+
+  for (unsigned o = 0; o < sizeof opcodes / sizeof opcodes[0]; o++) {
+    for (unsigned opclass = 0; opclass < 8u; opclass++) {
+      for (unsigned operation = 0; operation < 0x80u; operation++) {
+        const uint16_t command =
+            (uint16_t)(((uint16_t)opclass << 13) | (uint16_t)operation);
+        const uint16_t program[6] = {opcodes[o], command, 0x0000u,
+                                     0x0000u,    0x0000u, 0x4E71u};
+        machine_t m = {0};
+        load(&m, program, 6);
+        m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+        m.cpu.regs.isp = SUPERVISOR_STACK;
+        for (unsigned i = 0; i < 7u; i++) {
+          m.cpu.regs.a[i] = 0x00005000u + i * 0x100u;
+        }
+
+        ap_m68882_t fpu;
+        ap_m68882_reset(&fpu);
+        m.cpu.fpu = &fpu;
+
+        const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+        if (r.status == AP_M68030_STEP_UNIMPLEMENTED) {
+          if (unimplemented == 0u) {
+            first_opcode = opcodes[o];
+            first_command = command;
+          }
+          unimplemented++;
+        }
+      }
+    }
+  }
+
+  if (unimplemented != 0u) {
+    char message[112];
+    (void)snprintf(message, sizeof message,
+                   "%u coprocessor form(s) UNIMPLEMENTED, first %04X %04X",
+                   unimplemented, (unsigned)first_opcode,
+                   (unsigned)first_command);
+    TEST_FAIL_MESSAGE(message);
+  }
 }
 
 /* The stacked fault address is the **faulted bus cycle's**, not the operand's.
@@ -8181,6 +8303,8 @@ int main(void) {
   RUN_TEST(test_an_unimplemented_instruction_is_reported_not_skipped);
   RUN_TEST(test_a_faulting_operand_read_takes_the_bus_error_exception);
   RUN_TEST(test_a_faulting_instruction_fetch_takes_the_bus_error_exception);
+  RUN_TEST(test_no_word_in_the_instruction_space_reports_unimplemented);
+  RUN_TEST(test_no_coprocessor_operation_reports_unimplemented);
   RUN_TEST(test_the_stacked_fault_address_is_the_cycle_that_faulted);
   RUN_TEST(test_a_faulted_access_leaves_its_address_register_alone);
   RUN_TEST(test_an_access_that_answers_still_increments);
