@@ -29152,3 +29152,36 @@ probe that decides it, is the next measurement.
 disassembled from `--dump-logical 3C42D400:1024`. The oracle instrumentation was
 reverted from a copy afterwards and `ext/mame` carries only its nine standing
 edits.*
+
+### RETRACTED: the FPA path. `FPA_$SAVEP` is zero and this core never takes it
+
+The section above is **wrong** and is retracted in full. Measured at the fault,
+`--dump-logical 3C42BDC0:32`:
+
+    3C42BDD0  FPA_$SAVEP = 00000000     zero
+    3C42BDD4  FP_$SAVEP  = 3C25F800     non-zero, a kernel address
+
+So the `BEQ` at `3C42D4AC` **is** taken -- this core does not enter the FPA arm
+at all -- and the `BEQ.W` at `3C42D4C0` is **not**, because `FP_$SAVEP` holds a
+pointer. Execution falls through to `3C42D4C4` and reaches the copy loop by a
+third route, through neither of the two branches that section described.
+
+**How the error was made, because it is the instructive part.** The observation
+was sound: the oracle enters `FIM_$FP_INIT` and never reaches `3C42D562`, so the
+machines part inside the routine. The *explanation* was then read off the
+disassembly's first branch without reading the values it tests -- and the listing
+is actively misleading, because both arms converge two bytes apart at `3C42D55A`
+and `3C42D55C`. Executing `3C42D562` is downstream of both and distinguishes
+nothing.
+
+That is the same failure this document has recorded against itself several times
+now: a control-flow story assembled from code that was read but not run, when two
+long words would have settled it. The rule it keeps proving is to **read the
+operands, not the branch**.
+
+What stands from that section: the oracle enters the routine eight times with
+kernel-space stacks and never reaches the loop, and this core does reach it with
+`A1 = 3B3BC800` -- a user-space destination, on a page nothing has mapped, copied
+to from `A0 = 3C4F9A86` on the kernel stack. Where `A1` comes from is the open
+question, and it is now the *only* one: no branch in this routine has been shown
+to differ.

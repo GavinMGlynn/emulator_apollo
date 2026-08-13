@@ -3489,7 +3489,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   fourteen bytes higher in the same page (`FIM_$FP_INIT+F0`, `3B3BC7FE`), so the
   page at `3B3BC7xx` was never resident and the stack pointer only decided which
   access noticed. Detail in `PROJECT_STATUS.md`.
-  - [ ] **Next: why `3B3BC7xx` is not resident.** `SW:0105` is a supervisor
+  **RETRACTED — not the FPA.** `FPA_$SAVEP` measures **zero** at the fault and
+  `FP_$SAVEP` holds `3C25F800`, so this core takes neither branch that reading
+  named; both converge two bytes apart at `3C42D55A`/`3C42D55C` and reaching
+  `3C42D562` distinguishes nothing. The story was read off a disassembly without
+  reading the operands it tests. What stands: the oracle enters `FIM_$FP_INIT`
+  eight times and never reaches the loop; we reach it with `A1 = 3B3BC800`, a
+  user-space destination on an unmapped page, copying from `A0 = 3C4F9A86` on
+  the kernel stack.
+  - [ ] **Next: where `A1 = 3B3BC800` comes from.** `SW:0105` is a supervisor
     *write* fault at `3B3BC7F0`, taken in the handler with interrupts masked. The
     same stack region demand-pages fine five times down to `3B3BD940`, so the
     page is not special and the *context* is. Stop on the refusal
