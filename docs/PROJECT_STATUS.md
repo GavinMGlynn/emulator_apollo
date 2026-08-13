@@ -28929,3 +28929,32 @@ instruction is the next measurement, and it has not been made.**
 against `9533EBC0CCED00BD` before; `tools/identity-boot.sh` unchanged;
 `002398-04` p. 4-6 read as a page image; `tools/kernel_symbols.py` for
 `FIM_$FSAVE`; the run's own `control` word for the FPU trap bit.*
+
+## `--boot-stop-on-vector N`: stopping on the exception, not on its address
+
+The audit's last finding needed an instrument that did not exist. Domain/OS
+reports `0012000A`, *unimplemented instruction*, and a run reports
+`2 x vector 11` -- which names neither the word that raised it nor which of the
+two matters.
+
+**Neither program counter is usable as a stop.** The one a vector lands on is the
+handler's, identical for every cause that reaches it; the one it comes *from* is
+wherever the offending word happened to be, which is the unknown. This is the
+same shape as `--boot-stop-on-mmu-fault-at`, one level up: the *event* is the
+only thing worth stopping on.
+
+So the machine watches one vector, stops when its count moves, and reports the
+instruction address the step began at -- sampled before the step, because by the
+time the exception is taken the processor's own PC is the handler's.
+
+**It honours `--boot-stop-pc-skip`**, and that is not a convenience. Firmware
+raises vectors *deliberately*: the boot PROM's `CPU (FP TRAP)` self test executes
+an `F200` at `010046B4`, inside SELF_TEST's own address range, purely to check
+the trap fires. Without a skip that first taking is the only one ever caught, and
+it is never the one being looked for. With it, the count `2 x vector 11` resolves
+into a deliberate one and a real one.
+
+*Verification: `frontend_flags`; `tools/e0007-boot.sh --boot-stop-on-vector 11`,
+which stops at 239,690,900 instructions on `F200` at `010046B4` -- the self
+test's own -- and the same with `--boot-stop-pc-skip 1` for the one Domain/OS
+reports.*

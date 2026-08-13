@@ -93,6 +93,16 @@ static void print_usage(const char *program_name) {
   /* Split because a single literal outgrew C99's guaranteed 4095 characters,
    * which `-Werror` catches. Two calls, one list. */
   fprintf(stdout,
+          "  --boot-stop-on-vector N\n"
+          "                        end the run when exception vector N is\n"
+          "                        *taken*, and report the instruction address\n"
+          "                        it was raised from. A vector is an event: the\n"
+          "                        PC it lands on is shared by every cause, and\n"
+          "                        the PC it came from is wherever the offending\n"
+          "                        word happened to be, so neither is a usable\n"
+          "                        stop on its own. Written for the F-line trap,\n"
+          "                        where an operating system says only\n"
+          "                        \"unimplemented instruction\"\n"
           "  --boot-stop-on-mmu-fault-at ADDR\n"
           "                        end the run when translation *refuses* this\n"
           "                        logical address. An instruction that faults,\n"
@@ -1867,6 +1877,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t stop_physical_pc,
                           uint32_t stop_physical_length, bool service_mode,
                           unsigned stop_pc_skip, uint32_t stop_mmu_fault_at,
+                          unsigned stop_vector,
                           unsigned stop_pc_then, uint32_t progress_from,
                           unsigned disk_reads_wanted) {
   /* Before the PROM is even opened: a script that does not parse is the
@@ -2148,6 +2159,11 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   ap_machine_set_board(&machine, board);
   machine.watch_write_address = watch_write;
   machine.mmu_fault_stop_address = stop_mmu_fault_at;
+  machine.exception_stop_vector = stop_vector;
+  /* `--boot-stop-pc-skip` counts occurrences of whichever stop is armed, and a
+   * vector is an occurrence like any other. Sharing it rather than adding a
+   * second skip keeps one answer to "how many do I let past". */
+  machine.exception_stop_skip = stop_pc_skip;
   machine.watch_read_address = watch_read;
   ap_machine_reset(&machine, pc, stack);
 
@@ -2291,7 +2307,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       trace || trace_last > 0u || input_length > 0u || console ||
       script.steps > 0u || key < AP_KBD_KEYS ||
       progress_every > 0u || stop_pc != 0u || stop_physical_pc != 0u ||
-      stop_mmu_fault_at != 0u ||
+      stop_mmu_fault_at != 0u || stop_vector != 0u ||
       stop_on_watch != 0u || stop_on_watch_read != 0u || stop_on_refusal ||
       g_log_watch_writes;
   if (wants_steps) {
@@ -2687,6 +2703,13 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
           run.executed++;
           break;
         }
+      }
+      if (machine.exception_stopped) {
+        printf("  stopped on   vector %u taken from PC %08X, after %u "
+               "instruction(s)\n",
+               stop_vector, machine.exception_stop_pc, i);
+        run.executed++;
+        break;
       }
       if (machine.mmu_fault_stopped && !stop_pc_armed) {
         if (stop_pc_then > 0u) {
@@ -3836,6 +3859,7 @@ int main(int argc, char **argv) {
   uint32_t boot_stop_pc_length = 1u;
   unsigned boot_stop_pc_skip = 0u;
   uint32_t boot_stop_mmu_fault_at = 0u;
+  unsigned boot_stop_vector = 0u;
   unsigned boot_stop_pc_then = 0u;
   unsigned boot_disk_reads = 0u;
   uint32_t boot_progress_from = 0u;
@@ -4187,6 +4211,11 @@ int main(int argc, char **argv) {
       i += 2;
       continue;
     }
+    if (strcmp(argv[i], "--boot-stop-on-vector") == 0 && i + 1 < argc) {
+      boot_stop_vector = (unsigned)strtoul(argv[i + 1], NULL, 0);
+      i += 2;
+      continue;
+    }
     if (strcmp(argv[i], "--boot-stop-pc-then") == 0 && i + 1 < argc) {
       boot_stop_pc_then = (unsigned)strtoul(argv[i + 1], NULL, 0);
       i += 2;
@@ -4330,7 +4359,8 @@ int main(int argc, char **argv) {
                           dump_logical_specs, dump_logical_count,
                           boot_stop_physical_pc, boot_stop_physical_length,
                           service_mode, boot_stop_pc_skip,
-                          boot_stop_mmu_fault_at, boot_stop_pc_then,
+                          boot_stop_mmu_fault_at, boot_stop_vector,
+                          boot_stop_pc_then,
                           boot_progress_from, boot_disk_reads);
   }
 

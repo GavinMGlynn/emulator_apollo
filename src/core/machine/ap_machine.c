@@ -613,6 +613,9 @@ void ap_machine_reset(ap_machine_t *machine, uint32_t pc, uint32_t stack) {
   machine->mmu_fault_site_count = 0;
   machine->mmu_fault_sites_dropped = 0;
   machine->mmu_fault_stopped = false;
+  machine->exception_stopped = false;
+  machine->exception_stop_seen = 0u;
+  machine->exception_stop_pc = 0u;
 
   /* Step 6, "Invalidates all entries in the instruction and data caches".
    *
@@ -783,7 +786,24 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
         stalled++;
       }
     }
+    /* The vector counts before the step, so the one it takes can be told from
+     * the ones it already had. Sampled rather than diffed at the end because a
+     * single step takes at most one exception and the question is *which
+     * instruction* raised it. */
+    const unsigned watched = machine->exception_stop_vector;
+    const unsigned before_taken =
+        watched != 0u ? machine->cpu.exceptions_taken[watched & 0xFFu] : 0u;
+    const uint32_t before_pc = machine->cpu.regs.pc;
+
     const ap_m68030_step_result_t result = ap_m68030_step(&machine->cpu);
+    if (watched != 0u && !machine->exception_stopped &&
+        machine->cpu.exceptions_taken[watched & 0xFFu] != before_taken &&
+        machine->exception_stop_seen++ >= machine->exception_stop_skip) {
+      machine->exception_stopped = true;
+      /* Where it came *from*. The processor's PC is the handler's by now, which
+       * is the same address for every cause and so answers nothing. */
+      machine->exception_stop_pc = before_pc;
+    }
     machine->last_instruction_clocks = machine->cpu.clocks - before;
     /* Converted once, here. The step reports CPU clocks; the machine keeps
      * time. A `cpu_clock` that was never initialised has a zero rate and

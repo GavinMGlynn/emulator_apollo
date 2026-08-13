@@ -204,6 +204,31 @@ typedef struct {
    * the access is made. This catches the event itself. Zero watches nothing. */
   uint32_t mmu_fault_stop_address;
   bool mmu_fault_stopped;
+
+  /* One exception *vector* to stop on, and whether it has been taken. The same
+   * argument as the refusal above, one level up: a vector is an event, and the
+   * PC it vectors *to* is shared by every cause that reaches the same handler
+   * while the PC it vectors *from* is wherever the offending instruction
+   * happened to be. Neither can be stopped on usefully.
+   *
+   * Written for the F-line trap, where an operating system reports
+   * "unimplemented instruction" and the question is *which* word raised it --
+   * a run reports the count and nothing else, and a boot PROM self test that
+   * raises one deliberately makes the count ambiguous on its own. Zero watches
+   * nothing, which is safe because vector 0 is the reset stack pointer and is
+   * never taken. */
+  unsigned exception_stop_vector;
+  /* How many takings to let past first. A vector raised deliberately by
+   * firmware -- the boot PROM's own `CPU (FP TRAP)` self test raises the F-line
+   * on purpose -- would otherwise be the only one ever caught, and it is never
+   * the one being looked for. */
+  unsigned exception_stop_skip;
+  unsigned exception_stop_seen;
+  bool exception_stopped;
+  /* The instruction address the stopped exception was raised from, which is the
+   * whole point of catching it: the handler's address is the same for every
+   * cause. */
+  uint32_t exception_stop_pc;
   /* Address translation, which the boot PROM turns on partway through and every
    * later access depends on. Counted because "the MMU is enabled" and "the MMU
    * has translated something" are different claims and a boot needs both. */
