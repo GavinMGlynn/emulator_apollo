@@ -54,7 +54,9 @@ step_operand_read(ap_m68030_cpu_t *cpu, ap_m68030_regs_t *regs,
       ap_m68030_operand_read(regs, access, where, size, function_code);
   if (result.fault) {
     cpu->access_faulted = true;
-    cpu->fault_address = where->address;
+    /* The **bus cycle's** address, which a misaligned operand makes different
+     * from the operand's own -- see `fault_address` on the result. */
+    cpu->fault_address = result.fault_address;
     cpu->fault_size = size;
     cpu->fault_read = true;
     cpu->fault_function_code = function_code;
@@ -73,7 +75,7 @@ step_operand_write(ap_m68030_cpu_t *cpu, ap_m68030_regs_t *regs,
       ap_m68030_operand_write(regs, access, where, size, value, function_code);
   if (result.fault) {
     cpu->access_faulted = true;
-    cpu->fault_address = where->address;
+    cpu->fault_address = result.fault_address;
     cpu->fault_size = size;
     cpu->fault_read = false;
     cpu->fault_function_code = function_code;

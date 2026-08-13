@@ -36,6 +36,21 @@ typedef struct {
   uint32_t value;  /* zero-extended; the caller interprets it by size */
   uint32_t clocks;
   bool fault;
+  /* **Which address faulted**, which is not always the operand's own.
+   *
+   * A misaligned operand is several bus cycles at successive addresses -- legal
+   * on this part, and `RTE` reads a straddling long every time -- so an operand
+   * beginning in a resident page can fault on a *later* cycle in the next one.
+   * Table 8-6's data fault address is the faulted **bus cycle's**, and §8.2.2
+   * has the handler "transfer the properly sized data from the location
+   * indicated by the data fault address": give it the operand's start and it
+   * probes a page that is already present, finds nothing to repair, and returns
+   * to an instruction that faults again. That is an unbreakable loop, and it is
+   * what Domain/OS did 17.5 million times on one `MOVE.L (A1)+,(A0)+` whose
+   * destination straddled a page boundary.
+   *
+   * Only meaningful when `fault` is set. */
+  uint32_t fault_address;
 } ap_m68030_operand_result_t;
 
 /* Read an operand of `size` bytes from an already-calculated address. */

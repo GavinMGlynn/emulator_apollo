@@ -567,6 +567,44 @@ static void test_a_faulting_instruction_fetch_takes_the_bus_error_exception(
   TEST_ASSERT_FALSE(ssw.data_fault);
 }
 
+/* The stacked fault address is the **faulted bus cycle's**, not the operand's.
+ *
+ * A misaligned operand is several cycles at successive addresses -- legal on
+ * this part (§7.2.1), and not exotic: every exception frame puts its long-word
+ * PC at SP + 2, so `RTE` reads a straddling long every time. An operand that
+ * begins in a resident page can therefore fault on a *later* cycle in the next
+ * page, and Table 8-6's data fault address is what §8.2.2 tells the handler to
+ * repair: "transfer the properly sized data from the location indicated by the
+ * data fault address".
+ *
+ * Reporting the operand's start instead points the handler at a page that is
+ * already present. It finds nothing to fix, returns, and the instruction faults
+ * again -- for ever. Domain/OS did exactly that **17.5 million times** on one
+ * `MOVE.L (A1)+,(A0)+` whose destination straddled a page boundary, which is
+ * what this pins. */
+static void test_the_stacked_fault_address_is_the_cycle_that_faulted(void) {
+  /* MOVE.L D0,(A1) with A1 two bytes below the faulting region, so the long
+   * straddles it: the first cycle answers and the second does not. */
+  static const uint16_t program[] = {0x2280u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 2);
+  plant_vector(&m, AP_M68030_VECTOR_BUS_ERROR, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.d[0] = 0x11223344u;
+  m.cpu.regs.a[1] = 0x0000BFFEu;
+  m.memory.berr_from = 0x0000C000u;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  /* `0000C000`, the byte that could not be written -- **not** `0000BFFE`, whose
+   * page answers perfectly well and would send a pager to repair nothing. */
+  TEST_ASSERT_EQUAL_HEX32(0x0000C000u,
+                          read_ram_long(&m, m.cpu.regs.isp +
+                                                AP_M68030_BUS_FAULT_ADDRESS));
+}
+
 /* A faulted access must leave the registers where the instruction found them,
  * because this model **restarts** the instruction where the 68030 resumes it.
  *
@@ -8143,6 +8181,7 @@ int main(void) {
   RUN_TEST(test_an_unimplemented_instruction_is_reported_not_skipped);
   RUN_TEST(test_a_faulting_operand_read_takes_the_bus_error_exception);
   RUN_TEST(test_a_faulting_instruction_fetch_takes_the_bus_error_exception);
+  RUN_TEST(test_the_stacked_fault_address_is_the_cycle_that_faulted);
   RUN_TEST(test_a_faulted_access_leaves_its_address_register_alone);
   RUN_TEST(test_an_access_that_answers_still_increments);
   RUN_TEST(test_a_faulted_predecrement_leaves_its_register_alone);

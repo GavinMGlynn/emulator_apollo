@@ -3369,7 +3369,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 state hash (the identity harness's CPU half) | working: every architectural register, the MMU and cache control registers, the pipe, both caches, the ATC, and the accumulated clock — host pointers excluded by construction, since `ap_hash.h` has no pointer helper | `state_suite`, 12 tests sweeping every field; `step_suite`'s same-program-twice check |
 | 68030 addressing mode categories (Data / Memory / Control / Alterable) | working; derived from §2.3's definitions rather than transcribed from Table 2-4, whose Alterable column is exchanged between two row pairs in the scan | `category_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §2.3 |
 | 68030 operand access (read/write through an effective address) | working; a sub-long-word operand is selected from the long word by position, and one straddling two long words is split into a bus cycle per long word in address order | `operand_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` |
-| 68030 instruction step (fetch → decode → execute → advance) | working for `NOP`, `MOVEQ`, 8-bit `BRA`/`Bcc`, `MOVE`/`MOVEA`, the six ALU operations, the `xxxI` immediate forms, `CLR`/`NEG`/`NOT`/`TST`, `ADDQ`/`SUBQ`/`Scc`/`DBcc`, `ADDA`/`SUBA`/`CMPA`, `BTST`/`BCHG`/`BCLR`/`BSET`, the shifts and rotates, `MULU`/`MULS` and `DIVU`/`DIVS` at both the word and the 68020's 32-bit widths, `ADDX`/`SUBX`/`ABCD`/`SBCD` in both the register and the `-(An),-(An)` forms, `CMPM` and all three `EXG` exchanges; everything else reports unimplemented, including divide-by-zero, which needs the exception machinery | `step_suite`, 284 tests |
+| 68030 instruction step (fetch → decode → execute → advance) | working for `NOP`, `MOVEQ`, 8-bit `BRA`/`Bcc`, `MOVE`/`MOVEA`, the six ALU operations, the `xxxI` immediate forms, `CLR`/`NEG`/`NOT`/`TST`, `ADDQ`/`SUBQ`/`Scc`/`DBcc`, `ADDA`/`SUBA`/`CMPA`, `BTST`/`BCHG`/`BCLR`/`BSET`, the shifts and rotates, `MULU`/`MULS` and `DIVU`/`DIVS` at both the word and the 68020's 32-bit widths, `ADDX`/`SUBX`/`ABCD`/`SBCD` in both the register and the `-(An),-(An)` forms, `CMPM` and all three `EXG` exchanges; everything else reports unimplemented, including divide-by-zero, which needs the exception machinery | `step_suite`, 285 tests |
 | 68030 instruction prefetch (pipe driven from memory) | working | `fetch_suite`, 5 tests, `MC68030 User's Manual 3ed` §11.2.2 and §6.1 |
 | 68030 logical memory access path (cache → MMU → bus) | working, reads and writes | `access_suite`, 16 tests, `MC68030 User's Manual 3ed` §6.1 |
 | 68030 effective address calculation (with register side effects) | working; memory-indirect modes report the pending indirection | `addr_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` §2.2 |
@@ -3384,7 +3384,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 family 0100 `$4E` control group (TRAP/LINK/UNLK/MOVE USP/RESET/NOP/STOP/RTE/RTD/RTS/TRAPV/RTR/JSR/JMP) | working; the rest of family 0100 not yet decoded | `control_suite`, 11 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 |
 | 68030 family 0101 (ADDQ/SUBQ/Scc/DBcc/TRAPcc) decode | working | `quick_suite`, 10 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and each instruction page |
 | 68030 branch family (Bcc/BSR/BRA) decode | working | `branch_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and the Bcc/BRA/BSR pages |
-| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 284 tests, and the per-subsystem suites |
+| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 285 tests, and the per-subsystem suites |
 | 68030 operation code map (top-level instruction family) | working | `opcode_suite`, 6 tests, `M68000 Family Programmer's Reference Manual 1992` Table 8-2 |
 | 68030 conditional tests (the 16 Bcc/Scc/DBcc/TRAPcc conditions) | working | `cond_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-19 |
 | 68030 effective address decode (modes, extension words, lengths) | decode and extension-word counts working; address *calculation* needs the instruction unit | `ea_suite`, 17 tests, `M68000 Family Programmer's Reference Manual 1992` §2, Tables 2-1, 2-2, 2-4 |
@@ -28832,3 +28832,54 @@ same thing. Measured next, not guessed.
 the driver's `CMPI.W #$00CF`; `[OMTI] AT Controller Series Jan87` §4.3 p. 4-4 and
 §5.1.2 p. 5-2 read as page images; `awd_suite`, 49 tests; the boot above,
 `--screenshot`, hash `9533EBC0CCED00BD`, identity unchanged.*
+
+## The stacked fault address was the operand's, not the cycle that faulted
+
+The data-out handshake removed the crash and left the machine turning:
+**17,585,328** vector 2 exceptions and no further console output. A 400-step
+trace of the end state shows one cycle, repeated:
+
+```
+008183FE  20D9  EXCEPTION      MOVE.L (A1)+,(A0)+   a0=3B5507FE a1=3B1CDD22
+3C42CD90        FIM_$BUS_ERR
+3C42CE2A  F010  the handler probes
+3C42CEDC  0803  BTST -- it examines the status bits
+3C42CF12  6082  BRA
+3C42DD1C  4E73  RTE            FIM_$EXIT
+008183FE  20D9  EXCEPTION      the same PC, the same registers
+```
+
+**The registers are byte-identical across consecutive faults**, which is the
+register rollback landed earlier today doing its job: before it, this instruction
+would have advanced `A0` and retried at the wrong address -- silently wrong data
+rather than a visible stall. The stall is what made this readable.
+
+### What the addresses say
+
+`A0 = 3B5507FE`, and a long write there spans `3B5507FE`-`3B550801`. The page size
+is 1 KB, so it **straddles the boundary at `3B550800`**: the first cycle lands in
+a resident page and the second does not.
+
+Misaligned operands are several bus cycles at successive addresses -- legal on
+this part (§7.2.1) and not exotic, since every exception frame puts its long-word
+PC at SP + 2 and `RTE` reads a straddling long every time. `ap_m68030_operand_
+read`/`write` split them correctly. **What was lost was which cycle failed**: on a
+fault the caller recorded `where->address`, the operand's start.
+
+Table 8-6's data fault address is the faulted **bus cycle's**, and §8.2.2 has the
+handler "transfer the properly sized data from the location indicated by the data
+fault address". Handed the operand's start, Domain/OS probed a page that was
+already present, found nothing to repair, and returned to an instruction that
+faulted again. There is no way out of that loop, and the machine took it 17.5
+million times.
+
+### The fix
+
+The operand result carries `fault_address`, set to the address of the cycle that
+failed, and `step_operand_read`/`write` record that instead of the operand's own.
+The test writes a long to `0000BFFE` against a region that faults from `0000C000`
+and pins the stacked address at **`C000`** -- the byte that could not be written,
+not the one that could.
+
+**The identity hash does not move**, still `A354786119A3931D`: the sixth fix in a
+row that leaves the reference boot alone.

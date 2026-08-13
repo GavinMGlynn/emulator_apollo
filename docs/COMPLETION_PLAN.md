@@ -3454,11 +3454,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   **The crash is gone** — no `CRASH_STATUS`, no reboot, no salvage; the screen
   ends at `Loading Init.` / `... loading global libraries` with a live cursor,
   and `1F` goes 11 → 81. 
-  - [ ] **Next: 17.5 M vector 2 exceptions**, one every 85 instructions, against
-    4.5 M before, with no further console output. 17,584,417 of them are past the
-    report's fault-list cap so that run cannot attribute them. Paging hard
-    through real work and turning in a fault loop look identical from outside —
-    trace the end state before treating it as either.
+  **THE 17.5 M FAULTS WERE A LOOP, AND A SIXTH DEFECT.** A 400-step trace of the
+  end state shows one cycle repeating: user `PC 008183FE` runs
+  `MOVE.L (A1)+,(A0)+`, `FIM_$BUS_ERR` probes, tests bits, `RTE`s, and the same
+  PC faults again with **byte-identical registers** — the register rollback doing
+  its job, which is what made the stall visible instead of silently wrong.
+  `A0 = 3B5507FE`, so the long write straddles the 1 KB boundary at `3B550800`:
+  the first cycle lands in a resident page, the second does not. Our operand path
+  split the access correctly but **recorded the operand's start as the fault
+  address**, so the handler probed a present page, found nothing to repair, and
+  returned — an unbreakable loop. Table 8-6's data fault address is the faulted
+  *bus cycle's*. Fixed; identity hash unchanged. Detail in `PROJECT_STATUS.md`.
 
   **And a second CPU defect, which was hiding the kernel's own report of it.**
   `[030]` §7.5.1: a bus error on an instruction fetch is deferred until the
