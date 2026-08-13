@@ -3527,8 +3527,20 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   and kills the kernel. The FP machinery is sound throughout — the trapping
   `F227` executes on retry. It is an **MMU** fault, not a board one (`bus errors`
   all end at the FPA probe).
-  - [ ] **Next: why the page holding `0081B14A` never becomes resident**, and why
-    the kernel delivers that fault instead of servicing it. `SW:0105` is a supervisor
+  **THE PAGER WORKS; ONE PAGE DOES NOT.** Ten instruction-fetch faults in the same
+  program (`008177B4`, `0081EBD4`, `0081730C`, `00819A80`, `00810708` …) each
+  fault **once** and recover. `0081B14A` faults **49 times** and nothing in
+  `0081Bxxx` ever executes. So it is not the pager: the kernel answers *this*
+  page by building a fault frame for the process rather than mapping it — the
+  answer given when its tables say the address is not part of the object. It is
+  reached by a jump-table entry: `JSR $008910E4` → `LEA $00891208,A0` →
+  `JMP $0081B14A`.
+  **The oracle cannot arbitrate this.** Taps at `0081B14A`, the stub `008910E4`
+  and its caller `0088909A` all return zero — but the oracle's boot *succeeds*,
+  so it need not run this program at this moment, and zero hits cannot separate
+  "we jump somewhere wrong" from "we get further here". Do not spend runs on it.
+  - [ ] **Next: was the region containing `0081B14A` ever mapped?** Watch the
+    loader's `MST_$MAP_AT` calls for the object that should cover `0081B000`. `SW:0105` is a supervisor
     *write* fault at `3B3BC7F0`, taken in the handler with interrupts masked. The
     same stack region demand-pages fine five times down to `3B3BD940`, so the
     page is not special and the *context* is. Stop on the refusal

@@ -29330,3 +29330,53 @@ in the last several sections was downstream of that.
 *Verification: `tools/e0007-boot.sh --boot-stop-on-mmu-fault-at 3B3BC7FE
 --boot-trace-last 60000`; exception counts and the `FIM_$FSAVE` entry interval
 read from that trace; `tools/kernel_symbols.py` for `FIM_$BUILD_DF`.*
+
+### One page out of the region never becomes resident, and the rest do
+
+The pager is working. In the same program's address space, instruction-fetch
+faults page in and never repeat:
+
+```
+PC 008177B6  1 time(s)  008177B4  invalid on read
+PC 0081EBD4  1 time(s)  0081EBD4  invalid on read
+PC 0081730E  1 time(s)  0081730C  invalid on read
+PC 00819A80  1 time(s)  00819A80  invalid on read
+PC 00810708  1 time(s)  00810708  invalid on read      ... and six more
+```
+
+Each is a fetch fault -- the PC and the faulting address are the same word --
+each recovers, each happens **once**. Against that, `0081B14A` faults **49
+times** and the page is never resident: not one instruction anywhere in
+`0081Bxxx` executes in a 60,000-instruction window.
+
+So this is not "the pager cannot service instruction faults", which the ten
+neighbours refute. It is one page, and the kernel answers it by building a fault
+frame for the process (`FIM_$BUILD_DF`) rather than by mapping it -- which is the
+answer a kernel gives when its own tables say the address is not part of the
+object.
+
+**The oracle cannot arbitrate this one.** Taps at `0081B14A`, at the linkage stub
+`008910E4` that jumps there, and at its caller `0088909A` all return **zero
+hits** across a boot that reaches `login:`. That is weaker evidence than it
+looks: the oracle's boot *succeeds*, so it need not run this program at this
+moment at all, and zero hits cannot separate "we jump somewhere wrong" from "we
+get further than it does here". Recorded so the next session does not spend runs
+on that comparison.
+
+**How the address is reached**, which is the shape a linker leaves:
+
+```
+008890AA  JSR $008910E4
+008910E4  LEA $00891208,A0
+008910EA  JMP $0081B14A      <- absolute, a jump-table entry
+```
+
+So the next question is whether the region containing `0081B14A` was ever
+*mapped*. `MST_$MAP_AT` and the loader establish it, and this investigation has
+already been through both for `PROC2_$INIT`. Watching the mapping calls for the
+object that should cover `0081B000` is the measurement, not another oracle tap.
+
+*Verification: the full-boot fault profile above; `--boot-trace-last 60000` for
+the 49 faults, the zero successful executions in `0081Bxxx`, and the stub; four
+`APOLLO_PC_TAP` runs under the oracle, all zero. The oracle instrumentation was
+reverted from a copy and `ext/mame` carries only its nine standing edits.*
