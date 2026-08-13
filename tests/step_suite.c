@@ -539,6 +539,43 @@ test_a_faulting_operand_read_takes_the_bus_error_exception(void) {
  * The frame is the long one and its stage B and C fault bits are what say the
  * *instruction stream* faulted rather than an operand, which is the whole
  * difference a handler acts on. */
+/* §7.5.1: a bus error on an instruction prefetch is deferred until the
+ * processor "attempts to use that instruction word". The instruction *before*
+ * the boundary therefore runs to completion -- its own word arrived -- and the
+ * fault belongs to the one after it.
+ *
+ * Taking it early is not a subtlety. The frame then carries the PC of the
+ * instruction that ran rather than the one that could not be fetched, and a
+ * handler paging on that PC finds a page that is perfectly valid: Domain/OS
+ * `PTEST`s it, decides the fault was a stale ATC entry, `PFLUSH`es and returns,
+ * and the same prefetch faults again. One `BTST` whose six bytes ended exactly
+ * on a page boundary produced 16,158,489 faults in a single boot that way. */
+static void test_a_faulted_prefetch_waits_for_the_word_to_be_used(void) {
+  static const uint16_t program[] = {0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 2);
+  plant_vector(&m, AP_M68030_VECTOR_BUS_ERROR, HANDLER);
+  m.memory.berr_from = 0x0000C000u;
+
+  /* The last instruction below the boundary: its own word is readable, and the
+   * prefetch running ahead of it is not. */
+  ap_m68030_cpu_reset(&m.cpu, 0x0000BFFEu);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  const ap_m68030_step_result_t first = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, first.status);
+
+  /* And the next step, which is where the word is used, is where it lands. */
+  const ap_m68030_step_result_t second = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, second.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  /* The PC the handler is handed is the instruction that could not be fetched,
+   * which is the whole point: it is the page that has to be brought in. */
+  TEST_ASSERT_EQUAL_HEX32(0x0000C000u, read_ram_long(&m, m.cpu.regs.isp + 2u));
+}
+
 static void test_a_faulting_instruction_fetch_takes_the_bus_error_exception(
     void) {
   static const uint16_t program[] = {0x4E71u, 0x4E71u};
@@ -8488,6 +8525,7 @@ int main(void) {
   RUN_TEST(test_a_conditional_branch_reads_the_previous_result);
   RUN_TEST(test_an_unimplemented_instruction_is_reported_not_skipped);
   RUN_TEST(test_a_faulting_operand_read_takes_the_bus_error_exception);
+  RUN_TEST(test_a_faulted_prefetch_waits_for_the_word_to_be_used);
   RUN_TEST(test_a_faulting_instruction_fetch_takes_the_bus_error_exception);
   RUN_TEST(test_no_word_in_the_instruction_space_reports_unimplemented);
   RUN_TEST(test_no_coprocessor_operation_reports_unimplemented);

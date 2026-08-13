@@ -176,9 +176,19 @@ static bool fill_to_decoded(ap_m68030_cpu_t *cpu, uint32_t *clocks,
     const ap_m68030_fetch_result_t fetched =
         ap_m68030_fetch_prefetch(&cpu->fetch);
     *clocks += fetched.clocks;
-    if (fetched.fault) {
-      return false;
-    }
+    /* A faulted prefetch is **not** raised here. §7.5.1: the bus error is
+     * deferred until the processor "attempts to use that instruction word", and
+     * `ap_m68030_fetch_prefetch` has already filled the stage marked abnormal so
+     * that it can be. Returning on `fetched.fault` took it while the *previous*
+     * instruction was still executing, which stacks that instruction's PC -- and
+     * Domain/OS, reading it, `PTEST`s a page that is perfectly valid, concludes
+     * the fault was a stale ATC entry, `PFLUSH`es and retries for ever. One
+     * instruction whose six bytes ended exactly on a page boundary produced
+     * 16,158,489 faults that way.
+     *
+     * So the pipe advances and the fault surfaces where the word is used, as
+     * `abnormal` out of `ap_m68030_pipe_decoded`, with the PC of the instruction
+     * that could not be fetched. */
     ap_m68030_pipe_advance(&cpu->fetch.pipe);
   }
   return ap_m68030_pipe_decoded(&cpu->fetch.pipe, word, abnormal);
