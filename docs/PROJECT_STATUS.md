@@ -451,9 +451,22 @@ its own comment flagged as unmeasured. It is now
 `test_a_status_write_clears_the_fp_trap_and_keeps_the_switch`, checked to fail
 against the old mask before the fix was restored. 136/136 green.
 
-**Not yet `login:`.** The boot runs past the fault and has not reached a prompt
-within 1.5 G instructions, so Phase 4 stays open on how much further it needs to
-go, not on a crash.
+**Not yet `login:`, and the next defect is already visible.** The boot runs past
+the fault and then *stalls*: at 4 G instructions the screen is byte-identical to
+1.5 G, the display controller's write count is unchanged at 6,666,454, and the
+MMU fault count has gone 1,742 -> 14,409,706 -> **58,174,672**. So a livelock was
+traded for a fault storm, and "stops crashing" is the whole of the claim.
+
+The storm's cycle is `FIM_$BUS_ERR` -> `PTEST` (`F010 9E08`) -> read `MMUSR`
+(`F017`) -> `PFLUSH fc,mask,<ea>` (`F010 3810`, mode 6) -> `RTE` -> the *same*
+instruction faults again. It never reaches the pager, so the kernel has decided
+the fault was spurious -- a stale ATC entry -- and is flushing and retrying. For
+that to loop, our `PTEST` must be reporting a translation our access path then
+refuses. The faulting instruction is a `BTST` on the user stack (`a6 3B3BF0CC`,
+`3B3BFxxx` throughout), and the `PTEST`'s FC field is `01000` -- function code
+from `D0`, which holds `FFFF0000`, so **FC 0** -- against a real user or
+supervisor code on the access. A protection check that differs between the two
+is the first thing to examine.
 
 ## The boot's fatal was a livelock, and the framebuffer PNG works (2026-08-14)
 
