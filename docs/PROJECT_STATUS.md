@@ -1113,9 +1113,27 @@ the next page. That explains why clearing the stage bits did not change the
 result -- both offsets probe the wrong page for *this* fault, so the encoding
 looked irrelevant when it was merely insufficient. A faulting instruction in the
 *middle* of a page would have `PC+2`/`PC+4` still inside it, and the kernel would
-probe correctly. If the 1,702 recovering faults are all mid-page and the storming
-ones all page-final, that confirms the geometry is the whole story and tells the
-next attempt exactly which case to model. Either such a fault is reported some other way,
+probe correctly.
+
+**Confirmed from data already in hand, with no run needed.** Every known case
+fits:
+
+    008177B4  recovers   page 00817400-008177FF   PC+4 = 008177B8  inside
+    3B5AC3FE  storms     page 3B5AC000-3B5AC3FF   PC+4 = 3B5AC402  next page
+    3B4357FA  stormed    page ends 3B4357FF       six bytes end on the boundary
+
+A fetch fault recovers when `PC+4` stays inside the faulting page and storms when
+it crosses. So the defect is **not** in the SSW encoding: with the probe offset
+fixed at four, no choice of stage bits can reach a faulting instruction sitting
+within four bytes of its page end. That retires the whole `FB`/`FC` line and
+explains why clearing those bits changed nothing.
+
+It leaves a more uncomfortable question. Domain/OS must have a path that pages in
+the **stacked PC's own page** -- instructions at page ends are ordinary and it
+could not have booted on hardware otherwise -- and it is not taking that path
+here. What needs finding is what distinguishes the fault this core presents from
+the one that would send the kernel down it; the answer is unlikely to be an
+offset, because none exists that works. Either such a fault is reported some other way,
 or the pipe is never in that state on real hardware because a branch to an
 unmapped page faults before the target's word is ever needed. Both would change
 what this core does far more than the PC selection would. Figures 8-6 and 8-7 and
