@@ -732,6 +732,29 @@ so it never fails there and goes on to report the flags it accumulated from the
 indirect descriptor, whose low byte `0xE6` carries the write-protect bit. Make
 the two agree and the storm has nothing to feed it.
 
+**What the manual settles, and what it does not.** `[030]` p. 9-64: PTEST
+"either searches the ATC or performs a table search operation ... and sets the
+appropriate bits in the MMUSR to indicate conditions encountered during the
+search", and "does not alter the **ATC**" -- the ATC, not the tables. `PLOAD`'s
+paragraph on the same page *does* say it "updates all history information in the
+translation tables (used and modified bits)", so the omission for PTEST is
+conspicuous rather than accidental, and `PTESTR`/`PTESTW` are stated to give
+identical results. That is not enough to decide whether a PTEST table search
+performs the history write our access path performs, which is exactly where the
+two diverge here. **Figure 9-40, the PTEST flow for levels 1-7, is the page that
+decides it** -- p. 9-61 by the text's own reference -- and it should be read as
+an image before either path is changed.
+
+Note also which way the inconsistency points. Our access reports *invalid* and
+our PTEST reports *valid, write-protected*; the oracle's kernel pages this page
+in, so whatever the right answer is, the state the guest acts on should have
+ended in a fetch. The suspicion is therefore that the **access** path is right
+and PTEST is wrong to report a translation at all -- but `update_history`
+returning false is what makes the access fail, and why a write to `012953C0`,
+which is ordinary RAM, should fail at all is not yet understood. Read the rest
+of `update_history` first: if it refuses for a reason other than a failed write,
+the access path's `invalid` may itself be the defect.
+
 (The withdrawal was caused by the recorder, not by the reasoning: the first 32
 reads are all pre-storm, so `0403` was the only value visible. Keying by value
 was what made the difference, and it is the third time that has been true
