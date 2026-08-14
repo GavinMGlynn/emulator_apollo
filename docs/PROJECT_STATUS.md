@@ -988,10 +988,30 @@ neither the SSW nor the advance but the *continued prefetching*: the part has no
 reason to keep fetching past a word it already knows it cannot use, and stopping
 after the first faulted prefetch would leave exactly one stage invalid.
 
-Both readings are consistent with every measurement taken, and they differ in
-which line changes. §8.2 and the pipe description decide between them, and the
-`0403` faults are the control: whatever the fix, those 1,702 must keep reporting
-`0403` and recovering.
+**§8.2.2 decides it, and against both readings in part.** "For instruction stream
+faults, the handler **may need to run bus cycles for both the B and C stages** of
+the instruction pipe. The RB and RC bits identify the stages that may require a
+bus cycle; the FB and FC bits indicate that a stage was invalid when an attempt
+was made to use its contents ... For each faulted stage, the software handler
+should copy the instruction word from the proper address space ... **to the image
+of the appropriate stage in the stack frame**." And earlier: "the fault handler
+should be able to recognize any combination of the FC, FB, RC, RB, and DF bits."
+
+So two bits set is a documented, expected combination and `fault_ssw` is **not**
+the defect; nor is the kernel wrong to probe `PC+4`, which is stage C's word.
+What the passage settles is the mechanism: a handler repairs a faulted word by
+writing it into the frame's **stage B or C image**, and there is no image for
+stage D. This core takes the fault with the bad word in **D**, where the handler
+cannot reach it -- so Domain/OS repairs B and C, which were only faulted because
+`fill_to_decoded` kept prefetching, `RTE`s, and the word at `3B5AC3FE` is still
+missing. That is the loop, and every measured number in it now has a reason.
+
+**So the fault must be taken while the faulted word is still in B or C.** That is
+one statement about the fetch/pipe interaction, and it subsumes both readings
+above: not advancing past a faulted stage keeps the word where the frame can
+describe it, and stopping the prefetch loop keeps the later stages honest. The
+`0403` faults are the control -- those 1,702 recover today and must still report
+`0403` and recover afterwards.
 
 The `0403` faults, which recover, would then be the cases where the two happen to
 coincide. One of those two observations is of a different
