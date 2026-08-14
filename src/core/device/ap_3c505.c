@@ -506,6 +506,38 @@ bool ap_3c505_dispatch(ap_3c505_adapter_t *adapter, const ap_3c505_pcb_t *in,
     adapter->overrun_errors = 0;
     return true;
 
+  case AP_3C505_CMD_TRANSMIT_PACKET: {
+    /* §3.2.1 `09H`: offset, segment, packet length -- "must be even". The
+     * response is `39H` and it comes when the transmit *completes*, not now, so
+     * arming is all that happens here. */
+    if (in->length < 6u) {
+      return false;
+    }
+    const uint16_t length = read_word(in->data + 4);
+    if (length == 0u || length > AP_3C505_FRAME_MAX) {
+      return false;
+    }
+    adapter->transmit_offset = read_word(in->data);
+    adapter->transmit_segment = read_word(in->data + 2);
+    adapter->transmit_length = length;
+    adapter->transmit_received = 0;
+    adapter->transmitting = true;
+    return false;
+  }
+
+  case AP_3C505_CMD_RECEIVE_PACKET:
+    /* §3.2.1 `08H`: offset, segment, buffer length, timeout. `38H` follows when
+     * a packet actually arrives, so this only arms the request. */
+    if (in->length < 8u) {
+      return false;
+    }
+    adapter->receive_offset = read_word(in->data);
+    adapter->receive_segment = read_word(in->data + 2);
+    adapter->receive_buffer_length = read_word(in->data + 4);
+    adapter->receive_timeout = read_word(in->data + 6);
+    adapter->receive_armed = true;
+    return false;
+
   case AP_3C505_CMD_DOWNLOAD_DATA_DMA:
   case AP_3C505_CMD_UPLOAD_DATA_DMA:
   case AP_3C505_CMD_DOWNLOAD_DATA_PIO:
@@ -519,4 +551,109 @@ bool ap_3c505_dispatch(ap_3c505_adapter_t *adapter, const ap_3c505_pcb_t *in,
      * made-up payload would not be. */
     return false;
   }
+}
+
+bool ap_3c505_transmit_byte(ap_3c505_adapter_t *adapter, uint8_t byte,
+                            ap_3c505_pcb_t *out) {
+  if (adapter == NULL || !adapter->transmitting) {
+    return false;
+  }
+  if (adapter->transmit_received < AP_3C505_FRAME_MAX) {
+    adapter->transmit_buffer[adapter->transmit_received] = byte;
+  }
+  adapter->transmit_received++;
+  if (adapter->transmit_received < adapter->transmit_length) {
+    return false;
+  }
+
+  /* The whole frame has been downloaded, so it goes on the wire and `39H`
+   * reports what happened. A wire nobody has supplied is not an error -- a card
+   * with its transceiver unplugged is a real state -- but it is a failed
+   * transmission, and the completion status is where that is said. */
+  bool sent = false;
+  if (adapter->wire.transmit != NULL) {
+    sent = adapter->wire.transmit(adapter->wire.context, adapter->transmit_buffer,
+                                  adapter->transmit_length);
+  }
+  if (sent) {
+    adapter->transmit_packets++;
+  }
+  adapter->transmitting = false;
+
+  if (out != NULL) {
+    /* §3.2.2 `39H`: offset, segment, completion status, 82586 transmit status.
+     * "completion status 0 = successful"; the failure encoding is not given, so
+     * a non-zero word says failed without claiming to be the adapter's own
+     * code, and the 82586 status stays zero because there is no 82586 here to
+     * report one. */
+    *out = (ap_3c505_pcb_t){0};
+    out->command = 0x39u;
+    out->length = 0x08u;
+    write_word(out->data, adapter->transmit_offset);
+    write_word(out->data + 2, adapter->transmit_segment);
+    write_word(out->data + 4, sent ? 0u : 1u);
+    write_word(out->data + 6, 0u);
+  }
+  return true;
+}
+
+bool ap_3c505_deliver_frame(ap_3c505_adapter_t *adapter, const uint8_t *frame,
+                            unsigned length, ap_3c505_pcb_t *out) {
+  if (adapter == NULL || frame == NULL || length == 0u) {
+    return false;
+  }
+  if (!adapter->receive_armed) {
+    /* Nothing asked for a packet, so there is nowhere to put it. §3.2.2 `3AH`
+     * counts exactly this: "no resources error counter". */
+    adapter->no_resource_errors++;
+    return false;
+  }
+  if (length > AP_3C505_FRAME_MAX) {
+    length = AP_3C505_FRAME_MAX;
+  }
+
+  /* "The number of bytes DMA'ed will not exceed the buffer length specified in
+   * the receive packet command PCB 8H; extra packet data is discarded." So the
+   * frame is truncated to the host's buffer and both lengths are reported --
+   * the host is told what it is getting *and* what arrived. */
+  unsigned staged = length;
+  if (staged > adapter->receive_buffer_length) {
+    staged = adapter->receive_buffer_length;
+  }
+  for (unsigned i = 0; i < staged; i++) {
+    adapter->staged[i] = frame[i];
+  }
+  adapter->staged_length = staged;
+  adapter->staged_read = 0;
+  adapter->receive_armed = false;
+  adapter->receive_packets++;
+
+  if (out != NULL) {
+    /* §3.2.2 `38H`: offset, segment, bytes to be DMA'ed, actual packet length,
+     * completion status, 82586 receive status, and a double-word time tag in
+     * 15 us ticks. The time tag is zero: this layer has no clock of its own,
+     * and a tag invented here would be a number with no source. */
+    *out = (ap_3c505_pcb_t){0};
+    out->command = 0x38u;
+    out->length = 0x10u;
+    write_word(out->data, adapter->receive_offset);
+    write_word(out->data + 2, adapter->receive_segment);
+    write_word(out->data + 4, (uint16_t)staged);
+    write_word(out->data + 6, (uint16_t)length);
+    write_word(out->data + 8, 0u);  /* "completion status 0 = successful" */
+    write_word(out->data + 10, 0u); /* 82586 receive status */
+    write_dword(out->data + 12, 0u);
+  }
+  return true;
+}
+
+bool ap_3c505_receive_byte(ap_3c505_adapter_t *adapter, uint8_t *byte) {
+  if (adapter == NULL || adapter->staged_read >= adapter->staged_length) {
+    return false;
+  }
+  if (byte != NULL) {
+    *byte = adapter->staged[adapter->staged_read];
+  }
+  adapter->staged_read++;
+  return true;
 }

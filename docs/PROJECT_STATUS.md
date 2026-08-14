@@ -412,6 +412,39 @@ Last updated: 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The data phase: packets cross, and the wire carries them (2026-08-15)
+
+**`08H` and `09H` work, and neither is a single-PCB command.** §3.2.1 has the
+host download the packet *after* the PCB is accepted -- "When the transmit is
+complete, the Adapter responds with PCB 39H" -- so dispatch answers nothing for
+either and the response comes from the data phase. A model that replied to
+`09H` immediately would put a byte in the command register the host is not
+waiting for, and would report a transmission that had not happened.
+
+Transmit: `09H` arms with offset, segment and length; the frame reaches the wire
+only when its last byte has arrived; `39H` reports offset, segment and the
+completion status §3.2.2 gives as "0 = successful". A card with no wire attached
+is a real state rather than an error -- an unplugged transceiver -- so the frame
+is still accepted and the completion status is where the failure is said. The
+failure *encoding* is not in the manual, so a non-zero word says "failed"
+without claiming to be the adapter's own code.
+
+Receive: `08H` arms with a buffer and a timeout; a frame from the wire is staged
+and `38H` reports it. Two behaviours are the manual's rather than convenient:
+a frame arriving with nothing armed is counted as **no resources** -- §3.2.2's
+`3AH` has exactly that counter, which is what it is for -- and a frame longer
+than the host's buffer is **truncated, not refused**, because "extra packet data
+is discarded" and `38H` reports the DMA'ed length and the actual length
+separately so the host can tell.
+
+The `38H` time tag stays zero: this layer has no clock, and a tag invented here
+would be a number with no source.
+
+*Verification: `etherlink_suite` 32 -> 37, against a recording wire. The test
+that earns its place is that three of a four-byte frame's bytes leave the wire
+untouched -- a model that transmitted per byte, or at PCB time, passes nothing
+else in the suite and fails that.*
+
 ## Command dispatch, and the wire the core does not own (2026-08-15)
 
 **`[DEV]` §3.2's single-PCB commands execute.** `ap_3c505_dispatch` is a pure

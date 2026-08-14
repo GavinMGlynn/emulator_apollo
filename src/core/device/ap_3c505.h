@@ -475,6 +475,12 @@ typedef struct {
 #define AP_3C505_LOOPBACK_SHIFT 3u
 #define AP_3C505_LOOPBACK_MASK 0x18u
 
+
+/* The frame limit is Ethernet's, not the manual's: `[DEV]` gives no maximum
+ * packet size, and 1514 is the Ethernet II maximum without the frame check
+ * sequence. Named as that rather than presented as a figure from the guide. */
+#define AP_3C505_FRAME_MAX 1514u
+
 /* §3.2.1 `0BH`: "The maximum number of addresses in the PCB is ten." */
 #define AP_3C505_MULTICAST_MAX 10u
 #define AP_3C505_ADDRESS_BYTES 6u
@@ -498,10 +504,96 @@ typedef struct {
   uint16_t overrun_errors;
 
   ap_3c505_wire_t wire;
+
+  /* `09H`'s armed transmit: how many bytes the host said it would download, and
+   * what has arrived so far. */
+  bool transmitting;
+  unsigned transmit_length;
+  unsigned transmit_received;
+  uint16_t transmit_offset;
+  uint16_t transmit_segment;
+  uint8_t transmit_buffer[AP_3C505_FRAME_MAX];
+
+  /* `08H`'s armed receive, and the frame staged for upload once one arrives. */
+  bool receive_armed;
+  uint16_t receive_offset;
+  uint16_t receive_segment;
+  uint16_t receive_buffer_length;
+  uint16_t receive_timeout;
+  unsigned staged_length;
+  unsigned staged_read;
+  uint8_t staged[AP_3C505_FRAME_MAX];
 } ap_3c505_adapter_t;
 
 void ap_3c505_adapter_init(ap_3c505_adapter_t *adapter,
                            const uint8_t address[AP_3C505_ADDRESS_BYTES]);
+
+/* ## The data phase, `[DEV]` §3.2.1 `08H` and `09H`
+ *
+ * These two are not single-PCB commands and that is the whole of their
+ * difficulty. `09H`: "If the PCB is accepted, the Host should DMA download the
+ * packet data through the Data Register. When the transmit is complete, the
+ * Adapter responds with PCB 39H." `08H`: "When the receive is complete, the
+ * Adapter responds with PCB 38H ... The Adapter will DMA upload the packet
+ * through the Data Register."
+ *
+ * So each is: a PCB that arms an operation, a bulk transfer over the FIFO in
+ * the direction `DIR` names, and a response PCB at the end. `ap_3c505_dispatch`
+ * answers nothing for either -- the response is produced by the functions
+ * below, when the data has actually moved. */
+
+/* `09H` armed the transmitter; feed it the bytes the host downloads. Returns
+ * true when the last byte has arrived, at which point the frame has been handed
+ * to the wire and `out` is the `39H` completion response. */
+bool ap_3c505_transmit_byte(ap_3c505_adapter_t *adapter, uint8_t byte,
+                            ap_3c505_pcb_t *out);
+
+/* A frame arriving from the wire. Returns true when a receive was armed and the
+ * frame was accepted, at which point `out` is the `38H` response and the frame
+ * is staged for the host to read through the data register.
+ *
+ * "The number of bytes DMA'ed will not exceed the buffer length specified in
+ * the receive packet command PCB 8H; extra packet data is discarded" -- so a
+ * frame longer than the host's buffer is truncated rather than refused, and
+ * `38H` reports the two lengths separately so the host can tell. */
+bool ap_3c505_deliver_frame(ap_3c505_adapter_t *adapter, const uint8_t *frame,
+                            unsigned length, ap_3c505_pcb_t *out);
+
+/* The staged received frame, a byte at a time, as the host reads the data
+ * register. False when there is nothing left. */
+bool ap_3c505_receive_byte(ap_3c505_adapter_t *adapter, uint8_t *byte);
+
+/* Execute one request PCB. Returns true when a response PCB is produced --
+ * `04`-`07` are the transfers that have none, and Table 1's two `n/a` response
+ * codes are the same fact seen from the other side.
+ *
+ * Commands whose response format this project has not read are **refused**
+ * rather than answered with invented contents; §3.1.1's `10` (rejected) is the
+ * protocol's own way to say so. */
+bool ap_3c505_dispatch(ap_3c505_adapter_t *adapter, const ap_3c505_pcb_t *in,
+                       ap_3c505_pcb_t *out);
+
+
+/* `09H` armed the transmitter; feed it the bytes the host downloads. Returns
+ * true when the last byte has arrived, at which point the frame has been handed
+ * to the wire and `out` is the `39H` completion response. */
+bool ap_3c505_transmit_byte(ap_3c505_adapter_t *adapter, uint8_t byte,
+                            ap_3c505_pcb_t *out);
+
+/* A frame arriving from the wire. Returns true when a receive was armed and the
+ * frame was accepted, at which point `out` is the `38H` response and the frame
+ * is staged for the host to read through the data register.
+ *
+ * "The number of bytes DMA'ed will not exceed the buffer length specified in
+ * the receive packet command PCB 8H; extra packet data is discarded" -- so a
+ * frame longer than the host's buffer is truncated rather than refused, and
+ * `38H` reports the two lengths separately so the host can tell. */
+bool ap_3c505_deliver_frame(ap_3c505_adapter_t *adapter, const uint8_t *frame,
+                            unsigned length, ap_3c505_pcb_t *out);
+
+/* The staged received frame, a byte at a time, as the host reads the data
+ * register. False when there is nothing left. */
+bool ap_3c505_receive_byte(ap_3c505_adapter_t *adapter, uint8_t *byte);
 
 /* Execute one request PCB. Returns true when a response PCB is produced --
  * `04`-`07` are the transfers that have none, and Table 1's two `n/a` response

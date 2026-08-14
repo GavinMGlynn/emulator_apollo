@@ -4076,11 +4076,18 @@ discipline throughout.
         `ap_3c505_wire_t` is a context and a `transmit` callback, so `src/core`
         owns no socket and a deterministic capture backend and a live one look
         identical to the device. Detail in `PROJECT_STATUS.md`.
-        *Verification: `etherlink_suite`, 32 tests, including that every
+        *Verification: `etherlink_suite`, 37 tests, including that every
         response dispatch produces agrees with `ap_3c505_response_for`.*
-        **Awaiting:** `08`/`09`'s data phase -- §3.2.1 has the packet cross the
-        data register after the PCB is accepted -- then the board wiring, which
-        must come last because the boot PROM tests a fitted card.
+  - [x] **The data phase, `08H` and `09H`.** Neither is a single-PCB command:
+        the packet crosses the data register *after* the PCB is accepted, and
+        the response comes when it has. A frame reaches the wire only on its
+        last byte; a frame arriving with nothing armed is counted as no
+        resources; one longer than the host's buffer is truncated with both
+        lengths reported. Detail in `PROJECT_STATUS.md`.
+        *Verification: `etherlink_suite`, 37 tests, against a recording wire.*
+        **Awaiting:** the board wiring, which must come last -- the boot PROM
+        tests a fitted card, so a half-modelled one fails where an empty slot
+        correctly reads `FF` and would regress the `login:` boot.
   - [x] `docs/references/ETHERNET.md`, the findings file, written from the
         manual before any code — the map, the 20-byte half duplex data FIFO
         with its `DIR` bit, the five general-purpose status flags the hardware

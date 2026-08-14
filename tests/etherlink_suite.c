@@ -756,6 +756,171 @@ static void test_the_statistics_are_reported_then_cleared(void) {
   TEST_ASSERT_EQUAL_HEX8(0u, out.data[3]);
 }
 
+
+/* A wire that records what it was handed, so a transmit can be checked against
+ * the frame the host actually downloaded. */
+typedef struct {
+  uint8_t frame[AP_3C505_FRAME_MAX];
+  unsigned length;
+  unsigned calls;
+  bool answer;
+} recording_wire_t;
+
+static bool recording_transmit(void *context, const uint8_t *frame,
+                               unsigned length) {
+  recording_wire_t *wire = (recording_wire_t *)context;
+  wire->calls++;
+  wire->length = length;
+  for (unsigned i = 0; i < length && i < AP_3C505_FRAME_MAX; i++) {
+    wire->frame[i] = frame[i];
+  }
+  return wire->answer;
+}
+
+/* **`09H` arms, the data phase transmits, and `39H` reports.** §3.2.1: "If the
+ * PCB is accepted, the Host should DMA download the packet data through the
+ * Data Register. When the transmit is complete, the Adapter responds with PCB
+ * 39H." So dispatch must answer *nothing* for `09H` -- a response then would be
+ * a byte the host is not waiting for -- and the frame must not reach the wire
+ * until its last byte has arrived. */
+static void test_a_transmit_reaches_the_wire_only_when_its_last_byte_does(void) {
+  recording_wire_t wire = {.answer = true};
+  ap_3c505_adapter_t adapter;
+  ap_3c505_adapter_init(&adapter, NULL);
+  adapter.wire.context = &wire;
+  adapter.wire.transmit = recording_transmit;
+
+  ap_3c505_pcb_t in = {.command = AP_3C505_CMD_TRANSMIT_PACKET, .length = 6u};
+  in.data[0] = 0x00u; in.data[1] = 0x20u; /* offset  */
+  in.data[2] = 0x00u; in.data[3] = 0x40u; /* segment */
+  in.data[4] = 4u;    in.data[5] = 0u;    /* packet length */
+
+  ap_3c505_pcb_t out = {0};
+  TEST_ASSERT_FALSE(ap_3c505_dispatch(&adapter, &in, &out));
+  TEST_ASSERT_TRUE(adapter.transmitting);
+
+  const uint8_t frame[4] = {0xDEu, 0xADu, 0xBEu, 0xEFu};
+  for (unsigned i = 0; i < 3u; i++) {
+    TEST_ASSERT_FALSE(ap_3c505_transmit_byte(&adapter, frame[i], &out));
+    TEST_ASSERT_EQUAL_UINT(0u, wire.calls); /* nothing on the wire yet */
+  }
+  TEST_ASSERT_TRUE(ap_3c505_transmit_byte(&adapter, frame[3], &out));
+
+  TEST_ASSERT_EQUAL_UINT(1u, wire.calls);
+  TEST_ASSERT_EQUAL_UINT(4u, wire.length);
+  TEST_ASSERT_EQUAL_HEX8_ARRAY(frame, wire.frame, 4);
+
+  /* §3.2.2 `39H`: offset, segment, completion status, 82586 status. */
+  TEST_ASSERT_EQUAL_HEX8(0x39u, out.command);
+  TEST_ASSERT_EQUAL_HEX8(0x08u, out.length);
+  TEST_ASSERT_EQUAL_HEX8(0x20u, out.data[1]); /* the offset, little-endian */
+  TEST_ASSERT_EQUAL_HEX8(0x00u, out.data[4]); /* "0 = successful" */
+  TEST_ASSERT_EQUAL_HEX8(0x00u, out.data[5]);
+  TEST_ASSERT_EQUAL_UINT(1u, adapter.transmit_packets);
+}
+
+/* A card whose transceiver is unplugged is a real state, not an error: the
+ * frame is still downloaded and `39H` still comes back, carrying a non-zero
+ * completion status. */
+static void test_a_wire_that_refuses_is_reported_in_the_completion_status(void) {
+  recording_wire_t wire = {.answer = false};
+  ap_3c505_adapter_t adapter;
+  ap_3c505_adapter_init(&adapter, NULL);
+  adapter.wire.context = &wire;
+  adapter.wire.transmit = recording_transmit;
+
+  ap_3c505_pcb_t in = {.command = AP_3C505_CMD_TRANSMIT_PACKET, .length = 6u};
+  in.data[4] = 2u;
+  ap_3c505_pcb_t out = {0};
+  TEST_ASSERT_FALSE(ap_3c505_dispatch(&adapter, &in, &out));
+  TEST_ASSERT_FALSE(ap_3c505_transmit_byte(&adapter, 0x01u, &out));
+  TEST_ASSERT_TRUE(ap_3c505_transmit_byte(&adapter, 0x02u, &out));
+
+  TEST_ASSERT_EQUAL_HEX8(0x39u, out.command);
+  TEST_ASSERT_NOT_EQUAL(0u, out.data[4] | out.data[5]);
+  TEST_ASSERT_EQUAL_UINT(0u, adapter.transmit_packets);
+}
+
+/* **A frame with nothing waiting for it is a counted loss, not a delivery.**
+ * §3.2.2 `3AH` has a "no resources error counter", and this is what it counts:
+ * the adapter received a packet and the host had no outstanding `08H`. */
+static void test_a_frame_with_no_receive_armed_counts_as_no_resources(void) {
+  ap_3c505_adapter_t adapter;
+  ap_3c505_adapter_init(&adapter, NULL);
+  const uint8_t frame[4] = {1u, 2u, 3u, 4u};
+  ap_3c505_pcb_t out = {0};
+
+  TEST_ASSERT_FALSE(ap_3c505_deliver_frame(&adapter, frame, 4u, &out));
+  TEST_ASSERT_EQUAL_UINT(1u, adapter.no_resource_errors);
+  TEST_ASSERT_EQUAL_UINT(0u, adapter.receive_packets);
+}
+
+/* `08H` arms, a frame arrives, `38H` reports, and the host reads the frame back
+ * through the data register. */
+static void test_an_armed_receive_stages_the_frame_and_reports_it(void) {
+  ap_3c505_adapter_t adapter;
+  ap_3c505_adapter_init(&adapter, NULL);
+
+  ap_3c505_pcb_t in = {.command = AP_3C505_CMD_RECEIVE_PACKET, .length = 8u};
+  in.data[0] = 0x10u; in.data[1] = 0x00u;  /* offset */
+  in.data[2] = 0x00u; in.data[3] = 0x30u;  /* segment */
+  in.data[4] = 64u;   in.data[5] = 0u;     /* buffer length */
+  in.data[6] = 0u;    in.data[7] = 0u;     /* timeout: zero is no timeout */
+
+  ap_3c505_pcb_t out = {0};
+  TEST_ASSERT_FALSE(ap_3c505_dispatch(&adapter, &in, &out));
+  TEST_ASSERT_TRUE(adapter.receive_armed);
+
+  const uint8_t frame[5] = {0xA0u, 0xA1u, 0xA2u, 0xA3u, 0xA4u};
+  TEST_ASSERT_TRUE(ap_3c505_deliver_frame(&adapter, frame, 5u, &out));
+  TEST_ASSERT_EQUAL_HEX8(0x38u, out.command);
+  TEST_ASSERT_EQUAL_HEX8(0x10u, out.length);
+  TEST_ASSERT_EQUAL_HEX8(5u, out.data[4]); /* bytes to be DMA'ed */
+  TEST_ASSERT_EQUAL_HEX8(5u, out.data[6]); /* actual packet length */
+  TEST_ASSERT_EQUAL_HEX8(0u, out.data[8]); /* completion status */
+  TEST_ASSERT_EQUAL_UINT(1u, adapter.receive_packets);
+
+  uint8_t byte = 0;
+  for (unsigned i = 0; i < 5u; i++) {
+    TEST_ASSERT_TRUE(ap_3c505_receive_byte(&adapter, &byte));
+    TEST_ASSERT_EQUAL_HEX8(frame[i], byte);
+  }
+  TEST_ASSERT_FALSE(ap_3c505_receive_byte(&adapter, &byte));
+
+  /* The request is consumed: one `08H` yields one packet. */
+  TEST_ASSERT_FALSE(adapter.receive_armed);
+  TEST_ASSERT_FALSE(ap_3c505_deliver_frame(&adapter, frame, 5u, &out));
+}
+
+/* "The number of bytes DMA'ed will not exceed the buffer length specified in
+ * the receive packet command PCB 8H; extra packet data is discarded." So an
+ * oversized frame is truncated rather than refused, and `38H` reports the two
+ * lengths separately -- what the host is getting, and what arrived. */
+static void test_a_frame_longer_than_the_buffer_is_truncated_and_both_reported(void) {
+  ap_3c505_adapter_t adapter;
+  ap_3c505_adapter_init(&adapter, NULL);
+
+  ap_3c505_pcb_t in = {.command = AP_3C505_CMD_RECEIVE_PACKET, .length = 8u};
+  in.data[4] = 4u; /* a four-byte buffer */
+  ap_3c505_pcb_t out = {0};
+  TEST_ASSERT_FALSE(ap_3c505_dispatch(&adapter, &in, &out));
+
+  uint8_t frame[10];
+  for (unsigned i = 0; i < 10u; i++) {
+    frame[i] = (uint8_t)(0xB0u + i);
+  }
+  TEST_ASSERT_TRUE(ap_3c505_deliver_frame(&adapter, frame, 10u, &out));
+  TEST_ASSERT_EQUAL_HEX8(4u, out.data[4]);  /* DMA'ed */
+  TEST_ASSERT_EQUAL_HEX8(10u, out.data[6]); /* actually arrived */
+
+  uint8_t byte = 0;
+  for (unsigned i = 0; i < 4u; i++) {
+    TEST_ASSERT_TRUE(ap_3c505_receive_byte(&adapter, &byte));
+    TEST_ASSERT_EQUAL_HEX8(frame[i], byte);
+  }
+  TEST_ASSERT_FALSE(ap_3c505_receive_byte(&adapter, &byte));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_card_answers_sixteen_locations_from_its_jumpered_base);
@@ -790,5 +955,10 @@ int main(void) {
   RUN_TEST(test_the_receive_mode_is_kept_as_the_host_set_it);
   RUN_TEST(test_the_multicast_list_loads_and_a_zero_length_clears_it);
   RUN_TEST(test_the_statistics_are_reported_then_cleared);
+  RUN_TEST(test_a_transmit_reaches_the_wire_only_when_its_last_byte_does);
+  RUN_TEST(test_a_wire_that_refuses_is_reported_in_the_completion_status);
+  RUN_TEST(test_a_frame_with_no_receive_armed_counts_as_no_resources);
+  RUN_TEST(test_an_armed_receive_stages_the_frame_and_reports_it);
+  RUN_TEST(test_a_frame_longer_than_the_buffer_is_truncated_and_both_reported);
   return UNITY_END();
 }
