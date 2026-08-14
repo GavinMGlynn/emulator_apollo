@@ -446,7 +446,14 @@ and a slot, and a host-issued reset cannot change either.
 PCB protocol is implemented host-side is still open, and this structure does not
 prejudge it, which is why the interface was built before it.
 
-*Verification: `etherlink_suite` 12 -> 19. The direction-change test was checked
+**And it agrees with the only oracle traffic this card has.** `ETHERNET.md`
+finding 10a tapped the option ROM probing an idle card and caught `C0` with
+`DIR` clear and `50` with `DIR` set; this model, built from the manual and
+knowing nothing of that capture, returns both byte for byte. The two differ in
+three bits, and `HRDY`'s sense -- which means opposite things by direction -- is
+the one that would swap them, so it is a check and not a fit.
+
+*Verification: `etherlink_suite` 12 -> 20. The direction-change test was checked
 to fail against a model that keeps the FIFO across the turn.*
 
 ## The SC499's flag is a level, and the latch evidence was a polarity misreading

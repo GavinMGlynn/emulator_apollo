@@ -69,7 +69,14 @@ interrupts; ch. 3 host software interface.
 
 ## Divergences from the oracle
 
-None yet: nothing is implemented.
+None. The host-adapter mailbox is implemented (`device/ap_3c505.c`) and agrees
+with the only oracle traffic captured for this card: finding 10a's probe cycle.
+An idle card built from `[DEV]` and `[HIS]` alone answers `C0` with `DIR` clear
+and `50` with `DIR` set, byte for byte, and `etherlink_suite` asserts it.
+
+That is a check rather than a fit -- the model knows nothing of the measurement,
+and the two bytes differ in three bits, so `HRDY`'s direction-dependent sense
+(the easy thing to get backwards) would swap them.
 
 ## `[HIS]` IS FOUND: 1569-03, *EtherLink Plus Technical Reference*, Jan 1989
 

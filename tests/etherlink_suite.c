@@ -383,6 +383,41 @@ static void test_each_interrupt_needs_its_own_enable(void) {
   TEST_ASSERT_TRUE(ap_3c505_host_status(&card) & AP_3C505_HSR_DONE);
 }
 
+
+/* **The option ROM's probe, byte for byte, against traffic measured a day
+ * before this model existed.**
+ *
+ * `ETHERNET.md` finding 10a tapped the oracle at physical `058000`-`05800F` and
+ * caught the card's own option ROM in a four-step cycle: a read-modify-write at
+ * `+6` that alternately clears and sets bit 4, then a read of `+2` returning
+ * `C0` while that bit is clear and `50` while it is set. Finding 10c decoded
+ * those against `[HIS]`: bit 4 is `DIR`, and the two bytes are what an **empty
+ * FIFO** reads in the two directions -- on a download `HRDY` set means "not
+ * full, send more", on an upload `HRDY` clear means "empty, nothing to read",
+ * with `HCRE` set throughout because the host has written no command.
+ *
+ * This model was built from the manual and knows nothing of that measurement,
+ * so the two agreeing is a real check rather than a fit. It is also the
+ * strongest test available for the derived-status design: `C0` and `50` differ
+ * in three bits, and getting `HRDY`'s sense backwards -- the easy mistake, since
+ * "ready" means opposite things by direction -- produces `50` and `C0` swapped.
+ */
+static void test_an_idle_card_answers_the_probe_the_oracle_measured(void) {
+  ap_3c505_t card;
+  ap_3c505_reset(&card);
+
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, 0u);
+  TEST_ASSERT_EQUAL_HEX8(0xC0u, ap_3c505_read(&card, AP_3C505_REG_STATUS));
+
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, AP_3C505_HCR_DIR);
+  TEST_ASSERT_EQUAL_HEX8(0x50u, ap_3c505_read(&card, AP_3C505_REG_STATUS));
+
+  /* And the ROM's own step: `+6` is a read-modify-write on Rev 3 hardware, so
+   * the value it reads back has to be the one it wrote. */
+  TEST_ASSERT_EQUAL_HEX8(AP_3C505_HCR_DIR,
+                         ap_3c505_read(&card, AP_3C505_REG_CONTROL));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_card_answers_sixteen_locations_from_its_jumpered_base);
@@ -404,5 +439,6 @@ int main(void) {
   RUN_TEST(test_the_hard_reset_clears_the_mailbox_but_not_the_strapping);
   RUN_TEST(test_the_general_purpose_flags_pass_through_uninterpreted);
   RUN_TEST(test_each_interrupt_needs_its_own_enable);
+  RUN_TEST(test_an_idle_card_answers_the_probe_the_oracle_measured);
   return UNITY_END();
 }
