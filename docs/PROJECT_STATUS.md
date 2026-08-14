@@ -1006,6 +1006,30 @@ cannot reach it -- so Domain/OS repairs B and C, which were only faulted because
 `fill_to_decoded` kept prefetching, `RTE`s, and the word at `3B5AC3FE` is still
 missing. That is the loop, and every measured number in it now has a reason.
 
+**And `[030]` p. 8-27 gives the rule that makes this concrete**: "the address of
+the pipe stage B word is the value in the program counter plus four, and the
+address of the stage C word is the value in the program counter [plus two] ...
+the address of the stage C word is the address of the stage B word minus two."
+
+    stage B word = PC + 4        stage C word = PC + 2
+
+So the kernel probing `PC+4` is repairing **stage B**, and for that repair to fix
+the word that faulted, the stacked PC must be **four bytes behind** it. This core
+stacks the faulted word's *own* address -- `3B5AC3FE` in every field of the frame
+-- which puts it at `PC+0`, a position neither stage image can describe. That is
+the defect, stated exactly: **the stacked PC for a deferred prefetch fault must
+be the instruction being executed, not the word that could not be fetched**, so
+that the missing word falls at `PC+2` or `PC+4`.
+
+Which also explains the shape of the earlier fix and its limit. Before the
+deferral change the fault was raised at prefetch time, while the *previous*
+instruction was still executing -- so the stacked PC was behind the faulted word,
+as it should be, and that is why some faults recovered then. The deferral change
+corrected *when* the fault is taken and simultaneously moved the stacked PC onto
+the faulted word, which is why it cut faults 58 M -> 1,993 and left a storm
+behind rather than none. Both halves have to hold at once: deferred to the point
+of use, *and* stacking the executing instruction's PC.
+
 **So the fault must be taken while the faulted word is still in B or C.** That is
 one statement about the fetch/pipe interaction, and it subsumes both readings
 above: not advancing past a faulted stage keeps the word where the frame can
