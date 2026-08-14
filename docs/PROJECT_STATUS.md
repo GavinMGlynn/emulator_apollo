@@ -1101,7 +1101,21 @@ target, where there is no preceding instruction for it to lie four bytes
 ahead of?** `3B5AC3FE` is reached by `BRA.W` from `3B5ABBF4`, so on the hardware
 the pipe is refilled from the target and the first fetch is the one that fails.
 Figures 8-6 and 8-7 on the pipe after a change of flow are where that is
-settled. Either such a fault is reported some other way,
+settled -- and a text search of §8.2's pages for a branch or change-of-flow case
+finds nothing, so it may not be described in prose at all. That absence is itself
+a hint: the part may simply never present this state, taking the fault before the
+`PC` becomes the target, in which case this core's whole handling of a fetch
+fault on a branch target is wrong rather than mis-encoded.
+
+One further measurement narrows it at no cost, and should be first next session:
+`3B5AC3FE` is the **last word of its page**, so both `PC+2` and `PC+4` land in
+the next page. That explains why clearing the stage bits did not change the
+result -- both offsets probe the wrong page for *this* fault, so the encoding
+looked irrelevant when it was merely insufficient. A faulting instruction in the
+*middle* of a page would have `PC+2`/`PC+4` still inside it, and the kernel would
+probe correctly. If the 1,702 recovering faults are all mid-page and the storming
+ones all page-final, that confirms the geometry is the whole story and tells the
+next attempt exactly which case to model. Either such a fault is reported some other way,
 or the pipe is never in that state on real hardware because a branch to an
 unmapped page faults before the target's word is ever needed. Both would change
 what this core does far more than the PC selection would. Figures 8-6 and 8-7 and
