@@ -412,6 +412,69 @@ Last updated: 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The page-table slot's writers, named on both machines (2026-08-15)
+
+**The instrument that was said not to exist now does, and it is offline.**
+`tools/oracle_walk.py` walks the oracle's MMU tables and reads its RAM out of a
+`statesync.lua` state dump -- the registry already carries all 16 Mbyte as
+`memory/:maincpu/0/:ram.0.<n>` plus `m_mmu_{crp,srp,tc}`, so "what does the
+oracle translate this to, and what bytes are there" costs a `grep`, not a run.
+Validated against two pairs this project measured the expensive way: logical
+`3C2B50C0` -> physical `012B08C0`, and `3B5AC3FE`'s descriptor at **`012953C0`**,
+the same address our own walk reports.
+
+Two traps in writing it, both from `[030]` §9.5.1.1 and both silent:
+
+  - **the DT of a descriptor names the size of the descriptors in the table it
+    points at**, not its own, so the stride is carried *down* the walk;
+  - **which long word of a long-format descriptor holds the address is decided
+    by the format of the descriptor just read**, not by the DT it carries.
+    Conflating them walks into the wrong table on the first long descriptor, and
+    Domain/OS's level 0 is long.
+
+**The oracle's whole write sequence to `012953C0`**, from a write tap
+(`APOLLO_SYNC_WRITE`, `APOLLO_SYNC_COUNT=9999`), with `kernel_symbols`:
+
+    10  00047AE6  long  FM_$READ+138          the raw block number, copied
+    11  11EB9AE6  long  AST_$LOAD_AOTE+43C    block shifted into the page field
+    12  ....9800  word  AST_$LOAD_AOTE+442    the low ten bits cleared
+    13  ..9A....  byte  AST_$TOUCH+230
+    14  017DFE00  long  AST_$TOUCH+46E        made resident
+    15-19 byte tweaks   AST_$TOUCH+490 ff.    ending 017DFD09
+
+So the missing stage has a name and an address. Reading the instructions there,
+through the walker, gives the loop exactly:
+
+    3C40372A  3001            MOVE.W  D1,D0
+    3C40372C  48C0            EXT.L   D0
+    3C40372E  E9F2 605F 0C00  BFEXTU  (0,A2,D0.L*4){1:31},D6
+    3C403734  EFF2 6055 0C00  BFINS   D6,(0,A2,D0.L*4){1:21}
+    3C40373A  0272 FC00 0C02  ANDI.W  #$FC00,(2,A2,D0.L*4)
+    3C403740  5241            ADDQ.W  #1,D1
+    3C403742  51CB FFE6       DBF     D3,$3C40372A
+
+`D3` is 31, so it converts **32 page-table entries** in a row: extract the
+31-bit field, insert it back as 21 bits -- which is a shift left by ten that
+preserves bit 31 and the low ten -- then clear the low ten with the `ANDI.W`.
+`0x47AE6 << 10` is `0x11EB9800`, and the "coincidence" that our slot's high byte
+and the oracle's agree is not one: `0x11` is `block >> 14`, produced by the same
+shift.
+
+**And this core executes both instructions correctly.** `step_suite` +2, over
+the guest's own encoding rather than a convenient one -- `(d8,An,Xn*4)` with the
+brief extension `$0C00`, which is what `EFF2`/`E9F2` name; every bit-field test
+before them used `(An)`. `BFINS D6,(0,A2,D0.L){1:21}` over `00047AE6` gives
+`11EB9AE6`, and the extract gives back `00047AE6`. So the three-byte span is not
+mis-modelled and the defect is not here.
+
+Two things this retires. `EFF2` is **not** `$0C00(A2)`: mode 110 is
+`(d8,An,Xn)`, and the first attempt at these tests encoded `(d16,An)`, failed
+for that reason alone, and looked exactly like the defect it was hunting. And
+the release binary in `build/` was **a reverted experiment**, not the committed
+core -- its fault sites were the `00800010` / `3B377FF0` crash this file records
+as reverted, and two boots were spent on it. A measurement's binary is part of
+its invocation.
+
 ## The FP trap survived a status write, and that was the fatal (2026-08-14)
 
 **Fixed.** `AP_BOARDREG_STATUS_WRITE_KEEPS` kept `STATUS_FP_TRAP` across a write
@@ -4346,7 +4409,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 state hash (the identity harness's CPU half) | working: every architectural register, the MMU and cache control registers, the pipe, both caches, the ATC, and the accumulated clock — host pointers excluded by construction, since `ap_hash.h` has no pointer helper | `state_suite`, 12 tests sweeping every field; `step_suite`'s same-program-twice check |
 | 68030 addressing mode categories (Data / Memory / Control / Alterable) | working; derived from §2.3's definitions rather than transcribed from Table 2-4, whose Alterable column is exchanged between two row pairs in the scan | `category_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §2.3 |
 | 68030 operand access (read/write through an effective address) | working; a sub-long-word operand is selected from the long word by position, and one straddling two long words is split into a bus cycle per long word in address order | `operand_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` |
-| 68030 instruction step (fetch → decode → execute → advance) | working for `NOP`, `MOVEQ`, 8-bit `BRA`/`Bcc`, `MOVE`/`MOVEA`, the six ALU operations, the `xxxI` immediate forms, `CLR`/`NEG`/`NOT`/`TST`, `ADDQ`/`SUBQ`/`Scc`/`DBcc`, `ADDA`/`SUBA`/`CMPA`, `BTST`/`BCHG`/`BCLR`/`BSET`, the shifts and rotates, `MULU`/`MULS` and `DIVU`/`DIVS` at both the word and the 68020's 32-bit widths, `ADDX`/`SUBX`/`ABCD`/`SBCD` in both the register and the `-(An),-(An)` forms, `CMPM` and all three `EXG` exchanges; everything else reports unimplemented, including divide-by-zero, which needs the exception machinery | `step_suite`, 293 tests |
+| 68030 instruction step (fetch → decode → execute → advance) | working for `NOP`, `MOVEQ`, 8-bit `BRA`/`Bcc`, `MOVE`/`MOVEA`, the six ALU operations, the `xxxI` immediate forms, `CLR`/`NEG`/`NOT`/`TST`, `ADDQ`/`SUBQ`/`Scc`/`DBcc`, `ADDA`/`SUBA`/`CMPA`, `BTST`/`BCHG`/`BCLR`/`BSET`, the shifts and rotates, `MULU`/`MULS` and `DIVU`/`DIVS` at both the word and the 68020's 32-bit widths, `ADDX`/`SUBX`/`ABCD`/`SBCD` in both the register and the `-(An),-(An)` forms, `CMPM` and all three `EXG` exchanges; everything else reports unimplemented, including divide-by-zero, which needs the exception machinery | `step_suite`, 295 tests |
 | 68030 instruction prefetch (pipe driven from memory) | working | `fetch_suite`, 5 tests, `MC68030 User's Manual 3ed` §11.2.2 and §6.1 |
 | 68030 logical memory access path (cache → MMU → bus) | working, reads and writes | `access_suite`, 16 tests, `MC68030 User's Manual 3ed` §6.1 |
 | 68030 effective address calculation (with register side effects) | working; memory-indirect modes report the pending indirection | `addr_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` §2.2 |
@@ -4361,7 +4424,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 family 0100 `$4E` control group (TRAP/LINK/UNLK/MOVE USP/RESET/NOP/STOP/RTE/RTD/RTS/TRAPV/RTR/JSR/JMP) | working; the rest of family 0100 not yet decoded | `control_suite`, 11 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 |
 | 68030 family 0101 (ADDQ/SUBQ/Scc/DBcc/TRAPcc) decode | working | `quick_suite`, 10 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and each instruction page |
 | 68030 branch family (Bcc/BSR/BRA) decode | working | `branch_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and the Bcc/BRA/BSR pages |
-| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 293 tests, and the per-subsystem suites |
+| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 295 tests, and the per-subsystem suites |
 | 68030 operation code map (top-level instruction family) | working | `opcode_suite`, 6 tests, `M68000 Family Programmer's Reference Manual 1992` Table 8-2 |
 | 68030 conditional tests (the 16 Bcc/Scc/DBcc/TRAPcc conditions) | working | `cond_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-19 |
 | 68030 effective address decode (modes, extension words, lengths) | decode and extension-word counts working; address *calculation* needs the instruction unit | `ea_suite`, 17 tests, `M68000 Family Programmer's Reference Manual 1992` §2, Tables 2-1, 2-2, 2-4 |

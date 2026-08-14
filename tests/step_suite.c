@@ -4927,6 +4927,54 @@ static void test_the_bit_field_operations_each_touch_only_their_field(void) {
   }
 }
 
+/* **The guest's own `BFINS`, over a displaced address register.**
+ *
+ * `AST_$LOAD_AOTE+43C` is `BFINS D6,(0,A2,D0.L){1:21}`, and it is how Domain/OS
+ * turns a page-table slot holding a raw disk block number into an invalid page
+ * descriptor carrying that block in its page-address field: read the field with
+ * `BFEXTU ...{1:31}`, insert it back as `{1:21}`, which shifts it left by ten
+ * and leaves bit 31 and the low ten bits alone.
+ *
+ * It is here because the oracle performs it and this core's slot ends up
+ * `11047AE6` where the oracle's is `11EB9AE6` -- the same first byte and the
+ * original bytes underneath it. The field spans three bytes, so a model that
+ * wrote only the byte the field starts in would produce exactly that.
+ *
+ * The mode matters as much as the operation: every bit-field test above this
+ * one uses `(A0)`, and `(d16,An)` is what the guest actually encodes. */
+static void test_a_bit_field_insert_spans_every_byte_the_field_touches(void) {
+  /* BFINS D6,(0,A2,D0.L){1:21} -- mode 110 register 2, brief extension $0C00:
+   * index D0, long, scale 1, displacement 0. */
+  static const uint16_t program[] = {0xEFF2u, 0x0000u, 0x0C00u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  write_ram_word(&m, PROGRAM_BASE + 2u, bitfield_extension(6, 0, 1, 0, 21));
+  write_ram_long(&m, 0x00005000u, 0x00047AE6u);
+  m.cpu.regs.a[2] = 0x00005000u;
+  m.cpu.regs.d[0] = 0u;
+  m.cpu.regs.d[6] = 0x00047AE6u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x11EB9AE6u, read_ram_long(&m, 0x00005000u));
+}
+
+/* The read half of the same pair, and the reason the insert has anything to
+ * insert: `BFEXTU $0C00(A2){1:31},D6` takes the whole longword bar its top bit,
+ * which for `00047AE6` is the block number itself. */
+static void test_a_bit_field_extract_over_a_displaced_address_register(void) {
+  /* BFEXTU (0,A2,D0.L){1:31},D6 */
+  static const uint16_t program[] = {0xE9F2u, 0x0000u, 0x0C00u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  write_ram_word(&m, PROGRAM_BASE + 2u, bitfield_extension(6, 0, 1, 0, 31));
+  write_ram_long(&m, 0x00005000u, 0x00047AE6u);
+  m.cpu.regs.a[2] = 0x00005000u;
+  m.cpu.regs.d[0] = 0u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x00047AE6u, m.cpu.regs.d[6]);
+}
+
 /* **`MOVEP` moves alternate bytes, high-order first.** `[PRM]` p. 4-131:
  * "Moves data between a data register and alternate bytes within the address
  * space starting at the location specified and incrementing by two. The
@@ -8682,6 +8730,8 @@ int main(void) {
   RUN_TEST(test_a_negative_bit_field_offset_reaches_the_previous_byte);
   RUN_TEST(test_a_data_register_bit_field_wraps_around);
   RUN_TEST(test_the_bit_field_operations_each_touch_only_their_field);
+  RUN_TEST(test_a_bit_field_insert_spans_every_byte_the_field_touches);
+  RUN_TEST(test_a_bit_field_extract_over_a_displaced_address_register);
   RUN_TEST(test_movep_writes_alternate_bytes_high_order_first);
   RUN_TEST(test_movep_word_preserves_the_upper_half_and_the_flags);
   RUN_TEST(test_addq_reaches_an_address_register_but_not_at_byte_size);
