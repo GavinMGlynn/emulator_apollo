@@ -768,7 +768,33 @@ honest reading is that the access walk **never entered `ROLE_INDIRECT`**, so the
 descriptor it saw was not `DT = 2` -- while the write watch says `012953C0`'s
 last write was at 662.7 M and the walk ran at 2.5 G, so the two should agree and
 do not. Reconcile that first, and it is cheap: dump the descriptor and walk the
-address **in the same run**. One of those two observations is of a different
+address **in the same run**.
+
+**Done, and it demolishes the malformed-descriptor line entirely.** In one run:
+
+    012953C0  11 EB 98 00
+    walk 3B5AC3FE    STOPPED after 3 level(s), last descriptor at 012953C0
+
+Our descriptor **is** `11EB9800` -- byte for byte the oracle's -- with `DT = 0`,
+honestly invalid, and the walk stops on it correctly with no bus error. There is
+no `0x11047AE6` in this machine. That value came from pairing a write-watch log
+with a walk taken in a *different run*, and the byte `11` written by
+`AST_$LOAD_AOTE+43C` is part of the correct `11EB9800`, not a stray high byte on
+a raw block number. **Everything above about a malformed descriptor, a missing
+shift, an indirect pointer outside RAM, and `DT = 2` is withdrawn.** So are the
+`ROLE_INDIRECT` and `update_history` questions, which were only ever reachable
+through `DT = 2`.
+
+What survives, and it is now the whole of it: the walk ends **invalid**, and the
+storm's `MMUSR` reads `0803` -- `W` set, `I` **clear**. This core reports a
+valid, write-protected translation for a search that failed as invalid, so the
+kernel is told there is nothing to fetch and flushes and retries for ever. The
+1,702 reads of `0403` show `I` reported correctly elsewhere, so the fault is in
+how `MMUSR` is assembled for *this* search, not in the walk that produced it.
+`ap_m68030_mmusr_from_search` and the `invalid` expression it builds are the
+code; `W` presumably arrives through `search_accumulate` from a higher-level
+descriptor's write-protect bit, which is legitimate, while `I` going missing is
+not. One of those two observations is of a different
 machine state than it appears to be, and every conclusion drawn by pairing them
 -- the `DT = 2` reading included -- is suspect until that is settled.
 
