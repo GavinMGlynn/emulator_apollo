@@ -811,7 +811,17 @@ PC, and the deferral fix changed when that PC is sampled.
 
 The measurement is small and does not need the oracle: log the `PTEST`'s operand
 address at `3C42CE2A` -- its effective address is `(A0)` -- and compare it with
-`3B5AC3FE`. If they differ, the frame is wrong and that is the fifth defect. The
+`3B5AC3FE`.
+
+**Attempted and cut short; rerun it with a wider bound.**
+`--boot-limit 734644900 --boot-log-pc 3C42CE2A` gives 601 probes whose last
+complete entry is at 584,761,337 (`a0 = 3B403C00`), and the storm's first fault
+is at **734,644,842** -- so the limit left only 58 instructions, and the
+handler's `PTEST` had not run when the boot stopped. Nothing in that log is a
+storm probe, and the pre-storm addresses in it (`3B403C00`, `3B3D8000`,
+`0081F8BC` ...) say nothing about this question. Use `--boot-limit 734650000`,
+which leaves ~5,000 instructions -- four or five cycles of the 1,078-instruction
+loop -- and take `a0` from any entry past 734,644,842. If they differ, the frame is wrong and that is the fifth defect. The
 `0403` faults, which recover, would then be the cases where the two happen to
 coincide. One of those two observations is of a different
 machine state than it appears to be, and every conclusion drawn by pairing them
