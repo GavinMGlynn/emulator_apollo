@@ -871,10 +871,34 @@ divergence happens later.
 
 Which means the `+4` is real -- the kernel demonstrably probes `3B5AC402` for a
 fault at `3B5AC3FE` -- but *where* the address gains it is not yet known, and
-the guess that it is `regs.pc` at frame-build time is wrong. Find it by
-instrumenting the frame itself: print `stacked_pc`, `instruction_address`,
-`regs.pc` and `fault_address` at `take_bus_fault_with` for this fault and see
-which of them is `3B5AC402`. Do that before changing any of them again. If they differ, the frame is wrong and that is the fifth defect. The
+the guess that it is `regs.pc` at frame-build time is wrong. Done, and **none of them is**:
+
+    FRAME stacked=3B5AC3FE instr=3B5AC3FE pc=3B5AC3FE fault=3B5AC3FE istream=1
+
+Every field this core stacks is `3B5AC3FE`, the faulting instruction, and
+`istream` is set -- so the reverted fix was a no-op because
+`instruction_address` already equalled `regs.pc`, not because the flag was
+clear. **`3B5AC402` is nowhere in the frame.**
+
+So the `+4` is the kernel's own arithmetic on what we hand it, and the defect is
+in the frame's *shape* or its `SSW`, not in its addresses. Two candidates, and
+they are cheap to separate against `[030]` Table 8-6 and Figure 8-9 rather than
+against another boot:
+
+  * **The stacked PC's meaning.** Table 8-6 says the short frame stacks the
+    *next* instruction. This core stacks the faulting one. For a prefetch that
+    never arrived those coincide only if "next" means the word that could not be
+    fetched; if the hardware instead stacks the instruction *after* it, a kernel
+    reading our frame is one instruction behind and computes forward -- which is
+    exactly a `+4` on a two-word instruction.
+  * **A field offset.** If any word of the sixteen sits at the wrong place, the
+    kernel reads a neighbour. The frame builder writes `SR`, `PC`, format/vector,
+    `SSW`, pipe stages B and C, fault address and `DOB`; only `SSW` and the fault
+    address have been checked against the figure by value.
+
+Check the first against Table 8-6's own wording before touching anything: this
+core's reading of "next instruction" for a deferred prefetch fault has never
+been verified against the page image, only reasoned about. If they differ, the frame is wrong and that is the fifth defect. The
 `0403` faults, which recover, would then be the cases where the two happen to
 coincide. One of those two observations is of a different
 machine state than it appears to be, and every conclusion drawn by pairing them
