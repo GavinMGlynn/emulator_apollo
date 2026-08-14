@@ -556,6 +556,20 @@ and the F-line that exposed the FP-trap bug was at `3B5AA42C`, the same
 `3B5Axxxx` module, which is a thread worth pulling before instrumenting
 anything.
 
+**And it is *not* the `0081B000` pattern -- measured.** The approach is
+`3B5ABBF4 6000 BRA.W` with displacement `$0808`, branching forward inside the
+*same* module to `3B5AC3FE`: ordinary intra-module code flow, not a thunk and
+not a computed pointer. So unlike `0081B000`, where the oracle showed we were
+executing where the machine never goes, here a running module branches into its
+own next page and the kernel will not make it resident. That is a genuine paging
+failure and the first one this project has had cause to call one.
+
+Where to start: the page is `3B5AC000`, descriptor `012953C0`, and the module is
+the same `3B5Axxxx` whose F-line at `3B5AA42C` exposed the FP-trap bug. Watch
+`012953C0` across the boot as `0129C1B0` was watched -- 16 writes named the
+loader and the backing block last time -- and compare against a resident
+neighbour in the same table.
+
 ## The boot's fatal was a livelock, and the framebuffer PNG works (2026-08-14)
 
 **How far it gets.** `tools/e0007-boot.sh --screenshot FILE` decodes the screen,
