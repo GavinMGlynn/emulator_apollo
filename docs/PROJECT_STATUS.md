@@ -412,6 +412,42 @@ Last updated: 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## A faulted extension word named the wrong address, and the wrong frame
+## (2026-08-15)
+
+**The storm the last fix uncovered, and it is two more defects in the same
+frame.** With the SSW carrying the cycle, the boot moved from `3B5AC3FE` to
+`PC 0081CBFE` reading `0081CC00` -- again the last word of a 1 KB page, again
+reaching into the next. The oracle takes this fault too, and recovers:
+
+    SR 0000   PC 0081CBFE   format/vector B008   SSW 0162   fault addr 0081CC00
+
+Same special status word as the opcode case, **different frame**. That is Table
+8-6's own split, and it is by where the execution unit stands rather than by
+what faulted: `A` is "Execution Unit at Instruction Boundary" -- an opcode fetch,
+nothing begun -- and `B` is "Instruction Execution in Progress", which an
+extension word always is. The SSW is identical in both, so it cannot choose;
+only the caller's two addresses can, and the fault is at a boundary exactly when
+the word that could not be read *is* the instruction.
+
+**And the fault address was the opcode's.** `next_word` recorded
+`fault_address = regs.pc` for a faulted extension word -- the address of a word
+that had just been read *successfully*, in a page resident by definition. A
+handler pages in the fault address, so Domain/OS was sent to make resident
+something already resident: it `PTEST`ed, `MMUSR` answered `0803` (valid, write
+protected), it concluded the fault was spurious, flushed, `RTE`d, and faulted
+again. **17,274,069 of the boot's 17,274,481 faults were that loop**, and the
+`0803` this file has been recording since the storm began was the machine
+answering a question about the wrong page.
+
+The address is `PC + 2 + 2 * extension_words`, the arithmetic three other sites
+in the same file already use for the next extension word.
+
+*Verification: `step_suite` +1 and `ssw_suite` +1, both written from the
+oracle's measured frames rather than from the model -- the step-level test plants
+`MOVE.W #imm,D0` across a page boundary and requires the long frame, the stacked
+PC of the instruction, and `0000C000` in the fault-address field. 136/136.*
+
 ## The SSW never described the faulted cycle, and `3B5AC3FE` is closed
 ## (2026-08-15)
 
@@ -4507,7 +4543,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 state hash (the identity harness's CPU half) | working: every architectural register, the MMU and cache control registers, the pipe, both caches, the ATC, and the accumulated clock — host pointers excluded by construction, since `ap_hash.h` has no pointer helper | `state_suite`, 12 tests sweeping every field; `step_suite`'s same-program-twice check |
 | 68030 addressing mode categories (Data / Memory / Control / Alterable) | working; derived from §2.3's definitions rather than transcribed from Table 2-4, whose Alterable column is exchanged between two row pairs in the scan | `category_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §2.3 |
 | 68030 operand access (read/write through an effective address) | working; a sub-long-word operand is selected from the long word by position, and one straddling two long words is split into a bus cycle per long word in address order | `operand_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` |
-| 68030 instruction step (fetch → decode → execute → advance) | working for `NOP`, `MOVEQ`, 8-bit `BRA`/`Bcc`, `MOVE`/`MOVEA`, the six ALU operations, the `xxxI` immediate forms, `CLR`/`NEG`/`NOT`/`TST`, `ADDQ`/`SUBQ`/`Scc`/`DBcc`, `ADDA`/`SUBA`/`CMPA`, `BTST`/`BCHG`/`BCLR`/`BSET`, the shifts and rotates, `MULU`/`MULS` and `DIVU`/`DIVS` at both the word and the 68020's 32-bit widths, `ADDX`/`SUBX`/`ABCD`/`SBCD` in both the register and the `-(An),-(An)` forms, `CMPM` and all three `EXG` exchanges; everything else reports unimplemented, including divide-by-zero, which needs the exception machinery | `step_suite`, 295 tests |
+| 68030 instruction step (fetch → decode → execute → advance) | working for `NOP`, `MOVEQ`, 8-bit `BRA`/`Bcc`, `MOVE`/`MOVEA`, the six ALU operations, the `xxxI` immediate forms, `CLR`/`NEG`/`NOT`/`TST`, `ADDQ`/`SUBQ`/`Scc`/`DBcc`, `ADDA`/`SUBA`/`CMPA`, `BTST`/`BCHG`/`BCLR`/`BSET`, the shifts and rotates, `MULU`/`MULS` and `DIVU`/`DIVS` at both the word and the 68020's 32-bit widths, `ADDX`/`SUBX`/`ABCD`/`SBCD` in both the register and the `-(An),-(An)` forms, `CMPM` and all three `EXG` exchanges; everything else reports unimplemented, including divide-by-zero, which needs the exception machinery | `step_suite`, 296 tests |
 | 68030 instruction prefetch (pipe driven from memory) | working | `fetch_suite`, 5 tests, `MC68030 User's Manual 3ed` §11.2.2 and §6.1 |
 | 68030 logical memory access path (cache → MMU → bus) | working, reads and writes | `access_suite`, 16 tests, `MC68030 User's Manual 3ed` §6.1 |
 | 68030 effective address calculation (with register side effects) | working; memory-indirect modes report the pending indirection | `addr_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` §2.2 |
@@ -4522,13 +4558,13 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 family 0100 `$4E` control group (TRAP/LINK/UNLK/MOVE USP/RESET/NOP/STOP/RTE/RTD/RTS/TRAPV/RTR/JSR/JMP) | working; the rest of family 0100 not yet decoded | `control_suite`, 11 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 |
 | 68030 family 0101 (ADDQ/SUBQ/Scc/DBcc/TRAPcc) decode | working | `quick_suite`, 10 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and each instruction page |
 | 68030 branch family (Bcc/BSR/BRA) decode | working | `branch_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and the Bcc/BRA/BSR pages |
-| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 295 tests, and the per-subsystem suites |
+| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 296 tests, and the per-subsystem suites |
 | 68030 operation code map (top-level instruction family) | working | `opcode_suite`, 6 tests, `M68000 Family Programmer's Reference Manual 1992` Table 8-2 |
 | 68030 conditional tests (the 16 Bcc/Scc/DBcc/TRAPcc conditions) | working | `cond_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-19 |
 | 68030 effective address decode (modes, extension words, lengths) | decode and extension-word counts working; address *calculation* needs the instruction unit | `ea_suite`, 17 tests, `M68000 Family Programmer's Reference Manual 1992` §2, Tables 2-1, 2-2, 2-4 |
 | 68030 programming model (registers, SR, three stack pointers) | working | `regs_suite`, 10 tests, `MC68030 User's Manual 3ed` §1.3 and `M68000 Family Programmer's Reference Manual 1992` §1.3.2 |
 | 68030 exception vectors, priority and stack frames | working; taking an exception needs the instruction unit | `exception_suite`, 16 tests, `MC68030 User's Manual 3ed` §8, Tables 8-1, 8-5, 8-6 |
-| 68030 special status word and bus fault frame layout | working: Figure 8-9's bits, the SIZ1/SIZ0 size code that counts bytes *remaining*, FC2-FC0, and Table 8-6's field offsets for both fault frames. The encoder enforces "a rerun bit is always set when the corresponding fault bit is set", while leaving a rerun *without* a fault expressible because that is how an address error is told from a bus error. The frame is chosen **from the SSW**, not passed in: §8.2.2's "data read faults only generate the long bus fault frame" is structural, since the short frame has no data input buffer for the handler to write the faulted read's value into. Fields Table 8-6 labels INTERNAL REGISTER are deliberately unnamed — this model has no source for them. **Wired into the taker**: `ap_m68030_take_bus_fault()` builds whichever frame the SSW selects, and `RTE` returns from both. Two `PROVISIONAL` approximations, marked in the code: the long frame's INTERNAL REGISTER fields are stacked as **zero** because this model has no microsequencer state, and `RTE` **re-executes** the faulted instruction from the start rather than resuming mid-instruction, where `[030]` §8.2.2 and §8.2.3 both *continue* the faulted bus cycle. The second is exact only while the instruction has committed nothing, so a faulted access now **rolls the register file back** to where the instruction found it (`entry_regs`) — without which a postincrement applied before the fault is applied again by the restart, which is how Domain/OS's first process came to be started on a null entry point | `ssw_suite`, 11 tests, `step_suite`, `[030]` §8.2.1, Figure 8-9, Table 8-6, Table 7-3 |
+| 68030 special status word and bus fault frame layout | working: Figure 8-9's bits, the SIZ1/SIZ0 size code that counts bytes *remaining*, FC2-FC0, and Table 8-6's field offsets for both fault frames. The encoder enforces "a rerun bit is always set when the corresponding fault bit is set", while leaving a rerun *without* a fault expressible because that is how an address error is told from a bus error. The frame is chosen **from the SSW**, not passed in: §8.2.2's "data read faults only generate the long bus fault frame" is structural, since the short frame has no data input buffer for the handler to write the faulted read's value into. Fields Table 8-6 labels INTERNAL REGISTER are deliberately unnamed — this model has no source for them. **Wired into the taker**: `ap_m68030_take_bus_fault()` builds whichever frame the SSW selects, and `RTE` returns from both. Two `PROVISIONAL` approximations, marked in the code: the long frame's INTERNAL REGISTER fields are stacked as **zero** because this model has no microsequencer state, and `RTE` **re-executes** the faulted instruction from the start rather than resuming mid-instruction, where `[030]` §8.2.2 and §8.2.3 both *continue* the faulted bus cycle. The second is exact only while the instruction has committed nothing, so a faulted access now **rolls the register file back** to where the instruction found it (`entry_regs`) — without which a postincrement applied before the fault is applied again by the restart, which is how Domain/OS's first process came to be started on a null entry point | `ssw_suite`, 12 tests, `step_suite`, `[030]` §8.2.1, Figure 8-9, Table 8-6, Table 7-3 |
 | 68030 ATC (22-entry, fully associative) | working; a translating hit marks the entry recently used, a `PTEST` probe does not, and a flush by function code and effective address applies the `MASK` operand — a zero mask flushes the address in **every** function code, which is the only masked form Domain/OS issues and used to invalidate nothing. Replacement `PROVISIONAL` only in its victim choice | `atc_suite`, 24 tests, `MC68030 User's Manual 3ed` §9.4, `[PRM]` `PFLUSH` |
 | 68030 descriptors + search protection state | working | `desc_suite`, 23 tests, `MC68030 User's Manual 3ed` §9.5.1.1 |
 | 68030 translation control (TC) + address split | working | `tc_suite`, 15 tests, `MC68030 User's Manual 3ed` §9.7.2 |

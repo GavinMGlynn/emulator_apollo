@@ -610,6 +610,59 @@ static void test_a_faulted_prefetch_waits_for_the_word_to_be_used(void) {
   TEST_ASSERT_EQUAL_HEX32(0x0000C000u, read_ram_long(&m, m.cpu.regs.isp + 2u));
 }
 
+/* **The other half of Table 8-6, and the second storm this core had.**
+ *
+ * An instruction whose *extension word* is in the absent page is not at an
+ * instruction boundary: the opcode has been fetched and the instruction is
+ * executing. Format `B` is what that stacks -- "Instruction Execution in
+ * Progress" -- with the instruction's own address as the PC and the address
+ * that faulted in the frame's fault-address field.
+ *
+ * Measured on the oracle at `0081CBFE`, which takes exactly this fault and
+ * recovers: `PC 0081CBFE`, format `B008`, `SSW 0162`, fault address
+ * `0081CC00`. Giving it the short frame instead cost 17,274,070 faults in one
+ * boot, and giving it `FC` -- the faulted word really is at `PC+2` -- points
+ * the handler at a pipe image this model does not have. */
+static void test_a_faulting_extension_word_takes_the_long_frame(void) {
+  /* `MOVE.W #$1234,D0` at `BFFE`: the opcode is readable and the immediate
+   * word, at `C000`, is not. */
+  static const uint16_t program[] = {0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 2);
+  plant_vector(&m, AP_M68030_VECTOR_BUS_ERROR, HANDLER);
+  write_ram_word(&m, 0x0000BFFEu, 0x303Cu);
+  m.memory.berr_from = 0x0000C000u;
+
+  ap_m68030_cpu_reset(&m.cpu, 0x0000BFFEu);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, r.status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  /* The instruction in execution, not the word that faulted -- asserted before
+   * the format, because the format is *derived* from these two and a failure
+   * here says which of them is wrong. */
+  TEST_ASSERT_EQUAL_HEX32(0x0000BFFEu, read_ram_long(&m, m.cpu.regs.isp + 2u));
+  TEST_ASSERT_EQUAL_HEX32(
+      0x0000C000u, read_ram_long(&m, m.cpu.regs.isp + AP_M68030_BUS_FAULT_ADDRESS));
+
+  const uint16_t format_word =
+      (uint16_t)(read_ram_long(&m, m.cpu.regs.isp + 4u) & 0xFFFFu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_LONG_BUS_FAULT,
+                        ap_m68030_frame_format_of(format_word));
+
+  const ap_m68030_ssw_t ssw = ap_m68030_ssw_decode((uint16_t)(
+      read_ram_long(&m, m.cpu.regs.isp + AP_M68030_BUS_FAULT_SSW) >> 16));
+  TEST_ASSERT_FALSE(ssw.stage_c_fault);
+  TEST_ASSERT_FALSE(ssw.stage_b_fault);
+  TEST_ASSERT_TRUE(ssw.data_fault);
+  TEST_ASSERT_TRUE(ssw.read);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_SSW_SIZE_WORD, ssw.size);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_FC_SUPERVISOR_PROGRAM, ssw.function_code);
+}
+
 static void test_a_faulting_instruction_fetch_takes_the_bus_error_exception(
     void) {
   static const uint16_t program[] = {0x4E71u, 0x4E71u};
@@ -8634,6 +8687,7 @@ int main(void) {
   RUN_TEST(test_a_faulting_operand_read_takes_the_bus_error_exception);
   RUN_TEST(test_link_long_takes_a_thirty_two_bit_displacement);
   RUN_TEST(test_a_faulted_prefetch_waits_for_the_word_to_be_used);
+  RUN_TEST(test_a_faulting_extension_word_takes_the_long_frame);
   RUN_TEST(test_a_faulting_instruction_fetch_takes_the_bus_error_exception);
   RUN_TEST(test_no_word_in_the_instruction_space_reports_unimplemented);
   RUN_TEST(test_no_coprocessor_operation_reports_unimplemented);

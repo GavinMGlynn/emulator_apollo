@@ -100,7 +100,7 @@ static void test_the_function_code_survives_the_round_trip(void) {
 static void test_a_faulted_data_read_requires_the_long_frame(void) {
   const ap_m68030_ssw_t read_fault = {.data_fault = true, .read = true};
   TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_LONG_BUS_FAULT,
-                        ap_m68030_bus_fault_frame(&read_fault));
+                        ap_m68030_bus_fault_frame(&read_fault, false));
 }
 
 /* A write fault has its value in the data output buffer, which the short frame
@@ -109,7 +109,7 @@ static void test_a_faulted_data_read_requires_the_long_frame(void) {
 static void test_a_faulted_data_write_does_not_require_the_long_frame(void) {
   const ap_m68030_ssw_t write_fault = {.data_fault = true, .read = false};
   TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_SHORT_BUS_FAULT,
-                        ap_m68030_bus_fault_frame(&write_fault));
+                        ap_m68030_bus_fault_frame(&write_fault, false));
 }
 
 /* An instruction stream fault touches no data cycle at all, so the data half of
@@ -117,9 +117,54 @@ static void test_a_faulted_data_write_does_not_require_the_long_frame(void) {
 static void test_an_instruction_stream_fault_takes_the_short_frame(void) {
   const ap_m68030_ssw_t prefetch_fault = {.stage_c_fault = true};
   TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_SHORT_BUS_FAULT,
-                        ap_m68030_bus_fault_frame(&prefetch_fault));
+                        ap_m68030_bus_fault_frame(&prefetch_fault, true));
   TEST_ASSERT_FALSE(
       ap_m68030_ssw_decode(ap_m68030_ssw_encode(&prefetch_fault)).data_fault);
+}
+
+/* **The two frames an instruction-stream read takes, both measured.**
+ *
+ * Table 8-6 splits the bus fault frames by where the execution unit stands, not
+ * by what faulted: format `A` is "Execution Unit at Instruction Boundary" and
+ * format `B` is "Instruction Execution in Progress". An instruction-stream read
+ * can be either -- the opcode fetch has begun nothing, an extension-word fetch
+ * belongs to an instruction already running -- and the special status word is
+ * identical in both, so the word alone cannot choose.
+ *
+ * Both sides are read off the oracle, on faults it takes and recovers from:
+ *
+ *     3B5AC3FE  opcode word         SSW 0162  format A008  fault addr = PC
+ *     0081CBFE  extension word      SSW 0162  format B008  fault addr = PC+2
+ *
+ * The first of those was a 30.8 M-fault storm in this core and the second a
+ * 17.3 M-fault one. */
+static void test_an_instruction_read_takes_the_frame_its_position_names(void) {
+  const ap_m68030_ssw_t fetch_fault = {
+      .data_fault = true,
+      .read = true,
+      .size = AP_M68030_SSW_SIZE_WORD,
+      .function_code = 2u, /* user program */
+  };
+  TEST_ASSERT_EQUAL_INT(0x0162u, ap_m68030_ssw_encode(&fetch_fault));
+  TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_SHORT_BUS_FAULT,
+                        ap_m68030_bus_fault_frame(&fetch_fault, true));
+  TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_LONG_BUS_FAULT,
+                        ap_m68030_bus_fault_frame(&fetch_fault, false));
+
+  /* And the supervisor program space behaves the same way: it is the *space*
+   * that says this was an instruction read, not the privilege. */
+  ap_m68030_ssw_t supervisor = fetch_fault;
+  supervisor.function_code = 6u;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_SHORT_BUS_FAULT,
+                        ap_m68030_bus_fault_frame(&supervisor, true));
+
+  /* A data read is long whichever side of an instruction boundary it is on --
+   * there is no such thing as a data cycle at a boundary, and the rule it obeys
+   * is the data input buffer's, not Table 8-6's. */
+  ap_m68030_ssw_t data_read = fetch_fault;
+  data_read.function_code = 1u; /* user data */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_LONG_BUS_FAULT,
+                        ap_m68030_bus_fault_frame(&data_read, true));
 }
 
 /* "Data and instruction stream faults may be pending simultaneously; the fault
@@ -145,7 +190,7 @@ static void test_a_data_and_an_instruction_fault_can_stand_together(void) {
   /* And a read fault still asks for the long frame when a prefetch faulted
    * too -- the instruction half does not downgrade the data half's needs. */
   TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_LONG_BUS_FAULT,
-                        ap_m68030_bus_fault_frame(&back));
+                        ap_m68030_bus_fault_frame(&back, false));
 }
 
 /* The bits Figure 8-9 marks "for internal use only" have no source in this
@@ -198,6 +243,7 @@ int main(void) {
   RUN_TEST(test_a_faulted_data_read_requires_the_long_frame);
   RUN_TEST(test_a_faulted_data_write_does_not_require_the_long_frame);
   RUN_TEST(test_an_instruction_stream_fault_takes_the_short_frame);
+  RUN_TEST(test_an_instruction_read_takes_the_frame_its_position_names);
   RUN_TEST(test_a_data_and_an_instruction_fault_can_stand_together);
   RUN_TEST(test_the_internal_use_bits_are_not_reported);
   RUN_TEST(test_every_short_frame_field_falls_inside_the_short_frame);

@@ -2686,7 +2686,7 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         `cpu/m68030/ap_m68030_ssw.c` — Figure 8-9's bit positions, the SIZ1/SIZ0
         encoding that counts bytes *remaining* (so a long word is zero), the
         FC2-FC0 address space, and Table 8-6's field offsets for both fault
-        frames. `ssw_suite`, 11 tests.
+        frames. `ssw_suite`, 12 tests.
         Detail in `PROJECT_STATUS.md`.
   - [x] `ap_m68030_take_bus_fault()` — a faulting access now **takes** vector 2
         rather than stopping the step, building the `$A` or `$B` frame the SSW

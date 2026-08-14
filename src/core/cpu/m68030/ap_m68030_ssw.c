@@ -72,7 +72,8 @@ unsigned ap_m68030_ssw_size_bytes(ap_m68030_ssw_size_t size) {
 }
 
 ap_m68030_frame_format_t
-ap_m68030_bus_fault_frame(const ap_m68030_ssw_t *ssw) {
+ap_m68030_bus_fault_frame(const ap_m68030_ssw_t *ssw,
+                          bool at_instruction_boundary) {
   /* "Data read faults only generate the long bus fault frame ... the handler
    * must transfer properly sized data from the location indicated by the fault
    * address and address space to the image of the data input buffer (DIB) at
@@ -100,6 +101,14 @@ ap_m68030_bus_fault_frame(const ap_m68030_ssw_t *ssw) {
       ssw->function_code == AP_M68030_FC_USER_PROGRAM ||
       ssw->function_code == AP_M68030_FC_SUPERVISOR_PROGRAM;
   if (ssw->data_fault && ssw->read && !program_space) {
+    return AP_M68030_FRAME_LONG_BUS_FAULT;
+  }
+  /* An instruction-stream read that is *not* at an instruction boundary is
+   * Table 8-6's format `B` case: the extension word of an instruction already
+   * in execution. Measured on the oracle at `0081CBFE`, which stacks `B008`
+   * with the fault address `0081CC00` -- `PC+2` -- in the frame. */
+  if (ssw->data_fault && ssw->read && program_space &&
+      !at_instruction_boundary) {
     return AP_M68030_FRAME_LONG_BUS_FAULT;
   }
   return AP_M68030_FRAME_SHORT_BUS_FAULT;

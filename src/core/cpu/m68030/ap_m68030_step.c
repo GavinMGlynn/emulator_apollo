@@ -229,7 +229,22 @@ static bool next_word(ap_m68030_cpu_t *cpu, uint32_t *clocks, uint16_t *word) {
      * because its fetch had. */
     cpu->access_faulted = true;
     cpu->fault_instruction_stream = true;
-    cpu->fault_address = cpu->regs.pc;
+    /* **The word that could not be read, not the instruction that wanted it.**
+     * This recorded `regs.pc`, which is the address of the *opcode* -- a word
+     * that was read successfully, in a page that is by definition resident. A
+     * handler pages in the fault address, so naming the opcode's page sends it
+     * to make resident something already resident: Domain/OS `PTEST`ed it,
+     * `MMUSR` answered `0803` (valid, write protected), it concluded the fault
+     * was spurious, flushed, returned, and faulted again -- 17,274,069 times in
+     * one boot, all at `PC 0081CBFE` reaching for `0081CC00`.
+     *
+     * The extension word being fetched is at `PC + 2 + 2 * consumed`, the same
+     * arithmetic three other sites in this file already use for it, and
+     * `extension_words` counts only the ones that arrived. The oracle's frame
+     * for exactly this fault carries `0081CC00` -- `PC+2`, the first extension
+     * word -- in the fault-address field. */
+    cpu->fault_address =
+        cpu->regs.pc + 2u + 2u * (uint32_t)cpu->extension_words;
     cpu->fault_size = 2u;
     cpu->fault_read = true;
     cpu->fault_function_code = cpu->fetch.function_code;
@@ -2573,50 +2588,32 @@ ap_m68030_take_exception(ap_m68030_cpu_t *cpu, unsigned vector,
 static ap_m68030_ssw_t fault_ssw(const ap_m68030_cpu_t *cpu) {
   ap_m68030_ssw_t ssw = {0};
   if (cpu->fault_instruction_stream) {
-    /* "The fault bits (FB and FC) indicate that the processor attempted to use
+    /* **No pipe-stage bit, and the word describes the cycle instead.**
+     *
+     * "The fault bits (FB and FC) indicate that the processor attempted to use
      * a stage (B or C) and found it to be marked invalid due to a bus error on
-     * the prefetch for that stage."
+     * the prefetch for that stage." That is a *deferred* report: an earlier
+     * prefetch failed, the stage was marked invalid, and the failure surfaces
+     * when the stage is used. It comes with an image of that stage in the
+     * frame, which is what the handler repairs.
      *
-     * B and C are the two stages *ahead* of the decoded one, which is why the
-     * frame carries images of exactly those: stage D's word has already been
-     * used, while B and C hold words the faulted prefetch never delivered and
-     * which a handler must supply before execution can resume. Both are
-     * reported, because words advance B to C to D and a prefetch that failed to
-     * fill the pipe left both stages invalid. The encoder adds the rerun
-     * bits. */
-    /* Which stage, decided by where the faulted word actually is. §8.2: "the
-     * address of the pipe stage B word is the value in the program counter plus
-     * four, and the address of the stage C word is the value in the program
-     * counter plus two." So the two bits describe `PC+4` and `PC+2` and nothing
-     * else -- and a fault on the word at `PC` itself, the opcode about to be
-     * decoded, is *neither*.
+     * This core raises the fault at the access, so the word that could not be
+     * read is the word being fetched now. There is no earlier prefetch being
+     * reported and no stage image to repair, and §8.2 ties FB to `PC+4` and FC
+     * to `PC+2` -- so claiming either sends the handler to read an address the
+     * fault was not about. Domain/OS did exactly that: told FB for a fault on
+     * the opcode at `3B5AC3FE`, it probed `3B5AC402` in the *next* page, found
+     * it resident, and retried 30,835,213 times.
      *
-     * Setting both unconditionally was a fallback, and it misdirects the
-     * handler: §8.2.2 has it repair each faulted stage from that stage's
-     * address, so a kernel told `FB` reads `PC+4`. Domain/OS did exactly that
-     * for a fault on the opcode at `3B5AC3FE`, probed `3B5AC402` in the *next*
-     * page, found it resident and write-protected, concluded there was nothing
-     * to fetch, and retried 30,835,213 times. With neither bit set the fault is
-     * what it is: the instruction at the stacked PC could not be fetched. */
-    const uint32_t at = cpu->fault_address;
-    const uint32_t pc = cpu->regs.pc;
-    ssw.stage_b_fault = (at == pc + 4u);
-    ssw.stage_c_fault = (at == pc + 2u);
-    /* **And then the cycle itself, which used to be dropped here.** The stage
-     * bits say *which pipe stage was found invalid*; they do not describe the
-     * bus cycle that failed, and a fault on the opcode word at `PC` is neither
-     * stage and so set neither -- which left the whole special status word
-     * zero. A handler reading that has no fault direction, no size and no
-     * address space: nothing to act on but the stacked `PC`, and `PC+4` is what
-     * §8.2's stage-B rule then points it at, one page too far whenever the
-     * faulting instruction sits within four bytes of a page end.
+     * Measured on both faults the oracle takes here and recovers from -- the
+     * opcode case at `3B5AC3FE` and the extension-word case at `0081CBFE` --
+     * the stacked word is `SSW = 0162` in each: `DF` set, `RW` read, size word,
+     * function code 2, with FB, FC and both rerun bits clear. The faulted bus
+     * cycle, stated plainly, which is what the handler acts on.
      *
-     * Measured on the oracle, which takes this same fault at `3B5AC3FE` and
-     * *recovers* from it: `SSW = 0162` -- `DF` set, `RW` read, size word,
-     * function code 2 -- with the **short** frame, `A008`. So the cycle is
-     * described exactly as a prefetch is: a word read in program space at the
-     * fault address. The stage bits are extra information above that, not a
-     * replacement for it. */
+     * So the instruction-stream case adds nothing here and falls through to the
+     * common tail. It used to `return` before it, leaving the whole word zero:
+     * no direction, no size, no address space, nothing but the stacked PC. */
   }
   ssw.data_fault = true;
   ssw.read = cpu->fault_read;
@@ -2634,7 +2631,14 @@ take_bus_fault_with(ap_m68030_cpu_t *cpu, unsigned vector,
                     uint32_t instruction_address, ap_m68030_ssw_t ssw,
                     uint32_t fault_address, uint32_t data_output) {
   ap_m68030_exception_result_t out = {0};
-  const ap_m68030_frame_format_t format = ap_m68030_bus_fault_frame(&ssw);
+  /* Table 8-6's own question, and only the caller's two addresses can answer
+   * it: the fault is at an instruction boundary exactly when the word that
+   * could not be read *is* the instruction -- the opcode fetch, where nothing
+   * has begun executing. A faulted extension word belongs to an instruction
+   * already in progress, and so does every faulted operand. */
+  const bool at_instruction_boundary = (fault_address == instruction_address);
+  const ap_m68030_frame_format_t format =
+      ap_m68030_bus_fault_frame(&ssw, at_instruction_boundary);
 
   /* Table 8-6 gives the two frames different PC meanings, and it is not a
    * detail: the short frame is "Execution Unit at Instruction Boundary" and

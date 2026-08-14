@@ -106,9 +106,20 @@ typedef struct {
  *
  * Long for a faulted data *read*, because only the long frame has the data
  * input buffer a handler must write the value into; short otherwise. See the
- * header comment -- this is a structural consequence, not a size preference. */
+ * header comment -- this is a structural consequence, not a size preference.
+ *
+ * `at_instruction_boundary` is Table 8-6's own distinction and the caller is the
+ * only one who can answer it: format `A` is "Execution Unit at Instruction
+ * Boundary" and format `B` is "Instruction Execution in Progress". A faulted
+ * *opcode* fetch is the first -- nothing has begun -- and a faulted extension
+ * word is the second, because the instruction it belongs to is already
+ * executing. Both are instruction-stream reads with an identical special status
+ * word, so the SSW alone cannot choose between them; the oracle stacks `A008`
+ * for the opcode case at `3B5AC3FE` and `B008` for the extension-word case at
+ * `0081CBFE`, with `SSW = 0162` in each. */
 [[nodiscard]] ap_m68030_frame_format_t
-ap_m68030_bus_fault_frame(const ap_m68030_ssw_t *ssw);
+ap_m68030_bus_fault_frame(const ap_m68030_ssw_t *ssw,
+                          bool at_instruction_boundary);
 
 /* Field offsets within a bus fault frame, from Table 8-6. The first four --
  * status register, program counter, format word -- are common to every frame
