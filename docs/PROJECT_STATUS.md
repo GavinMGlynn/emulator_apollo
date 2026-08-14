@@ -977,6 +977,22 @@ bus fault, against `ap_m68030_pipe_advance` and the faulted path in
 stage bits and the address the kernel probes, and `fault_ssw` needs no fallback
 at all.
 
+**And there is a second reading of the same code that fits better.**
+`fill_to_decoded` loops up to four times, and since the deferral fix it issues a
+*fresh prefetch on every pass* -- including after one has already faulted. When
+the faulting page is unmapped every one of those also faults, so B and C both end
+up holding abnormal words, and `fault_ssw` setting both bits is then **correct
+for the state this core is in**. The kernel duly asks to refill both, probes the
+furthest at `PC+4`, and lands in the next page. On that reading the defect is
+neither the SSW nor the advance but the *continued prefetching*: the part has no
+reason to keep fetching past a word it already knows it cannot use, and stopping
+after the first faulted prefetch would leave exactly one stage invalid.
+
+Both readings are consistent with every measurement taken, and they differ in
+which line changes. §8.2 and the pipe description decide between them, and the
+`0403` faults are the control: whatever the fix, those 1,702 must keep reporting
+`0403` and recovering.
+
 The `0403` faults, which recover, would then be the cases where the two happen to
 coincide. One of those two observations is of a different
 machine state than it appears to be, and every conclusion drawn by pairing them
