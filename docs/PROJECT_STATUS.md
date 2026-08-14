@@ -565,10 +565,28 @@ own next page and the kernel will not make it resident. That is a genuine paging
 failure and the first one this project has had cause to call one.
 
 Where to start: the page is `3B5AC000`, descriptor `012953C0`, and the module is
-the same `3B5Axxxx` whose F-line at `3B5AA42C` exposed the FP-trap bug. Watch
-`012953C0` across the boot as `0129C1B0` was watched -- 16 writes named the
-loader and the backing block last time -- and compare against a resident
-neighbour in the same table.
+the same `3B5Axxxx` whose F-line at `3B5AA42C` exposed the FP-trap bug. Watched, and it points at
+**early termination**.
+
+`012953C0` takes 16 writes, the same signature `0129C1B0` had: `00047AE6` by
+`FM_$READ+138` at 662,736,559, a byte `11` by `AST_$LOAD_AOTE+43C` 337
+instructions later, and never an `AST_$TOUCH` -- against 24 writes ending in one
+for the resident neighbour. But the *value* differs in the way that matters. The
+final descriptor is `0x11047AE6`, and `0xE6 & 3` is **2** -- a valid table
+descriptor -- where `0081B000`'s `0001042C` was `DT = 0`, genuinely invalid.
+
+So this page's descriptor says *valid* and our walk still answers `STOPPED after
+3 level(s)`: we treat `DT = 2` in the last-level page table as invalid instead of
+as a descriptor that terminates the search there. That would explain the whole
+storm without any pager defect at all -- the kernel `PTEST`s, is told the
+translation is fine (because it is), `PFLUSH`es and returns, and our access
+refuses it again.
+
+**The question to settle first, from the manual and not from the boot**: what a
+`DT = 2` or `3` descriptor means when the search is already at the last level
+that `TC` defines. `ap_m68030_walk.c` models `early_termination` and
+`ap_m68030_desc_role` decides this case on `in_page_table`, so the code to read
+is small and the answer is in `[030]` §9.4 with Figures 9-3 and 9-4.
 
 ## The boot's fatal was a livelock, and the framebuffer PNG works (2026-08-14)
 
