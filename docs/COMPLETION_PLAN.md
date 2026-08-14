@@ -3577,61 +3577,21 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: `sc499_suite` +1 (23), asserting both bytes, that a
         second status read does not change them, and that the flag follows its
         source back down.*
-  - [ ] **Give the machine a configuration.** The calendar's battery RAM is
-        blank at every power-on, which on real hardware is a machine whose
-        battery has died: the boot PROM says "Configuration information is not
-        initialized" and Domain/OS then halts at CALENDAR. Two routes, and both
-        are now open where neither was.
-        **The table is documented.** `002398-04` p. 12-3 lays out all fifty
-        bytes -- checksum at `0E`, valid pattern at `12`, memory array, node ID,
-        device bits and three type bytes -- and it **corroborates the
-        measurement exactly**: the PROM touches the calendar once in a hundred
-        million instructions, a 32-bit read at `010912`, and `12` is where the
-        handbook puts the four-byte VALID PATTERN. `ap_calendar.h` holds the
-        layout, and **the pattern's value is `1234ABCD`** -- from the PROM's
-        own `cmpi.l #$1234ABCD,$4(a0)` at `00178A`, found with a new
-        `--boot-watch-read` because the address is computed and grepping the ROM
-        for it finds nothing. `a0` is `01090E`, the handbook's checksum offset,
-        so the manual, the measured address and the firmware's base all agree.
-        Nothing is written into the table: whether an empty one is what stops
-        Domain/OS is the unmeasured question, and filling it at reset would
-        answer that by assumption.
-        **The other route reaches further than it did.** MD is up, `EX CONFIG`
-        loads CONFIG off `/sau14`, and CONFIG spins for ever at `0102963C` on a
-        `tst.w d3 / beq.s` whose `d3` arrives zero from `$10(a6)`.
-        **Done for the failing half, and measured.** `--calendar-ram FILE`
-        gives the chip its battery -- the fifty bytes across a run, and
-        deliberately not the clock. Seeded with the firmware's own pattern the
-        console goes from `Self test failed ... Address= 00010912` to **`Self
-        tests passed.`**, the `y/n` prompt disappears, and the machine reaches
-        Domain/OS and the `3C456BB0` halt **with no input at all**.
-        Still open: the *warning* "Configuration information is not initialized"
-        prints in both runs, so it is a second check. Register `2B` was seeded
-        with the firmware's own default and made no difference, which leaves the
-        checksum at `0E` -- algorithm unknown -- or a check inside `SELF_TEST`.
-        **And with Phase 5's keyboard test fixed, Domain/OS reaches the
-        screen.** An 800M-instruction boot with `--screen c8p`, the disk and the
-        seeded battery passes every self-test, passes both Winchester drives,
-        loads `SELF_TEST` off the disk, runs its nine CPU tests, and puts
-        `Domain/OS kernel(7), revision 10.4, February 14, 1992` on the
-        framebuffer in its own font. Translation enabled, 18,316,356 plane
-        writes, final PC `3C43F5AC -> 010421AC`.
-        **The calendar prompt was the clock's era, not input.** The year
-        register holds two digits, the volume was installed with the guest
-        seeing year `26`, and every boot had used `--clock 1996` -- a calendar
-        thirty years behind the volume, which the kernel refuses. With
-        `--clock 2026-08-08` the prompt is gone and the kernel loads.
-        **Now it crashes**, and the crash is documented rather than wild:
-        `TRAP #15` is how `crash_system` enters MD, and `002398-04` p. 4-7 gives
-        `(00120020)` as **"supervisor fault while resource lock(s) set"**. The
-        bus errors, the one F-line and the calendar's config table are all
-        measured innocent. Remaining: the DN3500 configuration table, which
-        `SELF_TEST` reads at `2B`/`31-3F` and the DN3000 page calls unused.
-        Detail in `PROJECT_STATUS.md`.
-        *Five hypotheses here were each produced by reasoning and killed by the
-        next measurement. The whole investigation is in `PROJECT_STATUS.md`.*
-        *Verification: the console going past "Configuration information is not
-        initialized", and Domain/OS past the CALENDAR halt.*
+  - [x] **Give the machine a configuration.** `--calendar-ram FILE` gives the
+        MC146818 its battery -- the fifty bytes, deliberately not the clock --
+        and `ap_calendar.h` holds `002398-04` p. 12-3's table with the PROM's
+        own valid pattern `1234ABCD`. Seeded, the console goes from `Self test
+        failed ... Address= 00010912` to `Self tests passed.`, with no input.
+        **The residue is closed too, in the PROM rather than by measurement.**
+        The sequence at `001784` compares the pattern and then does `TST.B
+        $1D(A0)` -- register `2B` -- so the second check is that byte being
+        non-zero, and the path **computes no checksum**: the four bytes at `0E`
+        are never verified by the firmware, which retires "algorithm unknown" as
+        a question about this warning. The disassembly is in `ap_calendar.h`.
+        And the CALENDAR halt the item existed for is gone: the machine reaches
+        `login:` without `--calendar-ram` at all. Detail in `PROJECT_STATUS.md`.
+        *Verification: `calendar_suite`; the seeded console reaching `Self tests
+        passed.`; and the boot to `login:` without it.*
   - [x] **`CPU (dma) Test #1` passes: the 16-bit controller counts words.**
         Logging the addresses the firmware writes in the DMA range ended the
         guessing -- `010D01` through `010D1B`, every one an odd byte address in
