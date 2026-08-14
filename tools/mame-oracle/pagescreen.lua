@@ -59,8 +59,8 @@ if not G.APOLLO_PAGEWATCH then
 	local HEARTBEAT_S = 10.0
 
 	local WATCH = {
-		{ name = "3B5AC000", addr = 0x012953C0 }, -- the page the storm needs
-		{ name = "3B5AB000", addr = 0x012953B0 }, -- the control: the module runs here
+		{ name = "blockmap", addr = 0x012B08C0 }, -- the source buffer's first word
+		{ name = "pte3B5AC", addr = 0x012953C0 }, -- the page-table slot it feeds
 	}
 
 	local f = assert(io.open(LOG, "w"))

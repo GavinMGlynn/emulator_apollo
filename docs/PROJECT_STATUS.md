@@ -615,8 +615,20 @@ investigation that a value which looked computed turned out to be moved: the
 thunk at `008030F0` was the same shape, and that one ended at file content the
 disk had served correctly.
 
-So the question moves to whoever fills that buffer, and the measurement is the
-one that worked for the thunk: walk `(A1)` at the copy to its physical address,
+**Measured, and the buffer is not the difference.** The oracle's block map at the
+same physical address holds `00047AE6` -- *identical to ours* -- written at
+506.6 s by `3C41FE36`, `WIN_$EMPTY_CTL_BUF`, so it comes off the disk on both
+machines. Its page-table slot then goes `00000000` -> `11EB9800` -> `017DFD09`
+and never holds the raw value at all.
+
+So the shift is applied **when the slot is written**, and the divergence is
+there: ours copies the block map into the page table *verbatim* with
+`MOVE.L (A1)+,(A4)+`, where the oracle installs `block << 10`. Same block map,
+same disk, different install. That is the defect to find -- what makes this core
+take a verbatim copy where the oracle takes a shifting install -- and it is a
+branch, not arithmetic, since the copy loop has no arithmetic in it.
+
+(Superseded, kept for the method:) walk `(A1)` at the copy to its physical address,
 watch writes to it across a boot, and name the writer. What makes this case
 worth the effort where the thunk's was not is that the **oracle disagrees about
 the value** -- `11EB9800` against our `00047AE6`.
