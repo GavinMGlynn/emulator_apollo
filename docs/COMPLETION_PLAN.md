@@ -4175,6 +4175,17 @@ discipline throughout.
       `model_suite` already checks, not a diff. `dsp5500` is `MACHINE_NOT_
       WORKING` there as well, so the diff that can actually be run is
       `dsp3000` and `dsp3500`.
+      **Both are now run, and both give 27 of 29 mapped CPU fields matching**,
+      synced on a PROM program counter -- `653A` for the 3500 and `59B4` for the
+      3000, whose PROM never executes the other's address. The two that differ
+      are one fact and it is ours: a zeroed root pointer packs as `DT = 2`
+      because `ap_m68030_root_pack_upper` always emits a valid descriptor type.
+      Nothing consults it at `TC = 0`, so no behaviour differs, but it would
+      leave two permanent `DIFFERS` in every later diff.
+      Running `dsp3000` also found a hole in the instrument: MAME names a device
+      by type and a Series 3000 is an `MC68020PMMU`, so the only field map
+      addressed the wrong device and matched **nothing** --
+      `tools/mame-oracle/state-map-68020.txt` now exists.
       Detail in `PROJECT_STATUS.md`.
 
 ## Phase 8 — Verified fast mode

@@ -412,6 +412,37 @@ Last updated: 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The DSP oracle diffs run, and both find the same two fields (2026-08-15)
+
+**`dsp3500`: 27 of 29 mapped CPU fields match. `dsp3000`: the same.** Synced on
+a PROM program counter -- `653A` for the 3500's PROM, `59B4` for the 3000's,
+whose reset PC is `598A` and which never executes the other's address at all.
+
+**The two that differ are one fact, and it is ours.** `cpu.mmu.crp_upper` and
+`srp_upper` read `00000002` where MAME reads `00000000`. That is not a value
+this core computes: `ap_m68030_root_pack_upper` always emits a valid descriptor
+type, so a **zeroed** root packs as `DT = 2`, and the structure has no way to
+say "not a valid root at all". With `TC = 0` at reset nothing consults either
+register, so no behaviour differs -- but every future differential inherits two
+permanent `DIFFERS`, which is the cost worth removing rather than annotating.
+Recorded here and left as the next change rather than made late in a long
+session, because it is a CPU state field and the identity hash covers it.
+
+**And running `dsp3000` at all found a hole in the instrument.** MAME names a
+device by its *type*, and a Series 3000 is an `MC68020PMMU`, not an `MC68030`.
+Every differential this project had run was a DN3500, so the 68030 name was
+baked into the only field map -- and the first Series 3000 diff matched
+**nothing**: 0 of 51, which reads exactly like two machines with no state in
+common rather than like a map addressing the wrong device. The field names
+either side of the device name are identical, so
+`tools/mame-oracle/state-map-68020.txt` is that substitution and nothing else,
+kept as a separate file because a map that rewrote itself to fit whatever it was
+given could not be checked by reading it.
+
+*Verification: both diffs above, from `--dump-state` on our side and
+`statesync.lua` on the oracle's, with a per-machine seeded `cfg` so neither run
+resets into its configuration and loses the debugger.*
+
 ## The wire carries frames, and the poll is driven (2026-08-15)
 
 **The run loop polls a live wire, and the period is honest about what it is.**
