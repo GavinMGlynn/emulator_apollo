@@ -1030,6 +1030,25 @@ the faulted word, which is why it cut faults 58 M -> 1,993 and left a storm
 behind rather than none. Both halves have to hold at once: deferred to the point
 of use, *and* stacking the executing instruction's PC.
 
+**And attempting to write it exposes a case the model does not cover.** Our
+measured frame has `instruction_address == regs.pc == fault_address ==
+3B5AC3FE`, all three the same, because the `BRA.W` landed *on* `3B5AC3FE` and its
+very first prefetch faulted: there is no earlier executing instruction to stack.
+Putting the faulted word at `PC+4` would need a stacked PC of `3B5AC3FA`, which
+is not an instruction boundary. So the B/C repair model has nothing to say about
+a fault on the **opcode word itself** -- the frame carries images for `PC+2` and
+`PC+4` and none for `PC+0`.
+
+That is the question to answer before writing any of this: **how does the part
+report a prefetch fault on the first word of an instruction, when the frame can
+only describe stages B and C?** Either such a fault is reported some other way,
+or the pipe is never in that state on real hardware because a branch to an
+unmapped page faults before the target's word is ever needed. Both would change
+what this core does far more than the PC selection would. Figures 8-6 and 8-7 and
+§8.1's account of what the pipe holds after a change of flow are where to look,
+and this is a bigger question than the storm that raised it -- which is worth
+knowing before spending a boot on a one-line change that cannot be right.
+
 **So the fault must be taken while the faulted word is still in B or C.** That is
 one statement about the fetch/pipe interaction, and it subsumes both readings
 above: not advancing past a faulted stage keeps the word where the frame can
