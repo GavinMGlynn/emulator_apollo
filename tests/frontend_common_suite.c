@@ -10,9 +10,12 @@
 #include "ap_scanout.h"
 #include "unity.h"
 
-#include <unistd.h>
-
 #include "ap_tap.h"
+
+/* The pipe substitution below is POSIX, and CI builds under MSVC too. */
+#if defined(__linux__)
+#include <unistd.h>
+#endif
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -407,6 +410,7 @@ static void test_an_unmodelled_lookup_table_is_not_claimed_as_real(void) {
  * That boundary is worth being exact about: this proves frames cross the wire
  * abstraction into the adapter and back out, and it proves nothing about
  * `TUNSETIFF`. */
+#if defined(__linux__)
 static void test_a_frame_crosses_the_wire_into_an_armed_receive(void) {
   int fds[2];
   TEST_ASSERT_EQUAL_INT(0, pipe(fds));
@@ -483,6 +487,7 @@ static void test_a_transmitted_frame_reaches_the_descriptor_whole(void) {
   (void)close(fds[0]);
   (void)close(fds[1]);
 }
+#endif /* __linux__ */
 
 /* Opening a device that is not there must say so, and say which problem it is:
  * "no such device" and "not permitted" have different fixes. */
@@ -511,8 +516,10 @@ int main(void) {
   RUN_TEST(test_the_model_table_report_is_deterministic);
   RUN_TEST(test_a_written_png_reads_back_as_the_picture_that_went_in);
   RUN_TEST(test_an_index_past_the_palette_is_refused);
+#if defined(__linux__)
   RUN_TEST(test_a_frame_crosses_the_wire_into_an_armed_receive);
   RUN_TEST(test_a_transmitted_frame_reaches_the_descriptor_whole);
+#endif
   RUN_TEST(test_opening_a_missing_tap_device_explains_itself);
   return UNITY_END();
 }

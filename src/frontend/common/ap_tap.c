@@ -3,17 +3,22 @@
 
 #include "ap_tap.h"
 
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
+
+/* **The POSIX headers are behind the guard, not beside it.** `unistd.h` does
+ * not exist under MSVC, and CI builds there: an implementation guarded at the
+ * function while its includes were unconditional compiled on two of three
+ * platforms and failed the third at the `#include`, which is a red tree for a
+ * device nobody on that platform can use. */
+#if defined(__linux__)
 #include <errno.h>
 #include <fcntl.h>
-#include <stdio.h>
-#include <stdarg.h>
-#include <string.h>
-#include <unistd.h>
-
-#if defined(__linux__)
 #include <linux/if.h>
 #include <linux/if_tun.h>
 #include <sys/ioctl.h>
+#include <unistd.h>
 #endif
 
 /* `-Wformat-nonliteral` is on, and rightly: a format string that is not a
@@ -40,14 +45,41 @@ __attribute__((format(printf, 3, 4))) static void say(char *error,
 
 #if !defined(__linux__)
 
+/* A platform without TAP says so, rather than silently answering "no network":
+ * a cable that is unplugged and an interface that cannot exist are different
+ * facts, and an operator debugging the first should not be shown the second.
+ * Every entry point is stubbed so the frontend links and behaves identically
+ * to one whose device failed to open. */
+
 bool ap_tap_open(ap_tap_t *tap, const char *name, char *error,
                  unsigned error_size) {
   (void)tap;
   (void)name;
-  /* Said plainly rather than silently answering "no network": a build on a
-   * platform without TAP should tell the operator that, not behave like a
-   * cable that is unplugged. */
   say(error, error_size, "TAP is a Linux interface and this is not Linux");
+  return false;
+}
+
+void ap_tap_close(ap_tap_t *tap) { (void)tap; }
+
+static bool tap_transmit(void *context, const uint8_t *frame, unsigned length) {
+  (void)context;
+  (void)frame;
+  (void)length;
+  return false;
+}
+
+ap_3c505_wire_t ap_tap_wire(ap_tap_t *tap) {
+  ap_3c505_wire_t wire = {0};
+  wire.context = tap;
+  wire.transmit = tap_transmit;
+  return wire;
+}
+
+bool ap_tap_poll(ap_tap_t *tap, ap_3c505_adapter_t *adapter,
+                 ap_3c505_pcb_t *out) {
+  (void)tap;
+  (void)adapter;
+  (void)out;
   return false;
 }
 
@@ -105,8 +137,6 @@ bool ap_tap_open(ap_tap_t *tap, const char *name, char *error,
   return true;
 }
 
-#endif
-
 void ap_tap_close(ap_tap_t *tap) {
   if (tap == NULL || tap->fd < 0) {
     return;
@@ -163,3 +193,5 @@ bool ap_tap_poll(ap_tap_t *tap, ap_3c505_adapter_t *adapter,
   }
   return true;
 }
+
+#endif /* __linux__ */
