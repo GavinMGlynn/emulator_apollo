@@ -792,9 +792,28 @@ kernel is told there is nothing to fetch and flushes and retries for ever. The
 1,702 reads of `0403` show `I` reported correctly elsewhere, so the fault is in
 how `MMUSR` is assembled for *this* search, not in the walk that produced it.
 `ap_m68030_mmusr_from_search` and the `invalid` expression it builds are the
-code; `W` presumably arrives through `search_accumulate` from a higher-level
-descriptor's write-protect bit, which is legitimate, while `I` going missing is
-not. One of those two observations is of a different
+code.
+
+**And that code is correct, which locates the defect exactly.** It reads
+`mmusr.invalid = result->search.invalid || bus_error || limit_violation`, and
+returns immediately when invalid with `S`, `W` and `M` left unset -- "all
+undefined if the I bit is set". So a search that failed invalid *cannot* report
+`0803`. For the storm's `PTEST`, `search.invalid` must therefore be **false**:
+that walk **succeeded**, and found a valid, write-protected translation.
+
+But `--dump-walk 3B5AC3FE` stops as invalid. Both cannot describe the same
+address, so **the kernel's `PTEST` is probing a different address than the one
+that faulted** -- and it takes that address from the exception frame this core
+built. That puts the defect back on our side of the boundary, in what we stack
+for a *prefetch* fault: the frame's data-cycle fault address at `+$10` is filled
+from `cpu->fault_address`, which for an instruction-stream fault is set from the
+PC, and the deferral fix changed when that PC is sampled.
+
+The measurement is small and does not need the oracle: log the `PTEST`'s operand
+address at `3C42CE2A` -- its effective address is `(A0)` -- and compare it with
+`3B5AC3FE`. If they differ, the frame is wrong and that is the fifth defect. The
+`0403` faults, which recover, would then be the cases where the two happen to
+coincide. One of those two observations is of a different
 machine state than it appears to be, and every conclusion drawn by pairing them
 -- the `DT = 2` reading included -- is suspect until that is settled.
 
