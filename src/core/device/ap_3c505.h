@@ -362,24 +362,74 @@ typedef struct {
   uint8_t data[AP_3C505_PCB_DATA_MAX];
 } ap_3c505_pcb_t;
 
-/* Assembling a PCB from the byte stream one side is writing. */
+/* ## The two general-purpose flags carry the transfer protocol, §3.1.1
+ *
+ * §1.9.5 says the *hardware* does not decode `HSF1`/`HSF2` or `ASF1`-`ASF3` "in
+ * any way", and the register model above duly passes them through. §3.1.1 is
+ * what the *firmware* on either side agrees they mean, and it is a four-state
+ * code in the low two:
+ *
+ *     SF2 SF1
+ *      0   0    undefined
+ *      0   1    PCB accepted
+ *      1   0    PCB rejected
+ *      1   1    end of PCB
+ *
+ * Which is exactly the separation this file keeps: the hardware layer must not
+ * interpret them, and the layer replacing the firmware must. */
+typedef enum {
+  AP_3C505_SF_UNDEFINED = 0,
+  AP_3C505_SF_ACCEPTED = 1,
+  AP_3C505_SF_REJECTED = 2,
+  AP_3C505_SF_END_OF_PCB = 3,
+} ap_3c505_sf_t;
+
+/* Each side's two flags, out of the control register it writes them in. */
+[[nodiscard]] ap_3c505_sf_t ap_3c505_host_flags(const ap_3c505_t *card);
+[[nodiscard]] ap_3c505_sf_t ap_3c505_adapter_flags(const ap_3c505_t *card);
+void ap_3c505_set_host_flags(ap_3c505_t *card, ap_3c505_sf_t state);
+void ap_3c505_set_adapter_flags(ap_3c505_t *card, ap_3c505_sf_t state);
+
+/* ## Receiving a PCB, §3.1.1 -- and it is not framed by its length field
+ *
+ * "The Adapter uses a 64-byte circular buffer to store the host byte stream
+ * sent through the Command Register. For protection against stray bytes (from
+ * Host aborted PCB transfers), the Adapter does not consider a PCB transfer
+ * complete until the Host Status Flags (HSF2 and HSF1) go to state 11.
+ * Simultaneously, the TOTAL length of the PCB should be in the Command Register
+ * so the true beginning of PCB can be calculated. (This last total length is
+ * NOT included in the PCB data length field.)"
+ *
+ * So a receiver that counted the length field and declared the PCB complete --
+ * the obvious reading of §3.1's three-field format, and what this file did
+ * first -- gets the common case right and the case the design exists for
+ * wrong. An aborted transfer leaves stray bytes in the buffer, and it is the
+ * **trailing total length** that says where the real PCB started; the length
+ * field inside it cannot, because it is one of the bytes in question.
+ *
+ * The buffer is 64 bytes because that is the largest PCB, so a stray prefix is
+ * simply overwritten as the stream goes round. */
 typedef struct {
-  ap_3c505_pcb_t pcb;
-  unsigned received; /* data bytes taken so far */
-  bool have_command;
-  bool have_length;
-  bool complete;
-  bool overlong; /* a length field the adapter cannot accept: §3.1's 62 */
+  uint8_t buffer[AP_3C505_PCB_MAX];
+  unsigned written; /* total bytes ever fed; the write position is modulo 64 */
 } ap_3c505_pcb_rx_t;
 
 void ap_3c505_pcb_rx_reset(ap_3c505_pcb_rx_t *rx);
 
-/* Feed one byte. Returns true when the byte completed a PCB, at which point
- * `rx->pcb` is it and the next byte starts another. A zero-length PCB completes
- * on its length byte, which is the common case: most commands are two bytes. */
-bool ap_3c505_pcb_rx_byte(ap_3c505_pcb_rx_t *rx, uint8_t byte);
+/* Feed one byte from the command register. No completion test: §3.1.1's
+ * completion is a flag transition, not a byte count. */
+void ap_3c505_pcb_rx_byte(ap_3c505_pcb_rx_t *rx, uint8_t byte);
 
-/* Handing a PCB out a byte at a time. */
+/* End of PCB: the last byte fed was the total length. Recovers the PCB that
+ * total names, or returns false when the buffer cannot hold one -- a total
+ * longer than the buffer, longer than the stream so far, or inconsistent with
+ * the data-length field it turns out to contain. */
+[[nodiscard]] bool ap_3c505_pcb_rx_end(const ap_3c505_pcb_rx_t *rx,
+                                       ap_3c505_pcb_t *pcb);
+
+/* Handing a PCB out a byte at a time. §3.1.3 is the mirror of §3.1.2: the
+ * adapter sends code, length and data, then sets its flags to `11` and writes
+ * the total length as one further byte. */
 typedef struct {
   ap_3c505_pcb_t pcb;
   unsigned sent;
@@ -388,8 +438,12 @@ typedef struct {
 
 void ap_3c505_pcb_tx_start(ap_3c505_pcb_tx_t *tx, const ap_3c505_pcb_t *pcb);
 
-/* The next byte to put in the command register, or false when the PCB is
- * finished. */
+/* The next byte, or false when the body is finished and the total length is
+ * what should follow. `ap_3c505_pcb_total_length` is that byte. */
 bool ap_3c505_pcb_tx_next(ap_3c505_pcb_tx_t *tx, uint8_t *byte);
+
+/* "the TOTAL length of the PCB (excluding this byte)": the two header bytes
+ * plus the data field. */
+[[nodiscard]] uint8_t ap_3c505_pcb_total_length(const ap_3c505_pcb_t *pcb);
 
 #endif /* APOLLO_DEVICE_AP_3C505_H */

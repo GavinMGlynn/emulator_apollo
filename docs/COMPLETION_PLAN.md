@@ -4065,7 +4065,7 @@ discipline throughout.
         The adapter half is a peer (`take`/`post`), so the open question of
         emulated 80186 versus host-side PCB protocol stays open.
         Detail in `PROJECT_STATUS.md`.
-        *Verification: `etherlink_suite`, 25 tests, the direction-change one
+        *Verification: `etherlink_suite`, 26 tests, the direction-change one
         checked to fail against a model that keeps the FIFO across the turn.*
   - [x] `docs/references/ETHERNET.md`, the findings file, written from the
         manual before any code — the map, the 20-byte half duplex data FIFO

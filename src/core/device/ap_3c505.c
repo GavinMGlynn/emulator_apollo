@@ -234,6 +234,50 @@ bool ap_3c505_irq(const ap_3c505_t *card) {
   return card->dma_done && (card->hcr & AP_3C505_HCR_TCEN) != 0u;
 }
 
+ap_3c505_sf_t ap_3c505_host_flags(const ap_3c505_t *card) {
+  if (card == NULL) {
+    return AP_3C505_SF_UNDEFINED;
+  }
+  const unsigned low = (card->hcr & AP_3C505_HCR_HSF1) != 0u ? 1u : 0u;
+  const unsigned high = (card->hcr & AP_3C505_HCR_HSF2) != 0u ? 2u : 0u;
+  return (ap_3c505_sf_t)(high | low);
+}
+
+ap_3c505_sf_t ap_3c505_adapter_flags(const ap_3c505_t *card) {
+  if (card == NULL) {
+    return AP_3C505_SF_UNDEFINED;
+  }
+  const unsigned low = (card->acr & AP_3C505_ACR_ASF1) != 0u ? 1u : 0u;
+  const unsigned high = (card->acr & AP_3C505_ACR_ASF2) != 0u ? 2u : 0u;
+  return (ap_3c505_sf_t)(high | low);
+}
+
+void ap_3c505_set_host_flags(ap_3c505_t *card, ap_3c505_sf_t state) {
+  if (card == NULL) {
+    return;
+  }
+  card->hcr &= (uint8_t)~(AP_3C505_HCR_HSF1 | AP_3C505_HCR_HSF2);
+  if (((unsigned)state & 1u) != 0u) {
+    card->hcr |= AP_3C505_HCR_HSF1;
+  }
+  if (((unsigned)state & 2u) != 0u) {
+    card->hcr |= AP_3C505_HCR_HSF2;
+  }
+}
+
+void ap_3c505_set_adapter_flags(ap_3c505_t *card, ap_3c505_sf_t state) {
+  if (card == NULL) {
+    return;
+  }
+  card->acr &= (uint8_t)~(AP_3C505_ACR_ASF1 | AP_3C505_ACR_ASF2);
+  if (((unsigned)state & 1u) != 0u) {
+    card->acr |= AP_3C505_ACR_ASF1;
+  }
+  if (((unsigned)state & 2u) != 0u) {
+    card->acr |= AP_3C505_ACR_ASF2;
+  }
+}
+
 void ap_3c505_pcb_rx_reset(ap_3c505_pcb_rx_t *rx) {
   if (rx == NULL) {
     return;
@@ -241,52 +285,62 @@ void ap_3c505_pcb_rx_reset(ap_3c505_pcb_rx_t *rx) {
   *rx = (ap_3c505_pcb_rx_t){0};
 }
 
-bool ap_3c505_pcb_rx_byte(ap_3c505_pcb_rx_t *rx, uint8_t byte) {
+void ap_3c505_pcb_rx_byte(ap_3c505_pcb_rx_t *rx, uint8_t byte) {
   if (rx == NULL) {
+    return;
+  }
+  rx->buffer[rx->written % AP_3C505_PCB_MAX] = byte;
+  rx->written++;
+}
+
+uint8_t ap_3c505_pcb_total_length(const ap_3c505_pcb_t *pcb) {
+  if (pcb == NULL) {
+    return 0u;
+  }
+  /* "the TOTAL length of the PCB (excluding this byte)" -- the command code and
+   * the length field are two bytes, and the data field is what the length
+   * field counts. */
+  return (uint8_t)(pcb->length + 2u);
+}
+
+bool ap_3c505_pcb_rx_end(const ap_3c505_pcb_rx_t *rx, ap_3c505_pcb_t *pcb) {
+  if (rx == NULL || rx->written == 0u) {
     return false;
   }
-  /* A completed PCB is not cleared by its reader, so the next byte after one is
-   * the start of the next. Doing it here rather than asking the caller to reset
-   * keeps "the stream never stops" true, which is what the register is. */
-  if (rx->complete) {
-    const bool overlong = false;
-    ap_3c505_pcb_rx_reset(rx);
-    rx->overlong = overlong;
-  }
-
-  if (!rx->have_command) {
-    rx->pcb.command = byte;
-    rx->have_command = true;
+  /* The last byte fed is the total length, and it is not part of the PCB. */
+  const unsigned total = rx->buffer[(rx->written - 1u) % AP_3C505_PCB_MAX];
+  if (total < 2u || total > AP_3C505_PCB_MAX) {
+    /* Shorter than a bare header, or longer than the buffer that holds it. */
     return false;
   }
-
-  if (!rx->have_length) {
-    rx->pcb.length = byte;
-    rx->have_length = true;
-    /* "The maximum PCB size the Adapter can accept in this version ROM is 64
-     * bytes ... The maximum data field is 62 bytes long." A longer length is
-     * not a PCB this adapter can take, and the flag says so rather than the
-     * model silently truncating into its own buffer. */
-    if (byte > AP_3C505_PCB_LENGTH_MAX) {
-      rx->overlong = true;
-      rx->complete = true;
-      return true;
-    }
-    if (byte == 0u) {
-      /* A two-byte PCB: the length field completes it. Most commands are this
-       * shape, so it is the path that runs most. */
-      rx->complete = true;
-      return true;
-    }
+  if ((unsigned)total + 1u > rx->written) {
+    /* The stream is shorter than the total claims, so the bytes it names were
+     * never sent -- which is the aborted-transfer case this check exists for
+     * rather than a buffer that merely has not wrapped. */
     return false;
   }
+  /* "so the true beginning of PCB can be calculated": count back from the byte
+   * before the total. */
+  const unsigned start = rx->written - 1u - total;
 
-  rx->pcb.data[rx->received++] = byte;
-  if (rx->received >= rx->pcb.length) {
-    rx->complete = true;
-    return true;
+  ap_3c505_pcb_t out = {0};
+  out.command = rx->buffer[start % AP_3C505_PCB_MAX];
+  out.length = rx->buffer[(start + 1u) % AP_3C505_PCB_MAX];
+  if ((unsigned)out.length + 2u != total) {
+    /* The data-length field and the total disagree, so these bytes are not one
+     * PCB however plausible each is alone. */
+    return false;
   }
-  return false;
+  if (out.length > AP_3C505_PCB_LENGTH_MAX) {
+    return false;
+  }
+  for (unsigned i = 0; i < out.length; i++) {
+    out.data[i] = rx->buffer[(start + 2u + i) % AP_3C505_PCB_MAX];
+  }
+  if (pcb != NULL) {
+    *pcb = out;
+  }
+  return true;
 }
 
 void ap_3c505_pcb_tx_start(ap_3c505_pcb_tx_t *tx, const ap_3c505_pcb_t *pcb) {

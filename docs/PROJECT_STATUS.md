@@ -412,6 +412,44 @@ Last updated: 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## CORRECTED: a PCB is framed by a trailing total length, not by its length
+## field (2026-08-15)
+
+**The framing committed an hour earlier was the obvious reading of §3.1 and it
+is wrong.** §3.1 gives the format and the path -- "The PCB is passed using
+programmed I/O through the Command Register" -- and says nothing about how a
+receiver knows the block has ended. §3.1.1 does:
+
+> "The Adapter uses a **64-byte circular buffer** to store the host byte stream
+> sent through the Command Register. For protection against stray bytes (from
+> Host aborted PCB transfers), the Adapter does not consider a PCB transfer
+> complete until the Host Status Flags (HSF2 and HSF1) go to **state 11**.
+> Simultaneously, the **TOTAL length** of the PCB should be in the Command
+> Register so the true beginning of PCB can be calculated."
+
+So completion is a **flag transition**, and the frame is located by counting
+back from a **trailing total length** -- and the length field inside a PCB
+cannot locate that PCB's own start, which is the whole point. After an aborted
+transfer the buffer holds stray bytes; only a total sent afterwards says which
+of them were real. A receiver that counts the length field forward gets every
+well-behaved transfer right and the case the design exists for wrong.
+
+The two length values are redundant on purpose, and the redundancy is a check:
+`total = length + 2`, so a pair that disagrees is not one PCB however plausible
+each byte is alone.
+
+**And §3.1.1 is where the general-purpose flags acquire meaning.** §1.9.5 says
+the *hardware* does not decode `HSF1`/`HSF2` "in any way" and the register model
+duly passes them through; §3.1.1 is the *firmware's* convention for the same
+bits -- `00` undefined, `01` accepted, `10` rejected, `11` end of PCB. Both are
+true at once, and the split falls exactly where this file already put it: the
+hardware layer must not interpret them, and the layer replacing the firmware
+must.
+
+*Verification: `etherlink_suite` 25 -> 26. The test that matters is the aborted
+transfer -- stray bytes, then a complete PCB -- which the superseded framing
+fails.*
+
 ## The PCB rides the command register, and the adapter side is host-side
 ## (2026-08-15)
 
