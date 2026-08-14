@@ -416,11 +416,30 @@ static void machine_mmu_register_read(void *context,
   if ((unsigned)which < 8u) {
     machine->mmu_reads_mask |= (uint8_t)(1u << (unsigned)which);
   }
+  const uint32_t at = machine->executing_address != 0u
+                          ? machine->executing_address
+                          : machine->cpu.regs.pc;
+  /* Keyed by (register, value, PC) and counted, not appended.
+   *
+   * Appending kept the *earliest* 32 reads, which answers a different question
+   * from the one usually asked of it: a boot performs 30 million `MMUSR` reads
+   * and the interesting ones are whichever a *storm* is making, always late and
+   * always past the cap. Distinct combinations are few -- a handler that reads
+   * the same register at the same PC and gets the same answer is one fact,
+   * however many million times it does it -- so this keeps what varies and
+   * counts the repetition. The fault sites are keyed this way for the same
+   * reason and it was learned the same way. */
+  for (unsigned i = 0; i < machine->mmu_read_count; i++) {
+    if (machine->mmu_reads[i].which == (uint8_t)which &&
+        machine->mmu_reads[i].value == low && machine->mmu_reads[i].pc == at) {
+      machine->mmu_reads[i].count++;
+      return;
+    }
+  }
   if (machine->mmu_read_count < AP_MACHINE_MMU_WRITES) {
     const unsigned i = machine->mmu_read_count++;
-    machine->mmu_reads[i].pc = machine->executing_address != 0u
-                                   ? machine->executing_address
-                                   : machine->cpu.regs.pc;
+    machine->mmu_reads[i].pc = at;
+    machine->mmu_reads[i].count = 1u;
     machine->mmu_reads[i].which = (uint8_t)which;
     /* The value, which this deliberately did not keep. The comment above still
      * holds -- *whether* a program looked is usually the question -- but not

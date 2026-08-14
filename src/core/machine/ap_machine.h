@@ -292,6 +292,7 @@ typedef struct {
   struct {
     uint32_t pc;
     uint32_t value;
+    unsigned count;
     uint8_t which;
   } mmu_reads[AP_MACHINE_MMU_WRITES];
   unsigned mmu_read_count;

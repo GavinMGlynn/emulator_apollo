@@ -709,9 +709,33 @@ thing a page that pages in successfully reports.
 among them. This is the third time a fixed-size recorder has answered a
 different question from the one asked -- `mmu_fault_sites` did it twice -- and
 the fix is the same: raise the cap, or key it by `PC` as the fault sites are.
-Until then `0403` is what early faults report and the storm's value is
-**unmeasured**, though the walk ending invalid makes `0403` the likely answer
-there too.
+Keyed by `(register, value, PC)` and counted, as the
+fault sites are, it now shows all three:
+
+    MMUSR -> 00000403  by PC 3C42CE30       1,702 times   I set, N = 3
+    MMUSR -> 00000402  by PC 3C42CE30         455 times
+    MMUSR -> 00000803  by PC 3C42CE30  30,835,210 times   W set, I *clear*
+
+**So the storm reports `0803`, and the guess withdrawn above was right.** Bit 11
+is `W` and bit 10 is `I`: `0403` is *invalid after three levels*, an ordinary
+missing page, and the kernel fetches it -- 1,702 of those. `0803` says the
+translation is **valid and merely write-protected**, so there is nothing to
+fetch, and the kernel flushes and retries. Thirty million times.
+
+**And our access path disagrees with our own `PTEST`.** The fault site for the
+same address records `invalid on read`, while `PTEST` reports valid. That
+inconsistency is the defect, and it is ours: the descriptor is the indirect
+`0x11047AE6`, and the two paths differ in what they do with it --
+`ap_m68030_walk.c`'s `ROLE_INDIRECT` arm calls `update_history` and takes
+`search_fail_invalid` when it fails, but a `PTEST` performs no history update,
+so it never fails there and goes on to report the flags it accumulated from the
+indirect descriptor, whose low byte `0xE6` carries the write-protect bit. Make
+the two agree and the storm has nothing to feed it.
+
+(The withdrawal was caused by the recorder, not by the reasoning: the first 32
+reads are all pre-storm, so `0403` was the only value visible. Keying by value
+was what made the difference, and it is the third time that has been true
+today.)
 
 That is a different defect from "the install forgets a shift". Either the
 kernel computed a different `a4` -- in which case something upstream feeds it --
