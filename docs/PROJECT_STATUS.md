@@ -412,6 +412,45 @@ Last updated: 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## `login:` — Phase 4 and Phase 5 are met (2026-08-15)
+
+**The DN3500 boots Domain/OS SR10.4 from its own disk to the login prompt, and
+the framebuffer decodes to a PNG showing it.** `docs/images/dn3500-sr10.4-login.png`,
+1024x800, 8 planes, from `tools/e0007-boot.sh --boot-limit 1500000000
+--screenshot FILE`. The prompt sits in the Display Manager's input window at the
+bottom of the screen, with its cursor, which is where Domain/OS puts it and why
+this milestone could never be measured on the serial line.
+
+The run ends `EXECUTED` at its instruction limit with **no `CRASH_STATUS`, no
+`FAULT IN DOMAIN/OS`, no `SALVAGING BOOT VOLUME` and no reboot** -- it is sitting
+at the prompt, not surviving to it.
+
+    MMU faults    30,837,461  ->  17,274,481  ->  4,212
+    vector 2      17,274,870  ->                  4,394
+
+Three defects closed it, all in the bus fault frame, and each was found by
+reading the frame the **oracle** builds for a fault it takes and recovers from
+rather than by reasoning about ours:
+
+  1. the special status word was `0000` for every instruction-stream fault --
+     no direction, size or address space, so the handler had only the stacked
+     `PC` and §8.2's stage-B rule sent it to `PC+4`;
+  2. the frame format came from that word, which cannot tell the two cases
+     apart -- Table 8-6 splits them by *position*, and the oracle stacks `A008`
+     for an opcode fault and `B008` for an extension-word fault with an
+     identical `SSW 0162`;
+  3. a faulted extension word recorded the **opcode's** address as the fault
+     address, sending Domain/OS to page in a page that was already resident.
+
+The third is what the `MMUSR 0803` readings in this file were: not a protection
+puzzle, but the correct answer to a question about the wrong page, asked
+17,274,069 times.
+
+**What this does not claim.** No timing claim -- the accuracy statement at the
+top of this file is unchanged. The remaining 4,212 faults are ordinary demand
+paging spread over 62 sites, none dominant. The boot is an integration check
+that now passes, which is what the two phases asked for.
+
 ## A faulted extension word named the wrong address, and the wrong frame
 ## (2026-08-15)
 
@@ -30687,3 +30726,659 @@ built. `FM_$READ` and `AST_$LOAD_AOTE` are both named and both reachable with
 `--boot-stop-on-mmu-fault-at 3B3BC7FE`; `--boot-watch-write 0129C1B0
 --boot-log-watch-writes` over the same boot; `tools/kernel_symbols.py` for the
 two writers.*
+
+## Archive: the Phase 4 boot item's working notes, closed 2026-08-15
+
+These are the narrative bodies of `COMPLETION_PLAN.md`'s Phase 4 boot item
+and its `why the kernel declines to fetch a page it has recorded` child,
+moved here verbatim when both were ticked. They are the record of the
+investigation that ended in the three bus-fault-frame defects above; several
+of their conclusions are superseded by those entries and by the two
+retractions, and none of them should be read as current.
+
+  - Phases 4 and 5 are **one blocker**, not two: Phase 5's open item says its
+    only gap is the *subject* of the picture, which waits on this. The
+    resolution order has now been walked for it and ends in a finding —
+    `AEGIS Internals` describes the **DNx60 SMAP/PMAP** MMU, a generation before
+    the 68851 and two before this machine, so it cannot answer it; the design
+    principles paper has no MMU mechanics; the web has nothing. What the manual
+    *does* give is the vocabulary: ASID 0 is the supervisor global space and
+    processes get 1–25, so `$3C43FB14 = 1` is a current-address-space id.
+    **And the method changed** — the kernel is now dumped once and read
+    offline instead of watched a boot at a time. Three facts, exhaustive over
+    the image: a `PMOVE ,CRP` at `3C43DDF0`, which our trace does reach; and the
+    word at `$3C43FB14` still holding `1` when the boot ends. **The claim that
+    it is the *only* one is withdrawn** — it rested on an end-of-boot dump,
+    which cannot be exhaustive about code, and the oracle's own PC census shows
+    root-pointer changes clustering at *two* places, `3C43F5A8`/`3C43F5AC` and
+    `3C43DC80`–`3C43DCA2`. So the one root-pointer load the kernel
+    has is unreachable, by construction rather than by observation.
+    **And the conclusion inverts**: `01002174`, logged for weeks as the last
+    writer of that word, disassembles to `move.l (a0),d4 / move.l d4,(a0)+` — a
+    memory sweep that writes back what it reads. The `1` is the kernel image's
+    own value and would be `1` on real hardware, so taking the branch is
+    *correct* and the defect is upstream: the `CRP` should already hold the
+    kernel's tree when it first reaches that routine, and ours holds
+    `SELF_TEST`'s `01001400`.
+    **The oracle differential is now made, and it retracts that in turn.** With
+    `mdsession.lua` polling the CPU state MAME already exposes — rather than the
+    probe that was verified present and never fired — the oracle booting the
+    same disk to `)` shows **eight** `CRP` changes, alternating `01001400` and
+    `0105BC00`. So the kernel *does* install the tree it builds, from the one
+    `PMOVE` it has, called eight times. Ours is called and takes its gate every
+    time. **The divergence is in the caller**, and a 3000-step ring at the gate
+    (reached at 288,640,117 instructions) reads the executed stream rather than
+    guessing at bytes: the routine's real entry is `3C43DD80`, its argument is a
+    word pushed by `3C41956C`, and our first call asks for space **1** against a
+    cached **1**. Since the cache is the image's own value on both machines, the
+    oracle must call this routine *earlier* with a different argument. So the
+    question is now **which call the oracle makes before ours makes any**, and it
+    needs the oracle instrumented at this routine rather than at the register.
+    A write tap on the cache word is built (`APOLLO_ASID_TAP` in
+    `mdsession.lua`) and **caught nothing in a run that installed the root
+    pointer ten times**. Resolving the address properly shows the address was
+    *right* — `3C43FB14 -> 01042714` — so **the two machines hold the kernel's
+    data in different physical pages**, agreeing on every logical address and on
+    both tree pointers. That makes any physical address useless as a
+    cross-machine instrument, so the tap gained a second mode:
+    `APOLLO_ASID_PC=<hex logical>` keeps only the writes made by a given
+    *instruction*, which needs no translation.
+    **And a rule that has now cost three wrong answers**: an end-of-boot dump is
+    not evidence about code that ran earlier. With 256-byte pages
+    (`TC = 80A28750`) the kernel reuses frames, and the dump disagrees with the
+    executed trace at `3C43DD88` — `323A` executed, `020A` in the dump. The
+    trace is the source of truth for code; a dump speaks only for the instant it
+    was taken. The tap therefore matches the whole routine's PC range rather
+    than an instruction read out of a dump.
+    **And the tap is now retired, on evidence.** Three runs, aimed correctly and
+    proven live, caught no writes while the poll saw a dozen installs and caught
+    the CPU inside the very range. `PMOVE (A0),CRP` reads memory and writes a
+    *register*, so an install path need write nothing: watching the cache word
+    can only find switches that update the cache, and the oracle's path need
+    not. **Next is an instruction-level hook on the `PMOVE` in the oracle** —
+    the thing abandoned at the start of this work when a hand-placed probe never
+    fired, now with two working instruments to build beside and a rule for what
+    makes one trustworthy.
+    **And the differential now reads as a sequence of requests, which names the
+    mechanism end to end.** `$3C43C96E` is indexed by address space number, so
+    `01001400` *is* space 0 and `0105BC00` is space 1. The oracle's first install
+    is `01001400` — it asks for **space 0** first, mismatches the cache's false
+    claim of `1`, installs, and makes the claim true; its next request, for space
+    1, then installs `0105BC00` honestly. Ours is asked for **space 1** against a
+    cache already claiming 1, agrees with itself, and never installs anything.
+    **So the routine is correct and always was**; the question is why our kernel
+    is never asked to enter space 0. First thing to test: the oracle's `CRP` is
+    `00000000` until its kernel sets it, while ours holds `01001400` from the
+    firmware — a kernel that finds the MMU already configured may take a
+    different path.
+    **The matched-path oracle measurement is still not taken, and the obstacle
+    is the harness.** The oracle *does* boot to `login:` in normal mode, so the
+    comparison is possible in principle. Two configurations were tried and both
+    park before Domain/OS starts: with `APOLLO_MD_POST=none` the machine sits in
+    the PROM's console-selection poll at `000794`, and with the default key
+    press it sits in MD's read poll at `00267E` — the key *interrupts* the
+    auto-boot, which is what `screencap.lua` warns of ("every character sent to
+    one interrupts it"). So the documented `login:` capture used a recipe whose
+    *invocation* is not recorded — the same failure this file already names for
+    the MD recipe, which cost five reconstructions. **Next:** recover it, and
+    commit it as a script like `md-session.sh` rather than as prose.
+    **The keyboard console reaches MD, and the command is truncated — with a
+    screenshot to prove it.** `EX DOMAIN_OS` arrives as `AIN_OS`: six characters
+    dropped contiguously from the front, the rest intact and ordered, MD parsing
+    the tail and returning to its prompt. That **reverses** the earlier
+    `XMAIN_OS` finding, which was closed as a display artefact on a port trace
+    of the *serial* path — here the machine's own behaviour agrees with the
+    screen, so the characters are genuinely lost. And it is **not timing**: the
+    port delivered everything (`sio1 reg 3` read 15 times, zero flushes) and a
+    two-phase run with the command gated *after* the banner reproduces it
+    byte-identically. **The static read found it**: `$14A(A6)` bit 1 is an
+    **input-discard flag**, tested at `00268E` in the console reader, and while
+    it is set every character delivered is read, passed to `$26EA`, and thrown
+    away — which is exactly fifteen reads with zero flushes and six characters
+    missing. MD exposes `XE ENABLE XON` / `XD DISABL XON` in its own command
+    table, so this is the receiving half of XON/XOFF. **And that is refuted in turn**: bit 1 is set only
+    by `$11`/`$13`, and `ap_kbd_encode` sends plain ASCII
+    (`45 58 20 44 4F 4D 41 49 4E 5F 4F 53 CB`) — fifteen characters, fifteen
+    bytes, none of them flow control. So the reversal above is withdrawn as
+    *unproven*: MD returns to its prompt for a valid command that failed too.
+    **The line buffer at `01000218` settles it**: it holds
+    `20 41 49 4E 5F 4F 53 0D`, seven bytes and not thirteen, so the characters
+    really are lost and the reversal is confirmed. **Five** go, at indices
+    0, 1, 3, 4, 5 of `EX DOMAIN_OS`, with the space at index 2 surviving — so
+    `O` is both lost and kept and it is neither per-character nor a clean
+    prefix. Early losses settling to none is a **receiver overrun** signature,
+    and `rx_flushed` counted zero, so it is not the path `--boot-type` re-sends
+    on. The register-table walk found a discard that **nothing
+    counted** — a disabled receiver dropping its character silently — and
+    counting it answered the other way: **zero**, on every port. So the port is
+    exonerated on three counts (fifteen delivered, fifteen read, zero discarded
+    by either route) and the loss is inside the **boot PROM's own input path**,
+    between the register read and the store at `$98(A6)`. Every mechanism
+    visible there is excluded by the bytes this keyboard sends. **And the trace found it.** The PROM calls `$272E`
+    before **every character it outputs** — from `0026A0` in the serial
+    transmit path and `00479A` in the *display* one, and this run takes the
+    display path — which
+    drains one received character to look for an XOFF and pushes back anything
+    that was not flow control into a **one-byte** slot at `$14C(A6)` —
+    `002726` drops it when that slot is full. So the firmware holds one
+    character of type-ahead while printing, and `--boot-type` outruns it because
+    its readiness test is "the receive buffer is empty", which is true the
+    instant the firmware drains it. Correct hardware behaviour; a person never
+    outruns it. **Fixed, and the fix confirms the diagnosis by
+    construction:** `--boot-type-await-pushback` holds each character until the
+    slot reads `$FFFF`, the condition `002726` imposes, and the line buffer goes
+    from `" AIN_OS\r"` (7 bytes, five lost) to `".X DOMAIN_OS\r"` (13, one
+    lost) with no tuning. The one that remains is the same mechanism at its
+    boundary — the first character is sent when the gate arms at `0x930`, which
+    is one print before MD emits its prompt. Detail in `PROJECT_STATUS.md`.
+    **The posted-code differential is retired, and it was never a differential.**
+    It had been the working handle: ours posts `0F` where the oracle does not.
+    Read out of the boot PROM rather than measured — the post routine has **two**
+    entries, `00251A` inline and `00252A` in `D0`, and only the first had ever
+    been scanned. `0F` is posted at `0008EC`, four instructions after
+    `lea $8f4(pc),a1` and a print call, and `0008F4` is `MD7C REV 8.00`: it means
+    **the Mnemonic Debugger banner was printed**, which is what our run asked
+    for. `0C` is a PROM site too (`000934`, the next instruction pair), and
+    `0C 00 0C 00` is `00255A` alternating the code with `FF` — the display
+    *flashing*, which `main.c` already documented. So the two rows compared a
+    service-mode run against a normal-mode one. Third configuration-mismatched
+    comparison in this investigation. Detail in `PROJECT_STATUS.md`.
+    **But that difference may be an artefact of how the oracle was driven**, and
+    ruling it out is the first step: `mdsession.py` presses a key at 4 s, drops
+    into MD, and `ex domain_os` loads the kernel *without* `SELF_TEST` having
+    run, while ours autoboots and `SELF_TEST` leaves its tree installed. Making
+    ours take the same route needs `--service-mode` — carriage returns alone do
+    not interrupt the autoboot — with the recipe this file already records: a
+    keyboard press, `--boot-input-interval 400000`, forty carriage returns and
+    ~45 emulated seconds.
+    **And the question is now a data question, not a control one.** A
+    60,000-step ring at the gate shows the switch routine entered **exactly
+    once** in that whole window, with 71 distinct PCs of the address-space
+    module active *before* it — so the kernel works on address spaces, then asks
+    once, for space 1. The value is **read from memory**, not computed. It is
+    not taking a wrong branch; it is being handed the number by something it
+    built earlier.
+    **REFUTED 2026-08-12, and `00120020` is now closed by a different cause.**
+    Everything from here to the end of this item reads the fault, the lock and
+    the skipped install as "one event, not three". They are not one event: the
+    oracle takes **the same fault at the same instruction with the same
+    registers** and byte-identical page tables, so the fault is ordinary demand
+    paging and the skipped install does not produce it. The real cause was that
+    this core's OMTI completed disk commands in zero time, landing `IRQ14`
+    inside the page-fault handler. Fixed; the boot now reaches
+    `Unable to resolve "/sys/node_data" -- E0007` instead. Detail in
+    `PROJECT_STATUS.md`. **Kept below only as the record of a wrong turn**, since
+    several later items were written on top of it.
+
+    **And the sequence is now visible end to end.** Forty instructions before the
+    request, a loop at `3C46FE86` writes entries at indices **`ED`, `EE`, `EF`**
+    into a structure at `3C5BFC00` — and `EF` is the index the crash's
+    `3BFF0001` faults on. So the kernel installs those mappings in the tree it
+    built, asks for the space they belong to, is told by its own cache it is
+    already there, and the `PMOVE` never runs; the later access to `EF` then
+    faults inside the lock the mapper at `3C43D95C` took, which is exactly what
+    `00120020` reports. The fault, the lock and the skipped install are **one
+    event, not three**.
+    **The whole narrative is now measured end to end**: the kernel allocates page
+    frame `0x416F`, derives `0105BC00` from it (`<< 10`), writes that into the
+    root pointer table at `$3C43C96E` entry 1 — the ring records `A0 = 3C43C96E`
+    at the store — writes the `ED`–`EF` mappings, asks for space 1, and is told
+    by its own cache it is already there.
+    **And why the failing index is `EF` is measured too**: the loop copies the
+    live tree into the new one (`3C5BFC00 -> 01001400` source,
+    `3C5C0400 -> 0105BC00` destination, 240 entries after `ED`/`EE`), and at the
+    gate `EF` is **`00000000` in both**. It is filled in afterwards — seven times
+    over a boot — into the kernel's tree alone, which the MMU never walks. The
+    live tree keeps `00000000` there for the whole run.
+    **And the number 1 is the kernel's own allocation** — `3C46FE16 ADDQ.W #1,D2`
+    is the only instruction in 60,000 steps that *creates* the value; everything
+    else saves, restores or copies it. So the kernel allocates the next address
+    space, builds its tree, and asks to switch to it, which is impeccable.
+    **The defect is isolated to one thing**: the cache ships as `1` in the image,
+    claiming space 1 is current before it exists, and that is harmless only on a
+    machine that switches to space **0** first — which the oracle does and we
+    never do. Mechanism to test: the oracle's `CRP` is `00000000` until its
+    kernel sets it, while `SELF_TEST` leaves ours configured, so a kernel that
+    checks before installing space 0 would skip it here and not there. **That
+    mechanism is now refuted by measurement.** `PMOVE` reads are counted and
+    reported (a new hook, and the line prints even at zero because "it never
+    looked" is a finding): over a whole boot, `mmu reads 0`. Neither `SELF_TEST`
+    nor Domain/OS reads `CRP`, `TC` or the status register even once. So the
+    kernel is not inspecting what the firmware left *before the switch* — which
+    is the claim the measurement supports. **Narrowed**: on the year-26 clock the
+    kernel reads `MMUSR` **290 times, all from one instruction at `3C42CE30`** —
+    a page-fault handler, running *after* the skipped switch and only to ask why
+    an access failed. The count is the cost of the defect rather than a clue to
+    it: a machine whose switch had taken effect would probe far less.
+    **Next instrument, and the last one this needs**: an instruction-level hook
+    in the oracle on the `PMOVE` at `3C43DDF0` or the routine entry at
+    `3C43DD80`, reporting the argument. The poll locates the oracle's first
+    install to `3C4527DC`–`3C452944` and no better, and our machine runs that
+    same region without calling the switch at all — so the remaining question
+    cannot be settled by sampling. The hook must be shown to fire on something
+    known before its silence counts, and must not rest on a physical address,
+    since the two machines page the kernel differently.
+    **And the taps were dead.** A periodic proof-of-life shows one sample at
+    `0.0000` against ten root-pointer installs in the same run: MAME's
+    `install_*_tap` returns a handler **whose lifetime is the tap**, ours were
+    held in collectable locals, and Lua's collector removed them. Three "caught
+    nothing" results are withdrawn — they were dead instruments, not quiet
+    machines. Taps now live in `_G`, as `screencap.lua` already warned. The rule
+    "seen to fire" is not enough on its own: liveness must be **sampled across
+    the run**.
+    **With the taps alive, the answer retires the hypothesis.** Every oracle call
+    to the switch routine carries **`arg 0001`** — space 1, the same as ours,
+    from the same stack pointer. "The oracle asks for space 0 first" was an
+    inference from a table and is **withdrawn**. And its first `CRP` install is
+    at 11.6–11.9 s while the first call is at 12.22 s: **the oracle's root
+    pointer is already correct before it asks**. So either a second install path
+    exists that the end-of-boot scan could not see, or the install is the MD
+    loader's rather than the kernel's. Unexplained again, but with a much
+    sharper fact — **and a lead**: our kernel executes an MMU instruction at
+    `3C43DE58`, inside the switch module past the gate's branch target, at
+    286,526,228 — *two million instructions before the first gate hit*. So the
+    module is entered earlier through one of its other entry points
+    (`3C43DD1A`/`3C43DD3C`), runs its tail, and returns without asking to change
+    space. That may be what installs `01001400` on the oracle at 11.7 s, which
+    would explain why the poll placed the install inside the kernel while no
+    `PMOVE` at `3C43DDF0` accounts for it.
+    **Measured, and it is not the explanation**: that entry is a
+    *flush-and-cache* routine — an MMU flush at `3C43DE58`, then a `MOVEC` pair
+    at `3C43DF34`/`3C43DF3C` setting write-allocate in `CACR` (`2101 → 2901`).
+    So the oracle's `01001400` at 11.7 s is still unaccounted for, but the
+    candidates are narrower: not `3C43DDF0`, which runs later, and not this
+    entry, which flushes.
+    **A separate defect surfaced while trying to match the boot routes**: the
+    firmware's autobaud **walks downward under repeated characters**. One
+    carriage return at 9600 locks at 9600 and the ordinary boot works; 120 at
+    9600 end at 4800; 120 at 4800 end at 1050. The ordinary boot is the control
+    and is correct. **Corrected**: those are CSR *codes* — `BB → 99 → 77`, each
+    nibble down by two — and the rate table is not monotonic (6=1200, **7=1050**,
+    8=2400), so no timing error can produce a constant step of two indices. The
+    firmware is **searching** for a rate, not mis-measuring, and the harness's
+    fixed `--boot-input-rate` cannot match a target that moves between
+    characters. A harness question, not a serial-model one: the control case
+    works.
+    **And chasing that route turned up something larger**: the identity harness
+    and the crash investigation have been running **different machines**. Ours
+    defaults to a 1987 calendar; the oracle takes the host's date and sees year
+    **26**, and the volume's timestamps are in that era. With `--clock
+    2026-08-09` our boot produces `939 x vector 2` against `392`, three vector
+    classes the other never reaches, and the `00120020` crash at 387,684,292 —
+    which the 1987 boot never gets to. Static facts are unaffected, but every
+    measurement with an instruction count attached was taken on the wrong clock
+    and was rechecked. **It holds**: on the year-26 clock the gate is reached at
+    *exactly* 288,640,117 with the same `D0`, the same instructions and the same
+    branch taken, so the two clocks are the same machine for the first 288
+    million instructions and every measurement stands. It also weakens the
+    calendar as the explanation for the address-space question — both our clocks
+    ask for space 1 first, from the same code, at the same instruction.
+    `tools/identity-boot.sh` now says which clock each question wants. Detail in
+    `PROJECT_STATUS.md`.
+    **And a standing caveat is discharged**: the eight `PMOVE`s really are
+    `SELF_TEST`'s. Both images load at `01002000`, so the addresses proved
+    nothing, but the last of them fires at 162,878,385 instructions while the
+    kernel's own copy loop does not run until 268,435,351. Domain/OS executes no
+    `PMOVE` at all. Detail in `PROJECT_STATUS.md`.
+  ### The plan to close Phases 4 and 5
+
+  **They are one blocker.** Phase 5's item says its only gap is the *subject* of
+  the picture. One fix closes both, and it is verified twice: a `login:` prompt
+  on the console and a PNG of it.
+
+  **The blocker, as of 2026-08-12.** The address-space chain below is refuted
+  and the `$3C43FB14` steps that were here have been deleted with it — they
+  planned four measurements against a premise the file itself retracts thirty
+  lines later. What actually stands in the way now:
+
+  1. `00120020` — **closed.** The OMTI completed commands in the instant they
+     were issued, so an `IRQ14` landed inside the page-fault handler. A real
+     access time closed it. Detail in `PROJECT_STATUS.md`.
+  2. A **CPU defect** — closed. PC-relative operands were two bytes low behind
+     an immediate, which is why `IRQ1` never reached the keyboard.
+  3. `E0007`, `Unable to resolve "/sys/node_data"` — **live, and this is the
+     item.** `002398-04` p. 4-5 decodes it: **`name not found`**, from the
+     naming server, whose neighbouring codes separately cover a missing
+     directory in the path (`E0020`), refused rights (`E0013`) and a bad link
+     (`E0006`/`E0008`). So the lookup completed and found nothing — it is not
+     an I/O failure, and the disk path is not implicated by this code.
+     Also established: not a machine fault (all 294 MMU faults are ordinary
+     demand paging from the pager's own PCs); the volume carries `node_12345`,
+     matching this core's node ID `0x012345`; and the node-ID PROM decodes
+     correctly. Detail in `PROJECT_STATUS.md`.
+  4. **`@2D-03863-MS` is back, and it is the cheapest lead in the boot.** It was
+     dropped on the finding that it prints on runs of *this core* that never
+     fail — true, and the wrong comparison. **The oracle prints a blank line
+     there**, on the same volume, between two lines the machines agree on
+     exactly. It is the first line-level console divergence in the Domain/OS
+     boot. Detail in `PROJECT_STATUS.md`.
+
+  **And the address-space switch now runs.** The boot that reaches `E0007` exits
+  with `crp 0105BC00`, 82 `PMOVE` loads and 294 `MMUSR` reads — twenty-four
+  loads from kernel `PC 3C43DDF0` alternating the two spaces. The runs that stop
+  earlier show `01001400`, 23 loads and no `MMUSR` at all. So `E0007` is *past*
+  the thing this section used to call the whole defect. Detail in
+  `PROJECT_STATUS.md`.
+
+  **The reproduction is recorded**: `tools/e0007-boot.sh`, deterministic to the
+  instruction. `--clock 2026-08-09` is the whole trick — within fourteen days of
+  the volume's install, so the calendar question is never asked and no keystroke
+  has to land. Typing the answer does not work at any threshold tried.
+
+  **And the failure is now a named request, not an inference.** **The volume
+  carries the kernel's own load map**, seven of them, and
+  `tools/kernel_symbols.py` reads one off it without a filesystem: every block
+  header names its object and page, which is what SALVOL is built on
+  (`[AEGIS]` §4.1). With it and a disassembly of the dumped code:
+
+    OS_$INIT -> NAME_$INIT -> NAME_$RESOLVE -> NAME_$VALIDATE
+             -> DIR_$GET_ENTRYU -> DIR_$DO_OP,  which answers 000E0007
+    for the name "node_data" in directory UID a45aa7fc.60012345
+
+  `3C4524E6` is the **return address of `JSR CRASH_SYSTEM`**, which is why it is
+  the crash record's `PC`. Five earlier inferences are confirmed by name
+  (`MMU_$INSTALL_ASID`, `MST_$ALLOC_ASID`, `FIM_$BUS_ERR`, `MMU_$PURGE`, the
+  status on the stack). The map lists **entry points, not extents**, so
+  `DIR_$OLD_INIT+122` and `DIR_$RESOLVE+17A` are both mis-attributions of
+  unnamed statics -- the tool now prints the distance to the next symbol so that
+  is visible where it is used.
+
+  **And the volume is right, from this side too.** `[AEGIS]` ch. 4 walks the
+  artefact from its label without booting: `/` and `//` are byte-identical to
+  this core's `NAME_$NODE_UID` and `NAME_$ROOT_UID`, `/sys` is the UID in the
+  failing request, and `node_data` is an entry in `/sys`. This core also writes
+  **nothing** to the disk -- all 345,553 blocks identical after the run -- so the
+  static reading is exactly the bytes the boot saw. `sys` in `/` (one page)
+  resolved; `node_data` in `/sys` (four pages) did not. Detail in
+  `PROJECT_STATUS.md`.
+
+  **Done**: stopping at `3C452482` lands at instruction 478,736,082, and shows
+  that `000E0007` is *read* out of a status slot on the stack at `3C4F9908`
+  (`move.l (a2),d0` at `3C47BFCA`). Everything from there to the screen is error
+  propagation, so the code that failed is upstream of that read.
+
+  **Also done**: the write is `3C47BF58`, which copies a status out of its own
+  frame and runs rarely — once with `00000000` and once with `000E0007`. Seven
+  instructions earlier the naming server compares `d0 = 00012345`, **this
+  machine's node ID**, against a global it matches, and takes the branch: the
+  name is decided to be *this node's own*, the lookup goes local, and it is not
+  found here. Network explanations are closed off. Detail in
+  `PROJECT_STATUS.md`.
+
+  **Settled: `E0007` is ours.** The oracle boots the *same pristine image* to a
+  **`login:` prompt** — `screencap.lua` gained `APOLLO_SNAP_KEYS`, and Return is
+  `Unnamed Key` (the one field `apollo_kbd.cpp` leaves without a `PORT_NAME`;
+  `Numpad Enter` is a different key and Domain/OS does not accept it). So the
+  volume carries `/sys/node_data` and resolves it, and the "the install is
+  incomplete" branch is dead. Detail in `PROJECT_STATUS.md`.
+
+  **And `@2D-03863-MS` is identified: it is the keyboard's own identification
+  reply**, `AP_KBD_IDENTIFICATION` in `device/ap_kbd.h`, found once in a full
+  sixteen-megabyte dump at physical `0104F9B0` and byte-identical to MAME's
+  string. So the divergence is in the **keyboard identify exchange**, which has
+  documentation (`002398-04` ch. 12, `008778-03` §13.3), and not in the disk or
+  the naming server. Truncation and pacing are already ruled out. Detail in
+  `PROJECT_STATUS.md`.
+
+  **`E0007` IS CLOSED, and it was a CPU defect.** `PFLUSH FC,MASK,<ea>` dropped
+  its `MASK` operand and compared the function code exactly, so the *only*
+  masked form Domain/OS issues — mask zero, every function code — invalidated
+  nothing. Measured: `MMU_$REMOVE_PMAPE+1E` 29 times on the one page `3C004C00`,
+  `FIM_$BUS_ERR+AE` once per demand-paged page. Matched A/B on the same script
+  and image, pre-fix built from `HEAD` in a worktree: the screen's
+  `Unable to resolve "/sys/node_data" -- E0007` is **gone**, and the boot runs
+  5,058,437 instructions further. `tools/identity-boot.sh` is unchanged at
+  `A354786119A3931D`, so no re-baseline. Detail in `PROJECT_STATUS.md`.
+
+  **The next failure is a different one**: the kernel starts its second process
+  on a **null entry point** — `FIM_$PROC2_STARTUP` builds a frame and
+  `FIM_$EXIT`'s `RTE` lands on `PC 00000000`. Traced end to end: the PC is
+  `OS_$INIT`'s frame slot `A6-$DC`, which takes `PROC2_$INIT`'s return value,
+  which is its local `A6-$14`, which is **copied from user address `3B3C0008`**
+  one instruction after that page is demand-paged in. `MST_$MAP_AT` and
+  `OS_$BOOT_ERRCHK` both run after the copy, the status checks **clean**, and
+  neither touches the slot — so nothing in the kernel thinks it failed. The page
+  is not empty either: it holds `{00800000, 0080000C, 00000000}` and then code
+  starting exactly at `+0C`. Whether `MST_$MAP_AT` should fill that slot as an
+  out-parameter, or the third field is legitimately zero, is **not established
+  and must not be guessed**. Detail in `PROJECT_STATUS.md`.
+  **ANSWERED BY THE ORACLE, AND IT IS A THIRD CPU DEFECT.** Tapping `PC
+  3C45756C` on both machines: the oracle returns `D0 = 0080000C` where this core
+  returned `00000000`, same frame. Tapping the faulting `MOVE.L (A0)+,(A1)+`:
+  the oracle visits it twice with `A0` unchanged, this core the second time with
+  `A0` **four higher**. `[030]` §8.2.2/§8.2.3 *continue* a faulted bus cycle;
+  this model restarts it, which is sound only if nothing was committed — and a
+  postincrement is committed before the access it addressed. A faulted access
+  now rolls the register file back (`entry_regs`). Identity hash unchanged.
+  Detail in `PROJECT_STATUS.md`.
+
+  **The boot now reaches user space**: `Apollo Phase II Environment Revision
+  10.4`, `Loading Init`, `... loading global libraries`, the **HP logo drawn**,
+  and **30,601 `TRAP #4`s** where the previous boot had no traps at all — those
+  are system calls, so user processes are running. It ends on a *user-mode*
+  fault, `Fault status 80080012, pc 81C16C, fa 3B2FC2A0`, `CRASH_STATUS
+  00080016 PID 0005`.
+  **`invalid disk address` WAS ours, and the command log named it in one line**:
+  `1E/8@164702:0` then `03/8@0:4` — an eight-block `READ DATA TO BUFFER` refused,
+  then the driver asking for sense. The block-count cap was transcribed from
+  §5.4.19's table as an absolute when the section's own sentence makes it
+  "limited by the **controller's Buffer size**", and byte 14 of the
+  identification block enumerates four sizes. The table's rows are an **8K**
+  part's (15×512, 7×1024, 7×1056 all just under 8192); this controller reports
+  **32K** in a constant this core already carried, so the model announced 32K and
+  refused eight — its own identification against its own behaviour, visible
+  without any oracle. Exact boundary for a 32K part is `PROVISIONAL` (31 or 30;
+  the page does not settle it). **Both tests that asserted the old cap failed**,
+  which is the point: they encoded the same misreading. Detail in
+  `PROJECT_STATUS.md`.
+
+  **Verified by the guest**: `Salvol` now reaches `Salvaging... % complete 20`
+  where it died on `80012`, and the `Fault status 80080012` / `Unhandled signal`
+  block is gone from the Init sequence too.
+  **`00080016` WAS the data-out handshake, and the trace named it.** The crash
+  record's PC `3C41F8BA` is the **return address** of `JSR CRASH_SYSTEM` and is
+  never executed — third time in this investigation, after `3C40E114` and
+  `3C4524E6`. Stopping on `CRASH_SYSTEM` instead: the window's hottest PCs are a
+  six-instruction loop run **3,301 times**, `WIN_$SPIN_DOWN` polling for
+  `D1 = C0` (the idle controller) and reading `C8` — busy, **asking for
+  nothing** — then returning `00080003` and crashing when the status is not `CF`.
+  §4.3: in programmed I/O the data state handshakes "in the same fashion as the
+  command transfer", setting `REQ` for each word. Our `DATA OUT` re-asserted it
+  at none of its three exits, and `WRITE` entered the phase by hand so it never
+  set `REQ` at all and set `DREQ` ungated — the very defect the read path had
+  already fixed. **Every existing write test wrote its bytes without consulting
+  `REQ`**, which is why the suite was green; three new ones do consult it, and
+  two of them caught the hand-rolled `WRITE` path. Detail in
+  `PROJECT_STATUS.md`.
+
+  **The crash is gone** — no `CRASH_STATUS`, no reboot, no salvage; the screen
+  ends at `Loading Init.` / `... loading global libraries` with a live cursor,
+  and `1F` goes 11 → 81. 
+  **THE 17.5 M FAULTS WERE A LOOP, AND A SIXTH DEFECT.** A 400-step trace of the
+  end state shows one cycle repeating: user `PC 008183FE` runs
+  `MOVE.L (A1)+,(A0)+`, `FIM_$BUS_ERR` probes, tests bits, `RTE`s, and the same
+  PC faults again with **byte-identical registers** — the register rollback doing
+  its job, which is what made the stall visible instead of silently wrong.
+  `A0 = 3B5507FE`, so the long write straddles the 1 KB boundary at `3B550800`:
+  the first cycle lands in a resident page, the second does not. Our operand path
+  split the access correctly but **recorded the operand's start as the fault
+  address**, so the handler probed a present page, found nothing to repair, and
+  returned — an unbreakable loop. Table 8-6's data fault address is the faulted
+  *bus cycle's*. Fixed; identity hash unchanged. Detail in `PROJECT_STATUS.md`.
+
+  **The storm is gone — vector 2 goes 17,585,328 → 2,480** — and a new stage
+  completes: the screen now prints **`... global libraries loaded.`**, a line
+  this core had never reached. Disk work multiplies with it, `1E`/`0E` 329 → 3,172.
+  **`0012000A` IS NOT OURS — the F-line is Domain/OS's own trap.** Measured with
+  the new `--boot-stop-on-vector 11`: the first taking is the boot PROM's
+  deliberate `CPU (FP TRAP)` self test (`F200` at `010046B4`), and at the second
+  (`F227` at `3B5AA42C`, supervisor) the board's control register reads **`FC05`**
+  — bit 2, the FPU trap, **set**. The OS holds the coprocessor off for lazy
+  floating-point context switching, so the trap is correct and `0012000A` is the
+  OS naming it. Also checked and sound: the `FSAVE` state frame is 60 (`$3C`)
+  bytes, exactly what `[FPCP]` gives for the MC68882.
+  **A REAL DEFECT FOUND UNDER IT, AND IT IS NOT THE CAUSE.** `regs.a` is
+  `uint32_t[7]` — A7 is deliberately absent, since the active stack pointer is
+  `usp`/`isp`/`msp` by the SR — and the coprocessor block indexed the array
+  directly at **thirteen sites** (`FMOVEM`, `FMOVE` control, `FSAVE`,
+  `FRESTORE`). With register 7 every one read *past the end of the array* onto
+  the field declared next, **`usp`**, so a coprocessor instruction naming A7 used
+  and moved the *user* stack pointer in supervisor state. It matched the boot to
+  the byte: USP `3B3BC82C`, minus the MC68882's sixty-byte frame, is `3B3BC7F0`.
+  Fixed and tested. **But the crash persists** one instruction earlier and
+  fourteen bytes higher in the same page (`FIM_$FP_INIT+F0`, `3B3BC7FE`), so the
+  page at `3B3BC7xx` was never resident and the stack pointer only decided which
+  access noticed. Detail in `PROJECT_STATUS.md`.
+  **RETRACTED — not the FPA.** `FPA_$SAVEP` measures **zero** at the fault and
+  `FP_$SAVEP` holds `3C25F800`, so this core takes neither branch that reading
+  named; both converge two bytes apart at `3C42D55A`/`3C42D55C` and reaching
+  `3C42D562` distinguishes nothing. The story was read off a disassembly without
+  reading the operands it tests. What stands: the oracle enters `FIM_$FP_INIT`
+  eight times and never reaches the loop; we reach it with `A1 = 3B3BC800`, a
+  user-space destination on an unmapped page, copying from `A0 = 3C4F9A86` on
+  the kernel stack.
+  **LOCALISED TO ONE REGISTER.** The oracle enters `FIM_$FP_INIT` eight times and
+  `FIM_$FSAVE` never; this core does the reverse — same trap, same state,
+  different routine. The copy loop is reached by a `JSR` at `3C42D710` *inside
+  `FIM_$FSAVE`*, so it was never `FIM_$FP_INIT` code (entry points, not extents,
+  again). `A1` comes from `MOVEA.L ($A0,A3),A1` then `MOVEA.L (A1),A1` =
+  `3B3BCAC8`, a user pointer; the loop walks down 712 bytes to the page boundary
+  at `3B3BC800`. At the shared dispatcher instruction `3C42D444`, `A0` and `A1`
+  match the oracle exactly and **`A3` does not** — ours `3C4F98BE`, the oracle's
+  `3B3C82C6`, which is the value *both* held at the trapping instruction.
+  **RETRACTED — `A3` does not differ.** Traced across the trap: our *first*
+  dispatcher visit has `A0/A1/A3 = 3C43F728/3C25F800/3B3C82C6`, matching the
+  oracle's first exactly. The `3C4F98BE` was our *second* visit — the dispatcher
+  runs 101 times in the window, and the comparison paired our later visit with
+  the oracle's first. Sixth instance of
+  `cross-machine-comparisons-need-sample-free-quantities`. (The enumeration
+  script also indexed `A2` as `A3`; fixed.)
+  **What the trace does establish**: the trapping `F227` is **executed on
+  retry** (`662950054` EXCEPTION, `662950150` EXECUTED), so the lazy-FP trap,
+  handler and return all work, and the crash 53,000 instructions later is a
+  different FP event.
+  **IT IS A FAULT-DELIVERY LOOP, and `FSAVE` is only where the stack runs out.**
+  `FIM_$FSAVE` is entered **50 times, every 1,078 instructions**, from
+  `FIM_$BUILD_DF+458` — the fault manager building a frame to deliver to a
+  process. In the same window **49 exceptions occur at one user address,
+  `0081B14A`, with instruction word `0000`**: the *fetch* faulted, so its text
+  page is not resident. The process retries and refaults; each delivery writes an
+  FP frame to a user buffer that marches down; the fiftieth crosses `3B3BC800`
+  and kills the kernel. The FP machinery is sound throughout — the trapping
+  `F227` executes on retry. It is an **MMU** fault, not a board one (`bus errors`
+  all end at the FPA probe).
+  **THE PAGER WORKS; ONE PAGE DOES NOT.** Ten instruction-fetch faults in the same
+  program (`008177B4`, `0081EBD4`, `0081730C`, `00819A80`, `00810708` …) each
+  fault **once** and recover. `0081B14A` faults **49 times** and nothing in
+  `0081Bxxx` ever executes. So it is not the pager: the kernel answers *this*
+  page by building a fault frame for the process rather than mapping it — the
+  answer given when its tables say the address is not part of the object. It is
+  reached by a jump-table entry: `JSR $008910E4` → `LEA $00891208,A0` →
+  `JMP $0081B14A`.
+  **The oracle cannot arbitrate this.** Taps at `0081B14A`, the stub `008910E4`
+  and its caller `0088909A` all return zero — but the oracle's boot *succeeds*,
+  so it need not run this program at this moment, and zero hits cannot separate
+  "we jump somewhere wrong" from "we get further here". Do not spend runs on it.
+  **A HOLE, NOT A TRUNCATION.** At the fault the MMU says `00819000` and
+  `0081A000` translate, `0081B000` and `0081B400` **do not**, and the fault
+  profile has `0081BD58`, `0081EBD4` and `0081FC9C` faulting once and recovering
+  — so pages above the gap are mapped too. Two 1 KB pages are missing from the
+  *middle* of an object present on both sides, which rules out a length read
+  wrong. And no mapping call explains the region: of 29 `MST_$MAP_CANNED_AT`
+  calls every one maps kernel space (`3C000000`…`3C4F0000`, `3FF60000`), none
+  touches `0080xxxx`–`0089xxxx`, so the user text arrives by demand paging
+  against an object. Detail in `PROJECT_STATUS.md`.
+  **THE DESCRIPTOR EXISTS AND IS INVALID.** `--dump-walk` (new, since
+  `--dump-logical`'s bool cannot tell "no tables here" from "not resident"):
+  `0081A000` translates after 3 levels via descriptor `0129C1A0`; `0081B000`
+  stops after 3 levels at `0129C1B0` — **16 bytes apart, adjacent slots of the
+  same page table**. So the region *is* mapped and this page is simply not
+  resident. Watching `0129C1B0`: 16 writes, the last two at 488.95 M and nothing
+  after — `0001042C` by `FM_$READ+138` (DT = `2C & 3` = 00, invalid) then a byte
+  `04` by `AST_$LOAD_AOTE+43C`. A value like that in an invalid descriptor is the
+  shape of a **backing-store address**. So the page is known, its location
+  recorded, and the kernel still delivers the fault instead of fetching it.
+
+### The child item's notes
+
+    **The fatal is now measured end to end, and the stack overrun is a
+    *symptom*.** The machine livelocks: fifty cycles, each exactly **1,078
+    instructions**, with `FIM_$FSAVE`'s registers byte-identical every time
+    (`d1=00008400 a0=3C43F728 a1=3C26E400`). One cycle is
+    `FIM_$BUS_ERR` → `FIM_$UII` → `FIM_$BUILD_DF` → `PROC2_$DELIVER_FIM` →
+    `ML_$EXCLUSION_START`/`STOP` → resume → re-fault at the same user `PC`.
+    Each delivery spends **232 bytes** of user stack, so after fifty rounds it
+    crosses `3B3BC800`, the copy loop at `FIM_$FP_INIT+F0`
+    (`MOVE.W -(A0),D2 / ADD.L D2,D3 / MOVE.W D2,-(A1) / DBF`, 30 words = the
+    MC68882 idle frame) faults at `3B3BC7FE`, and the kernel dies *delivering*
+    the fault. So `0012000A` is the diagnosis it was already carrying, not a new
+    one, and the write fault is downstream of the loop.
+    **What the loop is:** the process is executing at `0081B14A`, whose page has
+    no translation (`walk 0081B14A STOPPED after 3 level(s), last descriptor at
+    0129C1B0`) — reached by an *indirect call*, so the address is a linkage-table
+    pointer rather than a wild `PC`. Domain/OS answers it as
+    `FIM_$UII`, *unimplemented instruction*, and hands it to the process instead
+    of paging it in. Blocks `66604`–`66606` are never requested from the disk in
+    the whole boot and `AST_$TOUCH` is never called for those three pages, while
+    the neighbours either side are and recover.
+    **Ruled out by measurement, so do not re-run these:** every one of the 1,433
+    disk reads drained exactly what it asked for (`1E/4`→4224, `1E/3`→3168,
+    `1E/2`→2112, `1E/1`→1056), so the transfer accounting is clean; our vector is
+    right (the fault dispatches to `FIM_$BUS_ERR`, not to a wrong handler); and
+    six CPU behaviours were walked against the page images and hold — the short
+    frame `$A` is *correct* for a write fault (p. 8-30: only read faults force
+    the long frame), the `DOB` is recorded right-justified, `FSAVE`'s length is
+    state-dependent with a 4-byte null frame, the `M` bit clears before the
+    throwaway frame, `SRE` is clear in the kernel's `TC` (`80A28750`), and
+    `MMUSR`'s `N` counts only successfully fetched tables.
+    **Two instrument notes that each cost a run.** A faulted *prefetch* reports
+    the longword-**aligned** bus address, so stop on `0081B148`, not `0081B14A`
+    — the flag is not at fault. And `mmu_fault_sites` fills up: a boot drops
+    ~1,186 sites, so a `PC` missing from that list is not evidence of anything.
+    **The oracle has now answered it, and it inverts the question.** Watching
+    the same two descriptors in MAME's RAM (`tools/mame-oracle/pagescreen.lua`)
+    across a boot that reaches `login:`: the control `0129C1A0` goes resident as
+    `01373109`, and `0129C1B0` holds `0410B000` -- **invalid, for the whole
+    boot, out to 890 emulated seconds** -- while the machine idles in
+    `NULL_LOOP`. So Domain/OS is not failing to page that page in. It is never
+    executed there, and *declining is correct*.
+    **The defect is ours and upstream.** Our first fault
+    (`--boot-stop-on-mmu-fault-at 0081B148`, the aligned address) is reached by
+    `JSR $008910E4` into a two-instruction thunk, `LEA $00891208,A0` then
+    **`JMP $0081B14A`** -- the target is a literal operand, bound into the stub,
+    not a computed pointer. So either our loader bound that stub to an address
+    the oracle binds elsewhere, or our control flow reaches a stub the oracle
+    never calls. Next: whether anything *writes* the thunk during
+    "loading global libraries", which separates the two.
+    One caveat on the oracle log: it polls, so the `pc` column is the PC at
+    *detection*, not the instruction that wrote the descriptor. Only our side's
+    `--boot-watch-write` names writers.
+    **The chain back from the jump is now measured, and it exonerates the
+    disk.** The thunk's target is not computed: `008030F0` is a three-instruction
+    block copy (`MOVE.L (A3)+,(A2)+ / CMPA.L (d16,A5),A2 / BCS`) moving
+    `0083B9C8` to `008910EC`, and the source word was written by
+    `WIN_$EMPTY_CTL_BUF+1E` -- the Winchester driver draining the controller
+    buffer. So `0081B14A` is **file content**. It is in the volume image at
+    block 66487 offset 488, which is the 32-byte block header plus 456, exactly
+    the offset of `0083B9C8` in its page, and block 66487 is inside the
+    `1E/4@66485` read that served it. The hole's own blocks are real code too --
+    66603-66607 each carry 920-960 non-zero bytes under a header whose third
+    longword increments `6a,6b,6c,6d,6e` -- and our descriptor `0001042C` names
+    block 66604 correctly. **So the pointer is genuine, the sector served was
+    the right one, and the page has real backing.** Note this widens an earlier
+    claim that was narrower than it sounded: the 1,433-read check verified
+    transfer *counts*, and a command that fetches the wrong sector succeeds
+    silently -- this is the first check of *content*, and it passes.
+    **FOUND AND FIXED: the board's FP trap survived a status-register write.**
+    Neither branch above was it. `FIM_$BUS_ERR` reads the status register at
+    `+10` and branches at `+24` on bit 2 -- the FP trap -- *before* its own
+    `PTEST`, so with that bit set it never asks the MMU anything and answers
+    every bus error with `FIM_$UII`. An `F227` at `3B5AA42C` latches the trap
+    1,212 instructions before the first fault, and our
+    `AP_BOARDREG_STATUS_WRITE_KEEPS` kept it across the handler's own
+    acknowledging write, so it never cleared. Removing it from that mask stops
+    the crash: the screen now reaches `... global libraries loaded.` and sits
+    live, with no `CRASH_STATUS`. The page at `0081B14A` was never the subject
+    -- the machine had simply stopped being able to serve *any* fault, and that
+    page was the next one to arrive, which is why the oracle boots happily with
+    it unmapped. Detail in `PROJECT_STATUS.md`.
