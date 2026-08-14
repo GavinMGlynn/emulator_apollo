@@ -641,8 +641,27 @@ accounts for both storms and for why `0081B000` never became resident either --
 and it means the branch, if it is a branch, is taken every time rather than
 once. A single wrong constant or a pointer that lands on the page table when it
 should land elsewhere would both do this; the copy's destination `a4` was
-`3C86FBC0`, which our tables translate to `012953C0`, and whether the oracle
-translates it there too is not yet measured.
+`3C86FBC0`, which our tables translate to `012953C0`.
+
+**And the oracle's slot is what narrows it.** Both machines hold the same block
+map at the same physical address, and the oracle's page-table slot goes
+`00000000` -> `11EB9800` without ever showing the raw value. Had the oracle run
+this copy with this destination, that slot would have carried `00047AE6` at
+least between polls. It never does. So the difference is the copy's
+**destination**: on this core `a4` lands on the page table, and on the oracle it
+cannot.
+
+That is a different defect from "the install forgets a shift". Either the
+kernel computed a different `a4` -- in which case something upstream feeds it --
+or `a4` is the same and *our translation of `3C86FBC0` is wrong*, putting a
+kernel buffer on top of its own page table, which would corrupt exactly the
+entries these two storms are about and would do it every time.
+
+The measurement that separates them needs an instrument this project does not
+have yet: the oracle's `a4` at `FM_$READ+138`, which is a PC-triggered register
+capture rather than the memory poll `pagescreen.lua` does. Worth building --
+`regprobe.lua` is the nearest existing thing -- because the second branch would
+be a serious MMU defect and the first would not.
 
 (Superseded, kept for the method:) walk `(A1)` at the copy to its physical address,
 watch writes to it across a boot, and name the writer. What makes this case
