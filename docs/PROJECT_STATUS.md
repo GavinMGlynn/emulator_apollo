@@ -412,6 +412,56 @@ Last updated: 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## RETRACTED: the page-table entry was never wrong, and the two machines agree
+## through it (2026-08-15)
+
+**Measured, both sides, and it retires the whole descriptor line of enquiry.**
+
+    ours   012953C0  11 EB 98 00   01 7D FD 09   11 EB A0 00  11 EB A4 00
+    oracle 012953C0  01 7D FD 09
+
+Our slot ends at `11EB9800` -- *byte for byte the value the oracle holds while
+the page is loaded and not resident*, `block << 10`, `DT = 0`, honestly invalid.
+And at the instruction that writes it, `state-diff.py` reports **27 of 27 mapped
+CPU fields matching and none differing**: `A2 = 3C86FB80`, `D0 = $10`,
+`D6 = $47AE6` on both machines, both translating `3C86FBC0` to `012953C0`.
+
+So these are all **withdrawn**:
+
+  - "the final descriptor is `0x11047AE6`" -- it is `0x11EB9800`;
+  - "`DT = 2`, an indirect descriptor, and the walk chases `0x11047AE4` outside
+    RAM" -- `DT = 0`, and `--dump-walk 3B5AC3FE` ends invalid, which is what its
+    own output said all along;
+  - "something wrote a page-table entry that points outside memory", and with it
+    the `update_history`-refuses-on-indirect thread;
+  - "`AST_$LOAD_AOTE+43C` writes a byte `11`" as a *description of the
+    instruction*. It is a `BFINS` writing a 21-bit field across three bytes,
+    and this core performs it correctly.
+
+**How the wrong number was produced, because the mechanism will recur.**
+`--boot-watch-write ADDR` matches an access only when it *overlaps that
+address*, so of the seven byte-sized read-modify-writes our bit-field model
+makes into byte 0 of the slot it records all seven, and of the writes into bytes
+1 and 2 it records none. The last recorded value is `11`, which is exactly the
+first byte a *correct* `BFINS` leaves. Reading `11047AE6` off that -- one
+recorded byte over the previous longword -- was an inference, and it was wrong;
+`--dump-mem 012953C0` costs nothing and says what is there. **A watch on one
+address cannot see an instruction that writes three.**
+
+**Where the divergence actually is, from the same dump.** The next slot along is
+the tell:
+
+    012953C0  11 EB 98 00    entry $10, page 3B5AC000 -- loaded, not resident
+    012953C4  01 7D FD 09    entry $11, page 3B5AC400 -- RESIDENT
+
+`017DFD09` is the value the oracle puts at `012953C0`. Both kernels run
+`AST_$TOUCH` and both make a page resident; **ours makes the wrong one**, one
+entry along, which is the same fact `AST_$TOUCH` logging reported as "3B5AC400
+touched, 3B5AC000 never" and is `PC+4` crossing the page boundary again. The
+defect is therefore in the fault presentation after all, not in paging or in the
+descriptor -- but the two machines are now known to be identical right up to it,
+which is what the previous four sessions were trying to establish.
+
 ## The page-table slot's writers, named on both machines (2026-08-15)
 
 **The instrument that was said not to exist now does, and it is offline.**
