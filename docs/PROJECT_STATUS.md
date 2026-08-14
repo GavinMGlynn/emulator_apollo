@@ -1154,7 +1154,21 @@ format, or the frame's address fields does. That is a strong and unwelcome
 result: it means this core cannot make Domain/OS page in a faulting instruction
 within four bytes of its page end *by any encoding*, and the fault must instead
 be presented at a point where the PC is genuinely earlier -- which is a statement
-about when the fault is taken, not about what the frame says. Either such a fault is reported some other way,
+about when the fault is taken, not about what the frame says.
+
+**Or possibly neither, and this is the cheapest thing to check next.** The oracle
+*does* make `3B5AC000` resident -- `017DFD09`, frame `017DFD00`, at 518 s,
+measured with `pagescreen.lua`. Domain/OS is therefore perfectly able to page
+this page in, and does. What differs may be **ordering** rather than fault
+presentation: if the oracle touches that page *before* the branch reaches it,
+the fault this core cannot communicate never arises there at all, and all five
+frame-level experiments were answering a question the hardware never asks. Find
+what makes the oracle touch `3B5AC000` at 518 s and whether this core reaches
+that code -- `AST_$TOUCH` is the routine, `MST_$TOUCH` its caller, and
+`--boot-log-pc 3C404AD4` is the recipe already used for `0081B000`. If this core
+never calls it for that page, the defect is upstream of the fault entirely.
+
+Either such a fault is reported some other way,
 or the pipe is never in that state on real hardware because a branch to an
 unmapped page faults before the target's word is ever needed. Both would change
 what this core does far more than the PC selection would. Figures 8-6 and 8-7 and
