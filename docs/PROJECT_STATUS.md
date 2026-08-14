@@ -755,6 +755,23 @@ which is ordinary RAM, should fail at all is not yet understood. Read the rest
 of `update_history` first: if it refuses for a reason other than a failed write,
 the access path's `invalid` may itself be the defect.
 
+**Read, and it refutes the explanation above.** Every path by which
+`update_history` returns false sets `result->bus_error` first, and so does a
+failed fetch of the pointed descriptor. Our `--dump-walk` reported `STOPPED
+after 3 level(s), last descriptor at 012953C0` with **no bus error**, so the
+access-path failure is neither of those. Nor is it the pointed descriptor being
+non-page: that exit assigns `last_descriptor_address = descriptor.address_field`
+*before* it checks, so the walk would have reported `11047AE4`.
+
+None of the three exits from `ROLE_INDIRECT` produces what was measured. The
+honest reading is that the access walk **never entered `ROLE_INDIRECT`**, so the
+descriptor it saw was not `DT = 2` -- while the write watch says `012953C0`'s
+last write was at 662.7 M and the walk ran at 2.5 G, so the two should agree and
+do not. Reconcile that first, and it is cheap: dump the descriptor and walk the
+address **in the same run**. One of those two observations is of a different
+machine state than it appears to be, and every conclusion drawn by pairing them
+-- the `DT = 2` reading included -- is suspect until that is settled.
+
 (The withdrawal was caused by the recorder, not by the reasoning: the first 32
 reads are all pre-storm, so `0403` was the only value visible. Keying by value
 was what made the difference, and it is the third time that has been true
