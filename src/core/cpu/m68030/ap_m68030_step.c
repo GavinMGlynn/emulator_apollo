@@ -2584,8 +2584,24 @@ static ap_m68030_ssw_t fault_ssw(const ap_m68030_cpu_t *cpu) {
      * reported, because words advance B to C to D and a prefetch that failed to
      * fill the pipe left both stages invalid. The encoder adds the rerun
      * bits. */
-    ssw.stage_c_fault = true;
-    ssw.stage_b_fault = true;
+    /* Which stage, decided by where the faulted word actually is. §8.2: "the
+     * address of the pipe stage B word is the value in the program counter plus
+     * four, and the address of the stage C word is the value in the program
+     * counter plus two." So the two bits describe `PC+4` and `PC+2` and nothing
+     * else -- and a fault on the word at `PC` itself, the opcode about to be
+     * decoded, is *neither*.
+     *
+     * Setting both unconditionally was a fallback, and it misdirects the
+     * handler: §8.2.2 has it repair each faulted stage from that stage's
+     * address, so a kernel told `FB` reads `PC+4`. Domain/OS did exactly that
+     * for a fault on the opcode at `3B5AC3FE`, probed `3B5AC402` in the *next*
+     * page, found it resident and write-protected, concluded there was nothing
+     * to fetch, and retried 30,835,213 times. With neither bit set the fault is
+     * what it is: the instruction at the stacked PC could not be fetched. */
+    const uint32_t at = cpu->fault_address;
+    const uint32_t pc = cpu->regs.pc;
+    ssw.stage_b_fault = (at == pc + 4u);
+    ssw.stage_c_fault = (at == pc + 2u);
     return ssw;
   }
   ssw.data_fault = true;

@@ -644,10 +644,22 @@ static void test_a_faulting_instruction_fetch_takes_the_bus_error_exception(
   TEST_ASSERT_EQUAL_INT(AP_M68030_FRAME_SHORT_BUS_FAULT,
                         ap_m68030_frame_format_of(format_word));
 
+  /* Neither stage bit, and that is the point. §8.2: "the address of the pipe
+   * stage B word is the value in the program counter plus four, and the address
+   * of the stage C word is the value in the program counter plus two." The word
+   * that faulted here is the *opcode*, at the program counter itself, so it is
+   * neither stage -- and §8.2.2 has the handler repair each faulted stage from
+   * that stage's own address, so claiming `FB` sends it to read `PC+4`.
+   *
+   * This assertion used to require both bits, which is what this core set. It
+   * cost 30,835,213 faults in one boot: Domain/OS was told stage B had failed
+   * for a fault on the opcode at `3B5AC3FE`, probed `3B5AC402` in the next page,
+   * found it resident and write-protected, and retried for ever. The test agreed
+   * with the code and neither was reading the manual. */
   const ap_m68030_ssw_t ssw = ap_m68030_ssw_decode((uint16_t)(
       read_ram_long(&m, m.cpu.regs.isp + AP_M68030_BUS_FAULT_SSW) >> 16));
-  TEST_ASSERT_TRUE(ssw.stage_c_fault);
-  TEST_ASSERT_TRUE(ssw.stage_b_fault);
+  TEST_ASSERT_FALSE(ssw.stage_c_fault);
+  TEST_ASSERT_FALSE(ssw.stage_b_fault);
   TEST_ASSERT_FALSE(ssw.data_fault);
 }
 

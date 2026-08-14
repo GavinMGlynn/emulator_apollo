@@ -1039,9 +1039,24 @@ is not an instruction boundary. So the B/C repair model has nothing to say about
 a fault on the **opcode word itself** -- the frame carries images for `PC+2` and
 `PC+4` and none for `PC+0`.
 
-That is the question to answer before writing any of this: **how does the part
-report a prefetch fault on the first word of an instruction, when the frame can
-only describe stages B and C?** Either such a fault is reported some other way,
+**Answered, implemented, and it did not fix the boot.** §8.2 says plainly that
+the stage bits describe `PC+4` and `PC+2` *and nothing else*, so a fault on the
+opcode at `PC` is neither and should set neither. `fault_ssw` now sets
+`stage_b_fault` only when the faulted address is `PC+4` and `stage_c_fault` only
+when it is `PC+2`, where it used to set both unconditionally. The old
+`step_suite` assertion required both bits -- written the same day, encoding the
+same misreading as the code -- and is corrected with it. 136/136 green.
+
+**But the storm survives**: MMU faults **31,957,862** against 30,837,461 before,
+slightly *worse*. So the change is right by the manual and is not the fault that
+matters, and the count moving the wrong way is unexplained. Kept rather than
+reverted because §8.2's rule is explicit and this core now matches it, and the
+project's standard for a change is the reference rather than the boot advancing
+-- but it must not be recorded as a fix, because it fixed nothing.
+
+The next reader should treat the remaining question as still open: **how does the
+part report a prefetch fault on the first word of an instruction, when the frame
+can only describe stages B and C?** Either such a fault is reported some other way,
 or the pipe is never in that state on real hardware because a branch to an
 unmapped page faults before the target's word is ever needed. Both would change
 what this core does far more than the PC selection would. Figures 8-6 and 8-7 and
