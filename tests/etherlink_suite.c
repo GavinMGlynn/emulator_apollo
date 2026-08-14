@@ -418,6 +418,117 @@ static void test_an_idle_card_answers_the_probe_the_oracle_measured(void) {
                          ap_3c505_read(&card, AP_3C505_REG_CONTROL));
 }
 
+
+/* **The PCB rides the command register, and §3.1 says so in one sentence:**
+ * "The PCB is passed using programmed I/O through the Command Register." The
+ * data FIFO is §1.9.2's bulk path for packet contents, and a model that framed
+ * PCBs over it would work right up until a driver interleaved the two. */
+static void test_a_pcb_is_framed_out_of_the_command_register_stream(void) {
+  ap_3c505_pcb_rx_t rx;
+  ap_3c505_pcb_rx_reset(&rx);
+
+  /* `03` Ethernet address with a three-byte data field. */
+  TEST_ASSERT_FALSE(ap_3c505_pcb_rx_byte(&rx, AP_3C505_CMD_GET_ETHERNET_ADDRESS));
+  TEST_ASSERT_FALSE(ap_3c505_pcb_rx_byte(&rx, 3u));
+  TEST_ASSERT_FALSE(ap_3c505_pcb_rx_byte(&rx, 0xAAu));
+  TEST_ASSERT_FALSE(ap_3c505_pcb_rx_byte(&rx, 0xBBu));
+  TEST_ASSERT_TRUE(ap_3c505_pcb_rx_byte(&rx, 0xCCu));
+
+  TEST_ASSERT_EQUAL_HEX8(AP_3C505_CMD_GET_ETHERNET_ADDRESS, rx.pcb.command);
+  TEST_ASSERT_EQUAL_HEX8(3u, rx.pcb.length);
+  TEST_ASSERT_EQUAL_HEX8(0xAAu, rx.pcb.data[0]);
+  TEST_ASSERT_EQUAL_HEX8(0xCCu, rx.pcb.data[2]);
+  TEST_ASSERT_FALSE(rx.overlong);
+
+  /* The stream does not stop, so the next byte begins the next PCB. */
+  TEST_ASSERT_FALSE(ap_3c505_pcb_rx_byte(&rx, AP_3C505_CMD_SELF_TEST));
+  TEST_ASSERT_EQUAL_HEX8(AP_3C505_CMD_SELF_TEST, rx.pcb.command);
+}
+
+/* **A zero-length PCB completes on its length byte**, which is the shape most
+ * commands take -- `0f` self-test is two bytes and nothing else. A framer that
+ * waited for a data byte would hang on every one of them. */
+static void test_a_two_byte_pcb_completes_on_its_length_field(void) {
+  ap_3c505_pcb_rx_t rx;
+  ap_3c505_pcb_rx_reset(&rx);
+  TEST_ASSERT_FALSE(ap_3c505_pcb_rx_byte(&rx, AP_3C505_CMD_SELF_TEST));
+  TEST_ASSERT_TRUE(ap_3c505_pcb_rx_byte(&rx, 0u));
+  TEST_ASSERT_EQUAL_HEX8(0u, rx.pcb.length);
+}
+
+/* §3.1's limit is the adapter's, not the buffer's: "the maximum PCB size the
+ * Adapter can accept in this version ROM is 64 bytes ... the maximum data field
+ * is 62 bytes long". A length past that is a PCB this adapter cannot take, and
+ * saying so beats truncating into our own array and pretending. */
+static void test_an_overlong_pcb_is_refused_rather_than_truncated(void) {
+  ap_3c505_pcb_rx_t rx;
+  ap_3c505_pcb_rx_reset(&rx);
+  TEST_ASSERT_FALSE(ap_3c505_pcb_rx_byte(&rx, AP_3C505_CMD_TRANSMIT_PACKET));
+  TEST_ASSERT_TRUE(ap_3c505_pcb_rx_byte(&rx, AP_3C505_PCB_DATA_MAX + 1u));
+  TEST_ASSERT_TRUE(rx.overlong);
+
+  /* And exactly 62 is accepted, so the boundary is the manual's and not off
+   * by one in either direction. */
+  ap_3c505_pcb_rx_reset(&rx);
+  TEST_ASSERT_FALSE(ap_3c505_pcb_rx_byte(&rx, AP_3C505_CMD_TRANSMIT_PACKET));
+  TEST_ASSERT_FALSE(ap_3c505_pcb_rx_byte(&rx, AP_3C505_PCB_DATA_MAX));
+  TEST_ASSERT_FALSE(rx.overlong);
+  for (unsigned i = 0; i + 1u < AP_3C505_PCB_DATA_MAX; i++) {
+    TEST_ASSERT_FALSE(ap_3c505_pcb_rx_byte(&rx, (uint8_t)i));
+  }
+  TEST_ASSERT_TRUE(ap_3c505_pcb_rx_byte(&rx, 0xFFu));
+}
+
+/* The other direction, and it must be the same three fields in the same order:
+ * a response is a PCB too, so what the adapter hands back has to reassemble. */
+static void test_a_pcb_sent_out_reassembles_at_the_other_end(void) {
+  ap_3c505_pcb_t out = {.command = 0x3Fu, .length = 2u, .data = {0x12u, 0x34u}};
+  ap_3c505_pcb_tx_t tx;
+  ap_3c505_pcb_tx_start(&tx, &out);
+
+  ap_3c505_pcb_rx_t rx;
+  ap_3c505_pcb_rx_reset(&rx);
+
+  uint8_t byte = 0;
+  bool completed = false;
+  unsigned bytes = 0;
+  while (ap_3c505_pcb_tx_next(&tx, &byte)) {
+    completed = ap_3c505_pcb_rx_byte(&rx, byte);
+    bytes++;
+  }
+  TEST_ASSERT_EQUAL_UINT(4u, bytes); /* code, length, and two data bytes */
+  TEST_ASSERT_TRUE(completed);
+  TEST_ASSERT_EQUAL_HEX8(0x3Fu, rx.pcb.command);
+  TEST_ASSERT_EQUAL_HEX8(2u, rx.pcb.length);
+  TEST_ASSERT_EQUAL_HEX8(0x34u, rx.pcb.data[1]);
+  TEST_ASSERT_FALSE(ap_3c505_pcb_tx_next(&tx, &byte));
+}
+
+/* And end to end over the hardware model: the host writes a PCB into the
+ * command register byte by byte, the adapter takes each one, and what comes out
+ * is the PCB that went in. This is the layer the two halves meet at. */
+static void test_a_pcb_crosses_the_real_command_register(void) {
+  ap_3c505_t card;
+  ap_3c505_reset(&card);
+  ap_3c505_pcb_rx_t rx;
+  ap_3c505_pcb_rx_reset(&rx);
+
+  const uint8_t stream[] = {AP_3C505_CMD_CONFIGURE_82586, 2u, 0x5Au, 0xA5u};
+  bool completed = false;
+  for (unsigned i = 0; i < sizeof stream; i++) {
+    /* The host may only write when its register is empty. */
+    TEST_ASSERT_TRUE(ap_3c505_host_status(&card) & AP_3C505_HSR_HCRE);
+    ap_3c505_write(&card, AP_3C505_REG_COMMAND, stream[i]);
+
+    uint8_t taken = 0;
+    TEST_ASSERT_TRUE(ap_3c505_adapter_take_command(&card, &taken));
+    completed = ap_3c505_pcb_rx_byte(&rx, taken);
+  }
+  TEST_ASSERT_TRUE(completed);
+  TEST_ASSERT_EQUAL_HEX8(AP_3C505_CMD_CONFIGURE_82586, rx.pcb.command);
+  TEST_ASSERT_EQUAL_HEX8(0xA5u, rx.pcb.data[1]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_card_answers_sixteen_locations_from_its_jumpered_base);
@@ -440,5 +551,10 @@ int main(void) {
   RUN_TEST(test_the_general_purpose_flags_pass_through_uninterpreted);
   RUN_TEST(test_each_interrupt_needs_its_own_enable);
   RUN_TEST(test_an_idle_card_answers_the_probe_the_oracle_measured);
+  RUN_TEST(test_a_pcb_is_framed_out_of_the_command_register_stream);
+  RUN_TEST(test_a_two_byte_pcb_completes_on_its_length_field);
+  RUN_TEST(test_an_overlong_pcb_is_refused_rather_than_truncated);
+  RUN_TEST(test_a_pcb_sent_out_reassembles_at_the_other_end);
+  RUN_TEST(test_a_pcb_crosses_the_real_command_register);
   return UNITY_END();
 }

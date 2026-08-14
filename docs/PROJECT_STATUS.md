@@ -412,6 +412,33 @@ Last updated: 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The PCB rides the command register, and the adapter side is host-side
+## (2026-08-15)
+
+**Decided: the host side of the protocol is modelled, not the adapter's
+80186.** Domain/OS only ever sees the mailbox; the seventeen commands are
+transcribed with the `+0x30` response rule tested; and an 80186 plus an 82586 is
+a great deal of machinery to reach the same observable bytes. The cost is stated
+rather than hidden -- anything the firmware does *beyond* the documented command
+set is invisible here, and an oracle diff is what would find it.
+
+**And §3.1 settles where a PCB travels, in one sentence: "The PCB is passed
+using programmed I/O through the Command Register."** That is worth having in
+writing, because the data FIFO is the obvious place to put a 64-byte block and
+it is the wrong one -- §1.9.2's FIFO is the bulk path for packet *contents*, and
+a model that framed PCBs over it would work until a driver interleaved the two.
+The envelope is three fields, `command / length / data`, with the length
+excluding both of the first two, so the data field is at most 62.
+
+The framing is deliberately separate from command dispatch: §3.1 is the envelope
+and §3.2 is what is inside it, and the envelope is the same for every command.
+
+*Verification: `etherlink_suite` 20 -> 25, including a round trip across the
+real register model -- the host writes a PCB byte by byte under the `HCRE`
+handshake, the adapter takes each byte, and the PCB reassembles. A zero-length
+PCB completing on its length field is asserted separately, because most commands
+are that shape and a framer that waited for data would hang on all of them.*
+
 ## The 3c505's mailbox is modelled, and two of its four registers are derived
 ## (2026-08-15)
 

@@ -324,4 +324,72 @@ void ap_3c505_adapter_write_control(ap_3c505_t *card, uint8_t value);
  * reaches terminal count with `TCEN` set. */
 [[nodiscard]] bool ap_3c505_irq(const ap_3c505_t *card);
 
+/* ## The Primary Command Block, `[DEV]` §3.1
+ *
+ * "The 3C505 firmware idles waiting for a Primary Command Block (PCB) from the
+ * PC Host", and the format is three fields:
+ *
+ *     PCB command code   (byte)
+ *     PCB data length    (byte)
+ *     PCB data           (variable length)
+ *
+ * **"The PCB is passed using programmed I/O through the Command Register."**
+ * That sentence is why this layer sits on the command register and not on the
+ * data FIFO: the FIFO is §1.9.2's bulk path for packet contents, while a PCB --
+ * 64 bytes at the most -- crosses one byte at a time through the same register
+ * a bare command byte uses, under the same `ACRF`/`HCRE` handshake. A model
+ * that framed PCBs over the FIFO would work until a driver interleaved the two.
+ *
+ * ## Host-side, by decision
+ *
+ * The adapter is an 80186 running firmware, and this project models the *host
+ * side of the protocol* rather than emulating that processor: Domain/OS only
+ * ever sees the mailbox, the command set is transcribed in full with its
+ * response rule tested, and an 80186 plus an 82586 is a great deal of machinery
+ * to reach the same observable bytes. The cost is stated rather than hidden --
+ * anything the firmware does *beyond* the documented command set is invisible
+ * here, and an oracle diff is what would find it.
+ *
+ * The framing below is deliberately separate from command dispatch. §3.1 is the
+ * envelope and §3.2 is what is inside it; the envelope is the same for every
+ * command, so it is built and tested once.
+ */
+#define AP_3C505_PCB_LENGTH_MAX AP_3C505_PCB_DATA_MAX
+
+typedef struct {
+  uint8_t command;
+  uint8_t length;
+  uint8_t data[AP_3C505_PCB_DATA_MAX];
+} ap_3c505_pcb_t;
+
+/* Assembling a PCB from the byte stream one side is writing. */
+typedef struct {
+  ap_3c505_pcb_t pcb;
+  unsigned received; /* data bytes taken so far */
+  bool have_command;
+  bool have_length;
+  bool complete;
+  bool overlong; /* a length field the adapter cannot accept: §3.1's 62 */
+} ap_3c505_pcb_rx_t;
+
+void ap_3c505_pcb_rx_reset(ap_3c505_pcb_rx_t *rx);
+
+/* Feed one byte. Returns true when the byte completed a PCB, at which point
+ * `rx->pcb` is it and the next byte starts another. A zero-length PCB completes
+ * on its length byte, which is the common case: most commands are two bytes. */
+bool ap_3c505_pcb_rx_byte(ap_3c505_pcb_rx_t *rx, uint8_t byte);
+
+/* Handing a PCB out a byte at a time. */
+typedef struct {
+  ap_3c505_pcb_t pcb;
+  unsigned sent;
+  bool active;
+} ap_3c505_pcb_tx_t;
+
+void ap_3c505_pcb_tx_start(ap_3c505_pcb_tx_t *tx, const ap_3c505_pcb_t *pcb);
+
+/* The next byte to put in the command register, or false when the PCB is
+ * finished. */
+bool ap_3c505_pcb_tx_next(ap_3c505_pcb_tx_t *tx, uint8_t *byte);
+
 #endif /* APOLLO_DEVICE_AP_3C505_H */

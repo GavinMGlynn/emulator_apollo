@@ -233,3 +233,97 @@ bool ap_3c505_irq(const ap_3c505_t *card) {
   }
   return card->dma_done && (card->hcr & AP_3C505_HCR_TCEN) != 0u;
 }
+
+void ap_3c505_pcb_rx_reset(ap_3c505_pcb_rx_t *rx) {
+  if (rx == NULL) {
+    return;
+  }
+  *rx = (ap_3c505_pcb_rx_t){0};
+}
+
+bool ap_3c505_pcb_rx_byte(ap_3c505_pcb_rx_t *rx, uint8_t byte) {
+  if (rx == NULL) {
+    return false;
+  }
+  /* A completed PCB is not cleared by its reader, so the next byte after one is
+   * the start of the next. Doing it here rather than asking the caller to reset
+   * keeps "the stream never stops" true, which is what the register is. */
+  if (rx->complete) {
+    const bool overlong = false;
+    ap_3c505_pcb_rx_reset(rx);
+    rx->overlong = overlong;
+  }
+
+  if (!rx->have_command) {
+    rx->pcb.command = byte;
+    rx->have_command = true;
+    return false;
+  }
+
+  if (!rx->have_length) {
+    rx->pcb.length = byte;
+    rx->have_length = true;
+    /* "The maximum PCB size the Adapter can accept in this version ROM is 64
+     * bytes ... The maximum data field is 62 bytes long." A longer length is
+     * not a PCB this adapter can take, and the flag says so rather than the
+     * model silently truncating into its own buffer. */
+    if (byte > AP_3C505_PCB_LENGTH_MAX) {
+      rx->overlong = true;
+      rx->complete = true;
+      return true;
+    }
+    if (byte == 0u) {
+      /* A two-byte PCB: the length field completes it. Most commands are this
+       * shape, so it is the path that runs most. */
+      rx->complete = true;
+      return true;
+    }
+    return false;
+  }
+
+  rx->pcb.data[rx->received++] = byte;
+  if (rx->received >= rx->pcb.length) {
+    rx->complete = true;
+    return true;
+  }
+  return false;
+}
+
+void ap_3c505_pcb_tx_start(ap_3c505_pcb_tx_t *tx, const ap_3c505_pcb_t *pcb) {
+  if (tx == NULL || pcb == NULL) {
+    return;
+  }
+  tx->pcb = *pcb;
+  if (tx->pcb.length > AP_3C505_PCB_LENGTH_MAX) {
+    tx->pcb.length = AP_3C505_PCB_LENGTH_MAX;
+  }
+  tx->sent = 0;
+  tx->active = true;
+}
+
+bool ap_3c505_pcb_tx_next(ap_3c505_pcb_tx_t *tx, uint8_t *byte) {
+  if (tx == NULL || !tx->active) {
+    return false;
+  }
+  uint8_t value = 0;
+  if (tx->sent == 0u) {
+    value = tx->pcb.command;
+  } else if (tx->sent == 1u) {
+    value = tx->pcb.length;
+  } else {
+    const unsigned index = tx->sent - 2u;
+    if (index >= tx->pcb.length) {
+      tx->active = false;
+      return false;
+    }
+    value = tx->pcb.data[index];
+  }
+  tx->sent++;
+  if (tx->sent >= (unsigned)tx->pcb.length + 2u) {
+    tx->active = false;
+  }
+  if (byte != NULL) {
+    *byte = value;
+  }
+  return true;
+}
