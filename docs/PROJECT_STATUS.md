@@ -910,9 +910,32 @@ stage B at `+$0E`, the fault address at `+$10` and the `DOB` at `+$18`, and only
 `SSW` and the fault address have been verified by value. A kernel reading one
 word off would take a neighbouring field as its address, and `+4` is the distance
 from the fault address at `+$10` to the two internal-register words at `+$14`
-and `+$16`. **Read the frame's layout against the page image and compare offset
-by offset** -- that is the next step, it costs no boot at all, and every other
-explanation for this storm has now been eliminated by measurement. If they differ, the frame is wrong and that is the fifth defect. The
+and `+$16`. Read against the page image, the offsets are **exactly** Table 8-6's:
+`SSW` at `$0A`, stage C at `$0C`, stage B at `$0E`, the fault address at `$10`.
+The layout is right, and that candidate closes too.
+
+**Which leaves the `SSW`, and there the answer is sitting in a comment.**
+`fault_ssw` sets *both* pipe-stage fault bits for every instruction-stream
+fault:
+
+    ssw.stage_c_fault = true;
+    ssw.stage_b_fault = true;
+
+justified as "a prefetch that failed to fill the pipe left both stages invalid".
+That is an assumption, not a measurement, and it has a consequence nobody
+followed: a kernel told stages **B and C** are both invalid must refill both,
+which are the words at `PC+2` *and* `PC+4`. Probing the furthest gives
+`3B5AC3FE + 4 = 3B5AC402` -- the `+4`, exactly, and on an instruction at the end
+of its page that address is in the next page, which is resident and
+write-protected, which is `MMUSR = 0803`. Every measured number falls out of it.
+
+So the fifth defect is most likely that this core marks both stages faulted when
+only the one that actually failed to fetch should be marked. Before changing it,
+read Figure 8-9's `FB`/`FC` definitions and §8.2's account of what a handler is
+expected to do with them -- the bits mean "the processor attempted to use a stage
+and found it invalid", so which stages a *single* faulted prefetch invalidates is
+the question, and the pipe model in `ap_m68030_pipe` already knows which stage
+took the bad word. If they differ, the frame is wrong and that is the fifth defect. The
 `0403` faults, which recover, would then be the cases where the two happen to
 coincide. One of those two observations is of a different
 machine state than it appears to be, and every conclusion drawn by pairing them
