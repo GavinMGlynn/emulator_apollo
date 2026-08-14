@@ -640,6 +640,19 @@ than the page being one the machine never needs. Find the code that turns a
 block-map entry into `block << 10`; it runs between 516 s and 518 s on the
 oracle, and `AST_$TOUCH` is what follows it.
 
+**An inference, not yet measured, that predicts the kernel's behaviour and is
+worth testing first.** `block << 10` always leaves the low bits clear, so the
+oracle's slot reads `DT = 0`: honestly *invalid*, and `MMUSR` answers `I`. Ours
+holds the raw block, whose low two bits are whatever the block number ends in --
+`0x47AE6` ends in `10`, so `DT = 2`, an *indirect* descriptor, and the walk
+chases `0x11047AE4` outside RAM and sets `MMUSR`'s **`B`**. A kernel told `I`
+pages the page in; a kernel told `B` has a hardware error on its hands and does
+not, which is exactly the `PTEST` -> `PFLUSH` -> `RTE` cycle the storm shows.
+That also explains why `0081B000` looked like the same bug and was not: block
+66,604 is `0x1042C`, ending in `00`, so it landed on `DT = 0` by luck of the
+number and produced a different symptom. The test is cheap -- read `MMUSR` at
+the storm's `PTEST` and see whether `B` is set.
+
 ## The boot's fatal was a livelock, and the framebuffer PNG works (2026-08-14)
 
 **How far it gets.** `tools/e0007-boot.sh --screenshot FILE` decodes the screen,
