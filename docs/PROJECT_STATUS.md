@@ -657,7 +657,25 @@ kernel may deliberately map its page tables into virtual space so it can edit
 them, in which case `3C86FBC0 -> 012953C0` is a *window*, our copy is the
 intended install, and the OS transforms the entries in a later pass this core
 never reaches. Walking a few more `3C86xxxx` addresses and seeing whether they
-land contiguously in `0129xxxx` would tell, and needs no oracle at all. So the difference is the copy's
+land contiguously in `0129xxxx` would tell, and needs no oracle at all.
+
+**Measured, and that is what it is.** The window is exact:
+
+    3C86F800 -> 01295000        3C86FC00 -> 01295400
+    3C86FBC0 -> 012953C0        3C870000 -> 01295800
+
+Logical `3C86F800 + N` is physical `01295000 + N` across the whole span, so
+`3C86xxxx` is a deliberate mapping of the page tables into virtual space for the
+kernel to edit. **Our translation is correct by design, the copy is the intended
+install, and there is no MMU defect here.** The second branch above is closed,
+and with it the need for the PC-triggered oracle capture.
+
+So writing a block number into a page-table slot is how Domain/OS represents a
+page that is not resident, this core does it correctly, and what is missing is
+the *later* pass that turns it into `block << 10` and then into a frame. On the
+oracle that pass runs between 506.6 s and 518.1 s and ends in `AST_$TOUCH`. The
+question is finally a single one with no rivals left: **what runs that pass, and
+what stops this core reaching it.** So the difference is the copy's
 **destination**: on this core `a4` lands on the page table, and on the oracle it
 cannot.
 
