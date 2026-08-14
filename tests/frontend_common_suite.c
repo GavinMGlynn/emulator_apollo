@@ -10,6 +10,10 @@
 #include "ap_scanout.h"
 #include "unity.h"
 
+#include <unistd.h>
+
+#include "ap_tap.h"
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -391,6 +395,105 @@ static void test_an_unmodelled_lookup_table_is_not_claimed_as_real(void) {
   TEST_ASSERT_EQUAL_UINT(16u, palette.colours);
 }
 
+
+/* ## The TAP wire, with a pipe standing in for the kernel
+ *
+ * `/dev/net/tun` needs `CAP_NET_ADMIN` to attach an interface, which CI does
+ * not have and a developer usually does not either. Everything either side of
+ * that syscall is ours, though, and a pipe is a file descriptor with the same
+ * read and write semantics -- so substituting one exercises the whole path
+ * except the kernel's TAP driver itself.
+ *
+ * That boundary is worth being exact about: this proves frames cross the wire
+ * abstraction into the adapter and back out, and it proves nothing about
+ * `TUNSETIFF`. */
+static void test_a_frame_crosses_the_wire_into_an_armed_receive(void) {
+  int fds[2];
+  TEST_ASSERT_EQUAL_INT(0, pipe(fds));
+
+  ap_tap_t tap = {0};
+  tap.fd = fds[0];
+
+  ap_3c505_adapter_t adapter;
+  ap_3c505_adapter_init(&adapter, NULL);
+
+  /* Nothing armed: the frame is dropped and counted, not delivered. */
+  const uint8_t frame[6] = {0xFFu, 0xFFu, 0x08u, 0x00u, 0x45u, 0x00u};
+  TEST_ASSERT_EQUAL_INT(6, write(fds[1], frame, sizeof frame));
+  ap_3c505_pcb_t out = {0};
+  TEST_ASSERT_FALSE(ap_tap_poll(&tap, &adapter, &out));
+  TEST_ASSERT_EQUAL_UINT(1u, (unsigned)tap.frames_in);
+  TEST_ASSERT_EQUAL_UINT(1u, (unsigned)tap.dropped_in);
+
+  /* Armed, and now it lands. */
+  ap_3c505_pcb_t arm = {.command = AP_3C505_CMD_RECEIVE_PACKET, .length = 8u};
+  arm.data[4] = 64u;
+  TEST_ASSERT_FALSE(ap_3c505_dispatch(&adapter, &arm, &out));
+
+  TEST_ASSERT_EQUAL_INT(6, write(fds[1], frame, sizeof frame));
+  TEST_ASSERT_TRUE(ap_tap_poll(&tap, &adapter, &out));
+  TEST_ASSERT_EQUAL_HEX8(0x38u, out.command);
+  TEST_ASSERT_EQUAL_HEX8(6u, out.data[4]); /* bytes to be DMA'ed */
+
+  uint8_t byte = 0;
+  for (unsigned i = 0; i < 6u; i++) {
+    TEST_ASSERT_TRUE(ap_3c505_receive_byte(&adapter, &byte));
+    TEST_ASSERT_EQUAL_HEX8(frame[i], byte);
+  }
+
+  /* A quiet wire is not an error: `EAGAIN` on an empty pipe reads as "nothing
+   * arrived", which is the ordinary case and must not stop the machine. */
+  (void)close(fds[1]);
+  TEST_ASSERT_FALSE(ap_tap_poll(&tap, &adapter, &out));
+  (void)close(fds[0]);
+}
+
+/* Transmitting goes the other way through the same descriptor, and a frame is
+ * whole or it did not go: a short write is a failure, because half a frame on
+ * the wire is not a frame. */
+static void test_a_transmitted_frame_reaches_the_descriptor_whole(void) {
+  int fds[2];
+  TEST_ASSERT_EQUAL_INT(0, pipe(fds));
+
+  ap_tap_t tap = {0};
+  tap.fd = fds[1];
+
+  ap_3c505_adapter_t adapter;
+  ap_3c505_adapter_init(&adapter, NULL);
+  adapter.wire = ap_tap_wire(&tap);
+
+  ap_3c505_pcb_t in = {.command = AP_3C505_CMD_TRANSMIT_PACKET, .length = 6u};
+  in.data[4] = 4u;
+  ap_3c505_pcb_t out = {0};
+  TEST_ASSERT_FALSE(ap_3c505_dispatch(&adapter, &in, &out));
+
+  const uint8_t frame[4] = {0xDEu, 0xADu, 0xBEu, 0xEFu};
+  for (unsigned i = 0; i < 3u; i++) {
+    TEST_ASSERT_FALSE(ap_3c505_transmit_byte(&adapter, frame[i], &out));
+  }
+  TEST_ASSERT_TRUE(ap_3c505_transmit_byte(&adapter, frame[3], &out));
+
+  TEST_ASSERT_EQUAL_HEX8(0x39u, out.command);
+  TEST_ASSERT_EQUAL_HEX8(0u, out.data[4]); /* "0 = successful" */
+  TEST_ASSERT_EQUAL_UINT(1u, (unsigned)tap.frames_out);
+
+  uint8_t back[4] = {0};
+  TEST_ASSERT_EQUAL_INT(4, read(fds[0], back, sizeof back));
+  TEST_ASSERT_EQUAL_HEX8_ARRAY(frame, back, 4);
+  (void)close(fds[0]);
+  (void)close(fds[1]);
+}
+
+/* Opening a device that is not there must say so, and say which problem it is:
+ * "no such device" and "not permitted" have different fixes. */
+static void test_opening_a_missing_tap_device_explains_itself(void) {
+  ap_tap_t tap = {0};
+  char reason[192] = {0};
+  TEST_ASSERT_FALSE(ap_tap_open(&tap, "apollo-no-such-device", reason,
+                                sizeof reason));
+  TEST_ASSERT_TRUE(reason[0] != '\0');
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_scanout_expands_every_pixel_not_just_the_first);
@@ -408,5 +511,8 @@ int main(void) {
   RUN_TEST(test_the_model_table_report_is_deterministic);
   RUN_TEST(test_a_written_png_reads_back_as_the_picture_that_went_in);
   RUN_TEST(test_an_index_past_the_palette_is_refused);
+  RUN_TEST(test_a_frame_crosses_the_wire_into_an_armed_receive);
+  RUN_TEST(test_a_transmitted_frame_reaches_the_descriptor_whole);
+  RUN_TEST(test_opening_a_missing_tap_device_explains_itself);
   return UNITY_END();
 }

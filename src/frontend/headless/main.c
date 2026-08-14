@@ -915,6 +915,12 @@ static bool g_fit_ethernet = false;
 static const char *g_tap_device = NULL;
 static ap_tap_t g_tap = {.fd = -1};
 
+/* How often a live wire is polled, in instructions. A frontend choice with no
+ * hardware meaning: a real card is interrupted by its own receiver, and this
+ * number exists only because a syscall per emulated instruction would cost more
+ * than the emulation. */
+#define AP_TAP_POLL_INSTRUCTIONS 4096u
+
 /* A live wire makes a run non-deterministic, so the hash it would print is not
  * a promise about anything. See `common/ap_tap.h`. */
 static bool g_wire_is_live = false;
@@ -2403,6 +2409,28 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
              watch != 0u ? " watched" : "");
     }
     for (unsigned i = 0; i < limit; i++) {
+      /* ## The network, if one is attached
+       *
+       * Polled on a fixed instruction period rather than every step, because
+       * `read` on a quiet TAP is a syscall that answers `EAGAIN` and doing it
+       * per instruction costs more than the emulation. The period is a
+       * frontend choice with no hardware meaning -- a real card is interrupted
+       * by its own receiver -- so it is a plain constant here rather than
+       * anything derived from the machine's clock, and it is stated as such.
+       *
+       * A frame arriving with a receive armed produces `38H`, which is queued
+       * and then paced out by the host through `ap_3c505_pump`. The pump runs
+       * on the same period so a queued response drains whether or not another
+       * frame arrives. */
+      if (g_wire_is_live && (i % AP_TAP_POLL_INSTRUCTIONS) == 0u) {
+        ap_3c505_pcb_t received = {0};
+        if (ap_tap_poll(&g_tap, &machine.board->ethernet_adapter, &received)) {
+          ap_3c505_adapter_post_pcb(&machine.board->ethernet_adapter, &received);
+        }
+        (void)ap_3c505_pump(&machine.board->ethernet,
+                            &machine.board->ethernet_adapter);
+      }
+
       /* A heartbeat, on stderr so it cannot be mistaken for something the
        * machine said. A boot that has printed nothing for ten minutes is either
        * an operating system initialising quietly or a program going round a

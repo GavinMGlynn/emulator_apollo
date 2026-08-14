@@ -412,6 +412,28 @@ Last updated: 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The wire carries frames, and the poll is driven (2026-08-15)
+
+**The run loop polls a live wire, and the period is honest about what it is.**
+Every 4,096 instructions, not every step: `read` on a quiet TAP is a syscall
+answering `EAGAIN`, and doing that per emulated instruction costs more than the
+emulation. The number has **no hardware meaning** -- a real card is interrupted
+by its own receiver -- so it is a frontend constant stated as one rather than
+anything derived from the machine's clock. A frame with a receive armed becomes
+`38H`, queued and then paced out by `ap_3c505_pump` on the same period, so a
+queued response drains whether or not another frame follows.
+
+**Tested to the edge of the kernel, and the boundary is stated.** `/dev/net/tun`
+needs `CAP_NET_ADMIN`, which CI does not have. A pipe is a descriptor with the
+same read and write semantics, so substituting one exercises the entire path
+*except* `TUNSETIFF`: a frame written into the pipe crosses the wire, is refused
+and counted when nothing is armed, lands when a receive is, and reads back
+through the data register byte for byte; a transmitted frame arrives whole at
+the other end and `39H` reports success. What this does not prove is the kernel
+attach, and that is said rather than implied.
+
+*Verification: `frontend_common_suite` 15 -> 18.*
+
 ## The card is wired in, opt-in, and TAP is behind it (2026-08-15)
 
 **Fitted only when asked, and that is a correctness decision rather than
@@ -4919,7 +4941,7 @@ with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both d
 | MAME oracle harness | working and used throughout. Beyond the dumper there are now four probe tools — `regprobe.lua` drives every bit of a register in both directions, `writetrace.lua` taps writes to watch firmware program a device, `steptime.lua` single-steps for instruction timing, `mdcapture.lua` traces the serial registers byte-exact — and findings C10 through C14 are all measurements taken with them | `oracle_driver` (19 checks, stub MAME) and `oracle_dump_format` (19 checks, mock machine); `./apollo -listfull` lists all eleven apollo machines |
 | Interactive boot-PROM session (`mdsession.py`, `mdsession.lua`) | working, and it performed the Domain/OS install end to end. Holds a machine open across stages, reads the console and answers it; stdin is a **pty**, so a command is written when its prompt appears rather than trickled at a fixed rate. `--commands FILE` is followed while the run continues, so an unpublished dialogue can be answered as it is read. `!swap` changes a cartridge without stopping the machine. A killed driver takes its emulator with it. **Deliberately not reproducible in the oracle-reading sense**: it is paced by the host, so nothing timed may be measured through it — its products are a disk image and a transcript | `oracle_session`, 31 checks against a stub MAME that goes deaf on `re` as the real machine does; `FINDINGS.md` C49-C58 |
 | Golden regression harness | working | `golden_model_table`, run under every build preset; drift, `-O3` identity and regeneration all verified |
-| Shared frontend layer (`frontend/common/`) | working: option parsing and the model table report, plus `ap_png` — screenshots as indexed-colour PNGs, so an index and the palette behind it stay separable in the file exactly as they are in the hardware. libpng is optional and the build says which it is; without one the entry point reports "built without libpng", which is a different answer from a failed write | `frontend_common_suite`, 15 tests |
+| Shared frontend layer (`frontend/common/`) | working: option parsing and the model table report, plus `ap_png` — screenshots as indexed-colour PNGs, so an index and the palette behind it stay separable in the file exactly as they are in the hardware. libpng is optional and the build says which it is; without one the entry point reports "built without libpng", which is a different answer from a failed write | `frontend_common_suite`, 18 tests |
 | Headless frontend | `--model`, `--list-models`, `--help` | `golden_model_table`, which supersedes the old smoke test |
 | SDL frontend | not started, deliberately not stubbed | — |
 
