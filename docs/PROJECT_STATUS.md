@@ -821,7 +821,20 @@ handler's `PTEST` had not run when the boot stopped. Nothing in that log is a
 storm probe, and the pre-storm addresses in it (`3B403C00`, `3B3D8000`,
 `0081F8BC` ...) say nothing about this question. Use `--boot-limit 734650000`,
 which leaves ~5,000 instructions -- four or five cycles of the 1,078-instruction
-loop -- and take `a0` from any entry past 734,644,842. If they differ, the frame is wrong and that is the fifth defect. The
+loop -- and take `a0` from any entry past 734,644,842.
+
+**And the diagnosis in the paragraph above is itself unverified.** Both probe
+logs were read *while the run was still writing them*: the wait condition was
+`[ -s log ]`, which is satisfied by the first line printed, not by the run
+ending. So "the last complete entry is at 584,761,337" describes how far the
+boot had got when the file was read, not how far it went. The rerun shows the
+same shape -- 481 entries, last complete at 521,133,626, final line torn
+mid-word -- which is the signature of reading a live file, not of a bound being
+too tight.
+
+Wait on the **process**, not the file: `until ! ps -C apollo-headless >/dev/null;
+do sleep 60; done`. Every probe-log conclusion above this line was drawn from a
+partial file and none of them is evidence of anything. If they differ, the frame is wrong and that is the fifth defect. The
 `0403` faults, which recover, would then be the cases where the two happen to
 coincide. One of those two observations is of a different
 machine state than it appears to be, and every conclusion drawn by pairing them
