@@ -381,3 +381,142 @@ bool ap_3c505_pcb_tx_next(ap_3c505_pcb_tx_t *tx, uint8_t *byte) {
   }
   return true;
 }
+
+void ap_3c505_adapter_init(ap_3c505_adapter_t *adapter,
+                           const uint8_t address[AP_3C505_ADDRESS_BYTES]) {
+  if (adapter == NULL) {
+    return;
+  }
+  *adapter = (ap_3c505_adapter_t){0};
+  if (address != NULL) {
+    for (unsigned i = 0; i < AP_3C505_ADDRESS_BYTES; i++) {
+      adapter->address[i] = address[i];
+    }
+  }
+}
+
+/* The PCB data field is little-endian: the manual writes its multi-byte fields
+ * as `dw` and `dd`, which are 8086 directives, and the adapter is an 80186. */
+static uint16_t read_word(const uint8_t *data) {
+  return (uint16_t)((unsigned)data[0] | ((unsigned)data[1] << 8));
+}
+
+static void write_word(uint8_t *data, uint16_t value) {
+  data[0] = (uint8_t)(value & 0xFFu);
+  data[1] = (uint8_t)((value >> 8) & 0xFFu);
+}
+
+static void write_dword(uint8_t *data, uint32_t value) {
+  write_word(data, (uint16_t)(value & 0xFFFFu));
+  write_word(data + 2, (uint16_t)((value >> 16) & 0xFFFFu));
+}
+
+/* §3.2.2's status word: "0 = successful", and it is a word in every response
+ * that carries one. */
+static void respond_status(ap_3c505_pcb_t *out, uint8_t code, uint16_t status) {
+  out->command = code;
+  out->length = 2u;
+  write_word(out->data, status);
+}
+
+bool ap_3c505_dispatch(ap_3c505_adapter_t *adapter, const ap_3c505_pcb_t *in,
+                       ap_3c505_pcb_t *out) {
+  if (adapter == NULL || in == NULL || out == NULL) {
+    return false;
+  }
+  *out = (ap_3c505_pcb_t){0};
+
+  switch (in->command) {
+  case AP_3C505_CMD_CONFIGURE_ADAPTER_MEMORY:
+    /* "The Adapter allocates memory for the PCB command queue, receive command
+     * queue, multicast address list, 82586 frame descriptors, receive buffers,
+     * and download program data structures." Nothing in that allocation is
+     * observable through the interface this core models -- the sizes govern how
+     * much the adapter can queue, and a model with no queue depth to exhaust
+     * accepts any of them. The response is the confirmation §3.2.2 specifies. */
+    respond_status(out, 0x31u, 0u);
+    return true;
+
+  case AP_3C505_CMD_CONFIGURE_82586:
+    if (in->length < 2u) {
+      return false;
+    }
+    adapter->receive_mode = read_word(in->data);
+    respond_status(out, 0x32u, 0u);
+    return true;
+
+  case AP_3C505_CMD_GET_ETHERNET_ADDRESS:
+    /* §3.2.2 `33H`: "The Adapter returns the 6-byte Ethernet address ...
+     * previously read from the Ethernet address PROM." */
+    out->command = 0x33u;
+    out->length = AP_3C505_ADDRESS_BYTES;
+    for (unsigned i = 0; i < AP_3C505_ADDRESS_BYTES; i++) {
+      out->data[i] = adapter->address[i];
+    }
+    return true;
+
+  case AP_3C505_CMD_SET_ETHERNET_ADDRESS:
+    if (in->length < AP_3C505_ADDRESS_BYTES) {
+      return false;
+    }
+    for (unsigned i = 0; i < AP_3C505_ADDRESS_BYTES; i++) {
+      adapter->address[i] = in->data[i];
+    }
+    respond_status(out, 0x40u, 0u);
+    return true;
+
+  case AP_3C505_CMD_LOAD_MULTICAST_LIST: {
+    /* "A zero length list will cause the Adapter to clear all multicast
+     * addresses", and the list is six bytes an entry, ten at most in one PCB. */
+    const unsigned count = in->length / AP_3C505_ADDRESS_BYTES;
+    if (in->length % AP_3C505_ADDRESS_BYTES != 0u ||
+        count > AP_3C505_MULTICAST_MAX) {
+      return false;
+    }
+    adapter->multicast_count = count;
+    for (unsigned entry = 0; entry < count; entry++) {
+      for (unsigned i = 0; i < AP_3C505_ADDRESS_BYTES; i++) {
+        adapter->multicast[entry][i] =
+            in->data[entry * AP_3C505_ADDRESS_BYTES + i];
+      }
+    }
+    respond_status(out, 0x3Bu, 0u);
+    return true;
+  }
+
+  case AP_3C505_CMD_NETWORK_STATISTICS:
+    /* §3.2.2 `3AH`, in its order and widths: two long counters then four word
+     * ones. "The Adapter clears all statistics after sending the response." */
+    out->command = 0x3Au;
+    out->length = 0x0Cu;
+    write_dword(out->data, adapter->receive_packets);
+    write_dword(out->data + 4, adapter->transmit_packets);
+    write_word(out->data + 8, adapter->crc_errors);
+    write_word(out->data + 10, adapter->alignment_errors);
+    /* The last two of §3.2.2's six counters do not fit the `0CH` the manual
+     * gives for the data field -- 4+4+2+2+2+2 is 16, not 12 -- so the length is
+     * the manual's and the two that overflow it are not written. Recorded here
+     * rather than resolved, because inventing a longer PCB to make the list fit
+     * would be inventing a format. */
+    adapter->receive_packets = 0;
+    adapter->transmit_packets = 0;
+    adapter->crc_errors = 0;
+    adapter->alignment_errors = 0;
+    adapter->no_resource_errors = 0;
+    adapter->overrun_errors = 0;
+    return true;
+
+  case AP_3C505_CMD_DOWNLOAD_DATA_DMA:
+  case AP_3C505_CMD_UPLOAD_DATA_DMA:
+  case AP_3C505_CMD_DOWNLOAD_DATA_PIO:
+  case AP_3C505_CMD_UPLOAD_DATA_PIO:
+    /* "There is no adapter response PCB for this command." */
+    return false;
+
+  default:
+    /* Everything whose response format this project has not read. Refusing is
+     * the protocol's own answer -- §3.1.1's state `10` -- and is honest where a
+     * made-up payload would not be. */
+    return false;
+  }
+}

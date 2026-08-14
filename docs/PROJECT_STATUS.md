@@ -412,6 +412,47 @@ Last updated: 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## Command dispatch, and the wire the core does not own (2026-08-15)
+
+**`[DEV]` §3.2's single-PCB commands execute.** `ap_3c505_dispatch` is a pure
+function from request PCB to response PCB -- `01`/`31`, `02`/`32`, `03`/`33`,
+`0B`/`3B`, `0A`/`3A`, `10`/`40` -- with the adapter's state being only what a
+documented command sets or a documented response reports: the Ethernet address,
+the receive mode, the multicast list and §3.2.2 `3AH`'s counters.
+
+Two things it deliberately does **not** do. The four transfer commands
+`04`-`07` return no response, which is Table 1's two `n/a` codes seen from the
+other side and would otherwise put a byte in the command register the host is
+not waiting for. And every command whose *response format* this project has not
+yet read is **refused** rather than answered -- §3.1.1's state `10` is the
+protocol's own way to say so, and a made-up payload would be an invented number
+in a project that forbids them. `0F` self-test and `11` adapter info are in that
+set today.
+
+One discrepancy is recorded rather than resolved: §3.2.2 `3AH` lists six
+counters -- two long and four word, sixteen bytes -- under a data length of
+`0CH`, which is twelve. The length is the manual's and the two counters that
+overflow it are not written. Inventing a longer PCB to make the list fit would
+be inventing a format.
+
+**The wire is a callback, and that is the point.** `ap_3c505_wire_t` is a
+context and a `transmit` function; `src/core` knows nothing about sockets, TAP
+devices or capture files. It is what lets the deterministic headless frontend
+hand over a replayable capture while an interactive one hands over a real
+interface, with the device model unable to tell which it has -- the property
+that keeps the identity hash meaningful once real networking exists.
+
+**Next, and its shape is already documented.** `08` receive and `09` transmit
+are not single-PCB commands: §3.2.1 has the host download the packet through the
+data register *after* the PCB is accepted, and the adapter answer with `39H`
+when the transmit completes. That data phase is the next item.
+
+*Verification: `etherlink_suite` 26 -> 32. The strongest is that every response
+dispatch produces matches `ap_3c505_response_for` -- the two were established
+separately, from Table 1 and from §3.2.2's individual formats, so agreement
+checks the implementation against the documented set rather than against its
+author's memory.*
+
 ## CORRECTED: a PCB is framed by a trailing total length, not by its length
 ## field (2026-08-15)
 

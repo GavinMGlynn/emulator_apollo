@@ -602,6 +602,160 @@ static void test_a_pcb_sent_out_reassembles_at_the_other_end(void) {
   TEST_ASSERT_EQUAL_HEX8(0x34u, back.data[1]);
 }
 
+
+/* §3.2.2 `33H`: "The Adapter returns the 6-byte Ethernet address ... previously
+ * read from the Ethernet address PROM." The address is the adapter's own, not
+ * anything in the request, so a dispatch that echoed the request would pass a
+ * weaker test than this one. */
+static void test_the_address_command_returns_the_adapters_own_address(void) {
+  const uint8_t prom[6] = {0x02u, 0x60u, 0x8Cu, 0x11u, 0x22u, 0x33u};
+  ap_3c505_adapter_t adapter;
+  ap_3c505_adapter_init(&adapter, prom);
+
+  const ap_3c505_pcb_t in = {.command = AP_3C505_CMD_GET_ETHERNET_ADDRESS,
+                             .length = 0u};
+  ap_3c505_pcb_t out = {0};
+  TEST_ASSERT_TRUE(ap_3c505_dispatch(&adapter, &in, &out));
+  TEST_ASSERT_EQUAL_HEX8(0x33u, out.command);
+  TEST_ASSERT_EQUAL_HEX8(6u, out.length);
+  TEST_ASSERT_EQUAL_HEX8_ARRAY(prom, out.data, 6);
+
+  /* And `10H` sets it, which `03H` must then report back. */
+  const uint8_t assigned[6] = {0x08u, 0x00u, 0x1Eu, 0xAAu, 0xBBu, 0xCCu};
+  ap_3c505_pcb_t set = {.command = AP_3C505_CMD_SET_ETHERNET_ADDRESS,
+                        .length = 6u};
+  for (unsigned i = 0; i < 6u; i++) {
+    set.data[i] = assigned[i];
+  }
+  TEST_ASSERT_TRUE(ap_3c505_dispatch(&adapter, &set, &out));
+  TEST_ASSERT_EQUAL_HEX8(0x40u, out.command);
+  TEST_ASSERT_TRUE(ap_3c505_dispatch(&adapter, &in, &out));
+  TEST_ASSERT_EQUAL_HEX8_ARRAY(assigned, out.data, 6);
+}
+
+/* **A response code is its command plus `0x30`, and dispatch must obey the same
+ * rule the command table does.** The two were established separately -- the
+ * table from Table 1, these from §3.2.2's individual formats -- so agreeing is
+ * a check that the implementation follows the documented set rather than its
+  * author's memory of it. */
+static void test_every_dispatched_response_is_its_command_plus_thirty(void) {
+  ap_3c505_adapter_t adapter;
+  ap_3c505_adapter_init(&adapter, NULL);
+
+  const uint8_t commands[] = {
+      AP_3C505_CMD_CONFIGURE_ADAPTER_MEMORY, AP_3C505_CMD_CONFIGURE_82586,
+      AP_3C505_CMD_GET_ETHERNET_ADDRESS,     AP_3C505_CMD_LOAD_MULTICAST_LIST,
+      AP_3C505_CMD_NETWORK_STATISTICS,       AP_3C505_CMD_SET_ETHERNET_ADDRESS,
+  };
+  for (unsigned i = 0; i < sizeof commands; i++) {
+    ap_3c505_pcb_t in = {.command = commands[i], .length = 0u};
+    if (commands[i] == AP_3C505_CMD_CONFIGURE_82586) {
+      in.length = 2u;
+    }
+    if (commands[i] == AP_3C505_CMD_SET_ETHERNET_ADDRESS) {
+      in.length = 6u;
+    }
+    ap_3c505_pcb_t out = {0};
+    TEST_ASSERT_TRUE(ap_3c505_dispatch(&adapter, &in, &out));
+
+    uint8_t expected = 0;
+    TEST_ASSERT_TRUE(ap_3c505_response_for(commands[i], &expected));
+    TEST_ASSERT_EQUAL_HEX8(expected, out.command);
+  }
+}
+
+/* "There is no adapter response PCB for this command" -- the four transfers,
+ * which is the same fact as Table 1's two `n/a` codes seen from the other side.
+ * A dispatch that answered them would put a byte in the command register the
+ * host is not waiting for. */
+static void test_the_transfer_commands_produce_no_response(void) {
+  ap_3c505_adapter_t adapter;
+  ap_3c505_adapter_init(&adapter, NULL);
+  const uint8_t transfers[] = {
+      AP_3C505_CMD_DOWNLOAD_DATA_DMA, AP_3C505_CMD_UPLOAD_DATA_DMA,
+      AP_3C505_CMD_DOWNLOAD_DATA_PIO, AP_3C505_CMD_UPLOAD_DATA_PIO};
+  for (unsigned i = 0; i < sizeof transfers; i++) {
+    const ap_3c505_pcb_t in = {.command = transfers[i], .length = 6u};
+    ap_3c505_pcb_t out = {0};
+    TEST_ASSERT_FALSE(ap_3c505_dispatch(&adapter, &in, &out));
+  }
+}
+
+/* §3.2.1 `02H`'s receive mode is stored rather than acted on -- there is no
+ * 82586 here to configure -- but it must survive, because what the adapter
+ * accepts off the wire is decided by it. */
+static void test_the_receive_mode_is_kept_as_the_host_set_it(void) {
+  ap_3c505_adapter_t adapter;
+  ap_3c505_adapter_init(&adapter, NULL);
+  ap_3c505_pcb_t in = {.command = AP_3C505_CMD_CONFIGURE_82586, .length = 2u};
+  /* Promiscuous, with the 82586's internal loopback. */
+  in.data[0] = AP_3C505_RX_PROMISCUOUS |
+               (AP_3C505_LOOPBACK_INTERNAL << AP_3C505_LOOPBACK_SHIFT);
+  in.data[1] = 0u;
+  ap_3c505_pcb_t out = {0};
+  TEST_ASSERT_TRUE(ap_3c505_dispatch(&adapter, &in, &out));
+
+  TEST_ASSERT_EQUAL_UINT(AP_3C505_RX_PROMISCUOUS,
+                         adapter.receive_mode & AP_3C505_RX_MODE_MASK);
+  TEST_ASSERT_EQUAL_UINT(AP_3C505_LOOPBACK_INTERNAL,
+                         (adapter.receive_mode & AP_3C505_LOOPBACK_MASK) >>
+                             AP_3C505_LOOPBACK_SHIFT);
+}
+
+/* "A zero length list will cause the Adapter to clear all multicast addresses",
+ * and ten is the most one PCB can carry. */
+static void test_the_multicast_list_loads_and_a_zero_length_clears_it(void) {
+  ap_3c505_adapter_t adapter;
+  ap_3c505_adapter_init(&adapter, NULL);
+
+  ap_3c505_pcb_t in = {.command = AP_3C505_CMD_LOAD_MULTICAST_LIST,
+                       .length = 12u};
+  for (unsigned i = 0; i < 12u; i++) {
+    in.data[i] = (uint8_t)(0x10u + i);
+  }
+  ap_3c505_pcb_t out = {0};
+  TEST_ASSERT_TRUE(ap_3c505_dispatch(&adapter, &in, &out));
+  TEST_ASSERT_EQUAL_HEX8(0x3Bu, out.command);
+  TEST_ASSERT_EQUAL_UINT(2u, adapter.multicast_count);
+  TEST_ASSERT_EQUAL_HEX8(0x16u, adapter.multicast[1][0]);
+
+  in.length = 0u;
+  TEST_ASSERT_TRUE(ap_3c505_dispatch(&adapter, &in, &out));
+  TEST_ASSERT_EQUAL_UINT(0u, adapter.multicast_count);
+
+  /* Eleven addresses is more than one PCB may carry, and a partial list would
+   * be worse than a refusal. */
+  in.length = 11u * 6u;
+  TEST_ASSERT_FALSE(ap_3c505_dispatch(&adapter, &in, &out));
+}
+
+/* §3.2.2 `3AH` gives the counters, their order and their widths, and says "The
+ * Adapter clears all statistics after sending the response" -- so reading them
+ * twice must give the counts and then zero. */
+static void test_the_statistics_are_reported_then_cleared(void) {
+  ap_3c505_adapter_t adapter;
+  ap_3c505_adapter_init(&adapter, NULL);
+  adapter.receive_packets = 0x11223344u;
+  adapter.transmit_packets = 7u;
+  adapter.crc_errors = 0x0102u;
+
+  const ap_3c505_pcb_t in = {.command = AP_3C505_CMD_NETWORK_STATISTICS,
+                             .length = 0u};
+  ap_3c505_pcb_t out = {0};
+  TEST_ASSERT_TRUE(ap_3c505_dispatch(&adapter, &in, &out));
+  TEST_ASSERT_EQUAL_HEX8(0x3Au, out.command);
+  TEST_ASSERT_EQUAL_HEX8(0x0Cu, out.length);
+  /* Little-endian, because the fields are `dd`/`dw` on an 80186. */
+  TEST_ASSERT_EQUAL_HEX8(0x44u, out.data[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x11u, out.data[3]);
+  TEST_ASSERT_EQUAL_HEX8(0x07u, out.data[4]);
+  TEST_ASSERT_EQUAL_HEX8(0x02u, out.data[8]);
+
+  TEST_ASSERT_TRUE(ap_3c505_dispatch(&adapter, &in, &out));
+  TEST_ASSERT_EQUAL_HEX8(0u, out.data[0]);
+  TEST_ASSERT_EQUAL_HEX8(0u, out.data[3]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_card_answers_sixteen_locations_from_its_jumpered_base);
@@ -630,5 +784,11 @@ int main(void) {
   RUN_TEST(test_the_status_flags_carry_the_four_state_code);
   RUN_TEST(test_a_pcb_crosses_the_real_command_register);
   RUN_TEST(test_a_pcb_sent_out_reassembles_at_the_other_end);
+  RUN_TEST(test_the_address_command_returns_the_adapters_own_address);
+  RUN_TEST(test_every_dispatched_response_is_its_command_plus_thirty);
+  RUN_TEST(test_the_transfer_commands_produce_no_response);
+  RUN_TEST(test_the_receive_mode_is_kept_as_the_host_set_it);
+  RUN_TEST(test_the_multicast_list_loads_and_a_zero_length_clears_it);
+  RUN_TEST(test_the_statistics_are_reported_then_cleared);
   return UNITY_END();
 }

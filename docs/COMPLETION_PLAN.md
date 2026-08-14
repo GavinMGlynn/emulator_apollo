@@ -4067,6 +4067,20 @@ discipline throughout.
         Detail in `PROJECT_STATUS.md`.
         *Verification: `etherlink_suite`, 26 tests, the direction-change one
         checked to fail against a model that keeps the FIFO across the turn.*
+  - [x] **Command dispatch for the single-PCB commands, and the wire.**
+        `[DEV]` §3.2's `01`/`02`/`03`/`0A`/`0B`/`10` execute against adapter
+        state that is only what a documented command sets or a documented
+        response reports. The four transfers answer nothing, per Table 1, and
+        commands whose response format is not yet read are refused via §3.1.1's
+        state `10` rather than answered with invented contents.
+        `ap_3c505_wire_t` is a context and a `transmit` callback, so `src/core`
+        owns no socket and a deterministic capture backend and a live one look
+        identical to the device. Detail in `PROJECT_STATUS.md`.
+        *Verification: `etherlink_suite`, 32 tests, including that every
+        response dispatch produces agrees with `ap_3c505_response_for`.*
+        **Awaiting:** `08`/`09`'s data phase -- §3.2.1 has the packet cross the
+        data register after the PCB is accepted -- then the board wiring, which
+        must come last because the boot PROM tests a fitted card.
   - [x] `docs/references/ETHERNET.md`, the findings file, written from the
         manual before any code — the map, the 20-byte half duplex data FIFO
         with its `DIR` bit, the five general-purpose status flags the hardware

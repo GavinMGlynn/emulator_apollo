@@ -446,4 +446,71 @@ bool ap_3c505_pcb_tx_next(ap_3c505_pcb_tx_t *tx, uint8_t *byte);
  * plus the data field. */
 [[nodiscard]] uint8_t ap_3c505_pcb_total_length(const ap_3c505_pcb_t *pcb);
 
+
+/* ## The wire, which the core does not own
+ *
+ * A frame has to go somewhere, and `src/core` knows nothing about sockets, TAP
+ * devices or capture files -- a frontend supplies this. Keeping it a callback
+ * is what lets the deterministic headless frontend hand over a replayable
+ * capture while an interactive one hands over a real interface, without the
+ * device model knowing which it has.
+ *
+ * `transmit` returns false when the frame could not be put on the wire, which
+ * is a completion status the adapter reports rather than an error here. */
+typedef struct {
+  void *context;
+  bool (*transmit)(void *context, const uint8_t *frame, unsigned length);
+} ap_3c505_wire_t;
+
+/* `[DEV]` §3.2.1 `02H`: the receive mode word. Bits 2-0 select what is
+ * accepted and bits 4-3 the loopback mode, both defaulting to zero. */
+#define AP_3C505_RX_STATION_ONLY 0u
+#define AP_3C505_RX_PLUS_BROADCAST 1u
+#define AP_3C505_RX_MULTICAST 2u
+#define AP_3C505_RX_PROMISCUOUS 4u
+#define AP_3C505_RX_MODE_MASK 0x07u
+#define AP_3C505_LOOPBACK_NONE 0u
+#define AP_3C505_LOOPBACK_INTERNAL 1u
+#define AP_3C505_LOOPBACK_EXTERNAL 2u
+#define AP_3C505_LOOPBACK_SHIFT 3u
+#define AP_3C505_LOOPBACK_MASK 0x18u
+
+/* §3.2.1 `0BH`: "The maximum number of addresses in the PCB is ten." */
+#define AP_3C505_MULTICAST_MAX 10u
+#define AP_3C505_ADDRESS_BYTES 6u
+
+/* The firmware this project replaces, as state. Everything here is something a
+ * documented command sets or a documented response reports -- nothing is here
+ * to make a model tidy. */
+typedef struct {
+  uint8_t address[AP_3C505_ADDRESS_BYTES]; /* the Ethernet address PROM's */
+  uint16_t receive_mode;
+
+  uint8_t multicast[AP_3C505_MULTICAST_MAX][AP_3C505_ADDRESS_BYTES];
+  unsigned multicast_count;
+
+  /* §3.2.2 `3AH`'s counters, in its order and its widths. */
+  uint32_t receive_packets;
+  uint32_t transmit_packets;
+  uint16_t crc_errors;
+  uint16_t alignment_errors;
+  uint16_t no_resource_errors;
+  uint16_t overrun_errors;
+
+  ap_3c505_wire_t wire;
+} ap_3c505_adapter_t;
+
+void ap_3c505_adapter_init(ap_3c505_adapter_t *adapter,
+                           const uint8_t address[AP_3C505_ADDRESS_BYTES]);
+
+/* Execute one request PCB. Returns true when a response PCB is produced --
+ * `04`-`07` are the transfers that have none, and Table 1's two `n/a` response
+ * codes are the same fact seen from the other side.
+ *
+ * Commands whose response format this project has not read are **refused**
+ * rather than answered with invented contents; §3.1.1's `10` (rejected) is the
+ * protocol's own way to say so. */
+bool ap_3c505_dispatch(ap_3c505_adapter_t *adapter, const ap_3c505_pcb_t *in,
+                       ap_3c505_pcb_t *out);
+
 #endif /* APOLLO_DEVICE_AP_3C505_H */
