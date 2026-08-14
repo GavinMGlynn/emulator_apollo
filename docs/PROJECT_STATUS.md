@@ -834,7 +834,31 @@ too tight.
 
 Wait on the **process**, not the file: `until ! ps -C apollo-headless >/dev/null;
 do sleep 60; done`. Every probe-log conclusion above this line was drawn from a
-partial file and none of them is evidence of anything. If they differ, the frame is wrong and that is the fifth defect. The
+partial file and none of them is evidence of anything.
+
+**Done properly, and it names the defect.** Waiting on the process, 2,157
+probes, and the storm's is:
+
+    at=734644874  a0=3B5AC402
+
+**`3B5AC402`, not `3B5AC3FE`.** That address is in page `3B5AC400` -- the page
+*after* the one that faulted -- which is resident and write-protected, so
+`MMUSR` answers `0803` with `W` set and `I` clear, exactly as measured. The
+kernel is told the page it asked about is present, so it flushes and retries,
+and nothing ever fetches `3B5AC000`.
+
+The faulting instruction is at `3B5AC3FE` and the address handed to the kernel
+is **four bytes past it**, across the page boundary. That is the prefetch
+pointer having run ahead: `ap_m68030_fetch_prefetch` does
+`fetch->address = address + 2` on every prefetch including the faulted one, and
+now that the fault is correctly deferred to where the word is *used*, what gets
+stacked is the advanced pointer rather than the instruction that could not be
+fetched. The deferral fix was right and incomplete: it moved *when* the fault is
+taken without fixing *which address* it reports.
+
+So the fifth defect is in the frame this core builds for a deferred prefetch
+fault, it is reducible to a `step_suite` case, and the `0403` faults that recover
+are the ones whose faulting address happens not to sit on a page boundary. If they differ, the frame is wrong and that is the fifth defect. The
 `0403` faults, which recover, would then be the cases where the two happen to
 coincide. One of those two observations is of a different
 machine state than it appears to be, and every conclusion drawn by pairing them
