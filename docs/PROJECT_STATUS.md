@@ -587,10 +587,27 @@ So the defect is upstream of the MMU: something wrote a page-table entry that
 points outside memory. The two writers are the ones `0081B000` also had --
 `00047AE6` by `FM_$READ+138`, then a byte `11` into the *high* byte by
 `AST_$LOAD_AOTE+43C` -- and it is that byte which turns a plausible `00047AE6`
-into an indirect pointer to nowhere. Whether the kernel means it as a descriptor
-at all, or whether this word is its own bookkeeping that our walk should never
-have followed, is the question; `0081B000`'s equivalent byte was `04` and left
+into an indirect pointer to nowhere. `0081B000`'s equivalent byte was `04` and left
 `DT = 0`, where this one leaves `DT = 2`.
+
+**The oracle settles it, and the descriptor is ours to explain.** Watching the
+same entry in MAME across a boot that reaches `login:`
+(`tools/mame-oracle/pagescreen.lua`, retargeted): the oracle holds `11EB9800`
+while the page is loaded and not resident, then **makes it resident** as
+`017DFD09` -- frame `017DFD00`, `DT = 1` -- at 518 s. So the page is meant to be
+paged in, and the kernel that declines is ours.
+
+And the two loaded values differ by a shift:
+
+    0x047AE6 << 10 = 0x11EB9800   the oracle's, block 293,094 in the page-address
+                                  field, low bits clear, so DT = 0 and invalid
+    0x11047AE6                    ours, the *raw* block number, so DT = 2 and the
+                                  MMU reads an indirect descriptor to nowhere
+
+The high byte `0x11` is the same on both, so `AST_$LOAD_AOTE+43C` agrees. What
+differs is the word `FM_$READ+138` stored. Same guest code on both machines, so
+its *input* differs -- and that is the next thing to find, at that instruction,
+with the block number and whatever register carries the shift.
 
 ## The boot's fatal was a livelock, and the framebuffer PNG works (2026-08-14)
 

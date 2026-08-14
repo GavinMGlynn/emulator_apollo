@@ -59,8 +59,8 @@ if not G.APOLLO_PAGEWATCH then
 	local HEARTBEAT_S = 10.0
 
 	local WATCH = {
-		{ name = "0081B000", addr = 0x0129C1B0 }, -- the page that never arrives
-		{ name = "0081A000", addr = 0x0129C1A0 }, -- the control, four pages below
+		{ name = "3B5AC000", addr = 0x012953C0 }, -- the page the storm needs
+		{ name = "3B5AB000", addr = 0x012953B0 }, -- the control: the module runs here
 	}
 
 	local f = assert(io.open(LOG, "w"))
