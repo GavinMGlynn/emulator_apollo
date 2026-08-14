@@ -896,9 +896,23 @@ against another boot:
     `SSW`, pipe stages B and C, fault address and `DOB`; only `SSW` and the fault
     address have been checked against the figure by value.
 
-Check the first against Table 8-6's own wording before touching anything: this
-core's reading of "next instruction" for a deferred prefetch fault has never
-been verified against the page image, only reasoned about. If they differ, the frame is wrong and that is the fifth defect. The
+**Checked, from the page image read earlier this session.** Table 8-6's row for
+the short bus cycle fault frame reads "Address Error or Bus Error -- Execution
+Unit at Instruction Boundary -- *[Next instruction]*". For a deferred prefetch
+fault the execution unit stands at the boundary *before* the word that could not
+be fetched, so the next instruction **is** `3B5AC3FE` and this core stacks what
+the table asks for. The first candidate is closed.
+
+That leaves **the frame's field offsets**, and it is the one part of the frame
+never checked against Figure 8-6's own diagram: the builder writes `SR` at `+$00`,
+`PC` at `+$02`, format/vector at `+$06`, `SSW` at `+$0A`, pipe stage C at `+$0C`,
+stage B at `+$0E`, the fault address at `+$10` and the `DOB` at `+$18`, and only
+`SSW` and the fault address have been verified by value. A kernel reading one
+word off would take a neighbouring field as its address, and `+4` is the distance
+from the fault address at `+$10` to the two internal-register words at `+$14`
+and `+$16`. **Read the frame's layout against the page image and compare offset
+by offset** -- that is the next step, it costs no boot at all, and every other
+explanation for this storm has now been eliminated by measurement. If they differ, the frame is wrong and that is the fifth defect. The
 `0403` faults, which recover, would then be the cases where the two happen to
 coincide. One of those two observations is of a different
 machine state than it appears to be, and every conclusion drawn by pairing them
