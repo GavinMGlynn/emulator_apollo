@@ -857,8 +857,24 @@ fetched. The deferral fix was right and incomplete: it moved *when* the fault is
 taken without fixing *which address* it reports.
 
 So the fifth defect is in the frame this core builds for a deferred prefetch
-fault, it is reducible to a `step_suite` case, and the `0403` faults that recover
-are the ones whose faulting address happens not to sit on a page boundary. If they differ, the frame is wrong and that is the fifth defect. The
+fault, and the `0403` faults that recover are the ones whose faulting address
+happens not to sit on a page boundary.
+
+**A first attempt at it changed nothing and was reverted.** Making
+`take_bus_fault_with` stack `instruction_address` whenever
+`cpu->fault_instruction_stream` is set -- rather than only for the long frame --
+built clean and left the boot **byte-identical**: 30,837,461 faults, the same
+figure to the digit. A no-op. So that condition does not fire where the frame is
+built: either the flag is clear by then, or this fault reaches the frame by
+another path, or `instruction_address` already equals `regs.pc` there and the
+divergence happens later.
+
+Which means the `+4` is real -- the kernel demonstrably probes `3B5AC402` for a
+fault at `3B5AC3FE` -- but *where* the address gains it is not yet known, and
+the guess that it is `regs.pc` at frame-build time is wrong. Find it by
+instrumenting the frame itself: print `stacked_pc`, `instruction_address`,
+`regs.pc` and `fault_address` at `take_bus_fault_with` for this fault and see
+which of them is `3B5AC402`. Do that before changing any of them again. If they differ, the frame is wrong and that is the fifth defect. The
 `0403` faults, which recover, would then be the cases where the two happen to
 coincide. One of those two observations is of a different
 machine state than it appears to be, and every conclusion drawn by pairing them
