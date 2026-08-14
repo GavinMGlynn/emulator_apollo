@@ -251,4 +251,77 @@ typedef enum {
 [[nodiscard]] bool ap_3c505_decode(uint32_t base, uint32_t address,
                                    uint32_t *offset);
 
+/* ## The mailbox, which is the whole of what a host-side model owes
+ *
+ * The board is an 80186 with an 82586 beside it, so nothing the host writes is
+ * *executed* here: the host puts bytes in a command register and a data FIFO,
+ * the adapter takes them out, and four flag registers say whose turn it is.
+ * `[DEV]` §1.9 is that protocol and it is all this structure holds.
+ *
+ * **Two registers are stored and two are derived, and that is the design.**
+ * `HCR` and `ACR` are written -- one by each side -- and `HSR` and `ASR` are
+ * assembled on each read out of the other side's control register plus the
+ * mailbox's own state. Storing all four would let them disagree, and the pairs
+ * that would then drift are exactly the ones §1.9 warns are easy to confuse:
+ * `HCRE`/`ACRE` and `HCRF`/`ACRF` are one byte's occupancy seen from two sides,
+ * not two facts.
+ *
+ * The adapter side is modelled as a peer rather than as firmware: this holds
+ * what the adapter has written and what it has taken, and something else -- the
+ * PCB protocol host-side, or an emulated 80186 -- decides *when*. That decision
+ * is still open and this structure does not prejudge it, which is the reason
+ * the interface was built before it.
+ */
+typedef struct {
+  uint8_t hcr;     /* Host Control Register, written by the host at `+6` */
+  uint8_t acr;     /* Adapter Control Register, written by the adapter */
+  uint8_t aux_dma; /* Host Aux DMA Register, `+2` on a write */
+
+  /* The command register is **one byte in each direction**, not a queue.
+   * §1.9.1's handshake is "full" and "empty" for a single byte, and a model
+   * with a queue would report `HCRE` set while a byte was still in flight. */
+  uint8_t to_adapter;
+  bool to_adapter_full;
+  uint8_t to_host;
+  bool to_host_full;
+
+  /* "A half duplex 20 byte FIFO": one buffer, and `DIR` says which way it is
+   * pointing. Half duplex is why there is not one each way. */
+  uint8_t fifo[AP_3C505_DATA_FIFO];
+  unsigned fifo_count;
+
+  bool dma_done;     /* terminal count reached, reported as `HSR`'s `DONE` */
+  bool test_jumper;  /* the TEST jumper, reported as `ASR`'s `SWTC` */
+  bool sixteen_bit;  /* a 16-bit slot, reported as `ASR`'s `8_16` */
+} ap_3c505_t;
+
+/* Power-on state. Also what a hard reset produces, so the two cannot drift. */
+void ap_3c505_reset(ap_3c505_t *card);
+
+/* The host side of the sixteen I/O locations. `offset` is what
+ * `ap_3c505_decode` returned. A read of a write-only location answers `FF`,
+ * which is what an undriven AT bus does and what this machine's board already
+ * models for an empty slot. */
+[[nodiscard]] uint8_t ap_3c505_read(ap_3c505_t *card, unsigned offset);
+void ap_3c505_write(ap_3c505_t *card, unsigned offset, uint8_t value);
+
+/* The two status registers, assembled rather than stored. Exposed because the
+ * adapter half of the protocol reads `ASR` exactly as the host reads `HSR`, and
+ * because a test that wants a flag should not have to go through a bus read. */
+[[nodiscard]] uint8_t ap_3c505_host_status(const ap_3c505_t *card);
+[[nodiscard]] uint8_t ap_3c505_adapter_status(const ap_3c505_t *card);
+
+/* The adapter's side of the mailbox: what the 80186 would do. Kept here so the
+ * host side has something to talk to before the decision about how the adapter
+ * is driven has been made. */
+[[nodiscard]] bool ap_3c505_adapter_take_command(ap_3c505_t *card,
+                                                 uint8_t *command);
+void ap_3c505_adapter_post_command(ap_3c505_t *card, uint8_t response);
+void ap_3c505_adapter_write_control(ap_3c505_t *card, uint8_t value);
+
+/* Whether the card is asserting its interrupt line. §1.10: the host is
+ * interrupted when a command byte arrives with `CMDE` set, or when the DMA
+ * reaches terminal count with `TCEN` set. */
+[[nodiscard]] bool ap_3c505_irq(const ap_3c505_t *card);
+
 #endif /* APOLLO_DEVICE_AP_3C505_H */

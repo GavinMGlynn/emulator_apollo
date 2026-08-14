@@ -412,6 +412,43 @@ Last updated: 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The 3c505's mailbox is modelled, and two of its four registers are derived
+## (2026-08-15)
+
+**`ap_3c505.c` is a device rather than three pure functions now.** The board is
+an 80186 with an 82586 beside it, so nothing the host writes is executed on this
+side: `[DEV]` §1.9 is a mailbox -- a command byte each way, a 20-byte half
+duplex FIFO, and four flag registers saying whose turn it is -- and that is the
+whole of what a host-side model owes.
+
+**Two registers are stored and two are assembled, and that is the design.**
+`HCR` and `ACR` are written, one by each side; `HSR` and `ASR` are built on each
+read from the other side's control register plus the mailbox's state. Storing
+all four would let them disagree, and the pairs that would drift are exactly the
+ones §1.9 warns are easy to confuse: `HCRE`/`ACRE` and `HCRF`/`ACRF` are **one
+byte's occupancy seen from two sides**, not two facts. `HRDY` and `ARDY` are the
+same for the FIFO, and are opposites rather than copies -- the direction that is
+ready for the host is the one that is not ready for the adapter.
+
+Three behaviours the manual implies and a naive model gets wrong: a change of
+`DIR` empties the FIFO, because "half duplex" means one buffer and bytes queued
+one way are not deliverable the other; `FLSH` acts from *either* control
+register, which is the only reason for it to appear in both; and `ATTN|FLSH` is
+a **reset**, not a flush that also interrupts, so it clears the command
+registers and `HCR` too -- otherwise a host resetting a wedged adapter is left
+with the wedged adapter's byte still waiting.
+
+Strapping survives that reset. The TEST jumper and the 16-bit slot are a jumper
+and a slot, and a host-issued reset cannot change either.
+
+**What is deliberately not decided.** The adapter side is a peer -- `take` and
+`post` -- not firmware. Whether the 80186 is emulated behind the mailbox or the
+PCB protocol is implemented host-side is still open, and this structure does not
+prejudge it, which is why the interface was built before it.
+
+*Verification: `etherlink_suite` 12 -> 19. The direction-change test was checked
+to fail against a model that keeps the FIFO across the turn.*
+
 ## The SC499's flag is a level, and the latch evidence was a polarity misreading
 ## (2026-08-15)
 

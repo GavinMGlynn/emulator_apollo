@@ -219,6 +219,170 @@ static void test_the_reserved_codes_are_not_implemented_commands(void) {
   TEST_ASSERT_FALSE(ap_3c505_response_for(0x12u, NULL));
 }
 
+
+/* ## The mailbox, `[DEV]` §1.9
+ *
+ * Every test below is a fact about the protocol rather than about this model's
+ * shape, because the model's shape is a choice and the protocol is not. */
+
+/* **One byte's occupancy is one fact seen from two sides.** §1.9.1 gives the
+ * host `HCRE`/`ACRF` and the adapter `ACRE`/`HCRF`, and the manual's own note
+ * that the names are easy to confuse is the reason this is asserted directly:
+ * a model storing four flags could report a byte both sent and not sent. */
+static void test_the_command_byte_is_one_fact_both_sides_agree_on(void) {
+  ap_3c505_t card;
+  ap_3c505_reset(&card);
+
+  /* Idle: the host's register is empty and nothing waits for either side. */
+  TEST_ASSERT_TRUE(ap_3c505_host_status(&card) & AP_3C505_HSR_HCRE);
+  TEST_ASSERT_FALSE(ap_3c505_host_status(&card) & AP_3C505_HSR_ACRF);
+  TEST_ASSERT_TRUE(ap_3c505_adapter_status(&card) & AP_3C505_ASR_ACRE);
+  TEST_ASSERT_FALSE(ap_3c505_adapter_status(&card) & AP_3C505_ASR_HCRF);
+
+  /* The host sends. Its register is no longer empty, and the adapter is told
+   * a byte is waiting -- the same byte, described twice. */
+  ap_3c505_write(&card, AP_3C505_REG_COMMAND, AP_3C505_CMD_SELF_TEST);
+  TEST_ASSERT_FALSE(ap_3c505_host_status(&card) & AP_3C505_HSR_HCRE);
+  TEST_ASSERT_TRUE(ap_3c505_adapter_status(&card) & AP_3C505_ASR_HCRF);
+
+  /* The adapter takes it, and both sides see that at once. */
+  uint8_t taken = 0;
+  TEST_ASSERT_TRUE(ap_3c505_adapter_take_command(&card, &taken));
+  TEST_ASSERT_EQUAL_HEX8(AP_3C505_CMD_SELF_TEST, taken);
+  TEST_ASSERT_TRUE(ap_3c505_host_status(&card) & AP_3C505_HSR_HCRE);
+  TEST_ASSERT_FALSE(ap_3c505_adapter_status(&card) & AP_3C505_ASR_HCRF);
+  TEST_ASSERT_FALSE(ap_3c505_adapter_take_command(&card, &taken));
+
+  /* And the same in the other direction, with the response Table 1 requires. */
+  uint8_t response = 0;
+  TEST_ASSERT_TRUE(ap_3c505_response_for(AP_3C505_CMD_SELF_TEST, &response));
+  ap_3c505_adapter_post_command(&card, response);
+  TEST_ASSERT_TRUE(ap_3c505_host_status(&card) & AP_3C505_HSR_ACRF);
+  TEST_ASSERT_FALSE(ap_3c505_adapter_status(&card) & AP_3C505_ASR_ACRE);
+  TEST_ASSERT_EQUAL_HEX8(response,
+                         ap_3c505_read(&card, AP_3C505_REG_COMMAND));
+  TEST_ASSERT_FALSE(ap_3c505_host_status(&card) & AP_3C505_HSR_ACRF);
+}
+
+/* **"A half duplex 20 byte FIFO"** -- one buffer, and `DIR` points it. The
+ * half-duplex word is the whole test: a byte written host-to-adapter must not
+ * be readable by the host afterwards, which is what two FIFOs would allow. */
+static void test_the_data_fifo_is_half_duplex_and_twenty_bytes(void) {
+  ap_3c505_t card;
+  ap_3c505_reset(&card);
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, 0u); /* DIR clear: host->adapter */
+
+  for (unsigned i = 0; i < AP_3C505_DATA_FIFO; i++) {
+    TEST_ASSERT_TRUE(ap_3c505_host_status(&card) & AP_3C505_HSR_HRDY);
+    ap_3c505_write(&card, AP_3C505_REG_DATA, (uint8_t)i);
+  }
+  /* Full: the host is no longer ready, and the adapter is. */
+  TEST_ASSERT_FALSE(ap_3c505_host_status(&card) & AP_3C505_HSR_HRDY);
+  TEST_ASSERT_TRUE(ap_3c505_adapter_status(&card) & AP_3C505_ASR_ARDY);
+
+  /* Reading against the direction gets nothing, not the bytes just written. */
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_3c505_read(&card, AP_3C505_REG_DATA));
+}
+
+/* **Turning the FIFO round empties it.** It is one buffer; bytes queued for one
+ * direction are not deliverable in the other, and leaving them would hand the
+ * adapter's data back to the host. */
+static void test_changing_direction_empties_the_one_buffer(void) {
+  ap_3c505_t card;
+  ap_3c505_reset(&card);
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, 0u);
+  ap_3c505_write(&card, AP_3C505_REG_DATA, 0xA5u);
+
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, AP_3C505_HCR_DIR);
+  TEST_ASSERT_TRUE(ap_3c505_host_status(&card) & AP_3C505_HSR_DIR);
+  /* Nothing to read: the byte did not survive the turn. */
+  TEST_ASSERT_FALSE(ap_3c505_host_status(&card) & AP_3C505_HSR_HRDY);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_3c505_read(&card, AP_3C505_REG_DATA));
+}
+
+/* Either side's flush empties it, `[HIS]` §3-2 and §3-5 -- `FLSH` appears in
+ * both control registers, which is only worth having if both act. */
+static void test_either_side_can_flush_the_fifo(void) {
+  ap_3c505_t card;
+  ap_3c505_reset(&card);
+  ap_3c505_write(&card, AP_3C505_REG_DATA, 0x11u);
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, AP_3C505_HCR_FLSH);
+  TEST_ASSERT_EQUAL_UINT(0u, card.fifo_count);
+
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, 0u);
+  ap_3c505_write(&card, AP_3C505_REG_DATA, 0x22u);
+  ap_3c505_adapter_write_control(&card, AP_3C505_ACR_FLSH);
+  TEST_ASSERT_EQUAL_UINT(0u, card.fifo_count);
+}
+
+/* **The hard reset is the pair, and it is a reset rather than a big flush.**
+ * `ATTN|FLSH` must clear the command registers and the host's own control bits,
+ * not just the data buffer -- otherwise a host that resets a wedged adapter is
+ * left with the wedged adapter's byte still waiting for it. */
+static void test_the_hard_reset_clears_the_mailbox_but_not_the_strapping(void) {
+  ap_3c505_t card;
+  ap_3c505_reset(&card);
+  card.test_jumper = true;
+  card.sixteen_bit = true;
+
+  ap_3c505_write(&card, AP_3C505_REG_COMMAND, AP_3C505_CMD_SELF_TEST);
+  ap_3c505_adapter_post_command(&card, 0x31u);
+  ap_3c505_write(&card, AP_3C505_REG_DATA, 0x5Au);
+  ap_3c505_adapter_write_control(&card, AP_3C505_ACR_ASF1);
+
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, AP_3C505_HCR_HARD_RESET);
+
+  TEST_ASSERT_TRUE(ap_3c505_host_status(&card) & AP_3C505_HSR_HCRE);
+  TEST_ASSERT_FALSE(ap_3c505_host_status(&card) & AP_3C505_HSR_ACRF);
+  TEST_ASSERT_EQUAL_UINT(0u, card.fifo_count);
+  TEST_ASSERT_EQUAL_HEX8(0u, card.acr);
+  TEST_ASSERT_EQUAL_HEX8(0u, card.hcr);
+
+  /* A jumper and a slot are not state the host can clear. */
+  TEST_ASSERT_TRUE(ap_3c505_adapter_status(&card) & AP_3C505_ASR_SWTC);
+  TEST_ASSERT_TRUE(ap_3c505_adapter_status(&card) & AP_3C505_ASR_8_16);
+}
+
+/* §1.9.5: the general-purpose flags are "not decoded by the hardware in any
+ * way", so each side's control bits must appear in the other's status register
+ * unchanged and mean nothing here. */
+static void test_the_general_purpose_flags_pass_through_uninterpreted(void) {
+  ap_3c505_t card;
+  ap_3c505_reset(&card);
+
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL,
+                 AP_3C505_HCR_HSF1 | AP_3C505_HCR_HSF2);
+  TEST_ASSERT_EQUAL_HEX8(AP_3C505_ASR_HSF1 | AP_3C505_ASR_HSF2,
+                         ap_3c505_adapter_status(&card) &
+                             (AP_3C505_ASR_HSF1 | AP_3C505_ASR_HSF2));
+
+  ap_3c505_adapter_write_control(&card, AP_3C505_ACR_ASF1 | AP_3C505_ACR_ASF3);
+  TEST_ASSERT_EQUAL_HEX8(AP_3C505_HSR_ASF1 | AP_3C505_HSR_ASF3,
+                         ap_3c505_host_status(&card) &
+                             (AP_3C505_HSR_ASF1 | AP_3C505_HSR_ASF2 |
+                              AP_3C505_HSR_ASF3));
+}
+
+/* §1.10: two independent enables, and neither implies the other. A card that
+ * interrupted on a waiting byte regardless of `CMDE` would pass a test that
+ * only ever set both. */
+static void test_each_interrupt_needs_its_own_enable(void) {
+  ap_3c505_t card;
+  ap_3c505_reset(&card);
+
+  ap_3c505_adapter_post_command(&card, 0x31u);
+  TEST_ASSERT_FALSE(ap_3c505_irq(&card)); /* a byte waits, CMDE clear */
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, AP_3C505_HCR_CMDE);
+  TEST_ASSERT_TRUE(ap_3c505_irq(&card));
+
+  ap_3c505_reset(&card);
+  card.dma_done = true;
+  TEST_ASSERT_FALSE(ap_3c505_irq(&card)); /* terminal count, TCEN clear */
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, AP_3C505_HCR_TCEN);
+  TEST_ASSERT_TRUE(ap_3c505_irq(&card));
+  TEST_ASSERT_TRUE(ap_3c505_host_status(&card) & AP_3C505_HSR_DONE);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_card_answers_sixteen_locations_from_its_jumpered_base);
@@ -233,5 +397,12 @@ int main(void) {
   RUN_TEST(test_a_response_code_is_its_command_plus_thirty_hex);
   RUN_TEST(test_the_pio_transfers_are_the_commands_with_no_response);
   RUN_TEST(test_the_reserved_codes_are_not_implemented_commands);
+  RUN_TEST(test_the_command_byte_is_one_fact_both_sides_agree_on);
+  RUN_TEST(test_the_data_fifo_is_half_duplex_and_twenty_bytes);
+  RUN_TEST(test_changing_direction_empties_the_one_buffer);
+  RUN_TEST(test_either_side_can_flush_the_fifo);
+  RUN_TEST(test_the_hard_reset_clears_the_mailbox_but_not_the_strapping);
+  RUN_TEST(test_the_general_purpose_flags_pass_through_uninterpreted);
+  RUN_TEST(test_each_interrupt_needs_its_own_enable);
   return UNITY_END();
 }

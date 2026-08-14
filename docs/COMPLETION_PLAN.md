@@ -4056,6 +4056,17 @@ discipline throughout.
         checked across every implemented command, the two PIO commands proved
         to have no response while their DMA counterparts do, and the reserved
         codes proved not to be commands.*
+  - [x] **The mailbox itself, `ap_3c505.c`.** `[DEV]` §1.9 as a device: the
+        command byte each way, the 20-byte half duplex FIFO, and the four flag
+        registers -- with `HSR` and `ASR` **derived** on each read rather than
+        stored, so `HCRE`/`HCRF` and `ACRE`/`ACRF` cannot disagree about the one
+        byte they both describe. A change of `DIR` empties the FIFO, `FLSH` acts
+        from either side, and `ATTN|FLSH` is a reset rather than a large flush.
+        The adapter half is a peer (`take`/`post`), so the open question of
+        emulated 80186 versus host-side PCB protocol stays open.
+        Detail in `PROJECT_STATUS.md`.
+        *Verification: `etherlink_suite`, 19 tests, the direction-change one
+        checked to fail against a model that keeps the FIFO across the turn.*
   - [x] `docs/references/ETHERNET.md`, the findings file, written from the
         manual before any code — the map, the 20-byte half duplex data FIFO
         with its `DIR` bit, the five general-purpose status flags the hardware
