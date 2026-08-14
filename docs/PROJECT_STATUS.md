@@ -954,6 +954,29 @@ different, and the three want mapping before the edit. Choosing wrongly between 
 and C moves the kernel's probe by two bytes instead of four: still broken, and it
 would read as progress.
 
+**Mapped, and it reframes the fix.** `ap_m68030_pipe.h`: words "enter the pipe at
+stage B and proceed to stages C and D", and "an instruction word is completely
+decoded when it reaches stage D". A faulted prefetch fills **B** with `abnormal`,
+and the pipe then advances B->C->D, so by the time the fault surfaces the bad
+word sits in **D** -- while `FB`/`FC` name B and C, which by then hold *later*
+words. There is no bit for the stage the bad word actually occupies, which is
+very likely why both were set: a fallback for a state the model should not have
+been in.
+
+So the suspicion moves to the advance itself. On the part, a deferred fault is
+taken when the processor *attempts to use* the faulted word, and the natural
+reading is that the pipe does not advance past a stage it cannot use -- leaving
+the bad word in B or C, exactly where `FB`/`FC` can describe it. **This core
+advances anyway**, because the deferral fix added `ap_m68030_pipe_advance` on the
+faulted path to stop the fault being raised early. That fix was right about
+*when* and may be wrong about *what it does to the pipe*.
+
+Next, and it is a reading task rather than a boot: §8.2's account of the pipe at a
+bus fault, against `ap_m68030_pipe_advance` and the faulted path in
+`fill_to_decoded`. If the pipe should hold, then not advancing fixes both the
+stage bits and the address the kernel probes, and `fault_ssw` needs no fallback
+at all.
+
 The `0403` faults, which recover, would then be the cases where the two happen to
 coincide. One of those two observations is of a different
 machine state than it appears to be, and every conclusion drawn by pairing them
