@@ -3983,10 +3983,15 @@ discipline throughout.
         way. The control is that on a machine with no ring card the slot holds
         the *generic* handler while the claimed vectors resolve to the timer and
         both DUART channels and match the boot's own interrupt counts (53e).
-        **Awaiting:** the mask and the transfer shape, which live in the
-        driver's install path -- what puts `RING8_$INT` into vector 163 when the
-        card answers. Readable offline with `oracle_walk.py` and
-        `kernel_symbols.py`, no boot required.
+        **And the driver's code turns out to be readable offline** (53f): both
+        `RING8_$INT` and its deferred half are resident in an ordinary state
+        dump, because Domain/OS loads the ring driver whether or not a
+        controller answers -- so this source costs a `grep`, not an instrumented
+        run on hardware nobody has. Its prologue polls **bit 1 of the word at
+        device `+1400`** and reads `+1404` (53g).
+        **Awaiting:** confirmation that the pointer it uses is the controller's
+        base -- the code's shape says so and a measurement does not -- which the
+        ring ROMs settle, since they *write* the registers the driver reads.
 - [x] Multi-node scheduler, in `src/core/ring/ap_ring_sched.*`: N nodes on one
       cycle-locked ring, each stepping only on its own boundaries against the
       shared time base, with the ring's bit clock competing as a clock domain
