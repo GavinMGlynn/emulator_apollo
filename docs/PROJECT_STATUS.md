@@ -1054,9 +1054,54 @@ reverted because §8.2's rule is explicit and this core now matches it, and the
 project's standard for a change is the reference rather than the boot advancing
 -- but it must not be recorded as a fix, because it fixed nothing.
 
-The next reader should treat the remaining question as still open: **how does the
-part report a prefetch fault on the first word of an instruction, when the frame
-can only describe stages B and C?** Either such a fault is reported some other way,
+**Answered by experiment, and the mechanism is now measured.** Domain/OS derives
+the address it probes from the **stacked PC**, as `PC+4`, and nothing else moves
+it. Four encodings were tried against a 2.5 G boot:
+
+    both stage bits (as shipped)      30,837,461 faults   30.8 M x MMUSR 0803
+    stage bits chosen by address      31,955,614 faults   31.9 M x 0803
+    DF, address in the +$10 field     34,766,910 faults   34.7 M x 0803
+    FB set, stacked PC = fault - 4           309 faults        0 x 0803
+
+Only the last works, and it works completely: every spurious "valid, write
+protected" reading gone, the storm eliminated, and the boot carried through
+`SALVAGING BOOT VOLUME`, reference-count verification and `Salvage successful,
+loading operating system`. Clearing the stage bits does *not* redirect the probe
+-- `0803` survived that change -- which is what rules the pipe-stage encoding out
+as the lever and points at the PC.
+
+**But `fault - 4` is a synthetic PC and moves where execution resumes**, which is
+not free: the run ends in a wild pointer, `FAULT IN DOMAIN/OS ... FA:73687574`
+(ASCII `shut`) in user state with `CRASH_STATUS 00040004`. So the probe address
+is right and the resume point is wrong, and the two are conflated by construction
+in a frame that carries only one PC.
+
+The shape of the real fix follows from that: the fault should be taken while the
+**previous instruction is still current**, so `PC` is a genuine instruction
+boundary *and* the faulted word legitimately lies at `PC+4` -- rather than
+back-computing `fault - 4` after the fact. That is what the part does, and it is
+what this core did by accident before the deferral change, which is why that
+version recovered faults this one cannot. Both properties have to hold together:
+deferred to the point of use, and a real PC with the faulted word ahead of it.
+
+**Not landed, and the reason is measured too.** Over 4 G instructions the stage B
+form keeps faults at **618** and the storm stays gone, but the wild pointer
+recurs every cycle: the machine loops `salvage` -> `loading operating system` ->
+`CRASH_STATUS 00040004` -> `REBOOTING` -> `salvage`, indefinitely. A fault storm
+that stalls at the banner and a crash-reboot loop are both failures, and trading
+one for the other while corrupting execution is not progress, so the code is
+reverted and only this finding is kept. The committed core still has the storm.
+
+What the experiment *did* establish, and what the next attempt should start
+from: the probe address comes from the stacked PC as `PC+4` and nothing else
+redirects it; the pipe-stage bits are not the lever; `DF` is not the lever; and
+getting the probe right is worth 32 M faults. The unsolved half is a single
+question -- **what PC does the part stack when the faulted word is a branch
+target, where there is no preceding instruction for it to lie four bytes
+ahead of?** `3B5AC3FE` is reached by `BRA.W` from `3B5ABBF4`, so on the hardware
+the pipe is refilled from the target and the first fetch is the one that fails.
+Figures 8-6 and 8-7 on the pipe after a change of flow are where that is
+settled. Either such a fault is reported some other way,
 or the pipe is never in that state on real hardware because a branch to an
 unmapped page faults before the target's word is ever needed. Both would change
 what this core does far more than the PC selection would. Figures 8-6 and 8-7 and
