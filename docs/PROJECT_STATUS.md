@@ -663,10 +663,20 @@ What the same output *does* say is that the indirect path fails without a bus
 error, and `ap_m68030_walk.c` has exactly one way to do that: the
 `AP_M68030_ROLE_INDIRECT` arm calls `update_history` first and, when that
 fails, takes `ap_m68030_search_fail_invalid` and returns -- so the pointed-to
-descriptor is never fetched at all. Whether writing a `U` bit into a descriptor
-at `0x11047AE6` should fail that way, and what the part does when an indirect
-descriptor points outside memory, is a question for `[030]` §9.4 and is where to
-resume. The block-number-to-`DT` observation above stands on its own: the low
+descriptor is never fetched at all. And the walk's own output proves that is the path taken.
+`last_descriptor_address` is only assigned *after* a successful pointed fetch,
+and a failed fetch sets `bus_error`; ours reported `last descriptor at
+012953C0` **with no bus error**, which only `update_history` failing can
+produce. So the indirect target is never fetched and the address outside RAM is
+never touched -- the walk stops one step earlier than the last note assumed.
+
+Why `update_history` refuses is the remaining question, and it is small: it is
+called here with the *indirect* descriptor's own address, and this file already
+argues elsewhere that a `U` bit must not be written into a descriptor whose
+spare bits the OS is using for its own purposes. Read it against `[030]` §9.4's
+account of history-bit updates on indirect descriptors before changing
+anything -- but note this is all *downstream* of a page-table slot holding a raw
+block number, so fixing the walk would only change the symptom. The block-number-to-`DT` observation above stands on its own: the low
 bits of `0x47AE6` really do make this `DT = 2` where `0x1042C` made `0081B000`
 `DT = 0`.
 
