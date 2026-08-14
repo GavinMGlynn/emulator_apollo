@@ -412,6 +412,54 @@ Last updated: 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The SSW never described the faulted cycle, and `3B5AC3FE` is closed
+## (2026-08-15)
+
+**The oracle takes the same fault and recovers, so its frame is the answer.**
+A breakpoint at `3B5AC3FE` shows the oracle reaching it at 516.281 s and the
+next PC being `3C42CD90` -- `FIM_$BUS_ERR`. So this fault is not ours alone and
+never was; the oracle simply survives it. Reading the frame it built, straight
+out of its own supervisor stack with `oracle_walk.py`:
+
+    SR 0004   PC 3B5AC3FE   format/vector A008   SSW 0162   fault addr 3B5AC3FE
+
+It stacks **the same PC this core stacks**, which retires the last of the
+stacked-PC theories: five encodings were tried against a value that was never
+wrong. The difference is one word. Decoded against our own layout, `0162` is
+`DF` set, `RW` read, size **word**, function code **2** -- the faulted bus cycle
+stated exactly: a word read in program space at the fault address. And the
+format is `A`, the **short** frame.
+
+`fault_ssw` returned early for an instruction-stream fault and emitted the pipe
+stage bits alone. For a fault on the opcode at `PC` -- neither `PC+2` nor `PC+4`
+-- that is **`0000`**: no direction, no size, no address space, nothing but the
+stacked `PC`. §8.2's rule then gives the handler `PC+4`, which crosses into the
+next page whenever the faulting instruction is within four bytes of a page end.
+That is the whole 30.8 M-fault storm, and the geometry that made it look
+unfixable.
+
+Both halves of the fix were tried before, separately, which is why both failed.
+Setting `DF` alone drove `ap_m68030_bus_fault_frame` to the **long** frame,
+because its rule was "data read faults only generate the long bus fault frame"
+applied to every read. An instruction read is not a data read: there is no data
+input buffer to repair, the handler makes the page resident and the pipe fetches
+again. The discriminator was already in the word -- function codes 2 and 6 are
+the program spaces -- so the frame chooser now asks for it.
+
+*Verification: `step_suite` 295/295, `ctest` 136/136. The assertion that had to
+change is `test_a_faulting_instruction_fetch_takes_the_bus_error_exception`'s
+`TEST_ASSERT_FALSE(ssw.data_fault)` -- written the same day as the code it
+agreed with, for the third time in this investigation. Boot: MMU faults
+**30,837,461 -> 17,274,481**, and `PC 3B5AC3FE` is **absent from the fault-site
+list entirely**, where it was 30,835,213 of the total.*
+
+**Not `login:` yet, and the next site is the same family.** The storm is now
+`PC 0081CBFE` reading `0081CC00`, 17,274,070 times -- again the last word of a
+1 KB page, again reaching into the next one. `MMUSR` answers `0803` (valid,
+write protected) 17,274,069 times while this core's own walk calls `0081CC00`
+*invalid on read*: the two disagree, which is a different question from the one
+just closed and is where the next measurement goes.
+
 ## RETRACTED: the page-table entry was never wrong, and the two machines agree
 ## through it (2026-08-15)
 

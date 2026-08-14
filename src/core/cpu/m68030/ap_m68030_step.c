@@ -2602,7 +2602,21 @@ static ap_m68030_ssw_t fault_ssw(const ap_m68030_cpu_t *cpu) {
     const uint32_t pc = cpu->regs.pc;
     ssw.stage_b_fault = (at == pc + 4u);
     ssw.stage_c_fault = (at == pc + 2u);
-    return ssw;
+    /* **And then the cycle itself, which used to be dropped here.** The stage
+     * bits say *which pipe stage was found invalid*; they do not describe the
+     * bus cycle that failed, and a fault on the opcode word at `PC` is neither
+     * stage and so set neither -- which left the whole special status word
+     * zero. A handler reading that has no fault direction, no size and no
+     * address space: nothing to act on but the stacked `PC`, and `PC+4` is what
+     * §8.2's stage-B rule then points it at, one page too far whenever the
+     * faulting instruction sits within four bytes of a page end.
+     *
+     * Measured on the oracle, which takes this same fault at `3B5AC3FE` and
+     * *recovers* from it: `SSW = 0162` -- `DF` set, `RW` read, size word,
+     * function code 2 -- with the **short** frame, `A008`. So the cycle is
+     * described exactly as a prefetch is: a word read in program space at the
+     * fault address. The stage bits are extra information above that, not a
+     * replacement for it. */
   }
   ssw.data_fault = true;
   ssw.read = cpu->fault_read;

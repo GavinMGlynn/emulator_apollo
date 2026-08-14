@@ -1,5 +1,7 @@
 #include "cpu/m68030/ap_m68030_ssw.h"
 
+#include "cpu/m68030/ap_m68030_regs.h"
+
 static uint16_t bit(bool set, unsigned position) {
   return set ? (uint16_t)(1u << position) : (uint16_t)0u;
 }
@@ -80,7 +82,24 @@ ap_m68030_bus_fault_frame(const ap_m68030_ssw_t *ssw) {
    * not merely stacked in less detail -- there is nowhere for the handler to
    * put the value the read was supposed to return, so the fault becomes
    * unrepairable and demand paging cannot work. */
-  if (ssw->data_fault && ssw->read) {
+  /* **"Data read faults", and an instruction prefetch is not one.** The rule
+   * above is about the data input buffer: a faulted data read has to be
+   * *repaired* by the handler writing the value into the frame, so it needs the
+   * long frame that has somewhere to write it. A faulted instruction read has
+   * no such image and needs none -- the handler makes the page resident and the
+   * pipe fetches the word again -- so the short frame is complete.
+   *
+   * The function code is what tells them apart, and it is already in the word:
+   * 2 and 6 are the program spaces, 1 and 5 the data spaces.
+   *
+   * Measured: the oracle stacks format `A` -- the short frame -- for the
+   * instruction fetch fault at `3B5AC3FE`, with `DF` and `RW` both set. Giving
+   * that fault the long frame is one of the five encodings this project tried
+   * and rejected, and it failed for this reason. */
+  const bool program_space =
+      ssw->function_code == AP_M68030_FC_USER_PROGRAM ||
+      ssw->function_code == AP_M68030_FC_SUPERVISOR_PROGRAM;
+  if (ssw->data_fault && ssw->read && !program_space) {
     return AP_M68030_FRAME_LONG_BUS_FAULT;
   }
   return AP_M68030_FRAME_SHORT_BUS_FAULT;

@@ -660,7 +660,20 @@ static void test_a_faulting_instruction_fetch_takes_the_bus_error_exception(
       read_ram_long(&m, m.cpu.regs.isp + AP_M68030_BUS_FAULT_SSW) >> 16));
   TEST_ASSERT_FALSE(ssw.stage_c_fault);
   TEST_ASSERT_FALSE(ssw.stage_b_fault);
-  TEST_ASSERT_FALSE(ssw.data_fault);
+
+  /* **But the cycle is still described, and this assertion had it backwards.**
+   * Neither stage bit is right; concluding from that that the whole word is
+   * zero is not. The oracle takes this exact fault -- the opcode word at
+   * `3B5AC3FE`, the last word of an absent page -- and *recovers*, and its
+   * frame reads `SSW = 0162` with the short format `A008`: `DF` set, `RW`
+   * read, size word, function code 2. That is the faulted bus cycle stated
+   * plainly, which is what a handler with no usable stage bit has left to work
+   * from. With the word zero, Domain/OS had only the stacked `PC` and reached
+   * for `PC+4`. */
+  TEST_ASSERT_TRUE(ssw.data_fault);
+  TEST_ASSERT_TRUE(ssw.read);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_SSW_SIZE_WORD, ssw.size);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_FC_SUPERVISOR_PROGRAM, ssw.function_code);
 }
 
 /* ## The completeness property, which no prose claim can carry
