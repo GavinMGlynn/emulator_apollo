@@ -674,10 +674,31 @@ So writing a block number into a page-table slot is how Domain/OS represents a
 page that is not resident, this core does it correctly, and what is missing is
 the *later* pass that turns it into `block << 10` and then into a frame. On the
 oracle that pass runs between 506.6 s and 518.1 s and ends in `AST_$TOUCH`. The
-question is finally a single one with no rivals left: **what runs that pass, and
-what stops this core reaching it.** So the difference is the copy's
-**destination**: on this core `a4` lands on the page table, and on the oracle it
-cannot.
+question is finally a single one with no rivals left: what runs that pass, and
+what stops this core reaching it.
+
+(The sentence that stood here -- "the difference is the copy's destination, on
+this core `a4` lands on the page table and on the oracle it cannot" -- is
+**withdrawn**. The window measurement above shows `a4` lands there by the
+kernel's own design on any machine.)
+
+**Half of it is already answered, by a trace taken earlier today.** The
+*successful* fetch fault at `008177B4`, the working twin of the failing one,
+runs `AST_$LOAD_AOTE` -> `AST_$OBJ_ACTIVATE_AND_WIRE` -> **`MST_$TOUCH`** ->
+`AST_$TOUCH`. So `MST_$TOUCH` is the pass, and the storm never reaches it:
+`FIM_$BUS_ERR` goes `PTEST` -> read `MMUSR` -> `PFLUSH fc,mask,<ea>` -> `RTE`,
+with no pager call in it.
+
+So the question narrows again: **what `MMUSR` do we hand the kernel at that
+`PTEST`, and how does it differ from the working fault's?** Both walks end
+invalid after three levels, so `I` and `N` are equal and neither can be the
+discriminator. What is not equal is what `ap_m68030_search_accumulate` gathers
+before the role switch: the failing descriptor `0x11047AE6` carries bit 2 in its
+low byte, so `W` may be reported where the working page reports none. That is a
+guess, written down as one. The measurement is to print `MMUSR`'s *value* at
+`3C42CE30` for both faults and compare -- the frontend records the read and
+omits the value, so that is the one small instrument still needed, and it is far
+cheaper than the oracle capture an earlier note called for.
 
 That is a different defect from "the install forgets a shift". Either the
 kernel computed a different `a4` -- in which case something upstream feeds it --
