@@ -647,7 +647,17 @@ should land elsewhere would both do this; the copy's destination `a4` was
 map at the same physical address, and the oracle's page-table slot goes
 `00000000` -> `11EB9800` without ever showing the raw value. Had the oracle run
 this copy with this destination, that slot would have carried `00047AE6` at
-least between polls. It never does. So the difference is the copy's
+least between polls. It never does -- **though this is a poll, and the two
+oracle events are ten emulated seconds apart, so a raw value that existed
+briefly inside that window could have been missed.** The inference is strong,
+not certain, and the instrument named below settles it properly.
+
+A third reading the same evidence allows, and the cheapest to check first: the
+kernel may deliberately map its page tables into virtual space so it can edit
+them, in which case `3C86FBC0 -> 012953C0` is a *window*, our copy is the
+intended install, and the OS transforms the entries in a later pass this core
+never reaches. Walking a few more `3C86xxxx` addresses and seeing whether they
+land contiguously in `0129xxxx` would tell, and needs no oracle at all. So the difference is the copy's
 **destination**: on this core `a4` lands on the page table, and on the oracle it
 cannot.
 
