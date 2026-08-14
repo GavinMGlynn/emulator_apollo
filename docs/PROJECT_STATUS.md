@@ -628,6 +628,22 @@ same disk, different install. That is the defect to find -- what makes this core
 take a verbatim copy where the oracle takes a shifting install -- and it is a
 branch, not arithmetic, since the copy loop has no arithmetic in it.
 
+**And it is systematic, which the earlier `0081B000` measurement already
+showed without being cross-checked.** That run recorded the oracle holding
+`0410B000` where ours held `0001042C`, and the arithmetic is the same relation:
+
+    0x1042C << 10 = 0x0410B000    block 66,604   -- 0081B000
+    0x47AE6 << 10 = 0x11EB9800    block 293,094  -- 3B5AC000
+
+So both pages, in different objects and 170 M instructions apart, show the
+oracle storing `block << 10` and this core storing the raw block. One cause
+accounts for both storms and for why `0081B000` never became resident either --
+and it means the branch, if it is a branch, is taken every time rather than
+once. A single wrong constant or a pointer that lands on the page table when it
+should land elsewhere would both do this; the copy's destination `a4` was
+`3C86FBC0`, which our tables translate to `012953C0`, and whether the oracle
+translates it there too is not yet measured.
+
 (Superseded, kept for the method:) walk `(A1)` at the copy to its physical address,
 watch writes to it across a boot, and name the writer. What makes this case
 worth the effort where the thunk's was not is that the **oracle disagrees about
