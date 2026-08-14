@@ -1213,6 +1213,28 @@ moment when the PC is genuinely four bytes back and the faulted word genuinely
 ahead of it, which is a property of the fetch/pipe interaction. Every remaining
 avenue is there.
 
+**Tried, and it fails for the same structural reason.** Deferring the fault to
+the point of use while stacking the PC recorded *at prefetch time* -- the only
+combination that gives both correct timing and a PC four bytes behind the faulted
+word -- gives 9,811 faults, no storm, and still crashes before `Loading Init.`:
+`CRASH_STATUS 00040004` at `PC:00800010`, `FA:3B377FF0`, `SW:0105`, now a *data*
+fault rather than the ASCII pointer. The cause is structural: the stacked PC is
+**both** the fault descriptor and the resume point, so stacking an earlier PC
+makes `RTE` re-execute every instruction between the prefetch and the fault.
+
+So three PC schemes are now eliminated by measurement -- the faulted word's own
+address, `fault - 4`, and the prefetch-time PC -- and they fail for one reason
+rather than three. **No scheme that adjusts the stacked PC can work**, because
+the frame gives one value two jobs whose requirements differ by four bytes
+whenever the fault is real.
+
+That leaves only the possibility this core should never reach the state: on the
+part, a branch to a page-final address in an absent page may fault before the PC
+becomes the target, so the faulted word is genuinely an *extension* of the branch
+rather than an opcode -- in which case `PC` is the branch's own address, the word
+is genuinely at `PC+4`, and both jobs agree. That is the one arrangement not yet
+tried and the only one left that is self-consistent.
+
 Either such a fault is reported some other way,
 or the pipe is never in that state on real hardware because a branch to an
 unmapped page faults before the target's word is ever needed. Both would change
