@@ -1168,6 +1168,28 @@ that code -- `AST_$TOUCH` is the routine, `MST_$TOUCH` its caller, and
 `--boot-log-pc 3C404AD4` is the recipe already used for `0081B000`. If this core
 never calls it for that page, the defect is upstream of the fault entirely.
 
+**Measured, and it closes the loop.** `--boot-log-pc 3C404AD4` over 800 M
+instructions gives 21 touches in this module, and the two that matter are:
+
+    at 734,432,300   3B5AB9F2   page 3B5AB800   the page the BRA executes from
+    at 734,645,603   3B5AC400   page 3B5AC400   762 instructions *after* the branch
+
+`3B5AC000`, the page that is actually missing, is **never touched**. `3B5AC400`
+is -- immediately after the first fault. So the kernel does respond to the fault,
+and it pages in the page containing `PC+4`, which our stacked PC named. After
+that the probe finds `3B5AC400` resident and write-protected, answers `0803`,
+and the kernel correctly concludes there is nothing left to fetch. Flush, retry,
+for ever.
+
+**So `fault - 4` was never an arbitrary offset**: it is the value that makes
+`PC+4` name the faulting page, which is exactly what the kernel acts on. That
+variant produced 309 faults and carried the boot through salvage, reference-count
+verification and an OS reload -- further than the committed core reaches -- and
+was rejected because a wild pointer appeared afterwards. That rejection should be
+revisited: the crash may be the *next* defect rather than a consequence of the
+offset, since `fault - 4` lands inside the same page and may well be a real
+instruction boundary. Re-run it and read the screen at the crash before judging.
+
 Either such a fault is reported some other way,
 or the pipe is never in that state on real hardware because a branch to an
 unmapped page faults before the target's word is ever needed. Both would change
