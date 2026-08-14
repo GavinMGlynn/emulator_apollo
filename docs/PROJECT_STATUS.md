@@ -696,9 +696,22 @@ discriminator. What is not equal is what `ap_m68030_search_accumulate` gathers
 before the role switch: the failing descriptor `0x11047AE6` carries bit 2 in its
 low byte, so `W` may be reported where the working page reports none. That is a
 guess, written down as one. The measurement is to print `MMUSR`'s *value* at
-`3C42CE30` for both faults and compare -- the frontend records the read and
-omits the value, so that is the one small instrument still needed, and it is far
-cheaper than the oracle capture an earlier note called for.
+`3C42CE30` for both faults and compare.
+
+**The frontend now prints it, and the guess is not supported.** Every recorded
+read is `MMUSR -> 00000403`: bit 10 is `I`, bits 2-0 are `N = 3`. A plain
+invalid translation after three levels, with no `W`, no `B`, no `S` -- the same
+thing a page that pages in successfully reports.
+
+**But read the caveat before building on that.** `mmu_reads` keeps
+`AP_MACHINE_MMU_WRITES` = **32** entries and the boot performs **30,837,367**
+`MMUSR` reads, so those 32 are the *earliest* and the storm's own reads are not
+among them. This is the third time a fixed-size recorder has answered a
+different question from the one asked -- `mmu_fault_sites` did it twice -- and
+the fix is the same: raise the cap, or key it by `PC` as the fault sites are.
+Until then `0403` is what early faults report and the storm's value is
+**unmeasured**, though the walk ending invalid makes `0403` the likely answer
+there too.
 
 That is a different defect from "the install forgets a shift". Either the
 kernel computed a different `a4` -- in which case something upstream feeds it --

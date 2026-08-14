@@ -291,6 +291,7 @@ typedef struct {
    * afterwards, and the mask alone cannot tell them apart. */
   struct {
     uint32_t pc;
+    uint32_t value;
     uint8_t which;
   } mmu_reads[AP_MACHINE_MMU_WRITES];
   unsigned mmu_read_count;

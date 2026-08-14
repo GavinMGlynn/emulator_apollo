@@ -412,7 +412,6 @@ static void machine_mmu_register_read(void *context,
                                       uint32_t high, uint32_t low) {
   ap_machine_t *machine = (ap_machine_t *)context;
   (void)high;
-  (void)low;
   machine->mmu_reads_total++;
   if ((unsigned)which < 8u) {
     machine->mmu_reads_mask |= (uint8_t)(1u << (unsigned)which);
@@ -423,6 +422,12 @@ static void machine_mmu_register_read(void *context,
                                    ? machine->executing_address
                                    : machine->cpu.regs.pc;
     machine->mmu_reads[i].which = (uint8_t)which;
+    /* The value, which this deliberately did not keep. The comment above still
+     * holds -- *whether* a program looked is usually the question -- but not
+     * always: Domain/OS's `FIM_$BUS_ERR` reads `MMUSR` and then branches on it,
+     * and "which fault does this core report" cannot be answered by a count.
+     * `MMUSR` is sixteen bits and arrives in `low`. */
+    machine->mmu_reads[i].value = low;
   }
 }
 
