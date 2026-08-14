@@ -575,18 +575,22 @@ for the resident neighbour. But the *value* differs in the way that matters. The
 final descriptor is `0x11047AE6`, and `0xE6 & 3` is **2** -- a valid table
 descriptor -- where `0081B000`'s `0001042C` was `DT = 0`, genuinely invalid.
 
-So this page's descriptor says *valid* and our walk still answers `STOPPED after
-3 level(s)`: we treat `DT = 2` in the last-level page table as invalid instead of
-as a descriptor that terminates the search there. That would explain the whole
-storm without any pager defect at all -- the kernel `PTEST`s, is told the
-translation is fine (because it is), `PFLUSH`es and returns, and our access
-refuses it again.
+**And our walk is right about it**, which the first draft of this note got wrong.
+`ap_m68030_desc_role` does not call `DT = 2` invalid; it classifies it exactly as
+the manual does -- "in a page table the very same encoding is an indirect
+descriptor pointing at a page descriptor". So `0x11047AE6` in a page table means
+*the page descriptor is at `0x11047AE4`*, and that address is far outside the
+16 Mbyte of RAM at `0x01000000`. The walk stops because the indirection leads
+nowhere, which is the correct answer to the descriptor it was given.
 
-**The question to settle first, from the manual and not from the boot**: what a
-`DT = 2` or `3` descriptor means when the search is already at the last level
-that `TC` defines. `ap_m68030_walk.c` models `early_termination` and
-`ap_m68030_desc_role` decides this case on `in_page_table`, so the code to read
-is small and the answer is in `[030]` §9.4 with Figures 9-3 and 9-4.
+So the defect is upstream of the MMU: something wrote a page-table entry that
+points outside memory. The two writers are the ones `0081B000` also had --
+`00047AE6` by `FM_$READ+138`, then a byte `11` into the *high* byte by
+`AST_$LOAD_AOTE+43C` -- and it is that byte which turns a plausible `00047AE6`
+into an indirect pointer to nowhere. Whether the kernel means it as a descriptor
+at all, or whether this word is its own bookkeeping that our walk should never
+have followed, is the question; `0081B000`'s equivalent byte was `04` and left
+`DT = 0`, where this one leaves `DT = 2`.
 
 ## The boot's fatal was a livelock, and the framebuffer PNG works (2026-08-14)
 
