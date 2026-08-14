@@ -3976,11 +3976,17 @@ discipline throughout.
         offset. That is a filesystem problem, not a research one, and it would
         pay for itself well beyond the ring. Two further routes stay closed: finding 50a and
         51c.
-  - [ ] The DMA path and the interrupt. **Both are now named, by Domain/OS's
-        own driver** (`RING.md` findings 53-53c): `RING8_$INT` with a deferred
-        half `RING8_$INT_DEFERRED`, and `Rcv DMA EOR` -- end of record -- in the
-        statistics vector. Names, not yet a vector number, a mask or a transfer
-        shape; what turns them into those is the driver's code.
+  - [ ] The DMA path and the interrupt. **The vector number is now measured:
+        163** (`RING.md` 53d) -- `VBR` is `3C400800` and `RING_VEC` sits at
+        `3C400A8C`, so the slot is arithmetic on two measured addresses rather
+        than an inference, and `RING_8025_VEC1`/`VEC2` are 172 and 171 the same
+        way. The control is that on a machine with no ring card the slot holds
+        the *generic* handler while the claimed vectors resolve to the timer and
+        both DUART channels and match the boot's own interrupt counts (53e).
+        **Awaiting:** the mask and the transfer shape, which live in the
+        driver's install path -- what puts `RING8_$INT` into vector 163 when the
+        card answers. Readable offline with `oracle_walk.py` and
+        `kernel_symbols.py`, no boot required.
 - [x] Multi-node scheduler, in `src/core/ring/ap_ring_sched.*`: N nodes on one
       cycle-locked ring, each stepping only on its own boundaries against the
       shared time base, with the ring's bit clock competing as a clock domain
