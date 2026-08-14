@@ -935,8 +935,26 @@ read Figure 8-9's `FB`/`FC` definitions and §8.2's account of what a handler is
 expected to do with them -- the bits mean "the processor attempted to use a stage
 and found it invalid", so which stages a *single* faulted prefetch invalidates is
 the question, and the pipe model in `ap_m68030_pipe` already knows which stage
-took the bad word. If they differ, the frame is wrong and that is the fifth defect. The
-`0403` faults, which recover, would then be the cases where the two happen to
+took the bad word.
+
+**Figure 8-9's wording settles the principle, from the page read earlier this
+session.** "The fault bits (FB and FC) indicate that the processor attempted to
+use a stage (B or C) and found it to be marked invalid **due to a bus error on
+the prefetch for that stage**", and "The rerun flag bits (RB and RC) are set to
+indicate that a fault occurred during a prefetch for the corresponding stage."
+Both clauses are per-stage and tie the bit to *that stage's own* prefetch, so one
+faulted prefetch should set one bit, not two.
+
+What is still missing is *which* bit, and it is not guessable.
+`ap_m68030_fetch_prefetch` marks the stage the faulted word was destined for,
+`ap_m68030_pipe_decoded` surfaces `abnormal` only when that word reaches the
+decoded stage, and `FB`/`FC` name B and C while decode happens at D -- so the
+stage that took the bad word and the stage in use when the fault surfaces are
+different, and the three want mapping before the edit. Choosing wrongly between B
+and C moves the kernel's probe by two bytes instead of four: still broken, and it
+would read as progress.
+
+The `0403` faults, which recover, would then be the cases where the two happen to
 coincide. One of those two observations is of a different
 machine state than it appears to be, and every conclusion drawn by pairing them
 -- the `DT = 2` reading included -- is suspect until that is settled.
