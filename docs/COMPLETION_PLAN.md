@@ -3561,17 +3561,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         rate. Detail in `PROJECT_STATUS.md`.
         *Verification: the sign-on, from the script with no arguments; the
         table read out of the PROM at `000844`-`0008B8`.*
-  - [ ] **The SC499's interrupt flag: latch or level?** Domain/OS's tape reset
-        waits for status `F7` then `57`, and `F7` carries IRQF set while RDY and
-        EXC are unasserted and `DNIEN` is clear — unreachable under this core's
-        live `ready || exception || (done && DNIEN)`, reachable under a latch
-        set on assertion and cleared by reading status. `[SC499]` p. 12 says
-        "Interrupt Request **Flag** … ORing of RDY AND EXC", which supports both
-        readings; the driver's behaviour and the oracle support the latch. This
-        is the last link in the `00120020` chain. Detail in `PROJECT_STATUS.md`.
-        *Verification when done: `sc499_suite` — the flag survives until a
-        status read and not past it — and the boot reaching further than
-        `3C459F5E`, measured on the matched MD path.*
+  - [x] **The SC499's interrupt flag: latch or level? Level, and this core
+        already had it.** `[SC499]` p. 12 read as a page image gives the
+        polarity column the text layer drops -- `BIT 7  0 = IRQF` -- and §1.10
+        gives the mechanism: the source bits "can be read through the Status
+        Register regardless of the state of the interrupt masks", with nothing
+        anywhere clearing the flag on a status read. `IRQ = RDY OR EXC OR (DONE
+        AND DNIEN)`, which is what `interrupt_flag()` computes.
+        **The evidence for a latch was a polarity misreading**, the same one
+        this file already records for RDY: `F7` has bit 7 *set*, which is IRQF
+        **not** asserted, so it is an ordinary state of a derived flag -- DONE
+        with DNIEN clear -- and `57` is the exception that follows pulling IRQF
+        down with it. Both are reachable, and reachable is what the item
+        doubted. Detail in `PROJECT_STATUS.md`.
+        *Verification: `sc499_suite` +1 (23), asserting both bytes, that a
+        second status read does not change them, and that the flag follows its
+        source back down.*
   - [ ] **Give the machine a configuration.** The calendar's battery RAM is
         blank at every power-on, which on real hardware is a machine whose
         battery has died: the boot PROM says "Configuration information is not

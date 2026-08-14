@@ -142,6 +142,49 @@ static void test_the_flag_is_a_list_and_either_source_alone_raises_it(void) {
   TEST_ASSERT_TRUE(ap_sc499_irq(&t));
 }
 
+/* **The two status bytes Domain/OS's tape reset waits for, `F7` then `57`.**
+ *
+ * This pair was recorded as evidence that the interrupt flag must be a *latch*
+ * -- "`F7` carries IRQF set while RDY and EXC are unasserted", which no live
+ * ORing could produce. It rests on reading bit 7 as active high, and p. 12
+ * prints it as `BIT 7  0 = IRQF` in the same column that makes RDY and EXC
+ * active low. The same misreading of the same column is already recorded here
+ * for RDY.
+ *
+ * Read with the manual's polarity, both bytes are ordinary states of a derived
+ * flag, and this core produces them:
+ *
+ *     F7  IRQF *not* asserted, not ready, no exception, DONE set, DNIEN clear
+ *     57  IRQF asserted because EXCEPTION is, DONE still set
+ *
+ * §1.10 is the mechanism, and it says level rather than latch: "Each interrupt
+ * source bit, RDY, EXC, and DONE ... can be read through the Status Register
+ * regardless of the state of the interrupt masks." Nothing in the guide clears
+ * the flag on a status read, which is what a latch would need. */
+static void test_the_reset_handshake_bytes_are_reachable_without_a_latch(void) {
+  ap_sc499_t t;
+  ap_sc499_reset(&t);
+
+  /* DONE with DNIEN clear: the flag stays down because DONE only contributes
+   * when enabled, so bit 7 reads 1 -- *not asserted*. */
+  t.ready = false;
+  ap_sc499_set_exception(&t, false);
+  t.done = true;
+  TEST_ASSERT_EQUAL_HEX8(0xF7u, ap_sc499_read(&t, AP_SC499_CONTROL_STATUS));
+
+  /* Then the exception the reset produces, which pulls IRQF down with it. */
+  ap_sc499_set_exception(&t, true);
+  TEST_ASSERT_EQUAL_HEX8(0x57u, ap_sc499_read(&t, AP_SC499_CONTROL_STATUS));
+
+  /* And a second read returns the same byte: reading status does not clear the
+   * flag, which is the property that separates a level from a latch. */
+  TEST_ASSERT_EQUAL_HEX8(0x57u, ap_sc499_read(&t, AP_SC499_CONTROL_STATUS));
+
+  /* It follows the source down, too. */
+  ap_sc499_set_exception(&t, false);
+  TEST_ASSERT_EQUAL_HEX8(0xF7u, ap_sc499_read(&t, AP_SC499_CONTROL_STATUS));
+}
+
 static void test_the_interrupt_flag_reads_through_the_masks(void) {
   ap_sc499_t t;
   ap_sc499_reset(&t);
@@ -526,6 +569,7 @@ int main(void) {
   RUN_TEST(test_the_dma_commands_ignore_what_is_written);
   RUN_TEST(test_the_command_addresses_read_as_nothing);
   RUN_TEST(test_a_masked_controller_drives_no_interrupt);
+  RUN_TEST(test_the_reset_handshake_bytes_are_reachable_without_a_latch);
   RUN_TEST(test_the_flag_is_a_list_and_either_source_alone_raises_it);
   RUN_TEST(test_the_interrupt_flag_reads_through_the_masks);
   RUN_TEST(test_done_contributes_to_the_flag_only_when_enabled);
