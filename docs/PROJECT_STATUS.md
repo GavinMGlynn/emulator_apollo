@@ -543,8 +543,18 @@ Two readings to separate first, and they need opposite work. Either the page is
 genuinely absent and the kernel declines -- in which case ask why, as with
 `0081B000`, and note the oracle is the tool that settled that one. Or the page is
 resident and our access refuses it for a reason `PTEST` does not see, which is
-where the `FIM_$BUS_ERR` read-then-`PFLUSH` cycle would loop for ever. Start with
-`--dump-walk 3B5AC3FE` at a limit just past the banner: it says which.
+where the `FIM_$BUS_ERR` read-then-`PFLUSH` cycle would loop for ever. Measured: `walk 3B5AC3FE STOPPED after 3
+level(s), last descriptor at 012953C0`, so it is the **first** reading -- the
+page is genuinely not resident and the kernel declines to fetch it.
+
+That is the same shape as `0081B000`, and that one resolved *against* the
+obvious reading: the oracle showed the page is meant to stay unmapped and the
+defect was our machine executing there at all. So the next step is the same
+tool, not another look at the pager -- `tools/mame-oracle/pagescreen.lua` with
+`012953C0` and a resident neighbour as its control. Note the PC is `3B5AC3FE`
+and the F-line that exposed the FP-trap bug was at `3B5AA42C`, the same
+`3B5Axxxx` module, which is a thread worth pulling before instrumenting
+anything.
 
 ## The boot's fatal was a livelock, and the framebuffer PNG works (2026-08-14)
 
