@@ -647,11 +647,28 @@ holds the raw block, whose low two bits are whatever the block number ends in --
 `0x47AE6` ends in `10`, so `DT = 2`, an *indirect* descriptor, and the walk
 chases `0x11047AE4` outside RAM and sets `MMUSR`'s **`B`**. A kernel told `I`
 pages the page in; a kernel told `B` has a hardware error on its hands and does
-not, which is exactly the `PTEST` -> `PFLUSH` -> `RTE` cycle the storm shows.
-That also explains why `0081B000` looked like the same bug and was not: block
-66,604 is `0x1042C`, ending in `00`, so it landed on `DT = 0` by luck of the
-number and produced a different symptom. The test is cheap -- read `MMUSR` at
-the storm's `PTEST` and see whether `B` is set.
+not, which would be exactly the `PTEST` -> `PFLUSH` -> `RTE` cycle the storm
+shows.
+
+**WITHDRAWN, by evidence already in hand.** `--dump-walk` appends `", bus
+error"` when the walk sets it, and the storm's walk printed
+`STOPPED after 3 level(s), last descriptor at 012953C0` with no such clause. So
+the walk ends *invalid*, not bus-errored, and `MMUSR` answers `I` on both
+machines. The `B` story was a plausible mechanism that the measurement does not
+support, and it is recorded here withdrawn rather than deleted because the shape
+of it -- "our `MMUSR` tells the kernel something different" -- is still the right
+family of question.
+
+What the same output *does* say is that the indirect path fails without a bus
+error, and `ap_m68030_walk.c` has exactly one way to do that: the
+`AP_M68030_ROLE_INDIRECT` arm calls `update_history` first and, when that
+fails, takes `ap_m68030_search_fail_invalid` and returns -- so the pointed-to
+descriptor is never fetched at all. Whether writing a `U` bit into a descriptor
+at `0x11047AE6` should fail that way, and what the part does when an indirect
+descriptor points outside memory, is a question for `[030]` §9.4 and is where to
+resume. The block-number-to-`DT` observation above stands on its own: the low
+bits of `0x47AE6` really do make this `DT = 2` where `0x1042C` made `0081B000`
+`DT = 0`.
 
 ## The boot's fatal was a livelock, and the framebuffer PNG works (2026-08-14)
 
