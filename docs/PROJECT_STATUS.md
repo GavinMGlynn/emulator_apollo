@@ -605,9 +605,22 @@ And the two loaded values differ by a shift:
                                   MMU reads an indirect descriptor to nowhere
 
 The high byte `0x11` is the same on both, so `AST_$LOAD_AOTE+43C` agrees. What
-differs is the word `FM_$READ+138` stored. Same guest code on both machines, so
-its *input* differs -- and that is the next thing to find, at that instruction,
-with the block number and whatever register carries the shift.
+differs is the word `FM_$READ+138` stored.
+
+**And it does not compute it -- corrected.** The shift framing above was wrong.
+`FM_$READ+138` is `MOVE.L (A1)+,(A4)+` four times over with a `DBF`, a plain
+block copy, so `0x00047AE6` was *copied verbatim* from a source buffer and there
+is no arithmetic there to be wrong. This is the second time in this
+investigation that a value which looked computed turned out to be moved: the
+thunk at `008030F0` was the same shape, and that one ended at file content the
+disk had served correctly.
+
+So the question moves to whoever fills that buffer, and the measurement is the
+one that worked for the thunk: walk `(A1)` at the copy to its physical address,
+watch writes to it across a boot, and name the writer. What makes this case
+worth the effort where the thunk's was not is that the **oracle disagrees about
+the value** -- `11EB9800` against our `00047AE6` -- so unlike the thunk, this is
+not something both machines read identically from disk.
 
 ## The boot's fatal was a livelock, and the framebuffer PNG works (2026-08-14)
 
