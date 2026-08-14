@@ -619,8 +619,26 @@ So the question moves to whoever fills that buffer, and the measurement is the
 one that worked for the thunk: walk `(A1)` at the copy to its physical address,
 watch writes to it across a boot, and name the writer. What makes this case
 worth the effort where the thunk's was not is that the **oracle disagrees about
-the value** -- `11EB9800` against our `00047AE6` -- so unlike the thunk, this is
-not something both machines read identically from disk.
+the value** -- `11EB9800` against our `00047AE6`.
+
+**And the source says what that disagreement is.** `(A1)` is logical
+`3C2B50C0`, physical `012B08C0`, and it holds `00 04 7A E6 00 04 7A E7` --
+**consecutive block numbers**, 293,094 and 293,095. So the buffer is a file's
+block map and the copy is legitimate: the kernel writes a backing-store block
+number into the page-table slot of a page that is not resident, exactly the
+scheme `0081B000` showed with `0001042C` for block 66,604.
+
+So `11EB9800` is not a different copy of the same word -- it is `block << 10`,
+the block number moved into the page-address field, which is a **later stage**
+our machine never reaches. The oracle then makes the page resident as
+`017DFD09` two seconds after. Ours stops at the block map.
+
+That returns the question to where `0081B000` left it -- why this page is never
+carried through -- with one thing `0081B000` never had: the oracle demonstrably
+*does* carry this one through, so the stage exists and we are missing it rather
+than the page being one the machine never needs. Find the code that turns a
+block-map entry into `block << 10`; it runs between 516 s and 518 s on the
+oracle, and `AST_$TOUCH` is what follows it.
 
 ## The boot's fatal was a livelock, and the framebuffer PNG works (2026-08-14)
 
