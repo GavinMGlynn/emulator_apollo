@@ -3989,9 +3989,14 @@ discipline throughout.
         controller answers -- so this source costs a `grep`, not an instrumented
         run on hardware nobody has. Its prologue polls **bit 1 of the word at
         device `+1400`** and reads `+1404` (53g).
-        **Awaiting:** confirmation that the pointer it uses is the controller's
-        base -- the code's shape says so and a measurement does not -- which the
-        ring ROMs settle, since they *write* the registers the driver reads.
+        **The ROM cross-read was tried and is inconclusive** (53h): the
+        firmware's `+400`/`+402`/`+404` and the driver's `+1400`/`+1404` do not
+        correspond under any simple geometry -- the two AT windows are `$8000`
+        apart, and `+1400` into window 0 lands inside *unit 1's* range. Recorded
+        as inconclusive rather than reconciled, because a manufactured match
+        would be a wrong register map with two sources apparently agreeing.
+        **Awaiting:** the driver's init path, where `$20(A0)` is written. Same
+        resident image, same tools, no boot.
 - [x] Multi-node scheduler, in `src/core/ring/ap_ring_sched.*`: N nodes on one
       cycle-locked ring, each stepping only on its own boundaries against the
       shared time base, with the ring's bit clock competing as a clock domain
