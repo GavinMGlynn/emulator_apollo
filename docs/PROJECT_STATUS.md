@@ -31446,3 +31446,74 @@ of a program counter over an instant is argued at length in
         in this investigation, the last in a run built to be matched.
       *Verification: a diff that is empty at a matched pre-crash instant, and
       non-empty at the crash with the difference naming a field.*
+
+### Archive: the Phase 4 boot item's trailing notes, closed 2026-08-15
+
+Moved from `COMPLETION_PLAN.md` with the rest of that item's narrative. The
+deferred-fetch defect it records was real and is fixed; the `CORRECTED` and
+`Do not close this on a boot that merely gets further` blocks are kept because
+both are still good advice, and the second one was honoured.
+
+  **And a second CPU defect, which was hiding the kernel's own report of it.**
+  `[030]` §7.5.1: a bus error on an instruction fetch is deferred until the
+  processor "attempts to use that instruction word". This core deferred it and
+  then never took it — the step returned its default `FAULT` and vectored
+  nowhere — so a jump to an unmapped address stopped the machine where the
+  hardware raises vector 2. Fixed, and **verified by the guest**: Domain/OS now
+  prints `FAULT IN DOMAIN/OS: SR:0000 PC:00000000 FF:A008 (B) FA:00000000
+  SW:F000`, decoding this core's short bus fault frame, its vector offset and
+  its stage B/C fault bits field for field. The machine then reboots and
+  salvages. Identity hash still `A354786119A3931D`. Detail in
+  `PROJECT_STATUS.md`.
+  - Then the oracle, out of a shared program event, on the **same image**. Its
+    successful boots have been on `media/dn3500.awd`, which MAME mutates and
+    which differs from `media/dn3500-sr10.4-installed.awd` by 563,262 bytes;
+    this core behaves identically on both, so the volume is not the variable,
+    but the comparison must still be like for like.
+
+  **Do not close this on a boot that merely gets further.** `E0007` was declared
+  solved once on exactly that reasoning, when the machine had only stopped at a
+  prompt instead of failing.
+
+  **CORRECTED 2026-08-12 -- the chain below is refuted at its hinge.** It read:
+  allocate space 1 -> derive `0105BC00` -> copy the live tree -> write mappings
+  `ED`-`EF` -> ask to switch -> gate taken -> **fault because the mappings are in
+  a tree the MMU is not walking** -> `00120020`. The last step does not hold: the
+  oracle takes **the same fault, at the same instruction, with the same
+  registers** (`a0 = 3C248000`) and byte-identical page tables, and its ATC
+  records that fault as a bus error. Neither machine ever maps the page -- the
+  descriptor at `011E6A48` is written five times in a boot, every one of them
+  from firmware, and holds the memory test's address-in-address pattern. So the
+  fault is **ordinary demand paging**, not a consequence of a skipped switch, and
+  what differs is only what the handler does with it. Detail in
+  `PROJECT_STATUS.md`.
+
+  **What is still settled**: that Domain/OS executes no `PMOVE` of its own (8 in
+  326 M instructions, every one from a firmware PC); that the MMU is never read
+  before the switch; and that both clocks are the same machine to 288,640,117
+  instructions.
+
+
+**Order matters here, and this file had it wrong.** The boot is a *test*, and
+two of its children were unfinished *implementation*. `CLAUDE.md` says
+"Complete modules, don't chase the boot ... Boots are integration checks and
+thermometers, never milestones", and a session was spent doing the opposite --
+chasing the integration check one hypothesis at a time while signals sat
+declared and inert. The implementation items are therefore listed **before** the
+boot below, and the boot is not attempted until they are done.
+
+      login prompt.
+      **The verification is rewritten, because the old one cannot be met by a
+      working machine.** It read "console byte-identical to the oracle", and the
+      oracle puts **zero bytes** on the serial line booting this image in Normal
+      mode -- a byte-identical nothing is not evidence. Domain/OS talks to the
+      display, which is where a login prompt appears and why the panic string
+      had to be read out of memory rather than seen.
+      *Verification: the framebuffer decoded to a PNG showing a login prompt,
+      against the oracle's snapshot of the same boot; plus a boot state hash.
+      The console diff stays, but as a check on the **boot PROM's** dialogue,
+      which does transmit and which this core already matches byte for byte
+      through MD's sign-on.*
+      *This depends on Phase 5, and that dependency was always real and never
+      written down -- which is how a display-only milestone came to be measured
+      with a serial cable for an entire session.*
