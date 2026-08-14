@@ -2939,61 +2939,22 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
       *Verification: the reading itself, and its consequence carried out -- the
       boot item's "console byte-identical to the oracle" was rewritten against
       the framebuffer below, since a byte-identical nothing is not evidence.*
-- [ ] **Full-state differential against the oracle.** Both machines dump
-      **every** field of architectural and device state, run from reset to the
-      crash, and the dumps are compared field by field. Replaces
-      hypothesis-driven probing, which produced ten failed candidates and four
-      configuration mismatches in one session: a hash says two states differ, a
-      dump says *where*, and a side effect nobody has accounted for is exactly
-      what a field-by-field comparison finds and a targeted probe cannot.
-  - [ ] **Our side: `--dump-state FILE`.** The traversal already exists —
-        `ap_board_hash` and `ap_machine_hash` visit every field, 151 of them in
-        the board alone. **Build it as one walker with two visitors**, hash and
-        dump, rather than a second traversal: a dump that walks different fields
-        than the hash would agree while the hashes differ, which is a lie in the
-        direction that costs most. Canonical text, one `path = value` per line,
-        stable names, sorted.
-  - [ ] **Oracle side.** `machine:save` and `machine:buffer_save` are exposed to
-        Lua and MAME's save-state system serialises every `save_item()`
-        registered field across all devices, so the data exists and is complete.
-        The work is getting it into a comparable form: parse the save state
-        offline if its layout is tractable, otherwise enumerate
-        `manager.machine.devices` and their `state` entries, which is complete
-        for CPUs and partial elsewhere. Prefer the save state — partial coverage
-        is what let this investigation compare the wrong things for a week.
-  - [ ] **The field mapping, which is the real deliverable.** The two cores name
-        nothing the same way, so the comparison needs a table saying which of our
-        fields corresponds to which of MAME's. That table is worth more than the
-        diff it enables: it is a written correspondence between the two models,
-        and building it will itself surface fields one side has and the other
-        does not.
-  - [ ] **Decide what to compare, before building any more sync machinery.**
-        The two machines run *different software* in `0100xxxx`: this core loads
-        `SELF_TEST` (its entry is `01002020`) because
-        `tools/boot-domainos.script` answers the diagnostic's prompt, and the
-        oracle — given no input — skips it and goes straight to Domain/OS,
-        reaching the DM before 120 emulated seconds. Five sync attempts failed
-        because they aimed at an address only one machine executes.
-        Two options, and they answer different questions:
-        **(a) Match the oracle's path** — run ours without `SELF_TEST`, which is
-        what the MD route was originally for. Tests this core against how MAME
-        boots, and both machines then run one program. But the `00120020` crash
-        is *not* known to reproduce there: `md-session.sh` reached 1.5 G
-        instructions with zero MMU faults.
-        **(b) Match ours** — get the oracle to load `SELF_TEST` too, by giving it
-        the console dialogue our boot script provides. Keeps the comparison on
-        the path the crash actually occurs on, which is the point of the
-        exercise, at the cost of driving the oracle's keyboard through a prompt.
-        (b) is the one that can find the crash; (a) is the one that is easy.
-        **Choose deliberately and write down which**, because a differential run
-        on the wrong path produces differences that are all explained by the path.
-  - [ ] **Sync points.** Compare at instants both machines can be stopped at by
-        the same event, not by instruction count — the crash PC, and
-        `--boot-progress-from`'s matched deltas. And **verify the configuration
-        from each run's own output**, never from a machine name: four mismatches
-        in this investigation, the last in a run built to be matched.
-      *Verification: a diff that is empty at a matched pre-crash instant, and
-      non-empty at the crash with the difference naming a field.*
+- [x] **Full-state differential against the oracle.** Both machines dump every
+      field of architectural and device state and the dumps are compared field
+      by field: `--dump-state FILE` on ours, `apollo_dump_state` on the oracle
+      (`tools/mame-oracle/apollo-state-dump.patch`), the correspondence in
+      `tools/mame-oracle/state-map.txt`, the diff in `tools/state-diff.py`, and
+      `tools/state-compare.sh` driving both. Sync is on a program event -- the
+      Nth execution of a PC, or the Nth write to a physical address -- never on
+      an instruction count, and `tools/mame-oracle/statesync.lua` steps the
+      oracle once past its breakpoint because MAME stops before an instruction
+      and this core stops after. It is the instrument that found the bus fault
+      frame defects. Detail in `PROJECT_STATUS.md`; the design deliberation this
+      item carried is archived at the end of that file.
+      *Verification: as asked -- empty at a matched instant and naming a field at
+      the fault. 27 of 27 mapped CPU fields match at `AST_$LOAD_AOTE+43C`, and
+      at the fault the difference is the special status word: `0162` against our
+      `0000`.*
 
 - [x] **Integration check, not a milestone:** DN3500 boots Domain/OS SR10.4 to
       a login prompt, from its own disk. The screen reaches `login:` with no
