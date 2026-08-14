@@ -1190,6 +1190,29 @@ revisited: the crash may be the *next* defect rather than a consequence of the
 offset, since `fault - 4` lands inside the same page and may well be a real
 instruction boundary. Re-run it and read the screen at the crash before judging.
 
+**Re-run, and the first judgement was right for a reason now provable.** 309
+faults, no `3B5ACxxx` site in the profile at all -- and the boot crashes
+*earlier* than the committed core: kernel loads, then `CRASH_STATUS 00040004` at
+`PC:008281CA`, `FA:73687574`, before `Loading Init.` is reached. The committed
+core gets to `... global libraries loaded.` So the storm goes and boot progress
+regresses.
+
+The cause is the change's *scope*. It stacks `fault - 4` for **every**
+instruction-stream fault, including the 1,702 that already recover -- and those
+have `PC+4` inside the faulting page already, so their probe was never wrong.
+Moving their stacked PC back four bytes makes them resume mid-instruction, which
+is what produces an ASCII pointer. The offset fixes the page-final minority and
+corrupts the majority.
+
+**So no value of the stacked PC can serve both**: the probe wants the faulting
+word at `PC+4`, resumption wants `PC` on the faulting word, and they differ by
+four whenever the fault is real. The frame carries one PC and cannot say both.
+That is now proved by construction rather than suspected, and it means the fix
+cannot live in `take_bus_fault_with` at all -- the fault has to be *taken* at a
+moment when the PC is genuinely four bytes back and the faulted word genuinely
+ahead of it, which is a property of the fetch/pipe interaction. Every remaining
+avenue is there.
+
 Either such a fault is reported some other way,
 or the pipe is never in that state on real hardware because a branch to an
 unmapped page faults before the target's word is ever needed. Both would change
