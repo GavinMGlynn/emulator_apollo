@@ -1133,7 +1133,28 @@ the **stacked PC's own page** -- instructions at page ends are ordinary and it
 could not have booted on hardware otherwise -- and it is not taking that path
 here. What needs finding is what distinguishes the fault this core presents from
 the one that would send the kernel down it; the answer is unlikely to be an
-offset, because none exists that works. Either such a fault is reported some other way,
+offset, because none exists that works.
+
+**And it is not the long frame either.** §8.2 says "for the long format, the long
+word at `SP+$24` contains the address of the stage B word", which reads like the
+escape from the geometry: state the address instead of implying it. Tried --
+`ap_m68030_bus_fault_frame` returning `$B` whenever a stage-fault bit is set, and
+the faulted address written to `+$24` -- and the boot is **unchanged**:
+31,957,840 faults, 31,955,589 of them `0803`. Domain/OS does not read that field,
+or does not accept the frame. Reverted.
+
+So the tally is five encodings tried and one lever found:
+
+    both stage bits            30,837,461      DF + `+$10` address   34,766,910
+    stage bits by address      31,955,614      long frame + `+$24`   31,957,840
+    **stacked PC = fault - 4          309**
+
+Only the stacked PC moves the kernel's probe. Nothing in the SSW, the frame
+format, or the frame's address fields does. That is a strong and unwelcome
+result: it means this core cannot make Domain/OS page in a faulting instruction
+within four bytes of its page end *by any encoding*, and the fault must instead
+be presented at a point where the PC is genuinely earlier -- which is a statement
+about when the fault is taken, not about what the frame says. Either such a fault is reported some other way,
 or the pipe is never in that state on real hardware because a branch to an
 unmapped page faults before the target's word is ever needed. Both would change
 what this core does far more than the PC selection would. Figures 8-6 and 8-7 and
