@@ -47,6 +47,7 @@
 #include "board/ap_sio.h"
 #include "board/ap_graphics.h"
 #include "device/ap_kbd.h"
+#include "device/ap_3c505.h"
 #include "device/ap_ring_ctl.h"
 #include "model/ap_quirk.h"
 #include "board/ap_tape.h"
@@ -114,6 +115,12 @@ typedef enum {
   AP_BOARD_REGION_DISK,
   AP_BOARD_REGION_TAPE,
   AP_BOARD_REGION_GRAPHICS,
+/* The EtherLink Plus's sixteen I/O locations. `ETHERNET.md` findings 2a and 10:
+ * ISA `300H` through this board's `physical = 0x040000 + (ISA << 7)` is
+ * `058000`, and an oracle tap confirmed it by traffic -- every access the card's
+ * option ROM made landed on `058002` and `058006`, the card's `+2` and `+6`. */
+#define AP_BOARD_ETHERNET_ADDR 0x058000u
+
   /* The token ring controller's two AT I/O windows, `device/ap_ring_ctl.h`.
    * Inside the AT window and therefore ahead of it, for the same reason the
    * graphics decodes are: a window checked first would report a fitted card as
@@ -121,6 +128,7 @@ typedef enum {
    * through to `ATBUS` and the window reads `FF`, which is what the option-ROM
    * scan expects to find. */
   AP_BOARD_REGION_RING,
+  AP_BOARD_REGION_ETHERNET,
   AP_BOARD_REGION_ATBUS,
   AP_BOARD_REGION_RAM,
 } ap_board_region_t;
@@ -208,6 +216,18 @@ typedef struct ap_board {
    * default has to be the empty slot -- and the empty slot is what the boot
    * measures today. */
   ap_ring_ctl_t ring;
+
+  /* The 3Com EtherLink Plus, absent until `ap_board_attach_ethernet` fits it.
+   *
+   * **Opt-in for the same reason the ring is, and one more.** A DN3500 is not
+   * sold with this card, so an unfitted machine is the ordinary one -- and the
+   * boot PROM *tests* a card it finds. An empty slot reads `FF` and the PROM
+   * correctly concludes "not present"; a card that answers but cannot complete
+   * the test would fail it, which is worse than absent. Fitting it is therefore
+   * a deliberate act, and the boot that reaches `login:` does not do it. */
+  bool ethernet_present;
+  ap_3c505_t ethernet;
+  ap_3c505_adapter_t ethernet_adapter;
   ap_kbd_t keyboard;
 
   /* ## The wire between the keyboard and serial 1, which had no length
@@ -529,6 +549,12 @@ typedef struct ap_board {
  * the firmware's probe, and a card that answered unbidden would take a machine
  * with no ring hardware down a path it never runs. */
 void ap_board_attach_ring(ap_board_t *board, bool fitted);
+
+/* Fit or remove the EtherLink Plus. `address` is the card's Ethernet address
+ * PROM; passing NULL leaves it zero, which is a card whose PROM has not been
+ * programmed rather than a default worth inventing. */
+void ap_board_attach_ethernet(ap_board_t *board, bool fitted,
+                              const uint8_t *address);
 
 /* Select the oracle-compatibility divergences for this machine. Call before the
  * run; the set is configuration, not something a program can change. */

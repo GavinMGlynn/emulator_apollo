@@ -921,6 +921,56 @@ static void test_a_frame_longer_than_the_buffer_is_truncated_and_both_reported(v
   TEST_ASSERT_FALSE(ap_3c505_receive_byte(&adapter, &byte));
 }
 
+
+/* **§3.1.3's sequence, paced by the host.** The adapter sends code, length and
+ * data through the command register, then sets its flags to `11` and sends the
+ * total length. A byte only moves when the host has taken the previous one --
+ * §1.9.1's handshake is a single byte each way, so a pump that wrote regardless
+ * would lose bytes of the PCB silently and the host would reassemble rubbish. */
+static void test_a_queued_pcb_is_paced_out_by_the_host_taking_bytes(void) {
+  ap_3c505_t card;
+  ap_3c505_adapter_t adapter;
+  ap_3c505_reset(&card);
+  ap_3c505_adapter_init(&adapter, NULL);
+
+  const ap_3c505_pcb_t response = {
+      .command = 0x33u, .length = 2u, .data = {0xAAu, 0xBBu}};
+  ap_3c505_adapter_post_pcb(&adapter, &response);
+
+  ap_3c505_pcb_rx_t rx;
+  ap_3c505_pcb_rx_reset(&rx);
+
+  /* One byte moves, and a second does not until the host reads. */
+  TEST_ASSERT_TRUE(ap_3c505_pump(&card, &adapter));
+  TEST_ASSERT_FALSE(ap_3c505_pump(&card, &adapter));
+  TEST_ASSERT_TRUE(ap_3c505_host_status(&card) & AP_3C505_HSR_ACRF);
+
+  unsigned bytes = 0;
+  while (bytes < 16u) {
+    if ((ap_3c505_host_status(&card) & AP_3C505_HSR_ACRF) == 0u) {
+      if (!ap_3c505_pump(&card, &adapter)) {
+        break;
+      }
+    }
+    ap_3c505_pcb_rx_byte(&rx, ap_3c505_read(&card, AP_3C505_REG_COMMAND));
+    bytes++;
+    (void)ap_3c505_pump(&card, &adapter);
+  }
+
+  /* Code, length, two data bytes and the total: five. */
+  TEST_ASSERT_EQUAL_UINT(5u, bytes);
+
+  /* And the flags say end-of-PCB by the time the total arrives, which is what
+   * tells the host the byte is a length and not more data. */
+  TEST_ASSERT_EQUAL_INT(AP_3C505_SF_END_OF_PCB, ap_3c505_adapter_flags(&card));
+
+  ap_3c505_pcb_t back = {0};
+  TEST_ASSERT_TRUE(ap_3c505_pcb_rx_end(&rx, &back));
+  TEST_ASSERT_EQUAL_HEX8(0x33u, back.command);
+  TEST_ASSERT_EQUAL_HEX8(2u, back.length);
+  TEST_ASSERT_EQUAL_HEX8(0xBBu, back.data[1]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_card_answers_sixteen_locations_from_its_jumpered_base);
@@ -960,5 +1010,6 @@ int main(void) {
   RUN_TEST(test_a_frame_with_no_receive_armed_counts_as_no_resources);
   RUN_TEST(test_an_armed_receive_stages_the_frame_and_reports_it);
   RUN_TEST(test_a_frame_longer_than_the_buffer_is_truncated_and_both_reported);
+  RUN_TEST(test_a_queued_pcb_is_paced_out_by_the_host_taking_bytes);
   return UNITY_END();
 }

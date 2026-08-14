@@ -412,6 +412,66 @@ Last updated: 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The card is wired in, opt-in, and TAP is behind it (2026-08-15)
+
+**Fitted only when asked, and that is a correctness decision rather than
+caution.** The boot PROM *tests* a card it finds. An empty slot reads `FF` and
+the PROM concludes "not present", which is why the boot that reaches `login:`
+works; a card that answered but could not complete the test would fail it, which
+is worse than absent. So `ap_board_attach_ethernet` is off by default, the
+`login:` boot does not fit it, and the identity hash covers the machine it
+always covered.
+
+Placement is `058000` -- ISA `300H` through this board's own
+`0x040000 + (ISA << 7)` -- which `ETHERNET.md` finding 2a derived from the
+manual and finding 10 confirmed by oracle traffic, every access landing on
+`058002` and `058006`. The card is checked *before* the AT windows, like the
+ring and the graphics decodes, because a window checked first reports a fitted
+card as an empty slot.
+
+**TAP is a frontend, and `src/core` still owns no socket.**
+`src/frontend/common/ap_tap.c` implements `ap_3c505_wire_t` over `/dev/net/tun`
+with `IFF_TAP | IFF_NO_PI` -- whole Ethernet frames, and no four-byte
+packet-information prefix that would otherwise be transmitted as if it were part
+of the frame. The device model cannot tell it from a capture file, which is the
+property that makes a deterministic replay backend a drop-in later.
+
+**And the determinism rule is enforced rather than documented.** A run with a
+live wire prints
+
+    state hash   not reported: a live network wire is attached
+
+because frames from a real network arrive when the network chooses, so the
+number would look like every other state hash and mean nothing -- and someone
+would eventually compare it with one that did. `CLAUDE.md`'s headless contract
+is "no wall clock, no host input, no threads"; a live wire breaks it by
+construction, not by a bug that could be fixed, so the frontend refuses the
+claim instead of relying on the operator to remember.
+
+Failures name their cause and their fix: `EPERM` on the `TUNSETIFF` prints the
+`ip tuntap add ... user $USER` line, because "no such device" and "not
+permitted" are different problems and a backend answering "no network" to both
+would hide which.
+
+**Proved untouched, not argued.** The `login:` boot re-run after the wiring
+gives state hash `CFEF2C1ADAE0683A`, 4,212 MMU faults and final PC `3C43F5A8`
+-- every figure identical to the run before it -- and its framebuffer PNG is
+byte-identical by SHA-256 to `docs/images/dn3500-sr10.4-login.png`. An opt-in
+device that changed the machine when not opted into would show here.
+
+**And the outgoing byte stream is paced by the host.** `ap_3c505_pump` moves one
+byte of a queued PCB into the command register only when the host has emptied
+it, then sets the adapter's flags to `11` and sends the total length -- §3.1.3's
+order, which matters because a host that saw the length first would take it for
+a data byte. A pump that wrote regardless would lose bytes silently into a
+single-byte register.
+
+*Verification: `board_suite` 41 -> 44 -- the card absent until fitted and
+removable again, exactly sixteen locations with the seventeenth back on the AT
+bus, and finding 10a's probe bytes `C0`/`50` arriving through a **bus** read
+rather than a direct device call. `etherlink_suite` 37 -> 38 for the pump, which
+asserts a second byte does *not* move until the host reads the first.*
+
 ## The data phase: packets cross, and the wire carries them (2026-08-15)
 
 **`08H` and `09H` work, and neither is a single-PCB command.** §3.2.1 has the
@@ -4830,7 +4890,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 14 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
-| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none | `board_suite`, 41 tests; `atbus_suite`, 8 tests |
+| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none | `board_suite`, 44 tests; `atbus_suite`, 8 tests |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
 | Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board runs transfers: controller 1's request cascaded onto controller 2's channel 0 and one request reaching the arbiter, the address through the translation map, and the processor stalled while a controller holds the bus. The cascade and the channel assignments are `008778-03` Table 2-4's, so the AT convention this module used to refuse is now cited rather than assumed. **The peripheral side is wired**: the tape drives its own request line and its cartridge reaches memory by DMA, and the disk's two data ports move under an acknowledge | `dma_suite`, 17 tests; `FINDINGS.md` C13 |
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 29 tests, `8237A` 231466 |

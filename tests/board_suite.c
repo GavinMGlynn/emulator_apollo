@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "board/ap_board.h"
+#include "device/ap_3c505.h"
 #include "model/ap_model.h"
 #include "device/ap_mc68681.h"
 #include "board/ap_sio.h"
@@ -1228,8 +1229,77 @@ static void test_peeking_memory_reads_it_by_physical_address(void) {
   TEST_ASSERT_EQUAL_UINT(unmapped, b.unmapped_reads);
 }
 
+
+/* **An unfitted machine must be unchanged, and that is the whole risk here.**
+ * The boot PROM *tests* a card it finds: an empty slot reads `FF` and the PROM
+ * concludes "not present", which is why the boot that reaches `login:` works.
+ * A card that answered but could not complete the test would fail it, which is
+ * worse than absent -- so fitting is deliberate and the default is off. */
+static void test_the_ethernet_card_is_absent_until_it_is_fitted(void) {
+  ap_board_t board;
+  init(&board);
+
+  /* Unfitted: the AT window answers, exactly as it did before the card
+   * existed. */
+  TEST_ASSERT_EQUAL_INT(AP_BOARD_REGION_ATBUS,
+                        ap_board_region(&board, AP_BOARD_ETHERNET_ADDR));
+
+  ap_board_attach_ethernet(&board, true, NULL);
+  TEST_ASSERT_EQUAL_INT(AP_BOARD_REGION_ETHERNET,
+                        ap_board_region(&board, AP_BOARD_ETHERNET_ADDR));
+
+  /* And removable again, so a run can put the machine back. */
+  ap_board_attach_ethernet(&board, false, NULL);
+  TEST_ASSERT_EQUAL_INT(AP_BOARD_REGION_ATBUS,
+                        ap_board_region(&board, AP_BOARD_ETHERNET_ADDR));
+}
+
+/* Sixteen I/O locations and not one more: `ETHERNET.md` finding 2 gives the
+ * card sixteen, so the seventeenth address is the AT bus again. A window that
+ * swallowed more would hide whatever is next along. */
+static void test_the_ethernet_card_answers_exactly_sixteen_locations(void) {
+  ap_board_t board;
+  init(&board);
+  ap_board_attach_ethernet(&board, true, NULL);
+
+  for (unsigned i = 0; i < 16u; i++) {
+    TEST_ASSERT_EQUAL_INT(AP_BOARD_REGION_ETHERNET,
+                          ap_board_region(&board, AP_BOARD_ETHERNET_ADDR + i));
+  }
+  TEST_ASSERT_EQUAL_INT(AP_BOARD_REGION_ATBUS,
+                        ap_board_region(&board, AP_BOARD_ETHERNET_ADDR + 16u));
+  TEST_ASSERT_EQUAL_INT(AP_BOARD_REGION_ATBUS,
+                        ap_board_region(&board, AP_BOARD_ETHERNET_ADDR - 1u));
+}
+
+/* The card reached through the board is the same card the device tests drive:
+ * the probe bytes `ETHERNET.md` finding 10a measured on the oracle must come
+ * back through a bus read, not just through `ap_3c505_read` directly. */
+static void test_the_probe_bytes_come_back_through_the_bus(void) {
+  ap_board_t board;
+  bool ok = false;
+  init(&board);
+  ap_board_attach_ethernet(&board, true, NULL);
+
+  ap_board_write(&board, AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_CONTROL, 0u, &ok);
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_HEX8(
+      0xC0u, ap_board_read(&board, AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_STATUS,
+                           &ok));
+  TEST_ASSERT_TRUE(ok);
+
+  ap_board_write(&board, AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_CONTROL,
+                 AP_3C505_HCR_DIR, &ok);
+  TEST_ASSERT_EQUAL_HEX8(
+      0x50u, ap_board_read(&board, AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_STATUS,
+                           &ok));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_ethernet_card_is_absent_until_it_is_fitted);
+  RUN_TEST(test_the_ethernet_card_answers_exactly_sixteen_locations);
+  RUN_TEST(test_the_probe_bytes_come_back_through_the_bus);
   init_region_board();
   RUN_TEST(test_a_selective_clear_reaches_the_status_register);
   RUN_TEST(test_a_three_byte_access_is_served_and_round_trips);

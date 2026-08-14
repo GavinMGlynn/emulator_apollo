@@ -657,3 +657,52 @@ bool ap_3c505_receive_byte(ap_3c505_adapter_t *adapter, uint8_t *byte) {
   adapter->staged_read++;
   return true;
 }
+
+void ap_3c505_adapter_post_pcb(ap_3c505_adapter_t *adapter,
+                               const ap_3c505_pcb_t *pcb) {
+  if (adapter == NULL || pcb == NULL) {
+    return;
+  }
+  ap_3c505_pcb_tx_start(&adapter->pending, pcb);
+  adapter->pending_total = false;
+}
+
+bool ap_3c505_pump(ap_3c505_t *card, ap_3c505_adapter_t *adapter) {
+  if (card == NULL || adapter == NULL) {
+    return false;
+  }
+  /* The host has not taken the previous byte, so there is nowhere to put one.
+   * §1.9.1's handshake is a single byte each way and overwriting it would lose
+   * a byte of the PCB silently. */
+  if (card->to_host_full) {
+    return false;
+  }
+
+  if (adapter->pending_total) {
+    /* §3.1.3: "the Adapter sends one last byte signifying the TOTAL length of
+     * the PCB. The Adapter Status Flags are set to state 11 before writing the
+     * length." The order matters -- a host that saw the length first would take
+     * it for a data byte. */
+    ap_3c505_set_adapter_flags(card, AP_3C505_SF_END_OF_PCB);
+    ap_3c505_adapter_post_command(
+        card, ap_3c505_pcb_total_length(&adapter->pending.pcb));
+    adapter->pending_total = false;
+    return true;
+  }
+
+  uint8_t byte = 0;
+  if (ap_3c505_pcb_tx_next(&adapter->pending, &byte)) {
+    ap_3c505_adapter_post_command(card, byte);
+    return true;
+  }
+
+  /* The body has just finished; the total length is owed next. `active` going
+   * false is the only signal for that, so it is caught here rather than
+   * counted separately. */
+  if (adapter->pending.sent > 0u) {
+    adapter->pending_total = true;
+    adapter->pending.sent = 0;
+    return ap_3c505_pump(card, adapter);
+  }
+  return false;
+}

@@ -4091,9 +4091,17 @@ discipline throughout.
         resources; one longer than the host's buffer is truncated with both
         lengths reported. Detail in `PROJECT_STATUS.md`.
         *Verification: `etherlink_suite`, 37 tests, against a recording wire.*
-        **Awaiting:** the board wiring, which must come last -- the boot PROM
-        tests a fitted card, so a half-modelled one fails where an empty slot
-        correctly reads `FF` and would regress the `login:` boot.
+  - [x] **Wired into the board, opt-in, with a TAP backend behind it.**
+        `ap_board_attach_ethernet` places the card at `058000` and is **off by
+        default**: the boot PROM tests a card it finds, so an empty slot is the
+        machine that boots to `login:` and the identity hash covers what it
+        always did. `--3c505` fits it; `--3c505-tap IFACE` puts its wire on a
+        Linux TAP device through `frontend/common/ap_tap.c`, so `src/core` still
+        owns no socket. A live wire is non-deterministic and the frontend
+        **refuses to print a state hash** for such a run rather than trusting
+        the operator to remember. Detail in `PROJECT_STATUS.md`.
+        *Verification: `board_suite` 44 -- absent until fitted, exactly sixteen
+        locations, and the oracle-measured probe bytes through a bus read.*
   - [x] `docs/references/ETHERNET.md`, the findings file, written from the
         manual before any code — the map, the 20-byte half duplex data FIFO
         with its `DIR` bit, the five general-purpose status flags the hardware

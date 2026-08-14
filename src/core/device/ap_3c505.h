@@ -505,6 +505,12 @@ typedef struct {
 
   ap_3c505_wire_t wire;
 
+  /* The PCB the adapter is handing to the host, if any. §3.1.3 sends it a byte
+   * at a time through the command register as the host empties it, so it has to
+   * be held across many bus cycles rather than written in one go. */
+  ap_3c505_pcb_tx_t pending;
+  bool pending_total; /* the body is done; the total length is the next byte */
+
   /* `09H`'s armed transmit: how many bytes the host said it would download, and
    * what has arrived so far. */
   bool transmitting;
@@ -541,6 +547,18 @@ void ap_3c505_adapter_init(ap_3c505_adapter_t *adapter,
  * the direction `DIR` names, and a response PCB at the end. `ap_3c505_dispatch`
  * answers nothing for either -- the response is produced by the functions
  * below, when the data has actually moved. */
+
+/* Queue a PCB for the host. §3.1.3's sequence -- code, length, data, then the
+ * flags to `11` and the total length -- is produced by `ap_3c505_pump` as the
+ * host takes each byte. */
+void ap_3c505_adapter_post_pcb(ap_3c505_adapter_t *adapter,
+                               const ap_3c505_pcb_t *pcb);
+
+/* Move one byte of any queued PCB into the command register, if the host has
+ * emptied it. Returns true when a byte was placed. This is what turns a queued
+ * response into the byte stream §3.1.3 describes, and it is the *card* that
+ * paces it -- the host reading is what makes room. */
+bool ap_3c505_pump(ap_3c505_t *card, ap_3c505_adapter_t *adapter);
 
 /* `09H` armed the transmitter; feed it the bytes the host downloads. Returns
  * true when the last byte has arrived, at which point the frame has been handed

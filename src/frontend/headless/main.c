@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "ap_frontend.h"
+#include "ap_tap.h"
 #include "probe/ap_probe.h"
 
 #include <stdlib.h>
@@ -276,6 +277,12 @@ static void print_usage(const char *program_name) {
           "                        firmware is polling for input, not merely able\n"
           "                        to take it\n"
           "  --screen KIND         fit a display: c4p, c8p, 19i or 15i\n"
+          "  --3c505               fit the EtherLink Plus. Off by default: the\n"
+          "                        boot PROM tests a card it finds, and an\n"
+          "                        empty slot is the machine that boots\n"
+          "  --3c505-tap IFACE     the same, with its wire on a Linux TAP\n"
+          "                        device. **Not deterministic** -- no state\n"
+          "                        hash is reported for such a run\n"
           "  --screenshot FILE     scan the fitted screen out to a PNG\n"
           "  --disk FILE           fit a Winchester (.awd) to the boot\n"
           "  --calendar-ram FILE   the calendar's battery-backed RAM, loaded at\n"
@@ -902,9 +909,28 @@ static bool g_log_watch_writes = false;
  * applied where the board is built, which is not where arguments are read. */
 static ap_quirks_t g_quirks;
 
+/* The EtherLink Plus, on the same terms and for the same reason: fitted where
+ * the board is built, selected where the arguments are read. */
+static bool g_fit_ethernet = false;
+static const char *g_tap_device = NULL;
+static ap_tap_t g_tap = {.fd = -1};
+
+/* A live wire makes a run non-deterministic, so the hash it would print is not
+ * a promise about anything. See `common/ap_tap.h`. */
+static bool g_wire_is_live = false;
+
 static void report_state(ap_machine_t *machine) {
   const ap_machine_state_t state = ap_machine_state(machine);
-  printf("  state hash   %016llX\n", (unsigned long long)state.hash);
+  if (g_wire_is_live) {
+    /* **Enforced, not documented.** The identity hash is a promise that one
+     * invocation gives one number on every machine; frames from a real network
+     * arrive when the network chooses. Printing the hash anyway would produce a
+     * number that looks like the others and means nothing, and someone would
+     * eventually compare it to one that did. */
+    printf("  state hash   not reported: a live network wire is attached\n");
+  } else {
+    printf("  state hash   %016llX\n", (unsigned long long)state.hash);
+  }
   if (g_dump_state_path != NULL) {
     FILE *f = fopen(g_dump_state_path, "w");
     if (f == NULL) {
@@ -1978,6 +2004,27 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * Found because selecting a quirk left the state hash byte-identical, which
    * it cannot do when the set is hashed. */
   ap_board_set_quirks(board, g_quirks);
+  if (g_fit_ethernet) {
+    /* The address PROM is left zero rather than given an invented address: a
+     * card whose PROM has not been programmed is a real state, and a plausible
+     * 3Com OUI here would be a number with no source. `10H` sets it if a driver
+     * cares. */
+    ap_board_attach_ethernet(board, true, NULL);
+    if (g_tap_device != NULL) {
+      char reason[192];
+      if (!ap_tap_open(&g_tap, g_tap_device, reason, sizeof reason)) {
+        fprintf(stderr, "apollo: --3c505-tap %s: %s\n", g_tap_device, reason);
+      } else {
+        board->ethernet_adapter.wire = ap_tap_wire(&g_tap);
+        g_wire_is_live = true;
+        printf("  ethernet     EtherLink Plus at %06X, wire on TAP %s\n",
+               AP_BOARD_ETHERNET_ADDR, g_tap.name);
+      }
+    } else {
+      printf("  ethernet     EtherLink Plus at %06X, no wire attached\n",
+             AP_BOARD_ETHERNET_ADDR);
+    }
+  }
 
   /* Fit a display, if one was asked for. The memories are allocated here rather
    * than in the core, which allocates nothing -- and only when a screen is
@@ -3798,6 +3845,27 @@ static int boot_from_tape(const char *path, unsigned limit) {
   }
   /* Before anything runs: the set is configuration, and it is hashed. */
   ap_board_set_quirks(board, g_quirks);
+  if (g_fit_ethernet) {
+    /* The address PROM is left zero rather than given an invented address: a
+     * card whose PROM has not been programmed is a real state, and a plausible
+     * 3Com OUI here would be a number with no source. `10H` sets it if a driver
+     * cares. */
+    ap_board_attach_ethernet(board, true, NULL);
+    if (g_tap_device != NULL) {
+      char reason[192];
+      if (!ap_tap_open(&g_tap, g_tap_device, reason, sizeof reason)) {
+        fprintf(stderr, "apollo: --3c505-tap %s: %s\n", g_tap_device, reason);
+      } else {
+        board->ethernet_adapter.wire = ap_tap_wire(&g_tap);
+        g_wire_is_live = true;
+        printf("  ethernet     EtherLink Plus at %06X, wire on TAP %s\n",
+               AP_BOARD_ETHERNET_ADDR, g_tap.name);
+      }
+    } else {
+      printf("  ethernet     EtherLink Plus at %06X, no wire attached\n",
+             AP_BOARD_ETHERNET_ADDR);
+    }
+  }
 
   ap_machine_t machine;
   ap_machine_init(&machine, ram, ram_bytes);
@@ -4250,6 +4318,17 @@ int main(int argc, char **argv) {
                 name);
         return 1;
       }
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--3c505") == 0) {
+      g_fit_ethernet = true;
+      i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--3c505-tap") == 0 && i + 1 < argc) {
+      g_fit_ethernet = true;
+      g_tap_device = argv[i + 1];
       i += 2;
       continue;
     }

@@ -199,6 +199,16 @@ ap_board_region_t ap_board_region(const ap_board_t *board, uint32_t address) {
     return AP_BOARD_REGION_RING;
   }
 
+  /* The EtherLink Plus, on the same terms and before the AT windows for the
+   * same reason: a window checked first reports a fitted card as an empty slot.
+   * `ETHERNET.md` finding 2a places it at `058000` -- ISA `300H` through this
+   * board's own `0x040000 + (ISA << 7)` -- and finding 10 confirmed that by
+   * traffic, every oracle access landing on `058002` and `058006`. */
+  if (board->ethernet_present &&
+      ap_3c505_decode(AP_BOARD_ETHERNET_ADDR, address, NULL)) {
+    return AP_BOARD_REGION_ETHERNET;
+  }
+
   /* Last, so every device *inside* a window keeps its own region. */
   if ((address >= AP_BOARD_ATBUS_IO_BASE &&
        address <= AP_BOARD_ATBUS_IO_END) ||
@@ -359,6 +369,16 @@ void ap_board_set_quirks(ap_board_t *board, ap_quirks_t quirks) {
   for (unsigned unit = 0; unit < 2u; unit++) {
     board->sio.port[unit].quirks = quirks;
   }
+}
+
+void ap_board_attach_ethernet(ap_board_t *board, bool fitted,
+                              const uint8_t *address) {
+  if (board == NULL) {
+    return;
+  }
+  board->ethernet_present = fitted;
+  ap_3c505_reset(&board->ethernet);
+  ap_3c505_adapter_init(&board->ethernet_adapter, address);
 }
 
 void ap_board_attach_ring(ap_board_t *board, bool fitted) {
@@ -782,6 +802,7 @@ bool ap_board_cache_inhibited(const ap_board_t *board, uint32_t address) {
   case AP_BOARD_REGION_DISK:
   case AP_BOARD_REGION_TAPE:
   case AP_BOARD_REGION_GRAPHICS:
+  case AP_BOARD_REGION_ETHERNET:
   case AP_BOARD_REGION_RING:
   case AP_BOARD_REGION_ATBUS:
     break;
@@ -795,6 +816,7 @@ bool ap_board_processor_may_run(const ap_board_t *board) {
 
 const char *ap_board_region_name(ap_board_region_t region) {
   switch (region) {
+  case AP_BOARD_REGION_ETHERNET: return "EtherLink Plus";
   case AP_BOARD_REGION_UNMAPPED: return "unmapped";
   case AP_BOARD_REGION_PROM: return "boot PROM";
   case AP_BOARD_REGION_CORE_REGISTER: return "core register";
@@ -997,6 +1019,11 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     return ap_tape_read(&board->tape, address);
   case AP_BOARD_REGION_GRAPHICS:
     return ap_graphics_read(&board->graphics, address);
+  case AP_BOARD_REGION_ETHERNET: {
+    uint32_t offset = 0;
+    (void)ap_3c505_decode(AP_BOARD_ETHERNET_ADDR, address, &offset);
+    return ap_3c505_read(&board->ethernet, offset);
+  }
   case AP_BOARD_REGION_RING: {
     /* The unit is decoded but not yet *used*: this core models one controller,
      * and `RING.md` finding 38 leaves open whether unit 1's windows are a
@@ -1164,6 +1191,12 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
   case AP_BOARD_REGION_GRAPHICS:
     ap_graphics_write(&board->graphics, address, value);
     return;
+  case AP_BOARD_REGION_ETHERNET: {
+    uint32_t offset = 0;
+    (void)ap_3c505_decode(AP_BOARD_ETHERNET_ADDR, address, &offset);
+    ap_3c505_write(&board->ethernet, offset, value);
+    return;
+  }
   case AP_BOARD_REGION_RING: {
     bool second = false;
     uint32_t offset = 0;
