@@ -226,8 +226,14 @@ static void test_the_unknown_command_slots_are_storage_and_nothing_more(void) {
   TEST_ASSERT_EQUAL_HEX16(
       AP_RING_CTL_COMMAND_STATUS_IDLE,
       ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 2u) & 0x00FFu);
+  /* `+404` the same way, from subtest 15: command lane storage, status lane
+   * answering. The two command registers turn out to share one shape. */
   TEST_ASSERT_EQUAL_HEX16(
-      0x2222u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 4u));
+      0x2200u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 4u) &
+                   0xFF00u);
+  TEST_ASSERT_EQUAL_HEX16(
+      AP_RING_CTL_COMMAND2_STATUS_IDLE,
+      ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 4u) & 0x00FFu);
 
   /* Writing them changes nothing else: no side effect on the gate, the ID or
    * the timers. The constant is the **idle** word rather than the presence bit

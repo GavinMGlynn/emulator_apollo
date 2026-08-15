@@ -265,7 +265,13 @@ uint16_t ap_ring_ctl_read16(ap_ring_ctl_t *ctl, bool second_window,
       return (uint16_t)((w->command_402 & 0xFF00u) |
                         AP_RING_CTL_COMMAND_STATUS_IDLE);
     case 4u:
-      return w->command_404;
+      /* The same shape one register along: subtest 15 requires
+       * `(+404) & $F8 == $E0` after the firmware has written only the command
+       * lane, so bits 7-5 read set and bits 4-3 clear. `+402`'s four bits and
+       * these three are the whole of what the ROM asserts about either status
+       * half; nothing else is answered. */
+      return (uint16_t)((w->command_404 & 0xFF00u) |
+                        AP_RING_CTL_COMMAND2_STATUS_IDLE);
     default:
       /* `+406`. On the `a2` window this is the buffer's data port -- finding
        * 46a's read-ahead latch, which answers with the word the *previous*

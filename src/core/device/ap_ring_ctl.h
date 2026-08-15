@@ -132,6 +132,10 @@
  * has written only the high lane, so these four bits read set on a healthy
  * board; the rest are unasserted and stay clear. */
 #define AP_RING_CTL_COMMAND_STATUS_IDLE 0x00F0u
+
+/* And `+404`'s, from subtest 15: `(+404) & $F8 == $E0`, so bits 7-5 set with
+ * bits 4 and 3 clear. */
+#define AP_RING_CTL_COMMAND2_STATUS_IDLE 0x00E0u
 #define AP_RING_CTL_STATUS_BIT13 0x2000u
 #define AP_RING_CTL_STATUS_BIT11 0x0800u
 #define AP_RING_CTL_STATUS_BIT2 0x0004u
