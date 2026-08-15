@@ -330,6 +330,14 @@ void ap_board_sample_interrupts(ap_board_t *board) {
    * `IRQ14`. */
   ap_intr_set_request(&board->interrupts, AP_DISK_FLOPPY_IRQ,
                       ap_omti_fdc_irq(&board->disk.controller));
+
+  /* `IRQ10`, the 802.3 controller's, from `[DEV]` §1.10's two enables. Gated on
+   * the card being *fitted*: an empty slot drives nothing, and a line held up by
+   * an absent device would be this board asserting an interrupt no hardware
+   * could produce. The card is opt-in, so this is the common case. */
+  ap_intr_set_request(&board->interrupts, AP_BOARD_ETHERNET_IRQ,
+                      board->ethernet_present &&
+                          ap_3c505_irq(&board->ethernet));
 }
 
 bool ap_board_parity_interrupt(const ap_board_t *board) {
@@ -465,9 +473,11 @@ typedef enum {
   DMA_PERIPHERAL_TAPE,
   DMA_PERIPHERAL_FLOPPY,
   DMA_PERIPHERAL_WINCHESTER,
+  DMA_PERIPHERAL_ETHERNET,
 } dma_peripheral_t;
 
-static dma_peripheral_t dma_peripheral(unsigned unit, unsigned channel) {
+static dma_peripheral_t dma_peripheral(const ap_board_t *board, unsigned unit,
+                                       unsigned channel) {
   if (unit == AP_DMA_TAPE_UNIT && channel == AP_DMA_TAPE_CHANNEL) {
     return DMA_PERIPHERAL_TAPE;
   }
@@ -477,18 +487,28 @@ static dma_peripheral_t dma_peripheral(unsigned unit, unsigned channel) {
   if (unit == AP_DMA_WINCHESTER_UNIT && channel == AP_DMA_WINCHESTER_CHANNEL) {
     return DMA_PERIPHERAL_WINCHESTER;
   }
+  /* DRQ6, and only with a card in the slot. An unfitted channel keeps the
+   * behaviour it has always had -- counted, and reading all ones -- which is
+   * what `Table 2-4 assigns to something this core does not model` meant when
+   * it named "either 802.3 controller" among them. */
+  if (board->ethernet_present && unit == AP_DMA_ETHERNET_UNIT &&
+      channel == AP_DMA_ETHERNET_CHANNEL) {
+    return DMA_PERIPHERAL_ETHERNET;
+  }
   return DMA_PERIPHERAL_NONE;
 }
 
 static uint8_t dma_device_read(void *context, unsigned channel) {
   ap_board_t *board = (ap_board_t *)context;
-  switch (dma_peripheral(board->dma_transfer_unit, channel)) {
+  switch (dma_peripheral(board, board->dma_transfer_unit, channel)) {
   case DMA_PERIPHERAL_TAPE:
     return ap_tape_dma_read(&board->tape);
   case DMA_PERIPHERAL_FLOPPY:
     return ap_disk_dma_read(&board->disk, true);
   case DMA_PERIPHERAL_WINCHESTER:
     return ap_disk_dma_read(&board->disk, false);
+  case DMA_PERIPHERAL_ETHERNET:
+    return ap_3c505_dma_read(&board->ethernet);
   case DMA_PERIPHERAL_NONE:
     break;
   }
@@ -498,7 +518,7 @@ static uint8_t dma_device_read(void *context, unsigned channel) {
 
 static void dma_device_write(void *context, unsigned channel, uint8_t value) {
   ap_board_t *board = (ap_board_t *)context;
-  switch (dma_peripheral(board->dma_transfer_unit, channel)) {
+  switch (dma_peripheral(board, board->dma_transfer_unit, channel)) {
   case DMA_PERIPHERAL_TAPE:
     ap_tape_dma_write(&board->tape, value);
     return;
@@ -507,6 +527,9 @@ static void dma_device_write(void *context, unsigned channel, uint8_t value) {
     return;
   case DMA_PERIPHERAL_WINCHESTER:
     ap_disk_dma_write(&board->disk, false, value);
+    return;
+  case DMA_PERIPHERAL_ETHERNET:
+    ap_3c505_dma_write(&board->ethernet, value);
     return;
   case DMA_PERIPHERAL_NONE:
     break;
@@ -571,6 +594,14 @@ void ap_board_bus_tick(ap_board_t *board) {
                            AP_DMA_FLOPPY_CHANNEL,
                            ap_omti_fdc_dma_request(&board->disk.controller));
 
+  /* `DRQ6`, the 802.3 controller's, from `[DEV]` §1.9.4's three deactivating
+   * conditions. This is the one request line on the board that is sampled *and*
+   * advanced by the sampling: demand mode relinquishes the channel for one host
+   * cycle every nine transfers, and this tick is that cycle. */
+  ap_i8237_set_request_pin(
+      &board->dma.controller[AP_DMA_ETHERNET_UNIT], AP_DMA_ETHERNET_CHANNEL,
+      board->ethernet_present && ap_3c505_dma_request(&board->ethernet));
+
   ap_i8237_set_request_pin(&board->dma.controller[AP_DMA_CASCADE_UNIT],
                            AP_DMA_CASCADE_CHANNEL,
                            ap_i8237_service_pending(&board->dma.controller[0]) >=
@@ -623,8 +654,19 @@ void ap_board_bus_tick(ap_board_t *board) {
    * controller 1's channel 3 from controller 2's. The part passes only a
    * channel, because a `DACK` is all a peripheral sees. */
   board->dma_transfer_unit = unit;
-  if (ap_i8237_transfer(&board->dma.controller[unit], &bus).ran) {
+  const ap_i8237_cycle_t cycle =
+      ap_i8237_transfer(&board->dma.controller[unit], &bus);
+  if (cycle.ran) {
     board->dma_transfers++;
+    /* The `EOP` a peripheral sees. Only the controller knows the transfer is
+     * over -- the card counts bytes through a FIFO and has no length -- so the
+     * terminal count is carried to it here, where the cycle that produced it
+     * is. `[HIS]` p. 3-4 makes this `HSR`'s `DONE`, and `TCEN` turns it into an
+     * interrupt on the line wired above. */
+    if (cycle.terminal_count &&
+        dma_peripheral(board, unit, cycle.channel) == DMA_PERIPHERAL_ETHERNET) {
+      ap_3c505_dma_terminal_count(&board->ethernet);
+    }
   }
 }
 
@@ -974,7 +1016,8 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
    * over-inclusive is the work that was already being done. This switch is the
    * auditable set of sites the flag needs. */
   if (counted == AP_BOARD_REGION_DISK || counted == AP_BOARD_REGION_TAPE ||
-      counted == AP_BOARD_REGION_DMA) {
+      counted == AP_BOARD_REGION_DMA ||
+      counted == AP_BOARD_REGION_ETHERNET) {
     board->dma_possible = true;
   }
   if ((unsigned)counted < AP_BOARD_REGIONS) {
@@ -1113,7 +1156,8 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
    * over-inclusive is the work that was already being done. This switch is the
    * auditable set of sites the flag needs. */
   if (counted == AP_BOARD_REGION_DISK || counted == AP_BOARD_REGION_TAPE ||
-      counted == AP_BOARD_REGION_DMA) {
+      counted == AP_BOARD_REGION_DMA ||
+      counted == AP_BOARD_REGION_ETHERNET) {
     board->dma_possible = true;
   }
   if ((unsigned)counted < AP_BOARD_REGIONS) {

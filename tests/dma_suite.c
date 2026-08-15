@@ -225,6 +225,26 @@ static void arm_channel_for_device(ap_board_t *b, unsigned channel,
   ap_board_write(b, base + AP_I8237_REG_MASK_SINGLE, (uint8_t)channel, &ok);
 }
 
+/* The same again on controller **2**, which the 802.3 card's DRQ6 is on. Its
+ * registers are stride 2 -- `board/ap_dma.h`'s measured placement -- so channel
+ * `n`'s address register lands at `4n` and its count at `4n + 2`. No software
+ * request: this exists to let a *device* pull its own line. */
+static void arm_channel2_for_device(ap_board_t *b, unsigned channel,
+                                    uint8_t mode_bits, uint16_t address,
+                                    uint16_t count) {
+  bool ok = false;
+  const uint32_t base = AP_DMA2_ADDR;
+  ap_board_write(b, base + AP_I8237_REG_MODE * 2u,
+                 (uint8_t)(mode_bits | channel), &ok);
+  ap_board_write(b, base + AP_I8237_REG_CLEAR_FLIPFLOP * 2u, 0u, &ok);
+  ap_board_write(b, base + channel * 4u, (uint8_t)(address & 0xFFu), &ok);
+  ap_board_write(b, base + channel * 4u, (uint8_t)(address >> 8), &ok);
+  ap_board_write(b, base + channel * 4u + 2u, (uint8_t)(count & 0xFFu), &ok);
+  ap_board_write(b, base + channel * 4u + 2u, (uint8_t)(count >> 8), &ok);
+  ap_board_write(b, base + AP_I8237_REG_MASK_SINGLE * 2u, (uint8_t)channel,
+                 &ok);
+}
+
 static void build(void) {
   for (unsigned i = 0; i < DMA_RAM_BYTES; i++) {
     dma_ram[i] = 0;
@@ -586,6 +606,65 @@ static void test_the_floppys_data_port_moves_under_dma(void) {
                                        &ok));
 }
 
+/* **The 802.3 card's DRQ6, end to end: request, byte, terminal count.**
+ *
+ * `008778-03` Figure 14-3 puts the standard AT-slot card on DMA channel 6,
+ * which is controller 2's channel 2, and controller 2 is the 16-bit one -- so
+ * its address register counts *words* and the map is indexed as 16-bit. That
+ * width is not incidental: a test that armed controller 1 would translate
+ * through the 8-bit half of the map and land somewhere else.
+ *
+ * A download is a memory-to-device transfer, and the byte has to arrive in the
+ * card's own Data Register FIFO rather than in `dma_unwired_transfers`. The
+ * count is zero, which the part reads as one transfer and then terminal count,
+ * so the same run also checks the `EOP` reaching `HSR`'s `DONE` -- `[HIS]`
+ * p. 3-4, and the only thing on this board that can tell the card its transfer
+ * is over. */
+static void test_the_ethernet_card_moves_a_byte_over_drq6_and_sees_its_tc(void) {
+  build();
+  bool ok = false;
+  ap_board_attach_ethernet(&dma_board, true, NULL);
+
+  /* Entry 0 of the 16-bit half of the map -> the page main memory starts on. */
+  const uint16_t page = (uint16_t)(AP_BOARD_RAM_BASE >> 10);
+  const uint32_t entry_at =
+      AP_ATMAP_BASE + 2u * ap_atmap_index(0u, AP_ATMAP_TRANSFER_16BIT);
+  ap_board_write(&dma_board, entry_at + 0u, (uint8_t)(page >> 8), &ok);
+  ap_board_write(&dma_board, entry_at + 1u, (uint8_t)(page & 0xFFu), &ok);
+  TEST_ASSERT_TRUE(ok);
+
+  dma_ram[0] = 0xA5u;
+
+  /* The host arms its controller, then the card: §1.9.4 warns to set `DMAE`
+   * only once the channel is ready, "since the DMA channel floats when this bit
+   * is cleared", and this is that order. */
+  arm_channel2_for_device(&dma_board, AP_DMA_ETHERNET_CHANNEL,
+                          (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (2u << 2)), 0u,
+                          0u);
+  ap_board_write(&dma_board, AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_CONTROL,
+                 AP_3C505_HCR_DMAE, &ok);
+  TEST_ASSERT_TRUE(ok);
+
+  for (unsigned i = 0; i < 64u; i++) {
+    ap_board_bus_tick(&dma_board);
+  }
+
+  TEST_ASSERT_EQUAL_UINT(1u, dma_board.dma_transfers);
+  TEST_ASSERT_EQUAL_UINT(0u, dma_board.dma_unwired_transfers);
+  TEST_ASSERT_EQUAL_UINT(1u, dma_board.ethernet.fifo_count);
+  TEST_ASSERT_EQUAL_HEX8(0xA5u, dma_board.ethernet.fifo[0]);
+
+  /* And the terminal count reached the card, which is what turns into an
+   * interrupt when `TCEN` is set. */
+  TEST_ASSERT_TRUE(ap_3c505_host_status(&dma_board.ethernet) &
+                   AP_3C505_HSR_DONE);
+  /* §1.9.4 condition 1: the transfer is over, so the line is down again even
+   * though the FIFO still has nineteen bytes of room. */
+  TEST_ASSERT_EQUAL_HEX8(
+      0u, dma_board.dma.controller[AP_DMA_ETHERNET_UNIT].dreq &
+              (uint8_t)(1u << AP_DMA_ETHERNET_CHANNEL));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_request_lines_follow_their_polarity_bits);
@@ -605,5 +684,6 @@ int main(void) {
   RUN_TEST(test_a_write_only_register_reads_zero_not_a_value);
   RUN_TEST(test_the_two_controllers_are_independent);
   RUN_TEST(test_nothing_outside_the_two_ranges_decodes);
+  RUN_TEST(test_the_ethernet_card_moves_a_byte_over_drq6_and_sees_its_tc);
   return UNITY_END();
 }

@@ -412,6 +412,108 @@ Last updated: 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The 802.3 card's interrupt and DMA lines were never wired, and its chapter
+## was never read (2026-08-15)
+
+**Two dangling accessors, and the manual that names both lines was on disk from
+the start.** `ap_3c505_irq` had been implemented, tested and joined to nothing —
+a grep across `src/core/board`, `src/core/machine` and `src/frontend` found no
+caller — and the card had no DMA path at all beyond a stored Aux DMA register.
+This is the exact shape `ap_board.h` warns about in its own words: "every
+accessor and every constant existed, was tested, and was joined to nothing".
+A driver that set `CMDE` and waited would have hung forever.
+
+**`008778-03` has a chapter 14, "802.3 Network Controller-AT", that
+`ETHERNET.md` had never cited.** §14.5's Figure 14-3 — the standard jumper
+configuration for an AT-compatible slot — labels one block **"DMA Channel 6 and
+Interrupt Level 10 Select"** with 6 and 10 fitted, and another "Control Status
+Registers Hex Address 300", which through this board's decode is the `058000`
+finding 2a already had. Both missing numbers, in the machine's own manual rather
+than the card's, and neither reachable through the text layer: this chapter's
+tables extract as `IRQ?`, `IRQQ` and `SA?`, and the figures are drawings whose
+jumper positions exist only in the render.
+
+**The figure pair repairs a table the OCR destroys.** The DRQ table names
+controller "#2" on *both* DRQ3 and DRQ6, which cannot be right. Figure 14-4
+settles it: the alternate card, in an XT slot, is I/O `310`, DMA 3, IRQ 9 — so
+the standard card is #1 on DMA 6 / IRQ 10 and the mangled row is the other's.
+Table 2-3 corroborates IRQ10 independently. A reader who trusted the extraction
+would have wired the card to the wrong channel with two sources apparently
+agreeing, which is this project's recurring failure mode and is why the rule is
+to read the page.
+
+**The DMA half is `[DEV]` §1.9.4, and its truth table inverts the obvious
+reading.** The four rows give the host's request as `HRDY` in *both* directions,
+with `DIR` selecting only whether the cycle reads or writes; the `ARDY` rows are
+the adapter's line. The trap is not academic — on an empty FIFO in the upload
+direction `ARDY` is set exactly when `HRDY` is clear, so a model that read down
+the wrong column would drive the channel precisely when the hardware does not.
+§1.9.4's three deactivating conditions are implemented as stated, including the
+one with a number: without `BRST`, demand mode relinquishes the channel for one
+host cycle every **9** transfers to let the PC refresh its DRAM. `[HIS]` p. 3-5
+states the same rule in the same words three years later.
+
+Two register facts came out of the same reading and one was a real gap. `[HIS]`
+p. 3-5 gives the Host Aux DMA Register as **one bit**, `BRST` at bit 0, with
+seven cells printed zero. And p. 3-4: "**The DONE bit is cleared by clearing the
+DMAE bit in the Host Control Register**" — the only documented way it clears.
+Ours never cleared it at all, so a second transfer would have inherited the
+first's terminal count.
+
+**Measured, twice, and the second run overturned the first explanation.** A full
+boot to `login:` with the card fitted has **no `ethernet` row in the region
+census** — the report omits only regions with zero accesses, against 14.9 M disk
+and 34.2 M serial in the same run. The header confirms the card was fitted
+rather than the command line being trusted for it.
+
+The first reading of that was wrong, and it is worth recording as written. The
+boot prints `Configuration information is not initialized`, and `002398-04`
+p. 12-3's battery RAM has a **DEV BIT ARRAY at `22`-`25` whose bit 6 is
+ethernet** — so "the machine has no record that a card exists, and therefore
+nothing looks for one" was two true facts joined by an inference, and the
+inference was the part with no measurement behind it.
+
+**The second run settles it: the thing that drives this card is its own option
+ROM.** `--3c505-rom` — added here, placing the image where the boot PROM's
+expansion scan looks, as `--ring-rom` already did for the ring — turns the
+census row on at **10,041 reads and 22 writes**, and the console says what
+happens next:
+
+    network driver search started...
+       802.3 Network Controller-AT test failed.
+
+    Self test failed.
+
+The run ends inside the **boot PROM** at `PC 000083C4`, not in the option ROM at
+`080000`, so it is the PROM's own network test that drives the card and fails
+it, with a DUART register polled 23 M times while it spins.
+
+**That is the good outcome.** `CLAUDE.md` calls a controller's firmware
+self-test "the hardware's test suite, for free", and this is the second one this
+project has running. The item stops being "implement more of the card and hope"
+and becomes the loop the ring work is already in: the firmware tests, names a
+verdict, and stops at an instruction. It is also the design note in the mailbox
+item measured — "a card that answered but could not complete the test would fail
+it, which is worse than absent" was the stated reason the card is opt-in, and
+this is that sentence happening. The default boot is untouched, because the
+option ROM is opt-in too.
+
+**And the state hash is `A354786119A3931D`, unchanged.** That is the regression
+check in its strongest form: with the card fitted, the two new lines are sampled
+on every interrupt sample and every bus tick of a 350 M-instruction boot, and
+the machine is bit-identical to the run before them.
+
+*Verification: `etherlink_suite` 38 -> 43 — the request following `HRDY` and not
+`ARDY` in both directions, the enable taking the card off the channel, the
+ninth-transfer pause and its suppression by `BRST`, `DONE` set by terminal count
+and cleared only by the enable, and a DMA cycle and polled I/O reaching one
+FIFO. `board_suite` 45 -> 47 for the two lines, each checked absent with no card
+fitted and dropped again when it is removed. `dma_suite` 17 -> 18 for the byte
+itself: armed on controller 2's channel 2 through the 16-bit half of the
+translation map, the byte lands in the card's FIFO rather than in
+`dma_unwired_transfers`, and the terminal count reaches `HSR`'s `DONE`.
+`ctest` 136/136; the boot above for the hash.*
+
 ## A root pointer now reads back the type that was written (2026-08-15)
 
 **Fixed, and it was wider than the reset artefact that found it.**
@@ -5098,9 +5200,9 @@ failure that cost a bit position in the 68020's module entry word.
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 14 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
-| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none | `board_suite`, 45 tests; `atbus_suite`, 8 tests |
+| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none | `board_suite`, 47 tests; `atbus_suite`, 8 tests |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
-| Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board runs transfers: controller 1's request cascaded onto controller 2's channel 0 and one request reaching the arbiter, the address through the translation map, and the processor stalled while a controller holds the bus. The cascade and the channel assignments are `008778-03` Table 2-4's, so the AT convention this module used to refuse is now cited rather than assumed. **The peripheral side is wired**: the tape drives its own request line and its cartridge reaches memory by DMA, and the disk's two data ports move under an acknowledge | `dma_suite`, 17 tests; `FINDINGS.md` C13 |
+| Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board runs transfers: controller 1's request cascaded onto controller 2's channel 0 and one request reaching the arbiter, the address through the translation map, and the processor stalled while a controller holds the bus. The cascade and the channel assignments are `008778-03` Table 2-4's, so the AT convention this module used to refuse is now cited rather than assumed. **The peripheral side is wired**: the tape drives its own request line and its cartridge reaches memory by DMA, and the disk's two data ports move under an acknowledge | `dma_suite`, 18 tests; `FINDINGS.md` C13 |
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 29 tests, `8237A` 231466 |
 | Apollo interval timer (`010800`) | working: the part at **odd addresses, stride 2** (measured — the region reads `00 00 00 00 00 FF ...`, the `FFFF` latch default showing through), the three §3.8 input rates as exact time-base clock domains, and the IRQ0 route. Advancing is by whole pulses, so the rate cannot become a function of how often it is polled | `timer_suite`, 8 tests; `FINDINGS.md` C12 |
 | MC6840 interval timer (the part) | working for **both counting modes** — continuous and single shot, each in sixteen-bit and dual eight-bit operation — plus both control register aliases, the write/read byte buffering, the status register, the prescaler, the gate, **both clock inputs** — the `Cx` pin and the enable clock, each counting only for a timer that selected it, and `008778-03` §3.8's three rates are the *external* pins the board drives — and all five of `[6840]` §3.11's ways of clearing an interrupt. **All four modes** are now modelled, the two **measurement modes** included: §3.9's period measurement between falling edges and §3.10's pulse-width measurement of the down time, each with bit 5 choosing whether the interrupt asks for the shorter or the longer of signal and Time Out, the four-part Counter Enable that stops a measurement at its own interrupt, §3.9's footnoted rule that a trailing edge does not reinitialise a running measurement, and the output that starts low and toggles at each Time Out. They were declined for want of a *board* that drives the gates, which is a fact about the DN3500 and not about the part | `mc6840_suite`, 34 tests, `MC6840UM` (a scan with no text layer; read from page images) |

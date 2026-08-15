@@ -47,6 +47,14 @@
 #define AP_DMA_FLOPPY_CHANNEL 2u
 #define AP_DMA_WINCHESTER_UNIT 1u  /* DRQ7, and 16-bit */
 #define AP_DMA_WINCHESTER_CHANNEL 3u
+/* DRQ6, the 802.3 Network Controller-AT. `008778-03` **Figure 14-3** -- the
+ * standard jumper configuration for an AT-compatible slot -- labels the block
+ * "DMA Channel 6 and Interrupt Level 10 Select" and shows 6 and 10 jumpered,
+ * beside a "Control Status Registers Hex Address 300" that is this board's
+ * `058000`. Read from the page image: it is a figure, and the text layer of
+ * this chapter renders neighbouring tables as `IRQ?` and `SA?`. */
+#define AP_DMA_ETHERNET_UNIT 1u
+#define AP_DMA_ETHERNET_CHANNEL 2u
 
 /* DRQ4: the second controller's channel 0, which the first controller's request
  * output arrives on. "It is not available on the AT-compatible bus." */

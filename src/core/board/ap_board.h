@@ -121,6 +121,19 @@ typedef enum {
  * option ROM made landed on `058002` and `058006`, the card's `+2` and `+6`. */
 #define AP_BOARD_ETHERNET_ADDR 0x058000u
 
+/* And its interrupt line, `IRQ10`. Two sources in the same manual, one of them
+ * a figure: `008778-03` **Figure 14-3** jumpers "Interrupt Level 10" on the
+ * standard AT-slot card, and **Table 2-3** independently lists `IRQ10` as
+ * "802.3 Network Controller-AT #1 or User Device".
+ *
+ * The pair also disambiguates a table the OCR destroyed. Table 2-3 gives IRQ9
+ * to controller **#2**, and the DRQ table names controller "#2" on *both* DRQ3
+ * and DRQ6, which cannot be right. Figure 14-4 settles it: the **alternate**
+ * card, in an XT-compatible slot, is I/O `310`, DMA 3, IRQ 9. So the standard
+ * card is #1 on DMA 6 and IRQ 10 and the alternate is #2 on DMA 3 and IRQ 9,
+ * and the mangled row is the alternate's. */
+#define AP_BOARD_ETHERNET_IRQ 10u
+
   /* The token ring controller's two AT I/O windows, `device/ap_ring_ctl.h`.
    * Inside the AT window and therefore ahead of it, for the same reason the
    * graphics decodes are: a window checked first would report a fitted card as
@@ -464,16 +477,18 @@ typedef struct ap_board {
   /* **Derived, not state, and deliberately not hashed.** Whether anything can
    * ask for the bus in the near future.
    *
-   * `ap_board_bus_tick` polls three devices for a DMA request on every tick,
-   * and a whole Domain/OS boot produces **8 requests and 2 holds against 1.46
-   * billion ticks** while the poll costs 11.8% of the run. None of the three
+   * `ap_board_bus_tick` polls the DMA-capable devices for a request on every
+   * tick, and a whole Domain/OS boot produces **8 requests and 2 holds against
+   * 1.46 billion ticks** while the poll costs 11.8% of the run. None of them
    * can ask until software starts a transfer -- the tape needs a read in
-   * progress, the disk a command, the FDC an execution phase -- so when nothing
-   * is asking and nothing is in flight, the whole block is a no-op until a CPU
-   * access to one of those devices changes that.
+   * progress, the disk a command, the FDC an execution phase, the 802.3
+   * controller its `DMAE` bit -- so when nothing is asking and nothing is in
+   * flight, the whole block is a no-op until a CPU access to one of those
+   * devices changes that.
    *
-   * Set true conservatively: any access to the disk, tape or DMA regions turns
-   * it on, whether or not that access could really start anything. The board's
+   * Set true conservatively: any access to the disk, tape, DMA or 802.3
+   * controller regions turns it on, whether or not that access could really
+   * start anything. The board's
    * region switch in `ap_board_read`/`ap_board_write` is the *auditable* set of
    * sites this needs -- the lesson from two derived-value bugs earlier, where
    * the mutation sites were never enumerated and a stale value survived.

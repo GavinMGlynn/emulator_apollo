@@ -4110,11 +4110,25 @@ discipline throughout.
 - [ ] 3c505 802.3 controller, so Domain networking can also be checked against
       MAME the way MAME does it. *Verification: oracle diff — this is the one
       networking path with a runnable reference.*
-      **Awaiting:** the device itself. The references are complete — `[HIS]`
-      closed the last documentary gap — so what remains is the code, and one
-      design decision: whether the adapter's 80186 firmware is emulated behind
-      the mailbox or its PCB protocol implemented host-side. The register
-      interface is the same either way, which is why it was built first.
+      **Awaiting:** the oracle diff, and only that. The device, its wire, its
+      board placement, its **interrupt line and its DMA channel** are built and
+      tested; the stale text this replaced said "the device itself" long after
+      that was false, which is the failure `ap_i8237.h` records under "a stale
+      declination is worse than none".
+      What is *measured*, and it names the next step: with the card alone a full
+      boot never touches it, but with **its option ROM** fitted the boot PROM's
+      network test drives it hard — 10,041 reads — and then prints
+      `802.3 Network Controller-AT test failed.`, stopping at `PC 000083C4`
+      inside the PROM (`ETHERNET.md` 14, 15, 15a). So this card now has the same
+      thing the ring has: **its own firmware's test as the test**, with a named
+      stopping instruction. Read `000083C4` for what the test wants, and find
+      out whether it reports a subtest code the way the ring ROM's `E00000xx`
+      codes do. The oracle diff comes after that, since MAME runs the same PROM
+      and can be asked the same question.
+      The design decision — 80186 firmware emulated behind the mailbox, or the
+      PCB protocol host-side — is still open and is **not** blocking: the
+      register interface is the same either way, which is why it was built
+      first. Detail in `PROJECT_STATUS.md`.
       The reference on disk was **half a file** — 1,851,086
       bytes of 3,677,170, a truncated download that opens with a valid header
       and fails only when read. Re-fetched from the Internet Archive's bitsavers
@@ -4184,6 +4198,35 @@ discipline throughout.
         the operator to remember. Detail in `PROJECT_STATUS.md`.
         *Verification: `board_suite` 44 -- absent until fitted, exactly sixteen
         locations, and the oracle-measured probe bytes through a bus read.*
+  - [x] **The interrupt line and the DMA channel, from `008778-03` chapter 14** —
+        a chapter `ETHERNET.md` had never cited. Figure 14-3's standard AT-slot
+        strapping is "DMA Channel 6 and Interrupt Level 10 Select", read from
+        the page image because this chapter's text layer gives `IRQ?` and `SA?`;
+        both of the card's accessors existed and were joined to nothing.
+        `[DEV]` §1.9.4's request rule is `HRDY` in **both** directions — the
+        `ARDY` rows are the adapter's — with its three deactivating conditions
+        including the 9-transfer demand pause, and `[HIS]` p. 3-4 supplied a
+        `DONE`-clearing rule the model was missing entirely. `ETHERNET.md`
+        findings 12-13c. Detail in `PROJECT_STATUS.md`.
+        *Verification: `etherlink_suite` 38 -> 43, `board_suite` 45 -> 47, and
+        `dma_suite` 17 -> 18 for a byte moved end to end over DRQ6 — controller
+        2's channel 2, through the 16-bit half of the translation map — with its
+        terminal count reaching `HSR`'s `DONE`. The `login:` boot with the card
+        fitted returns the reference hash `A354786119A3931D` unchanged, which is
+        the two new lines sampled all boot and changing nothing.*
+  - [x] **Open question C answered, and the card's own firmware test is now
+        running.** Without its option ROM the card is never addressed in a whole
+        boot; with it — `--3c505-rom FILE`, added here, placing the image where
+        the expansion scan looks as `--ring-rom` does — the boot PROM drives it
+        for 10,041 reads and reports `802.3 Network Controller-AT test failed.`,
+        stopping at `PC 000083C4`. That is a second firmware self-test to work
+        against, which is what `CLAUDE.md` means by the hardware's test suite for
+        free. The first explanation offered for the untouched card — the
+        uninitialised configuration table — was two true facts joined by an
+        untested inference and is retracted in `ETHERNET.md` 14b.
+        *Verification: two 350 M boots, `--3c505` and `--3c505-rom`, each with
+        its configuration confirmed from the run's own header; the first returns
+        the reference hash unchanged.*
   - [x] `docs/references/ETHERNET.md`, the findings file, written from the
         manual before any code — the map, the 20-byte half duplex data FIFO
         with its `DIR` bit, the five general-purpose status flags the hardware

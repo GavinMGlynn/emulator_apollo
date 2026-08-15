@@ -146,6 +146,20 @@
 #define AP_3C505_HSR_HCRE 0x40u /* host command register empty: send another */
 #define AP_3C505_HSR_HRDY 0x80u /* data register ready, in the current direction */
 
+/* Host Aux DMA Register, host `+2` on a **write**. `[HIS]` p. 3-5, read from
+ * the page image: seven cells printed `0` and one named `BRST`, so bit 0 is the
+ * whole of the register. "This register is cleared upon power-up. It doesn't
+ * exist on older Rev 2 hardware boards." */
+#define AP_3C505_AUX_BRST 0x01u /* DMA burst: no demand-mode pause */
+
+/* Demand mode's pause, and the one number in it. `[DEV]` §1.9.4 and `[HIS]`
+ * p. 3-5 state it in the same words from three years apart: "If the Burst bit
+ * is not set, demand mode DMA transfers by the host will pause every 9
+ * transfers to allow the PC to refresh its dynamic RAMs." Both add that the bit
+ * "has no effect during single cycle DMA transfers", which is why this is a
+ * property of the request line and not of the transfer. */
+#define AP_3C505_DMA_DEMAND_BURST 9u
+
 /* Adapter Control Register, adapter `+3` on a write and `+2` on a read.
  * Written by the adapter's firmware; the host never touches it. */
 #define AP_3C505_ACR_ASF1 0x01u /* adapter status flag 1, seen by the host */
@@ -293,6 +307,12 @@ typedef struct {
   bool dma_done;     /* terminal count reached, reported as `HSR`'s `DONE` */
   bool test_jumper;  /* the TEST jumper, reported as `ASR`'s `SWTC` */
   bool sixteen_bit;  /* a 16-bit slot, reported as `ASR`'s `8_16` */
+
+  /* Demand mode's two pieces of state, both `[DEV]` §1.9.4's third deactivating
+   * condition and neither of them a transfer's business: how many cycles have
+   * run since the last pause, and whether the pause itself is owed. */
+  unsigned dma_since_pause;
+  bool dma_pause_owed;
 } ap_3c505_t;
 
 /* Power-on state. Also what a hard reset produces, so the two cannot drift. */
@@ -323,6 +343,58 @@ void ap_3c505_adapter_write_control(ap_3c505_t *card, uint8_t value);
  * interrupted when a command byte arrives with `CMDE` set, or when the DMA
  * reaches terminal count with `TCEN` set. */
 [[nodiscard]] bool ap_3c505_irq(const ap_3c505_t *card);
+
+/* ## The host DMA channel, `[DEV]` §1.9.4
+ *
+ * The card moves packet data through the same Data Register either way: the
+ * host may run it by polled I/O or hand it to a DMA controller, and §1.9.4 is
+ * explicit that "the Adapter and the Host may perform DMA transfers independent
+ * of one another". So these are not a second data path -- they are the FIFO
+ * again, with the demand-mode accounting the PIO side has no reason to keep.
+ *
+ * §1.9.4's truth table, read from the page image because the text layer renders
+ * it as broken pipes and stray digits:
+ *
+ *     TRANSFER   | DIR | HRDY | ARDY | DESCRIPTION
+ *     DMA        |     |  1   |  X   | WRITE REQUEST TO HOST
+ *     DOWNLOAD   |  0  |  X   |  1   | READ REQUEST TO ADAPTER
+ *     DMA        |     |  X   |  1   | WRITE REQUEST TO ADAPTER
+ *     UPLOAD     |  1  |  1   |  X   | READ REQUEST TO HOST
+ *
+ * The two `HRDY` rows are the host's and the two `ARDY` rows the adapter's, so
+ * **the host-side request is `HRDY` in both directions** and `DIR` selects only
+ * whether the cycle reads or writes. A model that gated the host's line on
+ * `ARDY` would have taken the adapter's half of the same table. */
+
+/* Whether the card is driving its `DRQ` line.
+ *
+ * §1.9.4: "if the DMAE bit is set, the DMA request input to the host PC will go
+ * inactive under the following conditions: 1. The entire Host DMA transfer is
+ * completed 2. The Data Register FIFO is temporarily full/empty depending on
+ * the transfer direction. 3. The Burst bit is not set and 9 DMA transfers have
+ * occured since the last DMA pause." Those are `dma_done`, `HRDY` and the
+ * demand-mode counter respectively, and all three are checked here.
+ *
+ * **Not `const`, and that is the pause.** Condition 3 relinquishes the channel
+ * "for one host CPU cycle", so exactly one sample must read inactive before the
+ * line comes back. The board samples this once per bus tick, which is that
+ * cycle; consuming it here is what makes the pause one tick long rather than
+ * permanent. */
+[[nodiscard]] bool ap_3c505_dma_request(ap_3c505_t *card);
+
+/* One DMA cycle's byte, each direction, counted toward the demand-mode pause.
+ * `read` is the adapter-to-host direction the host's controller drives on an
+ * upload; `write` is the download. Both go through the FIFO exactly as the
+ * Data Register does, because they are the same register. */
+[[nodiscard]] uint8_t ap_3c505_dma_read(ap_3c505_t *card);
+void ap_3c505_dma_write(ap_3c505_t *card, uint8_t value);
+
+/* Terminal count from the *host's* DMA controller, which is the only thing that
+ * knows the transfer is over -- the card counts bytes through a FIFO and has no
+ * length. `[HIS]` p. 3-4: "The DONE flag is set when a DMA transfer between the
+ * host and the Data Register is complete. An interrupt to the host will also be
+ * generated if the TCEN bit in the Host Control Register is set." */
+void ap_3c505_dma_terminal_count(ap_3c505_t *card);
 
 /* ## The Primary Command Block, `[DEV]` §3.1
  *

@@ -384,6 +384,145 @@ static void test_each_interrupt_needs_its_own_enable(void) {
 }
 
 
+/* `[DEV]` §1.9.4's truth table, host side: the request is `HRDY` in **both**
+ * directions, and `DIR` selects only whether the cycle reads or writes. The two
+ * `ARDY` rows are the adapter's request, not the host's, and a model that read
+ * the table down the wrong column would gate the host's line on the flag that
+ * is *clear* exactly when the host's is set. That is what this checks: an empty
+ * FIFO is ready to be filled on a download and has nothing to give on an
+ * upload, so the request must follow the first and not the second. */
+static void test_the_host_dma_request_follows_hrdy_in_both_directions(void) {
+  ap_3c505_t card;
+  ap_3c505_reset(&card);
+
+  /* Download, DIR clear: an empty FIFO has room, so the card asks. */
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, AP_3C505_HCR_DMAE);
+  TEST_ASSERT_TRUE(ap_3c505_host_status(&card) & AP_3C505_HSR_HRDY);
+  TEST_ASSERT_TRUE(ap_3c505_dma_request(&card));
+
+  /* Upload, DIR set: the same empty FIFO has nothing, so it does not.
+   * `ARDY` is set here -- the adapter has room to write -- which is precisely
+   * the row that must not drive this line. */
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL,
+                 (uint8_t)(AP_3C505_HCR_DMAE | AP_3C505_HCR_DIR));
+  TEST_ASSERT_TRUE(ap_3c505_adapter_status(&card) & AP_3C505_ASR_ARDY);
+  TEST_ASSERT_FALSE(ap_3c505_host_status(&card) & AP_3C505_HSR_HRDY);
+  TEST_ASSERT_FALSE(ap_3c505_dma_request(&card));
+}
+
+/* §1.9.4's first sentence: transfers "are enabled using the DMAE bit", and
+ * "since the DMA channel floats when this bit is cleared ... another I/O card
+ * may use the same DMA channel". A card that asked with the enable clear would
+ * be driving a line it is not connected to. */
+static void test_a_cleared_dma_enable_takes_the_card_off_the_channel(void) {
+  ap_3c505_t card;
+  ap_3c505_reset(&card);
+
+  TEST_ASSERT_FALSE(ap_3c505_dma_request(&card)); /* DMAE clear at reset */
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, AP_3C505_HCR_DMAE);
+  TEST_ASSERT_TRUE(ap_3c505_dma_request(&card));
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, 0u);
+  TEST_ASSERT_FALSE(ap_3c505_dma_request(&card));
+}
+
+/* §1.9.4 condition 3, and `[HIS]` p. 3-5 in the same words: "If the Burst bit
+ * is not set, demand mode DMA transfers by the host will pause every 9
+ * transfers to allow the PC to refresh its dynamic RAMs. If the Burst bit is
+ * set, no such pause will occur."
+ *
+ * The pause is **one** sample long -- §1.9.4 says the channel is relinquished
+ * "for one host CPU cycle" -- so the tenth sample is inactive and the eleventh
+ * asks again. A model that latched the pause would stall the transfer, and one
+ * that never paused would differ from the hardware only under demand mode,
+ * which is exactly where a driver would meet it. */
+static void test_demand_mode_pauses_every_ninth_transfer_unless_burst(void) {
+  ap_3c505_t card;
+  ap_3c505_reset(&card);
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, AP_3C505_HCR_DMAE);
+
+  /* Nine download cycles, each preceded by the request the board samples. */
+  for (unsigned i = 0; i < AP_3C505_DMA_DEMAND_BURST; i++) {
+    TEST_ASSERT_TRUE(ap_3c505_dma_request(&card));
+    ap_3c505_dma_write(&card, (uint8_t)i);
+  }
+  /* The tenth sample is the pause, and the eleventh is asking again. */
+  TEST_ASSERT_FALSE(ap_3c505_dma_request(&card));
+  TEST_ASSERT_TRUE(ap_3c505_dma_request(&card));
+
+  /* With `BRST` set there is no pause at all. The FIFO is twenty bytes and the
+   * run is nine, so nothing here is limited by capacity. */
+  ap_3c505_reset(&card);
+  ap_3c505_write(&card, AP_3C505_REG_AUX_DMA, AP_3C505_AUX_BRST);
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, AP_3C505_HCR_DMAE);
+  for (unsigned i = 0; i < AP_3C505_DMA_DEMAND_BURST; i++) {
+    TEST_ASSERT_TRUE(ap_3c505_dma_request(&card));
+    ap_3c505_dma_write(&card, (uint8_t)i);
+  }
+  TEST_ASSERT_TRUE(ap_3c505_dma_request(&card));
+}
+
+/* `[HIS]` p. 3-4: "The DONE flag is set when a DMA transfer between the host
+ * and the Data Register is complete ... The DONE bit is cleared by clearing the
+ * DMAE bit in the Host Control Register." Both halves, and the second is the
+ * one a model invents wrongly -- there is no other documented way to clear it,
+ * so a card that cleared `DONE` on the next transfer, or on a status read,
+ * would drop an interrupt the host has not acknowledged. */
+static void test_done_is_set_by_terminal_count_and_cleared_by_the_enable(void) {
+  ap_3c505_t card;
+  ap_3c505_reset(&card);
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, AP_3C505_HCR_DMAE);
+
+  TEST_ASSERT_FALSE(ap_3c505_host_status(&card) & AP_3C505_HSR_DONE);
+  ap_3c505_dma_terminal_count(&card);
+  TEST_ASSERT_TRUE(ap_3c505_host_status(&card) & AP_3C505_HSR_DONE);
+
+  /* Condition 1: the transfer is over, so the line drops even though the FIFO
+   * still has room and `HRDY` is still set. */
+  TEST_ASSERT_TRUE(ap_3c505_host_status(&card) & AP_3C505_HSR_HRDY);
+  TEST_ASSERT_FALSE(ap_3c505_dma_request(&card));
+
+  /* Reading the status does not clear it; clearing `DMAE` does. */
+  TEST_ASSERT_TRUE(ap_3c505_host_status(&card) & AP_3C505_HSR_DONE);
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, 0u);
+  TEST_ASSERT_FALSE(ap_3c505_host_status(&card) & AP_3C505_HSR_DONE);
+}
+
+/* §1.9.4: "the Adapter and the Host may perform DMA transfers independent of
+ * one another. That is, one may use polled I/O while the other performs DMA."
+ * So a DMA cycle and a host `in`/`out` reach the same twenty-byte FIFO, and a
+ * byte written by one comes back to the other. A second data path would be a
+ * second register, which this card does not have. */
+static void test_a_dma_cycle_and_polled_io_share_one_data_register(void) {
+  ap_3c505_t card;
+  ap_3c505_reset(&card);
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, AP_3C505_HCR_DMAE);
+
+  /* Downloaded by DMA, taken out by the adapter's side of the same FIFO. */
+  ap_3c505_dma_write(&card, 0xA5u);
+  ap_3c505_dma_write(&card, 0x5Au);
+  TEST_ASSERT_TRUE(ap_3c505_adapter_status(&card) & AP_3C505_ASR_ARDY);
+
+  /* Turn the FIFO round: the direction change empties it, which is the
+   * half-duplex rule this suite already holds up elsewhere. */
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL,
+                 (uint8_t)(AP_3C505_HCR_DMAE | AP_3C505_HCR_DIR));
+  TEST_ASSERT_FALSE(ap_3c505_host_status(&card) & AP_3C505_HSR_HRDY);
+
+  /* An upload staged by polled I/O and collected by DMA, the other way round
+   * from the first half. */
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, AP_3C505_HCR_DMAE);
+  ap_3c505_write(&card, AP_3C505_REG_DATA, 0x3Cu);
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL,
+                 (uint8_t)(AP_3C505_HCR_DMAE | AP_3C505_HCR_DIR));
+  /* The turn emptied it again, so stage the byte in the upload direction as the
+   * adapter would and read it back through a DMA cycle. */
+  card.fifo[0] = 0x3Cu;
+  card.fifo_count = 1u;
+  TEST_ASSERT_TRUE(ap_3c505_dma_request(&card));
+  TEST_ASSERT_EQUAL_UINT8(0x3Cu, ap_3c505_dma_read(&card));
+  TEST_ASSERT_FALSE(ap_3c505_dma_request(&card));
+}
+
 /* **The option ROM's probe, byte for byte, against traffic measured a day
  * before this model existed.**
  *
@@ -992,6 +1131,11 @@ int main(void) {
   RUN_TEST(test_the_hard_reset_clears_the_mailbox_but_not_the_strapping);
   RUN_TEST(test_the_general_purpose_flags_pass_through_uninterpreted);
   RUN_TEST(test_each_interrupt_needs_its_own_enable);
+  RUN_TEST(test_the_host_dma_request_follows_hrdy_in_both_directions);
+  RUN_TEST(test_a_cleared_dma_enable_takes_the_card_off_the_channel);
+  RUN_TEST(test_demand_mode_pauses_every_ninth_transfer_unless_burst);
+  RUN_TEST(test_done_is_set_by_terminal_count_and_cleared_by_the_enable);
+  RUN_TEST(test_a_dma_cycle_and_polled_io_share_one_data_register);
   RUN_TEST(test_an_idle_card_answers_the_probe_the_oracle_measured);
   RUN_TEST(test_a_pcb_is_found_by_counting_back_from_its_total_length);
   RUN_TEST(test_stray_bytes_from_an_aborted_transfer_are_skipped);

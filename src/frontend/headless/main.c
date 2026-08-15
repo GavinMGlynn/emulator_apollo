@@ -246,6 +246,8 @@ static void print_usage(const char *program_name) {
    * string literal, and this list passed it. No flag is grouped by meaning
    * across the break. */
   fprintf(stdout,
+          "  --3c505-rom FILE      fit the EtherLink Plus with its option ROM\n"
+          "                        placed where the boot PROM's scan looks\n"
           "  --boot-console        print what the machine transmits on either\n"
           "                        serial port: its own console output\n"
           "  --boot-input-port N   which serial port --boot-input feeds, 1 or\n"
@@ -295,6 +297,10 @@ static void print_usage(const char *program_name) {
           "  --3c505-tap IFACE     the same, with its wire on a Linux TAP\n"
           "                        device. **Not deterministic** -- no state\n"
           "                        hash is reported for such a run\n"
+          "");
+  /* And split again, for the same reason and on the same rule: no flag is
+   * grouped by meaning across the break. */
+  fprintf(stdout,
           "  --screenshot FILE     scan the fitted screen out to a PNG\n"
           "  --disk FILE           fit a Winchester (.awd) to the boot\n"
           "  --calendar-ram FILE   the calendar's battery-backed RAM, loaded at\n"
@@ -1071,6 +1077,9 @@ static bool g_fit_ring = false;
 static const char *g_ring_rom_path = NULL;
 static uint8_t *g_ring_rom = NULL;
 static uint32_t g_ring_rom_bytes = 0;
+static const char *g_ethernet_rom_path = NULL;
+static uint8_t *g_ethernet_rom = NULL;
+static uint32_t g_ethernet_rom_bytes = 0;
 static bool g_ring_selftest = false;
 
 /* How often a live wire is polled, in instructions. A frontend choice with no
@@ -2215,6 +2224,24 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     } else {
       printf("  ethernet     EtherLink Plus at %06X, no wire attached\n",
              AP_BOARD_ETHERNET_ADDR);
+    }
+    /* The card's own option ROM, where the boot PROM's expansion scan looks --
+     * the same placement `--ring-rom` uses, because it is the same scan.
+     * `RING.md` finding 59b: this image's `field_1a` is `0006` against the ring
+     * ROMs' `0002`, and calendar register `2B` is what selects between them, so
+     * fitting the ROM is only half of making the scan accept it. */
+    if (g_ethernet_rom_path != NULL) {
+      long rom_size = 0;
+      g_ethernet_rom = read_file(g_ethernet_rom_path, &rom_size);
+      if (g_ethernet_rom == NULL || rom_size <= 0) {
+        fprintf(stderr, "apollo: cannot read %s\n", g_ethernet_rom_path);
+      } else {
+        g_ethernet_rom_bytes = (uint32_t)rom_size;
+        ap_board_attach_option_rom(board, g_ethernet_rom, g_ethernet_rom_bytes,
+                                   AP_BOARD_ATBUS_MEMORY_BASE);
+        printf("  3c505 ROM    %s, %u bytes at %06X\n", g_ethernet_rom_path,
+               g_ethernet_rom_bytes, AP_BOARD_ATBUS_MEMORY_BASE);
+      }
     }
   }
 
@@ -4079,6 +4106,24 @@ static int boot_from_tape(const char *path, unsigned limit) {
       printf("  ethernet     EtherLink Plus at %06X, no wire attached\n",
              AP_BOARD_ETHERNET_ADDR);
     }
+    /* The card's own option ROM, where the boot PROM's expansion scan looks --
+     * the same placement `--ring-rom` uses, because it is the same scan.
+     * `RING.md` finding 59b: this image's `field_1a` is `0006` against the ring
+     * ROMs' `0002`, and calendar register `2B` is what selects between them, so
+     * fitting the ROM is only half of making the scan accept it. */
+    if (g_ethernet_rom_path != NULL) {
+      long rom_size = 0;
+      g_ethernet_rom = read_file(g_ethernet_rom_path, &rom_size);
+      if (g_ethernet_rom == NULL || rom_size <= 0) {
+        fprintf(stderr, "apollo: cannot read %s\n", g_ethernet_rom_path);
+      } else {
+        g_ethernet_rom_bytes = (uint32_t)rom_size;
+        ap_board_attach_option_rom(board, g_ethernet_rom, g_ethernet_rom_bytes,
+                                   AP_BOARD_ATBUS_MEMORY_BASE);
+        printf("  3c505 ROM    %s, %u bytes at %06X\n", g_ethernet_rom_path,
+               g_ethernet_rom_bytes, AP_BOARD_ATBUS_MEMORY_BASE);
+      }
+    }
   }
 
   ap_machine_t machine;
@@ -4555,6 +4600,12 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--3c505") == 0) {
       g_fit_ethernet = true;
       i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--3c505-rom") == 0 && i + 1 < argc) {
+      g_fit_ethernet = true;
+      g_ethernet_rom_path = argv[i + 1];
+      i += 2;
       continue;
     }
     if (strcmp(argv[i], "--3c505-tap") == 0 && i + 1 < argc) {

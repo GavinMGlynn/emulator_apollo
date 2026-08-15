@@ -186,6 +186,19 @@ void ap_3c505_write(ap_3c505_t *card, unsigned offset, uint8_t value) {
     if (((previous ^ value) & AP_3C505_HCR_DIR) != 0u) {
       flush_fifo(card);
     }
+    /* **`DONE` is cleared by clearing `DMAE`, and by nothing else.** `[HIS]`
+     * p. 3-4 states it in those words, and it is the only documented way the
+     * flag goes away -- a host that has seen its terminal count clears the
+     * enable to acknowledge it. The demand-mode accounting goes with it,
+     * because §1.9.4 says the channel *floats* when `DMAE` is clear and
+     * "another I/O card may use the same DMA channel": a counter carried across
+     * that would pause a later transfer on this one's history. */
+    if ((previous & AP_3C505_HCR_DMAE) != 0u &&
+        (value & AP_3C505_HCR_DMAE) == 0u) {
+      card->dma_done = false;
+      card->dma_since_pause = 0u;
+      card->dma_pause_owed = false;
+    }
     return;
   }
   default:
@@ -232,6 +245,71 @@ bool ap_3c505_irq(const ap_3c505_t *card) {
     return true;
   }
   return card->dma_done && (card->hcr & AP_3C505_HCR_TCEN) != 0u;
+}
+
+bool ap_3c505_dma_request(ap_3c505_t *card) {
+  if (card == NULL) {
+    return false;
+  }
+  /* The enable gates everything: with `DMAE` clear the channel floats and the
+   * card is not on it at all. */
+  if ((card->hcr & AP_3C505_HCR_DMAE) == 0u) {
+    return false;
+  }
+  /* §1.9.4 condition 1. */
+  if (card->dma_done) {
+    return false;
+  }
+  /* Condition 3, and the one cycle it costs. Checked before `HRDY` because the
+   * pause is owed whether or not the FIFO happens to be ready during it. */
+  if (card->dma_pause_owed) {
+    card->dma_pause_owed = false;
+    card->dma_since_pause = 0u;
+    return false;
+  }
+  /* Condition 2, which is `HRDY` -- "the Data Register FIFO is temporarily
+   * full/empty depending on the transfer direction" is what that flag already
+   * means, so it is read rather than recomputed. */
+  return (ap_3c505_host_status(card) & AP_3C505_HSR_HRDY) != 0u;
+}
+
+/* One transfer's worth of demand-mode accounting, shared by both directions.
+ * The burst bit lives in the Aux DMA Register and suppresses the pause
+ * entirely; without it the ninth transfer since the last pause owes one. */
+static void dma_cycle_ran(ap_3c505_t *card) {
+  if ((card->aux_dma & AP_3C505_AUX_BRST) != 0u) {
+    return;
+  }
+  card->dma_since_pause++;
+  if (card->dma_since_pause >= AP_3C505_DMA_DEMAND_BURST) {
+    card->dma_pause_owed = true;
+  }
+}
+
+uint8_t ap_3c505_dma_read(ap_3c505_t *card) {
+  if (card == NULL) {
+    return 0xFFu;
+  }
+  /* The Data Register, through the ordinary read path: a DMA cycle and a host
+   * `in` differ in who drives the bus, not in what the register does. */
+  const uint8_t value = ap_3c505_read(card, AP_3C505_REG_DATA);
+  dma_cycle_ran(card);
+  return value;
+}
+
+void ap_3c505_dma_write(ap_3c505_t *card, uint8_t value) {
+  if (card == NULL) {
+    return;
+  }
+  ap_3c505_write(card, AP_3C505_REG_DATA, value);
+  dma_cycle_ran(card);
+}
+
+void ap_3c505_dma_terminal_count(ap_3c505_t *card) {
+  if (card == NULL) {
+    return;
+  }
+  card->dma_done = true;
 }
 
 ap_3c505_sf_t ap_3c505_host_flags(const ap_3c505_t *card) {

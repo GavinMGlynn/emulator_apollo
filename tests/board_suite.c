@@ -1296,6 +1296,105 @@ static void test_the_probe_bytes_come_back_through_the_bus(void) {
 }
 
 
+/* **`IRQ10`, and that an empty slot does not drive it.**
+ *
+ * `008778-03` Figure 14-3 jumpers "Interrupt Level 10" on the standard AT-slot
+ * card and Table 2-3 lists `IRQ10` as the 802.3 controller's, so the card's
+ * `[DEV]` §1.10 condition has to arrive on the *slave*'s input 2 -- IRQ10 is
+ * slave 8+2 -- and nowhere else.
+ *
+ * The half that earns its place is the absent one. The card is opt-in, and the
+ * `login:` boot does not fit it; a line held up by a device that is not there
+ * would inject an interrupt into every run that has always been clean. */
+static void test_the_ethernet_interrupt_reaches_irq10_only_when_fitted(void) {
+  ap_board_t board;
+  bool ok = false;
+  const uint8_t slave_bit = (uint8_t)(1u << (AP_BOARD_ETHERNET_IRQ - 8u));
+  init(&board);
+
+  /* No card: the condition cannot exist, and sampling must leave the line
+   * alone however many times it runs. */
+  ap_board_sample_interrupts(&board);
+  TEST_ASSERT_EQUAL_HEX8(0u, board.interrupts.slave.pins & slave_bit);
+
+  ap_board_attach_ethernet(&board, true, NULL);
+  /* Fitted but idle: still nothing, because §1.10 needs both a byte waiting and
+   * `CMDE` set. */
+  ap_board_sample_interrupts(&board);
+  TEST_ASSERT_EQUAL_HEX8(0u, board.interrupts.slave.pins & slave_bit);
+
+  /* The enable alone is not the condition either. */
+  ap_board_write(&board, AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_CONTROL,
+                 AP_3C505_HCR_CMDE, &ok);
+  TEST_ASSERT_TRUE(ok);
+  ap_board_sample_interrupts(&board);
+  TEST_ASSERT_EQUAL_HEX8(0u, board.interrupts.slave.pins & slave_bit);
+
+  /* A response byte from the adapter with the enable set is, and it lands on
+   * the line the jumper selects. */
+  ap_3c505_adapter_post_command(&board.ethernet, 0x31u);
+  ap_board_sample_interrupts(&board);
+  TEST_ASSERT_EQUAL_HEX8(slave_bit, board.interrupts.slave.pins & slave_bit);
+
+  /* And it is a *level*: the host reading the byte takes the condition away
+   * without anyone telling the controller. */
+  (void)ap_board_read(&board, AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_COMMAND,
+                      &ok);
+  ap_board_sample_interrupts(&board);
+  TEST_ASSERT_EQUAL_HEX8(0u, board.interrupts.slave.pins & slave_bit);
+
+  /* Removing the card takes it away too, which is the unfitted case reached
+   * from the other direction. */
+  ap_3c505_adapter_post_command(&board.ethernet, 0x31u);
+  ap_board_sample_interrupts(&board);
+  TEST_ASSERT_EQUAL_HEX8(slave_bit, board.interrupts.slave.pins & slave_bit);
+  ap_board_attach_ethernet(&board, false, NULL);
+  ap_board_sample_interrupts(&board);
+  TEST_ASSERT_EQUAL_HEX8(0u, board.interrupts.slave.pins & slave_bit);
+}
+
+/* **`DRQ6`, and that the byte lands in the card's own FIFO.**
+ *
+ * Figure 14-3's other half is "DMA Channel 6", which is the second controller's
+ * channel 2. The request has to reach that channel and the transfer has to move
+ * a byte into the Data Register -- a channel that asked but delivered nowhere
+ * would show as a running transfer with an empty FIFO, which is exactly what
+ * `dma_unwired_transfers` counts and what this must stop counting. */
+static void test_the_ethernet_dma_request_reaches_channel_six(void) {
+  ap_board_t board;
+  bool ok = false;
+  const uint8_t pin = (uint8_t)(1u << AP_DMA_ETHERNET_CHANNEL);
+  init(&board);
+
+  /* Unfitted: nothing on the channel, whatever the bus tick does. */
+  ap_board_bus_tick(&board);
+  TEST_ASSERT_EQUAL_HEX8(
+      0u, board.dma.controller[AP_DMA_ETHERNET_UNIT].dreq & pin);
+
+  ap_board_attach_ethernet(&board, true, NULL);
+  /* Fitted with `DMAE` clear: §1.9.4's floating channel, still nothing. */
+  ap_board_bus_tick(&board);
+  TEST_ASSERT_EQUAL_HEX8(
+      0u, board.dma.controller[AP_DMA_ETHERNET_UNIT].dreq & pin);
+
+  /* `DMAE` set, download direction: the card asks on channel 2 of controller
+   * 2. */
+  ap_board_write(&board, AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_CONTROL,
+                 AP_3C505_HCR_DMAE, &ok);
+  TEST_ASSERT_TRUE(ok);
+  ap_board_bus_tick(&board);
+  TEST_ASSERT_EQUAL_HEX8(
+      pin, board.dma.controller[AP_DMA_ETHERNET_UNIT].dreq & pin);
+
+  /* Removing the card drops the line again, as the interrupt case does.
+   * `dma_suite` runs the byte the whole way through a programmed controller;
+   * this is the wiring, not the transfer. */
+  ap_board_attach_ethernet(&board, false, NULL);
+  ap_board_bus_tick(&board);
+  TEST_ASSERT_EQUAL_HEX8(
+      0u, board.dma.controller[AP_DMA_ETHERNET_UNIT].dreq & pin);
+}
+
 /* **An option ROM answers where the boot PROM's expansion scan looks.**
  *
  * The scan is measured -- `00080000`-`00083003`, four bytes at each of four
@@ -1337,6 +1436,8 @@ int main(void) {
   RUN_TEST(test_the_ethernet_card_is_absent_until_it_is_fitted);
   RUN_TEST(test_the_ethernet_card_answers_exactly_sixteen_locations);
   RUN_TEST(test_the_probe_bytes_come_back_through_the_bus);
+  RUN_TEST(test_the_ethernet_interrupt_reaches_irq10_only_when_fitted);
+  RUN_TEST(test_the_ethernet_dma_request_reaches_channel_six);
   RUN_TEST(test_an_option_rom_answers_where_the_prom_scan_looks);
   init_region_board();
   RUN_TEST(test_a_selective_clear_reaches_the_status_register);
