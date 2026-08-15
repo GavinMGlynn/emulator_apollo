@@ -42,6 +42,7 @@
 #include "board/ap_disk.h"
 #include "board/ap_dma.h"
 #include "board/ap_dmapage.h"
+#include "device/ap_matrox.h"
 #include "board/ap_intr.h"
 #include "board/ap_nodeid.h"
 #include "board/ap_sio.h"
@@ -142,6 +143,11 @@ typedef enum {
    * scan expects to find. */
   AP_BOARD_REGION_RING,
   AP_BOARD_REGION_ETHERNET,
+  /* The DN4500's Matrox graphics board, three blocks inside AT bus *memory*
+   * space and therefore checked ahead of that window, as the ring and the
+   * EtherLink Plus are. Absent until `ap_board_attach_matrox` fits it, for the
+   * reason the other two are: an unfitted slot is the machine that boots. */
+  AP_BOARD_REGION_MATROX,
   AP_BOARD_REGION_ATBUS,
   AP_BOARD_REGION_RAM,
 } ap_board_region_t;
@@ -229,6 +235,11 @@ typedef struct ap_board {
    * default has to be the empty slot -- and the empty slot is what the boot
    * measures today. */
   ap_ring_ctl_t ring;
+
+  /* The Matrox graphics controller, absent until `ap_board_attach_matrox`
+   * fits it. `docs/references/GRAPHICS.md`. */
+  bool matrox_present;
+  ap_matrox_t matrox;
 
   /* The 3Com EtherLink Plus, absent until `ap_board_attach_ethernet` fits it.
    *
@@ -575,6 +586,11 @@ typedef struct ap_board {
  * the firmware's probe, and a card that answered unbidden would take a machine
  * with no ring hardware down a path it never runs. */
 void ap_board_attach_ring(ap_board_t *board, bool fitted);
+
+/* Fit or remove the DN4500's Matrox graphics board. Opt-in: an unfitted slot
+ * reads `FF` from the AT window, which is what a machine without the card
+ * does and what every existing boot measures. */
+void ap_board_attach_matrox(ap_board_t *board, bool fitted);
 
 /* Fit or remove the EtherLink Plus. `address` is the card's Ethernet address
  * PROM; passing NULL leaves it zero, which is a card whose PROM has not been

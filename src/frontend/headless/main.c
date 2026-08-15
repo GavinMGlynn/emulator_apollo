@@ -246,6 +246,7 @@ static void print_usage(const char *program_name) {
    * string literal, and this list passed it. No flag is grouped by meaning
    * across the break. */
   fprintf(stdout,
+          "  --matrox              fit the DN4500 Matrox graphics board\n"
           "  --option-rom FILE     place an option ROM where the boot PROM's\n"
           "                        scan looks, with no card behind it\n"
           "  --3c505-rom FILE      fit the EtherLink Plus with its option ROM\n"
@@ -1079,6 +1080,7 @@ static bool g_fit_ring = false;
 static const char *g_ring_rom_path = NULL;
 static uint8_t *g_ring_rom = NULL;
 static uint32_t g_ring_rom_bytes = 0;
+static bool g_fit_matrox = false;
 static const char *g_option_rom_path = NULL;
 static uint8_t *g_option_rom = NULL;
 static const char *g_ethernet_rom_path = NULL;
@@ -2216,6 +2218,11 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * answerable without modelling the device at all -- and for the Matrox
    * graphics ROM, whose controller is not built, that is the only question
    * currently askable. */
+  if (g_fit_matrox) {
+    ap_board_attach_matrox(board, true);
+    printf("  matrox       graphics at %06X/%06X/%06X\n", AP_MATROX_DATA_ADDR,
+           AP_MATROX_XFER_ADDR, AP_MATROX_CTL_ADDR);
+  }
   if (g_option_rom_path != NULL) {
     long rom_size = 0;
     g_option_rom = read_file(g_option_rom_path, &rom_size);
@@ -4128,6 +4135,11 @@ static int boot_from_tape(const char *path, unsigned limit) {
    * answerable without modelling the device at all -- and for the Matrox
    * graphics ROM, whose controller is not built, that is the only question
    * currently askable. */
+  if (g_fit_matrox) {
+    ap_board_attach_matrox(board, true);
+    printf("  matrox       graphics at %06X/%06X/%06X\n", AP_MATROX_DATA_ADDR,
+           AP_MATROX_XFER_ADDR, AP_MATROX_CTL_ADDR);
+  }
   if (g_option_rom_path != NULL) {
     long rom_size = 0;
     g_option_rom = read_file(g_option_rom_path, &rom_size);
@@ -4653,6 +4665,11 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--3c505") == 0) {
       g_fit_ethernet = true;
+      i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--matrox") == 0) {
+      g_fit_matrox = true;
       i += 1;
       continue;
     }

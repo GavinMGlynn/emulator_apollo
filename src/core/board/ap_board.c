@@ -209,6 +209,13 @@ ap_board_region_t ap_board_region(const ap_board_t *board, uint32_t address) {
     return AP_BOARD_REGION_ETHERNET;
   }
 
+  /* The Matrox graphics board's three blocks, on the same terms and ahead of
+   * the AT *memory* window they sit inside. `GRAPHICS.md` finding 5 extracted
+   * the bases mechanically from the board's own option ROM. */
+  if (board->matrox_present && ap_matrox_decode(address, NULL, NULL)) {
+    return AP_BOARD_REGION_MATROX;
+  }
+
   /* Last, so every device *inside* a window keeps its own region. */
   if ((address >= AP_BOARD_ATBUS_IO_BASE &&
        address <= AP_BOARD_ATBUS_IO_END) ||
@@ -401,6 +408,11 @@ void ap_board_attach_ethernet(ap_board_t *board, bool fitted,
 
 void ap_board_attach_ring(ap_board_t *board, bool fitted) {
   ap_ring_ctl_reset(&board->ring, fitted);
+}
+
+void ap_board_attach_matrox(ap_board_t *board, bool fitted) {
+  board->matrox_present = fitted;
+  ap_matrox_reset(&board->matrox);
 }
 
 uint8_t ap_board_interrupt_acknowledge(ap_board_t *board) {
@@ -856,6 +868,7 @@ bool ap_board_cache_inhibited(const ap_board_t *board, uint32_t address) {
   case AP_BOARD_REGION_GRAPHICS:
   case AP_BOARD_REGION_ETHERNET:
   case AP_BOARD_REGION_RING:
+  case AP_BOARD_REGION_MATROX:
   case AP_BOARD_REGION_ATBUS:
     break;
   }
@@ -884,6 +897,7 @@ const char *ap_board_region_name(ap_board_region_t region) {
   case AP_BOARD_REGION_TAPE: return "cartridge tape";
   case AP_BOARD_REGION_GRAPHICS: return "display controller";
   case AP_BOARD_REGION_RING: return "token ring controller";
+  case AP_BOARD_REGION_MATROX: return "Matrox graphics";
   case AP_BOARD_REGION_ATBUS: return "AT bus (empty slot)";
   case AP_BOARD_REGION_RAM: return "main memory";
   }
@@ -1077,6 +1091,12 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     (void)ap_3c505_decode(AP_BOARD_ETHERNET_ADDR, address, &offset);
     return ap_3c505_read(&board->ethernet, offset);
   }
+  case AP_BOARD_REGION_MATROX: {
+    uint32_t block = 0;
+    uint32_t offset = 0;
+    (void)ap_matrox_decode(address, &block, &offset);
+    return ap_matrox_read8(&board->matrox, block, offset);
+  }
   case AP_BOARD_REGION_RING: {
     /* The unit is decoded but not yet *used*: this core models one controller,
      * and `RING.md` finding 38 leaves open whether unit 1's windows are a
@@ -1255,6 +1275,13 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
     uint32_t offset = 0;
     (void)ap_3c505_decode(AP_BOARD_ETHERNET_ADDR, address, &offset);
     ap_3c505_write(&board->ethernet, offset, value);
+    return;
+  }
+  case AP_BOARD_REGION_MATROX: {
+    uint32_t block = 0;
+    uint32_t offset = 0;
+    (void)ap_matrox_decode(address, &block, &offset);
+    ap_matrox_write8(&board->matrox, block, offset, value);
     return;
   }
   case AP_BOARD_REGION_RING: {

@@ -62,6 +62,7 @@ add_library(apollo_core STATIC
   device/ap_i8237.c
   device/ap_kbd.c
   device/ap_i8254.c
+  device/ap_matrox.c
   device/ap_ring_ctl.c
   model/ap_quirk.c
   device/ap_3c505.c

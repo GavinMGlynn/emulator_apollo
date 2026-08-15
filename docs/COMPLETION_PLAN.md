@@ -4302,6 +4302,20 @@ discipline throughout.
       **Which makes the item smaller than it looked**: nothing has to *execute*
       the microcode, only accept it. What is needed is the three ports, the
       status bits the firmware polls, and a frame buffer — not a coprocessor.
+      **The device now exists** — `src/core/device/ap_matrox.*`, fitted by
+      `--matrox`, decoding the three blocks and answering `$DA0006` as zero,
+      which is what GRAPHICS.md 11's two verdict conditions require and asserts
+      nothing further. The microcode download completes and is *measured* to:
+      `a1` ends at `00081D8E`, the ROM base plus exactly its `length` (12).
+      **What it has not bought is a boot** (12a): with the ROM fitted the
+      machine stops at `PC 000061F4` in the boot PROM printing nothing at all,
+      and a 350 M run is byte-identical to a 60 M one, so it is stuck. The
+      firmware's verdict is not observable yet. The suspected cause is
+      question C rather than the device — a DN4500 board's ROM on a DN3500 map
+      — and separating those needs `4500_BOOT_13167_02_MD7R.0.32.bin` and that
+      model's map, which is the next step here.
+      *Verification so far: `matrox_suite`, 6 tests, each replaying a ROM
+      address; the reference boot returns `A354786119A3931D` unchanged.*
 - [x] **DSP variants confirmed as true subsets.** All four boot headless and
       strap correctly -- they were all four *unstrapped* until the memory byte
       was keyed on the board rather than the model. `model_suite` holds the
