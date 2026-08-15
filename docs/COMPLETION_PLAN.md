@@ -4060,6 +4060,16 @@ discipline throughout.
         self-test hands its expected value, actual value and register address
         back to the caller as *data*, and the whole string table is five
         messages, so no per-bit text exists to recover.
+        **The filesystem walk that blocks this is DOCUMENTED** (`RING.md`
+        84-84d): `[AEGIS]` chapter 4 is the on-disk format -- VTOC header,
+        VTOC block, VTOC entries, and §4.4.1 "Locating an Object in the VTOC"
+        with the VTOCX laid out as bits 31:4 block and 3:0 index, plus a worked
+        example any implementation can check itself against. The header sits in
+        the **logical volume label**, one step from what `image/ap_volume.*`
+        already parses. This manual has been on disk since the start and was
+        never cited for this. It unblocks `ring8a.drvr`, the SELF_TEST image's
+        configuration checksum (83a), and the Ethernet and graphics
+        equivalents.
         **The only route left is Domain/OS's own ring driver -- and that route
         is now open** (`RING.md` findings 53-53e). The installed disk carries
         the driver's link map with every entry point named, including
