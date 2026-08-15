@@ -174,6 +174,8 @@ typedef struct {
    * requires `B0` once a `$6` command has been taken, so bit 6 goes with the
    * operation. Held per window because it changes. */
   uint16_t command_402_status;
+  /* `+404`'s low lane, the same shape and cleared by the same event. */
+  uint16_t command_404_status;
   uint16_t command_404;
   /* `+406` on the `a1` window, which finding 50a shows is never read. The `a2`
    * window's `+406` is the buffer port and does not use this. */

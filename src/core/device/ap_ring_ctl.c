@@ -43,6 +43,8 @@ void ap_ring_ctl_reset(ap_ring_ctl_t *ctl, bool present) {
   ctl->a2.status = AP_RING_CTL_STATUS_IDLE;
   ctl->a1.command_402_status = AP_RING_CTL_COMMAND_STATUS_IDLE;
   ctl->a2.command_402_status = AP_RING_CTL_COMMAND_STATUS_IDLE;
+  ctl->a1.command_404_status = AP_RING_CTL_COMMAND2_STATUS_IDLE;
+  ctl->a2.command_404_status = AP_RING_CTL_COMMAND2_STATUS_IDLE;
 }
 
 bool ap_ring_ctl_decode(uint32_t address, unsigned *unit, bool *second_window,
@@ -271,8 +273,7 @@ uint16_t ap_ring_ctl_read16(ap_ring_ctl_t *ctl, bool second_window,
        * lane, so bits 7-5 read set and bits 4-3 clear. `+402`'s four bits and
        * these three are the whole of what the ROM asserts about either status
        * half; nothing else is answered. */
-      return (uint16_t)((w->command_404 & 0xFF00u) |
-                        AP_RING_CTL_COMMAND2_STATUS_IDLE);
+      return (uint16_t)((w->command_404 & 0xFF00u) | w->command_404_status);
     default:
       /* `+406`. On the `a2` window this is the buffer's data port -- finding
        * 46a's read-ahead latch, which answers with the word the *previous*
@@ -391,6 +392,17 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
          * together rather than as two rules. */
         w->command_402 = 0u;
         w->command_402_status &= (uint16_t)~0x0040u;
+        /* **And `+404` with it: one completion, three registers.** Subtests 15
+         * and 25 both follow `$976` (which writes zero to `+404`), a
+         * `move.b #$8,$404(a4)`, and `$944` (which loads the 8254s) -- an
+         * identical sequence. The only difference is the command written to
+         * `+402` next: `#$2` before 15, which requires `+404`'s status bit 6
+         * **set**, and `#$6` before 25, which requires it **clear** with the
+         * command lane read back as zero. So the completing command is what
+         * clears them, and this is the event that ends an operation rather than
+         * three separate register rules. */
+        w->command_404 = 0u;
+        w->command_404_status &= (uint16_t)~0x0040u;
       }
       return;
     case 4u:
