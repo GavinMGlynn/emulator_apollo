@@ -4317,14 +4317,18 @@ discipline throughout.
       retracted** (12g): those `4801`s are the body of a **delay loop**, closed
       by `subq.l`/`bgt` two instructions later, and the machine reaches them
       606 K instructions before the option ROM ever runs.
-      **Measured instead** (12h): the PROM **retries the graphics
-      initialisation forever** — the delay is entered 23 times in 120 M and
-      still going, alternating callers `$5EE0`/`$5EF8` with counts of 2,000,000
-      and 500,000, the first six instructions after the ROM's `rts`. And the
-      ROM's call itself is clean (12i): entered once, returned once, to a `jsr`
-      site whose `rts` follows. So the condition being waited on is set *after*
-      the entry returns, by hardware not yet modelled — and the next step is a
-      dozen instructions of PROM at `$5EE0` to read (12j).
+      **What it actually is** (12j-12l): `$5ED6`-`$5F00` is the firmware's
+      **error display** — two delays and two writes to `$00010100`, the
+      diagnostic LED register, with no test and no exit. That register and this
+      very loop are already documented in `ap_boardreg.h` and `FINDINGS.md`
+      C109, and the boot report already prints `posted codes`, so three turns
+      of disassembly ended at a line of output that was there all along.
+      The codes, with controls: a healthy DN4500 posts `… 9F 8F FE`
+      (complemented: … 50, 60, **70**); with the option ROM it posts `… 9F ED`
+      and loops — **whether or not the Matrox device is fitted**. So the device
+      is not what fails (12m): the PROM stops at the step after post code `60`
+      with our registers answering exactly as designed. The next instrument is
+      the post routine's call sites, not the device.
       *Verification so far: `matrox_suite`, 6 tests, each replaying a ROM
       address; the reference boot returns `A354786119A3931D` unchanged.*
 - [x] **DSP variants confirmed as true subsets.** All four boot headless and
