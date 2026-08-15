@@ -989,17 +989,35 @@ static int run_ring_selftest(FILE *out, ap_model_id_t model,
           ap_m68030_read_a7(&machine.cpu.regs));
   fprintf(out, "  fault at     %08X\n", machine.cpu.fault_address);
   {
-    /* The firmware's own verdict, in its own words. */
+    /* The firmware's own verdict -- **and the two out-parameters are
+     * `expected` and `actual`, not `value` and `mask`, which is what this
+     * printed for a fortnight.**
+     *
+     * The comparing helpers (`$A56`, `$A62`, `$A6E`) all have one shape:
+     * `move.w (a1),d1` / `and.w d4,d1` / `cmp.w d1,d2`. So `d1` is the
+     * register read **already masked** and `d2` is the value the subtest
+     * wants; the mask itself is `d4` and is never passed out. Labelling `d1`
+     * "mask" put the *actual reading* under a heading that says it is the
+     * mask, and `RING.md` 68 duly recorded subtest 26 as testing "under a
+     * `$D000` mask" when `D000` is what this core answered and the mask is
+     * `$FF8E`. A harness that mislabels its own output is worse than one that
+     * prints nothing, because the wrong reading gets written down. */
     const uint8_t *const r = ram + (scratch - AP_BOARD_RAM_BASE) + 4u;
-    const uint32_t seen = (uint32_t)((r[0] << 24) | (r[1] << 16) |
-                                     (r[2] << 8) | r[3]);
-    const uint32_t mask = (uint32_t)((r[4] << 24) | (r[5] << 16) |
-                                     (r[6] << 8) | r[7]);
+    const uint32_t expected = (uint32_t)((r[0] << 24) | (r[1] << 16) |
+                                         (r[2] << 8) | r[3]);
+    const uint32_t actual = (uint32_t)((r[4] << 24) | (r[5] << 16) |
+                                       (r[6] << 8) | r[7]);
     const uint32_t at = (uint32_t)((r[8] << 24) | (r[9] << 16) |
                                    (r[10] << 8) | r[11]);
     if ((machine.cpu.regs.d[0] & 0xFFFFFF00u) == 0xE0000000u) {
-      fprintf(out, "  SUBTEST %02X failed: value %08X mask %08X at %08X\n",
-              machine.cpu.regs.d[0] & 0xFFu, seen, mask, at);
+      fprintf(out,
+              "  SUBTEST %02X failed: expected %08X, read %08X (masked) "
+              "at %08X\n",
+              machine.cpu.regs.d[0] & 0xFFu, expected, actual, at);
+      /* Which bits differ, since that is the question every one of these
+       * failures has actually been asking and it was being done by hand. */
+      fprintf(out, "               differing bit(s): %08X\n",
+              expected ^ actual);
     }
   }
   /* **The clock, which is the point of stepping the machine rather than the
