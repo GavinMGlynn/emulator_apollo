@@ -4326,9 +4326,17 @@ discipline throughout.
       The codes, with controls: a healthy DN4500 posts `… 9F 8F FE`
       (complemented: … 50, 60, **70**); with the option ROM it posts `… 9F ED`
       and loops — **whether or not the Matrox device is fitted**. So the device
-      is not what fails (12m): the PROM stops at the step after post code `60`
-      with our registers answering exactly as designed. The next instrument is
-      the post routine's call sites, not the device.
+      is not what fails (12m).
+      **Decoded and fixed** (13-13b): the post routine's `ror.b #4` / `not.b`
+      turns the displayed `ED` back into code **`21`**, whose check is at
+      `[ROM4500]` `$6962` and tests the machine's **own** display controller at
+      `0005E801` — not the Matrox board. Every run had `display none`, so that
+      compare met an empty decode. **With `--screen c8p` the boot goes six
+      checks further** (`… ED DD 9D 8D 7D 6D 5D FC`) and control reaches the
+      Matrox ROM's own code.
+      It now waits at `[ROMMX]` `$2EC`-`$310` for `$DA0006` **bit 5 set**
+      (13c) — an assertion `ap_matrox.h` already records as unmeasured, and the
+      next turn of the ring's satisfy-and-re-run loop.
       *Verification so far: `matrox_suite`, 6 tests, each replaying a ROM
       address; the reference boot returns `A354786119A3931D` unchanged.*
 - [x] **DSP variants confirmed as true subsets.** All four boot headless and
