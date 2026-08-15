@@ -4027,6 +4027,16 @@ discipline throughout.
         firmware-owned constraint to build the station-driven model against.
         The 8254-from-traffic wire is still unmade and still needed: for 31 and
         32 to pass, not for 26.
+        **And the `$6` command is now characterised** (`RING.md` 72-72b): all
+        four of its sites in `[ROM3500]` share one five-step preamble --
+        `$976`, `#$8` to `+404`, two counts, `$944` to load the 8254s, then
+        `$6` -- with `[ROM4500]` matching, and **only the counter pair varies**
+        (`$1FF`/`$3FF` three times, `$5`/`$5` once). So it is a *counted*
+        operation whose arguments are two ring-traffic counts and whose result
+        is read back through the same counters. That gives the station-driven
+        model its shape with **no constant anywhere** -- the extents are the
+        firmware's -- and the `$5`/`$5` site is an independent check a model
+        fitted to the large counts would fail.
         **Fourteen of the firmware's own subtests now pass**
         (`RING.md` 60-68), and the fifteenth is a *timing* question rather than
         a register one: subtest 26 requires `+400`'s bits 3-1 set where 22 and
