@@ -347,6 +347,26 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
                                      AP_RING_CTL_STATUS_BIT13 |
                                      AP_RING_CTL_STATUS_BIT3);
         ctl->a2.operation_pending = false;
+        /* **The loopback's traffic, counted.** `002398-01` p. 6-32 gives the
+         * diagnostic command bit `8000` as "dma test (loop xmit DMA to rcv
+         * DMA)", so this family loops transmit into receive *internally* --
+         * no medium, no station (`RING.md` 79a). The operation therefore moves
+         * packets from one DMA to the other, and the receive counters count
+         * what arrives.
+         *
+         * **How many is the firmware's own number, not one chosen here**: the
+         * transmit packet counter `+C02` was loaded immediately before the
+         * command (finding 72), and the transfer runs until it is exhausted.
+         * `ap_i8254_clock` pulses every running counter of the part, which is
+         * what a shared CLK line does.
+         *
+         * `PROVISIONAL` in one specific way: the transfer is *instantaneous*
+         * here, where real hardware would spread it over the ring's bit clock.
+         * Subtest 32 reads the counters afterwards and cannot tell the
+         * difference; anything that watches them *during* a transfer could. */
+        for (uint16_t i = 0; i < ctl->a2.timer_b.counter[1].latch; i++) {
+          ap_i8254_clock(&ctl->a2.timer_a);
+        }
       } else if (!second_window) {
         /* Nothing outstanding: bit 2 still returns, since subtests 22 and 24
          * show the acknowledge is what brings it back, but the completion bits
