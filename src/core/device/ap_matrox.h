@@ -95,6 +95,30 @@
  * the PROM's graphics path gets that far (`GRAPHICS.md` 13b, 13c). */
 #define AP_MATROX_STATUS_READY 0x20u
 
+/* ## The frame buffer, `GRAPHICS.md` 16-17b
+ *
+ * Located by measurement before it was named: 30.7 M reads and 50,744 writes
+ * landed in the undecoded AT window with the **first write at `000C63AF`**, and
+ * the board's own ROM does `movea.l #$c63b2,a3` at `$2E0`. Two witnesses to
+ * *where*, neither depending on a manual.
+ *
+ * `019411-A00` Table 2-5 -- the DS5500 256-MB allocation, the only 32-bit
+ * Apollo map on disk and the class this core uses for the DN3500/4500/5500 --
+ * then names the range **"ALTERNATE MONO GRAPHICS MEMORY SPACE"**, with a
+ * single-board ring controller sharing its upper half from `D0000`. The
+ * measured write is below that, in the graphics half.
+ *
+ * **The geometry is a hypothesis with arithmetic behind it, not a measurement**
+ * (17b): `0C0000`-`0DFFFF` is 128 KB = 1,048,576 bits = exactly **1024 x 1024
+ * at one bit per pixel**, the depth "mono" implies -- and finding 4a's
+ * parameter table, written to `$D40000` long before any of this, carries
+ * `00000400` = 1024. Rendering is the discriminator: a wrong pitch shears a
+ * picture that is still legible, a right one does not. */
+#define AP_MATROX_FRAME_ADDR 0x0C0000u
+#define AP_MATROX_FRAME_BYTES 0x20000u
+#define AP_MATROX_FRAME_WIDTH 1024u
+#define AP_MATROX_FRAME_HEIGHT 1024u
+
 typedef struct {
   /* Words fed to the microcode port. Counted rather than stored: finding 4b
    * gives the image's length and its identity, so what a model can be checked
@@ -111,7 +135,25 @@ typedef struct {
   /* The last word written to the data port, which finding 7's write-then-read
    * signature check is about. */
   uint16_t data_latch;
+
+  /* The frame, **allocated by the frontend and borrowed here**, which is the
+   * rule `src/core` follows for the screen's memories too: the core allocates
+   * nothing. A null pointer is a card with no frame attached, and its range
+   * then reads as an undriven bus does rather than as zeroes. */
+  uint8_t *frame;
+  uint32_t frame_bytes;
+  /* Distinct bytes of the frame the machine has written, so a run can say
+   * whether a picture was drawn at all without decoding one. A frame that is
+   * written and still black and a frame that was never written are different
+   * failures and report identically without this. */
+  unsigned frame_writes;
 } ap_matrox_t;
+
+/* Lend the device a frame buffer. `bytes` under `AP_MATROX_FRAME_BYTES` is
+ * accepted and bounds the decode, so a caller may attach a short buffer
+ * deliberately; the range beyond it reads undriven. */
+void ap_matrox_attach_frame(ap_matrox_t *matrox, uint8_t *frame,
+                            uint32_t bytes);
 
 /* Power-on state. */
 void ap_matrox_reset(ap_matrox_t *matrox);

@@ -16,9 +16,21 @@ static bool in_block(uint32_t address, uint32_t base, uint32_t size) {
   return address >= base && address < base + size;
 }
 
+void ap_matrox_attach_frame(ap_matrox_t *matrox, uint8_t *frame,
+                            uint32_t bytes) {
+  if (matrox == NULL) {
+    return;
+  }
+  matrox->frame = frame;
+  matrox->frame_bytes = bytes > AP_MATROX_FRAME_BYTES ? AP_MATROX_FRAME_BYTES
+                                                      : bytes;
+}
+
 bool ap_matrox_decode(uint32_t address, uint32_t *block, uint32_t *offset) {
   uint32_t base = 0;
-  if (in_block(address, AP_MATROX_DATA_ADDR, AP_MATROX_DATA_RANGE)) {
+  if (in_block(address, AP_MATROX_FRAME_ADDR, AP_MATROX_FRAME_BYTES)) {
+    base = AP_MATROX_FRAME_ADDR;
+  } else if (in_block(address, AP_MATROX_DATA_ADDR, AP_MATROX_DATA_RANGE)) {
     base = AP_MATROX_DATA_ADDR;
   } else if (in_block(address, AP_MATROX_XFER_ADDR, AP_MATROX_XFER_RANGE)) {
     base = AP_MATROX_XFER_ADDR;
@@ -39,6 +51,16 @@ bool ap_matrox_decode(uint32_t address, uint32_t *block, uint32_t *offset) {
 uint8_t ap_matrox_read8(ap_matrox_t *matrox, uint32_t block, uint32_t offset) {
   if (matrox == NULL) {
     return 0u;
+  }
+  if (block == AP_MATROX_FRAME_ADDR) {
+    /* Plain memory, which is the whole claim. Nothing here interprets the bits
+     * -- the geometry that turns them into a picture is the frontend's, and is
+     * a hypothesis until a render tests it (`GRAPHICS.md` 17b). Beyond an
+     * attached frame the range reads as an undriven bus does. */
+    if (matrox->frame == NULL || offset >= matrox->frame_bytes) {
+      return 0xFFu;
+    }
+    return matrox->frame[offset];
   }
   if (block == AP_MATROX_CTL_ADDR) {
     /* **The status byte, and why it is zero.** `$59E` polls bit 3 for clear
@@ -77,6 +99,14 @@ uint8_t ap_matrox_read8(ap_matrox_t *matrox, uint32_t block, uint32_t offset) {
 void ap_matrox_write8(ap_matrox_t *matrox, uint32_t block, uint32_t offset,
                       uint8_t value) {
   if (matrox == NULL) {
+    return;
+  }
+  if (block == AP_MATROX_FRAME_ADDR) {
+    if (matrox->frame == NULL || offset >= matrox->frame_bytes) {
+      return;
+    }
+    matrox->frame[offset] = value;
+    matrox->frame_writes++;
     return;
   }
   if (block == AP_MATROX_CTL_ADDR) {

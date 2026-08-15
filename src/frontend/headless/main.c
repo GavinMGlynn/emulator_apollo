@@ -247,6 +247,8 @@ static void print_usage(const char *program_name) {
    * across the break. */
   fprintf(stdout,
           "  --matrox              fit the DN4500 Matrox graphics board\n"
+          "  --matrox-screenshot FILE  scan its frame out to a PNG. The\n"
+          "                        geometry is a hypothesis; see GRAPHICS.md\n"
           "  --option-rom FILE     place an option ROM where the boot PROM's\n"
           "                        scan looks, with no card behind it\n"
           "  --3c505-rom FILE      fit the EtherLink Plus with its option ROM\n"
@@ -1081,6 +1083,8 @@ static const char *g_ring_rom_path = NULL;
 static uint8_t *g_ring_rom = NULL;
 static uint32_t g_ring_rom_bytes = 0;
 static bool g_fit_matrox = false;
+static uint8_t *g_matrox_frame = NULL;
+static const char *g_matrox_shot = NULL;
 static const char *g_option_rom_path = NULL;
 static uint8_t *g_option_rom = NULL;
 static const char *g_ethernet_rom_path = NULL;
@@ -1439,6 +1443,56 @@ static void report_state(ap_machine_t *machine) {
  * is written as an *index map* under an even grey ramp, and the console says
  * so. It still catches every geometric failure, which is what the verification
  * is for; it does not claim to be what the monitor showed. */
+/* **The Matrox frame, rendered to test a geometry rather than to assert one.**
+ *
+ * `GRAPHICS.md` 17b: the range is 128 KB = 1,048,576 bits = exactly 1024x1024
+ * at one bit per pixel, which is what `019411-A00` Table 2-5's "ALTERNATE MONO
+ * GRAPHICS MEMORY SPACE" implies and what finding 4a's parameter table's
+ * `00000400` = 1024 corroborates. Neither is a measurement of the *pitch*, and
+ * a wrong pitch shears a picture that is still legible -- so this exists to be
+ * looked at, and the picture is the evidence.
+ *
+ * Ink, not light: a set bit is black, the same convention `write_screenshot`
+ * uses for a one-plane screen, so the two can be compared by eye. */
+static int write_matrox_screenshot(const char *path,
+                                   const ap_matrox_t *matrox) {
+  if (matrox->frame == NULL) {
+    fprintf(stderr, "apollo: no Matrox frame attached, nothing to capture\n");
+    return 1;
+  }
+  if (!ap_png_available()) {
+    fprintf(stderr, "apollo: %s\n", ap_png_status_name(AP_PNG_UNSUPPORTED));
+    return 1;
+  }
+  const uint32_t pixels = AP_MATROX_FRAME_WIDTH * AP_MATROX_FRAME_HEIGHT;
+  uint8_t *image = (uint8_t *)calloc(1, pixels);
+  if (image == NULL) {
+    fprintf(stderr, "apollo: cannot allocate the screenshot\n");
+    return 1;
+  }
+  for (uint32_t i = 0; i < pixels; i++) {
+    const uint32_t byte = i >> 3;
+    if (byte >= matrox->frame_bytes) {
+      break;
+    }
+    /* Most significant bit leftmost, which is how every Apollo frame this
+     * project has scanned out is ordered. */
+    const unsigned bit = 7u - (i & 7u);
+    image[i] = (uint8_t)((matrox->frame[byte] >> bit) & 1u);
+  }
+  const uint8_t palette[2][3] = {{255u, 255u, 255u}, {0u, 0u, 0u}};
+  const ap_png_status_t st = ap_png_write_indexed(
+      path, image, AP_MATROX_FRAME_WIDTH, AP_MATROX_FRAME_HEIGHT, palette, 2u);
+  free(image);
+  if (st != AP_PNG_OK) {
+    fprintf(stderr, "apollo: %s\n", ap_png_status_name(st));
+    return 1;
+  }
+  printf("  matrox shot  %s, %ux%u, 1 plane, %u frame write(s)\n", path,
+         AP_MATROX_FRAME_WIDTH, AP_MATROX_FRAME_HEIGHT, matrox->frame_writes);
+  return 0;
+}
+
 static int write_screenshot(const char *path, const ap_graphics_t *graphics,
                             uint8_t cr1) {
   ap_graphics_geometry_t geometry;
@@ -2220,8 +2274,16 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * currently askable. */
   if (g_fit_matrox) {
     ap_board_attach_matrox(board, true);
-    printf("  matrox       graphics at %06X/%06X/%06X\n", AP_MATROX_DATA_ADDR,
-           AP_MATROX_XFER_ADDR, AP_MATROX_CTL_ADDR);
+    /* The frame is allocated here, not in the core, which allocates nothing --
+     * the same rule the screen's memories follow. */
+    if (g_matrox_frame == NULL) {
+      g_matrox_frame = (uint8_t *)calloc(1, AP_MATROX_FRAME_BYTES);
+    }
+    ap_matrox_attach_frame(&board->matrox, g_matrox_frame,
+                           AP_MATROX_FRAME_BYTES);
+    printf("  matrox       graphics at %06X/%06X/%06X, frame %06X+%X\n",
+           AP_MATROX_DATA_ADDR, AP_MATROX_XFER_ADDR, AP_MATROX_CTL_ADDR,
+           AP_MATROX_FRAME_ADDR, AP_MATROX_FRAME_BYTES);
   }
   if (g_option_rom_path != NULL) {
     long rom_size = 0;
@@ -3813,6 +3875,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     printf("\n");
   }
 
+  if (g_matrox_shot != NULL) {
+    status = write_matrox_screenshot(g_matrox_shot, &board->matrox);
+  }
   if (screenshot != NULL) {
     status = write_screenshot(screenshot, &board->graphics,
                               board->graphics.reg.cr1);
@@ -4137,8 +4202,16 @@ static int boot_from_tape(const char *path, unsigned limit) {
    * currently askable. */
   if (g_fit_matrox) {
     ap_board_attach_matrox(board, true);
-    printf("  matrox       graphics at %06X/%06X/%06X\n", AP_MATROX_DATA_ADDR,
-           AP_MATROX_XFER_ADDR, AP_MATROX_CTL_ADDR);
+    /* The frame is allocated here, not in the core, which allocates nothing --
+     * the same rule the screen's memories follow. */
+    if (g_matrox_frame == NULL) {
+      g_matrox_frame = (uint8_t *)calloc(1, AP_MATROX_FRAME_BYTES);
+    }
+    ap_matrox_attach_frame(&board->matrox, g_matrox_frame,
+                           AP_MATROX_FRAME_BYTES);
+    printf("  matrox       graphics at %06X/%06X/%06X, frame %06X+%X\n",
+           AP_MATROX_DATA_ADDR, AP_MATROX_XFER_ADDR, AP_MATROX_CTL_ADDR,
+           AP_MATROX_FRAME_ADDR, AP_MATROX_FRAME_BYTES);
   }
   if (g_option_rom_path != NULL) {
     long rom_size = 0;
@@ -4666,6 +4739,12 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--3c505") == 0) {
       g_fit_ethernet = true;
       i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--matrox-screenshot") == 0 && i + 1 < argc) {
+      g_fit_matrox = true;
+      g_matrox_shot = argv[i + 1];
+      i += 2;
       continue;
     }
     if (strcmp(argv[i], "--matrox") == 0) {

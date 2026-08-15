@@ -4370,10 +4370,23 @@ discipline throughout.
       (17a) — a real distinction, since that table puts alternate *colour* at
       `0E0000` and this machine's own 8-plane display at `0A0000`, and the card
       writes to neither.
-      **A geometry now has arithmetic behind it** (17b): the range is 128 KB =
-      1,048,576 bits = exactly **1024x1024 at 1 bit per pixel**, and finding
-      4a's parameter table carries `00000400` = 1024. Recorded as the
-      hypothesis to test by rendering, not as established.
+      **RETRACTED by rendering it** (18): decoding `0C0000`-`0DFFFF` for real
+      gives it **6 writes** in a whole boot while **50,738** still land in the
+      undecoded window. Finding 16 had taken the report's `first write` as the
+      location of fifty thousand — one sample generalised to a population, this
+      project's oldest error, with the instrument that catches it (`first
+      seen`, sixteen distinct addresses) in the same report.
+      **Measured instead** (18a): the writes are at `0093D000`-`0093DD29`, with
+      108,035 further distinct addresses the tracker could not hold — AT bus
+      memory, not a documented graphics range. A 3.3 KB span under 50,738
+      writes is a **window or a port**, not a linear frame, and that is the
+      next thing to establish. 17/17a's "alternate mono controller" reading
+      rested on the retracted address and is unsupported until something else
+      carries it; finding 15a's counting — that the console moved to this card
+      — is untouched.
+      The frame buffer and `--matrox-screenshot` land anyway: they decode a
+      documented graphics range, cost the reference boot nothing, and are the
+      instrument that produced the retraction.
       *Verification so far: `matrox_suite`, 6 tests, each replaying a ROM
       address; the reference boot returns `A354786119A3931D` unchanged.*
 - [x] **DSP variants confirmed as true subsets.** All four boot headless and
