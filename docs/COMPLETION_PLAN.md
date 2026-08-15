@@ -4196,10 +4196,17 @@ discipline throughout.
       *separator*, not the frame start -- §2.2.2.1's frame start sequence has a
       null separator between them, and starting early puts eight zero bits into
       the destination address.
-      **Still absent**: 85c alone -- the acknowledge fields are not modified in
-      flight. The station now knows whether it is addressed, which is the
-      precondition every one of those bits attaches to, so what is left is
-      rewriting bytes in the forwarded stream.
+      **Early acknowledge now modified in flight too** (`RING.md` 88-88d): an
+      addressed receiver sets intend-to-copy on the bit time it forwards it, and
+      flips the parity bit to keep the field odd. Safe by the manual's own
+      words -- the CRC treats the field as zeros, and a byte of zeros at `+6`
+      plus the field's two legal bits mean the stuffing cannot change. Checked
+      at the *downstream* station so the assertion is about a field that
+      travelled, not a local variable.
+      **What is left of the audit**: the **late** acknowledge (Figure 2-8's
+      copied, wait-ack, intend-to-copy, error), which lives in the end-of-frame
+      sequence past the frame check -- so it needs the forwarding path to track
+      a frame to its end rather than six bytes into its header.
       The stripping timeout and the token-loss recovery are implemented;
       removing a
       node mid-run is measured to lose an in-flight token, and a waiting

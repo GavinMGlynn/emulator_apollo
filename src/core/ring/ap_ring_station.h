@@ -121,9 +121,11 @@ typedef struct {
   unsigned rx_ones_run;
   unsigned rx_bit_count;
   uint8_t rx_byte;
-  uint8_t rx_header[6];
+  uint8_t rx_header[8]; /* through the early acknowledge at +7 */
   unsigned rx_header_len;
   bool rx_addressed;      /* the frame going by is for this node */
+  unsigned rx_header_bits; /* destuffed header bits seen, for locating +7 */
+  bool rx_flipped_parity;  /* intend-to-copy was set, so parity must flip */
   uint64_t frames_seen;
   uint64_t frames_addressed;
 

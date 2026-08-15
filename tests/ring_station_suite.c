@@ -467,6 +467,58 @@ static void test_a_broadcast_is_accepted_regardless_of_destination(void) {
   TEST_ASSERT_TRUE(r.station[2].frames_addressed > 0u);
 }
 
+/* **§2.2.2.2's early acknowledge, modified as the frame passes.** "A node's
+ * ring transmitter inserts an early acknowledge field; another node's receiver
+ * modifies it", and Figure 2-7: intend-to-copy is set by "an addressed
+ * receiver". `RING.md` 85c found nothing anywhere touching either acknowledge
+ * field in flight.
+ *
+ * The sender is the witness: it strips its own frame, so the field it reads
+ * back through its own receive path is the one the addressee rewrote on the
+ * way round. Checking at the *sender* rather than at the modifier is what makes
+ * this a test of the field travelling, not of a local variable. */
+static void test_an_addressed_receiver_sets_intend_to_copy_in_flight(void) {
+  ring_t r;
+  build(&r, 3u);
+  static uint8_t txbuf[2048];
+  uint8_t header[12] = {0};
+  ap_ring_header_set_destination(header, 0x00ABCDEFu);
+  ap_ring_header_set_type(header, AP_RING_TYPE_USER);
+  ap_ring_header_set_source(header, 0x00012345u);
+  /* The transmitter inserts the field. `set_early_ack` writes verbatim, so the
+   * parity is the caller's -- an all-zero field is **even** and therefore not
+   * a legal one, which is what the first version of this test wrote and what
+   * `ap_ring_ack_with_parity` exists to prevent. */
+  ap_ring_header_set_early_ack(header, ap_ring_ack_with_parity(0u));
+  TEST_ASSERT_TRUE(ap_ring_ack_parity_ok(header[AP_RING_HDR_EARLY_ACK]));
+
+  ap_ring_station_set_address(&r.station[0], 0x00012345u);
+  ap_ring_station_set_address(&r.station[1], 0x00ABCDEFu);
+  ap_ring_station_set_address(&r.station[2], 0x00FEDCBAu);
+  ap_ring_station_attach_tx(&r.station[0], txbuf, sizeof txbuf);
+  const ap_ring_frame_fields_t fields = {
+      .header = header, .header_bytes = sizeof header,
+      .data = NULL, .data_bytes = 0u, .late_acknowledge = 0u};
+  TEST_ASSERT_TRUE(ap_ring_station_queue_frame(&r.station[0], &fields));
+  ap_ring_station_originate_token(&r.station[1], AP_RING_OOB_FREE_TOKEN);
+  for (unsigned i = 0; i < 4000u; i++) {
+    step(&r);
+  }
+
+  /* Station 1 was addressed and station 2 was not. */
+  TEST_ASSERT_TRUE(r.station[1].frames_addressed > 0u);
+  TEST_ASSERT_EQUAL_UINT64(0u, r.station[2].frames_addressed);
+
+  /* And the bit arrived downstream: station 2 forwards the frame *after*
+   * station 1 has rewritten it, so what station 2 captured at header byte 7
+   * carries intend-to-copy. A field that was only altered locally would leave
+   * this clear. */
+  TEST_ASSERT_TRUE((r.station[2].rx_header[7] &
+                    AP_RING_EARLY_INTEND_TO_COPY) != 0u);
+  /* Odd parity is maintained, which is the half a naive rewrite breaks. */
+  TEST_ASSERT_TRUE(ap_ring_ack_parity_ok(r.station[2].rx_header[7]));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_stripping_timeout_matches_both_forms_the_manual_gives);
@@ -484,5 +536,6 @@ int main(void) {
   RUN_TEST(test_a_queued_frame_is_driven_onto_the_ring);
   RUN_TEST(test_a_frame_is_accepted_only_by_its_addressee);
   RUN_TEST(test_a_broadcast_is_accepted_regardless_of_destination);
+  RUN_TEST(test_an_addressed_receiver_sets_intend_to_copy_in_flight);
   return UNITY_END();
 }

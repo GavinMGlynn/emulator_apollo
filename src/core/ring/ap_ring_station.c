@@ -251,6 +251,8 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
     }
   }
 
+  bool forward_bit = bit;
+
   /* **§2.2.2.2's decision, taken from the passing stream.**
    *
    * The frame start sequence is the frame start character, a null separator
@@ -266,6 +268,8 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
     const bool oob = ap_ring_station_at_symbol(s, &sym);
     if (oob && sym == (uint16_t)AP_RING_OOB_FRAME_START) {
       s->rx_state = RX_AWAIT_SEPARATOR;
+      s->rx_addressed = false;
+      s->rx_flipped_parity = false;
       s->frames_seen++;
     } else if (s->rx_state == RX_AWAIT_SEPARATOR && oob &&
                sym == (uint16_t)AP_RING_OOB_SEPARATOR) {
@@ -274,10 +278,40 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
       s->rx_bit_count = 0u;
       s->rx_byte = 0u;
       s->rx_header_len = 0u;
+      s->rx_header_bits = 0u;
     } else if (s->rx_state == RX_HEADER) {
       const bool stuffed = (s->rx_ones_run >= 5u) && !bit;
       s->rx_ones_run = bit ? s->rx_ones_run + 1u : 0u;
       if (!stuffed) {
+        /* **§2.2.2.2's early acknowledge, modified as it passes.** "A node's
+         * ring transmitter inserts an early acknowledge field; another node's
+         * receiver modifies it", and Figure 2-7 attaches intend-to-copy to "an
+         * **addressed** receiver". The field is header byte **7** and the
+         * decision is taken at byte 6, so it is always known in time.
+         *
+         * Altering a bit *in flight* is the same mechanism claiming a token
+         * uses: the bit is changed on its way through, on the bit time it is
+         * forwarded. It needs no CRC recalculation because "ring hardware
+         * treats this field as a string of Zeros in its CRC calculation"
+         * (§2.2.2.2), and it cannot disturb the bit stuffing: Figure 2-5 puts
+         * a byte of zeros at `+6` immediately before it, and the field's own
+         * legal bits are 3 and 1, so the longest run of ones it can carry is
+         * one. */
+        const unsigned data_bit = s->rx_header_bits;
+        s->rx_header_bits++;
+        if (s->rx_addressed && data_bit >= 56u && data_bit < 64u) {
+          const unsigned in_byte = data_bit - 56u;
+          if (in_byte == 4u) { /* bit 3, most-significant-first */
+            if (!bit) {
+              forward_bit = true;
+              s->rx_flipped_parity = true;
+            }
+          } else if (in_byte == 6u && s->rx_flipped_parity) {
+            /* "This bit is used for odd parity." Setting intend-to-copy adds a
+             * One, so the parity bit must flip to keep the count odd. */
+            forward_bit = !bit;
+          }
+        }
         s->rx_byte = (uint8_t)(((unsigned)s->rx_byte << 1) | (bit ? 1u : 0u));
         if (++s->rx_bit_count == 8u) {
           if (s->rx_header_len < sizeof s->rx_header) {
@@ -285,7 +319,7 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
           }
           s->rx_bit_count = 0u;
           s->rx_byte = 0u;
-          if (s->rx_header_len == sizeof s->rx_header) {
+          if (s->rx_header_len == 6u) {
             const uint32_t dest = ((uint32_t)s->rx_header[0] << 24) |
                                   ((uint32_t)s->rx_header[1] << 16) |
                                   ((uint32_t)s->rx_header[2] << 8) |
@@ -300,7 +334,8 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
             if (s->rx_addressed) {
               s->frames_addressed++;
             }
-            s->rx_state = RX_DONE;
+            /* Capture continues past the decision: the early acknowledge is
+             * a byte further on and has to be reached. */
           }
         }
       }
@@ -309,7 +344,7 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
 
   /* Forwarded next bit time: "receive data in, and then immediately send it
    * out" -- one bit later, which is the elastic store's nominal delay. */
-  s->pending_bit = bit;
+  s->pending_bit = forward_bit;
   s->pending_valid = true;
 }
 
