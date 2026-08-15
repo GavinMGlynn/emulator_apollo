@@ -323,7 +323,34 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
        * This also corrects finding 69, whose premise was that there is "no
        * write to any ring register" between subtests 22 and 26. There are two,
        * in the *first* window, and 56b had already recorded them. */
-      if (!second_window) {
+      if (!second_window && ctl->a2.operation_pending) {
+        /* **Bits 13 and 3 come back here too, and the choice of *which*
+         * acknowledge is unobservable rather than fitted.** Bit 13's own
+         * helper `$9D2` writes nothing and bit 3 has no helper at all, so both
+         * must be restored by one of the two acknowledges -- and nothing reads
+         * `+400` between them: subtests 23 and 85 read `+402`, 25 reads `+404`,
+         * and `$A56`/`$A62` write nothing. So attaching them to `+2` or to
+         * `+4` produces **identical firmware-visible behaviour at all four
+         * `$6` sites**, including `$7F4`'s, which never polls bit 13 at all and
+         * still requires it set at subtest 86.
+         *
+         * That is why this is not the parameter search `RING.md` 73b warned
+         * about: a fit changes behaviour to match a test, and here the two
+         * candidates cannot be told apart by any observation this firmware
+         * makes. The earlier acknowledge is taken, and the equivalence is
+         * recorded so a later reader with a *second* firmware can settle it.
+         *
+         * Bit 3 is **set** rather than restored: the idle word `F806` has it
+         * clear (finding 60) and subtest 16 requires it clear, so completion is
+         * what turns it on. */
+        ctl->a2.status |= (uint16_t)(AP_RING_CTL_STATUS_BIT2 |
+                                     AP_RING_CTL_STATUS_BIT13 |
+                                     AP_RING_CTL_STATUS_BIT3);
+        ctl->a2.operation_pending = false;
+      } else if (!second_window) {
+        /* Nothing outstanding: bit 2 still returns, since subtests 22 and 24
+         * show the acknowledge is what brings it back, but the completion bits
+         * do not -- there is no completion to report. */
         ctl->a2.status |= AP_RING_CTL_STATUS_BIT2;
       }
       return;
@@ -404,6 +431,9 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
                                  AP_RING_CTL_STATUS_BIT2 |
                                  AP_RING_CTL_STATUS_BIT1 |
                                  AP_RING_CTL_STATUS_BIT14);
+        /* Something is now outstanding, and the acknowledge in the *first*
+         * window is what finishes it (`RING.md` 74a, 75). */
+        w->operation_pending = true;
         /* **The extent is bracketed, not chosen.** Two derived durations have
          * been tried and both refused: `RING.md` 70's 8 us (the 12-byte
          * minimum transmission) finished *before* subtest 22 polled, and the

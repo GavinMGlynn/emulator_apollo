@@ -4037,6 +4037,15 @@ discipline throughout.
         model its shape with **no constant anywhere** -- the extents are the
         firmware's -- and the `$5`/`$5` site is an independent check a model
         fitted to the large counts would fail.
+        **Twenty of the firmware's own subtests now pass** (`RING.md` 74-75b):
+        the timing question dissolved when 74 found that the polling helpers
+        are not passive -- `$9FA` and `$A28` each write an acknowledge to the
+        *first* window after polling, which 56b had recorded and 69 was written
+        without. The bits return when their condition is acknowledged, gated on
+        a command being outstanding. Subtests 22-26 and 31 pass; the stop is now
+        **SUBTEST 32** at `00059800`, the first 8254 -- the firmware asking for
+        counters that have *counted*, which is the traffic wire 41a and 71d
+        named. Detail in `RING.md`.
         **Fourteen of the firmware's own subtests now pass**
         (`RING.md` 60-68), and the fifteenth is a *timing* question rather than
         a register one: subtest 26 requires `+400`'s bits 3-1 set where 22 and

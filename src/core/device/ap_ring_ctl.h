@@ -186,6 +186,12 @@ typedef struct {
   uint16_t command_404_status;
   uint16_t command_404;
 
+  /* Whether a `$6` command is awaiting its acknowledge. An acknowledge with
+   * nothing outstanding must do nothing: subtest 16 runs after a `$2` command
+   * and *requires bit 3 clear*, so a model that set it on every write to the
+   * first window's `+2` fails there -- measured, not reasoned. `RING.md` 75. */
+  bool operation_pending;
+
   /* `+406` on the `a1` window, which finding 50a shows is never read. The `a2`
    * window's `+406` is the buffer port and does not use this. */
   uint16_t slot_406;
