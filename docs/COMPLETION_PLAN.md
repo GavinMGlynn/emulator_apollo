@@ -4015,8 +4015,18 @@ discipline throughout.
         to the completion. So it is a **count to be reached**, not a duration
         to be looked up, and both halves are modelled -- what is missing is the
         wire that clocks the 8254s from ring traffic, which 41a closed as a
-        question about frequency while leaving the connection unmade. That wire
-        is the item, and it needs no constant.
+        question about frequency while leaving the connection unmade.
+        **Corrected the same day it was written** (`RING.md` 71c): the counters
+        are **read back** four instructions after subtest 26 -- `$5B2`-`$5D4`
+        walks five of them through subtests 31 and 32 -- so they *measure* the
+        operation rather than gate it, and the load before the command puts
+        them in a known state for that measurement.
+        What that leaves is better than what it replaced: the completion still
+        comes from the medium (70a), and subtests 31/32 supply a
+        **quantitative check on what the operation must produce** -- a
+        firmware-owned constraint to build the station-driven model against.
+        The 8254-from-traffic wire is still unmade and still needed: for 31 and
+        32 to pass, not for 26.
         **Fourteen of the firmware's own subtests now pass**
         (`RING.md` 60-68), and the fifteenth is a *timing* question rather than
         a register one: subtest 26 requires `+400`'s bits 3-1 set where 22 and
