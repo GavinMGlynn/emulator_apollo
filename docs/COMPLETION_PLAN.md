@@ -4189,8 +4189,17 @@ discipline throughout.
       has come back and its own length has passed (step 7). The new test caught
       two defects on the way, the worse being that stripping **overwrote the
       free token step 6 emits**, so the ring was never released.
-      **Still absent**: §2.2.2.2's destination matching and the acknowledge
-      fields modified in flight -- the receive half (85b, 85c).
+      **Receive decision now built too** (`RING.md` 87-87c): a station has an
+      address and destuffs the passing stream far enough to take §2.2.2.2's
+      decision, checking broadcast first because "receivers ignore the
+      destination address field" when it is set. The capture waits for the
+      *separator*, not the frame start -- §2.2.2.1's frame start sequence has a
+      null separator between them, and starting early puts eight zero bits into
+      the destination address.
+      **Still absent**: 85c alone -- the acknowledge fields are not modified in
+      flight. The station now knows whether it is addressed, which is the
+      precondition every one of those bits attaches to, so what is left is
+      rewriting bytes in the forwarded stream.
       The stripping timeout and the token-loss recovery are implemented;
       removing a
       node mid-run is measured to lose an in-flight token, and a waiting

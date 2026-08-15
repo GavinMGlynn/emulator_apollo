@@ -10,6 +10,13 @@ void ap_ring_station_init(ap_ring_station_t *s, int slot) {
   s->slot = slot;
 }
 
+void ap_ring_station_set_address(ap_ring_station_t *s, uint32_t address) {
+  s->address = address;
+}
+
+/* Where the receive-side header capture has got to. */
+enum { RX_IDLE = 0, RX_AWAIT_SEPARATOR, RX_HEADER, RX_DONE };
+
 void ap_ring_station_attach_tx(ap_ring_station_t *s, uint8_t *bytes,
                                size_t capacity) {
   s->tx_bits = bytes;
@@ -241,6 +248,62 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
     s->bits_since_token = 0u;
     if (symbol == AP_RING_OOB_FREE_TOKEN) {
       s->tokens_seen++;
+    }
+  }
+
+  /* **§2.2.2.2's decision, taken from the passing stream.**
+   *
+   * The frame start sequence is the frame start character, a null separator
+   * and a separator character (§2.2.2.1), so the header begins after the
+   * separator -- not after the frame start. Waiting for the wrong one puts the
+   * null separator's eight zeros into the destination address.
+   *
+   * Bit stuffing is undone here rather than by `ap_ring_bitreader`, because a
+   * station sees one bit at a time and cannot rewind: a zero arriving on a run
+   * of five ones was inserted by the transmitter and is dropped (§2.2.1). */
+  {
+    uint16_t sym = 0u;
+    const bool oob = ap_ring_station_at_symbol(s, &sym);
+    if (oob && sym == (uint16_t)AP_RING_OOB_FRAME_START) {
+      s->rx_state = RX_AWAIT_SEPARATOR;
+      s->frames_seen++;
+    } else if (s->rx_state == RX_AWAIT_SEPARATOR && oob &&
+               sym == (uint16_t)AP_RING_OOB_SEPARATOR) {
+      s->rx_state = RX_HEADER;
+      s->rx_ones_run = 0u;
+      s->rx_bit_count = 0u;
+      s->rx_byte = 0u;
+      s->rx_header_len = 0u;
+    } else if (s->rx_state == RX_HEADER) {
+      const bool stuffed = (s->rx_ones_run >= 5u) && !bit;
+      s->rx_ones_run = bit ? s->rx_ones_run + 1u : 0u;
+      if (!stuffed) {
+        s->rx_byte = (uint8_t)(((unsigned)s->rx_byte << 1) | (bit ? 1u : 0u));
+        if (++s->rx_bit_count == 8u) {
+          if (s->rx_header_len < sizeof s->rx_header) {
+            s->rx_header[s->rx_header_len++] = s->rx_byte;
+          }
+          s->rx_bit_count = 0u;
+          s->rx_byte = 0u;
+          if (s->rx_header_len == sizeof s->rx_header) {
+            const uint32_t dest = ((uint32_t)s->rx_header[0] << 24) |
+                                  ((uint32_t)s->rx_header[1] << 16) |
+                                  ((uint32_t)s->rx_header[2] << 8) |
+                                  (uint32_t)s->rx_header[3];
+            const uint16_t type = (uint16_t)(((uint16_t)s->rx_header[4] << 8) |
+                                             s->rx_header[5]);
+            /* "receivers ignore the destination address field" when the
+             * broadcast bit is set -- so it is checked first and the address
+             * comparison is not reached. */
+            s->rx_addressed = ((type & AP_RING_TYPE_BROADCAST) != 0u) ||
+                              (dest == s->address);
+            if (s->rx_addressed) {
+              s->frames_addressed++;
+            }
+            s->rx_state = RX_DONE;
+          }
+        }
+      }
     }
   }
 

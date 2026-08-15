@@ -104,6 +104,29 @@ typedef struct {
   size_t tx_bit_pos;    /* bits driven so far */
   bool tx_armed;        /* a frame is assembled and waiting for the ring */
 
+  /* ## The receive decision, `[MAC]` §2.2.2.2
+   *
+   * "The hardware compares the contents of the 32-bit destination address
+   * field with the node address of the target ... a node receives a message if
+   * the destination address field matches its node address, or if the
+   * broadcast bit in the type field is set." The audit found no address on a
+   * station at all and nothing comparing one (`RING.md` 85b).
+   *
+   * The header is destuffed out of the passing bit stream far enough to decide
+   * -- destination (2 words) and type (1 word), the first six bytes -- which
+   * is all §2.2.2.2 needs and stops well short of parsing a frame the station
+   * is only forwarding. */
+  uint32_t address;
+  unsigned rx_state;
+  unsigned rx_ones_run;
+  unsigned rx_bit_count;
+  uint8_t rx_byte;
+  uint8_t rx_header[6];
+  unsigned rx_header_len;
+  bool rx_addressed;      /* the frame going by is for this node */
+  uint64_t frames_seen;
+  uint64_t frames_addressed;
+
   /* Step 7's other arm. Once the station has seen its own frame start come
    * back it counts the frame's own length before it stops stripping, which is
    * "finishes receiving its own frame" without needing to know the ring's
@@ -152,6 +175,11 @@ typedef struct {
 } ap_ring_station_t;
 
 void ap_ring_station_init(ap_ring_station_t *s, int slot);
+
+/* This node's address, which §2.2.2.2's comparison needs. Zero until set, and
+ * a station with no address still forwards -- it simply matches nothing but a
+ * broadcast. */
+void ap_ring_station_set_address(ap_ring_station_t *s, uint32_t address);
 
 /* Lend the station a buffer to assemble frames in. Without one it cannot
  * transmit, which is the state every station was in before `RING.md` 85. */
