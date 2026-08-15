@@ -4334,9 +4334,16 @@ discipline throughout.
       compare met an empty decode. **With `--screen c8p` the boot goes six
       checks further** (`… ED DD 9D 8D 7D 6D 5D FC`) and control reaches the
       Matrox ROM's own code.
-      It now waits at `[ROMMX]` `$2EC`-`$310` for `$DA0006` **bit 5 set**
-      (13c) — an assertion `ap_matrox.h` already records as unmeasured, and the
-      next turn of the ring's satisfy-and-re-run loop.
+      **And the board no longer stops the boot** (13c, 14): `[ROMMX]`
+      `$2EC`-`$310` waits for `$DA0006` **bit 5 set** — the opposite polarity
+      to bits 3 and 6, which is why answering the register zero satisfied one
+      routine and stalled this one. With it satisfied the register reads `$20`
+      (the three measured conditions and nothing else), six further checks
+      pass, and the machine ends in `FINDINGS.md` C109's **console-selection
+      poll** — idle and waiting for a keystroke, not failed.
+      Stated precisely (14a): the no-card control posts three codes further,
+      so the two are **not** identical and fitting the board still costs
+      something. What is established is that it no longer *stops* the boot.
       *Verification so far: `matrox_suite`, 6 tests, each replaying a ROM
       address; the reference boot returns `A354786119A3931D` unchanged.*
 - [x] **DSP variants confirmed as true subsets.** All four boot headless and

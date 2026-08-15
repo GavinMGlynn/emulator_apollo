@@ -57,11 +57,16 @@ static void test_the_status_byte_reads_the_two_bits_the_rom_requires_clear(
   TEST_ASSERT_EQUAL_HEX8(0u, status & AP_MATROX_STATUS_BUSY);
   TEST_ASSERT_EQUAL_HEX8(0u, status & AP_MATROX_STATUS_ERROR);
 
-  /* And nothing else is claimed: bits 4 and 5 are `btst`ed at sites past this
-   * routine whose required polarity nothing has measured, so a set bit here
-   * would be an invention. `RING.md` 62 made the same choice for the ring's ID
-   * lane and gave the same reason. */
-  TEST_ASSERT_EQUAL_HEX8(0u, status);
+  /* **Bit 5 is set, and the firmware is why.** `$2EC`-`$310` polls it and
+   * leaves early on `bne`, so a set bit ends that wait -- the opposite of bits
+   * 3 and 6, and reached only once a display is fitted (`GRAPHICS.md` 13c). */
+  TEST_ASSERT_EQUAL_HEX8(AP_MATROX_STATUS_READY,
+                         status & AP_MATROX_STATUS_READY);
+
+  /* And nothing beyond those three: bit 4's `btst` at `$3BA` has not been
+   * reached, so its polarity is unmeasured and a set bit would be an
+   * invention. `RING.md` 62's rule, one bit at a time. */
+  TEST_ASSERT_EQUAL_HEX8(AP_MATROX_STATUS_READY, status);
 }
 
 /* Finding 4b, and the arithmetic that identifies it: `$504` writes **2358
@@ -150,11 +155,11 @@ static void test_the_board_answers_only_when_the_card_is_fitted(void) {
   ap_board_attach_matrox(&board, true);
   TEST_ASSERT_EQUAL_INT(AP_BOARD_REGION_MATROX,
                         ap_board_region(&board, AP_MATROX_CTL_ADDR + 6u));
-  /* And now the two bits the ROM requires clear, through a **bus** read rather
-   * than a direct device call -- the distinction `ETHERNET.md` finding 10's
-   * test makes, because a device that answers only when called directly is not
+  /* And now the status the ROM requires, through a **bus** read rather than a
+   * direct device call -- the distinction `ETHERNET.md` finding 10's test
+   * makes, because a device that answers only when called directly is not
    * wired. */
-  TEST_ASSERT_EQUAL_HEX8(0u,
+  TEST_ASSERT_EQUAL_HEX8(AP_MATROX_STATUS_READY,
                          ap_board_read(&board, AP_MATROX_CTL_ADDR + 6u, &ok));
   TEST_ASSERT_TRUE(ok);
 

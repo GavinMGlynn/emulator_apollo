@@ -34,16 +34,17 @@
  *   `$5B8`-`$5CE`  **bit 6 must read clear**, tested once. A set bit stores
  *                  `$FFFF` exactly as the timeout does.
  *
- * Bits 4 and 5 are `btst`ed elsewhere (finding 6) and their required polarity
- * is **not** established -- the sites are reached only after this routine, so
- * nothing has measured them yet.
+ * **Bit 5 is now established too, and it wants the opposite** (`GRAPHICS.md`
+ * 13c): `$2EC` waits for it *set*. So the register reads `$20` -- bit 5 set,
+ * bits 3 and 6 clear -- which is exactly the three conditions the firmware has
+ * been measured to require and nothing more.
  *
- * **So the status register reads zero**, and that is a deliberate choice of the
- * same kind `RING.md` finding 62 made for the ring's ID lane: zero asserts
- * nothing the firmware did not, where any set bit would claim a condition no
- * measurement has seen. The bits this core has evidence for are clear; the rest
- * are clear because nothing says otherwise, and the next failure the firmware
- * reports is what will change that.
+ * Bit 4's polarity is still **not** established; its `btst` at `$3BA` has not
+ * been reached. It reads clear for the reason the whole register used to:
+ * `RING.md` finding 62's rule, that a set bit claims a condition no
+ * measurement has seen. Each bit is turned on only by a firmware assertion,
+ * which is what makes the sequence of failures a measurement rather than a
+ * search.
  *
  * ## The microcode, accepted and not executed
  *
@@ -87,6 +88,12 @@
  * cite conditions rather than magic numbers. Both must read **clear**. */
 #define AP_MATROX_STATUS_BUSY 0x08u  /* bit 3, polled at `$59E` with a budget */
 #define AP_MATROX_STATUS_ERROR 0x40u /* bit 6, tested once at `$5B8` */
+/* Bit 5, and the firmware wants it the *other* way. `$2EC`-`$310` loads
+ * `d0 = $FFF0`, polls `btst.b #$5,$da0006.l` and **leaves early on `bne`** --
+ * so a set bit is what ends the wait -- with a `divs.w` between two polls as a
+ * delay and a `dbra` as the bound. Reached only once a display is fitted and
+ * the PROM's graphics path gets that far (`GRAPHICS.md` 13b, 13c). */
+#define AP_MATROX_STATUS_READY 0x20u
 
 typedef struct {
   /* Words fed to the microcode port. Counted rather than stored: finding 4b

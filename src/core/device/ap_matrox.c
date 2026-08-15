@@ -49,8 +49,13 @@ uint8_t ap_matrox_read8(ap_matrox_t *matrox, uint32_t block, uint32_t offset) {
      * The rest are zero because nothing has asked about them yet -- the `btst`
      * sites for bits 4 and 5 are past this routine and unreached. `RING.md` 62
      * made exactly this choice for the ring's ID lane and gave the reason:
-     * answering a set bit would claim a condition nobody has seen. */
-    return 0u;
+     * answering a set bit would claim a condition nobody has seen.
+     *
+     * **Bit 5 is the exception, because the firmware asserts it the other
+     * way**: `$2EC`-`$310` polls it and leaves early on `bne`, so a set bit is
+     * what ends that wait (`GRAPHICS.md` 13c). Bit 4 stays clear -- its site
+     * at `$3BA` has not been reached, so nothing has said which way it goes. */
+    return AP_MATROX_STATUS_READY;
   }
   if (block == AP_MATROX_DATA_ADDR) {
     /* Finding 7's write-then-read. `$5D6` reads this 4003 times and **discards
