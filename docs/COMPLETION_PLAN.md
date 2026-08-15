@@ -3964,6 +3964,20 @@ discipline throughout.
         *Why this matters more than more disassembly: finding 56 established
         that a self-test failure reports a numbered subtest, so once the ROM
         runs, "fails at subtest 21" replaces reading listings blind.*
+        **RE-FRAMED, after five measurements against the wrong question.**
+        "What do `+400`'s bits mean" has now taken a ROM cross-read (`RING.md`
+        53h), the Domain/OS driver (53i), the *Engineering Handbook* (55b), the
+        `r3000` comparison (57) and this option-ROM route -- and none answered
+        it. Five refuted numeric matches came out of the same question. The
+        memory rule is two measurements, then re-frame, and this is well past
+        it.
+        The tractable question is **not** "when does the PROM's accepting scan
+        run" -- the stall is in the PROM, before the ring firmware is entered
+        at all. It is "**enter the ring ROM directly**": load it, set `a1`/`a2`
+        to finding 38's window pair, and call `entry_05` at `+2D4`, which is the
+        self-test. That runs the firmware immediately and yields subtest numbers
+        instead of listings. The PROM-driven route stays the faithful goal and
+        becomes a separate, later item rather than the blocker for this one.
   - [ ] **The transmit/receive handshake, which is what actually blocks the
         self-test.** Finding 45 shows `+400` has five polled bits (15, 13, 11,
         2, 1), each with its own timeout and expected polarity, and finding 48
