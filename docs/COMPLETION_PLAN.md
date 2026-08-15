@@ -4272,7 +4272,22 @@ discipline throughout.
       **Caveat, stated because it would otherwise be assumed away**: that run
       used the DN3500 PROM and map, since `identity-boot.sh` does. The
       addresses are facts about the *board*; whether they decode the same on a
-      DN4500 needs `4500_BOOT_13167_02_MD7R.0.32.bin` and that model's map.
+      DN4500 needs `4500_BOOT_13167_02_MD7R.0.32.bin` and that model's map —
+      and that PROM does **not** carry either address as an absolute operand,
+      checked.
+      **Both documentary routes are now exhausted, and named so nobody repeats
+      them.** `[S3K]` chapter 10 is the graphics chapter and covers the
+      **DN3000 and DN4000** controllers only — 4-plane colour, two 1280x1024
+      monochrome, 8-plane colour — as PCB dimensions, cables and supply
+      voltages, with no register map and no Matrox board. Its Table 2-6
+      graphics ranges (`0A0000`, `0C0000`, `0E0000`, `FA0000`) contain neither
+      address. The web has no register-level material for Apollo part `013748`
+      either; what exists is sales listings and unrelated modern Matrox parts.
+      **So the ROM is the only source left, which is where the ring and the
+      3c505 both ended up.** The route is the one that worked twice:
+      disassemble `4500_Matrox_013748_04.bin`'s four entry points and let its
+      own code specify the registers. This is a whole controller, not a
+      register or two, and it should be scoped before it is started.
 - [x] **DSP variants confirmed as true subsets.** All four boot headless and
       strap correctly -- they were all four *unstrapped* until the memory byte
       was keyed on the board rather than the model. `model_suite` holds the
