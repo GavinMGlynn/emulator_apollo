@@ -218,10 +218,14 @@ static void test_the_unknown_command_slots_are_storage_and_nothing_more(void) {
       0x2222u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 4u));
 
   /* Writing them changes nothing else: no side effect on the gate, the ID or
-   * the timers. */
+   * the timers. The constant is the **idle** word rather than the presence bit
+   * alone -- this assertion is about the absence of a side effect, and naming
+   * the reset value it happened to have made it fail when the firmware's own
+   * subtest 01 established what a reset board really reads. */
   TEST_ASSERT_EQUAL_HEX16(
-      AP_RING_CTL_STATUS_PRESENT,
+      AP_RING_CTL_STATUS_IDLE,
       ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS));
+  TEST_ASSERT_TRUE(AP_RING_CTL_STATUS_IDLE & AP_RING_CTL_STATUS_PRESENT);
   TEST_ASSERT_EQUAL_HEX8(AP_RING_CTL_ID_6,
                          ap_ring_ctl_read8(&ctl, true, AP_RING_CTL_BANK_ID));
 

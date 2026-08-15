@@ -121,6 +121,11 @@
  * polarity, and none is explained. Bit 15 alone has a meaning -- the presence
  * gate -- because init's use of it settles one. */
 #define AP_RING_CTL_STATUS_PRESENT 0x8000u
+
+/* What `+400` reads on an idle, just-reset board, asserted by the firmware's
+ * own subtest 01 -- `(+400) & $F806 == $F806`. Bits 15, 14, 13, 12, 11, 2 and
+ * 1. See `ap_ring_ctl.c`'s reset for why the ROM is the authority here. */
+#define AP_RING_CTL_STATUS_IDLE 0xF806u
 #define AP_RING_CTL_STATUS_BIT13 0x2000u
 #define AP_RING_CTL_STATUS_BIT11 0x0800u
 #define AP_RING_CTL_STATUS_BIT2 0x0004u

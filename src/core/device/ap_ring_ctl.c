@@ -25,8 +25,22 @@ void ap_ring_ctl_reset(ap_ring_ctl_t *ctl, bool present) {
   ctl->a1.id = AP_RING_CTL_ID_6;
   ctl->a2.id = AP_RING_CTL_ID_6;
   /* Finding 40: bit 15 is what init reads to decide the slot is populated. */
-  ctl->a1.status = AP_RING_CTL_STATUS_PRESENT;
-  ctl->a2.status = AP_RING_CTL_STATUS_PRESENT;
+  /* **The idle value the firmware's own self-test asserts.** Subtest 01 reads
+   * `+400`, masks with `$F806` and requires the result to *equal* `$F806`
+   * (`$A6E`: `move.w (a1),d1 / and.w d4,d1 / cmp.w d1,d2` with `d2 = d4 =
+   * $F806`), failing to `loc_08D2` with code `E0000001` otherwise. So bits 15,
+   * 14, 13, 12, 11, 2 and 1 all read set on a healthy board that has just been
+   * reset.
+   *
+   * This is the firmware specifying its own hardware, which is the strongest
+   * source this controller has -- there is no register manual for the AT board,
+   * five documentary and cross-reading attempts failed to settle these bits,
+   * and the ROM asserts them directly. It is *not* fitting the model to the
+   * test: the assertion is what a working board reads, and the later subtests
+   * constrain the same register further rather than agreeing with this one by
+   * construction. `AP_RING_CTL_STATUS_PRESENT` is bit 15 of it, finding 40. */
+  ctl->a1.status = AP_RING_CTL_STATUS_IDLE;
+  ctl->a2.status = AP_RING_CTL_STATUS_IDLE;
 }
 
 bool ap_ring_ctl_decode(uint32_t address, unsigned *unit, bool *second_window,
