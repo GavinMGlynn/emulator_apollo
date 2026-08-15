@@ -4077,7 +4077,20 @@ discipline throughout.
         offset. That is a filesystem problem, not a research one, and it would
         pay for itself well beyond the ring. Two further routes stay closed: finding 50a and
         51c.
-  - [ ] The DMA path and the interrupt. **The vector number is now measured:
+  - [ ] The DMA path and the interrupt.
+        **Blocked on which line, and it is a real three-way disagreement**
+        (`RING.md` 82-82b): the controller has no IRQ accessor and no wiring at
+        all -- the dangling shape the 3c505 had -- and `[S3K]` Table 2-3's
+        "IRQ3 = Network Board", `FINDINGS.md` C11's measured cascade on IR3,
+        and finding 53d's vector 163 (master IR3 through the measured `A0`
+        base) all name IR3, which cannot be both the cascade and the ring.
+        A wrong line is worse than none: it delivers interrupts a real machine
+        would not. What settles it is a `writetrace.lua` sweep of
+        `011000`-`0111FF` with a ring ROM fitted, watching which mask bit the
+        PROM clears -- the method C11 already used on the ICWs, and cheaper
+        than more reading. The device half *is* documented: Rev 1 gives the
+        board's interrupt-pending and enable bits and its clear rule (79c).
+        **The vector number is now measured:
         163** (`RING.md` 53d) -- `VBR` is `3C400800` and `RING_VEC` sits at
         `3C400A8C`, so the slot is arithmetic on two measured addresses rather
         than an inference, and `RING_8025_VEC1`/`VEC2` are 172 and 171 the same
