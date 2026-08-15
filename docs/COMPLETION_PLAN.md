@@ -3995,8 +3995,18 @@ discipline throughout.
         apart, and `+1400` into window 0 lands inside *unit 1's* range. Recorded
         as inconclusive rather than reconciled, because a manufactured match
         would be a wrong register map with two sources apparently agreeing.
-        **Awaiting:** the driver's init path, where `$20(A0)` is written. Same
-        resident image, same tools, no boot.
+        **Read, and it withdraws the register reading** (53i): `3C4D9000` is
+        `RING_$CCB`, `RING_$CTL` is its `+10` -- which is the ISR's own
+        `LEA $10(A0),A2` -- and the block's `+1C`/`+20` and `+28`/`+2C` are two
+        **empty list heads pointing at themselves**. So `$20(A0)` is a queue
+        pointer and `+1400` an offset into a queued structure, not a device
+        window. 53h declined to reconcile the cross-read; this is why it could
+        not be, and the caution was right.
+        **Awaiting:** the mask and transfer shape from the **ROMs**, which
+        address the controller directly (53j). The driver remains the source for
+        names and for the vector, and a poor one for register semantics --
+        everything it touches is an indirection away from the hardware, and the
+        indirections are empty on every machine this project can dump.
 - [x] Multi-node scheduler, in `src/core/ring/ap_ring_sched.*`: N nodes on one
       cycle-locked ring, each stepping only on its own boundaries against the
       shared time base, with the ring's bit clock competing as a clock domain
