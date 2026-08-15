@@ -4090,6 +4090,14 @@ discipline throughout.
         PROM clears -- the method C11 already used on the ICWs, and cheaper
         than more reading. The device half *is* documented: Rev 1 gives the
         board's interrupt-pending and enable bits and its clear rule (79c).
+        **Run, and it does not isolate the line** (82c-82e): across three
+        configurations the slave controller ends **fully masked** every time,
+        so there is no bit to identify. `--ring-rom` diverts the boot into the
+        console poll and never reaches Domain/OS; `--ring` alone boots normally
+        and still unmasks nothing. Finding 53e's rule explains it -- the driver
+        installs into vector 163 *only when the card answers* -- so the line
+        will be named by making Domain/OS's driver accept this controller, not
+        by another trace or another manual.
         **The vector number is now measured:
         163** (`RING.md` 53d) -- `VBR` is `3C400800` and `RING_VEC` sits at
         `3C400A8C`, so the slot is arithmetic on two measured addresses rather
