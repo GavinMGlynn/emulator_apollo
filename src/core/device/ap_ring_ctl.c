@@ -360,6 +360,29 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
       return;
     case 2u:
       w->command_402 = value;
+      /* **`PROVISIONAL`: a `6` command completes an operation, and clears the
+       * two status bits the firmware then waits on.**
+       *
+       * Subtest 22 writes `#$6` to `+402` and polls `+400`'s bits 13 and 2 with
+       * `d4 = 0` -- finding 56b's polarity, so both must go *clear*. Subtest 16
+       * requires bit 13 **set** after subtest 12 wrote `#$2` to the same
+       * register, so it is the value that separates them, not the act of
+       * writing. Finding 48 records `+402` taking `$1`, `$2` and `$6`.
+       *
+       * Modelled as: a command carrying `$4` completes immediately and clears
+       * those two bits. That is the least this core can do and satisfy both
+       * subtests, and it is an approximation in one specific way -- **real
+       * hardware would set them busy and clear them when the operation
+       * finished**, which is a timing this model does not have. The cost of
+       * closing it is a transmit path with duration, which is the item this
+       * belongs to. `[EH]`'s vocabulary for the DN3xx board calls bit 13 *busy*
+       * and bit 2 *copy*, which fits a completion, but the AT board's command
+       * encoding is plainly not the DN3xx's -- `$6` against that board's
+       * `6000` -- so the name is not carried over. */
+      if ((value & 0x0400u) != 0u) {
+        w->status &= (uint16_t)~(AP_RING_CTL_STATUS_BIT13 |
+                                 AP_RING_CTL_STATUS_BIT2);
+      }
       return;
     case 4u:
       w->command_404 = value;
