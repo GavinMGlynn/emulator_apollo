@@ -41,6 +41,8 @@ void ap_ring_ctl_reset(ap_ring_ctl_t *ctl, bool present) {
    * construction. `AP_RING_CTL_STATUS_PRESENT` is bit 15 of it, finding 40. */
   ctl->a1.status = AP_RING_CTL_STATUS_IDLE;
   ctl->a2.status = AP_RING_CTL_STATUS_IDLE;
+  ctl->a1.command_402_status = AP_RING_CTL_COMMAND_STATUS_IDLE;
+  ctl->a2.command_402_status = AP_RING_CTL_COMMAND_STATUS_IDLE;
 }
 
 bool ap_ring_ctl_decode(uint32_t address, unsigned *unit, bool *second_window,
@@ -262,8 +264,7 @@ uint16_t ap_ring_ctl_read16(ap_ring_ctl_t *ctl, bool second_window,
        *
        * Only those four bits are asserted by anything measured, so only those
        * are answered -- the same restraint as the ID lane in finding 62. */
-      return (uint16_t)((w->command_402 & 0xFF00u) |
-                        AP_RING_CTL_COMMAND_STATUS_IDLE);
+      return (uint16_t)((w->command_402 & 0xFF00u) | w->command_402_status);
     case 4u:
       /* The same shape one register along: subtest 15 requires
        * `(+404) & $F8 == $E0` after the firmware has written only the command
@@ -381,7 +382,15 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
        * `6000` -- so the name is not carried over. */
       if ((value & 0x0400u) != 0u) {
         w->status &= (uint16_t)~(AP_RING_CTL_STATUS_BIT13 |
-                                 AP_RING_CTL_STATUS_BIT2);
+                                 AP_RING_CTL_STATUS_BIT2 |
+                                 AP_RING_CTL_STATUS_BIT1);
+        /* Subtest 23: once the command has been taken the command lane reads
+         * back **zero**, not the value written, and the status lane drops bit
+         * 6 -- `B0` where an idle register reads `F0`. Both are the same event
+         * seen in the two halves of one register, which is why they are done
+         * together rather than as two rules. */
+        w->command_402 = 0u;
+        w->command_402_status &= (uint16_t)~0x0040u;
       }
       return;
     case 4u:

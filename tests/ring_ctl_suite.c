@@ -210,7 +210,11 @@ static void test_the_two_windows_are_separate_register_sets(void) {
   ap_ring_ctl_reset(&ctl, true);
 
   ap_ring_ctl_write8(&ctl, true, AP_RING_CTL_BANK_TIMER_A + 6u, 0xB0u);
-  ap_ring_ctl_write16(&ctl, false, AP_RING_CTL_BANK_STATUS + 2u, 0xBEEFu);
+  /* A value with bit 10 clear, because `+402` is a command register and a `$4`
+   * in the command lane now *means* something -- `BEEF` would be taken as an
+   * operation and self-clear the lane. This test is about the two windows being
+   * separate, so it uses a word that is not a command. */
+  ap_ring_ctl_write16(&ctl, false, AP_RING_CTL_BANK_STATUS + 2u, 0xB800u);
 
   TEST_ASSERT_EQUAL_HEX8(0xB0u, ctl.a2.timer_a.counter[2].control);
   TEST_ASSERT_EQUAL_HEX8(0x00u, ctl.a1.timer_a.counter[2].control);
@@ -218,7 +222,7 @@ static void test_the_two_windows_are_separate_register_sets(void) {
    * status, which finding 48 said it carried and subtest 13 pinned. So the
    * windows-are-separate claim is about the command lane. */
   TEST_ASSERT_EQUAL_HEX16(
-      0xBE00u, ap_ring_ctl_read16(&ctl, false, AP_RING_CTL_BANK_STATUS + 2u) &
+      0xB800u, ap_ring_ctl_read16(&ctl, false, AP_RING_CTL_BANK_STATUS + 2u) &
                    0xFF00u);
   TEST_ASSERT_EQUAL_HEX16(
       0x0000u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 2u) &

@@ -168,6 +168,12 @@ typedef struct {
    * writes them and reads them back -- not because their bits are known. */
   uint16_t status;
   uint16_t command_402;
+
+  /* `+402`'s low lane, which is status rather than the constant finding 63
+   * first modelled: subtest 13 requires `F0` on an idle register and subtest 23
+   * requires `B0` once a `$6` command has been taken, so bit 6 goes with the
+   * operation. Held per window because it changes. */
+  uint16_t command_402_status;
   uint16_t command_404;
   /* `+406` on the `a1` window, which finding 50a shows is never read. The `a2`
    * window's `+406` is the buffer port and does not use this. */
