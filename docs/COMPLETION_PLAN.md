@@ -4008,6 +4008,15 @@ discipline throughout.
         `ap_ring_station`, where the time is the medium's: 69a's design is
         required, not preferred. The timed scaffolding was reverted rather than
         left dormant.
+        **And the firmware names the source** (`RING.md` 71-71b): `$538`-`$544`
+        loads the two **8254 counters** with `$1FF` and `$3FF` and *then*
+        issues the `$6` command. Finding 41a had already established these are
+        packet counters clocked by **ring traffic**; nobody had connected that
+        to the completion. So it is a **count to be reached**, not a duration
+        to be looked up, and both halves are modelled -- what is missing is the
+        wire that clocks the 8254s from ring traffic, which 41a closed as a
+        question about frequency while leaving the connection unmade. That wire
+        is the item, and it needs no constant.
         **Fourteen of the firmware's own subtests now pass**
         (`RING.md` 60-68), and the fifteenth is a *timing* question rather than
         a register one: subtest 26 requires `+400`'s bits 3-1 set where 22 and
