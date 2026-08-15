@@ -312,8 +312,26 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
       return;
     case 2u:
       w->slot_002 = value;
+      /* **The first window's `+2` acknowledges bit 2, and the firmware says
+       * so by which helper writes it.** `RING.md` 74: `$9FA` polls `+400`
+       * bit **2** and ends `move.w #$0,$2(a3)`; `$A28` polls bit **1** and
+       * ends `move.w #$0,$4(a3)`; `$9D2`, which polls bit 13, writes nothing.
+       * Two helpers, two addresses, and each acknowledges the bit it just
+       * waited on -- so the bit returns when its condition is acknowledged,
+       * with no duration anywhere.
+       *
+       * This also corrects finding 69, whose premise was that there is "no
+       * write to any ring register" between subtests 22 and 26. There are two,
+       * in the *first* window, and 56b had already recorded them. */
+      if (!second_window) {
+        ctl->a2.status |= AP_RING_CTL_STATUS_BIT2;
+      }
       return;
     case 4u:
+      /* And `+4` acknowledges bit 1, from `$A28`'s tail. */
+      if (!second_window) {
+        ctl->a2.status |= AP_RING_CTL_STATUS_BIT1;
+      }
       w->slot_004 = value;
       return;
     default:
