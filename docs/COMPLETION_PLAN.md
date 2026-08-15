@@ -3942,55 +3942,32 @@ discipline throughout.
         replayed instruction for instruction — 64 KB in four patterns, with
         `addq.b`'s no-carry and the 16-bit `not.w`/`rol.w` preserved so the
         translation cannot pass against itself. Detail in `PROJECT_STATUS.md`.*
-  - [ ] **The register vocabulary is documented after all** (`RING.md` 55): the
-        *Domain Engineering Handbook*, on disk since the start and cited once
-        without detail, carries a full **RING REGISTERS** section for the DN3xx
-        and DN5xx boards -- every bit of transmit, receive and diagnostic
-        status and command named, with "a successful transmit will have a
-        transmit status of 0014" and "a WACK will have 0012". It corroborates
-        the driver's own condition names independently (55a).
-        **What it does not settle** is the mapping onto the DN3500's AT board,
-        and the obvious match fails arithmetic: a byte written to `+402` is the
-        high byte of that word, so the firmware's `$6` is `0600` and the note's
-        `6000` would need `$60` (55b). Suggestive and unproven, which is where
-        it stays.
-  - [ ] **A route to running the firmware's own self-test now exists.**
-        `--ring-rom FILE` places the image where the boot PROM's expansion scan
-        looks, and the PROM reads the option-ROM magic `335E91B6` at `00080000`
-        from PC `0000106A`. It does **not** proceed: the entry table at `+4A` is
-        never read and `init` is not called in 20 M instructions. So the next
-        question is what else the header must satisfy, or whether a card's ROM
-        must sit at the page matching its slot. Detail in `PROJECT_STATUS.md`.
-        *Why this matters more than more disassembly: finding 56 established
-        that a self-test failure reports a numbered subtest, so once the ROM
-        runs, "fails at subtest 21" replaces reading listings blind.*
-        **RE-FRAMED, after five measurements against the wrong question.**
-        "What do `+400`'s bits mean" has now taken a ROM cross-read (`RING.md`
-        53h), the Domain/OS driver (53i), the *Engineering Handbook* (55b), the
-        `r3000` comparison (57) and this option-ROM route -- and none answered
-        it. Five refuted numeric matches came out of the same question. The
-        memory rule is two measurements, then re-frame, and this is well past
-        it.
-        The tractable question is **not** "when does the PROM's accepting scan
-        run" -- the stall is in the PROM, before the ring firmware is entered
-        at all. It is "**enter the ring ROM directly**": load it, set `a1`/`a2`
-        to finding 38's window pair, and call `entry_05` at `+2D4`, which is the
-        self-test. That runs the firmware immediately and yields subtest numbers
-        instead of listings. The PROM-driven route stays the faithful goal and
-        becomes a separate, later item rather than the blocker for this one.
-        **Done, and it works.** `--ring-selftest` calls `entry_05` with its two
-        stack arguments and runs **52 instructions of real ring firmware**
-        before stopping at `+310`, `move.l (a0),d0`, with a memory fault -- a
-        pointer the firmware computed that this board does not map. A named
-        instruction and a reason, which is the signal five listing reads did not
-        give. **And now the firmware's own verdict**: with its full seven-argument
-        list supplied -- three of them out-parameters the failure path writes
-        through -- the self-test returns and reports
-        `SUBTEST 01 failed: value 0000F806 mask 00008000 at 00059400`. It
-        confirms finding 38's window pair and finding 39's ID gate on the way.
-        Detail in `PROJECT_STATUS.md`.
-        *The loop is now "fails at 01" -> fix -> "fails at 11", against 40
-        numbered subtests.*
+  - [x] **The register vocabulary, read across all three Engineering Handbook
+        revisions.** Rev 4 carries the RING REGISTERS section for the DN3xx and
+        DN5xx boards, every status and command bit named, corroborating the
+        Domain/OS driver's own condition names independently (`RING.md` 55,
+        55a). **Rev 1 carries more**, and had never been opened: a diagnostic
+        command register whose `8000` is "dma test (loop xmit DMA to rcv DMA)",
+        explicit Trans/Rec Interrupt ACK registers, and the only per-counter
+        semantics any source gives (79-79c).
+        **The mapping onto the AT board is refused, not pending**: a byte
+        written to `+402` is that word's high byte, so the firmware's `$6` is
+        `0600` where the note's `6000` needs `$60` (55b). The vocabulary is
+        evidence about the *family*, which is how 79a and 79b were used, and
+        not an address map for this board. Detail in `RING.md`.
+  - [x] **The firmware's own self-test runs, and both ROM revisions do.**
+        `--ring-selftest` enters `entry_05` directly with its seven-argument
+        list -- three of them out-parameters the failure path writes through --
+        rather than waiting for a boot PROM that never reaches the accepting
+        scan. It reports the firmware's own verdict as a numbered subtest, which
+        replaced five refuted numeric matches with a measurable loop.
+        The entry offset is read from **each image's own header table**, so
+        `[ROM4500]` (`+2A2`) runs as well as `[ROM3500]` (`+2D4`), and the two
+        revisions -- 41% different by bytes -- agree exactly (`RING.md` 78,
+        78a). The report names expected against actual with the differing bits,
+        after mislabelling them for a fortnight (68b).
+        *Verification: twenty of the firmware's own subtests pass on both
+        images. Detail in `PROJECT_STATUS.md` and `RING.md`.*
   - [ ] **The transmit/receive handshake, which is what actually blocks the
         self-test.** **Prerequisite done**: the harness stepped the *processor*
         rather than the machine, so no time passed during the firmware's run --
