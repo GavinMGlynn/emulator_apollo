@@ -3978,6 +3978,12 @@ discipline throughout.
         self-test. That runs the firmware immediately and yields subtest numbers
         instead of listings. The PROM-driven route stays the faithful goal and
         becomes a separate, later item rather than the blocker for this one.
+        **Done, and it works.** `--ring-selftest` calls `entry_05` with its two
+        stack arguments and runs **52 instructions of real ring firmware**
+        before stopping at `+310`, `move.l (a0),d0`, with a memory fault -- a
+        pointer the firmware computed that this board does not map. A named
+        instruction and a reason, which is the signal five listing reads did not
+        give. Detail in `PROJECT_STATUS.md`.
   - [ ] **The transmit/receive handshake, which is what actually blocks the
         self-test.** Finding 45 shows `+400` has five polled bits (15, 13, 11,
         2, 1), each with its own timeout and expected polarity, and finding 48
