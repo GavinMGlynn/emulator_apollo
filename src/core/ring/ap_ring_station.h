@@ -126,6 +126,26 @@ typedef struct {
   bool rx_addressed;      /* the frame going by is for this node */
   unsigned rx_header_bits; /* destuffed header bits seen, for locating +7 */
   bool rx_flipped_parity;  /* intend-to-copy was set, so parity must flip */
+
+  /* ## The late acknowledge, `[MAC]` §2.2.2.5
+   *
+   * Figure 2-8's bits are set by a receiver as the frame's *end* goes by, so
+   * reaching them means tracking a frame past its header: the three separator
+   * characters delimit the sequences, and after the third come the 32-bit CRC
+   * and a null separator (§2.2.2.4) before the field itself.
+   *
+   * `receive_enabled` is what separates copied from wait-ack -- "an addressed
+   * receiver **that wasn't enabled to copy** the packet sets this bit" -- and
+   * defaults on, so a station that has not been configured behaves as one that
+   * can receive rather than one that silently WACKs everything. */
+  unsigned rx_separators;
+  unsigned rx_fcs_bits;
+  unsigned rx_late_bits;
+  uint8_t rx_late;
+  bool receive_enabled;
+  bool rx_frame_error;
+  uint64_t frames_copied;
+  uint64_t frames_wacked;
   uint64_t frames_seen;
   uint64_t frames_addressed;
 
@@ -182,6 +202,11 @@ void ap_ring_station_init(ap_ring_station_t *s, int slot);
  * a station with no address still forwards -- it simply matches nothing but a
  * broadcast. */
 void ap_ring_station_set_address(ap_ring_station_t *s, uint32_t address);
+
+/* Whether this station is enabled to copy a packet addressed to it. Figure
+ * 2-8 makes the distinction: an addressed receiver that is enabled sets
+ * *copied*, one that is not sets *wait ack*. */
+void ap_ring_station_set_receive_enabled(ap_ring_station_t *s, bool enabled);
 
 /* Lend the station a buffer to assemble frames in. Without one it cannot
  * transmit, which is the state every station was in before `RING.md` 85. */

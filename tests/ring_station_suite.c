@@ -519,6 +519,74 @@ static void test_an_addressed_receiver_sets_intend_to_copy_in_flight(void) {
   TEST_ASSERT_TRUE(ap_ring_ack_parity_ok(r.station[2].rx_header[7]));
 }
 
+/* **§2.2.2.5's late acknowledge, set as the frame's end goes past.** "This
+ * field tells the sending node whether or not the frame has been received and
+ * the packet has been copied. The transmitter inserts a late acknowledge
+ * field; the receiver modifies it." Figure 2-8: *copied* is set by "a receiver
+ * that has successfully copied the packet", *wait ack* by "an addressed
+ * receiver that wasn't enabled to copy".
+ *
+ * Reaching it means tracking a frame past its header -- three separators, then
+ * the CRC and a null separator -- which is what `RING.md` 88d left open. */
+static void late_ack_ring(ring_t *r, uint8_t *txbuf, size_t txcap,
+                          bool enabled) {
+  build(r, 3u);
+  static uint8_t header[12];
+  for (unsigned i = 0; i < sizeof header; i++) {
+    header[i] = 0u;
+  }
+  ap_ring_header_set_destination(header, 0x00ABCDEFu);
+  ap_ring_header_set_type(header, AP_RING_TYPE_USER);
+  ap_ring_header_set_source(header, 0x00012345u);
+  ap_ring_header_set_early_ack(header, ap_ring_ack_with_parity(0u));
+
+  ap_ring_station_set_address(&r->station[1], 0x00ABCDEFu);
+  ap_ring_station_set_address(&r->station[2], 0x00FEDCBAu);
+  ap_ring_station_set_receive_enabled(&r->station[1], enabled);
+  ap_ring_station_attach_tx(&r->station[0], txbuf, txcap);
+  const ap_ring_frame_fields_t fields = {
+      .header = header, .header_bytes = sizeof header,
+      .data = NULL, .data_bytes = 0u,
+      /* The transmitter inserts the field, with legal odd parity. */
+      .late_acknowledge = ap_ring_ack_with_parity(0u)};
+  TEST_ASSERT_TRUE(ap_ring_station_queue_frame(&r->station[0], &fields));
+  ap_ring_station_originate_token(&r->station[1], AP_RING_OOB_FREE_TOKEN);
+  for (unsigned i = 0; i < 4000u; i++) {
+    step(r);
+  }
+}
+
+static void test_an_addressed_receiver_sets_copied_in_the_late_ack(void) {
+  ring_t r;
+  static uint8_t txbuf[2048];
+  late_ack_ring(&r, txbuf, sizeof txbuf, true);
+
+  /* The addressee copied it, and the bystander did neither. */
+  TEST_ASSERT_TRUE(r.station[1].frames_copied > 0u);
+  TEST_ASSERT_EQUAL_UINT64(0u, r.station[1].frames_wacked);
+  TEST_ASSERT_EQUAL_UINT64(0u, r.station[2].frames_copied);
+
+  /* And the field that travelled carries it. Read at the station *downstream*
+   * of the modifier, so this is about a byte on the wire. */
+  TEST_ASSERT_TRUE((r.station[2].rx_late & AP_RING_LATE_COPIED) != 0u);
+  TEST_ASSERT_TRUE((r.station[2].rx_late & AP_RING_LATE_INTEND_TO_COPY) != 0u);
+  TEST_ASSERT_TRUE(ap_ring_ack_parity_ok(r.station[2].rx_late));
+}
+
+/* The other arm, which a model that always reported success would fail: an
+ * addressed receiver that is *not* enabled sets wait-ack instead of copied. */
+static void test_a_receiver_not_enabled_to_copy_sets_wait_ack(void) {
+  ring_t r;
+  static uint8_t txbuf[2048];
+  late_ack_ring(&r, txbuf, sizeof txbuf, false);
+
+  TEST_ASSERT_TRUE(r.station[1].frames_wacked > 0u);
+  TEST_ASSERT_EQUAL_UINT64(0u, r.station[1].frames_copied);
+  TEST_ASSERT_TRUE((r.station[2].rx_late & AP_RING_LATE_WAIT_ACK) != 0u);
+  TEST_ASSERT_EQUAL_HEX8(0u, r.station[2].rx_late & AP_RING_LATE_COPIED);
+  TEST_ASSERT_TRUE(ap_ring_ack_parity_ok(r.station[2].rx_late));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_stripping_timeout_matches_both_forms_the_manual_gives);
@@ -537,5 +605,7 @@ int main(void) {
   RUN_TEST(test_a_frame_is_accepted_only_by_its_addressee);
   RUN_TEST(test_a_broadcast_is_accepted_regardless_of_destination);
   RUN_TEST(test_an_addressed_receiver_sets_intend_to_copy_in_flight);
+  RUN_TEST(test_an_addressed_receiver_sets_copied_in_the_late_ack);
+  RUN_TEST(test_a_receiver_not_enabled_to_copy_sets_wait_ack);
   return UNITY_END();
 }

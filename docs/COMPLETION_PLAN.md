@@ -4203,10 +4203,17 @@ discipline throughout.
       plus the field's two legal bits mean the stuffing cannot change. Checked
       at the *downstream* station so the assertion is about a field that
       travelled, not a local variable.
-      **What is left of the audit**: the **late** acknowledge (Figure 2-8's
-      copied, wait-ack, intend-to-copy, error), which lives in the end-of-frame
-      sequence past the frame check -- so it needs the forwarding path to track
-      a frame to its end rather than six bytes into its header.
+      **AUDIT CLOSED** (`RING.md` 89-89d): the late acknowledge is modified in
+      flight too. A forwarding station tracks a frame past its header by
+      counting the three separator characters, then the CRC and null separator,
+      and sets Figure 2-8's bits by the conditions the figure attaches to each
+      -- copied and intend-to-copy when addressed and enabled, wait-ack when
+      addressed and not, error when *any* station saw one go by. Parity is
+      recomputed rather than patched, since more than one bit may change.
+      Every gap the audit found is implemented: §2.1's steps 3, 6 and 7,
+      §2.2.2.2's address matching, and both acknowledge fields.
+      `ring_station_suite` 12 -> 18, with the ring probe golden and the
+      reference boot hash **byte-unchanged throughout**.
       The stripping timeout and the token-loss recovery are implemented;
       removing a
       node mid-run is measured to lose an in-flight token, and a waiting

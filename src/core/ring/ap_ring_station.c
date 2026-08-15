@@ -8,14 +8,21 @@
 void ap_ring_station_init(ap_ring_station_t *s, int slot) {
   *s = (ap_ring_station_t){0};
   s->slot = slot;
+  /* On by default: an unconfigured station should behave as one that can
+   * receive, not as one that WACKs everything addressed to it. */
+  s->receive_enabled = true;
 }
 
 void ap_ring_station_set_address(ap_ring_station_t *s, uint32_t address) {
   s->address = address;
 }
 
+void ap_ring_station_set_receive_enabled(ap_ring_station_t *s, bool enabled) {
+  s->receive_enabled = enabled;
+}
+
 /* Where the receive-side header capture has got to. */
-enum { RX_IDLE = 0, RX_AWAIT_SEPARATOR, RX_HEADER, RX_DONE };
+enum { RX_IDLE = 0, RX_AWAIT_SEPARATOR, RX_HEADER, RX_BODY, RX_FCS, RX_LATE };
 
 void ap_ring_station_attach_tx(ap_ring_station_t *s, uint8_t *bytes,
                                size_t capacity) {
@@ -201,6 +208,9 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
   const bool bit = ap_ring_biphase_decode(cell, s->rx_level, &error);
   if (error) {
     s->saw_biphase_error = true;
+    /* "A station that observes an error in the packet going by sets this bit"
+     * -- recorded per frame so the late acknowledge can report it. */
+    s->rx_frame_error = true;
   }
   s->rx_level = ap_ring_cell_trailing_level(cell);
 
@@ -270,15 +280,92 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
       s->rx_state = RX_AWAIT_SEPARATOR;
       s->rx_addressed = false;
       s->rx_flipped_parity = false;
+      s->rx_separators = 0u;
+      s->rx_frame_error = false;
       s->frames_seen++;
-    } else if (s->rx_state == RX_AWAIT_SEPARATOR && oob &&
-               sym == (uint16_t)AP_RING_OOB_SEPARATOR) {
-      s->rx_state = RX_HEADER;
-      s->rx_ones_run = 0u;
-      s->rx_bit_count = 0u;
-      s->rx_byte = 0u;
-      s->rx_header_len = 0u;
-      s->rx_header_bits = 0u;
+    } else if (oob && sym == (uint16_t)AP_RING_OOB_SEPARATOR &&
+               s->rx_state != RX_IDLE) {
+      /* **The three separators are what delimit the sequences** (§2.2.1.2), so
+       * counting them is how a forwarding station tracks a frame to its end
+       * without parsing it. The first ends the frame start sequence, the
+       * second the packet header sequence, the third the packet data
+       * sequence -- and after the third come §2.2.2.4's 32-bit CRC and a null
+       * separator, then the end-of-frame sequence's late acknowledge byte. */
+      s->rx_separators++;
+      if (s->rx_separators == 3u) {
+        s->rx_state = RX_FCS;
+        s->rx_fcs_bits = 0u;
+        s->rx_ones_run = 0u;
+        s->rx_late_bits = 0u;
+        s->rx_late = 0u;
+      } else if (s->rx_separators == 1u) {
+        s->rx_state = RX_HEADER;
+        s->rx_ones_run = 0u;
+        s->rx_bit_count = 0u;
+        s->rx_byte = 0u;
+        s->rx_header_len = 0u;
+        s->rx_header_bits = 0u;
+      } else {
+        s->rx_state = RX_BODY;
+      }
+    } else if (s->rx_state == RX_FCS || s->rx_state == RX_LATE) {
+      const bool stuffed = (s->rx_ones_run >= 5u) && !bit;
+      s->rx_ones_run = bit ? s->rx_ones_run + 1u : 0u;
+      if (!stuffed) {
+        if (s->rx_state == RX_FCS) {
+          /* §2.2.2.4: "a cyclic redundancy field and a null separator" -- 32
+           * bits then 8, after which the end-of-frame sequence begins. */
+          if (++s->rx_fcs_bits >= 40u) {
+            s->rx_state = RX_LATE;
+          }
+        } else {
+          /* **Figure 2-8, set as the field goes past.** An addressed receiver
+           * that is enabled sets *copied* and *intend-to-copy*; one that is
+           * not sets *wait ack*. Any station that saw an error in the frame
+           * sets *error* -- "a station that observes an error in the packet
+           * going by sets this bit", which is not limited to the addressee.
+           *
+           * Outside the CRC entirely (finding 25: the late field "is neither
+           * sequence"), so nothing is recalculated; and its legal bits give a
+           * longest run of three ones, so the stuffing cannot change. */
+          bool out = bit;
+          const unsigned pos = s->rx_late_bits; /* 0 is bit 7 */
+          if (s->rx_addressed && pos == 1u && s->receive_enabled) {
+            out = true; /* copied <6> */
+          } else if (s->rx_addressed && pos == 2u && !s->receive_enabled) {
+            out = true; /* wait ack <5> */
+          } else if (s->rx_addressed && pos == 4u && s->receive_enabled) {
+            out = true; /* intend-to-copy <3> */
+          } else if (s->rx_frame_error && pos == 5u) {
+            out = true; /* error <2> */
+          } else if (pos == 6u) {
+            /* Parity <1>, odd over the whole field. Recomputed from what this
+             * station is actually sending rather than patched, because more
+             * than one bit may have changed. */
+            unsigned ones = 0u;
+            for (unsigned b = 0; b < 6u; b++) {
+              if ((s->rx_late >> b) & 1u) {
+                ones++;
+              }
+            }
+            out = (ones % 2u) == 0u;
+          }
+          if (out != bit) {
+            forward_bit = out;
+          }
+          s->rx_late = (uint8_t)(((unsigned)s->rx_late << 1) | (out ? 1u : 0u));
+          if (++s->rx_late_bits >= 8u) {
+            if (s->rx_addressed) {
+              if (s->receive_enabled) {
+                s->frames_copied++;
+              } else {
+                s->frames_wacked++;
+              }
+            }
+            s->rx_state = RX_IDLE;
+          }
+        }
+      }
     } else if (s->rx_state == RX_HEADER) {
       const bool stuffed = (s->rx_ones_run >= 5u) && !bit;
       s->rx_ones_run = bit ? s->rx_ones_run + 1u : 0u;
