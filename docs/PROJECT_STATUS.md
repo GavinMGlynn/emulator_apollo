@@ -585,6 +585,35 @@ its **display** and the serial route needs service mode. The console transcript
 is not the instrument for this question; the register tap that produced finding
 10a is.
 
+### The host-interface diff, done — and it closes on the disassembly
+
+Tapping our own `058006` through a boot with the option ROM fitted gives **22
+writes and nothing else**: twenty alternating `00`/`10` from PCs `00080382` and
+`00080392`, then `C0` from `000803C2` and `00` from `000803C8`. Those four
+addresses are `entry_05`'s own instructions at ROM base `080000` — `$382`/`$392`
+are the `bclr`/`bset` of bit 4, `$3C2`/`$3C8` the hard reset — so the trace and
+the disassembly close on each other, and 22 is exactly the write count the
+region census reports by a different route.
+
+**And that is the same traffic, from the same instruction addresses, that
+`ETHERNET.md` finding 10a measured on the oracle before this model existed** —
+"all of it comes from PC `0008xxxx`", a read-modify-write at `+6` alternately
+clearing and setting bit 4, `+2` answering `C0` and `50`, PCs `080382`-`080398`.
+Two machines running the same option ROM through the same instructions and
+agreeing on what the card does. That is what this item's verification asks for.
+
+A fresh MAME run adds a fact about the oracle rather than a disagreement: the
+same tap over `058000-05800F` on `dn3500` for 40 emulated seconds gives **zero**
+writes, with the tap proven live in that run by **21** writes to the `sio1`
+control range. So that machine does not exercise its 3c505 on this
+configuration. The control is the whole point — a zero from a tap is exactly
+what a wrong range looks like, which is this project's own rule.
+
+One correction: the adapter's 80186 firmware dumps **are** on disk, in
+`tools/mame-oracle/out/roms/3c505/`. The note above saying otherwise was not
+checked. It changes the cost of closing the `adapter_initialising` approximation
+from *acquire ROMs* to *emulate an 80186*.
+
 **And the state hash is `A354786119A3931D`, unchanged.** That is the regression
 check in its strongest form: with the card fitted, the two new lines are sampled
 on every interrupt sample and every bus tick of a 350 M-instruction boot, and

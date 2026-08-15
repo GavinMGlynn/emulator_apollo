@@ -4107,46 +4107,19 @@ discipline throughout.
     node forces a token "after a specified timeout" and never specifies it.
     The stripping timeout stands in, as the only documented figure of the right
     order; patent 4,716,575 is where a real one would come from.
-- [ ] 3c505 802.3 controller, so Domain networking can also be checked against
-      MAME the way MAME does it. *Verification: oracle diff — this is the one
-      networking path with a runnable reference.*
-      **Awaiting:** the oracle diff **at the host interface**, which is the only
-      shape it can honestly take — `ETHERNET.md` 17b/17c: MAME runs the
-      adapter's own 80186 on firmware ROMs this project does not hold, so a
-      field-by-field device comparison is not available and would not mean what
-      `dsp3500`'s CPU diff means. What *is* comparable is the register traffic
-      the option ROM's self-test produces, which both machines run, tapped the
-      way `ETHERNET.md` finding 10a already tapped this card.
-      Its configuration half is **done and agrees**: MAME independently
-      configures I/O `300`, IRQ 10 and DRQ 6, and drives its DMA request as
-      `HRDY && DMAE` (17, 17a). The device, its wire, its
-      board placement, its **interrupt line and its DMA channel** are built and
-      tested; the stale text this replaced said "the device itself" long after
-      that was false, which is the failure `ap_i8237.h` records under "a stale
-      declination is worse than none".
-      **The card's own firmware self-test passes** — `802.3 Network
-      Controller-AT test passed.` — which is the standard this project holds a
-      controller to and the same one the ring work uses. Its option ROM turns
-      out to be the ring ROM's twin (`ETHERNET.md` 16): same Apollo header, same
-      five-message string table, `entry_05` as the self-test, and
-      `tools/ring-rom/disasm.py` reads it unchanged. Getting there found two
-      defects, the larger being that the adapter half was driven **only when a
-      live TAP wire was attached**, so it never acted in any deterministic run.
-      So what the diff would compare now exists and behaves.
-      The design decision — 80186 firmware emulated behind the mailbox, or the
-      PCB protocol host-side — is still open and is **not** blocking: the
-      register interface is the same either way, which is why it was built
-      first. Detail in `PROJECT_STATUS.md`.
-      The reference on disk was **half a file** — 1,851,086
-      bytes of 3,677,170, a truncated download that opens with a valid header
-      and fails only when read. Re-fetched from the Internet Archive's bitsavers
-      mirror (`bitsavers_3Com3c505EersGuideMay86_3677170`; the bitsavers path
-      itself now 404s), 77 pages. It carries what this item needs: §1.3.1-1.3.3
-      the adapter I/O, adapter memory and **host** I/O maps; §1.9 the
-      host-adapter interface — command register, data register, DMA transfers,
-      status flags; §1.10 adapter interrupts. The board is an 80186 with an
-      82586 coprocessor, so the host side is a mailbox protocol and §1.9 is the
-      whole of what this core models. Detail in `PROJECT_STATUS.md`.
+- [x] 3c505 802.3 controller, so Domain networking can also be checked against
+      MAME the way MAME does it. *Verification: **the card's own firmware
+      self-test passes** — `802.3 Network Controller-AT test passed.` — and the
+      host-interface oracle diff agrees at the instruction level: our 22 writes
+      to `058006` come from PCs `080382`/`080392`/`0803C2`/`0803C8`, which are
+      `entry_05`'s own instructions and are the PCs `ETHERNET.md` finding 10a
+      measured on the oracle before this model existed. MAME independently
+      configures I/O `300`, IRQ 10, DRQ 6 and drives its DMA request as
+      `HRDY && DMAE` (17, 17a, 18, 18a).*
+      **One named approximation, `PROVISIONAL` in `ap_3c505.h`**: the adapter's
+      power-on flag handshake is host-side, where MAME runs the card's real
+      80186. Cost to close is an 80186 alone — both firmware dumps are already
+      on disk (18c). Detail in `PROJECT_STATUS.md`.
   - [x] `src/core/device/ap_3c505.h`, the interface, transcribed from `[DEV]`
         §1.3.3 and §1.9: the five registers in sixteen I/O locations, the
         20-byte half duplex FIFO, the PCB's 64-byte limit, and the eleven named

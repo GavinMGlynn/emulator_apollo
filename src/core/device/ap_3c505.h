@@ -329,14 +329,17 @@ typedef struct {
    *
    * **`PROVISIONAL`, and the oracle says what it stands in for.** MAME runs the
    * adapter's own **80186 at 16 MHz** on its real firmware ROMs (`0729-12_a.3h`
-   * and `0729-62_a.3f`, which this project does not hold), so on that machine
-   * this sequence is not modelled at all -- it is what the firmware *does*.
-   * Here it is a host-side stand-in for that firmware, which is the open
-   * "emulated 80186 versus host-side PCB protocol" decision showing itself in
-   * one bit of state. Cost to close: the two adapter ROM dumps and an 80186,
-   * against which everything the mailbox does becomes emergent. Until then this
-   * reproduces what the *host* firmware requires and claims nothing about what
-   * the adapter does between the two polls. */
+   * and `0729-62_a.3f`), so on that machine this sequence is not modelled at
+   * all -- it is what the firmware *does*. Here it is a host-side stand-in for
+   * that firmware, which is the open "emulated 80186 versus host-side PCB
+   * protocol" decision showing itself in one bit of state.
+   *
+   * **Cost to close: an 80186, and nothing else.** Both firmware dumps are
+   * already on disk in `tools/mame-oracle/out/roms/3c505/` -- an earlier note
+   * here said they were not held, which was never checked. With a processor
+   * behind them everything the mailbox does becomes emergent instead of
+   * modelled. Until then this reproduces what the *host* firmware requires and
+   * claims nothing about what the adapter does between the two polls. */
   bool adapter_initialising;
 } ap_3c505_t;
 
