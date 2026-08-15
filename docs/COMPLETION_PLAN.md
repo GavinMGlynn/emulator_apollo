@@ -4045,7 +4045,12 @@ discipline throughout.
         a command being outstanding. Subtests 22-26 and 31 pass; the stop is now
         **SUBTEST 32** at `00059800`, the first 8254 -- the firmware asking for
         counters that have *counted*, which is the traffic wire 41a and 71d
-        named. Detail in `RING.md`.
+        named -- **and 76 now has its specification exactly**: `$976` starts
+        every counter at `$FFFF`, and subtest 32 requires `+800` to read
+        `$FC03` and `+802`/`+804` to read `$FC00`, i.e. **1020, 1023 and 1023
+        counts**, checked five times over. The header counter trailing the
+        other two by exactly three is a structural fact to reproduce, not a
+        number to approximate. Detail in `RING.md`.
         **Fourteen of the firmware's own subtests now pass**
         (`RING.md` 60-68), and the fifteenth is a *timing* question rather than
         a register one: subtest 26 requires `+400`'s bits 3-1 set where 22 and
