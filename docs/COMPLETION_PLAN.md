@@ -4171,9 +4171,19 @@ discipline throughout.
 - [ ] Two nodes see each other over the ring under Domain/OS. *Verification:
       `lcnode` on each node lists the other; console output diffed against
       itself across runs for determinism.*
-- [x] Node insertion and removal mid-run, with stripping and token loss, in
-      `src/core/ring/ap_ring_station.*`. The transmit sequence of `[MAC]` §2.1
-      and its 10.9 ms (2^14 byte) stripping timeout are implemented; removing a
+- [ ] Node insertion and removal mid-run, with stripping and token loss, in
+      `src/core/ring/ap_ring_station.*`.
+      **UNTICKED BY AUDIT** (`RING.md` 85-85e): this claimed "the transmit
+      sequence of `[MAC]` §2.1 ... implemented" and **three of its eight steps
+      are absent** -- step 3's "begins to transmit its packet", step 6's "sends
+      out a new free token to follow the frame", and step 7's "until it
+      finishes receiving its own frame". Nothing outside `ap_ring_framer`'s own
+      tests ever calls it, so no frame is ever put on the medium; §2.2.2.2's
+      destination matching does not exist and the acknowledge fields are never
+      modified in flight. What *is* implemented and correct is the token,
+      claim, strip and forward behaviour below the frame.
+      The stripping timeout and the token-loss recovery are implemented;
+      removing a
       node mid-run is measured to lose an in-flight token, and a waiting
       station recovers by forcing a claimed token. Findings 34-37 in `RING.md`.
       *Verification: five more `ring_station_suite` tests, 12 in total. Detail
