@@ -162,6 +162,16 @@ typedef struct {
   /* `+406` on the `a1` window, which finding 50a shows is never read. The `a2`
    * window's `+406` is the buffer port and does not use this. */
   uint16_t slot_406;
+
+  /* **A 16-bit port reached over a byte bus needs a half-word latch.** The
+   * board delivers a `move.w` as two byte accesses, and `+406` advances its
+   * pointer on every access -- so reading it twice for one word consumes two
+   * words of the buffer and hands the firmware halves of different ones. The
+   * 8254s above already guard against exactly this; the data port did not.
+   * The even half performs the access and latches, the odd half is served from
+   * the latch. */
+  uint16_t port_latch;
+  uint16_t port_write_high;
   /* The one-word read-ahead latch of finding 46a. Its power-on content is
    * whatever the port last fetched, which is why the firmware discards its
    * first read rather than trusting it. */

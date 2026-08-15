@@ -395,8 +395,38 @@ static void test_the_first_windows_data_slot_is_not_the_buffer_port(void) {
   TEST_ASSERT_EQUAL_HEX16(0x1234u, ctl.buffer[0]);
 }
 
+
+/* **The firmware's own subtest 02, as a test.**
+ *
+ * `[ROM3500]` `$BE0` fills and `$C18` reads back: set `+006 = 0`, write
+ * `d3+1 = $8000` words to `+406`, set `+006 = 0` again, take **one discarded
+ * read** (`000C1C`, whose `d1` the loop immediately overwrites), then compare
+ * from the next read on. Reproduced here because a mismatch in this sequence is
+ * what the self-test reports as `SUBTEST 02`, and a test is a faster way to ask
+ * than another 262,000-instruction run. */
+static void test_the_data_port_round_trips_the_firmwares_own_pattern(void) {
+  ap_ring_ctl_t ctl;
+  ap_ring_ctl_reset(&ctl, true);
+
+  /* `move.w #$0,$6(a4)` then `$8000` words of `move.w d2,(a1)`. */
+  ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_ID + 6u, 0u);
+  for (unsigned i = 0; i < AP_RING_CTL_BUFFER_WORDS; i++) {
+    ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_STATUS + 6u, 0x0001u);
+  }
+
+  /* `move.w #$0,$6(a4)`, then the discarded read, then the compared ones. */
+  ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_ID + 6u, 0u);
+  (void)ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 6u);
+
+  for (unsigned i = 0; i < 4u; i++) {
+    TEST_ASSERT_EQUAL_HEX16(
+        0x0001u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 6u));
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_data_port_round_trips_the_firmwares_own_pattern);
   RUN_TEST(test_a_unit_is_both_of_its_at_windows);
   RUN_TEST(test_the_id_register_answers_one_of_the_two_values_init_accepts);
   RUN_TEST(test_an_empty_slot_reads_as_absent_rather_than_as_an_error);

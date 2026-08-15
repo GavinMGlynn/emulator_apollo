@@ -115,6 +115,15 @@ uint8_t ap_ring_ctl_read8(ap_ring_ctl_t *ctl, bool second_window,
     return (uint8_t)(ap_ring_ctl_read16(ctl, second_window, offset) >> 8);
 
   case AP_RING_CTL_BANK_STATUS: {
+    /* The data port is the one slot in this bank with a side effect, so it is
+     * the one that must be read once per word rather than once per byte. */
+    if (second_window && (offset & AP_RING_CTL_SLOT_MASK) == 6u) {
+      if (!odd) {
+        w->port_latch = ap_ring_ctl_read16(ctl, second_window, offset & ~1u);
+        return (uint8_t)(w->port_latch >> 8);
+      }
+      return (uint8_t)(w->port_latch & 0xFFu);
+    }
     const uint16_t value = ap_ring_ctl_read16(ctl, second_window,
                                               offset & ~1u);
     return (offset & 1u) != 0u ? (uint8_t)(value & 0xFFu)
@@ -156,6 +165,21 @@ void ap_ring_ctl_write8(ap_ring_ctl_t *ctl, bool second_window, uint32_t offset,
     }
     return;
   case AP_RING_CTL_BANK_STATUS: {
+    /* The data port again, and the write side is the worse of the two: the
+     * read-modify-write below would *read* the port -- advancing its pointer --
+     * and then write it, twice over for one `move.w`, so a single word cost
+     * four advances. The even half holds its byte and the odd half commits the
+     * pair, which is what a 16-bit port on a byte bus does. */
+    if (second_window && (offset & AP_RING_CTL_SLOT_MASK) == 6u) {
+      if (!odd) {
+        w->port_write_high = value;
+        return;
+      }
+      ap_ring_ctl_write16(
+          ctl, second_window, offset & ~1u,
+          (uint16_t)(((uint16_t)w->port_write_high << 8) | value));
+      return;
+    }
     const uint16_t held = ap_ring_ctl_read16(ctl, second_window, offset & ~1u);
     const uint16_t merged =
         (offset & 1u) != 0u
