@@ -4313,12 +4313,18 @@ discipline throughout.
       mismatch (12d: the DN4500's own PROM and map fail identically, with the
       no-card control booting normally), and it is not the 64 KB image
       answering all four scan slots (12f: the third slot is read zero times).
-      Re-framed by reading the code (12g): the stop PC *moves* between runs and
-      `[ROM4500]` there is a run of `4801` executed as `nbcd.b d1`, so this is
-      a **runaway through PROM data**, not a hang — the signature
-      `PROJECT_STATUS.md` already records for the early boot PROM.
-      So the question is where control leaves the ROM, and the instrument is a
-      PC trace across that transition rather than a third hypothesis (12h).
+      A third reading — a runaway through PROM data — was also **wrong and is
+      retracted** (12g): those `4801`s are the body of a **delay loop**, closed
+      by `subq.l`/`bgt` two instructions later, and the machine reaches them
+      606 K instructions before the option ROM ever runs.
+      **Measured instead** (12h): the PROM **retries the graphics
+      initialisation forever** — the delay is entered 23 times in 120 M and
+      still going, alternating callers `$5EE0`/`$5EF8` with counts of 2,000,000
+      and 500,000, the first six instructions after the ROM's `rts`. And the
+      ROM's call itself is clean (12i): entered once, returned once, to a `jsr`
+      site whose `rts` follows. So the condition being waited on is set *after*
+      the entry returns, by hardware not yet modelled — and the next step is a
+      dozen instructions of PROM at `$5EE0` to read (12j).
       *Verification so far: `matrox_suite`, 6 tests, each replaying a ROM
       address; the reference boot returns `A354786119A3931D` unchanged.*
 - [x] **DSP variants confirmed as true subsets.** All four boot headless and
