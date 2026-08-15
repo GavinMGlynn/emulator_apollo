@@ -4284,10 +4284,19 @@ discipline throughout.
       address. The web has no register-level material for Apollo part `013748`
       either; what exists is sales listings and unrelated modern Matrox parts.
       **So the ROM is the only source left, which is where the ring and the
-      3c505 both ended up.** The route is the one that worked twice:
-      disassemble `4500_Matrox_013748_04.bin`'s four entry points and let its
-      own code specify the registers. This is a whole controller, not a
-      register or two, and it should be scoped before it is started.
+      3c505 both ended up — and it has now been read.**
+      `docs/references/GRAPHICS.md` holds ten findings, each citing a ROM
+      address: the option-ROM header and its four entry points, **three
+      register blocks** extracted mechanically (`$D40000` a bidirectional data
+      port, `$D80004`/`+5`/`+8` a longword path with a ready bit at bit 7,
+      `$DA0000` a block whose `+6`/`+7` are command-over-status with bits 3, 4
+      and 5 polled), and the stop at `+5A8` explained by the firmware's own
+      15.7 M-iteration wait for `$DA0006` bit 3 to clear.
+      **The board also takes a downloaded program** — the ROM carries
+      `ID: GAO Boot Microcode, Rev 0.00` and two `move.l (a3)+` bulk loops — so
+      a register model alone will not be the whole of this controller. That is
+      the thing to scope before implementing: findings first, then how much of
+      a microcode engine the display actually needs.
 - [x] **DSP variants confirmed as true subsets.** All four boot headless and
       strap correctly -- they were all four *unstrapped* until the memory byte
       was keyed on the board rather than the model. `model_suite` holds the
