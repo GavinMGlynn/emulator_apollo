@@ -176,6 +176,14 @@ void ap_3c505_write(ap_3c505_t *card, unsigned offset, uint8_t value) {
      */
     if ((value & AP_3C505_HCR_HARD_RESET) == AP_3C505_HCR_HARD_RESET) {
       ap_3c505_reset(card);
+      /* And the adapter starts booting. The option ROM's self-test polls for
+       * `11` *first*, so the flags have to be up by the time the reset write
+       * returns -- its budget for that wait is `50 x arg` iterations of a
+       * four-instruction loop, far too short to wait for anything the machine
+       * does later. Coming down is the slow half, and `ap_3c505_pump` is where
+       * the adapter finishes. */
+      card->adapter_initialising = true;
+      ap_3c505_set_adapter_flags(card, AP_3C505_SF_END_OF_PCB);
       return;
     }
     if ((value & AP_3C505_HCR_FLSH) != 0u) {
@@ -748,6 +756,16 @@ void ap_3c505_adapter_post_pcb(ap_3c505_adapter_t *adapter,
 bool ap_3c505_pump(ap_3c505_t *card, ap_3c505_adapter_t *adapter) {
   if (card == NULL || adapter == NULL) {
     return false;
+  }
+  /* The adapter's power-on finishing, which the option ROM's self-test waits
+   * for as its second poll: the flags go `11` at the reset and `00` when the
+   * board is ready. Handled before the command register, and without needing it
+   * -- initialisation is not a PCB, and a host that has left a byte unread must
+   * not hold the adapter in reset. */
+  if (card->adapter_initialising) {
+    card->adapter_initialising = false;
+    ap_3c505_set_adapter_flags(card, AP_3C505_SF_UNDEFINED);
+    return true;
   }
   /* The host has not taken the previous byte, so there is nowhere to put one.
    * §1.9.1's handshake is a single byte each way and overwriting it would lose

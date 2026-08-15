@@ -335,8 +335,17 @@ static void test_the_hard_reset_clears_the_mailbox_but_not_the_strapping(void) {
   TEST_ASSERT_TRUE(ap_3c505_host_status(&card) & AP_3C505_HSR_HCRE);
   TEST_ASSERT_FALSE(ap_3c505_host_status(&card) & AP_3C505_HSR_ACRF);
   TEST_ASSERT_EQUAL_UINT(0u, card.fifo_count);
-  TEST_ASSERT_EQUAL_HEX8(0u, card.acr);
   TEST_ASSERT_EQUAL_HEX8(0u, card.hcr);
+
+  /* **`acr` is *not* zero here, and this assertion used to say it was.** The
+   * reset does clear what the adapter had written -- the `ASF1` above is gone
+   * -- but the board does not then sit with its flags down: the card's own
+   * option ROM hard-resets it and immediately polls for `(HSR & 3) == 3`
+   * (`3000_3C505_010728-00` `$3C2`-`$3D8`), so a healthy adapter comes out of
+   * reset *initialising*. The old `acr == 0` encoded "nothing drives the
+   * adapter half", which was true of the model and not of the hardware. */
+  TEST_ASSERT_EQUAL_HEX8(AP_3C505_ACR_ASF1 | AP_3C505_ACR_ASF2, card.acr);
+  TEST_ASSERT_EQUAL_UINT8(3u, ap_3c505_host_status(&card) & 0x03u);
 
   /* A jumper and a slot are not state the host can clear. */
   TEST_ASSERT_TRUE(ap_3c505_adapter_status(&card) & AP_3C505_ASR_SWTC);
@@ -521,6 +530,66 @@ static void test_a_dma_cycle_and_polled_io_share_one_data_register(void) {
   TEST_ASSERT_TRUE(ap_3c505_dma_request(&card));
   TEST_ASSERT_EQUAL_UINT8(0x3Cu, ap_3c505_dma_read(&card));
   TEST_ASSERT_FALSE(ap_3c505_dma_request(&card));
+}
+
+/* **The adapter's power-on, specified by the card's own option ROM.**
+ *
+ * `3000_3C505_010728-00`'s `entry_05` hard-resets the board -- `HCR = $C0`,
+ * then `HCR = $00` -- and then polls `HSR`'s low two bits twice over: `$3CC`
+ * loops until `(HSR & 3) == 3` and `$3F0` until `(HSR & 3) == 0`, each with its
+ * own timeout and each branching to the same `$E08008F2` failure. So a healthy
+ * board raises both adapter status flags while it initialises and drops them
+ * when it is ready, and a model that never raised them fails the first poll
+ * while one that never dropped them fails the second.
+ *
+ * The order is what the test pins: `11` must be readable immediately after the
+ * reset write, because the first poll's budget is `50 x arg` iterations of a
+ * four-instruction loop. */
+static void test_the_adapter_signals_its_power_on_through_the_status_flags(
+    void) {
+  ap_3c505_t card;
+  ap_3c505_adapter_t adapter;
+  ap_3c505_reset(&card);
+  ap_3c505_adapter_init(&adapter, NULL);
+
+  /* Idle: nothing initialising, so the flags read `00` and the *first* poll
+   * would time out. This is the state the self-test used to meet. */
+  TEST_ASSERT_EQUAL_UINT8(0u, ap_3c505_host_status(&card) & 0x03u);
+
+  /* The hard reset, exactly as `$3C2`/`$3C8` write it. */
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, AP_3C505_HCR_HARD_RESET);
+  TEST_ASSERT_EQUAL_UINT8(3u, ap_3c505_host_status(&card) & 0x03u);
+  ap_3c505_write(&card, AP_3C505_REG_CONTROL, 0u);
+  /* Still `11` after the release: the adapter is booting, not reset. */
+  TEST_ASSERT_EQUAL_UINT8(3u, ap_3c505_host_status(&card) & 0x03u);
+
+  /* The adapter finishing, which is the second poll's condition. */
+  TEST_ASSERT_TRUE(ap_3c505_pump(&card, &adapter));
+  TEST_ASSERT_EQUAL_UINT8(0u, ap_3c505_host_status(&card) & 0x03u);
+
+  /* And it is a one-shot: a later pump has no power-on left to finish, so it
+   * must not keep answering true and must not disturb the flags. */
+  TEST_ASSERT_FALSE(ap_3c505_pump(&card, &adapter));
+  TEST_ASSERT_EQUAL_UINT8(0u, ap_3c505_host_status(&card) & 0x03u);
+}
+
+/* The `DIR` loop the same self-test opens with, ten times round: `$382` clears
+ * `HCR` bit 4 and requires `HSR` bit 4 clear, then sets it and requires it set.
+ * This is `ETHERNET.md` finding 10a's measured probe handshake seen from the
+ * firmware's side -- the traffic was tapped from the oracle before this model
+ * existed, and here is the code that produced it. */
+static void test_the_status_direction_bit_follows_the_control_one(void) {
+  ap_3c505_t card;
+  ap_3c505_reset(&card);
+
+  for (unsigned i = 0; i < 10u; i++) {
+    ap_3c505_write(&card, AP_3C505_REG_CONTROL, 0u);
+    TEST_ASSERT_EQUAL_UINT8(0u, ap_3c505_host_status(&card) &
+                                    AP_3C505_HSR_DIR);
+    ap_3c505_write(&card, AP_3C505_REG_CONTROL, AP_3C505_HCR_DIR);
+    TEST_ASSERT_EQUAL_UINT8(AP_3C505_HSR_DIR,
+                            ap_3c505_host_status(&card) & AP_3C505_HSR_DIR);
+  }
 }
 
 /* **The option ROM's probe, byte for byte, against traffic measured a day
@@ -1136,6 +1205,8 @@ int main(void) {
   RUN_TEST(test_demand_mode_pauses_every_ninth_transfer_unless_burst);
   RUN_TEST(test_done_is_set_by_terminal_count_and_cleared_by_the_enable);
   RUN_TEST(test_a_dma_cycle_and_polled_io_share_one_data_register);
+  RUN_TEST(test_the_adapter_signals_its_power_on_through_the_status_flags);
+  RUN_TEST(test_the_status_direction_bit_follows_the_control_one);
   RUN_TEST(test_an_idle_card_answers_the_probe_the_oracle_measured);
   RUN_TEST(test_a_pcb_is_found_by_counting_back_from_its_total_length);
   RUN_TEST(test_stray_bytes_from_an_aborted_transfer_are_skipped);

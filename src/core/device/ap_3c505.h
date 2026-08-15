@@ -313,6 +313,20 @@ typedef struct {
    * run since the last pause, and whether the pause itself is owed. */
   unsigned dma_since_pause;
   bool dma_pause_owed;
+
+  /* **The adapter's power-on, which its own option ROM is the specification
+   * for.** `3000_3C505_010728-00`'s `entry_05` self-test hard-resets the card
+   * with `HCR = $C0` then `HCR = $00`, and then polls `HSR`'s low two bits --
+   * `ASF1` and `ASF2` -- first until they read **11** and then until they read
+   * **00**, each with its own timeout and its own failure exit. So a healthy
+   * board raises both adapter status flags while its 80186 is initialising and
+   * drops them when it is ready.
+   *
+   * `[DEV]` §1.9.5 says the hardware does not decode these flags "in any way",
+   * which is why this lives here as *adapter* state rather than as a register
+   * rule: it is the firmware's convention, and the firmware that talks to the
+   * real card is the source. Exactly the ring ROM's role in `RING.md` 60-68. */
+  bool adapter_initialising;
 } ap_3c505_t;
 
 /* Power-on state. Also what a hard reset produces, so the two cannot drift. */

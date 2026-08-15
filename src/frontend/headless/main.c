@@ -2635,10 +2635,22 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * and then paced out by the host through `ap_3c505_pump`. The pump runs
        * on the same period so a queued response drains whether or not another
        * frame arrives. */
-      if (g_wire_is_live && (i % AP_TAP_POLL_INSTRUCTIONS) == 0u) {
-        ap_3c505_pcb_t received = {0};
-        if (ap_tap_poll(&g_tap, &machine.board->ethernet_adapter, &received)) {
-          ap_3c505_adapter_post_pcb(&machine.board->ethernet_adapter, &received);
+      /* **The pump is not gated on the wire, and that was a real defect.** It
+       * used to run only when a TAP was attached, so on every deterministic run
+       * the adapter half of the card never acted at all -- and the card's own
+       * option ROM self-test waits for the adapter to finish its power-on
+       * before it will pass. A card whose adapter only exists when a host
+       * socket is open is not a card. The *wire* poll is still gated, because
+       * that one really does need a wire. */
+      if (machine.board->ethernet_present &&
+          (i % AP_TAP_POLL_INSTRUCTIONS) == 0u) {
+        if (g_wire_is_live) {
+          ap_3c505_pcb_t received = {0};
+          if (ap_tap_poll(&g_tap, &machine.board->ethernet_adapter,
+                          &received)) {
+            ap_3c505_adapter_post_pcb(&machine.board->ethernet_adapter,
+                                      &received);
+          }
         }
         (void)ap_3c505_pump(&machine.board->ethernet,
                             &machine.board->ethernet_adapter);

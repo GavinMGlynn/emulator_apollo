@@ -4115,16 +4115,15 @@ discipline throughout.
       tested; the stale text this replaced said "the device itself" long after
       that was false, which is the failure `ap_i8237.h` records under "a stale
       declination is worse than none".
-      What is *measured*, and it names the next step: with the card alone a full
-      boot never touches it, but with **its option ROM** fitted the boot PROM's
-      network test drives it hard — 10,041 reads — and then prints
-      `802.3 Network Controller-AT test failed.`, stopping at `PC 000083C4`
-      inside the PROM (`ETHERNET.md` 14, 15, 15a). So this card now has the same
-      thing the ring has: **its own firmware's test as the test**, with a named
-      stopping instruction. Read `000083C4` for what the test wants, and find
-      out whether it reports a subtest code the way the ring ROM's `E00000xx`
-      codes do. The oracle diff comes after that, since MAME runs the same PROM
-      and can be asked the same question.
+      **The card's own firmware self-test passes** — `802.3 Network
+      Controller-AT test passed.` — which is the standard this project holds a
+      controller to and the same one the ring work uses. Its option ROM turns
+      out to be the ring ROM's twin (`ETHERNET.md` 16): same Apollo header, same
+      five-message string table, `entry_05` as the self-test, and
+      `tools/ring-rom/disasm.py` reads it unchanged. Getting there found two
+      defects, the larger being that the adapter half was driven **only when a
+      live TAP wire was attached**, so it never acted in any deterministic run.
+      So what the diff would compare now exists and behaves.
       The design decision — 80186 firmware emulated behind the mailbox, or the
       PCB protocol host-side — is still open and is **not** blocking: the
       register interface is the same either way, which is why it was built
@@ -4214,19 +4213,19 @@ discipline throughout.
         terminal count reaching `HSR`'s `DONE`. The `login:` boot with the card
         fitted returns the reference hash `A354786119A3931D` unchanged, which is
         the two new lines sampled all boot and changing nothing.*
-  - [x] **Open question C answered, and the card's own firmware test is now
-        running.** Without its option ROM the card is never addressed in a whole
-        boot; with it — `--3c505-rom FILE`, added here, placing the image where
-        the expansion scan looks as `--ring-rom` does — the boot PROM drives it
-        for 10,041 reads and reports `802.3 Network Controller-AT test failed.`,
-        stopping at `PC 000083C4`. That is a second firmware self-test to work
-        against, which is what `CLAUDE.md` means by the hardware's test suite for
-        free. The first explanation offered for the untouched card — the
-        uninitialised configuration table — was two true facts joined by an
-        untested inference and is retracted in `ETHERNET.md` 14b.
-        *Verification: two 350 M boots, `--3c505` and `--3c505-rom`, each with
-        its configuration confirmed from the run's own header; the first returns
-        the reference hash unchanged.*
+  - [x] **Open question C answered, and the card's own firmware self-test
+        passes**: `802.3 Network Controller-AT test passed.` The option ROM is
+        the ring ROM's twin, so `tools/ring-rom/disasm.py` read its `entry_05`
+        unchanged, and that specified the adapter's power-on handshake from the
+        firmware that talks to the real card. Two defects found, the larger
+        being that the adapter half ran **only with a live TAP wire** attached.
+        `--3c505-rom FILE` added, as `--ring-rom` is for the ring. Two earlier
+        claims of mine are retracted in place: `ETHERNET.md` 14b and 15a.
+        Detail in `PROJECT_STATUS.md`.
+        *Verification: the firmware's own verdict, on three 350 M boots —
+        `--3c505` returning the reference hash unchanged, `--3c505-rom` failing,
+        and `--3c505-rom` passing after the fix — each with its configuration
+        confirmed from the run's own header.*
   - [x] `docs/references/ETHERNET.md`, the findings file, written from the
         manual before any code — the map, the 20-byte half duplex data FIFO
         with its `DIR` bit, the five general-purpose status flags the hardware

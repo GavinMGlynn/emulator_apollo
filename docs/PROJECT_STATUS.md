@@ -488,26 +488,79 @@ The run ends inside the **boot PROM** at `PC 000083C4`, not in the option ROM at
 `080000`, so it is the PROM's own network test that drives the card and fails
 it, with a DUART register polled 23 M times while it spins.
 
-**That is the good outcome.** `CLAUDE.md` calls a controller's firmware
-self-test "the hardware's test suite, for free", and this is the second one this
-project has running. The item stops being "implement more of the card and hope"
-and becomes the loop the ring work is already in: the firmware tests, names a
-verdict, and stops at an instruction. It is also the design note in the mailbox
-item measured — "a card that answered but could not complete the test would fail
-it, which is worse than absent" was the stated reason the card is opt-in, and
-this is that sentence happening. The default boot is untouched, because the
-option ROM is opt-in too.
+**That is the good outcome**, and one correction to the paragraph above: the
+failing test is the **option ROM's**, not the PROM's. The message lives at
+`+45C` of `3000_3C505_010728-00` and the PROM's network driver search is only
+its caller, which is why the stop lands in PROM code.
+
+`CLAUDE.md` calls a controller's firmware self-test "the hardware's test suite,
+for free", and this is the second one this project has running. It is also the
+mailbox item's own design note measured — "a card that answered but could not
+complete the test would fail it, which is worse than absent" was the stated
+reason the card is opt-in, and this is that sentence happening.
+
+### The 3c505 option ROM is the ring ROM's twin, and its self-test now passes
+
+`tools/ring-rom/disasm.py` reads it unchanged — the same Apollo header, `rom_id`
+`'E   '`, checksum VALID, and a five-record entry table with **`entry_05` at
+`+374`**. Its string table is the ring's with one word changed: `802.3: init
+error`, `transmit error`, `receive error`, `invalid controller no.`, `operation
+aborted`, against `RING.md` 51c's identical list. The two boards ship the same
+firmware skeleton, so the ring work's map of `entry_05` applied directly.
+
+Decoded end to end, the test is five steps. Ten times round, toggle `HCR` bit 4
+and require `HSR` bit 4 to follow — which is `ETHERNET.md` finding 10a's
+oracle-measured probe handshake seen from the firmware's side, the code that
+produced the traffic. Claim the unit in a caller-supplied longword. Hard reset
+with `HCR = $C0` then `$00`. Then poll `(HSR & 3)` until it reads **3**, budget
+`50 x arg`; then until it reads **0**, budget `50000 x arg`. Both timeouts load
+`$E08008F2` and take the same exit.
+
+**So the adapter's power-on is specified by its own firmware**: both adapter
+status flags up while the 80186 initialises, both down when it is ready. `[DEV]`
+§1.9.5 says the hardware does not decode those flags "in any way" — they are
+firmware convention, and this ROM *is* the firmware. Exactly the method
+`RING.md` 60-68 used on the ring's `+400`: the ROM asserts what a working board
+reads.
+
+**Two defects, and the second was the larger.** The card never signalled a
+power-on, so the first poll timed out. And `ap_3c505_pump` — the adapter half's
+only driver — was called by the frontend **only when a live TAP wire was
+attached**, so in every deterministic run the adapter side never acted at all. A
+card whose adapter exists only when a host socket is open is not a card, and no
+amount of register work would have made this test pass while that held. The wire
+poll stays gated on the wire; the pump no longer is.
+
+The firmware's verdict:
+
+    network driver search started...
+       802.3 Network Controller-AT test passed.
+
+and the boot continues into the SELF_TEST diagnostics on the normal path — 35.4 M
+serial reads and 14.5 M disk against the reference boot's 34.2 M and 14.9 M,
+where the failing run showed 82.7 M serial with one DUART register polled 23 M
+times. `EtherLink Plus` reads 322 / writes 22: driven, then left alone.
+
+One existing assertion had to be inverted rather than kept. `acr == 0` after a
+hard reset encoded "nothing drives the adapter half" — true of the model, not of
+the hardware, which comes out of reset *initialising*. The same shape as the ring
+suite's storage assumptions that `RING.md` 63a and 65a inverted, and it is
+corrected with the ROM address that refutes it.
+
+The default boot is untouched throughout, because the option ROM is opt-in.
 
 **And the state hash is `A354786119A3931D`, unchanged.** That is the regression
 check in its strongest form: with the card fitted, the two new lines are sampled
 on every interrupt sample and every bus tick of a 350 M-instruction boot, and
 the machine is bit-identical to the run before them.
 
-*Verification: `etherlink_suite` 38 -> 43 — the request following `HRDY` and not
+*Verification: **the card's own firmware self-test passes** — the standard this
+project holds a controller to, and the same one the ring work uses.
+`etherlink_suite` 43 -> 45 — the request following `HRDY` and not
 `ARDY` in both directions, the enable taking the card off the channel, the
 ninth-transfer pause and its suppression by `BRST`, `DONE` set by terminal count
-and cleared only by the enable, and a DMA cycle and polled I/O reaching one
-FIFO. `board_suite` 45 -> 47 for the two lines, each checked absent with no card
+and cleared only by the enable, a DMA cycle and polled I/O reaching one FIFO,
+the adapter's power-on flag sequence, and the `DIR` loop the ROM opens with. `board_suite` 45 -> 47 for the two lines, each checked absent with no card
 fitted and dropped again when it is removed. `dma_suite` 17 -> 18 for the byte
 itself: armed on controller 2's channel 2 through the 16-bit half of the
 translation map, the byte lands in the card's FIFO rather than in
