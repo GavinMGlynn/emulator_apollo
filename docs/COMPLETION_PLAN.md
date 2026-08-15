@@ -4003,7 +4003,12 @@ discipline throughout.
         window. 53h declined to reconcile the cross-read; this is why it could
         not be, and the caution was right.
         **Awaiting:** the mask and transfer shape from the **ROMs**, which
-        address the controller directly (53j). The driver remains the source for
+        address the controller directly (53j) -- and there are **three** of
+        them, not four: the `3000` and `5500` images are byte-identical, the
+        same firmware shipped for both models under one part number (54). The
+        two `10666` revisions differ from it by ~54% of bytes and from each
+        other by 41%, so they are genuinely independent readings of the same
+        registers rather than one image twice. The driver remains the source for
         names and for the vector, and a poor one for register semantics --
         everything it touches is an indirection away from the hardware, and the
         indirections are empty on every machine this project can dump.
