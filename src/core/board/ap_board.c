@@ -1121,6 +1121,13 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     if (board->atbus_empty_reads == 0u) {
       board->first_atbus_empty_read = address;
     }
+    if (board->atbus_empty_reads == 0u ||
+        address < board->lowest_atbus_empty_read) {
+      board->lowest_atbus_empty_read = address;
+    }
+    if (address > board->highest_atbus_empty_read) {
+      board->highest_atbus_empty_read = address;
+    }
     board->atbus_empty_reads++;
     board->last_atbus_empty_read = address;
     note_atbus_empty_address(board, address);
@@ -1294,6 +1301,13 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
   case AP_BOARD_REGION_ATBUS:
     if (board->atbus_empty_writes == 0u) {
       board->first_atbus_empty_write = address;
+    }
+    if (board->atbus_empty_writes == 0u ||
+        address < board->lowest_atbus_empty_write) {
+      board->lowest_atbus_empty_write = address;
+    }
+    if (address > board->highest_atbus_empty_write) {
+      board->highest_atbus_empty_write = address;
     }
     board->atbus_empty_writes++;
     board->last_atbus_empty_write = address;

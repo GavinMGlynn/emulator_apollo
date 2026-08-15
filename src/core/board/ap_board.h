@@ -540,6 +540,24 @@ typedef struct ap_board {
   uint32_t last_atbus_empty_read;
   uint32_t last_atbus_empty_write;
 
+  /* And the **extent**, which neither the list nor the first-and-last can give.
+   *
+   * Added for the same reason each of those was, one step further on: a run
+   * reported `first write 0093D000` and `last write 0093DD01` with **108,035
+   * distinct addresses dropped**, and that reads as a 3.3 KB region when the
+   * dropped count alone says it cannot be. First and last are *chronological*,
+   * not the bounds -- taking them for bounds is how `GRAPHICS.md` 18 came to
+   * name the wrong range from one sample. The lowest and highest are the
+   * bounds, they cost two compares, and together with the distinct count they
+   * say whether a region is a window being rewritten or a buffer being filled.
+   *
+   * Zero when nothing has been seen; the lowest is only meaningful with a
+   * non-zero count beside it, which the report checks before printing. */
+  uint32_t lowest_atbus_empty_read;
+  uint32_t highest_atbus_empty_read;
+  uint32_t lowest_atbus_empty_write;
+  uint32_t highest_atbus_empty_write;
+
   /* Every access, by region, whether or not anything answered. C33's rule taken
    * to its end: "the firmware wanted the calendar" is a question a count of
    * failures cannot answer, because the interesting case is usually a device

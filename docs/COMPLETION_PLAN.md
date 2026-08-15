@@ -4387,6 +4387,18 @@ discipline throughout.
       The frame buffer and `--matrox-screenshot` land anyway: they decode a
       documented graphics range, cost the reference boot nothing, and are the
       instrument that produced the retraction.
+      **And the extent settles what the traffic is** (18c): a new lowest/highest
+      tracker gives write span `0004D402..0093DD3F` and read span
+      `0004D400..00FFF003` — across AT I/O *and* memory — with ~110,000
+      accesses over **108,051 distinct addresses**, about one per address. That
+      is a **scan**, not a frame being drawn.
+      **So 15a's attribution is withdrawn too** (18d): the built-in
+      controller's drop from 9.9 M plane writes to 1.6 M is real, but "the
+      console moved to the card" was inference and the card is not where the
+      pixels went. Where they went is **open**. What still stands from this
+      line is the register map, the firmware's assertions, and that the screen
+      is black — the located frame buffer, its geometry and its identification
+      do not.
       *Verification so far: `matrox_suite`, 6 tests, each replaying a ROM
       address; the reference boot returns `A354786119A3931D` unchanged.*
 - [x] **DSP variants confirmed as true subsets.** All four boot headless and

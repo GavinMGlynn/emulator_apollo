@@ -373,6 +373,18 @@ static void print_atbus_empty_addresses(const ap_board_t *board) {
   if (board->atbus_empty_writes > 0u) {
     printf("    last write %08X\n", board->last_atbus_empty_write);
   }
+  if (board->atbus_empty_reads > 0u) {
+    /* The bounds, which first-and-last cannot give because those are
+     * chronological. A region whose extent is far wider than its distinct
+     * count is being scanned; one whose count fills its extent is being
+     * filled. `GRAPHICS.md` 18 named a range from one sample without this. */
+    printf("    read span  %08X..%08X\n", board->lowest_atbus_empty_read,
+           board->highest_atbus_empty_read);
+  }
+  if (board->atbus_empty_writes > 0u) {
+    printf("    write span %08X..%08X\n", board->lowest_atbus_empty_write,
+           board->highest_atbus_empty_write);
+  }
 }
 
 /* Per-instruction clocks, measured the way tools/mame-oracle/steptime.lua
