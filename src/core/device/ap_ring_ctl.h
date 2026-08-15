@@ -126,6 +126,12 @@
  * own subtest 01 -- `(+400) & $F806 == $F806`. Bits 15, 14, 13, 12, 11, 2 and
  * 1. See `ap_ring_ctl.c`'s reset for why the ROM is the authority here. */
 #define AP_RING_CTL_STATUS_IDLE 0xF806u
+
+/* The low lane of `+402`, which finding 48 says carries status beside the
+ * command byte. Subtest 13 requires `(+402) & $F0 == $F0` after the firmware
+ * has written only the high lane, so these four bits read set on a healthy
+ * board; the rest are unasserted and stay clear. */
+#define AP_RING_CTL_COMMAND_STATUS_IDLE 0x00F0u
 #define AP_RING_CTL_STATUS_BIT13 0x2000u
 #define AP_RING_CTL_STATUS_BIT11 0x0800u
 #define AP_RING_CTL_STATUS_BIT2 0x0004u

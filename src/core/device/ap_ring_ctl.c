@@ -253,7 +253,17 @@ uint16_t ap_ring_ctl_read16(ap_ring_ctl_t *ctl, bool second_window,
        * error. */
       return ctl->present ? w->status : 0u;
     case 2u:
-      return w->command_402;
+      /* **The command byte is the high lane; the low lane is status.**
+       * Finding 48 established that `+402` and `+404` are byte-wide command
+       * registers that "carry status as well as command", and subtest 13 says
+       * what the status half reads: the firmware writes `#$2` to `+402` and
+       * then requires `(+402) & $F0 == $F0`, which a stored `0200` cannot give.
+       * So bits 7-4 of the low lane read set on a healthy board.
+       *
+       * Only those four bits are asserted by anything measured, so only those
+       * are answered -- the same restraint as the ID lane in finding 62. */
+      return (uint16_t)((w->command_402 & 0xFF00u) |
+                        AP_RING_CTL_COMMAND_STATUS_IDLE);
     case 4u:
       return w->command_404;
     default:

@@ -189,10 +189,15 @@ static void test_the_two_windows_are_separate_register_sets(void) {
 
   TEST_ASSERT_EQUAL_HEX8(0xB0u, ctl.a2.timer_a.counter[2].control);
   TEST_ASSERT_EQUAL_HEX8(0x00u, ctl.a1.timer_a.counter[2].control);
+  /* `+402`'s **high** lane is the command byte and round-trips; its low lane is
+   * status, which finding 48 said it carried and subtest 13 pinned. So the
+   * windows-are-separate claim is about the command lane. */
   TEST_ASSERT_EQUAL_HEX16(
-      0xBEEFu, ap_ring_ctl_read16(&ctl, false, AP_RING_CTL_BANK_STATUS + 2u));
+      0xBE00u, ap_ring_ctl_read16(&ctl, false, AP_RING_CTL_BANK_STATUS + 2u) &
+                   0xFF00u);
   TEST_ASSERT_EQUAL_HEX16(
-      0x0000u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 2u));
+      0x0000u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 2u) &
+                   0xFF00u);
 }
 
 /* `+402` and `+404` are byte-wide command registers whose **bits** have no known
@@ -212,8 +217,15 @@ static void test_the_unknown_command_slots_are_storage_and_nothing_more(void) {
   ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_STATUS + 2u, 0x1111u);
   ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_STATUS + 4u, 0x2222u);
 
+  /* Storage in the command lane, and **not** "nothing more": the low lane of
+   * `+402` answers with status the firmware requires (`RING.md` 63), so this
+   * test now says which half is storage rather than assuming both are. */
   TEST_ASSERT_EQUAL_HEX16(
-      0x1111u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 2u));
+      0x1100u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 2u) &
+                   0xFF00u);
+  TEST_ASSERT_EQUAL_HEX16(
+      AP_RING_CTL_COMMAND_STATUS_IDLE,
+      ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 2u) & 0x00FFu);
   TEST_ASSERT_EQUAL_HEX16(
       0x2222u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 4u));
 
