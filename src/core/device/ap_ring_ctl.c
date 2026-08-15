@@ -384,7 +384,17 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
       if ((value & 0x0400u) != 0u) {
         w->status &= (uint16_t)~(AP_RING_CTL_STATUS_BIT13 |
                                  AP_RING_CTL_STATUS_BIT2 |
-                                 AP_RING_CTL_STATUS_BIT1);
+                                 AP_RING_CTL_STATUS_BIT1 |
+                                 AP_RING_CTL_STATUS_BIT14);
+        /* **The extent is bracketed, not chosen.** Two derived durations have
+         * been tried and both refused: `RING.md` 70's 8 us (the 12-byte
+         * minimum transmission) finished *before* subtest 22 polled, and the
+         * firmware's own larger count at `[MAC]`'s 83.33 ns bit cell -- 1023
+         * cells, 85 us -- had *not* finished by subtest 26. So the true extent
+         * lies between, and picking a value inside that bracket, or picking
+         * the smaller counter because the larger failed, is the parameter
+         * search `CLAUDE.md` forbids. Completion stays immediate (finding 66's
+         * `PROVISIONAL`) until the station drives it. `RING.md` 73. */
         /* Subtest 23: once the command has been taken the command lane reads
          * back **zero**, not the value written, and the status lane drops bit
          * 6 -- `B0` where an idle register reads `F0`. Both are the same event

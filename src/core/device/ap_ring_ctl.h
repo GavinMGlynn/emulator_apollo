@@ -100,6 +100,8 @@
 #include <stdint.h>
 
 #include "device/ap_i8254.h"
+#include "ring/ap_ring_phy.h"
+#include "time/ap_time.h"
 
 /* Finding 38's four windows, as Apollo physical addresses. */
 #define AP_RING_CTL_UNIT0_A1 0x051000u
@@ -140,6 +142,12 @@
 #define AP_RING_CTL_STATUS_BIT11 0x0800u
 #define AP_RING_CTL_STATUS_BIT2 0x0004u
 #define AP_RING_CTL_STATUS_BIT1 0x0002u
+/* Two more the machine's own differing-bits line named (`RING.md` 68c): bit 14
+ * is set at reset and at subtest 16 and must be **clear** at 26, so the command
+ * clears it and it does not return; bit 3 is clear at 16 and **set** at 26, so
+ * completion sets it. */
+#define AP_RING_CTL_STATUS_BIT14 0x4000u
+#define AP_RING_CTL_STATUS_BIT3 0x0008u
 
 /* The dual-ported RAM, finding 46: `$7FFF + 1` words, which is 64 KB. The
  * figure is the firmware's own -- the extent it tests -- and not a datasheet's,
@@ -177,6 +185,7 @@ typedef struct {
   /* `+404`'s low lane, the same shape and cleared by the same event. */
   uint16_t command_404_status;
   uint16_t command_404;
+
   /* `+406` on the `a1` window, which finding 50a shows is never read. The `a2`
    * window's `+406` is the buffer port and does not use this. */
   uint16_t slot_406;
