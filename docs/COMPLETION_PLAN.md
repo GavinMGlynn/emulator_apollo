@@ -4360,15 +4360,20 @@ discipline throughout.
       ROM corroborates independently, `$2E0` being `movea.l #$c63b2,a3` (16a).
       The **range** is settled by measurement; the **layout is not** (16b) —
       planes, pitch, and whether `0C0000` is the origin or a window.
-      **And 16's citation is corrected** (16c): Table 2-6's own heading says it
-      is the **DS3000's 16-MB** allocation, while this is a DN4500 on the
-      32-bit `DS4000` map — so "ALTERNATE MONO GRAPHICS MEMORY SPACE" is
-      another model's name for that range, not this one's, and `RING.md` 43b
-      had already recorded that hazard against that very table. The two
-      measurements stand (16d); the name does not, and with it goes the
-      "mono space on a colour machine" puzzle, which was manufactured by
-      applying the wrong table. `019411-A00`'s DS5500 Table 2-5 is the nearest
-      32-bit map held and is what to read before naming the range.
+      16's citation was corrected for citing the **DS3000's 16-MB** table on a
+      32-bit machine (16c) — and then **the right table restored the name**
+      (17): `019411-A00` Table 2-5, the DS5500 256-MB allocation and the only
+      32-bit Apollo map on disk, gives `0C0000-0DFFFF` the *same* name, on the
+      map class this core uses for DN3500/4500/5500. So the label carries
+      across address-space sizes and the retraction was one step too far.
+      The card therefore presents as the **alternate monochrome** controller
+      (17a) — a real distinction, since that table puts alternate *colour* at
+      `0E0000` and this machine's own 8-plane display at `0A0000`, and the card
+      writes to neither.
+      **A geometry now has arithmetic behind it** (17b): the range is 128 KB =
+      1,048,576 bits = exactly **1024x1024 at 1 bit per pixel**, and finding
+      4a's parameter table carries `00000400` = 1024. Recorded as the
+      hypothesis to test by rendering, not as established.
       *Verification so far: `matrox_suite`, 6 tests, each replaying a ROM
       address; the reference boot returns `A354786119A3931D` unchanged.*
 - [x] **DSP variants confirmed as true subsets.** All four boot headless and
