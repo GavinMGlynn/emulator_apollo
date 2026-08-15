@@ -4308,12 +4308,17 @@ discipline throughout.
       nothing further. The microcode download completes and is *measured* to:
       `a1` ends at `00081D8E`, the ROM base plus exactly its `length` (12).
       **What it has not bought is a boot** (12a): with the ROM fitted the
-      machine stops at `PC 000061F4` in the boot PROM printing nothing at all,
-      and a 350 M run is byte-identical to a 60 M one, so it is stuck. The
-      firmware's verdict is not observable yet. The suspected cause is
-      question C rather than the device — a DN4500 board's ROM on a DN3500 map
-      — and separating those needs `4500_BOOT_13167_02_MD7R.0.32.bin` and that
-      model's map, which is the next step here.
+      machine prints nothing at all and never reaches its self tests.
+      Two hypotheses tested and **both refuted** — it is not the DN3500/DN4500
+      mismatch (12d: the DN4500's own PROM and map fail identically, with the
+      no-card control booting normally), and it is not the 64 KB image
+      answering all four scan slots (12f: the third slot is read zero times).
+      Re-framed by reading the code (12g): the stop PC *moves* between runs and
+      `[ROM4500]` there is a run of `4801` executed as `nbcd.b d1`, so this is
+      a **runaway through PROM data**, not a hang — the signature
+      `PROJECT_STATUS.md` already records for the early boot PROM.
+      So the question is where control leaves the ROM, and the instrument is a
+      PC trace across that transition rather than a third hypothesis (12h).
       *Verification so far: `matrox_suite`, 6 tests, each replaying a ROM
       address; the reference boot returns `A354786119A3931D` unchanged.*
 - [x] **DSP variants confirmed as true subsets.** All four boot headless and
