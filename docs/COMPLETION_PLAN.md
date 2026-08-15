@@ -4171,59 +4171,19 @@ discipline throughout.
 - [ ] Two nodes see each other over the ring under Domain/OS. *Verification:
       `lcnode` on each node lists the other; console output diffed against
       itself across runs for determinism.*
-- [ ] Node insertion and removal mid-run, with stripping and token loss, in
-      `src/core/ring/ap_ring_station.*`.
-      **UNTICKED BY AUDIT** (`RING.md` 85-85e): this claimed "the transmit
-      sequence of `[MAC]` §2.1 ... implemented" and **three of its eight steps
-      are absent** -- step 3's "begins to transmit its packet", step 6's "sends
-      out a new free token to follow the frame", and step 7's "until it
-      finishes receiving its own frame". Nothing outside `ap_ring_framer`'s own
-      tests ever calls it, so no frame is ever put on the medium; §2.2.2.2's
-      destination matching does not exist and the acknowledge fields are never
-      modified in flight. What *is* implemented and correct is the token,
-      claim, strip and forward behaviour below the frame.
-      **Transmit half now built** (`RING.md` 86-86b): `queue_frame` assembles
-      through the framer into a caller-lent buffer and drives it a bit per bit
-      time while stripping (step 3), originates a free token the instant the
-      last bit goes out (step 6), and ends stripping when its own frame start
-      has come back and its own length has passed (step 7). The new test caught
-      two defects on the way, the worse being that stripping **overwrote the
-      free token step 6 emits**, so the ring was never released.
-      **Receive decision now built too** (`RING.md` 87-87c): a station has an
-      address and destuffs the passing stream far enough to take §2.2.2.2's
-      decision, checking broadcast first because "receivers ignore the
-      destination address field" when it is set. The capture waits for the
-      *separator*, not the frame start -- §2.2.2.1's frame start sequence has a
-      null separator between them, and starting early puts eight zero bits into
-      the destination address.
-      **Early acknowledge now modified in flight too** (`RING.md` 88-88d): an
-      addressed receiver sets intend-to-copy on the bit time it forwards it, and
-      flips the parity bit to keep the field odd. Safe by the manual's own
-      words -- the CRC treats the field as zeros, and a byte of zeros at `+6`
-      plus the field's two legal bits mean the stuffing cannot change. Checked
-      at the *downstream* station so the assertion is about a field that
-      travelled, not a local variable.
-      **AUDIT CLOSED** (`RING.md` 89-89d): the late acknowledge is modified in
-      flight too. A forwarding station tracks a frame past its header by
-      counting the three separator characters, then the CRC and null separator,
-      and sets Figure 2-8's bits by the conditions the figure attaches to each
-      -- copied and intend-to-copy when addressed and enabled, wait-ack when
-      addressed and not, error when *any* station saw one go by. Parity is
-      recomputed rather than patched, since more than one bit may change.
-      Every gap the audit found is implemented: §2.1's steps 3, 6 and 7,
-      §2.2.2.2's address matching, and both acknowledge fields.
-      `ring_station_suite` 12 -> 18, with the ring probe golden and the
-      reference boot hash **byte-unchanged throughout**.
-      The stripping timeout and the token-loss recovery are implemented;
-      removing a
-      node mid-run is measured to lose an in-flight token, and a waiting
-      station recovers by forcing a claimed token. Findings 34-37 in `RING.md`.
-      *Verification: five more `ring_station_suite` tests, 12 in total. Detail
-      in `PROJECT_STATUS.md`.*
-  - One value stays `PROVISIONAL` and is marked in the header: §2.2.1.1 says a
-    node forces a token "after a specified timeout" and never specifies it.
-    The stripping timeout stands in, as the only documented figure of the right
-    order; patent 4,716,575 is where a real one would come from.
+- [x] Node insertion and removal mid-run, stripping, token loss, **and the
+      frame path**, in `src/core/ring/ap_ring_station.*`.
+      **Unticked by the `[MAC]` audit and re-earned** (`RING.md` 85-90d): the
+      claim "the transmit sequence of §2.1 ... implemented" had been false --
+      three of its eight steps were absent and no frame ever reached the medium.
+      All of it is now built: a station transmits a queued frame while stripping
+      (step 3), releases the ring with a new free token (step 6), stops
+      stripping when its own frame returns (step 7), takes §2.2.2.2's
+      destination-or-broadcast decision, and modifies **both** acknowledge
+      fields in flight with parity maintained.
+      *Verification: `ring_station_suite` 12 -> 18, each test citing its `[MAC]`
+      section, and the ring probe golden plus the reference boot hash
+      byte-unchanged throughout. Detail in `RING.md`.*
 - [x] 3c505 802.3 controller, so Domain networking can also be checked against
       MAME the way MAME does it. *Verification: **the card's own firmware
       self-test passes** — `802.3 Network Controller-AT test passed.` — and the
