@@ -15,6 +15,10 @@
 
 #include "ap_frontend.h"
 #include "ap_tap.h"
+
+/* `entry_05` in the ring option ROM's own table, which `disasm.py` decodes
+ * and `RING.md` finding 44 identifies as the self-test. */
+#define AP_RING_ROM_ENTRY_SELFTEST 0x2D4u
 #include "probe/ap_probe.h"
 
 #include <stdlib.h>
@@ -277,6 +281,10 @@ static void print_usage(const char *program_name) {
           "                        firmware is polling for input, not merely able\n"
           "                        to take it\n"
           "  --screen KIND         fit a display: c4p, c8p, 19i or 15i\n"
+          "  --ring-selftest       call the ring firmware's own self-test\n"
+          "                        directly, rather than waiting for the boot\n"
+          "                        PROM to find the card. Reports the code it\n"
+          "                        returns, which names a numbered subtest\n"
           "  --ring                fit the token ring controller\n"
           "  --ring-rom FILE       the same, with its option ROM placed where\n"
           "                        the boot PROM's expansion scan looks, so the\n"
@@ -826,6 +834,98 @@ static uint8_t *read_file(const char *path, long *size_out) {
   return bytes;
 }
 
+/* ## Calling the ring firmware's self-test directly
+ *
+ * The faithful route is the boot PROM finding the card and calling it, and that
+ * route is understood but not reachable: the PROM's early scan matches a
+ * different option-ROM class, and the scan that would accept a ring ROM is not
+ * reached at all in 1.5 G instructions (`RING.md` 59, 59a).
+ *
+ * **So this calls it, and says so.** `entry_05` is `entry_05(unit, arg)` with
+ * its arguments on the stack -- `move.w $4(a7),d0` then `move.w $6(a7),d5` --
+ * so a return address and two words are all the setup it needs. What comes back
+ * is an `E00000xx` code whose low byte names a numbered subtest (finding 56),
+ * which is the measurable signal this item has lacked: "stops at subtest 21"
+ * rather than another reading of a listing.
+ *
+ * This is a harness and is not evidence about what the PROM does. It is the
+ * firmware's own test suite run early, which `CLAUDE.md` calls the first real
+ * test of the controller. */
+static int run_ring_selftest(FILE *out, ap_model_id_t model,
+                             const char *rom_path) {
+  if (rom_path == NULL) {
+    fprintf(stderr, "apollo: --ring-selftest needs --ring-rom FILE\n");
+    return 2;
+  }
+  long rom_size = 0;
+  uint8_t *rom = read_file(rom_path, &rom_size);
+  if (rom == NULL || rom_size <= (long)AP_RING_ROM_ENTRY_SELFTEST) {
+    fprintf(stderr, "apollo: cannot read %s\n", rom_path);
+    free(rom);
+    return 2;
+  }
+
+  static uint8_t ram[16u * 1024u * 1024u];
+  ap_machine_t machine;
+  ap_board_t board;
+  const ap_mc146818_time_t epoch = {0};
+  if (!ap_board_init_model(&board, ram, sizeof ram, &epoch, 0u, model)) {
+    free(rom);
+    return 2;
+  }
+  ap_board_attach_ring(&board, true);
+  ap_board_attach_option_rom(&board, rom, (uint32_t)rom_size,
+                             AP_BOARD_ATBUS_MEMORY_BASE);
+  ap_machine_init_model(&machine, ram, sizeof ram, model);
+  ap_machine_set_board(&machine, &board);
+
+  /* A return address the run can recognise. The firmware's `rts` lands there
+   * and the run ends, which is how "it returned" is told from "it is still
+   * going" -- a distinction an instruction limit alone cannot make. */
+  const uint32_t sentinel = 0x00FFFFF0u;
+  const uint32_t stack = 0x01000200u;
+  const uint32_t entry =
+      AP_BOARD_ATBUS_MEMORY_BASE + AP_RING_ROM_ENTRY_SELFTEST;
+
+  ap_machine_reset(&machine, entry, stack);
+  (void)ap_machine_write(&machine, stack, 4u, sentinel); /* return address */
+  (void)ap_machine_write(&machine, stack + 4u, 2u, 0u);  /* unit 0 */
+  (void)ap_machine_write(&machine, stack + 6u, 2u, 0u);  /* second argument */
+
+  fprintf(out, "ring self-test %s\n", rom_path);
+  fprintf(out, "  entry        %06X (entry_05, +%X)\n", entry,
+          AP_RING_ROM_ENTRY_SELFTEST);
+
+  unsigned steps = 0;
+  const unsigned limit = 20000000u;
+  for (; steps < limit; steps++) {
+    if (machine.cpu.regs.pc == sentinel) {
+      break;
+    }
+    const ap_m68030_step_result_t r = ap_m68030_step(&machine.cpu);
+    if (r.status != AP_M68030_STEP_EXECUTED &&
+        r.status != AP_M68030_STEP_EXCEPTION) {
+      fprintf(out, "  stopped      status %d at PC %08X after %u step(s)\n",
+              (int)r.status, machine.cpu.regs.pc, steps);
+      break;
+    }
+  }
+  if (machine.cpu.regs.pc == sentinel) {
+    fprintf(out, "  returned     after %u step(s)\n", steps);
+  } else if (steps >= limit) {
+    fprintf(out, "  did not return in %u step(s), PC %08X\n", limit,
+            machine.cpu.regs.pc);
+  }
+  fprintf(out, "  d0 %08X  d1 %08X  d2 %08X\n", machine.cpu.regs.d[0],
+          machine.cpu.regs.d[1], machine.cpu.regs.d[2]);
+  fprintf(out, "  ring         %u read(s), %u write(s)\n",
+          board.region_reads[AP_BOARD_REGION_RING],
+          board.region_writes[AP_BOARD_REGION_RING]);
+  free(rom);
+  return 0;
+}
+
+
 /* The node ID a machine should present, taken from the volume it boots.
  *
  * `board/ap_nodeid.h` takes its identifier from a caller because "a device whose
@@ -924,6 +1024,7 @@ static bool g_fit_ring = false;
 static const char *g_ring_rom_path = NULL;
 static uint8_t *g_ring_rom = NULL;
 static uint32_t g_ring_rom_bytes = 0;
+static bool g_ring_selftest = false;
 
 /* How often a live wire is polled, in instructions. A frontend choice with no
  * hardware meaning: a real card is interrupted by its own receiver, and this
@@ -4387,6 +4488,12 @@ int main(int argc, char **argv) {
       i += 2;
       continue;
     }
+    if (strcmp(argv[i], "--ring-selftest") == 0) {
+      g_ring_selftest = true;
+      g_fit_ring = true;
+      i += 1;
+      continue;
+    }
     if (strcmp(argv[i], "--ring") == 0) {
       g_fit_ring = true;
       i += 1;
@@ -4628,9 +4735,14 @@ int main(int argc, char **argv) {
     return boot_from_tape(boot_tape, boot_limit);
   }
 
+
   if (probe_file_path != nullptr) {
     return run_probe_file(stdout, opt.model->id, program_name,
                           probe_file_path, dump_spec);
+  }
+
+  if (g_ring_selftest) {
+    return run_ring_selftest(stdout, opt.model->id, g_ring_rom_path);
   }
 
   if (run_probe_suite) {

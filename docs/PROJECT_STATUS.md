@@ -442,6 +442,33 @@ differing**. `step_suite` +1 (297) covering both halves: the untouched register
 reading zero, and all four descriptor types round-tripping through `PMOVE`
 including the forbidden one. `ctest` 136/136, identity boot unchanged.*
 
+## The ring self-test runs, and stops at a named instruction (2026-08-15)
+
+**Re-framed, and the instrument works.** `--ring-selftest` calls `entry_05`
+directly -- `entry_05(unit, arg)` with its arguments on the stack, which is what
+`move.w $4(a7),d0` / `move.w $6(a7),d5` says it takes -- instead of waiting for
+a boot PROM whose accepting scan is never reached. It is a harness and is
+labelled one: it is evidence about the *firmware*, not about what the PROM does.
+
+    ring self-test roms/firmware/3500_RING_10666_6.bin
+      entry        0802D4 (entry_05, +2D4)
+      stopped      status 3 at PC 00080310 after 52 step(s)
+      ring         1 read(s), 2 write(s)
+
+Fifty-two instructions of real ring firmware, and it stops at `+310`,
+`move.l (a0),d0`, with a memory fault -- a pointer the firmware computed
+pointing somewhere this board does not map. That is the signal this item has
+been missing: a named instruction and a reason, where five refuted numeric
+matches came from reading listings with no feedback at all.
+
+**Why this replaced the PROM route.** "What do `+400`'s bits mean" had taken
+five measurements without an answer -- the ROM cross-read, the driver, the
+handbook, the `r3000` comparison and the option-ROM scan -- and the rule this
+project already records is two, then re-frame. The PROM path is understood and
+remains the faithful goal; it is not the blocker, because the stall there is a
+PROM device poll at `$2(a0)`/`$12(a0)`/`$102(a0)` with `a0 = 00010401`, the core
+device block, before the ring firmware is entered at all.
+
 ## The firmware drives the ring model for the first time, and stalls
 ## (2026-08-15)
 
