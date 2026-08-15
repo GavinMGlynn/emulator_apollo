@@ -4027,6 +4027,14 @@ discipline throughout.
         firmware-owned constraint to build the station-driven model against.
         The 8254-from-traffic wire is still unmade and still needed: for 31 and
         32 to pass, not for 26.
+        **And the loopback is a DMA loop, not a wire loop** (`RING.md` 79-79d):
+        `002398-01` Rev 1 -- on disk since the start, and every `[EH]` citation
+        so far was Rev 4 -- documents a DIAGNOSTIC COMMAND register whose bit
+        `8000` is "dma test (loop xmit DMA to rcv DMA)". So the self-test's
+        loopback needs no medium and no station, which is a much smaller build
+        than 77b assumed. Rev 1 also lists explicit "Network Trans/Rec
+        Interrupt ACK" registers, independently documenting the acknowledge
+        mechanism finding 74 recovered from the AT firmware alone.
         **And the `$6` command is now characterised** (`RING.md` 72-72b): all
         four of its sites in `[ROM3500]` share one five-step preamble --
         `$976`, `#$8` to `+404`, two counts, `$944` to load the 8254s, then
