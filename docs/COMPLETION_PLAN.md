@@ -4182,6 +4182,15 @@ discipline throughout.
       destination matching does not exist and the acknowledge fields are never
       modified in flight. What *is* implemented and correct is the token,
       claim, strip and forward behaviour below the frame.
+      **Transmit half now built** (`RING.md` 86-86b): `queue_frame` assembles
+      through the framer into a caller-lent buffer and drives it a bit per bit
+      time while stripping (step 3), originates a free token the instant the
+      last bit goes out (step 6), and ends stripping when its own frame start
+      has come back and its own length has passed (step 7). The new test caught
+      two defects on the way, the worse being that stripping **overwrote the
+      free token step 6 emits**, so the ring was never released.
+      **Still absent**: §2.2.2.2's destination matching and the acknowledge
+      fields modified in flight -- the receive half (85b, 85c).
       The stripping timeout and the token-loss recovery are implemented;
       removing a
       node mid-run is measured to lose an in-flight token, and a waiting
