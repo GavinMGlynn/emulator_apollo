@@ -4292,11 +4292,16 @@ discipline throughout.
       `$DA0000` a block whose `+6`/`+7` are command-over-status with bits 3, 4
       and 5 polled), and the stop at `+5A8` explained by the firmware's own
       15.7 M-iteration wait for `$DA0006` bit 3 to clear.
-      **The board also takes a downloaded program** — the ROM carries
-      `ID: GAO Boot Microcode, Rev 0.00` and two `move.l (a3)+` bulk loops — so
-      a register model alone will not be the whole of this controller. That is
-      the thing to scope before implementing: findings first, then how much of
-      a microcode engine the display actually needs.
+      **The board takes a downloaded program, and it is now measured rather
+      than inferred**: 4,716 bytes from ROM `+B22`, written word by word to the
+      fixed port `$DA0000`, ending exactly on the header's `length` field — two
+      independent numbers meeting. The `ID: GAO Boot Microcode` ASCII is that
+      image's own header, not a console message. The two `move.l (a3)+` loops
+      that first looked like the download are a **16-longword CRTC parameter
+      table** carrying `00000400` = 1024 (GRAPHICS.md 4a/4b, correcting 4).
+      **Which makes the item smaller than it looked**: nothing has to *execute*
+      the microcode, only accept it. What is needed is the three ports, the
+      status bits the firmware polls, and a frame buffer — not a coprocessor.
 - [x] **DSP variants confirmed as true subsets.** All four boot headless and
       strap correctly -- they were all four *unstrapped* until the memory byte
       was keyed on the board rather than the model. `model_suite` holds the
