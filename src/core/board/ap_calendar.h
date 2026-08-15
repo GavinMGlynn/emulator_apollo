@@ -133,8 +133,24 @@
  *     00179E  MOVE.B $1E(A0),D4              ; register 2C
  *
  * `MOVEQ #2,D0` and `CLR.B D4` immediately precede the sequence, so `2` and `0`
- * are the values used when the pattern does not match or `2B` is zero. What the
- * two then select is not decoded here and is not guessed at.
+ * are the values used when the pattern does not match or `2B` is zero.
+ *
+ * **What `D0` selects is now decoded: an option-ROM class.** The two bytes are
+ * carried straight into the boot PROM's expansion-ROM scan --
+ *
+ *     0017A2  LEA   $104E(PC),A0     ; the matcher, as a callback
+ *     0017A6  BSR.W $F7E             ; the scan itself
+ *
+ * -- and `$104E` accepts a ROM whose magic is `335E91B6` / `0000A0B6` **and
+ * whose `field_1a` equals `D0`**. So register `2B` names which class of
+ * expansion ROM this machine should look for, and a ring ROM's `field_1a` is
+ * `0002`. The PROM carries a second matcher at `$106A` for a different class
+ * (`C000A0B7`) with no such check, which is the one an early scan uses.
+ *
+ * Measured rather than inferred: with `2B = 2` and a ring ROM mapped where the
+ * scan looks, the early scan still runs `$106A` and rejects it, and `001784` --
+ * this sequence -- is not reached at all in 60 M instructions. So the class
+ * selector is settled and *when* the accepting scan runs is not.
  *
  * The same fragment settles a second question: this path compares the valid
  * pattern and **computes no checksum**, so the four bytes at `0E` are not
