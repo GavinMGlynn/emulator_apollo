@@ -103,14 +103,39 @@ static void test_the_init_clear_sequence_does_not_erase_the_presence_gate(
   TEST_ASSERT_EQUAL_HEX8(AP_RING_CTL_ID_6,
                          ap_ring_ctl_read8(&ctl, true, AP_RING_CTL_BANK_ID));
 
-  /* `00010A`: the later `$800`. Bit 11's purpose is unknown -- open question A
-   * -- so all this asserts is that the board keeps what the host wrote, which
-   * is the whole of what "unknown, modelled as storage" means. */
+  /* `00010A`: the later `$800`. This used to assert the board **kept** what the
+   * host wrote, because bit 11's purpose was open question A and storage is
+   * what "unknown" was modelled as. It is no longer unknown: the firmware's own
+   * subtests 01, 11 and 16 require the bit set at reset and clear after a write
+   * of *any* value, and `[EH]`'s ring section says the same for the DN3xx
+   * board -- "writing anything to this register clears the transmit
+   * interrupt". So the assertion is inverted, and the two sources are named
+   * because a test that merely tracked the model would drift with it. */
+  ap_ring_ctl_reset(&ctl, true);
+  TEST_ASSERT_EQUAL_HEX16(
+      AP_RING_CTL_STATUS_BIT11,
+      ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS) &
+          AP_RING_CTL_STATUS_BIT11);
+
   ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_STATUS,
                       AP_RING_CTL_STATUS_BIT11);
   TEST_ASSERT_EQUAL_HEX16(
-      AP_RING_CTL_STATUS_BIT11 | AP_RING_CTL_STATUS_PRESENT,
-      ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS));
+      0u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS) &
+              AP_RING_CTL_STATUS_BIT11);
+
+  /* Any value, not just a one in that bit -- which is what separates this from
+   * write-one-to-clear, the reading the firmware refuted. */
+  ap_ring_ctl_reset(&ctl, true);
+  ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_STATUS, 0x0100u);
+  TEST_ASSERT_EQUAL_HEX16(
+      0u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS) &
+              AP_RING_CTL_STATUS_BIT11);
+
+  /* And the gate still stands through all of it. */
+  TEST_ASSERT_EQUAL_HEX16(
+      AP_RING_CTL_STATUS_PRESENT,
+      ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS) &
+          AP_RING_CTL_STATUS_PRESENT);
 }
 
 /* Finding 41, `[ROM3500]` `0000C6`-`0000E4`: `$30`, `$70`, `$B0` to `+806` and

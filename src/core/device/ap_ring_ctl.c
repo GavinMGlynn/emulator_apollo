@@ -327,14 +327,35 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
   if ((offset & AP_RING_CTL_BANK_MASK) == AP_RING_CTL_BANK_STATUS) {
     switch (offset & AP_RING_CTL_SLOT_MASK) {
     case 0u:
-      /* Bit 15 is the board's answer about itself, not the host's to set: init
-       * *clears* `+400` and then later writes `$800`, and a model that let the
-       * clear take the presence bit with it would report the board absent from
-       * that moment on. So the host's bits are kept and the gate is held.
+      /* **`+400` is status, and a write clears rather than stores.**
        *
-       * Which bits below 15 are writable is not established -- finding 40 names
-       * only bit 11 as ever written -- so all of them are stored. */
-      w->status = (uint16_t)((value & ~AP_RING_CTL_STATUS_PRESENT) |
+       * Storing the host's bits was the reasonable default while nothing drove
+       * this register. The firmware refutes it: subtest 01 requires
+       * `(+400) & $F806 == $F806` at reset, and subtest 16 requires
+       * `(+400) & $FF08 == $F000` *after* `move.b #$1,$400(a4)` and finding
+       * 40's `$800`. A storing model answers `8100` to the second, because the
+       * `01` it kept sits in bits 15-8 where the hardware keeps status.
+       *
+       * **Writing anything clears bit 11, and the manual said so first.**
+       * Write-one-to-clear was tried and is refuted: it leaves bit 11 set after
+       * `move.b #$1,$400(a4)`, and subtest 11 -- which passed before -- then
+       * fails. The rule that fits all three data points is that a *write*, of
+       * any value, clears it: set at reset for subtest 01, clear after the `#$1`
+       * for subtest 11, and clear again under subtest 16's `$FF08` mask.
+       *
+       * And `[EH]`'s ring register section, finding 55, gives that behaviour in
+       * words for the DN3xx board's transmit command: **"Writing anything to
+       * this register clears the transmit interrupt."** A documented rule for
+       * one generation of this controller, and the AT board's own self-test
+       * requiring the same thing, is two independent sources rather than a fit
+       * to three numbers.
+       *
+       * Bits 15-12 survive the write: they are status the board asserts, and
+       * subtest 16 requires them set after it. The presence bit is one of them
+       * and is held explicitly, which is why finding 40's `clr.w +400` does not
+       * make the board vanish. */
+      (void)value;
+      w->status = (uint16_t)((w->status & ~AP_RING_CTL_STATUS_BIT11) |
                              (ctl->present ? AP_RING_CTL_STATUS_PRESENT : 0u));
       return;
     case 2u:
