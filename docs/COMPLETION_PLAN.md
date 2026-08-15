@@ -3992,7 +3992,15 @@ discipline throughout.
         *The loop is now "fails at 01" -> fix -> "fails at 11", against 40
         numbered subtests.*
   - [ ] **The transmit/receive handshake, which is what actually blocks the
-        self-test.** Finding 45 shows `+400` has five polled bits (15, 13, 11,
+        self-test.** **Fourteen of the firmware's own subtests now pass**
+        (`RING.md` 60-68), and the fifteenth is a *timing* question rather than
+        a register one: subtest 26 requires `+400`'s bits 3-1 set where 22 and
+        24 required two of them clear, with no intervening write, so they go
+        clear while an operation is in flight and return when it completes (69).
+        `ap_ring_sched` and `ap_ring_station` already model the ring with
+        duration; driving the controller's status from them, rather than from
+        the register write, is the remaining work -- and the self-test is now
+        the test for it. Finding 45 shows `+400` has five polled bits (15, 13, 11,
         2, 1), each with its own timeout and expected polarity, and finding 48
         two byte-wide command registers taking `$1`, `$2`, `$6`, `$8`. **None
         of their meanings is established**, and they are what sequences the
