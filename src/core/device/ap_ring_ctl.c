@@ -106,11 +106,24 @@ uint8_t ap_ring_ctl_read8(ap_ring_ctl_t *ctl, bool second_window,
      * the pull-ups, which is `FF` on this machine -- the same reasoning the AT
      * window at large uses -- and `FF` is neither `$36` nor `$37`, so an absent
      * board fails the ID check exactly as it should. */
+    if ((offset & AP_RING_CTL_SLOT_MASK) == 0u) {
+      if (odd) {
+        /* **The ID's low lane, and the firmware constrains one bit of it.**
+         * Finding 39 reads `+000` as a *byte*, so the odd half never mattered
+         * and answered with the pull-ups. Subtest 03 reads the same address as
+         * a **word** -- `move.w (a4),d1 / andi.w #$8,d1` -- and requires the
+         * result to be zero, which `FF` in this lane cannot give.
+         *
+         * So bit 3 reads clear on a healthy board. The rest of the lane is
+         * unconstrained by anything measured, and zero is the least invented
+         * answer: it asserts nothing the firmware did not, where `F7` would
+         * claim six pull-ups this project has never seen. */
+        return ctl->present ? 0x00u : 0xFFu;
+      }
+      return ctl->present ? w->id : 0xFFu;
+    }
     if (odd) {
       return 0xFFu;
-    }
-    if ((offset & AP_RING_CTL_SLOT_MASK) == 0u) {
-      return ctl->present ? w->id : 0xFFu;
     }
     return (uint8_t)(ap_ring_ctl_read16(ctl, second_window, offset) >> 8);
 

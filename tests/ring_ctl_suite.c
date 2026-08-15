@@ -408,19 +408,37 @@ static void test_the_data_port_round_trips_the_firmwares_own_pattern(void) {
   ap_ring_ctl_t ctl;
   ap_ring_ctl_reset(&ctl, true);
 
-  /* `move.w #$0,$6(a4)` then `$8000` words of `move.w d2,(a1)`. */
-  ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_ID + 6u, 0u);
-  for (unsigned i = 0; i < AP_RING_CTL_BUFFER_WORDS; i++) {
-    ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_STATUS + 6u, 0x0001u);
-  }
+  /* **Driven a byte at a time, which is the layer that had the defect.** The
+   * board splits every `move.w` into two byte accesses, and the port advances
+   * on each one -- so a test that calls `read16`/`write16` directly passes
+   * against a model that consumes two buffer words per firmware word. It did.
+   * These helpers are what the board calls. */
+  const uint32_t port = AP_RING_CTL_BANK_STATUS + 6u;
+  const uint32_t ptr = AP_RING_CTL_BANK_ID + 6u;
 
-  /* `move.w #$0,$6(a4)`, then the discarded read, then the compared ones. */
-  ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_ID + 6u, 0u);
-  (void)ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 6u);
+  for (unsigned pass = 0; pass < 2u; pass++) {
+    /* Two patterns in succession, because subtest 03 fills with zero *after*
+     * subtest 02 filled with ones -- the case where anything left over from the
+     * previous pass shows up as the wrong answer. */
+    const uint16_t pattern = (pass == 0u) ? 0x0001u : 0x0000u;
 
-  for (unsigned i = 0; i < 4u; i++) {
-    TEST_ASSERT_EQUAL_HEX16(
-        0x0001u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 6u));
+    ap_ring_ctl_write16(&ctl, true, ptr, 0u);
+    for (unsigned i = 0; i < AP_RING_CTL_BUFFER_WORDS; i++) {
+      ap_ring_ctl_write8(&ctl, true, port, (uint8_t)(pattern >> 8));
+      ap_ring_ctl_write8(&ctl, true, port + 1u, (uint8_t)(pattern & 0xFFu));
+    }
+
+    ap_ring_ctl_write16(&ctl, true, ptr, 0u);
+    /* The firmware's discarded first read, `000C1C`. */
+    (void)ap_ring_ctl_read8(&ctl, true, port);
+    (void)ap_ring_ctl_read8(&ctl, true, port + 1u);
+
+    for (unsigned i = 0; i < 8u; i++) {
+      const uint8_t high = ap_ring_ctl_read8(&ctl, true, port);
+      const uint8_t low = ap_ring_ctl_read8(&ctl, true, port + 1u);
+      const uint16_t got = (uint16_t)(((uint16_t)high << 8) | low);
+      TEST_ASSERT_EQUAL_HEX16(pattern, got);
+    }
   }
 }
 
