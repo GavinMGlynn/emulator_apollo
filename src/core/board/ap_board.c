@@ -371,6 +371,16 @@ void ap_board_set_quirks(ap_board_t *board, ap_quirks_t quirks) {
   }
 }
 
+void ap_board_attach_option_rom(ap_board_t *board, const uint8_t *image,
+                                uint32_t bytes, uint32_t base) {
+  if (board == NULL) {
+    return;
+  }
+  board->option_rom = image;
+  board->option_rom_bytes = (image != NULL) ? bytes : 0u;
+  board->option_rom_base = base;
+}
+
 void ap_board_attach_ethernet(ap_board_t *board, bool fitted,
                               const uint8_t *address) {
   if (board == NULL) {
@@ -1035,6 +1045,12 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     return ap_ring_ctl_read8(&board->ring, second, offset);
   }
   case AP_BOARD_REGION_ATBUS:
+    /* A fitted option ROM answers before the pull-ups do, which is the whole
+     * of what "a card is in the slot" means to the scan below. */
+    if (board->option_rom != NULL && address >= board->option_rom_base &&
+        address < board->option_rom_base + board->option_rom_bytes) {
+      return board->option_rom[address - board->option_rom_base];
+    }
     /* The window decodes and nothing drives the data lines, so the pull-ups
      * answer. `FF` rather than unmapped: the cycle terminates normally on the
      * real machine, and reporting a fault here would crash an expansion ROM

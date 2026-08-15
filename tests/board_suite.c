@@ -1295,11 +1295,49 @@ static void test_the_probe_bytes_come_back_through_the_bus(void) {
                            &ok));
 }
 
+
+/* **An option ROM answers where the boot PROM's expansion scan looks.**
+ *
+ * The scan is measured -- `00080000`-`00083003`, four bytes at each of four
+ * pages -- and an empty AT window answers `FF` so that finding nothing is not
+ * a fault. A card's firmware becomes reachable by putting its image there, and
+ * the PROM then calls it the way the hardware does rather than through a
+ * harness that decides when. */
+static void test_an_option_rom_answers_where_the_prom_scan_looks(void) {
+  ap_board_t board;
+  bool ok = false;
+  init(&board);
+
+  /* Empty first: the pull-ups, which is what "no card" means. */
+  TEST_ASSERT_EQUAL_HEX8(
+      0xFFu, ap_board_read(&board, AP_BOARD_ATBUS_MEMORY_BASE, &ok));
+
+  static const uint8_t image[4] = {0x33u, 0x5Eu, 0x91u, 0xB6u};
+  ap_board_attach_option_rom(&board, image, sizeof image,
+                             AP_BOARD_ATBUS_MEMORY_BASE);
+  for (unsigned i = 0; i < sizeof image; i++) {
+    TEST_ASSERT_EQUAL_HEX8(
+        image[i], ap_board_read(&board, AP_BOARD_ATBUS_MEMORY_BASE + i, &ok));
+  }
+
+  /* And only where it is: one byte past the image is the empty window again,
+   * so a short ROM does not shadow the rest of the scan. */
+  TEST_ASSERT_EQUAL_HEX8(
+      0xFFu,
+      ap_board_read(&board, AP_BOARD_ATBUS_MEMORY_BASE + sizeof image, &ok));
+
+  /* Detached, the window is empty again. */
+  ap_board_attach_option_rom(&board, NULL, 0u, 0u);
+  TEST_ASSERT_EQUAL_HEX8(
+      0xFFu, ap_board_read(&board, AP_BOARD_ATBUS_MEMORY_BASE, &ok));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_ethernet_card_is_absent_until_it_is_fitted);
   RUN_TEST(test_the_ethernet_card_answers_exactly_sixteen_locations);
   RUN_TEST(test_the_probe_bytes_come_back_through_the_bus);
+  RUN_TEST(test_an_option_rom_answers_where_the_prom_scan_looks);
   init_region_board();
   RUN_TEST(test_a_selective_clear_reaches_the_status_register);
   RUN_TEST(test_a_three_byte_access_is_served_and_round_trips);

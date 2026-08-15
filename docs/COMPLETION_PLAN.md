@@ -3954,6 +3954,16 @@ discipline throughout.
         high byte of that word, so the firmware's `$6` is `0600` and the note's
         `6000` would need `$60` (55b). Suggestive and unproven, which is where
         it stays.
+  - [ ] **A route to running the firmware's own self-test now exists.**
+        `--ring-rom FILE` places the image where the boot PROM's expansion scan
+        looks, and the PROM reads the option-ROM magic `335E91B6` at `00080000`
+        from PC `0000106A`. It does **not** proceed: the entry table at `+4A` is
+        never read and `init` is not called in 20 M instructions. So the next
+        question is what else the header must satisfy, or whether a card's ROM
+        must sit at the page matching its slot. Detail in `PROJECT_STATUS.md`.
+        *Why this matters more than more disassembly: finding 56 established
+        that a self-test failure reports a numbered subtest, so once the ROM
+        runs, "fails at subtest 21" replaces reading listings blind.*
   - [ ] **The transmit/receive handshake, which is what actually blocks the
         self-test.** Finding 45 shows `+400` has five polled bits (15, 13, 11,
         2, 1), each with its own timeout and expected polarity, and finding 48

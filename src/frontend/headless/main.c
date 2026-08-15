@@ -277,6 +277,10 @@ static void print_usage(const char *program_name) {
           "                        firmware is polling for input, not merely able\n"
           "                        to take it\n"
           "  --screen KIND         fit a display: c4p, c8p, 19i or 15i\n"
+          "  --ring                fit the token ring controller\n"
+          "  --ring-rom FILE       the same, with its option ROM placed where\n"
+          "                        the boot PROM's expansion scan looks, so the\n"
+          "                        firmware's own self-test runs\n"
           "  --3c505               fit the EtherLink Plus. Off by default: the\n"
           "                        boot PROM tests a card it finds, and an\n"
           "                        empty slot is the machine that boots\n"
@@ -914,6 +918,12 @@ static ap_quirks_t g_quirks;
 static bool g_fit_ethernet = false;
 static const char *g_tap_device = NULL;
 static ap_tap_t g_tap = {.fd = -1};
+
+/* The ring controller and its option ROM, on the same terms as the 3c505. */
+static bool g_fit_ring = false;
+static const char *g_ring_rom_path = NULL;
+static uint8_t *g_ring_rom = NULL;
+static uint32_t g_ring_rom_bytes = 0;
 
 /* How often a live wire is polled, in instructions. A frontend choice with no
  * hardware meaning: a real card is interrupted by its own receiver, and this
@@ -2010,6 +2020,34 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * Found because selecting a quirk left the state hash byte-identical, which
    * it cannot do when the set is hashed. */
   ap_board_set_quirks(board, g_quirks);
+  if (g_fit_ring) {
+    ap_board_attach_ring(board, true);
+    if (g_ring_rom_path != NULL) {
+      FILE *rom_file = fopen(g_ring_rom_path, "rb");
+      if (rom_file == NULL) {
+        fprintf(stderr, "apollo: cannot read %s\n", g_ring_rom_path);
+      } else {
+        (void)fseek(rom_file, 0, SEEK_END);
+        const long rom_size = ftell(rom_file);
+        (void)fseek(rom_file, 0, SEEK_SET);
+        if (rom_size > 0) {
+          g_ring_rom = (uint8_t *)malloc((size_t)rom_size);
+          if (g_ring_rom != NULL &&
+              fread(g_ring_rom, 1, (size_t)rom_size, rom_file) ==
+                  (size_t)rom_size) {
+            g_ring_rom_bytes = (uint32_t)rom_size;
+            ap_board_attach_option_rom(board, g_ring_rom, g_ring_rom_bytes,
+                                       AP_BOARD_ATBUS_MEMORY_BASE);
+            printf("  ring ROM     %s, %u bytes at %06X\n", g_ring_rom_path,
+                   g_ring_rom_bytes, AP_BOARD_ATBUS_MEMORY_BASE);
+          }
+        }
+        (void)fclose(rom_file);
+      }
+    } else {
+      printf("  ring         fitted, no option ROM\n");
+    }
+  }
   if (g_fit_ethernet) {
     /* The address PROM is left zero rather than given an invented address: a
      * card whose PROM has not been programmed is a real state, and a plausible
@@ -4346,6 +4384,17 @@ int main(int argc, char **argv) {
                 name);
         return 1;
       }
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--ring") == 0) {
+      g_fit_ring = true;
+      i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--ring-rom") == 0 && i + 1 < argc) {
+      g_fit_ring = true;
+      g_ring_rom_path = argv[i + 1];
       i += 2;
       continue;
     }

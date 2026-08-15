@@ -225,6 +225,17 @@ typedef struct ap_board {
    * correctly concludes "not present"; a card that answers but cannot complete
    * the test would fail it, which is worse than absent. Fitting it is therefore
    * a deliberate act, and the boot that reaches `login:` does not do it. */
+  /* An expansion card's option ROM, in the AT **memory** window.
+   *
+   * The boot PROM scans `00080000`-`00083003` -- four bytes at each of four
+   * pages -- looking for the Apollo option-ROM magic, which this core measured
+   * before it had a ROM to find. So a card's firmware is made reachable by
+   * putting its image where that scan looks, and the PROM calls it the way the
+   * hardware does rather than through a harness that decides when. */
+  const uint8_t *option_rom;
+  uint32_t option_rom_bytes;
+  uint32_t option_rom_base;
+
   bool ethernet_present;
   ap_3c505_t ethernet;
   ap_3c505_adapter_t ethernet_adapter;
@@ -555,6 +566,11 @@ void ap_board_attach_ring(ap_board_t *board, bool fitted);
  * programmed rather than a default worth inventing. */
 void ap_board_attach_ethernet(ap_board_t *board, bool fitted,
                               const uint8_t *address);
+
+/* Place an option ROM image in the AT memory window. The image is borrowed, not
+ * copied: it outlives the call and the board does not own it. */
+void ap_board_attach_option_rom(ap_board_t *board, const uint8_t *image,
+                                uint32_t bytes, uint32_t base);
 
 /* Select the oracle-compatibility divergences for this machine. Call before the
  * run; the set is configuration, not something a program can change. */
