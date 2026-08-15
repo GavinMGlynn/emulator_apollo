@@ -246,6 +246,8 @@ static void print_usage(const char *program_name) {
    * string literal, and this list passed it. No flag is grouped by meaning
    * across the break. */
   fprintf(stdout,
+          "  --option-rom FILE     place an option ROM where the boot PROM's\n"
+          "                        scan looks, with no card behind it\n"
           "  --3c505-rom FILE      fit the EtherLink Plus with its option ROM\n"
           "                        placed where the boot PROM's scan looks\n"
           "  --boot-console        print what the machine transmits on either\n"
@@ -1077,6 +1079,8 @@ static bool g_fit_ring = false;
 static const char *g_ring_rom_path = NULL;
 static uint8_t *g_ring_rom = NULL;
 static uint32_t g_ring_rom_bytes = 0;
+static const char *g_option_rom_path = NULL;
+static uint8_t *g_option_rom = NULL;
 static const char *g_ethernet_rom_path = NULL;
 static uint8_t *g_ethernet_rom = NULL;
 static uint32_t g_ethernet_rom_bytes = 0;
@@ -2203,6 +2207,25 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       }
     } else {
       printf("  ring         fitted, no option ROM\n");
+    }
+  }
+  /* An option ROM with **no card behind it**, which `--ring-rom` and
+   * `--3c505-rom` cannot express because each fits its own controller. The
+   * boot PROM's expansion scan reads the image before it knows what board it
+   * belongs to (`RING.md` 16), so "what does the scan do with this header" is
+   * answerable without modelling the device at all -- and for the Matrox
+   * graphics ROM, whose controller is not built, that is the only question
+   * currently askable. */
+  if (g_option_rom_path != NULL) {
+    long rom_size = 0;
+    g_option_rom = read_file(g_option_rom_path, &rom_size);
+    if (g_option_rom == NULL || rom_size <= 0) {
+      fprintf(stderr, "apollo: cannot read %s\n", g_option_rom_path);
+    } else {
+      ap_board_attach_option_rom(board, g_option_rom, (uint32_t)rom_size,
+                                 AP_BOARD_ATBUS_MEMORY_BASE);
+      printf("  option ROM   %s, %ld bytes at %06X, no card fitted\n",
+             g_option_rom_path, rom_size, AP_BOARD_ATBUS_MEMORY_BASE);
     }
   }
   if (g_fit_ethernet) {
@@ -4098,6 +4121,25 @@ static int boot_from_tape(const char *path, unsigned limit) {
   }
   /* Before anything runs: the set is configuration, and it is hashed. */
   ap_board_set_quirks(board, g_quirks);
+  /* An option ROM with **no card behind it**, which `--ring-rom` and
+   * `--3c505-rom` cannot express because each fits its own controller. The
+   * boot PROM's expansion scan reads the image before it knows what board it
+   * belongs to (`RING.md` 16), so "what does the scan do with this header" is
+   * answerable without modelling the device at all -- and for the Matrox
+   * graphics ROM, whose controller is not built, that is the only question
+   * currently askable. */
+  if (g_option_rom_path != NULL) {
+    long rom_size = 0;
+    g_option_rom = read_file(g_option_rom_path, &rom_size);
+    if (g_option_rom == NULL || rom_size <= 0) {
+      fprintf(stderr, "apollo: cannot read %s\n", g_option_rom_path);
+    } else {
+      ap_board_attach_option_rom(board, g_option_rom, (uint32_t)rom_size,
+                                 AP_BOARD_ATBUS_MEMORY_BASE);
+      printf("  option ROM   %s, %ld bytes at %06X, no card fitted\n",
+             g_option_rom_path, rom_size, AP_BOARD_ATBUS_MEMORY_BASE);
+    }
+  }
   if (g_fit_ethernet) {
     /* The address PROM is left zero rather than given an invented address: a
      * card whose PROM has not been programmed is a real state, and a plausible
@@ -4612,6 +4654,11 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--3c505") == 0) {
       g_fit_ethernet = true;
       i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--option-rom") == 0 && i + 1 < argc) {
+      g_option_rom_path = argv[i + 1];
+      i += 2;
       continue;
     }
     if (strcmp(argv[i], "--3c505-rom") == 0 && i + 1 < argc) {

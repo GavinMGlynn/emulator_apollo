@@ -4257,6 +4257,22 @@ discipline throughout.
     `ram_base`.
 - [ ] DN4500 Matrox graphics. *Verification: PNG inspection; no oracle, so
       documented as paper-verified.*
+      **Opened, and the board's own ROM is the specification.**
+      `4500_Matrox_013748_04.bin` is a valid Apollo option ROM that
+      `tools/ring-rom/disasm.py` reads — and it is the **only** image on disk
+      whose `magic1` is `C000A0B7`, the class the boot PROM's early scan accepts
+      on magic alone (`RING.md` 70, which refutes 59b's claim that no such ROM
+      was held). Fitted with the new `--option-rom` flag the scan takes it and
+      the machine executes it, stopping at `+5A8`.
+      **Two register addresses recovered from the firmware**: it writes the word
+      sequence `A534`, `1744`, `1345` to **`$D40000`** and then polls
+      **`$DA0006` bit 3** for clear, with a 15.7 M-iteration timeout — the shape
+      the ring and 3c505 items both started from. Nothing decodes either
+      address here, so the poll spins out.
+      **Caveat, stated because it would otherwise be assumed away**: that run
+      used the DN3500 PROM and map, since `identity-boot.sh` does. The
+      addresses are facts about the *board*; whether they decode the same on a
+      DN4500 needs `4500_BOOT_13167_02_MD7R.0.32.bin` and that model's map.
 - [x] **DSP variants confirmed as true subsets.** All four boot headless and
       strap correctly -- they were all four *unstrapped* until the memory byte
       was keyed on the board rather than the model. `model_suite` holds the
