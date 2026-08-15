@@ -38,6 +38,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "ring/ap_ring_frame.h"
+#include "ring/ap_ring_framer.h"
 #include "ring/ap_ring_mac.h"
 #include "ring/ap_ring_medium.h"
 
@@ -83,6 +85,32 @@
 typedef struct {
   int slot; /* where on the medium */
 
+  /* ## The transmit path, `[MAC]` §2.1 steps 3, 6 and 7
+   *
+   * An audit against chapter 2 (`RING.md` 85-85e) found these three absent:
+   * the station claimed the ring, stripped, and never transmitted anything,
+   * because nothing ever called `ap_ring_frame_emit`. Step 3 is "breaks ring
+   * recirculation and **begins to transmit its packet**", step 6 is "sends out
+   * a **new free token** to follow the frame", and step 7 bounds stripping by
+   * "until it **finishes receiving its own frame**, or until a 10.9 msec
+   * timeout".
+   *
+   * The frame is assembled once into a caller-lent buffer and then driven one
+   * bit per bit time, which is what a transceiving node does -- `src/core`
+   * allocates nothing, the same rule the screen's memories follow. */
+  uint8_t *tx_bits;
+  size_t tx_capacity;   /* bytes lent */
+  size_t tx_bit_count;  /* bits the assembled frame occupies */
+  size_t tx_bit_pos;    /* bits driven so far */
+  bool tx_armed;        /* a frame is assembled and waiting for the ring */
+
+  /* Step 7's other arm. Once the station has seen its own frame start come
+   * back it counts the frame's own length before it stops stripping, which is
+   * "finishes receiving its own frame" without needing to know the ring's
+   * circumference. */
+  bool tx_seen_own_frame_start;
+  size_t tx_stripped_own;
+
   /* The last nine received bits, most recent in bit 0. Nine because that is an
    * out-of-band character's width; anything narrower cannot recognise one. */
   uint16_t window;
@@ -124,6 +152,21 @@ typedef struct {
 } ap_ring_station_t;
 
 void ap_ring_station_init(ap_ring_station_t *s, int slot);
+
+/* Lend the station a buffer to assemble frames in. Without one it cannot
+ * transmit, which is the state every station was in before `RING.md` 85. */
+void ap_ring_station_attach_tx(ap_ring_station_t *s, uint8_t *bytes,
+                               size_t capacity);
+
+/* Assemble a frame and ask for the ring. False when `[MAC]` §2.2.2's length
+ * rules refuse it or the lent buffer is too small -- checked by
+ * `ap_ring_frame_emit` before anything is written, so a refused frame leaves
+ * the station idle rather than half-armed. */
+[[nodiscard]] bool ap_ring_station_queue_frame(
+    ap_ring_station_t *s, const ap_ring_frame_fields_t *fields);
+
+/* Whether a queued frame has been fully driven onto the ring. */
+[[nodiscard]] bool ap_ring_station_transmitted(const ap_ring_station_t *s);
 
 /* Put a free token onto the ring from this station, nine bits, one per call to
  * `ap_ring_station_drive` until it is done. Used to start a ring: on real

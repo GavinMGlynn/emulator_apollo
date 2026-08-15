@@ -346,6 +346,61 @@ static void test_a_station_forces_a_token_only_when_none_is_circulating(void) {
   TEST_ASSERT_EQUAL_UINT64(1u, q.station[1].strip_timeouts);
 }
 
+/* **A frame crosses the ring, which nothing checked before.**
+ *
+ * `RING.md` 85 audited `[MAC]` chapter 2 against the code and found the frame
+ * layer and the station layer unconnected: every module was correct against
+ * its own section, and nothing outside `ap_ring_framer`'s own tests ever
+ * called it, so no frame was ever put on the medium. Three normative parts of
+ * §2.1 were absent with it -- step 3's "begins to transmit its packet", step
+ * 6's "sends out a new free token to follow the frame", and step 7's "until it
+ * finishes receiving its own frame".
+ *
+ * This is the test that would have caught it: a station is given a frame, and
+ * the ring is required to carry it. */
+static void test_a_queued_frame_is_driven_onto_the_ring(void) {
+  ring_t r;
+  build(&r, 3u);
+  static uint8_t txbuf[2048];
+  uint8_t header[12] = {0};
+  ap_ring_header_set_destination(header, 0x00012345u);
+  ap_ring_header_set_type(header, AP_RING_TYPE_USER);
+  ap_ring_header_set_source(header, 0x00067890u);
+
+  ap_ring_station_attach_tx(&r.station[0], txbuf, sizeof txbuf);
+  const ap_ring_frame_fields_t fields = {
+      .header = header, .header_bytes = sizeof header,
+      .data = NULL, .data_bytes = 0u, .late_acknowledge = 0u};
+  TEST_ASSERT_TRUE(ap_ring_station_queue_frame(&r.station[0], &fields));
+  /* §2.2.2.2's minimum: the controller "will always transmit the first 12
+   * bytes of a packet header", and a frame's assembly is refused outright
+   * below that -- so a non-zero bit count is the framer having accepted it. */
+  TEST_ASSERT_TRUE(r.station[0].tx_bit_count > 0u);
+
+  /* A free token to acquire, then long enough for the frame to go round. */
+  ap_ring_station_originate_token(&r.station[1], AP_RING_OOB_FREE_TOKEN);
+  for (unsigned i = 0; i < 4000u; i++) {
+    step(&r);
+  }
+
+  /* Step 3: the frame was driven, every bit of it. */
+  TEST_ASSERT_TRUE(ap_ring_station_transmitted(&r.station[0]));
+  TEST_ASSERT_EQUAL_UINT(r.station[0].tx_bit_count, r.station[0].tx_bit_pos);
+
+  /* Step 7: stripping ended on the station's own frame returning, **not** on
+   * the 10.9 ms timeout -- which is the arm that did not exist. A run of 4000
+   * bits cannot reach 131,072, so a still-stripping station would prove the
+   * timeout was the only exit. */
+  TEST_ASSERT_FALSE(r.station[0].stripping);
+  TEST_ASSERT_EQUAL_UINT64(0u, r.station[0].strip_timeouts);
+
+  /* Step 6: a new free token follows the frame, so the ring is released. A
+   * station that held it would leave the others unable to transmit for ever,
+   * which is what the audit found. */
+  TEST_ASSERT_FALSE(r.station[0].holds_ring);
+  TEST_ASSERT_TRUE(r.station[1].tokens_seen > 0u);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_stripping_timeout_matches_both_forms_the_manual_gives);
@@ -360,5 +415,6 @@ int main(void) {
   RUN_TEST(test_a_station_wanting_nothing_forwards_the_token_intact);
   RUN_TEST(test_cable_lets_a_three_station_ring_circulate_a_token);
   RUN_TEST(test_the_station_recognises_a_nine_bit_symbol);
+  RUN_TEST(test_a_queued_frame_is_driven_onto_the_ring);
   return UNITY_END();
 }

@@ -10,6 +10,44 @@ void ap_ring_station_init(ap_ring_station_t *s, int slot) {
   s->slot = slot;
 }
 
+void ap_ring_station_attach_tx(ap_ring_station_t *s, uint8_t *bytes,
+                               size_t capacity) {
+  s->tx_bits = bytes;
+  s->tx_capacity = capacity;
+  s->tx_bit_count = 0u;
+  s->tx_bit_pos = 0u;
+  s->tx_armed = false;
+}
+
+bool ap_ring_station_queue_frame(ap_ring_station_t *s,
+                                 const ap_ring_frame_fields_t *fields) {
+  if (s == NULL || fields == NULL || s->tx_bits == NULL) {
+    return false;
+  }
+  /* Assembled once, here, rather than a field at a time while driving: the
+   * framer refuses a frame whose lengths §2.2.2 does not permit *before*
+   * writing anything, and a station that discovered that mid-transmission
+   * would already have put a malformed frame on the ring. */
+  ap_ring_bitwriter_t w;
+  ap_ring_bitwriter_init(&w, s->tx_bits, s->tx_capacity);
+  if (!ap_ring_frame_emit(&w, fields)) {
+    return false;
+  }
+  s->tx_bit_count = w.bit_count;
+  s->tx_bit_pos = 0u;
+  s->tx_armed = true;
+  s->tx_seen_own_frame_start = false;
+  s->tx_stripped_own = 0u;
+  /* Step 1: "A node generates a packet and enables its transmitter." */
+  s->wants_ring = true;
+  return true;
+}
+
+bool ap_ring_station_transmitted(const ap_ring_station_t *s) {
+  return s != NULL && !s->tx_armed && s->tx_bit_count > 0u &&
+         s->tx_bit_pos >= s->tx_bit_count;
+}
+
 void ap_ring_station_originate_token(ap_ring_station_t *s, uint16_t symbol) {
   /* Sourcing is kept apart from forwarding because the two have different
    * timing: a forwarded bit was received a bit time ago, a sourced one was
@@ -41,11 +79,19 @@ void ap_ring_station_drive(ap_ring_station_t *s, ap_ring_medium_t *m) {
    * exactly what the contention test caught, for the second time and by a
    * different route than the first. */
   bool claimed_now = false;
+  /* Whether this bit is one this station is *sourcing* rather than forwarding.
+   * Stripping must not overwrite it: step 6's new free token is emitted while
+   * the station is still stripping its own frame, and a Zero written over it
+   * turns the token back into padding -- the ring is then never released and
+   * no other station can ever transmit. The same hazard the claim bit has,
+   * one sentence further down §2.1. */
+  bool originated_now = false;
 
   if (s->originate_left > 0u) {
     const unsigned shift = (unsigned)s->originate_left - 1u;
     bit = ((s->originate_symbol >> shift) & 1u) != 0u;
     s->originate_left--;
+    originated_now = true;
   } else if (s->pending_valid) {
     bit = s->pending_bit;
     /* The claim: the free token's last bit is the one being driven now, and a
@@ -73,7 +119,35 @@ void ap_ring_station_drive(ap_ring_station_t *s, ap_ring_medium_t *m) {
     s->bits_forwarded++;
   }
 
-  if (s->stripping && !claimed_now) {
+  if (s->stripping && !claimed_now && !originated_now) {
+    /* **Step 3: "begins to transmit its packet".** While a queued frame has
+     * bits left they are what this station drives; the received bit is still
+     * discarded, which is what makes transmitting and stripping concurrent
+     * rather than sequential -- §2.1 puts them in one sentence. */
+    if (s->tx_armed && s->tx_bit_pos < s->tx_bit_count) {
+      const size_t i = s->tx_bit_pos;
+      bit = ((s->tx_bits[i >> 3] >> (7u - (i & 7u))) & 1u) != 0u;
+      s->tx_bit_pos++;
+      if (s->tx_bit_pos >= s->tx_bit_count) {
+        /* **Step 6: "sends out a new free token to follow the frame."**
+         * Queued to originate from the next bit time, so it follows the
+         * frame's last bit rather than replacing it. Without this a station
+         * that claimed the ring held it until the strip timeout, which is what
+         * the audit found. */
+        s->tx_armed = false;
+        ap_ring_station_originate_token(s, AP_RING_OOB_FREE_TOKEN);
+      }
+      s->bits_stripping++;
+      if (s->bits_stripping >= AP_RING_STRIP_TIMEOUT_BITS) {
+        s->stripping = false;
+        s->holds_ring = false;
+        s->strip_timeouts++;
+      }
+      const ap_ring_cell_t txcell = ap_ring_biphase_encode(bit, s->tx_level);
+      s->tx_level = ap_ring_cell_trailing_level(txcell);
+      ap_ring_medium_transmit(m, s->slot, txcell);
+      return;
+    }
     /* "pads the bit serial stream with Zeros" (§2.1 step 4). Whatever arrived
      * is discarded; a Zero goes out in its place. */
     bit = false;
@@ -127,6 +201,32 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
   s->window &= 0x1FFu;
   if (s->bits_seen < AP_RING_OOB_BITS) {
     s->bits_seen++;
+  }
+
+  /* **Step 7's first arm: "until it finishes receiving its own frame".**
+   * Only the 10.9 ms timeout existed before, so every transmission stripped
+   * the full 131,072 bits (`RING.md` 85a). A station cannot know the ring's
+   * circumference, but it does know its own frame's length: once the frame
+   * start comes back it counts that many bits and stops. */
+  /* Watched from the **claim**, not from the end of transmission: a ring is
+   * only a few bit times around and a frame is a thousand bits long, so a
+   * station's own frame start comes back long before its last bit has gone
+   * out. Gating this on the frame being finished missed it every time -- the
+   * first version of this test caught that, which is what it is for. */
+  if (s->stripping && s->tx_bit_count > 0u) {
+    if (!s->tx_seen_own_frame_start) {
+      uint16_t symbol = 0u;
+      if (ap_ring_station_at_symbol(s, &symbol) &&
+          symbol == (uint16_t)AP_RING_OOB_FRAME_START) {
+        s->tx_seen_own_frame_start = true;
+        s->tx_stripped_own = 0u;
+      }
+    } else if (++s->tx_stripped_own >= s->tx_bit_count) {
+      /* Step 8: "When a node stops stripping, recirculation resumes." */
+      s->stripping = false;
+      s->holds_ring = false;
+      s->tx_seen_own_frame_start = false;
+    }
   }
 
   uint16_t symbol = 0u;
