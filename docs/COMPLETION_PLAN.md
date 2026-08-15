@@ -3992,7 +3992,13 @@ discipline throughout.
         *The loop is now "fails at 01" -> fix -> "fails at 11", against 40
         numbered subtests.*
   - [ ] **The transmit/receive handshake, which is what actually blocks the
-        self-test.** **Fourteen of the firmware's own subtests now pass**
+        self-test.** **Prerequisite done**: the harness stepped the *processor*
+        rather than the machine, so no time passed during the firmware's run --
+        `FINDINGS.md` C109's defect, fixed there and left here. It now reports
+        `elapsed 122,231,950,714,368 base unit(s)` where it produced zero, and
+        the fourteen passing subtests are unchanged (`RING.md` 69b, 69c). An
+        operation that completes after a while could not have completed on the
+        old harness at all. **Fourteen of the firmware's own subtests now pass**
         (`RING.md` 60-68), and the fifteenth is a *timing* question rather than
         a register one: subtest 26 requires `+400`'s bits 3-1 set where 22 and
         24 required two of them clear, with no intervening write, so they go

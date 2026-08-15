@@ -954,11 +954,25 @@ static int run_ring_selftest(FILE *out, ap_model_id_t model,
     if (machine.cpu.regs.pc == sentinel) {
       break;
     }
-    const ap_m68030_step_result_t r = ap_m68030_step(&machine.cpu);
-    if (r.status != AP_M68030_STEP_EXECUTED &&
-        r.status != AP_M68030_STEP_EXCEPTION) {
+    /* One instruction through the **machine**, not through the processor.
+     *
+     * This called `ap_m68030_step` directly, which `FINDINGS.md` C109 already
+     * caught and fixed on the boot path: the CPU and nothing else -- no
+     * interrupt sampling, no bus tick, no device advanced -- so no time passes
+     * and every counter the firmware starts stands still. The self-test
+     * harness kept the old shape, which was harmless only while the ring
+     * controller was pure registers.
+     *
+     * It stops being harmless the moment the controller has **duration**,
+     * which is what `RING.md` 69 says subtest 26 needs: an operation that
+     * completes after a while cannot complete at all on a machine where a
+     * while never passes. So this is the prerequisite for that item rather
+     * than a tidy-up, and it is the same one-line fix C109 made. */
+    const ap_machine_run_t one = ap_machine_run(&machine, 1u);
+    if (one.status != AP_M68030_STEP_EXECUTED &&
+        one.status != AP_M68030_STEP_EXCEPTION) {
       fprintf(out, "  stopped      status %d at PC %08X after %u step(s)\n",
-              (int)r.status, machine.cpu.regs.pc, steps);
+              (int)one.status, machine.cpu.regs.pc, steps);
       break;
     }
   }
@@ -988,6 +1002,13 @@ static int run_ring_selftest(FILE *out, ap_model_id_t model,
               machine.cpu.regs.d[0] & 0xFFu, seen, mask, at);
     }
   }
+  /* **The clock, which is the point of stepping the machine rather than the
+   * processor.** A harness that reported zero here would be the one C109 found
+   * on the boot path, and `RING.md` 69's item cannot be built on it: an
+   * operation with duration needs a machine where duration exists. Printed so
+   * that is checkable rather than claimed. */
+  fprintf(out, "  elapsed      %llu base unit(s)\n",
+          (unsigned long long)ap_machine_state(&machine).now);
   fprintf(out, "  ring         %u read(s), %u write(s)\n",
           board.region_reads[AP_BOARD_REGION_RING],
           board.region_writes[AP_BOARD_REGION_RING]);
