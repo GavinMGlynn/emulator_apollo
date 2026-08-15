@@ -888,9 +888,38 @@ static int run_ring_selftest(FILE *out, ap_model_id_t model,
       AP_BOARD_ATBUS_MEMORY_BASE + AP_RING_ROM_ENTRY_SELFTEST;
 
   ap_machine_reset(&machine, entry, stack);
-  (void)ap_machine_write(&machine, stack, 4u, sentinel); /* return address */
-  (void)ap_machine_write(&machine, stack + 4u, 2u, 0u);  /* unit 0 */
-  (void)ap_machine_write(&machine, stack + 6u, 2u, 0u);  /* second argument */
+  /* The argument list, read off `entry_05` itself rather than guessed: it takes
+   * the unit at `$4(a7)` as a word, a second word at `$6(a7)`, and -- the one a
+   * two-argument call faults on -- a **pointer** at `$C(a7)`, dereferenced
+   * immediately by `move.l (a0),d0` at `+310`. A scratch long word in RAM is
+   * enough to get past it, and what the firmware does with that word is the
+   * next thing this harness will show. */
+  const uint32_t scratch = 0x01000400u;
+  /* Straight into the backing array, big-endian, rather than through the
+   * machine: the bus write path refused these addresses in this harness, and a
+   * silently-refused argument list is exactly the failure that made `a0` read
+   * zero and look like a firmware fault. `ram[0]` is the RAM base. */
+  uint8_t *const base = ram + (stack - AP_BOARD_RAM_BASE);
+  base[0] = (uint8_t)(sentinel >> 24); base[1] = (uint8_t)(sentinel >> 16);
+  base[2] = (uint8_t)(sentinel >> 8);  base[3] = (uint8_t)sentinel;
+  base[4] = 0; base[5] = 0;            /* unit 0 */
+  base[6] = 0; base[7] = 0;            /* second word */
+  base[8] = 0; base[9] = 0; base[10] = 0; base[11] = 0;
+  base[12] = (uint8_t)(scratch >> 24); base[13] = (uint8_t)(scratch >> 16);
+  base[14] = (uint8_t)(scratch >> 8);  base[15] = (uint8_t)scratch;
+
+  /* **Three out-parameters, read off the firmware's own failure path.**
+   * `loc_08D2` is reached from 44 sites -- one per subtest -- and writes `d2`,
+   * `d1` and `a1` through pointers at `$10(a7)`, `$14(a7)` and `$18(a7)`. So a
+   * failing self-test reports the value it saw, the mask it applied and the
+   * address it used, and a harness that omits them turns every failure into a
+   * write through a null pointer. */
+  for (unsigned arg = 0; arg < 3u; arg++) {
+    const uint32_t slot = scratch + 4u + arg * 4u;
+    uint8_t *const p = base + 16u + arg * 4u;
+    p[0] = (uint8_t)(slot >> 24); p[1] = (uint8_t)(slot >> 16);
+    p[2] = (uint8_t)(slot >> 8);  p[3] = (uint8_t)slot;
+  }
 
   fprintf(out, "ring self-test %s\n", rom_path);
   fprintf(out, "  entry        %06X (entry_05, +%X)\n", entry,
@@ -918,6 +947,24 @@ static int run_ring_selftest(FILE *out, ap_model_id_t model,
   }
   fprintf(out, "  d0 %08X  d1 %08X  d2 %08X\n", machine.cpu.regs.d[0],
           machine.cpu.regs.d[1], machine.cpu.regs.d[2]);
+  fprintf(out, "  a0 %08X  a1 %08X  a2 %08X  a7 %08X\n", machine.cpu.regs.a[0],
+          machine.cpu.regs.a[1], machine.cpu.regs.a[2],
+          ap_m68030_read_a7(&machine.cpu.regs));
+  fprintf(out, "  fault at     %08X\n", machine.cpu.fault_address);
+  {
+    /* The firmware's own verdict, in its own words. */
+    const uint8_t *const r = ram + (scratch - AP_BOARD_RAM_BASE) + 4u;
+    const uint32_t seen = (uint32_t)((r[0] << 24) | (r[1] << 16) |
+                                     (r[2] << 8) | r[3]);
+    const uint32_t mask = (uint32_t)((r[4] << 24) | (r[5] << 16) |
+                                     (r[6] << 8) | r[7]);
+    const uint32_t at = (uint32_t)((r[8] << 24) | (r[9] << 16) |
+                                   (r[10] << 8) | r[11]);
+    if ((machine.cpu.regs.d[0] & 0xFFFFFF00u) == 0xE0000000u) {
+      fprintf(out, "  SUBTEST %02X failed: value %08X mask %08X at %08X\n",
+              machine.cpu.regs.d[0] & 0xFFu, seen, mask, at);
+    }
+  }
   fprintf(out, "  ring         %u read(s), %u write(s)\n",
           board.region_reads[AP_BOARD_REGION_RING],
           board.region_writes[AP_BOARD_REGION_RING]);

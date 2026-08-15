@@ -442,6 +442,45 @@ differing**. `step_suite` +1 (297) covering both halves: the untouched register
 reading zero, and all four descriptor types round-tripping through `PMOVE`
 including the forbidden one. `ctest` 136/136, identity boot unchanged.*
 
+## The ring self-test reports its own verdict: SUBTEST 01 (2026-08-15)
+
+**The firmware's test suite now runs to completion and names what it does not
+like.**
+
+    ring self-test roms/firmware/3500_RING_10666_6.bin
+      returned     after 75 step(s)
+      SUBTEST 01 failed: value 0000F806 mask 00008000 at 00059400
+      ring         3 read(s), 2 write(s)
+
+`CLAUDE.md` calls the ring firmware's self-test "the hardware's test suite, for
+free", and this is the first time this project has collected it. The report is
+the firmware's own: `loc_08D2` is reached from **44 sites**, one per subtest,
+and writes `d2`, `d1` and `a1` through out-parameters at `$10(a7)`, `$14(a7)`
+and `$18(a7)` -- the value, the mask and the address -- while `d0` carries the
+`E00000xx` subtest code that finding 56 decoded. So the entry's real signature
+is seven arguments, all of it read off the code rather than guessed:
+
+    entry_05(unit@4, word@6, ?@8, ptr@C, out_value@10, out_mask@14, out_addr@18)
+
+Getting there took three harness faults, each of which looked like a firmware or
+model defect and was neither: a missing pointer argument at `$C(a7)`, a
+**silently refused** bus write that left the argument list zero -- `a0` read `0`
+and looked exactly like a computed pointer going wrong -- and the three
+out-parameters above. The lesson is the recurring one: a harness that supplies
+too few arguments fails *inside* the code under test, where it reads as that
+code's fault.
+
+**And the firmware confirms two of this project's findings on the way.** It
+computes `a1 = 00051000` and `a2 = 00059000` for unit 0 -- finding 38's pair,
+from `$CA0` -- and it accepts this core's ID register, since `+000` answering
+`$36` passes the `cmpi.b #$36` / `#$37` gate at `+2F6` that finding 39
+established. The self-test then fails at the **status bank**, `$59400`, with the
+presence mask `$8000`, which is finding 40's gate.
+
+*Next, and now measurable: what subtest 01 requires of `+400`. The loop is
+"fails at 01" -> fix -> "fails at 11", against a suite of 40 numbered subtests,
+rather than another reading of a listing.*
+
 ## The ring self-test runs, and stops at a named instruction (2026-08-15)
 
 **Re-framed, and the instrument works.** `--ring-selftest` calls `entry_05`

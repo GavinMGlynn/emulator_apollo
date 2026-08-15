@@ -3983,7 +3983,14 @@ discipline throughout.
         before stopping at `+310`, `move.l (a0),d0`, with a memory fault -- a
         pointer the firmware computed that this board does not map. A named
         instruction and a reason, which is the signal five listing reads did not
-        give. Detail in `PROJECT_STATUS.md`.
+        give. **And now the firmware's own verdict**: with its full seven-argument
+        list supplied -- three of them out-parameters the failure path writes
+        through -- the self-test returns and reports
+        `SUBTEST 01 failed: value 0000F806 mask 00008000 at 00059400`. It
+        confirms finding 38's window pair and finding 39's ID gate on the way.
+        Detail in `PROJECT_STATUS.md`.
+        *The loop is now "fails at 01" -> fix -> "fails at 11", against 40
+        numbered subtests.*
   - [ ] **The transmit/receive handshake, which is what actually blocks the
         self-test.** Finding 45 shows `+400` has five polled bits (15, 13, 11,
         2, 1), each with its own timeout and expected polarity, and finding 48
