@@ -4161,36 +4161,21 @@ discipline throughout.
     `ram_base`.
 - [ ] DN4500 Matrox graphics. *Verification: PNG inspection; no oracle, so
       documented as paper-verified.*
-- [ ] DSP variants confirmed as true subsets. *Verification: `dsp3500` boots
-      headless; oracle diff.*
-      **Half done.** All four boot headless and strap correctly — they were all
-      four *unstrapped* until the memory byte was keyed on the board rather than
-      the model, via a new `board_of` field in the model row. `model_suite`
-      holds the relation up: a headless row must agree with its workstation in
-      every board respect and differ only in the display. `dsp5500` stops at
-      `cinva`, the 68040 blocker, not this one. **Awaiting:** the oracle diff —
-      **for three of the four only.** MAME's Apollo driver registers `dsp3000`,
-      `dsp3500` and `dsp5500` and has **no `dsp4500`**, so that row has no
-      runnable reference and its verification has to be the subset relation
-      `model_suite` already checks, not a diff. `dsp5500` is `MACHINE_NOT_
-      WORKING` there as well, so the diff that can actually be run is
-      `dsp3000` and `dsp3500`.
-      **Both are now run, and both give 27 of 29 mapped CPU fields matching**,
-      synced on a PROM program counter -- `653A` for the 3500 and `59B4` for the
-      3000, whose PROM never executes the other's address. The two that differ
-      are one fact and it is ours: a zeroed root pointer packs as `DT = 2`
-      because `ap_m68030_root_pack_upper` always emits a valid descriptor type.
-      **Fixed**: the root stores its DT and `pack` returns it, so both models
-      now diff **29 of 29 with nothing differing**. The identity hash is
-      unchanged at `A354786119A3931D`, because by 350 M instructions the
-      firmware has written both root pointers and only an unwritten one ever
-      differed.
-      Running `dsp3000` also found a hole in the instrument: MAME names a device
-      by type and a Series 3000 is an `MC68020PMMU`, so the only field map
-      addressed the wrong device and matched **nothing** --
-      `tools/mame-oracle/state-map-68020.txt` now exists.
-      Detail in `PROJECT_STATUS.md`.
-
+- [x] **DSP variants confirmed as true subsets.** All four boot headless and
+      strap correctly -- they were all four *unstrapped* until the memory byte
+      was keyed on the board rather than the model. `model_suite` holds the
+      relation up: a headless row must agree with its workstation in every board
+      respect and differ only in the display.
+      **The oracle diff runs clean for both models that have a reference**:
+      `dsp3500` and `dsp3000`, **29 of 29 mapped CPU fields with nothing
+      differing**, synced on each PROM's own program counter. It found and
+      closed one defect of ours (a root pointer's descriptor type) and one hole
+      in the instrument (the field map named an `MC68030`, and a Series 3000 is
+      an `MC68020PMMU`). Detail in `PROJECT_STATUS.md`.
+      *Verification: the two diffs above; `model_suite` for `dsp4500`, which
+      MAME does not register at all and so has no runnable reference. `dsp5500`
+      is `MACHINE_NOT_WORKING` on the oracle and stops at `cinva` here -- the
+      68040 blocker, which is Phase 2b's item and not this one.*
 ## Phase 8 — Verified fast mode
 
 Only after the reference core is proven, and only under an identity harness.
