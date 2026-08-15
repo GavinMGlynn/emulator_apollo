@@ -3998,7 +3998,17 @@ discipline throughout.
         `elapsed 122,231,950,714,368 base unit(s)` where it produced zero, and
         the fourteen passing subtests are unchanged (`RING.md` 69b, 69c). An
         operation that completes after a while could not have completed on the
-        old harness at all. **Fourteen of the firmware's own subtests now pass**
+        old harness at all.
+        **And a constant duration is ruled out, by trying one** (`RING.md` 70,
+        70a): 8 us derived from `[MAC]`'s 12-byte minimum at 12 Mbit/s finishes
+        *before* subtest 22 polls, so the firmware reads a bit already restored
+        and fails. Choosing a longer constant means trying values until our own
+        test passes -- the parameter search `CLAUDE.md` forbids -- and no source
+        gives an independent figure. So the completion **must** come from
+        `ap_ring_station`, where the time is the medium's: 69a's design is
+        required, not preferred. The timed scaffolding was reverted rather than
+        left dormant.
+        **Fourteen of the firmware's own subtests now pass**
         (`RING.md` 60-68), and the fifteenth is a *timing* question rather than
         a register one: subtest 26 requires `+400`'s bits 3-1 set where 22 and
         24 required two of them clear, with no intervening write, so they go
