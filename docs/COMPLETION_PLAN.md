@@ -4344,6 +4344,17 @@ discipline throughout.
       Stated precisely (14a): the no-card control posts three codes further,
       so the two are **not** identical and fitting the board still costs
       something. What is established is that it no longer *stops* the boot.
+      **The verification itself now runs, and it fails usefully** (15): with a
+      screen and no card, `--screenshot` shows the DN4500's entire boot —
+      `SELF TESTS IN PROGRESS.`, every test line, `COULD NOT LOAD
+      /SAU7/SELF_TEST.` and a `>` prompt. With the card it is **entirely
+      black**. The counters say why (15a): the built-in controller drops from
+      9.9 M plane writes to 1.6 M while the Matrox blocks go to 1.5 M reads —
+      the console has moved to the card, which is what a graphics option ROM is
+      for. So question A is settled by counting rather than reading (15b):
+      16,618 writes is four orders short of a 1024x800 8-plane frame, so the
+      **pixel path is elsewhere and undecoded**, and that is now the one thing
+      between this item and its PNG.
       *Verification so far: `matrox_suite`, 6 tests, each replaying a ROM
       address; the reference boot returns `A354786119A3931D` unchanged.*
 - [x] **DSP variants confirmed as true subsets.** All four boot headless and
