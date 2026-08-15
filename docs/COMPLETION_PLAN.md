@@ -3942,6 +3942,18 @@ discipline throughout.
         replayed instruction for instruction — 64 KB in four patterns, with
         `addq.b`'s no-carry and the 16-bit `not.w`/`rol.w` preserved so the
         translation cannot pass against itself. Detail in `PROJECT_STATUS.md`.*
+  - [ ] **The register vocabulary is documented after all** (`RING.md` 55): the
+        *Domain Engineering Handbook*, on disk since the start and cited once
+        without detail, carries a full **RING REGISTERS** section for the DN3xx
+        and DN5xx boards -- every bit of transmit, receive and diagnostic
+        status and command named, with "a successful transmit will have a
+        transmit status of 0014" and "a WACK will have 0012". It corroborates
+        the driver's own condition names independently (55a).
+        **What it does not settle** is the mapping onto the DN3500's AT board,
+        and the obvious match fails arithmetic: a byte written to `+402` is the
+        high byte of that word, so the firmware's `$6` is `0600` and the note's
+        `6000` would need `$60` (55b). Suggestive and unproven, which is where
+        it stays.
   - [ ] **The transmit/receive handshake, which is what actually blocks the
         self-test.** Finding 45 shows `+400` has five polled bits (15, 13, 11,
         2, 1), each with its own timeout and expected polarity, and finding 48
