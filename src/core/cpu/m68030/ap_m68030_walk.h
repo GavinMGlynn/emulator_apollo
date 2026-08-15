@@ -235,6 +235,21 @@ typedef struct {
    * expressed: a `CRP` of DT `$1` was walked as though it named a short-format
    * table, which reads whatever memory happens to sit at the offset. */
   bool page_descriptor;
+
+  /* **The DT as written, so the register reads back what was put in it.**
+   *
+   * `long_format` and `page_descriptor` are what the *walk* needs, and both are
+   * derived from this. They cannot stand in for it, because two distinct DTs
+   * leave both false: `$2`, a short-format table, and `$0`, which §9.7.1 says
+   * "is not allowed" and which a guest can nevertheless write -- the move
+   * happens and the exception is taken "after moving the operand".
+   *
+   * Keeping only the derived pair made `ap_m68030_root_pack_upper` synthesise a
+   * DT rather than return one, so a `PMOVE` of a root with DT `$0` read back as
+   * `$2`, and a register never written at all read as `$2` instead of zero. The
+   * second is what an oracle diff of a machine at reset found: `crp_upper`
+   * `00000002` against MAME's `00000000`, on every model. */
+  ap_m68030_dt_t dt;
 } ap_m68030_root_t;
 
 /* The upper long word of a root pointer register, which is the same layout as a

@@ -4142,6 +4142,57 @@ static void test_pmove_writes_and_reads_the_translation_control_register(void) {
   TEST_ASSERT_EQUAL_HEX32(CONSISTENT_TC, read_ram_long(&m, 0x00005100u));
 }
 
+
+/* **A root pointer reads back the descriptor type that was written, including
+ * the one the manual forbids and the one nothing wrote.**
+ *
+ * `long_format` and `page_descriptor` are what the walk needs, and they cannot
+ * stand in for the DT: `$2` and `$0` both leave the pair false. A packer that
+ * chose between the two valid table types therefore turned a written `$0` into
+ * `$2` on read-back, and made a register **never written at all** read as `$2`
+ * -- which an oracle diff of a machine at reset caught, `crp_upper` `00000002`
+ * against MAME's `00000000` on every model.
+ *
+ * §9.7.1 is why `$0` has to survive: "an attempt to load zero into the DT field
+ * of the CRP or SRP register results in an MMU configuration exception", and
+ * the exception is taken *after* moving the operand -- so the register holds
+ * the zero and must say so. */
+static void test_a_root_pointer_reads_back_the_type_that_was_written(void) {
+  /* Untouched at reset: the register nothing has written reads as zero, not as
+   * a descriptor type this model chose for it. */
+  {
+    machine_t m = {0};
+    static const uint16_t program[] = {0x4E71u, 0x4E71u};
+    load(&m, program, 2);
+    TEST_ASSERT_EQUAL_HEX32(0u, ap_m68030_root_pack_upper(&m.cpu.crp));
+    TEST_ASSERT_EQUAL_HEX32(0u, ap_m68030_root_pack_upper(&m.cpu.srp));
+  }
+
+  /* And each type written round-trips. `$0` is included precisely because it is
+   * the one the manual refuses: refusing it is the *exception's* job, not the
+   * register's. */
+  const uint32_t uppers[] = {0x03FF0000u, 0x03FF0001u, 0x03FF0002u,
+                             0x03FF0003u};
+  for (unsigned i = 0; i < sizeof uppers / sizeof uppers[0]; i++) {
+    /* PMOVE (A0),CRP ; PMOVE CRP,(A1) */
+    static const uint16_t program[] = {0xF010u, 0x4C00u, 0xF011u, 0x4E00u,
+                                       0x4E71u, 0x4E71u};
+    machine_t m = {0};
+    load(&m, program, 6);
+    plant_vector(&m, AP_M68030_VECTOR_MMU_CONFIGURATION, HANDLER);
+    m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+    m.cpu.regs.isp = SUPERVISOR_STACK;
+    m.cpu.regs.a[0] = 0x00005000u;
+    m.cpu.regs.a[1] = 0x00005100u;
+    write_ram_long(&m, 0x00005000u, uppers[i]);
+    write_ram_long(&m, 0x00005004u, 0x00012000u);
+
+    (void)ap_m68030_step(&m.cpu); /* the write, and its exception if DT is 0 */
+    TEST_ASSERT_EQUAL_HEX32(uppers[i] & 3u,
+                            ap_m68030_root_pack_upper(&m.cpu.crp) & 3u);
+  }
+}
+
 /* The P-REGISTER field is *not* enough on its own: `010` names the supervisor
  * root pointer under one prefix and TT0 under another. A decoder reading only
  * that field would write a transparent translation register where a root
@@ -8817,6 +8868,7 @@ int main(void) {
   RUN_TEST(test_a_level_zero_ptest_cannot_ask_for_a_descriptor_address);
   RUN_TEST(test_a_table_search_ptest_leaves_the_atc_alone);
   RUN_TEST(test_pmove_writes_and_reads_the_translation_control_register);
+  RUN_TEST(test_a_root_pointer_reads_back_the_type_that_was_written);
   RUN_TEST(test_the_same_p_register_field_names_two_different_registers);
   RUN_TEST(test_an_invalid_root_pointer_faults_after_the_move);
   RUN_TEST(test_an_inconsistent_translation_control_lands_with_e_cleared);

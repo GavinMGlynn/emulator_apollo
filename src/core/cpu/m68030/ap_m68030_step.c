@@ -4081,6 +4081,9 @@ static ap_m68030_root_t pmove_root_from(uint32_t upper, uint32_t lower,
    * operand". Figure 9-35 puts the address in bits 31-4, and "Bits 3-0 of the
    * root pointer are not used and are ignored when written". */
   root.table_address = lower & UINT32_C(0xFFFFFFF0);
+  /* Kept as written, so the register is a register: `long_format` and
+   * `page_descriptor` below are derived from this and are what the walk reads. */
+  root.dt = descriptor.dt;
   root.long_format = descriptor.dt == AP_M68030_DT_VALID_8BYTE;
   /* DT `$1` at the root is not a table: §9.7.1 makes it direct mapping with the
    * table address field as a constant offset. Carried explicitly because

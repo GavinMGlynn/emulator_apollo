@@ -4180,8 +4180,11 @@ discipline throughout.
       3000, whose PROM never executes the other's address. The two that differ
       are one fact and it is ours: a zeroed root pointer packs as `DT = 2`
       because `ap_m68030_root_pack_upper` always emits a valid descriptor type.
-      Nothing consults it at `TC = 0`, so no behaviour differs, but it would
-      leave two permanent `DIFFERS` in every later diff.
+      **Fixed**: the root stores its DT and `pack` returns it, so both models
+      now diff **29 of 29 with nothing differing**. The identity hash is
+      unchanged at `A354786119A3931D`, because by 350 M instructions the
+      firmware has written both root pointers and only an unwritten one ever
+      differed.
       Running `dsp3000` also found a hole in the instrument: MAME names a device
       by type and a Series 3000 is an `MC68020PMMU`, so the only field map
       addressed the wrong device and matched **nothing** --
