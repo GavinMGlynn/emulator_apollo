@@ -18,7 +18,15 @@
 
 /* `entry_05` in the ring option ROM's own table, which `disasm.py` decodes
  * and `RING.md` finding 44 identifies as the self-test. */
-#define AP_RING_ROM_ENTRY_SELFTEST 0x2D4u
+/* `entry_05` is the self-test, and **its offset is per-image**: `[ROM3500]`
+ * puts it at `+2D4` and `[ROM4500]` at `+2A2`. This was `[ROM3500]`'s constant,
+ * so the other image ran one instruction and faulted (`RING.md` 75c). The
+ * offset is in every Apollo option ROM's own header -- `n_entries` at `+48`,
+ * then six-byte records of a word id and a long offset -- which
+ * `tools/ring-rom/disasm.py` has parsed since it was written. Read it. */
+#define AP_RING_ROM_ENTRY_TABLE 0x48u
+#define AP_RING_ROM_ENTRY_SELFTEST_ID 5u
+#define AP_RING_ROM_ENTRY_SELFTEST_FALLBACK 0x2D4u
 #include "probe/ap_probe.h"
 
 #include <stdlib.h>
@@ -882,7 +890,7 @@ static int run_ring_selftest(FILE *out, ap_model_id_t model,
   }
   long rom_size = 0;
   uint8_t *rom = read_file(rom_path, &rom_size);
-  if (rom == NULL || rom_size <= (long)AP_RING_ROM_ENTRY_SELFTEST) {
+  if (rom == NULL || rom_size <= (long)AP_RING_ROM_ENTRY_TABLE + 2) {
     fprintf(stderr, "apollo: cannot read %s\n", rom_path);
     free(rom);
     return 2;
@@ -907,8 +915,37 @@ static int run_ring_selftest(FILE *out, ap_model_id_t model,
    * going" -- a distinction an instruction limit alone cannot make. */
   const uint32_t sentinel = 0x00FFFFF0u;
   const uint32_t stack = 0x01000200u;
-  const uint32_t entry =
-      AP_BOARD_ATBUS_MEMORY_BASE + AP_RING_ROM_ENTRY_SELFTEST;
+  /* The self-test's offset out of the image's own entry table, so each ROM
+   * runs its own. A table that does not name id 5 falls back to `[ROM3500]`'s
+   * offset and says so, rather than silently entering the wrong address --
+   * which is what the hardcoded constant did to `[ROM4500]`. */
+  uint32_t entry_offset = AP_RING_ROM_ENTRY_SELFTEST_FALLBACK;
+  bool entry_from_table = false;
+  {
+    const uint32_t n = (uint32_t)((rom[AP_RING_ROM_ENTRY_TABLE] << 8) |
+                                  rom[AP_RING_ROM_ENTRY_TABLE + 1u]);
+    for (uint32_t i = 0; i < n; i++) {
+      const long at = (long)AP_RING_ROM_ENTRY_TABLE + 2 + (long)i * 6;
+      if (at + 6 > rom_size) {
+        break;
+      }
+      const uint32_t id = (uint32_t)((rom[at] << 8) | rom[at + 1]);
+      if (id != AP_RING_ROM_ENTRY_SELFTEST_ID) {
+        continue;
+      }
+      entry_offset = (uint32_t)((rom[at + 2] << 24) | (rom[at + 3] << 16) |
+                                (rom[at + 4] << 8) | rom[at + 5]);
+      entry_from_table = true;
+      break;
+    }
+  }
+  if (entry_offset >= (uint32_t)rom_size) {
+    fprintf(stderr, "apollo: %s names entry_05 at +%X, past its end\n",
+            rom_path, entry_offset);
+    free(rom);
+    return 2;
+  }
+  const uint32_t entry = AP_BOARD_ATBUS_MEMORY_BASE + entry_offset;
 
   ap_machine_reset(&machine, entry, stack);
   /* The argument list, read off `entry_05` itself rather than guessed: it takes
@@ -945,8 +982,8 @@ static int run_ring_selftest(FILE *out, ap_model_id_t model,
   }
 
   fprintf(out, "ring self-test %s\n", rom_path);
-  fprintf(out, "  entry        %06X (entry_05, +%X)\n", entry,
-          AP_RING_ROM_ENTRY_SELFTEST);
+  fprintf(out, "  entry        %06X (entry_05, +%X%s)\n", entry, entry_offset,
+          entry_from_table ? "" : ", NOT in the table -- fallback");
 
   unsigned steps = 0;
   const unsigned limit = 20000000u;
