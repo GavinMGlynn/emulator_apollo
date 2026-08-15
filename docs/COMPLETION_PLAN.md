@@ -4353,8 +4353,15 @@ discipline throughout.
       the console has moved to the card, which is what a graphics option ROM is
       for. So question A is settled by counting rather than reading (15b):
       16,618 writes is four orders short of a 1024x800 8-plane frame, so the
-      **pixel path is elsewhere and undecoded**, and that is now the one thing
-      between this item and its PNG.
+      **pixel path is elsewhere and undecoded**.
+      **Found** (16): 30.7 M reads and 50,744 writes land in the undecoded AT
+      window, and the first write is `000C63AF` — inside `[S3K]` Table 2-6's
+      `0C0000-0DFFFF`, "ALTERNATE MONO GRAPHICS MEMORY SPACE". The board's own
+      ROM corroborates independently, `$2E0` being `movea.l #$c63b2,a3` (16a).
+      The **range** is settled; the **layout is not** (16b) — planes, pitch,
+      and whether `0C0000` is the origin or a window — and `[S3K]` calling that
+      range "alternate *mono*" on an 8-plane colour machine is a discrepancy to
+      resolve rather than assume away.
       *Verification so far: `matrox_suite`, 6 tests, each replaying a ROM
       address; the reference boot returns `A354786119A3931D` unchanged.*
 - [x] **DSP variants confirmed as true subsets.** All four boot headless and
