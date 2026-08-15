@@ -325,7 +325,18 @@ typedef struct {
    * `[DEV]` §1.9.5 says the hardware does not decode these flags "in any way",
    * which is why this lives here as *adapter* state rather than as a register
    * rule: it is the firmware's convention, and the firmware that talks to the
-   * real card is the source. Exactly the ring ROM's role in `RING.md` 60-68. */
+   * real card is the source. Exactly the ring ROM's role in `RING.md` 60-68.
+   *
+   * **`PROVISIONAL`, and the oracle says what it stands in for.** MAME runs the
+   * adapter's own **80186 at 16 MHz** on its real firmware ROMs (`0729-12_a.3h`
+   * and `0729-62_a.3f`, which this project does not hold), so on that machine
+   * this sequence is not modelled at all -- it is what the firmware *does*.
+   * Here it is a host-side stand-in for that firmware, which is the open
+   * "emulated 80186 versus host-side PCB protocol" decision showing itself in
+   * one bit of state. Cost to close: the two adapter ROM dumps and an 80186,
+   * against which everything the mailbox does becomes emergent. Until then this
+   * reproduces what the *host* firmware requires and claims nothing about what
+   * the adapter does between the two polls. */
   bool adapter_initialising;
 } ap_3c505_t;
 

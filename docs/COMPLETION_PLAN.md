@@ -4110,7 +4110,16 @@ discipline throughout.
 - [ ] 3c505 802.3 controller, so Domain networking can also be checked against
       MAME the way MAME does it. *Verification: oracle diff — this is the one
       networking path with a runnable reference.*
-      **Awaiting:** the oracle diff, and only that. The device, its wire, its
+      **Awaiting:** the oracle diff **at the host interface**, which is the only
+      shape it can honestly take — `ETHERNET.md` 17b/17c: MAME runs the
+      adapter's own 80186 on firmware ROMs this project does not hold, so a
+      field-by-field device comparison is not available and would not mean what
+      `dsp3500`'s CPU diff means. What *is* comparable is the register traffic
+      the option ROM's self-test produces, which both machines run, tapped the
+      way `ETHERNET.md` finding 10a already tapped this card.
+      Its configuration half is **done and agrees**: MAME independently
+      configures I/O `300`, IRQ 10 and DRQ 6, and drives its DMA request as
+      `HRDY && DMAE` (17, 17a). The device, its wire, its
       board placement, its **interrupt line and its DMA channel** are built and
       tested; the stale text this replaced said "the device itself" long after
       that was false, which is the failure `ap_i8237.h` records under "a stale

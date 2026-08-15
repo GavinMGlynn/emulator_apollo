@@ -549,6 +549,42 @@ corrected with the ROM address that refutes it.
 
 The default boot is untouched throughout, because the option ROM is opt-in.
 
+### The oracle agrees on every number and differs on the architecture
+
+Checked after the reading rather than before it, which is what makes it a check.
+MAME's Apollo driver configures its 3c505 slot with I/O `300`, **IRQ 10** and
+**DRQ 6** — `apollo_m.cpp:1039`, its own comments naming each — so a driver
+written from different sources agrees with Figure 14-3's jumper drawing on all
+three. It drives the host DMA request as
+`update_isa_drq((m_hsr & HSR_HRDY) && (hcr & HCR_DMAE))`: `HRDY` and the enable,
+`ARDY` nowhere, which is §1.9.4's truth table read down the same column on the
+one point where the other column inverts the answer.
+
+**What it does not share is the architecture, and that answers the open design
+question from the other side.** MAME instantiates `I80186` at 16 MHz and loads
+the adapter's real firmware — `0729-12_a.3h` and `0729-62_a.3f`, two dumps this
+project does not hold — so there the mailbox is *emergent* from the card's own
+processor. Its device reset leaves the `ASF` bits clear and the power-on
+sequence above is produced by firmware executing.
+
+So `adapter_initialising` is a **host-side stand-in for firmware the oracle
+actually runs**, and is marked `PROVISIONAL` in `ap_3c505.h` with its cost to
+close stated: the two adapter ROMs and an 80186. It reproduces what the *host*
+firmware requires and claims nothing about what the adapter does between the two
+polls.
+
+That also bounds what a behavioural diff can mean. Comparing a host-side
+protocol against an emulated firmware is not the field-by-field comparison
+`dsp3500`'s CPU diff is; the honest comparison is at the **host interface** — the
+register traffic the option ROM's self-test produces, which both machines run.
+Recorded now so the diff is not later reported as broader than it is.
+
+One measurement failed and is recorded rather than dropped: `mdsession.py` to
+the MD prompt captures no self-test output at all, because a DN3500's console is
+its **display** and the serial route needs service mode. The console transcript
+is not the instrument for this question; the register tap that produced finding
+10a is.
+
 **And the state hash is `A354786119A3931D`, unchanged.** That is the regression
 check in its strongest form: with the card fitted, the two new lines are sampled
 on every interrupt sample and every bus tick of a 350 M-instruction boot, and
