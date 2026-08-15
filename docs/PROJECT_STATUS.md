@@ -442,6 +442,37 @@ differing**. `step_suite` +1 (297) covering both halves: the untouched register
 reading zero, and all four descriptor types round-tripping through `PMOVE`
 including the forbidden one. `ctest` 136/136, identity boot unchanged.*
 
+## The firmware drives the ring model for the first time, and stalls
+## (2026-08-15)
+
+**`--ring-rom` changes the boot, and my earlier "no regression" was checked too
+early.** Isolated at 500 M instructions: a control run and a `--calendar-ram`
+run both reach Domain/OS (`0080004E`, `3C47185C`), while `--ring-rom` alone
+leaves the machine in the boot PROM at `00000798`. The 60 M check that cleared
+it proved only that nothing changes *early*, and was stated as though it settled
+the question -- the same shortcut the `login:` regression check exists to
+forbid.
+
+**But it is not a defect in the mapping. It is the item's own open work,
+finally visible.** The stall is at a PROM poll loop (`00078E`-`0007AE`, testing
+bit 0 of `$2(a0)`, `$12(a0)` and `$102(a0)`), and the run's region counters show
+the **token ring controller taking 3 reads and 2 writes** -- against 227,073 AT
+window reads and, in the control, 8.4 M. So the firmware found the card, began
+initialising it, and stopped. That is the first time any firmware has driven
+this core's ring model.
+
+Where it stops is specific. The ID at `+000` answers `$36`, which finding 39's
+check accepts, and `+400`'s presence bit is set, so init is past both gates --
+but finding 40 has it then clear `(a2)`, `+402`, `+404`, `+400` and later write
+`$800`, which is five writes, and only two happened.
+
+**So the flag is doing its job**: it converted "the firmware cannot be run" into
+"the firmware runs and stops after two writes", which is a measurable signal
+where five refuted numeric matches were not. The default boot is untouched --
+the option ROM is opt-in and the identity hash unaffected -- and this is
+recorded as the ring item's next measurement rather than as a regression to
+revert.
+
 ## The ring ROM is reachable, and the PROM reads its magic (2026-08-15)
 
 **The firmware's own self-test is the verification this item asks for, and now
