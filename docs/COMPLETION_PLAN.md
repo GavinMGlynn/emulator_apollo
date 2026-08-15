@@ -4358,10 +4358,17 @@ discipline throughout.
       window, and the first write is `000C63AF` — inside `[S3K]` Table 2-6's
       `0C0000-0DFFFF`, "ALTERNATE MONO GRAPHICS MEMORY SPACE". The board's own
       ROM corroborates independently, `$2E0` being `movea.l #$c63b2,a3` (16a).
-      The **range** is settled; the **layout is not** (16b) — planes, pitch,
-      and whether `0C0000` is the origin or a window — and `[S3K]` calling that
-      range "alternate *mono*" on an 8-plane colour machine is a discrepancy to
-      resolve rather than assume away.
+      The **range** is settled by measurement; the **layout is not** (16b) —
+      planes, pitch, and whether `0C0000` is the origin or a window.
+      **And 16's citation is corrected** (16c): Table 2-6's own heading says it
+      is the **DS3000's 16-MB** allocation, while this is a DN4500 on the
+      32-bit `DS4000` map — so "ALTERNATE MONO GRAPHICS MEMORY SPACE" is
+      another model's name for that range, not this one's, and `RING.md` 43b
+      had already recorded that hazard against that very table. The two
+      measurements stand (16d); the name does not, and with it goes the
+      "mono space on a colour machine" puzzle, which was manufactured by
+      applying the wrong table. `019411-A00`'s DS5500 Table 2-5 is the nearest
+      32-bit map held and is what to read before naming the range.
       *Verification so far: `matrox_suite`, 6 tests, each replaying a ROM
       address; the reference boot returns `A354786119A3931D` unchanged.*
 - [x] **DSP variants confirmed as true subsets.** All four boot headless and
