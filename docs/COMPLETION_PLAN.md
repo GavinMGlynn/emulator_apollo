@@ -4454,8 +4454,12 @@ Only after the reference core is proven, and only under an identity harness.
       sessions. The next move is therefore **not** `n` to "Would you like to
       reset it?" but `y`, with a date in the volume's own era — the same rule
       this project already records for booting the SR10.4 image
-      (`--clock 2026-…`, never 1996). Then MINST from the four software
-      cartridges, then the state hash the item asks for.
+      (`--clock 2026-…`, never 1996) — **or** turn the harness's
+      `25 Years Ago` config off, which is what puts the guest in `2002` on a
+      2026 host. That config is set deliberately (`FINDINGS.md` C47) and a note
+      elsewhere called it a no-op in 2026; the measured `2002/12/23` shows it is
+      not. Then MINST from the four software cartridges, then the state hash the
+      item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
       console selection is an autobaud (`000844`-`0008B8`) that the scripted
