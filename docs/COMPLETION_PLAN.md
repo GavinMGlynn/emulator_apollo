@@ -3976,100 +3976,40 @@ discipline throughout.
         after mislabelling them for a fortnight (68b).
         *Verification: twenty of the firmware's own subtests pass on both
         images. Detail in `PROJECT_STATUS.md` and `RING.md`.*
-  - [ ] **The transmit/receive handshake, which is what actually blocks the
-        self-test.** **Prerequisite done**: the harness stepped the *processor*
-        rather than the machine, so no time passed during the firmware's run --
-        `FINDINGS.md` C109's defect, fixed there and left here. It now reports
-        `elapsed 122,231,950,714,368 base unit(s)` where it produced zero, and
-        the fourteen passing subtests are unchanged (`RING.md` 69b, 69c). An
-        operation that completes after a while could not have completed on the
-        old harness at all.
-        **And a constant duration is ruled out, by trying one** (`RING.md` 70,
-        70a): 8 us derived from `[MAC]`'s 12-byte minimum at 12 Mbit/s finishes
-        *before* subtest 22 polls, so the firmware reads a bit already restored
-        and fails. Choosing a longer constant means trying values until our own
-        test passes -- the parameter search `CLAUDE.md` forbids -- and no source
-        gives an independent figure. So the completion **must** come from
-        `ap_ring_station`, where the time is the medium's: 69a's design is
-        required, not preferred. The timed scaffolding was reverted rather than
-        left dormant.
-        **And the firmware names the source** (`RING.md` 71-71b): `$538`-`$544`
-        loads the two **8254 counters** with `$1FF` and `$3FF` and *then*
-        issues the `$6` command. Finding 41a had already established these are
-        packet counters clocked by **ring traffic**; nobody had connected that
-        to the completion. So it is a **count to be reached**, not a duration
-        to be looked up, and both halves are modelled -- what is missing is the
-        wire that clocks the 8254s from ring traffic, which 41a closed as a
-        question about frequency while leaving the connection unmade.
-        **Corrected the same day it was written** (`RING.md` 71c): the counters
-        are **read back** four instructions after subtest 26 -- `$5B2`-`$5D4`
-        walks five of them through subtests 31 and 32 -- so they *measure* the
-        operation rather than gate it, and the load before the command puts
-        them in a known state for that measurement.
-        What that leaves is better than what it replaced: the completion still
-        comes from the medium (70a), and subtests 31/32 supply a
-        **quantitative check on what the operation must produce** -- a
-        firmware-owned constraint to build the station-driven model against.
-        The 8254-from-traffic wire is still unmade and still needed: for 31 and
-        32 to pass, not for 26.
-        **And the loopback is a DMA loop, not a wire loop** (`RING.md` 79-79d):
-        `002398-01` Rev 1 -- on disk since the start, and every `[EH]` citation
-        so far was Rev 4 -- documents a DIAGNOSTIC COMMAND register whose bit
-        `8000` is "dma test (loop xmit DMA to rcv DMA)". So the self-test's
-        loopback needs no medium and no station, which is a much smaller build
-        than 77b assumed. Rev 1 also lists explicit "Network Trans/Rec
-        Interrupt ACK" registers, independently documenting the acknowledge
-        mechanism finding 74 recovered from the AT firmware alone.
-        **And the `$6` command is now characterised** (`RING.md` 72-72b): all
-        four of its sites in `[ROM3500]` share one five-step preamble --
-        `$976`, `#$8` to `+404`, two counts, `$944` to load the 8254s, then
-        `$6` -- with `[ROM4500]` matching, and **only the counter pair varies**
-        (`$1FF`/`$3FF` three times, `$5`/`$5` once). So it is a *counted*
-        operation whose arguments are two ring-traffic counts and whose result
-        is read back through the same counters. That gives the station-driven
-        model its shape with **no constant anywhere** -- the extents are the
-        firmware's -- and the `$5`/`$5` site is an independent check a model
-        fitted to the large counts would fail.
-        **Twenty of the firmware's own subtests now pass** (`RING.md` 74-75b):
-        the timing question dissolved when 74 found that the polling helpers
-        are not passive -- `$9FA` and `$A28` each write an acknowledge to the
-        *first* window after polling, which 56b had recorded and 69 was written
-        without. The bits return when their condition is acknowledged, gated on
-        a command being outstanding. Subtests 22-26 and 31 pass; the stop is now
-        **SUBTEST 32** at `00059800`, the first 8254 -- the firmware asking for
-        counters that have *counted*, which is the traffic wire 41a and 71d
-        named -- **and 76 now has its specification exactly**: `$976` starts
-        every counter at `$FFFF`, and subtest 32 requires `+800` to read
-        `$FC03` and `+802`/`+804` to read `$FC00`, i.e. **1020, 1023 and 1023
-        counts**, checked five times over. The header counter trailing the
-        other two by exactly three is a structural fact to reproduce, not a
-        number to approximate. Detail in `RING.md`.
-        **Fourteen of the firmware's own subtests now pass**
-        (`RING.md` 60-68), and the fifteenth is a *timing* question rather than
-        a register one: subtest 26 requires `+400`'s bits 3-1 set where 22 and
-        24 required two of them clear, with no intervening write, so they go
-        clear while an operation is in flight and return when it completes (69).
-        `ap_ring_sched` and `ap_ring_station` already model the ring with
-        duration; driving the controller's status from them, rather than from
-        the register write, is the remaining work -- and the self-test is now
-        the test for it.
-        **The register meanings are CLOSED, and this item no longer waits on
-        them.** The prose here used to say "none of their meanings is
-        established" and to route the reader through the AEGIS filesystem walk
-        to `ring8a.drvr`; both were superseded and neither was rewritten. `+400`
-        is MISC_STAT with all twelve bits named, `+402` XMIT_STAT with two
-        layouts selected by its own top bit, and `+404` RCV_STAT, from `[EH]`
-        ch. 12 pp. 12-29..12-31 (`RING.md` 93-93e) — and the firmware-derived
-        model needed no change. `ring8a.drvr` is now extracted as well
-        (`RING.md` 96, `tools/ct_extract.py`) and its own tables corroborate
-        every one of those bits from a second, independent source -- it carries
-        the maps as `(mask, match, name)` triples, so no inference was needed,
-        and it is the *sau8* driver, which is what turns 93's DN3000-chapter
-        reading into evidence about the DN3500 board (`RING.md` 97-97g).
-        `ap_ring_ctl.h` now names all three status registers; `pke` and `de`
-        are **transposed** between XMIT_STAT and RCV_STAT, which is asserted
-        directly because no behavioural test can see it.
-        What remains here is the traffic wire, not a register question.
+  - [x] **The transmit/receive handshake.** `ap_ring_ctl` is joined to
+        `ap_ring_station`: a transmit command assembles the buffer's frame at
+        `XMIT_ADDR` and puts it on the medium, a received frame lands at
+        `RCV_ADDR` and raises `ri`, MISC_CMD's `nct` works §3.5's bypass relay
+        and RCV_CMD's `rcv` the receiver, the 8254s are clocked from real
+        traffic in the units `ring8a.drvr` names, and the card's interrupt
+        reaches master IRQ 2. Before this the two halves were unconnected --
+        `ap_ring_station` was called by nobody outside its own suite -- which
+        `RING.md` 85e opened and the whole `[MAC]` audit left standing.
+        *Verification: `board_suite` drives **two whole machines** through
+        their register interfaces alone and the header arrives in the other's
+        buffer, both on one board-clocked segment and on a scheduled ring
+        whose phase hash is identical across runs; `ring_ctl_suite` 13 -> 20.
+        Detail in `PROJECT_STATUS.md` and `RING.md` 104-112.*
+  - [ ] **SUBTEST 32's counter arithmetic**, which is what the self-test now
+        stops on. It requires `RCV_HDR_CNT` to read `FC03` where `RCV_PKT_CNT`
+        and `RCV_MAX_CNT` read `FC00` -- 1020 counts against 1023, a
+        difference of exactly three -- and no source says what makes the header
+        arm fall short.
+        **This is a separate deliverable from the handshake above, and 108a is
+        why**: subtest 32 exercises the gate array's *internal* DMA loopback,
+        `002398-01`'s `8000` "dma test (loop xmit DMA to rcv DMA)", where **no
+        frame crosses a medium at all**. Feeding that traffic through the
+        medium path would be inventing a cable the diagnostic does not use, so
+        the two paths are deliberately separate and the loopback keeps the
+        command-driven pulsing finding 95b gave it.
+        **The search is exhausted and recorded** (`RING.md` 113): `[EH]` Rev 4
+        ch. 12 end to end as page images, `[EH]` Rev 1's ring section (a
+        different generation's 9-bit bad-packet counter), `[MAC]` in finding
+        95, both SAU drivers, `RING_PROC`, and a web search that returns only
+        the handbook already held. It is the one `PROVISIONAL` number left in
+        the ring.
+        *Verification: the self-test reaches SUBTEST 33 or beyond on both ROM
+        images.*
   - [x] **The DMA path and the interrupt, both answered from the manual.**
         There is **no host DMA channel for the ring**: `002398-04` p. 12-23
         enumerates the DN3000's DMA Channel Usage in full -- `CH1` SDLC,
