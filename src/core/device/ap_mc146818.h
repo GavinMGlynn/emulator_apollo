@@ -213,6 +213,14 @@ void ap_mc146818_write(ap_mc146818_t *rtc, uint8_t address, uint8_t value);
 void ap_mc146818_advance(ap_mc146818_t *rtc, ap_time_t now);
 
 /* The IRQ pin: `[146818]`'s "IRQF = PF*PIE + AF*AIE + UF*UIE". */
+/* The earliest instant this part's line could change by time alone -- the
+ * conservative lower bound `board/ap_sio.h` states the rule for. Two clocks can
+ * raise a flag: the periodic interrupt and the one-second update, each carrying
+ * its own remainder, so the bound is whichever is due first. A clock with no
+ * period is stopped and cannot raise anything. */
+[[nodiscard]] ap_time_t
+ap_mc146818_interrupt_next_change(const ap_mc146818_t *rtc);
+
 [[nodiscard]] bool ap_mc146818_irq(const ap_mc146818_t *rtc);
 
 /* The periodic interrupt frequency selected by Register A's RS3-RS0, in hertz,

@@ -292,6 +292,23 @@ void ap_mc146818_advance(ap_mc146818_t *rtc, ap_time_t now) {
   }
 }
 
+ap_time_t ap_mc146818_interrupt_next_change(const ap_mc146818_t *rtc) {
+  ap_time_t next = AP_TIME_NEVER;
+  if (rtc->periodic_clock.period != 0u) {
+    const ap_time_t at = rtc->periodic_to + rtc->periodic_clock.period;
+    if (at < next) {
+      next = at;
+    }
+  }
+  if (rtc->second_clock.period != 0u) {
+    const ap_time_t at = rtc->updated_to + rtc->second_clock.period;
+    if (at < next) {
+      next = at;
+    }
+  }
+  return next;
+}
+
 bool ap_mc146818_irq(const ap_mc146818_t *rtc) {
   uint8_t c = rtc->ram[AP_MC146818_REGISTER_C];
   uint8_t b = rtc->ram[AP_MC146818_REGISTER_B];

@@ -660,6 +660,13 @@ void ap_omti_fdc_write(ap_omti_t *omti, unsigned reg, uint8_t value);
  * polls, so the machine loaded an operating system without it; Domain/OS's
  * driver waits for the interrupt, and printed `DISK TIMEOUT` when it never
  * came. */
+/* The earliest instant either of this controller's two lines could change by
+ * time alone -- the conservative lower bound `board/ap_sio.h` states the rule
+ * for. The only thing here that moves with time is a command's access time, and
+ * `ap_omti_advance` returns immediately unless the controller is executing one,
+ * so a controller in any other phase cannot change without a bus access. */
+[[nodiscard]] ap_time_t ap_omti_interrupt_next_change(const ap_omti_t *omti);
+
 [[nodiscard]] bool ap_omti_disk_irq(const ap_omti_t *omti);
 
 /* Whether the fixed-disk side is asking for a DMA cycle -- `DRQ7` on this

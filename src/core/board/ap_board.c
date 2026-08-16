@@ -373,6 +373,23 @@ static void count_declined(ap_board_t *board, uint32_t address, bool read) {
   }
 }
 
+ap_time_t ap_board_interrupt_next_change(const ap_board_t *board) {
+  ap_time_t next = AP_TIME_NEVER;
+  const ap_time_t each[] = {
+      ap_timer_interrupt_next_change(&board->timer),
+      ap_sio_interrupt_next_change(&board->sio),
+      ap_mc146818_interrupt_next_change(&board->calendar.rtc),
+      ap_sc499_interrupt_next_change(&board->tape.controller),
+      ap_omti_interrupt_next_change(&board->disk.controller),
+  };
+  for (unsigned i = 0; i < sizeof each / sizeof each[0]; i++) {
+    if (each[i] < next) {
+      next = each[i];
+    }
+  }
+  return next;
+}
+
 void ap_board_sample_interrupts(ap_board_t *board) {
   /* One line per device that has one, each from the device's own accessor and
    * its own line constant, so a corrected placement cannot drift from here.

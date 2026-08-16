@@ -383,6 +383,13 @@ void ap_sc499_write(ap_sc499_t *tape, unsigned reg, uint8_t value);
 
 /* The IRQ pin. `[SC499]`: "The IRQ line is tri-stated when IEN is cleared", so
  * a masked controller drives nothing at all rather than driving low. */
+/* The earliest instant this controller's line could change by time alone -- the
+ * conservative lower bound `board/ap_sio.h` states the rule for. Nothing here
+ * free-runs: the handshake completes at an instant the command scheduled, so
+ * the bound is whichever deadline is outstanding, and an idle controller cannot
+ * change without a bus access. */
+[[nodiscard]] ap_time_t ap_sc499_interrupt_next_change(const ap_sc499_t *tape);
+
 [[nodiscard]] bool ap_sc499_irq(const ap_sc499_t *tape);
 
 #endif /* APOLLO_DEVICE_AP_SC499_H */

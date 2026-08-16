@@ -5318,7 +5318,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 14 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
-| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none | `board_suite`, 47 tests; `atbus_suite`, 8 tests |
+| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none | `board_suite`, 50 tests; `atbus_suite`, 8 tests |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
 | Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board runs transfers: controller 1's request cascaded onto controller 2's channel 0 and one request reaching the arbiter, the address through the translation map, and the processor stalled while a controller holds the bus. The cascade and the channel assignments are `008778-03` Table 2-4's, so the AT convention this module used to refuse is now cited rather than assumed. **The peripheral side is wired**: the tape drives its own request line and its cartridge reaches memory by DMA, and the disk's two data ports move under an acknowledge | `dma_suite`, 18 tests; `FINDINGS.md` C13 |
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 29 tests, `8237A` 231466 |
@@ -20428,6 +20428,64 @@ Attachment confirmed on the real path -- a hand-built sidecar over
 reports `disk sidecar ... 464 bytes` beside the disk line. The defect-injection
 behaviour itself is `omti_suite`'s, and was already covered there; what was
 untested and is now wired is the frontend's half.*
+
+## `next_event()` for interrupt sources, and the bound that makes it worth having
+
+The profile said the next increment was to avoid per-instruction polling that
+provably cannot see a change, and that it needed each source to say when its
+line could next move. That is now implemented, as
+`ap_board_interrupt_next_change` over five per-device accessors.
+
+**The contract is one-directional and every implementation is read that way.**
+Each returns a *conservative lower bound*: never later than the true change,
+free to be earlier. Earlier costs a wasted sample; later loses an interrupt.
+`AP_TIME_NEVER` means "not without a bus access", which is the honest answer for
+`ap_sio_diagnostic_interrupt` and the 3c505 -- OP7 is a register bit and the
+adapter is driven through the bus like anything else -- and neither is in the
+minimum. A bus access is not predicted at all: the board discards the bound when
+one happens, which is the division of labour the DMA poll's flag could not
+manage alone. The flag covers what an access does, this covers what time does.
+
+Each device's bound reuses that device's own guard rather than restating it, so
+the two cannot drift: the disk tests the phase `ap_omti_advance` tests, and the
+serial part tests the `counter_running || timer_mode` that `ap_mc68681_clock`
+tests.
+
+### The serial part is the whole difficulty, and nearly made it worthless
+
+X1 is 3.6 MHz against a 25 MHz CPU, so a DUART pulse lands every **6.9 CPU
+clocks** -- less than an instruction. And this part's counter is never idle: it
+generates `§3.9`'s memory refresh for the life of the machine. A bound of "the
+next pulse" would therefore have pinned the entire aggregate one instruction
+ahead for ever, and the optimization could not have paid at all.
+
+The fix is that a pulse only *decrements*. `ISR[3]` moves at terminal count, so
+at least `counter` pulses must pass -- with a 27-count preload that is an order
+of magnitude further out. Conservative twice over, since the flag is set only on
+the *second* terminal count, the first merely inverting the output.
+
+### Two tests, and the first version of them was unsound
+
+`board_suite` 47 -> 50. The property is that a line never changes before its
+bound allows it, so the tests advance time **without touching the bus** -- no
+reads, no writes, so only time can move a line -- and assert the bound taken
+before each step had already permitted any change seen after it.
+
+**Per source, not on the aggregate, and that correction matters.** The first
+version tested `ap_board_interrupt_next_change`, which is a *minimum*: one
+source that is always about to change masks every other source's lie. With
+`ap_mc146818_interrupt_next_change` rewritten to claim it could never change,
+the aggregate test still passed. A test that cannot fail is worse than none.
+Both tests were then checked by breaking the thing they test -- the calendar
+claiming `NEVER`, and the serial bound multiplied by four -- and both fail as
+they should. The aggregate keeps one test, asserting only what an aggregate
+honestly can: that it is no later than any of its parts.
+
+*Verification: ctest 137/137. **The consumer is not wired yet** -- nothing calls
+`ap_board_interrupt_next_change` outside its tests, so this is the accessor half
+only, and the skip in `ap_machine_run` is the next step. That wiring needs the
+identity hash rather than the suite, because its risk is an interrupt delivered
+one instruction late on some boot nobody runs twice.*
 
 ## Where the boot's time actually goes, and what it says about exact-skip
 

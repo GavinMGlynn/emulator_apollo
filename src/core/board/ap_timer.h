@@ -102,6 +102,12 @@ void ap_timer_advance(ap_timer_t *timer, ap_time_t now);
 /* The IRQ pin, to be wired to `AP_TIMER_IRQ` on the interrupt controllers. The
  * board does that wiring, not this module — the timer has no business knowing
  * what is listening. */
+/* The earliest instant this part's line could change by time alone -- the
+ * conservative lower bound `ap_sio_interrupt_next_change` states the rule for.
+ * The PTM moves only on a clock pulse, so it is the next pulse of whichever
+ * of its three timers is due first. */
+[[nodiscard]] ap_time_t ap_timer_interrupt_next_change(const ap_timer_t *timer);
+
 [[nodiscard]] bool ap_timer_irq(const ap_timer_t *timer);
 
 #endif /* APOLLO_BOARD_AP_TIMER_H */

@@ -64,6 +64,15 @@ bool ap_omti_disk_dma_request(const ap_omti_t *omti) {
   return (omti->status & AP_OMTI_ST_DREQ) != 0u;
 }
 
+ap_time_t ap_omti_interrupt_next_change(const ap_omti_t *omti) {
+  /* The guard is `ap_omti_advance`'s own, so the two cannot disagree about
+   * when this part is capable of moving. */
+  if (omti->phase != AP_OMTI_PHASE_EXECUTING) {
+    return AP_TIME_NEVER;
+  }
+  return omti->completion_at;
+}
+
 bool ap_omti_disk_irq(const ap_omti_t *omti) {
   return (omti->mask & AP_OMTI_MASK_INTERRUPT_ENABLE) != 0u &&
          (omti->status & AP_OMTI_ST_IREQ) != 0u;

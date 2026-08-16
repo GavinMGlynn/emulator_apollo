@@ -45,6 +45,53 @@ void ap_sio_write(ap_sio_t *sio, uint32_t address, uint8_t value) {
   ap_mc68681_write(&sio->port[unit], reg, value);
 }
 
+ap_time_t ap_sio_interrupt_next_change(const ap_sio_t *sio) {
+  ap_time_t next = AP_TIME_NEVER;
+  for (unsigned unit = 0; unit < 2u; unit++) {
+    if (sio->x1[unit].period == 0u) {
+      continue; /* unclocked: only a write can move it */
+    }
+    /* **`ap_mc68681_clock`'s own guard, reused rather than restated.** A pulse
+     * that arrives with the counter stopped and the timer mode off returns
+     * immediately and changes nothing, so it cannot move `ISR` and must not
+     * bound anything. Reusing the part's guard is what keeps the two from
+     * drifting apart -- the same reason the disk's bound tests the phase
+     * `ap_omti_advance` tests.
+     *
+     * This matters for more than tidiness. X1 is 3.6 MHz and the CPU 25, so a
+     * pulse lands every ~6.9 CPU clocks: a bound of "the next pulse" is barely
+     * one instruction ahead and would make the whole aggregate worthless. The
+     * counter is idle for most of a boot, and then this part answers `never`. */
+    const ap_mc68681_t *part = &sio->port[unit];
+    if (!part->counter_running && !ap_mc68681_timer_mode(part)) {
+      continue;
+    }
+    /* **Terminal count, not the next pulse.** A pulse only decrements; `ISR[3]`
+     * moves when the countdown reaches zero, so at least `counter` pulses must
+     * pass first -- and a counter already at zero fires on the very next one,
+     * since `ap_mc68681_clock` tests after decrementing and a zero counter
+     * skips the decrement.
+     *
+     * Conservative either way: the flag is set only on the *second* terminal
+     * count, the first merely inverting the output, so this can be a whole
+     * preload early. Early is a wasted sample; late would lose an interrupt.
+     *
+     * The distinction is the difference between the bound being useful and
+     * being worthless on this machine. X1 is 3.6 MHz against a 25 MHz CPU, so
+     * pulses land every ~6.9 CPU clocks -- less than an instruction -- and this
+     * part's counter is never idle, because `§3.9`'s memory refresh runs off
+     * it for the life of the machine. Bounding at the next pulse would have
+     * pinned the whole aggregate one instruction ahead for ever. */
+    const uint64_t pulses = part->counter > 0u ? part->counter : 1u;
+    const ap_time_t at =
+        sio->clocked_to[unit] + pulses * sio->x1[unit].period;
+    if (at < next) {
+      next = at;
+    }
+  }
+  return next;
+}
+
 bool ap_sio_irq(const ap_sio_t *sio) {
   return ap_mc68681_irq(&sio->port[0]) || ap_mc68681_irq(&sio->port[1]);
 }

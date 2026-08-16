@@ -197,6 +197,17 @@ static bool interrupt_flag(const ap_sc499_t *tape) {
   return tape->done && (tape->control & AP_SC499_CTL_DNIEN) != 0u;
 }
 
+ap_time_t ap_sc499_interrupt_next_change(const ap_sc499_t *tape) {
+  ap_time_t next = AP_TIME_NEVER;
+  if (tape->executing && tape->ready_at < next) {
+    next = tape->ready_at;
+  }
+  if (tape->exception_at != 0u && tape->exception_at < next) {
+    next = tape->exception_at;
+  }
+  return next;
+}
+
 bool ap_sc499_irq(const ap_sc499_t *tape) {
   /* "The IRQ line is tri-stated when IEN is cleared. This allows other IBM PC
    * options the use of that interrupt line when the tape controller is not

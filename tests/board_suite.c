@@ -1431,6 +1431,123 @@ static void test_an_option_rom_answers_where_the_prom_scan_looks(void) {
       0xFFu, ap_board_read(&board, AP_BOARD_ATBUS_MEMORY_BASE, &ok));
 }
 
+/* **A bound is a lower bound, and that is the only property that matters.**
+ * `ap_board_interrupt_next_change` exists so the tick loop can skip sampling,
+ * and the safety argument is one-directional: earlier than the truth costs a
+ * wasted sample, later than the truth loses an interrupt.
+ *
+ * **Tested per source, not on the aggregate, and the first version of this test
+ * was wrong for exactly that reason.** The aggregate is a minimum, so one
+ * source that is always about to change masks every other source's lie: with
+ * `ap_mc146818_interrupt_next_change` rewritten to claim it could *never*
+ * change, an aggregate test still passed. A test that cannot fail is worse than
+ * no test, so this drives one device and asks that device's own bound.
+ *
+ * The calendar is the one driven here because it is the cheapest to arm --
+ * `[146818]`'s "IRQF = PF*PIE + AF*AIE + UF*UIE", a rate in register A and the
+ * enable in register B -- and because its periodic interrupt is the only source
+ * on a bare board that fires without a bus access. */
+static void test_a_sources_interrupt_bound_is_never_later_than_its_change(void) {
+  ap_board_t b;
+  init(&b);
+  /* Register A's rate `3` is 122 us, and register B enables the periodic. */
+  ap_mc146818_write(&b.calendar.rtc, AP_MC146818_REGISTER_A, 0x23u);
+  ap_mc146818_write(&b.calendar.rtc, AP_MC146818_REGISTER_B, AP_MC146818_B_PIE);
+
+  ap_time_t now = 1u;
+  ap_calendar_advance(&b.calendar, now);
+  bool line = ap_calendar_irq(&b.calendar);
+
+  /* One microsecond a step over four milliseconds, which crosses the 122 us
+   * periodic about thirty times. An earlier draft stepped 4096 base units and
+   * covered under four microseconds: nothing fired, and the test said so
+   * rather than passing. */
+  const ap_time_t step = AP_TIME_BASE_HZ / 1000000u;
+  unsigned changes = 0;
+  for (unsigned i = 0; i < 4000u; i++) {
+    const ap_time_t bound = ap_mc146818_interrupt_next_change(&b.calendar.rtc);
+    now += step;
+    ap_calendar_advance(&b.calendar, now);
+    const bool after = ap_calendar_irq(&b.calendar);
+    if (after != line) {
+      changes++;
+      TEST_ASSERT_TRUE_MESSAGE(bound <= now,
+                               "the line changed before its bound allowed it");
+    }
+    line = after;
+  }
+  /* And it really was exercised, so a bound that is never tested cannot pass
+   * by being unreachable. */
+  TEST_ASSERT_TRUE_MESSAGE(changes > 0u,
+                           "the periodic never fired: the bound was untested");
+}
+
+/* The serial part's bound is the intricate one -- it counts down to terminal
+ * count rather than bounding at the next pulse -- so it gets the same treatment
+ * as the calendar rather than riding on it.
+ *
+ * Driven through the part's own fields because the counter is what matters and
+ * the register path to it is `ACR` plus two preload writes; what is under test
+ * is the bound, not the programming sequence. */
+static void test_the_serial_bound_counts_down_to_terminal_count(void) {
+  ap_board_t b;
+  init(&b);
+  b.sio.port[0].counter_running = true;
+  b.sio.port[0].preload = 27u;
+  b.sio.port[0].counter = 27u;
+  /* The flag is not the line: `ap_mc68681_irq` is `isr & imr`, so an unmasked
+   * counter is what makes terminal count observable at all. */
+  b.sio.port[0].imr = AP_MC68681_ISR_COUNTER;
+
+  ap_time_t now = 1u;
+  ap_sio_advance(&b.sio, now);
+  bool line = ap_sio_irq(&b.sio);
+
+  /* The bound must be many pulses ahead, not one: that is the whole point of
+   * counting down. A pulse is 5,984,000 base units, so a 27-count preload is
+   * an order of magnitude further out than the next pulse. */
+  const ap_time_t bound0 = ap_sio_interrupt_next_change(&b.sio);
+  TEST_ASSERT_TRUE_MESSAGE(bound0 > now + 5984000u * 5u,
+                           "the bound is barely a pulse ahead");
+
+  const ap_time_t step = 5984000u; /* one X1 pulse */
+  unsigned changes = 0;
+  for (unsigned i = 0; i < 4000u; i++) {
+    const ap_time_t bound = ap_sio_interrupt_next_change(&b.sio);
+    now += step;
+    ap_sio_advance(&b.sio, now);
+    const bool after = ap_sio_irq(&b.sio);
+    if (after != line) {
+      changes++;
+      TEST_ASSERT_TRUE_MESSAGE(bound <= now,
+                               "the serial line changed before its bound");
+    }
+    line = after;
+  }
+  TEST_ASSERT_TRUE_MESSAGE(changes > 0u,
+                           "the counter never reached terminal count");
+}
+
+/* The aggregate is the minimum of the sources, so it can never exceed one of
+ * them. That is all an aggregate test can honestly assert -- the per-source
+ * property above is where a wrong bound is caught. */
+static void test_the_board_bound_is_no_later_than_any_source(void) {
+  ap_board_t b;
+  init(&b);
+  ap_mc146818_write(&b.calendar.rtc, AP_MC146818_REGISTER_A, 0x23u);
+  ap_mc146818_write(&b.calendar.rtc, AP_MC146818_REGISTER_B, AP_MC146818_B_PIE);
+  ap_board_advance(&b, 1u);
+
+  const ap_time_t board = ap_board_interrupt_next_change(&b);
+  TEST_ASSERT_TRUE(board <= ap_timer_interrupt_next_change(&b.timer));
+  TEST_ASSERT_TRUE(board <= ap_sio_interrupt_next_change(&b.sio));
+  TEST_ASSERT_TRUE(board <=
+                   ap_mc146818_interrupt_next_change(&b.calendar.rtc));
+  TEST_ASSERT_TRUE(board <= ap_sc499_interrupt_next_change(&b.tape.controller));
+  TEST_ASSERT_TRUE(board <=
+                   ap_omti_interrupt_next_change(&b.disk.controller));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_ethernet_card_is_absent_until_it_is_fitted);
@@ -1481,5 +1598,8 @@ int main(void) {
   RUN_TEST(test_every_region_has_a_name);
   RUN_TEST(test_peeking_memory_reads_it_by_physical_address);
   RUN_TEST(test_a_held_key_repeats_after_the_delay);
+  RUN_TEST(test_a_sources_interrupt_bound_is_never_later_than_its_change);
+  RUN_TEST(test_the_serial_bound_counts_down_to_terminal_count);
+  RUN_TEST(test_the_board_bound_is_no_later_than_any_source);
   return UNITY_END();
 }

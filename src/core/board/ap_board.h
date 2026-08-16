@@ -697,6 +697,27 @@ void ap_board_set_quirks(ap_board_t *board, ap_quirks_t quirks);
  * tested, and was joined to nothing -- the same shape as a decoder the step
  * never asked, or a model clock nothing read. The disk has two lines and no
  * accessor yet, so it is absent here rather than wired to a guess. */
+/* ## The earliest instant any interrupt line could change by time alone
+ *
+ * The minimum of every source's own bound, each of which is **conservative**:
+ * never later than the true change, and free to be earlier. Too early costs a
+ * wasted sample; too late loses an interrupt, so the rule is one-directional
+ * all the way down and `AP_TIME_NEVER` means "not without a bus access".
+ *
+ * **What this deliberately does not cover.** A bus access can change any line
+ * at any moment -- a write arms a device, and plenty of *reads* clear a flag as
+ * a side effect. Predicting that is impossible and guessing at it is how an
+ * interrupt goes missing, so the board simply discards the bound whenever the
+ * bus is used. That is the division of labour the DMA poll's flag could not
+ * manage alone: the flag handles what a bus access does, this handles what time
+ * does, and neither is sufficient by itself.
+ *
+ * `ap_sio_diagnostic_interrupt` and the 3c505 are absent from the minimum
+ * because neither can move without a bus access -- OP7 is a register bit, and
+ * the adapter is driven by the frontend's pump, which reaches it through the
+ * bus like anything else. */
+[[nodiscard]] ap_time_t ap_board_interrupt_next_change(const ap_board_t *board);
+
 void ap_board_sample_interrupts(ap_board_t *board);
 
 /* The 68030 interrupt level the board is asserting, or zero for none.

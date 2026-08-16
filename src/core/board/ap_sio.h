@@ -122,6 +122,22 @@ typedef struct {
 void ap_sio_write(ap_sio_t *sio, uint32_t address, uint8_t value);
 
 /* The IRQ line the two parts share. */
+/* ## When this part's interrupt line could next change on its own
+ *
+ * A **conservative lower bound**: never later than the true change, and free to
+ * be earlier. Returning too early costs a wasted sample; returning too late
+ * loses an interrupt, so the rule is one-directional and every implementation
+ * of it has to be read that way.
+ *
+ * "On its own" means by time passing. A bus access can change a line at any
+ * moment, so the board discards this the instant one happens rather than trying
+ * to predict it.
+ */
+/* The DUART advances only on an X1 pulse -- `ap_sio_advance` issues whole
+ * pulses from `clocked_to` and leaves the remainder -- so the earliest instant
+ * its `ISR` can move is the next pulse. An unclocked part cannot move at all. */
+[[nodiscard]] ap_time_t ap_sio_interrupt_next_change(const ap_sio_t *sio);
+
 [[nodiscard]] bool ap_sio_irq(const ap_sio_t *sio);
 
 /* Advance both parts' counter/timers to absolute time `now`, issuing one clock
