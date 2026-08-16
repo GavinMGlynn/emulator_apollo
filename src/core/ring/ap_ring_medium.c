@@ -3,6 +3,8 @@
 
 #include "ring/ap_ring_medium.h"
 
+#include <stddef.h>
+
 void ap_ring_medium_init(ap_ring_medium_t *m) {
   for (unsigned i = 0; i < AP_RING_MAX_NODES; i++) {
     m->node[i] = (ap_ring_node_t){0};
@@ -42,6 +44,18 @@ void ap_ring_medium_detach(ap_ring_medium_t *m, int slot) {
    * removed: renumbering the ring underneath its nodes would silently change
    * who each node's upstream neighbour is. */
   m->node[slot] = (ap_ring_node_t){0};
+}
+
+int ap_ring_medium_first_slot(const ap_ring_medium_t *m) {
+  if (m == NULL) {
+    return -1;
+  }
+  for (unsigned i = 0; i < AP_RING_MAX_NODES; i++) {
+    if (m->node[i].attached) {
+      return (int)i;
+    }
+  }
+  return -1;
 }
 
 bool ap_ring_medium_attached(const ap_ring_medium_t *m, int slot) {

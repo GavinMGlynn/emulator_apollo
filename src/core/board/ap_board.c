@@ -864,6 +864,32 @@ void ap_board_advance(ap_board_t *board, ap_time_t now) {
    * did before this existed. That is what keeps the reference boot hash and
    * the firmware self-test unchanged across `RING.md` 104-108. */
   if (board->ring.medium != NULL) {
+    /* **The medium's bit clock**, `AP_RING_BIT_CELL_TICKS` base units per bit
+     * at `[MAC]` §3.2's 12 Mbit/s. Driven here so frames move in a *running*
+     * machine rather than only in tests -- until this, `ap_ring_station_drive`
+     * and `_receive` were called by nothing outside the suites.
+     *
+     * **Only the segment's lowest attached slot advances the cable**, and the
+     * guard is the point rather than an optimisation: the medium is shared, so
+     * a board that advanced it unconditionally would advance a two-node ring
+     * twice per bit time. Every board still drives and reads *its own* station
+     * each bit, which is what a node does; one of them also steps the cable.
+     *
+     * That is correct for a segment inside one process, which is what
+     * `--ring` builds. It is **not** the multi-node answer: nodes of different
+     * models do not share a cycle, and `ap_ring_sched` exists for exactly that
+     * -- N participants, each with its own period, ties broken by slot. Wiring
+     * a real machine into it is `RING.md` 110a, and this guard is what keeps
+     * the single-process case honest until then. */
+    while (board->ring_bit_clock + AP_RING_BIT_CELL_TICKS <= now) {
+      board->ring_bit_clock += AP_RING_BIT_CELL_TICKS;
+      ap_ring_station_drive(&board->ring_station, board->ring.medium);
+      if (ap_ring_medium_first_slot(board->ring.medium) ==
+          board->ring_station.slot) {
+        ap_ring_medium_advance(board->ring.medium);
+      }
+      ap_ring_station_receive(&board->ring_station, board->ring.medium);
+    }
     ap_ring_ctl_poll_ring(&board->ring);
   }
   /* §3.9's memory refresh, which is a serial part doing a job that has nothing

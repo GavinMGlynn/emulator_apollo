@@ -1630,6 +1630,67 @@ static void test_two_boards_on_one_ring_segment_exchange_a_frame(void) {
   TEST_ASSERT_EQUAL_UINT64(0u, a.ring_station.frames_copied);
 }
 
+
+/* **A frame crosses under `ap_board_advance` -- time, not hand-stepping.**
+ *
+ * The previous test drove `ap_ring_station_drive`/`_receive` itself, which
+ * proved the protocol but not that anything calls them in a running machine.
+ * Until `RING.md` 110 nothing did: they were reached only from the suites. This
+ * advances the boards' *clocks* and requires the frame to arrive anyway, so the
+ * ring's 12 Mbit/s bit clock is genuinely wired to the board's time. */
+static void test_a_frame_crosses_the_ring_under_board_time(void) {
+  static ap_ring_medium_t segment;
+  static ap_board_t a;
+  static ap_board_t b;
+  static uint8_t txbuf[2048];
+
+  ap_ring_medium_init(&segment);
+  init(&a);
+  init(&b);
+  ap_board_attach_ring(&a, true);
+  ap_board_attach_ring(&b, true);
+  ap_ring_ctl_set_node_id(&a.ring, 0x00011111u);
+  ap_ring_ctl_set_node_id(&b.ring, 0x00022222u);
+  ap_board_join_ring(&a, &segment);
+  ap_board_join_ring(&b, &segment);
+  ap_ring_station_attach_tx(&a.ring_station, txbuf, sizeof txbuf);
+
+  uint8_t header[AP_RING_CTL_XMIT_HEADER_BYTES] = {0};
+  ap_ring_header_set_destination(header, 0x00022222u);
+  ap_ring_header_set_type(header, AP_RING_TYPE_USER);
+  ap_ring_header_set_source(header, 0x00011111u);
+  for (unsigned i = 0; i < AP_RING_CTL_XMIT_HEADER_WORDS; i++) {
+    a.ring.buffer[0x40u + i] =
+        (uint16_t)((header[i * 2u] << 8) | header[i * 2u + 1u]);
+  }
+  ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_W2_RCV_ADDR, 0x1000u);
+  ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_BANK_STATUS + 4u,
+                      AP_RING_CTL_RCV_CMD_RCV);
+  ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_W2_XMIT_ADDR, 0x4000u);
+  ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_BANK_STATUS + 2u, 0x0200u);
+  ap_ring_station_originate_token(&b.ring_station, AP_RING_OOB_FREE_TOKEN);
+
+  /* Advance both boards' clocks together, a bit cell at a time. 4000 bit times
+   * is the same budget the hand-stepped test uses. */
+  for (unsigned i = 1; i <= 4000u; i++) {
+    const ap_time_t now = (ap_time_t)i * AP_RING_BIT_CELL_TICKS;
+    ap_board_advance(&a, now);
+    ap_board_advance(&b, now);
+  }
+
+  TEST_ASSERT_TRUE(b.ring_station.frames_copied > 0u);
+  TEST_ASSERT_EQUAL_HEX16(0x0002u, b.ring.buffer[0x10u]);
+  TEST_ASSERT_EQUAL_HEX16(0x2222u, b.ring.buffer[0x11u]);
+  /* And the interrupt reached the controller B is plugged into -- the line
+   * finding 107 documented, master IRQ 2. */
+  TEST_ASSERT_TRUE(ap_ring_ctl_irq(&b.ring));
+  TEST_ASSERT_FALSE(ap_ring_ctl_irq(&a.ring));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_ethernet_card_is_absent_until_it_is_fitted);
@@ -1684,5 +1745,6 @@ int main(void) {
   RUN_TEST(test_the_serial_bound_counts_down_to_terminal_count);
   RUN_TEST(test_the_board_bound_is_no_later_than_any_source);
   RUN_TEST(test_two_boards_on_one_ring_segment_exchange_a_frame);
+  RUN_TEST(test_a_frame_crosses_the_ring_under_board_time);
   return UNITY_END();
 }

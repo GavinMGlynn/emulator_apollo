@@ -94,6 +94,13 @@ void ap_ring_medium_detach(ap_ring_medium_t *m, int slot);
 /* Whether a slot currently holds a node. */
 [[nodiscard]] bool ap_ring_medium_attached(const ap_ring_medium_t *m, int slot);
 
+/* The lowest attached slot, or -1 on an empty segment. Its use is to name one
+ * node as the cable's stepper when several share a medium inside one process:
+ * a shared medium advanced by every node on it would advance once per node per
+ * bit time. Not a hardware concept -- real cable steps itself -- which is why
+ * it is a query here rather than state on the medium. */
+[[nodiscard]] int ap_ring_medium_first_slot(const ap_ring_medium_t *m);
+
 /* Take a node in or out of the ring, `[MAC]` §3.5. */
 void ap_ring_medium_set_bypass(ap_ring_medium_t *m, int slot, bool bypassed);
 

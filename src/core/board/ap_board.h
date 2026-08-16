@@ -261,6 +261,10 @@ typedef struct ap_board {
    * owned one would make every ring single-node by construction.
    * `ap_board_join_ring` lends this board a segment. */
   ap_ring_station_t ring_station;
+  /* How far the ring's bit clock has been advanced, in base units. The medium
+   * runs at `[MAC]` §3.2's 12 Mbit/s, which is neither the CPU's cycle nor any
+   * other device's -- `CLAUDE.md`'s reason for counting in `AP_TIME_BASE_HZ`. */
+  ap_time_t ring_bit_clock;
 
   ap_time_t interrupt_valid_until;
 

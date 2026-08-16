@@ -475,9 +475,11 @@ void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl);
 
 /* Whether the card is asserting its interrupt line.
  *
- * MISC_STAT's four interrupt-pending bits are **active low** -- p. 12-30 marks
- * `tmi`, `ri`, `xi` and `gps` "<=0" -- so the line is asserted when any of them
- * reads *clear*. An unfitted card drives nothing, which is why the presence
+ * Asserted when `xi` or `ri` reads **clear**: p. 12-30 marks those two "intr
+ * pending <=0", active low. `gps` is "sticky good pkt <=1" -- active *high*,
+ * and a status bit rather than an interrupt -- and `tmi` is excluded because
+ * the idle word leaves it clear, which under its own `<=0` notation would have
+ * every card interrupt at power-on. See `RING.md` 110b. An unfitted card drives nothing, which is why the presence
  * gate is checked first rather than the bits: `RING.md` 40 makes an empty slot
  * a successful outcome for the firmware's probe, and a slot that interrupted
  * unbidden would take a machine with no ring hardware down a path it never
