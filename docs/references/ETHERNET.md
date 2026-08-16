@@ -210,3 +210,48 @@ disagreed about who was waiting.
 That is the resolution order earning its keep twice over: the oracle's numbers
 survived, the oracle's *framing* did not, and the document that settles it had
 been named by `[DEV]` §1.9 all along.
+
+## Finding 19: the host command path was never wired, and a test hid it
+
+The audit's structural finding, and the exact analogue of the ring's (`RING.md`
+finding 69b). Applying the same check — *what is defined and called by nobody* —
+to `ap_3c505.*`:
+
+    ap_3c505_pcb_rx_reset / _byte / _end   callers outside its own .c: (none)
+    ap_3c505_dispatch                      callers outside its own .c: (none)
+
+Every piece of §3.1.2 existed and was unit-tested: the assembler that recovers a
+PCB by counting back from its trailing total length, the dispatcher for all
+twenty-odd commands, the responder that paces a reply out a byte at a time.
+Nothing joined them. `ap_3c505_pump` implemented only the adapter→host
+direction; `ap_3c505_adapter_t` had `pending` for the outgoing PCB and **no
+member at all** for an incoming one. So a host that wrote a PCB to the command
+register filled the one-byte mailbox, and no one ever emptied it: `HCRE` stayed
+clear, the driver's second byte never went, and no command was ever answered.
+
+**The suite was green over this**, which is the part worth keeping.
+`test_a_pcb_crosses_the_real_command_register` appears to test exactly this path
+and does not: it calls `ap_3c505_adapter_take_command` and
+`ap_3c505_pcb_rx_byte` *from the test body*. The test supplied the wiring the
+device lacked, so it passed against a card that could not answer a command —
+CLAUDE.md's "tests encode the same misreadings as the code", caught in the act.
+
+Fixed by giving the adapter an `incoming` assembler and implementing §3.1.2 in
+the pump: take the byte, feed it, and on the Host Status Flags reading `11`
+(§3.1.1's completion is a flag transition, not a byte count) recover, dispatch
+and post the reply. `test_a_command_written_by_the_host_is_answered_by_the_
+adapter` drives it through `ap_3c505_write`/`ap_3c505_read`/`ap_3c505_pump`
+alone; with the wiring disabled it fails at "the adapter never took the command
+byte", which is the failure the old test could not produce.
+
+### 19a: the pacing is a frontend artefact, not hardware — APPROXIMATION
+
+The headless frontend pumps every `AP_TAP_POLL_INSTRUCTIONS` (4096) steps, so a
+PCB byte now costs 4096 host instructions and a twelve-byte PCB about 49k. Real
+hardware has an 80186 running continuously against a host polling loop, and the
+mailbox turns round far faster than the host can spin. Nothing observed has
+timed out, but a driver with a short `HCRE` timeout would fail here for a reason
+that is not in any manual. **Cost to close:** drive the pump from the board on
+the command-register access rather than on the frontend's poll period, which
+removes the constant instead of tuning it. Tuning it is the parameter search
+CLAUDE.md forbids, and is why no number was changed here.

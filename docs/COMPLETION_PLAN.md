@@ -4196,7 +4196,9 @@ discipline throughout.
       **One named approximation, `PROVISIONAL` in `ap_3c505.h`**: the adapter's
       power-on flag handshake is host-side, where MAME runs the card's real
       80186. Cost to close is an 80186 alone — both firmware dumps are already
-      on disk (18c). Detail in `PROJECT_STATUS.md`.
+      on disk (18c). **The audit then found §3.1.2's host→adapter half was never
+      wired**, and the test that appeared to cover it supplied the missing wiring
+      from the test body (`ETHERNET.md` 19, 19a). Detail in `PROJECT_STATUS.md`.
   - [x] `src/core/device/ap_3c505.h`, the interface, transcribed from `[DEV]`
         §1.3.3 and §1.9: the five registers in sixteen I/O locations, the
         20-byte half duplex FIFO, the PCB's 64-byte limit, and the eleven named

@@ -767,6 +767,38 @@ bool ap_3c505_pump(ap_3c505_t *card, ap_3c505_adapter_t *adapter) {
     ap_3c505_set_adapter_flags(card, AP_3C505_SF_UNDEFINED);
     return true;
   }
+  /* §3.1.2's half: the host writes the PCB a byte at a time to the command
+   * register, and §3.1.1 completes the transfer not on a count but when the
+   * Host Status Flags reach `11` with the total length in the register. Taking
+   * the byte is also what frees the register for the host's next one, so it
+   * comes before the outgoing half below -- the two directions share the
+   * register but not the handshake, and a response the host has not collected
+   * must not stall a command the host is still sending.
+   *
+   * Guarded on the outgoing PCB being idle because the protocol is
+   * request/response: a command arriving mid-response would overwrite
+   * `pending`, and losing it silently is exactly what the guard in the
+   * adapter->host direction already refuses to do. */
+  if (!adapter->pending.active && !adapter->pending_total) {
+    uint8_t command = 0;
+    if (ap_3c505_adapter_take_command(card, &command)) {
+      ap_3c505_pcb_rx_byte(&adapter->incoming, command);
+      if (ap_3c505_host_flags(card) == AP_3C505_SF_END_OF_PCB) {
+        ap_3c505_pcb_t in = {0};
+        ap_3c505_pcb_t out = {0};
+        const bool recovered = ap_3c505_pcb_rx_end(&adapter->incoming, &in);
+        ap_3c505_pcb_rx_reset(&adapter->incoming);
+        /* A PCB that cannot be recovered is dropped without a response, which
+         * is what §3.1.1's stray-byte protection is for: the adapter has no way
+         * to answer a transfer whose beginning it could not find. */
+        if (recovered && ap_3c505_dispatch(adapter, &in, &out)) {
+          ap_3c505_adapter_post_pcb(adapter, &out);
+        }
+      }
+      return true;
+    }
+  }
+
   /* The host has not taken the previous byte, so there is nowhere to put one.
    * §1.9.1's handshake is a single byte each way and overwriting it would lose
    * a byte of the PCB silently. */

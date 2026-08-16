@@ -1179,6 +1179,68 @@ static void test_a_queued_pcb_is_paced_out_by_the_host_taking_bytes(void) {
   TEST_ASSERT_EQUAL_HEX8(0xBBu, back.data[1]);
 }
 
+/* Writing one byte of a host PCB and letting the adapter collect it. */
+static void host_sends(ap_3c505_t *card, ap_3c505_adapter_t *adapter,
+                       uint8_t byte) {
+  TEST_ASSERT_TRUE(ap_3c505_host_status(card) & AP_3C505_HSR_HCRE);
+  ap_3c505_write(card, AP_3C505_REG_COMMAND, byte);
+  for (unsigned guard = 0; guard < 16u; guard++) {
+    if (ap_3c505_host_status(card) & AP_3C505_HSR_HCRE) {
+      return;
+    }
+    (void)ap_3c505_pump(card, adapter);
+  }
+  TEST_FAIL_MESSAGE("the adapter never took the command byte");
+}
+
+/* The two halves joined. Nothing here touches the adapter's side of the
+ * mailbox: the host writes `03H` through the command register exactly as the
+ * driver does, `ap_3c505_pump` is the only other thing that runs, and `33H`
+ * comes back with the address PROM in it.
+ *
+ * This is the test the suite did not have, and its absence is why the suite
+ * was green over a card that could not answer a command.
+ * `test_a_pcb_crosses_the_real_command_register` reaches the same PCB, but it
+ * calls `ap_3c505_adapter_take_command` and `ap_3c505_pcb_rx_byte` itself --
+ * the test supplied the wiring the device was missing, and so tested the
+ * assembler rather than the path. */
+static void test_a_command_written_by_the_host_is_answered_by_the_adapter(
+    void) {
+  const uint8_t prom[6] = {0x02u, 0x60u, 0x8Cu, 0x44u, 0x55u, 0x66u};
+  ap_3c505_t card;
+  ap_3c505_adapter_t adapter;
+  ap_3c505_reset(&card);
+  ap_3c505_adapter_init(&adapter, prom);
+
+  /* §3.1.2: command and length, then the flags to `11` and the total length as
+   * one further byte. `03H` carries no data. */
+  host_sends(&card, &adapter, AP_3C505_CMD_GET_ETHERNET_ADDRESS);
+  host_sends(&card, &adapter, 0u);
+  ap_3c505_set_host_flags(&card, AP_3C505_SF_END_OF_PCB);
+  host_sends(&card, &adapter, 2u);
+
+  /* And the response assembles itself, unasked. §3.1.3: the total length is
+   * flagged `11` and is not part of the PCB. */
+  uint8_t response[AP_3C505_PCB_MAX] = {0};
+  unsigned got = 0;
+  bool ended = false;
+  for (unsigned guard = 0; guard < 256u && !ended; guard++) {
+    if ((ap_3c505_host_status(&card) & AP_3C505_HSR_ACRF) == 0u) {
+      (void)ap_3c505_pump(&card, &adapter);
+      continue;
+    }
+    ended = ap_3c505_adapter_flags(&card) == AP_3C505_SF_END_OF_PCB;
+    const uint8_t byte = ap_3c505_read(&card, AP_3C505_REG_COMMAND);
+    if (!ended && got < sizeof response) {
+      response[got++] = byte;
+    }
+  }
+  TEST_ASSERT_TRUE_MESSAGE(ended, "the adapter never answered the command");
+  TEST_ASSERT_EQUAL_HEX8(0x33u, response[0]);
+  TEST_ASSERT_EQUAL_HEX8(6u, response[1]);
+  TEST_ASSERT_EQUAL_HEX8_ARRAY(prom, &response[2], 6);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_card_answers_sixteen_locations_from_its_jumpered_base);
@@ -1226,5 +1288,6 @@ int main(void) {
   RUN_TEST(test_an_armed_receive_stages_the_frame_and_reports_it);
   RUN_TEST(test_a_frame_longer_than_the_buffer_is_truncated_and_both_reported);
   RUN_TEST(test_a_queued_pcb_is_paced_out_by_the_host_taking_bytes);
+  RUN_TEST(test_a_command_written_by_the_host_is_answered_by_the_adapter);
   return UNITY_END();
 }

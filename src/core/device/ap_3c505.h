@@ -605,6 +605,17 @@ typedef struct {
 
   ap_3c505_wire_t wire;
 
+  /* The PCB the host is handing to the adapter, if any. §3.1.2 is the mirror of
+   * §3.1.3 and needs the same treatment: the stream arrives a byte at a time
+   * through the command register and does not complete on a count, so the
+   * partial PCB has to be held across bus cycles rather than parsed in one go.
+   *
+   * Its absence was the whole defect. Every piece around it existed and was
+   * unit-tested -- the assembler, the dispatcher, the responder -- but with
+   * nowhere to accumulate into, nothing called them, and a host command written
+   * to the command register was taken by no one and answered never. */
+  ap_3c505_pcb_rx_t incoming;
+
   /* The PCB the adapter is handing to the host, if any. §3.1.3 sends it a byte
    * at a time through the command register as the host empties it, so it has to
    * be held across many bus cycles rather than written in one go. */
