@@ -397,6 +397,21 @@ static void test_the_unknown_command_slots_are_storage_and_nothing_more(void) {
   TEST_ASSERT_EQUAL_HEX16(
       0x2200u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 4u) &
                    0xFF00u);
+  /* **The status lane is not pure storage either: `ren` follows the command's
+   * `rcv`.** p. 12-32 gives `RCV_CMD` one bit, 11, "1 => receive enable", and
+   * p. 12-30 gives `RCV_STAT` bit 6, `ren`, receive enable -- the two halves
+   * of one register naming the same thing. `$2222` has bit 11 clear, so the
+   * receiver is disarmed and the lane reads `A0` rather than the idle `E0`.
+   * This asserted `E0` unconditionally while the bit was inert, which is the
+   * same "storage and nothing more" reading findings 63 and 64 corrected one
+   * register along. `RING.md` 126b. */
+  TEST_ASSERT_EQUAL_HEX16(
+      AP_RING_CTL_COMMAND2_STATUS_IDLE & (uint16_t)~0x0040u,
+      ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 4u) & 0x00FFu);
+  /* And writing the enable arms it again, which is what the firmware's
+   * `move.b #$8,$404` does before every operation. */
+  ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_STATUS + 4u,
+                      AP_RING_CTL_RCV_CMD_RCV);
   TEST_ASSERT_EQUAL_HEX16(
       AP_RING_CTL_COMMAND2_STATUS_IDLE,
       ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 4u) & 0x00FFu);

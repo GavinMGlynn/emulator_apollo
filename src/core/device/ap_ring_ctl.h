@@ -435,6 +435,10 @@ typedef struct {
    * 123 -- and it is the *only* difference between the two sites that write
    * that command after a byte-identical preamble. */
   bool loopback_enabled;
+  /* Whether the last transmitted early acknowledge carried intend-to-copy --
+   * `[MAC]` Figure 2-7 bit 3. It decides whether the *receive* interrupt pends
+   * when the operation completes (`RING.md` 126). */
+  bool xmit_intend_to_copy;
 
   /* `+406` on the `a1` window, which finding 50a shows is never read. The `a2`
    * window's `+406` is the buffer port and does not use this. */

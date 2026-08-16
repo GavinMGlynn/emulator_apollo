@@ -102,15 +102,29 @@ static void ring_ctl_loopback(ap_ring_ctl_t *ctl) {
       (size_t)to + 6u > AP_RING_CTL_BUFFER_WORDS) {
     return;
   }
+  /* **Everything the transmit supplied is read before anything is written.**
+   * `$B70` issues its command *before* `$944` sets `RCV_ADDR`, so on the first
+   * pass `to` still equals `from` and a deposit made field by field overwrites
+   * the very words it is about to read -- which is what made the early
+   * acknowledge come back as the card's own `0002` and cost one wrong
+   * conclusion about intend-to-copy. */
   const uint16_t dest_hi = ctl->buffer[from + 0u];
   const uint16_t dest_lo = ctl->buffer[from + 1u];
+  const uint16_t type = ctl->buffer[from + 2u];
+  const uint16_t early = ctl->buffer[from + 3u];
   ctl->buffer[to + 0u] = dest_hi;
   ctl->buffer[to + 1u] = dest_lo;
-  ctl->buffer[to + 2u] = ctl->buffer[from + 2u]; /* type */
+  ctl->buffer[to + 2u] = type;
   ctl->buffer[to + 3u] = AP_RING_CTL_EARLY_ACK_UNCOPIED;
   ctl->buffer[to + 4u] = dest_hi;
   ctl->buffer[to + 5u] = dest_lo;
 
+  /* **Whether this transmission asked to be copied**, `[MAC]` Figure 2-7's
+   * intend-to-copy at bit 3 of the early acknowledge. The `$B70` call sites
+   * pass `$E`, `$A` and `$0` in `d4`, and it is the *only* thing that differs
+   * between the subtest 21-24 group and the 61-63 group -- same `MISC_CMD`
+   * `$0`, same preamble, same `#$6`. `RING.md` 126. */
+  ctl->a2.xmit_intend_to_copy = (early & AP_RING_EARLY_INTEND_TO_COPY) != 0u;
 }
 
 bool ap_ring_ctl_irq(const ap_ring_ctl_t *ctl) {
@@ -871,6 +885,18 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
                                  AP_RING_CTL_STATUS_BIT2 |
                                  AP_RING_CTL_STATUS_BIT1 |
                                  AP_RING_CTL_STATUS_BIT14);
+        /* **The receive interrupt pends only if the frame asked to be
+         * copied.** Subtest 24 follows a `$B70` carrying `$A` in `d4` --
+         * Figure 2-7's intend-to-copy plus its parity bit -- and requires
+         * `+400`'s bit 1 **clear**; subtest 63 follows one carrying `$0` and
+         * requires it to **remain set** (`moveq #$1,d4` against 24's
+         * `clr.l d4`). Same `#$6`, same `MISC_CMD` `$0`, same `$976`/`$944`
+         * preamble: the transmitted early acknowledge is the only difference
+         * between the two groups, and a frame nobody intended to copy raises
+         * no receive interrupt. `RING.md` 126. */
+        if (!w->xmit_intend_to_copy) {
+          w->status |= AP_RING_CTL_STATUS_BIT1;
+        }
         /* Something is now outstanding, and the acknowledge in the *first*
          * window is what finishes it (`RING.md` 74a, 75). */
         w->operation_pending = true;
@@ -900,11 +926,35 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
          * clears them, and this is the event that ends an operation rather than
          * three separate register rules. */
         w->command_404 = 0u;
-        w->command_404_status &= (uint16_t)~0x0040u;
+        /* **And `ren` survives a frame nobody intended to copy.** Subtest 25
+         * follows a `$B70` carrying `$A` and requires `(+404) & $FFF8 == $A0`
+         * -- bit 6, `ren`, **clear**; subtest 64 follows one carrying `$0` and
+         * requires `$E0`, with it **set**. Same `#$6`, same preamble: the
+         * receive enable is consumed by a receive that happened, and a
+         * transmission no receiver intended to copy leaves it armed. The same
+         * discriminator as bit 1 above, one register along. `RING.md` 126a. */
+        if (w->xmit_intend_to_copy) {
+          w->command_404_status &= (uint16_t)~0x0040u;
+        }
       }
       return;
     case 4u:
       w->command_404 = value;
+      /* **`RCV_CMD`'s `rcv` drives `RCV_STAT`'s `ren`**, which is the two
+       * halves of one register naming the same thing: p. 12-32 gives the write
+       * half one bit, 11, "1 => receive enable", and p. 12-30 gives the read
+       * half bit 6, `ren`, receive enable. Writing the enable arms the
+       * receiver and the status says so; `$976`'s `move.w #$0,$404` disarms
+       * it. Without this the bit was cleared by the first completing command
+       * and never came back, so subtest 64 read `A0` where the firmware, which
+       * had just written `#$8`, expected `E0`. */
+      if (second_window) {
+        if ((value & AP_RING_CTL_RCV_CMD_RCV) != 0u) {
+          w->command_404_status |= 0x0040u;
+        } else {
+          w->command_404_status &= (uint16_t)~0x0040u;
+        }
+      }
       /* **RCV_CMD's `rcv`, and it drives the station.** `002398-04` p. 12-32
        * gives this register one bit, 11, "1 => receive enable", with "set
        * `rcv` to 0 to abort an enabled receive" -- and `RING.md` 103c confirms
