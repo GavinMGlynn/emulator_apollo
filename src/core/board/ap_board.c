@@ -439,6 +439,9 @@ void ap_board_sample_interrupts(ap_board_t *board) {
   ap_intr_set_request(&board->interrupts, AP_BOARD_ETHERNET_IRQ,
                       board->ethernet_present &&
                           ap_3c505_irq(&board->ethernet));
+  /* And the promise this sample stands on: nothing above can change before
+   * this instant unless the bus is used. */
+  board->interrupt_valid_until = ap_board_interrupt_next_change(board);
 }
 
 bool ap_board_parity_interrupt(const ap_board_t *board) {
@@ -662,6 +665,10 @@ void ap_board_bus_tick(ap_board_t *board) {
     ap_arbiter_tick(&board->arbiter);
     return;
   }
+
+  /* Past the `dma_possible` guard, so a cycle here can reach a device and move
+   * its interrupt line. The third and last site the bound is discarded at. */
+  board->interrupt_valid_until = 0u;
 
   const ap_i8237_bus_t bus = {
       .memory_read = dma_memory_read,
@@ -1118,6 +1125,10 @@ static void note_atbus_empty_address(ap_board_t *board, uint32_t address) {
 
 uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
   *ok = true;
+  /* The interrupt bound promised only that *time* would not move a line. A bus
+   * access can, and plenty of device reads clear a flag as a side effect, so
+   * the promise is discarded here rather than reasoned about. */
+  board->interrupt_valid_until = 0u;
   address &= board->map->address_mask;
   const ap_board_region_t counted = ap_board_region(board, address);
   /* Any access to a device that can start a DMA transfer re-arms the bus
@@ -1271,6 +1282,10 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
 void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
                     bool *ok) {
   *ok = true;
+  /* The interrupt bound promised only that *time* would not move a line. A bus
+   * access can, and plenty of device reads clear a flag as a side effect, so
+   * the promise is discarded here rather than reasoned about. */
+  board->interrupt_valid_until = 0u;
   address &= board->map->address_mask;
   const ap_board_region_t counted = ap_board_region(board, address);
   /* Any access to a device that can start a DMA transfer re-arms the bus

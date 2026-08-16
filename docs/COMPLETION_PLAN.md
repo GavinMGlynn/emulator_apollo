@@ -4434,6 +4434,12 @@ Only after the reference core is proven, and only under an identity harness.
       half and devices half of the tick split so a span-breaking I/O write still
       runs its devices half canonically. *Verification: entire probe suite and
       long boot hashes byte-identical to the reference core.*
+  - [x] **The interrupt sample is skipped when no source can have changed** --
+    `next_event()` for interrupt sources, an aggregate bound, and
+    `interrupt_valid_until` discarded by the three sites that reach a device.
+    *Verification: 45.3 s → **39.9 s**, 1.136x, state hash `A354786119A3931D`
+    unchanged; `board_suite` 47 → 50, `ctest` 137/137. Detail, and why the
+    serial part nearly made it worthless, in `PROJECT_STATUS.md`.*
       **Awaiting:** the CPU half — and a profile has redirected it. The cost is not
       instruction stepping: `perf` over a bounded boot puts ~27% in
       per-instruction device work, the largest single item being

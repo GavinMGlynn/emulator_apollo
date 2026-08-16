@@ -236,6 +236,8 @@ typedef struct ap_board {
    * measures today. */
   ap_ring_ctl_t ring;
 
+  ap_time_t interrupt_valid_until;
+
   /* The Matrox graphics controller, absent until `ap_board_attach_matrox`
    * fits it. `docs/references/GRAPHICS.md`. */
   bool matrox_present;
@@ -717,6 +719,16 @@ void ap_board_set_quirks(ap_board_t *board, ap_quirks_t quirks);
  * the adapter is driven by the frontend's pump, which reaches it through the
  * bus like anything else. */
 [[nodiscard]] ap_time_t ap_board_interrupt_next_change(const ap_board_t *board);
+
+/* The instant `ap_board_interrupt_next_change` last promised nothing could
+ * change before, or `0` for "no promise outstanding". Zero on a fresh board, so
+ * a machine that never samples never skips -- the safe default.
+ *
+ * **Discarded by every bus access**, which is the whole of the invalidation
+ * rule and is three sites: `ap_board_read`, `ap_board_write`, and a DMA cycle
+ * inside `ap_board_bus_tick`. The first two are the processor's, the third is
+ * the only other thing on this board that can reach a device, and it is already
+ * gated by `dma_possible` so the common case costs nothing. */
 
 void ap_board_sample_interrupts(ap_board_t *board);
 

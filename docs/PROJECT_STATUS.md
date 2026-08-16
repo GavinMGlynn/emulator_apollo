@@ -20429,6 +20429,45 @@ reports `disk sidecar ... 464 bytes` beside the disk line. The defect-injection
 behaviour itself is `omti_suite`'s, and was already covered there; what was
 untested and is now wired is the frontend's half.*
 
+## The interrupt sample is skipped, and the boot is 12% shorter
+
+The accessors have their consumer. `ap_machine_run` now skips
+`ap_board_sample_interrupts` when the board is still inside the bound every
+source agreed to, which is the increment the profile pointed at.
+
+**`interrupt_valid_until` carries the whole rule.** It is set to the aggregate
+bound when a sample is taken, and cleared by the three sites that can reach a
+device: a processor read, a processor write, and a DMA cycle inside
+`ap_board_bus_tick` -- the last already behind `dma_possible`, so the common
+case costs nothing. Zero means "no promise outstanding" and always samples,
+which is also its value on a fresh board: **a machine that has never sampled
+never skips**, so the unsafe direction is the one that cannot happen by
+accident.
+
+The comparison is against `machine->now`, the instant the board has been
+advanced to. When the sample is skipped the level is left standing, which is
+the point -- no source changed, so the 8259's requests are still right.
+
+### The measurement, A/B on one machine
+
+| | 350 M boot | hash |
+| --- | --- | --- |
+| always sample | 45.3 s | `A354786119A3931D` |
+| with the skip | **39.9 s** | `A354786119A3931D` |
+
+**1.136x, 12% off**, and the hash is byte-identical -- which is the verification
+the item asks for, not a proxy for it. `ctest` 137/137 covers the probe goldens
+alongside it. For scale, the two earlier increments on this item were the 8259's
+early return and the DMA poll's flag at 1.04x; this is the largest so far and it
+is the one the profile predicted.
+
+**What it does not do**, so the item is not over-claimed: `skip(n)` is still
+unwritten. Nothing yet runs the CPU across a span without ticking devices --
+this removes one per-instruction poll, it does not batch instructions. The other
+per-instruction costs the profile named are untouched: `ap_board_bus_tick` at
+6.8%, `ap_sio_advance` at 5.0%, `ap_board_advance` at 3.7%. Each is the same
+shape of question and each needs its own bound.
+
 ## `next_event()` for interrupt sources, and the bound that makes it worth having
 
 The profile said the next increment was to avoid per-instruction polling that

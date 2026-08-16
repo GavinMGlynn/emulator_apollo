@@ -798,7 +798,32 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
       machine->cpu.fpu = ap_boardreg_fpu_trapped(&machine->board->registers)
                              ? NULL
                              : &machine->fpu;
-      ap_board_sample_interrupts(machine->board);
+      /* ## Skipping the sample when nothing can have changed
+       *
+       * The sample is level-based and costs eight device queries, and the
+       * profile puts it at 8.6% of a boot -- the largest single item, run
+       * unconditionally. It can be skipped exactly when two things hold: no bus
+       * access has happened since the last sample, and the bound every source
+       * agreed to has not been reached.
+       *
+       * `interrupt_valid_until` carries both. It is set to the aggregate bound
+       * when a sample is taken and cleared by the three sites that can reach a
+       * device -- a processor read, a processor write, and a DMA cycle -- so a
+       * zero here means "no promise outstanding" and always samples. That is
+       * also its value on a fresh board, which is the safe default: a machine
+       * that has never sampled never skips.
+       *
+       * The comparison is against the time the board has been advanced to,
+       * which is `machine->now`: the advance at the foot of this loop is what
+       * moved the devices, and the sample above reads the state that advance
+       * produced. Anything later has not happened yet.
+       *
+       * When the sample is skipped the level is left as it was, which is the
+       * point -- no source changed, so the 8259's requests are still right, and
+       * `ap_board_interrupt_level` reads them rather than recomputing. */
+      if (machine->now >= machine->board->interrupt_valid_until) {
+        ap_board_sample_interrupts(machine->board);
+      }
       machine->cpu.interrupt_level = ap_board_interrupt_level(machine->board);
 
       /* The bus advances at the processor's rate, so it is given the clocks the
