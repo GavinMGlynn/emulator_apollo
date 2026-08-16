@@ -114,10 +114,35 @@
  * parameter table, written to `$D40000` long before any of this, carries
  * `00000400` = 1024. Rendering is the discriminator: a wrong pitch shears a
  * picture that is still legible, a right one does not. */
-#define AP_MATROX_FRAME_ADDR 0x0C0000u
-#define AP_MATROX_FRAME_BYTES 0x20000u
-#define AP_MATROX_FRAME_WIDTH 1024u
+/* **Corrected by `GRAPHICS.md` 20/20b, and the ROM settles it.** The address
+ * above was located by measurement and the geometry was arithmetic on its size;
+ * both are superseded by the board's own clear-screen routine, which states all
+ * four outright. `ENTRY_03` at `+388`:
+ *
+ *     movea.l #$900000, a1     ; base
+ *     move.w  #$3ff, d1        ; 1024 lines
+ *     moveq   #$60, d2         ; 96 bytes skipped per line
+ *     move.w  #$27, d0         ; 40 longwords
+ *     clr.l   (a1)+            ; = 160 bytes = 1280 pixels at 1bpp
+ *     adda.l  d2, a1           ; -> a 256-byte stride, 2048 pixels
+ *
+ * 1024 x 256 bytes is 256 KB, and `019411-A00` Table 2-5 puts `$900000` inside
+ * `100000`-`FFFFFF`, "AT COMPATIBLE BUS MEMORY SPACE" -- which is where an AT
+ * card's memory aperture belongs, and the Matrox is a card. The same table
+ * gives `0C0000`-`0DFFFF` as "ALTERNATE MONO GRAPHICS MEMORY SPACE", 128 KB
+ * and half of it the single-board ring controller: a real graphics space, but
+ * not this board's frame and not the right size.
+ *
+ * The stride is the part a packed model gets wrong: 1280 visible pixels in a
+ * 2048-pixel line, exactly as the DN3500's 19-inch monochrome controller has
+ * `width = 1280, buffer_width = 2048`. A scanout that ignored it would shear
+ * the picture progressively down the screen. */
+#define AP_MATROX_FRAME_ADDR 0x900000u
+#define AP_MATROX_FRAME_BYTES 0x40000u
+#define AP_MATROX_FRAME_WIDTH 1280u
 #define AP_MATROX_FRAME_HEIGHT 1024u
+/* The line pitch in bytes: `160 + 96` from the loop above. */
+#define AP_MATROX_FRAME_STRIDE_BYTES 256u
 
 typedef struct {
   /* Words fed to the microcode port. Counted rather than stored: finding 4b

@@ -97,7 +97,7 @@ method here.
 
 | # | Question | How it will be answered |
 | --- | --- | --- |
-| A | Which of `$D40000`, `$D80000` and `$DA0000` is the frame buffer, and its geometry | **None of them — settled by counting, findings 15a and 15b.** All three are ports, and 16,618 writes across a whole boot is four orders short of a 1024x800 8-plane frame. The pixels go somewhere not yet decoded, and **this is now the item's blocking question**: the screenshot is black precisely because that path is missing. `[S3K]` Table 2-6's graphics memory ranges are the documented candidates, and finding 4a's parameter table already carries `00000400` = 1024 for the geometry |
+| A | Which of `$D40000`, `$D80000` and `$DA0000` is the frame buffer, and its geometry | **None of them, and the frame is at `$900000` -- findings 20-20b.** All three are ports. The board's own `ENTRY_03` clears a 256 KB raster at `$900000`, 1280x1024 at 1bpp on a 256-byte stride, and `019411-A00` Table 2-5 puts that address in AT bus memory space. **Still open (20c): nothing has been seen to execute `ENTRY_03`**, so the screenshot is black for a new reason -- a decoded frame with nothing drawn into it |
 | B | ~~What the microcode is, and its extent~~ | **ANSWERED by 4b: 4,716 bytes at `+B22`, downloaded word by word to the fixed port `$DA0000`**, ending exactly on the header's `length`. What it *does* is a question about an unknown target processor and is **not** on this project's path: nothing needs to execute it, only to accept it. What matters for the model is that `$DA0000` swallows 2358 words without complaint |
 | C | Whether these addresses decode identically on a real DN4500 | Finding 3's measurement used the **DN3500** PROM and map, because `identity-boot.sh` does. The addresses are facts about the board; the model's map is a separate question and `[ROM4500]` plus the model table are where it comes from |
 | D | Bit meanings of `$DA0006` bits 3, 4 and 5 | The firmware's own polls (finding 6) constrain their *polarity* at each site; the ring's method — satisfy one poll, re-run, read the next failure — applies unchanged, and needs the controller modelled far enough to answer |
@@ -142,14 +142,14 @@ DN4500 and the DN3550, `mono 1280x1024`.
 So the *geometry* is no longer a hypothesis with arithmetic behind it (17b): it
 is the firmware's own loop bounds, and four independent things agree on it.
 
-### 20a: what this does **not** yet establish, and the discriminator
+### 20a: what this does **not** establish, and what settled the rest
 
-**The `0C0000` frame address is not overturned by this, and is not yet
-confirmed against it.** Findings 16-17b put the frame at `0C0000` on a
-measurement -- 50,744 writes into the undecoded AT window, the first at
-`000C63AF` -- plus `019411-A00` Table 2-5 naming that range "ALTERNATE MONO
-GRAPHICS MEMORY SPACE". Both remain true. What has changed is that the ROM's
-own use of `$0C63AF` is now readable and is **not the shape of a raster base**:
+**The `0C0000` frame address is superseded, not contradicted.** Findings 16-17b
+put the frame there on a measurement -- 50,744 writes into the undecoded AT
+window, the first at `000C63AF` -- plus `019411-A00` Table 2-5 naming that range
+"ALTERNATE MONO GRAPHICS MEMORY SPACE". Both remain true. What changed is that
+the ROM's use of `$0C63AF` is now readable and is **not the shape of a raster
+base**:
 
 ```
 0002CE  move.w  -(a0), -(a7)     ; push words onto the stack
@@ -161,17 +161,44 @@ own use of `$0C63AF` is now readable and is **not the shape of a raster base**:
 
 They are arguments to a routine the ROM assembles on the stack and calls, they
 are **odd** addresses, and they are three bytes apart -- none of which a frame
-buffer base is. That weakens `0C0000` as *the frame* without touching its
-identity as a graphics memory space, and it explains the write count: those are
-one routine's byte-wise walk, not a raster fill.
+base is. So those writes are one routine's byte-wise walk, not a raster fill.
 
-**The discriminator is cheap and is the item's next step**, and it is a
-measurement rather than an argument: decode `$900000` for 256 KB, run the option
-ROM, and see whether `ENTRY_03` clears exactly 1024 x 160 bytes on a 256-byte
-stride there. If it does, the geometry is confirmed by the machine and the
-screenshot has a source; if the writes land elsewhere, this finding is wrong in
-the way the seven retracted ones were and should be retracted with them.
-**`AP_MATROX_FRAME_ADDR` is deliberately left at `0C0000` until that runs.**
+### 20b: the map settles the address, read as a page image
+
+`019411-A00` Table 2-5 is the one 32-bit Apollo allocation on disk, and it puts
+**`$900000` inside `100000`-`FFFFFF`, "AT COMPATIBLE BUS MEMORY SPACE"** --
+which is exactly where an AT card's memory aperture belongs, and the Matrox is
+a card rather than motherboard graphics. The same table gives the motherboard's
+own "MONO GRAPHICS MEMORY SPACE" at `FA0000`-`FDFFFF`, 256 KB, and
+`0C0000`-`0DFFFF` as *alternate* mono graphics at 128 KB with its upper half
+(`D0000`-`DFFFF`) the single-board ring controller.
+
+So three things agree on `$900000`: the ROM writes a 256 KB raster there, the
+map says that range is AT bus memory where a card's aperture lives, and the
+geometry it clears is the DN4500's own panel. `AP_MATROX_FRAME_ADDR` is
+**`0x900000`, 256 KB, 1280x1024 with a 256-byte stride**, and the scanout now
+walks the stride rather than a packed bitmap -- ignoring it would shear the
+picture progressively down the screen.
+
+### 20c: what is still **not** confirmed, and it is the execution
+
+**`ENTRY_03` has not been observed running.** A boot with the board and its ROM
+fitted gives 114,503 reads and 4,746 writes across the Matrox ports and
+**0 frame writes**: the boot PROM's option-ROM scan calls the *init* entry, not
+entry 3, so the clear loop never executes and the screenshot is still black.
+That is a different reason from before -- previously there was no decoded frame
+at all; now there is one and nothing has drawn into it.
+
+So the address rests on the firmware's own instruction stream and the allocation
+table, and **not** on observed writes. What would close it is calling `ENTRY_03`
+directly, the way `--ring-selftest` calls the ring ROM's `entry_05` by id out of
+the image's own entry table: the mechanism exists and is not yet generalised to
+an arbitrary entry. If that clears exactly 1024 x 160 bytes on a 256-byte stride
+at `$900000`, the frame is confirmed by the machine; if it writes elsewhere,
+this finding joins the seven retracted ones.
+
+*Verification of what did change: `ctest` 137/137, the boot is unbroken, and
+`--matrox-screenshot` writes a valid 1280x1024 PNG at the new geometry.*
 
 ## The DN3500 controllers' audit, 2026-08-16
 

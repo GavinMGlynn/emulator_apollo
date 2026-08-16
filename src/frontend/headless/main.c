@@ -1578,15 +1578,25 @@ static int write_matrox_screenshot(const char *path,
     fprintf(stderr, "apollo: cannot allocate the screenshot\n");
     return 1;
   }
-  for (uint32_t i = 0; i < pixels; i++) {
-    const uint32_t byte = i >> 3;
-    if (byte >= matrox->frame_bytes) {
-      break;
+  /* **The line is wider in memory than on the screen**, so the scan is per row
+   * rather than over a packed bitmap: 1280 visible pixels inside a 256-byte
+   * (2048-pixel) line, which is the stride the board's own clear loop walks and
+   * the same relationship the DN3500's 19-inch controller has. Scanning this as
+   * one contiguous run shears the image progressively down the screen -- which
+   * looks like a timing fault and is arithmetic. */
+  for (uint32_t y = 0; y < AP_MATROX_FRAME_HEIGHT; y++) {
+    const uint32_t row = y * AP_MATROX_FRAME_STRIDE_BYTES;
+    for (uint32_t x = 0; x < AP_MATROX_FRAME_WIDTH; x++) {
+      const uint32_t byte = row + (x >> 3);
+      if (byte >= matrox->frame_bytes) {
+        break;
+      }
+      /* Most significant bit leftmost, which is how every Apollo frame this
+       * project has scanned out is ordered. */
+      const unsigned bit = 7u - (x & 7u);
+      image[y * AP_MATROX_FRAME_WIDTH + x] =
+          (uint8_t)((matrox->frame[byte] >> bit) & 1u);
     }
-    /* Most significant bit leftmost, which is how every Apollo frame this
-     * project has scanned out is ordered. */
-    const unsigned bit = 7u - (i & 7u);
-    image[i] = (uint8_t)((matrox->frame[byte] >> bit) & 1u);
   }
   const uint8_t palette[2][3] = {{255u, 255u, 255u}, {0u, 0u, 0u}};
   const ap_png_status_t st = ap_png_write_indexed(
