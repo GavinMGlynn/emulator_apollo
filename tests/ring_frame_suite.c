@@ -52,6 +52,19 @@ static void test_the_type_bits_are_figure_2_6s_and_bit_zero_is_not_one(void) {
   TEST_ASSERT_EQUAL_HEX16(0x04u, AP_RING_TYPE_USER);
   TEST_ASSERT_EQUAL_HEX16(0x02u, AP_RING_TYPE_SW_DIAGNOSTICS);
 
+  /* **Corroborated by a second document**, `RING.md` 99: `002398-04` p. 12-33
+   * carries a "Hardware Packet Types" table -- `80 broadcast`, `40 hw_diag`,
+   * `20 thank you`, `10 please`, `8 paging`, `4 user`, `2 sw_diag`, `1 -` --
+   * which is `[MAC]` Figure 2-6 bit for bit, from the Engineering Handbook
+   * rather than the MAC specification, including the unnamed bit 0. Two
+   * independent typesettings of the same field, eight of eight.
+   *
+   * It also settles finding 49's `d6 = $4040`, which that finding called
+   * "inference, not established": the **low byte is `$40`, `hw_diag`** --
+   * exactly the type a board's own self-test packet should carry. The high
+   * byte's `$40` is in the range both documents call reserved and stays
+   * unexplained. */
+
   /* Every named bit is outside the reserved mask, and together they are
    * exactly its complement -- so no type bit was dropped and none invented. */
   const uint16_t named =
