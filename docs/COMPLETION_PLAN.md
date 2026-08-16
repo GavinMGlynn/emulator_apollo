@@ -4434,6 +4434,27 @@ Only after the reference core is proven, and only under an identity harness.
       half and devices half of the tick split so a span-breaking I/O write still
       runs its devices half canonically. *Verification: entire probe suite and
       long boot hashes byte-identical to the reference core.*
+      **Awaiting:** the CPU half, and the two device-side increments above are
+      done — **45.3 s → 30.3 s, 1.49x**, every step verified by an unchanged
+      `A354786119A3931D` and boot reports identical line for line.
+      **A re-profile has moved the target.** With the device work reduced, the
+      instruction pipeline is now the largest share — `ap_m68030_step` 10.5%,
+      `fill_to_decoded` 9.8%, `ap_m68030_decode` 4.4% — against
+      `ap_board_write` 8.4%, `ap_board_sample_interrupts` 8.0%,
+      `ap_sio_advance` 6.8% and `ap_board_read` 5.1%.
+      **Two things are measured and should not be re-attempted blindly.** The
+      sampler's residual 8.0% is the *firmware's* device polling, not the
+      invalidation rule: narrowing that rule to device-only accesses changed
+      30.398 s to 30.324 s, inside the noise, because a serial status read
+      genuinely could have moved a line. And `ap_sio_advance` holds nothing
+      structurally wasteful — its loopback tail is a field read and a `set_input`
+      that already no-ops on an unchanged level, so its cost is per-call
+      overhead at twenty million calls.
+      **So what is left is the item's own title.** `skip(n)`: running the CPU
+      across a span without ticking devices, which needs a bound on *observable
+      state* rather than on an interrupt line — a stronger claim, because the
+      serial part's output-port square waves are readable at any instant and a
+      skipped advance leaves its clock stale. Detail in `PROJECT_STATUS.md`.
   - [x] **The bus tick is batched when `n` ticks are provably one** -- no DMA
     able to ask and an idle arbiter, both guards being the ones the per-tick
     path itself tests. *Verification: 39.9 s → **30.4 s**, 1.311x, state hash
@@ -4445,25 +4466,6 @@ Only after the reference core is proven, and only under an identity harness.
     *Verification: 45.3 s → **39.9 s**, 1.136x, state hash `A354786119A3931D`
     unchanged; `board_suite` 47 → 50, `ctest` 137/137. Detail, and why the
     serial part nearly made it worthless, in `PROJECT_STATUS.md`.*
-      **Awaiting:** the CPU half — and a profile has redirected it. The cost is not
-      instruction stepping: `perf` over a bounded boot puts ~27% in
-      per-instruction device work, the largest single item being
-      `ap_board_sample_interrupts` at 8.6% run unconditionally every
-      instruction, against a smaller share for the whole instruction pipeline.
-      So the next increment is the shape of the two already done — avoid polling
-      that provably cannot see a change — and it needs `next_event()` applied to
-      *interrupt sources*, because a line changes on device advancement and not
-      only on writes. Detail in `PROJECT_STATUS.md`.
-  - [x] **The 8259's priority resolver returns early when nothing is asking** —
-    one line, provably equivalent, no new state to invalidate.
-    *Verification: 281 s → 273 s and 275 s, state hash `67A14B3BB6041410`,
-    exception census identical; `ctest` 129/129. Detail in
-    `PROJECT_STATUS.md`.*
-  - [x] **Devices half done**: the bus tick's DMA poll is skipped when nothing
-    can ask, via a flag armed at an auditable set of sites.
-    *Verification: 296 s → 284 s and 281 s (**1.04x**), state hash
-    `67A14B3BB6041410`, DMA counters bit-identical; `ctest` 129/129. Groundwork,
-    result and the invalidation rule in `PROJECT_STATUS.md`.*
 - [ ] Extend exact-skip across nodes: run node cores in parallel only within
       provably inert windows between ring events. *Verification: whole-ring
       state hash identical to the single-threaded reference.*
