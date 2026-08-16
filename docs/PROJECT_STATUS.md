@@ -20429,6 +20429,45 @@ reports `disk sidecar ... 464 bytes` beside the disk line. The defect-injection
 behaviour itself is `omti_suite`'s, and was already covered there; what was
 untested and is now wired is the frontend's half.*
 
+## The DN2500's documentary route is closed, and the scope is worth stating
+
+**The web was searched properly, not assumed.** No register-level document for
+a Series 2500 exists online: the results are the same bitsavers Series 3000/4000
+and Engineering Handbook PDFs already on disk, the configuration guides, and
+gallery pages. `CLAUDE.md`'s order is reference -> web -> oracle and all three
+are now genuinely exhausted for this machine -- there is no oracle either, MAME
+registering no 2500.
+
+**One fact came back worth having**: the Series 2500 "uses a single PC/AT-bus
+slot to accommodate a single network driver card, and does not offer any
+expansion bus slots". That corroborates the census from a second direction --
+a machine with one slot, for the network, cannot be carrying the Series 4000's
+Winchester, floppy and tape cards, which is why none of their addresses appear
+in its firmware and why its storage is the on-board SCSI `C90` and its display
+the on-board `VTGA`.
+
+**The driver at `$E9F8`**, which four sites call with `$20210` as a pointer,
+programs a register through a two-write sequence: `(d3 >> 8) & $FF` to the
+register, then `(d3 & $3F) | $10` to the *same* register, then `#$1` to a second
+pointer. So the unit takes a wide value as a high part and a low part with a
+flag bit forced, and is then strobed. That is a characterisation, not an
+identification, and it is recorded as such.
+
+### The scope, stated rather than discovered later
+
+What remains is **reverse-engineering an undocumented core register block on a
+machine that is not the reference superset**. `CLAUDE.md` says the DN3500 is the
+superset and every other model is expressed as a subset of it; the Series 2500's
+block is not a subset of anything modelled -- thirty-two four-byte registers
+where the Series 4000 has one aliased across 256 bytes.
+
+So this is a genuine project of its own, not a tail. What has been bought so
+far is worth having and is where it should rest for now: the machine loads its
+own 128 K PROM, runs from the firmware's own reset vectors, has a map holding
+only measured placements, and stops at a **named and characterised** gap rather
+than anywhere vague. Anyone picking it up starts from a census and a structure
+rather than from an address that does not decode.
+
 ## What the DN2500's core block looks like, without saying what it is
 
 The bus error at `000202D0` named the next item, and the firmware characterises
