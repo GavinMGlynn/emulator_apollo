@@ -236,6 +236,43 @@ static void test_the_two_windows_are_separate_register_sets(void) {
                    0xFF00u);
 }
 
+/* The boundary between what carries across board generations and what does not.
+ *
+ * `002398-04` documents the **DN3000** ring board, and this core models the
+ * DN3500's AT board. Their *status* registers agree across three independent
+ * sources -- pp. 12-30/12-31, the AT firmware's own constants, and
+ * `ring8a.drvr`'s tables (`RING.md` 93, 97) -- so carrying those across is
+ * evidence rather than convenience. Their *command* encodings do not agree, and
+ * finding 55b refused the tempting match once already.
+ *
+ * This asserts the arithmetic that refuses it, because the refusal is the kind
+ * of negative result a later reader will otherwise re-derive: the AT firmware's
+ * command bytes decode to nothing under the DN3000's XMIT_CMD, and the one
+ * value that *does* decode is recorded so it is not mistaken for a mapping. */
+static void test_the_at_boards_command_bytes_are_not_the_dn3000s_bits(void) {
+  /* `move.b #$1,$402`, `#$2`, `#$6` -- the high lane on a big-endian part. */
+  const uint16_t xmit_cmds[] = {0x0100u, 0x0200u, 0x0600u};
+  const uint16_t xmit_defined = AP_RING_CTL_XMIT_CMD_FEN |
+                                AP_RING_CTL_XMIT_CMD_TEN |
+                                AP_RING_CTL_XMIT_CMD_INE;
+  for (unsigned i = 0; i < sizeof xmit_cmds / sizeof xmit_cmds[0]; i++) {
+    TEST_ASSERT_EQUAL_HEX16(0u, xmit_cmds[i] & xmit_defined);
+  }
+  /* `transmit enable` would need `$40` in that lane, which no firmware here
+   * writes -- the concrete form of "the encodings do not correspond". */
+  TEST_ASSERT_EQUAL_HEX16(0x4000u, AP_RING_CTL_XMIT_CMD_TEN);
+
+  /* The one that does line up: `move.b #$8,$404` is RCV_CMD's receive enable.
+   * Recorded, not built on -- one match among four is not a mapping. */
+  TEST_ASSERT_EQUAL_HEX16(AP_RING_CTL_RCV_CMD_RCV, 0x0800u);
+
+  /* p. 12-32's MISC_CMD, read at 400 dpi after a 200 dpi render put every bit
+   * one place low (`RING.md` 97/98 commit). `lpb` is the loopback finding 79
+   * needs and 93d cites, so its position is load-bearing. */
+  TEST_ASSERT_EQUAL_HEX16(0x1000u, AP_RING_CTL_MISC_CMD_BPM);
+  TEST_ASSERT_EQUAL_HEX16(0x0100u, AP_RING_CTL_MISC_CMD_LPB);
+}
+
 /* The first window's eight write-only registers, walked against the page that
  * tabulates them -- `002398-04` p. 12-29 -- rather than against a failure.
  *
@@ -632,6 +669,7 @@ int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_idle_words_are_the_manuals_bits_and_not_magic);
   RUN_TEST(test_the_first_windows_write_only_registers_clear_what_they_name);
+  RUN_TEST(test_the_at_boards_command_bytes_are_not_the_dn3000s_bits);
   RUN_TEST(test_the_data_port_round_trips_the_firmwares_own_pattern);
   RUN_TEST(test_a_unit_is_both_of_its_at_windows);
   RUN_TEST(test_the_id_register_answers_one_of_the_two_values_init_accepts);

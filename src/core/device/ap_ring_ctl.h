@@ -272,6 +272,39 @@
  * because there is no datasheet. */
 #define AP_RING_CTL_BUFFER_WORDS 0x8000u
 
+/* ## The three command registers, `002398-04` p. 12-32 -- **DN3000 layout,
+ * deliberately not applied to this board**
+ *
+ * The write halves of `59400`/`59402`/`59404`. Recorded because a transmit path
+ * will need them, and named here rather than in a comment so the boundary below
+ * is stated once instead of rediscovered.
+ *
+ * **The status registers carried across generations and these do not.** MISC,
+ * XMIT and RCV *status* agree across three sources -- p. 12-30/12-31, the AT
+ * firmware's constants, and `ring8a.drvr`'s own tables (`RING.md` 93, 97). The
+ * *command* encoding fails the arithmetic, which finding 55b refused once
+ * already: the AT firmware writes bytes `$1`, `$2` and `$6` to `+402`, which on
+ * a big-endian part land in the high lane as `$0100`, `$0200`, `$0600` -- bits
+ * 8, 9 and 10. XMIT_CMD's only defined bits are 15, 14 and 13, so `transmit
+ * enable` would need `$40`. Nothing here decodes a command; `ap_ring_ctl.c`
+ * still treats the AT board's command lane as the opaque byte its firmware
+ * writes, which is what the evidence supports.
+ *
+ * One correspondence *does* hold and is recorded without being built on:
+ * `move.b #$8,$404` gives `$0800`, and RCV_CMD's single defined bit is 11 --
+ * `receive enable`. One match among four is not a mapping. */
+#define AP_RING_CTL_MISC_CMD_BPM 0x1000u /* bad packet marking enable */
+#define AP_RING_CTL_MISC_CMD_NCT 0x0800u /* network connect */
+#define AP_RING_CTL_MISC_CMD_TD1 0x0400u /* txdiag1 -- diagnostics only */
+#define AP_RING_CTL_MISC_CMD_TD2 0x0200u /* txdiag2 -- diagnostics only */
+#define AP_RING_CTL_MISC_CMD_LPB 0x0100u /* digital loopback enable */
+
+#define AP_RING_CTL_XMIT_CMD_FEN 0x8000u /* force transmit, modifies `ten` */
+#define AP_RING_CTL_XMIT_CMD_TEN 0x4000u /* transmit enable; 0 aborts */
+#define AP_RING_CTL_XMIT_CMD_INE 0x2000u /* initialize enable */
+
+#define AP_RING_CTL_RCV_CMD_RCV 0x0800u /* receive enable; 0 aborts */
+
 /* ## The **first** window's write side, from `002398-04` p. 12-29
  *
  * The page tabulates every ring register by bus address, physical address,
