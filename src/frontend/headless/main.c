@@ -3047,7 +3047,14 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * machine rather than a machine. */
   if (g_configure) {
     uint8_t battery[AP_CALENDAR_BATTERY_BYTES];
-    uint32_t devices = 0u;
+    /* **The diagnostic names what it expects, so the bits are set from what
+     * the machine actually has.** With only the ring bit set it reported
+     * "Winchester/Floppy exists but doesn't appear in the configuration
+     * table" and the same for the FPU -- so the disk controller and the 68882
+     * are always present on this board and always belong in the table. */
+    uint32_t devices = (1u << AP_CONFIG_DEV_FLOPPY) |
+                       (1u << AP_CONFIG_DEV_WINCHESTER) |
+                       (1u << AP_CONFIG_DEV_FPU);
     if (g_fit_ring) {
       devices |= 1u << AP_CONFIG_DEV_RING;
     }

@@ -114,10 +114,19 @@ void ap_calendar_build_config(uint8_t *battery, unsigned count,
   battery[CONFIG_AT(0x22u) + 1u] = (uint8_t)(devices >> 16);
   battery[CONFIG_AT(0x22u) + 2u] = (uint8_t)(devices >> 8);
   battery[CONFIG_AT(0x22u) + 3u] = (uint8_t)devices;
+  /* `2B`: the option-ROM class the boot PROM scans for, which the handbook
+   * calls UNUSED and this machine's firmware reads. `001794` requires it
+   * **non-zero** -- `tst.b $1D(a0)` / `beq` skips the whole table otherwise --
+   * and `$104E` then accepts a ROM whose `field_1a` equals it, with a ring
+   * ROM's being `0002` (see this header's decode of `001784`-`00179E`). A
+   * table that leaves it zero is one the PROM reads the pattern from and then
+   * abandons, which is what every run before this did. */
+  if ((devices & (1u << AP_CONFIG_DEV_RING)) != 0u) {
+    battery[CONFIG_AT(AP_CALENDAR_CONFIG_PROM_SELECT)] = 0x02u;
+  }
   /* `26`-`28` are RING TYPE, DISP TYPE and DISK TYPE, left zero: the handbook
    * names the fields and not their encodings, and a made-up type is worse
-   * than a zero one -- the boot PROM's own use of `2B` (finding 83) shows it
-   * reads these bytes and acts on them. */
+   * than a zero one. */
   ap_calendar_seal_config(battery, AP_CALENDAR_BATTERY_BYTES);
 }
 
