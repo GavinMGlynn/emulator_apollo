@@ -515,6 +515,38 @@ void ap_board_attach_ring(ap_board_t *board, bool fitted) {
   ap_ring_ctl_set_node_id(&board->ring, board->node_id.id);
 }
 
+/* One participant step: this node's bit time. The scheduler advances the
+ * medium on its own clock, so a node drives, is driven, and hands whatever it
+ * accepted to the controller -- and never touches the cable. */
+static void board_ring_step(void *context, ap_time_t now) {
+  (void)now;
+  ap_board_t *board = (ap_board_t *)context;
+  if (board->ring.medium == NULL) {
+    return;
+  }
+  ap_ring_station_drive(&board->ring_station, board->ring.medium);
+  ap_ring_station_receive(&board->ring_station, board->ring.medium);
+  ap_ring_ctl_poll_ring(&board->ring);
+}
+
+int ap_board_join_ring_sched(ap_board_t *board, ap_ring_sched_t *sched) {
+  if (board == NULL || sched == NULL) {
+    return -1;
+  }
+  /* At the ring's own bit rate: a node's *station* is clocked by the cable,
+   * not by its CPU. The processor's period belongs to a different participant
+   * when a whole machine is scheduled; this is the ring card. */
+  const int slot =
+      ap_ring_sched_add(sched, AP_RING_DATA_HZ, board_ring_step, board);
+  if (slot < 0) {
+    return -1;
+  }
+  ap_ring_station_init(&board->ring_station, slot);
+  ap_ring_ctl_attach_ring(&board->ring, &board->ring_station, &sched->medium);
+  board->ring_scheduled = true;
+  return slot;
+}
+
 void ap_board_join_ring(ap_board_t *board, ap_ring_medium_t *medium) {
   if (board == NULL) {
     return;
@@ -535,6 +567,7 @@ void ap_board_join_ring(ap_board_t *board, ap_ring_medium_t *medium) {
    * reset is also the controller's initialiser and clears the attachment
    * (`RING.md` 104d). */
   ap_ring_ctl_attach_ring(&board->ring, &board->ring_station, medium);
+  board->ring_scheduled = false;
 }
 
 void ap_board_attach_matrox(ap_board_t *board, bool fitted) {
@@ -881,7 +914,8 @@ void ap_board_advance(ap_board_t *board, ap_time_t now) {
      * -- N participants, each with its own period, ties broken by slot. Wiring
      * a real machine into it is `RING.md` 110a, and this guard is what keeps
      * the single-process case honest until then. */
-    while (board->ring_bit_clock + AP_RING_BIT_CELL_TICKS <= now) {
+    while (!board->ring_scheduled &&
+           board->ring_bit_clock + AP_RING_BIT_CELL_TICKS <= now) {
       board->ring_bit_clock += AP_RING_BIT_CELL_TICKS;
       ap_ring_station_drive(&board->ring_station, board->ring.medium);
       if (ap_ring_medium_first_slot(board->ring.medium) ==

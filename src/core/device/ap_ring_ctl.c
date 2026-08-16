@@ -61,22 +61,21 @@ bool ap_ring_ctl_irq(const ap_ring_ctl_t *ctl) {
   if (ctl == NULL || !ctl->present) {
     return false;
   }
-  /* **`xi` and `ri`, and only those two.** p. 12-30's polarity notation is per
+  /* **`xi`, `ri` and `tmi`, but not `gps`.** p. 12-30's polarity notation is per
    * bit and is not uniform: `xi` and `ri` are "intr pending **<=0**" -- active
    * low, which is finding 93b's reading of the `$6` command -- but `gps` is
    * "sticky good pkt **<=1**", active *high* and not an interrupt at all. A
    * first version took all four as active low and every fitted card asserted
    * its line at reset, because the idle word `F806` has `gps` and `tmi` clear.
    *
-   * `tmi` is excluded for a different reason, and it is a real gap rather than
-   * a simplification: the page marks it `<=0` like `xi` and `ri`, yet finding
-   * 60's idle word leaves bit 0 **clear** -- which under that reading is a
-   * just-reset board reporting a pending gate-array timeout. The firmware's
-   * subtest 01 masks with `$F806` and so never constrains bit 0, so nothing
-   * settles it. Driving the line from a bit no source constrains would make
-   * every ring machine interrupt at power-on; `RING.md` 110b. */
+   * `tmi` was excluded while its idle state was unknown -- the firmware's
+   * subtest 01 masks with `$F806` and never constrains bit 0 -- and is included
+   * now that `RING_PROC` has settled it: `7A4D0944` branches past its error
+   * call when the bit is **set**, so a healthy board reads 1 and clear is the
+   * pending timeout (`RING.md` 111). The idle word carries it accordingly. */
   const uint16_t pending =
-      (uint16_t)(AP_RING_CTL_STATUS_RI | AP_RING_CTL_STATUS_XI);
+      (uint16_t)(AP_RING_CTL_STATUS_RI | AP_RING_CTL_STATUS_XI |
+                 AP_RING_CTL_STATUS_TMI);
   return (ctl->a2.status & pending) != pending;
 }
 

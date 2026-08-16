@@ -175,10 +175,21 @@
 #define AP_RING_CTL_STATUS_RI 0x0002u      /* RCV interrupt pending */
 #define AP_RING_CTL_STATUS_TMI 0x0001u     /* gate-array timeout interrupt */
 
-/* What `+400` reads on an idle, just-reset board, asserted by the firmware's
- * own subtest 01 -- `(+400) & $F806 == $F806`. Bits 15, 14, 13, 12, 11, 2 and
- * 1. See `ap_ring_ctl.c`'s reset for why the ROM is the authority here. */
-#define AP_RING_CTL_STATUS_IDLE 0xF806u
+/* What `+400` reads on an idle, just-reset board.
+ *
+ * The firmware's subtest 01 asserts `(+400) & $F806 == $F806` -- bits 15, 14,
+ * 13, 12, 11, 2 and 1 -- and says nothing about the rest, because its mask
+ * does not reach them.
+ *
+ * **Bit 0 `tmi` is set here on the kernel driver's evidence, not the ROM's**
+ * (`RING.md` 111). `RING_PROC` at `7A4D0944` reads MISC_STAT, shifts bit 0 into
+ * carry and branches *past* its error call when the bit is **set** -- so a
+ * healthy board reads 1 and a clear bit is the pending gate-array timeout its
+ * `<=0` notation describes. The self-test is byte-identical either way, which
+ * is what makes this a reading of a bit the firmware never constrains rather
+ * than a change to one it does. `gps` at bit 3 stays clear: p. 12-30 marks it
+ * `<=1`, active high, so an idle board has seen no good packet yet. */
+#define AP_RING_CTL_STATUS_IDLE 0xF807u
 
 /* ## `+402` is **XMIT_STAT**, one register with two layouts -- `RING.md` 93c,
  * 97

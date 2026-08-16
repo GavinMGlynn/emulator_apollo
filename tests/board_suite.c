@@ -1691,6 +1691,73 @@ static void test_a_frame_crosses_the_ring_under_board_time(void) {
   TEST_ASSERT_FALSE(ap_ring_ctl_irq(&a.ring));
 }
 
+
+/* **Two boards on a *scheduled* ring, which is the mixed-model case.**
+ *
+ * `ap_board_join_ring` steps the cable from one board's own clock, which is
+ * only right when every node shares it. `ap_ring_sched` is the module built for
+ * the other case -- N participants each with its own period against
+ * `AP_TIME_BASE_HZ`, ties broken by slot -- and until now nothing but its own
+ * suite used it. This runs a real exchange through it.
+ *
+ * The determinism assertion is the one that matters: the scheduler's hash
+ * covers each participant's *phase*, so two runs that reached the same instant
+ * by different interleavings agree on the clock and disagree here. */
+static void test_two_boards_exchange_a_frame_on_a_scheduled_ring(void) {
+  static ap_ring_sched_t sched;
+  static ap_board_t a;
+  static ap_board_t b;
+  static uint8_t txbuf[2048];
+  uint64_t hashes[2] = {0u, 0u};
+
+  for (unsigned pass = 0; pass < 2u; pass++) {
+    ap_ring_sched_init(&sched);
+    init(&a);
+    init(&b);
+    ap_board_attach_ring(&a, true);
+    ap_board_attach_ring(&b, true);
+    ap_ring_ctl_set_node_id(&a.ring, 0x00011111u);
+    ap_ring_ctl_set_node_id(&b.ring, 0x00022222u);
+    TEST_ASSERT_EQUAL_INT(0, ap_board_join_ring_sched(&a, &sched));
+    TEST_ASSERT_EQUAL_INT(1, ap_board_join_ring_sched(&b, &sched));
+    ap_ring_station_attach_tx(&a.ring_station, txbuf, sizeof txbuf);
+
+    uint8_t header[AP_RING_CTL_XMIT_HEADER_BYTES] = {0};
+    ap_ring_header_set_destination(header, 0x00022222u);
+    ap_ring_header_set_type(header, AP_RING_TYPE_USER);
+    ap_ring_header_set_source(header, 0x00011111u);
+    for (unsigned i = 0; i < AP_RING_CTL_XMIT_HEADER_WORDS; i++) {
+      a.ring.buffer[0x40u + i] =
+          (uint16_t)((header[i * 2u] << 8) | header[i * 2u + 1u]);
+    }
+    ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_BANK_STATUS,
+                        AP_RING_CTL_MISC_CMD_NCT);
+    ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_BANK_STATUS,
+                        AP_RING_CTL_MISC_CMD_NCT);
+    ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_W2_RCV_ADDR, 0x1000u);
+    ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_BANK_STATUS + 4u,
+                        AP_RING_CTL_RCV_CMD_RCV);
+    ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_W2_XMIT_ADDR, 0x4000u);
+    ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_BANK_STATUS + 2u, 0x0200u);
+    ap_ring_station_originate_token(&b.ring_station, AP_RING_OOB_FREE_TOKEN);
+
+    ap_ring_sched_run_until(&sched, (ap_time_t)4000u * AP_RING_BIT_CELL_TICKS);
+    hashes[pass] = ap_ring_sched_hash(&sched);
+  }
+
+  TEST_ASSERT_TRUE(b.ring_station.frames_copied > 0u);
+  TEST_ASSERT_EQUAL_HEX16(0x0002u, b.ring.buffer[0x10u]);
+  TEST_ASSERT_EQUAL_HEX16(0x2222u, b.ring.buffer[0x11u]);
+  TEST_ASSERT_TRUE(ap_ring_ctl_irq(&b.ring));
+  TEST_ASSERT_FALSE(ap_ring_ctl_irq(&a.ring));
+  /* Neither board stepped the cable itself: the scheduler owns the bit clock,
+   * so a scheduled board's own accumulator must never have moved. */
+  TEST_ASSERT_EQUAL_UINT64(0u, a.ring_bit_clock);
+  TEST_ASSERT_EQUAL_UINT64(0u, b.ring_bit_clock);
+  /* Reproducible across runs, phase included. */
+  TEST_ASSERT_EQUAL_HEX64(hashes[0], hashes[1]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_ethernet_card_is_absent_until_it_is_fitted);
@@ -1746,5 +1813,6 @@ int main(void) {
   RUN_TEST(test_the_board_bound_is_no_later_than_any_source);
   RUN_TEST(test_two_boards_on_one_ring_segment_exchange_a_frame);
   RUN_TEST(test_a_frame_crosses_the_ring_under_board_time);
+  RUN_TEST(test_two_boards_exchange_a_frame_on_a_scheduled_ring);
   return UNITY_END();
 }

@@ -44,6 +44,7 @@
 #include "board/ap_dmapage.h"
 #include "device/ap_matrox.h"
 #include "board/ap_intr.h"
+#include "ring/ap_ring_sched.h"
 #include "board/ap_nodeid.h"
 #include "board/ap_sio.h"
 #include "board/ap_graphics.h"
@@ -265,6 +266,11 @@ typedef struct ap_board {
    * runs at `[MAC]` §3.2's 12 Mbit/s, which is neither the CPU's cycle nor any
    * other device's -- `CLAUDE.md`'s reason for counting in `AP_TIME_BASE_HZ`. */
   ap_time_t ring_bit_clock;
+  /* Set when a **scheduler** owns the segment. `ap_board_advance` then leaves
+   * the bit clock alone: `ap_ring_sched` advances the medium on its own clock
+   * and calls each participant on its own, which is the whole reason that
+   * module exists. Two nodes of different models do not share a cycle. */
+  bool ring_scheduled;
 
   ap_time_t interrupt_valid_until;
 
@@ -651,6 +657,21 @@ void ap_board_attach_ring(ap_board_t *board, bool fitted);
  * behaves exactly as it did before the wire existed, which is what keeps every
  * existing boot and the reference hash unchanged. */
 void ap_board_join_ring(ap_board_t *board, ap_ring_medium_t *medium);
+
+/* Join this board to a **scheduled** ring, which is what lets nodes of
+ * different models share one segment.
+ *
+ * `ap_board_join_ring` is the single-process, single-clock form: the board
+ * steps the cable from its own time. That cannot be right for a mixed ring --
+ * a DN3000 at 12 MHz and a DN5500 at 25 MHz have no common cycle, which is
+ * `CLAUDE.md`'s reason for counting in `AP_TIME_BASE_HZ` at all. `ap_ring_sched`
+ * schedules the medium's bit clock and every participant against that base,
+ * breaking ties by slot so the interleaving is reproducible; this registers the
+ * board as one of those participants and stops it stepping the cable itself.
+ *
+ * Returns the ring slot, or -1 if the segment is full. */
+[[nodiscard]] int ap_board_join_ring_sched(ap_board_t *board,
+                                           ap_ring_sched_t *sched);
 
 /* Fit or remove the DN4500's Matrox graphics board. Opt-in: an unfitted slot
  * reads `FF` from the AT window, which is what a machine without the card

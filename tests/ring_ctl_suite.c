@@ -690,13 +690,20 @@ static void test_the_idle_words_are_the_manuals_bits_and_not_magic(void) {
                                    AP_RING_CTL_RCV_RC2 | AP_RING_CTL_RCV_RC1 |
                                    AP_RING_CTL_RCV_RC0));
 
-  /* `+400`: subtest 01's seven bits, named. `gps`, `xi`, `ri` and `tmi` are
-   * outside the mask the firmware checks and stay clear here. */
+  /* `+400`: subtest 01's seven bits, plus `tmi`. The firmware's mask stops at
+   * `$F806` so it never constrains bit 0; `RING_PROC` does -- it branches past
+   * its error call when the bit is set, so a healthy board reads 1
+   * (`RING.md` 111). `gps` stays clear: p. 12-30 marks it `<=1`, active high,
+   * and an idle board has seen no good packet. */
   TEST_ASSERT_EQUAL_HEX16(AP_RING_CTL_STATUS_IDLE,
                           AP_RING_CTL_STATUS_PRESENT | AP_RING_CTL_STATUS_TMO |
                               AP_RING_CTL_STATUS_XBY | AP_RING_CTL_STATUS_RBY |
                               AP_RING_CTL_STATUS_IOV | AP_RING_CTL_STATUS_XI |
-                              AP_RING_CTL_STATUS_RI);
+                              AP_RING_CTL_STATUS_RI | AP_RING_CTL_STATUS_TMI);
+  TEST_ASSERT_EQUAL_HEX16(0u, AP_RING_CTL_STATUS_IDLE & AP_RING_CTL_STATUS_GPS);
+  /* And the firmware's own mask still passes, which is what makes this a
+   * reading of a bit it never checked rather than a change to one it did. */
+  TEST_ASSERT_EQUAL_HEX16(0xF806u, AP_RING_CTL_STATUS_IDLE & 0xF806u);
 
   /* `pke` and `de` are transposed between the two status registers. Asserting
    * it is the point: a header written from one table and applied to both would
