@@ -168,6 +168,61 @@ static void test_the_board_answers_only_when_the_card_is_fitted(void) {
                         ap_board_region(&board, AP_MATROX_CTL_ADDR + 6u));
 }
 
+/* **The frame's geometry, which is the board's own arithmetic and not ours.**
+ * `GRAPHICS.md` 20 reads all four numbers out of `ENTRY_03`'s clear loop --
+ * `#$27` longwords is 160 bytes a line, `#$60` skipped makes the stride,
+ * `#$3ff` is the line count -- and finding 21 finds the same stride a second
+ * time in the glyph routine, where `d2` reaches 256 by `addq.l #$2` on `$FE`.
+ *
+ * These relationships are asserted rather than the constants restated, so a
+ * change that moved one without the others fails here instead of shearing a
+ * picture months later. */
+static void test_the_frame_geometry_is_the_roms_own_arithmetic(void) {
+  /* 1280 visible pixels at one bit each is the 160 bytes the loop clears. */
+  TEST_ASSERT_EQUAL_UINT(160u, AP_MATROX_FRAME_WIDTH / 8u);
+  /* Plus the 96 the loop skips: `moveq #$60, d2`. */
+  TEST_ASSERT_EQUAL_UINT(AP_MATROX_FRAME_STRIDE_BYTES,
+                         (AP_MATROX_FRAME_WIDTH / 8u) + 0x60u);
+  /* And the whole region is one stride per line, which is `[S3K]` §10.2's
+   * "256-KB image memory" for a 1280x1024 monochrome controller. */
+  TEST_ASSERT_EQUAL_UINT(AP_MATROX_FRAME_BYTES,
+                         AP_MATROX_FRAME_STRIDE_BYTES * AP_MATROX_FRAME_HEIGHT);
+  TEST_ASSERT_EQUAL_UINT(0x40000u, AP_MATROX_FRAME_BYTES);
+  /* The base is inside `019411-A00` Table 2-5's `100000`-`FFFFFF`, "AT
+   * COMPATIBLE BUS MEMORY SPACE", which is where a card's aperture belongs. */
+  TEST_ASSERT_TRUE(AP_MATROX_FRAME_ADDR >= 0x100000u);
+  TEST_ASSERT_TRUE(AP_MATROX_FRAME_ADDR + AP_MATROX_FRAME_BYTES <= 0x1000000u);
+}
+
+/* A pixel's byte is `row * stride + column / 8`, which is what the glyph
+ * routine computes at `$450`-`$460`: the column through `and.w #$f` / `lsr.w
+ * #$4` / `lsl.w #$1`, and the row as `(d7 & $FFFF0000) >> 8`. Written through
+ * the device so the decode is exercised with it. */
+static void test_a_pixel_lands_where_the_stride_puts_it(void) {
+  ap_matrox_t matrox;
+  static uint8_t frame[AP_MATROX_FRAME_BYTES];
+  ap_matrox_reset(&matrox);
+  ap_matrox_attach_frame(&matrox, frame, sizeof frame);
+
+  /* Row 3, the first byte of the line. */
+  const uint32_t at = 3u * AP_MATROX_FRAME_STRIDE_BYTES;
+  uint32_t block = 0, offset = 0;
+  TEST_ASSERT_TRUE(ap_matrox_decode(AP_MATROX_FRAME_ADDR + at, &block, &offset));
+  TEST_ASSERT_EQUAL_HEX32(AP_MATROX_FRAME_ADDR, block);
+  TEST_ASSERT_EQUAL_UINT(at, offset);
+  ap_matrox_write8(&matrox, block, offset, 0x81u);
+  TEST_ASSERT_EQUAL_HEX8(0x81u, frame[at]);
+
+  /* The last visible byte of that line, and the first byte of the gap that
+   * follows it -- the 96 bytes no pixel can reach. */
+  TEST_ASSERT_EQUAL_UINT(160u, AP_MATROX_FRAME_WIDTH / 8u);
+  TEST_ASSERT_EQUAL_HEX8(0u, frame[at + 160u]);
+
+  /* One byte past the whole region does not decode. */
+  TEST_ASSERT_FALSE(ap_matrox_decode(
+      AP_MATROX_FRAME_ADDR + AP_MATROX_FRAME_BYTES, &block, &offset));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_three_blocks_decode_and_nothing_else_does);
@@ -176,5 +231,7 @@ int main(void) {
   RUN_TEST(test_the_data_port_latches_a_word_across_both_halves);
   RUN_TEST(test_the_transfer_block_takes_a_longword_and_reads_ready);
   RUN_TEST(test_the_board_answers_only_when_the_card_is_fitted);
+  RUN_TEST(test_the_frame_geometry_is_the_roms_own_arithmetic);
+  RUN_TEST(test_a_pixel_lands_where_the_stride_puts_it);
   return UNITY_END();
 }

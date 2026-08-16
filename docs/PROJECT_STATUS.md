@@ -20107,6 +20107,44 @@ display-fitted run needs `--screenshot`.
 *Verification: `frontend_flags` 13 → 16, `ctest` 129/129, every golden
 unchanged, and the DN3500 30 M hash unchanged across the memory-sizing change.*
 
+## The Matrox item closes, with two tails named rather than assumed
+
+The DN4500 Matrox board is ticked. What it took, in order: its register map out
+of the ROM (findings 1-8), the microcode download identified and accepted (4b),
+the frame located by a static census no earlier pass could have made (20), the
+address corroborated by `019411-A00` Table 2-5 read as a page image (20b),
+confirmed by executing `ENTRY_03` (20c), and the board made to draw through its
+own character entry (21).
+
+**The pitch discriminator is spent.** Finding 17b set it while the geometry was
+still arithmetic -- "a wrong pitch shears a picture that is still legible, a
+right one does not" -- and it has power because the two sides are independent:
+the firmware chose the layout, the scanout's stride is this core's claim about
+it. Run over the drawn line at four pitches, 256 is upright while 255 shears by
+eight pixels a row, 160 collapses and 128 double-spaces. The criterion was set
+before the answer was known, which is what makes it evidence.
+
+**The geometry is now pinned by tests rather than by constants.**
+`matrox_suite` 6 -> 8: the new pair assert the *relationships* the ROM computes
+-- 1280 visible bits is 160 bytes, plus the loop's 96 skipped is the stride,
+times 1024 lines is the 256 KB `[S3K]` §10.2 gives that controller -- so a
+change moving one without the others fails there instead of shearing a picture
+months later. Checked by breaking it: a stride of 255 fails at
+`Expected 255 Was 256`.
+
+**Two tails stay open and are named.** Whether these addresses decode
+identically on a real DN4500 -- every run here uses the DN3500 map, because
+`identity-boot.sh` does -- and the meanings of `$DA0006` bits 3-5, whose
+polarity the firmware's polls constrain at each site but whose sense nothing
+states. Neither blocks the item: the board answers its ROM, holds a frame, and
+draws into it.
+
+**And the seven retractions are the reason this is written at length.** This
+item spent months proposing frame addresses that measurement withdrew. What
+ended it was not a better guess but a different question -- not "where did
+writes land" but "what does the board's own code say it does" -- and then
+refusing to act on the answer until the machine had executed it.
+
 ## The Matrox draws: "APOLLO DOMAIN DN4500" off the board's own ROM
 
 The remaining question was what *draws*, the frame having been found and

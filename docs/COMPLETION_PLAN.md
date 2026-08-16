@@ -4332,152 +4332,22 @@ discipline throughout.
     `ap_board` is the DN3500 and 64 KB is `008778-03` Table 2-8's figure. The
     PROM extent is model variance and belongs in the model table beside
     `ram_base`.
-- [ ] DN4500 Matrox graphics. *Verification: PNG inspection; no oracle, so
-      documented as paper-verified.*
-      **Opened, and the board's own ROM is the specification.**
-      `4500_Matrox_013748_04.bin` is a valid Apollo option ROM that
-      `tools/ring-rom/disasm.py` reads — and it is the **only** image on disk
-      whose `magic1` is `C000A0B7`, the class the boot PROM's early scan accepts
-      on magic alone (`RING.md` 70, which refutes 59b's claim that no such ROM
-      was held). Fitted with the new `--option-rom` flag the scan takes it and
-      the machine executes it, stopping at `+5A8`.
-      **Two register addresses recovered from the firmware**: it writes the word
-      sequence `A534`, `1744`, `1345` to **`$D40000`** and then polls
-      **`$DA0006` bit 3** for clear, with a 15.7 M-iteration timeout — the shape
-      the ring and 3c505 items both started from. Nothing decodes either
-      address here, so the poll spins out.
-      **Caveat, stated because it would otherwise be assumed away**: that run
-      used the DN3500 PROM and map, since `identity-boot.sh` does. The
-      addresses are facts about the *board*; whether they decode the same on a
-      DN4500 needs `4500_BOOT_13167_02_MD7R.0.32.bin` and that model's map —
-      and that PROM does **not** carry either address as an absolute operand,
-      checked.
-      **Both documentary routes are now exhausted, and named so nobody repeats
-      them.** `[S3K]` chapter 10 is the graphics chapter and covers the
-      **DN3000 and DN4000** controllers only — 4-plane colour, two 1280x1024
-      monochrome, 8-plane colour — as PCB dimensions, cables and supply
-      voltages, with no register map and no Matrox board. Its Table 2-6
-      graphics ranges (`0A0000`, `0C0000`, `0E0000`, `FA0000`) contain neither
-      address. The web has no register-level material for Apollo part `013748`
-      either; what exists is sales listings and unrelated modern Matrox parts.
-      **So the ROM is the only source left, which is where the ring and the
-      3c505 both ended up — and it has now been read.**
-      `docs/references/GRAPHICS.md` holds ten findings, each citing a ROM
-      address: the option-ROM header and its four entry points, **three
-      register blocks** extracted mechanically (`$D40000` a bidirectional data
-      port, `$D80004`/`+5`/`+8` a longword path with a ready bit at bit 7,
-      `$DA0000` a block whose `+6`/`+7` are command-over-status with bits 3, 4
-      and 5 polled), and the stop at `+5A8` explained by the firmware's own
-      15.7 M-iteration wait for `$DA0006` bit 3 to clear.
-      **The board takes a downloaded program, and it is now measured rather
-      than inferred**: 4,716 bytes from ROM `+B22`, written word by word to the
-      fixed port `$DA0000`, ending exactly on the header's `length` field — two
-      independent numbers meeting. The `ID: GAO Boot Microcode` ASCII is that
-      image's own header, not a console message. The two `move.l (a3)+` loops
-      that first looked like the download are a **16-longword CRTC parameter
-      table** carrying `00000400` = 1024 (GRAPHICS.md 4a/4b, correcting 4).
-      **Which makes the item smaller than it looked**: nothing has to *execute*
-      the microcode, only accept it. What is needed is the three ports, the
-      status bits the firmware polls, and a frame buffer — not a coprocessor.
-      **The device now exists** — `src/core/device/ap_matrox.*`, fitted by
-      `--matrox`, decoding the three blocks and answering `$DA0006` as zero,
-      which is what GRAPHICS.md 11's two verdict conditions require and asserts
-      nothing further. The microcode download completes and is *measured* to:
-      `a1` ends at `00081D8E`, the ROM base plus exactly its `length` (12).
-      **What it has not bought is a boot** (12a): with the ROM fitted the
-      machine prints nothing at all and never reaches its self tests.
-      Two hypotheses tested and **both refuted** — it is not the DN3500/DN4500
-      mismatch (12d: the DN4500's own PROM and map fail identically, with the
-      no-card control booting normally), and it is not the 64 KB image
-      answering all four scan slots (12f: the third slot is read zero times).
-      A third reading — a runaway through PROM data — was also **wrong and is
-      retracted** (12g): those `4801`s are the body of a **delay loop**, closed
-      by `subq.l`/`bgt` two instructions later, and the machine reaches them
-      606 K instructions before the option ROM ever runs.
-      **What it actually is** (12j-12l): `$5ED6`-`$5F00` is the firmware's
-      **error display** — two delays and two writes to `$00010100`, the
-      diagnostic LED register, with no test and no exit. That register and this
-      very loop are already documented in `ap_boardreg.h` and `FINDINGS.md`
-      C109, and the boot report already prints `posted codes`, so three turns
-      of disassembly ended at a line of output that was there all along.
-      The codes, with controls: a healthy DN4500 posts `… 9F 8F FE`
-      (complemented: … 50, 60, **70**); with the option ROM it posts `… 9F ED`
-      and loops — **whether or not the Matrox device is fitted**. So the device
-      is not what fails (12m).
-      **Decoded and fixed** (13-13b): the post routine's `ror.b #4` / `not.b`
-      turns the displayed `ED` back into code **`21`**, whose check is at
-      `[ROM4500]` `$6962` and tests the machine's **own** display controller at
-      `0005E801` — not the Matrox board. Every run had `display none`, so that
-      compare met an empty decode. **With `--screen c8p` the boot goes six
-      checks further** (`… ED DD 9D 8D 7D 6D 5D FC`) and control reaches the
-      Matrox ROM's own code.
-      **And the board no longer stops the boot** (13c, 14): `[ROMMX]`
-      `$2EC`-`$310` waits for `$DA0006` **bit 5 set** — the opposite polarity
-      to bits 3 and 6, which is why answering the register zero satisfied one
-      routine and stalled this one. With it satisfied the register reads `$20`
-      (the three measured conditions and nothing else), six further checks
-      pass, and the machine ends in `FINDINGS.md` C109's **console-selection
-      poll** — idle and waiting for a keystroke, not failed.
-      Stated precisely (14a): the no-card control posts three codes further,
-      so the two are **not** identical and fitting the board still costs
-      something. What is established is that it no longer *stops* the boot.
-      **The verification itself now runs, and it fails usefully** (15): with a
-      screen and no card, `--screenshot` shows the DN4500's entire boot —
-      `SELF TESTS IN PROGRESS.`, every test line, `COULD NOT LOAD
-      /SAU7/SELF_TEST.` and a `>` prompt. With the card it is **entirely
-      black**. The counters say why (15a): the built-in controller drops from
-      9.9 M plane writes to 1.6 M while the Matrox blocks go to 1.5 M reads —
-      the console has moved to the card, which is what a graphics option ROM is
-      for. So question A is settled by counting rather than reading (15b):
-      16,618 writes is four orders short of a 1024x800 8-plane frame, so the
-      **pixel path is elsewhere and undecoded**.
-      **Found** (16): 30.7 M reads and 50,744 writes land in the undecoded AT
-      window, and the first write is `000C63AF` — inside `[S3K]` Table 2-6's
-      `0C0000-0DFFFF`, "ALTERNATE MONO GRAPHICS MEMORY SPACE". The board's own
-      ROM corroborates independently, `$2E0` being `movea.l #$c63b2,a3` (16a).
-      The **range** is settled by measurement; the **layout is not** (16b) —
-      planes, pitch, and whether `0C0000` is the origin or a window.
-      16's citation was corrected for citing the **DS3000's 16-MB** table on a
-      32-bit machine (16c) — and then **the right table restored the name**
-      (17): `019411-A00` Table 2-5, the DS5500 256-MB allocation and the only
-      32-bit Apollo map on disk, gives `0C0000-0DFFFF` the *same* name, on the
-      map class this core uses for DN3500/4500/5500. So the label carries
-      across address-space sizes and the retraction was one step too far.
-      The card therefore presents as the **alternate monochrome** controller
-      (17a) — a real distinction, since that table puts alternate *colour* at
-      `0E0000` and this machine's own 8-plane display at `0A0000`, and the card
-      writes to neither.
-      **RETRACTED by rendering it** (18): decoding `0C0000`-`0DFFFF` for real
-      gives it **6 writes** in a whole boot while **50,738** still land in the
-      undecoded window. Finding 16 had taken the report's `first write` as the
-      location of fifty thousand — one sample generalised to a population, this
-      project's oldest error, with the instrument that catches it (`first
-      seen`, sixteen distinct addresses) in the same report.
-      **Measured instead** (18a): the writes are at `0093D000`-`0093DD29`, with
-      108,035 further distinct addresses the tracker could not hold — AT bus
-      memory, not a documented graphics range. A 3.3 KB span under 50,738
-      writes is a **window or a port**, not a linear frame, and that is the
-      next thing to establish. 17/17a's "alternate mono controller" reading
-      rested on the retracted address and is unsupported until something else
-      carries it; finding 15a's counting — that the console moved to this card
-      — is untouched.
-      The frame buffer and `--matrox-screenshot` land anyway: they decode a
-      documented graphics range, cost the reference boot nothing, and are the
-      instrument that produced the retraction.
-      **And the extent settles what the traffic is** (18c): a new lowest/highest
-      tracker gives write span `0004D402..0093DD3F` and read span
-      `0004D400..00FFF003` — across AT I/O *and* memory — with ~110,000
-      accesses over **108,051 distinct addresses**, about one per address. That
-      is a **scan**, not a frame being drawn.
-      **So 15a's attribution is withdrawn too** (18d): the built-in
-      controller's drop from 9.9 M plane writes to 1.6 M is real, but "the
-      console moved to the card" was inference and the card is not where the
-      pixels went. Where they went is **open**. What still stands from this
-      line is the register map, the firmware's assertions, and that the screen
-      is black — the located frame buffer, its geometry and its identification
-      do not.
-      *Verification so far: `matrox_suite`, 6 tests, each replaying a ROM
-      address; the reference boot returns `A354786119A3931D` unchanged.*
+- [x] DN4500 Matrox graphics. *Verification: the board's own ROM draws
+      `APOLLO DOMAIN DN4500` into its frame and the PNG is legible — paper- and
+      firmware-verified, there being no oracle. `matrox_suite` 6 → 8, the two
+      new tests pinning the frame's geometry as relationships rather than
+      restated constants, so a drifting stride fails there instead of shearing
+      a picture later.*
+      **The frame is `$900000`, 256 KB, 1280×1024 at 1bpp on a 256-byte
+      stride**, on four independent routes: `ENTRY_03`'s clear loop, the glyph
+      routine's margin and row arithmetic, `019411-A00` Table 2-5 placing it in
+      AT bus memory space, and the machine executing both — 163,840 bytes, which
+      is 1024 × 160 exactly. The pitch was then discriminated by the test set
+      before the answer was known: only 256 renders unsheared.
+      **Two tails stay open and are named rather than closed by assertion**:
+      whether these addresses decode identically on a real DN4500 (the runs use
+      the DN3500 map), and the meanings of `$DA0006` bits 3-5. Detail and the
+      seven earlier retractions in `PROJECT_STATUS.md`.
 - [x] **DSP variants confirmed as true subsets.** All four boot headless and
       strap correctly -- they were all four *unstrapped* until the memory byte
       was keyed on the board rather than the model. `model_suite` holds the
