@@ -4403,6 +4403,14 @@ Only after the reference core is proven, and only under an identity harness.
       installed under the oracle with `tools/mame-oracle/mdsession.py --stage
       prompt --ctape …` driven by `install-domainos.cmds`, and the result boots
       here. Doing the same for SR10.3 is a known, scripted, ~one-session job.
+      **Its one prerequisite, checked**: `ext/mame` currently holds **no built
+      binary** — `mdsession.py`'s `find_mame` finds nothing, so the harness
+      exits before it starts. Building it is a ~2 h capped-scope job on this VM
+      (`oracle.py` carries the command and the memory budget; `make
+      -j$(nproc)` exhausts it). So the sequence is: build the oracle, `truncate
+      -s 348M` a fresh volume, INVOL it, then run `install-domainos.cmds` with
+      the SR10.3 cartridges. Budget the build first — it is the long pole, not
+      the install.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
       console selection is an autobaud (`000844`-`0008B8`) that the scripted
