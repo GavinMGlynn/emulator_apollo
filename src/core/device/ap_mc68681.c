@@ -250,8 +250,21 @@ void ap_mc68681_receive_at(ap_mc68681_t *duart, unsigned channel, uint8_t byte,
    * anything: it compares the received byte against the shapes a carriage
    * return takes at five wrong rates, and an intact `0D` matches none of them.
    *
-   * `ACR[7]` selects the baud set. The two published sets agree on every code
-   * this machine's firmware uses. */
+   * `ACR[7]` selects the baud set, and **the two sets do not agree on the code
+   * this machine's firmware uses** -- this comment said they did, and
+   * `ap_mc68681_baud` eighty lines above says the opposite in detail: they
+   * differ at five codes, and code `7` is `1050` in set 1 against `2000` in
+   * set 2. `CSRB = 77` is code 7 on both halves, so the choice is load-bearing
+   * here and nowhere else.
+   *
+   * It decides whether the boot PROM's autobaud can converge at all. With
+   * `ACR[7]` clear the receiver is at 1050, a `0D` from a 9600 terminal
+   * resamples to `$FF`, and `000844`'s table maps `$FF` to clock select `$BB`
+   * -- 9600, the sender's own rate, so the link agrees on the second character.
+   * With `ACR[7]` set the receiver is at 2000, the same `0D` resamples to
+   * `$FE`, and the table maps that to `$99` -- 4800, which is *not* what the
+   * sender was, so the next character is misread too and the poll never ends.
+   * A cartridge boot showed exactly that `$FE`. `TEST_SHELF.md`. */
   const bool acr_set_two = (duart->acr & 0x80u) != 0u;
   const uint8_t resampled = ap_mc68681_resample(
       byte, bits,

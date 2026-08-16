@@ -138,11 +138,24 @@ Named so that the gap is visible rather than implied.
   selects `$BB`, the sender's own rate. So the model does invert the table
   correctly and a plain `\r` should converge.
   **What is unexplained is the observed `$FE`**, one bit off that, when `$FF`
-  was sent at the default `0xBB` into a receiver reported at `77`. Either the
-  receiver was not at `77` at that instant or the sender CSR reaching
-  `receive_at` is not `0xBB`. That is a **unit-level** question -- `resample`
-  is a pure function -- so it is answerable with a test rather than a
-  seven-minute boot, which is where this should have gone several rounds ago.
+  was sent at the default `0xBB` into a receiver reported at `77`. **It is `ACR[7]`, the baud-set select.** Both
+  delivery sites in `main.c` pass `--boot-input-rate` correctly, so the swap is
+  inside `receive_at`, which resolves *both* CSRs through
+  `ap_mc68681_baud(code, acr_set_two)`. The two published sets differ at five
+  codes and **code `7` is one of them -- 1050 in set 1, 2000 in set 2** -- and
+  `CSRB = 77` is code 7 on both halves. `resample(0x0D, 8, 9600, 2000)` is
+  `$FE`, which is exactly what the boots read.
+  So the convergence question is entirely `ACR[7]`: **clear** puts the receiver
+  at 1050, a `0D` from a 9600 terminal resamples to `$FF`, and the table maps
+  `$FF` to `$BB` -- the sender's own rate, so the link agrees on the second
+  character and MD opens. **Set** puts it at 2000, the same `0D` gives `$FE`,
+  the table maps that to `$99` = 4800, which the sender is not, and the poll
+  never ends. `receive_at`'s comment claimed the sets agree on every code this
+  firmware uses; they do not, and `ap_mc68681_baud` eighty lines above said so
+  all along. Corrected in place.
+  **Next**: establish what writes `ACR[7]` during this boot and whether it is
+  ours or the firmware's -- one `--boot-report` line for `ACR`, not another
+  seven-minute hunt.
   The DEV BIT ARRAY is **not** what gates the tape: setting bit 1 `ctape`
   changes nothing, measured. The PROM does carry `Cartridge Tape  ` and
   `Ctape ERROR, SENSE BYTES = `, so the device is supported once selected.
