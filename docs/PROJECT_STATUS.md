@@ -5341,7 +5341,7 @@ to the controller's buffer ... does not transfer the data to the host", paired
 with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both derived from the STATUS register as §4.2 and §4.3 give them: the interrupt from `IREQ` and the MASK byte's interrupt enable, the DMA request from `DREQ`, which the MASK byte's DMA enable gates. IRQ6 and DRQ2 are placed and not yet driven: the floppy side's completion is the FDC's result phase, not this one | `omti_suite`, 15 tests; `awd_suite`, 49; `afd_suite`, 26; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |
 | OMTI 8621 placement (the DN3500's disk) | measured, both halves. Placement characterised at `04D000`: the range is the card's (all `FF` without it, control verified by device enumeration), aliased on an eight-byte period, with offsets 1-3 driven. Offsets 0 and 4-7 read `FF`, which a read sweep cannot distinguish from undriven | `FINDINGS.md` C20 |
 | WD7000 ESDI/SCSI (DN4500) | not started | — |
-| Floppy, QIC cartridge tape | not started | — |
+| Floppy (`device/ap_omti.c`'s second half, `image/ap_afd.c`), QIC cartridge tape (`device/ap_qic.c`, `board/ap_tape.c`) | **modelled, and the floppy is now reachable.** §6.3's ten commands with their ST0-ST3 result bytes, the motor, MFM, multitrack and skip-deleted flags, over a 77x2x8x1024 `.afd`. The row said "not started", which was stale by a whole subsystem | `afd_suite`, 26 tests; `qic_suite`; `tape_suite`; `--diskette` fits one |
 | Mono and colour graphics controllers (`board/ap_graphics.*`) | **working**: the register block with its scrambled byte lanes, the blitter wired to the memory cycle, the LUT ports and the four screen geometries. Audited line by line against `[S3K]` ch. 10 and ch. 11 on 2026-08-16 — **no structural defect**, and §10.3.1's eleven-item change list checks out entry by entry. One real finding: the colour raster is printed in full in Table 11-4 and had been taken from the oracle, which was off by one in each direction (`h_total` 1346→1344, `v_total` 841→842). `GRAPHICS.md` finding 19; the dot clock stays `PROVISIONAL` at 68 MHz | `graphics_suite`; `./tools/identity-boot.sh --screen c8p` hashes `6140F8E43F3BCC1C` with 2.17 M controller reads |
 | 3c505 802.3 Ethernet (`device/ap_3c505.*`) | **working end to end, host command path included.** The four flag registers from `[HIS]` §3-2/§3-3/§3-5/§3-6 with the sides the right way round, the §3.1.2/§3.1.3 mailbox in both directions, the command set, DMA on DRQ6 and the interrupt on IRQ10. The audit's finding: §3.1.2's *host→adapter* half had never been wired — assembler, dispatcher and responder all existed and were unit-tested, nothing called them, and a host command was answered never. `ETHERNET.md` finding 19; the pacing approximation is 19a. The line-by-line pass then found four more: §3.1.1's accept/reject flags were never signalled at all (20), `02H`'s receive mode was stored and never consulted so every frame on the wire was this station's (21), `3AH`'s length is `10H` not the `0CH` printed -- `[HIS]` App. F, the packet counters became double words in Rev 2.0 (22) -- and `0FH` self-test is now answered while `0CH`/`0DH`/`0EH`/`11H` stay refused because every field of their responses is unmodelled (23), and §1.12's adapter reset both cleared the Host Control Register it must not touch and released the adapter while the host still held `ATTN`+`FLSH` (25) | `etherlink_suite`, 50 tests, of which `test_a_command_written_by_the_host_is_answered_by_the_adapter` crosses the real registers with no test-side wiring |
 | MAME oracle harness | working and used throughout. Beyond the dumper there are now four probe tools — `regprobe.lua` drives every bit of a register in both directions, `writetrace.lua` taps writes to watch firmware program a device, `steptime.lua` single-steps for instruction timing, `mdcapture.lua` traces the serial registers byte-exact — and findings C10 through C14 are all measurements taken with them | `oracle_driver` (19 checks, stub MAME) and `oracle_dump_format` (19 checks, mock machine); `./apollo -listfull` lists all eleven apollo machines |
@@ -20106,6 +20106,38 @@ display-fitted run needs `--screenshot`.
 
 *Verification: `frontend_flags` 13 → 16, `ctest` 129/129, every golden
 unchanged, and the DN3500 30 M hash unchanged across the memory-sizing change.*
+
+## And the diskette drive was empty on every run ever made
+
+The same sweep, the same shape, one module along. `ap_omti_attach_floppy` is
+**called by nothing outside `afd_suite`**, so the controller's floppy half --
+complete since Phase 4, with §6.3's ten commands, their ST0-ST3 result bytes and
+the motor, MFM, multitrack and skip-deleted flags -- has never had a diskette in
+front of it.
+
+**Why nothing ever looked wrong**, which is the interesting part: an empty drive
+is a *correct* state and the controller reports it correctly, answering any
+command that needs media with ST1's No Data. The model was not misbehaving. It
+simply could not be given a diskette, and every test that appeared to cover the
+floppy called `ap_omti_attach_floppy` from its own body -- the pattern the
+ethernet audit named.
+
+`--floppy` is not the missing piece and never was: it reads an `.afd` through
+`ap_afd` and reports its geometry with no machine involved, which is what its own
+usage text says. What was missing is fitting one, so **`--diskette FILE`** does
+that, mirroring `--disk`: writable to the machine, never written back to the
+user's file.
+
+*Verification: `check_frontend_flags.py` 17 -> 18 named entries; ctest 137/137.
+Both paths confirmed on the real machine -- `media/patterned.afd` reports
+`diskette media/patterned.afd, 1261568 bytes` and is attached, and
+`media/short.afd` is refused with `is not an Apollo diskette` rather than
+reinterpreted, which is `ap_afd_open`'s one-format rule reaching the frontend.*
+
+**`ap_tape_load` is the same and is not fixed here.** It too is called only from
+tests, so the QIC drive is empty on every run for the same reason, and `--tape`
+is a reporting path exactly as `--floppy` was. Left for its own item rather than
+bundled in: one thing at a time, landing with its test.
 
 ## The `.awd` sidecar was built, tested, and never attached to a disk
 

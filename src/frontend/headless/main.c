@@ -328,7 +328,9 @@ static void print_usage(const char *program_name) {
           "  --dump-mem A[:L]      dump memory through the board after a\n"
           "                        run; hex address, hex length (default 100)\n"
           "  --floppy FILE         read an .afd through the reader and\n"
-          "                        report its geometry\n"
+          "                        report its geometry\n"          "  --diskette FILE       put an .afd *in the drive*, which --floppy\n"
+          "                        does not: that one reports geometry with no\n"
+          "                        machine involved. Not written back\n"
           "  --boot-input-channel C  which channel, A or B (default A). The\n"
           "                        keyboard is port 1 channel A; a terminal is\n"
           "                        port 1 channel B\n");
@@ -1187,6 +1189,11 @@ static uint32_t g_ethernet_rom_bytes = 0;
  * `.awd` format itself has nowhere to put. `AWD_META.md` gives the layout. */
 static const char *g_disk_meta_path = NULL;
 static uint8_t *g_disk_meta = NULL;
+/* A diskette *in the drive*, as opposed to `--floppy`, which reads an image
+ * through `ap_afd` and reports its geometry without a machine being involved. */
+static const char *g_diskette_path = NULL;
+static uint8_t *g_diskette_bytes = NULL;
+static ap_afd_t g_diskette;
 static bool g_ring_selftest = false;
 
 /* How often a live wire is polled, in instructions. A frontend choice with no
@@ -2591,6 +2598,39 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       }
       printf("disk sidecar %s, %ld bytes\n", meta_path, meta_size);
     }
+  }
+
+  /* ## A diskette in the drive
+   *
+   * The controller's floppy half is complete -- §6.3's ten commands with their
+   * ST0-ST3 result bytes, the motor, MFM, multitrack and skip-deleted flags --
+   * and `ap_omti_attach_floppy` was called by **nothing outside its own tests**,
+   * so every machine ever run had an empty drive. That is a distinct state
+   * rather than a broken one, and the controller reports it correctly, which is
+   * why nothing ever looked wrong: a command needing media answers with ST1's
+   * No Data. It just could never answer anything else.
+   *
+   * `--floppy` is not this: it reads an image through `ap_afd` and reports its
+   * geometry, with no machine involved. Fitting one is what was missing.
+   *
+   * Writable, and the file is not, for the reason `--disk` gives: the drive
+   * behaves like a drive and the user's image is untouched. */
+  if (g_diskette_path != NULL) {
+    long diskette_size = 0;
+    g_diskette_bytes = read_file(g_diskette_path, &diskette_size);
+    if (g_diskette_bytes == NULL) {
+      fprintf(stderr, "apollo: cannot read diskette image %s\n",
+              g_diskette_path);
+      return 1;
+    }
+    if (!ap_afd_open(&g_diskette, g_diskette_bytes, (size_t)diskette_size,
+                     true)) {
+      fprintf(stderr, "apollo: %s is not an Apollo diskette\n",
+              g_diskette_path);
+      return 1;
+    }
+    ap_omti_attach_floppy(&board->disk.controller, &g_diskette);
+    printf("diskette %s, %ld bytes\n", g_diskette_path, diskette_size);
   }
 
   /* The calendar's battery. `008778-03` §3.6: the chip "has a backup battery to
@@ -4640,6 +4680,11 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--disk-meta") == 0 && i + 1 < argc) {
       g_disk_meta_path = argv[i + 1];
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--diskette") == 0 && i + 1 < argc) {
+      g_diskette_path = argv[i + 1];
       i += 2;
       continue;
     }
