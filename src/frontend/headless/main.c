@@ -330,7 +330,8 @@ static void print_usage(const char *program_name) {
           "  --floppy FILE         read an .afd through the reader and\n"
           "                        report its geometry\n"          "  --diskette FILE       put an .afd *in the drive*, which --floppy\n"
           "                        does not: that one reports geometry with no\n"
-          "                        machine involved. Not written back\n"
+          "                        machine involved. Not written back\n"          "  --cartridge FILE      put a .ct in the QIC drive; --tape is the\n"
+          "                        reporting counterpart. Not written back\n"
           "  --boot-input-channel C  which channel, A or B (default A). The\n"
           "                        keyboard is port 1 channel A; a terminal is\n"
           "                        port 1 channel B\n");
@@ -1194,6 +1195,9 @@ static uint8_t *g_disk_meta = NULL;
 static const char *g_diskette_path = NULL;
 static uint8_t *g_diskette_bytes = NULL;
 static ap_afd_t g_diskette;
+/* And a cartridge in the QIC drive, the same distinction against `--tape`. */
+static const char *g_cartridge_path = NULL;
+static uint8_t *g_cartridge_bytes = NULL;
 static bool g_ring_selftest = false;
 
 /* How often a live wire is polled, in instructions. A frontend choice with no
@@ -2631,6 +2635,37 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     }
     ap_omti_attach_floppy(&board->disk.controller, &g_diskette);
     printf("diskette %s, %ld bytes\n", g_diskette_path, diskette_size);
+  }
+
+  /* ## A cartridge in the QIC drive
+   *
+   * `ap_tape_load` was the third of these: called by nothing outside the tape
+   * and DMA suites, so the SC499 controller and the QIC drive beneath it -- both
+   * complete, both tested -- have never had media in front of them. As with the
+   * diskette an empty drive is a correct state, reported as such, so nothing
+   * looked wrong.
+   *
+   * **The type is `DC600A` and it is not yet observable.** `[SC499]` names two
+   * cartridges and `ap_qic_t` records which is loaded, but `qic->cartridge` is
+   * written and read nowhere -- nothing in the model distinguishes them. So this
+   * follows `--tape`'s existing choice rather than inventing a selector for a
+   * distinction the core does not yet make; when one of them means something,
+   * that is the point to expose it. */
+  if (g_cartridge_path != NULL) {
+    long cartridge_size = 0;
+    g_cartridge_bytes = read_file(g_cartridge_path, &cartridge_size);
+    if (g_cartridge_bytes == NULL) {
+      fprintf(stderr, "apollo: cannot read cartridge image %s\n",
+              g_cartridge_path);
+      return 1;
+    }
+    if (!ap_tape_load(&board->tape, g_cartridge_bytes, (size_t)cartridge_size,
+                      AP_QIC_CARTRIDGE_DC600A, true)) {
+      fprintf(stderr, "apollo: %s is not an Apollo cartridge image\n",
+              g_cartridge_path);
+      return 1;
+    }
+    printf("cartridge %s, %ld bytes\n", g_cartridge_path, cartridge_size);
   }
 
   /* The calendar's battery. `008778-03` §3.6: the chip "has a backup battery to
@@ -4685,6 +4720,11 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--diskette") == 0 && i + 1 < argc) {
       g_diskette_path = argv[i + 1];
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--cartridge") == 0 && i + 1 < argc) {
+      g_cartridge_path = argv[i + 1];
       i += 2;
       continue;
     }

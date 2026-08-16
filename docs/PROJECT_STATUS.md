@@ -20107,6 +20107,42 @@ display-fitted run needs `--screenshot`.
 *Verification: `frontend_flags` 13 → 16, `ctest` 129/129, every golden
 unchanged, and the DN3500 30 M hash unchanged across the memory-sizing change.*
 
+## And the QIC drive was too -- the third and last of them
+
+`ap_tape_load` is called by nothing outside `tape_suite` and `dma_suite`, so the
+SC499 controller and the QIC drive beneath it -- both complete, both tested --
+have never had a cartridge in front of them. Same shape as the diskette, and
+invisible for the same reason: an empty drive is a correct state and the drive
+reports it correctly.
+
+**`--cartridge FILE`** fits one, `--tape` staying the reporting counterpart
+exactly as `--floppy` did.
+
+**The cartridge type is `DC600A`, and that choice costs nothing today.**
+`[SC499]` names two cartridges and `ap_qic_t` records which is loaded, but
+`qic->cartridge` is **written and read nowhere** -- no behaviour in the model
+distinguishes a DC300XL from a DC600A. So this follows the choice `--tape`
+already made rather than inventing a selector for a distinction the core does
+not yet draw; when one of them means something, that is the moment to expose it.
+Recorded here so a later reader does not assume capacity or geometry follows
+from it.
+
+**One thing checked and deliberately not changed.** `ap_tape_init` is also
+called by nothing: the board calls only `ap_tape_reset`, and `ap_tape.h` says
+init "cannot be the first thing called on uninitialised memory". That is safe
+here and the reason is worth writing down rather than rediscovering --
+`ap_qic_reset` assigns *every* field it does not deliberately keep, after a bug
+where a save-and-restore reset preserved stack residue and failed only at `-O3`
+in CI, and every `ap_board_t` in the frontend is `calloc`'d. So the media fields
+it keeps are already zero on first use. No change made; a redundant call would
+have looked like a fix and repaired nothing.
+
+*Verification: `check_frontend_flags.py` 18 -> 19 named entries; ctest 137/137.
+Both paths confirmed on the real machine -- a 40-block image attaches and
+reports `cartridge ... 20480 bytes`, and a 700-byte file is refused with `is not
+an Apollo cartridge image`, which is `ap_ct_open`'s whole-number-of-blocks rule
+(finding C24) reaching the frontend.*
+
 ## And the diskette drive was empty on every run ever made
 
 The same sweep, the same shape, one module along. `ap_omti_attach_floppy` is
