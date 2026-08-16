@@ -119,12 +119,38 @@ static void ring_ctl_loopback(ap_ring_ctl_t *ctl) {
   ctl->buffer[to + 4u] = dest_hi;
   ctl->buffer[to + 5u] = dest_lo;
 
-  /* **Whether this transmission asked to be copied**, `[MAC]` Figure 2-7's
-   * intend-to-copy at bit 3 of the early acknowledge. The `$B70` call sites
-   * pass `$E`, `$A` and `$0` in `d4`, and it is the *only* thing that differs
-   * between the subtest 21-24 group and the 61-63 group -- same `MISC_CMD`
-   * `$0`, same preamble, same `#$6`. `RING.md` 126. */
-  ctl->a2.xmit_intend_to_copy = (early & AP_RING_EARLY_INTEND_TO_COPY) != 0u;
+  (void)early;
+}
+
+/* **The DMA loop's block shape.** The subtest 71-77 loop writes 1018 words at
+ * buffer `$600`, issues a transmit with **no `$B70`**, and requires 1018 words
+ * at `$610` to match (`RING.md` 127). `$610` is `$600 + $10`, and `$10` is
+ * what `$976` puts in `RCV_ADDR`, so the destination is the source plus
+ * `RCV_ADDR` -- which also holds for `$B70`'s case, source 0 and `$BAC`
+ * reading at `$10`. Two call sites agree.
+ *
+ * The extent is `XMIT_PKT_CNT`'s loaded value, which `ring8a.drvr` names
+ * "Transmitter **Total** Word" (finding 100). The source is where `RAM_ADDR`
+ * was last *set*. The header build goes on top only for a `$1`-armed packet
+ * transmit: subtest 41 needs the built fields, subtest 77 needs a clean copy. */
+static void ring_ctl_block_move(ap_ring_ctl_t *ctl) {
+  const uint16_t from = ctl->a2.pointer_base;
+  const uint16_t off = ring_ctl_addr(ctl->a2.slot_004);
+  const uint32_t count = ctl->a2.timer_b.counter[1].latch;
+  const uint32_t to = (uint32_t)from + off;
+  if (count == 0u || to + count > AP_RING_CTL_BUFFER_WORDS) {
+    return;
+  }
+  /* Descending: source and destination overlap whenever the offset is smaller
+   * than the extent -- `$10` against 1023 -- and a forward copy would smear
+   * the first words across the block. */
+  for (uint32_t i = count; i-- > 0u;) {
+    ctl->buffer[to + i] = ctl->buffer[from + i];
+  }
+  if (ctl->a2.xmit_packet) {
+    ring_ctl_loopback(ctl);
+    ctl->a2.xmit_packet = false;
+  }
 }
 
 bool ap_ring_ctl_irq(const ap_ring_ctl_t *ctl) {
@@ -430,13 +456,29 @@ void ap_ring_ctl_write8(ap_ring_ctl_t *ctl, bool second_window, uint32_t offset,
 
   switch (offset & AP_RING_CTL_BANK_MASK) {
   case AP_RING_CTL_BANK_ID:
-    /* The ID at slot 0 absorbs its clear -- it is what the board answers with
-     * and is not host-writable. The three word registers beside it take the
-     * even byte, as every other byte-wide lane on this board does. */
-    if (!odd && (offset & AP_RING_CTL_SLOT_MASK) != 0u) {
-      ap_ring_ctl_write16(ctl, second_window, offset,
-                          (uint16_t)((uint16_t)value << 8));
+    /* The ID at slot 0 absorbs its clear -- not host-writable.
+     *
+     * **The three word registers beside it assemble BOTH bytes**, which is
+     * finding 61's rule for the data port applied where it also belongs: the
+     * board "delivers a `move.w` as two byte accesses", so the even half holds
+     * the high byte and the odd half commits the word. Taking the even byte
+     * alone dropped the low half of every address the firmware writes --
+     * `RAM_ADDR = $610` became `$600`.
+     *
+     * **That bug was load-bearing**: the firmware writes its buffer patterns
+     * at `$600` and reads them back at `$610`, so collapsing both made every
+     * read find what the write left, and the buffer checks passed by aliasing
+     * with no DMA copy happening. It only lands beside the block move below.
+     * `RING.md` 129a, 130. */
+    if ((offset & AP_RING_CTL_SLOT_MASK) == 0u) {
+      return;
     }
+    if (!odd) {
+      w->byte_latch = value;
+      return;
+    }
+    ap_ring_ctl_write16(ctl, second_window, offset & ~1u,
+                        (uint16_t)(((uint16_t)w->byte_latch << 8) | value));
     return;
   case AP_RING_CTL_BANK_STATUS: {
     /* The data port again, and the write side is the worse of the two: the
@@ -729,6 +771,7 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
        * word 0 and every word after it would be one place early, which is the
        * off-by-one 46a exists to prevent. */
       w->pointer = value;
+      w->pointer_base = value;
       return;
     }
   }
@@ -839,8 +882,27 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
        * the word arriving here is `$01F0` and not `$0100`. Finding 66's `$6`
        * detection has masked on bit 10 for exactly the same reason. Bit 8 is
        * unique to `$1` -- `$2` is bit 9 and `$6` is bits 10 and 9. */
+      /* `$1` arms a *packet* transmit and reads what it supplied; it does not
+       * deposit. `$B70` issues it before `$976` sets `RCV_ADDR`, so a deposit
+       * here would write over the message at its own address. */
       if (second_window && (value & 0x0100u) != 0u) {
-        ring_ctl_loopback(ctl);
+        const uint16_t src = ring_ctl_addr(ctl->a2.slot_002);
+        if ((size_t)src + 4u <= AP_RING_CTL_BUFFER_WORDS) {
+          ctl->a2.xmit_intend_to_copy =
+              (ctl->buffer[src + 3u] & AP_RING_EARLY_INTEND_TO_COPY) != 0u;
+        }
+        ctl->a2.xmit_packet = true;
+      }
+      /* **Transmit enable moves the data, whether or not it signals.**
+       * `002398-01` p. 6-30: `2000 xmit enable (start the xmit)` and `4000
+       * xmit interrupt enable` are separate bits, "to start a xmit normally,
+       * use `6000`". The AT board's `$2` and `$6` carry the same low nibble,
+       * so `$2` starts a transmit with the interrupt disabled -- the data
+       * moves and the status bits do not change. Conflating the two left the
+       * subtest 11-16 group's `#$2` never moving its pattern from `$600` to
+       * `$610`, which is what subtest 42 reads. `RING.md` 131. */
+      if (second_window && (value & 0x0200u) != 0u) {
+        ring_ctl_block_move(ctl);
       }
       if (second_window && ctl->station != NULL &&
           (value == 0x0200u || value == 0x0600u)) {

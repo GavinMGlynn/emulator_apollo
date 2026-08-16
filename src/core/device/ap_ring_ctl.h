@@ -411,6 +411,13 @@ typedef struct {
   /* `+006`, the buffer pointer -- finding 46. In **words**, which is the unit
    * `+406` advances by. */
   uint16_t pointer;
+  /* Where `RAM_ADDR` was last *set*, as opposed to where the port has since
+   * advanced to: the DMA loop's source (`RING.md` 131). */
+  uint16_t pointer_base;
+  /* The high byte of a word register written as two byte accesses, held until
+   * the odd half commits it -- finding 61's rule for the data port, which
+   * applies to these registers too (`RING.md` 129a). */
+  uint8_t byte_latch;
   /* `+400` and the two command registers beside it, kept because the firmware
    * writes them and reads them back -- not because their bits are known. */
   uint16_t status;
@@ -439,6 +446,10 @@ typedef struct {
    * `[MAC]` Figure 2-7 bit 3. It decides whether the *receive* interrupt pends
    * when the operation completes (`RING.md` 126). */
   bool xmit_intend_to_copy;
+  /* Whether a *packet* transmit is outstanding -- `$B70`'s `$1`. It decides
+   * whether the DMA loop also builds a received header on the block it moves
+   * (`RING.md` 131a). */
+  bool xmit_packet;
 
   /* `+406` on the `a1` window, which finding 50a shows is never read. The `a2`
    * window's `+406` is the buffer port and does not use this. */
