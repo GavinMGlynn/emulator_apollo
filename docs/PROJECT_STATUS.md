@@ -20468,7 +20468,7 @@ serial gate's 1.9% was a single-run comparison inside it, and should be read as
 
 *Hash `A354786119A3931D` throughout; `ctest` 137/137.*
 
-## The serial advance is gated, and the blocker turned out to be hypothetical
+## The serial advance's blocker was hypothetical -- and gating it still did not pay
 
 `skip(n)` was recorded as needing a bound on *observable state* rather than on
 an interrupt line, with the serial part named as the obstacle: `ap_sio_advance`
@@ -20476,35 +20476,31 @@ carries `now` into both parts unconditionally, and its own comment warns the
 output-port square waves are "free-running" and readable at any instant.
 
 **That reader does not exist.** `duart->now` has exactly one consumer,
-`clock_pin_level`, reached only from `ap_mc68681_output_pin` -- and that
-accessor is called by **nothing but its own tests**. So a stale `now` is
-unobservable to the machine, and the serial part's observable state is just
-`counter_output` and the ISR, both of which move only at terminal count.
+`clock_pin_level`, reached only through `ap_mc68681_output_pin` -- and that
+accessor is called by nothing but its own tests. So a stale `now` is
+unobservable to the machine, and the part's observable state is just
+`counter_output` and the ISR, both of which move only at terminal count. **The
+constraint was not real**, which is worth keeping whatever happened next: the
+same "who actually calls this" question that found four disconnected paths this
+month here dissolved a claimed obstacle.
 
-The advance is therefore skipped until a pulse is due. Catching up needed no new
-code: the pulse loop's `pulses = delta / period` already issues the whole
-backlog when the call does happen, which is the property `ap_sio_advance`'s own
-comment says the tick loop rests on.
+**The gate was then built, measured properly, and removed.** It is provably
+safe -- 350 M instructions, hash `A354786119A3931D`, boot reports identical line
+for line -- and it made no measurable difference. Interleaved A/B over three
+pairs: plain 29.53 / 31.83 / 29.82 against gated 30.22 / 30.13 / 29.92. Pairs
+split 2-1 the other way, minima favour the ungated build, means favour the
+gated one. **No direction at n=3**, so the effect is below the noise floor, and
+a call per instruction is not worth carrying for it. The predicate went with it
+rather than being left called by nobody.
 
-| | 350 M boot | hash |
-| --- | --- | --- |
-| before | 30.324 s | `A354786119A3931D` |
-| serial advance gated | **29.739 s** | `A354786119A3931D` |
+The reasoning is kept at the call site, because the next person to look at
+`ap_sio_advance`'s 4.5% will have the same idea and should find out that it has
+been tried and measured rather than repeating it.
 
-**1.9%, and the modest size is arithmetic rather than disappointment.** X1 is
-3.6 MHz, so a pulse falls every 5,984,000 base units against an instruction's
-~3.4 million: a pulse is due roughly every 1.75 instructions and the skip fires
-under half the time. 6.8% of profile at ~43% skipped is about what was
-measured.
-
-**The pattern is the point, not the 1.9%.** This is the first bound on
-*observable state* rather than on an interrupt line, which is what `skip(n)`
-needs throughout -- and the dependency it rests on is written into
-`ap_sio_next_pulse` rather than left implicit, so a board that ever wires those
-output pins breaks a stated assumption instead of a silent one.
-
-*Cumulative for the session: 45.3 s → 29.7 s, **1.52x**, every step hash- and
-report-identical. `ctest` 137/137.*
+**The interrupt bound is a different matter and does pay**, which is the
+contrast worth drawing: `ap_board_sample_interrupts` fell from 8.0% to 3.5% of
+profile. Bounding *when a line can change* was worth it; bounding *when a device
+must be advanced* was not, on this part.
 
 ## Narrowing the interrupt invalidation bought nothing, and that is the finding
 

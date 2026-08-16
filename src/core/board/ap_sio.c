@@ -157,20 +157,6 @@ uint8_t ap_sio_clock_select(ap_sio_t *sio, unsigned unit, unsigned channel) {
   return sio->port[unit].channel[channel].csr;
 }
 
-ap_time_t ap_sio_next_pulse(const ap_sio_t *sio) {
-  ap_time_t next = AP_TIME_NEVER;
-  for (unsigned unit = 0; unit < 2u; unit++) {
-    if (sio->x1[unit].period == 0u) {
-      continue;
-    }
-    const ap_time_t at = sio->clocked_to[unit] + sio->x1[unit].period;
-    if (at < next) {
-      next = at;
-    }
-  }
-  return next;
-}
-
 void ap_sio_advance(ap_sio_t *sio, ap_time_t now) {
   /* Both parts carry the time, whether or not their counter/timer moved: the
    * output port's clock codes are free-running square waves and a caller may
