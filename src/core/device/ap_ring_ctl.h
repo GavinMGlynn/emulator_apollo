@@ -118,11 +118,30 @@
 #define AP_RING_CTL_BANK_MASK 0xC00u
 #define AP_RING_CTL_SLOT_MASK 0x006u
 
-/* `+400`'s live bits, findings 40 and 45. Named by number because that is all
- * that is established: each is polled, with its own timeout and an expected
- * polarity, and none is explained. Bit 15 alone has a meaning -- the presence
- * gate -- because init's use of it settles one. */
-#define AP_RING_CTL_STATUS_PRESENT 0x8000u
+/* ## `+400` is **MISC_STAT**, and every bit is named -- `RING.md` 93
+ *
+ * These were "named by number because that is all that is established" until
+ * `[EH]` ch. 12 was read: `002398-04` p. 12-29 tabulates this board's ring
+ * registers by physical address, and p. 12-30 gives `59400`'s bits outright.
+ * The firmware-derived model needed no change; the names are what it lacked.
+ *
+ * **Two of them are active low, which the numbers hid**: `xby` and `rby` are
+ * "0=> xmt busy" and "0=> rcv busy", so a *clear* bit means busy. That is why
+ * finding 66's `$6` command clearing bit 13 is a transmit *starting*, and why
+ * finding 74's acknowledge putting bits 2 and 1 back is an interrupt being
+ * *cleared* -- both read backwards from the bit alone. */
+#define AP_RING_CTL_STATUS_PRESENT 0x8000u /* nct, 0 => network connect */
+#define AP_RING_CTL_STATUS_TMO 0x4000u     /* timeout */
+#define AP_RING_CTL_STATUS_XBY 0x2000u     /* 0 => transmit busy */
+#define AP_RING_CTL_STATUS_RBY 0x1000u     /* 0 => receive busy */
+#define AP_RING_CTL_STATUS_IOV 0x0800u     /* 1 => initialize */
+#define AP_RING_CTL_STATUS_RLK 0x0400u     /* receive lock error */
+#define AP_RING_CTL_STATUS_ESB 0x0200u     /* sticky elastic-store error */
+#define AP_RING_CTL_STATUS_BPE 0x0100u     /* sticky bi-phase error */
+#define AP_RING_CTL_STATUS_GPS 0x0008u     /* sticky good packet seen */
+#define AP_RING_CTL_STATUS_XI 0x0004u      /* XMIT interrupt pending */
+#define AP_RING_CTL_STATUS_RI 0x0002u      /* RCV interrupt pending */
+#define AP_RING_CTL_STATUS_TMI 0x0001u     /* gate-array timeout interrupt */
 
 /* What `+400` reads on an idle, just-reset board, asserted by the firmware's
  * own subtest 01 -- `(+400) & $F806 == $F806`. Bits 15, 14, 13, 12, 11, 2 and
@@ -136,18 +155,24 @@
 #define AP_RING_CTL_COMMAND_STATUS_IDLE 0x00F0u
 
 /* And `+404`'s, from subtest 15: `(+404) & $F8 == $E0`, so bits 7-5 set with
- * bits 4 and 3 clear. */
+ * bits 4 and 3 clear. **`+404` is RCV_STAT** (`RING.md` 93), whose low byte
+ * `[EH]` p. 12-30 gives as bit 7 `nct` "0=> network connect", 6 `ren` receive
+ * enable, 5 `rby` "0=> rcv busy", 4 `bpe` bi-phase error, 3 `esb` elastic-store
+ * error, and 2:0 the receive counter outputs -- "pkt exceeded max_rcv_cnt",
+ * "data rcv in progress", "hdr rcv in progress". So `E0` is exactly a
+ * disconnected, receive-enabled, not-busy board with no errors, which is what
+ * a just-reset one is. The firmware's constant and the manual's bit table
+ * agree without either having been used to derive the other. */
 #define AP_RING_CTL_COMMAND2_STATUS_IDLE 0x00E0u
-#define AP_RING_CTL_STATUS_BIT13 0x2000u
-#define AP_RING_CTL_STATUS_BIT11 0x0800u
-#define AP_RING_CTL_STATUS_BIT2 0x0004u
-#define AP_RING_CTL_STATUS_BIT1 0x0002u
-/* Two more the machine's own differing-bits line named (`RING.md` 68c): bit 14
- * is set at reset and at subtest 16 and must be **clear** at 26, so the command
- * clears it and it does not return; bit 3 is clear at 16 and **set** at 26, so
- * completion sets it. */
-#define AP_RING_CTL_STATUS_BIT14 0x4000u
-#define AP_RING_CTL_STATUS_BIT3 0x0008u
+/* The by-number spellings the model was written with, kept as aliases so the
+ * findings that cite them still read, and so this change is a renaming rather
+ * than a rewrite of behaviour that the firmware has already accepted. */
+#define AP_RING_CTL_STATUS_BIT13 AP_RING_CTL_STATUS_XBY
+#define AP_RING_CTL_STATUS_BIT11 AP_RING_CTL_STATUS_IOV
+#define AP_RING_CTL_STATUS_BIT2 AP_RING_CTL_STATUS_XI
+#define AP_RING_CTL_STATUS_BIT1 AP_RING_CTL_STATUS_RI
+#define AP_RING_CTL_STATUS_BIT14 AP_RING_CTL_STATUS_TMO
+#define AP_RING_CTL_STATUS_BIT3 AP_RING_CTL_STATUS_GPS
 
 /* The dual-ported RAM, finding 46: `$7FFF + 1` words, which is 64 KB. The
  * figure is the firmware's own -- the extent it tests -- and not a datasheet's,
