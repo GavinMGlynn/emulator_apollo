@@ -4567,9 +4567,18 @@ Only after the reference core is proven, and only under an identity harness.
       selected, it still reports `sysboot not found`. Given `RING.md` 85a/85d
       puts `sysboot` on a *volume*, the live candidates are that the SR10.3
       boot cartridge does not carry `sysboot` where `ex` looks, or that the tape
-      needs rewinding to BOT before the search. Both are checkable against
-      `ct_extract.py`'s listing of that cartridge — **no emulator run needed**,
-      which is where this should go next. Then MINST from the four software cartridges,
+      needs rewinding to BOT before the search. Checked with `ct_extract.py`, no emulator
+      involved: **the SR10.3 boot cartridge does carry `sysboot`** — 10,240
+      bytes, **10 blocks**, which is `[AEGIS]` §4.3.2's ten contiguous blocks
+      exactly (`RING.md` 85d). It also carries `sau7/domain_os`, 889,756 bytes,
+      the DN3500's own. So neither file is missing from the media and the error
+      is not about absence.
+      **One difference from the SR10.4 cartridge that does work**: that one
+      carries **both** `sysboot` *and* `sysboot.m68k` (40,960 bytes); SR10.3's
+      carries only `sysboot`. Whether the PROM in this machine wants the
+      `.m68k` variant is the next question, and it is answerable by listing
+      what `ex` searches for in the boot PROM's strings — again with no
+      emulator run. Then MINST from the four software cartridges,
       then the state hash the item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
