@@ -179,8 +179,21 @@ Named so that the gap is visible rather than implied.
   the wrong run**: that `ACR 60` came from a *different* boot -- no cartridge,
   8 M instructions, `CSRB` still `BB` -- not from this one at 164 M. Same error
   as the register dump, one level up: evidence taken from a context that was not
-  the one in question. **Next: print `ACR` from the cartridge run at the moment
-  of the read**, and if it is set, find what sets it.
+  the one in question. **Found, in the PROM: `000762  move.b #$e0, $8(a0)`**
+  -- the firmware writes `ACR = $E0`, bit 7 **set**, selecting baud set 2, and
+  it does so *immediately before* the console poll at `00078E`. (`00076E` sets
+  the second DUART's to `$80` likewise.) So the receiver at code `7` genuinely
+  is **2000 baud**, this core's model is correct end to end, and the earlier
+  `ACR 60` was read from a run that had not yet reached `000762`.
+  That makes the whole chain measured: firmware selects set 2 -> `CSRB = 77` is
+  2000 -> `0x0D` from a 9600 terminal resamples to `$FE` -> the table selects
+  `$99`, 4800, which the sender is not -> no convergence.
+  Solving for a self-consistent rate at receiver 2000 gives **2400**: `0x0D`
+  resamples to `$C7`, and `$C7` names `$88`, code 8, 2400. **Tried and it did
+  not open the console** (`0007F8` still unreached at 400 M), so a necessary
+  condition is not a sufficient one -- the two characters, the `$158(a6)` bit 0
+  sequencing and the initial `--boot-input` character all share the one sender
+  rate. That interaction is the remaining work.
   The DEV BIT ARRAY is **not** what gates the tape: setting bit 1 `ctape`
   changes nothing, measured. The PROM does carry `Cartridge Tape  ` and
   `Ctape ERROR, SENSE BYTES = `, so the device is supported once selected.
