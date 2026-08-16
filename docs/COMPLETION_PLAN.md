@@ -4511,9 +4511,17 @@ Only after the reference core is proven, and only under an identity harness.
       *onto* and cannot be booted *from*, so `ex domain_os` must take its image
       from the **cartridge** when it works. Why it did once and does not now is
       still open, but it is a question about the cartridge path rather than
-      about volumes, rundirs or the clock. Next: establish what makes `di c`
-      effective — it prints nothing either way, which is why four runs could not
-      tell the two cases apart. Then MINST from the four software cartridges,
+      about volumes, rundirs or the clock. **Drive-settling time is excluded too**: a run with
+      `!wait 10` before `di c` and `!wait 6` after — the pacing the install
+      script uses around cartridge operations — fails identically. So five
+      variables are now eliminated (invocation, rundir, era config, unclean
+      volume, drive settling) and the one successful load remains unexplained.
+      **The honest position is that the SR10.3 kernel load is not currently
+      reproducible and no hypothesis survives.** Two things to do before more
+      runs, both cheap and neither an emulator invocation: give `di c` an
+      **observable** — it prints nothing on success or failure, which is what
+      made five runs indistinguishable — and preserve the volume and rundir of
+      any run worth explaining *before* the next one starts. Then MINST from the four software cartridges,
       then the state hash the item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
