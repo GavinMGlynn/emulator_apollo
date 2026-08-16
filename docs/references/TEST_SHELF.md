@@ -124,3 +124,15 @@ and one field short. The distribution tapes carry the same driver in a
 *sequential* archive, which is a different and probably smaller problem -- worth
 trying before the last VTOCE offset is chased.
 
+### SR10.3 is now held
+
+Downloaded to `media/sr10.3/`: the five `Std_Sfw` cartridges, 236 MB
+uncompressed. Every one is a whole number of 512-byte blocks and every one
+reads end to end through `--tape`; the boot cartridge reports a real boot
+record, `load 0013D800 entry 0013D82A length 7968`.
+
+That is the first release beyond SR10.4 this project holds, and it moves "Boot
+every Domain/OS release obtainable" from blocked-on-media to blocked-on-nothing
+for one more release. `media/` is gitignored, so the files are named here rather
+than committed.
+
