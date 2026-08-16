@@ -4428,16 +4428,23 @@ Only after the reference core is proven, and only under an identity harness.
       and `mdsession.py --commands` drives it: `di c`, `ex invol`, option `7`,
       `w`. INVOL loads, prints its warning banner and reaches its disk
       selection.
-      **It then fails, and this is the next thing to solve**:
-      `Unable to assign disk - error status = 100001`. The image is
-      `truncate -s 348M`, byte-identical in size to the `.awd` files that do
-      work (364,904,448), so size is not it. Candidates, none yet tested: the
-      harness may not be attaching the image for this stage the way the SR10.4
-      run did, or a virgin all-zero image may need something the existing
-      checkpoints already carry — `media/dn3500-osclean.awd` is described as
-      "the right base for redoing the install", which would sidestep INVOL
-      entirely and is worth trying **first**, since it is one flag rather than
-      an investigation.
+      **INVOL was sidestepped and SR10.3's KERNEL NOW RUNS.** Its
+      `Unable to assign disk - error status = 100001` was not solved but routed
+      around, and the checkpoint list already offered the route:
+      `media/dn3500-invol-done.awd` is an initialised, **OS-free** volume, so it
+      is the right base for any release. (`-osclean` is not: it already carries
+      SR10.4's OS.) Copied to `media/dn3500-sr10.3.awd`, then `di c` /
+      `ex domain_os` off the SR10.3 boot cartridge:
+
+          Domain/OS kernel(7), revision 10.3, August 22, 1990  3:32:49 pm
+
+      **The first release other than SR10.4 to run in this project.** It stops
+      at `More than 14 days have elapsed since the last shutdown. Switch to
+      service mode, press reset and run CALENDAR.` -- a documented Domain/OS
+      state, not a fault: the volume's last-shutdown stamp is older than the
+      emulated clock. Next is CALENDAR (or a clock seeded near that stamp),
+      then MINST from the four software cartridges, then the state hash the
+      item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
       console selection is an autobaud (`000844`-`0008B8`) that the scripted
