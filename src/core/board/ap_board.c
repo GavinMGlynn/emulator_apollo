@@ -813,7 +813,19 @@ void ap_board_advance(ap_board_t *board, ap_time_t now) {
    * not matter and must not: two devices advanced to the same absolute time
    * cannot influence each other through the advance itself, which is what makes
    * this a tick rather than a schedule. */
-  ap_timer_advance(&board->timer, now);
+  /* Skipped until a pulse is due, on a simpler argument than the serial part's:
+   * the PTM keeps no `now` of its own, only `clocked_to` per timer, so there is
+   * nothing a skipped call could leave stale.
+   *
+   * The guard is cheaper than what it guards even though both walk three
+   * timers -- this one only adds and compares, where the advance also subtracts
+   * and may divide, and it is a call besides. That was not obvious and was got
+   * wrong once: a first measurement said "neutral" and this was reverted, on
+   * runs taken minutes apart on a machine whose wall time drifts by a second.
+   * Interleaved A/B, three pairs, has it faster in all three. */
+  if (now >= ap_timer_next_pulse(&board->timer)) {
+    ap_timer_advance(&board->timer, now);
+  }
   ap_calendar_advance(&board->calendar, now);
   /* §3.9's memory refresh, which is a serial part doing a job that has nothing
    * to do with serial lines. It is here rather than absent because the counter

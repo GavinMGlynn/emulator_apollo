@@ -102,10 +102,19 @@ void ap_timer_advance(ap_timer_t *timer, ap_time_t now);
 /* The IRQ pin, to be wired to `AP_TIMER_IRQ` on the interrupt controllers. The
  * board does that wiring, not this module — the timer has no business knowing
  * what is listening. */
-/* The earliest instant this part's line could change by time alone -- the
- * conservative lower bound `ap_sio_interrupt_next_change` states the rule for.
- * The PTM moves only on a clock pulse, so it is the next pulse of whichever
- * of its three timers is due first. */
+/* The next clock pulse any of the three timers is due, or `AP_TIME_NEVER` when
+ * none is clocked.
+ *
+ * **This bounds the part's whole observable state, not just its interrupt.**
+ * Unlike the serial part, the PTM keeps no `now` of its own -- only
+ * `clocked_to` per timer -- so there is nothing that a skipped advance could
+ * leave stale, and nothing outside a pulse can move a counter or the line.
+ * That is what lets the board skip the advance itself and not merely the
+ * interrupt sample. */
+[[nodiscard]] ap_time_t ap_timer_next_pulse(const ap_timer_t *timer);
+
+/* The interrupt bound, which for this part is the same instant and says so
+ * rather than repeating the expression. */
 [[nodiscard]] ap_time_t ap_timer_interrupt_next_change(const ap_timer_t *timer);
 
 [[nodiscard]] bool ap_timer_irq(const ap_timer_t *timer);

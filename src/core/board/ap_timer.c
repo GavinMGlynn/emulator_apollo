@@ -91,7 +91,7 @@ void ap_timer_advance(ap_timer_t *timer, ap_time_t now) {
   }
 }
 
-ap_time_t ap_timer_interrupt_next_change(const ap_timer_t *timer) {
+ap_time_t ap_timer_next_pulse(const ap_timer_t *timer) {
   ap_time_t next = AP_TIME_NEVER;
   for (unsigned i = 0; i < AP_MC6840_TIMERS; i++) {
     if (timer->clock[i].period == 0u) {
@@ -103,6 +103,10 @@ ap_time_t ap_timer_interrupt_next_change(const ap_timer_t *timer) {
     }
   }
   return next;
+}
+
+ap_time_t ap_timer_interrupt_next_change(const ap_timer_t *timer) {
+  return ap_timer_next_pulse(timer);
 }
 
 bool ap_timer_irq(const ap_timer_t *timer) { return ap_mc6840_irq(&timer->ptm); }

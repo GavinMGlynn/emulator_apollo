@@ -20429,6 +20429,45 @@ reports `disk sidecar ... 464 bytes` beside the disk line. The defect-injection
 behaviour itself is `omti_suite`'s, and was already covered there; what was
 untested and is now wired is the frontend's half.*
 
+## `ap_board_bus_tick` is already gone, the timer follows -- and the instrument was wrong
+
+**`ap_board_bus_tick` no longer appears in a profile at all**, below the 0.4%
+floor, removed by the batching. The profile has moved: `ap_m68030_step` 11.0%,
+`fill_to_decoded` 10.6%, `ap_board_write` 8.1%, `ap_board_advance` 6.1%,
+`ap_board_read` 5.4% -- and `ap_board_sample_interrupts` down from 8.0% to
+**3.5%**, so narrowing its invalidation did work after all and the earlier
+"no measurable gain" was the instrument, not the change.
+
+**The timer advance is now gated too**, on a simpler argument than the serial
+part's: the PTM keeps no `now` of its own, only `clocked_to` per timer, so
+nothing a skipped call could leave stale exists.
+
+**A blanket gate on `ap_board_advance` was considered and rejected**, which is
+worth recording because it looks obviously right. `ap_omti_advance` assigns
+`omti->now` unconditionally and a command write schedules `completion_at` from
+it, so a stale `omti->now` would move a completion -- the disk must be advanced
+every instruction whatever the others do.
+
+### The measurement was wrong twice, and the method is the finding
+
+This machine's wall time **drifts**: the same binary measured 29.6 s and 32.5 s
+on runs minutes apart, a spread wider than any effect being chased. On that
+basis the timer gate was measured "neutral", reverted, and given a confident
+comment explaining why a guard over three timers cannot pay.
+
+Interleaving the two binaries -- built once each, alternated in one window, and
+compared on minima -- reverses it: **29.65 s against 30.20 s, faster in all
+three pairs**. The reasoning was wrong too: `ap_timer_next_pulse` only adds and
+compares where `ap_timer_advance` subtracts, may divide, and is a call.
+
+**So sub-second claims here need interleaved A/B with repeats, and single runs
+minutes apart are not evidence.** The large results stand on their own margins
+-- 45.3 → 39.9 → 30.4 s are 5.4 s and 9.5 s, far outside the band -- but the
+serial gate's 1.9% was a single-run comparison inside it, and should be read as
+"no regression, direction unconfirmed" until measured the same way.
+
+*Hash `A354786119A3931D` throughout; `ctest` 137/137.*
+
 ## The serial advance is gated, and the blocker turned out to be hypothetical
 
 `skip(n)` was recorded as needing a bound on *observable state* rather than on
