@@ -4413,6 +4413,17 @@ Only after the reference core is proven, and only under an identity harness.
       So the remaining sequence is just: `truncate -s 348M` a fresh volume,
       INVOL it, then run `install-domainos.cmds` against the SR10.3 cartridges.
       The install is the long pole after all.
+      **Started, and where it stands.** `media/dn3500-sr10.3.awd` is truncated
+      to 348 M and **still all zeros** — INVOL has *not* run. Two things were
+      learned attempting it, both cheap and both worth not rediscovering:
+      **(a)** the oracle route is sound — MD's `>` prompt opens immediately
+      under `mdsession.py`, which is the thing this core's own console path
+      cannot yet do, so nothing about the autobaud work blocks this;
+      **(b)** `--stage invol` needs `--ctape` pointing at the boot cartridge,
+      or `ex invol` answers `Tape 39  000001  00  C` — it loads `invol` *from*
+      the cartridge. With the cartridge fitted `ex invol` loads and then wants
+      its dialogue driven (volume name and the rest, `FINDINGS.md` C50), which
+      is where this stopped. That dialogue is the next thing to script.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
       console selection is an autobaud (`000844`-`0008B8`) that the scripted
