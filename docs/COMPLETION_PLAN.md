@@ -4423,7 +4423,21 @@ Only after the reference core is proven, and only under an identity harness.
       or `ex invol` answers `Tape 39  000001  00  C` — it loads `invol` *from*
       the cartridge. With the cartridge fitted `ex invol` loads and then wants
       its dialogue driven (volume name and the rest, `FINDINGS.md` C50), which
-      is where this stopped. That dialogue is the next thing to script.
+      is where this stopped. **That dialogue is now scripted** — `FINDINGS.md`
+      C50 records it prompt by prompt, so it was read rather than rediscovered,
+      and `mdsession.py --commands` drives it: `di c`, `ex invol`, option `7`,
+      `w`. INVOL loads, prints its warning banner and reaches its disk
+      selection.
+      **It then fails, and this is the next thing to solve**:
+      `Unable to assign disk - error status = 100001`. The image is
+      `truncate -s 348M`, byte-identical in size to the `.awd` files that do
+      work (364,904,448), so size is not it. Candidates, none yet tested: the
+      harness may not be attaching the image for this stage the way the SR10.4
+      run did, or a virgin all-zero image may need something the existing
+      checkpoints already carry — `media/dn3500-osclean.awd` is described as
+      "the right base for redoing the install", which would sidestep INVOL
+      entirely and is worth trying **first**, since it is one flag rather than
+      an investigation.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
       console selection is an autobaud (`000844`-`0008B8`) that the scripted
