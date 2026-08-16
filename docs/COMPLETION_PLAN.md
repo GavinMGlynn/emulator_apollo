@@ -4455,6 +4455,12 @@ Only after the reference core is proven, and only under an identity harness.
       state* rather than on an interrupt line — a stronger claim, because the
       serial part's output-port square waves are readable at any instant and a
       skipped advance leaves its clock stale. Detail in `PROJECT_STATUS.md`.
+  - [x] **The serial advance is skipped until a pulse is due** -- the first
+    bound on *observable* state, the blocker for it having turned out to be
+    hypothetical: `duart->now`'s only consumer is reachable solely from
+    `ap_mc68681_output_pin`, which no production code calls.
+    *Verification: 30.3 s → **29.7 s**, hash and reports unchanged; `ctest`
+    137/137. Detail in `PROJECT_STATUS.md`.*
   - [x] **The bus tick is batched when `n` ticks are provably one** -- no DMA
     able to ask and an idle arbiter, both guards being the ones the per-tick
     path itself tests. *Verification: 39.9 s → **30.4 s**, 1.311x, state hash

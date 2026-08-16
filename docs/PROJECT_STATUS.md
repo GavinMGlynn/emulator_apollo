@@ -20429,6 +20429,44 @@ reports `disk sidecar ... 464 bytes` beside the disk line. The defect-injection
 behaviour itself is `omti_suite`'s, and was already covered there; what was
 untested and is now wired is the frontend's half.*
 
+## The serial advance is gated, and the blocker turned out to be hypothetical
+
+`skip(n)` was recorded as needing a bound on *observable state* rather than on
+an interrupt line, with the serial part named as the obstacle: `ap_sio_advance`
+carries `now` into both parts unconditionally, and its own comment warns the
+output-port square waves are "free-running" and readable at any instant.
+
+**That reader does not exist.** `duart->now` has exactly one consumer,
+`clock_pin_level`, reached only from `ap_mc68681_output_pin` -- and that
+accessor is called by **nothing but its own tests**. So a stale `now` is
+unobservable to the machine, and the serial part's observable state is just
+`counter_output` and the ISR, both of which move only at terminal count.
+
+The advance is therefore skipped until a pulse is due. Catching up needed no new
+code: the pulse loop's `pulses = delta / period` already issues the whole
+backlog when the call does happen, which is the property `ap_sio_advance`'s own
+comment says the tick loop rests on.
+
+| | 350 M boot | hash |
+| --- | --- | --- |
+| before | 30.324 s | `A354786119A3931D` |
+| serial advance gated | **29.739 s** | `A354786119A3931D` |
+
+**1.9%, and the modest size is arithmetic rather than disappointment.** X1 is
+3.6 MHz, so a pulse falls every 5,984,000 base units against an instruction's
+~3.4 million: a pulse is due roughly every 1.75 instructions and the skip fires
+under half the time. 6.8% of profile at ~43% skipped is about what was
+measured.
+
+**The pattern is the point, not the 1.9%.** This is the first bound on
+*observable state* rather than on an interrupt line, which is what `skip(n)`
+needs throughout -- and the dependency it rests on is written into
+`ap_sio_next_pulse` rather than left implicit, so a board that ever wires those
+output pins breaks a stated assumption instead of a silent one.
+
+*Cumulative for the session: 45.3 s → 29.7 s, **1.52x**, every step hash- and
+report-identical. `ctest` 137/137.*
+
 ## Narrowing the interrupt invalidation bought nothing, and that is the finding
 
 A re-profile after the two increments showed `ap_board_sample_interrupts` still

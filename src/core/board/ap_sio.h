@@ -138,6 +138,19 @@ void ap_sio_write(ap_sio_t *sio, uint32_t address, uint8_t value);
  * its `ISR` can move is the next pulse. An unclocked part cannot move at all. */
 [[nodiscard]] ap_time_t ap_sio_interrupt_next_change(const ap_sio_t *sio);
 
+/* The next X1 pulse either part is due, or `AP_TIME_NEVER` when neither is
+ * clocked. Before it, `ap_sio_advance` cannot change anything **observable**:
+ * the pulse loop divides to zero, and the OP3-to-IP0 loopback is driven by
+ * `counter_output`, which only moves at terminal count.
+ *
+ * The one thing an advance does unconditionally is carry `now` into each part,
+ * for `clock_pin_level`'s benefit -- and that is reachable only through
+ * `ap_mc68681_output_pin`, which **no production code calls**. So a stale `now`
+ * is unobservable to the machine, and this is a bound on state and not merely
+ * on an interrupt line. If a board is ever wired to those pins, this predicate
+ * is what has to be revisited, which is why the dependency is written here. */
+[[nodiscard]] ap_time_t ap_sio_next_pulse(const ap_sio_t *sio);
+
 [[nodiscard]] bool ap_sio_irq(const ap_sio_t *sio);
 
 /* Advance both parts' counter/timers to absolute time `now`, issuing one clock

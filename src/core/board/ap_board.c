@@ -818,7 +818,13 @@ void ap_board_advance(ap_board_t *board, ap_time_t now) {
   /* §3.9's memory refresh, which is a serial part doing a job that has nothing
    * to do with serial lines. It is here rather than absent because the counter
    * now has a clock: `board/ap_sio.h` derives the rate. */
-  ap_sio_advance(&board->sio, now);
+  /* Skipped until a pulse is actually due. Nothing observable moves before
+   * then -- see `ap_sio_next_pulse` -- and the pulse loop's `delta / period`
+   * already issues the whole backlog when the call does happen, so catching up
+   * is the arithmetic that was always there rather than anything new. */
+  if (now >= ap_sio_next_pulse(&board->sio)) {
+    ap_sio_advance(&board->sio, now);
+  }
   /* The tape's command handshake, which is the only part of the drive that
    * moves with time -- §1.13.2's edges, at the bounds the figures publish. */
   ap_tape_advance(&board->tape, now);
