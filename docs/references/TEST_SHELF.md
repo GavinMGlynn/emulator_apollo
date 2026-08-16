@@ -110,17 +110,18 @@ Named so that the gap is visible rather than implied.
   the channel's CSR changes from `77` to `99` for the first time.
   Two characters are needed before MD exists and `0007F0` is why -- the first
   is spent in the table above, and only the second, with bit 0 of `$158(a6)`
-  now set, reaches the console-selected path at `0007F8`. **What is still open, located by stop-PC rather than
-  guessed**: `0007E6` -- the serial 1 channel B console branch -- is reached
-  **exactly once**, at ~164 M instructions, and `0007F8` (console selected) is
-  never reached at all. `0007F6`'s `beq` is therefore always taken, so bit 0 of
-  `$158(a6)` is always found clear, which is only correct for the *first*
-  character. Four characters are read from the channel and only one of them
-  reaches the poll. So the question is not delivery and not the rate: it is
-  **why the second delivered character does not re-arm `RxRDY` for the poll**,
-  with the receiver reported enabled at 8 bits throughout. The earlier guess
-  that the harness's sending rate was the problem is withdrawn -- it predicts
-  no characters getting through, and four do.
+  now set, reaches the console-selected path at `0007F8`. **What is still open, and it is the harness**:
+  `0007E6` is reached **exactly once** and `0007F8` (console selected) never,
+  because the sender's rate is **fixed for a whole run** while the autobaud
+  changes the *receiver's* rate mid-run. `ap_mc68681`'s `rate_matches` does not
+  drop a mismatched character, it **corrupts** it -- faithful UART behaviour,
+  and exactly what the table decodes -- so `$FF` at the default sender `0xBB`
+  into a receiver at `77` reads as `$FE` and fires the `$99` entry. After that
+  the receiver is at `99` and the sender is still at `BB`, so nothing further
+  arrives intact. Measured the other way round too: with the sender at `0x99`, a
+  carriage return into a receiver still at `77` reads as `$F9`, which no entry
+  matches. Closing it means letting the scripted terminal change rate when the
+  receiver does.
   The DEV BIT ARRAY is **not** what gates the tape: setting bit 1 `ctape`
   changes nothing, measured. The PROM does carry `Cartridge Tape  ` and
   `Ctape ERROR, SENSE BYTES = `, so the device is supported once selected.

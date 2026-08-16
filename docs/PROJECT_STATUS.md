@@ -504,11 +504,24 @@ instructions, and `0007F8`, console-selected, is never reached at all. So
 which is only correct for the *first* character. Four characters are read from
 the channel and only one of them reaches the poll.
 
-The question is therefore neither delivery nor the rate: it is **why the second
-delivered character does not re-arm `RxRDY` for the poll**, with the receiver
-reported enabled at 8 bits throughout. The guess that the harness's sending rate
-was the problem is withdrawn — it predicts no characters getting through, and
-four do. MD's `>` is still unreached, so `di c` cannot select the cartridge.
+**The rate hypothesis was right in substance and I withdrew it on bad
+evidence.** It was dropped because "no characters get through" seemed to follow
+from it and four did. That inference was wrong: `ap_mc68681`'s `rate_matches`
+does **not** drop a character on a rate mismatch, it **corrupts** it — which is
+what a real UART does, and precisely what the autobaud table exists to decode.
+So characters arrive; they arrive *wrong*. Sending `$FF` at the default sender
+`CSR 0xBB` into a receiver at `77` is read as `$FE`, which is why the table fired
+and wrote `$99`.
+
+**The actual limitation is that the sender's rate is fixed for a whole run.**
+`--boot-input-rate` is one value; the autobaud *changes the receiver's rate
+mid-run*. So the handshake can only complete if the first character happens to
+corrupt into the table entry that names the sender's own rate. Measured: with
+the sender at `0x99` — the rate the firmware would converge on — a carriage
+return into a receiver still at `77` reads as `$F9`, which is in no table entry,
+so nothing fires. That is a harness limitation, not a firmware or model defect,
+and closing it means letting the scripted terminal change rate when the receiver
+does. MD's `>` is still unreached, so `di c` cannot select the cartridge.
 
 One instrument limitation found on the way: the posted-code report keeps a
 bounded set, so `0A` **was** posted and did not appear in it. A stop-PC proved
