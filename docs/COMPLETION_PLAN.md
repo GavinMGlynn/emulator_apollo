@@ -4603,12 +4603,12 @@ Only after the reference core is proven, and only under an identity harness.
       `E0060882`. Memory size now comes from the model table, `--ram` selects
       it, and both DN3000 revisions pass into Memory Module 2. Detail and the
       display-redirects-the-console trap in `PROJECT_STATUS.md`.
-      **Awaiting**, each named there: the DN2500's map, now **half-recovered
-      from its own firmware** — the PROM region is 128 K (proved by the image's
-      own self-checksum bounds and its `0001F040` reset PC) and the core device
-      block is the Series 4000's shifted up by `0x10000`, confirmed against
-      six addresses; what is missing is the AT cards at ISA `140` and `148`,
-      which are not shifted Series 4000 addresses. The DN4500's memory strap is
+      **Awaiting**, each named there: the DN2500's map, now **recovered from its
+      own firmware** — the PROM region is 128 K, the core device block is the
+      Series 4000's shifted up by `0x10000`, and ISA `140`/`148` turn out to be
+      the **PC/AT bus-tester fixture** rather than peripherals, so no shipping
+      machine answers there; its real disk is SCSI through a `C90` chip and its
+      display an on-board `VTGA`, both reached register-indirect. The DN4500's memory strap is
       **solved**: the firmware decodes it with a fourteen-arm `cmp.b` chain,
       identical in the DN3500's PROM, and the oracle's four bank layouts fall
       out of it unchanged. Its self-test failure was our unstrapped port reading

@@ -20178,10 +20178,64 @@ relocated one. Serial does shift with the rest: `020400` is
 
 So a DS2500 map is now half-derived: the boot PROM at `0` for 128 K, the core
 device block at `020000` with the Series 4000's own offsets inside it, and main
-memory at `04000000`. What is still missing is which cards answer at ISA `140`
-and `148`, and that wants the same treatment -- reading the firmware that talks
-to them. Building the map with the Series 4000's disk and tape placements
-carried over unchanged would be inventing the half that is not measured.
+memory at `04000000`.
+
+### ISA `140` and `148` are the PC/AT bus tester, not a peripheral
+
+**Answered, by the same route the rest of the map came by: reading the firmware
+that talks to them.** `2500_BOOT_16182_8.bin` disassembled raw, every absolute
+reference in the AT window collected, and the code that owns them read.
+
+The registers, from the firmware's own use of them:
+
+| | | |
+| --- | --- | --- |
+| ISA `140` `+0` | control/status | reset is `#$1` then `#$0`; `#$40` enables; also written `#$2`, `#$58`. **Bit 4 is an input, polled** |
+| ISA `140` `+2` | select | walked `$20`, `$28`, `$30`, `$38`; bit 0 set selects 16-bit access |
+| ISA `140` `+3` | mask | written `#$7f` by the reset helper at `$DC6A` |
+| ISA `148` `+0`/`+1` | 16-bit data window | written `$A5`/`$5A`, read back as a byte against `$A5` or a word against `$A55A` |
+| ISA `148` `+2`-`+5` | further registers | driven by the same sixteen routines |
+
+**What identifies it.** Sixteen test functions occupy one contiguous region,
+`$DC64`-`$E394`, and *between them they touch no device address but these two*.
+They are reached from a descriptor table at `$1A2DC`, one 16-byte entry each,
+listed by a table at `$19F48` that sits beside a block of ten test-name strings:
+`Bus Memory Test`, `Bus I/O Read/Write Byte Test`, `Bus I/O Read/Write Word
+Test`, `Bus memory byte/word access test`, `Bus S memory read/write byte test`,
+`Bus oscillator frequency test`, `Bus-tester IO Channel Check Test`, `Bus
+Interrupt Request Line Test` -- under the banners `BUS-TESTER-  PC/AT BUS TESTS
+STARTED` and `Bus-Tester: PC/AT Tests Passed`.
+
+Two of the pairings are exact rather than thematic. The `$A5`/`$5A` window
+written then read back **as a byte or as a word under a caller's flag** is
+`Bus I/O Read/Write Byte Test` and `... Word Test`, which differ in nothing
+else. And `btst.b #$4, $4a000` appears at **exactly three** sites -- `$E276`,
+`$E29C`, `$E2CA` -- each a bounded wait for the bit to change, against **exactly
+three** identical strings `Motherboard Error: Bus OSC signal frequency is wrong
+or oscillator is not running.` So bit 4 is the AT bus `OSC` line, and the three
+sites are the three ways that test can fail.
+
+**Which answers the question by dissolving it.** The addresses are not "a
+differently-populated machine's cards": they are a **diagnostic fixture** the
+boot PROM knows how to drive, so no shipping DN2500 need answer there at all.
+That is why they are not shifted Series 4000 addresses -- the Series 4000 had no
+such card either.
+
+### And the machine's real peripherals are on-board, which the same strings name
+
+The PROM says what this machine has, and it is not the Series 4000's set:
+`Found disk device: SCSI Disk`, `Found tape device: SCSI Tape`, and a chip it
+calls **`C90`** throughout its own test messages -- `Can't reset the SCSI chip`,
+`Can't write onto the C90 FIFO`, `C90 FIFO flag count register is not updated`,
+`SCSI_INTR on the 030 side is stuck low`. The display is a **`VTGA`** with a
+frame buffer: `VTGA Failed Existence Test`, `VTGA Ram Test Failed`, `Frame
+Buffer Access Test failed byte access`, and a `MEGA chip` in the path.
+
+**Neither appears anywhere in the absolute-address census**, so both are reached
+through a base held in a register rather than by absolute addressing, and
+neither is an AT card. Carrying the Series 4000's Winchester and floppy
+placements across would therefore have been wrong twice over -- wrong addresses
+for peripherals this machine does not have.
 
 *Verification: none yet -- this is a measurement, not a change. `020A00` is
 unidentified on both machines and is the one core-block address the derivation
