@@ -107,6 +107,72 @@ method here.
 None possible: MAME does not register the DN4500 or DSP4500, so this board has
 no runnable reference and every figure here cites `[ROMMX]` by address.
 
+## Finding 20: the ROM clears a 1280x1024 raster at `$900000`
+
+**A static census of `[ROMMX]`, which had not been taken.** Findings 3 and 15
+counted addresses the ROM uses as *absolute operands* and writes the machine
+made at run time. Neither sees an address loaded into a register, and that is
+where this was hiding: `movea.l #$900000, a1` at `$38C` and `movea.l #$900000,
+a4` at `$3EC`. `$900000` appears nowhere as an absolute operand, which is why
+every previous pass missed it.
+
+`ENTRY_03`, the option ROM's third entry point (finding 1 puts `id=3` at
+`+388`), is a **clear-screen loop** and its constants give the geometry outright:
+
+```
+000388  ENTRY_03
+00038C  movea.l #$900000, a1     ; base
+000392  move.w  #$3ff, d1        ; 1024 lines
+000396  moveq   #$60, d2         ; 96 bytes skipped per line
+000398  move.w  #$27, d0         ; 40 longwords
+00039C  clr.l   (a1)+            ; = 160 bytes cleared
+00039E  dbra    d0, $39c
+0003A2  adda.l  d2, a1           ; -> 256-byte stride
+0003A4  dbra    d1, $398
+```
+
+160 bytes is **1280 pixels at one bit per pixel**; 160 + 96 is a **256-byte
+stride**, i.e. 2048 pixels; 1024 lines at 256 bytes is **262,144 bytes = 256
+KB**. Every one of those is already in this core for a different board: the
+DN3500's 19-inch monochrome controller is `width = 1280, buffer_width = 2048,
+height = 1024` in `ap_graphics.c`, and `[S3K]` §10.2 gives that controller
+"256-KB image memory". It is also exactly the panel the model table gives the
+DN4500 and the DN3550, `mono 1280x1024`.
+
+So the *geometry* is no longer a hypothesis with arithmetic behind it (17b): it
+is the firmware's own loop bounds, and four independent things agree on it.
+
+### 20a: what this does **not** yet establish, and the discriminator
+
+**The `0C0000` frame address is not overturned by this, and is not yet
+confirmed against it.** Findings 16-17b put the frame at `0C0000` on a
+measurement -- 50,744 writes into the undecoded AT window, the first at
+`000C63AF` -- plus `019411-A00` Table 2-5 naming that range "ALTERNATE MONO
+GRAPHICS MEMORY SPACE". Both remain true. What has changed is that the ROM's
+own use of `$0C63AF` is now readable and is **not the shape of a raster base**:
+
+```
+0002CE  move.w  -(a0), -(a7)     ; push words onto the stack
+0002D0  dbra    d0, $2ce
+0002D8  movea.l #$c63af, a0      ; a parameter ...
+0002E0  movea.l #$c63b2, a3      ; ... and a second, three bytes on
+0002E6  jsr     (a7)             ; execute the routine just built on the stack
+```
+
+They are arguments to a routine the ROM assembles on the stack and calls, they
+are **odd** addresses, and they are three bytes apart -- none of which a frame
+buffer base is. That weakens `0C0000` as *the frame* without touching its
+identity as a graphics memory space, and it explains the write count: those are
+one routine's byte-wise walk, not a raster fill.
+
+**The discriminator is cheap and is the item's next step**, and it is a
+measurement rather than an argument: decode `$900000` for 256 KB, run the option
+ROM, and see whether `ENTRY_03` clears exactly 1024 x 160 bytes on a 256-byte
+stride there. If it does, the geometry is confirmed by the machine and the
+screenshot has a source; if the writes land elsewhere, this finding is wrong in
+the way the seven retracted ones were and should be retracted with them.
+**`AP_MATROX_FRAME_ADDR` is deliberately left at `0C0000` until that runs.**
+
 ## The DN3500 controllers' audit, 2026-08-16
 
 `ap_graphics.*` is not this file's usual subject, but the line-by-line audit of
