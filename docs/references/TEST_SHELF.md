@@ -71,10 +71,21 @@ is `expected` and belongs in the table above until a run here records it.
 
 Named so that the gap is visible rather than implied.
 
-- **SR9.7, SR10.1, SR10.2, SR10.3.** The plan wants every obtainable release
-  booted; we have SR10.4 only. Each earlier release is a different kernel over
-  the same hardware, which is exactly the kind of variation that finds
-  assumptions.
+- **SR9.7, SR10.1, SR10.2.** The plan wants every obtainable release booted.
+  **SR10.3 is now held** -- five cartridges in `media/sr10.3/`, plus
+  `Apollo_DOMAINOS_SR10.3.5.tgz` -- and `sau7/config` and `sau7/self_test` have
+  been read out of the boot cartridge with `tools/ct_extract.py`. What is *not*
+  held for it is an installed volume: booting a release means installing it
+  first, and the SR10.4 install ran under the oracle over a session.
+  **Booting a release directly from its boot cartridge does not work yet**, and
+  the blocker is named: the PROM never probes `050000`, so it loads `SELF_TEST`
+  from a device that is not there and hangs at `00002BE0`. The DEV BIT ARRAY is
+  **not** what gates that -- setting bit 1 `ctape` changes nothing (measured).
+  The boot PROM *does* carry the strings `Cartridge Tape  ` and
+  `Ctape ERROR, SENSE BYTES = `, and the install dialogue selects the device
+  with **`di c` at MD's `>` prompt** -- which this core has not yet reached on
+  the serial console. Reaching MD is the next step, and the machinery exists:
+  `--boot-type`/`--boot-type-after-pc`/`--boot-type-then`.
 - **Applications.** No compilers, no DSEE, no networking suites. The
   distribution cartridges we hold are the standard software bundle.
 - **Release notes.** `docs/references/bitsavers/release_notes/` and `SR10/` exist

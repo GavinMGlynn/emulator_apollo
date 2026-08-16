@@ -130,6 +130,27 @@ void ap_calendar_build_config(uint8_t *battery, unsigned count,
   ap_calendar_seal_config(battery, AP_CALENDAR_BATTERY_BYTES);
 }
 
+void ap_calendar_set_memory_boards(uint8_t *battery, unsigned count,
+                                   unsigned megabytes) {
+  if (battery == NULL || count < AP_CALENDAR_BATTERY_BYTES) {
+    return;
+  }
+  /* **One byte per board, and the diagnostic said so.** Written first as four
+   * 16-bit entries -- `00 04 00 04 00 04 00 04` -- the SELF_TEST report changed
+   * from flagging slots 0, 1, 2 and 3 to flagging only **0 and 2**: boards 1
+   * and 3 had picked up the `04` from the low half of each pair and stopped
+   * disagreeing with what was sized. A width that halves the number of
+   * complaints and leaves exactly the even slots is a byte array being read as
+   * one, so the eight bytes are eight boards. */
+  const unsigned per_board = megabytes / AP_CALENDAR_CONFIG_MEM_BOARDS_FITTED;
+  for (unsigned i = 0; i < AP_CALENDAR_CONFIG_MEM_BOARDS; i++) {
+    battery[CONFIG_AT(AP_CALENDAR_CONFIG_MEM_BOARD_ARRAY) + i] =
+        i < AP_CALENDAR_CONFIG_MEM_BOARDS_FITTED ? (uint8_t)per_board : 0u;
+  }
+  /* The array is inside the checksummed span, so the seal must follow it. */
+  ap_calendar_seal_config(battery, count);
+}
+
 void ap_calendar_load_battery(ap_calendar_t *calendar, const uint8_t *bytes,
                               unsigned count) {
   if (calendar == NULL || bytes == NULL) {

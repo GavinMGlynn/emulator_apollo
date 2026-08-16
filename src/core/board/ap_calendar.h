@@ -112,6 +112,11 @@
 #define AP_CALENDAR_CONFIG_CHECKSUM 0x0Eu
 #define AP_CALENDAR_CONFIG_VALID_PATTERN 0x12u
 #define AP_CALENDAR_CONFIG_MEM_BOARD_ARRAY 0x16u
+/* Eight entries of one byte, the field's whole extent at `16`-`1D`; of which
+ * this board populates the four the DN3500's SELF_TEST enumerates, reporting
+ * memory slots `00000000` through `00000003`. */
+#define AP_CALENDAR_CONFIG_MEM_BOARDS 8u
+#define AP_CALENDAR_CONFIG_MEM_BOARDS_FITTED 4u
 #define AP_CALENDAR_CONFIG_NODEID 0x1Eu
 #define AP_CALENDAR_CONFIG_DEV_BIT_ARRAY 0x22u
 #define AP_CALENDAR_CONFIG_RING_TYPE 0x26u
@@ -277,6 +282,24 @@ void ap_calendar_seal_config(uint8_t *battery, unsigned count);
  * register `0E` and must be `AP_CALENDAR_BATTERY_BYTES` long. */
 void ap_calendar_build_config(uint8_t *battery, unsigned count,
                               uint32_t node_id, uint32_t devices);
+
+/* Fill the MEM BOARD ARRAY at `16`-`1D` and re-seal.
+ *
+ * `002398-04` p. 12-3 names the field and gives its extent -- eight bytes --
+ * and no encoding. **The utility that writes it supplies the units**:
+ * `sau7/config` prompts `Board #  Size in megabytes` and reports
+ * `Total configured memory: %UD megabytes`, so each entry is a board's size in
+ * **megabytes**, not bytes and not pages. Extracted from the SR10.3 boot
+ * cartridge with `tools/ct_extract.py`, the same route finding 118a took for
+ * the checksum.
+ *
+ * Eight bytes over `AP_CALENDAR_CONFIG_MEM_BOARDS` boards, and the width is the
+ * one thing the utility's strings do not settle -- so it is written as the
+ * diagnostic's own arithmetic checks it: Domain/OS SELF_TEST prints, per slot,
+ * both "megabytes of memory in configuration table" and "megabytes of memory
+ * sized", and the two agreeing is the confirmation. `PROJECT_STATUS.md`. */
+void ap_calendar_set_memory_boards(uint8_t *battery, unsigned count,
+                                   unsigned megabytes);
 
 void ap_calendar_load_battery(ap_calendar_t *calendar, const uint8_t *bytes,
                               unsigned count);

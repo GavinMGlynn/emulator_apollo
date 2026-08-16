@@ -465,6 +465,51 @@ full and the ring is not among them.
 PC as a single machine; `ctest` 138/138; identity boot unchanged at
 `A354786119A3931D`.*
 
+## The MEM BOARD ARRAY, from the utility that writes it (2026-08-17)
+
+**Domain/OS SELF_TEST no longer disagrees with the configuration table about
+memory.** Finding 134c recorded the gap the ring boot exposed: for each of four
+slots the diagnostic printed `00000000 megabytes of memory in configuration
+table` against `00000004 megabytes of memory sized`, because
+`ap_calendar_build_config` left the field zero. It is now filled, and the
+diagnostic prints no slot lines at all.
+
+**The encoding came from the utility, not from trying values.**
+`002398-04` p. 12-3 gives the array's position and extent — `16`-`1D`, eight
+bytes — and no encoding, and it is the only revision of the handbook that
+carries the field at all: Rev 1 and Rev 3 have nothing. So the documents were
+exhausted, which is the point at which `CLAUDE.md` allows measuring. **The
+program that writes the field is a better source than a measurement**, and it
+was already reachable: `sau7/config`, extracted from the SR10.3 boot cartridge
+with `tools/ct_extract.py` — the same route finding 118a took for the checksum —
+prompts `Board #  Size in megabytes` and reports `Total configured memory: %UD
+megabytes`. Units settled, from the writer.
+
+**The width the utility's strings did not settle, and the diagnostic did.**
+Written first as four 16-bit entries — `00 04 00 04 00 04 00 04` — SELF_TEST
+changed from flagging slots 0, 1, 2 and 3 to flagging only **0 and 2**. Boards 1
+and 3 had picked up the `04` from the low half of each pair and stopped
+disagreeing with what was sized. A width that halves the complaints and leaves
+exactly the even slots is a byte array being read as one. Eight bytes are eight
+boards, of which this machine populates four.
+
+That is an oracle rather than a parameter search: the firmware prints both the
+value it read and the value it sized, so it states the answer rather than merely
+grading a guess.
+
+**A refuted hypothesis from the same session, recorded because it cost a boot.**
+The cartridge-tape device bit was set on the theory that the DEV BIT ARRAY gates
+the boot PROM's device search — a cartridge-only boot made **zero** accesses to
+the tape region. It does not gate it: with `0000000F` the tape is still never
+touched and the boot still hangs at `00002BE0`. The bit stays because p. 12-3
+makes the array a device inventory and the core board decodes `050000`
+unconditionally, so the QIC controller is as always-fitted as the disk
+controller — not because it changed anything.
+
+*Verification: `--configure` boots with no memory-slot discrepancy and
+`Self tests passed.`; `calendar_suite` 12 → 13; `ctest` 138/138; identity boot
+unchanged at `A354786119A3931D`.*
+
 ## Domain/OS boots with the ring fitted, and passes its own self-tests
 ## (2026-08-17)
 
@@ -5497,7 +5542,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 29 tests, `8237A` 231466 |
 | Apollo interval timer (`010800`) | working: the part at **odd addresses, stride 2** (measured — the region reads `00 00 00 00 00 FF ...`, the `FFFF` latch default showing through), the three §3.8 input rates as exact time-base clock domains, and the IRQ0 route. Advancing is by whole pulses, so the rate cannot become a function of how often it is polled | `timer_suite`, 8 tests; `FINDINGS.md` C12 |
 | MC6840 interval timer (the part) | working for **both counting modes** — continuous and single shot, each in sixteen-bit and dual eight-bit operation — plus both control register aliases, the write/read byte buffering, the status register, the prescaler, the gate, **both clock inputs** — the `Cx` pin and the enable clock, each counting only for a timer that selected it, and `008778-03` §3.8's three rates are the *external* pins the board drives — and all five of `[6840]` §3.11's ways of clearing an interrupt. **All four modes** are now modelled, the two **measurement modes** included: §3.9's period measurement between falling edges and §3.10's pulse-width measurement of the down time, each with bit 5 choosing whether the interrupt asks for the shorter or the longer of signal and Time Out, the four-part Counter Enable that stops a measurement at its own interrupt, §3.9's footnoted rule that a trailing edge does not reinitialise a running measurement, and the output that starts low and toggles at each Time Out. They were declined for want of a *board* that drives the gates, which is a fact about the DN3500 and not about the part | `mc6840_suite`, 34 tests, `MC6840UM` (a scan with no text layer; read from page images) |
-| Apollo calendar (`010900`) | working: **stride 1, byte consecutive** (measured — and not the timer's odd-address stride 2, so neither placement could be inferred from the other), sixty-four registers aliased through the 256-byte range, and the IRQ8 route through to vector `A8`. The battery RAM's **configuration table** is laid out from `002398-04` p. 12-3 — checksum, valid pattern, memory array, node ID, device bits and the three type bytes — and left blank. The pattern's **value** is not in the manual and came from the boot PROM instead — `cmpi.l #$1234ABCD,$4(a0)` at `00178A`, with `a0` based at the handbook's checksum offset. The fifty bytes are a **battery**: `--calendar-ram FILE` carries them across a run, and deliberately not the clock, since a starting instant taken from the last run's ending one is a wall clock arriving through the back door | `calendar_suite`, 12 tests; `FINDINGS.md` C12 |
+| Apollo calendar (`010900`) | working: **stride 1, byte consecutive** (measured — and not the timer's odd-address stride 2, so neither placement could be inferred from the other), sixty-four registers aliased through the 256-byte range, and the IRQ8 route through to vector `A8`. The battery RAM's **configuration table** is laid out from `002398-04` p. 12-3 — checksum, valid pattern, memory array, node ID, device bits and the three type bytes — and left blank. The pattern's **value** is not in the manual and came from the boot PROM instead — `cmpi.l #$1234ABCD,$4(a0)` at `00178A`, with `a0` based at the handbook's checksum offset. The fifty bytes are a **battery**: `--calendar-ram FILE` carries them across a run, and deliberately not the clock, since a starting instant taken from the last run's ending one is a wall clock arriving through the back door | `calendar_suite`, 13 tests; `FINDINGS.md` C12 |
 | MC146818A calendar (the part) | working: ten clock bytes, four registers, 50 RAM bytes, the once-per-second update with a full Gregorian carry, the alarm with don't-care codes, and Register C's read-to-clear. **Time is supplied by the caller, never the host** — the oracle seeds its calendar from the wall clock, which would rot every golden. The **periodic interrupt** is implemented for **all fifteen** of `[146818]` Table 5's rates, 32.768 kHz down to 2 Hz: the base is the LCM times 2^6 so that it carries the 2^15 the six fastest need, at a span of 9.9 days rather than 634. The **square wave** is driven, sharing that selector and gated by Register B's `SQWE`, and the `DSE` bit's two **daylight-savings** updates are applied. The crystal itself stays unrepresentable — 4.194304 MHz would need a base spanning under two hours — and `ap_mc146818_rate_supported` is kept for that reason. **Wired to the board at `010900`** — `AP_BOARD_REGION_CALENDAR`, with `ap_calendar_advance` on the tick and `ap_calendar_irq` into the interrupt controller. The row said "not yet wired" long after it was | `mc146818_suite`, 32 tests, `MC146818A` (register figures read from page images) |
 | Node ID PROM (`011200`) | working: the layout measured from the oracle's own PROM — stride 2 with the **odd byte reading zero** (unlike the serial ports at the same stride), the identifier big-endian in registers 0-3, and a checksum in register **15** confirmed arithmetically (`01 + 23 + 45 = 69`) and then by the boot PROM's own self-test, which sums registers 0-14 and compares. The identifier is supplied by the caller, never a constant: a device whose purpose is to be unique per machine must not be the same on every one | `nodeid_suite`, 8 tests; `008778-03` Table 2-8, CPU self-test 8 at `008218` |
 | Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 29 tests; `FINDINGS.md` C14 |

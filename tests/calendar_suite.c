@@ -328,6 +328,35 @@ static void test_the_config_checksum_is_the_sum_the_utility_computes(void) {
  * compares it -- `cmp.l` against the stored longword at `-$16a`. A sealed table
  * is one the diagnostic accepts; every boot this core has done carried an
  * unsealed one. */
+/* `002398-04` p. 12-3 gives the MEM BOARD ARRAY's extent at `16`-`1D` and no
+ * encoding. `sau7/config`, the utility that writes it, supplies the units --
+ * it prompts `Board #  Size in megabytes` -- and Domain/OS SELF_TEST supplied
+ * the width: written as four 16-bit entries it flagged slots 0 and 2 where it
+ * had flagged 0, 1, 2 and 3, because boards 1 and 3 had picked up the low half
+ * of each pair. One byte per board over eight boards, and the diagnostic stops
+ * complaining entirely. */
+static void test_each_memory_board_is_one_byte_of_megabytes(void) {
+  uint8_t battery[AP_CALENDAR_BATTERY_BYTES];
+  ap_calendar_build_config(battery, sizeof battery, 0x012345u, 0u);
+  ap_calendar_set_memory_boards(battery, sizeof battery, 16u);
+
+  const unsigned base = AP_CALENDAR_CONFIG_MEM_BOARD_ARRAY - 0x0Eu;
+  /* Sixteen megabytes over the four boards this machine populates. */
+  for (unsigned i = 0; i < AP_CALENDAR_CONFIG_MEM_BOARDS_FITTED; i++) {
+    TEST_ASSERT_EQUAL_HEX8(4u, battery[base + i]);
+  }
+  /* And the rest of the array is empty rather than repeated. */
+  for (unsigned i = AP_CALENDAR_CONFIG_MEM_BOARDS_FITTED;
+       i < AP_CALENDAR_CONFIG_MEM_BOARDS; i++) {
+    TEST_ASSERT_EQUAL_HEX8(0u, battery[base + i]);
+  }
+  /* The array is inside the checksummed span, so the seal must have followed
+   * it -- a table whose sum disagrees is one SELF_TEST rejects outright. */
+  const uint32_t want = ap_calendar_config_checksum(battery, sizeof battery);
+  TEST_ASSERT_EQUAL_HEX8((uint8_t)(want >> 24), battery[0]);
+  TEST_ASSERT_EQUAL_HEX8((uint8_t)want, battery[3]);
+}
+
 static void test_a_sealed_config_table_carries_its_own_checksum(void) {
   uint8_t battery[AP_CALENDAR_BATTERY_BYTES] = {0};
   battery[4] = 0x12u;
@@ -368,5 +397,6 @@ int main(void) {
   RUN_TEST(test_the_calendar_outranks_every_line_below_the_cascade);
   RUN_TEST(test_the_config_checksum_is_the_sum_the_utility_computes);
   RUN_TEST(test_a_sealed_config_table_carries_its_own_checksum);
+  RUN_TEST(test_each_memory_board_is_one_byte_of_megabytes);
   return UNITY_END();
 }

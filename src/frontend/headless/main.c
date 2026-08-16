@@ -3158,7 +3158,21 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
      * "Winchester/Floppy exists but doesn't appear in the configuration
      * table" and the same for the FPU -- so the disk controller and the 68882
      * are always present on this board and always belong in the table. */
+    /* **`CTAPE` belongs here by the same argument, and *not* because it fixed
+     * a boot.** `002398-04` p. 12-3 gives the array as a device inventory --
+     * "used by diagnostics for config info", bit 1 `ctape` -- and the core
+     * board decodes `050000` unconditionally, so the QIC controller is fitted
+     * on every one of these machines exactly as the disk controller and the
+     * 68882 are. The table said `0000001D`, with bit 1 clear, which described a
+     * machine this is not.
+     *
+     * It was set while testing whether the array gates the PROM's boot-device
+     * search, and **it does not**: with `0000000F` the tape region still takes
+     * zero accesses and the boot still hangs at `00002BE0`. That hypothesis is
+     * refuted and recorded (`TEST_SHELF.md`); the bit stays because p. 12-3
+     * says what the field is, not because of what it changed. */
     uint32_t devices = (1u << AP_CONFIG_DEV_FLOPPY) |
+                       (1u << AP_CONFIG_DEV_CTAPE) |
                        (1u << AP_CONFIG_DEV_WINCHESTER) |
                        (1u << AP_CONFIG_DEV_FPU);
     if (g_fit_ring) {
@@ -3169,6 +3183,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     }
     ap_calendar_build_config(battery, sizeof battery, board->node_id.id,
                              devices);
+    ap_calendar_set_memory_boards(battery, sizeof battery, ram_megabytes);
     ap_calendar_load_battery(&board->calendar, battery, sizeof battery);
     printf("calendar ram configured: node %06X, dev bits %08X, checksum %08X\n",
            board->node_id.id, devices,
