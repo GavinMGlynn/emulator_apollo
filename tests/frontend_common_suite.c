@@ -10,6 +10,11 @@
 #include "ap_scanout.h"
 #include "unity.h"
 
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include "ap_ring_link.h"
+
 #include "ap_tap.h"
 
 /* The pipe substitution below is POSIX, and CI builds under MSVC too. */
@@ -504,6 +509,100 @@ static void test_opening_a_missing_tap_device_explains_itself(void) {
   TEST_ASSERT_TRUE(reason[0] != '\0');
 }
 
+
+/* ## The cross-process ring link
+ *
+ * Two emulator *instances* sharing one cable. Driven over a `socketpair` so the
+ * test needs no port, no network and no second process -- what it exercises is
+ * the wire format and the lock-step, which is all the transport is. */
+
+/* A batch of cells that is not symmetric in any of the ways a bug would hide
+ * behind: both windows set, each alone, neither, and not a repeating pattern. */
+static void link_fill(ap_ring_cell_t *cells, unsigned n, unsigned seed) {
+  for (unsigned i = 0; i < n; i++) {
+    cells[i].clock_window = ((i + seed) % 3u) != 0u;
+    cells[i].data_window = ((i * 2u + seed) % 5u) < 2u;
+  }
+}
+
+static void test_a_ring_link_carries_a_cable_of_cells_both_ways(void) {
+  int fds[2];
+  TEST_ASSERT_EQUAL_INT(0, socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+
+  ap_ring_link_t a;
+  ap_ring_link_t b;
+  const unsigned cable = 64u; /* `[MAC]` §3.4's kilometre, the longest link */
+  TEST_ASSERT_TRUE(ap_ring_link_init(&a, fds[0], cable));
+  TEST_ASSERT_TRUE(ap_ring_link_init(&b, fds[1], cable));
+
+  ap_ring_cell_t a_out[64];
+  ap_ring_cell_t b_out[64];
+  ap_ring_cell_t a_in[64];
+  ap_ring_cell_t b_in[64];
+  link_fill(a_out, cable, 1u);
+  link_fill(b_out, cable, 4u);
+
+  /* Both write their whole batch before reading, which is why a single
+   * process can drive both ends without deadlocking -- and is exactly what
+   * two processes do. */
+  /* **Both send before either receives.** `ap_ring_link_exchange` writes and
+   * then blocks reading, which is right for two concurrent processes and
+   * deadlocks a single thread driving both ends -- the first version of this
+   * test hung for exactly that reason, and the split API exists because of it.
+   * The bytes on the wire are the same either way. */
+  TEST_ASSERT_TRUE(ap_ring_link_send(&a, a_out));
+  TEST_ASSERT_TRUE(ap_ring_link_send(&b, b_out));
+  TEST_ASSERT_TRUE(ap_ring_link_recv(&a, a_in));
+  TEST_ASSERT_TRUE(ap_ring_link_recv(&b, b_in));
+
+  for (unsigned i = 0; i < cable; i++) {
+    /* Each end received exactly what the other drove, in order. Both windows
+     * are checked: a format that carried only the data window would still
+     * deliver a plausible-looking stream and lose every clock transition,
+     * which is a bi-phase error at the far end and nothing sooner. */
+    TEST_ASSERT_EQUAL_INT((int)b_out[i].clock_window, (int)a_in[i].clock_window);
+    TEST_ASSERT_EQUAL_INT((int)b_out[i].data_window, (int)a_in[i].data_window);
+    TEST_ASSERT_EQUAL_INT((int)a_out[i].clock_window, (int)b_in[i].clock_window);
+    TEST_ASSERT_EQUAL_INT((int)a_out[i].data_window, (int)b_in[i].data_window);
+  }
+  TEST_ASSERT_EQUAL_UINT64(1u, a.batches);
+  close(fds[0]);
+  close(fds[1]);
+}
+
+/* A peer that goes away must fail the link and keep it failed. A ring that has
+ * lost a node does not quietly continue as a shorter one -- the surviving
+ * emulator would carry on with a cable that ends nowhere, and every symptom
+ * would appear at the protocol layer instead of here. */
+static void test_a_ring_link_fails_once_and_stays_failed(void) {
+  int fds[2];
+  TEST_ASSERT_EQUAL_INT(0, socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+  ap_ring_link_t a;
+  TEST_ASSERT_TRUE(ap_ring_link_init(&a, fds[0], 8u));
+  ap_ring_cell_t out[8];
+  ap_ring_cell_t in[8];
+  link_fill(out, 8u, 2u);
+  close(fds[1]); /* the peer leaves */
+
+  /* Either the write or the read fails, depending on how far the closed peer's
+   * buffer got -- both land in the same place. */
+  (void)ap_ring_link_exchange(&a, out, in);
+  TEST_ASSERT_TRUE(a.failed);
+  TEST_ASSERT_FALSE(ap_ring_link_exchange(&a, out, in));
+  close(fds[0]);
+}
+
+/* The batch size is a cable length, so it is bounded by the longest cable the
+ * medium models. A link that accepted more would be claiming a delay the ring
+ * cannot represent, and the two ends would disagree about where a bit is. */
+static void test_a_ring_links_batch_is_bounded_by_the_longest_cable(void) {
+  ap_ring_link_t link;
+  TEST_ASSERT_FALSE(ap_ring_link_init(&link, 1, 0u));
+  TEST_ASSERT_FALSE(ap_ring_link_init(&link, 1, AP_RING_MAX_CABLE_BITS + 1u));
+  TEST_ASSERT_TRUE(ap_ring_link_init(&link, 1, AP_RING_MAX_CABLE_BITS));
+  TEST_ASSERT_FALSE(ap_ring_link_init(&link, -1, 8u));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_scanout_expands_every_pixel_not_just_the_first);
@@ -526,5 +625,8 @@ int main(void) {
   RUN_TEST(test_a_transmitted_frame_reaches_the_descriptor_whole);
 #endif
   RUN_TEST(test_opening_a_missing_tap_device_explains_itself);
+  RUN_TEST(test_a_ring_link_carries_a_cable_of_cells_both_ways);
+  RUN_TEST(test_a_ring_link_fails_once_and_stays_failed);
+  RUN_TEST(test_a_ring_links_batch_is_bounded_by_the_longest_cable);
   return UNITY_END();
 }
