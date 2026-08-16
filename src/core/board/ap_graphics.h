@@ -684,18 +684,54 @@ typedef struct {
    * larger than the visible geometry above and is what the status register's
    * timing bits are derived from.
    *
-   * `008778-03` Table 11-3 bounds the colour monitors (horizontal 50.2 kHz
-   * +/- 500 Hz, vertical 47-80 Hz, horizontal blanking 4.713 us maximum) and
-   * the oracle's `set_raw(68000000, 1346, 0, 1024, 841, 0, 800)` sits inside
-   * every one: 68 MHz / 1346 is 50.52 kHz and 50520 / 841 is 60.07 Hz, which is
-   * §1.5.3's "60-Hz, noninterlaced".
+   * **The colour raster is printed in full, and this used to say it was not.**
+   * Table 11-3 only *bounds* the monitors (horizontal 50.2 kHz +/- 500 Hz,
+   * vertical 47-80 Hz, blanking 4.713 us maximum), so the numbers here were the
+   * oracle's `set_raw(68000000, 1346, 0, 1024, 841, 0, 800)` on the grounds that
+   * nothing better existed. **§11.1.4 and Table 11-4, one page further on, give
+   * the colour monitor exactly what Table 11-8 gives the monochrome** -- every
+   * porch, the sync width, both blanking intervals and the frame -- and the
+   * prose states the line count outright: "within the composite sync signal,
+   * **842 horizontal periods occur for each vertical period**".
    *
-   * Table 11-8 does better for the 1280x1024 monochrome, giving active video,
+   * In pixels, taking H-Disp = 15.084 us as the 1024 visible ones, so the dot
+   * period is 14.7305 ns:
+   *
+   *     H front porch  0.942 us ->  64      V front porch  79.176 us ->  4 lines
+   *     H sync         1.88  us -> 128      V sync         79.176 us ->  4 lines
+   *     H back porch   1.88  us -> 128      V back porch  673.0   us -> 34 lines
+   *     H blanking     4.71  us -> 320      V blanking    831     us -> 42 lines
+   *     H total       19.794 us -> 1344     V total                   -> 842 lines
+   *
+   * Both columns close on themselves -- 64+128+128 is the printed blanking, and
+   * 800+42 is the printed 842 -- so the table is self-consistent and the counts
+   * are exact integers rather than a fit. `h_total` is 1344 and `v_total` 842,
+   * which is where the oracle's 1346 and 841 were each off by one thing.
+   *
+   * **The dot clock stays 68 MHz and that is the `PROVISIONAL` part**, the same
+   * trade the monochrome entry already records: the table implies 67.899 MHz
+   * (1344 x 50520) and that does not divide `AP_TIME_BASE_HZ`, while 68 MHz
+   * does. The cost is 0.15% -- a 50.595 kHz line against the printed 50.519,
+   * and 60.09 Hz against 60.0 -- and both remain inside Table 11-3's bounds.
+   * Closing it means recomputing the time base, which changes the unit of
+   * account for every clock in the machine and no behaviour, and is not worth
+   * 0.15% on one monitor.
+   *
+   * Table 11-8 does the same for the 1280x1024 monochrome, giving active video,
    * blanking, both porches and the sync pulse. Its totals corroborate the
    * oracle's *structure* exactly -- 15.009 ms active plus 616 us blanking is
    * 15.625 ms, and divided by a 14.657 us line that is **1066.0 lines**, which
-   * is `set_raw`'s `vtotal` to the digit. The line total agrees too: at the
-   * table's 8.47 ns pixel, 14.657 us is 1730 pixels against `set_raw`'s 1728.
+   * is `set_raw`'s `vtotal` to the digit. Decomposed into lines the vertical
+   * closes too: front porch and sync are 58.6 us each and the back porch 498,
+   * which at 14.657 us a line is 4 + 4 + 34 = 42, and 1024 + 42 is 1066.
+   *
+   * The horizontal total is **1728 exactly**, and getting there needs the
+   * porches rather than the rounded sum: at the table's 8.47 ns pixel the front
+   * porch's 407 ns is 48, the 1.49 us sync 176 and the 1.9 us back porch 224,
+   * so blanking is 448 and the line 1280 + 448 = 1728 -- `set_raw`'s figure to
+   * the pixel. Dividing the *printed* 14.657 us line by the *printed* 8.47 ns
+   * pixel gives 1730 instead, and that 2-pixel gap is two roundings compounding,
+   * not a disagreement. It read as one here until the porches were added up.
    *
    * **The dot clock is where they part, and it is `PROVISIONAL`.** The table's
    * 8.47 ns pixel implies 118.06 MHz; the oracle uses 120. The two differ by

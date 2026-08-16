@@ -106,3 +106,87 @@ method here.
 
 None possible: MAME does not register the DN4500 or DSP4500, so this board has
 no runnable reference and every figure here cites `[ROMMX]` by address.
+
+## The DN3500 controllers' audit, 2026-08-16
+
+`ap_graphics.*` is not this file's usual subject, but the line-by-line audit of
+it belongs somewhere and this is the graphics file.
+
+**No structural defect.** The check that found one in both `RING.md` (69b) and
+`ETHERNET.md` (19) — what is implemented and called by nobody — comes back clean
+here. `ap_graphics_blit`, `_combine`, `_rop_apply`, `_source_data`, `_rop_for`
+and the `CR0`/`CR2` field decoders are each reached from `ap_graphics.c`'s own
+memory-cycle path, and `_write`, `_read`, `_memory_cycle`, `_advance`,
+`_scanout` and `_decode` are all called from the board or a frontend. The
+blitter is genuinely wired to the bus.
+
+**`[S3K]` §10.3.1's change list checks out item by item.** All eleven: four
+extra planes, the 8 MHz bus interface, "Device ID changed register to readback
+`$0A`" (`AP_SCREEN_COLOUR_8_PLANE` is 10), the 32-bit ROP register, the moved
+diagnostic memory request, `D_PLANE` at 8 bits and `S_PLANE` at 3 on the added
+82C55A (both encodings kept side by side, since neither source settles which the
+board wires), the second miscellaneous control register (`CR3B`, 8-plane only)
+and the miscellaneous access register (`CR3A`), and the 256 x 24 lookup table
+behind `ap_bt458`. Chapter 10 is otherwise physical — dimensions, cables,
+voltages — exactly as the header claims.
+
+### Finding 19: the colour raster is printed in full, and was taken from the oracle
+
+**The one real defect, and it is a resolution-order failure rather than a coding
+one.** `ap_graphics.h` recorded that Table 11-3 merely *bounds* the colour
+monitors and that the raster was therefore the oracle's
+`set_raw(68000000, 1346, 0, 1024, 841, 0, 800)`. **§11.1.4 and Table 11-4, one
+page further on, give the colour monitor everything Table 11-8 gives the
+monochrome** — every porch, the sync width, both blanking intervals, the frame —
+and the prose states the line count outright: "within the composite sync signal,
+842 horizontal periods occur for each vertical period".
+
+Taking H-Disp = 15.084 µs as the 1024 visible pixels, so a 14.7305 ns dot:
+
+| | duration | pixels/lines |
+| --- | --- | --- |
+| H front porch | 0.942 µs | 64 |
+| H sync | 1.88 µs | 128 |
+| H back porch | 1.88 µs | 128 |
+| H blanking | 4.71 µs | 320 = 64+128+128 |
+| **H total** | 19.794 µs | **1344** |
+| V front porch | 79.176 µs | 4 |
+| V sync | 79.176 µs | 4 |
+| V back porch | 673.0 µs | 34 |
+| V blanking | 831 µs | 42 |
+| **V total** | | **842** = 800 + 42 |
+
+Both columns close on themselves, so the counts are exact integers rather than a
+fit, and the oracle's 1346 and 841 were each off by one thing. Corrected.
+
+**The dot clock stays 68 MHz, `PROVISIONAL`**, the same trade the monochrome
+entry already carried: Table 11-4 implies 67.899 MHz and that does not divide
+`AP_TIME_BASE_HZ` while 68 MHz does. Cost is 0.15% — 50.595 kHz against the
+printed 50.519, 60.09 Hz against 60.0 — both inside Table 11-3's bounds. Closing
+it means recomputing the time base, which changes the unit of account for every
+clock in the machine and no behaviour.
+
+### 19a: the monochrome total was right, and the note calling it a discrepancy was not
+
+`ap_graphics.h` said Table 11-8's 8.47 ns pixel makes the line "1730 pixels
+against `set_raw`'s 1728". Decomposed into the porches the table also prints —
+407 ns front porch = 48, 1.49 µs sync = 176, 1.9 µs back porch = 224, so
+blanking is 448 and the line 1280 + 448 — it is **1728 exactly**. The 2-pixel
+gap was two roundings compounding, from dividing a printed sum by a printed
+pixel time. The vertical closes the same way: 4 + 4 + 34 = 42 blanking lines and
+1024 + 42 = 1066, which is what the code already had.
+
+### Verification
+
+`graphics_suite` and the full `ctest` stay green at 137/137. The reference
+identity boot is **unaffected and its hash is still `A354786119A3931D`** — but
+that proves only that nothing regressed, because that boot fits **no display**
+(`identity-boot.sh` passes no `--screen`, and the census line reads `display
+none`). The changed path is exercised by `./tools/identity-boot.sh --screen c8p`
+instead, which is a different machine and a different hash by construction.
+
+That run completes with the corrected raster and the controller genuinely
+driven — **2,169,974 reads and 5,302,083 writes** to the display controller —
+and hashes **`6140F8E43F3BCC1C`**. Recorded here with its invocation, because a
+hash without one is not a reference; it is the first figure this project has
+for a colour DN3500 and supersedes nothing.

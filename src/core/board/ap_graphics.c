@@ -787,7 +787,9 @@ bool ap_graphics_geometry(ap_screen_kind_t kind, ap_graphics_geometry_t *out) {
        * capacity divided out rather than a number taken from elsewhere. */
       planes = 4u; width = 1024u; height = 800u;
       buffer_width = 1024u; buffer_height = 1024u;
-      dot_clock = 68000000u; h_total = 1346u; v_total = 841u;
+      /* Table 11-4's raster, not the oracle's -- see the header. The dot clock
+       * stays 68 MHz because the table's 67.9 does not divide the time base. */
+      dot_clock = 68000000u; h_total = 1344u; v_total = 842u;
       break;
     case AP_SCREEN_COLOUR_8_PLANE:
       /* §1.5.3 states both geometries in one sentence: "each consists of a 1024
@@ -795,7 +797,8 @@ bool ap_graphics_geometry(ap_screen_kind_t kind, ap_graphics_geometry_t *out) {
        * lines". */
       planes = 8u; width = 1024u; height = 800u;
       buffer_width = 1024u; buffer_height = 1024u;
-      dot_clock = 68000000u; h_total = 1346u; v_total = 841u;
+      /* The same monitor, so the same raster: §11.1 covers both colour sizes. */
+      dot_clock = 68000000u; h_total = 1344u; v_total = 842u;
       break;
     case AP_SCREEN_MONO_19_INCH:
       /* "256-KB image memory", one plane: 2048 x 1024 bits for a 1280 x 1024
