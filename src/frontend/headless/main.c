@@ -304,6 +304,8 @@ static void print_usage(const char *program_name) {
           "                        PROM to find the card. Reports the code it\n"
           "                        returns, which names a numbered subtest\n"
           "  --ring                fit the token ring controller\n"
+          "  --ring-two-node [N]   two whole machines on one ring segment,\n"
+          "                        N instructions each (default 2,000,000)\n"
           "  --ring-rom FILE       the same, with its option ROM placed where\n"
           "                        the boot PROM's expansion scan looks, so the\n"
           "                        firmware's own self-test runs\n"
@@ -1109,6 +1111,113 @@ static int run_option_rom_entry(FILE *out, ap_model_id_t model,
   return 0;
 }
 
+
+/* ## Two whole machines on one ring, in one process
+ *
+ * The plan's "two nodes see each other over the ring under Domain/OS" needs a
+ * frontend that builds *two* machines and runs them on one segment. Everything
+ * under it has existed since `RING.md` 104-114 -- the register interface joined
+ * to the protocol stack, the scheduler for mixed-model nodes, the cross-process
+ * cable -- and nothing assembled them.
+ *
+ * ## Why the interleave is what it is
+ *
+ * Each machine is run for a slice, and the ring is then advanced only to the
+ * time **both** have reached. That bound is the whole correctness argument: a
+ * ring advanced past the lesser clock would carry a bit from one machine's
+ * future into the other's present, and no probe downstream could attribute the
+ * result to anything. `ap_ring_sched` does the rest -- each node on its own
+ * period against `AP_TIME_BASE_HZ`, ties broken by slot -- so the interleaving
+ * is reproducible and the two machines need not share a clock rate.
+ *
+ * The boards are joined with `ap_board_join_ring_sched`, so neither steps the
+ * cable itself (`RING.md` 112a).
+ *
+ * ## What this does not do
+ *
+ * Boot Domain/OS. That needs a disk per node and the driver accepting the card,
+ * which finding 53e makes a separate question. This runs the machines from
+ * their boot PROM and reports what each node's ring card saw, which is the
+ * check that the *ring* is wired end to end; `lcnode` is the plan's
+ * verification and remains ahead. */
+static int run_ring_two_node(FILE *out, ap_model_id_t model,
+                             const char *prom_path, uint64_t limit) {
+  long prom_size = 0;
+  uint8_t *prom = prom_path != NULL ? read_file(prom_path, &prom_size) : NULL;
+  if (prom_path != NULL && prom == NULL) {
+    fprintf(stderr, "apollo: cannot read %s\n", prom_path);
+    return 2;
+  }
+
+  enum { NODES = 2u };
+  static uint8_t ram[NODES][8u * 1024u * 1024u];
+  static ap_machine_t machine[NODES];
+  static ap_board_t board[NODES];
+  static ap_ring_sched_t sched;
+  const ap_mc146818_time_t epoch = {0};
+  /* Distinct node IDs, because `[MAC]` §2.2.2.2 compares the destination
+   * against "the node address of the target" and two nodes answering the same
+   * address is not a ring, it is a fault. */
+  static const uint32_t node_id[NODES] = {0x011111u, 0x022222u};
+
+  ap_ring_sched_init(&sched);
+  for (unsigned i = 0; i < NODES; i++) {
+    if (!ap_board_init_model(&board[i], ram[i], sizeof ram[i], &epoch,
+                             node_id[i], model)) {
+      free(prom);
+      return 2;
+    }
+    ap_board_attach_ring(&board[i], true);
+    if (prom != NULL) {
+      (void)ap_board_load_prom(&board[i], prom, (uint32_t)prom_size);
+    }
+    const int slot = ap_board_join_ring_sched(&board[i], &sched);
+    if (slot < 0) {
+      fprintf(stderr, "apollo: node %u could not join the ring\n", i);
+      free(prom);
+      return 2;
+    }
+    ap_machine_init_model(&machine[i], ram[i], sizeof ram[i], model);
+    ap_machine_set_board(&machine[i], &board[i]);
+    fprintf(out, "  node %u  id %06X  ring slot %d\n", i, node_id[i], slot);
+  }
+
+  /* A slice short enough that neither machine runs far past the other before
+   * the ring catches up, and long enough that the loop is not all bookkeeping.
+   * It bounds *skew*, not correctness: the `min` below is what makes the ring
+   * safe at any slice. */
+  const uint64_t slice = 4096u;
+  uint64_t done = 0u;
+  while (done < limit) {
+    const uint64_t take = (limit - done) < slice ? (limit - done) : slice;
+    const unsigned steps = (unsigned)take;
+    for (unsigned i = 0; i < NODES; i++) {
+      (void)ap_machine_run(&machine[i], steps);
+    }
+    ap_time_t earliest = ap_machine_state(&machine[0]).now;
+    for (unsigned i = 1; i < NODES; i++) {
+      const ap_time_t t = ap_machine_state(&machine[i]).now;
+      if (t < earliest) {
+        earliest = t;
+      }
+    }
+    /* Only to the time both have reached. */
+    ap_ring_sched_run_until(&sched, earliest);
+    done += take;
+  }
+
+  for (unsigned i = 0; i < NODES; i++) {
+    const ap_machine_state_t st = ap_machine_state(&machine[i]);
+    fprintf(out, "  node %u  pc %08X  frames seen %llu copied %llu\n", i,
+            st.pc, (unsigned long long)board[i].ring_station.frames_seen,
+            (unsigned long long)board[i].ring_station.frames_copied);
+  }
+  fprintf(out, "  ring     hash %016llX\n",
+          (unsigned long long)ap_ring_sched_hash(&sched));
+  free(prom);
+  return 0;
+}
+
 static int run_ring_selftest(FILE *out, ap_model_id_t model,
                              const char *rom_path) {
   if (rom_path == NULL) {
@@ -1424,6 +1533,10 @@ static ap_afd_t g_diskette;
 static const char *g_cartridge_path = NULL;
 static uint8_t *g_cartridge_bytes = NULL;
 static bool g_ring_selftest = false;
+/* Two whole machines on one ring segment, in one process. See
+ * `run_ring_two_node`. */
+static bool g_ring_two_node = false;
+static uint64_t g_ring_two_node_limit = 2000000u;
 static long g_option_rom_entry = -1;
 static const char *g_option_rom_text = NULL;
 
@@ -5213,6 +5326,16 @@ int main(int argc, char **argv) {
       i += 2;
       continue;
     }
+    if (strcmp(argv[i], "--ring-two-node") == 0) {
+      g_ring_two_node = true;
+      g_fit_ring = true;
+      if (i + 1 < argc && argv[i + 1][0] != '-') {
+        g_ring_two_node_limit = strtoull(argv[i + 1], NULL, 0);
+        i += 1;
+      }
+      i += 1;
+      continue;
+    }
     if (strcmp(argv[i], "--ring-selftest") == 0) {
       g_ring_selftest = true;
       g_fit_ring = true;
@@ -5449,6 +5572,13 @@ int main(int argc, char **argv) {
 
   if (tape_path != NULL) {
     return report_tape(tape_path);
+  }
+
+  /* Ahead of the single-machine boot, because `--ring-two-node` takes the same
+   * `--boot-prom` and would otherwise never be reached. */
+  if (g_ring_two_node) {
+    return run_ring_two_node(stdout, opt.model->id, boot_prom,
+                             g_ring_two_node_limit);
   }
 
   if (boot_prom != NULL) {

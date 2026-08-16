@@ -159,6 +159,21 @@ def main() -> int:
               ["--boot-prom", "/nonexistent", "--boot-script", str(missing)],
               r"cannot read console script", want_ok=False)
 
+        # ---- two whole machines on one ring segment ----
+        #
+        # Needs no firmware, which is why it is checked here rather than
+        # skipped: the mode's own work is building two boards, giving them
+        # distinct node IDs and joining both to one scheduler, and all of that
+        # happens before a single instruction runs. A PROM only decides what
+        # the processors then do.
+        check("--ring-two-node builds two nodes on one segment",
+              ["--ring-two-node", "2000"],
+              r"node 0 .*ring slot 0(.|\n)*node 1 .*ring slot 1")
+        # And the ring's phase hash is reported, which is what makes a
+        # multi-node run comparable across builds at all.
+        check("--ring-two-node reports the ring's scheduling hash",
+              ["--ring-two-node", "2000"], r"ring +hash [0-9A-F]{16}")
+
         # ---- what needs firmware, named rather than omitted ----
         for flag in ("--boot-prom", "--boot-limit", "--boot-trace",
                      "--boot-watch", "--boot-console", "--boot-input",
