@@ -408,6 +408,9 @@ void ap_board_attach_ethernet(ap_board_t *board, bool fitted,
 
 void ap_board_attach_ring(ap_board_t *board, bool fitted) {
   ap_ring_ctl_reset(&board->ring, fitted);
+  /* The board's own node, so the ring's first window reads the same identity
+   * the node ID PROM does (`RING.md` 93). */
+  ap_ring_ctl_set_node_id(&board->ring, board->node_id.id);
 }
 
 void ap_board_attach_matrox(ap_board_t *board, bool fitted) {

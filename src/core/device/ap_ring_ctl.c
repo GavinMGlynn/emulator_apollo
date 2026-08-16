@@ -47,6 +47,21 @@ void ap_ring_ctl_reset(ap_ring_ctl_t *ctl, bool present) {
   ctl->a2.command_404_status = AP_RING_CTL_COMMAND2_STATUS_IDLE;
 }
 
+void ap_ring_ctl_set_node_id(ap_ring_ctl_t *ctl, uint32_t node_id) {
+  if (ctl != NULL) {
+    ctl->node_id = node_id;
+  }
+}
+
+/* One byte of the node ID in the high lane -- this board's convention for
+ * every byte-wide register -- with the odd half undriven. */
+static uint16_t node_id_lane(const ap_ring_ctl_t *ctl, unsigned shift) {
+  if (!ctl->present) {
+    return 0xFFFFu;
+  }
+  return (uint16_t)((((ctl->node_id >> shift) & 0xFFu) << 8) | 0x00FFu);
+}
+
 bool ap_ring_ctl_decode(uint32_t address, unsigned *unit, bool *second_window,
                         uint32_t *offset) {
   static const struct {
@@ -231,6 +246,14 @@ uint16_t ap_ring_ctl_read16(ap_ring_ctl_t *ctl, bool second_window,
     switch (offset & AP_RING_CTL_SLOT_MASK) {
     case 0u:
       {
+        /* **The first window reads the node ID, not the board type.** `[EH]`
+         * p. 12-29 gives bus `220` as `Node_ID3` (msb) and `59000` as
+         * `BOARD_TYPE`; this answered the type from both until `RING.md` 93.
+         * Nothing caught it because finding 50a established the firmware never
+         * reads the first window -- an unexercised register answering wrongly. */
+        if (!second_window) {
+          return node_id_lane(ctl, 24u);
+        }
         const uint16_t byte = ctl->present ? w->id : 0xFFu;
         /* The odd half of the lane is undriven, as everywhere else on this
          * board. Finding 15's `movea.l (a2),a0` reads a long here and this is
@@ -238,13 +261,25 @@ uint16_t ap_ring_ctl_read16(ap_ring_ctl_t *ctl, bool second_window,
         return (uint16_t)((uint16_t)(byte << 8) | 0x00FFu);
       }
     case 2u:
+      /* `Node_ID2`; the second window's `+002` is `XMIT_ADDR`, which this core
+       * stores and does not yet act on. */
+      if (!second_window) {
+        return node_id_lane(ctl, 16u);
+      }
       return w->slot_002;
     case 4u:
+      /* `Node_ID1`; the second window's `+004` is `XMIT_ABORT`/`RCV_ADDR`. */
+      if (!second_window) {
+        return node_id_lane(ctl, 8u);
+      }
       return w->slot_004;
     default:
-      /* `+006` is the buffer pointer. The firmware only ever writes it, so a
-       * read-back is the least-surprising answer rather than an evidenced
-       * one. */
+      /* `Node_ID0`, the least significant, on the first window. On the second
+       * `+006` is `RAM_ADDR`, the buffer pointer -- the firmware only ever
+       * writes it, so a read-back is the least-surprising answer. */
+      if (!second_window) {
+        return node_id_lane(ctl, 0u);
+      }
       return w->pointer;
     }
   }

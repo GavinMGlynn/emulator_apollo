@@ -489,6 +489,37 @@ static void test_the_data_port_round_trips_the_firmwares_own_pattern(void) {
   }
 }
 
+/* **The first window reads the node ID; the second reads the board type.**
+ * `[EH]` p. 12-29 (`RING.md` 93) tabulates bus `220`-`226` as `Node_ID3` (msb)
+ * through `Node_ID0` (lsb) and `59000` as `BOARD_TYPE`. This core answered the
+ * board type from **both** windows until that page was read, and nothing
+ * caught it: finding 50a established the firmware never reads the first
+ * window, so the register was unexercised and answering the wrong thing.
+ *
+ * The byte sits in the high lane, this board's convention throughout, with the
+ * odd half undriven -- the same shape finding 62 established for the ID. */
+static void test_the_first_window_reads_the_node_id(void) {
+  ap_ring_ctl_t ctl;
+  ap_ring_ctl_reset(&ctl, true);
+  ap_ring_ctl_set_node_id(&ctl, 0x00012345u);
+
+  /* Node_ID3 is the most significant of the four, and a 24-bit node leaves it
+   * zero -- which is what `ap_nodeid.h` records the PROM's own dump showing. */
+  TEST_ASSERT_EQUAL_HEX16(0x00FFu, ap_ring_ctl_read16(&ctl, false, 0u));
+  TEST_ASSERT_EQUAL_HEX16(0x01FFu, ap_ring_ctl_read16(&ctl, false, 2u));
+  TEST_ASSERT_EQUAL_HEX16(0x23FFu, ap_ring_ctl_read16(&ctl, false, 4u));
+  TEST_ASSERT_EQUAL_HEX16(0x45FFu, ap_ring_ctl_read16(&ctl, false, 6u));
+
+  /* And the second window still answers the board type, which is what finding
+   * 39's `cmpi.b #$36` gate reads and what the self-test depends on. */
+  TEST_ASSERT_EQUAL_HEX16((uint16_t)((AP_RING_CTL_ID_6 << 8) | 0x00FFu),
+                          ap_ring_ctl_read16(&ctl, true, 0u));
+
+  /* An unfitted board drives nothing, on either window. */
+  ap_ring_ctl_reset(&ctl, false);
+  TEST_ASSERT_EQUAL_HEX16(0xFFFFu, ap_ring_ctl_read16(&ctl, false, 2u));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_data_port_round_trips_the_firmwares_own_pattern);
@@ -503,5 +534,6 @@ int main(void) {
   RUN_TEST(test_the_data_port_answers_one_word_behind);
   RUN_TEST(test_the_first_windows_data_slot_is_not_the_buffer_port);
   RUN_TEST(test_the_firmwares_own_memory_test_passes);
+  RUN_TEST(test_the_first_window_reads_the_node_id);
   return UNITY_END();
 }

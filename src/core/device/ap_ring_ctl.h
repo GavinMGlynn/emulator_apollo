@@ -239,6 +239,9 @@ typedef struct {
 } ap_ring_ctl_window_t;
 
 typedef struct {
+  /* The board's own node ID, read back through the first window's four byte
+   * slots most significant first (`[EH]` p. 12-29). */
+  uint32_t node_id;
   /* A unit is the pair, finding 38. */
   ap_ring_ctl_window_t a1;
   ap_ring_ctl_window_t a2;
@@ -253,6 +256,14 @@ typedef struct {
 
 /* Power-on. `present` chooses whether the unit answers as a fitted board. */
 void ap_ring_ctl_reset(ap_ring_ctl_t *ctl, bool present);
+
+/* **The board carries its own node ID, and the first window is where it
+ * reads** -- `[EH]` p. 12-29 (`RING.md` 93): bus `220`-`226` read `Node_ID3`
+ * (msb) through `Node_ID0` (lsb), while the *second* window's `+000` reads
+ * `BOARD_TYPE`. This core answered the board type from both, which nothing
+ * caught because finding 50a established the firmware never reads the first
+ * window at all -- an unexercised register answering the wrong thing. */
+void ap_ring_ctl_set_node_id(ap_ring_ctl_t *ctl, uint32_t node_id);
 
 /* Whether an address falls in one of the four windows, and which half of which
  * unit. */
