@@ -10,6 +10,36 @@
 
 #include "device/ap_i8254.h"
 #include "device/ap_ring_ctl.h"
+#include "ring/ap_ring_frame.h"
+
+/* A minimal ring for the wire tests: a medium, two stations, and the
+ * controller joined to the first. Same shape as `ring_station_suite`'s, so a
+ * frame that crosses here crosses for the same reasons it does there. */
+typedef struct {
+  ap_ring_medium_t medium;
+  ap_ring_station_t station[2];
+  ap_ring_ctl_t ctl;
+} wired_t;
+
+static void wired_build(wired_t *w) {
+  ap_ring_medium_init(&w->medium);
+  for (unsigned i = 0; i < 2u; i++) {
+    ap_ring_station_init(&w->station[i], ap_ring_medium_attach(&w->medium));
+  }
+  ap_ring_ctl_reset(&w->ctl, true);
+  ap_ring_ctl_set_node_id(&w->ctl, 0x00012345u);
+  ap_ring_ctl_attach_ring(&w->ctl, &w->station[0], &w->medium);
+}
+
+static void wired_step(wired_t *w) {
+  for (unsigned i = 0; i < 2u; i++) {
+    ap_ring_station_drive(&w->station[i], &w->medium);
+  }
+  ap_ring_medium_advance(&w->medium);
+  for (unsigned i = 0; i < 2u; i++) {
+    ap_ring_station_receive(&w->station[i], &w->medium);
+  }
+}
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -677,8 +707,123 @@ static void test_the_idle_words_are_the_manuals_bits_and_not_magic(void) {
   TEST_ASSERT_EQUAL_HEX16(0x0800u, AP_RING_CTL_RCV_DE);
 }
 
+/* **The wire: a frame written into the board's buffer reaches another node.**
+ *
+ * This is the gap `RING.md` 85e opened and every later finding worked around.
+ * `ap_ring_station` was called by nobody outside its own module and tests, so
+ * the whole audited protocol stack was unreachable from the register interface
+ * the Domain/OS driver actually writes to. The assertion that matters is at
+ * **station 1**: the frame has to have travelled, not merely been assembled. */
+static void test_a_transmit_command_puts_the_buffers_frame_on_the_ring(void) {
+  static wired_t w;
+  static uint8_t txbuf[2048];
+  wired_build(&w);
+  ap_ring_station_attach_tx(&w.station[0], txbuf, sizeof txbuf);
+  ap_ring_station_set_address(&w.station[1], 0x00ABCDEFu);
+
+  /* A §2.2.2 header in the board's buffer, at word 0x40. */
+  uint8_t header[AP_RING_CTL_XMIT_HEADER_BYTES] = {0};
+  ap_ring_header_set_destination(header, 0x00ABCDEFu);
+  ap_ring_header_set_type(header, AP_RING_TYPE_USER);
+  ap_ring_header_set_source(header, 0x00012345u);
+  for (unsigned i = 0; i < AP_RING_CTL_XMIT_HEADER_WORDS; i++) {
+    w.ctl.buffer[0x40u + i] =
+        (uint16_t)((header[i * 2u] << 8) | header[i * 2u + 1u]);
+  }
+  /* `XMIT_ADDR` is **byte-swapped** (p. 12-32), so word `0x0040` is written as
+   * `0x4000`. Taking the register at face value would address word `0x4000`,
+   * 16,320 words away, and transmit a frame of zeros -- well-formed rubbish. */
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_W2_XMIT_ADDR, 0x4000u);
+
+  /* Connect, enable receive, then transmit -- `RING.md` 103e's sequence. */
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 4u,
+                      AP_RING_CTL_RCV_CMD_RCV);
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 2u, 0x0200u);
+
+  ap_ring_station_originate_token(&w.station[1], AP_RING_OOB_FREE_TOKEN);
+  for (unsigned i = 0; i < 4000u; i++) {
+    wired_step(&w);
+  }
+
+  /* It travelled, and the addressee took it. */
+  TEST_ASSERT_TRUE(w.station[1].frames_seen > 0u);
+  TEST_ASSERT_TRUE(w.station[1].frames_addressed > 0u);
+  TEST_ASSERT_TRUE(ap_ring_station_transmitted(&w.station[0]));
+}
+
+/* And a command that is not a transmit does not transmit one.
+ *
+ * `$0100` is the third value both drivers write (`RING.md` 103d) and it starts
+ * nothing. A model that queued on any write to the command register would pass
+ * the test above and put a frame on the ring every time the firmware
+ * initialised the board. */
+static void test_only_the_transmit_command_values_queue_a_frame(void) {
+  static wired_t w;
+  static uint8_t txbuf[2048];
+  static const uint16_t quiet[] = {0x0000u, 0x0100u, 0x0001u, 0x8000u};
+  for (unsigned c = 0; c < sizeof quiet / sizeof quiet[0]; c++) {
+    wired_build(&w);
+    ap_ring_station_attach_tx(&w.station[0], txbuf, sizeof txbuf);
+    ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 2u, quiet[c]);
+    TEST_ASSERT_FALSE(w.station[0].tx_armed);
+  }
+  /* Both transmit values do arm it: `$0200` and the forced `$0600`. */
+  static const uint16_t sends[] = {0x0200u, 0x0600u};
+  for (unsigned c = 0; c < sizeof sends / sizeof sends[0]; c++) {
+    wired_build(&w);
+    ap_ring_station_attach_tx(&w.station[0], txbuf, sizeof txbuf);
+    ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 2u, sends[c]);
+    TEST_ASSERT_TRUE(w.station[0].tx_armed);
+  }
+}
+
+/* The two command bits that drive the station, from `RING.md` 103c -- both
+ * confirmed on this board by two independent drivers plus the page. */
+static void test_the_command_registers_drive_the_relay_and_the_receiver(void) {
+  static wired_t w;
+  wired_build(&w);
+
+  /* `RCV_CMD` bit 11. `receive_enabled` defaults on (finding 89c), so the
+   * clear direction is the one that proves the wire rather than the default. */
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 4u, 0u);
+  TEST_ASSERT_FALSE(w.station[0].receive_enabled);
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 4u,
+                      AP_RING_CTL_RCV_CMD_RCV);
+  TEST_ASSERT_TRUE(w.station[0].receive_enabled);
+
+  /* `MISC_CMD` bit 11 `nct` operates §3.5's bypass relay, which
+   * `ap_ring_medium` has modelled both halves of since finding 30 with nothing
+   * driving it. Connect means *not* bypassed. */
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  TEST_ASSERT_FALSE(w.medium.node[w.station[0].slot].bypass.bypassed);
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS, 0u);
+  TEST_ASSERT_TRUE(w.medium.node[w.station[0].slot].bypass.bypassed);
+
+  /* And attaching gives the station the board's node ID: `[MAC]` §2.2.2.2
+   * compares against "the node address of the target", and the board's node
+   * comes from the ID PROM (finding 93i). Two numbers, one source. */
+  TEST_ASSERT_EQUAL_HEX32(0x00012345u, w.station[0].address);
+
+  /* **`ap_ring_ctl_reset` is the initialiser too, so it clears the wire** --
+   * and this assertion is the one that matters, because the alternative was
+   * tried and segfaulted. Preserving the pointers across the reset, so a board
+   * reset would not "unplug the cable", reads them out of a caller's
+   * *uninitialised* stack local on the first call; the garbage survives the
+   * `memset` and the first `MISC_CMD` write dereferences it. Attach after
+   * reset, never before. */
+  ap_ring_ctl_reset(&w.ctl, true);
+  TEST_ASSERT_NULL(w.ctl.station);
+  TEST_ASSERT_NULL(w.ctl.medium);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_transmit_command_puts_the_buffers_frame_on_the_ring);
+  RUN_TEST(test_only_the_transmit_command_values_queue_a_frame);
+  RUN_TEST(test_the_command_registers_drive_the_relay_and_the_receiver);
   RUN_TEST(test_the_idle_words_are_the_manuals_bits_and_not_magic);
   RUN_TEST(test_the_first_windows_write_only_registers_clear_what_they_name);
   RUN_TEST(test_the_at_boards_command_bytes_are_not_the_dn3000s_bits);

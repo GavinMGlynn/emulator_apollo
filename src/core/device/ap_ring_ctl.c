@@ -2,10 +2,78 @@
 
 #include <string.h>
 
+/* The XMIT_ADDR / RCV_ADDR / RAM_ADDR layout, `002398-04` p. 12-32: bits 15-8
+ * carry `a7`-`a0` and bits 7-0 carry `a15`-`a8`. The two address bytes are
+ * **swapped**, which is not a detail a model can skip -- taking the register at
+ * face value puts every buffer access 256 words away from where the driver
+ * meant, and the resulting frame is well-formed rubbish. */
+static uint16_t ring_ctl_addr(uint16_t reg) {
+  return (uint16_t)(((reg & 0x00FFu) << 8) | ((reg >> 8) & 0x00FFu));
+}
+
+/* Assemble the frame sitting in the board's buffer and hand it to the station.
+ *
+ * The buffer layout is `[EH]` p. 12-29's: "7 rcv msg buffers (each **1k bytes
+ * of header and 1k bytes of data**) and 1 xmit msg buffer of the same size",
+ * addressed by `XMIT_ADDR`. So a message is a 1 KB header followed by 1 KB of
+ * data, and `[MAC]` §2.2.2's rules -- header 12 to 1024 bytes and even, data 0
+ * to 4096 and even -- are what `ap_ring_frame_emit` then checks.
+ *
+ * **How much of that 1 KB is the header is the board's business, not ours.**
+ * Nothing in either document gives a length field, and finding 49 shows the AT
+ * firmware writing eight bytes and leaving the rest of a cleared buffer alone.
+ * So the minimum §2.2.2 allows is used, which is the only length that is
+ * evidenced rather than chosen: 12 bytes. A longer header needs a source that
+ * says where its length comes from, and is a named gap rather than a guess. */
+static bool ring_ctl_queue_from_buffer(ap_ring_ctl_t *ctl) {
+  const uint16_t base = ring_ctl_addr(ctl->a2.slot_002);
+  if ((size_t)base + AP_RING_CTL_XMIT_HEADER_WORDS > AP_RING_CTL_BUFFER_WORDS) {
+    return false;
+  }
+  uint8_t header[AP_RING_CTL_XMIT_HEADER_BYTES];
+  for (unsigned i = 0; i < AP_RING_CTL_XMIT_HEADER_WORDS; i++) {
+    const uint16_t word = ctl->buffer[base + i];
+    header[i * 2u] = (uint8_t)(word >> 8);
+    header[i * 2u + 1u] = (uint8_t)(word & 0xFFu);
+  }
+  const ap_ring_frame_fields_t fields = {
+      .header = header,
+      .header_bytes = sizeof header,
+      .data = NULL,
+      .data_bytes = 0u,
+      .late_acknowledge = 0u,
+  };
+  return ap_ring_station_queue_frame(ctl->station, &fields);
+}
+
+void ap_ring_ctl_attach_ring(ap_ring_ctl_t *ctl, ap_ring_station_t *station,
+                             ap_ring_medium_t *medium) {
+  if (ctl == NULL) {
+    return;
+  }
+  ctl->station = station;
+  ctl->medium = medium;
+  /* The board's node ID *is* the station's ring address. They were two
+   * unrelated numbers while the halves were unconnected -- `[MAC]` §2.2.2.2's
+   * comparison is against "the node address of the target", and finding 93i
+   * had already made the controller answer the board's node from the ID PROM.
+   * Attaching is where the one number reaches both. */
+  if (station != NULL) {
+    ap_ring_station_set_address(station, ctl->node_id);
+  }
+}
+
 void ap_ring_ctl_reset(ap_ring_ctl_t *ctl, bool present) {
   if (ctl == NULL) {
     return;
   }
+  /* **This is the initialiser as well as the reset**, and the distinction cost
+   * a segfault: preserving `station`/`medium` across the `memset` -- so that
+   * resetting a board would not unplug it from the ring -- reads them out of a
+   * caller's *uninitialised* stack local on the first call, and the garbage
+   * pointer is then dereferenced by the first `MISC_CMD` write. Every existing
+   * caller uses this as init, so it clears the attachment and
+   * `ap_ring_ctl_attach_ring` is called after it, not before. */
   memset(ctl, 0, sizeof *ctl);
   ctl->present = present;
 
@@ -510,12 +578,42 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
        * subtest 16 requires them set after it. The presence bit is one of them
        * and is held explicitly, which is why finding 40's `clr.w +400` does not
        * make the board vanish. */
-      (void)value;
       w->status = (uint16_t)((w->status & ~AP_RING_CTL_STATUS_BIT11) |
                              (ctl->present ? AP_RING_CTL_STATUS_PRESENT : 0u));
+      /* **MISC_CMD's `nct`, and it drives the bypass relay.** The read half is
+       * MISC_STAT; the write half is MISC_CMD, whose bit 11 is "1 => network
+       * connect" (p. 12-32). `RING.md` 103c confirms it here: `RING_PROC`
+       * writes `$800` to connect and `$900` to connect with bit 8 `lpb`
+       * digital loopback. §3.5's relay is what "connect" operates, and
+       * `ap_ring_medium` has modelled both of its halves since finding 30 --
+       * with nothing driving it until now.
+       *
+       * The AT firmware's own writes here are `$800` (finding 40) and the
+       * `move.b #$1,$400` of subtest 11, so a board the *boot PROM* drives ends
+       * up connected exactly as before this existed. */
+      if (second_window && ctl->station != NULL && ctl->medium != NULL) {
+        ap_ring_medium_set_bypass(ctl->medium, ctl->station->slot,
+                                  (value & AP_RING_CTL_MISC_CMD_NCT) == 0u);
+      }
       return;
     case 2u:
       w->command_402 = value;
+      /* **The transmit command, and the frame leaves here for the medium.**
+       *
+       * `RING.md` 103d: both drivers write exactly `$0100`, `$0200` and
+       * `$0600` to this register -- `RING_PROC` as words, the AT boot firmware
+       * as the bytes `$1`, `$2`, `$6` in the high lane. The *values* are pinned
+       * by two independent sources; their bit layout is not, so this dispatches
+       * on the values rather than decoding bits it cannot justify.
+       *
+       * `$0200` transmits and `$0600` forces, which under p. 12-32's "force
+       * transmit is a **modifier** to transmit enable" is the same operation
+       * with one more bit. `$0100` is the third function and starts nothing.
+       * A frame is queued for the first two, and for nothing else. */
+      if (second_window && ctl->station != NULL &&
+          (value == 0x0200u || value == 0x0600u)) {
+        (void)ring_ctl_queue_from_buffer(ctl);
+      }
       /* **`PROVISIONAL`: a `6` command completes an operation, and clears the
        * two status bits the firmware then waits on.**
        *
@@ -574,6 +672,17 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
       return;
     case 4u:
       w->command_404 = value;
+      /* **RCV_CMD's `rcv`, and it drives the station.** `002398-04` p. 12-32
+       * gives this register one bit, 11, "1 => receive enable", with "set
+       * `rcv` to 0 to abort an enabled receive" -- and `RING.md` 103c confirms
+       * it on *this* board from two independent drivers: `RING_PROC` writes
+       * `$800` here and the AT boot firmware's `move.b #$8,$404` is the same
+       * word. So this is the host telling the station whether to copy frames
+       * addressed to it, which is exactly `receive_enabled`. */
+      if (second_window && ctl->station != NULL) {
+        ap_ring_station_set_receive_enabled(
+            ctl->station, (value & AP_RING_CTL_RCV_CMD_RCV) != 0u);
+      }
       return;
     default:
       if (!second_window) {

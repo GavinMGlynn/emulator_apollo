@@ -100,7 +100,9 @@
 #include <stdint.h>
 
 #include "device/ap_i8254.h"
+#include "ring/ap_ring_medium.h"
 #include "ring/ap_ring_phy.h"
+#include "ring/ap_ring_station.h"
 #include "time/ap_time.h"
 
 /* Finding 38's four windows, as Apollo physical addresses. */
@@ -359,6 +361,16 @@
 #define AP_RING_CTL_W2_XMIT_ADDR 0x002u
 #define AP_RING_CTL_W2_RCV_ADDR 0x004u
 
+/* The header a transmit command takes out of the buffer. `[MAC]` §2.2.2's
+ * minimum, which is the only length that is *evidenced*: no document gives the
+ * board a header-length field, and finding 49 shows the AT firmware writing
+ * eight bytes into a cleared buffer and issuing the command. Twelve bytes is
+ * what §2.2.2 permits at the short end -- destination, type, the zero byte and
+ * the early acknowledge, and the four bytes after them. A longer header needs a
+ * source for where its length comes from; see `RING.md` 104c. */
+#define AP_RING_CTL_XMIT_HEADER_BYTES 12u
+#define AP_RING_CTL_XMIT_HEADER_WORDS (AP_RING_CTL_XMIT_HEADER_BYTES / 2u)
+
 /* Finding 39: the only two values init accepts. ASCII `'6'` and `'7'`, which
  * with `[ROM3500]`'s revision string ` 3.6` and `[ROM4500]`'s ` 4.0` looks like
  * a board revision -- but the ROM only ever compares, so that reading is not
@@ -432,7 +444,26 @@ typedef struct {
   /* Whether a board is fitted. Drives `+400` bit 15, which is the whole of what
    * the firmware uses to tell an empty slot from a populated one. */
   bool present;
+
+  /* ## The wire to the ring, `RING.md` 104
+   *
+   * Until this existed the controller and the ring protocol stack were two
+   * unconnected halves: `ap_ring_station` was referenced only by itself and
+   * `ap_ring_probe`, so **no frame the Domain/OS driver queued could reach the
+   * medium** and two nodes could not see each other however many machines were
+   * run. `RING.md` 85e recorded it and it stayed open through the whole
+   * `[MAC]` audit.
+   *
+   * Optional: a controller with no station attached behaves exactly as before,
+   * which is what keeps the boot hash and the firmware self-test unchanged. */
+  ap_ring_station_t *station;
+  ap_ring_medium_t *medium;
 } ap_ring_ctl_t;
+
+/* Join a controller to a station on a medium. Both pointers are borrowed and
+ * `src/core` allocates nothing, as everywhere else. */
+void ap_ring_ctl_attach_ring(ap_ring_ctl_t *ctl, ap_ring_station_t *station,
+                             ap_ring_medium_t *medium);
 
 /* Power-on. `present` chooses whether the unit answers as a fitted board. */
 void ap_ring_ctl_reset(ap_ring_ctl_t *ctl, bool present);
