@@ -5346,10 +5346,52 @@ with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both d
 | 3c505 802.3 Ethernet (`device/ap_3c505.*`) | **working end to end, host command path included.** The four flag registers from `[HIS]` §3-2/§3-3/§3-5/§3-6 with the sides the right way round, the §3.1.2/§3.1.3 mailbox in both directions, the command set, DMA on DRQ6 and the interrupt on IRQ10. The audit's finding: §3.1.2's *host→adapter* half had never been wired — assembler, dispatcher and responder all existed and were unit-tested, nothing called them, and a host command was answered never. `ETHERNET.md` finding 19; the pacing approximation is 19a. The line-by-line pass then found four more: §3.1.1's accept/reject flags were never signalled at all (20), `02H`'s receive mode was stored and never consulted so every frame on the wire was this station's (21), `3AH`'s length is `10H` not the `0CH` printed -- `[HIS]` App. F, the packet counters became double words in Rev 2.0 (22) -- and `0FH` self-test is now answered while `0CH`/`0DH`/`0EH`/`11H` stay refused because every field of their responses is unmodelled (23), and §1.12's adapter reset both cleared the Host Control Register it must not touch and released the adapter while the host still held `ATTN`+`FLSH` (25) | `etherlink_suite`, 50 tests, of which `test_a_command_written_by_the_host_is_answered_by_the_adapter` crosses the real registers with no test-side wiring |
 | MAME oracle harness | working and used throughout. Beyond the dumper there are now four probe tools — `regprobe.lua` drives every bit of a register in both directions, `writetrace.lua` taps writes to watch firmware program a device, `steptime.lua` single-steps for instruction timing, `mdcapture.lua` traces the serial registers byte-exact — and findings C10 through C14 are all measurements taken with them | `oracle_driver` (19 checks, stub MAME) and `oracle_dump_format` (19 checks, mock machine); `./apollo -listfull` lists all eleven apollo machines |
 | Interactive boot-PROM session (`mdsession.py`, `mdsession.lua`) | working, and it performed the Domain/OS install end to end. Holds a machine open across stages, reads the console and answers it; stdin is a **pty**, so a command is written when its prompt appears rather than trickled at a fixed rate. `--commands FILE` is followed while the run continues, so an unpublished dialogue can be answered as it is read. `!swap` changes a cartridge without stopping the machine. A killed driver takes its emulator with it. **Deliberately not reproducible in the oracle-reading sense**: it is paced by the host, so nothing timed may be measured through it — its products are a disk image and a transcript | `oracle_session`, 31 checks against a stub MAME that goes deaf on `re` as the real machine does; `FINDINGS.md` C49-C58 |
+| Distribution cartridge extractor (`tools/ct_extract.py`) | **working, and it reads every SR10.3 cartridge**: ANSI labels, `wbak` blocks and records, `--list`, `--extract` by path or basename, `--extract-all`. `ring8a.drvr` came out of it, 29,992 bytes. The AEGIS filesystem walk it replaces is abandoned — see the section below | `ct_extract`, 16 checks against a cartridge it builds; `--verify` parses all five cartridges with zero residue, 9,426 objects |
 | Golden regression harness | working | `golden_model_table`, run under every build preset; drift, `-O3` identity and regeneration all verified |
 | Shared frontend layer (`frontend/common/`) | working: option parsing and the model table report, plus `ap_png` — screenshots as indexed-colour PNGs, so an index and the palette behind it stay separable in the file exactly as they are in the hardware. libpng is optional and the build says which it is; without one the entry point reports "built without libpng", which is a different answer from a failed write | `frontend_common_suite`, 18 tests |
 | Headless frontend | `--model`, `--list-models`, `--help` | `golden_model_table`, which supersedes the old smoke test |
 | SDL frontend | not started, deliberately not stubbed | — |
+
+## Domain/OS binaries are readable off the distribution cartridges
+
+`tools/ct_extract.py`. This closes a wall the project had been at for weeks:
+several subsystems were blocked on "the answer is in a file on the volume" —
+`ring8a.drvr` for the ring controller's status bits, the SELF_TEST image for the
+configuration checksum (`RING.md` 83a), and the Ethernet and graphics
+equivalents. The route taken to it was the AEGIS filesystem walk of `RING.md`
+84-85d, which reached four of five layers and stalled on one undecoded offset
+inside Figure 4-8's VTOC entry. **That walk is abandoned, and nothing depends on
+finishing it.**
+
+The cartridges are three nested layers and only the innermost is Apollo's: ANSI
+labelled tapes (ISO 1001 / X3.27), then `wbak` blocks with a 14-byte header,
+then a chain of records padded to an even length. Full grammar in the tool's
+docstring and in `RING.md` 96-96d.
+
+**What makes the output evidence rather than a plausible file.** The attribute
+record gives the object's length, and the data records always total
+`ceil(length / 1024) * 1024` — so an extraction that starts one record early or
+late still yields a file of the right size once truncated, and only the total
+catches it. That invariant holds for all **9,426** objects on the five SR10.3
+cartridges, every block of which parses with **zero bytes of residue**.
+
+**A correction it forced.** `RING.md` 87c had concluded that `wbak` writes its
+catalogue and its data as separate streams and that the mapping between them was
+the last unknown. There is no mapping: the records for one object are
+contiguous. What 87c measured was that `ring8a.drvr`'s first 986 bytes are zero
+and that a block header interrupts the payload every 512 bytes, so a scan for
+68000 opcodes beside the catalogue entry found nothing — and the conclusion drawn
+from that absence was structural where the evidence was statistical.
+
+**The trap in the format, recorded because it fails silently.** Records are
+padded to an *even* length. An object whose stored path has an odd number of
+characters — `install/ri.apollo.os.v.10.3/sau8/ring8b.dex`, immediately after
+`ring8a.drvr` — shifts every following record by a byte, and a type word read one
+byte out still lands on a length small enough to look like a record. The parse
+does not stop; it desynchronises and returns plausible bytes. Two more of the
+same shape: reading a block past its `used` field takes the *previous* object's
+code as data, and the `deaffaed` leader and trailer blocks parse as records if
+they are not skipped. All three are in `tools/test_ct_extract.py`.
 
 ## What is established, and from where
 

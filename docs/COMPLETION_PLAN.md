@@ -4044,49 +4044,18 @@ discipline throughout.
         `ap_ring_sched` and `ap_ring_station` already model the ring with
         duration; driving the controller's status from them, rather than from
         the register write, is the remaining work -- and the self-test is now
-        the test for it. Finding 45 shows `+400` has five polled bits (15, 13, 11,
-        2, 1), each with its own timeout and expected polarity, and finding 48
-        two byte-wide command registers taking `$1`, `$2`, `$6`, `$8`. **None
-        of their meanings is established**, and they are what sequences the
-        loopback test finding 50 describes — transmit a frame at buffer word 0,
-        receive it back from word 16. Modelled as storage until a source
-        settles them, which means the ring ROM's self-test gets past its memory
-        test and no further.
-        **All three ROM images are now read, and none of them answers this.**
-        `[ROM3000]` and `[ROM4500]` poll the same four masks, test the same
-        `$7FFF` extent, and use the port the same way (findings 51, 51a, 51c) —
-        `[ROM4500]` differs from `[ROM3500]` in 1,413 bytes inside the
-        self-test, so that is a real revision agreeing, not a reprint. The
-        self-test hands its expected value, actual value and register address
-        back to the caller as *data*, and the whole string table is five
-        messages, so no per-bit text exists to recover.
-        **The filesystem walk that blocks this is DOCUMENTED** (`RING.md`
-        84-84d): `[AEGIS]` chapter 4 is the on-disk format -- VTOC header,
-        VTOC block, VTOC entries, and §4.4.1 "Locating an Object in the VTOC"
-        with the VTOCX laid out as bits 31:4 block and 3:0 index, plus a worked
-        example any implementation can check itself against. The header sits in
-        the **logical volume label**, one step from what `image/ap_volume.*`
-        already parses. This manual has been on disk since the start and was
-        never cited for this. It unblocks `ring8a.drvr`, the SELF_TEST image's
-        configuration checksum (83a), and the Ethernet and graphics
-        equivalents.
-        **The only route left is Domain/OS's own ring driver -- and that route
-        is now open** (`RING.md` findings 53-53e). The installed disk carries
-        the driver's link map with every entry point named, including
-        `RING_$POLL_STICKY_BPHERR`, which names a **latched bi-phase error**:
-        the first name attached to any of `+400`'s polled bits from outside the
-        ROM. Nineteen hardware conditions are named in order by
-        `domain_ring.pas`, six with prose definitions.
-        **The next step is concrete and bounded**: the files are named --
-        `ring8a.drvr` and `ring8b.drvr` -- and `RING_PROC` is **`0x3370`
-        bytes**, with every routine at a known offset inside it
-        (`RING_$SENDP` `+0xABC`, `RING8_$INT` `+0x758`,
-        `RING_$POLL_STICKY_BPHERR` `+0x19A4`). What stands between here and
-        `+400`'s bit meanings is **walking the AEGIS filesystem** to extract 13
-        KB: neither the load addresses nor the directory records give a byte
-        offset. That is a filesystem problem, not a research one, and it would
-        pay for itself well beyond the ring. Two further routes stay closed: finding 50a and
-        51c.
+        the test for it.
+        **The register meanings are CLOSED, and this item no longer waits on
+        them.** The prose here used to say "none of their meanings is
+        established" and to route the reader through the AEGIS filesystem walk
+        to `ring8a.drvr`; both were superseded and neither was rewritten. `+400`
+        is MISC_STAT with all twelve bits named, `+402` XMIT_STAT with two
+        layouts selected by its own top bit, and `+404` RCV_STAT, from `[EH]`
+        ch. 12 pp. 12-29..12-31 (`RING.md` 93-93e) — and the firmware-derived
+        model needed no change. `ring8a.drvr` is now extracted as well
+        (`RING.md` 96, `tools/ct_extract.py`) and its own tables corroborate
+        every one of those bits from a second, independent source.
+        What remains here is the traffic wire, not a register question.
   - [ ] The DMA path and the interrupt.
         **Blocked on which line, and it is a real three-way disagreement**
         (`RING.md` 82-82b): the controller has no IRQ accessor and no wiring at

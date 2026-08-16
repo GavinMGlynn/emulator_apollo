@@ -239,6 +239,19 @@ if(Python3_Interpreter_FOUND AND NOT WIN32)
                    ${CMAKE_SOURCE_DIR}/tools/test_kernel_symbols.py)
   set_tests_properties(kernel_symbols PROPERTIES LABELS tools)
 
+  # Objects out of a Domain/OS distribution cartridge. Everything it returns
+  # becomes a claim about hardware -- `ring8a.drvr` is where the ring
+  # controller's status bits come from -- so a fault in it is a wrong register
+  # map wearing the authority of a primary source. Three of its four
+  # load-bearing properties fail *silently*: a missing even-padding rule
+  # desynchronises on the first odd-length path and still returns plausible
+  # bytes, a block read past its `used` field takes the previous object's code
+  # as data, and an extraction that starts one record early yields a file of
+  # exactly the right length. Builds its own cartridge, so it needs no `media/`.
+  add_test(NAME ct_extract
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/test_ct_extract.py)
+  set_tests_properties(ct_extract PROPERTIES LABELS tools)
+
   # The headless frontend's flags, each one. Phase 5 asks for exactly this and
   # until it existed not one was checked -- and the flags are the project's own
   # instruments, so one that breaks silently takes a measurement with it. Needs
