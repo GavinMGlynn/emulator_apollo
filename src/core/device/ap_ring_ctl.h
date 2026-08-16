@@ -285,6 +285,12 @@
  * because there is no datasheet. */
 #define AP_RING_CTL_BUFFER_WORDS 0x8000u
 
+/* `[MAC]` §2.2.2.1's frame start **sequence**: the frame start character, a
+ * null separator and a separator character -- three, which is what finding 87a
+ * records and `ap_ring_station` already destuffs past. Named here because the
+ * receive header counter's shortfall is exactly that many (`RING.md` 120). */
+#define AP_RING_FRAME_START_CHARACTERS 3u
+
 /* ## The three command registers, `002398-04` p. 12-32
  *
  * The write halves of `59400`/`59402`/`59404`. **Two of the three are confirmed

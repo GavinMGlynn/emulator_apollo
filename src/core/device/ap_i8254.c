@@ -279,11 +279,19 @@ void ap_i8254_clock_counter(ap_i8254_t *pit, unsigned index) {
   }
 
   /* Mode 0, and the three gate-triggered modes this board cannot distinguish:
-   * "OUT will go high when the Counter reaches zero", and stays there until the
-   * counter is reprogrammed. Counting continues past zero -- the counter wraps
-   * -- but the terminal count happens once. */
+   * "OUT then goes high and remains high until a new count or a new Mode 0
+   * Control Word is written into the Counter" -- the datasheet says OUT
+   * latches, and says nothing about the *counter* stopping.
+   *
+   * **It does not stop, and this used to.** The comment here already said
+   * "counting continues past zero -- the counter wraps" while the line beneath
+   * it cleared `counting`, so a counter that reached terminal count froze at
+   * zero. The ring firmware is what caught it: subtest 32 loads `XMIT_HDR_CNT`
+   * with `$1FF` and requires it to read **`FE00`** after the operation, which
+   * is 1023 counts down from `$1FF` -- reachable only by wrapping through
+   * zero. A frozen counter reads `0000` instead, which is exactly what it
+   * did. `RING.md` 120a. */
   c->out = true;
-  c->counting = false;
 }
 
 void ap_i8254_clock(ap_i8254_t *pit) {

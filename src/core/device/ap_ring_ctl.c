@@ -588,10 +588,45 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
          * here, where real hardware would spread it over the ring's bit clock.
          * Subtest 32 reads the counters afterwards and cannot tell the
          * difference; anything that watches them *during* a transfer could. */
-        for (uint16_t i = 0; i < ctl->a2.timer_b.counter[1].latch; i++) {
-          ap_i8254_clock_counter(&ctl->a2.timer_a, AP_RING_CTL_RCV_HDR_CNT);
+        /* **All five counters are clocked by one source, and the firmware's
+         * own expectation table says how many times.** `$AF8` walks `d4` 1..5
+         * and gives each counter its expected reading; against `$976`'s
+         * `$FFFF` preload and `$944`'s `$1FF`/`$3FF`, and remembering the 8254
+         * counts *down*, every one of them works out to **1023** events:
+         *
+         *     XMIT_HDR  01FF -> FE00   1023
+         *     XMIT_PKT  03FF -> 0000   1023
+         *     RCV_PKT   FFFF -> FC00   1023
+         *     RCV_MAX   FFFF -> FC00   1023
+         *     RCV_HDR   FFFF -> FC03   1020
+         *
+         * So the loaded values are *preloads that make each counter
+         * identifiable*, not limits, and the transmit pair are clocked too --
+         * which this modelled not at all, so a run that got past `RCV_HDR`
+         * would have failed at `d4 = 4` instead. */
+        const uint16_t events = ctl->a2.timer_b.counter[1].latch;
+        for (uint16_t i = 0; i < events; i++) {
           ap_i8254_clock_counter(&ctl->a2.timer_a, AP_RING_CTL_RCV_PKT_CNT);
           ap_i8254_clock_counter(&ctl->a2.timer_a, AP_RING_CTL_RCV_MAX_CNT);
+          ap_i8254_clock_counter(&ctl->a2.timer_b, AP_RING_CTL_XMIT_HDR_CNT);
+          ap_i8254_clock_counter(&ctl->a2.timer_b, AP_RING_CTL_XMIT_PKT_CNT);
+          /* **`PROVISIONAL`: the receive header counter misses the frame start
+           * sequence.** It alone counts three fewer, and `[MAC]` §2.2.2.1 puts
+           * exactly three characters before the header sequence begins -- the
+           * frame start character, a null separator and a separator character
+           * (finding 87a, this project's own reading, which the station
+           * already implements). A counter gated on "hdr rcv in progress"
+           * (`RCV_STAT` bit 0) cannot be running during them.
+           *
+           * Modelled as the mechanism rather than as a bare `- 3`, because the
+           * two are indistinguishable on this one number and only the first
+           * predicts anything. **The cost of being wrong is named**: if the
+           * three are not the frame start sequence, a transfer whose framing
+           * differs would need a different offset, and nothing here would say
+           * so. `RING.md` 120. */
+          if (i >= AP_RING_FRAME_START_CHARACTERS) {
+            ap_i8254_clock_counter(&ctl->a2.timer_a, AP_RING_CTL_RCV_HDR_CNT);
+          }
         }
       } else if (!second_window) {
         /* Nothing outstanding: bit 2 still returns, since subtests 22 and 24
