@@ -4481,9 +4481,19 @@ Only after the reference core is proven, and only under an identity harness.
       volume and not the era; something about the fresh copy or the cartridge
       attach differs between the two runs, and **which** is not yet known.
       Worth isolating before anything else, because it makes the run
-      non-repeatable and every later result would inherit that. The cheap
-      discriminator is to re-run the *working* invocation verbatim and see
-      whether it still works. Then MINST from the four software cartridges,
+      non-repeatable and every later result would inherit that.
+      **The discriminator was run and it did not discriminate**: the *working*
+      invocation, verbatim — same `--rundir`, same era config, same cartridge,
+      same freshly-copied volume — now also gives `error: sysboot not found`.
+      So the invocation is not the variable, and neither is the rundir nor the
+      config. **`Domain/OS kernel(7), revision 10.3` ran exactly once and has
+      not been reproduced.** Treat that result as provisional until it is.
+      What has *not* been ruled out: the volume. The successful run's disk had
+      been written by the preceding failed attempt, so it was not byte-identical
+      to a fresh `invol-done` copy however much it looked it — `FINDINGS.md`
+      C54's "a failed stage is not a no-op" cuts both ways, and the state that
+      made it work may have been wreckage too. Comparing the two images is the
+      next measurement, and it needs no emulator run. Then MINST from the four software cartridges,
       then the state hash the item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
