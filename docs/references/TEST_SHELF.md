@@ -153,9 +153,16 @@ Named so that the gap is visible rather than implied.
   never ends. `receive_at`'s comment claimed the sets agree on every code this
   firmware uses; they do not, and `ap_mc68681_baud` eighty lines above said so
   all along. Corrected in place.
-  **Next**: establish what writes `ACR[7]` during this boot and whether it is
-  ours or the firmware's -- one `--boot-report` line for `ACR`, not another
-  seven-minute hunt.
+  **MEASURED, and it refutes the paragraph above as a *cause*: `ACR` is `60`,
+  bit 7 clear, baud set 1** -- on both channels, so the receiver resolves code
+  `7` to 1050 exactly as it should. The comment that was corrected was really
+  wrong and the two sets really do differ at code 7, but that is not what the
+  cartridge boots hit. `--boot-report` now prints `ACR`, the set and the
+  resolved rate, so this costs one line instead of an argument.
+  **What is left**: `$FE` is `resample(0x0D, 8, 4800, 1050)` -- a *4800* sender
+  -- while `--boot-input-rate` defaults to `0xBB`, whose low nibble is code `B`,
+  9600. So the sender rate reaching `receive_at` is 4800 when it should be 9600.
+  That is one `printf` away and is a **unit-level** question again, not a boot.
   The DEV BIT ARRAY is **not** what gates the tape: setting bit 1 `ctape`
   changes nothing, measured. The PROM does carry `Cartridge Tape  ` and
   `Ctape ERROR, SENSE BYTES = `, so the device is supported once selected.

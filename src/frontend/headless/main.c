@@ -2749,6 +2749,15 @@ static void report_input_path(ap_board_t *board, unsigned unit,
   printf("  --- input path, serial %u channel %c%s ---\n", unit + 1u,
          channel == 0u ? 'A' : 'B',
          (unit == 0u && channel == 0u) ? " (the keyboard)" : "");
+  /* **`ACR[7]` and the rate it resolves to.** The clock-select code alone does
+   * not say what the line runs at: the two published baud sets differ at five
+   * codes, and code `7` -- which this firmware writes to both halves of `CSRB`
+   * -- is 1050 in set 1 and 2000 in set 2. That difference decides whether the
+   * boot PROM's autobaud can converge, so a report that printed `CSR 77` and
+   * stopped was naming a code and hiding the rate. */
+  printf("  clock        ACR %02X (baud set %u), receiving at %u baud\n",
+         duart->acr, (duart->acr & 0x80u) ? 2u : 1u,
+         ap_mc68681_baud((uint8_t)(ch->csr >> 4), (duart->acr & 0x80u) != 0u));
   printf("  port         MR1 %02X (%u bit(s)), MR2 %02X, CSR %02X, SR %02X\n",
          ch->mr[0], ap_sio_character_bits(&board->sio, unit, channel),
          ch->mr[1], ch->csr, ch->sr);
