@@ -4403,14 +4403,16 @@ Only after the reference core is proven, and only under an identity harness.
       installed under the oracle with `tools/mame-oracle/mdsession.py --stage
       prompt --ctape …` driven by `install-domainos.cmds`, and the result boots
       here. Doing the same for SR10.3 is a known, scripted, ~one-session job.
-      **Its one prerequisite, checked**: `ext/mame` currently holds **no built
-      binary** — `mdsession.py`'s `find_mame` finds nothing, so the harness
-      exits before it starts. Building it is a ~2 h capped-scope job on this VM
-      (`oracle.py` carries the command and the memory budget; `make
-      -j$(nproc)` exhausts it). So the sequence is: build the oracle, `truncate
-      -s 348M` a fresh volume, INVOL it, then run `install-domainos.cmds` with
-      the SR10.3 cartridges. Budget the build first — it is the long pole, not
-      the install.
+      **Its one prerequisite is now MET**: `ext/mame/apollo` is built, 72 MB,
+      and `mdsession.py` finds it. It took **30 seconds**, not the ~2 h a first
+      note here estimated — the object tree was already cached from earlier
+      sessions, so only `drivlist.cpp` and the link were outstanding. The
+      command is `oracle.py`'s own, capped at `-j3` because the budget is
+      ~2.5 GB per job and this VM has 8 GB free; `-j$(nproc)` would want 20 GB
+      and swap.
+      So the remaining sequence is just: `truncate -s 348M` a fresh volume,
+      INVOL it, then run `install-domainos.cmds` against the SR10.3 cartridges.
+      The install is the long pole after all.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
       console selection is an autobaud (`000844`-`0008B8`) that the scripted
