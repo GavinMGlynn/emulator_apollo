@@ -169,9 +169,18 @@ Named so that the gap is visible rather than implied.
   defaults to `0xBB`, is parsed and passed as-is, and `receive_at` takes the
   sender's rate from the *low* nibble and the receiver's from the *high* nibble
   under the same `ACR` set. Nothing there is swapped.
-  **So the next step is to stop-PC at `0007EC` and read `d1` immediately after
-  the `move.b $16(a0),d1`** -- the one measurement of this whole thread that has
-  never actually been taken -- rather than to change any code.
+  **The measurement, finally taken properly: `d1 = $FE`**, stop-PC on `0007F0`
+  at the *default* sender rate `0xBB`. Working it backwards, `0x0D` from a 9600
+  sender reads `$FE` only if the receiver is at **2000 baud** -- `p0 = 14400/R`
+  must land on one of `0x0D`'s zero bits while `p1 = 24000/R` clears the stop
+  bit, which holds at `R = 2000`. **2000 is code `7` in set *2*.** `CSRB` is
+  `77`, so the receiver is being resolved with the wrong baud set.
+  **So `ACR[7]` is implicated after all, and the refutation above was made from
+  the wrong run**: that `ACR 60` came from a *different* boot -- no cartridge,
+  8 M instructions, `CSRB` still `BB` -- not from this one at 164 M. Same error
+  as the register dump, one level up: evidence taken from a context that was not
+  the one in question. **Next: print `ACR` from the cartridge run at the moment
+  of the read**, and if it is set, find what sets it.
   The DEV BIT ARRAY is **not** what gates the tape: setting bit 1 `ctape`
   changes nothing, measured. The PROM does carry `Cartridge Tape  ` and
   `Ctape ERROR, SENSE BYTES = `, so the device is supported once selected.
