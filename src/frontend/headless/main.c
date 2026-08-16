@@ -257,7 +257,8 @@ static void print_usage(const char *program_name) {
           "  --matrox              fit the DN4500 Matrox graphics board\n"
           "  --matrox-screenshot FILE  scan its frame out to a PNG. The\n"
           "                        geometry is a hypothesis; see GRAPHICS.md\n"
-          "  --option-rom FILE     place an option ROM where the boot PROM's\n"          "  --option-rom-entry N  call entry id N from that ROM's own entry\n"
+          "  --option-rom FILE     place an option ROM where the boot PROM's\n"          "  --option-rom-entry N  call entry id N from that ROM's own entry\n"          "  --option-rom-text S   after that entry, type S through the ROM's\n"
+          "                        character entry, so the board draws\n"
           "                        table and report what it did, instead of\n"
           "                        booting. --matrox fits the card first\n"
           "                        scan looks, with no card behind it\n"
@@ -910,9 +911,44 @@ static uint8_t *read_file(const char *path, long *size_out) {
  * `GRAPHICS.md` 20c is what it exists for -- the Matrox's clear-screen entry is
  * never reached by the boot PROM's scan, which calls the init entry only, so
  * the frame at `$900000` had no way to be written by anything. */
+static int write_matrox_screenshot(const char *path,
+                                   const ap_matrox_t *matrox);
+
+/* An option ROM's entry table, by id. Every Apollo option ROM carries the same
+ * header, so this is shared rather than per-board. False when the table does
+ * not name the id, which is a fact about the image and not an error here. */
+static bool option_rom_entry_offset(const uint8_t *rom, long rom_size,
+                                    unsigned want_id, uint32_t *offset) {
+  if (rom_size <= (long)AP_RING_ROM_ENTRY_TABLE + 2) {
+    return false;
+  }
+  const uint32_t n = (uint32_t)((rom[AP_RING_ROM_ENTRY_TABLE] << 8) |
+                                rom[AP_RING_ROM_ENTRY_TABLE + 1u]);
+  for (uint32_t i = 0; i < n; i++) {
+    const long at = (long)AP_RING_ROM_ENTRY_TABLE + 2 + (long)i * 6;
+    if (at + 6 > rom_size) {
+      break;
+    }
+    if ((uint32_t)((rom[at] << 8) | rom[at + 1]) != want_id) {
+      continue;
+    }
+    const uint32_t off = (uint32_t)((rom[at + 2] << 24) | (rom[at + 3] << 16) |
+                                    (rom[at + 4] << 8) | rom[at + 5]);
+    if (off >= (uint32_t)rom_size) {
+      return false;
+    }
+    *offset = off;
+    return true;
+  }
+  return false;
+}
+
+#define AP_MATROX_TEXT_ENTRY_ID 2u
+
 static int run_option_rom_entry(FILE *out, ap_model_id_t model,
                                 const char *rom_path, unsigned want_id,
-                                bool fit_matrox) {
+                                bool fit_matrox, const char *text,
+                                const char *shot) {
   if (rom_path == NULL) {
     fprintf(stderr, "apollo: --option-rom-entry needs --option-rom FILE\n");
     return 2;
@@ -944,36 +980,23 @@ static int run_option_rom_entry(FILE *out, ap_model_id_t model,
   ap_machine_set_board(&machine, &board);
 
   uint32_t entry_offset = 0;
-  bool found = false;
-  {
-    const uint32_t n = (uint32_t)((rom[AP_RING_ROM_ENTRY_TABLE] << 8) |
-                                  rom[AP_RING_ROM_ENTRY_TABLE + 1u]);
-    for (uint32_t i = 0; i < n; i++) {
-      const long at = (long)AP_RING_ROM_ENTRY_TABLE + 2 + (long)i * 6;
-      if (at + 6 > rom_size) {
-        break;
-      }
-      const uint32_t id = (uint32_t)((rom[at] << 8) | rom[at + 1]);
-      if (id != want_id) {
-        continue;
-      }
-      entry_offset = (uint32_t)((rom[at + 2] << 24) | (rom[at + 3] << 16) |
-                                (rom[at + 4] << 8) | rom[at + 5]);
-      found = true;
-      break;
+  if (!option_rom_entry_offset(rom, rom_size, want_id, &entry_offset)) {
+    fprintf(stderr, "apollo: %s has no usable entry id %u in its table\n",
+            rom_path, want_id);
+    free(rom);
+    return 1;
+  }
+  uint32_t text_entry = 0;
+  if (text != NULL) {
+    uint32_t text_offset = 0;
+    if (!option_rom_entry_offset(rom, rom_size, AP_MATROX_TEXT_ENTRY_ID,
+                                 &text_offset)) {
+      fprintf(stderr, "apollo: %s has no usable entry id %u for --option-rom-text\n",
+              rom_path, AP_MATROX_TEXT_ENTRY_ID);
+      free(rom);
+      return 1;
     }
-  }
-  if (!found) {
-    fprintf(stderr, "apollo: %s has no entry id %u in its table\n", rom_path,
-            want_id);
-    free(rom);
-    return 1;
-  }
-  if (entry_offset >= (uint32_t)rom_size) {
-    fprintf(stderr, "apollo: %s names entry %u at +%X, past its end\n",
-            rom_path, want_id, entry_offset);
-    free(rom);
-    return 1;
+    text_entry = AP_BOARD_ATBUS_MEMORY_BASE + text_offset;
   }
 
   const uint32_t sentinel = 0x00FFFFF0u;
@@ -1011,9 +1034,76 @@ static int run_option_rom_entry(FILE *out, ap_model_id_t model,
     fprintf(out, "  did not return in %u step(s), PC %08X\n", limit,
             machine.cpu.regs.pc);
   }
+
+  /* ## Typing through the character entry
+   *
+   * `ENTRY_02` at `+3AA` is the board's character output: it masks its argument
+   * to seven bits, returns immediately on `$0D`, and for anything from `$20` up
+   * calls the glyph routine at `$430`. That routine reads the cell width and
+   * the font straight out of the ROM -- `add.w #$a` is a 10-pixel advance,
+   * `mulu.w #$e` a 14-byte glyph, `lea.l $5e2(pc)` the font with space first --
+   * and it is where the frame layout is corroborated a third time: `cmp.w
+   * #$500` is a right margin at **1280**, and the row offset is `(d7 &
+   * $FFFF0000) >> 8`, i.e. the line number times **256**.
+   *
+   * **The cursor lives in `d7` and is the caller's**, which is why this runs
+   * every character on the *same* machine rather than resetting between them:
+   * `ENTRY_02` advances `d7` and never initialises it, so a harness that reset
+   * would draw every glyph in the same place. Only the PC and the return
+   * address are set per call. */
+  if (text != NULL) {
+    unsigned drawn = 0;
+    /* **The cursor starts at the origin, and it has to be set here.** `d7`
+     * packs it -- the low word is the pixel column, advanced by `add.w #$a`,
+     * and the high word is the row, which `$45A` turns into a byte offset with
+     * `clr.w` then `lsr.l #8`, i.e. row x 256. Neither entry initialises it,
+     * so an uninitialised `d7` above `$500` makes `$430`'s right-margin test
+     * return before drawing anything: the first attempt here typed twenty
+     * characters, wrote nothing, and returned in 53 steps for exactly that
+     * reason. */
+    machine.cpu.regs.d[7] = 0u;
+    for (const char *c = text; *c != '\0'; c++) {
+      /* **Through `ap_machine_reset`, not by assigning the PC.** Setting
+       * `regs.pc` alone leaves the prefetch pipe holding the previous entry's
+       * words, and the next fetch faults -- which is what the first version of
+       * this did: `AP_M68030_STEP_FAULT` at the entry's own first instruction,
+       * after zero steps. The reset is the one place that flushes the pipe
+       * along with everything §8.1.1 lists.
+       *
+       * It resets the CPU and not the board, so the frame survives; the cursor
+       * does not, and is carried across by hand because it is the caller's. */
+      const uint32_t cursor = machine.cpu.regs.d[7];
+      ap_machine_reset(&machine, text_entry, stack);
+      machine.cpu.regs.d[7] = cursor;
+      machine.cpu.regs.d[1] = (uint32_t)(unsigned char)*c;
+      base[0] = (uint8_t)(sentinel >> 24); base[1] = (uint8_t)(sentinel >> 16);
+      base[2] = (uint8_t)(sentinel >> 8);  base[3] = (uint8_t)sentinel;
+      for (unsigned n = 0; n < 2000000u; n++) {
+        if (machine.cpu.regs.pc == sentinel) {
+          break;
+        }
+        const ap_machine_run_t one = ap_machine_run(&machine, 1u);
+        if (one.status != AP_M68030_STEP_EXECUTED &&
+            one.status != AP_M68030_STEP_EXCEPTION) {
+          fprintf(out,
+                  "  char %02X      stopped status %d at PC %08X after %u\n",
+                  (unsigned)(unsigned char)*c, (int)one.status,
+                  machine.cpu.regs.pc, n);
+          break;
+        }
+      }
+      drawn++;
+    }
+    fprintf(out, "  typed        %u character(s) through entry %u (+%X)\n",
+            drawn, AP_MATROX_TEXT_ENTRY_ID, text_entry - AP_BOARD_ATBUS_MEMORY_BASE);
+  }
   if (fit_matrox) {
     fprintf(out, "  frame        %u byte(s) written at %06X\n",
             board.matrox.frame_writes, AP_MATROX_FRAME_ADDR);
+    if (shot != NULL && write_matrox_screenshot(shot, &board.matrox) != 0) {
+      free(rom);
+      return 1;
+    }
   }
   free(rom);
   return 0;
@@ -1329,6 +1419,7 @@ static const char *g_cartridge_path = NULL;
 static uint8_t *g_cartridge_bytes = NULL;
 static bool g_ring_selftest = false;
 static long g_option_rom_entry = -1;
+static const char *g_option_rom_text = NULL;
 
 /* How often a live wire is polled, in instructions. A frontend choice with no
  * hardware meaning: a real card is interrupted by its own receiver, and this
@@ -4868,6 +4959,11 @@ int main(int argc, char **argv) {
       i += 2;
       continue;
     }
+    if (strcmp(argv[i], "--option-rom-text") == 0 && i + 1 < argc) {
+      g_option_rom_text = argv[i + 1];
+      i += 2;
+      continue;
+    }
     if (strcmp(argv[i], "--option-rom-entry") == 0 && i + 1 < argc) {
       char *end = NULL;
       g_option_rom_entry = strtol(argv[i + 1], &end, 0);
@@ -5383,7 +5479,8 @@ int main(int argc, char **argv) {
 
   if (g_option_rom_entry >= 0) {
     return run_option_rom_entry(stdout, opt.model->id, g_option_rom_path,
-                                (unsigned)g_option_rom_entry, g_fit_matrox);
+                                (unsigned)g_option_rom_entry, g_fit_matrox,
+                                g_option_rom_text, g_matrox_shot);
   }
   if (g_ring_selftest) {
     return run_ring_selftest(stdout, opt.model->id, g_ring_rom_path);

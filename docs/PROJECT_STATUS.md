@@ -20107,6 +20107,39 @@ display-fitted run needs `--screenshot`.
 *Verification: `frontend_flags` 13 → 16, `ctest` 129/129, every golden
 unchanged, and the DN3500 30 M hash unchanged across the memory-sizing change.*
 
+## The Matrox draws: "APOLLO DOMAIN DN4500" off the board's own ROM
+
+The remaining question was what *draws*, the frame having been found and
+cleared. It is the ROM itself: `ENTRY_02` at `+3AA` is the board's character
+output, and `--option-rom-text` types through it.
+
+The glyph routine at `$430` states the frame layout a **third** time, quite
+independently of the clear loop: `cmp.w #$500, d7` is a right margin at 1280,
+`add.w #$a` a 10-pixel cell, `mulu.w #$e` a 14-byte glyph from a font at `+5E2`
+with space first, and the row offset is `(d7 & $FFFF0000) >> 8` -- row x 256,
+the stride -- with `d2` reaching 256 by `addq.l #$2` on `$FE` for the same
+purpose. The font dumps legibly straight out of the image.
+
+Typed, the board renders `APOLLO DOMAIN DN4500`: 457 set pixels, ink in rows
+1-10 of the 14-row cell and columns 0-197 for twenty 10-pixel cells. Every
+number the address findings derived is visible at once -- base, stride, width,
+cell -- so the picture is the confirmation rather than an illustration of it.
+
+**Two harness bugs, both worth keeping.** The cursor is the *caller's*: neither
+entry initialises `d7`, and an uninitialised one above `$500` makes the margin
+test return before drawing -- twenty characters, nothing written, 53 steps. And
+**setting `regs.pc` is not entering a routine**: assigning it per character
+faulted at the entry's own first instruction after *zero* steps, because the
+prefetch pipe still held the previous entry's words. `ap_machine_reset` flushes
+it, resets the CPU and not the board, so the frame survives and only the cursor
+is carried by hand. The harness had been swallowing that status, which made two
+runs look like "the ROM does not draw" when they meant "the harness never
+called it".
+
+*Verification: `check_frontend_flags.py` 20 -> 21 named entries; ctest 137/137.
+`--matrox --option-rom ... --option-rom-entry 3 --option-rom-text "..."` clears
+and then draws, and `--matrox-screenshot` writes the PNG.*
+
 ## The Matrox frame buffer is found, and confirmed by executing the ROM
 
 The DN4500 Matrox item's blocking question was **where the pixels go**, and it

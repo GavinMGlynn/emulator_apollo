@@ -215,6 +215,63 @@ Something must *draw* before there is an image, and on this board that is the
 downloaded microcode's job (finding 4b) or the operating system's. That is the
 next question and it is no longer about *where* the pixels live.
 
+## Finding 21: the board draws, and the picture confirms everything
+
+`ENTRY_02` at `+3AA` is the board's **character output**, and running it puts
+the first real image this project has had out of this card.
+
+It masks its argument to seven bits, returns on `$0D`, and for anything from
+`$20` up calls the glyph routine at `$430`. That routine is where the frame
+layout is stated a *third* time, independently of finding 20's clear loop:
+
+    000430  cmp.w   #$500, d7    ; right margin at 1280 -- the visible width
+    00043C  add.w   #$a, d7      ; a 10-pixel cell
+    000440  sub.w   #$20, d1     ; space is glyph 0
+    000444  mulu.w  #$e, d1      ; 14 bytes a glyph
+    000448  lea.l   $5e2(pc), a0 ; the font
+    00045A  move.l  d7, d1       ; and the row offset:
+    00045C  clr.w   d1           ;   (d7 & $FFFF0000) >> 8
+    00045E  lsr.l   #$8, d1      ;   = row x 256, the stride
+    000496  addq.l  #$2, d2      ; d2 = $FE + 2 = 256, the stride again
+
+So `d7` packs the cursor -- pixel column in the low word, row in the high -- and
+the font is an **8x14 bitmap at `+5E2` with space first**, which dumps legibly:
+`A` is `003c42818181ff81818181000000`.
+
+**Typed through `--option-rom-text`, the board renders it:**
+
+```
+..####....#######....######...#.........#..........######....
+.#....#...#......#..#......#..#.........#.........#......#...
+#......#..#......#..#......#..#.........#.........#......#...
+#......#..#......#..#......#..#.........#.........#......#...
+#......#..#.....#...#......#..#.........#.........#......#...
+########..######....#......#..#.........#.........#......#...
+#......#..#.........#......#..#.........#.........#......#...
+```
+
+`APOLLO DOMAIN DN4500` at 457 set pixels, ink in rows 1-10 of a 14-row cell and
+columns 0-197 for twenty 10-pixel cells. Every number the previous two findings
+derived is now visible at once: the base, the stride, the width, the cell.
+
+### 21a: two harness bugs, both worth recording
+
+**The cursor is the caller's.** Neither entry initialises `d7`, so an
+uninitialised one above `$500` makes the margin test return before drawing:
+the first attempt typed twenty characters, wrote nothing, and returned in 53
+steps. `--option-rom-text` sets it to the origin and carries it across
+characters, which is what a driver does.
+
+**Setting `regs.pc` is not entering a routine.** The second attempt assigned
+the PC per character and every call faulted at the entry's own first
+instruction -- `AP_M68030_STEP_FAULT`, after *zero* steps -- because the
+prefetch pipe still held the previous entry's words. Going through
+`ap_machine_reset` flushes it along with everything `[030]` §8.1.1 lists; it
+resets the CPU and not the board, so the frame survives and only the cursor has
+to be carried by hand. **The harness had been swallowing that status**, which is
+why two runs looked like "the ROM does not draw" rather than "the harness never
+called it".
+
 ## The DN3500 controllers' audit, 2026-08-16
 
 `ap_graphics.*` is not this file's usual subject, but the line-by-line audit of
