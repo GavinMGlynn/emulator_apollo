@@ -4491,9 +4491,18 @@ Only after the reference core is proven, and only under an identity harness.
       What has *not* been ruled out: the volume. The successful run's disk had
       been written by the preceding failed attempt, so it was not byte-identical
       to a fresh `invol-done` copy however much it looked it — `FINDINGS.md`
-      C54's "a failed stage is not a no-op" cuts both ways, and the state that
-      made it work may have been wreckage too. Comparing the two images is the
-      next measurement, and it needs no emulator run. Then MINST from the four software cartridges,
+      C54's "a failed stage is not a no-op" cuts both ways.
+      **A third run excludes the rundir**: a brand-new `--rundir`, no
+      `--keep-rundir`, default config, fresh volume — `error: sysboot not
+      found` again. So persisted harness state (tape position, nvram, cfg) is
+      not it either. Eliminated so far: the invocation, the rundir, the era
+      config, and the unclean volume. **Not** eliminated, and now the leading
+      candidate: that the successful run's disk was not the pristine
+      `invol-done` copy it appeared to be. That image is **gone** — it was
+      overwritten by the re-copy — which is the real lesson here: *a run whose
+      result you may want to explain should have its inputs preserved before
+      the next run overwrites them.* Next: keep a copy of every volume state
+      before each attempt, and re-establish the kernel load from a known base. Then MINST from the four software cartridges,
       then the state hash the item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
