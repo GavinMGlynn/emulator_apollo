@@ -254,6 +254,29 @@ the font is an **8x14 bitmap at `+5E2` with space first**, which dumps legibly:
 columns 0-197 for twenty 10-pixel cells. Every number the previous two findings
 derived is now visible at once: the base, the stride, the width, the cell.
 
+### 21b: the pitch discriminator, run
+
+Finding 17b set the test when the geometry was still arithmetic: "**rendering is
+the discriminator: a wrong pitch shears a picture that is still legible, a right
+one does not**". It has power because the two sides are independent -- the
+*firmware* chose the layout and writes wherever it likes, while the scanout's
+stride is this core's own claim about it -- so a wrong claim must shear.
+
+Run against the drawn line, by rebuilding the raw 256 KB frame from the render
+and scanning the **same bytes** out at four pitches:
+
+| pitch | result |
+| --- | --- |
+| **256** | upright and legible |
+| 255 | **sheared**: every row displaced 8 pixels right, staircasing down the screen, still fragmentarily legible -- the exact failure 17b names |
+| 160 | collapses to fragments; the visible width with no gap is not the line |
+| 128 | double-spaced, alternate rows blank -- half a line, so the 96-byte gap is read as a row of its own |
+
+So 256 is discriminated from its immediate neighbour, from the visible width,
+and from a plausible half. The pitch is confirmed by the criterion this file set
+for it before the answer was known, and finding 17b's test is now spent rather
+than outstanding.
+
 ### 21a: two harness bugs, both worth recording
 
 **The cursor is the caller's.** Neither entry initialises `d7`, so an
