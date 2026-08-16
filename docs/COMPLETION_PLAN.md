@@ -4548,9 +4548,19 @@ Only after the reference core is proven, and only under an identity harness.
       `ex domain_os`. It then fails *differently* — the command arrives as
       **`eomain_os`**, with `x` and `d` dropped, so the send is losing
       characters on that line. That is the pacing problem C50 documents around
-      typed input, now on the command path rather than the knock: the next step
-      is `--boot-input`-style pacing or a `!knock` before the command, not more
-      variable elimination. Then MINST from the four software cartridges,
+      typed input, now on the command path rather than the knock: adding `!expect \n\n>` between `di c` and the
+      command — which the project's own `install-domainos.cmds` has and the
+      knock version had dropped — **fixes the character loss**: the command now
+      arrives intact.
+      **And the result is `error: sysboot not found` again.** So the `re`
+      sequence from the web transcript is not the difference either. Six
+      variables are now eliminated. Combined with `RING.md` 85a/85d — `sysboot`
+      is a file *on the volume* — the standing reading is that `ex domain_os`
+      wants a volume that already has an OS, which `invol-done` by definition
+      does not, and that the one successful load had something no reconstruction
+      here has reproduced. **Do not spend more runs on elimination.** Give
+      `di c` an observable first; without one, every run in this list was
+      indistinguishable from every other. Then MINST from the four software cartridges,
       then the state hash the item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
