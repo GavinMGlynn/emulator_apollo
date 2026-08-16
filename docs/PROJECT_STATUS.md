@@ -20450,28 +20450,37 @@ peripheral.
 `040007D0`, reset PC `0001F040`, both of which this project recovered from the
 image before it could run one -- and executes.
 
-**And it stops somewhere precise, which is the point of getting this far.**
-`$1F078`-`$1F086` is a two-instruction loop: write `#$1` to **`$202D4`**, read
-it back, and spin unless the low nibble reads `1`. Our map sends `0202D4` to the
-Series 4000's `0102D4`, which `019411-A00` Table 2-5 calls the CACHE STATUS
-REGISTER and which this core models from a DN3500 measurement: **only bit 7 is
-storage**, the rest a fixed pattern. So write-1-read-1 cannot hold and the loop
-never exits.
+**And the first attempt at this map got the core block wrong, which the
+firmware then proved.** Mapping `0202xx` onto the Series 4000's core registers
+made `$1F078` spin for twenty million instructions: it writes `#$1` to `$202D4`
+and wants the low nibble back, and the Series 4000's cache register keeps only
+bit 7, the rest being a fixed pattern measured on a DN3500.
 
-That is the map's own caveat arriving on schedule rather than a defect. The
-firmware uses `2C0`, `2CC`, `2D0`, `2D4` and `2D8` as *distinct* offsets inside
-a range the Series 4000 aliases across 256 bytes, which is already evidence the
-block is not simply the Series 4000's -- and the read-back settles it.
+The census settles it beyond that one poll. The firmware uses **thirty-two
+registers at a four-byte stride** from `020200` to `02027C`, each referenced
+independently, then byte-granular ones at `020280`/`020283`/`020284`/`020287`,
+then `0202C0`, `0202CC`, `0202D0`, `0202D4`, `0202D8`. On a Series 4000 that
+entire range is **one** register aliased across 256 bytes. Thirty-two distinct
+four-byte registers cannot be that, so the `+0x10000` rule holds for the block's
+*base* and not for its contents.
 
-**Deliberately not fixed by making the cache register read back its writes.**
-That value is a DN3500 measurement and the reference machine depends on it; a
-DN2500 core-register model is its own item, and inventing one here to clear a
-poll is precisely the parameter search `CLAUDE.md` forbids. The next question is
-what `$202D4` is on this board, and the route is the one that produced the rest
-of this map.
+**So the range is left unmapped**, following the rule the DS3000 map already
+states for its DMA page register: left out rather than guessed at, because a
+region that decodes to nothing is a visible gap where one answering another
+machine's register is an invisible error. The calendar, interrupt controller and
+node ID go with it for a weaker reason -- the firmware never references them, and
+the rule that would place them is the one the core block just falsified inside
+its own range.
 
-*Verification: ctest 137/137, and the reference identity boot is unchanged --
-the map is selected by model, so no other machine sees it.*
+The machine now bus-errors at instruction 18 on **`000202D0`**, the first core
+register its reset writes. That is less far than the spin and much more useful:
+it names the missing thing instead of hiding it, and makes the next item
+concrete -- model the Series 2500's core register block, thirty-two four-byte
+registers and all, by the route that produced the rest of this map.
+
+*Verification: ctest 137/137, and the reference identity boot still hashes
+`A354786119A3931D` -- the map is selected by model, so no other machine sees
+it.*
 
 ## The DN2500's memory map, recovered from its own firmware
 

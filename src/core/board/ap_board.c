@@ -126,6 +126,25 @@ static const ap_board_map_t DS3000_MAP = {
  * three writes to `$20800` are the posted-code pattern the DN3500 writes to
  * `$010800`.
  *
+ * **The core register block at `0202xx` is deliberately NOT mapped**, and that
+ * is a measurement rather than an omission. The firmware uses **thirty-two
+ * registers at a four-byte stride** from `020200` to `02027C`, each referenced
+ * independently, then byte-granular ones at `020280`/`020283`/`020284`/
+ * `020287`, then `0202C0`, `0202CC`, `0202D0`, `0202D4`, `0202D8`. On a Series
+ * 4000 that whole range is **one** register aliased across 256 bytes, so
+ * thirty-two distinct four-byte registers cannot be it. Mapping the range there
+ * anyway is what made `$1F078`'s poll spin: it writes `#$1` to `$202D4` and
+ * wants the low nibble back, and the Series 4000's cache register keeps only
+ * bit 7. So this follows the rule the DS3000 map states for its DMA page
+ * register -- left out rather than guessed at, because a region that decodes to
+ * nothing is a visible gap where one answering another machine's register is an
+ * invisible error.
+ *
+ * The calendar, interrupt controller and node ID are absent for the weaker
+ * reason that the firmware never references them: the `+0x10000` rule would
+ * place them, but the rule is what the core block just falsified inside its own
+ * range, so it is not carried past what has been seen.
+ *
  * **What is deliberately absent is as important as what is here.** No disk, no
  * floppy, no tape: this machine's storage is SCSI through a chip its own error
  * messages call the `C90`, and its display a `VTGA` with a frame buffer -- both
@@ -140,15 +159,12 @@ static const ap_board_map_t DS3000_MAP = {
  * whose peripherals are a different generation's. */
 static const ap_board_placement_t DS2500_PLACEMENT[] = {
     {0x000000u, 0x020000u, AP_BOARD_REGION_PROM, AP_BOARD_PROM_BASE},
-    {0x020200u, 2u * AP_BOARDREG_RANGE, AP_BOARD_REGION_CORE_REGISTER,
-     AP_BOARDREG_CPU_STATUS_ADDR},
+    /* Twenty-five references, and `[S3K]`-shaped usage: the serial ports. */
     {0x020400u, 2u * AP_SIO_RANGE, AP_BOARD_REGION_SIO, AP_SIO1_ADDR},
+    /* The reset sequence's first three writes -- `#$1F`, `#$2`, `#$1C` -- are
+     * the posted-code pattern the DN3500 writes to `$010800`. */
     {0x020800u, AP_TIMER_RANGE, AP_BOARD_REGION_TIMER, AP_TIMER_ADDR},
-    {0x020900u, AP_CALENDAR_RANGE, AP_BOARD_REGION_CALENDAR, AP_CALENDAR_ADDR},
     {0x020C00u, 2u * AP_DMA_RANGE, AP_BOARD_REGION_DMA, AP_DMA1_ADDR},
-    {0x021000u, 2u * AP_INTR_RANGE, AP_BOARD_REGION_INTERRUPT,
-     AP_INTR_MASTER_ADDR},
-    {0x021200u, AP_NODEID_RANGE, AP_BOARD_REGION_NODE_ID, AP_NODEID_ADDR},
 };
 
 /* `[CFG]` p. A-11 gives 4-16 MB, and the firmware sizes it: `OR.L
