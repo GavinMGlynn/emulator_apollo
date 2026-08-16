@@ -141,6 +141,24 @@
  * B the transmit trio at `+C00`/`+C02`/`+C04`; each counter has its own CLK
  * pin, driven by its own event -- p. 12-30's `RCV_STAT` bits 2:0 name the three
  * receive conditions one for one. */
+/* **And what each one counts, which no manual states**: `ring8a.drvr` carries a
+ * six-entry descriptor table at `61CC`, stride 16, in exactly p. 12-29's order,
+ * pairing each counter's short name with a description that names its **unit**
+ * (`RING.md` 100):
+ *
+ *     RCV_HDR   "Receiver Header Byte"        bytes
+ *     RCV_DAT   "Receiver Data Byte"          bytes   -- p. 12-29's RCV_PKT_CNT
+ *     RCV_MAX   "Receiver Maximum Word"       words
+ *     XMT_HDR   "Transmitter Header Word"     words
+ *     XMT_PKT   "Transmitter Total Word"      words
+ *     ERR_PKT   "Received Error Packet"       packets
+ *
+ * Three different units across six counters, which is what findings 80c and
+ * 81b were missing: they asked what advances `RCV_HDR_CNT` three fewer times
+ * than `RCV_PKT_CNT` while assuming a common unit. The receive pair really do
+ * share one (bytes); `RCV_MAX_CNT` does not. Note also that p. 12-29's
+ * `RCV_PKT_CNT` counts **data bytes**, not packets -- the name misleads and the
+ * driver's does not. */
 #define AP_RING_CTL_RCV_HDR_CNT 0u
 #define AP_RING_CTL_RCV_PKT_CNT 1u
 #define AP_RING_CTL_RCV_MAX_CNT 2u
