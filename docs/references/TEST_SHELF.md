@@ -128,10 +128,21 @@ Named so that the gap is visible rather than implied.
   from what it read: sender `BB` into receiver `77` ought therefore to read
   `$FF`, the entry that selects `BB`, and convergence would be automatic for a
   plain `\r`. Ours reads `$FE` and selects `$99`, which converges on the wrong
-  rate. `ap_mc68681_receive_at`/`_receive_framed` set a **framing error and
-  deliver the byte unchanged**; nothing resamples the bit stream. Check that
-  before changing the harness -- if the misread were faithful the harness would
-  need no change at all.
+  rate. **CORRECTION: `ap_mc68681_resample` exists and is
+  right.** The claim that nothing resamples the bit stream was wrong -- it was
+  made from `receive_at`'s framing-error line without reading the twenty lines
+  above it. The function walks each data bit to where the *receiver* believes it
+  sits, in sender bit times, and reads stop/idle as high; worked by hand for
+  sender 9600 into receiver 1050 every sample lands at or past position 13, so
+  all eight bits read idle and the byte is **`$FF`** -- exactly the entry that
+  selects `$BB`, the sender's own rate. So the model does invert the table
+  correctly and a plain `\r` should converge.
+  **What is unexplained is the observed `$FE`**, one bit off that, when `$FF`
+  was sent at the default `0xBB` into a receiver reported at `77`. Either the
+  receiver was not at `77` at that instant or the sender CSR reaching
+  `receive_at` is not `0xBB`. That is a **unit-level** question -- `resample`
+  is a pure function -- so it is answerable with a test rather than a
+  seven-minute boot, which is where this should have gone several rounds ago.
   The DEV BIT ARRAY is **not** what gates the tape: setting bit 1 `ctape`
   changes nothing, measured. The PROM does carry `Cartridge Tape  ` and
   `Ctape ERROR, SENSE BYTES = `, so the device is supported once selected.

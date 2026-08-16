@@ -1333,8 +1333,40 @@ static void test_reset_does_not_inherit_the_callers_stack(void) {
                          ap_mc68681_read(&d, AP_MC68681_SR_CSR_A));
 }
 
+/* **The boot PROM's autobaud is built to invert exactly this function.**
+ * `[ROM3500]` `000844`-`0008B8` matches the byte it read against `$FF`, `$FE`,
+ * `$C7`, `$72` and `$C0` and writes the clock select that names the *sender's*
+ * rate -- so a carriage return from a 9600 terminal into a receiver still at
+ * 1050 must resample to `$FF`, the entry selecting code `B`. It does: every
+ * sample position lands at or past bit 13, well beyond the stop bit, so all
+ * eight data bits read idle.
+ *
+ * Pinned because three rounds of a cartridge boot were spent reading `$FE` and
+ * `$F9` off a live machine and theorising about the harness, when the function
+ * is pure and says in microseconds which sender/receiver pair produces each. */
+static void test_a_carriage_return_resamples_to_the_rate_the_autobaud_names(
+    void) {
+  const unsigned r9600 = ap_mc68681_baud(0xBu, false);
+  const unsigned r1050 = ap_mc68681_baud(0x7u, false);
+  const unsigned r4800 = ap_mc68681_baud(0x9u, false);
+  TEST_ASSERT_EQUAL_UINT(9600u, r9600);
+  TEST_ASSERT_EQUAL_UINT(1050u, r1050);
+  TEST_ASSERT_EQUAL_UINT(4800u, r4800);
+
+  /* The convergent case: 9600 into 1050 reads `$FF`, and `$FF` is the entry
+   * that selects `$BB` -- 9600, which is what the sender was. */
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_mc68681_resample(0x0Du, 8u, r9600, r1050));
+  /* The two that a mismatched harness produces, and neither converges: 4800
+   * into 1050 names `$99`, and 9600 into 4800 names nothing at all. */
+  TEST_ASSERT_EQUAL_HEX8(0xFEu, ap_mc68681_resample(0x0Du, 8u, r4800, r1050));
+  TEST_ASSERT_EQUAL_HEX8(0xF9u, ap_mc68681_resample(0x0Du, 8u, r9600, r4800));
+  /* And equal rates are not a corruption. */
+  TEST_ASSERT_EQUAL_HEX8(0x0Du, ap_mc68681_resample(0x0Du, 8u, r9600, r9600));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_carriage_return_resamples_to_the_rate_the_autobaud_names);
   RUN_TEST(test_reset_does_not_inherit_the_callers_stack);
   RUN_TEST(test_the_prom_command_sequence_leaves_the_transmitter_enabled);
   RUN_TEST(test_enabling_an_already_enabled_transmitter_is_idempotent);
