@@ -165,6 +165,7 @@ def main() -> int:
                      "--boot-input-rate", "--boot-input-interval",
                      "--boot-key", "--screen", "--screenshot", "--disk",
                      "--disk-meta", "--diskette", "--cartridge",
+                     "--option-rom-entry",
                      "--boot-trace-last", "--boot-stop-pc", "--dump-mem",
                      "--boot-script (a dialogue, as opposed to its parsing)"):
             skip(flag, "needs a boot PROM; roms/ is gitignored and CI has none")

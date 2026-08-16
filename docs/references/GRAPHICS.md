@@ -180,25 +180,40 @@ geometry it clears is the DN4500's own panel. `AP_MATROX_FRAME_ADDR` is
 walks the stride rather than a packed bitmap -- ignoring it would shear the
 picture progressively down the screen.
 
-### 20c: what is still **not** confirmed, and it is the execution
+### 20c: confirmed by the machine, and the prediction was exact
 
-**`ENTRY_03` has not been observed running.** A boot with the board and its ROM
-fitted gives 114,503 reads and 4,746 writes across the Matrox ports and
-**0 frame writes**: the boot PROM's option-ROM scan calls the *init* entry, not
-entry 3, so the clear loop never executes and the screenshot is still black.
-That is a different reason from before -- previously there was no decoded frame
-at all; now there is one and nothing has drawn into it.
+The gap was that nothing had been seen to **execute** `ENTRY_03`: the boot
+PROM's option-ROM scan calls the init entry only, so a boot gave 114,503 reads
+and 4,746 writes across the Matrox ports and **0 frame writes**.
 
-So the address rests on the firmware's own instruction stream and the allocation
-table, and **not** on observed writes. What would close it is calling `ENTRY_03`
-directly, the way `--ring-selftest` calls the ring ROM's `entry_05` by id out of
-the image's own entry table: the mechanism exists and is not yet generalised to
-an arbitrary entry. If that clears exactly 1024 x 160 bytes on a 256-byte stride
-at `$900000`, the frame is confirmed by the machine; if it writes elsewhere,
-this finding joins the seven retracted ones.
+`--option-rom-entry N` closes it. The lookup -- walk the image's own entry
+table, match the id, take the offset -- is the same for every Apollo option ROM,
+so this is the general case of what `--ring-selftest` does for `entry_05`; what
+differs between them is the argument list, and `ENTRY_03` takes none, which is
+why it is a second harness rather than a parameter on the first.
 
-*Verification of what did change: `ctest` 137/137, the boot is unbroken, and
-`--matrox-screenshot` writes a valid 1280x1024 PNG at the new geometry.*
+    option ROM entry roms/firmware/4500_Matrox_013748_04.bin
+      entry        080388 (id 3, +388)
+      returned     after 85001 step(s)
+      frame        163840 byte(s) written at 900000
+
+**163,840 is 1024 x 160 exactly**, which is the number this file predicted
+before the harness existed. It returned rather than running out, so the loop
+completed. And the count settles the **stride** as well as the base, because
+`frame_writes` counts *distinct* bytes: 262,144 - 163,840 is 98,304, which is
+1024 x 96 -- the gaps. 160 + 96 is a 256-byte line, 1280 visible pixels inside
+2048.
+
+So the frame is `$900000` on all four counts and by three independent routes:
+the firmware's instruction stream, `019411-A00`'s allocation table, and now the
+machine executing it. Question A is answered and finding 17b's "hypothesis with
+arithmetic behind it" is retired.
+
+**What remains, and it is a smaller thing than it was**: the screenshot is a
+cleared field rather than a picture, because clearing is all `ENTRY_03` does.
+Something must *draw* before there is an image, and on this board that is the
+downloaded microcode's job (finding 4b) or the operating system's. That is the
+next question and it is no longer about *where* the pixels live.
 
 ## The DN3500 controllers' audit, 2026-08-16
 

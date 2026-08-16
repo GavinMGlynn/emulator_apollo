@@ -257,7 +257,9 @@ static void print_usage(const char *program_name) {
           "  --matrox              fit the DN4500 Matrox graphics board\n"
           "  --matrox-screenshot FILE  scan its frame out to a PNG. The\n"
           "                        geometry is a hypothesis; see GRAPHICS.md\n"
-          "  --option-rom FILE     place an option ROM where the boot PROM's\n"
+          "  --option-rom FILE     place an option ROM where the boot PROM's\n"          "  --option-rom-entry N  call entry id N from that ROM's own entry\n"
+          "                        table and report what it did, instead of\n"
+          "                        booting. --matrox fits the card first\n"
           "                        scan looks, with no card behind it\n"
           "  --3c505-rom FILE      fit the EtherLink Plus with its option ROM\n"
           "                        placed where the boot PROM's scan looks\n"
@@ -890,6 +892,133 @@ static uint8_t *read_file(const char *path, long *size_out) {
  * This is a harness and is not evidence about what the PROM does. It is the
  * firmware's own test suite run early, which `CLAUDE.md` calls the first real
  * test of the controller. */
+/* ## Calling an option ROM's entry point by id
+ *
+ * `run_ring_selftest` below does this for the ring's `entry_05`, and the
+ * lookup -- walk the image's own entry table, match the id, take the offset --
+ * is the same for every Apollo option ROM, because they all carry the header
+ * `RING.md` finding 16 describes. What differs is the *argument list*, and
+ * that is why this is a second function rather than a parameter on that one:
+ * `entry_05` takes a unit, a scratch pointer and three out-parameters read off
+ * its own failure path, while the Matrox's `ENTRY_03` takes **nothing at all**
+ * -- `$388` polls, clears its raster and returns.
+ *
+ * So this is the general case and the ring's is the specialised one. A ROM
+ * whose entry expects arguments will fault here, which is honest: the harness
+ * says what it ran and what the machine did, and does not invent a frame.
+ *
+ * `GRAPHICS.md` 20c is what it exists for -- the Matrox's clear-screen entry is
+ * never reached by the boot PROM's scan, which calls the init entry only, so
+ * the frame at `$900000` had no way to be written by anything. */
+static int run_option_rom_entry(FILE *out, ap_model_id_t model,
+                                const char *rom_path, unsigned want_id,
+                                bool fit_matrox) {
+  if (rom_path == NULL) {
+    fprintf(stderr, "apollo: --option-rom-entry needs --option-rom FILE\n");
+    return 2;
+  }
+  long rom_size = 0;
+  uint8_t *rom = read_file(rom_path, &rom_size);
+  if (rom == NULL || rom_size <= (long)AP_RING_ROM_ENTRY_TABLE + 2) {
+    fprintf(stderr, "apollo: cannot read %s\n", rom_path);
+    free(rom);
+    return 2;
+  }
+
+  static uint8_t ram[16u * 1024u * 1024u];
+  ap_machine_t machine;
+  ap_board_t board;
+  const ap_mc146818_time_t epoch = {0};
+  if (!ap_board_init_model(&board, ram, sizeof ram, &epoch, 0u, model)) {
+    free(rom);
+    return 2;
+  }
+  static uint8_t frame[AP_MATROX_FRAME_BYTES];
+  if (fit_matrox) {
+    ap_board_attach_matrox(&board, true);
+    ap_matrox_attach_frame(&board.matrox, frame, sizeof frame);
+  }
+  ap_board_attach_option_rom(&board, rom, (uint32_t)rom_size,
+                             AP_BOARD_ATBUS_MEMORY_BASE);
+  ap_machine_init_model(&machine, ram, sizeof ram, model);
+  ap_machine_set_board(&machine, &board);
+
+  uint32_t entry_offset = 0;
+  bool found = false;
+  {
+    const uint32_t n = (uint32_t)((rom[AP_RING_ROM_ENTRY_TABLE] << 8) |
+                                  rom[AP_RING_ROM_ENTRY_TABLE + 1u]);
+    for (uint32_t i = 0; i < n; i++) {
+      const long at = (long)AP_RING_ROM_ENTRY_TABLE + 2 + (long)i * 6;
+      if (at + 6 > rom_size) {
+        break;
+      }
+      const uint32_t id = (uint32_t)((rom[at] << 8) | rom[at + 1]);
+      if (id != want_id) {
+        continue;
+      }
+      entry_offset = (uint32_t)((rom[at + 2] << 24) | (rom[at + 3] << 16) |
+                                (rom[at + 4] << 8) | rom[at + 5]);
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    fprintf(stderr, "apollo: %s has no entry id %u in its table\n", rom_path,
+            want_id);
+    free(rom);
+    return 1;
+  }
+  if (entry_offset >= (uint32_t)rom_size) {
+    fprintf(stderr, "apollo: %s names entry %u at +%X, past its end\n",
+            rom_path, want_id, entry_offset);
+    free(rom);
+    return 1;
+  }
+
+  const uint32_t sentinel = 0x00FFFFF0u;
+  const uint32_t stack = 0x01000200u;
+  const uint32_t entry = AP_BOARD_ATBUS_MEMORY_BASE + entry_offset;
+  ap_machine_reset(&machine, entry, stack);
+  /* The return address, written straight into the backing array for the reason
+   * the ring harness gives: a silently-refused write here would make the `rts`
+   * jump to whatever was already there. */
+  uint8_t *const base = ram + (stack - AP_BOARD_RAM_BASE);
+  base[0] = (uint8_t)(sentinel >> 24); base[1] = (uint8_t)(sentinel >> 16);
+  base[2] = (uint8_t)(sentinel >> 8);  base[3] = (uint8_t)sentinel;
+
+  fprintf(out, "option ROM entry %s\n", rom_path);
+  fprintf(out, "  entry        %06X (id %u, +%X)\n", entry, want_id,
+          entry_offset);
+
+  unsigned steps = 0;
+  const unsigned limit = 20000000u;
+  for (; steps < limit; steps++) {
+    if (machine.cpu.regs.pc == sentinel) {
+      break;
+    }
+    const ap_machine_run_t one = ap_machine_run(&machine, 1u);
+    if (one.status != AP_M68030_STEP_EXECUTED &&
+        one.status != AP_M68030_STEP_EXCEPTION) {
+      fprintf(out, "  stopped      status %d at PC %08X after %u step(s)\n",
+              (int)one.status, machine.cpu.regs.pc, steps);
+      break;
+    }
+  }
+  if (machine.cpu.regs.pc == sentinel) {
+    fprintf(out, "  returned     after %u step(s)\n", steps);
+  } else if (steps >= limit) {
+    fprintf(out, "  did not return in %u step(s), PC %08X\n", limit,
+            machine.cpu.regs.pc);
+  }
+  if (fit_matrox) {
+    fprintf(out, "  frame        %u byte(s) written at %06X\n",
+            board.matrox.frame_writes, AP_MATROX_FRAME_ADDR);
+  }
+  free(rom);
+  return 0;
+}
+
 static int run_ring_selftest(FILE *out, ap_model_id_t model,
                              const char *rom_path) {
   if (rom_path == NULL) {
@@ -1199,6 +1328,7 @@ static ap_afd_t g_diskette;
 static const char *g_cartridge_path = NULL;
 static uint8_t *g_cartridge_bytes = NULL;
 static bool g_ring_selftest = false;
+static long g_option_rom_entry = -1;
 
 /* How often a live wire is polled, in instructions. A frontend choice with no
  * hardware meaning: a real card is interrupted by its own receiver, and this
@@ -4738,6 +4868,16 @@ int main(int argc, char **argv) {
       i += 2;
       continue;
     }
+    if (strcmp(argv[i], "--option-rom-entry") == 0 && i + 1 < argc) {
+      char *end = NULL;
+      g_option_rom_entry = strtol(argv[i + 1], &end, 0);
+      if (end == argv[i + 1] || *end != '\0' || g_option_rom_entry < 0) {
+        fprintf(stderr, "apollo: --option-rom-entry wants an entry id\n");
+        return 2;
+      }
+      i += 2;
+      continue;
+    }
     if (strcmp(argv[i], "--floppy") == 0 && i + 1 < argc) {
       floppy_path = argv[i + 1];
       i += 2;
@@ -5241,6 +5381,10 @@ int main(int argc, char **argv) {
                           probe_file_path, dump_spec);
   }
 
+  if (g_option_rom_entry >= 0) {
+    return run_option_rom_entry(stdout, opt.model->id, g_option_rom_path,
+                                (unsigned)g_option_rom_entry, g_fit_matrox);
+  }
   if (g_ring_selftest) {
     return run_ring_selftest(stdout, opt.model->id, g_ring_rom_path);
   }

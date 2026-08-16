@@ -20107,6 +20107,51 @@ display-fitted run needs `--screenshot`.
 *Verification: `frontend_flags` 13 → 16, `ctest` 129/129, every golden
 unchanged, and the DN3500 30 M hash unchanged across the memory-sizing change.*
 
+## The Matrox frame buffer is found, and confirmed by executing the ROM
+
+The DN4500 Matrox item's blocking question was **where the pixels go**, and it
+is answered: `$900000`, 256 KB, 1280x1024 at one bit per pixel on a 256-byte
+stride.
+
+**Found by a static census the previous passes could not have made.** Findings 3
+and 15 counted addresses used as *absolute operands* and writes made at run
+time; neither sees an address loaded into a register, and `$900000` appears only
+as `movea.l #$900000, a1`. `ENTRY_03` at `+388` is a clear-screen loop whose
+constants give all four numbers outright -- 40 longwords per line, a 96-byte
+skip, 1024 lines.
+
+**Corroborated by the map, read as a page image.** `019411-A00` Table 2-5's
+text layer interleaves its two columns into nonsense; the image puts `$900000`
+inside `100000`-`FFFFFF`, "AT COMPATIBLE BUS MEMORY SPACE" -- where an AT card's
+aperture belongs, and the Matrox is a card. It also shows `0C0000`-`0DFFFF`, the
+old guess, to be *alternate* mono graphics at 128 KB with its upper half the
+single-board ring controller: a real graphics space, the wrong size, and not
+this board's.
+
+**Then confirmed by the machine, with the prediction made first.**
+`--option-rom-entry N` calls an entry by id out of the ROM's own table -- the
+general case of what `--ring-selftest` does for `entry_05`, needed because the
+boot PROM's scan calls the init entry only and `ENTRY_03` was therefore reached
+by nothing. It returns after 85,001 steps having written **163,840 bytes at
+`900000`**, which is 1024 x 160 exactly. The count settles the stride too:
+`frame_writes` counts distinct bytes, and 262,144 - 163,840 is 1024 x 96, the
+gaps.
+
+So three independent routes agree, which is what this item needed after seven
+retractions: the instruction stream, the allocation table, and execution.
+
+*Verification: `check_frontend_flags.py` 19 -> 20 named entries; ctest 137/137;
+`--matrox-screenshot` writes a valid 1280x1024 PNG at the corrected geometry.
+The scanout walks the stride rather than a packed bitmap -- 1280 visible pixels
+inside a 2048-pixel line, the same relationship the DN3500's 19-inch controller
+has, and ignoring it would shear the picture progressively down the screen.*
+
+**Still open, and smaller than it was**: the screenshot is a *cleared field*
+rather than a picture, because clearing is all `ENTRY_03` does. Something must
+draw before there is an image, and on this board that is the downloaded
+microcode's job or the operating system's. The question is no longer where the
+pixels live.
+
 ## Two more models, and the display-variant question settled
 
 Phase 5 closed with no open items, which released the two deferred tails that
