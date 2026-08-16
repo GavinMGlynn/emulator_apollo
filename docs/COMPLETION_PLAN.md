@@ -4070,7 +4070,14 @@ discipline throughout.
         are **transposed** between XMIT_STAT and RCV_STAT, which is asserted
         directly because no behavioural test can see it.
         What remains here is the traffic wire, not a register question.
-  - [ ] The DMA path and the interrupt.
+  - [ ] The DMA path. **The interrupt line is DONE** (`RING.md` 107):
+        `002398-04` p. 12-28 tabulates the DN3000's interrupt assignments and
+        puts the **ring on master IRQ 2**, with IRQ 3 the cascade -- which is
+        where `FINDINGS.md` C11 *measured* it. So finding 82's three-way
+        disagreement was two sources agreeing and one row wrong; `[S3K]`
+        Table 2-3's "IRQ3 = Network Board" cannot stand. `ap_ring_ctl_irq`
+        and the wiring exist. What remains here is the **DMA channel**, which
+        p. 12-28 does not give.
         **Blocked on which line, and it is a real three-way disagreement**
         (`RING.md` 82-82b): the controller has no IRQ accessor and no wiring at
         all -- the dangling shape the 3c505 had -- and `[S3K]` Table 2-3's
@@ -4154,6 +4161,20 @@ discipline throughout.
 - [ ] Two nodes see each other over the ring under Domain/OS. *Verification:
       `lcnode` on each node lists the other; console output diffed against
       itself across runs for determinism.*
+      **The core supports it; the frontend runs one machine.** Everything
+      below this line is built and tested (`RING.md` 104-112): the register
+      interface is joined to the protocol stack, a transmit command puts the
+      buffer's frame on the medium and a received frame lands at `RCV_ADDR`
+      and raises `ri`, the card's interrupt line is wired to master IRQ 2, and
+      `ap_board_join_ring_sched` registers a board with `ap_ring_sched` so
+      nodes of **different models** share one segment against
+      `AP_TIME_BASE_HZ` with a reproducible phase hash. `board_suite` drives a
+      two-board exchange through the registers alone and asserts the frame
+      arrives in the other board's buffer.
+      **What remains is a frontend that constructs two machines**, boots
+      Domain/OS on each and runs them on one scheduler -- plus the DMA channel
+      above, since the driver moves packets by DMA rather than through the
+      `+406` port. Not a core question any more.
 - [x] Node insertion and removal mid-run, stripping, token loss, **and the
       frame path**, in `src/core/ring/ap_ring_station.*`.
       **Unticked by the `[MAC]` audit and re-earned** (`RING.md` 85-90d): the
