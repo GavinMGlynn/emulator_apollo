@@ -261,6 +261,99 @@ static void test_a_partial_battery_fills_from_the_base(void) {
                                                     AP_MC146818_BYTES - 1u));
 }
 
+
+/* ## The configuration table's CHECKSUM, against the utility that writes it
+ *
+ * `002398-04` p. 12-3 names the field at `0E`-`11` and never says how it is
+ * computed, and that gap is what findings 83a and 83b stalled on: a table with
+ * a valid pattern but no correct checksum passes the **boot PROM**, which
+ * checks only the pattern, and fails the SELF_TEST diagnostic loaded off the
+ * disk -- "Configuration information is not initialized".
+ *
+ * The algorithm is in `sau8/config`, the utility that *writes* the table,
+ * extracted from the SR10.3 boot cartridge with `tools/ct_extract.py`. Its
+ * routine at `$17560` is nine instructions and every constant here is one of
+ * them, not a reading of the layout:
+ *
+ *     clr.l   d0            ; sum = 0, a LONGWORD
+ *     moveq   #$2d, d1      ; 45 -> 46 iterations under dbra
+ *     moveq   #$5,  d2      ; first byte at -$166, the VALID PATTERN
+ *     clr.l   d3            ; zero-extended, each time
+ *     move.b  $fe95(a0,d2.w), d3
+ *     add.l   d3, d0
+ *     dbra    d1, ...
+ */
+static void test_the_config_checksum_is_the_sum_the_utility_computes(void) {
+  uint8_t battery[AP_CALENDAR_BATTERY_BYTES] = {0};
+
+  /* The battery image is based at register `0E`, so the VALID PATTERN at `12`
+   * is offset 4 and the checksum field is offsets 0-3. */
+  battery[4] = 0x12u;
+  battery[5] = 0x34u;
+  battery[6] = 0xABu;
+  battery[7] = 0xCDu;
+  TEST_ASSERT_EQUAL_UINT32(0x12u + 0x34u + 0xABu + 0xCDu,
+                           ap_calendar_config_checksum(battery, sizeof battery));
+
+  /* **The sum is 32-bit, not a byte.** A byte-wide accumulator agrees with
+   * this on any table of small values -- which is every table a test would
+   * think to write -- and disagrees the moment the bytes carry a node ID. The
+   * utility's `clr.l`/`add.l` is what makes this the deciding case. */
+  for (unsigned i = 4; i < sizeof battery; i++) {
+    battery[i] = 0xFFu;
+  }
+  TEST_ASSERT_EQUAL_UINT32(46u * 0xFFu,
+                           ap_calendar_config_checksum(battery, sizeof battery));
+
+  /* And it covers exactly 46 bytes: registers `12` through `3F`, which with
+   * the four checksum bytes is the part's whole fifty-byte RAM. A byte past
+   * the end cannot exist, so the last byte in range is the boundary that can
+   * be tested -- clearing it must change the sum, and it is index 49. */
+  TEST_ASSERT_EQUAL_UINT(50u, (unsigned)AP_CALENDAR_BATTERY_BYTES);
+  battery[49] = 0u;
+  TEST_ASSERT_EQUAL_UINT32(45u * 0xFFu,
+                           ap_calendar_config_checksum(battery, sizeof battery));
+  /* The checksum field itself is **not** summed: it is offsets 0-3, before the
+   * pattern. Writing it must not change the answer, or sealing a table would
+   * never converge. */
+  battery[0] = 0xFFu;
+  battery[1] = 0xFFu;
+  battery[2] = 0xFFu;
+  battery[3] = 0xFFu;
+  TEST_ASSERT_EQUAL_UINT32(45u * 0xFFu,
+                           ap_calendar_config_checksum(battery, sizeof battery));
+}
+
+/* Sealing writes the sum into `0E`-`11` big-endian, which is how the utility
+ * compares it -- `cmp.l` against the stored longword at `-$16a`. A sealed table
+ * is one the diagnostic accepts; every boot this core has done carried an
+ * unsealed one. */
+static void test_a_sealed_config_table_carries_its_own_checksum(void) {
+  uint8_t battery[AP_CALENDAR_BATTERY_BYTES] = {0};
+  battery[4] = 0x12u;
+  battery[5] = 0x34u;
+  battery[6] = 0xABu;
+  battery[7] = 0xCDu;
+  /* A node ID at `1E`-`21`, so the sum is big enough to span two bytes and a
+   * byte-order mistake shows. */
+  battery[0x1Eu - 0x0Eu] = 0x01u;
+  battery[0x1Fu - 0x0Eu] = 0x23u;
+  battery[0x20u - 0x0Eu] = 0x45u;
+  battery[0x21u - 0x0Eu] = 0x67u;
+
+  const uint32_t want = ap_calendar_config_checksum(battery, sizeof battery);
+  ap_calendar_seal_config(battery, sizeof battery);
+  TEST_ASSERT_EQUAL_HEX8((uint8_t)(want >> 24), battery[0]);
+  TEST_ASSERT_EQUAL_HEX8((uint8_t)(want >> 16), battery[1]);
+  TEST_ASSERT_EQUAL_HEX8((uint8_t)(want >> 8), battery[2]);
+  TEST_ASSERT_EQUAL_HEX8((uint8_t)want, battery[3]);
+  /* Idempotent, which follows from the field being outside the sum -- and is
+   * the property a caller relies on when it seals a table it then edits. */
+  ap_calendar_seal_config(battery, sizeof battery);
+  TEST_ASSERT_EQUAL_UINT32(want,
+                           ap_calendar_config_checksum(battery, sizeof battery));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_battery_keeps_the_ram_and_not_the_clock);
@@ -273,5 +366,7 @@ int main(void) {
   RUN_TEST(test_the_dumped_register_layout_is_reproduced);
   RUN_TEST(test_the_calendar_raises_the_first_slave_interrupt);
   RUN_TEST(test_the_calendar_outranks_every_line_below_the_cascade);
+  RUN_TEST(test_the_config_checksum_is_the_sum_the_utility_computes);
+  RUN_TEST(test_a_sealed_config_table_carries_its_own_checksum);
   return UNITY_END();
 }

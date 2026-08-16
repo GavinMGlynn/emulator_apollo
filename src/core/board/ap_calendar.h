@@ -215,6 +215,46 @@ void ap_calendar_advance(ap_calendar_t *calendar, ap_time_t now);
 #define AP_CALENDAR_BATTERY_BYTES \
   ((unsigned)(AP_MC146818_BYTES - AP_MC146818_RAM_BASE))
 
+/* ## The configuration table's CHECKSUM, recovered from the utility that
+ * writes it -- `RING.md` 117
+ *
+ * `002398-04` p. 12-3 names the field at `0E`-`11` and does not say how it is
+ * computed, and that gap is what finding 83a and 83b were stuck on: a table
+ * with a valid pattern but no correct checksum is accepted by the **boot
+ * PROM**, which checks only the pattern, and rejected by the SELF_TEST
+ * diagnostic loaded off the disk, which prints "Configuration information is
+ * not initialized". The algorithm is not in any manual held.
+ *
+ * It is in `sau8/config`, the utility that *writes* the table, extracted from
+ * the SR10.3 boot cartridge with `tools/ct_extract.py`. Its routine at
+ * `$17560`:
+ *
+ *     clr.l   d0                          ; sum = 0
+ *     moveq   #$2d, d1                    ; 46 iterations, dbra
+ *     moveq   #$5,  d2
+ *     clr.l   d3
+ *     move.b  $fe95(a0,d2.w), d3          ; first byte is at -$166 == the
+ *     addq.w  #$1, d2                     ;   VALID PATTERN
+ *     add.l   d3, d0
+ *     dbra    d1, ...
+ *
+ * So: **a 32-bit sum of the 46 bytes beginning at the valid pattern**, each
+ * byte zero-extended. Registers `12` through `3F` -- which with the four
+ * checksum bytes at `0E`-`11` is exactly the part's fifty bytes of RAM, so the
+ * field covers all of the table and none of the clock. The caller at `$17866`
+ * compares this against the stored longword at `-$16a`, four bytes before the
+ * pattern, which is `0E`.
+ *
+ * `bytes` is the battery image, `AP_CALENDAR_BATTERY_BYTES` long, based at
+ * register `0E` -- the same buffer `ap_calendar_save_battery` fills. */
+[[nodiscard]] uint32_t ap_calendar_config_checksum(const uint8_t *battery,
+                                                   unsigned count);
+
+/* Write that checksum into its own field, `0E`-`11`, big-endian. A table this
+ * has been called on is one the diagnostic accepts; one it has not is what
+ * every boot of this core has carried. */
+void ap_calendar_seal_config(uint8_t *battery, unsigned count);
+
 void ap_calendar_load_battery(ap_calendar_t *calendar, const uint8_t *bytes,
                               unsigned count);
 [[nodiscard]] unsigned ap_calendar_save_battery(const ap_calendar_t *calendar,

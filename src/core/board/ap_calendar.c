@@ -51,6 +51,42 @@ bool ap_calendar_irq(const ap_calendar_t *calendar) {
  * trigger. The base is above them, so nothing here can reach one -- but going
  * through the register interface would make that a coincidence rather than a
  * property. */
+/* Register `12` -- the VALID PATTERN -- as an index into a battery image based
+ * at register `0E`, and the 46 bytes the utility sums from there. Both are the
+ * disassembly's own numbers rather than a reading of the layout: `moveq #$2d`
+ * with `dbra` is 46, and the first displacement lands on the pattern. */
+#define CONFIG_SUM_FIRST 4u
+#define CONFIG_SUM_BYTES 46u
+
+uint32_t ap_calendar_config_checksum(const uint8_t *battery, unsigned count) {
+  if (battery == NULL || count < CONFIG_SUM_FIRST + CONFIG_SUM_BYTES) {
+    return 0u;
+  }
+  uint32_t sum = 0u;
+  for (unsigned i = 0; i < CONFIG_SUM_BYTES; i++) {
+    /* Zero-extended and added as a longword: `clr.l d3` before each
+     * `move.b`, then `add.l`. A byte-wide accumulator would wrap at 255 and
+     * agree with this for a table of mostly-zero bytes, which is every table
+     * a test would think to write. */
+    sum += battery[CONFIG_SUM_FIRST + i];
+  }
+  return sum;
+}
+
+void ap_calendar_seal_config(uint8_t *battery, unsigned count) {
+  if (battery == NULL || count < CONFIG_SUM_FIRST) {
+    return;
+  }
+  const uint32_t sum = ap_calendar_config_checksum(battery, count);
+  /* The field is at `0E`, which is offset 0 of the battery image, and the
+   * utility compares it with `cmp.l` -- so big-endian, like every other
+   * longword this machine stores. */
+  battery[0] = (uint8_t)(sum >> 24);
+  battery[1] = (uint8_t)(sum >> 16);
+  battery[2] = (uint8_t)(sum >> 8);
+  battery[3] = (uint8_t)sum;
+}
+
 void ap_calendar_load_battery(ap_calendar_t *calendar, const uint8_t *bytes,
                               unsigned count) {
   if (calendar == NULL || bytes == NULL) {
