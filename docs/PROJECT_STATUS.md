@@ -20429,6 +20429,23 @@ reports `disk sidecar ... 464 bytes` beside the disk line. The defect-injection
 behaviour itself is `omti_suite`'s, and was already covered there; what was
 untested and is now wired is the frontend's half.*
 
+## `tools/ab-boot.sh`: the measurement method, made reusable
+
+The interleaved A/B that corrected two wrong results this session existed only
+as a shell loop typed twice. It is now a script beside `identity-boot.sh`, with
+the reason in its header: **build both binaries first, then alternate them in
+one window**, so whatever the machine is doing happens to both.
+
+It reports minimum as well as mean -- noise only adds, so the minimum is the
+closest estimate of the true cost -- and its verdict is deliberately
+conservative: **a split decision prints "no direction at this sample size"**
+rather than being broken by the mean. That is the conclusion that was missed
+when a serial gate was recorded as a 1.9% win from a single run.
+
+It measures time only. A faster binary that moved the state hash is a broken
+binary, so `identity-boot.sh` remains the correctness check and this is the
+speed one.
+
 ## `ap_board_bus_tick` is already gone, the timer follows -- and the instrument was wrong
 
 **`ap_board_bus_tick` no longer appears in a profile at all**, below the 0.4%
