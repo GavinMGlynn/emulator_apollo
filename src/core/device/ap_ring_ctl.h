@@ -272,27 +272,29 @@
  * because there is no datasheet. */
 #define AP_RING_CTL_BUFFER_WORDS 0x8000u
 
-/* ## The three command registers, `002398-04` p. 12-32 -- **DN3000 layout,
- * deliberately not applied to this board**
+/* ## The three command registers, `002398-04` p. 12-32
  *
- * The write halves of `59400`/`59402`/`59404`. Recorded because a transmit path
- * will need them, and named here rather than in a comment so the boundary below
- * is stated once instead of rediscovered.
+ * The write halves of `59400`/`59402`/`59404`. **Two of the three are confirmed
+ * on this board and the third is not**, and the split is evidence rather than
+ * caution -- `RING.md` 103, from Domain/OS's own kernel ring driver
+ * (`RING_PROC`, extracted from the installed volume).
  *
- * **The status registers carried across generations and these do not.** MISC,
- * XMIT and RCV *status* agree across three sources -- p. 12-30/12-31, the AT
- * firmware's constants, and `ring8a.drvr`'s own tables (`RING.md` 93, 97). The
- * *command* encoding fails the arithmetic, which finding 55b refused once
- * already: the AT firmware writes bytes `$1`, `$2` and `$6` to `+402`, which on
- * a big-endian part land in the high lane as `$0100`, `$0200`, `$0600` -- bits
- * 8, 9 and 10. XMIT_CMD's only defined bits are 15, 14 and 13, so `transmit
- * enable` would need `$40`. Nothing here decodes a command; `ap_ring_ctl.c`
- * still treats the AT board's command lane as the opaque byte its firmware
- * writes, which is what the evidence supports.
+ * **MISC_CMD and RCV_CMD apply.** `RING_PROC` writes `$800` and `$900` to
+ * MISC_CMD -- bit 11 `nct` alone, and `nct` with bit 8 `lpb` -- and `$800` to
+ * RCV_CMD, its single bit 11 `rcv`. Both are p. 12-32's layout unshifted, and
+ * the AT boot firmware's `move.b #$8,$404` is the same `$0800`. Two independent
+ * drivers and the page agree.
  *
- * One correspondence *does* hold and is recorded without being built on:
- * `move.b #$8,$404` gives `$0800`, and RCV_CMD's single defined bit is 11 --
- * `receive enable`. One match among four is not a mapping. */
+ * **XMIT_CMD's layout does not.** Both drivers write exactly `$0100`, `$0200`
+ * and `$0600` to it -- the kernel as words, the AT firmware as the bytes `$1`,
+ * `$2`, `$6` in the high lane -- and p. 12-32's only defined bits are 15, 14
+ * and 13. The three values reproduce the page's *structure* (three functions,
+ * with the third being the second OR'd with a higher bit, which is exactly its
+ * "force transmit is a **modifier** to transmit enable, not a separate
+ * command"), so `ine`/`ten`/`fen` at bits 8/9/10 is the obvious reading -- and
+ * it is **not** asserted, because no source states this board's layout and its
+ * two sibling registers are unshifted. `ap_ring_ctl.c` still treats the AT
+ * command lane as the opaque byte both drivers write. */
 #define AP_RING_CTL_MISC_CMD_BPM 0x1000u /* bad packet marking enable */
 #define AP_RING_CTL_MISC_CMD_NCT 0x0800u /* network connect */
 #define AP_RING_CTL_MISC_CMD_TD1 0x0400u /* txdiag1 -- diagnostics only */

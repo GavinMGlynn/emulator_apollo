@@ -262,9 +262,21 @@ static void test_the_at_boards_command_bytes_are_not_the_dn3000s_bits(void) {
    * writes -- the concrete form of "the encodings do not correspond". */
   TEST_ASSERT_EQUAL_HEX16(0x4000u, AP_RING_CTL_XMIT_CMD_TEN);
 
-  /* The one that does line up: `move.b #$8,$404` is RCV_CMD's receive enable.
-   * Recorded, not built on -- one match among four is not a mapping. */
+  /* MISC_CMD and RCV_CMD *do* apply to this board, which is no longer an
+   * isolated numeric match: Domain/OS's kernel ring driver writes `$800` and
+   * `$900` to MISC_CMD -- `nct`, and `nct` with `lpb` -- and `$800` to RCV_CMD,
+   * while the AT boot firmware's `move.b #$8,$404` is the same `$0800`
+   * (`RING.md` 103). Two independent drivers and the page. */
   TEST_ASSERT_EQUAL_HEX16(AP_RING_CTL_RCV_CMD_RCV, 0x0800u);
+  TEST_ASSERT_EQUAL_HEX16(0x0900u,
+                          AP_RING_CTL_MISC_CMD_NCT | AP_RING_CTL_MISC_CMD_LPB);
+
+  /* And the three transmit command values both drivers write, which is the
+   * shape p. 12-32 describes -- three functions, the third being the second
+   * with a higher bit added, its "force transmit is a modifier to transmit
+   * enable". Asserted as *values*, not as a bit mapping, because no source
+   * states this board's layout. */
+  TEST_ASSERT_EQUAL_HEX16(0x0600u, 0x0400u | 0x0200u);
 
   /* p. 12-32's MISC_CMD, read at 400 dpi after a 200 dpi render put every bit
    * one place low (`RING.md` 97/98 commit). `lpb` is the loopback finding 79
