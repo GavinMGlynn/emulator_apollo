@@ -90,8 +90,19 @@ Named so that the gap is visible rather than implied.
   channel B** (`0007E6`, posts `0A`, then `adda.l #$10,a0`), and `$102(a0)`
   serial 2 (`0007B0`, posts `0B`, then `adda.l #$100,a0`). None is ever
   satisfied -- no `09`/`0A`/`0B` appears in the posted codes -- so MD's banner
-  never prints and `di c` cannot be issued. **Getting one character into that
-  poll is the whole of the remaining blocker.**
+  never prints and `di c` cannot be issued.
+  **The characters do arrive, and the loop is an autobaud.** `--boot-report`
+  now covers the channel a run types at rather than only the keyboard, and it
+  shows serial 1 channel B going from `3 read(s)` to `11 read(s)` when ten
+  spaced carriage returns are sent -- every one taken by the firmware -- while
+  `RxRDY` stays clear and no `09`/`0A`/`0B` is posted. The tail of the loop is
+  why: `000822`-`00084A` writes `$12(a0,d4.w)` from `$159(a6)`, compares `d1`
+  against `$FF` and writes `#$BB`, which on the MC68681 is **CSR, the clock
+  select** -- the PROM is trying baud rates against each character and
+  discarding the ones it cannot read. So the blocker is not delivery but
+  **agreeing a rate**: the harness sends at the channel's current setting, so
+  the PROM's probe never converges. `--boot-input-rate` and the CSR sequence at
+  `000834` are where to take that next.
   The DEV BIT ARRAY is **not** what gates the tape: setting bit 1 `ctape`
   changes nothing, measured. The PROM does carry `Cartridge Tape  ` and
   `Ctape ERROR, SENSE BYTES = `, so the device is supported once selected.

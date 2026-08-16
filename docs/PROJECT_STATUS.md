@@ -465,6 +465,30 @@ full and the ring is not among them.
 PC as a single machine; `ctest` 138/138; identity boot unchanged at
 `A354786119A3931D`.*
 
+## `--boot-report` covers the channel you typed at (2026-08-17)
+
+**The report answered "why did my keystroke do nothing" about serial 1 channel
+A and nothing else**, so a run using `--boot-input-port`/`--boot-input-channel`
+to type somewhere else got a report about a channel it was not using. It now
+prints the keyboard's path *and* the path actually being typed at, and carries
+one line the old one lacked: **`ready`**, the `RxRDY` bit the boot PROM's
+console poll at `00078E` actually tests.
+
+That closed a question immediately. Booting SR10.3's cartridge, channel B went
+from `3 read(s)` to `11 read(s)` when ten spaced carriage returns were sent —
+**every character reaches the firmware** — while `RxRDY` stayed clear and no
+console-selection code was posted. So the blocker was never delivery.
+
+**What it is instead**: the tail of that loop, `000822`-`00084A`, writes
+`$12(a0,d4.w)` from `$159(a6)`, compares `d1` against `$FF`, and writes `#$BB`.
+On the MC68681 that register is **CSR, the clock select** — the poll is an
+**autobaud**, trying rates against each character and discarding what it cannot
+read. The harness sends at the channel's current setting, so the probe never
+converges and each carriage return is spent as a failed guess.
+
+*Verification: `ctest` 138/138; `check_frontend_flags` all reachable flags
+exercised; identity boot unchanged at `A354786119A3931D`.*
+
 ## The MEM BOARD ARRAY, from the utility that writes it (2026-08-17)
 
 **Domain/OS SELF_TEST no longer disagrees with the configuration table about

@@ -2700,6 +2700,64 @@ static bool typed_arm(uint32_t pc, uint32_t want, unsigned settle,
   return *visits >= settle;
 }
 
+/* One channel of the input path, end to end, in the order a character takes it:
+ * the port it arrives at, the receiver that latches it, the interrupt that
+ * announces it, the controller that delivers that, and -- on the keyboard's own
+ * channel -- the keyboard at the far end.
+ *
+ * Five separate investigations into "the machine ignored what I typed" were
+ * each a *harness* fault, and each was diagnosed by adding a temporary probe,
+ * running for twenty minutes, reading three lines and reverting it. Every one
+ * of those facts was already in the machine when the run ended. A reader walks
+ * this downwards and stops at the first line that is not what they expected. */
+static void report_input_path(ap_board_t *board, unsigned unit,
+                              unsigned channel) {
+  const ap_mc68681_t *duart = &board->sio.port[unit];
+  const ap_mc68681_channel_t *ch = &duart->channel[channel];
+  printf("  --- input path, serial %u channel %c%s ---\n", unit + 1u,
+         channel == 0u ? 'A' : 'B',
+         (unit == 0u && channel == 0u) ? " (the keyboard)" : "");
+  printf("  port         MR1 %02X (%u bit(s)), MR2 %02X, CSR %02X, SR %02X\n",
+         ch->mr[0], ap_sio_character_bits(&board->sio, unit, channel),
+         ch->mr[1], ch->csr, ch->sr);
+  printf("  receiver     %s, FIFO %u deep, %s\n",
+         ch->rx_enabled ? "enabled" : "**disabled**", ch->fifo_count,
+         (ch->sr & AP_MC68681_SR_OVERRUN) ? "**overrun**" : "no overrun");
+  /* The bit the boot PROM's console poll actually reads. A channel the harness
+   * typed at that never shows a byte here never received one. */
+  printf("  ready        %s\n",
+         ap_sio_receiver_ready(&board->sio, unit, channel)
+             ? "**holding an unread byte** (RxRDY set)"
+             : "empty (RxRDY clear)");
+  printf("  transmitter  %s, holding register %s\n",
+         ch->tx_enabled ? "enabled" : "**disabled**",
+         ch->tx_holding_full ? "**full**" : "empty");
+  /* The two that decide whether a received character is *announced*. A driver
+   * that reads by interrupt and never set its mask bit looks exactly like a
+   * machine ignoring the keyboard, and the difference is here. */
+  printf("  interrupt    ISR %02X, IMR %02X, line %s\n", duart->isr,
+         duart->imr, ap_sio_irq(&board->sio) ? "asserted" : "not asserted");
+  printf("  controller   IRQ%u %s, master IRR %02X IMR %02X, %s\n", AP_SIO_IRQ,
+         (board->interrupts.master.imr & (1u << AP_SIO_IRQ)) ? "**masked**"
+                                                             : "unmasked",
+         board->interrupts.master.irr, board->interrupts.master.imr,
+         ap_intr_pending(&board->interrupts) ? "pending" : "nothing pending");
+  if (unit == 0u && channel == 0u) {
+    printf("  keyboard     %s, %s set, %u byte(s) still on the wire\n",
+           board->keyboard.loopback ? "in loopback" : "out of loopback",
+           board->keyboard.keystate_mode ? "keystate" : "compatibility",
+           board->kbd_reply.count);
+  }
+  printf("  traffic      data register %u write(s) %u read(s), "
+         "command register %u write(s)\n",
+         board->sio.register_writes[unit][channel == 0u ? AP_MC68681_RB_TB_A
+                                                        : AP_MC68681_RB_TB_B],
+         board->sio.register_reads[unit][channel == 0u ? AP_MC68681_RB_TB_A
+                                                       : AP_MC68681_RB_TB_B],
+         board->sio.register_writes[unit][channel == 0u ? AP_MC68681_CR_A
+                                                        : AP_MC68681_CR_B]);
+}
+
 static int boot_from_prom(const char *path, unsigned limit, bool trace,
                           uint32_t watch, const char *input, unsigned input_unit,
                           unsigned input_channel, uint8_t input_rate,
@@ -4539,52 +4597,18 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     }
   }
 
-  /* ## `--boot-report`: the input path, end to end, in one place
-   *
-   * Five separate investigations into "the machine ignored what I typed" this
-   * session were each a *harness* fault, and each was diagnosed by adding a
-   * temporary probe, running for twenty minutes, reading three lines and
-   * reverting it. Every one of those facts was already in the machine at the
-   * moment the run ended. This prints them.
-   *
-   * The order is the path a character takes: the port it arrives at, the
-   * receiver that latches it, the interrupt that announces it, the controller
-   * that delivers that, and the keyboard at the far end. A reader looking for
-   * why a keystroke did nothing walks it downwards and stops at the first line
-   * that is not what they expected. */
-  if (boot_report) {
-    const ap_mc68681_t *duart = &board->sio.port[0];
-    const ap_mc68681_channel_t *ch = &duart->channel[0];
-    printf("  --- input path, serial 1 channel A (the keyboard) ---\n");
-    printf("  port         MR1 %02X (%u bit(s)), MR2 %02X, CSR %02X, SR %02X\n",
-           ch->mr[0], ap_sio_character_bits(&board->sio, 0u, 0u), ch->mr[1],
-           ch->csr, ch->sr);
-    printf("  receiver     %s, FIFO %u deep, %s\n",
-           ch->rx_enabled ? "enabled" : "**disabled**", ch->fifo_count,
-           (ch->sr & AP_MC68681_SR_OVERRUN) ? "**overrun**" : "no overrun");
-    printf("  transmitter  %s, holding register %s\n",
-           ch->tx_enabled ? "enabled" : "**disabled**",
-           ch->tx_holding_full ? "**full**" : "empty");
-    /* The two that decide whether a received character is *announced*. A
-     * driver that reads by interrupt and never set its mask bit looks exactly
-     * like a machine ignoring the keyboard, and the difference is here. */
-    printf("  interrupt    ISR %02X, IMR %02X, line %s\n", duart->isr,
-           duart->imr, ap_sio_irq(&board->sio) ? "asserted" : "not asserted");
-    printf("  controller   IRQ%u %s, master IRR %02X IMR %02X, %s\n",
-           AP_SIO_IRQ,
-           (board->interrupts.master.imr & (1u << AP_SIO_IRQ)) ? "**masked**"
-                                                               : "unmasked",
-           board->interrupts.master.irr, board->interrupts.master.imr,
-           ap_intr_pending(&board->interrupts) ? "pending" : "nothing pending");
-    printf("  keyboard     %s, %s set, %u byte(s) still on the wire\n",
-           board->keyboard.loopback ? "in loopback" : "out of loopback",
-           board->keyboard.keystate_mode ? "keystate" : "compatibility",
-           board->kbd_reply.count);
-    printf("  traffic      data register %u write(s) %u read(s), "
-           "command register %u write(s)\n",
-           board->sio.register_writes[0][AP_MC68681_RB_TB_A],
-           board->sio.register_reads[0][AP_MC68681_RB_TB_A],
-           board->sio.register_writes[0][AP_MC68681_CR_A]);
+    if (boot_report) {
+    /* **Both ends of the path, not just the keyboard.** This printed serial 1
+     * channel A and nothing else, so a run typing at any *other* channel --
+     * which `--boot-input-port`/`--boot-input-channel` exist to select -- got a
+     * report about a channel it was not using. The boot PROM's console poll at
+     * `00078E` reads three status registers (`$2(a0)` SRA, `$12(a0)` SRB,
+     * `$102(a0)` the second DUART's SRA), so "which channel is holding a byte"
+     * is exactly the question, and the report could not answer it. */
+    report_input_path(board, 0u, 0u);
+    if (input_unit != 0u || input_channel != 0u) {
+      report_input_path(board, input_unit, input_channel);
+    }
   }
 
   int status = 0;
