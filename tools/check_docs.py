@@ -386,6 +386,55 @@ def check_references(problems: list[str]) -> int:
     return checked
 
 
+# A subsystem row that opens with a bare completeness claim, and a phrase that
+# takes it back. `CLAUDE.md`'s *FINISH THE MODULE* requires the qualifier to
+# come first, so the reader learns the module is partial from the first three
+# words rather than from a subordinate clause forty lines in.
+OPENS_COMPLETE = re.compile(r"^\**\s*(working|complete)\b", re.IGNORECASE)
+TAKES_IT_BACK = re.compile(
+    r"\bnot (?:yet )?(?:implemented|modelled|modeled|started|wired|decoded|joined)\b"
+    r"|\breports? unimplemented\b",
+    re.IGNORECASE,
+)
+# The rewrite that fixes such a row usually wants to *say* what it used to
+# claim, which would trip the check forever. A row that quotes the old wording
+# is exempt, because a quotation is the correction rather than the claim.
+QUOTES_THE_OLD_CLAIM = re.compile(r"(?:the row|this row) (?:said|used to)", re.IGNORECASE)
+
+
+def check_completeness_claims(problems: list[str]) -> int:
+    """Rows that call a module working and then admit it is not.
+
+    The rule this enforces is the one most often broken here: "working" means
+    100% of the part's documented behaviour. A row that opens "working" and
+    closes "not yet wired to the board" tells a reader skimming the first
+    column that a subsystem is done when it is not -- and three rows were doing
+    exactly that when this check was written, two of them stale in the *other*
+    direction, still disclaiming instructions the CPU had executed for months.
+
+    Nothing here can tell whether a module is genuinely complete; no check can.
+    What it can enforce is that a row does not claim both things at once.
+    """
+    checked = 0
+    if not STATUS.is_file():
+        return 0
+    for number, line in enumerate(STATUS.read_text().splitlines(), 1):
+        if not line.startswith("| "):
+            continue
+        cells = [cell.strip() for cell in line.split("|")]
+        if len(cells) < 4:
+            continue
+        status = cells[2]
+        checked += 1
+        if (OPENS_COMPLETE.match(status) and TAKES_IT_BACK.search(status)
+                and not QUOTES_THE_OLD_CLAIM.search(status)):
+            problems.append(
+                f"PROJECT_STATUS.md:{number}: {cells[1][:48]!r} opens with a "
+                "completeness claim and then denies it -- lead with the gap "
+                "(CLAUDE.md, FINISH THE MODULE)")
+    return checked
+
+
 def main() -> int:
     if not STATUS.is_file():
         sys.stderr.write("check_doc_counts: no PROJECT_STATUS.md\n")
@@ -411,6 +460,7 @@ def main() -> int:
     checked += check_stray_items(problems)
     checked += check_parent_residue(problems)
     checked += check_parent_subject(problems)
+    checked += check_completeness_claims(problems)
 
     for problem in sorted(set(problems)):
         print(problem)

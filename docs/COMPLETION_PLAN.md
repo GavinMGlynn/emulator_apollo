@@ -4,6 +4,14 @@ Phased road to done. Each item names **its verification** — an item without on
 cannot be ticked. Tails discovered while implementing something go into this
 file the moment they are found, not when someone remembers.
 
+**`[x]` means 100% of the item, and nothing less.** Not "the parts the boot
+exercises", not "the parts the firmware's self-test reaches", not "enough to
+move on". An item whose module has any documented behaviour unimplemented stays
+`[ ]`, with the missing part named in its text — see `CLAUDE.md`, *FINISH THE
+MODULE*. Splitting an item to tick the easy half is the same violation wearing
+a different shape: split only where the halves are genuinely separate
+deliverables, never to bank partial credit.
+
 `[x]` done · `[ ]` not started, or **In progress** where the text says so
 
 (A third checkbox state was tried, `[~]`. Markdown task lists recognise only

@@ -50,9 +50,30 @@ reference core to chase speed** — that is the classic mistake.
   **The tell:** if a fix is justified by "this could explain the failure"
   rather than "this was measured to be the failure", stop and walk the tables.
   Detail and the session it came from: `../emulator-setup-guide.md`, Appendix.
-- **Complete modules, don't chase the boot.** Finish one subsystem with its
-  tests before moving on. Boots are integration checks and thermometers, never
-  milestones.
+- **FINISH THE MODULE. 100%, or it is not finished.** This is the rule most
+  often broken here, and breaking it is the single most expensive habit in this
+  project. A module is finished when **every** documented behaviour of the part
+  is implemented and tested — every register, every field of every register,
+  every command, every documented state and transition — walked against the
+  part's own manual, one table at a time. Not "the parts the boot exercises".
+  Not "the parts the firmware's self-test reaches". Not "enough to move on".
+  - **A green suite is not evidence of completeness.** Tests encode the same
+    misreadings as the code. Completeness is established by the table walk
+    against the manual, and by nothing else.
+  - **Do not start another subsystem while one is unfinished.** If a module
+    cannot be finished — a genuinely missing document, a hardware fact no
+    source carries — then say so *in that sentence*, name the specific gap, mark
+    it `PROVISIONAL` in code and in `docs/PROJECT_STATUS.md`, and make it a
+    named plan item. "Blocked" is a claim that must name what would unblock it.
+  - **Never describe a partial module as working.** Not in a commit message,
+    not in `PROJECT_STATUS.md`, not in a reply. "Working" means 100%. Anything
+    else is reported with the fraction and the missing part named first —
+    "the register interface is complete; the DMA path and interrupt are not
+    implemented", never "the controller works".
+  - **The tell:** if the answer to "is this module done?" needs a qualifier,
+    the module is not done and the honest report is the qualifier, up front.
+- **Don't chase the boot.** Boots are integration checks and thermometers,
+  never milestones. A boot that gets further is not a module that got finished.
 - **Measure, don't guess.** Timing figures come from probes against the oracle,
   or from the paper oracle with a cited manual page. Where the measurement does
   not exist — a data-dependent instruction published only as a range — model the
