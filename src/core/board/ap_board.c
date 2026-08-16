@@ -1141,12 +1141,24 @@ static void note_atbus_empty_address(ap_board_t *board, uint32_t address) {
 
 uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
   *ok = true;
-  /* The interrupt bound promised only that *time* would not move a line. A bus
-   * access can, and plenty of device reads clear a flag as a side effect, so
-   * the promise is discarded here rather than reasoned about. */
-  board->interrupt_valid_until = 0u;
   address &= board->map->address_mask;
   const ap_board_region_t counted = ap_board_region(board, address);
+  /* The interrupt bound promised only that *time* would not move a line, so a
+   * bus access discards it -- but **only one that can reach a device**.
+   *
+   * Every memory access arrives here too, and a read of RAM or PROM cannot
+   * change any of the eight lines `ap_board_sample_interrupts` polls: they come
+   * from the timer, the two serial parts, the calendar, the tape, the two disk
+   * halves and the ethernet, and none of those is memory. Discarding the bound
+   * for a RAM read is what a first version did, and it is why the sample stayed
+   * at 8% of a profile after being made skippable -- a boot touches memory
+   * almost every instruction, so the promise never survived long enough to be
+   * used. Everything that is not plainly memory still discards it, including
+   * unmapped space, because reasoning about a bus error is not worth the
+   * cycles it would save. */
+  if (counted != AP_BOARD_REGION_RAM && counted != AP_BOARD_REGION_PROM) {
+    board->interrupt_valid_until = 0u;
+  }
   /* Any access to a device that can start a DMA transfer re-arms the bus
    * tick's poll. Conservative on purpose: a *read* of a status register cannot
    * start a transfer, and it is included anyway, because the cost of being
@@ -1298,12 +1310,24 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
 void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
                     bool *ok) {
   *ok = true;
-  /* The interrupt bound promised only that *time* would not move a line. A bus
-   * access can, and plenty of device reads clear a flag as a side effect, so
-   * the promise is discarded here rather than reasoned about. */
-  board->interrupt_valid_until = 0u;
   address &= board->map->address_mask;
   const ap_board_region_t counted = ap_board_region(board, address);
+  /* The interrupt bound promised only that *time* would not move a line, so a
+   * bus access discards it -- but **only one that can reach a device**.
+   *
+   * Every memory access arrives here too, and a read of RAM or PROM cannot
+   * change any of the eight lines `ap_board_sample_interrupts` polls: they come
+   * from the timer, the two serial parts, the calendar, the tape, the two disk
+   * halves and the ethernet, and none of those is memory. Discarding the bound
+   * for a RAM read is what a first version did, and it is why the sample stayed
+   * at 8% of a profile after being made skippable -- a boot touches memory
+   * almost every instruction, so the promise never survived long enough to be
+   * used. Everything that is not plainly memory still discards it, including
+   * unmapped space, because reasoning about a bus error is not worth the
+   * cycles it would save. */
+  if (counted != AP_BOARD_REGION_RAM && counted != AP_BOARD_REGION_PROM) {
+    board->interrupt_valid_until = 0u;
+  }
   /* Any access to a device that can start a DMA transfer re-arms the bus
    * tick's poll. Conservative on purpose: a *read* of a status register cannot
    * start a transfer, and it is included anyway, because the cost of being

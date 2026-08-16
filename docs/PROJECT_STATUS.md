@@ -20429,6 +20429,42 @@ reports `disk sidecar ... 464 bytes` beside the disk line. The defect-injection
 behaviour itself is `omti_suite`'s, and was already covered there; what was
 untested and is now wired is the frontend's half.*
 
+## Narrowing the interrupt invalidation bought nothing, and that is the finding
+
+A re-profile after the two increments showed `ap_board_sample_interrupts` still
+at **8.0%** despite being skippable, which looked like a flaw in the
+invalidation: the bound was discarded by *every* `ap_board_read` and
+`ap_board_write`, and those carry all memory traffic, so a RAM read cleared a
+promise it could not possibly affect.
+
+The fix is sound and is kept: a read of RAM or PROM cannot change any of the
+eight lines the sampler polls -- they come from the timer, the two serial parts,
+the calendar, the tape, the two disk halves and the ethernet, none of which is
+memory -- so only an access that can reach a device discards the bound. Unmapped
+space still discards it, because reasoning about a bus error is not worth the
+cycles.
+
+**It made no measurable difference**: 30.398 s to 30.324 s over the 350 M boot,
+which is 0.2% and inside the noise. Hash unchanged, reports identical line for
+line.
+
+**So the residual cost is the firmware's own device polling, not the rule.** The
+boot reads serial status registers continuously -- that is how its console loop
+works -- and each such read legitimately discards the bound, so the sample runs
+again on the next instruction. Narrowing what invalidates cannot help when the
+thing doing the invalidating is a device read that genuinely could have changed
+a line.
+
+That is worth writing down because the obvious next move was to narrow it
+further, and the measurement says the ceiling is elsewhere: to make the sample
+cheaper again, either the *sampler* has to cost less per call, or the polling
+loop has to stop invalidating -- and the second is a claim about what a serial
+status read can change, which is a different and much more delicate argument
+than "RAM is not a device".
+
+*Kept rather than reverted: it costs no measurable time, and it makes the
+invalidation rule match the justification the code gives for it.*
+
 ## The bus tick is batched when the ticks are provably one: 1.31x more
 
 The profile's next item after the interrupt sample was `ap_board_bus_tick` at
