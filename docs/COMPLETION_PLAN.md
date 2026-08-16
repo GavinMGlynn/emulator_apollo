@@ -4501,8 +4501,19 @@ Only after the reference core is proven, and only under an identity harness.
       `invol-done` copy it appeared to be. That image is **gone** — it was
       overwritten by the re-copy — which is the real lesson here: *a run whose
       result you may want to explain should have its inputs preserved before
-      the next run overwrites them.* Next: keep a copy of every volume state
-      before each attempt, and re-establish the kernel load from a known base. Then MINST from the four software cartridges,
+      the next run overwrites them.*
+      **And the error itself says what is wrong, once looked up.** `sysboot` is
+      a **file on the volume**, not on the cartridge: `RING.md` 85a reads its
+      VTOCX out of the VTOC (`002716D0`) and 85d cites `[AEGIS]` §4.3.2 fixing
+      its ten contiguous blocks at physical `02`-`0B`. So `error: sysboot not
+      found` says *this boot volume has no operating system on it* — which is
+      exactly what `dn3500-invol-done.awd` is. The base is right to install
+      *onto* and cannot be booted *from*, so `ex domain_os` must take its image
+      from the **cartridge** when it works. Why it did once and does not now is
+      still open, but it is a question about the cartridge path rather than
+      about volumes, rundirs or the clock. Next: establish what makes `di c`
+      effective — it prints nothing either way, which is why four runs could not
+      tell the two cases apart. Then MINST from the four software cartridges,
       then the state hash the item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
