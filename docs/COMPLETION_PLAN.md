@@ -4521,7 +4521,18 @@ Only after the reference core is proven, and only under an identity harness.
       runs, both cheap and neither an emulator invocation: give `di c` an
       **observable** — it prints nothing on success or failure, which is what
       made five runs indistinguishable — and preserve the volume and rundir of
-      any run worth explaining *before* the next one starts. Then MINST from the four software cartridges,
+      any run worth explaining *before* the next one starts.
+      **And the web supplies the missing step the local notes did not.** The
+      AEGIS boot transcript (`aegis_boot.html`, already cited by this project)
+      shows the working sequence as **`re` / `re` / `di c` / `ex domain_os`** —
+      two resets before the device select. Every failing run here issued
+      `di c` with **no `re` at all**. Tried, and it stops after the first `re`,
+      which `FINDINGS.md` C50 also already explains: *`re` leaves the machine
+      deaf again*, so each reset needs a `\r` knock to re-autobaud before the
+      next command — which is what `mdsession.py --knock-char` exists for. So
+      the next attempt is `re`, knock, `re`, knock, `di c`, `ex domain_os`, and
+      it must be reconciled with the standing "no `re` between stages" rule,
+      which was written about the *RTC year shift* and not about this. Then MINST from the four software cartridges,
       then the state hash the item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
