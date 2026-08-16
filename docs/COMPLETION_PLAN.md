@@ -4396,6 +4396,21 @@ Only after the reference core is proven, and only under an identity harness.
 - [ ] Boot every Domain/OS release obtainable (SR9.7, SR10.1–10.4).
       *Verification: each boot recorded with its state hash; failures explained,
       not hidden.*
+      **SR10.3 is held** — five cartridges in `media/sr10.3/`, plus
+      `Apollo_DOMAINOS_SR10.3.5.tgz`. What is missing is an **installed volume**;
+      this core boots a volume, not a distribution set.
+      **Take the proven route, not the one this session chased.** SR10.4 was
+      installed under the oracle with `tools/mame-oracle/mdsession.py --stage
+      prompt --ctape …` driven by `install-domainos.cmds`, and the result boots
+      here. Doing the same for SR10.3 is a known, scripted, ~one-session job.
+      **Booting the cartridge directly under this core is *not* required by the
+      verification above** and consumed most of a session: the boot PROM's
+      console selection is an autobaud (`000844`-`0008B8`) that the scripted
+      terminal cannot yet satisfy, because one `--boot-input-rate` has to serve
+      the initial character, the two the selection needs and the `$158(a6)`
+      bit 0 sequencing at once. Every link of that is measured and recorded in
+      `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
+      harness work when it is wanted for its own sake, not as a prerequisite.
 - [ ] Boot every firmware revision we hold, including both `3000_BOOT` revisions
       and both ring board generations.
       **Done and recorded**: six boot PROMs across five models, each with its
