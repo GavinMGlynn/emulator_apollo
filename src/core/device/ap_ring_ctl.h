@@ -134,7 +134,7 @@
 #define AP_RING_CTL_STATUS_TMO 0x4000u     /* timeout */
 #define AP_RING_CTL_STATUS_XBY 0x2000u     /* 0 => transmit busy */
 #define AP_RING_CTL_STATUS_RBY 0x1000u     /* 0 => receive busy */
-#define AP_RING_CTL_STATUS_IOV 0x0800u     /* 1 => initialize */
+#define AP_RING_CTL_STATUS_IOV 0x0800u     /* 1 => initialize overrun */
 #define AP_RING_CTL_STATUS_RLK 0x0400u     /* receive lock error */
 /* Which 8254 counter is which, from `[EH]` p. 12-32's names and offsets
  * (finding 41a). Timer A is the receive trio at `+800`/`+802`/`+804` and timer
@@ -160,21 +160,84 @@
  * 1. See `ap_ring_ctl.c`'s reset for why the ROM is the authority here. */
 #define AP_RING_CTL_STATUS_IDLE 0xF806u
 
+/* ## `+402` is **XMIT_STAT**, one register with two layouts -- `RING.md` 93c,
+ * 97
+ *
+ * `002398-04` p. 12-31, read as a page image. The low byte is fixed and bit 15
+ * `pe` selects what bits 14-8 mean, which is why a single flat table of this
+ * register cannot be written. Bits 3 and 2 are marked `x` and are not named.
+ *
+ * The polarity notation is the manual's own and four of the six named low bits
+ * are **active low**: "network connect <= 0", "xmt enable <=1", "initialize
+ * busy <=0", "xmt busy <=0", and both tag bits "<=0". */
+#define AP_RING_CTL_XMIT_PE 0x8000u  /* protocol error, selects bits 14-8 */
+#define AP_RING_CTL_XMIT_ABT 0x0200u /* packet aborted -- both layouts */
+#define AP_RING_CTL_XMIT_IFE 0x0100u /* interface error, iff abt -- both */
+#define AP_RING_CTL_XMIT_NCT 0x0080u /* 0 => network connect */
+#define AP_RING_CTL_XMIT_XEN 0x0040u /* 1 => transmit enable */
+#define AP_RING_CTL_XMIT_IBY 0x0020u /* 0 => initialize busy */
+#define AP_RING_CTL_XMIT_XBY 0x0010u /* 0 => transmit busy */
+#define AP_RING_CTL_XMIT_XT1 0x0002u /* 0 => transmit tag bit 1 */
+#define AP_RING_CTL_XMIT_XT0 0x0001u /* 0 => transmit tag bit 0 */
+
+/* Bits 14-8 when `pe` is 0. Note `pke` and `de` sit at 11 and 10 here and at
+ * **10 and 11** in RCV_STAT below -- the two registers transpose them, which is
+ * exactly the mistake a header written from one table and applied to both
+ * would make. */
+#define AP_RING_CTL_XMIT_CPD 0x4000u /* copied */
+#define AP_RING_CTL_XMIT_WAK 0x2000u /* wait acknowledge */
+#define AP_RING_CTL_XMIT_ICP 0x1000u /* icopy */
+#define AP_RING_CTL_XMIT_PKE 0x0800u /* packet error (pkterr/ackbyte_errbit) */
+#define AP_RING_CTL_XMIT_DE 0x0400u  /* data error (crc_error) */
+
+/* And bits 14-8 when `pe` is 1. */
+#define AP_RING_CTL_XMIT_TMO 0x4000u /* timeout in the gate array */
+#define AP_RING_CTL_XMIT_SYN 0x2000u /* sync error */
+#define AP_RING_CTL_XMIT_ERN 0x1000u /* error return (no_return) */
+#define AP_RING_CTL_XMIT_FRM 0x0800u /* from error */
+#define AP_RING_CTL_XMIT_AKP 0x0400u /* ackbyte parity error */
+
 /* The low lane of `+402`, which finding 48 says carries status beside the
  * command byte. Subtest 13 requires `(+402) & $F0 == $F0` after the firmware
- * has written only the high lane, so these four bits read set on a healthy
- * board; the rest are unasserted and stay clear. */
+ * has written only the high lane -- and p. 12-31 says what that word *is*,
+ * exactly as 93h said what `+404`'s `E0` is: `nct` `xen` `iby` `xby` all set
+ * is a **disconnected, transmit-enabled, not-initialize-busy, not-transmit-busy
+ * board**, which is what a just-reset one is. The constant was carried as a
+ * literal with "the rest are unasserted and stay clear" for as long as its
+ * bits had no names. `ring_ctl_suite` asserts the decomposition so the two
+ * cannot drift apart. */
 #define AP_RING_CTL_COMMAND_STATUS_IDLE 0x00F0u
 
-/* And `+404`'s, from subtest 15: `(+404) & $F8 == $E0`, so bits 7-5 set with
- * bits 4 and 3 clear. **`+404` is RCV_STAT** (`RING.md` 93), whose low byte
- * `[EH]` p. 12-30 gives as bit 7 `nct` "0=> network connect", 6 `ren` receive
- * enable, 5 `rby` "0=> rcv busy", 4 `bpe` bi-phase error, 3 `esb` elastic-store
- * error, and 2:0 the receive counter outputs -- "pkt exceeded max_rcv_cnt",
- * "data rcv in progress", "hdr rcv in progress". So `E0` is exactly a
- * disconnected, receive-enabled, not-busy board with no errors, which is what
- * a just-reset one is. The firmware's constant and the manual's bit table
- * agree without either having been used to derive the other. */
+/* ## `+404` is **RCV_STAT**, and all sixteen bits are documented
+ *
+ * `002398-04` p. 12-30, read as a page image. Finding 93h recorded the low byte
+ * only -- the page gives the high byte on the same diagram, and unlike
+ * XMIT_STAT there is **one layout**: `pe` at bit 15 is a status bit here, not a
+ * selector. */
+#define AP_RING_CTL_RCV_PE 0x8000u  /* protocol error (timeout_rs) */
+#define AP_RING_CTL_RCV_CPD 0x4000u /* copied */
+#define AP_RING_CTL_RCV_WAK 0x2000u /* wait acknowledge */
+#define AP_RING_CTL_RCV_ICP 0x1000u /* icopy */
+#define AP_RING_CTL_RCV_DE 0x0800u  /* data error (crc_rs) */
+#define AP_RING_CTL_RCV_PKE 0x0400u /* packet error (pkt_err/ackbyte_errbit) */
+#define AP_RING_CTL_RCV_AKP 0x0200u /* ack parity error (ackparerr_rs) */
+#define AP_RING_CTL_RCV_IFE 0x0100u /* interface error: overrun or controller */
+#define AP_RING_CTL_RCV_NCT 0x0080u /* 0 => network connect */
+#define AP_RING_CTL_RCV_REN 0x0040u /* 1 => receive enable */
+#define AP_RING_CTL_RCV_RBY 0x0020u /* 0 => receive busy */
+#define AP_RING_CTL_RCV_BPE 0x0010u /* 1 => bi-phase error (phs_rs) */
+#define AP_RING_CTL_RCV_ESB 0x0008u /* elastic-store buffer error (esb_rs) */
+/* 2:0 are the three receive counter outputs, one per 8254 counter -- see
+ * `AP_RING_CTL_RCV_*_CNT` above. */
+#define AP_RING_CTL_RCV_RC2 0x0004u /* packet exceeded max_rcv_cnt */
+#define AP_RING_CTL_RCV_RC1 0x0002u /* data receive in progress */
+#define AP_RING_CTL_RCV_RC0 0x0001u /* header receive in progress */
+
+/* And `+404`'s idle word, from subtest 15: `(+404) & $F8 == $E0`, so bits 7-5
+ * set with bits 4 and 3 clear. `E0` is exactly a disconnected,
+ * receive-enabled, not-busy board with no errors, which is what a just-reset
+ * one is. The firmware's constant and the manual's bit table agree without
+ * either having been used to derive the other. */
 #define AP_RING_CTL_COMMAND2_STATUS_IDLE 0x00E0u
 /* The by-number spellings the model was written with, kept as aliases so the
  * findings that cite them still read, and so this change is a renaming rather

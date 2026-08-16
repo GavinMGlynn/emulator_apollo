@@ -4054,7 +4054,13 @@ discipline throughout.
         ch. 12 pp. 12-29..12-31 (`RING.md` 93-93e) — and the firmware-derived
         model needed no change. `ring8a.drvr` is now extracted as well
         (`RING.md` 96, `tools/ct_extract.py`) and its own tables corroborate
-        every one of those bits from a second, independent source.
+        every one of those bits from a second, independent source -- it carries
+        the maps as `(mask, match, name)` triples, so no inference was needed,
+        and it is the *sau8* driver, which is what turns 93's DN3000-chapter
+        reading into evidence about the DN3500 board (`RING.md` 97-97g).
+        `ap_ring_ctl.h` now names all three status registers; `pke` and `de`
+        are **transposed** between XMIT_STAT and RCV_STAT, which is asserted
+        directly because no behavioural test can see it.
         What remains here is the traffic wire, not a register question.
   - [ ] The DMA path and the interrupt.
         **Blocked on which line, and it is a real three-way disagreement**

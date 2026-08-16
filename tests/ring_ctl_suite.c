@@ -520,8 +520,59 @@ static void test_the_first_window_reads_the_node_id(void) {
   TEST_ASSERT_EQUAL_HEX16(0xFFFFu, ap_ring_ctl_read16(&ctl, false, 2u));
 }
 
+/* The three idle words are the manual's bit tables, not magic numbers.
+ *
+ * Each was reached from the firmware -- subtest 01's `$F806`, subtest 13's
+ * `$F0`, subtest 15's `$E0` -- and each sat in the header as a literal for as
+ * long as its bits had no names. `002398-04` pp. 12-30 and 12-31 name every one
+ * of them, and each constant turns out to be exactly "a just-reset board":
+ * disconnected, enabled, not busy, no errors. Asserting the decomposition is
+ * what keeps the names and the numbers from drifting apart -- a renaming that
+ * moved a bit would still satisfy every behavioural test in this suite, because
+ * they all compare against the constant rather than against its meaning.
+ *
+ * `+402`'s `pe` is a *selector* and `+404`'s is a status bit, which is why only
+ * the low byte of XMIT_STAT is decomposed here: bits 14-8 have no single
+ * meaning to assert. */
+static void test_the_idle_words_are_the_manuals_bits_and_not_magic(void) {
+  /* `+402`: not connected, transmit enabled, not initialize busy, not
+   * transmit busy -- all four active low, so all four read set. */
+  TEST_ASSERT_EQUAL_HEX16(AP_RING_CTL_COMMAND_STATUS_IDLE,
+                          AP_RING_CTL_XMIT_NCT | AP_RING_CTL_XMIT_XEN |
+                              AP_RING_CTL_XMIT_IBY | AP_RING_CTL_XMIT_XBY);
+
+  /* `+404`: the same three, plus no bi-phase or elastic-store error and no
+   * receive counter output. Those five are active *high*, so `E0` has them
+   * clear -- which is what makes this a different assertion from the one
+   * above rather than the same shape twice. */
+  TEST_ASSERT_EQUAL_HEX16(AP_RING_CTL_COMMAND2_STATUS_IDLE,
+                          AP_RING_CTL_RCV_NCT | AP_RING_CTL_RCV_REN |
+                              AP_RING_CTL_RCV_RBY);
+  TEST_ASSERT_EQUAL_HEX16(0u, AP_RING_CTL_COMMAND2_STATUS_IDLE &
+                                  (AP_RING_CTL_RCV_BPE | AP_RING_CTL_RCV_ESB |
+                                   AP_RING_CTL_RCV_RC2 | AP_RING_CTL_RCV_RC1 |
+                                   AP_RING_CTL_RCV_RC0));
+
+  /* `+400`: subtest 01's seven bits, named. `gps`, `xi`, `ri` and `tmi` are
+   * outside the mask the firmware checks and stay clear here. */
+  TEST_ASSERT_EQUAL_HEX16(AP_RING_CTL_STATUS_IDLE,
+                          AP_RING_CTL_STATUS_PRESENT | AP_RING_CTL_STATUS_TMO |
+                              AP_RING_CTL_STATUS_XBY | AP_RING_CTL_STATUS_RBY |
+                              AP_RING_CTL_STATUS_IOV | AP_RING_CTL_STATUS_XI |
+                              AP_RING_CTL_STATUS_RI);
+
+  /* `pke` and `de` are transposed between the two status registers. Asserting
+   * it is the point: a header written from one table and applied to both would
+   * pass every other test in this file. */
+  TEST_ASSERT_EQUAL_HEX16(0x0800u, AP_RING_CTL_XMIT_PKE);
+  TEST_ASSERT_EQUAL_HEX16(0x0400u, AP_RING_CTL_XMIT_DE);
+  TEST_ASSERT_EQUAL_HEX16(0x0400u, AP_RING_CTL_RCV_PKE);
+  TEST_ASSERT_EQUAL_HEX16(0x0800u, AP_RING_CTL_RCV_DE);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_idle_words_are_the_manuals_bits_and_not_magic);
   RUN_TEST(test_the_data_port_round_trips_the_firmwares_own_pattern);
   RUN_TEST(test_a_unit_is_both_of_its_at_windows);
   RUN_TEST(test_the_id_register_answers_one_of_the_two_values_init_accepts);
