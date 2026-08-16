@@ -144,7 +144,16 @@ void ap_i8254_write(ap_i8254_t *pit, ap_i8254_reg_t reg, uint8_t value);
  * read there. */
 [[nodiscard]] uint8_t ap_i8254_read(ap_i8254_t *pit, ap_i8254_reg_t reg);
 
-/* One CLK pulse to every counter that is running. The board decides the rate. */
+/* One CLK pulse to **one** counter. The part has three independent CLK pins,
+ * so a board may drive them from three unrelated events, and this machine's
+ * ring controller is such a board: `[EH]` p. 12-30 names `RCV_STAT` bits 2:0
+ * "pkt exceeded max_rcv_cnt", "data rcv in progress" and "hdr rcv in progress"
+ * -- one receive condition per receive counter. */
+void ap_i8254_clock_counter(ap_i8254_t *pit, unsigned index);
+
+/* One CLK pulse to every counter that is running: the shorthand for a board
+ * that really does tie the three CLK pins together. The board decides the rate.
+ */
 void ap_i8254_clock(ap_i8254_t *pit);
 
 /* Drive one counter's GATE pin. */

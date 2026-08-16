@@ -392,15 +392,34 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
          * **How many is the firmware's own number, not one chosen here**: the
          * transmit packet counter `+C02` was loaded immediately before the
          * command (finding 72), and the transfer runs until it is exhausted.
-         * `ap_i8254_clock` pulses every running counter of the part, which is
-         * what a shared CLK line does.
          *
-         * `PROVISIONAL` in one specific way: the transfer is *instantaneous*
+         * **Each counter is clocked from its own event, not from one shared
+         * pulse**, because the part has three independent CLK pins and this
+         * board drives them separately: `[EH]` p. 12-30 gives `RCV_STAT`'s bits
+         * 2:0 as "pkt exceeded max_rcv_cnt", "data rcv in progress" and "hdr
+         * rcv in progress", and p. 12-31's `XMIT_STAT` tags the transmit side
+         * the same way -- `11` header being transmitted, `01` data being
+         * transmitted, `00` message complete. Header and data are separate
+         * phases on both sides, which is finding 81's separate DMA streams seen
+         * on this board rather than on the DN5xx.
+         *
+         * That matters here even though all three still receive the same count:
+         * `ap_i8254_clock` could not express the firmware's own requirement
+         * that `RCV_HDR_CNT` and `RCV_PKT_CNT` reach *different* totals over
+         * one transfer (1020 against 1023, finding 76a), because one pulse
+         * cannot advance two counters by different amounts. The structure is
+         * now able to hold the answer; what event makes the header arm fall
+         * three short is still open (80c, 81b), and is deliberately not
+         * guessed at here.
+         *
+         * `PROVISIONAL` in one further way: the transfer is *instantaneous*
          * here, where real hardware would spread it over the ring's bit clock.
          * Subtest 32 reads the counters afterwards and cannot tell the
          * difference; anything that watches them *during* a transfer could. */
         for (uint16_t i = 0; i < ctl->a2.timer_b.counter[1].latch; i++) {
-          ap_i8254_clock(&ctl->a2.timer_a);
+          ap_i8254_clock_counter(&ctl->a2.timer_a, AP_RING_CTL_RCV_HDR_CNT);
+          ap_i8254_clock_counter(&ctl->a2.timer_a, AP_RING_CTL_RCV_PKT_CNT);
+          ap_i8254_clock_counter(&ctl->a2.timer_a, AP_RING_CTL_RCV_MAX_CNT);
         }
       } else if (!second_window) {
         /* Nothing outstanding: bit 2 still returns, since subtests 22 and 24

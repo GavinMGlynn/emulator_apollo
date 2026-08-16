@@ -136,6 +136,18 @@
 #define AP_RING_CTL_STATUS_RBY 0x1000u     /* 0 => receive busy */
 #define AP_RING_CTL_STATUS_IOV 0x0800u     /* 1 => initialize */
 #define AP_RING_CTL_STATUS_RLK 0x0400u     /* receive lock error */
+/* Which 8254 counter is which, from `[EH]` p. 12-32's names and offsets
+ * (finding 41a). Timer A is the receive trio at `+800`/`+802`/`+804` and timer
+ * B the transmit trio at `+C00`/`+C02`/`+C04`; each counter has its own CLK
+ * pin, driven by its own event -- p. 12-30's `RCV_STAT` bits 2:0 name the three
+ * receive conditions one for one. */
+#define AP_RING_CTL_RCV_HDR_CNT 0u
+#define AP_RING_CTL_RCV_PKT_CNT 1u
+#define AP_RING_CTL_RCV_MAX_CNT 2u
+#define AP_RING_CTL_XMIT_HDR_CNT 0u
+#define AP_RING_CTL_XMIT_PKT_CNT 1u
+#define AP_RING_CTL_BAD_PKT_CNT 2u
+
 #define AP_RING_CTL_STATUS_ESB 0x0200u     /* sticky elastic-store error */
 #define AP_RING_CTL_STATUS_BPE 0x0100u     /* sticky bi-phase error */
 #define AP_RING_CTL_STATUS_GPS 0x0008u     /* sticky good packet seen */

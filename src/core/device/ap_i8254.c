@@ -234,48 +234,63 @@ bool ap_i8254_out(const ap_i8254_t *pit, unsigned index) {
   return pit->counter[index].out;
 }
 
+/* One CLK pulse to **one** counter. The 8254 has three independent CLK pins,
+ * and a board is free to drive them from three different events -- which this
+ * machine's ring controller does: `[EH]` p. 12-30 names `RCV_STAT`'s bits 2:0
+ * "pkt exceeded max_rcv_cnt", "data rcv in progress" and "hdr rcv in progress",
+ * three distinct receive conditions, one per receive counter. A model with only
+ * a whole-part pulse cannot express that, and cannot express the firmware's own
+ * requirement that the header counter and the packet counter reach *different*
+ * totals over one transfer (`RING.md` 76a). */
+void ap_i8254_clock_counter(ap_i8254_t *pit, unsigned index) {
+  if (pit == NULL || index >= AP_I8254_COUNTERS) {
+    return;
+  }
+  ap_i8254_counter_t *c = &pit->counter[index];
+  if (!c->counting || !c->gate) {
+    /* "In Modes 0, 2, 3 and 4 the GATE input is level sensitive" -- a low gate
+     * holds the count where it stands rather than resetting it. */
+    return;
+  }
+  const unsigned mode = ap_i8254_mode(pit, index);
+
+  if (mode == 3u) {
+    /* Mode 3, the square wave: the count is decremented by two and OUT toggles
+     * at each expiry, giving a half-period of N/2 clocks. */
+    c->counter = (uint16_t)(c->counter - 2u);
+    if (c->counter == 0u || c->counter == 0xFFFFu) {
+      c->out = !c->out;
+      c->counter = c->latch;
+    }
+    return;
+  }
+
+  c->counter = (uint16_t)(c->counter - 1u);
+  if (c->counter != 0u) {
+    return;
+  }
+
+  if (mode == 2u) {
+    /* Mode 2, the rate generator: OUT goes low for one clock at zero and the
+     * counter reloads, so it is periodic without a new write. */
+    c->out = false;
+    c->counter = c->latch;
+    return;
+  }
+
+  /* Mode 0, and the three gate-triggered modes this board cannot distinguish:
+   * "OUT will go high when the Counter reaches zero", and stays there until the
+   * counter is reprogrammed. Counting continues past zero -- the counter wraps
+   * -- but the terminal count happens once. */
+  c->out = true;
+  c->counting = false;
+}
+
 void ap_i8254_clock(ap_i8254_t *pit) {
   if (pit == NULL) {
     return;
   }
   for (unsigned i = 0; i < AP_I8254_COUNTERS; i++) {
-    ap_i8254_counter_t *c = &pit->counter[i];
-    if (!c->counting || !c->gate) {
-      /* "In Modes 0, 2, 3 and 4 the GATE input is level sensitive" -- a low
-       * gate holds the count where it stands rather than resetting it. */
-      continue;
-    }
-    const unsigned mode = ap_i8254_mode(pit, i);
-
-    if (mode == 3u) {
-      /* Mode 3, the square wave: the count is decremented by two and OUT
-       * toggles at each expiry, giving a half-period of N/2 clocks. */
-      c->counter = (uint16_t)(c->counter - 2u);
-      if (c->counter == 0u || c->counter == 0xFFFFu) {
-        c->out = !c->out;
-        c->counter = c->latch;
-      }
-      continue;
-    }
-
-    c->counter = (uint16_t)(c->counter - 1u);
-    if (c->counter != 0u) {
-      continue;
-    }
-
-    if (mode == 2u) {
-      /* Mode 2, the rate generator: OUT goes low for one clock at zero and the
-       * counter reloads, so it is periodic without a new write. */
-      c->out = false;
-      c->counter = c->latch;
-      continue;
-    }
-
-    /* Mode 0, and the three gate-triggered modes this board cannot distinguish:
-     * "OUT will go high when the Counter reaches zero", and stays there until
-     * the counter is reprogrammed. Counting continues past zero -- the counter
-     * wraps -- but the terminal count happens once. */
-    c->out = true;
-    c->counting = false;
+    ap_i8254_clock_counter(pit, i);
   }
 }
