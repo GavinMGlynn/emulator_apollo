@@ -3,10 +3,32 @@
 
 #include "ap_ring_link.h"
 
+#include <string.h>
+
+/* ## POSIX sockets, or a build that says it has none
+ *
+ * `<sys/socket.h>` and `<unistd.h>` are not Windows headers, and this project
+ * builds on three platforms with `-Werror` -- so an unguarded include turned
+ * the whole tree red on the Windows job while the other three were green. The
+ * shape of the fix is `ap_png.c`'s: **compile either way and report which build
+ * it is**, rather than dropping the file from one platform's target list, where
+ * the absence is invisible until someone wonders why a flag does nothing.
+ *
+ * Winsock would work here -- the wire format is bytes and the lock-step is not
+ * POSIX-specific -- and is deliberately not written blind: this project has no
+ * Windows machine to run it on, and an untested carrier that silently
+ * desynchronises two rings is worse than one that refuses. `AP_RING_LINK_HAVE`
+ * says which build this is. */
+#if defined(_WIN32)
+#define AP_RING_LINK_HAVE 0
+#else
+#define AP_RING_LINK_HAVE 1
 #include <errno.h>
 #include <sys/socket.h>
-#include <string.h>
 #include <unistd.h>
+#endif
+
+#if AP_RING_LINK_HAVE
 
 /* One byte per bit time: bit 0 the clock window, bit 1 the data window. The
  * two spare bits are left zero and *checked* on the way in -- a peer speaking a
@@ -139,3 +161,39 @@ bool ap_ring_link_exchange(ap_ring_link_t *link, const ap_ring_cell_t *local,
                            ap_ring_cell_t *remote) {
   return ap_ring_link_send(link, local) && ap_ring_link_recv(link, remote);
 }
+
+#else /* !AP_RING_LINK_HAVE */
+
+bool ap_ring_link_init(ap_ring_link_t *link, int fd, unsigned cable_bits) {
+  (void)fd;
+  (void)cable_bits;
+  if (link != NULL) {
+    *link = (ap_ring_link_t){0};
+    link->failed = true;
+  }
+  return false;
+}
+
+bool ap_ring_link_send(ap_ring_link_t *link, const ap_ring_cell_t *local) {
+  (void)link;
+  (void)local;
+  return false;
+}
+
+bool ap_ring_link_recv(ap_ring_link_t *link, ap_ring_cell_t *remote) {
+  (void)link;
+  (void)remote;
+  return false;
+}
+
+bool ap_ring_link_exchange(ap_ring_link_t *link, const ap_ring_cell_t *local,
+                           ap_ring_cell_t *remote) {
+  (void)link;
+  (void)local;
+  (void)remote;
+  return false;
+}
+
+#endif /* AP_RING_LINK_HAVE */
+
+bool ap_ring_link_available(void) { return AP_RING_LINK_HAVE != 0; }

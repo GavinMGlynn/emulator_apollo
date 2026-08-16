@@ -66,6 +66,13 @@ typedef struct {
 /* Wire an already-connected descriptor. `cable_bits` must be 1..64 and the same
  * at both ends; a mismatch is a different cable, not a tuning difference, and
  * shows up as a short read rather than as drift. */
+/* Whether this build has a carrier at all. False on Windows, where the POSIX
+ * socket headers do not exist and a Winsock port is deliberately not written
+ * blind -- see the note in `ap_ring_link.c`. Every entry point below refuses on
+ * such a build rather than pretending, and a caller reports that rather than
+ * finding out from a ring that never forms. */
+[[nodiscard]] bool ap_ring_link_available(void);
+
 [[nodiscard]] bool ap_ring_link_init(ap_ring_link_t *link, int fd,
                                      unsigned cable_bits);
 

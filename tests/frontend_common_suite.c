@@ -10,8 +10,10 @@
 #include "ap_scanout.h"
 #include "unity.h"
 
+#if !defined(_WIN32)
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
 
 #include "ap_ring_link.h"
 
@@ -516,16 +518,30 @@ static void test_opening_a_missing_tap_device_explains_itself(void) {
  * test needs no port, no network and no second process -- what it exercises is
  * the wire format and the lock-step, which is all the transport is. */
 
+/* Whether this build can open a socket pair. The carrier itself reports the
+ * same thing through `ap_ring_link_available`, and the bounds test below runs
+ * everywhere because it opens nothing. */
+#if defined(_WIN32)
+#define AP_TEST_HAVE_SOCKETPAIR 0
+#else
+#define AP_TEST_HAVE_SOCKETPAIR 1
+#endif
+
 /* A batch of cells that is not symmetric in any of the ways a bug would hide
  * behind: both windows set, each alone, neither, and not a repeating pattern. */
+#if AP_TEST_HAVE_SOCKETPAIR
 static void link_fill(ap_ring_cell_t *cells, unsigned n, unsigned seed) {
   for (unsigned i = 0; i < n; i++) {
     cells[i].clock_window = ((i + seed) % 3u) != 0u;
     cells[i].data_window = ((i * 2u + seed) % 5u) < 2u;
   }
 }
+#endif
 
 static void test_a_ring_link_carries_a_cable_of_cells_both_ways(void) {
+#if !AP_TEST_HAVE_SOCKETPAIR
+  TEST_IGNORE_MESSAGE("no POSIX sockets in this build");
+#else
   int fds[2];
   TEST_ASSERT_EQUAL_INT(0, socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
 
@@ -568,6 +584,7 @@ static void test_a_ring_link_carries_a_cable_of_cells_both_ways(void) {
   TEST_ASSERT_EQUAL_UINT64(1u, a.batches);
   close(fds[0]);
   close(fds[1]);
+#endif
 }
 
 /* A peer that goes away must fail the link and keep it failed. A ring that has
@@ -575,6 +592,9 @@ static void test_a_ring_link_carries_a_cable_of_cells_both_ways(void) {
  * emulator would carry on with a cable that ends nowhere, and every symptom
  * would appear at the protocol layer instead of here. */
 static void test_a_ring_link_fails_once_and_stays_failed(void) {
+#if !AP_TEST_HAVE_SOCKETPAIR
+  TEST_IGNORE_MESSAGE("no POSIX sockets in this build");
+#else
   int fds[2];
   TEST_ASSERT_EQUAL_INT(0, socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
   ap_ring_link_t a;
@@ -589,7 +609,10 @@ static void test_a_ring_link_fails_once_and_stays_failed(void) {
   (void)ap_ring_link_exchange(&a, out, in);
   TEST_ASSERT_TRUE(a.failed);
   TEST_ASSERT_FALSE(ap_ring_link_exchange(&a, out, in));
+  TEST_ASSERT_FALSE(ap_ring_link_send(&a, out));
+  TEST_ASSERT_FALSE(ap_ring_link_recv(&a, in));
   close(fds[0]);
+#endif
 }
 
 /* The batch size is a cable length, so it is bounded by the longest cable the
@@ -601,6 +624,9 @@ static void test_a_ring_links_batch_is_bounded_by_the_longest_cable(void) {
   TEST_ASSERT_FALSE(ap_ring_link_init(&link, 1, AP_RING_MAX_CABLE_BITS + 1u));
   TEST_ASSERT_TRUE(ap_ring_link_init(&link, 1, AP_RING_MAX_CABLE_BITS));
   TEST_ASSERT_FALSE(ap_ring_link_init(&link, -1, 8u));
+  /* And a build with no carrier says so rather than failing obscurely later. */
+  TEST_ASSERT_EQUAL_INT(AP_TEST_HAVE_SOCKETPAIR ? 1 : 0,
+                        ap_ring_link_available() ? 1 : 0);
 }
 
 int main(void) {
