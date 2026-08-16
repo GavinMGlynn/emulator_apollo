@@ -4474,9 +4474,17 @@ Only after the reference core is proven, and only under an identity harness.
       this run inherited that wreckage rather than finding a second defect.
       The documented remedy is to **revert to the clean checkpoint rather than
       salvage**, so the volume has been re-copied from `dn3500-invol-done.awd`.
-      Next is the run in the right order on a clean volume — era config, then
-      `ex domain_os` — then MINST from the four software cartridges, then the
-      state hash the item asks for.
+      **Run in the right order on the clean volume, and it now fails
+      differently**: `di c` produces no output and `ex domain_os` answers
+      `error: sysboot not found` — where the *identical* command on the same
+      cartridge loaded the kernel an hour earlier. So this is not the unclean
+      volume and not the era; something about the fresh copy or the cartridge
+      attach differs between the two runs, and **which** is not yet known.
+      Worth isolating before anything else, because it makes the run
+      non-repeatable and every later result would inherit that. The cheap
+      discriminator is to re-run the *working* invocation verbatim and see
+      whether it still works. Then MINST from the four software cartridges,
+      then the state hash the item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
       console selection is an autobaud (`000844`-`0008B8`) that the scripted
