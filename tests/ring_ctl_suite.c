@@ -214,19 +214,77 @@ static void test_the_two_windows_are_separate_register_sets(void) {
    * in the command lane now *means* something -- `BEEF` would be taken as an
    * operation and self-clear the lane. This test is about the two windows being
    * separate, so it uses a word that is not a command. */
-  ap_ring_ctl_write16(&ctl, false, AP_RING_CTL_BANK_STATUS + 2u, 0xB800u);
+  ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_STATUS + 2u, 0xB800u);
 
   TEST_ASSERT_EQUAL_HEX8(0xB0u, ctl.a2.timer_a.counter[2].control);
   TEST_ASSERT_EQUAL_HEX8(0x00u, ctl.a1.timer_a.counter[2].control);
   /* `+402`'s **high** lane is the command byte and round-trips; its low lane is
-   * status, which finding 48 said it carried and subtest 13 pinned. So the
-   * windows-are-separate claim is about the command lane. */
+   * status, which finding 48 said it carried and subtest 13 pinned. */
   TEST_ASSERT_EQUAL_HEX16(
-      0xB800u, ap_ring_ctl_read16(&ctl, false, AP_RING_CTL_BANK_STATUS + 2u) &
+      0xB800u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 2u) &
                    0xFF00u);
+
+  /* **The first window's `+402` is not a second copy of that register**, and
+   * this assertion used to say it was. `002398-04` p. 12-29 gives `51402` as
+   * `GPS_CLR` on write and "(unused - PROM)" on read -- a write-only clear
+   * behind the node ID PROM -- so a write to it does not come back. The old
+   * form wrote the *first* window here and required the value to round-trip,
+   * which passed only because the model treated the whole bank as storage. */
+  ap_ring_ctl_write16(&ctl, false, AP_RING_CTL_BANK_STATUS + 2u, 0xB800u);
   TEST_ASSERT_EQUAL_HEX16(
-      0x0000u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 2u) &
+      0x0000u, ap_ring_ctl_read16(&ctl, false, AP_RING_CTL_BANK_STATUS + 2u) &
                    0xFF00u);
+}
+
+/* The first window's eight write-only registers, walked against the page that
+ * tabulates them -- `002398-04` p. 12-29 -- rather than against a failure.
+ *
+ * None of this was modelled: `+000` and `+400`-`+406` were inert or generic
+ * storage, and `+006` was actively wrong, setting the RAM pointer on a window
+ * whose `+006` the manual calls `TIMO_ACK`. `RAM_ADDR` is `59006`, in the
+ * *other* window. The AT firmware never writes the first window's `+006`, so no
+ * boot, no self-test and no green suite could have found it; the table walk
+ * did, which is the argument for walking tables.
+ *
+ * The three clear registers are corroborated by the AT firmware itself:
+ * `$944`'s tail (`r3500.lst` `0009BA`-`0009C6`) clears `d3` and writes it to
+ * `$4(a3)`, `$400(a3)`, `$402(a3)`, `$406(a3)` -- RCV_ACK and exactly the three
+ * *clear* registers, skipping `$404`, the bank's one *request* register. */
+static void test_the_first_windows_write_only_registers_clear_what_they_name(
+    void) {
+  ap_ring_ctl_t ctl;
+  ap_ring_ctl_reset(&ctl, true);
+
+  /* Drive every bit these registers own, so a clear that misses one shows. */
+  ctl.a2.status |= (uint16_t)(AP_RING_CTL_STATUS_STICKY_ERRORS |
+                              AP_RING_CTL_STATUS_GPS | AP_RING_CTL_STATUS_TMI);
+
+  ap_ring_ctl_write16(&ctl, false, AP_RING_CTL_W1_GPS_CLR, 0u);
+  TEST_ASSERT_EQUAL_HEX16(0u, ctl.a2.status & AP_RING_CTL_STATUS_GPS);
+  /* And it clears *only* `gps`: the sticky errors are a different register's
+   * business, which is the whole reason the page gives them one each. */
+  TEST_ASSERT_EQUAL_HEX16(AP_RING_CTL_STATUS_STICKY_ERRORS,
+                          ctl.a2.status & AP_RING_CTL_STATUS_STICKY_ERRORS);
+
+  ap_ring_ctl_write16(&ctl, false, AP_RING_CTL_W1_ERR_BITS_CLR, 0u);
+  TEST_ASSERT_EQUAL_HEX16(0u,
+                          ctl.a2.status & AP_RING_CTL_STATUS_STICKY_ERRORS);
+  TEST_ASSERT_EQUAL_HEX16(AP_RING_CTL_STATUS_TMI,
+                          ctl.a2.status & AP_RING_CTL_STATUS_TMI);
+
+  ap_ring_ctl_write16(&ctl, false, AP_RING_CTL_W1_TIMO_ACK, 0u);
+  TEST_ASSERT_EQUAL_HEX16(0u, ctl.a2.status & AP_RING_CTL_STATUS_TMI);
+
+  /* And `TIMO_ACK` is not the RAM pointer. Writing a pointer-shaped value to
+   * the first window's `+006` must not arm the buffer, which is what the bug
+   * this test was written for did. */
+  ap_ring_ctl_write16(&ctl, false, AP_RING_CTL_W1_TIMO_ACK, 0x0040u);
+  TEST_ASSERT_EQUAL_HEX16(0u, ctl.a1.pointer);
+
+  /* The *second* window's `+006` still is the pointer, so the fix is a split
+   * between the windows rather than the loss of a register. */
+  ap_ring_ctl_write16(&ctl, true, 0x006u, 0x0040u);
+  TEST_ASSERT_EQUAL_HEX16(0x0040u, ctl.a2.pointer);
 }
 
 /* `+402` and `+404` are byte-wide command registers whose **bits** have no known
@@ -573,6 +631,7 @@ static void test_the_idle_words_are_the_manuals_bits_and_not_magic(void) {
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_idle_words_are_the_manuals_bits_and_not_magic);
+  RUN_TEST(test_the_first_windows_write_only_registers_clear_what_they_name);
   RUN_TEST(test_the_data_port_round_trips_the_firmwares_own_pattern);
   RUN_TEST(test_a_unit_is_both_of_its_at_windows);
   RUN_TEST(test_the_id_register_answers_one_of_the_two_values_init_accepts);

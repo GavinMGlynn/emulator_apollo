@@ -436,11 +436,46 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
       w->slot_004 = value;
       return;
     default:
+      /* **The first window's `+006` is `TIMO_ACK`, not the RAM pointer.**
+       * `002398-04` p. 12-29 puts `RAM_ADDR` at `59006` -- the *second*
+       * window -- and `TIMO_ACK` at `51006`. This path set `w->pointer` for
+       * both windows, so a write to the first window's `+006` armed a buffer
+       * pointer that has no buffer behind it. Found by walking the page's
+       * register table, not by a failure: the AT firmware never writes it, so
+       * nothing could have caught it. */
+      if (!second_window) {
+        ctl->a2.status &= (uint16_t)~AP_RING_CTL_STATUS_TMI;
+        return;
+      }
       /* Finding 46: the pointer `+406` advances from. Writing it does **not**
        * prefetch -- if it did, the firmware's discarded first read would return
        * word 0 and every word after it would be one place early, which is the
        * off-by-one 46a exists to prevent. */
       w->pointer = value;
+      return;
+    }
+  }
+
+  /* The first window's second bank: four write-only registers, three of which
+   * the AT firmware's `$944` writes in one run (`ap_ring_ctl.h`). They act on
+   * the *second* window's status word, which is where MISC_STAT lives -- the
+   * same split findings 74/74a established for the two acknowledges. */
+  if (!second_window &&
+      (offset & AP_RING_CTL_BANK_MASK) == AP_RING_CTL_BANK_STATUS) {
+    switch (offset & AP_RING_CTL_SLOT_MASK) {
+    case 0u: /* ERR_BITS_CLR */
+      ctl->a2.status &= (uint16_t)~AP_RING_CTL_STATUS_STICKY_ERRORS;
+      return;
+    case 2u: /* GPS_CLR -- the sticky good-packet-seen bit has its own clear */
+      ctl->a2.status &= (uint16_t)~AP_RING_CTL_STATUS_GPS;
+      return;
+    case 4u: /* SOFT_XMIT_REQ: a request, not a clear. Nothing to assert -- the
+              * page names it, no firmware here writes it, and inventing an
+              * effect would be modelling the name rather than the part. */
+      w->command_404 = value;
+      return;
+    default: /* LERR_CLR */
+      w->slot_406 = value;
       return;
     }
   }

@@ -254,6 +254,58 @@
  * because there is no datasheet. */
 #define AP_RING_CTL_BUFFER_WORDS 0x8000u
 
+/* ## The **first** window's write side, from `002398-04` p. 12-29
+ *
+ * The page tabulates every ring register by bus address, physical address,
+ * "When Read" and "When Written", and the first window's two banks are eight
+ * **write-only** registers behind the node ID PROM. Nothing here was modelled:
+ * `+000` and `+400`-`+406` were inert or generic storage, and `+006` was
+ * actively wrong -- it set the RAM pointer, which is a *second*-window
+ * register (`59006`), on a window where the manual puts `TIMO_ACK`.
+ *
+ * The AT board's own firmware corroborates the bank at `+400`. `$944`'s tail
+ * (`r3500.lst` `0009BA`-`0009C6`) clears `d3` and writes it to `$4(a3)`,
+ * `$400(a3)`, `$402(a3)` and `$406(a3)` -- RCV_ACK, then **exactly the three
+ * clear registers**, skipping `$404`, the one *request* register in the bank.
+ * A routine clearing receive state would touch precisely those four and no
+ * others, so this is the DN3000 page and the AT firmware agreeing on the map
+ * rather than the page being carried across on address arithmetic alone.
+ *
+ * `+002` and `+004` are XMIT_ACK and RCV_ACK, which findings 74 and 74a had
+ * already recovered from the firmware alone; the page names them. */
+#define AP_RING_CTL_W1_SOFT_RCV_REQ 0x000u
+#define AP_RING_CTL_W1_XMIT_ACK 0x002u
+#define AP_RING_CTL_W1_RCV_ACK 0x004u
+#define AP_RING_CTL_W1_TIMO_ACK 0x006u
+#define AP_RING_CTL_W1_ERR_BITS_CLR 0x400u
+#define AP_RING_CTL_W1_GPS_CLR 0x402u
+#define AP_RING_CTL_W1_SOFT_XMIT_REQ 0x404u
+#define AP_RING_CTL_W1_LERR_CLR 0x406u
+
+/* The sticky error bits `ERR_BITS_CLR` clears, named by MISC_STAT's own
+ * diagram: `rlk` receive lock error, `esb` sticky elastic-store buffer error,
+ * `bpe` sticky bi-phase error. "Sticky" is the manual's word and a latched
+ * condition needs a clear; this is the register that supplies one, which is
+ * what finding 53b predicted from `RING_$POLL_STICKY_BPHERR`'s name alone. */
+#define AP_RING_CTL_STATUS_STICKY_ERRORS                                       \
+  (AP_RING_CTL_STATUS_RLK | AP_RING_CTL_STATUS_ESB | AP_RING_CTL_STATUS_BPE)
+
+/* ## And the second window's `+002`/`+004`, which were generic storage
+ *
+ * p. 12-29: `59002` is **XMIT_ADDR**, `59004` reads **XMIT_ABORT** and writes
+ * **RCV_ADDR** on the single-board version. These are the buffer descriptors --
+ * where in the 8K-word buffer a message begins -- and they are what finding
+ * 50's loopback turns on: `$944` ends `move.w #$10,$4(a4)`, setting
+ * **RCV_ADDR = $10**, and `$BAC` then reads the received frame back from
+ * buffer word **16**. The firmware's magic `$10` and the manual's register name
+ * explain each other, and neither was used to derive the other.
+ *
+ * p. 12-32 gives their layout, and it is **byte-swapped**: bits 15-8 carry
+ * `a7`-`a0` and bits 7-0 carry `a15`-`a8`. Not applied here, because nothing
+ * yet uses these as addresses -- when the transmit path does, it must swap. */
+#define AP_RING_CTL_W2_XMIT_ADDR 0x002u
+#define AP_RING_CTL_W2_RCV_ADDR 0x004u
+
 /* Finding 39: the only two values init accepts. ASCII `'6'` and `'7'`, which
  * with `[ROM3500]`'s revision string ` 3.6` and `[ROM4500]`'s ` 4.0` looks like
  * a board revision -- but the ROM only ever compares, so that reading is not
