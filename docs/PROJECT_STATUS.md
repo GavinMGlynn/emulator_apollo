@@ -20429,6 +20429,54 @@ reports `disk sidecar ... 464 bytes` beside the disk line. The defect-injection
 behaviour itself is `omti_suite`'s, and was already covered there; what was
 untested and is now wired is the frontend's half.*
 
+## Where the boot's time actually goes, and what it says about exact-skip
+
+The exact-skip item's remaining half is written as "the CPU half -- skipping
+instruction steps across a span with no events". **A profile says that is not
+where the time is**, which is worth knowing before the design is built to it.
+
+`perf record --call-graph=dwarf` over a 20 M-instruction boot of
+`3500_BOOT_12191_7` against the installed disk, release build:
+
+| % | symbol |
+| --- | --- |
+| 10.0 | `ap_machine_run` |
+| 8.6 | `ap_board_sample_interrupts` |
+| 8.5 | `ap_m68030_step` |
+| 6.9 | `fill_to_decoded` |
+| 6.8 | `ap_board_bus_tick` |
+| 5.3 | `ap_board_write` |
+| 5.0 | `ap_sio_advance` |
+| 4.3 | `ap_board_read` |
+| 3.7 | `ap_board_advance` |
+| 3.2 | `ap_board_region` |
+| 3.1 | `ap_m68030_arb_tick` |
+
+**The device work done per instruction is about 27%** --
+`sample_interrupts` + `bus_tick` + `sio_advance` + `board_advance` +
+`arb_tick` -- and the single largest item, at 8.6%, is
+`ap_board_sample_interrupts`, which runs **once per instruction
+unconditionally** whether or not anything could have changed. The instruction
+machinery itself (`step`, `fill_to_decoded`, `decode`, `execute_*`) is a smaller
+share than the devices around it.
+
+So the next increment is the same shape as the two already done -- the 8259's
+early return and the DMA poll's flag -- rather than a span-skipping redesign:
+**avoid per-instruction polling that provably cannot see a change**.
+
+**And it is harder than the DMA case, which is why it is written down rather
+than attempted in passing.** The DMA poll could be armed at "an auditable set of
+sites" because only a write can make a device want the bus. An interrupt line
+also changes when a device *advances* -- a timer reaching terminal count -- and
+advancement happens on every bus tick, so the naive flag is armed continuously
+and buys nothing. Making it work needs each device to say when its line could
+next change, which is `next_event()` from the item's own title, applied to
+interrupt sources rather than to instruction spans.
+
+*Measured on a bounded boot rather than the full 350 M reference, which is
+enough to rank the costs and not enough to state absolute times. No code
+changed.*
+
 ## The DN2500's documentary route is closed, and the scope is worth stating
 
 **The web was searched properly, not assumed.** No register-level document for

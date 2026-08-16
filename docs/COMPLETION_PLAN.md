@@ -4434,8 +4434,15 @@ Only after the reference core is proven, and only under an identity harness.
       half and devices half of the tick split so a span-breaking I/O write still
       runs its devices half canonically. *Verification: entire probe suite and
       long boot hashes byte-identical to the reference core.*
-      **Awaiting:** the CPU half — skipping instruction steps across a span
-      with no events, which is what `skip(n)` names. The devices half is done.
+      **Awaiting, and a profile has redirected it.** The remaining cost is not
+      instruction stepping: `perf` over a bounded boot puts ~27% in
+      per-instruction device work, the largest single item being
+      `ap_board_sample_interrupts` at 8.6% run unconditionally every
+      instruction, against a smaller share for the whole instruction pipeline.
+      So the next increment is the shape of the two already done — avoid polling
+      that provably cannot see a change — and it needs `next_event()` applied to
+      *interrupt sources*, because a line changes on device advancement and not
+      only on writes. Detail in `PROJECT_STATUS.md`.
   - [x] **The 8259's priority resolver returns early when nothing is asking** —
     one line, provably equivalent, no new state to invalidate.
     *Verification: 281 s → 273 s and 275 s, state hash `67A14B3BB6041410`,
