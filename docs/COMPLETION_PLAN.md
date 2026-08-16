@@ -4442,9 +4442,20 @@ Only after the reference core is proven, and only under an identity harness.
       at `More than 14 days have elapsed since the last shutdown. Switch to
       service mode, press reset and run CALENDAR.` -- a documented Domain/OS
       state, not a fault: the volume's last-shutdown stamp is older than the
-      emulated clock. Next is CALENDAR (or a clock seeded near that stamp),
-      then MINST from the four software cartridges, then the state hash the
-      item asks for.
+      emulated clock.
+      **CALENDAR then ran** — `FINDINGS.md` C52 records its dialogue too, so it
+      was scripted rather than explored: `ex calendar`, `w`, `n`, `n`. It
+      reported `The calendar date/time is 2002/12/23 09:51:30 UTC`, and
+      `ex domain_os` after it **faulted at `10200E6`**.
+      **That 2002 is the whole problem, and it is C53's.** The base volume
+      `dn3500-invol-done.awd` was built in **2026**, so the calendar is
+      twenty-four years *behind* the volume, which is precisely the condition
+      C53 names: the kernel stops on a clock that runs backwards between
+      sessions. The next move is therefore **not** `n` to "Would you like to
+      reset it?" but `y`, with a date in the volume's own era — the same rule
+      this project already records for booting the SR10.4 image
+      (`--clock 2026-…`, never 1996). Then MINST from the four software
+      cartridges, then the state hash the item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
       console selection is an autobaud (`000844`-`0008B8`) that the scripted
