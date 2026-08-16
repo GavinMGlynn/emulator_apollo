@@ -4532,7 +4532,17 @@ Only after the reference core is proven, and only under an identity harness.
       next command — which is what `mdsession.py --knock-char` exists for. So
       the next attempt is `re`, knock, `re`, knock, `di c`, `ex domain_os`, and
       it must be reconciled with the standing "no `re` between stages" rule,
-      which was written about the *RTC year shift* and not about this. Then MINST from the four software cartridges,
+      which was written about the *RTC year shift* and not about this.
+      **Tried with `!cr` as the knock and it is not one** — the session still
+      stops after the first `re`. C50 named this gap and it was never closed:
+      *"The running session had no knock directive, so the knock was improvised
+      out of the one thing its command file could send."* `--knock-char` is a
+      **session-level** option applied once at startup; there is no way to knock
+      *between* commands. **That is the concrete blocker and it is a harness
+      feature, not a machine question**: `mdsession.py`'s command file needs a
+      `!knock` directive that re-runs the startup autobaud knock. Everything
+      downstream — `di c`, `ex domain_os`, MINST, the state hash — is waiting on
+      that one directive. Then MINST from the four software cartridges,
       then the state hash the item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
