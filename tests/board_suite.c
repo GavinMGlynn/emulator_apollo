@@ -1548,6 +1548,88 @@ static void test_the_board_bound_is_no_later_than_any_source(void) {
                    ap_omti_interrupt_next_change(&b.disk.controller));
 }
 
+
+/* **Two machines' ring cards on one segment see each other.**
+ *
+ * This is the whole point of the wire, at the level a user meets it: two
+ * `ap_board_t`s -- two machines -- plugged into one shared medium, one
+ * transmitting through its register interface and the other receiving into its
+ * buffer. Until `RING.md` 104/105 there was no path from a board's registers to
+ * the cable at all.
+ *
+ * The medium is a local here rather than a board member on purpose: it is the
+ * cable, and a board that owned one would make every ring single-node by
+ * construction. */
+static void test_two_boards_on_one_ring_segment_exchange_a_frame(void) {
+  static ap_ring_medium_t segment;
+  static ap_board_t a;
+  static ap_board_t b;
+  static uint8_t txbuf[2048];
+
+  ap_ring_medium_init(&segment);
+  init(&a);
+  init(&b);
+  ap_board_attach_ring(&a, true);
+  ap_board_attach_ring(&b, true);
+  /* Distinct nodes, or "addressed to me" means nothing. */
+  ap_ring_ctl_set_node_id(&a.ring, 0x00011111u);
+  ap_ring_ctl_set_node_id(&b.ring, 0x00022222u);
+  ap_board_join_ring(&a, &segment);
+  ap_board_join_ring(&b, &segment);
+  TEST_ASSERT_EQUAL_PTR(&segment, a.ring.medium);
+  TEST_ASSERT_EQUAL_PTR(&segment, b.ring.medium);
+  /* Each card's station carries its own board's node. */
+  TEST_ASSERT_EQUAL_HEX32(0x00011111u, a.ring_station.address);
+  TEST_ASSERT_EQUAL_HEX32(0x00022222u, b.ring_station.address);
+
+  ap_ring_station_attach_tx(&a.ring_station, txbuf, sizeof txbuf);
+
+  /* A's buffer holds a header addressed to B, at word 0x40. */
+  uint8_t header[AP_RING_CTL_XMIT_HEADER_BYTES] = {0};
+  ap_ring_header_set_destination(header, 0x00022222u);
+  ap_ring_header_set_type(header, AP_RING_TYPE_USER);
+  ap_ring_header_set_source(header, 0x00011111u);
+  for (unsigned i = 0; i < AP_RING_CTL_XMIT_HEADER_WORDS; i++) {
+    a.ring.buffer[0x40u + i] =
+        (uint16_t)((header[i * 2u] << 8) | header[i * 2u + 1u]);
+  }
+
+  /* Driven entirely through the register interface, as a driver would: both
+   * connect, B enables receive and points RCV_ADDR at word 0x10, A points
+   * XMIT_ADDR at word 0x40 and issues the transmit command. Every address is
+   * byte-swapped, per p. 12-32. */
+  ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_W2_RCV_ADDR, 0x1000u);
+  ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_BANK_STATUS + 4u,
+                      AP_RING_CTL_RCV_CMD_RCV);
+  ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_W2_XMIT_ADDR, 0x4000u);
+  ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_BANK_STATUS + 2u, 0x0200u);
+
+  ap_ring_station_originate_token(&b.ring_station, AP_RING_OOB_FREE_TOKEN);
+  for (unsigned i = 0; i < 4000u; i++) {
+    ap_ring_station_drive(&a.ring_station, &segment);
+    ap_ring_station_drive(&b.ring_station, &segment);
+    ap_ring_medium_advance(&segment);
+    ap_ring_station_receive(&a.ring_station, &segment);
+    ap_ring_station_receive(&b.ring_station, &segment);
+    ap_ring_ctl_clock(&a.ring, true);
+    ap_ring_ctl_clock(&b.ring, true);
+  }
+
+  /* B received it, into its own buffer, at the address it asked for. */
+  TEST_ASSERT_TRUE(b.ring_station.frames_copied > 0u);
+  TEST_ASSERT_EQUAL_HEX16(0x0002u, b.ring.buffer[0x10u]);
+  TEST_ASSERT_EQUAL_HEX16(0x2222u, b.ring.buffer[0x11u]);
+  /* And B's receive interrupt is pending -- active low, so clear. */
+  TEST_ASSERT_EQUAL_HEX16(0u, b.ring.a2.status & AP_RING_CTL_STATUS_RI);
+  /* A is not its own addressee, so A copied nothing. A model that reported
+   * every passing frame as received would pass every assertion above. */
+  TEST_ASSERT_EQUAL_UINT64(0u, a.ring_station.frames_copied);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_ethernet_card_is_absent_until_it_is_fitted);
@@ -1601,5 +1683,6 @@ int main(void) {
   RUN_TEST(test_a_sources_interrupt_bound_is_never_later_than_its_change);
   RUN_TEST(test_the_serial_bound_counts_down_to_terminal_count);
   RUN_TEST(test_the_board_bound_is_no_later_than_any_source);
+  RUN_TEST(test_two_boards_on_one_ring_segment_exchange_a_frame);
   return UNITY_END();
 }

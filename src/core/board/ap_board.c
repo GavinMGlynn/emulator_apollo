@@ -510,6 +510,28 @@ void ap_board_attach_ring(ap_board_t *board, bool fitted) {
   ap_ring_ctl_set_node_id(&board->ring, board->node_id.id);
 }
 
+void ap_board_join_ring(ap_board_t *board, ap_ring_medium_t *medium) {
+  if (board == NULL) {
+    return;
+  }
+  if (medium == NULL) {
+    ap_ring_ctl_attach_ring(&board->ring, NULL, NULL);
+    return;
+  }
+  const int slot = ap_ring_medium_attach(medium);
+  if (slot < 0) {
+    /* The segment is full. Refused rather than silently landing on slot -1,
+     * which would index the medium's node array out of bounds the first time
+     * `MISC_CMD` operated the bypass relay. */
+    return;
+  }
+  ap_ring_station_init(&board->ring_station, slot);
+  /* Attach *after* the reset in `ap_board_attach_ring`, never before: that
+   * reset is also the controller's initialiser and clears the attachment
+   * (`RING.md` 104d). */
+  ap_ring_ctl_attach_ring(&board->ring, &board->ring_station, medium);
+}
+
 void ap_board_attach_matrox(ap_board_t *board, bool fitted) {
   board->matrox_present = fitted;
   ap_matrox_reset(&board->matrox);

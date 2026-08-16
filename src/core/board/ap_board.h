@@ -235,6 +235,11 @@ typedef struct ap_board {
    * default has to be the empty slot -- and the empty slot is what the boot
    * measures today. */
   ap_ring_ctl_t ring;
+  /* The ring card's station -- the part that sits on the cable. The *cable*
+   * itself is not here: a medium is shared between nodes, so a board that
+   * owned one would make every ring single-node by construction.
+   * `ap_board_join_ring` lends this board a segment. */
+  ap_ring_station_t ring_station;
 
   ap_time_t interrupt_valid_until;
 
@@ -606,6 +611,21 @@ typedef struct ap_board {
  * the firmware's probe, and a card that answered unbidden would take a machine
  * with no ring hardware down a path it never runs. */
 void ap_board_attach_ring(ap_board_t *board, bool fitted);
+
+/* Join this board's ring card to a **shared** medium, which is what makes two
+ * nodes able to see each other.
+ *
+ * The medium is borrowed and lives above the board deliberately: it is the
+ * *cable*, shared between every node on the ring, so a machine cannot own one
+ * without every ring becoming single-node by construction. The board owns its
+ * station -- that is the card -- and takes a pointer to the segment it is
+ * plugged into. `NULL` unplugs it.
+ *
+ * Fitting a ring card does not join it: `ap_board_attach_ring` gives a machine
+ * a card in a slot, and this gives the card a cable. A card with no cable
+ * behaves exactly as it did before the wire existed, which is what keeps every
+ * existing boot and the reference hash unchanged. */
+void ap_board_join_ring(ap_board_t *board, ap_ring_medium_t *medium);
 
 /* Fit or remove the DN4500's Matrox graphics board. Opt-in: an unfitted slot
  * reads `FF` from the AT window, which is what a machine without the card
