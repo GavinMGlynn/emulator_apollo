@@ -4584,8 +4584,21 @@ Only after the reference core is proven, and only under an identity harness.
       PROM does use paths elsewhere (`/SAU7/SELF_TEST`), so whether `ex` looks
       for `sysboot` at the tape's root or under a SAU directory is the one piece
       of the search not yet pinned; both cartridges hold theirs at the root.
-      That is where this goes next, and `FINDINGS.md` C56's note that MAME's
-      SC-499 models no media change is the first thing to re-read. Then MINST from the four software cartridges,
+      **C56 supplies the mechanism.** `sc499_device::check_tape()` —
+      which resets tape status, sets Beginning-of-Media and recomputes
+      `m_image_length`/`m_ctape_block_count` — is called from `read_block`/
+      `write_block` **only when `m_tape_pos == 0`**. So a tape left at a
+      non-zero position is never re-learned, and a search for `sysboot` on it
+      finds nothing. C56 also states why `ex` normally works: it *"starts
+      reading at block 0, so `check_tape()` runs on the first read"*.
+      **So the question is what leaves `m_tape_pos` non-zero before `ex
+      domain_os`** — `di c` itself is the obvious candidate, since it is the
+      one command that runs between power-on and the load. Two things to check
+      before any further run, both static: whether `ext/mame`'s existing
+      `sc499` edit (C56's own remedy, in `call_load()`) is actually compiled
+      into the binary built this session, and whether `di c` issues a tape read.
+      `ext/mame` shows `sc499.cpp`/`.h` modified, but this session's build was
+      incremental and only recompiled `drivlist.cpp`. Then MINST from the four software cartridges,
       then the state hash the item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
