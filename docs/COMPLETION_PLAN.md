@@ -4558,9 +4558,18 @@ Only after the reference core is proven, and only under an identity harness.
       is a file *on the volume* — the standing reading is that `ex domain_os`
       wants a volume that already has an OS, which `invol-done` by definition
       does not, and that the one successful load had something no reconstruction
-      here has reproduced. **Do not spend more runs on elimination.** Give
-      `di c` an observable first; without one, every run in this list was
-      indistinguishable from every other. Then MINST from the four software cartridges,
+      here has reproduced. **The observable now exists, and it clears `di c`.**
+      Bare `di` — no argument — prints **`E`**, MD's error marker. So MD prints
+      `E` on a rejected command and **nothing at all on an accepted one**, which
+      means `di c`'s silence was *success* every time and the cartridge has been
+      selected in every run. `di c` is therefore not the fault and never was.
+      That moves the question to `ex domain_os` itself: with the cartridge
+      selected, it still reports `sysboot not found`. Given `RING.md` 85a/85d
+      puts `sysboot` on a *volume*, the live candidates are that the SR10.3
+      boot cartridge does not carry `sysboot` where `ex` looks, or that the tape
+      needs rewinding to BOT before the search. Both are checkable against
+      `ct_extract.py`'s listing of that cartridge — **no emulator run needed**,
+      which is where this should go next. Then MINST from the four software cartridges,
       then the state hash the item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
