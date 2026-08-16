@@ -4458,8 +4458,15 @@ Only after the reference core is proven, and only under an identity harness.
       `25 Years Ago` config off, which is what puts the guest in `2002` on a
       2026 host. That config is set deliberately (`FINDINGS.md` C47) and a note
       elsewhere called it a no-op in 2026; the measured `2002/12/23` shows it is
-      not. Then MINST from the four software cartridges, then the state hash the
-      item asks for.
+      not. **Both measured.** Turning `25 Years Ago` off does clear the
+      calendar gate — the "14 days" message is gone and the kernel loads — but
+      it then reaches `Crash_Status 00010005  PC 3C450042 pid 0001`. So the era
+      mismatch was real and is fixed, and a *second*, separate failure is behind
+      it. (The oracle edit was reverted; making it selectable is a
+      `mdsession.py` flag, not a permanent config change, since C47 sets that
+      config for the install procedure.) Next is that crash status, then MINST
+      from the four software cartridges, then the state hash the item asks
+      for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
       console selection is an autobaud (`000844`-`0008B8`) that the scripted
