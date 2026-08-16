@@ -819,9 +819,66 @@ static void test_the_command_registers_drive_the_relay_and_the_receiver(void) {
   TEST_ASSERT_NULL(w.ctl.medium);
 }
 
+/* **The other half of the wire: a frame from another node lands in the buffer
+ * at `RCV_ADDR`, and `ri` goes pending.**
+ *
+ * Where and how much are the firmware's own answers, not a choice. `$944` sets
+ * `RCV_ADDR = $10` (finding 98d) and finding 50's loopback then does
+ * `+006 = $10` and reads **four words** back through `+406`, reassembling a
+ * long to compare against what it sent. Eight bytes at that address is exactly
+ * what the board's diagnostic expects to find. */
+static void test_a_received_frame_lands_at_rcv_addr_and_raises_ri(void) {
+  static wired_t w;
+  static uint8_t txbuf[2048];
+  wired_build(&w);
+  /* Station 1 sends; the controller's node is the destination. */
+  ap_ring_station_attach_tx(&w.station[1], txbuf, sizeof txbuf);
+  uint8_t header[12] = {0};
+  ap_ring_header_set_destination(header, 0x00012345u);
+  ap_ring_header_set_type(header, AP_RING_TYPE_USER);
+  ap_ring_header_set_source(header, 0x00ABCDEFu);
+  const ap_ring_frame_fields_t fields = {.header = header,
+                                         .header_bytes = sizeof header,
+                                         .data = NULL,
+                                         .data_bytes = 0u,
+                                         .late_acknowledge = 0u};
+  TEST_ASSERT_TRUE(ap_ring_station_queue_frame(&w.station[1], &fields));
+
+  /* `RCV_ADDR = $10`, byte-swapped in the register as `$1000`. */
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_W2_RCV_ADDR, 0x1000u);
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 4u,
+                      AP_RING_CTL_RCV_CMD_RCV);
+
+  /* `ri` is active low -- "RCV intr pending <=0" -- so it starts set. */
+  TEST_ASSERT_TRUE((w.ctl.a2.status & AP_RING_CTL_STATUS_RI) != 0u);
+
+  ap_ring_station_originate_token(&w.station[0], AP_RING_OOB_FREE_TOKEN);
+  for (unsigned i = 0; i < 4000u; i++) {
+    wired_step(&w);
+    ap_ring_ctl_poll_ring(&w.ctl);
+  }
+
+  TEST_ASSERT_TRUE(w.station[0].frames_copied > 0u);
+  /* The destination the sender addressed is what the buffer now holds, at
+   * word `$10` and not word `$1000` -- the byte swap again. */
+  TEST_ASSERT_EQUAL_HEX16(0x0001u, w.ctl.buffer[0x10u]);
+  TEST_ASSERT_EQUAL_HEX16(0x2345u, w.ctl.buffer[0x11u]);
+  TEST_ASSERT_EQUAL_HEX16(0u, w.ctl.buffer[0x1000u]);
+  /* And the interrupt is pending, which for an active-low bit is *clear*. */
+  TEST_ASSERT_EQUAL_HEX16(0u, w.ctl.a2.status & AP_RING_CTL_STATUS_RI);
+
+  /* `RCV_ACK` at the first window's `+4` puts it back -- finding 74a's half of
+   * the pair, which until now acknowledged an interrupt nothing ever raised. */
+  ap_ring_ctl_write16(&w.ctl, false, AP_RING_CTL_W1_RCV_ACK, 0u);
+  TEST_ASSERT_TRUE((w.ctl.a2.status & AP_RING_CTL_STATUS_RI) != 0u);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_transmit_command_puts_the_buffers_frame_on_the_ring);
+  RUN_TEST(test_a_received_frame_lands_at_rcv_addr_and_raises_ri);
   RUN_TEST(test_only_the_transmit_command_values_queue_a_frame);
   RUN_TEST(test_the_command_registers_drive_the_relay_and_the_receiver);
   RUN_TEST(test_the_idle_words_are_the_manuals_bits_and_not_magic);

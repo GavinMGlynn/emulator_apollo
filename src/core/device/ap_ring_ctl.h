@@ -458,12 +458,25 @@ typedef struct {
    * which is what keeps the boot hash and the firmware self-test unchanged. */
   ap_ring_station_t *station;
   ap_ring_medium_t *medium;
+  /* The station's copied-frame count as of the last deposit, so a frame lands
+   * in the buffer once however often the ring is polled. */
+  uint64_t rx_copied_seen;
 } ap_ring_ctl_t;
 
 /* Join a controller to a station on a medium. Both pointers are borrowed and
  * `src/core` allocates nothing, as everywhere else. */
 void ap_ring_ctl_attach_ring(ap_ring_ctl_t *ctl, ap_ring_station_t *station,
                              ap_ring_medium_t *medium);
+
+/* Take whatever the station has accepted since the last call: deposit it in the
+ * buffer at `RCV_ADDR` and assert `ri`. Called from `ap_ring_ctl_clock`, and
+ * separately callable so a test can drive the receive path without a tick. */
+void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl);
+
+/* Take whatever the station has accepted since the last call: deposit it in the
+ * buffer at `RCV_ADDR` and assert `ri`. Called from `ap_ring_ctl_clock`, and
+ * separately callable so a test can drive the receive path without a tick. */
+void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl);
 
 /* Power-on. `present` chooses whether the unit answers as a fitted board. */
 void ap_ring_ctl_reset(ap_ring_ctl_t *ctl, bool present);

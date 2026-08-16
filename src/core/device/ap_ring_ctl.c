@@ -46,6 +46,51 @@ static bool ring_ctl_queue_from_buffer(ap_ring_ctl_t *ctl) {
   return ap_ring_station_queue_frame(ctl->station, &fields);
 }
 
+void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl) {
+  if (ctl == NULL || ctl->station == NULL) {
+    return;
+  }
+  /* One deposit per frame the station *copied*, which is its own count of
+   * §2.2.2.2 acceptances -- addressed to this node, or broadcast, with the
+   * receiver enabled. Edge-triggered on that counter rather than on a level,
+   * so a frame is deposited once however often this is polled. */
+  if (ctl->station->frames_copied == ctl->rx_copied_seen) {
+    return;
+  }
+  ctl->rx_copied_seen = ctl->station->frames_copied;
+
+  /* **Where it lands is `RCV_ADDR`, and how much is the firmware's own
+   * answer.** `002398-04` p. 12-29 gives `59004` as `RCV_ADDR` on write, and
+   * `$944` sets it to `$10` (finding 98d). Finding 50's loopback then does
+   * `+006 = $10` and reads **four words** back through `+406`, reassembles a
+   * long and compares it against what it transmitted -- so eight bytes at that
+   * address is exactly what the board's own diagnostic expects to find, and it
+   * is exactly what §2.2.2.2 makes the station capture (`rx_header[8]`,
+   * through the early acknowledge at `+7`).
+   *
+   * A frame longer than its first eight bytes is **not** deposited, because
+   * the station does not capture one: §2.2.2.2's receive *decision* needs six
+   * bytes and the station stops there rather than parsing a frame it is only
+   * forwarding (finding 87a). Capturing a whole frame is a station change, and
+   * a named gap -- `RING.md` 105b. */
+  const uint16_t base = ring_ctl_addr(ctl->a2.slot_004);
+  const unsigned words = sizeof ctl->station->rx_header / 2u;
+  if ((size_t)base + words > AP_RING_CTL_BUFFER_WORDS) {
+    return;
+  }
+  for (unsigned i = 0; i < words; i++) {
+    ctl->buffer[base + i] =
+        (uint16_t)((ctl->station->rx_header[i * 2u] << 8) |
+                   ctl->station->rx_header[i * 2u + 1u]);
+  }
+  /* `ri` is MISC_STAT bit 1, "RCV intr pending **<=0**" (p. 12-30) -- active
+   * low, so a pending interrupt *clears* it. Finding 74a already had the other
+   * half: writing `RCV_ACK` at the first window's `+4` sets it again. The two
+   * directions now belong to the two events rather than one of them being a
+   * bare acknowledge with nothing to acknowledge. */
+  ctl->a2.status &= (uint16_t)~AP_RING_CTL_STATUS_RI;
+}
+
 void ap_ring_ctl_attach_ring(ap_ring_ctl_t *ctl, ap_ring_station_t *station,
                              ap_ring_medium_t *medium) {
   if (ctl == NULL) {
@@ -711,4 +756,7 @@ void ap_ring_ctl_clock(ap_ring_ctl_t *ctl, bool second_window) {
   ap_ring_ctl_window_t *w = window_of(ctl, second_window);
   ap_i8254_clock(&w->timer_a);
   ap_i8254_clock(&w->timer_b);
+  if (second_window) {
+    ap_ring_ctl_poll_ring(ctl);
+  }
 }
