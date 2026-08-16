@@ -85,3 +85,42 @@ Named so that the gap is visible rather than implied.
 Take a row marked `expected`, run it, and either move it to `observed` with its
 evidence or record why it could not run. A row that moves takes its detail to
 `PROJECT_STATUS.md` and leaves a pointer here — the same rule the plan follows.
+
+## The distribution media exists, and it is in the format this core reads
+
+`bitsavers.org/bits/Apollo/` -- the *bits* tree, not the PDF one -- carries
+Apollo cartridge tape images, and `Apollo_JRJ/readme-jrj.txt` gives the format:
+**cptape, 512-byte blocks**, verified by Jay Jaeger against multiple drives.
+That is `ap_ct`'s format exactly, which `ap_ct_open` states as "a whole number
+of 512-byte blocks" (finding C24).
+
+| Where | What | For |
+| --- | --- | --- |
+| `Apollo_JRJ/SR10.4/` | five `.ct.gz`: `CRTG_STD_SFW_BOOT_1` plus `STD_SFW_1`-`4`, 13-17 MB each | the install set for the release this project already runs |
+| `Apollo_JRJ/SR10.3/`, `SR10.2/`, `SR10.4.1/` | the same shape | **releases this project does not hold** |
+| `SR10.3/Apollo_DOMAINOS_SR10.3.5.tgz` | 67 MB archive | a second route to SR10.3 |
+| `Apollo_JRJ/A_ADD_ETH/` | `009886.CRTG_A_ADD_ETH-A_ADD_ETH_V2.0-Aegis9.5-REV.01.ct.gz`, 243 KB | the Ethernet product cartridge |
+| `Apollo_JRJ/` others | `NFS`, `MOTIF`, `HPVUE`, `DSEE`, `CC`, `FTN`, dated `M68K_*` builds | content for Phase 9 |
+
+**Verified on a real one rather than assumed.** The Ethernet cartridge
+decompresses to 805,888 bytes -- 1574 blocks exactly -- and reads end to end
+through this core's own reader:
+
+```
+cartridge .../eth.ct
+  bytes        805888
+  blocks       1574
+  blocks read  1574 (all)
+  boot record  none -- a data cartridge
+```
+
+So the media path built this month is not speculative: it accepts a genuine
+Apollo distribution tape, and correctly calls this one a data cartridge rather
+than a bootable set.
+
+**And it may short-circuit the AEGIS walk.** `RING.md` 85-85d is extracting
+`ring8a.drvr` from the installed volume's hashed VTOC, which is four layers deep
+and one field short. The distribution tapes carry the same driver in a
+*sequential* archive, which is a different and probably smaller problem -- worth
+trying before the last VTOCE offset is chased.
+
