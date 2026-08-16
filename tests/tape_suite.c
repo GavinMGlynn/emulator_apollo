@@ -393,6 +393,65 @@ static void test_an_exception_survives_until_its_figure_completes(void) {
   TEST_ASSERT_TRUE(ready_asserted(&t));
 }
 
+/* **A written block reaches the cartridge**, which nothing carried it to.
+ *
+ * §1.13.1's WRITE entry is the mirror of its READ entry -- the host streams
+ * bytes and the device takes them a *block* at a time -- and the read direction
+ * has had `ensure_block` since Phase 4. The write direction had no counterpart:
+ * `09 WRITE` armed the drive, the bytes went into the SC499's data register,
+ * and `ap_qic_write_block` was reached by nothing at all, so a host could write
+ * a whole cartridge and none of it would arrive.
+ *
+ * Written against the image the drive is holding, so it fails if the block is
+ * assembled but never handed over, and fails differently if it is handed over
+ * misaligned. */
+static void test_a_written_block_reaches_the_cartridge(void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_SELECT);
+  issue(&t, AP_QIC_CMD_WRITE);
+
+  /* Control bit 6 is "Request to LSI chip": a data write with it set is a
+   * *command*, so a driver clears it before it streams. That is the protocol
+   * and not a detail of this test -- leaving it set feeds the opcode path.
+   *
+   * A block of a pattern that is nowhere in `arm`'s fill, so a block that was
+   * never written cannot pass by coincidence. */
+  ap_tape_write(&t, AP_TAPE_ADDR + 1u, 0u);
+  for (unsigned i = 0; i < AP_CT_BLOCK_SIZE; i++) {
+    ap_tape_write(&t, AP_TAPE_ADDR + 0u, (uint8_t)(0xA5u ^ (i & 0xFFu)));
+  }
+
+  /* The whole block is in the cartridge, at block 0, byte for byte. */
+  for (unsigned i = 0; i < AP_CT_BLOCK_SIZE; i++) {
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)(0xA5u ^ (i & 0xFFu)), cartridge[i]);
+  }
+
+  /* And the boundary was marked, exactly as a read block marks it: READY drops
+   * when the device takes a block and returns a figure later. */
+  TEST_ASSERT_FALSE(ready_asserted(&t));
+  clock_now += ap_sc499_handshake_duration(AP_SC499_ENTRY_READY);
+  ap_tape_advance(&t, clock_now);
+  TEST_ASSERT_TRUE(ready_asserted(&t));
+}
+
+/* A partial block is not written: a `.ct` is a whole number of 512-byte blocks,
+ * so there is nowhere to put one, and padding it would put bytes on the tape
+ * the host never sent. */
+static void test_a_partial_block_is_not_written(void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_SELECT);
+  issue(&t, AP_QIC_CMD_WRITE);
+
+  ap_tape_write(&t, AP_TAPE_ADDR + 1u, 0u); /* out of command mode, as above */
+  for (unsigned i = 0; i < AP_CT_BLOCK_SIZE - 1u; i++) {
+    ap_tape_write(&t, AP_TAPE_ADDR + 0u, 0x5Au);
+  }
+  /* `arm` filled the image with `0x40 + (i & 0x3F)`, so byte 0 is `0x40`. */
+  TEST_ASSERT_EQUAL_HEX8(0x40u, cartridge[0]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_reading_the_tape_makes_the_device_hold_the_bus);
@@ -412,5 +471,7 @@ int main(void) {
   RUN_TEST(test_the_registers_alias_on_an_eight_byte_period);
   RUN_TEST(test_nothing_outside_the_range_decodes);
   RUN_TEST(test_the_tape_raises_its_documented_interrupt);
+  RUN_TEST(test_a_written_block_reaches_the_cartridge);
+  RUN_TEST(test_a_partial_block_is_not_written);
   return UNITY_END();
 }

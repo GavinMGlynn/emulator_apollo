@@ -113,6 +113,42 @@ uint8_t ap_tape_read(ap_tape_t *tape, uint32_t address) {
   return ap_sc499_read(&tape->controller, reg);
 }
 
+/* The mirror of `ensure_block`. The controller hands over bytes and the drive
+ * takes blocks, so the boundary has to live on this side in both directions:
+ * bytes accumulate until there are `AP_CT_BLOCK_SIZE` of them and the block
+ * then goes to the cartridge.
+ *
+ * §1.13.1's WRITE entry gives the same granularity its READ entry does -- "The
+ * READY line is activated when the device is ready for a data block transfer"
+ * -- so the boundary is marked here exactly as the read path marks it, and a
+ * driver waiting on the edge between blocks sees one.
+ *
+ * `block` and `offset` are shared with the read direction, which is safe
+ * because the drive is reading or writing and never both: `ap_qic_command`
+ * clears one when it arms the other, and a new command resets them anyway.
+ *
+ * A short final block is **not** written. A `.ct` is a whole number of 512-byte
+ * blocks (`ap_ct_open`, finding C24), so there is nowhere to put a partial one,
+ * and inventing padding would put bytes on the tape the host never sent. */
+static void accept_byte(ap_tape_t *tape, uint8_t value) {
+  if (!tape->block_valid) {
+    tape->offset = 0u;
+    tape->block_valid = true;
+  }
+  tape->block[tape->offset++] = value;
+  if (tape->offset < AP_CT_BLOCK_SIZE) {
+    return;
+  }
+  if (!ap_qic_write_block(&tape->drive, tape->block)) {
+    /* A read-only cartridge, or the end of the tape. Either is a condition the
+     * status register is the only channel for, exactly as a spent read is. */
+    ap_sc499_set_exception(&tape->controller, true);
+  }
+  tape->offset = 0u;
+  tape->block_valid = false;
+  ap_sc499_block_boundary(&tape->controller);
+}
+
 void ap_tape_write(ap_tape_t *tape, uint32_t address, uint8_t value) {
   unsigned reg;
   if (!ap_tape_decode(address, &reg)) {
@@ -134,6 +170,15 @@ void ap_tape_write(ap_tape_t *tape, uint32_t address, uint8_t value) {
       tape->block_valid = false;
       tape->offset = 0u;
     }
+    return;
+  }
+  /* Data with a WRITE armed is tape data, and the *tape* takes it -- the mirror
+   * of the read at `AP_SC499_DATA`, which the controller does not see either.
+   * Without this the drive was armed by `09 WRITE`, the bytes went into the
+   * controller's data register, and `ap_qic_write_block` was reached by nothing:
+   * a host could write a whole cartridge and none of it arrived. */
+  if (reg == AP_SC499_DATA && tape->drive.writing) {
+    accept_byte(tape, value);
     return;
   }
   ap_sc499_write(&tape->controller, reg, value);
