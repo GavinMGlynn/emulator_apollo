@@ -77,15 +77,24 @@ Named so that the gap is visible rather than implied.
   been read out of the boot cartridge with `tools/ct_extract.py`. What is *not*
   held for it is an installed volume: booting a release means installing it
   first, and the SR10.4 install ran under the oracle over a session.
-  **Booting a release directly from its boot cartridge does not work yet**, and
-  the blocker is named: the PROM never probes `050000`, so it loads `SELF_TEST`
-  from a device that is not there and hangs at `00002BE0`. The DEV BIT ARRAY is
-  **not** what gates that -- setting bit 1 `ctape` changes nothing (measured).
-  The boot PROM *does* carry the strings `Cartridge Tape  ` and
-  `Ctape ERROR, SENSE BYTES = `, and the install dialogue selects the device
-  with **`di c` at MD's `>` prompt** -- which this core has not yet reached on
-  the serial console. Reaching MD is the next step, and the machinery exists:
-  `--boot-type`/`--boot-type-after-pc`/`--boot-type-then`.
+  **Booting a release directly from its boot cartridge does not work yet, and
+  the blocker is now located to the instruction.**
+  `00002BE0` is **not** a hang: `subq.l #$1,d2 / bgt` is the disk controller's
+  reset-settle delay, `$A00000` iterations armed at `0002BDA` with
+  `a0 = 0004D000`. Given 500 M instructions instead of 150 M it completes, the
+  PROM prints `Disk 04 03FEFF 00 W` and `Could not load /SAU7/SELF_TEST.`, and
+  falls through to the **console-selection poll at `00078E`** -- which is where
+  it now sits, at `0007A2`/`0007A8`.
+  That poll offers three consoles, each a status bit 0 and each posting its own
+  code: `$2(a0)` the keyboard (`00080E`, posts `09`), `$12(a0)` **serial 1
+  channel B** (`0007E6`, posts `0A`, then `adda.l #$10,a0`), and `$102(a0)`
+  serial 2 (`0007B0`, posts `0B`, then `adda.l #$100,a0`). None is ever
+  satisfied -- no `09`/`0A`/`0B` appears in the posted codes -- so MD's banner
+  never prints and `di c` cannot be issued. **Getting one character into that
+  poll is the whole of the remaining blocker.**
+  The DEV BIT ARRAY is **not** what gates the tape: setting bit 1 `ctape`
+  changes nothing, measured. The PROM does carry `Cartridge Tape  ` and
+  `Ctape ERROR, SENSE BYTES = `, so the device is supported once selected.
 - **Applications.** No compilers, no DSEE, no networking suites. The
   distribution cartridges we hold are the standard software bundle.
 - **Release notes.** `docs/references/bitsavers/release_notes/` and `SR10/` exist
