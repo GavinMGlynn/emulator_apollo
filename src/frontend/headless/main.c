@@ -1245,6 +1245,16 @@ static int run_ring_selftest(FILE *out, ap_model_id_t model,
     return 2;
   }
   ap_board_attach_ring(&board, true);
+  /* **A cable, because a node with none is not a ring.** The AEGIS Survival
+   * Guide's self-test notes, and a VCFed report of a real DN3500, both say the
+   * boot self-test "will probably hang on the ring adapter unless you are
+   * plugged into a valid ring" -- so a harness that fits a card and leaves it
+   * unplugged is testing a configuration the firmware is entitled to fail.
+   * The segment is one node, which is what a machine on its own bypass relay
+   * is (`[MAC]` §3.5). */
+  static ap_ring_medium_t selftest_segment;
+  ap_ring_medium_init(&selftest_segment);
+  ap_board_join_ring(&board, &selftest_segment);
   ap_board_attach_option_rom(&board, rom, (uint32_t)rom_size,
                              AP_BOARD_ATBUS_MEMORY_BASE);
   ap_machine_init_model(&machine, ram, sizeof ram, model);

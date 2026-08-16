@@ -110,6 +110,7 @@ static void ring_ctl_loopback(ap_ring_ctl_t *ctl) {
   ctl->buffer[to + 3u] = AP_RING_CTL_EARLY_ACK_UNCOPIED;
   ctl->buffer[to + 4u] = dest_hi;
   ctl->buffer[to + 5u] = dest_lo;
+
 }
 
 bool ap_ring_ctl_irq(const ap_ring_ctl_t *ctl) {
@@ -774,6 +775,9 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
        * make the board vanish. */
       w->status = (uint16_t)((w->status & ~AP_RING_CTL_STATUS_BIT11) |
                              (ctl->present ? AP_RING_CTL_STATUS_PRESENT : 0u));
+      /* The write half is MISC_CMD, and `lpb` is kept: see the `+402` handler
+       * for the three sites that make it the discriminator. */
+      w->loopback_enabled = (value & AP_RING_CTL_MISC_CMD_LPB) != 0u;
       /* **MISC_CMD's `nct`, and it drives the bypass relay.** The read half is
        * MISC_STAT; the write half is MISC_CMD, whose bit 11 is "1 => network
        * connect" (p. 12-32). `RING.md` 103c confirms it here: `RING_PROC`
@@ -847,7 +851,22 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
        * and bit 2 *copy*, which fits a completion, but the AT board's command
        * encoding is plainly not the DN3xx's -- `$6` against that board's
        * `6000` -- so the name is not carried over. */
-      if ((value & 0x0400u) != 0u) {
+      /* **A `$2` completes only with digital loopback OFF, and that is the
+       * only difference between the two sites that write it.** Subtest 12
+       * (`0004A0`) and subtest 51 (`000628`) both write `#$2` after a
+       * byte-identical `$976` / `#$8` to `+404` / `$1FF`/`$3FF` / `$944`
+       * preamble, and both follow a `$B70` transmit -- yet 12 requires
+       * `+400`'s bits 13 and 2 to **remain set** (`d4 = 1`) and 51 requires
+       * them to go **clear**. The one thing that differs is `MISC_CMD`:
+       * `00045C` writes `move.b #$1,$400` before 12's group and `000512`
+       * writes `#$0` before 22's, which 51's group inherits. A byte at the
+       * even address is the high lane, so `$1` is `$0100` -- p. 12-32's bit 8,
+       * `lpb`, **digital loopback enable**.
+       *
+       * `$6` keeps completing unconditionally, which is what findings 66 and
+       * 67 measured across all four of its sites. `RING.md` 123. */
+      if ((value & 0x0400u) != 0u ||
+          ((value & 0x0200u) != 0u && !w->loopback_enabled)) {
         w->status &= (uint16_t)~(AP_RING_CTL_STATUS_BIT13 |
                                  AP_RING_CTL_STATUS_BIT2 |
                                  AP_RING_CTL_STATUS_BIT1 |

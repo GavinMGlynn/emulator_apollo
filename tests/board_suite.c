@@ -1686,9 +1686,23 @@ static void test_a_frame_crosses_the_ring_under_board_time(void) {
   TEST_ASSERT_EQUAL_HEX16(0x0002u, b.ring.buffer[0x10u]);
   TEST_ASSERT_EQUAL_HEX16(0x2222u, b.ring.buffer[0x11u]);
   /* And the interrupt reached the controller B is plugged into -- the line
-   * finding 107 documented, master IRQ 2. */
+   * finding 107 documented, master IRQ 2.
+   *
+   * **Both** boards assert it, and asserting the *bits* rather than the line
+   * is what says why: B's is `ri`, the receive interrupt raised by the frame
+   * arriving, and A's is `xi`, the transmit interrupt its own completed
+   * transmit raises. This test asserted `FALSE` for A while the transmit
+   * command raised nothing, which made "the sender is quiet" look like a
+   * property of addressing rather than of an unimplemented completion. */
   TEST_ASSERT_TRUE(ap_ring_ctl_irq(&b.ring));
-  TEST_ASSERT_FALSE(ap_ring_ctl_irq(&a.ring));
+  TEST_ASSERT_EQUAL_HEX16(0u, b.ring.a2.status & AP_RING_CTL_STATUS_RI);
+  TEST_ASSERT_TRUE(ap_ring_ctl_irq(&a.ring));
+  TEST_ASSERT_EQUAL_HEX16(0u, a.ring.a2.status & AP_RING_CTL_STATUS_XI);
+  /* Not asserted here: whether the *sender's* `ri` is also pending. Finding
+   * 67 established that a completing command clears bits 13, 2 and 1
+   * together, so it is -- and that is the completion's behaviour rather than
+   * anything about this frame. `frames_copied` below is what says the sender
+   * received nothing. */
 }
 
 
@@ -1748,8 +1762,12 @@ static void test_two_boards_exchange_a_frame_on_a_scheduled_ring(void) {
   TEST_ASSERT_TRUE(b.ring_station.frames_copied > 0u);
   TEST_ASSERT_EQUAL_HEX16(0x0002u, b.ring.buffer[0x10u]);
   TEST_ASSERT_EQUAL_HEX16(0x2222u, b.ring.buffer[0x11u]);
+  /* B's is `ri`, raised by the arriving frame; A's is `xi`, raised by its own
+   * completed transmit. Both assert the line, so the *bits* are what carry the
+   * distinction. */
   TEST_ASSERT_TRUE(ap_ring_ctl_irq(&b.ring));
-  TEST_ASSERT_FALSE(ap_ring_ctl_irq(&a.ring));
+  TEST_ASSERT_EQUAL_HEX16(0u, b.ring.a2.status & AP_RING_CTL_STATUS_RI);
+  TEST_ASSERT_EQUAL_HEX16(0u, a.ring.a2.status & AP_RING_CTL_STATUS_XI);
   /* Neither board stepped the cable itself: the scheduler owns the bit clock,
    * so a scheduled board's own accumulator must never have moved. */
   TEST_ASSERT_EQUAL_UINT64(0u, a.ring_bit_clock);

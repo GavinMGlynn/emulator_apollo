@@ -430,6 +430,11 @@ typedef struct {
    * and *requires bit 3 clear*, so a model that set it on every write to the
    * first window's `+2` fails there -- measured, not reasoned. `RING.md` 75. */
   bool operation_pending;
+  /* MISC_CMD's `lpb`, digital loopback (p. 12-32 bit 8). It is what separates
+   * a `$2` that starts an operation from one that does nothing -- `RING.md`
+   * 123 -- and it is the *only* difference between the two sites that write
+   * that command after a byte-identical preamble. */
+  bool loopback_enabled;
 
   /* `+406` on the `a1` window, which finding 50a shows is never read. The `a2`
    * window's `+406` is the buffer port and does not use this. */
