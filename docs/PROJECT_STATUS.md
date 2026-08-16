@@ -20429,6 +20429,46 @@ reports `disk sidecar ... 464 bytes` beside the disk line. The defect-injection
 behaviour itself is `omti_suite`'s, and was already covered there; what was
 untested and is now wired is the frontend's half.*
 
+## The bus tick is batched when the ticks are provably one: 1.31x more
+
+The profile's next item after the interrupt sample was `ap_board_bus_tick` at
+6.8%, and it is a different shape of problem: not "can this be skipped" but
+"are these `n` calls distinguishable from one".
+
+**They are not, under two guards the per-tick path already tests.** A tick with
+`dma_possible` clear returns after ticking the arbiter, and an arbiter with no
+request and the processor holding the bus lowers a request line that is already
+low and takes no branch. So the loop's entire effect is on `bus_ticks`, and a
+counter can be added to. `ap_arbiter_idle` states the condition as a predicate
+rather than a comment at the call site, because the equivalence is a property of
+that state and not an approximation.
+
+The processor charges the board the clocks its last instruction spent, so this
+ran several times per instruction. `ap_board_bus_ticks(board, n)` now decides,
+and falls back to the loop whenever either guard fails -- a tick that would have
+done anything is never batched away.
+
+| | 350 M boot | hash |
+| --- | --- | --- |
+| before the interrupt skip | 45.3 s | `A354786119A3931D` |
+| interrupt sample skipped | 39.9 s | `A354786119A3931D` |
+| bus tick batched | **30.4 s** | `A354786119A3931D` |
+
+**1.311x for this change, 1.490x cumulative**, and the verification is stronger
+than the hash alone: the two boot reports are **identical line for line** --
+every counter, every census row, every console line -- which is what a batched
+counter needs, since `bus_ticks += n` is only right if it agrees with `n`
+increments.
+
+*`ctest` 137/137 alongside, covering the probe goldens.*
+
+**Still untouched**, and each needs its own argument rather than this one:
+`ap_sio_advance` at 5.0% and `ap_board_advance` at 3.7%. Those are advances, not
+polls -- skipping one leaves a device's clock stale, so the bound they need is
+on *observable state* and not just on an interrupt line, and the serial part's
+own comment already warns that its output-port square waves are readable at any
+instant.
+
 ## The interrupt sample is skipped, and the boot is 12% shorter
 
 The accessors have their consumer. `ap_machine_run` now skips

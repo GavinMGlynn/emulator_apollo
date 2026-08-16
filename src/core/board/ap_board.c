@@ -649,6 +649,22 @@ static void dma_device_write(void *context, unsigned channel, uint8_t value) {
   board->dma_unwired_transfers++;
 }
 
+void ap_board_bus_ticks(ap_board_t *board, uint64_t n) {
+  if (n == 0u) {
+    return;
+  }
+  if (!board->dma_possible && ap_arbiter_idle(&board->arbiter)) {
+    board->bus_ticks += (unsigned)n;
+    /* Once, not none: the tick still lowers the processor's request line, and
+     * doing it once is the whole of what doing it `n` times would do. */
+    ap_arbiter_tick(&board->arbiter);
+    return;
+  }
+  for (uint64_t i = 0; i < n; i++) {
+    ap_board_bus_tick(board);
+  }
+}
+
 void ap_board_bus_tick(ap_board_t *board) {
   board->bus_ticks++;
 

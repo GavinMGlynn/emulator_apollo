@@ -97,4 +97,12 @@ void ap_arbiter_tick(ap_arbiter_t *arbiter);
 /* The highest-priority device currently asking, or `AP_ARBITER_PROCESSOR`. */
 [[nodiscard]] int ap_arbiter_highest_requester(const ap_arbiter_t *arbiter);
 
+/* Nothing is asking and the processor holds the bus, so a tick is a no-op: it
+ * lowers a request line that is already low and takes no branch. **N ticks are
+ * then one tick**, which is what lets the machine batch a whole instruction's
+ * worth instead of looping -- and the equivalence is a property of this state
+ * rather than an approximation, which is why it is a predicate here and not a
+ * comment at the call site. */
+[[nodiscard]] bool ap_arbiter_idle(const ap_arbiter_t *arbiter);
+
 #endif /* APOLLO_BOARD_AP_ARBITER_H */

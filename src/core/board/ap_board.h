@@ -780,6 +780,18 @@ void ap_board_sample_interrupts(ap_board_t *board);
  */
 void ap_board_bus_tick(ap_board_t *board);
 
+/* `n` bus ticks, batched when they are provably identical to one.
+ *
+ * The processor charges the board the clocks its last instruction spent, so
+ * this runs several times per instruction and `ap_board_bus_tick` was 6.8% of
+ * a boot. When no DMA can be asking (`dma_possible`) and the arbiter is idle,
+ * a tick lowers an already-low request line and returns -- so the loop's whole
+ * effect is on the counter, and the counter can simply be added to.
+ *
+ * Not an approximation: both guards are the ones the per-tick path itself
+ * tests, so a tick that would have done anything is never batched away. */
+void ap_board_bus_ticks(ap_board_t *board, uint64_t n);
+
 /* Whether the processor may run a cycle this clock. False while a controller
  * holds the bus, which is the whole of how contention reaches the CPU. */
 [[nodiscard]] bool ap_board_processor_may_run(const ap_board_t *board);

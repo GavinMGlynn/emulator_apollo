@@ -4434,6 +4434,11 @@ Only after the reference core is proven, and only under an identity harness.
       half and devices half of the tick split so a span-breaking I/O write still
       runs its devices half canonically. *Verification: entire probe suite and
       long boot hashes byte-identical to the reference core.*
+  - [x] **The bus tick is batched when `n` ticks are provably one** -- no DMA
+    able to ask and an idle arbiter, both guards being the ones the per-tick
+    path itself tests. *Verification: 39.9 s → **30.4 s**, 1.311x, state hash
+    unchanged and the two boot reports identical line for line; `ctest`
+    137/137. Detail in `PROJECT_STATUS.md`.*
   - [x] **The interrupt sample is skipped when no source can have changed** --
     `next_event()` for interrupt sources, an aggregate bound, and
     `interrupt_valid_until` discarded by the three sites that reach a device.

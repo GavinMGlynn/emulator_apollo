@@ -45,6 +45,10 @@ bool ap_arbiter_processor_may_run(const ap_arbiter_t *arbiter) {
          arbiter->master == AP_ARBITER_PROCESSOR;
 }
 
+bool ap_arbiter_idle(const ap_arbiter_t *arbiter) {
+  return arbiter->request == 0u && arbiter->master == AP_ARBITER_PROCESSOR;
+}
+
 void ap_arbiter_tick(ap_arbiter_t *arbiter) {
   /* Step 1 of §7.7's sequence: "An external device asserts the bus request
    * signal." Wire-ORed, as §7.7.1 has it -- "This can be a wire-ORed signal ...

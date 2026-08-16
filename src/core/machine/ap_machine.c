@@ -833,9 +833,10 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
        *
        * Charged to the board and not to the CPU: these are clocks that already
        * happened. */
-      for (uint64_t c = 0; c < machine->last_instruction_clocks; c++) {
-        ap_board_bus_tick(machine->board);
-      }
+      /* Batched when the board says the ticks are identical to one -- no DMA
+       * able to ask and an idle arbiter -- and looped otherwise. The decision
+       * lives in `ap_board_bus_ticks` because both guards are the board's. */
+      ap_board_bus_ticks(machine->board, machine->last_instruction_clocks);
 
       /* And now the contention, which is not a penalty and not a figure: the
        * processor is the lowest-priority claimant of a bus somebody else is
