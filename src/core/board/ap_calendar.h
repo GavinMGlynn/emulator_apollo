@@ -255,6 +255,29 @@ void ap_calendar_advance(ap_calendar_t *calendar, ap_time_t now);
  * every boot of this core has carried. */
 void ap_calendar_seal_config(uint8_t *battery, unsigned count);
 
+/* The DEV BIT ARRAY's bits, `002398-04` p. 12-3, in the layout above. */
+#define AP_CONFIG_DEV_FLOPPY 0u
+#define AP_CONFIG_DEV_CTAPE 1u
+#define AP_CONFIG_DEV_WINCHESTER 2u
+#define AP_CONFIG_DEV_FPU 3u
+#define AP_CONFIG_DEV_RING 4u
+#define AP_CONFIG_DEV_USER 5u
+#define AP_CONFIG_DEV_ETHERNET 6u
+#define AP_CONFIG_DEV_SERIAL_PARALLEL 7u
+
+/* Build a configuration table a *configured* machine would carry: the valid
+ * pattern, the node ID, the device bits, and a sealed checksum.
+ *
+ * Every field's position is p. 12-3's, and the checksum is the one
+ * `sau8/config` computes -- so this produces what the utility would have
+ * written, which is what the SELF_TEST diagnostic validates. `RING.md` 118c
+ * names what that does and does not unblock.
+ *
+ * `devices` is a bitmask of `AP_CONFIG_DEV_*`. `battery` is filled from
+ * register `0E` and must be `AP_CALENDAR_BATTERY_BYTES` long. */
+void ap_calendar_build_config(uint8_t *battery, unsigned count,
+                              uint32_t node_id, uint32_t devices);
+
 void ap_calendar_load_battery(ap_calendar_t *calendar, const uint8_t *bytes,
                               unsigned count);
 [[nodiscard]] unsigned ap_calendar_save_battery(const ap_calendar_t *calendar,

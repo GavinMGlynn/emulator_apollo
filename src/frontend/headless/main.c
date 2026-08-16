@@ -303,7 +303,11 @@ static void print_usage(const char *program_name) {
           "                        directly, rather than waiting for the boot\n"
           "                        PROM to find the card. Reports the code it\n"
           "                        returns, which names a numbered subtest\n"
-          "  --ring                fit the token ring controller\n"
+          "  --ring                fit the token ring controller\n");
+  fprintf(stdout,
+          "  --configure           seed the calendar with a valid, sealed\n"
+          "                        configuration table for what is fitted\n"
+
           "  --ring-two-node [N]   two whole machines on one ring segment,\n"
           "                        N instructions each (default 2,000,000)\n"
           "  --ring-rom FILE       the same, with its option ROM placed where\n"
@@ -1536,6 +1540,8 @@ static bool g_ring_selftest = false;
 /* Two whole machines on one ring segment, in one process. See
  * `run_ring_two_node`. */
 static bool g_ring_two_node = false;
+/* Seed the calendar with a valid, sealed configuration table. */
+static bool g_configure = false;
 static uint64_t g_ring_two_node_limit = 2000000u;
 static long g_option_rom_entry = -1;
 static const char *g_option_rom_text = NULL;
@@ -3033,6 +3039,29 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * has had. The file holds the fifty battery bytes and **not** the clock, for
    * the reason `ap_calendar.h` gives -- persisting the time would make a run's
    * starting instant depend on when the last one ended. */
+  /* **A configured machine, built rather than loaded.** `RING.md` 118: the
+   * checksum at `0E`-`11` is a 32-bit sum of the 46 bytes from the valid
+   * pattern, recovered from `sau8/config`, and without it a table with the
+   * right pattern still fails the SELF_TEST diagnostic (83a). The DEV BIT
+   * ARRAY is derived from what is actually fitted, so the table describes this
+   * machine rather than a machine. */
+  if (g_configure) {
+    uint8_t battery[AP_CALENDAR_BATTERY_BYTES];
+    uint32_t devices = 0u;
+    if (g_fit_ring) {
+      devices |= 1u << AP_CONFIG_DEV_RING;
+    }
+    if (g_fit_ethernet) {
+      devices |= 1u << AP_CONFIG_DEV_ETHERNET;
+    }
+    ap_calendar_build_config(battery, sizeof battery, board->node_id.id,
+                             devices);
+    ap_calendar_load_battery(&board->calendar, battery, sizeof battery);
+    printf("calendar ram configured: node %06X, dev bits %08X, checksum %08X\n",
+           board->node_id.id, devices,
+           ap_calendar_config_checksum(battery, sizeof battery));
+  }
+
   if (battery_path != NULL) {
     long battery_size = 0;
     uint8_t *battery = read_file(battery_path, &battery_size);
@@ -5324,6 +5353,11 @@ int main(int argc, char **argv) {
         return 1;
       }
       i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--configure") == 0) {
+      g_configure = true;
+      i += 1;
       continue;
     }
     if (strcmp(argv[i], "--ring-two-node") == 0) {

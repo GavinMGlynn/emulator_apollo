@@ -1,6 +1,7 @@
 #include "board/ap_calendar.h"
 
 #include <stddef.h>
+#include <string.h>
 
 bool ap_calendar_reset(ap_calendar_t *calendar,
                        const ap_mc146818_time_t *start) {
@@ -85,6 +86,39 @@ void ap_calendar_seal_config(uint8_t *battery, unsigned count) {
   battery[1] = (uint8_t)(sum >> 16);
   battery[2] = (uint8_t)(sum >> 8);
   battery[3] = (uint8_t)sum;
+}
+
+/* Offsets into the battery image, which is based at register `0E`. */
+#define CONFIG_AT(reg) ((unsigned)((reg) - 0x0Eu))
+
+void ap_calendar_build_config(uint8_t *battery, unsigned count,
+                              uint32_t node_id, uint32_t devices) {
+  if (battery == NULL || count < AP_CALENDAR_BATTERY_BYTES) {
+    return;
+  }
+  memset(battery, 0, AP_CALENDAR_BATTERY_BYTES);
+  /* `12`-`15`: the VALID PATTERN, whose value is the boot PROM's own
+   * `cmpi.l #$1234ABCD` (finding 83) rather than anything the handbook
+   * states -- the page names the field and not its contents. */
+  battery[CONFIG_AT(0x12u) + 0u] = 0x12u;
+  battery[CONFIG_AT(0x12u) + 1u] = 0x34u;
+  battery[CONFIG_AT(0x12u) + 2u] = 0xABu;
+  battery[CONFIG_AT(0x12u) + 3u] = 0xCDu;
+  /* `1E`-`21`: NODEID, big-endian like every other longword here. */
+  battery[CONFIG_AT(0x1Eu) + 0u] = (uint8_t)(node_id >> 24);
+  battery[CONFIG_AT(0x1Eu) + 1u] = (uint8_t)(node_id >> 16);
+  battery[CONFIG_AT(0x1Eu) + 2u] = (uint8_t)(node_id >> 8);
+  battery[CONFIG_AT(0x1Eu) + 3u] = (uint8_t)node_id;
+  /* `22`-`25`: DEV BIT ARRAY. */
+  battery[CONFIG_AT(0x22u) + 0u] = (uint8_t)(devices >> 24);
+  battery[CONFIG_AT(0x22u) + 1u] = (uint8_t)(devices >> 16);
+  battery[CONFIG_AT(0x22u) + 2u] = (uint8_t)(devices >> 8);
+  battery[CONFIG_AT(0x22u) + 3u] = (uint8_t)devices;
+  /* `26`-`28` are RING TYPE, DISP TYPE and DISK TYPE, left zero: the handbook
+   * names the fields and not their encodings, and a made-up type is worse
+   * than a zero one -- the boot PROM's own use of `2B` (finding 83) shows it
+   * reads these bytes and acts on them. */
+  ap_calendar_seal_config(battery, AP_CALENDAR_BATTERY_BYTES);
 }
 
 void ap_calendar_load_battery(ap_calendar_t *calendar, const uint8_t *bytes,
