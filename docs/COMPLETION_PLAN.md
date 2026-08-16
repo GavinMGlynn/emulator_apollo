@@ -4070,70 +4070,19 @@ discipline throughout.
         are **transposed** between XMIT_STAT and RCV_STAT, which is asserted
         directly because no behavioural test can see it.
         What remains here is the traffic wire, not a register question.
-  - [ ] The DMA path. **The interrupt line is DONE** (`RING.md` 107):
-        `002398-04` p. 12-28 tabulates the DN3000's interrupt assignments and
-        puts the **ring on master IRQ 2**, with IRQ 3 the cascade -- which is
-        where `FINDINGS.md` C11 *measured* it. So finding 82's three-way
-        disagreement was two sources agreeing and one row wrong; `[S3K]`
-        Table 2-3's "IRQ3 = Network Board" cannot stand. `ap_ring_ctl_irq`
-        and the wiring exist. What remains here is the **DMA channel**, which
-        p. 12-28 does not give.
-        **Blocked on which line, and it is a real three-way disagreement**
-        (`RING.md` 82-82b): the controller has no IRQ accessor and no wiring at
-        all -- the dangling shape the 3c505 had -- and `[S3K]` Table 2-3's
-        "IRQ3 = Network Board", `FINDINGS.md` C11's measured cascade on IR3,
-        and finding 53d's vector 163 (master IR3 through the measured `A0`
-        base) all name IR3, which cannot be both the cascade and the ring.
-        A wrong line is worse than none: it delivers interrupts a real machine
-        would not. What settles it is a `writetrace.lua` sweep of
-        `011000`-`0111FF` with a ring ROM fitted, watching which mask bit the
-        PROM clears -- the method C11 already used on the ICWs, and cheaper
-        than more reading. The device half *is* documented: Rev 1 gives the
-        board's interrupt-pending and enable bits and its clear rule (79c).
-        **Run, and it does not isolate the line** (82c-82e): across three
-        configurations the slave controller ends **fully masked** every time,
-        so there is no bit to identify. `--ring-rom` diverts the boot into the
-        console poll and never reaches Domain/OS; `--ring` alone boots normally
-        and still unmasks nothing. Finding 53e's rule explains it -- the driver
-        installs into vector 163 *only when the card answers* -- so the line
-        will be named by making Domain/OS's driver accept this controller, not
-        by another trace or another manual.
-        **The vector number is now measured:
-        163** (`RING.md` 53d) -- `VBR` is `3C400800` and `RING_VEC` sits at
-        `3C400A8C`, so the slot is arithmetic on two measured addresses rather
-        than an inference, and `RING_8025_VEC1`/`VEC2` are 172 and 171 the same
-        way. The control is that on a machine with no ring card the slot holds
-        the *generic* handler while the claimed vectors resolve to the timer and
-        both DUART channels and match the boot's own interrupt counts (53e).
-        **And the driver's code turns out to be readable offline** (53f): both
-        `RING8_$INT` and its deferred half are resident in an ordinary state
-        dump, because Domain/OS loads the ring driver whether or not a
-        controller answers -- so this source costs a `grep`, not an instrumented
-        run on hardware nobody has. Its prologue polls **bit 1 of the word at
-        device `+1400`** and reads `+1404` (53g).
-        **The ROM cross-read was tried and is inconclusive** (53h): the
-        firmware's `+400`/`+402`/`+404` and the driver's `+1400`/`+1404` do not
-        correspond under any simple geometry -- the two AT windows are `$8000`
-        apart, and `+1400` into window 0 lands inside *unit 1's* range. Recorded
-        as inconclusive rather than reconciled, because a manufactured match
-        would be a wrong register map with two sources apparently agreeing.
-        **Read, and it withdraws the register reading** (53i): `3C4D9000` is
-        `RING_$CCB`, `RING_$CTL` is its `+10` -- which is the ISR's own
-        `LEA $10(A0),A2` -- and the block's `+1C`/`+20` and `+28`/`+2C` are two
-        **empty list heads pointing at themselves**. So `$20(A0)` is a queue
-        pointer and `+1400` an offset into a queued structure, not a device
-        window. 53h declined to reconcile the cross-read; this is why it could
-        not be, and the caution was right.
-        **Awaiting:** the mask and transfer shape from the **ROMs**, which
-        address the controller directly (53j) -- and there are **three** of
-        them, not four: the `3000` and `5500` images are byte-identical, the
-        same firmware shipped for both models under one part number (54). The
-        two `10666` revisions differ from it by ~54% of bytes and from each
-        other by 41%, so they are genuinely independent readings of the same
-        registers rather than one image twice. The driver remains the source for
-        names and for the vector, and a poor one for register semantics --
-        everything it touches is an indirection away from the hardware, and the
-        indirections are empty on every machine this project can dump.
+  - [x] **The DMA path and the interrupt, both answered from the manual.**
+        There is **no host DMA channel for the ring**: `002398-04` p. 12-23
+        enumerates the DN3000's DMA Channel Usage in full -- `CH1` SDLC,
+        `CH2` floppy, `CH4` cascade, the rest `avail` -- and the ring is not
+        among them. The host reaches the buffer through `RAM_ADDR`/`RAM_DATA`
+        (findings 46, 47, 61), which is what this core models and what the
+        firmware's 64 KB memory test walks. Finding 79's "dma test (loop xmit
+        DMA to rcv DMA)" is the *gate array's own* internal DMA, not a host
+        channel -- the phrase is what made this look like a missing path.
+        And the interrupt line is **master IRQ 2**, from p. 12-28's assignment
+        table, agreeing with `FINDINGS.md` C11's measured cascade on IR3.
+        *Verification: `ap_ring_ctl_irq` and its wiring, asserted in
+        `board_suite`; `RING.md` 107, 115. Detail in `PROJECT_STATUS.md`.*
 - [x] Multi-node scheduler, in `src/core/ring/ap_ring_sched.*`: N nodes on one
       cycle-locked ring, each stepping only on its own boundaries against the
       shared time base, with the ring's bit clock competing as a clock domain
