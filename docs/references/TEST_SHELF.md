@@ -159,10 +159,19 @@ Named so that the gap is visible rather than implied.
   wrong and the two sets really do differ at code 7, but that is not what the
   cartridge boots hit. `--boot-report` now prints `ACR`, the set and the
   resolved rate, so this costs one line instead of an argument.
-  **What is left**: `$FE` is `resample(0x0D, 8, 4800, 1050)` -- a *4800* sender
-  -- while `--boot-input-rate` defaults to `0xBB`, whose low nibble is code `B`,
-  9600. So the sender rate reaching `receive_at` is 4800 when it should be 9600.
-  That is one `printf` away and is a **unit-level** question again, not a boot.
+  **And the `$FE` that started this was not evidence.** It was read from a
+  *final register dump* at the 500 M limit, not from a stop-PC at the read
+  instruction -- `d1` at the end of a run is whatever `d1` last held, and this
+  project has a rule about exactly that (`dump-is-not-evidence-about-earlier-
+  code`). Only the `$F9` came from a real stop-PC. Two rounds of rate reasoning
+  were built on the unreliable one.
+  The plumbing itself is verified **correct** by code read: `boot_input_rate`
+  defaults to `0xBB`, is parsed and passed as-is, and `receive_at` takes the
+  sender's rate from the *low* nibble and the receiver's from the *high* nibble
+  under the same `ACR` set. Nothing there is swapped.
+  **So the next step is to stop-PC at `0007EC` and read `d1` immediately after
+  the `move.b $16(a0),d1`** -- the one measurement of this whole thread that has
+  never actually been taken -- rather than to change any code.
   The DEV BIT ARRAY is **not** what gates the tape: setting bit 1 `ctape`
   changes nothing, measured. The PROM does carry `Cartridge Tape  ` and
   `Ctape ERROR, SENSE BYTES = `, so the device is supported once selected.
