@@ -497,10 +497,22 @@ direction.** The first character is spent in the table above; only the second,
 with bit 0 of `$158(a6)` now set, falls through to the console-selected path at
 `0007F8`.
 
-**Still open**: the handshake after the rate changes. The harness goes on
-sending at the old setting, so the character that should select the console is
-not read as one. MD's `>` is still unreached, so `di c` cannot select the
-cartridge.
+**Still open, and now located by stop-PC rather than guessed.** `0007E6` — the
+serial 1 channel B console branch — is reached **exactly once**, at ~164 M
+instructions, and `0007F8`, console-selected, is never reached at all. So
+`0007F6`'s `beq` is always taken and bit 0 of `$158(a6)` is always found clear,
+which is only correct for the *first* character. Four characters are read from
+the channel and only one of them reaches the poll.
+
+The question is therefore neither delivery nor the rate: it is **why the second
+delivered character does not re-arm `RxRDY` for the poll**, with the receiver
+reported enabled at 8 bits throughout. The guess that the harness's sending rate
+was the problem is withdrawn — it predicts no characters getting through, and
+four do. MD's `>` is still unreached, so `di c` cannot select the cartridge.
+
+One instrument limitation found on the way: the posted-code report keeps a
+bounded set, so `0A` **was** posted and did not appear in it. A stop-PC proved
+what the code list had implied was absent.
 
 *Verification: CSR `77` -> `99` on the channel typed at, matching the table's
 entry for the byte the firmware read; `ctest` 138/138; identity boot unchanged
