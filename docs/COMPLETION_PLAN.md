@@ -4575,10 +4575,17 @@ Only after the reference core is proven, and only under an identity harness.
       is not about absence.
       **One difference from the SR10.4 cartridge that does work**: that one
       carries **both** `sysboot` *and* `sysboot.m68k` (40,960 bytes); SR10.3's
-      carries only `sysboot`. Whether the PROM in this machine wants the
-      `.m68k` variant is the next question, and it is answerable by listing
-      what `ex` searches for in the boot PROM's strings — again with no
-      emulator run. Then MINST from the four software cartridges,
+      carries only `sysboot`. **Eliminated from the PROM's own strings**: it
+      contains `sysboot` and **no `.m68k` variant at all**, so the plain name is
+      what it searches for and that name is present on the SR10.3 cartridge.
+      **So the file the PROM wants is on the media and the PROM cannot see
+      it.** That is no longer a content question, it is a *reading* one — tape
+      position, rewind-to-BOT, or the QIC read path under the oracle. Note the
+      PROM does use paths elsewhere (`/SAU7/SELF_TEST`), so whether `ex` looks
+      for `sysboot` at the tape's root or under a SAU directory is the one piece
+      of the search not yet pinned; both cartridges hold theirs at the root.
+      That is where this goes next, and `FINDINGS.md` C56's note that MAME's
+      SC-499 models no media change is the first thing to re-read. Then MINST from the four software cartridges,
       then the state hash the item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
