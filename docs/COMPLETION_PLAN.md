@@ -4464,9 +4464,19 @@ Only after the reference core is proven, and only under an identity harness.
       mismatch was real and is fixed, and a *second*, separate failure is behind
       it. (The oracle edit was reverted; making it selectable is a
       `mdsession.py` flag, not a permanent config change, since C47 sets that
-      config for the install procedure.) Next is that crash status, then MINST
-      from the four software cartridges, then the state hash the item asks
-      for.
+      config for the install procedure.) **And that crash status is already documented** —
+      `FINDINGS.md` C54's `Crash_Status 00010005 PC 3C456A56 pid 0001`, the
+      same status and pid. It is not a new fault: it is what the kernel returns
+      when *"Proceed to bring up OS (and risk volume)?"* is declined because the
+      volume is **unclean**, and C54 names the cause in general terms —
+      **a failed stage is not a no-op**. The earlier calendar-gated attempt
+      wrote to `dn3500-sr10.3.awd` and was stopped, leaving a mount marker, so
+      this run inherited that wreckage rather than finding a second defect.
+      The documented remedy is to **revert to the clean checkpoint rather than
+      salvage**, so the volume has been re-copied from `dn3500-invol-done.awd`.
+      Next is the run in the right order on a clean volume — era config, then
+      `ex domain_os` — then MINST from the four software cartridges, then the
+      state hash the item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
       console selection is an autobaud (`000844`-`0008B8`) that the scripted
