@@ -4066,8 +4066,14 @@ discipline throughout.
       instruction 262 on a stack push, at every limit from 3 M to 80 M, while
       reporting only a PC that looked like progress. Both now reach the same PC
       as a single machine at the same instruction count.
-      **What remains is booting Domain/OS on each** -- a disk per node and a
-      console per node -- and then `lcnode`. Detail in `PROJECT_STATUS.md`.
+      **What remains, and its real shape: two nodes need two volumes.** A
+      Domain volume label carries its own `node_id`, and `node_id_from_volume`
+      refuses a node that disagrees with its disk -- "every object it then
+      creates carries the lie". So `lcnode` needs either a **second installed
+      image** with a different node ID, or **diskless boot over the ring**,
+      which is how a real second node joins and is a protocol project of its
+      own. That is a media question, not a ring one, and it is the whole of
+      what is left. Plus a console per node. Detail in `PROJECT_STATUS.md`.
 - [x] Node insertion and removal mid-run, stripping, token loss, **and the
       frame path**, in `src/core/ring/ap_ring_station.*`.
       **Unticked by the `[MAC]` audit and re-earned** (`RING.md` 85-90d): the
