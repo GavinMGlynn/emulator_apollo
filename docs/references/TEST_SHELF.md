@@ -120,8 +120,18 @@ Named so that the gap is visible rather than implied.
   the receiver is at `99` and the sender is still at `BB`, so nothing further
   arrives intact. Measured the other way round too: with the sender at `0x99`, a
   carriage return into a receiver still at `77` reads as `$F9`, which no entry
-  matches. Closing it means letting the scripted terminal change rate when the
-  receiver does.
+  matches. Closing it means one of two things, and the second looks
+  likelier. Either the scripted terminal changes rate when the receiver does --
+  a harness change -- or **`ap_mc68681`'s misread is not the one the table
+  inverts**. The five table entries are the *specific* bytes a carriage return
+  resamples to at each rate ratio, so the firmware can recover the sender's rate
+  from what it read: sender `BB` into receiver `77` ought therefore to read
+  `$FF`, the entry that selects `BB`, and convergence would be automatic for a
+  plain `\r`. Ours reads `$FE` and selects `$99`, which converges on the wrong
+  rate. `ap_mc68681_receive_at`/`_receive_framed` set a **framing error and
+  deliver the byte unchanged**; nothing resamples the bit stream. Check that
+  before changing the harness -- if the misread were faithful the harness would
+  need no change at all.
   The DEV BIT ARRAY is **not** what gates the tape: setting bit 1 `ctape`
   changes nothing, measured. The PROM does carry `Cartridge Tape  ` and
   `Ctape ERROR, SENSE BYTES = `, so the device is supported once selected.
