@@ -445,8 +445,16 @@ the difference was construction, not configuration.
 `022222`, each with the model's memory and its parity, a sealed configuration
 carrying the ring device bit, the ring option ROM at the AT memory base, and a
 reset from the PROM's own vector — `reset 0000633C sp 01000180` on both. At 3 M
-instructions both reach `PC 00002698`, which is where a single machine is at the
-same count. The two-node path and the one-node path agree where they should.
+instructions both reach `PC 00002698`, and at 120 M both reach `PC 00002BE0`,
+executing throughout. A *single* machine with the same fit reaches the same two
+PCs at the same two counts, so the paths agree where they should — measured at
+two points rather than one.
+
+**No frames cross yet, and the reason is the disk.** At 120 M both nodes sit in
+`6EFC` — `bgt.s -4`, a spin — with `frames seen 0`. A single machine with no
+disk sits at the same PC, and one *with* a disk reaches `network driver search
+started...` only after the Winchester tests. The firmware never reaches its ring
+code without a boot device.
 
 **Still to do for the plan item**: a disk and a console per node, so Domain/OS
 boots on each, and then `lcnode`. The item's "plus the DMA channel" clause was
