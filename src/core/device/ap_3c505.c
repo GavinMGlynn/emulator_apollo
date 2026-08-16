@@ -505,10 +505,11 @@ static void respond_status(ap_3c505_pcb_t *out, uint8_t code, uint16_t status) {
   write_word(out->data, status);
 }
 
-bool ap_3c505_dispatch(ap_3c505_adapter_t *adapter, const ap_3c505_pcb_t *in,
-                       ap_3c505_pcb_t *out) {
+ap_3c505_pcb_result_t ap_3c505_execute(ap_3c505_adapter_t *adapter,
+                                       const ap_3c505_pcb_t *in,
+                                       ap_3c505_pcb_t *out) {
   if (adapter == NULL || in == NULL || out == NULL) {
-    return false;
+    return AP_3C505_PCB_REJECTED;
   }
   *out = (ap_3c505_pcb_t){0};
 
@@ -521,15 +522,15 @@ bool ap_3c505_dispatch(ap_3c505_adapter_t *adapter, const ap_3c505_pcb_t *in,
      * much the adapter can queue, and a model with no queue depth to exhaust
      * accepts any of them. The response is the confirmation §3.2.2 specifies. */
     respond_status(out, 0x31u, 0u);
-    return true;
+    return AP_3C505_PCB_ACCEPTED_RESPONSE;
 
   case AP_3C505_CMD_CONFIGURE_82586:
     if (in->length < 2u) {
-      return false;
+      return AP_3C505_PCB_REJECTED;
     }
     adapter->receive_mode = read_word(in->data);
     respond_status(out, 0x32u, 0u);
-    return true;
+    return AP_3C505_PCB_ACCEPTED_RESPONSE;
 
   case AP_3C505_CMD_GET_ETHERNET_ADDRESS:
     /* §3.2.2 `33H`: "The Adapter returns the 6-byte Ethernet address ...
@@ -539,17 +540,17 @@ bool ap_3c505_dispatch(ap_3c505_adapter_t *adapter, const ap_3c505_pcb_t *in,
     for (unsigned i = 0; i < AP_3C505_ADDRESS_BYTES; i++) {
       out->data[i] = adapter->address[i];
     }
-    return true;
+    return AP_3C505_PCB_ACCEPTED_RESPONSE;
 
   case AP_3C505_CMD_SET_ETHERNET_ADDRESS:
     if (in->length < AP_3C505_ADDRESS_BYTES) {
-      return false;
+      return AP_3C505_PCB_REJECTED;
     }
     for (unsigned i = 0; i < AP_3C505_ADDRESS_BYTES; i++) {
       adapter->address[i] = in->data[i];
     }
     respond_status(out, 0x40u, 0u);
-    return true;
+    return AP_3C505_PCB_ACCEPTED_RESPONSE;
 
   case AP_3C505_CMD_LOAD_MULTICAST_LIST: {
     /* "A zero length list will cause the Adapter to clear all multicast
@@ -557,7 +558,7 @@ bool ap_3c505_dispatch(ap_3c505_adapter_t *adapter, const ap_3c505_pcb_t *in,
     const unsigned count = in->length / AP_3C505_ADDRESS_BYTES;
     if (in->length % AP_3C505_ADDRESS_BYTES != 0u ||
         count > AP_3C505_MULTICAST_MAX) {
-      return false;
+      return AP_3C505_PCB_REJECTED;
     }
     adapter->multicast_count = count;
     for (unsigned entry = 0; entry < count; entry++) {
@@ -567,76 +568,102 @@ bool ap_3c505_dispatch(ap_3c505_adapter_t *adapter, const ap_3c505_pcb_t *in,
       }
     }
     respond_status(out, 0x3Bu, 0u);
-    return true;
+    return AP_3C505_PCB_ACCEPTED_RESPONSE;
   }
 
   case AP_3C505_CMD_NETWORK_STATISTICS:
     /* §3.2.2 `3AH`, in its order and widths: two long counters then four word
      * ones. "The Adapter clears all statistics after sending the response." */
+    /* **The length is `10H`, not the `0CH` §3.2.2 prints**, and the sibling
+     * manual settles it rather than arithmetic alone. `[HIS]` Appendix F,
+     * *Revision 2.0 ROM*, item (e): "Network Statistics Response (3AH). The
+     * counters for the number of received and transmitted packets are now
+     * double word values." In Revision 1.0 they were words, and six words is
+     * exactly the `0CH` both manuals still carry -- a stale length left beside
+     * an updated field list, which is why 4+4+2+2+2+2 = 16 disagreed with it.
+     * Rev 2.0 onwards, and this card is Rev 3.0, so all six counters fit. */
     out->command = 0x3Au;
-    out->length = 0x0Cu;
+    out->length = 0x10u;
     write_dword(out->data, adapter->receive_packets);
     write_dword(out->data + 4, adapter->transmit_packets);
     write_word(out->data + 8, adapter->crc_errors);
     write_word(out->data + 10, adapter->alignment_errors);
-    /* The last two of §3.2.2's six counters do not fit the `0CH` the manual
-     * gives for the data field -- 4+4+2+2+2+2 is 16, not 12 -- so the length is
-     * the manual's and the two that overflow it are not written. Recorded here
-     * rather than resolved, because inventing a longer PCB to make the list fit
-     * would be inventing a format. */
+    write_word(out->data + 12, adapter->no_resource_errors);
+    write_word(out->data + 14, adapter->overrun_errors);
     adapter->receive_packets = 0;
     adapter->transmit_packets = 0;
     adapter->crc_errors = 0;
     adapter->alignment_errors = 0;
     adapter->no_resource_errors = 0;
     adapter->overrun_errors = 0;
-    return true;
+    return AP_3C505_PCB_ACCEPTED_RESPONSE;
 
   case AP_3C505_CMD_TRANSMIT_PACKET: {
     /* §3.2.1 `09H`: offset, segment, packet length -- "must be even". The
      * response is `39H` and it comes when the transmit *completes*, not now, so
      * arming is all that happens here. */
     if (in->length < 6u) {
-      return false;
+      return AP_3C505_PCB_REJECTED;
     }
     const uint16_t length = read_word(in->data + 4);
     if (length == 0u || length > AP_3C505_FRAME_MAX) {
-      return false;
+      return AP_3C505_PCB_REJECTED;
     }
     adapter->transmit_offset = read_word(in->data);
     adapter->transmit_segment = read_word(in->data + 2);
     adapter->transmit_length = length;
     adapter->transmit_received = 0;
     adapter->transmitting = true;
-    return false;
+    return AP_3C505_PCB_ACCEPTED;
   }
 
   case AP_3C505_CMD_RECEIVE_PACKET:
     /* §3.2.1 `08H`: offset, segment, buffer length, timeout. `38H` follows when
      * a packet actually arrives, so this only arms the request. */
     if (in->length < 8u) {
-      return false;
+      return AP_3C505_PCB_REJECTED;
     }
     adapter->receive_offset = read_word(in->data);
     adapter->receive_segment = read_word(in->data + 2);
     adapter->receive_buffer_length = read_word(in->data + 4);
     adapter->receive_timeout = read_word(in->data + 6);
     adapter->receive_armed = true;
-    return false;
+    return AP_3C505_PCB_ACCEPTED;
+
+  case AP_3C505_CMD_SELF_TEST:
+    /* §3.2.2 `3FH`: "The adapter self-test consists of a ROM checksum,
+     * non-destructive RAM test, and internal loopback test on the 82586",
+     * answered with `2+2n` bytes -- a status word and one failure word per
+     * failed test. Status `0` is "no errors" and takes no failure data, so the
+     * length is 2.
+     *
+     * Passing is the *determined* answer here rather than an optimistic one:
+     * the three things the test exercises are a firmware ROM, adapter DRAM and
+     * an 82586, none of which this core models, so none of them can be faulty.
+     * A modelled failure would need a modelled fault to report. `[HIS]`
+     * Appendix G notes Rev 2.0 hung this command on a 128 KB board and Rev 3.0
+     * fixed it; this is the Rev 3.0 behaviour. */
+    respond_status(out, 0x3Fu, 0u);
+    return AP_3C505_PCB_ACCEPTED_RESPONSE;
 
   case AP_3C505_CMD_DOWNLOAD_DATA_DMA:
   case AP_3C505_CMD_UPLOAD_DATA_DMA:
   case AP_3C505_CMD_DOWNLOAD_DATA_PIO:
   case AP_3C505_CMD_UPLOAD_DATA_PIO:
     /* "There is no adapter response PCB for this command." */
-    return false;
+    return AP_3C505_PCB_REJECTED;
 
   default:
     /* Everything whose response format this project has not read. Refusing is
      * the protocol's own answer -- §3.1.1's state `10` -- and is honest where a
      * made-up payload would not be. */
-    return false;
+    return AP_3C505_PCB_REJECTED;
   }
+}
+
+bool ap_3c505_dispatch(ap_3c505_adapter_t *adapter, const ap_3c505_pcb_t *in,
+                       ap_3c505_pcb_t *out) {
+  return ap_3c505_execute(adapter, in, out) == AP_3C505_PCB_ACCEPTED_RESPONSE;
 }
 
 bool ap_3c505_transmit_byte(ap_3c505_adapter_t *adapter, uint8_t byte,
@@ -683,9 +710,67 @@ bool ap_3c505_transmit_byte(ap_3c505_adapter_t *adapter, uint8_t byte,
   return true;
 }
 
+/* §3.2.1 `02H`'s receive mode, which decides whether a frame on the wire is
+ * this station's business at all: "bit 2,1,0: receive mode (000); 000 = station
+ * only, 001 = plus broadcast, 010 = multicast, 100 = promiscuous". The modes
+ * are cumulative, which is what "plus broadcast" says in as many words.
+ *
+ * The parenthesised `000` is the default "if this configure command is not
+ * issued", so a zeroed adapter filters to its own address without having to be
+ * configured first -- which is why this reads the field rather than treating
+ * zero as "unset, accept everything".
+ *
+ * Filtering happens *before* the armed-receive test in the caller, because a
+ * frame addressed to another station is not a packet this card missed: the
+ * 82586 never hands it up, and there is nothing for `3AH`'s "no resources"
+ * counter to count. */
+static bool frame_is_for_us(const ap_3c505_adapter_t *adapter,
+                            const uint8_t *frame, unsigned length) {
+  if (length < AP_3C505_ADDRESS_BYTES) {
+    return false; /* no destination field to judge it by */
+  }
+  const unsigned mode = adapter->receive_mode & 0x07u;
+  if (mode == 0x04u) {
+    return true;
+  }
+
+  bool broadcast = true;
+  bool ours = true;
+  for (unsigned i = 0; i < AP_3C505_ADDRESS_BYTES; i++) {
+    broadcast = broadcast && frame[i] == 0xFFu;
+    ours = ours && frame[i] == adapter->address[i];
+  }
+  if (ours) {
+    return true; /* the station's own address, accepted in every mode */
+  }
+  if (broadcast) {
+    return mode >= 0x01u;
+  }
+  /* The IEEE group bit. A multicast destination is accepted only in multicast
+   * mode, and only for an address the host actually loaded with `0BH` -- "The
+   * Adapter will add the given list of multicast addresses to the 82586
+   * multicast list", and the 82586 filters against that list, not against the
+   * group bit alone. */
+  if ((frame[0] & 0x01u) != 0u && mode == 0x02u) {
+    for (unsigned entry = 0; entry < adapter->multicast_count; entry++) {
+      bool match = true;
+      for (unsigned i = 0; i < AP_3C505_ADDRESS_BYTES; i++) {
+        match = match && frame[i] == adapter->multicast[entry][i];
+      }
+      if (match) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 bool ap_3c505_deliver_frame(ap_3c505_adapter_t *adapter, const uint8_t *frame,
                             unsigned length, ap_3c505_pcb_t *out) {
   if (adapter == NULL || frame == NULL || length == 0u) {
+    return false;
+  }
+  if (!frame_is_for_us(adapter, frame, length)) {
     return false;
   }
   if (!adapter->receive_armed) {
@@ -788,10 +873,19 @@ bool ap_3c505_pump(ap_3c505_t *card, ap_3c505_adapter_t *adapter) {
         ap_3c505_pcb_t out = {0};
         const bool recovered = ap_3c505_pcb_rx_end(&adapter->incoming, &in);
         ap_3c505_pcb_rx_reset(&adapter->incoming);
-        /* A PCB that cannot be recovered is dropped without a response, which
-         * is what §3.1.1's stray-byte protection is for: the adapter has no way
-         * to answer a transfer whose beginning it could not find. */
-        if (recovered && ap_3c505_dispatch(adapter, &in, &out)) {
+        /* §3.1.1: acceptance is signalled with the adapter's own status flags,
+         * `01` for accepted and `10` for rejected, and §3.1.2 has the host
+         * waiting on exactly that before it does anything else. A PCB that
+         * could not be recovered is rejected -- that is what the stray-byte
+         * protection is for, and the adapter cannot answer a transfer whose
+         * beginning it could not find. */
+        const ap_3c505_pcb_result_t result =
+            recovered ? ap_3c505_execute(adapter, &in, &out)
+                      : AP_3C505_PCB_REJECTED;
+        ap_3c505_set_adapter_flags(card, result == AP_3C505_PCB_REJECTED
+                                             ? AP_3C505_SF_REJECTED
+                                             : AP_3C505_SF_ACCEPTED);
+        if (result == AP_3C505_PCB_ACCEPTED_RESPONSE) {
           ap_3c505_adapter_post_pcb(adapter, &out);
         }
       }

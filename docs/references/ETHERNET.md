@@ -244,6 +244,87 @@ adapter` drives it through `ap_3c505_write`/`ap_3c505_read`/`ap_3c505_pump`
 alone; with the wiring disabled it fails at "the adapter never took the command
 byte", which is the failure the old test could not produce.
 
+## Finding 20: acceptance was never signalled, and it is what a driver waits on
+
+§3.1.1: "To indicate the acceptance of the PCB, the Adapter uses status flag
+state 01 after the Host signals end-of-PCB. To indicate rejection, the Adapter
+uses status state 10." §3.1.2's final step is "Wait for adapter state 01
+(accept) or 10 (reject). Assume a reject if a 50ms timeout occurs."
+
+`AP_3C505_SF_ACCEPTED` and `AP_3C505_SF_REJECTED` appeared **nowhere** in the
+device implementation — both were defined, neither was ever set. A driver
+following §3.1.2 would take a 50 ms timeout on every command it sent.
+
+The trap in fixing it: acceptance is *not* the same fact as "a response PCB
+follows", and `ap_3c505_dispatch` only answered the latter. §3.2.1 `09H` — "If
+the PCB is accepted, the Host should DMA download the packet data" — is accepted
+and answers nothing until the transmit completes, as are `04H`-`07H` ("If the
+command is accepted, the Adapter sets up the DMA transfer"). Reading the two as
+one question would have rejected every transmit the host ever armed. Split into
+`ap_3c505_execute` returning rejected / accepted / accepted-with-response, with
+`ap_3c505_dispatch` kept as the narrower question.
+
+## Finding 21: `02H`'s receive mode was stored and never consulted
+
+§3.2.1 `02H` defines the field — "bit 2,1,0: receive mode (000); 000 = station
+only, 001 = plus broadcast, 010 = multicast, 100 = promiscuous" — and
+`ap_3c505_dispatch` recorded it into `adapter->receive_mode`, which **no other
+line of the module read**. `ap_3c505_deliver_frame` did no address comparison of
+any kind, so every frame on the wire was this station's business.
+
+Fixed with the modes cumulative, which is what "plus broadcast" says in as many
+words, and multicast filtered against the list `0BH` loaded rather than against
+the IEEE group bit alone. Filtering runs *before* the armed-receive test: a
+frame addressed elsewhere is not a packet this card lost, so `3AH`'s
+no-resources counter must not move for it.
+
+The parenthesised `000` is the documented default "if this configure command is
+not issued", so a zeroed adapter filters to its own address without needing to
+be configured first — the field is read, not treated as "unset, accept
+everything".
+
+## Finding 22: `3AH`'s length is `10H`, and the sibling manual settles it
+
+`[DEV]` §3.2.2 prints `3AH` with data length `0CH` above six counters that add
+to sixteen bytes — `dd`, `dd`, `dw`, `dw`, `dw`, `dw`. The code had recorded
+this as unresolvable and written only the four counters that fit `0CH`,
+dropping no-resources and overruns.
+
+`[HIS]` Appendix F, *Revision 2.0 ROM*, item (e) resolves it outright: "Network
+Statistics Response (3AH). The counters for the number of received and
+transmitted packets are now double word values." In Revision 1.0 they were
+words — and six words is exactly the `0CH` both manuals still carry. The length
+is a stale figure left beside an updated field list. This card is Rev 3.0, so
+all six counters are reported and the length is `10H`.
+
+**This is the resolution order paying for itself again**, and by the step that
+gets skipped: the answer was in a sibling manual already on disk, not in the
+oracle and not in arithmetic. It also retires a note in the code that said the
+question could not be settled without inventing a format.
+
+## Finding 23: `0FH` self-test answered; `0CH`/`0DH`/`0EH`/`11H` refused, with reason
+
+`0FH` → `3FH` is now answered with status `0`, length 2. §3.2.2 gives the format
+and the status codes, and the three things the self-test exercises — a firmware
+ROM checksum, a non-destructive RAM test, an 82586 internal loopback — are none
+of them modelled here, so none can be faulty. Passing is the determined answer
+rather than an optimistic one. (`[HIS]` Appendix G notes Rev 2.0 *hung* this
+command on a 128 KB board and Rev 3.0 fixed it; this is the Rev 3.0 behaviour.)
+
+The other four stay rejected, which §3.1.1's state `10` exists to say. Every
+field of their responses is a property this core does not model: `3CH` and `3DH`
+report paragraph counts of adapter program memory, `3EH` a downloaded program's
+return status, `41H` a ROM revision, ROM checksum, memory size and free-memory
+pointer. Filling any of them would be inventing a number with no source, which
+is worse than the protocol's own refusal.
+
+## Finding 24: the header declared four functions twice
+
+`ap_3c505_transmit_byte`, `ap_3c505_deliver_frame`, `ap_3c505_receive_byte` and
+`ap_3c505_dispatch` each appeared twice in `ap_3c505.h`, as a duplicated
+thirty-line block with identical comments. Legal C and harmless to the compiler,
+which is why nothing caught it. Removed.
+
 ### 19a: the pacing is a frontend artefact, not hardware — APPROXIMATION
 
 The headless frontend pumps every `AP_TAP_POLL_INSTRUCTIONS` (4096) steps, so a

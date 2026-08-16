@@ -418,11 +418,16 @@ static void test_a_frame_crosses_the_wire_into_an_armed_receive(void) {
   ap_tap_t tap = {0};
   tap.fd = fds[0];
 
+  const uint8_t prom[6] = {0x02u, 0x60u, 0x8Cu, 0x12u, 0x34u, 0x56u};
   ap_3c505_adapter_t adapter;
-  ap_3c505_adapter_init(&adapter, NULL);
+  ap_3c505_adapter_init(&adapter, prom);
 
-  /* Nothing armed: the frame is dropped and counted, not delivered. */
-  const uint8_t frame[6] = {0xFFu, 0xFFu, 0x08u, 0x00u, 0x45u, 0x00u};
+  /* Nothing armed: the frame is dropped and counted, not delivered. It carries
+   * this station's address as its destination so that `02H`'s receive filter
+   * passes it and the question left is the one this test asks -- a frame for
+   * somebody else would be dropped one step earlier, and the test would read
+   * as passing while proving nothing. */
+  const uint8_t frame[6] = {0x02u, 0x60u, 0x8Cu, 0x12u, 0x34u, 0x56u};
   TEST_ASSERT_EQUAL_INT(6, write(fds[1], frame, sizeof frame));
   ap_3c505_pcb_t out = {0};
   TEST_ASSERT_FALSE(ap_tap_poll(&tap, &adapter, &out));

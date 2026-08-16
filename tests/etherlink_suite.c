@@ -946,22 +946,34 @@ static void test_the_statistics_are_reported_then_cleared(void) {
   adapter.receive_packets = 0x11223344u;
   adapter.transmit_packets = 7u;
   adapter.crc_errors = 0x0102u;
+  adapter.no_resource_errors = 0x0304u;
+  adapter.overrun_errors = 0x0506u;
 
   const ap_3c505_pcb_t in = {.command = AP_3C505_CMD_NETWORK_STATISTICS,
                              .length = 0u};
   ap_3c505_pcb_t out = {0};
   TEST_ASSERT_TRUE(ap_3c505_dispatch(&adapter, &in, &out));
   TEST_ASSERT_EQUAL_HEX8(0x3Au, out.command);
-  TEST_ASSERT_EQUAL_HEX8(0x0Cu, out.length);
+  /* `10H`, not the `0CH` §3.2.2 prints beside the field list: `[HIS]` Appendix
+   * F says the two packet counters became double words in Revision 2.0, and
+   * six words is exactly the `0CH` that was left behind. All six fit. */
+  TEST_ASSERT_EQUAL_HEX8(0x10u, out.length);
   /* Little-endian, because the fields are `dd`/`dw` on an 80186. */
   TEST_ASSERT_EQUAL_HEX8(0x44u, out.data[0]);
   TEST_ASSERT_EQUAL_HEX8(0x11u, out.data[3]);
   TEST_ASSERT_EQUAL_HEX8(0x07u, out.data[4]);
   TEST_ASSERT_EQUAL_HEX8(0x02u, out.data[8]);
+  /* The two that used to fall off the end of the short length. */
+  TEST_ASSERT_EQUAL_HEX8(0x04u, out.data[12]);
+  TEST_ASSERT_EQUAL_HEX8(0x03u, out.data[13]);
+  TEST_ASSERT_EQUAL_HEX8(0x06u, out.data[14]);
+  TEST_ASSERT_EQUAL_HEX8(0x05u, out.data[15]);
 
   TEST_ASSERT_TRUE(ap_3c505_dispatch(&adapter, &in, &out));
   TEST_ASSERT_EQUAL_HEX8(0u, out.data[0]);
   TEST_ASSERT_EQUAL_HEX8(0u, out.data[3]);
+  TEST_ASSERT_EQUAL_HEX8(0u, out.data[12]);
+  TEST_ASSERT_EQUAL_HEX8(0u, out.data[15]);
 }
 
 
@@ -1049,16 +1061,23 @@ static void test_a_wire_that_refuses_is_reported_in_the_completion_status(void) 
   TEST_ASSERT_EQUAL_UINT(0u, adapter.transmit_packets);
 }
 
+/* One station address for the receive tests, so a frame can be addressed to it
+ * -- or deliberately not, which is what `02H`'s receive mode decides. */
+static const uint8_t station[6] = {0x02u, 0x60u, 0x8Cu, 0x77u, 0x88u, 0x99u};
+
 /* **A frame with nothing waiting for it is a counted loss, not a delivery.**
  * §3.2.2 `3AH` has a "no resources error counter", and this is what it counts:
  * the adapter received a packet and the host had no outstanding `08H`. */
 static void test_a_frame_with_no_receive_armed_counts_as_no_resources(void) {
   ap_3c505_adapter_t adapter;
-  ap_3c505_adapter_init(&adapter, NULL);
-  const uint8_t frame[4] = {1u, 2u, 3u, 4u};
+  ap_3c505_adapter_init(&adapter, station);
+  /* Addressed to this station, so it passes `02H`'s receive filter and reaches
+   * the question this test is about: there is no outstanding `08H`. An
+   * unaddressed frame would be dropped earlier and count nothing. */
+  const uint8_t frame[8] = {0x02u, 0x60u, 0x8Cu, 0x77u, 0x88u, 0x99u, 1u, 2u};
   ap_3c505_pcb_t out = {0};
 
-  TEST_ASSERT_FALSE(ap_3c505_deliver_frame(&adapter, frame, 4u, &out));
+  TEST_ASSERT_FALSE(ap_3c505_deliver_frame(&adapter, frame, 8u, &out));
   TEST_ASSERT_EQUAL_UINT(1u, adapter.no_resource_errors);
   TEST_ASSERT_EQUAL_UINT(0u, adapter.receive_packets);
 }
@@ -1067,7 +1086,7 @@ static void test_a_frame_with_no_receive_armed_counts_as_no_resources(void) {
  * through the data register. */
 static void test_an_armed_receive_stages_the_frame_and_reports_it(void) {
   ap_3c505_adapter_t adapter;
-  ap_3c505_adapter_init(&adapter, NULL);
+  ap_3c505_adapter_init(&adapter, station);
 
   ap_3c505_pcb_t in = {.command = AP_3C505_CMD_RECEIVE_PACKET, .length = 8u};
   in.data[0] = 0x10u; in.data[1] = 0x00u;  /* offset */
@@ -1079,17 +1098,18 @@ static void test_an_armed_receive_stages_the_frame_and_reports_it(void) {
   TEST_ASSERT_FALSE(ap_3c505_dispatch(&adapter, &in, &out));
   TEST_ASSERT_TRUE(adapter.receive_armed);
 
-  const uint8_t frame[5] = {0xA0u, 0xA1u, 0xA2u, 0xA3u, 0xA4u};
-  TEST_ASSERT_TRUE(ap_3c505_deliver_frame(&adapter, frame, 5u, &out));
+  const uint8_t frame[8] = {0x02u, 0x60u, 0x8Cu, 0x77u,
+                            0x88u, 0x99u, 0xA3u, 0xA4u};
+  TEST_ASSERT_TRUE(ap_3c505_deliver_frame(&adapter, frame, 8u, &out));
   TEST_ASSERT_EQUAL_HEX8(0x38u, out.command);
   TEST_ASSERT_EQUAL_HEX8(0x10u, out.length);
-  TEST_ASSERT_EQUAL_HEX8(5u, out.data[4]); /* bytes to be DMA'ed */
-  TEST_ASSERT_EQUAL_HEX8(5u, out.data[6]); /* actual packet length */
+  TEST_ASSERT_EQUAL_HEX8(8u, out.data[4]); /* bytes to be DMA'ed */
+  TEST_ASSERT_EQUAL_HEX8(8u, out.data[6]); /* actual packet length */
   TEST_ASSERT_EQUAL_HEX8(0u, out.data[8]); /* completion status */
   TEST_ASSERT_EQUAL_UINT(1u, adapter.receive_packets);
 
   uint8_t byte = 0;
-  for (unsigned i = 0; i < 5u; i++) {
+  for (unsigned i = 0; i < 8u; i++) {
     TEST_ASSERT_TRUE(ap_3c505_receive_byte(&adapter, &byte));
     TEST_ASSERT_EQUAL_HEX8(frame[i], byte);
   }
@@ -1097,7 +1117,7 @@ static void test_an_armed_receive_stages_the_frame_and_reports_it(void) {
 
   /* The request is consumed: one `08H` yields one packet. */
   TEST_ASSERT_FALSE(adapter.receive_armed);
-  TEST_ASSERT_FALSE(ap_3c505_deliver_frame(&adapter, frame, 5u, &out));
+  TEST_ASSERT_FALSE(ap_3c505_deliver_frame(&adapter, frame, 8u, &out));
 }
 
 /* "The number of bytes DMA'ed will not exceed the buffer length specified in
@@ -1106,7 +1126,7 @@ static void test_an_armed_receive_stages_the_frame_and_reports_it(void) {
  * lengths separately -- what the host is getting, and what arrived. */
 static void test_a_frame_longer_than_the_buffer_is_truncated_and_both_reported(void) {
   ap_3c505_adapter_t adapter;
-  ap_3c505_adapter_init(&adapter, NULL);
+  ap_3c505_adapter_init(&adapter, station);
 
   ap_3c505_pcb_t in = {.command = AP_3C505_CMD_RECEIVE_PACKET, .length = 8u};
   in.data[4] = 4u; /* a four-byte buffer */
@@ -1114,7 +1134,10 @@ static void test_a_frame_longer_than_the_buffer_is_truncated_and_both_reported(v
   TEST_ASSERT_FALSE(ap_3c505_dispatch(&adapter, &in, &out));
 
   uint8_t frame[10];
-  for (unsigned i = 0; i < 10u; i++) {
+  for (unsigned i = 0; i < 6u; i++) {
+    frame[i] = station[i]; /* addressed here, so the filter passes it */
+  }
+  for (unsigned i = 6; i < 10u; i++) {
     frame[i] = (uint8_t)(0xB0u + i);
   }
   TEST_ASSERT_TRUE(ap_3c505_deliver_frame(&adapter, frame, 10u, &out));
@@ -1241,6 +1264,128 @@ static void test_a_command_written_by_the_host_is_answered_by_the_adapter(
   TEST_ASSERT_EQUAL_HEX8_ARRAY(prom, &response[2], 6);
 }
 
+/* §3.1.1's other half, and the one a driver actually blocks on: "To indicate
+ * the acceptance of the PCB, the Adapter uses status flag state 01 after the
+ * Host signals end-of-PCB. To indicate rejection, the Adapter uses status state
+ * 10." §3.1.2's last step is "Wait for adapter state 01 (accept) or 10
+ * (reject)", so a card that never sets either leaves the host in a 50 ms
+ * timeout for every command it sends. */
+static void test_a_received_pcb_is_accepted_or_rejected_in_the_flags(void) {
+  ap_3c505_t card;
+  ap_3c505_adapter_t adapter;
+  ap_3c505_reset(&card);
+  ap_3c505_adapter_init(&adapter, station);
+
+  host_sends(&card, &adapter, AP_3C505_CMD_GET_ETHERNET_ADDRESS);
+  host_sends(&card, &adapter, 0u);
+  ap_3c505_set_host_flags(&card, AP_3C505_SF_END_OF_PCB);
+  host_sends(&card, &adapter, 2u);
+  TEST_ASSERT_EQUAL_INT(AP_3C505_SF_ACCEPTED, ap_3c505_adapter_flags(&card));
+
+  /* And a command it does not implement: `12H`-`2FH` are reserved. */
+  ap_3c505_reset(&card);
+  ap_3c505_adapter_init(&adapter, station);
+  host_sends(&card, &adapter, 0x20u);
+  host_sends(&card, &adapter, 0u);
+  ap_3c505_set_host_flags(&card, AP_3C505_SF_END_OF_PCB);
+  host_sends(&card, &adapter, 2u);
+  TEST_ASSERT_EQUAL_INT(AP_3C505_SF_REJECTED, ap_3c505_adapter_flags(&card));
+}
+
+/* Arming one `08H`, since one receive request yields exactly one packet. */
+static void arm_receive(ap_3c505_adapter_t *adapter) {
+  ap_3c505_pcb_t in = {.command = AP_3C505_CMD_RECEIVE_PACKET, .length = 8u};
+  in.data[4] = 64u; /* buffer length */
+  ap_3c505_pcb_t out = {0};
+  (void)ap_3c505_dispatch(adapter, &in, &out);
+}
+
+/* §3.2.1 `02H`: "bit 2,1,0: receive mode (000); 000 = station only, 001 = plus
+ * broadcast, 010 = multicast, 100 = promiscuous". The mode was being stored and
+ * never consulted, so every frame on the wire was this station's. */
+static void test_the_receive_mode_decides_which_frames_are_taken(void) {
+  ap_3c505_adapter_t adapter;
+  ap_3c505_adapter_init(&adapter, station);
+  ap_3c505_pcb_t out = {0};
+
+  uint8_t mine[8] = {0}, other[8] = {0}, bcast[8] = {0}, group[8] = {0};
+  for (unsigned i = 0; i < 6u; i++) {
+    mine[i] = station[i];
+    other[i] = (uint8_t)(station[i] ^ 0xFFu);
+    bcast[i] = 0xFFu;
+    group[i] = (uint8_t)(0x01u + i);
+  }
+  other[0] &= (uint8_t)~0x01u; /* an individual address, not a group one */
+
+  /* The default, `000`: this station's own address and nothing else. */
+  arm_receive(&adapter);
+  TEST_ASSERT_TRUE(ap_3c505_deliver_frame(&adapter, mine, 8u, &out));
+  arm_receive(&adapter);
+  TEST_ASSERT_FALSE(ap_3c505_deliver_frame(&adapter, other, 8u, &out));
+  TEST_ASSERT_FALSE(ap_3c505_deliver_frame(&adapter, bcast, 8u, &out));
+  /* A frame for somebody else is not a packet this card lost: it never reaches
+   * the armed-receive test, so `3AH`'s no-resources counter stays put. */
+  TEST_ASSERT_EQUAL_UINT(0u, adapter.no_resource_errors);
+
+  /* `001`, plus broadcast -- cumulative, as "plus" says. */
+  adapter.receive_mode = 0x01u;
+  TEST_ASSERT_TRUE(ap_3c505_deliver_frame(&adapter, bcast, 8u, &out));
+  arm_receive(&adapter);
+  TEST_ASSERT_FALSE(ap_3c505_deliver_frame(&adapter, other, 8u, &out));
+
+  /* `010`, multicast, and only for an address `0BH` actually loaded: the 82586
+   * filters against its list, not against the group bit alone. */
+  adapter.receive_mode = 0x02u;
+  TEST_ASSERT_FALSE(ap_3c505_deliver_frame(&adapter, group, 8u, &out));
+  for (unsigned i = 0; i < 6u; i++) {
+    adapter.multicast[0][i] = group[i];
+  }
+  adapter.multicast_count = 1u;
+  TEST_ASSERT_TRUE(ap_3c505_deliver_frame(&adapter, group, 8u, &out));
+
+  /* `100`, promiscuous: addressed here or not. */
+  adapter.receive_mode = 0x04u;
+  arm_receive(&adapter);
+  TEST_ASSERT_TRUE(ap_3c505_deliver_frame(&adapter, other, 8u, &out));
+}
+
+/* §3.2.2 `3FH`: status `0` is "no errors" and carries no failure data, so the
+ * data field is the status word alone. The three things `0FH` exercises -- a
+ * firmware ROM, adapter DRAM and an 82586 -- are none of them modelled here, so
+ * none of them can be faulty; passing is the determined answer, not a hopeful
+ * one. */
+static void test_the_self_test_reports_no_errors(void) {
+  ap_3c505_adapter_t adapter;
+  ap_3c505_adapter_init(&adapter, station);
+  const ap_3c505_pcb_t in = {.command = AP_3C505_CMD_SELF_TEST, .length = 0u};
+  ap_3c505_pcb_t out = {0};
+  TEST_ASSERT_TRUE(ap_3c505_dispatch(&adapter, &in, &out));
+  TEST_ASSERT_EQUAL_HEX8(0x3Fu, out.command);
+  TEST_ASSERT_EQUAL_HEX8(2u, out.length);
+  TEST_ASSERT_EQUAL_HEX8(0u, out.data[0]);
+  TEST_ASSERT_EQUAL_HEX8(0u, out.data[1]);
+}
+
+/* `09H` is accepted and answers nothing until the transmit completes, so
+ * "produced no response PCB" and "rejected" are different facts. Reading them
+ * as one would reject every transmit the host ever armed. */
+static void test_an_armed_transmit_is_accepted_though_it_answers_nothing(void) {
+  ap_3c505_adapter_t adapter;
+  ap_3c505_adapter_init(&adapter, station);
+  ap_3c505_pcb_t in = {.command = AP_3C505_CMD_TRANSMIT_PACKET, .length = 6u};
+  in.data[4] = 2u; /* packet length */
+  ap_3c505_pcb_t out = {0};
+
+  TEST_ASSERT_EQUAL_INT(AP_3C505_PCB_ACCEPTED,
+                        ap_3c505_execute(&adapter, &in, &out));
+  TEST_ASSERT_TRUE(adapter.transmitting);
+
+  /* Whereas a reserved code really is a rejection. */
+  const ap_3c505_pcb_t bad = {.command = 0x20u, .length = 0u};
+  TEST_ASSERT_EQUAL_INT(AP_3C505_PCB_REJECTED,
+                        ap_3c505_execute(&adapter, &bad, &out));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_card_answers_sixteen_locations_from_its_jumpered_base);
@@ -1289,5 +1434,9 @@ int main(void) {
   RUN_TEST(test_a_frame_longer_than_the_buffer_is_truncated_and_both_reported);
   RUN_TEST(test_a_queued_pcb_is_paced_out_by_the_host_taking_bytes);
   RUN_TEST(test_a_command_written_by_the_host_is_answered_by_the_adapter);
+  RUN_TEST(test_a_received_pcb_is_accepted_or_rejected_in_the_flags);
+  RUN_TEST(test_the_receive_mode_decides_which_frames_are_taken);
+  RUN_TEST(test_the_self_test_reports_no_errors);
+  RUN_TEST(test_an_armed_transmit_is_accepted_though_it_answers_nothing);
   return UNITY_END();
 }

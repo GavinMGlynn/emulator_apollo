@@ -4187,18 +4187,16 @@ discipline throughout.
 - [x] 3c505 802.3 controller, so Domain networking can also be checked against
       MAME the way MAME does it. *Verification: **the card's own firmware
       self-test passes** — `802.3 Network Controller-AT test passed.` — and the
-      host-interface oracle diff agrees at the instruction level: our 22 writes
-      to `058006` come from PCs `080382`/`080392`/`0803C2`/`0803C8`, which are
-      `entry_05`'s own instructions and are the PCs `ETHERNET.md` finding 10a
-      measured on the oracle before this model existed. MAME independently
-      configures I/O `300`, IRQ 10, DRQ 6 and drives its DMA request as
-      `HRDY && DMAE` (17, 17a, 18, 18a).*
+      host-interface oracle diff agrees at the instruction level, our 22 writes
+      to `058006` coming from the PCs `ETHERNET.md` finding 10a measured on the
+      oracle before this model existed; `etherlink_suite` 50 tests.*
       **One named approximation, `PROVISIONAL` in `ap_3c505.h`**: the adapter's
       power-on flag handshake is host-side, where MAME runs the card's real
-      80186. Cost to close is an 80186 alone — both firmware dumps are already
-      on disk (18c). **The audit then found §3.1.2's host→adapter half was never
-      wired**, and the test that appeared to cover it supplied the missing wiring
-      from the test body (`ETHERNET.md` 19, 19a). Detail in `PROJECT_STATUS.md`.
+      80186. Cost to close is an 80186 alone (18c).
+      **The line-by-line audit found six further defects**, the structural one
+      being that §3.1.2's host→adapter half was never wired and the test that
+      appeared to cover it supplied the missing wiring from its own body
+      (`ETHERNET.md` 19-24). Detail in `PROJECT_STATUS.md`.
   - [x] `src/core/device/ap_3c505.h`, the interface, transcribed from `[DEV]`
         §1.3.3 and §1.9: the five registers in sixteen I/O locations, the
         20-byte half duplex FIFO, the PCB's 64-byte limit, and the eleven named

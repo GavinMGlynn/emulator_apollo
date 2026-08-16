@@ -692,45 +692,41 @@ bool ap_3c505_deliver_frame(ap_3c505_adapter_t *adapter, const uint8_t *frame,
  * register. False when there is nothing left. */
 bool ap_3c505_receive_byte(ap_3c505_adapter_t *adapter, uint8_t *byte);
 
-/* Execute one request PCB. Returns true when a response PCB is produced --
- * `04`-`07` are the transfers that have none, and Table 1's two `n/a` response
- * codes are the same fact seen from the other side.
+/* ## Acceptance is not the same fact as a response
  *
- * Commands whose response format this project has not read are **refused**
- * rather than answered with invented contents; §3.1.1's `10` (rejected) is the
- * protocol's own way to say so. */
-bool ap_3c505_dispatch(ap_3c505_adapter_t *adapter, const ap_3c505_pcb_t *in,
-                       ap_3c505_pcb_t *out);
-
-
-/* `09H` armed the transmitter; feed it the bytes the host downloads. Returns
- * true when the last byte has arrived, at which point the frame has been handed
- * to the wire and `out` is the `39H` completion response. */
-bool ap_3c505_transmit_byte(ap_3c505_adapter_t *adapter, uint8_t byte,
-                            ap_3c505_pcb_t *out);
-
-/* A frame arriving from the wire. Returns true when a receive was armed and the
- * frame was accepted, at which point `out` is the `38H` response and the frame
- * is staged for the host to read through the data register.
+ * §3.1.1: "To indicate the acceptance of the PCB, the Adapter uses status flag
+ * state 01 after the Host signals end-of-PCB. To indicate rejection, the
+ * Adapter uses status state 10." §3.1.2 makes the host wait on it -- "Wait for
+ * adapter state 01 (accept) or 10 (reject). Assume a reject if a 50ms timeout
+ * occurs."
  *
- * "The number of bytes DMA'ed will not exceed the buffer length specified in
- * the receive packet command PCB 8H; extra packet data is discarded" -- so a
- * frame longer than the host's buffer is truncated rather than refused, and
- * `38H` reports the two lengths separately so the host can tell. */
-bool ap_3c505_deliver_frame(ap_3c505_adapter_t *adapter, const uint8_t *frame,
-                            unsigned length, ap_3c505_pcb_t *out);
+ * That is a *different* question from whether a response PCB follows, and
+ * conflating the two gets `09H` exactly backwards: "If the PCB is accepted, the
+ * Host should DMA download the packet data" -- accepted, with no response PCB
+ * until the transmit completes. A model that answered "no response" with `10`
+ * would reject every transmit the host ever armed. */
+typedef enum {
+  AP_3C505_PCB_REJECTED = 0, /* §3.1.1 `10`: unimplemented or malformed */
+  AP_3C505_PCB_ACCEPTED,     /* `01`, and no response PCB follows */
+  AP_3C505_PCB_ACCEPTED_RESPONSE, /* `01`, and `out` is the response */
+} ap_3c505_pcb_result_t;
 
-/* The staged received frame, a byte at a time, as the host reads the data
- * register. False when there is nothing left. */
-bool ap_3c505_receive_byte(ap_3c505_adapter_t *adapter, uint8_t *byte);
-
-/* Execute one request PCB. Returns true when a response PCB is produced --
- * `04`-`07` are the transfers that have none, and Table 1's two `n/a` response
- * codes are the same fact seen from the other side.
+/* Execute one request PCB, distinguishing the two above.
  *
- * Commands whose response format this project has not read are **refused**
- * rather than answered with invented contents; §3.1.1's `10` (rejected) is the
- * protocol's own way to say so. */
+ * Commands whose response this project cannot fill from the manuals are
+ * **refused** rather than answered with invented contents; §3.1.1's `10` is the
+ * protocol's own way to say so, and it is the honest answer for `0CH`, `0DH`,
+ * `0EH` and `11H` -- every field of their responses is a property of adapter
+ * memory, downloaded programs or firmware identity that this core does not
+ * model, and a paragraph count or a ROM checksum invented to fill one would be
+ * a number with no source. */
+ap_3c505_pcb_result_t ap_3c505_execute(ap_3c505_adapter_t *adapter,
+                                       const ap_3c505_pcb_t *in,
+                                       ap_3c505_pcb_t *out);
+
+/* Whether a response PCB was produced: the narrower question, kept because most
+ * callers ask only that. `04`-`07` are the transfers that have none, and Table
+ * 1's two `n/a` response codes are the same fact seen from the other side. */
 bool ap_3c505_dispatch(ap_3c505_adapter_t *adapter, const ap_3c505_pcb_t *in,
                        ap_3c505_pcb_t *out);
 
