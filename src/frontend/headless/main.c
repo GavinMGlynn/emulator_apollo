@@ -2180,15 +2180,47 @@ typedef struct {
 
 /* `\r` and `\n` are the only escapes: a prompt answer is a line, and anything
  * richer would be a language rather than a script. */
+static int console_script_hex_digit(char c) {
+  if (c >= '0' && c <= '9') {
+    return c - '0';
+  }
+  if (c >= 'a' && c <= 'f') {
+    return c - 'a' + 10;
+  }
+  if (c >= 'A' && c <= 'F') {
+    return c - 'A' + 10;
+  }
+  return -1;
+}
+
+/* `\r`, `\n` and `\xHH`.
+ *
+ * **The hex form is not a convenience.** The boot PROM's console selection is
+ * an *autobaud*: `000844`-`0008B8` matches the byte it read against `$FF`,
+ * `$FE`, `$C7`, `$72` and `$C0` -- the shapes a carriage return takes when
+ * sampled at the wrong rate -- and writes the matching clock select. None of
+ * those five is printable, so a script that can only say `\r` can only send
+ * `$0D`, which matches nothing and leaves the firmware polling forever. That is
+ * exactly what it did: eleven characters read, `RxRDY` clear, no console ever
+ * selected. */
 static void console_script_unescape(char *text) {
   char *out = text;
   for (const char *in = text; *in != '\0'; in++) {
-    if (*in == '\\' && in[1] == 'r') {
+    if (*in != '\\') {
+      *out++ = *in;
+      continue;
+    }
+    if (in[1] == 'r') {
       *out++ = '\r';
       in++;
-    } else if (*in == '\\' && in[1] == 'n') {
+    } else if (in[1] == 'n') {
       *out++ = '\n';
       in++;
+    } else if (in[1] == 'x' && console_script_hex_digit(in[2]) >= 0 &&
+               console_script_hex_digit(in[3]) >= 0) {
+      *out++ = (char)(console_script_hex_digit(in[2]) * 16 +
+                      console_script_hex_digit(in[3]));
+      in += 3;
     } else {
       *out++ = *in;
     }

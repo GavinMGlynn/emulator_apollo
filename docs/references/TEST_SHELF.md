@@ -100,9 +100,20 @@ Named so that the gap is visible rather than implied.
   against `$FF` and writes `#$BB`, which on the MC68681 is **CSR, the clock
   select** -- the PROM is trying baud rates against each character and
   discarding the ones it cannot read. So the blocker is not delivery but
-  **agreeing a rate**: the harness sends at the channel's current setting, so
-  the PROM's probe never converges. `--boot-input-rate` and the CSR sequence at
-  `000834` are where to take that next.
+  **speaking its language**. The table is at `000844`-`0008B8` and is fully
+  legible: the byte read is matched against `$FF` -> clock select `$BB`, `$FE`
+  -> `$99`, `$C7` -> `$88`, `$72` -> `$66` and `$C0` -> `$44`. Those five are
+  the shapes a carriage return takes when sampled at the *wrong* rate, and none
+  of them is printable -- so a console script that could only write `\r` could
+  only ever send `$0D`, which matches nothing. `send` now takes `\xHH`, and
+  with it **the autobaud fires**: the firmware reads `$FE`, writes `$99`, and
+  the channel's CSR changes from `77` to `99` for the first time.
+  Two characters are needed before MD exists and `0007F0` is why -- the first
+  is spent in the table above, and only the second, with bit 0 of `$158(a6)`
+  now set, reaches the console-selected path at `0007F8`. **What is still open**
+  is the handshake after the rate changes: the harness goes on sending at the
+  old setting, so the character that should select the console is not read as
+  one.
   The DEV BIT ARRAY is **not** what gates the tape: setting bit 1 `ctape`
   changes nothing, measured. The PROM does carry `Cartridge Tape  ` and
   `Ctape ERROR, SENSE BYTES = `, so the device is supported once selected.

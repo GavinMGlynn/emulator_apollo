@@ -465,6 +465,47 @@ full and the ring is not among them.
 PC as a single machine; `ctest` 138/138; identity boot unchanged at
 `A354786119A3931D`.*
 
+## The boot PROM's autobaud fires, and it wanted a byte we could not type
+## (2026-08-17)
+
+**`000844`-`0008B8` is an autobaud table, and reading it explained a loop that
+had swallowed every character sent to it.** The boot PROM matches the byte it
+read against five values and writes the matching MC68681 clock select:
+
+| byte read | clock select written |
+| --- | --- |
+| `$FF` | `$BB` |
+| `$FE` | `$99` |
+| `$C7` | `$88` |
+| `$72` | `$66`, deferred |
+| `$C0` | `$44`, deferred |
+
+Those are the shapes a carriage return takes when sampled at the **wrong** rate.
+A real console produces one because the wire and the receiver disagree; this
+core delivers the byte value cleanly, so the firmware read `$0D` every time,
+matched nothing, and polled forever — eleven characters in, none acted on.
+
+**None of the five is printable, and the console script could only say `\r` and
+`\n`.** So the harness was structurally unable to answer the firmware. `send`
+now takes `\xHH`, and with it the autobaud fires: the firmware reads `$FE`,
+writes `$99`, and serial 1 channel B's CSR changes from `77` to `99` for the
+first time. That is the mechanism working, not a workaround — the value written
+is the one the firmware's own table names for the byte it saw.
+
+**And `0007F0` confirms the "two characters before MD" rule from the other
+direction.** The first character is spent in the table above; only the second,
+with bit 0 of `$158(a6)` now set, falls through to the console-selected path at
+`0007F8`.
+
+**Still open**: the handshake after the rate changes. The harness goes on
+sending at the old setting, so the character that should select the console is
+not read as one. MD's `>` is still unreached, so `di c` cannot select the
+cartridge.
+
+*Verification: CSR `77` -> `99` on the channel typed at, matching the table's
+entry for the byte the firmware read; `ctest` 138/138; identity boot unchanged
+at `A354786119A3931D`.*
+
 ## `--boot-report` covers the channel you typed at (2026-08-17)
 
 **The report answered "why did my keystroke do nothing" about serial 1 channel
