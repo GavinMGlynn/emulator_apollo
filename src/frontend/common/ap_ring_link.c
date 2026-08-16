@@ -5,28 +5,69 @@
 
 #include <string.h>
 
-/* ## POSIX sockets, or a build that says it has none
+/* ## Sockets on three platforms, with no third-party carrier
  *
- * `<sys/socket.h>` and `<unistd.h>` are not Windows headers, and this project
- * builds on three platforms with `-Werror` -- so an unguarded include turned
- * the whole tree red on the Windows job while the other three were green. The
- * shape of the fix is `ap_png.c`'s: **compile either way and report which build
- * it is**, rather than dropping the file from one platform's target list, where
- * the absence is invisible until someone wonders why a flag does nothing.
+ * `<sys/socket.h>` and `<unistd.h>` are not Windows headers, and an unguarded
+ * include turned the whole tree red on the Windows job while the other three
+ * were green. The answer is **Winsock2**, which ships with the operating
+ * system: no dependency to vendor, nothing to pin in `ext/`, and no licence
+ * carve-out to add for a facility the platform already provides.
  *
- * Winsock would work here -- the wire format is bytes and the lock-step is not
- * POSIX-specific -- and is deliberately not written blind: this project has no
- * Windows machine to run it on, and an untested carrier that silently
- * desynchronises two rings is worse than one that refuses. `AP_RING_LINK_HAVE`
- * says which build this is. */
+ * The port is small because the format is bytes and the lock-step is not
+ * POSIX-specific. `send` and `recv` exist on **both** platforms with the same
+ * shape, so they are used everywhere rather than `write`/`read`, and what is
+ * left differs in four places only:
+ *
+ *   - the headers, and `WSAStartup`, which Winsock requires before any call
+ *     and which is done once, lazily, on the first `init`;
+ *   - the descriptor: Windows `SOCKET` is unsigned and its invalid value is
+ *     `INVALID_SOCKET`, not `-1`. The public type stays `int` because a caller
+ *     lends a descriptor it already owns, and the check is `< 0` either way on
+ *     the platforms this builds for;
+ *   - the interrupted-call code, `WSAEINTR` against `EINTR`;
+ *   - `MSG_NOSIGNAL`, which exists to stop a closed peer raising `SIGPIPE` and
+ *     killing the process. Windows raises no such signal, so the flag is
+ *     absent there and needed nowhere else.
+ *
+ * `ap_ring_link_available` still exists and is now true on every supported
+ * platform. It stays because a build *could* lack a carrier -- and because a
+ * caller reporting "this build has none" is better than one discovering it
+ * from a ring that never forms.
+ */
 #if defined(_WIN32)
-#define AP_RING_LINK_HAVE 0
+#define AP_RING_LINK_HAVE 1
+#include <winsock2.h>
+#define AP_LINK_EINTR WSAEINTR
+#define ap_link_errno() WSAGetLastError()
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
 #else
 #define AP_RING_LINK_HAVE 1
 #include <errno.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#define AP_LINK_EINTR EINTR
+#define ap_link_errno() errno
 #endif
+
+/* Winsock refuses every call until the library is started, and starting it
+ * twice is harmless but leaking the startup is not the frontend's business --
+ * a process that opened a ring link keeps it for its lifetime, so this is done
+ * once and never torn down. On POSIX it compiles to nothing. */
+static bool link_platform_ready(void) {
+#if defined(_WIN32)
+  static bool started = false;
+  if (!started) {
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
+      return false;
+    }
+    started = true;
+  }
+#endif
+  return true;
+}
 
 #if AP_RING_LINK_HAVE
 
@@ -54,25 +95,32 @@
  * assertion in the test that closes the peer.
  *
  * `MSG_NOSIGNAL` asks for `EPIPE` instead, which the caller turns into a failed
- * link. It is a socket flag, so a caller who lent a *pipe* rather than a socket
- * falls back to `write` -- and on that path the signal is theirs to mask, which
- * the header says. */
-static ssize_t write_once(int fd, const uint8_t *bytes, size_t len) {
-#ifdef MSG_NOSIGNAL
-  const ssize_t n = send(fd, bytes, len, MSG_NOSIGNAL);
-  if (n >= 0 || errno != ENOTSOCK) {
-    return n;
-  }
+ * link. Windows raises no such signal and defines the flag as zero here, so the
+ * same call is correct on both. */
+/* `send`/`recv` take a `size_t` length on POSIX and an `int` on Winsock, so
+ * the cast is platform-specific rather than one or the other -- `-Wconversion`
+ * catches the wrong choice, which is how this was found. A batch is at most 64
+ * bytes, so neither type can lose anything. */
+#if defined(_WIN32)
+typedef int ap_link_len_t;
+#else
+typedef size_t ap_link_len_t;
 #endif
-  return write(fd, bytes, len);
+
+static long link_send_once(int fd, const uint8_t *bytes, size_t len) {
+  return (long)send(fd, (const char *)bytes, (ap_link_len_t)len, MSG_NOSIGNAL);
+}
+
+static long link_recv_once(int fd, uint8_t *bytes, size_t len) {
+  return (long)recv(fd, (char *)bytes, (ap_link_len_t)len, 0);
 }
 
 static bool write_all(int fd, const uint8_t *bytes, size_t len) {
   size_t done = 0u;
   while (done < len) {
-    const ssize_t n = write_once(fd, bytes + done, len - done);
+    const long n = link_send_once(fd, bytes + done, len - done);
     if (n < 0) {
-      if (errno == EINTR) {
+      if (ap_link_errno() == AP_LINK_EINTR) {
         continue;
       }
       return false;
@@ -88,9 +136,9 @@ static bool write_all(int fd, const uint8_t *bytes, size_t len) {
 static bool read_all(int fd, uint8_t *bytes, size_t len) {
   size_t done = 0u;
   while (done < len) {
-    const ssize_t n = read(fd, bytes + done, len - done);
+    const long n = link_recv_once(fd, bytes + done, len - done);
     if (n < 0) {
-      if (errno == EINTR) {
+      if (ap_link_errno() == AP_LINK_EINTR) {
         continue;
       }
       return false;
@@ -105,7 +153,7 @@ static bool read_all(int fd, uint8_t *bytes, size_t len) {
 
 bool ap_ring_link_init(ap_ring_link_t *link, int fd, unsigned cable_bits) {
   if (link == NULL || fd < 0 || cable_bits == 0u ||
-      cable_bits > AP_RING_MAX_CABLE_BITS) {
+      cable_bits > AP_RING_MAX_CABLE_BITS || !link_platform_ready()) {
     return false;
   }
   link->fd = fd;

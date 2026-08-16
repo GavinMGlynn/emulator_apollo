@@ -16,4 +16,11 @@ else()
   message(STATUS "apollo: no libpng found; --screenshot will report so")
 endif()
 
+# The ring link's carrier. POSIX sockets need no library; Winsock2 does, and
+# it ships with the platform -- no submodule to pin and no licence carve-out,
+# which is why `ap_ring_link.c` uses it rather than a vendored transport.
+if(WIN32)
+  target_link_libraries(apollo_frontend_common PUBLIC ws2_32)
+endif()
+
 apollo_set_warnings(apollo_frontend_common)

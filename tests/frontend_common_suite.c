@@ -518,9 +518,16 @@ static void test_opening_a_missing_tap_device_explains_itself(void) {
  * test needs no port, no network and no second process -- what it exercises is
  * the wire format and the lock-step, which is all the transport is. */
 
-/* Whether this build can open a socket pair. The carrier itself reports the
- * same thing through `ap_ring_link_available`, and the bounds test below runs
- * everywhere because it opens nothing. */
+/* **The carrier works on every supported platform; `socketpair` does not.**
+ *
+ * Winsock has no `socketpair`, so these two tests are POSIX-only -- and that is
+ * a limit of the *test*, not of the transport, which Windows reaches through
+ * Winsock2 like everything else. Saying so here matters: a reader who found
+ * `TEST_IGNORE` on the Windows job could reasonably conclude the link itself
+ * was absent there, which was true for exactly one commit.
+ *
+ * The bounds test below runs everywhere, because it opens nothing, and it
+ * asserts `ap_ring_link_available` -- which is now true on all three. */
 #if defined(_WIN32)
 #define AP_TEST_HAVE_SOCKETPAIR 0
 #else
@@ -624,9 +631,11 @@ static void test_a_ring_links_batch_is_bounded_by_the_longest_cable(void) {
   TEST_ASSERT_FALSE(ap_ring_link_init(&link, 1, AP_RING_MAX_CABLE_BITS + 1u));
   TEST_ASSERT_TRUE(ap_ring_link_init(&link, 1, AP_RING_MAX_CABLE_BITS));
   TEST_ASSERT_FALSE(ap_ring_link_init(&link, -1, 8u));
-  /* And a build with no carrier says so rather than failing obscurely later. */
-  TEST_ASSERT_EQUAL_INT(AP_TEST_HAVE_SOCKETPAIR ? 1 : 0,
-                        ap_ring_link_available() ? 1 : 0);
+  /* The carrier is available on every supported platform -- POSIX sockets on
+   * Linux and macOS, Winsock2 on Windows. Asserted unconditionally, so a
+   * platform that lost its carrier fails here rather than in a ring that will
+   * not form. */
+  TEST_ASSERT_TRUE(ap_ring_link_available());
 }
 
 int main(void) {
