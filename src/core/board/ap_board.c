@@ -111,12 +111,73 @@ static const ap_board_map_t DS3000_MAP = {
     .address_mask = 0x07FFFFFFu,
 };
 
+/* The Series 2500's map, **recovered from `2500_BOOT_16182_8` and nothing
+ * else**: no manual on disk covers a Series 2500, `[S3K]` being Series
+ * 3000/4000 and `[EH]` Rev 4 predating the machine. Detail and the census in
+ * `PROJECT_STATUS.md`.
+ *
+ * Two facts shape it. The PROM region is **128 K**, proved by the image's own
+ * self-checksum bounds and its `0001F040` reset PC, and the core device block
+ * therefore starts at `020000` -- the byte after it -- which is the same rule
+ * the other two families follow: a 32 K PROM and devices at `008000`, a 64 K
+ * PROM and devices at `010000`, a 128 K PROM and devices at `020000`. Inside
+ * the block every offset is the Series 4000's, confirmed against the six
+ * addresses the firmware references absolutely, and the reset sequence's first
+ * three writes to `$20800` are the posted-code pattern the DN3500 writes to
+ * `$010800`.
+ *
+ * **What is deliberately absent is as important as what is here.** No disk, no
+ * floppy, no tape: this machine's storage is SCSI through a chip its own error
+ * messages call the `C90`, and its display a `VTGA` with a frame buffer -- both
+ * named by the PROM's strings, neither an AT card, and neither modelled. The
+ * Series 4000's OMTI placements carried across would be wrong addresses for
+ * peripherals this machine does not have. Its ISA `140`/`148` are a **PC/AT bus
+ * tester**, a diagnostic fixture the PROM knows how to drive rather than a card
+ * a shipping machine carries, so they are not here either.
+ *
+ * So this map is what has been measured, and a boot will run out of it at the
+ * first thing it wants that is not. That is the honest shape for a machine
+ * whose peripherals are a different generation's. */
+static const ap_board_placement_t DS2500_PLACEMENT[] = {
+    {0x000000u, 0x020000u, AP_BOARD_REGION_PROM, AP_BOARD_PROM_BASE},
+    {0x020200u, 2u * AP_BOARDREG_RANGE, AP_BOARD_REGION_CORE_REGISTER,
+     AP_BOARDREG_CPU_STATUS_ADDR},
+    {0x020400u, 2u * AP_SIO_RANGE, AP_BOARD_REGION_SIO, AP_SIO1_ADDR},
+    {0x020800u, AP_TIMER_RANGE, AP_BOARD_REGION_TIMER, AP_TIMER_ADDR},
+    {0x020900u, AP_CALENDAR_RANGE, AP_BOARD_REGION_CALENDAR, AP_CALENDAR_ADDR},
+    {0x020C00u, 2u * AP_DMA_RANGE, AP_BOARD_REGION_DMA, AP_DMA1_ADDR},
+    {0x021000u, 2u * AP_INTR_RANGE, AP_BOARD_REGION_INTERRUPT,
+     AP_INTR_MASTER_ADDR},
+    {0x021200u, AP_NODEID_RANGE, AP_BOARD_REGION_NODE_ID, AP_NODEID_ADDR},
+};
+
+/* `[CFG]` p. A-11 gives 4-16 MB, and the firmware sizes it: `OR.L
+ * #$04000000,D1` at `$1F49A` puts the base in, and `ANDI.L #$04FFFFFF,D1` at
+ * `$1F4CE` masks the walk -- a 16 MB region at `04000000`. */
+static const ap_board_map_t DS2500_MAP = {
+    .name = "DS2500",
+    .placement = DS2500_PLACEMENT,
+    .placements = sizeof DS2500_PLACEMENT / sizeof DS2500_PLACEMENT[0],
+    .ram_base = 0x04000000u,
+    .ram_limit = 0x04FFFFFFu,
+    .prom_size = 0x020000u,
+    .has_translation_map = false,
+    .address_mask = 0xFFFFFFFFu,
+};
+
 const ap_board_map_t *ap_board_map_for(ap_model_id_t model) {
   const ap_model_t *entry = ap_model_by_id(model);
   /* The map follows the *translation map* feature, which is the one difference
    * the model table already records and which `019411-A00` §4.2.1.4 enumerates
    * by name: DS3500, DS4000, DS4500, DS5500 have it and a DS3000 does not. So
    * this asks the table rather than listing models again here. */
+  /* The Series 2500 is its own family and cannot be told from the flags: it
+   * has no translation map, like a DS3000, but its device block is at `020000`
+   * rather than `008000` and its PROM is four times the size. So this one is
+   * by model, and says why rather than looking like an oversight. */
+  if (model == AP_MODEL_DN2500) {
+    return &DS2500_MAP;
+  }
   if (entry != NULL && !entry->has_address_translation_map) {
     return &DS3000_MAP;
   }

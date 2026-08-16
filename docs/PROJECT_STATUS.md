@@ -20429,6 +20429,50 @@ reports `disk sidecar ... 464 bytes` beside the disk line. The defect-injection
 behaviour itself is `omti_suite`'s, and was already covered there; what was
 untested and is now wired is the frontend's half.*
 
+## The DN2500 boots its own PROM, and stops at a named poll
+
+The map recovered from `2500_BOOT_16182_8` is now a `DS2500_MAP` beside the
+DS3000's and DS4000's, and the machine runs. Before this the frontend answered
+`does not fit the boot PROM region`: the image is 128 K and every modelled
+region was 64 K.
+
+**What the map contains is only what was measured.** The PROM region is 128 K,
+which puts the core device block at `020000` -- the byte after it, the same rule
+the other two families follow (32 K PROM / `008000`, 64 K / `010000`, 128 K /
+`020000`) -- with the Series 4000's own offsets inside it, and RAM at
+`04000000`. **What it omits matters as much**: no disk, floppy or tape, because
+this machine's storage is SCSI through a chip its own error strings call the
+`C90` and its display a `VTGA`, neither an AT card and neither modelled; and
+nothing at ISA `140`/`148`, which are a PC/AT bus-tester fixture rather than a
+peripheral.
+
+**The machine now starts from the firmware's own numbers** -- reset SSP
+`040007D0`, reset PC `0001F040`, both of which this project recovered from the
+image before it could run one -- and executes.
+
+**And it stops somewhere precise, which is the point of getting this far.**
+`$1F078`-`$1F086` is a two-instruction loop: write `#$1` to **`$202D4`**, read
+it back, and spin unless the low nibble reads `1`. Our map sends `0202D4` to the
+Series 4000's `0102D4`, which `019411-A00` Table 2-5 calls the CACHE STATUS
+REGISTER and which this core models from a DN3500 measurement: **only bit 7 is
+storage**, the rest a fixed pattern. So write-1-read-1 cannot hold and the loop
+never exits.
+
+That is the map's own caveat arriving on schedule rather than a defect. The
+firmware uses `2C0`, `2CC`, `2D0`, `2D4` and `2D8` as *distinct* offsets inside
+a range the Series 4000 aliases across 256 bytes, which is already evidence the
+block is not simply the Series 4000's -- and the read-back settles it.
+
+**Deliberately not fixed by making the cache register read back its writes.**
+That value is a DN3500 measurement and the reference machine depends on it; a
+DN2500 core-register model is its own item, and inventing one here to clear a
+poll is precisely the parameter search `CLAUDE.md` forbids. The next question is
+what `$202D4` is on this board, and the route is the one that produced the rest
+of this map.
+
+*Verification: ctest 137/137, and the reference identity boot is unchanged --
+the map is selected by model, so no other machine sees it.*
+
 ## The DN2500's memory map, recovered from its own firmware
 
 The firmware sweep left the Series 2500 unable to run at all: a 128 K boot PROM
