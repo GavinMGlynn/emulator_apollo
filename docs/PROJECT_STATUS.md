@@ -20107,6 +20107,44 @@ display-fitted run needs `--screenshot`.
 *Verification: `frontend_flags` 13 → 16, `ctest` 129/129, every golden
 unchanged, and the DN3500 30 M hash unchanged across the memory-sizing change.*
 
+## The `.awd` sidecar was built, tested, and never attached to a disk
+
+Found by the sweep that opened the ethernet and ring audits -- what is exported
+and called by nobody -- run across the whole of `src/core` this time.
+`ap_awd_attach_meta` came back **definition-only in the product**: declared in
+`ap_awd.h`, defined in `ap_awd.c`, exercised five times in `awd_suite`, and
+called from **no frontend at all**.
+
+Everything on both sides of it was already right. `ap_omti.c` consults all four
+accessors -- `ap_awd_flags` for `05 READ`'s bad-sector check, `ap_awd_set_flags`
+for `0E ASSIGN ALTERNATE`, `ap_awd_ecc` for `E5 READ LONG` and `ap_awd_set_ecc`
+for `EA WRITE LONG` -- and `AWD_META.md` specifies the file down to the seven
+bytes per sector. Only the wire that gives an image its sidecar was missing, so
+`image->meta` was NULL on every run that has ever been made and the four
+behaved as their documented no-sidecar defaults: **every sector defect-free,
+every ECC field zero, and every attempt to record either silently discarded**.
+
+That is the third instance of this exact shape this month, after the ring's
+frame layer and the 3c505's host command path, and the first found by sweeping
+rather than by auditing one module against its manual.
+
+**Fixed as `AWD_META.md` specifies it**, which is by *discovery* rather than by
+a flag: the document says the file is `<image>.awdmeta`, beside `<image>.awd`,
+and optional. So a fitted disk now looks for its sidecar and attaches one if it
+is there, absence being a defect-free surface rather than an error --- and
+`--disk-meta FILE` overrides the search for an image whose sidecar lives
+elsewhere. It is **not written back**, for the reason the image is not: the
+machine gets a private copy that behaves like hardware and the user's files are
+left alone, and persisting a defect list while discarding the data it describes
+would be worse than persisting neither.
+
+*Verification: `check_frontend_flags.py` 16 -> 17 named entries; ctest 137/137.
+Attachment confirmed on the real path -- a hand-built sidecar over
+`dn3500-sr10.4-installed.awd`, one sector flagged bad with six ECC bytes,
+reports `disk sidecar ... 464 bytes` beside the disk line. The defect-injection
+behaviour itself is `omti_suite`'s, and was already covered there; what was
+untested and is now wired is the frontend's half.*
+
 ## The DN2500's memory map, recovered from its own firmware
 
 The firmware sweep left the Series 2500 unable to run at all: a 128 K boot PROM

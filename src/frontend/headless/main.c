@@ -316,6 +316,11 @@ static void print_usage(const char *program_name) {
   fprintf(stdout,
           "  --screenshot FILE     scan the fitted screen out to a PNG\n"
           "  --disk FILE           fit a Winchester (.awd) to the boot\n"
+          "  --disk-meta FILE      its sidecar: the per-sector ID-field flags\n"
+          "                        and ECC bytes .awd has nowhere to store, so\n"
+          "                        bad sectors and READ/WRITE LONG have a\n"
+          "                        source. Without one every sector is\n"
+          "                        defect-free. Not written back\n"
           "  --calendar-ram FILE   the calendar's battery-backed RAM, loaded at\n"
           "                        reset and written back at the end: fifty bytes\n"
           "                        of configuration, and not the clock. A missing\n"
@@ -1178,6 +1183,10 @@ static uint8_t *g_option_rom = NULL;
 static const char *g_ethernet_rom_path = NULL;
 static uint8_t *g_ethernet_rom = NULL;
 static uint32_t g_ethernet_rom_bytes = 0;
+/* The Winchester's sidecar: per-sector ID-field flags and ECC bytes, which the
+ * `.awd` format itself has nowhere to put. `AWD_META.md` gives the layout. */
+static const char *g_disk_meta_path = NULL;
+static uint8_t *g_disk_meta = NULL;
 static bool g_ring_selftest = false;
 
 /* How often a live wire is polled, in instructions. A frontend choice with no
@@ -2532,6 +2541,56 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     }
     ap_omti_attach(&board->disk.controller, &disk_image);
     printf("disk %s, %ld bytes\n", disk_path, disk_size);
+
+    /* ## The sidecar, without which every sector is defect-free
+     *
+     * `.awd` stores sector *data* and nothing else, so a disk's ID-field flags
+     * and its six ECC bytes per sector have nowhere to live -- and those are
+     * what `05 READ`'s bad-sector check, `0E ASSIGN ALTERNATE`, `E5 READ LONG`
+     * and `EA WRITE LONG` all work on. `ap_omti.c` reads and writes them
+     * through `ap_awd_flags`/`ap_awd_ecc` already; what was missing was any way
+     * to *give* an image one, so `image->meta` was always NULL and the four
+     * behaved as their no-sidecar defaults: every sector defect-free, every ECC
+     * field zero, and every attempt to record either silently discarded.
+     *
+     * Not written back, for the same reason the disk image is not: the machine
+     * gets a private copy that behaves like hardware, and the user's files are
+     * left alone. Persisting the defect list while discarding the data it
+     * describes would be worse than persisting neither. */
+    /* `AWD_META.md` names the file `<image>.awdmeta`, beside `<image>.awd`, and
+     * calls it optional -- so it is looked for rather than asked for, and its
+     * absence is a defect-free surface rather than an error. `--disk-meta`
+     * overrides the search for an image whose sidecar lives elsewhere. */
+    char derived[4096];
+    const char *meta_path = g_disk_meta_path;
+    if (meta_path == NULL) {
+      const size_t n = strlen(disk_path);
+      const size_t stem =
+          (n > 4u && strcmp(disk_path + n - 4u, ".awd") == 0) ? n - 4u : n;
+      if (stem + sizeof ".awdmeta" <= sizeof derived) {
+        memcpy(derived, disk_path, stem);
+        memcpy(derived + stem, ".awdmeta", sizeof ".awdmeta");
+        FILE *probe = fopen(derived, "rb");
+        if (probe != NULL) {
+          (void)fclose(probe);
+          meta_path = derived;
+        }
+      }
+    }
+    if (meta_path != NULL) {
+      long meta_size = 0;
+      g_disk_meta = read_file(meta_path, &meta_size);
+      if (g_disk_meta == NULL) {
+        fprintf(stderr, "apollo: cannot read disk sidecar %s\n", meta_path);
+        return 1;
+      }
+      if (!ap_awd_attach_meta(&disk_image, g_disk_meta, (size_t)meta_size)) {
+        fprintf(stderr, "apollo: %s is not an Apollo Winchester sidecar\n",
+                meta_path);
+        return 1;
+      }
+      printf("disk sidecar %s, %ld bytes\n", meta_path, meta_size);
+    }
   }
 
   /* The calendar's battery. `008778-03` §3.6: the chip "has a backup battery to
@@ -4576,6 +4635,11 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--disk") == 0 && i + 1 < argc) {
       disk_path = argv[i + 1];
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--disk-meta") == 0 && i + 1 < argc) {
+      g_disk_meta_path = argv[i + 1];
       i += 2;
       continue;
     }
