@@ -4637,16 +4637,21 @@ Nothing is deferred silently. Current list:
   explicitly non-deterministic mode, documented as such, owning no goldens.
 - `.ecm` and other formats we will not support — document the refusal when the
   media layer lands.
-- **DN3550** (Series 3550) — discovered in `[CFG]`: a 68030 @ 25 MHz machine
-  with the DN3500's CPU and a wider graphics menu (19" colour 1280×1024, 19"
-  colour 1024×800, 19" mono 1280×1024, 15" colour 1024×800). Not added to the
-  table yet because its only known difference from DN3500 is display options,
-  which nothing models until Phase 5. Add it there.
+- ~~**DN3550** (Series 3550)~~ — **done**, Phase 5 having closed. `dn3550` and
+  `dsp3550` are in the table from `[CFG]` pp. D-77/78 and D-96/97: the DN3500's
+  68030 and 68882 at 25 MHz, 8/16 MB to 32 MB, and the 19-inch 1280×1024
+  monochrome panel that is the one thing distinguishing it. Detail in
+  `PROJECT_STATUS.md`.
 - **DN4000** (and DN3000-to-DN2500 / DN3500-to-DN4500 upgrade paths) —
   `[CFG]` documents DN4000 as the prior-generation 68020 sibling of DN3000. Not
   in the agreed scope and not in MAME; revisit only if the 68020 path proves it
   cheap.
-- **Display variants as first-class configurations** — the table currently names
-  each model's base monochrome panel only. MAME models variants as separate
-  machines (`dn3500`, `dn3500_19i`, colour). Decide the representation in
-  Phase 5, not before.
+- ~~**Display variants as first-class configurations**~~ — **decided**, Phase 5
+  having closed, and the decision is the one already built: a display is a
+  **run-time option** (`--screen c4p|c8p|19i|15i`) over a model row that names
+  the machine's *base* panel, not a separate model per panel. MAME's
+  `dn3500`/`dn3500_19i` split is rejected: the panel is a purchase option in
+  `[CFG]`'s own option lists (Opt. DM0, Opt. FM2), and a table row per
+  combination would multiply nine models by four panels to describe one field.
+  The DN3550 is a model rather than a DN3500 variant for the opposite reason —
+  `[CFG]` sells it as its own machine with its own ordering number.

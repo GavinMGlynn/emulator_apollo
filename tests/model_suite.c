@@ -294,8 +294,9 @@ static void test_a_headless_variant_is_its_workstation_in_every_board_respect(
     TEST_ASSERT_EQUAL_INT(AP_DISPLAY_NONE, m->display);
     TEST_ASSERT_NOT_EQUAL_INT(AP_DISPLAY_NONE, b->display);
   }
-  /* Four headless variants, so a row silently losing its relation fails. */
-  TEST_ASSERT_EQUAL_UINT(4u, derived);
+  /* Five headless variants -- the DSP3550 joined with its workstation -- so a
+   * row silently losing its relation still fails. */
+  TEST_ASSERT_EQUAL_UINT(5u, derived);
 }
 
 int main(void) {

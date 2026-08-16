@@ -304,6 +304,21 @@ bool ap_sio_ram_config_byte(ap_model_id_t model, uint32_t ram_bytes,
       {AP_MODEL_DN3500, 24u, 0x04u},  /* 8-8-4-4 */
       {AP_MODEL_DN3500, 28u, 0x24u},  /* 8-8-8-4 */
       {AP_MODEL_DN3500, 32u, 0x20u},  /* 8-8-8-8 */
+      /* The DN3550 is a Series 3500 machine -- `[CFG]` p. D-77 opens "The
+         Domain Series 3500 Model 3550" -- and runs the same fourteen-arm chain,
+         so it strap for strap matches the rows above it. It needs its own rows
+         because the lookup keys on the board, and a workstation is its own
+         board. Without them it would go out unstrapped and the firmware would
+         read the port's `00` as twenty megabytes, which is exactly how the
+         DN4500 used to fail its memory self-test. */
+      {AP_MODEL_DN3550, 4u, 0x54u},   /* 4-0-0-0 */
+      {AP_MODEL_DN3550, 8u, 0x64u},   /* 4-4-0-0 */
+      {AP_MODEL_DN3550, 12u, 0x50u},  /* 4-4-4-0 */
+      {AP_MODEL_DN3550, 16u, 0x60u},  /* 4-4-4-4 */
+      {AP_MODEL_DN3550, 20u, 0x10u},  /* 8-4-4-4 */
+      {AP_MODEL_DN3550, 24u, 0x04u},  /* 8-8-4-4 */
+      {AP_MODEL_DN3550, 28u, 0x24u},  /* 8-8-8-4 */
+      {AP_MODEL_DN3550, 32u, 0x20u},  /* 8-8-8-8 */
       {AP_MODEL_DN4500, 4u, 0x54u},   /* 4-0-0-0 */
       {AP_MODEL_DN4500, 8u, 0x64u},   /* 4-4-0-0 */
       {AP_MODEL_DN4500, 12u, 0x50u},  /* 4-4-4-0 */

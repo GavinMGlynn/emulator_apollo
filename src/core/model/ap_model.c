@@ -93,6 +93,48 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .has_active_low_parity_lanes = true,
         .provisional = nullptr,
     },
+    [AP_MODEL_DN3550] = {
+        .id = AP_MODEL_DN3550,
+        /* Its own board. `board_of` is not "shares a board family" -- it is
+         * "is the headless variant of", which `model_suite` asserts outright:
+         * a machine with a display that pointed elsewhere would be saying its
+         * own row is not the authority on itself. The first draft of this entry
+         * borrowed the DN3500's board to inherit its memory strap and the
+         * invariant caught it; the strap rows are added to
+         * `ap_sio_ram_config_byte` instead, which is what the DN4500 needed for
+         * the same reason. */
+        .board_of = AP_MODEL_DN3550,
+        .name = "dn3550",
+        .description = "DN3550 workstation, DN3500 board with the 19-inch panel",
+        /* "CPU: MC68030, clocked at 25 MHz" and "Floating Point Processor:
+         * MC68882 clocked at 25 MHz, is standard" -- [CFG] Model 3550
+         * Monochrome Workstation, p. D-77, and its Product Summary p. D-78
+         * repeats both in the ordering line "32-bit MC68030 25 MHz CPU with
+         * MC68882 25 MHz Floating Point Processor". Identical to the DN3500. */
+        .cpu = AP_CPU_M68030,
+        .cpu_hz = 25000000u,
+        .mmu = AP_MMU_M68030,
+        .fpu = AP_FPU_M68882,
+        /* **The one thing that differs from a DN3500**, and it is the reason
+         * this model waited for Phase 5: "Monitor: 19-inch 1280 by 1024 inch,
+         * Monochrome Monitor" (p. D-77), with Opt. DM0 "1280 by 1024
+         * monochrome graphics controller" and Opt. FM2 the 19-inch display.
+         * The DN3500's base panel is the 15-inch 1024x800. */
+        .display = AP_DISPLAY_MONO_1280X1024,
+        /* MAME registers no 3550 of any kind, so there is nothing to diff
+         * against and every figure here is the configuration guide's. */
+        .oracle = AP_ORACLE_PAPER_ONLY,
+        .ram_base = 0x1000000u,
+        /* "RAM: 8-MB or 16-MB parity, expandable to 32-MB" -- p. D-77, with
+         * Opt. H02 and H04 as the two base sizes. */
+        .ram_max_bytes = 0x2000000u,
+        /* Opt. G01 "Apollo Token Ring network controller" is on its options
+         * list, exactly as the DN3500's is. */
+        .has_ring = true,
+        .has_address_translation_map = true,
+        .has_active_low_parity_lanes = true,
+        .provisional = nullptr,
+    },
     [AP_MODEL_DN4500] = {
         .id = AP_MODEL_DN4500,
         .board_of = AP_MODEL_DN4500,
@@ -167,6 +209,29 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .fpu = AP_FPU_M68882,
         .display = AP_DISPLAY_NONE,
         .oracle = AP_ORACLE_MAME,
+        .ram_base = 0x1000000u,
+        .ram_max_bytes = 0x2000000u,
+        .has_ring = true,
+        .has_address_translation_map = true,
+        .has_active_low_parity_lanes = true,
+        .provisional = nullptr,
+    },
+    [AP_MODEL_DSP3550] = {
+        .id = AP_MODEL_DSP3550,
+        .board_of = AP_MODEL_DN3550,
+        .name = "dsp3550",
+        .description = "DSP3550 headless server, DN3550 board without display",
+        /* `[CFG]` Model 3550 Server, p. D-96: the same processor-I/O board as
+         * the workstation -- "MC68030, clocked at 25 MHz", "MC68882 clocked at
+         * 25 MHz, is standard", "8-MB or 16-MB parity, expandable to 32-MB" --
+         * and its Product Summary p. D-97 repeats the ordering line. The page
+         * lists no monitor at all, which is what makes it the server. */
+        .cpu = AP_CPU_M68030,
+        .cpu_hz = 25000000u,
+        .mmu = AP_MMU_M68030,
+        .fpu = AP_FPU_M68882,
+        .display = AP_DISPLAY_NONE,
+        .oracle = AP_ORACLE_PAPER_ONLY,
         .ram_base = 0x1000000u,
         .ram_max_bytes = 0x2000000u,
         .has_ring = true,

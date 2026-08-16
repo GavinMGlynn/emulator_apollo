@@ -2,10 +2,12 @@ model     cpu     clock     mmu              display         oracle  ram
 dn2500    68030   20 MHz    68030 on-chip    mono 1024x800   paper   16 MB @ 0x04000000  PROVISIONAL
 dn3000    68020   12 MHz    68851 external   mono 1024x800   mame    8 MB @ 0x00100000
 dn3500    68030   25 MHz    68030 on-chip    mono 1024x800   mame    32 MB @ 0x01000000
+dn3550    68030   25 MHz    68030 on-chip    mono 1280x1024  paper   32 MB @ 0x01000000
 dn4500    68030   33 MHz    68030 on-chip    mono 1280x1024  paper   32 MB @ 0x01000000
 dn5500    68040   25 MHz    68040 on-chip    mono 1024x800   mame    32 MB @ 0x01000000
 dsp3000   68020   12 MHz    68851 external   headless        mame    8 MB @ 0x00100000
 dsp3500   68030   25 MHz    68030 on-chip    headless        mame    32 MB @ 0x01000000
+dsp3550   68030   25 MHz    68030 on-chip    headless        paper   32 MB @ 0x01000000
 dsp4500   68030   33 MHz    68030 on-chip    headless        paper   32 MB @ 0x01000000
 dsp5500   68040   25 MHz    68040 on-chip    headless        mame    32 MB @ 0x01000000
 

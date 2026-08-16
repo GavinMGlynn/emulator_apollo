@@ -20107,6 +20107,51 @@ display-fitted run needs `--screenshot`.
 *Verification: `frontend_flags` 13 → 16, `ctest` 129/129, every golden
 unchanged, and the DN3500 30 M hash unchanged across the memory-sizing change.*
 
+## Two more models, and the display-variant question settled
+
+Phase 5 closed with no open items, which released the two deferred tails that
+were waiting on it.
+
+**`dn3550` and `dsp3550` are in the table**, from `[CFG]` pp. D-77/78 and
+D-96/97 read as page images. The workstation is the DN3500's machine in every
+respect the board decides -- "MC68030, clocked at 25 MHz", "MC68882 clocked at
+25 MHz, is standard", "8-MB or 16-MB parity, expandable to 32-MB" -- and differs
+in exactly one field: "Monitor: 19-inch 1280 by 1024 inch, Monochrome Monitor",
+where the DN3500's base panel is the 15-inch 1024x800. That single difference is
+why the model waited for Phase 5. The server page lists the same processor board
+and no monitor at all, which is what makes it the server. MAME registers no 3550
+of any kind, so both are `paper` and every figure is the guide's.
+
+**`model_suite` caught a real error in the first draft**, which is worth keeping
+because the invariant is subtle. `board_of` had been set to `AP_MODEL_DN3500` to
+inherit the DN3500's memory-strap rows -- but `board_of` does not mean "shares a
+board family", it means "**is the headless variant of**", and the suite asserts
+that a machine with a display is its own board: "a workstation that pointed at
+another machine's board would be saying its own row is not the authority on
+itself." The correct fix is the one the DN4500 needed: its own strap rows in
+`ap_sio_ram_config_byte`, the same fourteen-arm chain, because the lookup keys
+on the board and a workstation is its own. Without them the DN3550 would have
+gone out unstrapped and the firmware would have read the port's `00` as twenty
+megabytes -- the DN4500's old self-test failure, reproduced by a shortcut taken
+to avoid it.
+
+**And the display-variant question is settled**, which the tail asked for
+explicitly rather than leaving implicit. A display is a **run-time option** --
+`--screen c4p|c8p|19i|15i` -- over a model row naming the machine's *base*
+panel. MAME's `dn3500`/`dn3500_19i` split is rejected: the panel is a purchase
+option in `[CFG]`'s own lists (Opt. DM0 the 1280x1024 controller, Opt. FM2 the
+19-inch display), and a row per combination would multiply nine models by four
+panels to express one field. The DN3550 is a model rather than a DN3500 variant
+for the opposite reason: `[CFG]` sells it as its own machine under its own
+ordering number.
+
+*Verification: `model_suite` 21 tests, two of which now cover eleven models
+rather than nine; `golden_model_table` regenerated and byte-identical between
+the debug and release builds, which is the property that makes it portable. A
+`dn3550` boot of `3500_BOOT_12191_7` passes all four Memory Module tests and
+reaches the Winchester tests, so the strap rows are exercised rather than
+asserted -- the failure they prevent is the one the DN4500 showed.*
+
 ## The tape could be written to and the bytes went nowhere
 
 Fitting a cartridge made this reachable and then visible. `[SC499]` §1.13.1's
