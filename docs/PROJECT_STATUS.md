@@ -419,6 +419,75 @@ Last updated: 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## "Apollo Token Ring test passed." -- the whole ROM diagnostic, on four ROMs
+## (2026-08-17)
+
+**The ring controller's own hardware test suite runs to completion and passes**,
+on every ring ROM this project holds -- `3000`, `3500`, `4500` and `5500`. The
+firmware returns `d0 = 0` and points at its own string:
+
+    ring self-test roms/firmware/3500_RING_10666_6.bin
+      returned     after 7263778 step(s)
+      d0 00000000  a0 000808AA  ->  "      Apollo Token Ring test passed."
+      ring         1321914 read(s), 927828 write(s)
+
+That is the verification the plan's ring-controller item was written against --
+"the ring ROM's own self-test passes under emulation, the firmware is the test"
+-- and it is the hardware's own test suite, not one this project wrote.
+
+**One defect stood between SUBTEST 88 and the end, and it was a withdrawn
+finding that should not have been withdrawn.** `002398-04` p. 12-32 draws
+`XMIT_ADDR`, `RCV_ADDR` and `RAM_ADDR` with `a7`-`a0` in bits 15-8 and `a15`-`a8`
+in bits 7-0 -- the two address bytes swapped. `RING.md` 104b asserted that from
+the page, and 122a withdrew it on what looked like firmware evidence: `$944`
+writes `+004 = $10`, `$BAC` reads back at `+006 = $10`, so `$10` had to mean
+word 16 on both. **The two registers were given the same value, which decodes
+alike swapped or not.** The experiment varied neither variable and so measured
+nothing -- and the flat reading it installed then survived four months because
+the self-test could not reach the subtest that distinguishes them.
+
+**What settles it is the ROM computing the swap itself.** `$E08`, the ring
+firmware's buffer-write helper, halves a byte address into words and then does
+`rol.w #$8` before storing it to `+006`; `$E22` does the same on the read side.
+A driver that byte-swaps what it writes is writing to a byte-swapped register,
+which is p. 12-32's diagram exactly. Two independent sources, one conclusion.
+
+**And the decoded layout is self-evidently right, where the flat one was
+self-contradictory.** The self-test's four constants become:
+
+| written | decodes to | what it is |
+| --- | --- | --- |
+| `$0000` | `$0000` | transmit header |
+| `$0600` | `$0006` | transmit data |
+| `$0010` | `$1000` | receive buffer |
+| `$0610` | `$1006` | receive **data**, six words past its header |
+
+Six words is `AP_RING_CTL_XMIT_HEADER_WORDS` -- the header length the frame
+model already had. Under the flat reading `$600` and `$610` are sixteen words
+apart, so the 1018-word zero fill the firmware issues at `$600` runs straight
+over the data at `$610`, and SUBTEST 88 then demands `FFFF` from a region the
+firmware has just cleared. That contradiction was the symptom; it dissolves
+because the fill and the check were never in the same region.
+
+**The `$10`-offset "block move" was a kludge standing in for this.** Its
+`to = from + off` formula survives unchanged -- `$0006 + $1000 = $1006` -- so
+what read as a mysterious sixteen-word displacement was ordinary addressing seen
+through the wrong decode.
+
+**Three tests encoded the same misreading, and two suites failed the moment the
+core was right.** `ring_ctl_suite` and `board_suite` wrote raw word addresses
+into the descriptor registers; both now go through a `ring_addr_reg()` encoder
+that writes what a driver writes, leaving every buffer-word assertion unchanged.
+`CLAUDE.md` says a green suite is not evidence of completeness because tests
+encode the same misreadings as the code. Nine call sites did.
+
+**What is still not done.** Two Domain/OS nodes seeing each other via `lcnode`,
+which needs a booted Domain/OS per node -- a disk question, not a ring one.
+
+*Verification: `d0 = 0` and "Apollo Token Ring test passed." on all four ring
+ROMs; `ctest` 138/138; `check_docs` 2717 claims; identity boot unchanged at
+`A354786119A3931D`.*
+
 ## The 802.3 card's interrupt and DMA lines were never wired, and its chapter
 ## was never read (2026-08-15)
 

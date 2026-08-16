@@ -12,6 +12,15 @@
 #include "device/ap_ring_ctl.h"
 #include "ring/ap_ring_frame.h"
 
+/* `XMIT_ADDR`, `RCV_ADDR` and `RAM_ADDR` carry `a7`-`a0` in bits 15-8 and
+ * `a15`-`a8` in bits 7-0 -- `002398-04` p. 12-32, and the ring ROM's own `$E08`
+ * does the `rol.w #$8` before storing one. A test that names a buffer word must
+ * therefore encode it the way a driver does, or it asserts against a convention
+ * no driver uses. `RING.md` 133. */
+static uint16_t ring_addr_reg(uint16_t word) {
+  return (uint16_t)(((word & 0x00FFu) << 8) | (word >> 8));
+}
+
 /* A minimal ring for the wire tests: a medium, two stations, and the
  * controller joined to the first. Same shape as `ring_station_suite`'s, so a
  * frame that crosses here crosses for the same reasons it does there. */
@@ -362,7 +371,7 @@ static void test_the_first_windows_write_only_registers_clear_what_they_name(
 
   /* The *second* window's `+006` still is the pointer, so the fix is a split
    * between the windows rather than the loss of a register. */
-  ap_ring_ctl_write16(&ctl, true, 0x006u, 0x0040u);
+  ap_ring_ctl_write16(&ctl, true, 0x006u, ring_addr_reg(0x0040u));
   TEST_ASSERT_EQUAL_HEX16(0x0040u, ctl.a2.pointer);
 }
 
@@ -752,12 +761,12 @@ static void test_a_transmit_command_puts_the_buffers_frame_on_the_ring(void) {
     w.ctl.buffer[0x40u + i] =
         (uint16_t)((header[i * 2u] << 8) | header[i * 2u + 1u]);
   }
-  /* `XMIT_ADDR` takes the word address directly. p. 12-32 draws these
-   * registers byte-swapped and this test asserted the swap on the page alone;
-   * the **firmware refutes it** -- `$944` writes `+004 = $10` and `$BAC` then
-   * reads the result back at `+006 = $10`, so `$10` is word 16 on both
-   * (`RING.md` 122a). */
-  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_W2_XMIT_ADDR, 0x0040u);
+  /* `XMIT_ADDR` is byte-swapped, so the buffer word goes in through the
+   * encoder. This test once asserted the swap from p. 12-32 alone, then dropped
+   * it because `$944` writes `+004 = $10` and `$BAC` reads back at
+   * `+006 = $10` -- the *same value* in both registers, which decodes alike
+   * either way and so distinguishes nothing. `RING.md` 133. */
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_W2_XMIT_ADDR, ring_addr_reg(0x0040u));
 
   /* Connect, enable receive, then transmit -- `RING.md` 103e's sequence. */
   ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS,
@@ -869,7 +878,7 @@ static void test_a_received_frame_lands_at_rcv_addr_and_raises_ri(void) {
   TEST_ASSERT_TRUE(ap_ring_station_queue_frame(&w.station[1], &fields));
 
   /* `RCV_ADDR = $10`, written directly -- see the note above. */
-  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_W2_RCV_ADDR, 0x0010u);
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_W2_RCV_ADDR, ring_addr_reg(0x0010u));
   ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS,
                       AP_RING_CTL_MISC_CMD_NCT);
   ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 4u,

@@ -8,22 +8,30 @@
  * face value puts every buffer access 256 words away from where the driver
  * meant, and the resulting frame is well-formed rubbish. */
 static uint16_t ring_ctl_addr(uint16_t reg) {
-  /* **Not swapped, on the firmware's evidence, and p. 12-32's diagram is
-   * therefore about wiring rather than about the value a driver writes.**
+  /* **Swapped, as the page draws it -- and the ROM computes the swap itself.**
    *
-   * The page draws `XMIT_ADDR`/`RCV_ADDR`/`RAM_ADDR` with `a7`-`a0` in bits
-   * 15-8 and `a15`-`a8` in bits 7-0, and `RING.md` 104b took that at face
-   * value. The firmware refuses it in three places at once: `$B70` writes
-   * `+006 = 0` and four words, `$944` writes `+004 = $10`, and `$BAC` then
-   * reads the result back at `+006 = $10` -- so `$10` must mean word 16 on
-   * both registers, not `$1000`. Finding 46's 64 KB memory test agrees, since
-   * it walks the buffer with `+006` set to `0`, `$600` and `$610` and passes
-   * only if those are the addresses they look like.
+   * `RING.md` 104b asserted this from p. 12-32, 122a withdrew it on the
+   * firmware's evidence, and 133 restores it: *the withdrawal's experiment
+   * could not distinguish the two readings.* It rested on `$944` writing
+   * `+004 = $10` and `$BAC` reading back at `+006 = $10` -- the **same value**
+   * in both registers, which decodes alike swapped or not. A control that
+   * varies neither variable measures nothing.
    *
-   * Kept as a function rather than deleted: the swap is what the page shows,
-   * and a later board -- or a driver writing through a different path -- may
-   * yet need it. `RING.md` 122a. */
-  return reg;
+   * What settles it is `$E08`, the ROM's own buffer-write helper, which halves
+   * a byte address to words and then **`rol.w #$8`** before storing it to
+   * `+006` (`$E22` does the same on the read side). A driver that must swap
+   * the bytes it writes is writing to a register whose bytes are swapped, and
+   * that is p. 12-32's diagram exactly.
+   *
+   * The self-test's own constants then decode into a layout that the flat
+   * reading could not produce: `$0000` -> `$0000` and `$0600` -> `$0006` are
+   * the transmit header and its data, `$0010` -> `$1000` and `$0610` ->
+   * `$1006` the receive buffer and *its* data -- six words past the header,
+   * which is exactly `AP_RING_CTL_XMIT_HEADER_WORDS`. Under the flat reading
+   * `$600` and `$610` are sixteen words apart, the subtest 88 fill at `$600`
+   * runs straight over the data at `$610`, and the firmware requires `FFFF`
+   * from a region it has just zeroed. `RING.md` 132, 133. */
+  return (uint16_t)(((reg & 0x00FFu) << 8) | (reg >> 8));
 }
 
 /* Assemble the frame sitting in the board's buffer and hand it to the station.
@@ -564,7 +572,9 @@ uint16_t ap_ring_ctl_read16(ap_ring_ctl_t *ctl, bool second_window,
       if (!second_window) {
         return node_id_lane(ctl, 0u);
       }
-      return w->pointer;
+      /* Re-encoded, because the pointer is held decoded: the swap is its own
+       * inverse, so a read taken before any access returns what was written. */
+      return ring_ctl_addr(w->pointer);
     }
   }
 
@@ -770,8 +780,11 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
        * prefetch -- if it did, the firmware's discarded first read would return
        * word 0 and every word after it would be one place early, which is the
        * off-by-one 46a exists to prevent. */
-      w->pointer = value;
-      w->pointer_base = value;
+      /* Held as the buffer word it names, not as the word the driver wrote:
+       * every consumer wants the address, and decoding once here is what keeps
+       * `pointer_base` and the two descriptor registers on one convention. */
+      w->pointer = ring_ctl_addr(value);
+      w->pointer_base = w->pointer;
       return;
     }
   }

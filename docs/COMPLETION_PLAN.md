@@ -3924,9 +3924,11 @@ discipline throughout.
       what a process-separated transport would have to carry.
       *Verification: `ring_medium_suite`, 9 tests, synthetic nodes only. Detail
       in `PROJECT_STATUS.md`.*
-- [ ] Ring controller device: register interface, dual-ported RAM buffer,
+- [x] Ring controller device: register interface, dual-ported RAM buffer,
       transmit and receive logic, bypass relays. *Verification: the ring ROM's
-      own self-test passes under emulation — the firmware is the test.*
+      own self-test passes under emulation — the firmware is the test. It does,
+      end to end, on all four ring ROMs: `d0 = 0` and "Apollo Token Ring test
+      passed." Detail in `PROJECT_STATUS.md`.*
   - [x] **The register interface, and the part behind half of it.** The board's
         two windows per unit, its ID register, its presence gate and its two
         Intel 8254 timers are built and wired into the AT decode, from the
@@ -3990,26 +3992,17 @@ discipline throughout.
         buffer, both on one board-clocked segment and on a scheduled ring
         whose phase hash is identical across runs; `ring_ctl_suite` 13 -> 20.
         Detail in `PROJECT_STATUS.md` and `RING.md` 104-112.*
-  - [ ] **SUBTEST 32's counter arithmetic**, which is what the self-test now
-        stops on. It requires `RCV_HDR_CNT` to read `FC03` where `RCV_PKT_CNT`
-        and `RCV_MAX_CNT` read `FC00` -- 1020 counts against 1023, a
-        difference of exactly three -- and no source says what makes the header
-        arm fall short.
-        **This is a separate deliverable from the handshake above, and 108a is
-        why**: subtest 32 exercises the gate array's *internal* DMA loopback,
-        `002398-01`'s `8000` "dma test (loop xmit DMA to rcv DMA)", where **no
-        frame crosses a medium at all**. Feeding that traffic through the
-        medium path would be inventing a cable the diagnostic does not use, so
-        the two paths are deliberately separate and the loopback keeps the
-        command-driven pulsing finding 95b gave it.
-        **The search is exhausted and recorded** (`RING.md` 113): `[EH]` Rev 4
-        ch. 12 end to end as page images, `[EH]` Rev 1's ring section (a
-        different generation's 9-bit bad-packet counter), `[MAC]` in finding
-        95, both SAU drivers, `RING_PROC`, and a web search that returns only
-        the handbook already held. It is the one `PROVISIONAL` number left in
-        the ring.
-        *Verification: the self-test reaches SUBTEST 33 or beyond on both ROM
-        images.*
+  - [x] **The self-test's last three subtests, and the descriptor registers
+        they turned on.** SUBTEST 32's counter arithmetic and SUBTEST 88's
+        buffer check had one cause: `XMIT_ADDR`/`RCV_ADDR`/`RAM_ADDR` are
+        **byte-swapped**, as `002398-04` p. 12-32 draws them and as the ring
+        ROM's own `$E08` computes with `rol.w #$8`. `RING.md` 104b had that and
+        122a withdrew it against an experiment that wrote the *same value* to
+        both registers, which decodes alike either way and so distinguished
+        nothing.
+        *Verification: the firmware returns `d0 = 0` and "Apollo Token Ring
+        test passed." on all four ring ROMs -- `3000`, `3500`, `4500`, `5500`.
+        Detail in `PROJECT_STATUS.md`.*
   - [x] **The DMA path and the interrupt, both answered from the manual.**
         There is **no host DMA channel for the ring**: `002398-04` p. 12-23
         enumerates the DN3000's DMA Channel Usage in full -- `CH1` SDLC,
