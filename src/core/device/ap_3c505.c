@@ -176,6 +176,15 @@ void ap_3c505_write(ap_3c505_t *card, unsigned offset, uint8_t value) {
      */
     if ((value & AP_3C505_HCR_HARD_RESET) == AP_3C505_HCR_HARD_RESET) {
       ap_3c505_reset(card);
+      /* §1.12: the adapter reset "is similar to the power on reset except that
+       * the Host Control Register is not affected" -- only the *power on* reset
+       * clears both control registers. Restoring it is not a detail: the host
+       * has just written `ATTN|FLSH` there and "the Adapter will remain reset
+       * until the ATTN and FLSH bits are reset", so a register cleared here
+       * would release the reset the same instant it was asked for, and would
+       * silently drop the direction bit and interrupt enables the host set
+       * before it. */
+      card->hcr = value;
       /* And the adapter starts booting. The option ROM's self-test polls for
        * `11` *first*, so the flags have to be up by the time the reset write
        * returns -- its budget for that wait is `50 x arg` iterations of a
@@ -848,6 +857,14 @@ bool ap_3c505_pump(ap_3c505_t *card, ap_3c505_adapter_t *adapter) {
    * -- initialisation is not a PCB, and a host that has left a byte unread must
    * not hold the adapter in reset. */
   if (card->adapter_initialising) {
+    /* "The Adapter will remain reset until the ATTN and FLSH bits are reset."
+     * The `3` -> `0` transition §1.12 describes is the *end* of configuration
+     * and self-test, and it cannot begin while the host is still asserting the
+     * reset -- a card that came ready with the reset line held would be
+     * answering while it was supposed to be stopped. */
+    if ((card->hcr & AP_3C505_HCR_HARD_RESET) == AP_3C505_HCR_HARD_RESET) {
+      return false;
+    }
     card->adapter_initialising = false;
     ap_3c505_set_adapter_flags(card, AP_3C505_SF_UNDEFINED);
     return true;

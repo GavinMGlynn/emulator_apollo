@@ -335,7 +335,11 @@ static void test_the_hard_reset_clears_the_mailbox_but_not_the_strapping(void) {
   TEST_ASSERT_TRUE(ap_3c505_host_status(&card) & AP_3C505_HSR_HCRE);
   TEST_ASSERT_FALSE(ap_3c505_host_status(&card) & AP_3C505_HSR_ACRF);
   TEST_ASSERT_EQUAL_UINT(0u, card.fifo_count);
-  TEST_ASSERT_EQUAL_HEX8(0u, card.hcr);
+  /* **The Host Control Register survives, and this assertion used to say it was
+   * cleared.** §1.12: the adapter reset "is similar to the power on reset
+   * except that the Host Control Register is not affected" -- clearing it would
+   * drop the `ATTN`/`FLSH` the host is holding the adapter in reset with. */
+  TEST_ASSERT_EQUAL_HEX8(AP_3C505_HCR_HARD_RESET, card.hcr);
 
   /* **`acr` is *not* zero here, and this assertion used to say it was.** The
    * reset does clear what the adapter had written -- the `ASF1` above is gone

@@ -325,6 +325,30 @@ is worse than the protocol's own refusal.
 thirty-line block with identical comments. Legal C and harmless to the compiler,
 which is why nothing caught it. Removed.
 
+## Finding 25: §1.12's reset cleared a register it must not, and released too early
+
+Two defects in one paragraph of `[DEV]` §1.12, both host-visible.
+
+**"This reset is similar to the power on reset except that the Host Control
+Register is not affected."** Only the *power on* reset clears both control
+registers; the host's `ATTN`+`FLSH` reset leaves `HCR` alone. `ap_3c505_reset`
+zeroed the whole card, so the register was cleared by the very write that set
+it — dropping the direction bit and interrupt enables the host had configured,
+and, worse, dropping the `ATTN`/`FLSH` the host was holding the adapter down
+with.
+
+**"The Adapter will remain reset until the ATTN and FLSH bits are reset."** The
+pump completed initialisation on its next call regardless, so the card came
+ready while the host was still asserting reset. §1.12's completion signal is a
+transition in the Host Status Flags "from state 3 to state 0" — which the model
+already had right, and was simply making too early.
+
+Verified where it matters rather than only in the suite: the boot PROM's own
+network test still reports `802.3 Network Controller-AT test passed.` over the
+350 M identity boot with the option ROM fitted, and `EtherLink Plus` shows **322
+reads and 22 writes** — the same counts finding 16d recorded. The plain
+reference boot still hashes `A354786119A3931D`.
+
 ### 19a: the pacing is a frontend artefact, not hardware — APPROXIMATION
 
 The headless frontend pumps every `AP_TAP_POLL_INSTRUCTIONS` (4096) steps, so a
