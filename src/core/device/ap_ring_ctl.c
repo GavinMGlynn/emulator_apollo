@@ -8,7 +8,22 @@
  * face value puts every buffer access 256 words away from where the driver
  * meant, and the resulting frame is well-formed rubbish. */
 static uint16_t ring_ctl_addr(uint16_t reg) {
-  return (uint16_t)(((reg & 0x00FFu) << 8) | ((reg >> 8) & 0x00FFu));
+  /* **Not swapped, on the firmware's evidence, and p. 12-32's diagram is
+   * therefore about wiring rather than about the value a driver writes.**
+   *
+   * The page draws `XMIT_ADDR`/`RCV_ADDR`/`RAM_ADDR` with `a7`-`a0` in bits
+   * 15-8 and `a15`-`a8` in bits 7-0, and `RING.md` 104b took that at face
+   * value. The firmware refuses it in three places at once: `$B70` writes
+   * `+006 = 0` and four words, `$944` writes `+004 = $10`, and `$BAC` then
+   * reads the result back at `+006 = $10` -- so `$10` must mean word 16 on
+   * both registers, not `$1000`. Finding 46's 64 KB memory test agrees, since
+   * it walks the buffer with `+006` set to `0`, `$600` and `$610` and passes
+   * only if those are the addresses they look like.
+   *
+   * Kept as a function rather than deleted: the swap is what the page shows,
+   * and a later board -- or a driver writing through a different path -- may
+   * yet need it. `RING.md` 122a. */
+  return reg;
 }
 
 /* Assemble the frame sitting in the board's buffer and hand it to the station.
@@ -55,6 +70,46 @@ static bool ring_ctl_queue_from_buffer(ap_ring_ctl_t *ctl) {
     ap_i8254_clock_counter(&ctl->a2.timer_b, AP_RING_CTL_XMIT_PKT_CNT);
   }
   return true;
+}
+
+/* The gate array's internal transmit-to-receive DMA loop.
+ *
+ * The received image is `[MAC]` Figure 2-5's header, built rather than copied.
+ * `$B70` writes four words at the transmit address -- destination high,
+ * destination low, type, and an early-acknowledge word -- and `$BAC` reads
+ * **six** back, requiring destination, type, `0002`, destination again
+ * (`RING.md` 121). So two of the six are the card's to supply:
+ *
+ *   - the **early acknowledge** at `+7`, which comes back `0002`. Figure 2-7
+ *     makes that bit 1 alone -- the parity bit, with intend-to-copy clear --
+ *     which is a well-formed "nobody copied this" field, and is *not* what the
+ *     firmware sent (`$0A` or `$0E`). The transmitter inserts this field and
+ *     the receiver modifies it; in a loop with no addressed receiver, nothing
+ *     sets intend-to-copy, and odd parity over an otherwise empty field is one
+ *     bit. Both halves of that are the manual's.
+ *
+ *   - the **source address**, which comes back equal to the *destination*.
+ *     That is established by the firmware's own walking-bit loop, not by one
+ *     comparison: `0007CE` transmits with `d3 = d7` and `000862` compares
+ *     expecting `d7` back, with `lsl.l #$1,d7` between iterations, so the
+ *     field tracks a value that walks every bit position. It cannot be a fixed
+ *     node ID and it cannot be stale buffer content, which would lag by one
+ *     iteration. `RING.md` 122. */
+static void ring_ctl_loopback(ap_ring_ctl_t *ctl) {
+  const uint16_t from = ring_ctl_addr(ctl->a2.slot_002); /* XMIT_ADDR */
+  const uint16_t to = ring_ctl_addr(ctl->a2.slot_004);   /* RCV_ADDR */
+  if ((size_t)from + 3u > AP_RING_CTL_BUFFER_WORDS ||
+      (size_t)to + 6u > AP_RING_CTL_BUFFER_WORDS) {
+    return;
+  }
+  const uint16_t dest_hi = ctl->buffer[from + 0u];
+  const uint16_t dest_lo = ctl->buffer[from + 1u];
+  ctl->buffer[to + 0u] = dest_hi;
+  ctl->buffer[to + 1u] = dest_lo;
+  ctl->buffer[to + 2u] = ctl->buffer[from + 2u]; /* type */
+  ctl->buffer[to + 3u] = AP_RING_CTL_EARLY_ACK_UNCOPIED;
+  ctl->buffer[to + 4u] = dest_hi;
+  ctl->buffer[to + 5u] = dest_lo;
 }
 
 bool ap_ring_ctl_irq(const ap_ring_ctl_t *ctl) {
@@ -749,6 +804,26 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
        * transmit is a **modifier** to transmit enable" is the same operation
        * with one more bit. `$0100` is the third function and starts nothing.
        * A frame is queued for the first two, and for nothing else. */
+      /* **`$0100`: the diagnostic's transmit, which loops back through the
+       * gate array's own DMA.** `002398-01`'s `8000` is "dma test (loop xmit
+       * DMA to rcv DMA)" (finding 79), so this moves a message from the
+       * transmit side to the receive side inside the card, with no medium and
+       * no station -- which is why it is separate from the `$0200`/`$0600`
+       * path below rather than sharing it.
+       *
+       * What lands is `[MAC]` Figure 2-5's **received header**, not a copy of
+       * what was written: `$B70` writes four words and `$BAC` reads six back
+       * (`RING.md` 121). The gate array supplies the two the transmitter
+       * inserts. */
+      /* Detected by **mask, not equality**, and that distinction is why the
+       * first version of this never fired: the firmware writes a *byte*
+       * (`move.b #$1,$402`), which this model merges with the status lane, so
+       * the word arriving here is `$01F0` and not `$0100`. Finding 66's `$6`
+       * detection has masked on bit 10 for exactly the same reason. Bit 8 is
+       * unique to `$1` -- `$2` is bit 9 and `$6` is bits 10 and 9. */
+      if (second_window && (value & 0x0100u) != 0u) {
+        ring_ctl_loopback(ctl);
+      }
       if (second_window && ctl->station != NULL &&
           (value == 0x0200u || value == 0x0600u)) {
         (void)ring_ctl_queue_from_buffer(ctl);

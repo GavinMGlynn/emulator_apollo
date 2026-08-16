@@ -1602,10 +1602,10 @@ static void test_two_boards_on_one_ring_segment_exchange_a_frame(void) {
                       AP_RING_CTL_MISC_CMD_NCT);
   ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_BANK_STATUS,
                       AP_RING_CTL_MISC_CMD_NCT);
-  ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_W2_RCV_ADDR, 0x1000u);
+  ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_W2_RCV_ADDR, 0x0010u);
   ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_BANK_STATUS + 4u,
                       AP_RING_CTL_RCV_CMD_RCV);
-  ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_W2_XMIT_ADDR, 0x4000u);
+  ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_W2_XMIT_ADDR, 0x0040u);
   ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_BANK_STATUS + 2u, 0x0200u);
 
   ap_ring_station_originate_token(&b.ring_station, AP_RING_OOB_FREE_TOKEN);
@@ -1667,10 +1667,10 @@ static void test_a_frame_crosses_the_ring_under_board_time(void) {
                       AP_RING_CTL_MISC_CMD_NCT);
   ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_BANK_STATUS,
                       AP_RING_CTL_MISC_CMD_NCT);
-  ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_W2_RCV_ADDR, 0x1000u);
+  ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_W2_RCV_ADDR, 0x0010u);
   ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_BANK_STATUS + 4u,
                       AP_RING_CTL_RCV_CMD_RCV);
-  ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_W2_XMIT_ADDR, 0x4000u);
+  ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_W2_XMIT_ADDR, 0x0040u);
   ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_BANK_STATUS + 2u, 0x0200u);
   ap_ring_station_originate_token(&b.ring_station, AP_RING_OOB_FREE_TOKEN);
 
@@ -1734,10 +1734,10 @@ static void test_two_boards_exchange_a_frame_on_a_scheduled_ring(void) {
                         AP_RING_CTL_MISC_CMD_NCT);
     ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_BANK_STATUS,
                         AP_RING_CTL_MISC_CMD_NCT);
-    ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_W2_RCV_ADDR, 0x1000u);
+    ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_W2_RCV_ADDR, 0x0010u);
     ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_BANK_STATUS + 4u,
                         AP_RING_CTL_RCV_CMD_RCV);
-    ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_W2_XMIT_ADDR, 0x4000u);
+    ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_W2_XMIT_ADDR, 0x0040u);
     ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_BANK_STATUS + 2u, 0x0200u);
     ap_ring_station_originate_token(&b.ring_station, AP_RING_OOB_FREE_TOKEN);
 

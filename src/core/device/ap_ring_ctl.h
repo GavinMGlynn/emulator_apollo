@@ -291,6 +291,11 @@
  * receive header counter's shortfall is exactly that many (`RING.md` 120). */
 #define AP_RING_FRAME_START_CHARACTERS 3u
 
+/* The early acknowledge a frame nobody copied comes back with: `[MAC]` Figure
+ * 2-7's bit 1 alone, which is the parity bit making an otherwise empty field
+ * odd. What the firmware's loopback reads at `+7` (`RING.md` 122). */
+#define AP_RING_CTL_EARLY_ACK_UNCOPIED 0x0002u
+
 /* ## The three command registers, `002398-04` p. 12-32
  *
  * The write halves of `59400`/`59402`/`59404`. **Two of the three are confirmed

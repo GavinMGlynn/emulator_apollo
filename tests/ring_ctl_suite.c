@@ -737,10 +737,12 @@ static void test_a_transmit_command_puts_the_buffers_frame_on_the_ring(void) {
     w.ctl.buffer[0x40u + i] =
         (uint16_t)((header[i * 2u] << 8) | header[i * 2u + 1u]);
   }
-  /* `XMIT_ADDR` is **byte-swapped** (p. 12-32), so word `0x0040` is written as
-   * `0x4000`. Taking the register at face value would address word `0x4000`,
-   * 16,320 words away, and transmit a frame of zeros -- well-formed rubbish. */
-  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_W2_XMIT_ADDR, 0x4000u);
+  /* `XMIT_ADDR` takes the word address directly. p. 12-32 draws these
+   * registers byte-swapped and this test asserted the swap on the page alone;
+   * the **firmware refutes it** -- `$944` writes `+004 = $10` and `$BAC` then
+   * reads the result back at `+006 = $10`, so `$10` is word 16 on both
+   * (`RING.md` 122a). */
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_W2_XMIT_ADDR, 0x0040u);
 
   /* Connect, enable receive, then transmit -- `RING.md` 103e's sequence. */
   ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS,
@@ -851,8 +853,8 @@ static void test_a_received_frame_lands_at_rcv_addr_and_raises_ri(void) {
                                          .late_acknowledge = 0u};
   TEST_ASSERT_TRUE(ap_ring_station_queue_frame(&w.station[1], &fields));
 
-  /* `RCV_ADDR = $10`, byte-swapped in the register as `$1000`. */
-  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_W2_RCV_ADDR, 0x1000u);
+  /* `RCV_ADDR = $10`, written directly -- see the note above. */
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_W2_RCV_ADDR, 0x0010u);
   ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS,
                       AP_RING_CTL_MISC_CMD_NCT);
   ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 4u,
@@ -869,10 +871,9 @@ static void test_a_received_frame_lands_at_rcv_addr_and_raises_ri(void) {
 
   TEST_ASSERT_TRUE(w.station[0].frames_copied > 0u);
   /* The destination the sender addressed is what the buffer now holds, at
-   * word `$10` and not word `$1000` -- the byte swap again. */
+   * word `$10`. */
   TEST_ASSERT_EQUAL_HEX16(0x0001u, w.ctl.buffer[0x10u]);
   TEST_ASSERT_EQUAL_HEX16(0x2345u, w.ctl.buffer[0x11u]);
-  TEST_ASSERT_EQUAL_HEX16(0u, w.ctl.buffer[0x1000u]);
   /* And the interrupt is pending, which for an active-low bit is *clear*. */
   TEST_ASSERT_EQUAL_HEX16(0u, w.ctl.a2.status & AP_RING_CTL_STATUS_RI);
 
