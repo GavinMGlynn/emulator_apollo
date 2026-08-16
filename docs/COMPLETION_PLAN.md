@@ -4538,11 +4538,19 @@ Only after the reference core is proven, and only under an identity harness.
       *"The running session had no knock directive, so the knock was improvised
       out of the one thing its command file could send."* `--knock-char` is a
       **session-level** option applied once at startup; there is no way to knock
-      *between* commands. **That is the concrete blocker and it is a harness
-      feature, not a machine question**: `mdsession.py`'s command file needs a
-      `!knock` directive that re-runs the startup autobaud knock. Everything
-      downstream — `di c`, `ex domain_os`, MINST, the state hash — is waiting on
-      that one directive. Then MINST from the four software cartridges,
+      *between* commands. **CORRECTION: `!knock REGEX` already exists** — it is
+      documented in `mdsession.py`'s own command-file help and used by the
+      built-in stages. Claiming the harness lacked it was wrong, and wrong in
+      the same way as several other errors this session: asserted from a partial
+      read instead of the file's own documentation.
+      With `!knock \n\n>` after each `re`, **the sequence runs**: `re` returns
+      the `MD7C` banner, `di c` is accepted, and the session reaches
+      `ex domain_os`. It then fails *differently* — the command arrives as
+      **`eomain_os`**, with `x` and `d` dropped, so the send is losing
+      characters on that line. That is the pacing problem C50 documents around
+      typed input, now on the command path rather than the knock: the next step
+      is `--boot-input`-style pacing or a `!knock` before the command, not more
+      variable elimination. Then MINST from the four software cartridges,
       then the state hash the item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
