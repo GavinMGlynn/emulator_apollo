@@ -20429,6 +20429,48 @@ reports `disk sidecar ... 464 bytes` beside the disk line. The defect-injection
 behaviour itself is `omti_suite`'s, and was already covered there; what was
 untested and is now wired is the frontend's half.*
 
+## What the DN2500's core block looks like, without saying what it is
+
+The bus error at `000202D0` named the next item, and the firmware characterises
+the block well enough to be worth writing down before anything is modelled.
+
+**Thirty-two byte registers at a four-byte stride**, `020200` to `02027C`, used
+as **four units of eight**. The programming sequences take one unit at a time,
+at `020200`, `020220`, `020240` and `020260`, and each follows the same shape:
+
+```
+move.b #$3,  $20210        ; +10 of the unit, before it is touched
+move.b #$9b, $2020c        ; +C  -- a control-word-shaped value
+move.b #$5,  $20200        ; +0  \
+move.b #$0,  $20204        ; +4   > small counts
+move.b #$1b, $2020c        ; +C  -- a second control word
+move.b #$2,  $20208        ; +8  /
+```
+
+and the next unit repeats it verbatim against `$20220`-`$2022C` with `#$83`,
+`#$41`, `#$0`, `#$3`. The values at `+C` are `9B`, `1B`, `83`, `03`; those at
+`+0`/`+4`/`+8` are `5`, `41`, `0`, `2`, `3`.
+
+Separately, `020280`/`020283`/`020284`/`020287` are byte-granular and take `0`,
+`2`, `4`, `26`; and `0202C0`, `0202CC`, `0202D0`, `0202D4`, `0202D8` are the
+five the reset sequence uses -- `#$FF` to `2D0`, `#$40` to `2CC`, `#$1` to `2D4`
+read back for its low nibble, and `2C0` read and tested for bit 0.
+
+**What this is, is not claimed.** The `+C` values have the shape of an
+8254-class control word and the layout would fit one, but this file has refused
+numeric resemblance four times in `RING.md` and the fit does not close: a
+control word selecting counter 2 is followed by a write to the unit's first data
+register, which that reading cannot explain. So what is recorded is the
+**structure** -- four units, eight registers each, one control offset and three
+data -- which is what a model needs to be built against and what the next
+disassembly pass should confirm or break.
+
+The route from here is the one that produced the rest of this map: read the
+routines that own these addresses, not the addresses alone. `$E9F8` takes
+`$20210` as a pointer argument from four sites, so there is a driver to read.
+
+*No code changed; this is a measurement.*
+
 ## The DN2500 boots its own PROM, and stops at a named poll
 
 The map recovered from `2500_BOOT_16182_8` is now a `DS2500_MAP` beside the
