@@ -4434,7 +4434,7 @@ Only after the reference core is proven, and only under an identity harness.
       half and devices half of the tick split so a span-breaking I/O write still
       runs its devices half canonically. *Verification: entire probe suite and
       long boot hashes byte-identical to the reference core.*
-      **Awaiting, and a profile has redirected it.** The remaining cost is not
+      **Awaiting:** the CPU half — and a profile has redirected it. The cost is not
       instruction stepping: `perf` over a bounded boot puts ~27% in
       per-instruction device work, the largest single item being
       `ap_board_sample_interrupts` at 8.6% run unconditionally every
