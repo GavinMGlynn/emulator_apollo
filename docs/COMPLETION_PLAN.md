@@ -4402,8 +4402,12 @@ Only after the reference core is proven, and only under an identity harness.
       `00`, which the firmware reads as twenty megabytes rather than as no
       answer. Still open: the DN5500, now precisely diagnosed — it stops at its
       second instruction, `cinva`, because the 68040 is modelled and nothing
-      executes on it; and both ring generations, which need the ring controller
-      device.
+      executes on it. **Both ring generations now boot**, and Domain/OS's own
+      self-test suite passes with the card fitted -- `Apollo Token Ring test
+      passed.`, `above driver type loaded.`, `Self tests passed.` -- with
+      reproducible hashes for each. It found one defect of ours that no
+      self-test could reach: unit 1 answered as a second card, because the
+      decoded unit was discarded. Detail in `PROJECT_STATUS.md`.
       *Verification: `frontend_flags` 13 → 16; DN3500 30 M hash unchanged.*
 - [ ] Real multi-node Domain workloads: distributed single-level store across
       nodes, `lcnode`, remote file access. *Verification: content finds what

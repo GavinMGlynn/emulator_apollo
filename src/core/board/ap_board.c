@@ -1354,14 +1354,19 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     return ap_matrox_read8(&board->matrox, block, offset);
   }
   case AP_BOARD_REGION_RING: {
-    /* The unit is decoded but not yet *used*: this core models one controller,
-     * and `RING.md` finding 38 leaves open whether unit 1's windows are a
-     * second board or a second decode of the first. Recorded rather than
-     * guessed -- a machine with two ring cards would need that settled. */
+    /* **Unit 1 is a second slot, and it is empty.** Finding 38 left open
+     * whether its windows were a second board or a second decode of the first,
+     * and the unit was decoded and then discarded -- so one fitted card
+     * answered at both. Domain/OS settles it: its driver search probes both
+     * units and prints `Apollo Token Ring test passed.` then `... failed.`,
+     * failing at `0005A400`, which is unit 1's `MISC_STAT`. An absent slot must
+     * read `FF` -- finding 40's rule, and the same answer the disk diagnostic
+     * gives as `Drive 1 (not found)`. `RING.md` 134. */
+    unsigned unit = 0u;
     bool second = false;
     uint32_t offset = 0;
-    (void)ap_ring_ctl_decode(address, NULL, &second, &offset);
-    return ap_ring_ctl_read8(&board->ring, second, offset);
+    (void)ap_ring_ctl_decode(address, &unit, &second, &offset);
+    return ap_ring_ctl_read8(unit == 0u ? &board->ring : NULL, second, offset);
   }
   case AP_BOARD_REGION_ATBUS:
     /* A fitted option ROM answers before the pull-ups do, which is the whole
@@ -1564,10 +1569,12 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
     return;
   }
   case AP_BOARD_REGION_RING: {
+    /* Unit 1 is an empty slot, and a write into one goes nowhere. */
+    unsigned unit = 0u;
     bool second = false;
     uint32_t offset = 0;
-    (void)ap_ring_ctl_decode(address, NULL, &second, &offset);
-    ap_ring_ctl_write8(&board->ring, second, offset, value);
+    (void)ap_ring_ctl_decode(address, &unit, &second, &offset);
+    ap_ring_ctl_write8(unit == 0u ? &board->ring : NULL, second, offset, value);
     return;
   }
   case AP_BOARD_REGION_ATBUS:

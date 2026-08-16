@@ -294,7 +294,8 @@ static void test_the_ring_windows_are_an_empty_slot_until_a_card_is_fitted(
  * at the offsets the firmware writes. This is the test that would fail if the
  * board decoded the card at one window and left the other three to the slot. */
 static void test_every_ring_window_reaches_the_card_from_the_bus(void) {
-  static const uint32_t bases[] = {0x051000u, 0x052000u, 0x059000u, 0x05A000u};
+  /* Unit 0's two windows; unit 1's are a *second slot*, tested below. */
+  static const uint32_t bases[] = {0x051000u, 0x059000u};
   ap_board_t b;
   bool ok = false;
   init(&b);
@@ -317,6 +318,33 @@ static void test_every_ring_window_reaches_the_card_from_the_bus(void) {
 
   TEST_ASSERT_EQUAL_UINT(0u, b.atbus_empty_reads);
   TEST_ASSERT_EQUAL_UINT(0u, b.atbus_empty_writes);
+}
+
+/* Domain/OS's driver search probes **both** ring units and reports on each. One
+ * fitted card used to answer at both, because the decoded unit was discarded,
+ * and the boot printed `Apollo Token Ring test passed.` followed by
+ * `... failed.` -- failing at `0005A400`, unit 1's `MISC_STAT`. An empty slot
+ * reads `FF`, finding 40's rule, which is how the same diagnostic reports
+ * `Drive 1 (not found)`. `RING.md` 134. */
+static void test_a_second_ring_unit_is_an_empty_slot_when_one_card_is_fitted(
+    void) {
+  static const uint32_t unit1[] = {0x052000u, 0x05A000u, 0x05A400u};
+  ap_board_t b;
+  bool ok = false;
+  init(&b);
+  ap_board_attach_ring(&b, true);
+
+  for (unsigned i = 0; i < sizeof unit1 / sizeof unit1[0]; i++) {
+    TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_RING,
+                           ap_board_region(&b, unit1[i]));
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_board_read(&b, unit1[i], &ok));
+    TEST_ASSERT_TRUE(ok);
+  }
+
+  /* And a write into the empty slot reaches no register of the fitted card --
+   * the aliasing went both ways. */
+  ap_board_write(&b, 0x05A806u, 0x30u, &ok);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, b.ring.a2.timer_a.counter[0].control);
 }
 
 /* ## The first address is not the interesting one
@@ -1818,6 +1846,7 @@ int main(void) {
   RUN_TEST(test_an_empty_at_bus_window_reads_ff_rather_than_faulting);
   RUN_TEST(test_the_ring_windows_are_an_empty_slot_until_a_card_is_fitted);
   RUN_TEST(test_every_ring_window_reaches_the_card_from_the_bus);
+  RUN_TEST(test_a_second_ring_unit_is_an_empty_slot_when_one_card_is_fitted);
   RUN_TEST(test_the_empty_slot_addresses_are_kept_distinct_and_in_order);
   RUN_TEST(test_more_empty_slot_addresses_than_fit_are_counted_not_dropped);
   RUN_TEST(test_the_windows_do_not_swallow_the_devices_inside_them);
