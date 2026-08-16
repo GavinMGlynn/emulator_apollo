@@ -124,6 +124,16 @@ typedef struct {
   uint8_t rx_header[8]; /* through the early acknowledge at +7 */
   unsigned rx_header_len;
   bool rx_addressed;      /* the frame going by is for this node */
+  /* The whole frame, when a buffer has been lent -- `attach_rx`. `rx_header`
+   * stops at the eight bytes §2.2.2.2's decision needs; a node that must
+   * deliver a packet needs the rest. */
+  uint8_t *rx_buffer;
+  size_t rx_capacity;
+  size_t rx_bytes;
+  /* How many of `rx_bytes` were header, taken at the second separator -- the
+   * only point in the stream where §2.2.2.2's header/data boundary shows. */
+  size_t rx_header_bytes;
+  bool rx_overrun;
   unsigned rx_header_bits; /* destuffed header bits seen, for locating +7 */
   bool rx_flipped_parity;  /* intend-to-copy was set, so parity must flip */
 
@@ -211,6 +221,12 @@ void ap_ring_station_set_receive_enabled(ap_ring_station_t *s, bool enabled);
 /* Lend the station a buffer to assemble frames in. Without one it cannot
  * transmit, which is the state every station was in before `RING.md` 85. */
 void ap_ring_station_attach_tx(ap_ring_station_t *s, uint8_t *bytes,
+                               size_t capacity);
+
+/* Lend the station a buffer to capture whole received frames into. Without one
+ * it captures only the eight header bytes §2.2.2.2's receive decision needs,
+ * which is what every station did before `RING.md` 107. */
+void ap_ring_station_attach_rx(ap_ring_station_t *s, uint8_t *bytes,
                                size_t capacity);
 
 /* Assemble a frame and ask for the ring. False when `[MAC]` §2.2.2's length

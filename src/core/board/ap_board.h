@@ -135,6 +135,27 @@ typedef enum {
  * and the mangled row is the alternate's. */
 #define AP_BOARD_ETHERNET_IRQ 10u
 
+/* **The ring is on master IRQ 2, and it is documented** -- `RING.md` 107.
+ *
+ * `002398-04` p. 12-28 tabulates the DN3000's "Interrupt Request Line
+ * Assignments" outright: `IRQ 0` timers, `IRQ 1` sio, **`IRQ 2` ring**,
+ * `IRQ 3 ---> slave pic to master`, then `IRQ8` calendar, `IRQ9`/`IRQ10` the
+ * two ethernet boards, `IRQ14` winchester, `IRQ5` tape, `IRQ6` floppy.
+ *
+ * That settles open question 82's **three-way disagreement**, and by agreeing
+ * with the measurement rather than overriding it: `FINDINGS.md` C11 measured
+ * the cascade on **IR3**, and this page puts the cascade there too, which
+ * leaves IRQ2 free and assigns the ring to it. `[S3K]` Table 2-3's "IRQ3 =
+ * Network Board" is the row that cannot stand -- IRQ3 is the cascade on this
+ * machine, measured and documented.
+ *
+ * **One tension is recorded rather than resolved**: finding 53d put
+ * `RING8_$INT` at vector **163**, and master IRQ 2 with the boot PROM's own
+ * `ICW2 = A0` is vector `A2` = **162**. 163 is `A3`, the cascade's own line.
+ * The page and the measurement agree with each other; the vector does not
+ * agree with either, and nothing here is adjusted to make it. */
+#define AP_BOARD_RING_IRQ 2u
+
   /* The token ring controller's two AT I/O windows, `device/ap_ring_ctl.h`.
    * Inside the AT window and therefore ahead of it, for the same reason the
    * graphics decodes are: a window checked first would report a fitted card as

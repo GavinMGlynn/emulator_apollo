@@ -1394,6 +1394,12 @@ static ap_tap_t g_tap = {.fd = -1};
 
 /* The ring controller and its option ROM, on the same terms as the 3c505. */
 static bool g_fit_ring = false;
+/* The ring **segment** -- the cable. It lives in the frontend rather than in a
+ * board because it is shared between nodes: a board that owned one would make
+ * every ring single-node by construction (`RING.md` 106a). A single-machine run
+ * gets a segment of one, which is what the board's own loopback diagnostic
+ * needs and what lets `--ring` reach the protocol stack at all. */
+static ap_ring_medium_t g_ring_segment;
 static const char *g_ring_rom_path = NULL;
 static uint8_t *g_ring_rom = NULL;
 static uint32_t g_ring_rom_bytes = 0;
@@ -2578,6 +2584,11 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   ap_board_set_quirks(board, g_quirks);
   if (g_fit_ring) {
     ap_board_attach_ring(board, true);
+    /* Fitting a card and giving it a cable are separate steps (106c), and the
+     * join must follow the attach: `ap_ring_ctl_reset` is the controller's
+     * initialiser too and clears the attachment (104d). */
+    ap_ring_medium_init(&g_ring_segment);
+    ap_board_join_ring(board, &g_ring_segment);
     if (g_ring_rom_path != NULL) {
       FILE *rom_file = fopen(g_ring_rom_path, "rb");
       if (rom_file == NULL) {

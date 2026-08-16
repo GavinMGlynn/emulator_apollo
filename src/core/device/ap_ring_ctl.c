@@ -43,7 +43,33 @@ static bool ring_ctl_queue_from_buffer(ap_ring_ctl_t *ctl) {
       .data_bytes = 0u,
       .late_acknowledge = 0u,
   };
-  return ap_ring_station_queue_frame(ctl->station, &fields);
+  if (!ap_ring_station_queue_frame(ctl->station, &fields)) {
+    return false;
+  }
+  /* The transmit trio, in `ring8a.drvr`'s units (`RING.md` 100): `XMT_HDR`
+   * "Transmitter Header **Word**" and `XMT_PKT` "Transmitter Total **Word**".
+   * Words, where the receive pair count bytes -- which is the asymmetry
+   * finding 100a found and 80c was posed without. */
+  for (unsigned i = 0; i < AP_RING_CTL_XMIT_HEADER_WORDS; i++) {
+    ap_i8254_clock_counter(&ctl->a2.timer_b, AP_RING_CTL_XMIT_HDR_CNT);
+    ap_i8254_clock_counter(&ctl->a2.timer_b, AP_RING_CTL_XMIT_PKT_CNT);
+  }
+  return true;
+}
+
+bool ap_ring_ctl_irq(const ap_ring_ctl_t *ctl) {
+  if (ctl == NULL || !ctl->present) {
+    return false;
+  }
+  /* Any of the four pending bits *clear* -- they are active low (p. 12-30, and
+   * finding 93b reading `xi`/`ri` going to zero as "interrupt pending"). The
+   * gate-array timeout, receive, transmit and good-packet conditions are the
+   * four the register carries; `gps` is included because p. 12-30 marks it the
+   * same way and the driver polls it beside the other three. */
+  const uint16_t pending =
+      (uint16_t)(AP_RING_CTL_STATUS_TMI | AP_RING_CTL_STATUS_RI |
+                 AP_RING_CTL_STATUS_XI | AP_RING_CTL_STATUS_GPS);
+  return (ctl->a2.status & pending) != pending;
 }
 
 void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl) {
@@ -89,6 +115,32 @@ void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl) {
    * directions now belong to the two events rather than one of them being a
    * bare acknowledge with nothing to acknowledge. */
   ctl->a2.status &= (uint16_t)~AP_RING_CTL_STATUS_RI;
+
+  /* **The 8254s clocked from real ring traffic**, in the units the board's own
+   * driver names them with (`RING.md` 100, 108): `RCV_HDR` counts header
+   * **bytes**, `RCV_DAT` data **bytes**, `RCV_MAX` **words**. The station takes
+   * the header/data split at the second separator, which is the only point in
+   * the stream where §2.2.2.2's boundary is observable.
+   *
+   * This is the wire findings 41a, 80c and 100c all named and none supplied:
+   * an event on the medium advancing a counter, rather than a count injected
+   * by the command path. It does **not** close 80c -- that question is about
+   * the *internal DMA loopback*, where no frame crosses a medium at all
+   * (79a) -- and the two paths are deliberately separate, because a model that
+   * fed loopback traffic through here would be inventing a medium the
+   * diagnostic does not use. */
+  const size_t header = ctl->station->rx_header_bytes;
+  const size_t total = ctl->station->rx_bytes;
+  const size_t data = total > header ? total - header : 0u;
+  for (size_t i = 0; i < header; i++) {
+    ap_i8254_clock_counter(&ctl->a2.timer_a, AP_RING_CTL_RCV_HDR_CNT);
+  }
+  for (size_t i = 0; i < data; i++) {
+    ap_i8254_clock_counter(&ctl->a2.timer_a, AP_RING_CTL_RCV_PKT_CNT);
+  }
+  for (size_t i = 0; i < total / 2u; i++) {
+    ap_i8254_clock_counter(&ctl->a2.timer_a, AP_RING_CTL_RCV_MAX_CNT);
+  }
 }
 
 void ap_ring_ctl_attach_ring(ap_ring_ctl_t *ctl, ap_ring_station_t *station,

@@ -33,6 +33,14 @@ void ap_ring_station_attach_tx(ap_ring_station_t *s, uint8_t *bytes,
   s->tx_armed = false;
 }
 
+void ap_ring_station_attach_rx(ap_ring_station_t *s, uint8_t *bytes,
+                               size_t capacity) {
+  s->rx_buffer = bytes;
+  s->rx_capacity = capacity;
+  s->rx_bytes = 0u;
+  s->rx_overrun = false;
+}
+
 bool ap_ring_station_queue_frame(ap_ring_station_t *s,
                                  const ap_ring_frame_fields_t *fields) {
   if (s == NULL || fields == NULL || s->tx_bits == NULL) {
@@ -292,6 +300,16 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
        * sequence -- and after the third come §2.2.2.4's 32-bit CRC and a null
        * separator, then the end-of-frame sequence's late acknowledge byte. */
       s->rx_separators++;
+      /* The **second** separator ends §2.2.2.2's packet header sequence, so
+       * the bytes captured up to here are the header and everything after it
+       * to the third separator is the data. That split is what the board's two
+       * receive counters count, in the units `ring8a.drvr` names them with:
+       * `RCV_HDR` "Receiver Header **Byte**" and `RCV_DAT` "Receiver Data
+       * **Byte**" (`RING.md` 100). Recorded here because this is the only
+       * point in the stream where the boundary is observable. */
+      if (s->rx_separators == 2u) {
+        s->rx_header_bytes = s->rx_bytes;
+      }
       if (s->rx_separators == 3u) {
         s->rx_state = RX_FCS;
         s->rx_fcs_bits = 0u;
@@ -305,6 +323,12 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
         s->rx_byte = 0u;
         s->rx_header_len = 0u;
         s->rx_header_bits = 0u;
+        /* A new frame start restarts the capture, so `rx_bytes` always
+         * describes the frame currently arriving rather than accumulating
+         * across a ring's worth of traffic. */
+        s->rx_bytes = 0u;
+        s->rx_header_bytes = 0u;
+        s->rx_overrun = false;
       } else {
         s->rx_state = RX_BODY;
       }
@@ -403,6 +427,26 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
         if (++s->rx_bit_count == 8u) {
           if (s->rx_header_len < sizeof s->rx_header) {
             s->rx_header[s->rx_header_len++] = s->rx_byte;
+          }
+          /* **The whole frame, when a buffer has been lent.** `rx_header`
+           * stops at eight bytes because that is all §2.2.2.2's *decision*
+           * needs -- destination, type and the early acknowledge -- and finding
+           * 87a's rule was to stop rather than parse a frame this station is
+           * only forwarding. A node that must actually deliver a packet needs
+           * more, so `ap_ring_station_attach_rx` lends one, exactly as
+           * `attach_tx` does for the transmit side, and `src/core` still
+           * allocates nothing.
+           *
+           * Capture is unconditional on being addressed, and the *count* below
+           * is not: a station that only captured its own frames could not
+           * report a length for one it merely saw, and `rx_bytes` is what tells
+           * a caller how much of the buffer is a frame. Overrun is truncation
+           * rather than a write past the end -- `iov` in MISC_STAT is the
+           * board's own name for that condition. */
+          if (s->rx_bytes < s->rx_capacity) {
+            s->rx_buffer[s->rx_bytes++] = s->rx_byte;
+          } else if (s->rx_buffer != NULL) {
+            s->rx_overrun = true;
           }
           s->rx_bit_count = 0u;
           s->rx_byte = 0u;

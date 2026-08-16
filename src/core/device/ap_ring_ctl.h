@@ -473,6 +473,17 @@ void ap_ring_ctl_attach_ring(ap_ring_ctl_t *ctl, ap_ring_station_t *station,
  * separately callable so a test can drive the receive path without a tick. */
 void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl);
 
+/* Whether the card is asserting its interrupt line.
+ *
+ * MISC_STAT's four interrupt-pending bits are **active low** -- p. 12-30 marks
+ * `tmi`, `ri`, `xi` and `gps` "<=0" -- so the line is asserted when any of them
+ * reads *clear*. An unfitted card drives nothing, which is why the presence
+ * gate is checked first rather than the bits: `RING.md` 40 makes an empty slot
+ * a successful outcome for the firmware's probe, and a slot that interrupted
+ * unbidden would take a machine with no ring hardware down a path it never
+ * runs. */
+[[nodiscard]] bool ap_ring_ctl_irq(const ap_ring_ctl_t *ctl);
+
 /* Take whatever the station has accepted since the last call: deposit it in the
  * buffer at `RCV_ADDR` and assert `ri`. Called from `ap_ring_ctl_clock`, and
  * separately callable so a test can drive the receive path without a tick. */

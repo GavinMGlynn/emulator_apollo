@@ -439,6 +439,11 @@ void ap_board_sample_interrupts(ap_board_t *board) {
   ap_intr_set_request(&board->interrupts, AP_BOARD_ETHERNET_IRQ,
                       board->ethernet_present &&
                           ap_3c505_irq(&board->ethernet));
+  /* The ring, on master IRQ 2 -- `002398-04` p. 12-28, `RING.md` 107. The card
+   * had no IRQ accessor and no wiring at all until the line was documented,
+   * which is the "dangling shape the 3c505 had" that finding 82 named. */
+  ap_intr_set_request(&board->interrupts, AP_BOARD_RING_IRQ,
+                      ap_ring_ctl_irq(&board->ring));
   /* And the promise this sample stands on: nothing above can change before
    * this instant unless the bus is used. */
   board->interrupt_valid_until = ap_board_interrupt_next_change(board);
@@ -849,6 +854,18 @@ void ap_board_advance(ap_board_t *board, ap_time_t now) {
     ap_timer_advance(&board->timer, now);
   }
   ap_calendar_advance(&board->calendar, now);
+  /* **The ring, when the card has a cable.** `ap_ring_ctl_poll_ring` moves an
+   * accepted frame into the buffer and raises `ri`; the bit-level driving of
+   * the medium is the *frontend's*, because the medium is shared and no board
+   * may advance a segment another board is also on -- doing it here would
+   * advance the cable once per node.
+   *
+   * Gated on the join, so a machine with no ring segment does exactly what it
+   * did before this existed. That is what keeps the reference boot hash and
+   * the firmware self-test unchanged across `RING.md` 104-108. */
+  if (board->ring.medium != NULL) {
+    ap_ring_ctl_poll_ring(&board->ring);
+  }
   /* §3.9's memory refresh, which is a serial part doing a job that has nothing
    * to do with serial lines. It is here rather than absent because the counter
    * now has a clock: `board/ap_sio.h` derives the rate. */
