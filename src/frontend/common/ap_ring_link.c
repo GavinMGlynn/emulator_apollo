@@ -103,16 +103,24 @@ static bool link_platform_ready(void) {
  * bytes, so neither type can lose anything. */
 #if defined(_WIN32)
 typedef int ap_link_len_t;
+/* And the descriptor itself: Windows `SOCKET` is `unsigned long long`, so
+ * handing it an `int` is a signedness conversion that `-Wconversion` rejects.
+ * The public type stays `int` -- a caller lends a descriptor it already owns,
+ * and `-1`/`INVALID_SOCKET` both fail the `< 0` check on the platforms this
+ * builds for -- so the widening happens here, at the two calls that need it. */
+typedef SOCKET ap_link_sock_t;
 #else
 typedef size_t ap_link_len_t;
+typedef int ap_link_sock_t;
 #endif
 
 static long link_send_once(int fd, const uint8_t *bytes, size_t len) {
-  return (long)send(fd, (const char *)bytes, (ap_link_len_t)len, MSG_NOSIGNAL);
+  return (long)send((ap_link_sock_t)fd, (const char *)bytes,
+                    (ap_link_len_t)len, MSG_NOSIGNAL);
 }
 
 static long link_recv_once(int fd, uint8_t *bytes, size_t len) {
-  return (long)recv(fd, (char *)bytes, (ap_link_len_t)len, 0);
+  return (long)recv((ap_link_sock_t)fd, (char *)bytes, (ap_link_len_t)len, 0);
 }
 
 static bool write_all(int fd, const uint8_t *bytes, size_t len) {
