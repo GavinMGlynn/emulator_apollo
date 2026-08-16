@@ -4053,10 +4053,21 @@ discipline throughout.
       `AP_TIME_BASE_HZ` with a reproducible phase hash. `board_suite` drives a
       two-board exchange through the registers alone and asserts the frame
       arrives in the other board's buffer.
-      **What remains is a frontend that constructs two machines**, boots
-      Domain/OS on each and runs them on one scheduler -- plus the DMA channel
-      above, since the driver moves packets by DMA rather than through the
-      `+406` port. Not a core question any more.
+      **The DMA clause here was stale and is withdrawn**: `002398-04` p. 12-23
+      enumerates the DN3000's DMA Channel Usage in full and the ring is not
+      among them, so there is no host channel to model (`RING.md` 107). The
+      driver reaches the buffer through `RAM_ADDR`/`RAM_DATA`, which is what
+      this core does.
+      **`--ring-two-node` now runs two machines that actually execute.** Each
+      node gets the model's memory with its parity array, its own sealed
+      configuration and node ID, the ring option ROM, and -- the defect that
+      hid all of this -- a **reset out of the PROM's own vector**. Without that
+      last one both nodes started with SSP and PC at zero and faulted at
+      instruction 262 on a stack push, at every limit from 3 M to 80 M, while
+      reporting only a PC that looked like progress. Both now reach the same PC
+      as a single machine at the same instruction count.
+      **What remains is booting Domain/OS on each** -- a disk per node and a
+      console per node -- and then `lcnode`. Detail in `PROJECT_STATUS.md`.
 - [x] Node insertion and removal mid-run, stripping, token loss, **and the
       frame path**, in `src/core/ring/ap_ring_station.*`.
       **Unticked by the `[MAC]` audit and re-earned** (`RING.md` 85-90d): the

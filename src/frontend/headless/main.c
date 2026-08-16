@@ -1145,16 +1145,49 @@ static int run_option_rom_entry(FILE *out, ap_model_id_t model,
  * check that the *ring* is wired end to end; `lcnode` is the plan's
  * verification and remains ahead. */
 static int run_ring_two_node(FILE *out, ap_model_id_t model,
-                             const char *prom_path, uint64_t limit) {
+                             const char *prom_path, const char *ring_rom_path,
+                             unsigned ram_megabytes, uint64_t limit) {
   long prom_size = 0;
   uint8_t *prom = prom_path != NULL ? read_file(prom_path, &prom_size) : NULL;
   if (prom_path != NULL && prom == NULL) {
     fprintf(stderr, "apollo: cannot read %s\n", prom_path);
     return 2;
   }
+  long ring_rom_size = 0;
+  uint8_t *ring_rom =
+      ring_rom_path != NULL ? read_file(ring_rom_path, &ring_rom_size) : NULL;
+  if (ring_rom_path != NULL && ring_rom == NULL) {
+    fprintf(stderr, "apollo: cannot read %s\n", ring_rom_path);
+    free(prom);
+    return 2;
+  }
 
   enum { NODES = 2u };
-  static uint8_t ram[NODES][8u * 1024u * 1024u];
+  /* **The same memory a single-machine boot gets, parity included.** These
+   * nodes used to be built with a fixed 8 MB and *no parity array*, and both
+   * faulted at instruction 262 on a `move.l d0,-(a7)` -- a stack push with
+   * nothing behind it. A real board has parity RAM, self-test 7 forces bad
+   * parity and expects the level 7 interrupt back, and a board without it is
+   * not a machine this firmware can run on. */
+  const uint32_t ram_bytes = ram_megabytes * 1024u * 1024u;
+  const uint32_t parity_bytes = (ram_bytes + 7u) / 8u;
+  uint8_t *ram[NODES] = {0};
+  uint8_t *parity[NODES] = {0};
+  for (unsigned i = 0; i < NODES; i++) {
+    ram[i] = calloc(1, ram_bytes);
+    parity[i] = calloc(1, parity_bytes);
+    if (ram[i] == NULL || parity[i] == NULL) {
+      fprintf(stderr, "apollo: cannot fit %u MB for node %u\n", ram_megabytes,
+              i);
+      for (unsigned j = 0; j < NODES; j++) {
+        free(ram[j]);
+        free(parity[j]);
+      }
+      free(prom);
+      free(ring_rom);
+      return 2;
+    }
+  }
   static ap_machine_t machine[NODES];
   static ap_board_t board[NODES];
   static ap_ring_sched_t sched;
@@ -1166,14 +1199,33 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
 
   ap_ring_sched_init(&sched);
   for (unsigned i = 0; i < NODES; i++) {
-    if (!ap_board_init_model(&board[i], ram[i], sizeof ram[i], &epoch,
-                             node_id[i], model)) {
+    if (!ap_board_init_model(&board[i], ram[i], ram_bytes, &epoch, node_id[i],
+                             model) ||
+        !ap_board_attach_parity(&board[i], parity[i], parity_bytes)) {
       free(prom);
+      free(ring_rom);
       return 2;
     }
     ap_board_attach_ring(&board[i], true);
     if (prom != NULL) {
       (void)ap_board_load_prom(&board[i], prom, (uint32_t)prom_size);
+    }
+    /* **Each node needs its own option ROM and its own sealed configuration**,
+     * or the boot PROM never looks for the card: `001794` skips the whole
+     * expansion table when the configuration's `2B` is zero (finding 83), and
+     * the scan needs an image at the AT memory base to find. Node 0 and node 1
+     * get the *same* ROM image and *different* node IDs, which is what two of
+     * one model on one cable is. Without this both nodes ran firmware that
+     * never discovered the ring they were attached to. */
+    if (ring_rom != NULL) {
+      ap_board_attach_option_rom(&board[i], ring_rom, (uint32_t)ring_rom_size,
+                                 AP_BOARD_ATBUS_MEMORY_BASE);
+    }
+    {
+      uint8_t battery[AP_CALENDAR_BATTERY_BYTES];
+      ap_calendar_build_config(battery, sizeof battery, node_id[i],
+                               1u << AP_CONFIG_DEV_RING);
+      ap_calendar_load_battery(&board[i].calendar, battery, sizeof battery);
     }
     const int slot = ap_board_join_ring_sched(&board[i], &sched);
     if (slot < 0) {
@@ -1181,9 +1233,26 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
       free(prom);
       return 2;
     }
-    ap_machine_init_model(&machine[i], ram[i], sizeof ram[i], model);
+    ap_machine_init_model(&machine[i], ram[i], ram_bytes, model);
     ap_machine_set_board(&machine[i], &board[i]);
-    fprintf(out, "  node %u  id %06X  ring slot %d\n", i, node_id[i], slot);
+    /* **And reset it out of the PROM's own vector.** Without this the machine
+     * starts with SSP and PC at zero, and the firmware's first stack push
+     * faults -- which is what `ran 262, fault (op 2F00)` was, on both nodes,
+     * for every limit from 3 M to 80 M. A node that never reaches its reset
+     * vector cannot find a ring. */
+    uint32_t stack = 0;
+    uint32_t pc = 0;
+    if (prom != NULL) {
+      if (!ap_board_reset_vector(&board[i], &stack, &pc)) {
+        fprintf(stderr, "apollo: %s carries no reset vector\n", prom_path);
+        free(prom);
+        free(ring_rom);
+        return 2;
+      }
+      ap_machine_reset(&machine[i], pc, stack);
+    }
+    fprintf(out, "  node %u  id %06X  ring slot %d  reset %08X sp %08X\n", i,
+            node_id[i], slot, pc, stack);
   }
 
   /* A slice short enough that neither machine runs far past the other before
@@ -1192,11 +1261,26 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
    * safe at any slice. */
   const uint64_t slice = 4096u;
   uint64_t done = 0u;
-  while (done < limit) {
+  uint64_t ran[NODES] = {0};
+  ap_m68030_step_status_t status[NODES] = {AP_M68030_STEP_EXECUTED};
+  uint16_t instruction[NODES] = {0};
+  bool stalled = false;
+  while (done < limit && !stalled) {
     const uint64_t take = (limit - done) < slice ? (limit - done) : slice;
     const unsigned steps = (unsigned)take;
     for (unsigned i = 0; i < NODES; i++) {
-      (void)ap_machine_run(&machine[i], steps);
+      /* **The result is not discardable.** A node that stops -- an illegal
+       * opcode, a fault, a `STOP` with no interrupt to wake it -- still has a
+       * PC to report, and a report of the PC alone reads as progress. This
+       * loop ran 80 M instructions against 3 M and printed the same PC and the
+       * same ring hash before the status was looked at. */
+      const ap_machine_run_t r = ap_machine_run(&machine[i], steps);
+      ran[i] += r.executed;
+      status[i] = r.status;
+      instruction[i] = r.instruction;
+      if (r.status != AP_M68030_STEP_EXECUTED) {
+        stalled = true;
+      }
     }
     ap_time_t earliest = ap_machine_state(&machine[0]).now;
     for (unsigned i = 1; i < NODES; i++) {
@@ -1212,12 +1296,24 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
 
   for (unsigned i = 0; i < NODES; i++) {
     const ap_machine_state_t st = ap_machine_state(&machine[i]);
-    fprintf(out, "  node %u  pc %08X  frames seen %llu copied %llu\n", i,
-            st.pc, (unsigned long long)board[i].ring_station.frames_seen,
+    static const char *const why[] = {"executed",    "unimplemented",
+                                     "illegal",     "fault",
+                                     "exception",   "stopped"};
+    fprintf(out,
+            "  node %u  pc %08X  ran %llu  %s (op %04X)  frames seen %llu "
+            "copied %llu\n",
+            i, st.pc, (unsigned long long)ran[i], why[status[i]],
+            instruction[i],
+            (unsigned long long)board[i].ring_station.frames_seen,
             (unsigned long long)board[i].ring_station.frames_copied);
   }
   fprintf(out, "  ring     hash %016llX\n",
           (unsigned long long)ap_ring_sched_hash(&sched));
+  for (unsigned i = 0; i < NODES; i++) {
+    free(ram[i]);
+    free(parity[i]);
+  }
+  free(ring_rom);
   free(prom);
   return 0;
 }
@@ -5629,6 +5725,7 @@ int main(int argc, char **argv) {
    * `--boot-prom` and would otherwise never be reached. */
   if (g_ring_two_node) {
     return run_ring_two_node(stdout, opt.model->id, boot_prom,
+                             g_ring_rom_path, ram_megabytes,
                              g_ring_two_node_limit);
   }
 

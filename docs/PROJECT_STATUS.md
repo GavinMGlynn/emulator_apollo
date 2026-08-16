@@ -419,6 +419,44 @@ Last updated: 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## Two ring nodes that actually execute: the runner never reset them
+## (2026-08-17)
+
+**`--ring-two-node` was running two machines that had never left instruction
+262.** Both nodes stopped with `fault` on opcode `2F00` -- `move.l d0,-(a7)`, a
+stack push -- because the runner called `ap_machine_init_model` and
+`ap_machine_set_board` but never `ap_machine_reset`, so SSP and PC were zero.
+
+**It reported a PC, and a PC alone reads as progress.** The tell was comparing
+two runs: a 3 M limit and an 80 M limit printed the *same* PC and the *same*
+ring hash. The runner now reports `executed`/`fault`/`illegal`, the opcode, and
+the instructions each node actually ran, so a stopped node says so.
+
+**Two things were corrected on the way that were not the cause, and that is
+worth recording.** The nodes were built with a fixed 8 MB and *no parity array*,
+where a booting machine gets the model's memory and a parity array both. That
+was fixed first — self-test 7 forces bad parity and expects the level 7
+interrupt back, so a board without it is not a machine this firmware runs on —
+and the fault was **unchanged**. What found the cause was running the *single*
+machine with the same fit and no disk: it executed 3 M instructions cleanly, so
+the difference was construction, not configuration.
+
+**What the corrected runner builds**: two nodes with distinct IDs `011111` and
+`022222`, each with the model's memory and its parity, a sealed configuration
+carrying the ring device bit, the ring option ROM at the AT memory base, and a
+reset from the PROM's own vector — `reset 0000633C sp 01000180` on both. At 3 M
+instructions both reach `PC 00002698`, which is where a single machine is at the
+same count. The two-node path and the one-node path agree where they should.
+
+**Still to do for the plan item**: a disk and a console per node, so Domain/OS
+boots on each, and then `lcnode`. The item's "plus the DMA channel" clause was
+stale and is withdrawn — `002398-04` p. 12-23 enumerates DMA channel usage in
+full and the ring is not among them.
+
+*Verification: both nodes `executed`, 3,000,000 instructions each, at the same
+PC as a single machine; `ctest` 138/138; identity boot unchanged at
+`A354786119A3931D`.*
+
 ## Domain/OS boots with the ring fitted, and passes its own self-tests
 ## (2026-08-17)
 
