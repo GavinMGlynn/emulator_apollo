@@ -5073,8 +5073,38 @@ Only after the reference core is proven, and only under an identity harness.
       1,266,013,264 clocks — which is the proof that neither volume's contents
       reached the PROM. So "boot the release" requires **MINST**, not the
       restore, and the SR10.4 route was right to run it. C128.
-      **MINST from the four SR10.3 software cartridges is the remaining step**,
-      then the state hash under this core for each of the three releases.
+      **MINST IS DONE AND SR10.3 RUNS ON THIS CORE.** Authorized Area and
+      target both `//node_12345`, template **11 (`large`)** — the SR10.4
+      install's own choice — and the four `018848-001..004` cartridges swapped in
+      as MINST asked, each staged into the run directory so the media's md5 is
+      unchanged. `RAI MINST has completed` with **two** warnings, both named
+      because a summary would hide them: a release-notes document
+      (`os.v.10.3__bind4.8_operations_guide`) and `Could not delete directory
+      //node_12345/bscom`. Neither is an OS file.
+      **And MINST is what writes the boot block**, measured on the same file:
+      `SYSBOOT REV` absent before, at `0x870` after — which is C128's block 2
+      exactly. That is the difference between a restored volume and a bootable
+      one.
+      **This core then boots it**: the DN3500 self-tests, `Loaded: SELF_TEST
+      Revision: 2.4`, the CPU diagnostics, and then Domain/OS's own
+      `Salvaging boot volume` /
+      `Salvol - Offline(7), revision 10.3, June 5, 1990` — SR10.3's *own*
+      salvage utility executing here. The salvage is expected rather than a
+      fault: the install session was killed rather than shut down from the
+      target. State hash `8E1A2E2E106A367B`, final PC `00002EE4`,
+      1,495,341,007 clocks at the 350 M reference bound, recorded as
+      mid-salvage.
+      **Nothing in the run is SR10.3-specific, and that was checked**: the
+      `Configuration information is not initialized` and `Self test failed.
+      Expected= 00000000, Actual= 00000012, Address= 00010912` lines are
+      **identical** in the SR10.4 reference boot, so they are this core's
+      standing gaps rather than something the new release exposed.
+      *Detail in `FINDINGS.md` C130.*
+      **What is left for this item**: a clean shutdown from the target so the
+      hash is of a settled volume rather than a salvage, and the same route for
+      **SR10.2** — whose media is held and whose standard boot cartridge already
+      passes both bootability tests, so it is the proven route applied once
+      more.
       **SR10.3 is held** — five cartridges in `media/sr10.3/`, plus
       `Apollo_DOMAINOS_SR10.3.5.tgz`. What is missing is an **installed volume**;
       this core boots a volume, not a distribution set.

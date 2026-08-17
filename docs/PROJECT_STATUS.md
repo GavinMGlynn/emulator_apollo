@@ -6198,6 +6198,44 @@ hypotheses were eliminated first, and the volume was `cmp`-ed before and after a
 run, because the cartridge was an input and inputs are not suspected. Detail,
 including the two facts that fixed the mechanism, in `FINDINGS.md` C124.
 
+#### SR10.3 is installed and runs on this core
+
+`media/dn3500-sr10.3-installed.awd`, built under the oracle by the SR10.4 route
+with one step added: `EX CALENDAR` with a date supplied, which is the documented
+remedy for the 14-day gate. Then RBAK (474 entries), then MINST in the same
+session -- the RBAK environment is booted from tape, so there is no other way
+back into it -- with the Authorized Area and target both `//node_12345` and
+template 11, `large`, the SR10.4 install's own choice. Four software cartridges
+`018848-001..004`, each **staged into the run directory** so the media's md5 is
+unchanged.
+
+MINST reported two warnings, named rather than summarised: a release-notes
+document it could not install, and a directory it could not delete. Neither is
+an OS file.
+
+**MINST is what makes a volume bootable**, measured on one file: `SYSBOOT REV`
+absent before it ran, at `0x870` after.
+
+This core boots the result through the DN3500's own PROM -- self-tests,
+`Loaded: SELF_TEST Revision: 2.4`, the CPU diagnostics -- and then reaches
+Domain/OS's own
+
+    Salvaging boot volume
+    Salvol - Offline(7), revision 10.3, June 5, 1990  2:05:12 am
+
+which is SR10.3's *own* salvage utility executing here. The salvage is expected:
+the install session was killed rather than shut down from the target. State hash
+at the 350 M bound is `8E1A2E2E106A367B`, final PC `00002EE4`, 1,495,341,007
+clocks -- **mid-salvage**, and that qualifier is the honest reading of it.
+
+Nothing in the run is SR10.3-specific, and that was checked rather than assumed:
+`Configuration information is not initialized` and the `Address= 00010912`
+self-test failure appear identically in the SR10.4 reference boot, so they are
+this core's standing gaps. Detail in `FINDINGS.md` C130.
+
+**Not done for this item**: a clean shutdown from the target, and SR10.2 -- whose
+media is held and whose boot cartridge already passes both bootability tests.
+
 #### A restored volume is not a bootable volume
 
 `SYSBOOT REV` is at `0x870` in `dn3500-sr10.4-installed.awd` and **absent** from

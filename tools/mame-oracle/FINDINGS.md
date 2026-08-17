@@ -7415,3 +7415,69 @@ built that way would be a finding about a fiction.
 *Verification: `oracle_nodeid`, 15 checks restating `call_load`'s acceptance rule
 -- including that the checksum is a **byte-wide** sum, which agrees with a wider
 one for every small ID and disagrees exactly when it carries.*
+
+## C130 -- SR10.3 is installed and runs on this core, and MINST is what makes a volume bootable
+
+The full route, end to end, with every step's evidence:
+
+1. **`EX CALENDAR`** with a date supplied (C127) clears the 14-day gate.
+2. **`ex domain_os`** off `019439-001` runs RBAK: 474 entries, `Restore
+   complete.`, then `shut` -> `Shutdown successful`. Kept as
+   `media/dn3500-sr10.3-osclean.awd`.
+3. **`sh`, login `user`, `/install/tools/minst`** in the same session, because
+   the RBAK environment is booted from tape and there is no other way back into
+   it. Authorized Area and target both defaulted to `//node_12345`, `yes` to
+   Domain/OS, media `ct`, template **11 (`large`)** -- the same choice the SR10.4
+   install made.
+4. **Four software cartridges** `018848-001..004` swapped in as MINST asked.
+   Each swap staged a copy into the run directory (C124), so the media in
+   `media/` was never opened by the guest and its md5 is unchanged.
+5. `RAI MINST has completed` with **two** warnings, both named rather than
+   summarised: `Unable to install .../os.v.10.3__bind4.8_operations_guide` (a
+   release-notes document) and `Could not delete directory //node_12345/bscom`.
+   Neither is an OS file.
+
+**MINST is what writes the boot block.** Before it, `SYSBOOT REV` was absent
+from the volume; after it, it is at `0x870` -- block 2 of a 1024-byte-block
+volume, `[AEGIS]` §4.3.2's physical `02`-`0B` (C128). That is the difference
+between a restored volume and a bootable one, measured on the same file.
+
+**And this core boots it.** `media/dn3500-sr10.3-installed.awd` through the
+DN3500's own PROM: the self-tests, `Loaded: SELF_TEST Revision: 2.4`, the CPU
+diagnostics, then Domain/OS's own
+
+    Salvaging boot volume
+    Salvol - Offline(7), revision 10.3, June 5, 1990  2:05:12 am
+        Preparing file list...
+        Salvaging...  % complete
+
+-- SR10.3's *own* salvage utility executing on this core. The salvage is
+expected, not a fault: the install session was killed rather than shut down from
+the target, and an unclean volume is what Domain/OS salvages.
+
+**Nothing in the run is SR10.3-specific, checked rather than assumed.** The
+`Configuration information is not initialized`, `Self test failed. Expected=
+00000000, Actual= 00000012, Address= 00010912` and `Do you wish to continue
+(y,n)? y` lines are **identical** in the SR10.4 reference boot, so they are
+this core's standing gaps and not something the new release exposed.
+
+*State hash at the 350 M reference bound: `8E1A2E2E106A367B`, final PC
+`00002EE4`, 1,495,341,007 clocks -- mid-salvage, and recorded as such.*
+
+## C131 -- a stray emulator from an earlier session had been burning a core for five hours
+
+Found while listing processes for another reason: an `apollo-headless` with
+`--mid-access-devices` against the SR10.4 volume, **4h57m elapsed and 4h55m of
+CPU**, started before this session began. Killed.
+
+It is recorded because of what it silently does to *timing*: one core of this VM
+was unavailable for every measurement taken while it ran, and nothing in a
+report says so. No figure here rests on it -- this session made no new timing
+claim, and a state hash is unaffected by contention, which is exactly why the
+identity harness is a hash and not a stopwatch.
+
+**The rule:** `pgrep apollo-headless` and `pgrep mdsession` before any timing
+run, and after any run that was killed rather than allowed to finish.
+`mdsession.py` already arms `PR_SET_PDEATHSIG` and handles `SIGTERM`/`SIGINT` for
+exactly this reason; a bare `apollo-headless` started from a shell has no such
+protection.
