@@ -5276,13 +5276,25 @@ Only after the reference core is proven, and only under an identity harness.
       their sources**, so nothing wrote and nothing was truncated. `check_tape`
       is right as well, read rather than assumed: it re-measures whenever the
       length differs, and C56's edit forces that on every media change.
-      **So every static explanation is eliminated** — the `EOF1` is on the tape,
-      the tape mark before it is correct, the block count is the full 116,536, no
-      write occurred — which is the point at which `CLAUDE.md`'s order licenses
-      instrumentation. Next is the `VERBOSE`/`-oslog` recipe reading what
-      `read_block` returns either side of block 21,449, watching in particular for
-      `m_first_block_hack`, whose re-read of block 0 (*"why is this
-      necessary???"*) would shift a sequential restore by one block.
+      **Instrumented, and the block-21,449 framing is WITHDRAWN.** The trace was
+      windowed on 21,430-21,470 (reverted and rebuilt afterwards). Every line in
+      it reads `count=56048` and returns **block 21,449 of the *boot* cartridge**
+      — verified statically, since that data occurs there and nowhere in the
+      software cartridge, whose own 21,449 begins `45 4F 46 32`, `EOF2`. So the
+      window was crossed only *before* the swap and the failure is **not** at that
+      block. The identification came from a label map and was never checked
+      against when the drive reached it.
+      **The swap works**, settled by the same log: `check_tape` reports
+      `017287-001 … with 116536 blocks` after it.
+      **What the run did establish**: the SR10.2 *boot* cartridge's ANSI labels
+      start at block **16**, not 0 — `VOL1@16 … EOF1@56046 EOF2@56047`, one file,
+      with sixteen blocks ahead of `VOL1` where a bootable cartridge's `sysboot`
+      lives. The software cartridges start at 0. Worth having on record for any
+      tape reasoning.
+      *Next probe, specified so it is not another windowed guess: log sparsely
+      over the whole traversal — every 256th block, every true filemark test, each
+      `check_tape` — so where the read stops on the software cartridge is visible
+      without 100,000 lines. `FINDINGS.md` C141.*
       *A rule broken on the way, mine: the first run's directory was deleted in a
       tidy-up before the comparison, so the re-run was needed to get a number that
       had already existed. `FINDINGS.md` C141.*

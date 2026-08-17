@@ -8173,18 +8173,48 @@ the one line that looked like the whole answer is not it.
 and C56's edit forces `m_image_length = 0` before calling it on a media change, so
 a swap always re-measures.
 
-**So the position stands as**: the `EOF1` is on the tape at block 21,449, the tape
-mark before it is correct, the drive's block count is the full 116,536, no write
-occurred, and RBAK still says the label is missing. Every static explanation is
-now eliminated, which is the point at which `CLAUDE.md`'s order finally licenses
-instrumentation -- the `VERBOSE (LOG_LEVEL0 | LOG_LEVEL1)` plus `-oslog` recipe,
-reading what `read_block` returns either side of 21,449.
+### Instrumented, and the block-21,449 framing is WITHDRAWN
 
-**One candidate to check first when that runs**, because it is cheap to see in the
-same log: `m_first_block_hack` re-reads block 0 -- *"we must read first block twice
-(in MD for 'di c' and 'ld' or 'ex ...') / why is this necessary???"* -- and a
-duplicated block anywhere in a sequential restore shifts everything after it by
-one.
+The `VERBOSE (LOG_LEVEL0 | LOG_LEVEL1)` plus `-oslog` recipe was run with a
+`read_block` trace windowed on blocks 21,430-21,470. Reverted and rebuilt
+afterwards, as `CLAUDE.md` requires; only C56's permanent edit remains.
+
+Every probe line in that window reads `count=56048` and returns data that is
+**block 21,449 of the *boot* cartridge** -- verified statically: the pattern
+`00 00 53 b4 46 99 dc 2f` occurs at block 21,449 of `017286-001` and nowhere in
+`017287-001`, whose own block 21,449 begins `45 4F 46 32`, `EOF2`. 56,048 blocks
+is the boot cartridge's length.
+
+**So the window was traversed only *before* the swap, and the failure is not at
+block 21,449 of the software cartridge.** That identification came from the
+software cartridge's label map and was never checked against when the drive
+actually reached it. Withdrawn.
+
+**The swap itself works**, which the same log settles: `check_tape` reports
+`017287-001 ... with 116536 blocks` after it, and both `!swap` requests were
+acknowledged `ok`.
+
+### What the run did establish
+
+**The SR10.2 boot cartridge's ANSI labels do not start at block 0.** Its layout is
+`VOL1@16 UVL1@17 HDR1@18 HDR2@19 UHL1@20 ... EOF1@56046 EOF2@56047` -- seven label
+blocks and a single file, with sixteen blocks ahead of `VOL1`, which is where a
+bootable cartridge's `sysboot` descriptor and boot code live. The *software*
+cartridges start their labels at block 0. That asymmetry is worth having on record
+for any tape reasoning, and `ct_extract.py` finds both without being told.
+
+Also visible and not yet judged: `read data underrun` from `timer_func` every ten
+blocks or so through the traversal.
+
+### The next probe, specified so it is not another windowed guess
+
+Log **sparsely but over the whole traversal** -- every 256th block, plus every
+`block_is_filemark` that returns true, plus each `check_tape` -- so the shape of
+the read is visible without 100,000 lines. What that answers and this run could
+not: where on the *software* cartridge the read actually stops, which is the
+question. `m_first_block_hack`'s re-read of block 0 (*"why is this
+necessary???"*) remains a candidate, since a duplicated block shifts everything
+after it by one.
 
 **And a rule broken on the way, mine:** the first run's directory was deleted in a
 tidy-up before the comparison was made, so the re-run above was needed to get a
