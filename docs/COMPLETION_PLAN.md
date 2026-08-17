@@ -4601,11 +4601,20 @@ Only after the reference core is proven, and only under an identity harness.
       `m_has_cartridge`. So the cartridge *is* learned at load, and
       `sysboot not found` is not the media-change gap.
       **What that leaves**: the read path works and the PROM's *search* does not
-      find the file. The one unpinned piece from two entries above is now the
-      whole question — whether `ex` looks for `sysboot` at the tape root, where
-      both cartridges hold it, or under a SAU directory as `/SAU7/SELF_TEST`
-      suggests. That is answerable by disassembling the `ex` path around the
-      `sysboot` string in the boot PROM, and needs no emulator. Then MINST from the four software cartridges,
+      find the file. **And the search is positional, not by name.** The
+      string `sysboot` occurs in the boot PROM exactly once, at `00185B`, and
+      only inside `error: sysboot not found` — there is **no filename string to
+      match against**. `RING.md` 85d and `[AEGIS]` §4.3.2 supply the other half:
+      `sysboot` is ten contiguous blocks at **physical `02`-`0B`**. So `ex`
+      reads a fixed physical location on the selected device rather than looking
+      a name up.
+      **That reframes the cartridge evidence.** `ct_extract.py` finds `sysboot`
+      as a *member of the wbak archive*; the PROM reads *raw physical blocks*.
+      A cartridge is bootable only if `sysboot` lies at blocks `02`-`0B` of the
+      tape itself, which its presence in the archive neither establishes nor
+      implies. Comparing blocks `02`-`0B` of the SR10.3 and SR10.4 boot
+      cartridges is the next measurement — two reads of ten blocks, no emulator,
+      and it decides whether this cartridge is bootable at all. Then MINST from the four software cartridges,
       then the state hash the item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
