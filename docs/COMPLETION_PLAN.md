@@ -4828,7 +4828,17 @@ Only after the reference core is proven, and only under an identity harness.
       should be built on until it is. The next move is to make one run
       reproducible before asking anything else of it: fix the volume, the
       cartridge and the command file, and run the *same* invocation three times
-      to establish whether it agrees with itself. That is a media question, not an
+      to establish whether it agrees with itself.
+      **Started; run 1 of 3 gave `sysboot not found`** on a restored
+      `invol-done` base with the era config off — consistent with `q3c`. Runs 2
+      and 3 did not complete: three ~4-minute runs chained into one command
+      exceeded the 10-minute cap and were killed.
+      **That also ate the revert**, leaving `mdsession.lua` at
+      `"25 Years Ago" = Off` until the next command caught it. **Run long oracle
+      work one invocation at a time**, or put the revert in its own command —
+      an edit whose undo is at the end of a long chain is an edit that will
+      eventually be left behind, and `CLAUDE.md` requires oracle instrumentation
+      to be reverted, not usually-reverted. That is a media question, not an
       emulator defect, which is why every device-side hypothesis here failed. Everything else in the cycle is verified and
       the revert plus clean rebuild were done in the same command.
       Everything else in the cycle is verified: the edit rebuilds `sc499.o`,
