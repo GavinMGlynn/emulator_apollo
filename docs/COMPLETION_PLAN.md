@@ -4443,10 +4443,26 @@ Only after the reference core is proven, and only under an identity harness.
       So the remaining half is: drop the `const`, advance devices to
       `now + duration(clocks spent so far)` at that callback, and the processor
       observes an up-to-date machine mid-instruction. **No state machine, no
-      coroutines, no threads, and no rewrite of the 6,966-line file.** The risk
-      to check first is re-entrancy — a device advanced from inside an access
-      must not call back into the CPU — and whether advancing devices mid-access
-      can change the wait-state answer that triggered it. The bus now advances mid-instruction, but
+      coroutines, no threads, and no rewrite of the 6,966-line file.** **Both risks were checked and refuted from
+      the source**: `ap_board.h` names neither `cpu` nor `m68030` and
+      `ap_board_advance` takes only a board and a time, so devices cannot
+      re-enter the CPU; and `ap_board_access_time` is `const`, deriving from
+      `ap_atbus_timing` and the *address*, so advancing devices cannot change
+      the answer that triggered the advance.
+      **IMPLEMENTED, and the identity hash MOVED — which is the finding.**
+      `A354786119A3931D` -> `27AAE57F4EF4E97E`, **clocks identical at
+      1,497,270,792**, `ctest` 138/138. Identical clocks say execution timing is
+      unperturbed; the difference is device *state*, because devices now advance
+      to the instant each access happens rather than to the instruction
+      boundary. That is exactly what this half of the item is for.
+      **So the "byte-identical" criterion cannot apply to this increment, and
+      that needs a decision rather than a silent re-bless.** It was written for
+      the ordering half, where it held five times running. The options are to
+      re-bless the goldens deliberately with this change named as the reason, or
+      to keep the old schedule behind a flag and run the two as an A/B.
+      **Not re-blessed**: `PROJECT_STATUS.md` still records
+      `A354786119A3931D`, which this makes stale — the honest state until the
+      call is made. The bus now advances mid-instruction, but
       the processor cannot yet observe it mid-instruction — that needs the
       resumable sequencer increment (2) showed to be a rewrite of a 6,966-line
       file. The ordering half of the item is done; the feedback half is not.
