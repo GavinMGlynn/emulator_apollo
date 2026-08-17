@@ -4632,8 +4632,21 @@ Only after the reference core is proven, and only under an identity harness.
       green-suited module wired to nothing — and it is a **core gap in its own
       right**, independent of the per-cycle item: a DN3500 with an AT bus master
       cannot presently take the bus from the CPU at all.
-      **So the order is**: wire `ap_master_t` into `ap_board_t` and give the
-      arbiter a real second claimant (a core item, with its own verification);
+      **Step one is DONE**: `ap_board_t` now owns an `ap_master_t`, and it is
+      ticked wherever the arbiter is — all three sites — against
+      `board->dma.controller[0]`. A module that was complete, green-suited and
+      **attached to nothing** is now attached, so a board finally has a second
+      claimant for its bus.
+      *Verification: `ctest` 138/138 and identity boot `A354786119A3931D`
+      unchanged, which is what an **idle** master must do — it stays idle until
+      something asserts `DRQ`, so a board with no card in a master-capable slot
+      behaves exactly as before.*
+      **What is not done**: nothing yet *attaches* a card to it —
+      `ap_master_init`'s unit, channel and DRQ are still zero, because those are
+      the adapter's and belong at an attach call that does not exist. Until one
+      does, the master is wired but unexercised, which is the same criticism
+      that motivated this step and must not be declared closed by it.
+      **Then the rest of the order**:
       *then* the `MOVEM`-versus-DMA test becomes writable; *then* it decides
       whether the sequencer rewrite is worth its cost. Three items, and the
       first was not previously known to be missing. If it passes under

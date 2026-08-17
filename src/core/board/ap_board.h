@@ -33,6 +33,7 @@
 #include <stdint.h>
 
 #include "board/ap_arbiter.h"
+#include "board/ap_master.h"
 #include "model/ap_model.h"
 #include "board/ap_atbus.h"
 #include "board/ap_atmap.h"
@@ -405,6 +406,20 @@ typedef struct ap_board {
    * one priority order for it, and a machine that gave each master its own
    * would have no contention to be emergent. */
   ap_arbiter_t arbiter;
+
+  /* **An AT bus master, wired to the arbiter it competes on.**
+   *
+   * `ap_master_t` modelled `008778-03` §2.4.7's route in -- the channel's
+   * cascade mode and `MASTER.L` -- and was **attached to no board**, so
+   * `master_suite` proved the handshake against a rig it built itself while no
+   * machine could be made to contend with the processor at all. A complete
+   * module wired to nothing, which is the shape a green suite hides.
+   *
+   * Unit, channel and DRQ are the adapter's, not the board's: a card announces
+   * which channel it cascades through, so they are set at attach rather than
+   * fixed here. Idle until something asserts `DRQ`, so a board with no card in
+   * a master-capable slot behaves exactly as it did before this existed. */
+  ap_master_t master;
 
   /* Blit cycles that named one of `CR0`'s two undescribed modes. Counted rather
    * than guessed: nothing names modes 5 and 6, so a run that reaches one is a
