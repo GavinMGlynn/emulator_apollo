@@ -4760,7 +4760,20 @@ Only after the reference core is proven, and only under an identity harness.
       not the standard `Crtg_Std_Sfw_Boot_1`, which has the SAU but no
       descriptor, and not `019376-001`, which has the descriptor but not the
       SAU. Three cartridges, one of them right, and the discriminator was two
-      commands each. That is a media question, not an
+      commands each.
+      **And it boots.** `di c` / `ex domain_os` against it:
+
+          low: 01002000  high: 01103BFF  start: 01002024
+          Domain/OS kernel(7), revision 10.3.5, June 19, 1991  8:22:11 am
+
+      From a clean `invol-done` volume, with no `re`, no knock, no era config —
+      **this is the first reproducible load of a release other than SR10.4**,
+      and unlike the earlier one-off it comes with an identified cause and the
+      right media rather than unexplained luck. It stops at the same calendar
+      gate (`More than 14 days have elapsed since the last shutdown`), which was
+      measured earlier to clear with the harness's `25 Years Ago` config off.
+      **Remaining for this item**: clear the calendar gate, run MINST from the
+      four software cartridges, record the state hash. That is a media question, not an
       emulator defect, which is why every device-side hypothesis here failed. Everything else in the cycle is verified and
       the revert plus clean rebuild were done in the same command.
       Everything else in the cycle is verified: the edit rebuilds `sc499.o`,
