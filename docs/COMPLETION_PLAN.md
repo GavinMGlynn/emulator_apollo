@@ -4365,6 +4365,19 @@ Only after the reference core is proven, and only under an identity harness.
       executing*, which is the case the tick-loop item names as the reason to
       want a cycle-steppable CPU at all. So this is a real narrowing of the
       item, not a free win, and taking it is a decision to record explicitly.
+      **And the alternative is smaller than it sounds, because the per-clock
+      delivery already exists.** `ap_machine.c:839` calls
+      `ap_board_bus_ticks(board, last_instruction_clocks)`, and that loops the
+      arbiter **one clock at a time**, batching only where the board can prove
+      the ticks identical — no DMA able to ask and an idle arbiter. So the
+      machine is not quantised in *resolution*; it is quantised in *ordering*,
+      because those clocks are charged **after** the instruction, as the comment
+      there says: "clocks that already happened".
+      That reframes increment (2)/(3): not "invent a cycle timeline" but "move
+      the existing per-clock delivery from after the instruction to during it".
+      The bus already knows when each cycle happened, and after step 1 it
+      survives the access. What is missing is a record of *which* clock each
+      cycle fell on, and a `bus_ticks` call sited to consume it.
       **Passed the bus explicitly at all twelve rather than defaulting a NULL to
       a local.** A NULL fallback would cost zero test edits and is the tempting
       shortcut, but from increment (3) the bus is *resumable state*, and a test
