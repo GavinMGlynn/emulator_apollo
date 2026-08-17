@@ -4790,9 +4790,22 @@ Only after the reference core is proven, and only under an identity harness.
       is right: `dn3500-osclean.awd`, "OS restored from the boot cartridge and
       cleanly shut down, MINST not run — the right base for redoing the
       install". It carries SR10.4's OS, which is *why* it boots, so an SR10.3
-      install onto it must be checked for layering. Next: try `-osclean` as the
-      base with the Quarterly PSK cartridge, then MINST, then the state hash.
-      A copy of each volume is kept before every run from here on. That is a media question, not an
+      install onto it must be checked for layering.
+      **Tried `-osclean`, and it fails the same way** — `error: sysboot not
+      found`. So "a volume that already carries an OS" is **not** the
+      discriminator either, and the paragraph above is too strong. What is
+      established is narrower: the *same cartridge* gives different answers on
+      different volumes, and which property decides it is unknown.
+      **Two runs worked (`q3`, `q3b`), three did not** (`q3c` on `invol-done`,
+      `q3d` on `osclean`, and this morning's). The working pair ran on a volume
+      left by a *previous failed boot in the same session*; every failure ran on
+      a freshly-copied checkpoint. That points at something a failed boot leaves
+      behind rather than at the checkpoint's contents — a pattern over five
+      runs, not a mechanism.
+      **Do not run again before instrumenting.** The cheap discriminator is to
+      diff a working volume against its pre-run copy, which the
+      copy-before-each-run rule now in force makes possible, and which is a
+      `cmp` rather than an emulator run. That is a media question, not an
       emulator defect, which is why every device-side hypothesis here failed. Everything else in the cycle is verified and
       the revert plus clean rebuild were done in the same command.
       Everything else in the cycle is verified: the edit rebuilds `sc499.o`,
