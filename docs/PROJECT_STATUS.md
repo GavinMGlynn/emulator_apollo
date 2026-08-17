@@ -616,6 +616,27 @@ any emulation cost can have. The real figure is **1.08x**. And a divergent hash
 included; that is not more accurate, only different, and it disappears once only
 the accessed device advances.
 
+**And the machine now steps by machine cycle.** `ap_machine_tick` advances
+exactly one cycle: a tick with nothing pending runs one instruction ahead and
+then hands its clocks out one at a time, from the timeline `ap_m68030_charge`
+records. `--cycle-stepped` drives a boot that way, and **it is byte-identical to
+the instruction-stepped boot** — `9E6CD6DA5B9DD8A8` at 20 M and
+`A354786119A3931D` over the full 350 M run.
+
+That matters twice over. It is the per-cycle item's central claim demonstrated
+rather than designed; and it makes the tick an **exercised** path rather than a
+present one, which is the failure mode this project has a standing rule about —
+a flag nothing drives leaves dead code behind a green suite.
+
+**It is additive, not a rewrite**, which is why it landed without disturbing the
+core loop: `pending_cycles` and `defer_cycle_delivery` are inert unless the tick
+is used, so the instruction-stepped path is byte-for-byte what it was. Four
+routes to a cycle-steppable CPU were rejected earlier — a state machine over
+6,966 lines, coroutines, threads, re-execution — all on the assumption that
+stepping by cycle means *suspending* the sequencer. It does not: running one
+instruction ahead and metering its cycles out gives the same thing to everything
+outside the CPU.
+
 **What is NOT done, and the item stays open for it.** A device output feeding
 back into an instruction *still executing* is still unreachable: the bus advances
 mid-instruction but the processor cannot observe it mid-instruction. That needs a
