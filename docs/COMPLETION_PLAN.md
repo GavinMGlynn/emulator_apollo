@@ -4638,11 +4638,17 @@ Only after the reference core is proven, and only under an identity harness.
       work — `sc499.o` recompiles in the ~30 s narrowed build, so the object
       *is* refreshed by a source change, which the incremental build's short
       output disguises. But **no trace reached the session log**: `LOGMASKED`
-      writes through `logerror`, and `mdsession.py` neither passes `-log` nor
-      captures MAME's `error.log`. So the recipe needs one more step before it
-      pays: plumb `-log` (or `-verbose`) through the harness and collect
-      `error.log` from the rundir. Everything else in the cycle is verified.
-      The edit was reverted and the clean binary rebuilt in the same sitting. Then MINST from the four software cartridges,
+      writes through `logerror`. So the recipe needs one more step before it
+      pays, and **that step is bigger than it looks**. `build_command` *does*
+      append `args.mame_args`, and `-- -log` reaches it — the earlier bare
+      `-log` failed only because argparse ate it. But **no `error.log` is
+      written anywhere**: not in the invoking directory, not in the rundir,
+      which comes back empty. So MAME either never enables the log or exits
+      before flushing it, and passing the flag is not enough. Which of the two
+      is the next question, and `-verbose` to stdout is the obvious alternative
+      to try first since `mdsession.py` already captures stdout.
+      Everything else in the cycle is verified: the edit rebuilds `sc499.o`,
+      and the revert plus clean rebuild both work, done in the same sitting.
       then the state hash the item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
