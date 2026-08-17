@@ -658,6 +658,19 @@ typedef struct ap_board {
  * with no ring hardware down a path it never runs. */
 void ap_board_attach_ring(ap_board_t *board, bool fitted);
 
+/* Put an AT bus master in a slot: `008778-03` §2.4.7's route in.
+ *
+ * The unit, channel and DRQ are the **adapter's**, not the board's, and are
+ * passed rather than fixed because this board's DMA cascade wiring has not been
+ * measured -- `master_suite` says so outright, and inventing a pairing here
+ * would put a number in the core that no document backs. A card announces which
+ * channel it cascades through; this records what it announced.
+ *
+ * Detaching is `channel`-agnostic: a master that has not been attached is idle,
+ * and an idle master is what every board had before this existed. */
+void ap_board_attach_master(ap_board_t *board, unsigned unit, unsigned channel,
+                            unsigned drq);
+
 /* Join this board's ring card to a **shared** medium, which is what makes two
  * nodes able to see each other.
  *

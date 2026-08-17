@@ -4641,11 +4641,20 @@ Only after the reference core is proven, and only under an identity harness.
       unchanged, which is what an **idle** master must do — it stays idle until
       something asserts `DRQ`, so a board with no card in a master-capable slot
       behaves exactly as before.*
-      **What is not done**: nothing yet *attaches* a card to it —
-      `ap_master_init`'s unit, channel and DRQ are still zero, because those are
-      the adapter's and belong at an attach call that does not exist. Until one
-      does, the master is wired but unexercised, which is the same criticism
-      that motivated this step and must not be declared closed by it.
+      **And it is attached and exercised.** `ap_board_attach_master(board, unit,
+      channel, drq)` records what a card announces — passed rather than fixed,
+      because this board's DMA cascade wiring has not been measured and
+      inventing a pairing would put a number in the core no document backs.
+      `board_suite` then drives the wiring itself: idle before attach, idle
+      after attach, and `REQUESTING` one board tick after `DRQ` — so the board's
+      own clock is shown to reach the port, which is the whole of what the
+      wiring claims.
+      *Verification: `board_suite` 54 -> 55, `ctest` 138/138, identity boot
+      `A354786119A3931D` unchanged.*
+      **What is still not done**: nothing *acknowledges* it — winning the bus
+      needs the DMA channel in cascade mode, which `master_suite` programs on a
+      rig of its own. That is what the `MOVEM` test will need, and it is the
+      next step rather than this one.
       **Then the rest of the order**:
       *then* the `MOVEM`-versus-DMA test becomes writable; *then* it decides
       whether the sequencer rewrite is worth its cost. Three items, and the

@@ -508,6 +508,11 @@ void ap_board_attach_ethernet(ap_board_t *board, bool fitted,
   ap_3c505_adapter_init(&board->ethernet_adapter, address);
 }
 
+void ap_board_attach_master(ap_board_t *board, unsigned unit, unsigned channel,
+                            unsigned drq) {
+  ap_master_init(&board->master, unit, channel, drq);
+}
+
 void ap_board_attach_ring(ap_board_t *board, bool fitted) {
   ap_ring_ctl_reset(&board->ring, fitted);
   /* The board's own node, so the ring's first window reads the same identity

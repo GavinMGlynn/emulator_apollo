@@ -347,6 +347,40 @@ static void test_a_second_ring_unit_is_an_empty_slot_when_one_card_is_fitted(
   TEST_ASSERT_EQUAL_HEX8(0x00u, b.ring.a2.timer_a.counter[0].control);
 }
 
+/* The board's clock reaches the bus master.
+ *
+ * `ap_master_t` modelled `008778-03` §2.4.7's route in and was attached to no
+ * board, so `master_suite` proved the handshake against a rig it built itself
+ * while no *machine* could contend with the processor. This is the wiring, and
+ * the thing worth asserting is the least glamorous part of it: that the board's
+ * tick reaches the port at all.
+ *
+ * The unit, channel and DRQ are arbitrary here for the same reason
+ * `master_suite` makes them arbitrary -- this board's DMA cascade wiring has
+ * not been measured, and a test that asserted a pairing would be inventing one. */
+static void test_the_boards_clock_reaches_an_attached_bus_master(void) {
+  ap_board_t b;
+  init(&b);
+
+  /* Unattached and unasserted: idle, which is what every board was before the
+   * port existed and what a board with an empty slot must stay. */
+  TEST_ASSERT_EQUAL_INT(AP_MASTER_IDLE, ap_master_state(&b.master));
+  ap_board_bus_ticks(&b, 8u);
+  TEST_ASSERT_EQUAL_INT(AP_MASTER_IDLE, ap_master_state(&b.master));
+
+  ap_board_attach_master(&b, 0u, 2u, 3u);
+  /* Still idle: attaching a card is not asserting one. */
+  ap_board_bus_ticks(&b, 8u);
+  TEST_ASSERT_EQUAL_INT(AP_MASTER_IDLE, ap_master_state(&b.master));
+
+  /* "asserting its DMA Request signal (DRQx) to a DMA channel" -- and now the
+   * board's own clock is what carries it forward, which is the whole point of
+   * the wiring. */
+  ap_master_set_request(&b.master, true);
+  ap_board_bus_ticks(&b, 1u);
+  TEST_ASSERT_EQUAL_INT(AP_MASTER_REQUESTING, ap_master_state(&b.master));
+}
+
 /* ## The first address is not the interesting one
  *
  * The first empty-slot address a boot records is the PROM's expansion-ROM scan,
@@ -1847,6 +1881,7 @@ int main(void) {
   RUN_TEST(test_the_ring_windows_are_an_empty_slot_until_a_card_is_fitted);
   RUN_TEST(test_every_ring_window_reaches_the_card_from_the_bus);
   RUN_TEST(test_a_second_ring_unit_is_an_empty_slot_when_one_card_is_fitted);
+  RUN_TEST(test_the_boards_clock_reaches_an_attached_bus_master);
   RUN_TEST(test_the_empty_slot_addresses_are_kept_distinct_and_in_order);
   RUN_TEST(test_more_empty_slot_addresses_than_fit_are_counted_not_dropped);
   RUN_TEST(test_the_windows_do_not_swallow_the_devices_inside_them);
