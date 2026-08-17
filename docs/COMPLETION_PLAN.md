@@ -4680,8 +4680,21 @@ Only after the reference core is proven, and only under an identity harness.
       So something in the board path is not what it appears: either the port
       being ticked is not the one being asserted on, or `master_l` is set by
       something unlooked-for, or the run did not use the binary it appeared to.
-      **Reproduced, and it was the experiment — specifically, a defect I put in
-      the wiring.** `ap_master_tick` was inserted by string replacement, and
+      **RESOLVED: there was never an anomaly.** The failing line was the *last*
+      assertion, not the first — `owns_bus` is correctly false at
+      `ACKNOWLEDGED` and correctly true after `MASTER.L`. What failed was my own
+      final assertion that *"releasing MASTER.L ends the tenure"*, which
+      `ap_master.c` contradicts in a comment I had already read and not applied:
+      **"until it releases the DRQx and MASTER.L signals" — both.** Dropping
+      `MASTER.L` alone leaves the tenure standing, the mirror of
+      `master_suite`'s `releasing_drq_alone_does_not_give_the_bus_back`.
+      So the model, `master_suite` and `008778-03` §2.4.7 all agreed throughout;
+      the wrong thing was a comment I wrote from assumption. **Step 4 is done**:
+      a master attached to a board is acknowledged, takes the bus on `MASTER.L`,
+      and holds it until *both* lines drop — asserted on the board's own clock.
+      *Verification: `board_suite` 56 tests, `ctest` 138/138, identity boot
+      `A354786119A3931D` unchanged.*
+      **A real defect was found on the way, though**, and it was mine: `ap_master_tick` was inserted by string replacement, and
       `"  ap_arbiter_tick"` is a substring of `"    ap_arbiter_tick"`, so both
       replacements fired at the two indented sites and the master was **ticked
       twice per clock**. It compiled and every test passed, because an idle

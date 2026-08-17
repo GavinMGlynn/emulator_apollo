@@ -416,6 +416,28 @@ static void test_a_cascaded_master_is_acknowledged_on_the_boards_own_clock(
   ap_board_bus_ticks(&b, 32u);
   TEST_ASSERT_EQUAL_INT(AP_MASTER_ACKNOWLEDGED, ap_master_state(&b.master));
   TEST_ASSERT_TRUE(ap_master_acknowledged(&b.master));
+
+  /* "Acknowledged is not owned": the adapter has been *offered* the bus and
+   * takes it by asserting MASTER.L -- `ap_master.c` reaches `AP_MASTER_OWNS`
+   * only under `master_l && in_cascade`. Asserted on a real board rather than
+   * on a rig, which is the difference this wiring makes: the bus it takes is
+   * the one the processor also runs on. */
+  TEST_ASSERT_FALSE(ap_master_owns_bus(&b.master));
+  ap_master_set_master_l(&b.master, true);
+  ap_board_bus_ticks(&b, 1u);
+  TEST_ASSERT_TRUE(ap_master_owns_bus(&b.master));
+
+  /* And it takes **both** lines to give the bus back: "until it releases the
+   * DRQx and MASTER.L signals", so dropping MASTER.L alone leaves the tenure
+   * standing -- the mirror of `master_suite`'s
+   * `releasing_drq_alone_does_not_give_the_bus_back`. */
+  ap_master_set_master_l(&b.master, false);
+  ap_board_bus_ticks(&b, 1u);
+  TEST_ASSERT_TRUE(ap_master_owns_bus(&b.master));
+
+  ap_master_set_request(&b.master, false);
+  ap_board_bus_ticks(&b, 1u);
+  TEST_ASSERT_FALSE(ap_master_owns_bus(&b.master));
 }
 
 /* ## The first address is not the interesting one
