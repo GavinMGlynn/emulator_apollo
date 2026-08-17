@@ -4757,6 +4757,20 @@ Only after the reference core is proven, and only under an identity harness.
       the stall rather than the guard — and the all-or-nothing result it should
       then show is the per-cycle approximation this whole chain was built to
       measure.
+      **Written, and it gets three assertions of four.** The tenure is real —
+      `owns_bus` true and `processor_may_run` **false**, so the arbiter has
+      genuinely granted mastership away — and a held bus costs the processor
+      `>= AP_MACHINE_STALL_LIMIT` clocks for one instruction. The stall is
+      *demonstrated*, which no earlier attempt in this thread managed.
+      Two corrections on the way, both test-side: the handback takes clocks
+      exactly as winning the bus did (two ticks is not enough, sixty-four is),
+      and asserting the PC never moved would have been asserting the anti-hang
+      guard rather than the stall.
+      **Where it stops**: `ap_machine_read(&machine, AP_BOARD_RAM_BASE + 0x2000,
+      4, &got)` returns **false** — a test cannot read the destination back
+      through the machine with a board attached. That is a harness question
+      (how a test reads board-mapped RAM) rather than a model one, and it is the
+      only thing between here and the all-or-nothing measurement.
       **The superseded reading follows, kept because the route to it matters.**
       A `MOVEQ`/`MOVEA`/`MOVEM.L D0-D3,(A0)`/`STOP` program, with a cascaded
       master taken to `owns_bus` on the board's own clock, then run:
