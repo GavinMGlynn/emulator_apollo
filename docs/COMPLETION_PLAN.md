@@ -4772,8 +4772,18 @@ Only after the reference core is proven, and only under an identity harness.
       right media rather than unexplained luck. It stops at the same calendar
       gate (`More than 14 days have elapsed since the last shutdown`), which was
       measured earlier to clear with the harness's `25 Years Ago` config off.
-      **Remaining for this item**: clear the calendar gate, run MINST from the
-      four software cartridges, record the state hash. That is a media question, not an
+      **The calendar gate clears**, measured: with the harness's `25 Years Ago`
+      off the "14 days" message is gone and the kernel proceeds. It then hits
+      `Crash_Status 00010005 PC 3C451CC2 pid 0001` — which `FINDINGS.md` C54
+      identifies as the *unclean volume* decline, and the volume **is** dirty,
+      because the previous run wrote to it. C54's own line covers this: *a
+      failed stage is not a no-op.*
+      **Remaining for this item, in order**: restore
+      `media/dn3500-sr10.3.awd` from `dn3500-invol-done.awd` **before every
+      attempt**, re-run with the era config off, then MINST from the four
+      software cartridges, then record the state hash. Keep a copy of the volume
+      before each run — that rule was learned the expensive way earlier in this
+      thread and applies from here on. That is a media question, not an
       emulator defect, which is why every device-side hypothesis here failed. Everything else in the cycle is verified and
       the revert plus clean rebuild were done in the same command.
       Everything else in the cycle is verified: the edit rebuilds `sc499.o`,
