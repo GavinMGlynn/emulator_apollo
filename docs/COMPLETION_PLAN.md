@@ -4427,7 +4427,26 @@ Only after the reference core is proven, and only under an identity harness.
       tick-loop item's claim ("the two schedules agree on everything measured so
       far") demonstrated rather than assumed.
       **What is still not reached**: a device output feeding back into an
-      instruction *still executing*. The bus now advances mid-instruction, but
+      instruction *still executing*.
+      **But it does NOT need a resumable sequencer, and that is the finding.**
+      Resumability is only wanted where an instruction *observes* the machine —
+      a bus access — because between accesses the CPU is internal and can see
+      nothing. And at an access the CPU need not suspend: what is required is
+      that the **devices be advanced to that instant** before the access
+      completes.
+      **The hook already exists.** `ap_machine.c:594` sets
+      `.wait_states = machine_wait_states` on the access context, and that
+      callback is invoked *during* every access with the physical address. It
+      takes a `const ap_machine_t *` today, so it cannot advance anything — but
+      the mid-instruction instant is computable there, since `cpu.clocks` is
+      live and 3a's timeline records how they were spent.
+      So the remaining half is: drop the `const`, advance devices to
+      `now + duration(clocks spent so far)` at that callback, and the processor
+      observes an up-to-date machine mid-instruction. **No state machine, no
+      coroutines, no threads, and no rewrite of the 6,966-line file.** The risk
+      to check first is re-entrancy — a device advanced from inside an access
+      must not call back into the CPU — and whether advancing devices mid-access
+      can change the wait-state answer that triggered it. The bus now advances mid-instruction, but
       the processor cannot yet observe it mid-instruction — that needs the
       resumable sequencer increment (2) showed to be a rewrite of a 6,966-line
       file. The ordering half of the item is done; the feedback half is not.
