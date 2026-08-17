@@ -4983,6 +4983,22 @@ Only after the reference core is proven, and only under an identity harness.
 - [ ] Extend exact-skip across nodes: run node cores in parallel only within
       provably inert windows between ring events. *Verification: whole-ring
       state hash identical to the single-threaded reference.*
+      **Blocked on the thing it would optimise, and named rather than implied**:
+      `--ring-two-node` runs two machines that execute their boot PROMs, but
+      neither runs Domain/OS, so there is no multi-node workload whose wall
+      clock this could improve and nothing to hold a whole-ring hash of beyond
+      firmware. What unblocks it is the Phase 6 two-node item, and that is a
+      media question -- see it for the shape.
+      **And one part of the design is already refuted by measurement.** The
+      window between ring events is not the binding term: §3.9's memory refresh
+      runs each node's serial counter off X1 for the life of the machine, at
+      6.944 CPU clocks per pulse against a mean instruction of 4.278 (the
+      exact-skip item above), so a *node* is provably inert for well under one
+      instruction at a time whatever the ring is doing. Parallelism across nodes
+      therefore cannot come from inert windows in the device sense; it would have
+      to come from the ring's own latency being long enough that two nodes cannot
+      observe each other inside it, which is a different argument and is not the
+      one this item is written on.
 
 ## Phase 9 — Content testing
 
@@ -5471,6 +5487,16 @@ Only after the reference core is proven, and only under an identity harness.
 - [ ] Real multi-node Domain workloads: distributed single-level store across
       nodes, `lcnode`, remote file access. *Verification: content finds what
       unit tests did not; each finding lands with a test.*
+      **Blocked on the Phase 6 two-node item, and on nothing else** -- every
+      workload here is a thing two booted nodes do, and this project has one
+      installed volume. The specific gap is that gap: a Domain volume label
+      carries its own `node_id` and `node_id_from_volume` makes a machine present
+      it, so a second node needs either a second installed image or diskless
+      boot over the ring. Patching a copy's label is **not** the route: the
+      objects on it were created by the first node and carry its ID, so the copy
+      would be a machine lying about its identity -- which is exactly what
+      `node_id_from_volume`'s own comment refuses, and this item's findings would
+      then be findings about a fiction.
 
 ## Deferred tails
 
