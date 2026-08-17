@@ -5238,11 +5238,35 @@ Only after the reference core is proven, and only under an identity harness.
       `Loading Init` / `... global libraries loaded.` **and then faults**:
       `FAULT on 6700` at PC `3B46C3FE` after 733,770,553 instructions, with 1,861
       MMU faults (all `invalid on write`) along the way.
-      **That is a new defect, and a real one.** Same core, same clock regime,
-      same PROM: SR10.4 goes on to `SPM Initialized` and SR10.3 stops in Init. A
-      difference between two releases exercising this core is exactly what
-      content testing is for, and it is localised to one PC and one opcode rather
-      than to "SR10.3 does not work". `FINDINGS.md` C140.
+      **That was a defect of ours, and it is FIXED — SR10.3 now boots to a
+      running system.** A four-byte `Bcc.W` two bytes below a page boundary puts
+      its displacement word in the *next* page, and `3B46C400` had `no
+      translation`. `next_word` records what faulted and leaves *taking* the
+      exception to its caller; the branch case returned the step's default
+      `FAULT`, so a branch whose displacement lay in a non-resident page stopped
+      this core where the hardware vectors through 2 and lets the handler page it
+      in. Eleven other `next_word` sites already did it right, and the same fix
+      had been made once before for the opcode fetch.
+      **Only a second release's page layout exposed it** — SR10.4 never lands on
+      such a branch, which is why 350 M identity boots never saw it, and is a
+      plain argument for content testing. SR10.3 now reaches
+      `Node startup on Fri Nov 29 10:02:07 UTC 2002`, cataloging, the daemons,
+      `Starting window system: Xapollo.` and
+      `SPM Initialized on Friday, November 29, 2002`.
+      *Verification: `ctest` 139/139 and identity boot `03EE415450926A89` with
+      clocks unchanged — SR10.4 never reaches this path, so the reference is
+      untouched, which is what makes a change made on one release's evidence
+      safe. `FINDINGS.md` C140, C141.*
+      **SR10.2 is installed by the same route and stops partway through RBAK**,
+      at a named error: *"an EOV1 (or EOF1) label is missing where one is
+      required"*, after 1,036 objects, in tape **file 1**. **The media is sound
+      and that was checked before anything was blamed on it**: `ct_extract.py
+      --files` lists 22 ANSI files and `--verify` walks 1,049 objects with every
+      block's records filling it exactly, on an image that is a whole 116,536
+      blocks. SR10.3's equivalent verifies the same way. So the difference is in
+      how the tape is *presented* at a file boundary, and the next step is to log
+      `sc499`'s block traffic around tape position 21,449 to see what it returns
+      where a filemark is due — the recipe C124's thread already established.
       **And a tool defect found on the way**: `--boot-limit` parsed into an
       `unsigned`, so `6000000000` silently became **1,705,032,704** (`6e9 mod
       2^32`) and three runs reported the count they reached as if the bound had

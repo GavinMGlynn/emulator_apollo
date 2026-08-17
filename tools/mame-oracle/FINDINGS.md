@@ -8079,3 +8079,70 @@ opcode rather than to "SR10.3 does not work".
 **What is now true for the release item**: SR10.4 boots to a running system;
 SR10.3 is installed, cleanly dismounted, and boots to Init before faulting;
 SR10.2's media is held and verified bootable and its install has not been run.
+
+## C141 -- SR10.3 boots to a running system, and SR10.2's install stops on a tape label
+
+### SR10.3
+
+C140's `FAULT on 6700` was a defect of ours, and a small one. A four-byte `Bcc.W`
+two bytes below a page boundary puts its displacement word in the *next* page,
+and `3B46C400` had `no translation` -- the walk stopped after three levels.
+`next_word` records what faulted and leaves *taking* the exception to its caller;
+the branch case returned the step's default `FAULT` instead, so a branch whose
+displacement lay in a non-resident page stopped this core where the hardware
+vectors through 2 and lets the handler page it in.
+
+Eleven other `next_word` sites in the same file already called
+`fault_or_unimplemented`, and the identical fix had been made once before for the
+*opcode* fetch -- whose own comment describes the same failure at `PC 0081CBFE`
+reaching for `0081CC00`. These two were the outliers.
+
+**A latent defect only a second release's page layout exposed.** SR10.4 boots
+without ever landing on such a branch, which is why 350 M-instruction identity
+boots never saw it, and is a plain argument for content testing.
+
+With it, **SR10.3 boots to a running system**:
+
+    Loading Init.  ... global libraries loaded.
+    *  Confidential and Proprietary. Copyright 1988, 1989 Apollo Computer, Inc.
+    *****  Node startup on Fri Nov 29 10:02:07 UTC 2002  *****
+    Cataloging in: /lost+found
+    Starting standard daemons:.  Starting other.
+    Starting window system: Xapollo.
+    SPM system init complete.   Node ID = 12345
+    SPM Initialized on Friday, November 29, 2002 at 10:02:24
+
+*Verification: `ctest` 139/139 and identity boot `03EE415450926A89` with clocks
+unchanged at 1,497,270,792 -- SR10.4 never reaches this path, so the reference is
+untouched, which is what makes a change made on one release's evidence safe.*
+
+### SR10.2
+
+Installed by the same route and it **fails partway through RBAK**, at a named
+error rather than vaguely:
+
+    ?(rbak) (restore_object_data) Unexpected error from next_entry.
+     - an EOV1 (or EOF1) label is missing where one is required (library/tfp)
+    ERROR: Rbak of file 1 was not successful.
+
+1,036 objects had been restored, and tape **file 1** is where it stopped --
+`force`, `0x00000a00..0x00a79000`, 10,978,816 bytes.
+
+**The media is sound, checked before anything was blamed on it** (C124's lesson).
+`ct_extract.py --files` lists 22 ANSI files and `--verify` walks 1,049 objects
+with every block's records filling it exactly; the image is 59,666,432 bytes,
+a whole 116,536 blocks. SR10.3's equivalent verifies the same way with 19 files
+and 914 objects.
+
+So both cartridges are structurally fine to our own reader, and the difference is
+in how the tape is *presented* at a file boundary -- an `EOF1` label the guest
+expects where file 1 ends. SR10.3's file 1 is a megabyte larger, so its boundary
+falls at a different tape position, which is consistent with a boundary-handling
+difference rather than with the content. The `sc499` filemark path
+(`block_is_filemark`, the `DE AF FA ED` pattern) is where that would live.
+
+**Not chased further here**, and named rather than left as "SR10.2 does not
+install": the next step is to log `sc499`'s block traffic around tape position
+`0x00a79000 / 512 = 21,449` and see what it returns where a filemark is due --
+the same `VERBOSE (LOG_LEVEL0 | LOG_LEVEL1)` plus `-oslog` recipe C124's thread
+established.

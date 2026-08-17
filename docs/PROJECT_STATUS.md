@@ -6235,6 +6235,30 @@ product is computed 64-bit wide -- 262144 is 2^18, so a 32-bit multiply wraps fo
 every volume on disk and would report the 2015 one as ten minutes after 1980.
 Identity boot `A354786119A3931D` unchanged. Detail in `FINDINGS.md` C132.*
 
+#### Two releases boot to a running system
+
+**SR10.4** and **SR10.3** both reach `SPM Initialized` on this core --
+`Loading Init`, the global libraries, node startup at the date `--clock` was
+given, the standard daemons, and for SR10.3 `Starting window system: Xapollo.`
+too. SR10.3 needed a re-install at a supported date (`FINDINGS.md` C140) and one
+CPU fix.
+
+**The CPU fix, because it is the kind this project exists to find.** A four-byte
+`Bcc.W` two bytes below a page boundary puts its displacement word in the *next*
+page. `next_word` records what faulted and leaves taking the exception to its
+caller; the branch case returned the step's default `FAULT`, so such a branch into
+a non-resident page stopped this core where the hardware vectors through 2 and
+lets the handler page it in. Eleven other `next_word` sites already called
+`fault_or_unimplemented` and the same fix had been made once before for the opcode
+fetch -- these two were the outliers. **SR10.4 never lands on such a branch**,
+which is why 350 M identity boots never saw it.
+
+**SR10.2** is held and its install stops partway through RBAK: *"an EOV1 (or EOF1)
+label is missing where one is required"*, after 1,036 objects, in tape file 1. The
+media is sound and was checked first -- 22 ANSI files, 1,049 objects verified, a
+whole 116,536 blocks -- so the difference is in how the tape is presented at a file
+boundary. Detail in `FINDINGS.md` C141.
+
 #### SR10.3 is installed and runs on this core
 
 `media/dn3500-sr10.3-installed.awd`, built under the oracle by the SR10.4 route
