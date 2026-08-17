@@ -4559,8 +4559,8 @@ Only after the reference core is proven, and only under an identity harness.
       file.
       **But a cycle-steppable processor is buildable without any of those four,
       and 3a is why.** The timeline already records an instruction's clocks in
-      order, so `ap_machine_tick()` can **run one instruction ahead and hand its
-      cycles out one at a time** — draining `clock_events` — instead of
+      order, so a machine-level tick entry point (to be added)
+      can **run one instruction ahead and hand its cycles out one at a time** — draining `clock_events` — instead of
       suspending the sequencer.
       **Its approximation, named up front**: the CPU's *internal* state commits
       at the instruction's start rather than progressively across its cycles.
@@ -4571,8 +4571,7 @@ Only after the reference core is proven, and only under an identity harness.
       boot.
       **Cost to build**: `ap_machine_run`'s body splits into "execute one
       instruction" and "consume one cycle", with `pending_cycles` and an index
-      on `ap_machine_t`; `ap_machine_run` becomes a loop over
-      `ap_machine_tick`. The identity harness is the check and the goldens must
+      on `ap_machine_t`; `ap_machine_run` becomes a loop over that tick. The identity harness is the check and the goldens must
       not move — a tick loop that reorders nothing must reproduce
       `A354786119A3931D` exactly.
       **Ordering half done; feedback half measured; cycle-steppable processor
