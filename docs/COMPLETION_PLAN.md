@@ -4731,9 +4731,26 @@ Only after the reference core is proven, and only under an identity harness.
       found` against a cartridge that nonetheless *contains* a `sysboot` archive
       member. Nothing was ever wrong with the emulator, the harness, the volume,
       the clock, the console or the drive.
-      **Next**: run `di c` / `ex domain_os` against
-      `media/sr10.3/019376-001…BOOT.ct` (downloaded, `media/` is gitignored),
-      then MINST from the four software cartridges, then the state hash. That is a media question, not an
+      **Run, and the two cartridges are complementary
+      rather than either being sufficient.** Against `019376-001` the
+      `sysboot not found` error is **gone** — the descriptor works — but
+      `ex domain_os` returns silently, because that cartridge carries only
+      **`sau11`, `sau12`, `sau14`** and a DN3500 is **`sau7`**. Meanwhile the
+      standard `018847-001` carries `sau7/domain_os` and has **no descriptor at
+      block 0**. So:
+
+      | cartridge | block 0 descriptor | `sau7` |
+      | --- | --- | --- |
+      | `018847-001` Std_Sfw_Boot_1 | no | **yes** |
+      | `019376-001` PSK8_BOOT | **yes** | no |
+
+      Neither boots a DN3500 from tape on its own. The remaining untried
+      candidate is `019439-001.CRTG_PSKQ3_91_BOOT_1…SR10.3_BOOT.ct.gz` (15 M),
+      and the check is the same two commands: block 0 for the descriptor,
+      `ct_extract.py --list | grep sau7`. If that one has both, it is the
+      cartridge; if not, SR10.3 for this model may not be tape-bootable from
+      what survives, which is a media fact to record rather than a defect to
+      chase. That is a media question, not an
       emulator defect, which is why every device-side hypothesis here failed. Everything else in the cycle is verified and
       the revert plus clean rebuild were done in the same command.
       Everything else in the cycle is verified: the edit rebuilds `sc499.o`,
