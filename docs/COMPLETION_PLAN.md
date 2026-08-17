@@ -4644,9 +4644,16 @@ Only after the reference core is proven, and only under an identity harness.
       `-log` failed only because argparse ate it. But **no `error.log` is
       written anywhere**: not in the invoking directory, not in the rundir,
       which comes back empty. So MAME either never enables the log or exits
-      before flushing it, and passing the flag is not enough. Which of the two
-      is the next question, and `-verbose` to stdout is the obvious alternative
-      to try first since `mdsession.py` already captures stdout.
+      before flushing it, and passing the flag is not enough. **`-verbose` is the answer**: it goes to stdout,
+      which `mdsession.py` already captures, and `-- -verbose` works today with
+      no harness change at all. It also settles one more thing — the cartridge
+      **loads**: `sc499_ctape: attempting to load media image …SR10.3.ct`,
+      `opened image file … with flags=00000003`, `Starting Archive SC-499
+      ':isa2:ctape'`. So the drive has the media and the open succeeds.
+      **The recipe is therefore complete and needs no harness work**: set
+      `VERBOSE (LOG_LEVEL0 | LOG_LEVEL1)` in `sc499.cpp`, rebuild (~30 s), run
+      with `-- -verbose`, read the block traffic off stdout, revert and rebuild.
+      Use `-verbose`, **not** `-log`, which writes nothing anywhere.
       Everything else in the cycle is verified: the edit rebuilds `sc499.o`,
       and the revert plus clean rebuild both work, done in the same sitting.
       Then MINST from the four software cartridges, then the state hash the
