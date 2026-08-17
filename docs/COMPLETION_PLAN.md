@@ -4711,6 +4711,23 @@ Only after the reference core is proven, and only under an identity harness.
       argument-parsing hang).
       The attempted test was reverted rather than adjusted: patching the
       assertion to match the behaviour would have buried exactly this.
+      **Step 5, now unblocked and specified.** Build a machine with a board,
+      attach a master, put its channel in cascade and unmask it, stage a
+      `MOVEM.L` storing several registers to RAM, and make the master take the
+      bus *while that instruction is executing*. Assert what memory holds.
+      **The expected result is all-or-nothing**, and the test must be written so
+      that this is a *finding* rather than a pass: our CPU runs whole
+      instructions, and `ap_machine_run`'s arbitration stall is checked
+      **between** instructions, so a master cannot land inside a `MOVEM`. On
+      real hardware it can, and would leave some registers stored and others
+      not.
+      **The trap to avoid**: a test that merely runs a `MOVEM` with a master
+      requesting will pass trivially, because the master never wins mid-
+      instruction and memory is whole. It has to assert that the master *owned
+      the bus* across the instruction boundary — `ap_master_owns_bus` true
+      before and after — or it proves nothing. Run it under **both** stepping
+      modes; if they agree, the approximation is consistent, and the number of
+      registers stored is the figure the sequencer rewrite would change.
       **Then the rest of the order**:
       *then* the `MOVEM`-versus-DMA test becomes writable; *then* it decides
       whether the sequencer rewrite is worth its cost. Three items, and the
