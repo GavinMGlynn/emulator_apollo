@@ -4281,6 +4281,24 @@ Only after the reference core is proven, and only under an identity harness.
       afterwards is the mistake the whole phase exists to avoid.
       *Verification: probe goldens and boot state hashes byte-identical across
       the change, which is this phase's standard and not a weaker one.*
+      **Scoped 2026-08-17, and the shape is not what the item assumes.** The
+      **bus is already cycle-accurate**: `ap_m68030_bus_t` carries S0-S5,
+      `advancing_to_s4`, and ECS/OCS/AS/DS/DBEN as `[030]` §7.3 names them,
+      plus burst and RMC, and `ap_m68030_bus_tick()` advances **one clock**.
+      What is instruction-granular is the *sequencer*, not the bus.
+      **The obstacle is that the bus runs inline.** `ap_m68030_access.c:334` and
+      `ap_m68030_cache.c:317` each construct a **local** bus (`&write_bus`,
+      `&bus`) and tick it to completion inside one access, so its cycles are
+      invisible to the machine's tick. Per-cycle stepping therefore means
+      hoisting bus ownership into `ap_m68030_cpu_t` and letting the machine
+      drive `bus_tick`, not writing a cycle model — that part exists.
+      **Increments, each identity-checked before the next**: (1) hoist the bus
+      into the CPU struct, still ticked to completion inline — pure plumbing,
+      hashes must not move; (2) give `ap_m68030_step` a resumable state so it
+      can return mid-access; (3) add `ap_m68030_cycle()` beside it and let the
+      machine call that, with `step` kept as a loop over it; (4) switch the
+      board's run loop. Only (4) can change interleaving, and only (4) needs
+      the goldens re-blessed if it does — which the item says it must not.
   - [ ] **What the tick loop item deferred here**, so that the two are read
         together. Phase 3's loop advances each device to an absolute instant
         once per instruction, every device carrying its own remainder, and
