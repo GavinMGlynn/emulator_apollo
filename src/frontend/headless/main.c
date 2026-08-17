@@ -10,6 +10,7 @@
  * added alongside the subsystems they observe. */
 
 #include <inttypes.h>
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -5461,7 +5462,29 @@ int main(int argc, char **argv) {
      * instruction produced it -- a wild PC looks the same however far back the
      * mistake was made. */
     if (strcmp(argv[i], "--boot-limit") == 0 && i + 1 < argc) {
-      boot_limit = (unsigned)strtoul(argv[i + 1], NULL, 0);
+      /* **Refused rather than wrapped.** This parsed with `strtoul` into an
+       * `unsigned`, so `--boot-limit 6000000000` silently became 1,705,032,704
+       * -- `6e9 mod 2^32` -- and three runs that asked for six billion
+       * instructions stopped at 1.7 billion while reporting the bound they were
+       * given as if it had been honoured. A bound is part of an experiment, and
+       * one that quietly becomes a different bound is worse than one that is
+       * rejected.
+       *
+       * The ceiling is the *core's*: `ap_machine_run` takes an `unsigned` limit
+       * and `ap_machine_run_t.executed` counts in one, so 2^32-1 instructions is
+       * as far as a single run goes. Widening that is a core change with its own
+       * verification and is not smuggled in here. */
+      {
+        const unsigned long long asked = strtoull(argv[i + 1], NULL, 0);
+        if (asked > UINT_MAX) {
+          fprintf(stderr,
+                  "%s: --boot-limit %llu exceeds this core's %u-instruction "
+                  "ceiling for one run\n",
+                  program_name, asked, UINT_MAX);
+          return 2;
+        }
+        boot_limit = (unsigned)asked;
+      }
       i += 2;
       continue;
     }

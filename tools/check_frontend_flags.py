@@ -116,6 +116,20 @@ def main() -> int:
               ["--ram", "nonsense", "--list-models"],
               r"--ram wants a size in megabytes", want_ok=False)
 
+        # A bound above the core's 32-bit instruction counter is **refused**, not
+        # wrapped. `--boot-limit 6000000000` used to parse into an `unsigned` and
+        # become 1,705,032,704 -- `6e9 mod 2^32` -- so runs that asked for six
+        # billion instructions stopped at 1.7 billion and reported the bound they
+        # were given as if it had been honoured. Three measurements were taken
+        # that way before the identical instruction counts gave it away.
+        #
+        # No second flag: `--list-models` is handled in an earlier pass and
+        # would exit 0 before the argument loop ran, so a check that paired them
+        # would pass whatever the guard did.
+        check("--boot-limit refuses a bound the core cannot count to",
+              ["--boot-limit", "6000000000"],
+              r"exceeds this core's \d+-instruction ceiling", want_ok=False)
+
         # ---- flags that need a machine, which `board 1` builds with no ROM ----
         # `moveq` is the first probe the suite reports; matching a probe's own
         # line rather than the header is what makes this a check that the suite

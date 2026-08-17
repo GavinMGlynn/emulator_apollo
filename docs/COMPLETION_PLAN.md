@@ -5213,12 +5213,34 @@ Only after the reference core is proven, and only under an identity harness.
       place we out-accurate the oracle** — MAME's `set_binary(false)` presents BCD
       to a guest that reads binary, and its own sessions show the symptom (a
       requested 2026 stamping a volume 2015, C127).
-      *Verification: `ctest` 139/139; `calendar_suite`'s two encoding goldens
+      *Verification: `ctest` 139/139 on **both** build types, which is the
+      harness's own portability claim; `calendar_suite`'s two encoding goldens
       updated, the dump they came from having been an oracle reading and so a
       record of MAME's configuration rather than of a battery; identity boot
       re-baselined `A354786119A3931D` → `03EE415450926A89` with **clocks and
       final PC identical**, so nothing the processor did changed. `FINDINGS.md`
       C134-C136.*
+      **SR10.3 still does not boot, and the reason is on the volume.** Its stamps
+      are **2015-09-03** — the install ran with the guest clock there, because
+      `EX CALENDAR` was asked for 2026 and the oracle's own BCD-versus-binary
+      mismatch landed it near 2015 (C127, unexplained at the time and now
+      explained). Booted here it salvages successfully and then reports the
+      calendar slow, and the kernel's own string says why no clock can help:
+      *"The UID generator is unable to function with the current setting of the
+      calendar (year >= 2015)."* That is exactly where a 32-bit 262144 µs tick
+      from 1980 runs out. **The remedy is an install, not a debug**: redo it with
+      `EX CALENDAR` set to a year the OS supports — the nineties are the safe
+      middle — which is now straightforward, since the date this core presents is
+      the date the guest reads. `FINDINGS.md` C138.
+      **And a tool defect found on the way**: `--boot-limit` parsed into an
+      `unsigned`, so `6000000000` silently became **1,705,032,704** (`6e9 mod
+      2^32`) and three runs reported the count they reached as if the bound had
+      been honoured. Caught because two boots of *different volumes* reported
+      identical instruction counts. Now refused with the ceiling named.
+      *Verification: `frontend_flags` gains a check that passes no second flag,
+      since `--list-models` exits before the argument loop and would have made
+      the check pass regardless — the same class of mistake as the bound.
+      `FINDINGS.md` C137.*
       **What is left for this item**: that experiment, and then the same route
       for **SR10.2** — whose media is held and whose standard boot cartridge
       already passes both bootability tests, so it is the proven route applied

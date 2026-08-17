@@ -7939,3 +7939,60 @@ with the note that the dump they came from was an oracle reading and therefore a
 record of MAME's configuration rather than of a battery; identity boot
 re-baselined `A354786119A3931D` -> `03EE415450926A89` with **clocks and final PC
 identical**, so nothing the processor did changed.*
+
+## C137 -- `--boot-limit` wrapped at 2^32, and what that cost
+
+Three runs in this session were given `--boot-limit 6000000000` and all three
+stopped at **1,705,032,704** instructions -- which is `6e9 mod 2^32`. The flag
+parsed with `strtoul` into an `unsigned`, so every bound above 4,294,967,295
+silently became a different bound, and the report printed the count reached
+without any hint that the *asked-for* limit had not been honoured.
+
+It was caught by two boots of **different volumes** reporting the identical
+instruction count, which is not something two different machines do.
+
+Now refused rather than wrapped, with the ceiling named in the message. The
+ceiling is the core's: `ap_machine_run` takes an `unsigned` limit and
+`ap_machine_run_t.executed` counts in one, so 2^32-1 is as far as a single run
+goes. Widening that is a core change with its own verification and was not
+smuggled in beside a parsing fix.
+
+*Verification: `frontend_flags` gains a check. It passes **no second flag** --
+`--list-models` is handled in an earlier pass and exits 0 before the argument
+loop runs, so a paired check would have passed whatever the guard did, which is
+the same class of mistake as the bound itself.*
+
+**The lesson is the one this session already learnt once and did not generalise**:
+a bound is part of an experiment. C133 recorded reusing the identity harness's
+350 M without asking whether it covered the event; this is the same failure in
+the other direction -- asking for a bound the tool could not represent and being
+told nothing.
+
+## C138 -- the SR10.3 volume is stamped past Domain/OS's own year ceiling
+
+With the calendar fixed (C136), SR10.4 boots. **SR10.3 does not, and the reason
+is on the volume rather than in the core.**
+
+Its stamps are **2015-09-03**, because the install ran with the guest clock
+there: `EX CALENDAR` was asked for 2026, and under the oracle's BCD-versus-binary
+mismatch that landed near 2015 (C127, recorded as unexplained at the time and now
+explained). Booted here with `--clock 2015-09-04`, the volume salvages
+successfully -- `Salvage complete on logical volume: 1`, 147,696 Kb free -- and
+the kernel then says `The calendar is more than a minute slow.`
+
+**And the kernel's own string says why this cannot be fixed with a clock**:
+
+    The UID generator is unable to function with the current setting of the
+    calendar (year >= 2015).  Please run the CALENDAR utility before trying
+    to boot again.
+
+Domain/OS refuses years at or after 2015, which is exactly where a 32-bit
+262144 microsecond tick from 1980 runs out. A volume whose last-shutdown stamp is
+in 2015 is therefore outside the range the OS can compare against, at any
+`--clock` this core can present.
+
+**The remedy is known and is an install, not a debug**: redo the SR10.3 install
+with the guest clock set through `EX CALENDAR` to a year the OS supports -- the
+nineties are the safe middle of the range -- and every stamp it writes lands
+where a boot can meet it. That is now straightforward, because with C136 in place
+the date this core presents is the date the guest reads.
