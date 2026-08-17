@@ -555,6 +555,54 @@ converges and each carriage return is spent as a failed guess.
 *Verification: `ctest` 138/138; `check_frontend_flags` all reachable flags
 exercised; identity boot unchanged at `A354786119A3931D`.*
 
+## The bus advances during the instruction, not after it (2026-08-17)
+
+**Bus cycles now reach the arbiter in the order the processor spent them.**
+Four increments, each verified against `ctest` and the identity boot before the
+next began, and each with its neutrality argument established from a reference
+*before* any editing:
+
+| | change | hash |
+| --- | --- | --- |
+| 1a | the write path's bus moves into `ap_m68030_access_ctx_t` | unmoved |
+| 1b | `ap_m68030_cache_read` shares it; no bus local remains in the core | unmoved |
+| 2a | `ap_board_bus_ticks` charged for *this* instruction, not the previous | unmoved |
+| 3a | `ap_m68030_charge` records a per-instruction clock timeline | unmoved |
+| 3b | `ap_machine_run` walks that timeline instead of batching | unmoved |
+
+**Three things this establishes that were previously assumed.**
+
+The bus model was **already cycle-accurate** — `ap_m68030_bus_t` carries S0-S5
+and ECS/OCS/AS/DS/DBEN as `[030]` §7.3 names them, and `ap_m68030_bus_tick`
+advances one clock. What was instruction-granular was the *sequencer*, and what
+was actually wrong was **ordering, not resolution**: `ap_board_bus_ticks` already
+looped the arbiter one clock at a time, but was charged with the *previous*
+instruction's count, so every cycle arrived one instruction late.
+
+**One bus, not two**, from `[030]` §7.3.6 p. 7-54: "the synchronous
+read-modify-write operation is **indivisible**". Nothing interleaves between the
+read and the write, so the paths are never concurrent and sharing one bus is
+correct rather than convenient — which is also what the hardware has.
+
+**And the two schedules really do agree.** 3b was the increment where a moved
+golden would have been a *finding*; an unmoved one is the finding instead. Over
+a 350 M-instruction boot, per-charge ordering and end-of-instruction batching
+are indistinguishable — `A354786119A3931D`, clocks identical at 1,497,270,792.
+The tick-loop item asserts that; this demonstrates it.
+
+**What is NOT done, and the item stays open for it.** A device output feeding
+back into an instruction *still executing* is still unreachable: the bus advances
+mid-instruction but the processor cannot observe it mid-instruction. That needs a
+resumable sequencer, and `ap_m68030_step` is the tail of a 6,966-line file
+sequencing in ordinary nested C — an explicit state machine over the whole file,
+since C has no coroutines, threads would trade away determinism, and re-execution
+is invalid because instructions have side effects before they commit. **The
+ordering half of the per-cycle item is done; the feedback half is not.**
+
+*Verification: `ctest` 138/138 at every increment; identity boot
+`A354786119A3931D` unchanged throughout; `clock_events_dropped` counts the
+timeline's bound rather than assuming it.*
+
 ## The MEM BOARD ARRAY, from the utility that writes it (2026-08-17)
 
 **Domain/OS SELF_TEST no longer disagrees with the configuration table about
