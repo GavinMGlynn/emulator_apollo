@@ -4741,10 +4741,22 @@ Only after the reference core is proven, and only under an identity harness.
       is a deliberate anti-hang measure and not a wiring gap.
       **That is a real and different finding**: a master can hold the bus
       indefinitely on this hardware, and this core will run the processor after
-      `AP_MACHINE_STALL_LIMIT` clocks regardless. Whether that limit is
-      documented anywhere, or was chosen to stop a probe hanging, is the
-      question — and it decides whether the `MOVEM` test should assert the cap
-      or the hold.
+      `AP_MACHINE_STALL_LIMIT` clocks regardless. **And its own comment answers it**: "Not a
+      timeout: a master that never releases the bus is a broken machine, and a
+      reference core that spun forever inside a bounded run would turn that into
+      a hung harness instead of a visible fault... Generous enough that no real
+      transfer reaches it."
+      So 4096 is a documented anti-hang guard, not a hardware figure — and **the
+      test was the unrealistic thing, not the model**. It held the bus
+      indefinitely, which is precisely the "broken machine" the guard exists to
+      make visible.
+      **So the `MOVEM` test asserts the hold, with a bounded tenure.** Take the
+      bus, run the machine for well under 4096 clocks, assert the processor made
+      no progress and memory is untouched; release both lines, run again, assert
+      the whole transfer landed. That is a realistic transfer and it exercises
+      the stall rather than the guard — and the all-or-nothing result it should
+      then show is the per-cycle approximation this whole chain was built to
+      measure.
       **The superseded reading follows, kept because the route to it matters.**
       A `MOVEQ`/`MOVEA`/`MOVEM.L D0-D3,(A0)`/`STOP` program, with a cascaded
       master taken to `owns_bus` on the board's own clock, then run:
