@@ -4631,10 +4631,18 @@ Only after the reference core is proven, and only under an identity harness.
       are **compiled out** and MAME's `-log` cannot reach them (tried; it
       returns nothing). The cycle: set `VERBOSE (LOG_LEVEL0 | LOG_LEVEL1)`,
       rebuild — **~30 s**, the object tree is warm — run the `di c` /
-      `ex domain_os` command file with `-log`, read which blocks are requested
-      and what comes back, then **revert `sc499.cpp`**, which `CLAUDE.md`
-      requires of oracle instrumentation. Do it in one sitting so the revert is
-      never left to someone else. Then MINST from the four software cartridges,
+      `ex domain_os` command file, read which blocks are requested and what
+      comes back, then **revert `sc499.cpp`**, which `CLAUDE.md` requires of
+      oracle instrumentation.
+      **Ran, and one piece is still missing.** The edit and the rebuild both
+      work — `sc499.o` recompiles in the ~30 s narrowed build, so the object
+      *is* refreshed by a source change, which the incremental build's short
+      output disguises. But **no trace reached the session log**: `LOGMASKED`
+      writes through `logerror`, and `mdsession.py` neither passes `-log` nor
+      captures MAME's `error.log`. So the recipe needs one more step before it
+      pays: plumb `-log` (or `-verbose`) through the harness and collect
+      `error.log` from the rundir. Everything else in the cycle is verified.
+      The edit was reverted and the clean binary rebuilt in the same sitting. Then MINST from the four software cartridges,
       then the state hash the item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
