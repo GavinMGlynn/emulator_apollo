@@ -5220,18 +5220,29 @@ Only after the reference core is proven, and only under an identity harness.
       re-baselined `A354786119A3931D` → `03EE415450926A89` with **clocks and
       final PC identical**, so nothing the processor did changed. `FINDINGS.md`
       C134-C136.*
-      **SR10.3 still does not boot, and the reason is on the volume.** Its stamps
-      are **2015-09-03** — the install ran with the guest clock there, because
-      `EX CALENDAR` was asked for 2026 and the oracle's own BCD-versus-binary
-      mismatch landed it near 2015 (C127, unexplained at the time and now
-      explained). Booted here it salvages successfully and then reports the
-      calendar slow, and the kernel's own string says why no clock can help:
-      *"The UID generator is unable to function with the current setting of the
-      calendar (year >= 2015)."* That is exactly where a 32-bit 262144 µs tick
-      from 1980 runs out. **The remedy is an install, not a debug**: redo it with
-      `EX CALENDAR` set to a year the OS supports — the nineties are the safe
-      middle — which is now straightforward, since the date this core presents is
-      the date the guest reads. `FINDINGS.md` C138.
+      **SR10.3's first install was stamped 2015** — the guest clock was there,
+      because `EX CALENDAR` was asked for 2026 and the oracle's own
+      BCD-versus-binary mismatch landed it near 2015 (C127, unexplained at the
+      time and now explained). No clock can boot such a volume: the kernel's own
+      string says *"The UID generator is unable to function with the current
+      setting of the calendar (year >= 2015)"*, which is where a 32-bit 262144 µs
+      tick from 1980 runs out. C138.
+      **So the install was redone at a supported date, and SR10.3 now clears the
+      calendar check.** The oracle's calendar was corrected first (C139) so a
+      date means what it says; `EX CALENDAR` was set to **2002/11/28** before
+      anything wrote to the volume, and `minst ended Thu Nov 28 11:41:05 2002`
+      against the previous attempt's `Thu Sep 3 19:33:19 2015`. Salvaged, booted
+      from disk to `Apollo Phase II Environment Revision 10.3`, and `shut` gave
+      `Shutdown successful` — `dismounted 2002-11-29 09:45:20`.
+      **On this core at `--clock 2002-11-29T10:00` it reaches**
+      `Loading Init` / `... global libraries loaded.` **and then faults**:
+      `FAULT on 6700` at PC `3B46C3FE` after 733,770,553 instructions, with 1,861
+      MMU faults (all `invalid on write`) along the way.
+      **That is a new defect, and a real one.** Same core, same clock regime,
+      same PROM: SR10.4 goes on to `SPM Initialized` and SR10.3 stops in Init. A
+      difference between two releases exercising this core is exactly what
+      content testing is for, and it is localised to one PC and one opcode rather
+      than to "SR10.3 does not work". `FINDINGS.md` C140.
       **And a tool defect found on the way**: `--boot-limit` parsed into an
       `unsigned`, so `6000000000` silently became **1,705,032,704** (`6e9 mod
       2^32`) and three runs reported the count they reached as if the bound had

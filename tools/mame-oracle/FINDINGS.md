@@ -8031,3 +8031,51 @@ comparable across it.
 says, so a volume's stamps land where a boot can meet them -- which is what
 SR10.3 needs after C138 put its stamps past Domain/OS's own `year >= 2015`
 ceiling.
+
+## C140 -- SR10.3 re-installed at a supported date, and it faults in Init
+
+C138 put SR10.3's stamps past Domain/OS's own `year >= 2015` ceiling, and C139
+made the oracle's dates mean what they say. The install was redone from
+`dn3500-invol-done.awd` with `EX CALENDAR` set to **2002/11/28 09:00** before
+anything wrote to the volume -- so every stamp RBAK and MINST then laid down is
+inside the supported range:
+
+    minst   ended Thu Nov 28 11:41:05 2002
+
+against the previous attempt's `Thu Sep 3 19:33:19 2015`. The same two benign
+warnings as before, and no others. Then a Service-mode session salvaged the
+volume, booted it from disk to `Apollo Phase II Environment Revision 10.3`, and
+`shut` gave `Shutdown successful`:
+
+    mounted      A465CA74  2002-11-29 09:13:01
+    dismounted   A465E75B  2002-11-29 09:45:20
+
+**On this core, at `--clock 2002-11-29T10:00`, SR10.3 now clears the calendar
+check entirely** -- the thing that has blocked it since it was first installed:
+
+    Domain/OS kernel(7), revision 10.3, August 22, 1990  3:32:49 pm
+    Apollo Phase II Environment   Revision 10.3   Aug 7, 1990  5:39:56 pm
+    Loading Init.
+    ... loading global libraries
+    ... global libraries loaded.
+
+and then **faults**, at 733,770,553 instructions:
+
+    stopped   FAULT on 6700
+    final PC  3B46C3FE -> 017113FE (main memory)
+    d0-d7     0000FFFF 00000000 FFFF0001 000000FF 00000000 3B43405C FFFF0009 00000001
+
+`6700` is `BEQ.W`. The run took 1,861 MMU faults, all `invalid on write` at
+kernel addresses, and eight fault sites of which seven are the PROM's own
+familiar ones.
+
+**This is a new defect and a real one**, and it is where SR10.3 differs from
+SR10.4 -- the same core, the same clock regime, the same PROM, and SR10.4 goes on
+to `SPM Initialized` while SR10.3 stops in Init. That makes it a difference
+between two Domain/OS releases exercising this core, which is exactly the kind of
+thing content testing exists to find, and it is localised to one PC and one
+opcode rather than to "SR10.3 does not work".
+
+**What is now true for the release item**: SR10.4 boots to a running system;
+SR10.3 is installed, cleanly dismounted, and boots to Init before faulting;
+SR10.2's media is held and verified bootable and its install has not been run.
