@@ -4593,12 +4593,19 @@ Only after the reference core is proven, and only under an identity harness.
       reading at block 0, so `check_tape()` runs on the first read"*.
       **So the question is what leaves `m_tape_pos` non-zero before `ex
       domain_os`** — `di c` itself is the obvious candidate, since it is the
-      one command that runs between power-on and the load. Two things to check
-      before any further run, both static: whether `ext/mame`'s existing
-      `sc499` edit (C56's own remedy, in `call_load()`) is actually compiled
-      into the binary built this session, and whether `di c` issues a tape read.
-      `ext/mame` shows `sc499.cpp`/`.h` modified, but this session's build was
-      incremental and only recompiled `drivlist.cpp`. Then MINST from the four software cartridges,
+      one command that runs between power-on and the load. **Checked, and it eliminates the media-change gap**:
+      `sc499.o` (2026-08-11 22:14) is *newer* than the edited `sc499.cpp`
+      (19:30), so C56's remedy is compiled into the binary this session built,
+      and the edit is visibly present in the source — it forces `check_tape()`
+      to recompute length and block count on load rather than trusting
+      `m_has_cartridge`. So the cartridge *is* learned at load, and
+      `sysboot not found` is not the media-change gap.
+      **What that leaves**: the read path works and the PROM's *search* does not
+      find the file. The one unpinned piece from two entries above is now the
+      whole question — whether `ex` looks for `sysboot` at the tape root, where
+      both cartridges hold it, or under a SAU directory as `/SAU7/SELF_TEST`
+      suggests. That is answerable by disassembling the `ex` path around the
+      `sysboot` string in the boot PROM, and needs no emulator. Then MINST from the four software cartridges,
       then the state hash the item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
