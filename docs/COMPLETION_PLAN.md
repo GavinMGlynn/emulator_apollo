@@ -4813,10 +4813,22 @@ Only after the reference core is proven, and only under an identity harness.
       the whole question.** Note it also retro-explains this morning: the image
       that "could have settled it" and was overwritten would have shown nothing,
       because failed boots do not write. Nothing was lost there.
-      **Next, and still not an emulator run**: the two successful rundirs
-      (`q3`, `q3b`) were kept — diff their `nvram`/`cfg` against a failing
-      run's. If those differ, the harness's persisted state is the variable; if
-      not, the run is genuinely non-deterministic and that is the finding. That is a media question, not an
+      **Checked: all four rundirs are empty** — `q3`, `q3b`, `q3c`, `q3d`
+      contain no `nvram`, no `cfg`, no files at all, despite `--keep-rundir`.
+      So persisted harness state is not the variable either.
+      **Every candidate is now eliminated by static comparison**: same
+      cartridge, byte-identical volume, empty rundirs, same command file, same
+      binary. The one remaining difference between the successful pair and the
+      failures is **which volume the run started from**, and `cmp` says the
+      failing runs leave that volume untouched — so if the *content* is
+      identical the start state cannot differ, and the runs should agree. They
+      do not.
+      **That is the finding to carry forward: this is not yet a reproducible
+      experiment**, and no result from it — including the two kernel loads —
+      should be built on until it is. The next move is to make one run
+      reproducible before asking anything else of it: fix the volume, the
+      cartridge and the command file, and run the *same* invocation three times
+      to establish whether it agrees with itself. That is a media question, not an
       emulator defect, which is why every device-side hypothesis here failed. Everything else in the cycle is verified and
       the revert plus clean rebuild were done in the same command.
       Everything else in the cycle is verified: the edit rebuilds `sc499.o`,
