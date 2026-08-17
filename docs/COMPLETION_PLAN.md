@@ -4611,8 +4611,21 @@ Only after the reference core is proven, and only under an identity harness.
       duration (`[030]` §7.3.6, and `ap_m68030_arb` implements it), so the
       RMW case is closed by the hardware's own rule; and the 350 M boot's DMA
       never lands inside a `MOVEM`, which is why the A/B is byte-identical.
-      **So the test to write before the rewrite** is a probe that forces DMA to
-      take the bus mid-`MOVEM` and asserts what memory holds. If it passes under
+      **So the test to write before the rewrite** forces DMA to take the bus
+      mid-`MOVEM` and asserts what memory holds — **and it cannot be a probe**.
+      `ap_probe_run` executes over flat caller-owned RAM with **no board**, so
+      there is no arbiter and no DMA controller to contend with; probes are a
+      CPU-only harness by construction.
+      **Nor does a suite host it yet.** `master_suite` covers the AT bus-master
+      handshake at signal level — cascade, `MASTER_L`, `DACK`, `AEN` — and
+      `arbiter_suite`/`dma_suite` likewise. None of them runs a *CPU
+      instruction* while a master holds the bus, which is the whole of what this
+      test needs.
+      **So it needs new scaffolding**: a machine and board, a `MOVEM` staged in
+      RAM, a master made to assert part-way through it, and an assertion on
+      memory — run under both stepping modes. That is a day's work rather than
+      an afternoon's, and it is still far cheaper than the sequencer rewrite it
+      would justify or rule out. If it passes under
       both stepping modes the approximation is invisible even to the case built
       to catch it; if it fails, that is the first evidence the sequencer rewrite
       is worth its cost — and better evidence than the item's own assertion.
