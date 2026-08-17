@@ -4600,6 +4600,22 @@ Only after the reference core is proven, and only under an identity harness.
       sees a true per-cycle machine. Closing that last gap is the 6,966-line
       sequencer rewrite, and the 350 M A/B says nothing on this machine can
       currently tell the difference.
+      **And the case that *would* tell the difference is nameable**, which turns
+      the approximation from vague into testable. Nothing inside the CPU is
+      visible to anything else, so the only observer is a **second bus master
+      taking the bus part-way through a multi-transfer instruction** — a DMA
+      cycle landing between two of `MOVEM`'s writes would see half the registers
+      stored on real hardware and either none or all of them here.
+      **Two reasons it does not bite today, both already established**: `RMC`
+      makes a read-modify-write indivisible and refuses arbitration for its
+      duration (`[030]` §7.3.6, and `ap_m68030_arb` implements it), so the
+      RMW case is closed by the hardware's own rule; and the 350 M boot's DMA
+      never lands inside a `MOVEM`, which is why the A/B is byte-identical.
+      **So the test to write before the rewrite** is a probe that forces DMA to
+      take the bus mid-`MOVEM` and asserts what memory holds. If it passes under
+      both stepping modes the approximation is invisible even to the case built
+      to catch it; if it fails, that is the first evidence the sequencer rewrite
+      is worth its cost — and better evidence than the item's own assertion.
       **Passed the bus explicitly at all twelve rather than defaulting a NULL to
       a local.** A NULL fallback would cost zero test edits and is the tempting
       shortcut, but from increment (3) the bus is *resumable state*, and a test
