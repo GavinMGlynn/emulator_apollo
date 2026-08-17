@@ -5310,10 +5310,26 @@ Only after the reference core is proven, and only under an identity harness.
       cause is still not established. What is known: the media is sound, the swap
       works, the drive's length is right, the filemark is recognised, the layouts
       agree.
-      *Next is a **comparison**, not another probe: run the same sparse trace over
-      the SR10.3 install, which succeeds, and diff the two traversals — the method
-      this project already records for when one-hypothesis probing has failed
-      repeatedly. `FINDINGS.md` C141.*
+      **The differential settles it.** The same trace over the **SR10.3** install,
+      which succeeds, diffed against SR10.2's: at the boundary SR10.3 reads
+      *through* all three filemarks (23,261 / 23,264 / 23,268) and carries on to
+      23,296, where SR10.2 recognises the first at 21,447 and stops — **on tape
+      that is byte-for-byte the same shape**, FILEMARK, `EOF1`, `EOF2`, FILEMARK,
+      `HDR1`, `HDR2`, `UHL1`, FILEMARK, data.
+      **The one difference is the oracle's own acknowledged gap**: SR10.3 takes
+      38,356 underruns and **0** aborts; SR10.2 takes 10,484 and **one** —
+      `read data underrun aborted at 5000`. The counter is *consecutive* and
+      resets on any successful read, so SR10.3 never strings 5,000 together.
+      MAME's comment says what happens: *"the real ctape will stop, go back and
+      restart reading if appropriate"* / *"stop tape (after 30 seconds) — probably
+      the DMA handshake failed"*. **The real drive repositions and retries; the
+      model gives up.**
+      *Stated with its limit: the abort is at block 4,615 and the failure surfaces
+      at 21,447, so the chain is not watertight — but it is the only behavioural
+      difference left after media, layout, swap, block count, block position and
+      label structure were each eliminated by measurement. It also makes SR10.2's
+      install **host-dependent**: a less loaded machine may never string 5,000
+      underruns together. Detail in `FINDINGS.md` C141.*
       *A rule broken on the way, mine: the first run's directory was deleted in a
       tidy-up before the comparison, so the re-run was needed to get a number that
       had already existed. `FINDINGS.md` C141.*

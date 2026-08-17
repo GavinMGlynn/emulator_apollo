@@ -8252,12 +8252,62 @@ position, and the tape layout. What is known is that the media is sound, the swa
 works, the drive's length is right, the filemark is recognised, and the layouts of
 the two releases agree.
 
-**The next thing worth doing is a comparison rather than another probe**: run the
-same sparse trace over the SR10.3 install, which succeeds, and diff the two
-traversals. That turns "why does SR10.2 fail" into "what does SR10.3 do
-differently", which is the question this project's own method
-(`prefer-exhaustive-differential-over-probing`) says to ask when one-hypothesis
-probing has failed four times.
+### The differential, and it settles it
+
+The same trace was run over the **SR10.3** install, which succeeds, and diffed
+against SR10.2's. Instrumentation reverted and rebuilt afterwards.
+
+**At the boundary the two behave completely differently, on identical tape.**
+
+    SR10.3 (installs)          SR10.2 (fails)
+    at=23040                   at=21248
+    filemark at=23261          filemark at=21447
+    filemark at=23264          <nothing further>
+    filemark at=23268
+    at=23296  ... continues
+
+SR10.3 reads *through* all three filemarks -- the one before `EOF1`, the one after
+`EOF2`, and the one after the next header group -- and carries on. SR10.2
+recognises the first and stops.
+
+**And the tapes are byte-for-byte the same shape there**, checked statically:
+both run FILEMARK, `EOF1`, `EOF2`, FILEMARK, `HDR1`, `HDR2`, `UHL1`, FILEMARK,
+then data beginning `00 00 00 01`. So the media is definitively not the
+difference -- for the third time, and now from both sides.
+
+### What is different, and it is the oracle's own acknowledged gap
+
+    SR10.3   38,356 underruns, 0 aborts
+    SR10.2   10,484 underruns, 1 abort -- "read data underrun aborted at 5000"
+
+The counter is **consecutive**: `m_underrun_counter` resets whenever a read
+succeeds. SR10.3 accumulates nearly four times as many underruns in total and
+never strings 5,000 together; SR10.2 does, once, and `sc499` then stops the tape
+and sets `SC499_ST_READ_ERROR`.
+
+MAME's own source says what this is, in its own comment:
+
+    // handle data underruns in a loaded Apollo emulation
+    // the real ctape will stop, go back and restart reading if appropriate
+    if (++m_underrun_counter >= 5000)
+        // stop tape (after 30 seconds) - probably the DMA handshake failed
+
+So **the real drive repositions and retries and the model gives up**. It is a
+documented modelling gap, not a defect in our core, not the media, and not the
+volume.
+
+**Stated with its limit**: the abort is at block 4,615 and the failure surfaces at
+21,447, and the restore visibly continued in between, so the causal chain is not
+watertight. What is established is that this is the *only* behavioural difference
+left between a run that installs and one that does not, after media, layout, swap,
+block count, block position and label structure were each eliminated by
+measurement.
+
+**And it makes SR10.2's install host-dependent**, which is worth knowing before
+anyone retries it: a less loaded machine may never string 5,000 underruns
+together. The fix on the oracle's side is to make the underrun path reposition and
+retry as its comment says the hardware does, which is an `ext/mame` change with its
+own verification rather than something to fold into a finding.
 
 **And a rule broken on the way, mine:** the first run's directory was deleted in a
 tidy-up before the comparison was made, so the re-run above was needed to get a
