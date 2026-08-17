@@ -93,19 +93,19 @@ static void test_every_opcr_select_reaches_its_output_pin(void) {
   /* Default: every pin is its `OPR` bit, **complemented**. */
   d.opr = 0x00u;
   for (unsigned pin = 0u; pin < 8u; pin++) {
-    TEST_ASSERT_TRUE(ap_mc68681_output_pin(&d, pin));
+    TEST_ASSERT_TRUE(ap_mc68681_output_pin(&d, pin, 0u));
   }
   d.opr = 0xFFu;
-  TEST_ASSERT_FALSE(ap_mc68681_output_pin(&d, 1u));
-  TEST_ASSERT_FALSE(ap_mc68681_output_pin(&d, 0u));
+  TEST_ASSERT_FALSE(ap_mc68681_output_pin(&d, 1u, 0u));
+  TEST_ASSERT_FALSE(ap_mc68681_output_pin(&d, 0u, 0u));
 
   /* `OP6` follows channel A's `TxRDY` once selected -- and not before, which
    * is the half that was missing. */
   ap_mc68681_write(&d, AP_MC68681_IP_OPCR, 0x40u);
   TEST_ASSERT_TRUE((d.channel[0].sr & AP_MC68681_SR_TXRDY) != 0u);
-  TEST_ASSERT_TRUE(ap_mc68681_output_pin(&d, 6u));
+  TEST_ASSERT_TRUE(ap_mc68681_output_pin(&d, 6u, 0u));
   ap_mc68681_write(&d, AP_MC68681_RB_TB_A, 0x41u); /* clears TxRDY */
-  TEST_ASSERT_FALSE(ap_mc68681_output_pin(&d, 6u));
+  TEST_ASSERT_FALSE(ap_mc68681_output_pin(&d, 6u, 0u));
 
   /* `OP4` follows channel A's receiver bit, and *which* bit is `MR1[6]`'s
    * choice -- §4.2.1.2: the selection "also causes the selected bit to be
@@ -115,7 +115,7 @@ static void test_every_opcr_select_reaches_its_output_pin(void) {
   enable_a(&rx);
   ap_mc68681_write(&rx, AP_MC68681_IP_OPCR, 0x10u);
   ap_mc68681_receive(&rx, 0u, 0x41u);
-  TEST_ASSERT_TRUE(ap_mc68681_output_pin(&rx, 4u)); /* RxRDY */
+  TEST_ASSERT_TRUE(ap_mc68681_output_pin(&rx, 4u, 0u)); /* RxRDY */
 
   ap_mc68681_t full;
   ap_mc68681_reset(&full);
@@ -123,19 +123,19 @@ static void test_every_opcr_select_reaches_its_output_pin(void) {
   enable_a(&full);
   ap_mc68681_write(&full, AP_MC68681_IP_OPCR, 0x10u);
   ap_mc68681_receive(&full, 0u, 0x41u);
-  TEST_ASSERT_FALSE(ap_mc68681_output_pin(&full, 4u)); /* FFULL: not yet */
+  TEST_ASSERT_FALSE(ap_mc68681_output_pin(&full, 4u, 0u)); /* FFULL: not yet */
   ap_mc68681_receive(&full, 0u, 0x42u);
   ap_mc68681_receive(&full, 0u, 0x43u);
-  TEST_ASSERT_TRUE(ap_mc68681_output_pin(&full, 4u));
+  TEST_ASSERT_TRUE(ap_mc68681_output_pin(&full, 4u, 0u));
 
   /* `OP3` code 01 is the counter/timer output, which this core does model. */
   ap_mc68681_t timer;
   ap_mc68681_reset(&timer);
   ap_mc68681_write(&timer, AP_MC68681_IP_OPCR, 0x04u);
   timer.counter_output = true;
-  TEST_ASSERT_TRUE(ap_mc68681_output_pin(&timer, 3u));
+  TEST_ASSERT_TRUE(ap_mc68681_output_pin(&timer, 3u, 0u));
   timer.counter_output = false;
-  TEST_ASSERT_FALSE(ap_mc68681_output_pin(&timer, 3u));
+  TEST_ASSERT_FALSE(ap_mc68681_output_pin(&timer, 3u, 0u));
 }
 
 static void test_the_second_baud_set_is_not_a_copy_of_the_first(void) {
@@ -1204,8 +1204,7 @@ static void test_the_output_port_clock_codes_carry_a_waveform(void) {
   bool seen_high = false;
   bool seen_low = false;
   for (unsigned i = 0; i < 8u; i++) {
-    d.now = (ap_time_t)i * (bit / 2u);
-    if (ap_mc68681_output_pin(&d, 2u)) {
+    if (ap_mc68681_output_pin(&d, 2u, (ap_time_t)i * (bit / 2u))) {
       seen_high = true;
     } else {
       seen_low = true;
@@ -1216,9 +1215,9 @@ static void test_the_output_port_clock_codes_carry_a_waveform(void) {
 
   /* Code 0 is the register bit again, and does not move with time. */
   ap_mc68681_write(&d, AP_MC68681_IP_OPCR, 0x00u);
-  const bool level = ap_mc68681_output_pin(&d, 2u);
-  d.now += bit * 3u;
-  TEST_ASSERT_EQUAL_INT((int)level, (int)ap_mc68681_output_pin(&d, 2u));
+  const bool level = ap_mc68681_output_pin(&d, 2u, 0u);
+  TEST_ASSERT_EQUAL_INT((int)level,
+                        (int)ap_mc68681_output_pin(&d, 2u, bit * 3u));
 }
 
 /* OP3's `10` and `11` are channel B's clocks, and its `01` is the counter/timer
@@ -1230,19 +1229,18 @@ static void test_op3_selects_between_the_counter_and_channel_b_clocks(void) {
 
   ap_mc68681_write(&d, AP_MC68681_IP_OPCR, 0x04u); /* OPCR[3:2]=01 */
   d.counter_output = true;
-  TEST_ASSERT_TRUE(ap_mc68681_output_pin(&d, 3u));
+  TEST_ASSERT_TRUE(ap_mc68681_output_pin(&d, 3u, 0u));
   d.counter_output = false;
-  TEST_ASSERT_FALSE(ap_mc68681_output_pin(&d, 3u));
+  TEST_ASSERT_FALSE(ap_mc68681_output_pin(&d, 3u, 0u));
 
   /* OPCR[3:2]=10, the channel B transmitter's 1X clock, which moves with time
    * whatever the counter output happens to be. */
   ap_mc68681_write(&d, AP_MC68681_IP_OPCR, 0x08u);
   const ap_time_t bit = AP_TIME_BASE_HZ / 9600u;
   bool changed = false;
-  const bool first = ap_mc68681_output_pin(&d, 3u);
+  const bool first = ap_mc68681_output_pin(&d, 3u, 0u);
   for (unsigned i = 1; i < 6u; i++) {
-    d.now = (ap_time_t)i * (bit / 2u);
-    if (ap_mc68681_output_pin(&d, 3u) != first) {
+    if (ap_mc68681_output_pin(&d, 3u, (ap_time_t)i * (bit / 2u)) != first) {
       changed = true;
     }
   }

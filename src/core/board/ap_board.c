@@ -983,15 +983,25 @@ void ap_board_advance(ap_board_t *board, ap_time_t now) {
   /* §3.9's memory refresh, which is a serial part doing a job that has nothing
    * to do with serial lines. It is here rather than absent because the counter
    * now has a clock: `board/ap_sio.h` derives the rate. */
-  /* **Not gated on the next pulse, and that is a measurement.** Skipping this
-   * until a pulse was due is provably safe -- the part's observable state moves
-   * only at terminal count, and `duart->now` is read solely through
-   * `ap_mc68681_output_pin`, which no production code calls -- and it made no
-   * measurable difference: interleaved A/B over three pairs split 2-1 the other
-   * way, with minima favouring the ungated build. A call per instruction is not
-   * worth carrying for that, so the gate and its predicate were removed and the
-   * reasoning kept here. The *interrupt* bound is a different matter and does
-   * pay: `ap_board_sample_interrupts` fell from 8.0% to 3.5%. */
+  /* **Not gated on the next pulse, and that is a measurement rather than an
+   * omission.** Skipping this until a pulse was due is provably safe -- the
+   * part carries no `now` of its own, so nothing a skipped call leaves behind
+   * can be stale -- and it made no measurable difference: interleaved A/B over
+   * three pairs split 2-1 the other way, with minima favouring the ungated
+   * build. A call per instruction is not worth carrying for that.
+   *
+   * **And the arithmetic says why**, which is the part worth keeping. §3.9's
+   * refresh runs this counter off X1 for the life of the machine, and X1 is
+   * 3.6 MHz against a 25 MHz CPU: 6.944 CPU clocks per pulse against a mean
+   * instruction of 4.278, so 0.616 pulses land per instruction and only 38.4%
+   * of instructions have no pulse due. A gate that fires five times in eight
+   * cannot pay for itself one device at a time -- it is worth having only as
+   * part of a whole-board bound that skips *every* advance at once, which is
+   * the exact-skip item's remaining work and carries that same 38.4% ceiling.
+   *
+   * The *interrupt* bound is a different matter and does pay, because
+   * `ap_sio_interrupt_next_change` bounds at terminal count rather than at the
+   * next pulse: `ap_board_sample_interrupts` fell from 8.0% to 3.5%. */
   ap_sio_advance(&board->sio, now);
   /* The tape's command handshake, which is the only part of the drive that
    * moves with time -- §1.13.2's edges, at the bounds the figures publish. */

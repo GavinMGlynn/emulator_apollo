@@ -158,15 +158,17 @@ uint8_t ap_sio_clock_select(ap_sio_t *sio, unsigned unit, unsigned channel) {
 }
 
 void ap_sio_advance(ap_sio_t *sio, ap_time_t now) {
-  /* Both parts carry the time, whether or not their counter/timer moved: the
-   * output port's clock codes are free-running square waves and a caller may
-   * read one at any instant. Set before the early-out below, which skips a part
-   * whose counter has nothing to do. */
-  for (unsigned unit = 0; unit < 2u; unit++) {
-    if (now > sio->port[unit].now) {
-      sio->port[unit].now = now;
-    }
-  }
+  /* **Neither part carries the time any more.** This used to refresh a `now`
+   * field on both DUARTs on every call, whether or not their counter/timer had
+   * anything to do, because the output port's clock codes are free-running
+   * square waves that a caller may read at any instant.
+   *
+   * That store is what made this advance unskippable, and it was unnecessary:
+   * the level is a *pure function* of the instant and the programmed rate, so
+   * `ap_mc68681_output_pin` takes the instant from its caller and the part
+   * remembers no time at all. Nothing a skipped advance leaves behind can now
+   * be stale -- the same argument that took the PTM's `now` away, and the
+   * blocker the exact-skip item named for `skip(n)`. */
   for (unsigned unit = 0; unit < 2u; unit++) {
     if (sio->x1[unit].period == 0u || now <= sio->clocked_to[unit]) {
       /* Monotonic: going backwards is ignored rather than wrapping, as every

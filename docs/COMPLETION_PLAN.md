@@ -4928,8 +4928,38 @@ Only after the reference core is proven, and only under an identity harness.
       **So what is left is the item's own title.** `skip(n)`: running the CPU
       across a span without ticking devices, which needs a bound on *observable
       state* rather than on an interrupt line — a stronger claim, because the
-      serial part's output-port square waves are readable at any instant and a
-      skipped advance leaves its clock stale. Detail in `PROJECT_STATUS.md`.
+      serial part's output-port square waves are readable at any instant.
+      **That blocker is now GONE, and it was a stored cursor rather than a
+      hardware fact.** `ap_mc68681_t` carried a `now` refreshed on *every*
+      advance, whether or not its counter moved, so that a program reading a
+      free-running clock pin got a level. But §4.2.11.6's clock is a **pure
+      function** of the instant and the programmed rate, so the instant belongs
+      to `ap_mc68681_output_pin`'s caller and the part need remember no time at
+      all — the same argument that took the PTM's `now` away. The field is
+      deleted, `ap_sio_advance`'s unconditional two-store prologue with it, and
+      the signature now *forces* a caller to name its instant, so the property
+      is structural rather than only tested.
+      *Verification: `ctest` 138/138, `sio_suite` 29 → 30 — advance once, then
+      read the pin at instants no advance ever saw and watch the wave still
+      move — and identity boot `A354786119A3931D` unchanged.*
+      **But the aggregate bound it unblocks has a measured ceiling of 38%, and
+      that is worth knowing before building it.** §3.9's memory refresh runs the
+      serial part's counter off X1 for the life of the machine, and X1 is
+      3.6 MHz against a 25 MHz CPU — **6.944 CPU clocks per pulse against a mean
+      instruction of 4.278**, so 0.616 pulses fall per instruction and only
+      **38.4%** of instructions have no pulse due. The serial part is therefore
+      the binding term in any whole-board `next_event()`, and the most a
+      device-side skip can remove is 38.4% of `ap_board_advance`'s calls. Not
+      nothing, and not the order-of-magnitude the item's title suggests: this
+      board has a device whose observable state changes faster than the
+      processor executes. Detail in `PROJECT_STATUS.md`.
+      **So the remaining work is bounded and specified**: `next_event()` for the
+      calendar, tape, disk and keyboard (the serial part and timer have theirs),
+      an aggregate min on the board invalidated by the same three sites that
+      already clear `interrupt_valid_until`, and a gate in `ap_machine_run`.
+      Provably identity-preserving — devices still advance *at* instruction
+      boundaries, just not at boundaries where nothing could have changed — so
+      it needs no flag and no deferred decision, unlike the mid-access schedule.
   - [x] **The timer advance is skipped until a pulse is due**, the PTM keeping
     no `now` of its own so nothing can be left stale. *Verification: interleaved
     A/B, faster in all three pairs, 29.65 s against 30.20 s; hash and reports

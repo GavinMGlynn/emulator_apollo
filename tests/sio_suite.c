@@ -340,6 +340,51 @@ static void test_the_refresh_does_not_depend_on_the_call_rate(void) {
   TEST_ASSERT_EQUAL_HEX16(one.port[0].counter, many.port[0].counter);
 }
 
+/* A skipped advance cannot leave the free-running clock pins stale, which is
+ * what makes `ap_sio_advance` skippable at all.
+ *
+ * This is the exact-skip item's named blocker, tested as a property rather than
+ * asserted. The part used to carry a `now` field refreshed on **every** advance
+ * -- whether or not its counter moved -- precisely because §4.2.11.6's clock
+ * codes are free-running square waves a program may read at any instant. A
+ * stored cursor makes every advance load-bearing; a level derived from the
+ * caller's instant makes none of them.
+ *
+ * So: advance once, then never again, and read the pin at instants the advance
+ * never saw. The wave must still move. */
+static void test_the_clock_pins_follow_time_without_being_advanced(void) {
+  ap_sio_t sio;
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
+  /* 9600 baud on channel A, and OP2 selecting its transmitter's 1X clock. */
+  ap_mc68681_write(&sio.port[0], AP_MC68681_SR_CSR_A, 0xBBu);
+  ap_mc68681_write(&sio.port[0], AP_MC68681_IP_OPCR, 0x02u);
+
+  /* The one and only advance. Everything after this instant is unadvanced
+   * time, which is exactly what a skipped span is. */
+  ap_sio_advance(&sio, 0u);
+
+  const ap_time_t bit = AP_TIME_BASE_HZ / 9600u;
+  bool high = false;
+  bool low = false;
+  for (unsigned i = 0; i < 8u; i++) {
+    if (ap_mc68681_output_pin(&sio.port[0], 2u, (ap_time_t)i * (bit / 2u))) {
+      high = true;
+    } else {
+      low = true;
+    }
+  }
+  TEST_ASSERT_TRUE(high);
+  TEST_ASSERT_TRUE(low);
+
+  /* And the same instant answers the same way twice, so the level is a function
+   * of time and not of how often it was asked. A part carrying its own cursor
+   * would fail this only if something advanced it in between -- which is why
+   * the check above is the one that matters and this one guards the reading. */
+  TEST_ASSERT_EQUAL_INT(
+      (int)ap_mc68681_output_pin(&sio.port[0], 2u, bit * 3u),
+      (int)ap_mc68681_output_pin(&sio.port[0], 2u, bit * 3u));
+}
+
 /* ---- Character time, `[68681]` Table 4-5 ---------------------------------- */
 
 /* The stop-bit field is sixteen encodings from 0.5 to 2 bits, carried in
@@ -698,6 +743,7 @@ int main(void) {
   RUN_TEST(test_the_refresh_output_is_a_square_wave_of_that_period);
   RUN_TEST(test_the_counter_ready_bit_comes_once_per_period);
   RUN_TEST(test_the_refresh_does_not_depend_on_the_call_rate);
+  RUN_TEST(test_the_clock_pins_follow_time_without_being_advanced);
   RUN_TEST(test_what_the_program_transmits_reaches_the_caller);
   RUN_TEST(test_a_delivered_byte_reaches_the_program);
   RUN_TEST(test_a_mis_rated_sender_reaches_the_port_as_an_error);

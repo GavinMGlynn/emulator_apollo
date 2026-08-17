@@ -427,7 +427,7 @@ bool ap_mc68681_transmit(ap_mc68681_t *duart, unsigned channel,
  * about, and it is the only case here that returns something invented by
  * nobody. */
 static bool clock_pin_level(const ap_mc68681_t *duart, uint8_t csr_nibble,
-                            unsigned multiplier) {
+                            unsigned multiplier, ap_time_t now) {
   const unsigned baud =
       ap_mc68681_baud(csr_nibble, (duart->acr & 0x80u) != 0u);
   if (baud == 0u || multiplier == 0u) {
@@ -438,10 +438,11 @@ static bool clock_pin_level(const ap_mc68681_t *duart, uint8_t csr_nibble,
   if (ticks_per_half == 0u) {
     return false;
   }
-  return (((uint64_t)duart->now / ticks_per_half) & 1u) != 0u;
+  return (((uint64_t)now / ticks_per_half) & 1u) != 0u;
 }
 
-bool ap_mc68681_output_pin(const ap_mc68681_t *duart, unsigned pin) {
+bool ap_mc68681_output_pin(const ap_mc68681_t *duart, unsigned pin,
+                           ap_time_t now) {
   if (duart == NULL || pin > 7u) {
     return false;
   }
@@ -491,7 +492,7 @@ bool ap_mc68681_output_pin(const ap_mc68681_t *duart, unsigned pin) {
     const ap_mc68681_channel_t *b = &duart->channel[1];
     const uint8_t nibble =
         code == 2u ? (uint8_t)(b->csr & 0x0Fu) : (uint8_t)(b->csr >> 4);
-    return clock_pin_level(duart, nibble, 1u);
+    return clock_pin_level(duart, nibble, 1u, now);
   }
   case 2u: {
     const unsigned code = (unsigned)(duart->opcr & 0x03u);
@@ -505,7 +506,7 @@ bool ap_mc68681_output_pin(const ap_mc68681_t *duart, unsigned pin) {
     const uint8_t nibble =
         code == 3u ? (uint8_t)(a->csr >> 4) : (uint8_t)(a->csr & 0x0Fu);
     const unsigned multiplier = (code == 1u && nibble != 0x0Fu) ? 16u : 1u;
-    return clock_pin_level(duart, nibble, multiplier);
+    return clock_pin_level(duart, nibble, multiplier, now);
   }
   default:
     /* `OP1` and `OP0` have no select: always the register bit, complemented. */

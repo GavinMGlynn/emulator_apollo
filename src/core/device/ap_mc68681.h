@@ -208,12 +208,17 @@ typedef struct {
    * on where it happened to begin. */
   bool counter_second_half;
 
-  /* Absolute time, carried so that the output port's **clock** codes have a
-   * waveform to report. §4.2.11.5 and §4.2.11.6 put the channels' 1X and 16X
-   * clocks on `OP3` and `OP2`, and a clock is a level that depends on when it
-   * is looked at -- with no time there is nothing to answer with. Advanced by
-   * whoever advances the counter/timer. */
-  ap_time_t now;
+  /* **No `now` here, deliberately, and it used to be.** The output port's
+   * clock codes need an instant to report a level at, but the level is a *pure
+   * function* of that instant and the programmed rate -- so the instant is a
+   * parameter of `ap_mc68681_output_pin` rather than a field this part carries.
+   *
+   * The distinction is the exact-skip item's: a stored `now` has to be
+   * refreshed on **every** advance, whether or not the counter moved, because a
+   * caller may read a free-running clock at any time. That made an advance that
+   * could otherwise be skipped unskippable, and it is the blocker that item
+   * named. A part that keeps no time of its own cannot be left stale -- the
+   * same argument that took the PTM's `now` away. */
 } ap_mc68681_t;
 
 void ap_mc68681_reset(ap_mc68681_t *duart);
@@ -493,12 +498,18 @@ void ap_mc68681_set_input(ap_mc68681_t *duart, uint8_t value);
  * and §4.2.11.6's 16X and 1X channel A clocks. Each is a free-running square
  * wave at the rate the channel's own clock-select programs -- "a free running
  * 1X clock is always output in this mode" -- so the pin is derived from the
- * part's time cursor and that rate, and needs nothing invented: the rate comes
- * from `ap_mc68681_baud` and the phase from `now`. A rate the baud table does
- * not define leaves the pin low, which is the one case where there is genuinely
- * no waveform. */
+ * instant it is sampled at and that rate, and needs nothing invented: the rate
+ * comes from `ap_mc68681_baud` and the phase from `now`. A rate the baud table
+ * does not define leaves the pin low, which is the one case where there is
+ * genuinely no waveform.
+ *
+ * **`now` is a parameter rather than a field** for the reason the struct
+ * records: a level that is a pure function of time does not need the part to
+ * remember time, and a part that remembers time has to be advanced on every
+ * tick in case someone reads it. The codes that do *not* move with time -- the
+ * `OPR` bits, `C/T output`, the status-derived ones -- ignore it entirely. */
 [[nodiscard]] bool ap_mc68681_output_pin(const ap_mc68681_t *duart,
-                                         unsigned pin);
+                                         unsigned pin, ap_time_t now);
 
 /* One counter/timer clock tick. */
 void ap_mc68681_clock(ap_mc68681_t *duart);
