@@ -4556,7 +4556,27 @@ Only after the reference core is proven, and only under an identity harness.
       difference to a device rather than leaving it as a whole-machine hash. The bus now advances mid-instruction, but
       the processor cannot yet observe it mid-instruction — that needs the
       resumable sequencer increment (2) showed to be a rewrite of a 6,966-line
-      file. The ordering half of the item is done; the feedback half is not.
+      file.
+      **But a cycle-steppable processor is buildable without any of those four,
+      and 3a is why.** The timeline already records an instruction's clocks in
+      order, so `ap_machine_tick()` can **run one instruction ahead and hand its
+      cycles out one at a time** — draining `clock_events` — instead of
+      suspending the sequencer.
+      **Its approximation, named up front**: the CPU's *internal* state commits
+      at the instruction's start rather than progressively across its cycles.
+      Everything outside the CPU — bus, arbiter, devices, interrupts — sees a
+      true per-cycle machine, which is what "one `tick()` per machine cycle" is
+      written for. The 350 M A/B is evidence the distinction is unobservable
+      here: advancing devices at access instants already gave a byte-identical
+      boot.
+      **Cost to build**: `ap_machine_run`'s body splits into "execute one
+      instruction" and "consume one cycle", with `pending_cycles` and an index
+      on `ap_machine_t`; `ap_machine_run` becomes a loop over
+      `ap_machine_tick`. The identity harness is the check and the goldens must
+      not move — a tick loop that reorders nothing must reproduce
+      `A354786119A3931D` exactly.
+      **Ordering half done; feedback half measured; cycle-steppable processor
+      designed and not yet built.**
       **Passed the bus explicitly at all twelve rather than defaulting a NULL to
       a local.** A NULL fallback would cost zero test edits and is the tempting
       shortcut, but from increment (3) the bus is *resumable state*, and a test
