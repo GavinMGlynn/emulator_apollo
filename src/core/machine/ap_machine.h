@@ -118,6 +118,15 @@ typedef struct {
    * happens rather than to the last instruction boundary. */
   uint64_t instruction_start_clocks;
 
+  /* ## Cycle stepping
+   *
+   * `pending_cycles` is what an instruction has left to hand out one at a time;
+   * `defer_cycle_delivery` makes `ap_machine_run` leave that delivery to the
+   * caller. Both are inert unless the tick entry point is used, so the
+   * instruction-stepped loop is byte-for-byte what it was. */
+  unsigned pending_cycles;
+  bool defer_cycle_delivery;
+
   /* **Which of the two device schedules this machine runs.**
    *
    * False -- the default -- advances devices only at instruction boundaries,
@@ -473,6 +482,21 @@ typedef struct {
 
 [[nodiscard]] ap_machine_run_t ap_machine_run(ap_machine_t *machine,
                                               unsigned limit);
+
+/* Advance the machine by exactly one machine cycle.
+ *
+ * The processor is not suspended mid-instruction: a tick with nothing pending
+ * runs one instruction ahead, then hands its clocks out one at a time from the
+ * timeline `ap_m68030_charge` records. **The approximation that buys, named
+ * rather than hidden**: the CPU's *internal* state commits at the instruction's
+ * start rather than progressively across its cycles. Everything outside the CPU
+ * -- bus, arbiter, devices -- sees a true per-cycle machine, which is what "one
+ * tick per machine cycle" is written for, and the 350 M A/B between the two
+ * device schedules is evidence that difference is unobservable here.
+ *
+ * Returns the result of the instruction a tick started, or a zero result for a
+ * tick that only handed out a cycle. */
+[[nodiscard]] ap_machine_run_t ap_machine_tick(ap_machine_t *machine);
 
 /* The whole machine as one number: the processor's state, the RAM, the board's
  * devices when one is attached, and the elapsed time.

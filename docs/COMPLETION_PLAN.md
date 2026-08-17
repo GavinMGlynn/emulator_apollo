@@ -4574,8 +4574,25 @@ Only after the reference core is proven, and only under an identity harness.
       on `ap_machine_t`; `ap_machine_run` becomes a loop over that tick. The identity harness is the check and the goldens must
       not move — a tick loop that reorders nothing must reproduce
       `A354786119A3931D` exactly.
-      **Ordering half done; feedback half measured; cycle-steppable processor
-      designed and not yet built.**
+      **BUILT.** `ap_machine_tick` advances the machine by exactly one machine
+      cycle: a tick with nothing pending runs one instruction ahead and then
+      hands its clocks out one at a time, `pending_cycles` at a time, with
+      `defer_cycle_delivery` telling `ap_machine_run` to leave that delivery to
+      the caller.
+      **Additive rather than a rewrite**, which is why it landed without
+      breaking the core loop: both fields are inert unless the tick is used, so
+      the instruction-stepped path is byte-for-byte what it was.
+      *Verification: `ctest` 138/138 and identity boot `A354786119A3931D`
+      unchanged.*
+      **What is verified and what is not, plainly.** Verified: the tick exists,
+      compiles, and does not disturb the instruction-stepped loop. **Not
+      verified: that a boot driven *through* the tick reproduces the same
+      hash** — no frontend drives it yet, so nothing exercises it end to end.
+      That is the next thing, and until it is done the tick is a built but
+      unexercised path, which `check_what_is_called_by_nobody` is exactly the
+      warning about.
+      **Ordering half done; feedback half measured; the tick built and not yet
+      driven.**
       **Passed the bus explicitly at all twelve rather than defaulting a NULL to
       a local.** A NULL fallback would cost zero test edits and is the tempting
       shortcut, but from increment (3) the bus is *resumable state*, and a test

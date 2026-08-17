@@ -912,7 +912,7 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
      * `ap_board_bus_ticks` loops the arbiter one clock at a time, batching only
      * where the board can prove the ticks identical, so the resolution was
      * never the problem -- the lag was. */
-    if (machine->board != NULL) {
+    if (machine->board != NULL && !machine->defer_cycle_delivery) {
       /* **Walked, not batched.** The step now records when each charge of
        * clocks happened within the instruction, so the bus is advanced in the
        * same order the processor spent them rather than in one lump at the end.
@@ -1047,3 +1047,23 @@ void ap_machine_set_board(ap_machine_t *machine, struct ap_board *board) {
 
 ap_time_t ap_machine_now(const ap_machine_t *machine) { return machine->now; }
 
+
+ap_machine_run_t ap_machine_tick(ap_machine_t *machine) {
+  ap_machine_run_t out = {.status = AP_M68030_STEP_EXECUTED};
+  if (machine->pending_cycles == 0u) {
+    /* Run the instruction but keep its clocks: they are handed out below, one
+     * per tick, so the bus sees them spread across the cycles the processor
+     * actually spent rather than in one batch at the end. */
+    machine->defer_cycle_delivery = true;
+    out = ap_machine_run(machine, 1u);
+    machine->defer_cycle_delivery = false;
+    machine->pending_cycles = (unsigned)machine->last_instruction_clocks;
+  }
+  if (machine->pending_cycles > 0u) {
+    if (machine->board != NULL) {
+      ap_board_bus_ticks(machine->board, 1u);
+    }
+    machine->pending_cycles--;
+  }
+  return out;
+}
