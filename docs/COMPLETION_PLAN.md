@@ -4766,11 +4766,23 @@ Only after the reference core is proven, and only under an identity harness.
       exactly as winning the bus did (two ticks is not enough, sixty-four is),
       and asserting the PC never moved would have been asserting the anti-hang
       guard rather than the stall.
-      **Where it stops**: `ap_machine_read(&machine, AP_BOARD_RAM_BASE + 0x2000,
-      4, &got)` returns **false** — a test cannot read the destination back
-      through the machine with a board attached. That is a harness question
-      (how a test reads board-mapped RAM) rather than a model one, and it is the
-      only thing between here and the all-or-nothing measurement.
+      **And it passes.** The readback was the last obstacle and it was a
+      harness question, as suspected: board tests read the **flat `ram[]`
+      array**, not `ap_machine_read` at a mapped address — the pattern was
+      already in `machine_suite` at line 263 and I had reached for the wrong
+      one.
+      **So the measurement is taken.** A cascaded AT master, taken to ownership
+      on the board's own clock, makes `ap_board_processor_may_run` false and
+      costs the processor `AP_MACHINE_STALL_LIMIT` clocks for a single
+      instruction; with both lines dropped the bus returns and the `MOVEM.L`
+      lands **whole** — all four registers, never part of the transfer.
+      **That is the per-cycle approximation measured rather than asserted**, and
+      the figure the sequencer rewrite would change is now on record: four
+      registers of four. On real hardware a tenure beginning between two of the
+      transfer's cycles would leave some subset stored; this core cannot express
+      that, and now has a test that says so in those terms.
+      *Verification: `machine_suite` 55 -> 56, `ctest` 138/138, identity boot
+      `A354786119A3931D` unchanged.*
       **The superseded reading follows, kept because the route to it matters.**
       A `MOVEQ`/`MOVEA`/`MOVEM.L D0-D3,(A0)`/`STOP` program, with a cascaded
       master taken to `owns_bus` on the board's own clock, then run:

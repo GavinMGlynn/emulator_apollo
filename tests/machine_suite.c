@@ -10,6 +10,8 @@
 #include <stdio.h>
 
 #include "board/ap_board.h"
+#include "board/ap_master.h"
+#include "device/ap_i8237.h"
 #include "board/ap_timer.h"
 #include "board/ap_disk.h"
 #include "board/ap_dma.h"
@@ -1195,6 +1197,82 @@ static void build_board_machine(ap_machine_t *machine, ap_board_t *board,
   /* Attached after the program is laid down, because the operator's write is
    * flat and the board's is mapped. */
   ap_machine_set_board(machine, board);
+}
+
+/* ## What a bus master costs the processor, and what it cannot yet do to it
+ *
+ * `008778-03` §2.4.7's adapter takes the bus and holds it "until it releases
+ * the DRQx and MASTER.L signals", and `[030]` §7.7 makes the processor the
+ * lowest-priority claimant while it does.
+ *
+ * The cost is asserted in **clocks**, not in stalled instructions, because
+ * `AP_MACHINE_STALL_LIMIT` caps the wait -- "a master that never releases the
+ * bus is a broken machine", so a reference core cannot spin forever inside a
+ * bounded run. Asserting that the PC never moved would assert the guard rather
+ * than the stall.
+ *
+ * **And the transfer is all-or-nothing**, which is the per-cycle item's
+ * remaining approximation made visible: on real hardware a tenure beginning
+ * part-way through a `MOVEM.L` leaves some registers stored and others not,
+ * because the bus can be taken between any two of its cycles. Here the
+ * processor commits the whole instruction or none of it. */
+static void test_a_bus_master_costs_the_processor_a_stall(void) {
+  enum { CHANNEL = 2u, DRQ = 3u, DEST = 0x2000u };
+  const uint32_t dest = AP_BOARD_RAM_BASE + DEST;
+  const uint16_t program[] = {
+      0x7011u, 0x7222u, 0x7433u, 0x7644u,
+      0x207Cu, (uint16_t)(dest >> 16), (uint16_t)dest,
+      0x48D0u, 0x000Fu,
+      0x4E72u, 0x2700u,
+  };
+  static ap_machine_t machine;
+  static ap_board_t board;
+  build_board_machine(&machine, &board, ram, program,
+                      sizeof program / sizeof program[0]);
+
+  ap_board_attach_master(&board, 0u, CHANNEL, DRQ);
+  ap_i8237_write(&board.dma.controller[0], AP_I8237_REG_MODE,
+                 (uint8_t)((AP_I8237_MODE_CASCADE << 6) | CHANNEL));
+  ap_i8237_write(&board.dma.controller[0], AP_I8237_REG_MASK_SINGLE,
+                 (uint8_t)CHANNEL);
+  ap_master_set_request(&board.master, true);
+  ap_board_bus_ticks(&board, 32u);
+  ap_master_set_master_l(&board.master, true);
+  ap_board_bus_ticks(&board, 1u);
+
+  /* The tenure is real: mastership has been granted away, so the processor is
+   * not permitted to run. A test that merely *requested* the bus would prove
+   * nothing about contention. */
+  TEST_ASSERT_TRUE(ap_master_owns_bus(&board.master));
+  TEST_ASSERT_FALSE(ap_board_processor_may_run(&board));
+
+  const uint64_t held = machine.cpu.clocks;
+  (void)ap_machine_run(&machine, 1u);
+  TEST_ASSERT_TRUE_MESSAGE(machine.cpu.clocks - held >= AP_MACHINE_STALL_LIMIT,
+                           "a held bus must cost the processor the stall");
+
+  /* Both lines, per §2.4.7 -- dropping one leaves the tenure standing. The
+   * handback takes clocks exactly as winning the bus did. */
+  ap_master_set_master_l(&board.master, false);
+  ap_master_set_request(&board.master, false);
+  ap_board_bus_ticks(&board, 64u);
+  TEST_ASSERT_FALSE(ap_master_owns_bus(&board.master));
+  TEST_ASSERT_TRUE(ap_board_processor_may_run(&board));
+
+  const uint64_t freed = machine.cpu.clocks;
+  (void)ap_machine_run(&machine, 16u);
+  TEST_ASSERT_TRUE(machine.cpu.clocks - freed < AP_MACHINE_STALL_LIMIT);
+
+  /* All four registers, or none: never part of the transfer. Read from the RAM
+   * array rather than through the machine, which is how every board test here
+   * reads memory back. */
+  static const uint32_t want[4] = {0x11u, 0x22u, 0x33u, 0x44u};
+  for (unsigned i = 0; i < 4u; i++) {
+    const uint8_t *at = &ram[DEST + i * 4u];
+    const uint32_t got = ((uint32_t)at[0] << 24) | ((uint32_t)at[1] << 16) |
+                         ((uint32_t)at[2] << 8) | at[3];
+    TEST_ASSERT_EQUAL_HEX32(want[i], got);
+  }
 }
 
 /* MOVE.B #$11,($00010401).L -- serial 1, channel A
@@ -2388,6 +2466,7 @@ int main(void) {
   RUN_TEST(test_two_machines_at_different_clock_rates_hash_differently);
   RUN_TEST(test_the_counters_are_reported_beside_the_hash_not_inside_it);
   RUN_TEST(test_the_state_report_carries_the_clock_and_the_pc);
+  RUN_TEST(test_a_bus_master_costs_the_processor_a_stall);
   RUN_TEST(test_a_machine_derives_its_cpu_features_from_its_model);
   return UNITY_END();
 }
