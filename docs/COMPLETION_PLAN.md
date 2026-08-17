@@ -4651,10 +4651,22 @@ Only after the reference core is proven, and only under an identity harness.
       wiring claims.
       *Verification: `board_suite` 54 -> 55, `ctest` 138/138, identity boot
       `A354786119A3931D` unchanged.*
-      **What is still not done**: nothing *acknowledges* it — winning the bus
-      needs the DMA channel in cascade mode, which `master_suite` programs on a
-      rig of its own. That is what the `MOVEM` test will need, and it is the
-      next step rather than this one.
+      **And it is acknowledged on the board's own clock.** With
+      `board->dma.controller[0]`'s channel put in cascade mode and unmasked —
+      `[8237]` Figure 6's register 11, then register 10 — the port reaches
+      `ACKNOWLEDGED` under `ap_board_bus_ticks`. `board_suite` asserts the
+      negative first: requesting is *not* winning, and a port that reached
+      `ACKNOWLEDGED` without the channel programmed would be granting a bus
+      nobody offered.
+      **So a DN3500 now has a real second claimant for its bus**, which it did
+      not before, and `ap_master_t` is exercised through a board rather than a
+      rig of its own.
+      *Verification: `board_suite` 55 -> 56, `ctest` 138/138, identity boot
+      `A354786119A3931D` unchanged.*
+      **What remains for the `MOVEM` test**: a master that *owns* the bus while
+      the processor is mid-instruction. Owning is a further step than being
+      acknowledged — `master_suite` is explicit that "acknowledged is not
+      owned" — and it is where the approximation finally becomes observable.
       **Then the rest of the order**:
       *then* the `MOVEM`-versus-DMA test becomes writable; *then* it decides
       whether the sequencer rewrite is worth its cost. Three items, and the

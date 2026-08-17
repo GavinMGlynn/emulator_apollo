@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "board/ap_board.h"
+#include "device/ap_i8237.h"
 #include "device/ap_3c505.h"
 #include "model/ap_model.h"
 #include "device/ap_mc68681.h"
@@ -379,6 +380,42 @@ static void test_the_boards_clock_reaches_an_attached_bus_master(void) {
   ap_master_set_request(&b.master, true);
   ap_board_bus_ticks(&b, 1u);
   TEST_ASSERT_EQUAL_INT(AP_MASTER_REQUESTING, ap_master_state(&b.master));
+
+  /* And it gets no further, because requesting is not winning: "the system
+   * board asserts DACKx.L" only once the channel is in cascade mode and
+   * unmasked, and nothing here has programmed the board's controller. A port
+   * that reached ACKNOWLEDGED without that would be granting a bus nobody
+   * offered. */
+  ap_board_bus_ticks(&b, 32u);
+  TEST_ASSERT_EQUAL_INT(AP_MASTER_REQUESTING, ap_master_state(&b.master));
+  TEST_ASSERT_FALSE(ap_master_owns_bus(&b.master));
+}
+
+/* And with the channel programmed the way `008778-03` §2.4.7 describes, the
+ * board's own controller stands down and the adapter is acknowledged.
+ *
+ * This is the step that makes the port a *second claimant* on a real board
+ * rather than a model tested against a rig of its own: the cascade mode is
+ * programmed through `board->dma`, and the clock that resolves it is
+ * `ap_board_bus_ticks`. */
+static void test_a_cascaded_master_is_acknowledged_on_the_boards_own_clock(
+    void) {
+  enum { CHANNEL = 2u, DRQ = 3u };
+  ap_board_t b;
+  init(&b);
+  ap_board_attach_master(&b, 0u, CHANNEL, DRQ);
+
+  /* `[8237]` Figure 6: register 11, bits 1-0 the channel and 7-6 the mode. */
+  ap_i8237_write(&b.dma.controller[0], AP_I8237_REG_MODE,
+                 (uint8_t)((AP_I8237_MODE_CASCADE << 6) | CHANNEL));
+  /* Register 10, bit 2 clear to unmask. */
+  ap_i8237_write(&b.dma.controller[0], AP_I8237_REG_MASK_SINGLE,
+                 (uint8_t)CHANNEL);
+
+  ap_master_set_request(&b.master, true);
+  ap_board_bus_ticks(&b, 32u);
+  TEST_ASSERT_EQUAL_INT(AP_MASTER_ACKNOWLEDGED, ap_master_state(&b.master));
+  TEST_ASSERT_TRUE(ap_master_acknowledged(&b.master));
 }
 
 /* ## The first address is not the interesting one
@@ -1882,6 +1919,7 @@ int main(void) {
   RUN_TEST(test_every_ring_window_reaches_the_card_from_the_bus);
   RUN_TEST(test_a_second_ring_unit_is_an_empty_slot_when_one_card_is_fitted);
   RUN_TEST(test_the_boards_clock_reaches_an_attached_bus_master);
+  RUN_TEST(test_a_cascaded_master_is_acknowledged_on_the_boards_own_clock);
   RUN_TEST(test_the_empty_slot_addresses_are_kept_distinct_and_in_order);
   RUN_TEST(test_more_empty_slot_addresses_than_fit_are_counted_not_dropped);
   RUN_TEST(test_the_windows_do_not_swallow_the_devices_inside_them);
