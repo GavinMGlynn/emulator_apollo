@@ -55,9 +55,21 @@ static void test_the_dumped_register_layout_is_reproduced(void) {
   /* The dump that identified the stride, reproduced from this core: the first
    * ten bytes read as a coherent clock, with the alarm bytes zero. If this
    * stops holding, the placement the code was derived from is no longer what
-   * the code implements. */
-  static const uint8_t expected[10] = {0x21, 0x00, 0x09, 0x00, 0x89,
-                                       0x00, 0x06, 0x31, 0x07, 0x87};
+   * the code implements.
+   *
+   * **The values are binary, and the dump they came from was BCD.** That dump
+   * was an *oracle* reading, and MAME configures its part with
+   * `set_binary(false)` (`apollo_m.cpp:1112`), so it is a record of MAME's own
+   * configuration rather than of a DN3500's battery. This board sets `DM` --
+   * `ap_calendar_reset` says why, and the evidence is that Domain/OS boots with
+   * it and stops without it. The *stride* this test exists for is unaffected:
+   * that was measured from where bytes repeat, not from how they are encoded.
+   *
+   * So `21` becomes `15`, `31` becomes `1F`, `07` stays `07` and `87` becomes
+   * `57` -- the same instant, in the format register B now selects. The two that
+   * do not move are the ones under ten, which is the whole tell. */
+  static const uint8_t expected[10] = {0x15, 0x00, 0x09, 0x00, 0x89,
+                                       0x00, 0x06, 0x1F, 0x07, 0x57};
   for (unsigned i = 0; i < 10; i++) {
     TEST_ASSERT_EQUAL_HEX8(expected[i],
                            ap_calendar_read(&calendar, AP_CALENDAR_ADDR + i));
@@ -220,11 +232,11 @@ static void test_the_battery_keeps_the_ram_and_not_the_clock(void) {
 
   /* And the clock still reads the instant the *caller* supplied, not something
    * the battery brought with it: the battery starts above the ten time bytes
-   * and the four control registers, so nothing it restores can reach one. `21`
-   * is `START.second` in BCD, and asserting the real value rather than zero is
-   * the difference between "the clock is untouched" and "the clock is
-   * blank". */
-  TEST_ASSERT_EQUAL_HEX8(0x21u,
+   * and the four control registers, so nothing it restores can reach one. `15`
+   * is `START.second`, 21, in the binary encoding this board's battery selects
+   * (`ap_calendar_reset`), and asserting the real value rather than zero is the
+   * difference between "the clock is untouched" and "the clock is blank". */
+  TEST_ASSERT_EQUAL_HEX8(0x15u,
                          ap_calendar_read(&calendar, AP_CALENDAR_ADDR +
                                                          AP_MC146818_SECONDS));
 

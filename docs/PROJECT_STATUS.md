@@ -20801,6 +20801,61 @@ and the old value is retired rather than corrected.
 already pinned that the hash covers the screen kind and the frame buffers, so
 the defect was in the report and the fix is there.*
 
+## The reference is re-baselined again: the calendar's battery holds DM
+
+**`A354786119A3931D` is retired; the reference is `03EE415450926A89`.** The
+invocation is unchanged -- `tools/identity-boot.sh` -- and so is everything the
+processor did: **clocks identical at 1,497,270,792 and final PC identical at
+`00002EE6`**. Only the hashed calendar bytes moved, because their *encoding*
+did.
+
+**Why the encoding changed.** `[146818]`'s RESET table does not clear register
+B's `DM`; the part is battery-backed and the bit survives power loss, so a core
+has to say what the battery holds. This one now holds it **set** -- binary -- and
+`ap_calendar_reset` carries the argument. The short of it: neither the boot PROM
+nor Domain/OS ever writes register B (dumped at a live kernel's own calendar
+check it read `00`), and Domain/OS reads the time registers as **binary**
+regardless. With `DM` clear the kernel's date is wrong by 183 days for a month
+over nine and right for a month under it -- exactly where BCD and binary
+diverge.
+
+**The discriminating experiment is a boot.** With `DM` set, Domain/OS SR10.4 runs
+past its calendar check for the first time in this project:
+
+    Domain/OS kernel(7), revision 10.4, February 14, 1992
+    Apollo Phase II Environment   Revision 10.4
+    Loading Init.  ... global libraries loaded.
+    *****  Node startup on Thu Nov 28 09:02:08 2002  *****
+    Starting standard daemons:.
+    SPM system init complete.   Node ID = 12345
+    SPM Initialized on Thursday, November 28, 2002 at 9:02:24
+
+and the date it reports is the `--clock` it was given, **weekday included**. A
+wrong value for this bit does not degrade that boot, it stops it.
+
+**This is a place we out-accurate the oracle, proved rather than assumed.** MAME
+calls `set_binary(false)` (`apollo_m.cpp:1112`) and its `mc146818` then leaves
+`REG_B_DM` clear (`mc146818.cpp:266`), so the oracle presents BCD to a guest that
+reads binary. `FINDINGS.md` C53 recorded the consequence years before the cause --
+*"the Domain/OS kernel stops on a clock that runs backwards between sessions"* --
+and that is this: read as binary, BCD dates are not monotone in real time, so 27
+November lands *after* 1 December.
+
+**What is inferred rather than documented, stated plainly.** No manual here or
+online says what a DN3500's battery-backed register B contained; the datasheet
+only says the bit is battery-backed and that RESET does not touch it. The value
+is therefore inferred from behaviour -- a machine that boots against one that
+halts -- and that inference is strong but is not a citation.
+
+**What this does and does not invalidate.** Earlier entries quoting
+`A354786119A3931D` were true of the runs that produced them and stand as records;
+what changes is the current reference. Every A/B in this phase was before-and-after
+on one invocation, so none of them is affected.
+
+*Verification: `ctest` 139/139, `calendar_suite` 13/13 with its two encoding
+goldens updated and the reason recorded in the test, and the boot above. Detail in
+`FINDINGS.md` C136.*
+
 ## Main memory answered first, and the invariant that makes it a reordering
 
 `ap_board_region` decides what a physical address is, and `machine_cache_inhibited`

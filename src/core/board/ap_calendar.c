@@ -5,7 +5,43 @@
 
 bool ap_calendar_reset(ap_calendar_t *calendar,
                        const ap_mc146818_time_t *start) {
-  return ap_mc146818_reset(&calendar->rtc, start);
+  if (!ap_mc146818_reset(&calendar->rtc, start)) {
+    return false;
+  }
+  /* ## This board's battery holds `DM` set, and Domain/OS depends on it
+   *
+   * `[146818]`'s RESET table does **not** clear register B's `DM`: the part is
+   * battery-backed and the bit survives power loss, so its value at power-on is
+   * whatever the battery holds and not something the part decides. A core
+   * modelling a machine therefore has to say what that battery contains, and
+   * this is the board that owns it -- which is why this is here and not in
+   * `ap_mc146818_reset`, whose job is the *part's* reset and which must stay
+   * board-neutral.
+   *
+   * **Measured, not chosen.** Neither the boot PROM nor Domain/OS ever writes
+   * register B: dumped at a live kernel's own calendar check it reads `00` on a
+   * core that reset it to zero, so nothing in the machine corrects it. And
+   * Domain/OS reads the time registers as **binary** regardless -- proved by a
+   * discriminating pair of `--clock` values that differ only in whether the
+   * month exceeds nine, where the guest's date is exact below ten and 183 days
+   * out above it, which is precisely where BCD and binary diverge.
+   *
+   * With `DM` set the whole machine agrees: Domain/OS SR10.4 boots past its
+   * calendar check to `SPM Initialized on Thursday, November 28, 2002`, and the
+   * date it reports is the `--clock` it was given, weekday included. That is the
+   * discriminating experiment for this bit -- a wrong value here does not
+   * degrade the boot, it stops it.
+   *
+   * **This is a place we out-accurate the oracle**, which `CLAUDE.md` says to
+   * expect and to prove rather than assume: MAME's driver calls
+   * `set_binary(false)` (`apollo_m.cpp:1112`) and its `mc146818` then leaves
+   * `REG_B_DM` clear (`mc146818.cpp:266`), so the oracle presents BCD to a guest
+   * that reads binary. `FINDINGS.md` C53 recorded the consequence years before
+   * the cause -- "the Domain/OS kernel stops on a clock that runs backwards
+   * between sessions" -- and it is this: read as binary, BCD dates are not
+   * monotone in real time, so 27 November lands *after* 1 December. */
+  ap_mc146818_write(&calendar->rtc, AP_MC146818_REGISTER_B, AP_MC146818_B_DM);
+  return true;
 }
 
 bool ap_calendar_decode(uint32_t address, uint8_t *reg) {

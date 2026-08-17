@@ -5185,14 +5185,40 @@ Only after the reference core is proven, and only under an identity harness.
       `B=04 month=0B` after writing `DM`, the datasheet's behaviour exactly; and
       `mc146818_suite` already covers it, so this is not a table-walk gap. The
       oracle configures the same thing — `set_binary(false)`.
-      **So the next step is the oracle A/B, and it is one number**, which is what
-      `CLAUDE.md` prescribes: stop both cores at `010C513E` on the same volume and
-      compare the kernel global `3C4453FA`. There is already circumstantial
-      evidence the oracle misreads too — `EX CALENDAR` asked for **2026** produced
-      a volume stamped **2015**, the same shape of error, recorded as unexplained
-      at the time. **What this does not license** is making our RTC present binary
-      to match: the datasheet ties the encoding to DM, the guest leaves DM clear,
-      and our part does what the bit says. `FINDINGS.md` C134, C135.
+      **SOLVED, and Domain/OS BOOTS.** The oracle A/B turned out to be a static
+      read: MAME's `to_ram` converts to BCD when `DM` is clear exactly as ours
+      does, so both cores present BCD and neither is "wrong" about the bit — the
+      question was what the **battery** held, and `[146818]`'s RESET table does
+      not clear `DM` because it is battery-backed. Nothing in the machine writes
+      it either: register B dumped at a live kernel's calendar check reads `00`.
+      **So the board must say what its battery holds, and this one holds it set.**
+      `ap_calendar_reset` does it — the board's layer, not the part's — and
+      Domain/OS SR10.4 then boots past the check for the first time in this
+      project: `Loading Init`, `global libraries loaded`,
+      `***** Node startup on Thu Nov 28 09:02:08 2002 *****`, standard daemons,
+      `SPM system init complete. Node ID = 12345`,
+      `SPM Initialized on Thursday, November 28, 2002`. `--clock` was
+      `2002-11-28T09:00` and the node reports that date with the **weekday
+      right**. With `DM` clear the same invocation halts.
+      **And it explains `FINDINGS.md` C53**, carried since as measured and
+      unexplained: *"the kernel stops on a clock that runs backwards between
+      sessions"*. Read as binary, BCD dates are not monotone — 27 November maps
+      to month 17 day 39 and 1 December to month 18 day 1 — so the later real
+      date becomes the earlier guest date. It also retires C132's `--clock` sweep
+      and C133's era experiments: no date could work, because the frame they were
+      chosen in was not the frame the guest was reading.
+      **Inferred, not cited, and marked so**: the datasheet says the bit is
+      battery-backed and untouched by RESET; that a DN3500's battery held it
+      *set* is inferred from a machine that boots against one that halts. **A
+      place we out-accurate the oracle** — MAME's `set_binary(false)` presents BCD
+      to a guest that reads binary, and its own sessions show the symptom (a
+      requested 2026 stamping a volume 2015, C127).
+      *Verification: `ctest` 139/139; `calendar_suite`'s two encoding goldens
+      updated, the dump they came from having been an oracle reading and so a
+      record of MAME's configuration rather than of a battery; identity boot
+      re-baselined `A354786119A3931D` → `03EE415450926A89` with **clocks and
+      final PC identical**, so nothing the processor did changed. `FINDINGS.md`
+      C134-C136.*
       **What is left for this item**: that experiment, and then the same route
       for **SR10.2** — whose media is held and whose standard boot cartridge
       already passes both bootability tests, so it is the proven route applied

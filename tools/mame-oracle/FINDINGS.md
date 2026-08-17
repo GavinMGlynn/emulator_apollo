@@ -7868,3 +7868,74 @@ is the same phenomenon.
 datasheet ties the encoding to register B's DM bit, the guest leaves DM clear, and
 our part does what the bit says. Making it lie to match a guest would be fitting
 the model to one observation -- the thing the oracle A/B exists to avoid.
+
+## C136 -- the calendar's battery holds DM set, and Domain/OS boots
+
+C135 left one question: the guest reads binary, both cores present BCD, and no
+document says what a real DN3500's battery-backed register B contained. It is
+answerable by experiment, because a wrong value here does not degrade a boot --
+it stops it.
+
+**Set `DM` at power-on and Domain/OS SR10.4 boots**, for the first time in this
+project, past the calendar check it has stopped at since C53:
+
+    Domain/OS kernel(7), revision 10.4, February 14, 1992  11:42:25 am
+    Apollo Phase II Environment   Revision 10.4   Jan 25, 1992
+    Loading Init.  ... global libraries loaded.
+    *****  Node startup on Thu Nov 28 09:02:08 2002  *****
+    Preserving editor files / Clearing /tmp / Initializing /etc/mnttab
+    Starting standard daemons:.  Starting other.  Starting window .
+    SPM system init complete.    Node ID = 12345
+    SERVER_PROCESS_MANAGER, Version 10.2, 89/07/31
+    SPM Initialized on Thursday, November 28, 2002 at 9:02:24
+    MBX_HELPER not running.  Starting one.
+
+`--clock` was `2002-11-28T09:00:00` and the node reports **Thu Nov 28 09:02:08
+2002** -- the date given, the weekday right, and the two minutes are the boot's
+own. With `DM` clear the same invocation stops at `More than 14 days have
+elapsed`.
+
+### Why this is the right layer and the right reading
+
+`[146818]`'s RESET table does **not** clear `DM`. The part is battery-backed and
+the bit survives power loss, so its power-on value is whatever the battery holds
+-- not something the part decides. So it belongs to the **board**, and
+`ap_calendar_reset` sets it; `ap_mc146818_reset` stays board-neutral.
+
+Nothing in the machine corrects it: register B dumped at a live kernel's own
+calendar check reads `00` on a core that reset it to zero, so neither the boot
+PROM nor Domain/OS ever writes it.
+
+### And it explains C53, which this project has carried since
+
+C53: *"the Domain/OS kernel stops on a clock that runs backwards between
+sessions"*, recorded as measured and unexplained. Read as binary, BCD dates are
+**not monotone in real time**: 27 November is `0x11`/`0x27` -> month 17, day 39,
+while 1 December is `0x12`/`0x01` -> month 18, day 1, so the later real date maps
+to the earlier guest date. A clock that runs backwards is exactly what that
+produces, and it was the same bug seen from the far end.
+
+It also retires C132's `--clock` sweep and C133's era experiments: none of those
+dates could work, because the frame they were chosen in was not the frame the
+guest was reading.
+
+### What is inferred, and what is cited
+
+**Cited**: the bit is battery-backed and RESET does not touch it (`[146818]`,
+confirmed against three independent transcriptions of the datasheet).
+**Inferred**: that a DN3500's battery held it *set*. No manual on disk or online
+says so. The inference rests on a machine that boots against one that halts, and
+on the guest's own arithmetic being exact below ten and 183 days out above it.
+Strong, and not a citation -- so it is written here as such.
+
+**This is a place we out-accurate the oracle**, which `CLAUDE.md` says to expect:
+MAME calls `set_binary(false)` and leaves `REG_B_DM` clear, presenting BCD to a
+guest that reads binary. Its own Domain/OS sessions show the same symptom -- a
+requested 2026 producing a volume stamped 2015 (C127), which was recorded as
+unexplained.
+
+*Verification: `ctest` 139/139; `calendar_suite`'s two encoding goldens updated,
+with the note that the dump they came from was an oracle reading and therefore a
+record of MAME's configuration rather than of a battery; identity boot
+re-baselined `A354786119A3931D` -> `03EE415450926A89` with **clocks and final PC
+identical**, so nothing the processor did changed.*
