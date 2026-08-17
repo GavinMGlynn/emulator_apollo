@@ -4101,9 +4101,16 @@ discipline throughout.
       control. All three give `100001`. **INVOL demonstrably works** (C50 built
       `dn3500-invol-done.awd` that way), so something between that session and
       this changed; the harness and oracle have both moved.
-      *Cheapest next step, and it should have been first: `mdsession.py` has a
-      **built-in `--stage invol`** and every attempt here used a hand-written
-      command file. Try it before diffing the oracle edits. `FINDINGS.md` C145.*
+      **The built-in `--stage invol` was tried and is not the difference.** It
+      does carry two `re` resets before `di c` that the hand-written file lacked
+      — matching the AEGIS transcript — and the answer is the same `100001`. Four
+      variables eliminated by running them: both cartridges, the node-ID ROM, the
+      reset sequence.
+      *Next, and mechanical rather than another hypothesis: bisect the **oracle's
+      own edits**. C50 predates C56 by its numbering, so at least one `ext/mame`
+      change is newer than the last successful INVOL — C56's media-change
+      notifier, C139's `set_binary(true)`. Revert each in turn against one blank
+      INVOL; four runs at most. `FINDINGS.md` C145.*
       **Explicitly not** patching a copied volume's label — the objects on a copy
       carry node A's UIDs and the result would be a machine lying about its
       identity.

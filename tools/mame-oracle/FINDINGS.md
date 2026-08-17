@@ -8462,12 +8462,25 @@ Something between that session and this one changed, and the harness and oracle
 have both moved a long way since -- cartridge staging into the run directory,
 C56's media-change notifier, C139's `set_binary(true)`.
 
-**The cheapest next step, and it is embarrassing that it was not the first**:
-`mdsession.py` has a **built-in `--stage invol`**, and every attempt here used a
-hand-written command file instead. C50's success is recorded as having been driven
-through the command file too, but the built-in stage is the thing most likely to
-carry a detail -- a pacing wait, a knock, an ordering -- that a re-derived script
-drops. Try it before diffing the oracle edits.
+**The built-in stage was tried and it is not the difference either.**
+`mdsession.py --stage invol` does carry something the hand-written file lacked --
+**two `re` resets before `di c`**, matching the AEGIS transcript's `re / re / di c`
+-- and with them the answer is the same `100001`. Four variables now eliminated by
+running them: the SR10.3 cartridge, the SR10.4 cartridge, the node-ID ROM, and the
+reset sequence.
+
+**What has not been tried, and is the mechanical next step**: bisecting the
+*oracle's own edits* against a blank-image INVOL. C50 predates C56 by its own
+numbering, so at least one edit in `ext/mame` is newer than the last successful
+INVOL -- C56's media-change notifier and C139's `set_binary(true)`. Reverting each
+in turn and re-running one INVOL is four runs at most and does not need a
+hypothesis, which is the right shape after four have failed.
+
+**Also untested and cheaper**: whether INVOL succeeds on a *copy of a volume that
+already has a label* rather than a blank image. `100001` is refused at *assign*,
+before anything is written, so it may be that this INVOL wants a disk it can
+recognise -- which C50's blank image contradicts, but C50 is the observation now
+in doubt.
 
 *Nothing about this blocks the frontend work, which is landed and tested; it
 blocks only the second volume that a two-node Domain/OS run needs.*
