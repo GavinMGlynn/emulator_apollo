@@ -8313,3 +8313,45 @@ own verification rather than something to fold into a finding.
 tidy-up before the comparison was made, so the re-run above was needed to get a
 number that had already existed. C124's own lesson is *"preserve the inputs of a
 run whose result you may want to explain"*.
+
+## C142 -- the retry the drive's own comment describes was implemented, and it made things worse
+
+C141 ended by naming the fix: `sc499`'s underrun path gives up where its own
+comment says the hardware *"will stop, go back and restart reading if
+appropriate"*. That was implemented -- on reaching 5,000 consecutive underruns,
+reset the counter and let the pending block be re-attempted, bounded to twenty
+retries so a genuinely dead handshake still surfaces as a fault rather than a
+hang.
+
+**It regressed the oracle.** With it, the SR10.2 install no longer reaches its old
+failure at the tape-file boundary; it does not reach the restore at all. The
+kernel loads and crashes immediately:
+
+    Domain/OS kernel(7), revision 10.2, October 13, 1989  12:51:22 pm
+    Crash_Status 00010005  PC 3C43D400 pid 0001
+
+against 1,036 objects restored before the change. The run followed the script
+exactly -- `EX CALENDAR` even printed `The calendar has been set to: 2002/11/28
+09:00:00 UTC` -- so the command file is not the variable.
+
+**Reverted precisely** (the permanent C56 edit kept), rebuilt, and re-verified:
+`Restore complete.` with 398 objects on the same invocation. The oracle is back to
+where it was.
+
+### Why the obvious fix is wrong, which is the finding
+
+The 5,000-underrun abort is **not only** an anti-hang guard for a broken
+handshake. It is also how a read the host has *abandoned* terminates. Resetting
+the counter leaves `m_read_block_pending` set and the timer running, so a read
+that should end -- because the host issued no further `DACK` -- never does, and
+the command sequence breaks earlier and harder than the underrun ever did.
+
+So the comment describes the hardware correctly and the code is doing a second job
+the comment does not mention. A faithful retry has to distinguish "the host is
+slow" from "the host has stopped asking", and nothing in the current state
+distinguishes them -- which is why this is a real piece of work on the QIC-02
+command model rather than a counter reset.
+
+**Recorded as a refutation rather than deleted**, because the next person to read
+C141 will have exactly this idea, and the twenty minutes it costs to try are
+better spent knowing it has been tried.

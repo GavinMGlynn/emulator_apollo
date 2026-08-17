@@ -5330,6 +5330,19 @@ Only after the reference core is proven, and only under an identity harness.
       label structure were each eliminated by measurement. It also makes SR10.2's
       install **host-dependent**: a less loaded machine may never string 5,000
       underruns together. Detail in `FINDINGS.md` C141.*
+      **The fix that comment implies was implemented, and it made things worse.**
+      Resetting the counter on the threshold and re-attempting the pending block,
+      bounded to twenty retries, meant SR10.2 no longer reached its old failure —
+      it did not reach the restore at all, crashing at `Crash_Status 00010005`
+      against 1,036 objects before. Reverted precisely, rebuilt and re-verified
+      (`Restore complete.`, 398 objects).
+      **Why, and this is the finding**: the 5,000-underrun abort is not only an
+      anti-hang guard, it is also how a read the host has *abandoned* terminates.
+      Resetting the counter leaves `m_read_block_pending` set and the timer
+      running, so a read that should end never does. A faithful retry must
+      distinguish "the host is slow" from "the host has stopped asking", and
+      nothing in the current state does — which makes this real work on the
+      QIC-02 command model, not a counter reset. `FINDINGS.md` C142.
       *A rule broken on the way, mine: the first run's directory was deleted in a
       tidy-up before the comparison, so the re-run was needed to get a number that
       had already existed. `FINDINGS.md` C141.*
