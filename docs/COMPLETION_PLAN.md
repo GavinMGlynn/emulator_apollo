@@ -4299,7 +4299,17 @@ Only after the reference core is proven, and only under an identity harness.
       context and `ap_m68030_cache.c` from a `wait_states` callback plus its
       own `context`, so the bus must be threaded through both layers' signatures
       and every caller of them — on the core's hottest path. Do it as its own
-      commit with `ctest` and the identity boot before anything in (2); (2) give `ap_m68030_step` a resumable state so it
+      commit with `ctest` and the identity boot before anything in (2).
+      **Adding the field is hash-safe, checked**: `ap_m68030_hash_cpu`
+      (`ap_m68030_state.c:234`) walks **named fields** — `regs`, `tc`, `crp`,
+      `srp`, `tt0`, `tt1`, `mmusr` — not the struct's bytes, so a new member is
+      invisible to the identity hash until deliberately hashed. **Which raises
+      the design question step 1 must answer**: hash the hoisted bus, or not.
+      While it is still ticked to completion inline it is always idle at an
+      instruction boundary, so hashing it adds only zeros and cannot move a
+      golden; from increment (3) the CPU can stop *mid-cycle*, and then the bus
+      is real state a resumed run must agree on. Add it to the hash at (3), not
+      before, and say so in that commit; (2) give `ap_m68030_step` a resumable state so it
       can return mid-access; (3) add `ap_m68030_cycle()` beside it and let the
       machine call that, with `step` kept as a loop over it; (4) switch the
       board's run loop. Only (4) can change interleaving, and only (4) needs
