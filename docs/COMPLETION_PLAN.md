@@ -4339,7 +4339,18 @@ Only after the reference core is proven, and only under an identity harness.
       production — `ap_m68030_access.c:182` — and the other eleven are
       `tests/cache_suite.c`. So the behavioural change is a single line, and the
       churn is entirely in a suite that already constructs its own caches.
-      **Pass the bus explicitly at all twelve rather than defaulting a NULL to
+      **STEP 1 IS DONE.** `ap_m68030_cache_read` takes the bus as its second
+      parameter, its local is gone, and the one production caller passes
+      `&access->bus` — so both paths now share the single bus §7.3.6 requires,
+      and **no `ap_m68030_bus_t` local remains in the core**. The eleven test
+      sites pass a named `g_test_bus`.
+      *Verification: `ctest` 138/138, identity boot `A354786119A3931D`
+      unchanged — the criterion this increment exists to meet.*
+      **Next is increment (2)**: give `ap_m68030_step` a resumable state so it
+      can return mid-access. That is the first one that changes control flow
+      rather than ownership, and the first where the neutrality argument is not
+      structural — so establish it before editing, as 1a and 1b did.
+      **Passed the bus explicitly at all twelve rather than defaulting a NULL to
       a local.** A NULL fallback would cost zero test edits and is the tempting
       shortcut, but from increment (3) the bus is *resumable state*, and a test
       that does not name the bus it ran on is a test that cannot check one.

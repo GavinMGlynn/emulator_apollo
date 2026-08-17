@@ -252,7 +252,8 @@ bool ap_m68030_cache_burst_request(const ap_m68030_cache_t *cache,
 }
 
 ap_m68030_cache_access_t
-ap_m68030_cache_read(ap_m68030_cache_t *cache, uint32_t address,
+ap_m68030_cache_read(ap_m68030_cache_t *cache, ap_m68030_bus_t *bus,
+                     uint32_t address,
                      uint32_t physical, uint8_t function_code, bool cache_enabled,
                      bool burst_enable, bool frozen, bool read_modify_write,
                      ap_m68030_fill_fn fill,
@@ -289,17 +290,16 @@ ap_m68030_cache_read(ap_m68030_cache_t *cache, uint32_t address,
   answer.termination = AP_M68030_TERM_STERM;
   fill(context, physical_cycle, function_code, &answer);
 
-  ap_m68030_bus_t bus;
   /* The RMC the caller is running under: `read_modify_write` is already this
    * signal at the cache level, and §7.3.6 says burst "is never used during
    * read-modify-write cycles" -- which ap_m68030_bus_request_burst now enforces
    * from the same flag rather than from a second one that could disagree. */
-  bus.rmc = read_modify_write;
-  ap_m68030_bus_begin(&bus, physical_cycle, function_code, AP_M68030_SIZE_LONG,
+  bus->rmc = read_modify_write;
+  ap_m68030_bus_begin(bus, physical_cycle, function_code, AP_M68030_SIZE_LONG,
                       true, true);
   if (burst) {
-    ap_m68030_bus_request_burst(&bus);
-    ap_m68030_bus_acknowledge_burst(&bus, answer.burst_acknowledge);
+    ap_m68030_bus_request_burst(bus);
+    ap_m68030_bus_acknowledge_burst(bus, answer.burst_acknowledge);
   }
 
   /* As the write path does, and for the same reason: the answer arrives when
@@ -310,18 +310,18 @@ ap_m68030_cache_read(ap_m68030_cache_t *cache, uint32_t address,
       (wait_states != NULL && answer.termination != AP_M68030_TERM_BERR)
           ? wait_states(context, physical_cycle, true)
           : 0u;
-  while (ap_m68030_bus_active(&bus)) {
-    ap_m68030_bus_terminate(&bus, bus.wait_states >= waits
+  while (ap_m68030_bus_active(bus)) {
+    ap_m68030_bus_terminate(bus, bus->wait_states >= waits
                                       ? answer.termination
                                       : AP_M68030_TERM_NONE);
-    (void)ap_m68030_bus_tick(&bus);
+    (void)ap_m68030_bus_tick(bus);
     result.clocks++;
     if (result.clocks > 64u) {
       break; /* a device that never answers is the caller's bug, not a hang */
     }
   }
 
-  result.burst = bus.burst_beats >= AP_M68030_BURST_BEATS;
+  result.burst = bus->burst_beats >= AP_M68030_BURST_BEATS;
   result.long_words = result.burst ? AP_M68030_BURST_BEATS : 1u;
 
   if (answer.termination == AP_M68030_TERM_BERR) {

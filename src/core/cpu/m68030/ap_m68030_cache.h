@@ -316,7 +316,8 @@ typedef struct {
  * supports is 256 bytes and a line is sixteen -- so the offset within the line
  * is the same either way. */
 ap_m68030_cache_access_t
-ap_m68030_cache_read(ap_m68030_cache_t *cache, uint32_t address,
+ap_m68030_cache_read(ap_m68030_cache_t *cache, ap_m68030_bus_t *bus,
+                     uint32_t address,
                      uint32_t physical,
                      uint8_t function_code, bool cache_enabled,
                      bool burst_enable, bool frozen, bool read_modify_write,

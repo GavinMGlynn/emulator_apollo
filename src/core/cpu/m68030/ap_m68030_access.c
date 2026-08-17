@@ -180,7 +180,7 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
       cache_inhibit || board_inhibits);
 
   const ap_m68030_cache_access_t fetched = ap_m68030_cache_read(
-      access->cache, logical, physical, function_code, fillable,
+      access->cache, &access->bus, logical, physical, function_code, fillable,
       access->burst_enabled,
       access->cache_frozen, false, access->fill, access->wait_states,
       access->context);
