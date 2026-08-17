@@ -4072,8 +4072,28 @@ discipline throughout.
       creates carries the lie". So `lcnode` needs either a **second installed
       image** with a different node ID, or **diskless boot over the ring**,
       which is how a real second node joins and is a protocol project of its
-      own. That is a media question, not a ring one, and it is the whole of
-      what is left. Plus a console per node. Detail in `PROJECT_STATUS.md`.
+      own. Plus a console per node. Detail in `PROJECT_STATUS.md`.
+      **This was recorded as "a media question with no route". It has a route,
+      and it was in the oracle's source rather than in any manual.** `apollo_ni`
+      is a `device_image_interface`, so the node ID is a **loadable 32-byte ROM
+      image** and `DEFAULT_NODE_ID = 0x12345` is only what a run without one
+      gets — which is why every MINST transcript here shows `//node_12345`.
+      `tools/mame-oracle/nodeid.py` writes an image and `mdsession.py
+      --node-id` passes it, so a second machine can be given node B and an
+      install under it produces a volume whose label carries B.
+      *Verification: `oracle_nodeid`, 15 checks restating
+      `apollo_ni::call_load`'s acceptance rule — including that its checksum is
+      a **byte-wide** sum, which agrees with a wider one for every small ID and
+      disagrees exactly when it carries. Detail in `FINDINGS.md` C129.*
+      **So what is left is a second install, which is hours of known procedure
+      rather than an unknown** — and explicitly *not* patching a copied
+      volume's label, since the objects on a copy carry node A's UIDs and the
+      result would be a machine lying about its identity.
+      **Diskless boot is the other route and is now sketched from the web**: a
+      diskless node's PROM broadcasts a partnership request, and a partner
+      running `netman` with the client listed in `/sys/net/diskless_list`
+      answers with `netboot` and then the OS image. That is a protocol project,
+      but it is no longer an unnamed one.
 - [x] Node insertion and removal mid-run, stripping, token loss, **and the
       frame path**, in `src/core/ring/ap_ring_station.*`.
       **Unticked by the `[MAC]` audit and re-earned** (`RING.md` 85-90d): the

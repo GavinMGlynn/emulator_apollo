@@ -7366,3 +7366,52 @@ release" requires MINST, not merely the restore.
 **The rule:** when a volume will not boot, look for the boot block before
 looking at the boot path. Two releases produced the identical wrong answer,
 which is a stronger signal than either one alone.
+
+## C129 -- the node ID is a loadable image, so the two-node blocker is not a media one
+
+`COMPLETION_PLAN.md` recorded the ring's two-node item as blocked because "a
+Domain volume label carries its own `node_id`, and `node_id_from_volume` refuses
+a node that disagrees with its disk", so two nodes need two volumes with two
+different IDs -- "a media question, not a ring one".
+
+**The oracle can be given any node ID, and the route is in its source.**
+`apollo_ni` is a `device_image_interface` (`apollo.h:375`), so the ID is a
+**loadable 32-byte ROM image** rather than a compiled-in constant.
+`DEFAULT_NODE_ID = 0x12345` (`apollo.cpp:102`) is only what a run without an
+image gets -- which is why every MINST transcript here shows `//node_12345`.
+
+The format, from `apollo_ni::call_load` (`apollo_m.cpp:932`):
+
+    size        exactly 32 bytes, or the load is refused
+    data[2]     node ID bits 23-16
+    data[4]     node ID bits 15-8
+    data[6]     node ID bits 7-0
+    data[30]    (data[2] + data[4] + data[6]) & 0xFF, checked on load
+    else        zero
+
+The stride of two is the hardware's rather than the loader's whim:
+`apollo_ni::read` returns each byte in the **high half** of a 16-bit word, so
+this is a byte-wide ROM on a word-addressed bus and every second byte is a hole.
+Offset 15 of that register window answers the checksum, which is why byte 30
+carries it.
+
+`tools/mame-oracle/nodeid.py` writes one and `mdsession.py --node-id` passes it.
+The image is deliberately **not** staged the way a cartridge is: `apollo_ni`'s
+`write` handler logs `Error: writing node id ROM` and stores nothing, so there is
+nothing for a guest to damage.
+
+**So the two-node item's blocker is now a second install, not an unknown.** The
+route is: write an `.ani` for node B, INVOL and install a volume with that ID,
+and both volumes then satisfy `node_id_from_volume` on their own machines. That
+is hours of oracle time and a known procedure, which is a different kind of
+blocked from "no route".
+
+**What this does not license** is patching a copied volume's label to a new ID.
+The objects on a copy were created by node A and carry its UIDs, so the copy
+would be a machine lying about its identity -- which is exactly what
+`node_id_from_volume`'s own comment refuses, and any finding from a two-node run
+built that way would be a finding about a fiction.
+
+*Verification: `oracle_nodeid`, 15 checks restating `call_load`'s acceptance rule
+-- including that the checksum is a **byte-wide** sum, which agrees with a wider
+one for every small ID and disagrees exactly when it carries.*

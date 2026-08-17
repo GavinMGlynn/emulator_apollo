@@ -285,6 +285,14 @@ if(Python3_Interpreter_FOUND AND NOT WIN32)
   set_tests_properties(oracle_session PROPERTIES LABELS tools TIMEOUT 300)
 endif()
 
+# The node-ID ROM image, against the loader it has to satisfy. No MAME needed --
+# `apollo_ni::call_load`'s acceptance rule is three lines of C++ and this suite
+# restates them, which is what makes a generated image trustworthy before an
+# hours-long install is run on the strength of it.
+add_test(NAME oracle_nodeid
+         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/mame-oracle/test_nodeid.py)
+set_tests_properties(oracle_nodeid PROPERTIES LABELS tools)
+
 # The oracle harness's dump format, checked against a mock machine so it needs
 # no MAME -- which is what lets it run in CI, where the oracle is never built.
 #

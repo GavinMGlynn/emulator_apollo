@@ -669,6 +669,11 @@ def build_command(mame: Path, args, rundir: Path) -> list:
         command += ["-disk1", str(args.disk)]
     if args.ctape is not None:
         command += ["-ctape", str(stage_cartridge(args.ctape, rundir))]
+    if args.node_id is not None:
+        # Not staged: `apollo_ni` never writes it -- its `write` handler logs
+        # "Error: writing node id ROM" and stores nothing -- so unlike a
+        # cartridge there is nothing for a guest to damage.
+        command += ["-node_id", str(args.node_id)]
     for option in ("nvram", "cfg", "state", "diff", "snapshot", "input"):
         command += ["-%s_directory" % option, str(rundir / option)]
     command += args.mame_args
@@ -711,6 +716,13 @@ def main(argv=None) -> int:
                         help="seconds to keep reading after the script ends, "
                              "sending nothing. This is how an unrecorded "
                              "dialogue is learnt rather than guessed at.")
+    parser.add_argument("--node-id", type=Path,
+                        help="a 32-byte node-ID ROM image for MAME's "
+                             "`-node_id` slot, as `nodeid.py` writes. Without "
+                             "one the oracle uses its compiled-in "
+                             "`DEFAULT_NODE_ID` of 0x12345 -- so two volumes "
+                             "with different node IDs, which two nodes on one "
+                             "ring require, need this")
     parser.add_argument("--mode", default="Normal",
                         choices=("Normal", "Service"),
                         help="the NORMAL/SERVICE switch. A documented "
@@ -740,6 +752,8 @@ def main(argv=None) -> int:
         args.disk = args.disk.resolve()
     if args.ctape is not None:
         args.ctape = args.ctape.resolve()
+    if args.node_id is not None:
+        args.node_id = args.node_id.resolve()
     # The run directory too, and for a second reason beyond MAME's own
     # `-nvram_directory` and friends: the swap channel is a *file* in it that
     # both processes must name identically. Left relative, the driver writes it
