@@ -4122,8 +4122,23 @@ discipline throughout.
       `# image node_id: …nodeB.ani` and `oracle_nodeid` pins that the image
       satisfies `call_load`. So the node ID reaches the device and not the UID
       generator, and *that*, not INVOL, is what stands between here and a second
-      node. Next is a source read of `apollo_get_node_id`'s callers, not a run.
-      `FINDINGS.md` C145.
+      node. `FINDINGS.md` C145.
+      **Traced to the instruction** (prints since reverted): the order is
+      `device_start` **then** `call_load`, and `call_load` **accepts node
+      022222** — the device holds the right value. `device_start`'s
+      unconditional `set_node_id(DEFAULT_NODE_ID)` looked like the bug and is
+      not: it runs *first*, so the load wins. Guarding it changed nothing —
+      INVOL run to `Initialization complete.` still wrote `12345`.
+      **So the UID generator does not take its node from the node-ID ROM.** That
+      points at the **calendar's battery RAM**: this core's own
+      `ap_calendar_build_config` writes the node into `[CFG]`'s configuration
+      block at `0x1E`, and MAME persists that RAM as nvram in the run directory.
+      *Next is a read before a run: whether the boot PROM and INVOL take the node
+      from the battery block or the `011200`/`009600` ROM window, and if the
+      former, set it there. `FINDINGS.md` C146.*
+      **Item state**: the two-node frontend is built and tested, INVOL runs to
+      completion on a copied volume, and the one remaining gap is putting a
+      *different* node into that volume.
       **Explicitly not** patching a copied volume's label — the objects on a copy
       carry node A's UIDs and the result would be a machine lying about its
       identity.
