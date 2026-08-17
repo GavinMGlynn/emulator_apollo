@@ -4498,11 +4498,21 @@ Only after the reference core is proven, and only under an identity harness.
       (`ap_timer_advance`, `ap_calendar_advance`, …), called from
       `machine_wait_states` in place of the whole-board walk. The >119x is paid
       per access across *every* device; this pays it on one.
-      **Check before building**: that every region the CPU can reach has a
-      per-device advance to dispatch to, and that a region with none falls back
-      to the boundary walk rather than being silently skipped — a device that
-      quietly stopped advancing would stay invisible until something timed
-      out.
+      **IMPLEMENTED, and it did not help.** `ap_board_advance_one` dispatches by
+      region — RAM and PROM advance nothing, `SIO`/`CALENDAR`/`DISK`/`TAPE` reach
+      one device each, and the other thirteen regions are *listed* rather than
+      defaulted so `-Wswitch-enum` makes a new region a compile error instead of
+      a silent fallback. Default behaviour is unchanged (50 M in **5.7 s**, hash
+      `80899FCE206623A1`, `ctest` 138/138), since it is only used on the
+      mid-access path.
+      **But B still does not finish 50 M in 590 s.** The lazy advance was
+      supposed to be the fix and is not, so the cost is **not** the per-device
+      walk — which was the assumption behind the whole optimisation.
+      **Diagnose before optimising again**, and this time measure rather than
+      reason: whether `machine_wait_states` is even reaching `advance_one` on
+      the hot path, whether `ap_board_region`'s lookup is itself the cost at one
+      call per access, and what `perf` says the profile actually is. The
+      previous guess cost an implementation; the profile costs one run.
       That the figure is a lower bound is deliberate: the run was cut at 595 s
       rather than left to complete, because because `CLAUDE.md` allows the
       reference core to be slow but this is the run loop and the cost is paid on

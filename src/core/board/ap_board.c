@@ -868,6 +868,47 @@ void ap_board_bus_tick(ap_board_t *board) {
  * itself. */
 static bool deliver_key(ap_board_t *board, uint8_t code);
 
+void ap_board_advance_one(ap_board_t *board, uint32_t address, ap_time_t now) {
+  switch (ap_board_region(board, address)) {
+  case AP_BOARD_REGION_RAM:
+  case AP_BOARD_REGION_PROM:
+    /* Nothing to observe: neither keeps time. */
+    return;
+  case AP_BOARD_REGION_SIO:
+    ap_sio_advance(&board->sio, now);
+    return;
+  case AP_BOARD_REGION_CALENDAR:
+    ap_calendar_advance(&board->calendar, now);
+    return;
+  case AP_BOARD_REGION_DISK:
+    ap_omti_advance(&board->disk.controller, now);
+    return;
+  case AP_BOARD_REGION_TAPE:
+    ap_tape_advance(&board->tape, now);
+    return;
+  /* Every other region falls back to the whole walk: slower and never wrong,
+   * which is the right way round. Listed rather than defaulted because
+   * `-Wswitch-enum` then makes a *new* region a compile error instead of a
+   * silent fallback -- the failure this would otherwise hide is a device that
+   * quietly stops advancing. */
+  case AP_BOARD_REGION_UNMAPPED:
+  case AP_BOARD_REGION_CORE_REGISTER:
+  case AP_BOARD_REGION_TIMER:
+  case AP_BOARD_REGION_DMA:
+  case AP_BOARD_REGION_INTERRUPT:
+  case AP_BOARD_REGION_NODE_ID:
+  case AP_BOARD_REGION_TRANSLATION_MAP:
+  case AP_BOARD_REGION_DMA_PAGE:
+  case AP_BOARD_REGION_GRAPHICS:
+  case AP_BOARD_REGION_RING:
+  case AP_BOARD_REGION_ETHERNET:
+  case AP_BOARD_REGION_MATROX:
+  case AP_BOARD_REGION_ATBUS:
+    ap_board_advance(board, now);
+    return;
+  }
+}
+
 void ap_board_advance(ap_board_t *board, ap_time_t now) {
   /* Each to the same instant, and each carrying its own remainder. Order does
    * not matter and must not: two devices advanced to the same absolute time

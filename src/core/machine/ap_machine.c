@@ -232,7 +232,7 @@ static unsigned machine_wait_states(void *context, uint32_t physical,
    * so reaching the end of the instruction in two steps is the same as reaching
    * it in one. */
   if (machine->devices_advance_mid_access) {
-    ap_board_advance(machine->board,
+    ap_board_advance_one(machine->board, physical,
                      machine->now +
                        ap_clock_duration(&machine->cpu_clock,
                                            machine->cpu.clocks -

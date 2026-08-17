@@ -927,6 +927,26 @@ void ap_board_bus_ticks(ap_board_t *board, uint64_t n);
  * pretence of a tick loop rather than one. */
 void ap_board_advance(ap_board_t *board, ap_time_t now);
 
+/* Advance only what an access at `address` can observe.
+ *
+ * `ap_board_advance` walks every device; called once per instruction that is
+ * cheap, and called once per *access* it costs >119x -- measured, 50 M
+ * instructions in 5.0 s against a run that did not finish in 595 s.
+ *
+ * **Correct because the advance carries no influence between devices.**
+ * `ap_board_advance`'s own rule is that "two devices advanced to the same
+ * absolute time cannot influence each other through the advance itself", so
+ * advancing only the device an access reaches is equivalent *for that access*;
+ * the others catch up at the instruction boundary, and the 68030 samples
+ * interrupts there anyway.
+ *
+ * **RAM and the PROM advance nothing**, which is where the cost goes: they have
+ * no time behaviour for an access to observe, and they are the overwhelming
+ * majority of accesses. A region with no device of its own falls back to the
+ * whole walk rather than being skipped -- a device that quietly stopped
+ * advancing would stay invisible until something timed out. */
+void ap_board_advance_one(ap_board_t *board, uint32_t address, ap_time_t now);
+
 /* Read or write one byte. `ok` reports whether anything answered; an unmapped
  * access is counted and reported rather than quietly returning zero. */
 [[nodiscard]] uint8_t ap_board_read(ap_board_t *board, uint32_t address,
