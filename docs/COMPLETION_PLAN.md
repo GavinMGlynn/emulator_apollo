@@ -4802,10 +4802,21 @@ Only after the reference core is proven, and only under an identity harness.
       a freshly-copied checkpoint. That points at something a failed boot leaves
       behind rather than at the checkpoint's contents — a pattern over five
       runs, not a mechanism.
-      **Do not run again before instrumenting.** The cheap discriminator is to
-      diff a working volume against its pre-run copy, which the
-      copy-before-each-run rule now in force makes possible, and which is a
-      `cmp` rather than an emulator run. That is a media question, not an
+      **Instrumented with `cmp`, and it refutes the pattern.** The volume after
+      the failed `q3d` is **byte-identical** to pristine `osclean` — *zero*
+      differing 1 K blocks over 348 MB. A failed boot writes **nothing**. So
+      "something a failed boot leaves behind" is dead, and with it the volume
+      hypothesis in every form: the same cartridge, on byte-identical volume
+      content, with a fresh rundir, has both loaded the kernel and reported
+      `sysboot not found`.
+      **That leaves non-determinism or an unidentified variable, and it is now
+      the whole question.** Note it also retro-explains this morning: the image
+      that "could have settled it" and was overwritten would have shown nothing,
+      because failed boots do not write. Nothing was lost there.
+      **Next, and still not an emulator run**: the two successful rundirs
+      (`q3`, `q3b`) were kept — diff their `nvram`/`cfg` against a failing
+      run's. If those differ, the harness's persisted state is the variable; if
+      not, the run is genuinely non-deterministic and that is the finding. That is a media question, not an
       emulator defect, which is why every device-side hypothesis here failed. Everything else in the cycle is verified and
       the revert plus clean rebuild were done in the same command.
       Everything else in the cycle is verified: the edit rebuilds `sc499.o`,
