@@ -4728,7 +4728,24 @@ Only after the reference core is proven, and only under an identity harness.
       before and after — or it proves nothing. Run it under **both** stepping
       modes; if they agree, the approximation is consistent, and the number of
       registers stored is the figure the sequencer rewrite would change.
-      **Written, and it found two defects before it could measure anything.**
+      **MEASURED, and both "defects" below were misreadings of my own test.**
+      Probing `arbiter->master` either side of the run gives
+      `owns=1 master=3 may_run=0` **before and after, unchanged**. So the
+      master's claim *does* reach the arbiter, `ap_board_processor_may_run` *is*
+      false, and the tenure *does* survive the run — (b) is simply wrong, and
+      (a)'s premise ("nothing translates ownership into a claim") is wrong too.
+      **What actually happens**: `ap_machine_run`'s stall is
+      `while (!ap_board_processor_may_run(...) && stalled < AP_MACHINE_STALL_LIMIT)`
+      — **bounded**. The processor waits, hits the limit, and proceeds anyway.
+      So a held bus delays the CPU by a fixed cap rather than stopping it, which
+      is a deliberate anti-hang measure and not a wiring gap.
+      **That is a real and different finding**: a master can hold the bus
+      indefinitely on this hardware, and this core will run the processor after
+      `AP_MACHINE_STALL_LIMIT` clocks regardless. Whether that limit is
+      documented anywhere, or was chosen to stop a probe hanging, is the
+      question — and it decides whether the `MOVEM` test should assert the cap
+      or the hold.
+      **The superseded reading follows, kept because the route to it matters.**
       A `MOVEQ`/`MOVEA`/`MOVEM.L D0-D3,(A0)`/`STOP` program, with a cascaded
       master taken to `owns_bus` on the board's own clock, then run:
       **(a) an owning master does not stall the processor.** The PC advanced
