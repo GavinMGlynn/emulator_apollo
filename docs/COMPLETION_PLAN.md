@@ -4470,7 +4470,19 @@ Only after the reference core is proven, and only under an identity harness.
       would be choosing an answer where the oracle can measure one, and this
       core expects to out-accurate MAME on exactly that kind of question.
       **The A/B is now runnable in one command each**, which is what makes the
-      oracle comparison a next step rather than a project. The bus now advances mid-instruction, but
+      oracle comparison a next step rather than a project.
+      **And the A/B has a cost dimension, not only a correctness one.** The
+      mid-access schedule calls `ap_board_advance` on *every access* rather than
+      once per instruction, and the B run of the identity boot was still going
+      well after the A run had finished. That is an observation and not yet a
+      figure — **measure it on a release build and record the ratio** before
+      anyone proposes making B the default, because `CLAUDE.md` allows the
+      reference core to be slow but this is the run loop and the cost is paid on
+      every access for the whole life of the project.
+      **Three things the oracle comparison needs, then**: which schedule matches
+      the hardware, what B costs, and whether any *probe* golden separates them
+      — the boot hash does, but a probe that separates them would localise the
+      difference to a device rather than leaving it as a whole-machine hash. The bus now advances mid-instruction, but
       the processor cannot yet observe it mid-instruction — that needs the
       resumable sequencer increment (2) showed to be a rewrite of a 6,966-line
       file. The ordering half of the item is done; the feedback half is not.
