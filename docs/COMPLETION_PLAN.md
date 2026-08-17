@@ -5174,11 +5174,25 @@ Only after the reference core is proven, and only under an identity harness.
       (2002-11-28 was a Thursday), register B `00` — correct BCD and 12-hour,
       which is exactly what the oracle configures (`set_binary(false)`,
       `set_24hrs(false)`). So the bytes we hand the guest are right.
-      **What remains is the battery RAM configuration block** —
-      `ap_calendar_build_config`'s — the only other thing this core presents that
-      could carry a date. `3C4453FA` is `now` and is dumpable, so one run beside
-      the register file settles whether the guest builds `now` from the registers
-      or from there. `FINDINGS.md` C134.
+      **And the defect is now isolated to one field.** A discriminating pair,
+      both 09:00 on the third of a month, differing only in whether the month
+      exceeds nine: `2001-02-03` → the kernel's `now` is **exact**;
+      `2001-11-03` → **+183 days**. A clock whose every field is under ten is
+      right, which is the signature of **BCD read as binary** — `0x11` is 11 in
+      BCD and 17 in binary, and the two agree only below ten.
+      **Our part is right, checked three ways**: the register file dumps as
+      correct BCD; a standalone harness shows `B=00 month=11` after reset and
+      `B=04 month=0B` after writing `DM`, the datasheet's behaviour exactly; and
+      `mc146818_suite` already covers it, so this is not a table-walk gap. The
+      oracle configures the same thing — `set_binary(false)`.
+      **So the next step is the oracle A/B, and it is one number**, which is what
+      `CLAUDE.md` prescribes: stop both cores at `010C513E` on the same volume and
+      compare the kernel global `3C4453FA`. There is already circumstantial
+      evidence the oracle misreads too — `EX CALENDAR` asked for **2026** produced
+      a volume stamped **2015**, the same shape of error, recorded as unexplained
+      at the time. **What this does not license** is making our RTC present binary
+      to match: the datasheet ties the encoding to DM, the guest leaves DM clear,
+      and our part does what the bit says. `FINDINGS.md` C134, C135.
       **What is left for this item**: that experiment, and then the same route
       for **SR10.2** — whose media is held and whose standard boot cartridge
       already passes both bootability tests, so it is the proven route applied

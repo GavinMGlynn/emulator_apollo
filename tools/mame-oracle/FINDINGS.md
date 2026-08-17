@@ -7813,3 +7813,58 @@ Concretely: `3C4453FA` is `now`, and it is dumpable. One run that dumps it besid
 the register file, for a date whose fields exceed nine, shows whether the guest
 built `now` from the registers or from somewhere else -- and there is no need to
 guess which.
+
+## C135 -- the date defect is isolated to one field, and it is an encoding disagreement
+
+C134 left the kernel's `now` disagreeing with `--clock` by a date-dependent
+amount. A discriminating pair settles what varies. Both clocks are 09:00 on the
+third of a month, one year apart in neither direction that matters -- the *only*
+difference is whether the month exceeds nine:
+
+| `--clock` | fields over nine | kernel's `now` | error |
+| --- | --- | --- | --- |
+| 2001-02-03 09:00 | none | 2001-02-03 09:01:52 | **+0.00 days** |
+| 2001-11-03 09:00 | month | 2002-05-05 09:01:52 | **+183 days** |
+| 2002-11-28 09:00 | month, day | 2003-06-11 09:01:52 | +195 days |
+| 1999-12-31 | month, day, year | 2018-11-08 (wraps to 1983) | +18.85 years |
+
+**A clock whose every field is under ten is exact.** That is the signature of BCD
+being read as binary: `0x11` is 11 in BCD and 17 in binary, and the two agree
+only below ten. `2001-11-03` with the month taken as 17 lands on 2002-05-03,
+two days from the measured 2002-05-05 -- the residue being the guest's own
+normalisation, not the encoding.
+
+### Our part is right, and that is checked three ways
+
+- The register file dumped at the check reads correct BCD: day `28`, month `11`,
+  year `02`, day-of-week `05` (2002-11-28 was a Thursday), register B `00`.
+- `ap_mc146818_write` to register B **does** take: a standalone harness shows
+  `B=00 month=11 day=28` after reset and `B=04 month=0B day=1C` after writing
+  `DM`, which is the datasheet's behaviour exactly.
+- `mc146818_suite` already covers it --
+  `test_the_clock_reads_bcd_unless_told_otherwise` -- so this is not a table-walk
+  gap.
+
+**And the oracle configures the same thing**: `apollo_m.cpp:1112` calls
+`set_binary(false)`, and `mc146818.cpp:266` sets `REG_B_DM` only when that flag is
+set. So MAME presents BCD too.
+
+### Which means the next step is the oracle A/B, and it is one number
+
+`CLAUDE.md`: *"When our number differs, instrument the oracle to prove which side
+is wrong."* The number is `now`, the kernel global at `3C4453FA`, and both cores
+can be stopped at the same instruction (`010C513E`) with the same volume. If the
+oracle's `now` is also wrong for a month over nine, this is Domain/OS's own
+behaviour with a BCD calendar and our core is faithful; if the oracle's is right,
+the difference is ours and the register file is not where it lives.
+
+**There is already circumstantial evidence for the first**: under the oracle,
+`EX CALENDAR` was asked for **2026** and the volume came back stamped **2015**
+(C127) -- a 2026 whose year byte `0x26` read as binary 38 would land near 2018,
+and the same shape of error. That was recorded at the time as "unexplained" and it
+is the same phenomenon.
+
+**What this does *not* license** is changing our RTC to present binary. The
+datasheet ties the encoding to register B's DM bit, the guest leaves DM clear, and
+our part does what the bit says. Making it lie to match a guest would be fitting
+the model to one observation -- the thing the oracle A/B exists to avoid.

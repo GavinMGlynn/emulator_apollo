@@ -6365,10 +6365,36 @@ register file**: dumped at the check, `010900` reads day `28`, month `11`, year
 `02`, day-of-week `05` (2002-11-28 was a Thursday) and register B `00` -- correct
 BCD and 12-hour, matching the oracle's own `set_binary(false)`/`set_24hrs(false)`.
 
-**Next**: the battery RAM configuration block that `ap_calendar_build_config`
-writes, the only other date this core presents. `3C4453FA` is `now` and is
-dumpable, so one run beside the register file settles where the guest gets it.
-Detail in `FINDINGS.md` C134.
+**The defect is isolated to one field.** A discriminating pair, both 09:00 on the
+third of a month, differing only in whether the month exceeds nine:
+
+| `--clock` | fields over nine | kernel's `now` | error |
+| --- | --- | --- | --- |
+| 2001-02-03 09:00 | none | 2001-02-03 09:01:52 | **+0.00 days** |
+| 2001-11-03 09:00 | month | 2002-05-05 09:01:52 | **+183 days** |
+
+A clock whose every field is under ten is exact -- the signature of **BCD read as
+binary**, since `0x11` is 11 in BCD and 17 in binary and the two agree only below
+ten.
+
+**Our part is right, checked three ways**: the register file dumped at the check
+reads correct BCD (day `28`, month `11`, year `02`, day-of-week `05` for a
+Thursday, register B `00`); a standalone harness shows `B=00 month=11 day=28` after
+reset and `B=04 month=0B day=1C` after writing `DM`, which is the datasheet's
+behaviour exactly; and `mc146818_suite` already covers it
+(`test_the_clock_reads_bcd_unless_told_otherwise`), so this is not a table-walk
+gap. The oracle configures the same thing -- `apollo_m.cpp:1112`,
+`set_binary(false)`.
+
+**Next is the oracle A/B, and it is one number**, which is what `CLAUDE.md`
+prescribes for exactly this: stop both cores at `010C513E` on the same volume and
+compare the kernel global `3C4453FA`. Circumstantial evidence already points at the
+oracle misreading too -- `EX CALENDAR` asked for 2026 produced a volume stamped
+2015, the same shape of error, recorded as unexplained at the time.
+
+**Not licensed by any of this**: making our RTC present binary to match the guest.
+The datasheet ties the encoding to register B's DM bit, the guest leaves DM clear,
+and our part does what the bit says. Detail in `FINDINGS.md` C134, C135.
 
 **Not done for this item**: that experiment, and SR10.2 -- whose media is held and
 whose boot cartridge already passes both bootability tests.
