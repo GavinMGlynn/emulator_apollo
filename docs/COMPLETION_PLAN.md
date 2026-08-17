@@ -4085,10 +4085,28 @@ discipline throughout.
       `apollo_ni::call_load`'s acceptance rule — including that its checksum is
       a **byte-wide** sum, which agrees with a wider one for every small ID and
       disagrees exactly when it carries. Detail in `FINDINGS.md` C129.*
-      **So what is left is a second install, which is hours of known procedure
-      rather than an unknown** — and explicitly *not* patching a copied
-      volume's label, since the objects on a copy carry node A's UIDs and the
-      result would be a machine lying about its identity.
+      **The frontend half is now BUILT.** `run_ring_two_node` took no disk at
+      all, so its nodes could never run an OS — the whole of what this item asks.
+      `--ring-disk-a` / `--ring-disk-b` attach one Winchester per node, each node
+      takes its ID from its **own** volume as a single machine does, and two
+      volumes recording the same node are **refused**: `[MAC]` §2.2.2.2 decides
+      delivery on the node address alone, so two stations on one address would
+      not fail loudly — frames would vanish.
+      *Verification: `ctest` 139/139, identity boot `03EE415450926A89` with clocks
+      unchanged, the single-machine path untouched.*
+      **What remains is a second volume, and INVOL will not make one**:
+      `Unable to assign disk - error status = 100001` on a blank 348 MB image.
+      Three variables eliminated by running them — the SR10.3 cartridge, the
+      SR10.4 cartridge C50 succeeded with, and no `--node-id` ROM at all as a
+      control. All three give `100001`. **INVOL demonstrably works** (C50 built
+      `dn3500-invol-done.awd` that way), so something between that session and
+      this changed; the harness and oracle have both moved.
+      *Cheapest next step, and it should have been first: `mdsession.py` has a
+      **built-in `--stage invol`** and every attempt here used a hand-written
+      command file. Try it before diffing the oracle edits. `FINDINGS.md` C145.*
+      **Explicitly not** patching a copied volume's label — the objects on a copy
+      carry node A's UIDs and the result would be a machine lying about its
+      identity.
       **Diskless boot is the other route and is now sketched from the web**: a
       diskless node's PROM broadcasts a partnership request, and a partner
       running `netman` with the client listed in `/sys/net/diskless_list`

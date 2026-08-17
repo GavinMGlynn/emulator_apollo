@@ -8430,3 +8430,44 @@ channel and the Apollo DMA path around block 4,615, not `sc499`.
 
 *`ext/mame` reverted and rebuilt; the checkout carries only C56's media-change
 notifier and C139's `set_binary(true)`.*
+
+## C145 -- the two-node item's frontend half is built; its gate is INVOL on a blank volume
+
+**Built and committed**: `run_ring_two_node` took no disk at all, so its two nodes
+could never run an operating system -- the whole of what the Phase 6 item asks
+for. `--ring-disk-a` / `--ring-disk-b` attach one Winchester per node, each node
+takes its ID from its **own** volume as a single machine does, and two volumes
+recording the same node are refused rather than run: `[MAC]` §2.2.2.2 decides
+delivery on the node address alone, so two stations answering one address would
+not fail loudly, frames would simply vanish. Identity boot unchanged.
+
+**What remains is a second volume, and INVOL will not make one.** A blank 348 MB
+image, `ex invol`, option 7, `w`:
+
+    Select disk: [w=Winch|f=Floppy|q=Quit][ctrl#:][unit#] w
+    Unable to assign disk - error status = 100001
+
+**Three variables eliminated by running them:**
+
+| tried | result |
+| --- | --- |
+| SR10.3 PSK boot cartridge | `100001` |
+| SR10.4 boot cartridge -- the one C50 succeeded with | `100001` |
+| no `--node-id` ROM at all (the control) | `100001` |
+
+So it is neither the cartridge nor the node-ID image. **And INVOL demonstrably
+works**: C50 ran options 7, 1 and 8 on a blank image in an earlier session and
+produced `dn3500-invol-done.awd`, which every install here has been built from.
+Something between that session and this one changed, and the harness and oracle
+have both moved a long way since -- cartridge staging into the run directory,
+C56's media-change notifier, C139's `set_binary(true)`.
+
+**The cheapest next step, and it is embarrassing that it was not the first**:
+`mdsession.py` has a **built-in `--stage invol`**, and every attempt here used a
+hand-written command file instead. C50's success is recorded as having been driven
+through the command file too, but the built-in stage is the thing most likely to
+carry a detail -- a pacing wait, a knock, an ordering -- that a re-derived script
+drops. Try it before diffing the oracle edits.
+
+*Nothing about this blocks the frontend work, which is landed and tested; it
+blocks only the second volume that a two-node Domain/OS run needs.*
