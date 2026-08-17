@@ -4346,10 +4346,25 @@ Only after the reference core is proven, and only under an identity harness.
       sites pass a named `g_test_bus`.
       *Verification: `ctest` 138/138, identity boot `A354786119A3931D`
       unchanged — the criterion this increment exists to meet.*
-      **Next is increment (2)**: give `ap_m68030_step` a resumable state so it
-      can return mid-access. That is the first one that changes control flow
-      rather than ownership, and the first where the neutrality argument is not
-      structural — so establish it before editing, as 1a and 1b did.
+      **Increment (2) is not achievable as written, and the scouting says so
+      before anyone starts.** `ap_m68030_step` is the tail of a **6,966-line**
+      `ap_m68030_step.c`, entered at `5946`, and it sequences an instruction in
+      ordinary nested C — calls, loops, switches. "Give it a resumable state"
+      means one of: rewriting it as an explicit state machine (the whole file);
+      coroutines (not in C); a fiber or thread per CPU (heavyweight, and it
+      trades a determinism guarantee this project is built on); or re-executing
+      an instruction on resume (invalid — instructions have side effects before
+      they commit).
+      **The alternative that meets the item's actual purpose**: keep `step`
+      atomic, but have it *report its cycle timeline* — the bus is already
+      cycle-accurate and now owned by the access context, so the cycles exist —
+      and let the machine distribute those cycles to devices at the instants
+      they occurred. That gives per-cycle device visibility without a resumable
+      CPU. **Its one limitation, stated rather than discovered**: it still
+      cannot express a device output feeding back into an instruction *still
+      executing*, which is the case the tick-loop item names as the reason to
+      want a cycle-steppable CPU at all. So this is a real narrowing of the
+      item, not a free win, and taking it is a decision to record explicitly.
       **Passed the bus explicitly at all twelve rather than defaulting a NULL to
       a local.** A NULL fallback would cost zero test edits and is the tempting
       shortcut, but from increment (3) the bus is *resumable state*, and a test
