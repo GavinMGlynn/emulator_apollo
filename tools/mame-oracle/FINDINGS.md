@@ -8550,3 +8550,49 @@ the equivalent for the oracle, which is where volumes get made.
 **Item state**: the two-node frontend is built and tested, INVOL now runs to
 completion on a copied volume, and the one remaining gap is putting a *different*
 node into that volume.
+
+## C147 -- the node lives in the battery RAM, not the node-ID ROM, and the manual said so
+
+C146 established that the UID generator ignores the node-ID ROM and pointed at the
+calendar's battery RAM. **The document settles it**, and it has been on disk and
+transcribed into this core's own header the whole time -- `002398-04` p. 12-3, the
+DN3000 chapter of the Domain Engineering Handbook:
+
+    0E-11  CHECKSUM          } 50 bytes of battery backed up RAM
+    12-15  VALID PATTERN     } used by diagnostics for config info
+    16-1D  MEM BOARD ARRAY
+    1E-21  NODEID
+    22-25  DEV BIT ARRAY
+
+**`1E-21` is the node ID**, and `ap_calendar_build_config` already writes it there
+-- this core has been doing the right thing since that table was walked. So a
+machine's node comes from its **battery configuration table**, and
+`apollo_ni`'s `011200`/`009600` ROM window is a *different* source that the UID
+generator does not use. MAME's `-node_id` therefore cannot change what a volume
+records, however correctly it loads -- which is exactly what C145 and C146
+measured from the other end.
+
+**And the route to setting it is the firmware's own, printed on every boot of an
+unconfigured machine**:
+
+    Configuration information is not initialized.
+    Press <<return>> and type "ex config" at the prompt to initialize the
+    configuration table.
+
+`ex config` is the boot PROM's configuration utility, and the boot cartridges
+carry it -- `sau7/config`, listed by `ct_extract.py` on both SR10.3 boot
+cartridges. Its dialogue is not in any manual here, like INVOL's was not, so it
+will have to be read from the machine a turn at a time through
+`mdsession.py --commands`, which is what that facility exists for.
+
+**So the two-node item's remaining step is now fully specified**: boot node B's
+machine, `ex config`, set NODEID to `22222`, then INVOL the volume as C145's table
+shows -- option 7, then option 1 with `y`. Nothing in that sequence is unknown
+except the `config` prompts.
+
+**The lesson, and it is this project's own, twice in one thread**: the answer was
+in a manual on disk *and* in a comment in our own source. C145 and C146 spent four
+runs and a reverted oracle edit establishing by measurement what
+`ap_calendar.h` states in a table. `CLAUDE.md`'s resolution order is reference,
+web, oracle -- and "reference" includes the parts of it this project has already
+transcribed.

@@ -4133,9 +4133,23 @@ discipline throughout.
       points at the **calendar's battery RAM**: this core's own
       `ap_calendar_build_config` writes the node into `[CFG]`'s configuration
       block at `0x1E`, and MAME persists that RAM as nvram in the run directory.
-      *Next is a read before a run: whether the boot PROM and INVOL take the node
-      from the battery block or the `011200`/`009600` ROM window, and if the
-      former, set it there. `FINDINGS.md` C146.*
+      **ANSWERED by the manual, which was on disk and transcribed into this
+      core's own header the whole time.** `002398-04` p. 12-3 lays out the
+      battery RAM: `0E-11` CHECKSUM, `12-15` VALID PATTERN, `16-1D` MEM BOARD
+      ARRAY, **`1E-21` NODEID**, `22-25` DEV BIT ARRAY. So a machine's node comes
+      from its **battery configuration table** — which `ap_calendar_build_config`
+      already writes — and `apollo_ni`'s ROM window is a different source the UID
+      generator does not use. MAME's `-node_id` cannot change what a volume
+      records however correctly it loads, which is what C145 and C146 measured
+      from the other end.
+      **And the route is the firmware's own**, printed on every boot of an
+      unconfigured machine: *"Press <<return>> and type `ex config` at the prompt
+      to initialize the configuration table."* Both SR10.3 boot cartridges carry
+      `sau7/config`. Its dialogue is in no manual here, like INVOL's was not, so
+      it gets read from the machine a turn at a time through `--commands`.
+      *So the remaining step is fully specified: boot node B, `ex config`, set
+      NODEID to `22222`, then INVOL as above — option 7, then option 1 with `y`.
+      Nothing in it is unknown except the `config` prompts. `FINDINGS.md` C147.*
       **Item state**: the two-node frontend is built and tested, INVOL runs to
       completion on a copied volume, and the one remaining gap is putting a
       *different* node into that volume.
