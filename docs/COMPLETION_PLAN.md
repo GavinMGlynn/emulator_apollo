@@ -4689,10 +4689,24 @@ Only after the reference core is proven, and only under an identity harness.
       question.** It is a *content* one: what sits at those raw blocks is not
       what the PROM accepts as `sysboot`. The `.ct` is a wbak archive and
       `ct_extract.py` reads `sysboot` as an archive *member*; the PROM reads raw
-      block offsets. The next question is what the PROM validates at block 2 —
-      a header, a magic, a checksum — which is a disassembly of the `ex` path
-      near `00185B`, and needs no emulator. Compare against the SR10.4
-      cartridge, which boots. Everything else in the cycle is verified and
+      block offsets. **ANSWERED by comparing block 0 of the two
+      cartridges — no emulator, no disassembly.** The SR10.4 image that boots
+      carries a boot header there and the SR10.3 image does not:
+
+          SR10.4 blk0: 00 13 d8 00  00 13 d8 2a  00 13 f6 bc  56 ac 0d 83
+                       53 59 53 42 4f 4f 54 20 52 45 56 20   "SYSBOOT REV "
+          SR10.3 blk0: 00 00 00 00  00 00 00 00  00 00 00 00  01 01 00 00
+
+      `0013D800` is the value this plan **already records** at the *Winchester*
+      item: "the PROM loads `sysboot` to `010FD800` and demands `0013D800`". So
+      the header is the `sysboot` descriptor the PROM validates, and its absence
+      is exactly `sysboot not found`.
+      **And the images are misaligned rather than merely different**: SR10.3's
+      block 1 is SR10.4's block 1 **shifted by 16 bytes**. So the SR10.3 `.ct`
+      is very likely a *differently framed dump* of the same tape — a missing or
+      extra leading header — rather than a different tape. That is a media
+      question about our copy of the image, not an emulator defect, and it is
+      why every device-side hypothesis failed. Everything else in the cycle is verified and
       the revert plus clean rebuild were done in the same command.
       Everything else in the cycle is verified: the edit rebuilds `sc499.o`,
       and the revert plus clean rebuild both work, done in the same sitting.
