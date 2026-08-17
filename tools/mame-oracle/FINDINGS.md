@@ -8162,13 +8162,31 @@ past it report end-of-tape -- which is exactly "a label is missing where one is
 required". C124 established that MAME opens a cartridge read/write and that a
 guest does write to it.
 
-**The next step is therefore one run, and one comparison**: md5 the staged
-cartridge in the run directory against the source afterwards. If it differs, the
-guest wrote, and the block-count truncation is the mechanism; the `VERBOSE
-(LOG_LEVEL0 | LOG_LEVEL1)` plus `-oslog` recipe then shows where.
+**Run, and the write hypothesis is REFUTED.** The install was repeated with
+`--keep-rundir` and both staged cartridges are **byte-identical to their
+sources** -- boot `55f3b324…` and software `3f06e6bf…`, matching on both sides.
+**Nothing wrote to either tape**, so `m_ctape_block_count` was never truncated and
+the one line that looked like the whole answer is not it.
 
-**And a rule broken doing this, mine:** the run directory holding that staged copy
-was deleted in a tidy-up before the comparison was made. C124's own lesson is
-*"preserve the inputs of a run whose result you may want to explain"*, and the
-staged copy is exactly such an input. It costs one re-run rather than anything
-irrecoverable, but the rule was written after the same mistake and was available.
+`check_tape` is right too, read rather than assumed: it recomputes
+`m_ctape_block_count` whenever `m_image_length` differs from `m_image->tapelen()`,
+and C56's edit forces `m_image_length = 0` before calling it on a media change, so
+a swap always re-measures.
+
+**So the position stands as**: the `EOF1` is on the tape at block 21,449, the tape
+mark before it is correct, the drive's block count is the full 116,536, no write
+occurred, and RBAK still says the label is missing. Every static explanation is
+now eliminated, which is the point at which `CLAUDE.md`'s order finally licenses
+instrumentation -- the `VERBOSE (LOG_LEVEL0 | LOG_LEVEL1)` plus `-oslog` recipe,
+reading what `read_block` returns either side of 21,449.
+
+**One candidate to check first when that runs**, because it is cheap to see in the
+same log: `m_first_block_hack` re-reads block 0 -- *"we must read first block twice
+(in MD for 'di c' and 'ld' or 'ex ...') / why is this necessary???"* -- and a
+duplicated block anywhere in a sequential restore shifts everything after it by
+one.
+
+**And a rule broken on the way, mine:** the first run's directory was deleted in a
+tidy-up before the comparison was made, so the re-run above was needed to get a
+number that had already existed. C124's own lesson is *"preserve the inputs of a
+run whose result you may want to explain"*.

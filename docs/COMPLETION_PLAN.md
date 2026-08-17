@@ -5269,16 +5269,23 @@ Only after the reference core is proven, and only under an identity harness.
       block 21,449, and the tape mark between `EOF2` and the next `HDR1` is a
       correct `DE AF FA ED` block in both. `sc499` models no track geometry a
       boundary could fall on.
-      **So the label is on the tape and the drive did not deliver it, and one
-      line explains that**: `sc499_device::write_block` ends
-      `m_ctape_block_count = m_tape_pos;`, so **any write truncates the drive's
-      idea of the tape's length**, and `read_block`'s end-of-tape test is
-      `m_tape_pos > m_ctape_block_count`. C124 established that MAME opens a
-      cartridge read/write and that a guest writes to it.
-      *Next: one run, then md5 the staged cartridge against the source. The run
-      directory holding the last one was deleted in a tidy-up before that
-      comparison — C124's own "preserve the inputs" rule, broken by the session
-      that wrote it. `FINDINGS.md` C141.*
+      **A one-line explanation was proposed and REFUTED by measurement.**
+      `sc499_device::write_block` ends `m_ctape_block_count = m_tape_pos;`, so any
+      write truncates the drive's idea of the tape's length — but the install
+      re-run with `--keep-rundir` shows both staged cartridges **byte-identical to
+      their sources**, so nothing wrote and nothing was truncated. `check_tape`
+      is right as well, read rather than assumed: it re-measures whenever the
+      length differs, and C56's edit forces that on every media change.
+      **So every static explanation is eliminated** — the `EOF1` is on the tape,
+      the tape mark before it is correct, the block count is the full 116,536, no
+      write occurred — which is the point at which `CLAUDE.md`'s order licenses
+      instrumentation. Next is the `VERBOSE`/`-oslog` recipe reading what
+      `read_block` returns either side of block 21,449, watching in particular for
+      `m_first_block_hack`, whose re-read of block 0 (*"why is this
+      necessary???"*) would shift a sequential restore by one block.
+      *A rule broken on the way, mine: the first run's directory was deleted in a
+      tidy-up before the comparison, so the re-run was needed to get a number that
+      had already existed. `FINDINGS.md` C141.*
       **And a tool defect found on the way**: `--boot-limit` parsed into an
       `unsigned`, so `6000000000` silently became **1,705,032,704** (`6e9 mod
       2^32`) and three runs reported the count they reached as if the bound had
