@@ -4701,12 +4701,19 @@ Only after the reference core is proven, and only under an identity harness.
       item: "the PROM loads `sysboot` to `010FD800` and demands `0013D800`". So
       the header is the `sysboot` descriptor the PROM validates, and its absence
       is exactly `sysboot not found`.
-      **And the images are misaligned rather than merely different**: SR10.3's
-      block 1 is SR10.4's block 1 **shifted by 16 bytes**. So the SR10.3 `.ct`
-      is very likely a *differently framed dump* of the same tape — a missing or
-      extra leading header — rather than a different tape. That is a media
-      question about our copy of the image, not an emulator defect, and it is
-      why every device-side hypothesis failed. Everything else in the cycle is verified and
+      **The "misaligned by 16 bytes" reading above was
+      overstated and is withdrawn.** Measured: SR10.3's offset 512 does occur in
+      SR10.4 at 528, but the match **runs only 585 bytes** — consistent with two
+      *versions* of `sysboot` sharing some code, not with a framing shift of one
+      tape. There is no evidence these are the same dump differently framed.
+      What stands is the block 0 difference alone: **SR10.4 carries a
+      `SYSBOOT REV` descriptor there and SR10.3 does not**, and that descriptor
+      is what the PROM validates. Whether our SR10.3 image is truncated at the
+      front, framed differently, or simply not a bootable cartridge is **not
+      established** — and the way to settle it is another SR10.3 boot image to
+      compare against, since `bitsavers`' `Apollo_JRJ/SR10.3/` is listed in
+      `TEST_SHELF.md` as a second source. That is a media question, not an
+      emulator defect, which is why every device-side hypothesis here failed. Everything else in the cycle is verified and
       the revert plus clean rebuild were done in the same command.
       Everything else in the cycle is verified: the edit rebuilds `sc499.o`,
       and the revert plus clean rebuild both work, done in the same sitting.
