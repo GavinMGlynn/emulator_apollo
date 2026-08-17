@@ -6198,6 +6198,43 @@ hypotheses were eliminated first, and the volume was `cmp`-ed before and after a
 run, because the cartridge was an input and inputs are not suspected. Detail,
 including the two facts that fixed the mechanism, in `FINDINGS.md` C124.
 
+#### The volume label's mount history, and why a boot stops
+
+`002398-04`'s physical-volume-label diagram names the fields; the **base is
+`0x440`**, found by differencing an installed volume against an INVOL-only one
+(`00 01 23 45`, the oracle's `DEFAULT_NODE_ID`, sits in `.last_mounted_node` at
+`+B4`). Modelled in `image/ap_volume.h` and printed by `--volume`:
+
+    volume media/dn3500-sr10.3-installed.awd
+      node ID      12345
+      mounted      FFF808EE  2015-09-03 15:57:47
+      dismounted   (never)
+      ** never cleanly dismounted: Domain/OS will salvage this volume,
+         and its "more than 14 days since the last shutdown" check
+         measures from a zero, so no --clock can satisfy it
+
+**That line is the product of the finding.** Domain/OS refuses a volume whose
+last shutdown is more than fourteen days behind the clock, and a volume never
+cleanly dismounted carries **zero** there -- so the difference is the whole of
+the clock at *every* clock. Three `--clock` values were tried against this volume
+before its label was read, and a fourth would have been a parameter search.
+`dn3500-sr10.4-installed.awd` boots because it has `dismounted A45E5C0C`,
+2002-11-27 21:45:12.
+
+**A label time is the high 32 bits of Apollo's 48-bit 4 µs clock from
+1980-01-01** -- a 262144 µs tick. Calibrated against two statements the machines
+made themselves: SR10.3's own CALENDAR printed *"last recorded time was
+2015/09/03 15:47:46 UTC"* against a field decoding to 2015-09-03 15:57:47, and
+SR10.4's field decodes to 2002-11-27, which is C52's recorded CALENDAR reading.
+A quarter-second tick was tried first and is 4.9% out -- over a year early on
+both, with the time of day right, which is what made it believable.
+
+*Verification: `volume_suite` 5 → 9, the new ones asserting the tick against
+those two machine statements rather than against themselves, and that the
+product is computed 64-bit wide -- 262144 is 2^18, so a 32-bit multiply wraps for
+every volume on disk and would report the 2015 one as ten minutes after 1980.
+Identity boot `A354786119A3931D` unchanged. Detail in `FINDINGS.md` C132.*
+
 #### SR10.3 is installed and runs on this core
 
 `media/dn3500-sr10.3-installed.awd`, built under the oracle by the SR10.4 route

@@ -7481,3 +7481,81 @@ run, and after any run that was killed rather than allowed to finish.
 `mdsession.py` already arms `PR_SET_PDEATHSIG` and handles `SIGTERM`/`SIGINT` for
 exactly this reason; a bare `apollo-headless` started from a shell has no such
 protection.
+
+## C132 -- the 14-day gate compares against a zero, so no clock can satisfy it
+
+Three clocks were tried against the installed SR10.3 volume and all three failed,
+in two different ways:
+
+| `--clock` | Domain/OS says |
+| --- | --- |
+| 1987-08-02 (default era) | `The calendar is more than a minute slow.` |
+| 2014-01-11 | `More than 14 days have elapsed since the last shutdown.` |
+| 2015-09-04 | `More than 14 days have elapsed since the last shutdown.` |
+
+A fourth would have been a parameter search, which `CLAUDE.md` forbids. The
+volume's own label answers it instead.
+
+### The physical volume label's time fields, and where they are
+
+`002398-04`'s physical-volume-label diagram gives the structure:
+
+    +B0  .label_write_time      TIME LABEL WRITTEN
+    +B4  .last_mounted_node     LAST MOUNTED NODE
+    +B8  .node_boot_time        TIME SYSTEM WAS BOOTED
+    +BC  .mounted_time          TIME THIS VOLUME WAS MOUNTED
+    +C0  .dismounted_time       TIME THIS VOLUME WAS DISMOUNTED
+    +C4  .salvage_node          NODE OF LAST SALVAGE
+    +C8  .salvage_time          TIME SALVAGE COMPLETED
+
+**The base is `0x440`**, found by differencing an installed volume against an
+INVOL-only one: `00 01 23 45` appears at `0x4F4`, which is MAME's
+`DEFAULT_NODE_ID` in `.last_mounted_node` at `+B4`, so `0x4F4 - 0xB4 = 0x440`.
+Not by reading a number off an OCR'd diagram.
+
+**The unit is the high 32 bits of Apollo's 48-bit 4 µs clock from 1980-01-01**
+-- one tick is `4 µs x 65536 = 262144 µs`, about 0.262 s, and a 32-bit field
+reaches 2016. The 4 µs clock alone would overflow 32 bits in under five hours,
+which is what makes the high-half reading the only one that fits.
+
+**A quarter-second tick was tried first and is wrong**, by 4.9%: it put both
+known volumes over a year early while getting the *time of day* right, which is
+precisely what makes a wrong epoch constant believable. The correct rule is
+confirmed against two independent statements by the machines themselves:
+
+| field | decodes to | the machine said |
+| --- | --- | --- |
+| `FFF808EE` (SR10.3 `.mounted_time`) | 2015-09-03 15:57:47 | CALENDAR: *"last recorded time was 2015/09/03 15:47:46 UTC"* |
+| `A45DF6AB` (SR10.4 `.mounted_time`) | 2002-11-27 19:51:49 | C52's CALENDAR reading, `2002/11/27` |
+
+### What the four volumes say
+
+| volume | `.mounted_time` | `.dismounted_time` |
+| --- | --- | --- |
+| `dn3500-sr10.4-installed.awd` | 2001-11-05 05:29:14 | **2001-11-05 07:17:23** |
+| `dn3500-osclean.awd` | 2001-11-04 22:20:45 | 2001-11-04 22:26:46 |
+| `dn3500-sr10.3-osclean.awd` | (2014 era) | **set** |
+| `dn3500-sr10.3-installed.awd` | 2014-01-08 01:22:03 | **`00000000`** |
+
+**So the SR10.3 installed volume was never cleanly dismounted, and the gate is
+`now - .dismounted_time > 14 days` against a zero.** That difference is the whole
+of the clock, at every clock, so **no `--clock` can ever satisfy it** -- which is
+why 2014-01-11, three days after that volume's own mount time, failed exactly as
+2015 did. The SR10.4 volume boots because it has a dismount time; this one has
+none.
+
+The cause is known and is ours: the MINST session was killed rather than shut
+down from the target, and MINST's own last words are *"shut down the target node
+and reboot it from its own disk"*.
+
+**And this core cannot fix it, by design.** `main.c:3115` reads the image into a
+private buffer and never writes it back -- "the drive the machine sees behaves
+like a drive, and the user's image on disk is untouched" -- which is what makes
+an identity boot repeatable and why the salvage re-runs every time. A clean
+dismount has to come from the oracle, and the route is proven: `shut` from the
+RBAK environment's `)` prompt wrote `.dismounted_time` on
+`dn3500-sr10.3-osclean.awd`.
+
+**The general lesson:** a stop that varies with a parameter invites tuning the
+parameter. Two readings were enough to show the answer was not in that
+direction; the third was one too many.

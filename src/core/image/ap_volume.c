@@ -42,5 +42,27 @@ bool ap_volume_read_label(const uint8_t *blocks, size_t bytes,
   out->creator.high = be32(&blocks[AP_VOLUME_CREATOR_UID_OFFSET]);
   out->creator.low = be32(&blocks[AP_VOLUME_CREATOR_UID_OFFSET + 4u]);
   out->node_id = ap_uid_node_id(out->creator);
+
+  out->label_write_time = be32(&blocks[AP_VOLUME_LABEL_WRITE_TIME_OFFSET]);
+  out->last_mounted_node = be32(&blocks[AP_VOLUME_LAST_MOUNTED_NODE_OFFSET]);
+  out->node_boot_time = be32(&blocks[AP_VOLUME_NODE_BOOT_TIME_OFFSET]);
+  out->mounted_time = be32(&blocks[AP_VOLUME_MOUNTED_TIME_OFFSET]);
+  out->dismounted_time = be32(&blocks[AP_VOLUME_DISMOUNTED_TIME_OFFSET]);
+  out->salvage_node = be32(&blocks[AP_VOLUME_SALVAGE_NODE_OFFSET]);
+  out->salvage_time = be32(&blocks[AP_VOLUME_SALVAGE_TIME_OFFSET]);
   return true;
+}
+
+uint64_t ap_volume_time_microseconds(uint32_t ticks) {
+  /* Widened before multiplying, not after: `ticks` reaches `FFFFFFFF` on a real
+   * volume and `262144` is 2^18, so a 32-bit product would overflow for every
+   * date after 1980 and the two most recent volumes in hand would both wrap. */
+  return (uint64_t)ticks * (uint64_t)AP_VOLUME_TIME_TICK_MICROSECONDS;
+}
+
+bool ap_volume_cleanly_dismounted(const ap_volume_label_t *label) {
+  /* Zero and nothing else. Not "older than the mount time", not "before some
+   * threshold": the field is either a time a dismount wrote or it is untouched,
+   * and Domain/OS's fourteen-day check measures from it either way. */
+  return label != nullptr && label->dismounted_time != 0u;
 }

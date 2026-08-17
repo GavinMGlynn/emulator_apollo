@@ -77,6 +77,62 @@
 #define AP_VOLUME_NAME_BYTES 30u
 #define AP_VOLUME_CREATOR_UID_OFFSET 0x48u
 
+/* The *mount history*, and it decides whether a volume can be booted at all.
+ *
+ * `002398-04`'s physical-volume-label diagram gives the structure by name and
+ * label-relative offset: `+B0 .label_write_time`, `+B4 .last_mounted_node`,
+ * `+B8 .node_boot_time`, `+BC .mounted_time`, `+C0 .dismounted_time`,
+ * `+C4 .salvage_node`, `+C8 .salvage_time`.
+ *
+ * **The base is `0x440`, found by differencing rather than read off the
+ * diagram.** An installed volume against an INVOL-only one differ at `0x4F4`
+ * by `00 01 23 45`, which is the oracle's `DEFAULT_NODE_ID` sitting in
+ * `.last_mounted_node` at `+B4` -- so the base is `0x4F4 - 0xB4`. That is a
+ * measurement; the diagram is a scan whose hex OCRs badly, and `CLAUDE.md` says
+ * so about exactly this kind of table.
+ *
+ * **Why they are worth modelling.** Domain/OS refuses to boot a volume whose
+ * last shutdown is more than fourteen days behind the clock, and a volume that
+ * was never cleanly dismounted carries `.dismounted_time` **zero** -- so the
+ * difference is the whole of the clock at *every* clock and no power-on date can
+ * satisfy it. Three clocks were tried against such a volume before its label
+ * was read, which is three more than were needed. `FINDINGS.md` C132. */
+#define AP_VOLUME_LABEL_BASE 0x440u
+#define AP_VOLUME_LABEL_WRITE_TIME_OFFSET (AP_VOLUME_LABEL_BASE + 0xB0u)
+#define AP_VOLUME_LAST_MOUNTED_NODE_OFFSET (AP_VOLUME_LABEL_BASE + 0xB4u)
+#define AP_VOLUME_NODE_BOOT_TIME_OFFSET (AP_VOLUME_LABEL_BASE + 0xB8u)
+#define AP_VOLUME_MOUNTED_TIME_OFFSET (AP_VOLUME_LABEL_BASE + 0xBCu)
+#define AP_VOLUME_DISMOUNTED_TIME_OFFSET (AP_VOLUME_LABEL_BASE + 0xC0u)
+#define AP_VOLUME_SALVAGE_NODE_OFFSET (AP_VOLUME_LABEL_BASE + 0xC4u)
+#define AP_VOLUME_SALVAGE_TIME_OFFSET (AP_VOLUME_LABEL_BASE + 0xC8u)
+
+/* A label time is the **high 32 bits of Apollo's 48-bit 4 microsecond clock**,
+ * counted from 1980-01-01. So one tick is `4 us * 65536 = 262144 us`, about
+ * 0.262 s, and a 32-bit field reaches 2016.
+ *
+ * **Calibrated against two independent statements by the machine itself**, not
+ * assumed:
+ *
+ *   - `dn3500-sr10.3-installed.awd`'s `.mounted_time` is `FFF808EE`, which
+ *     decodes to 2015-09-03 15:57, and its own `CALENDAR` said in as many words
+ *     "last recorded time was 2015/09/03 15:47:46 UTC" -- ten minutes apart on a
+ *     35-year span.
+ *   - `dn3500-sr10.4-installed.awd`'s `.mounted_time` decodes to 2002-11-27,
+ *     and `FINDINGS.md` C52 recorded that session's `CALENDAR` reading as
+ *     `2002/11/27`.
+ *
+ * A first attempt read the tick as a plain quarter-second, which is wrong by
+ * 4.9% and lands over a year out on both -- close enough to look right and not
+ * to be. The 4 microsecond clock alone would overflow 32 bits in under five
+ * hours, which is what makes the high-half reading the only one that fits. */
+#define AP_VOLUME_TIME_TICK_MICROSECONDS 262144u
+#define AP_VOLUME_TIME_EPOCH_YEAR 1980
+
+/* Microseconds since 1980-01-01 for a label time. Microseconds and not seconds
+ * because the tick is not a whole number of them, and a seconds-returning
+ * helper would round every date it was asked for. */
+[[nodiscard]] uint64_t ap_volume_time_microseconds(uint32_t ticks);
+
 /* An Apollo UID: creation time above, node below. Kept whole as well as split,
  * because a caller comparing two volumes cares about the identity and a caller
  * configuring a machine cares only about the node. */
@@ -91,7 +147,26 @@ typedef struct {
   ap_uid_t creator;
   /* The low twenty bits of the creator UID. */
   uint32_t node_id;
+
+  /* The mount history, raw. Kept as ticks rather than converted, because a
+   * *zero* is the load-bearing case and a converted zero reads as a date. */
+  uint32_t label_write_time;
+  uint32_t last_mounted_node;
+  uint32_t node_boot_time;
+  uint32_t mounted_time;
+  uint32_t dismounted_time;
+  uint32_t salvage_node;
+  uint32_t salvage_time;
 } ap_volume_label_t;
+
+/* Whether Domain/OS can boot this volume without salvaging it first.
+ *
+ * A volume that was never cleanly dismounted carries `.dismounted_time` zero,
+ * and the kernel's "more than 14 days have elapsed since the last shutdown"
+ * check measures from that -- so a zero fails at every possible clock. This
+ * answers the question the frontend used to leave a reader to work out from a
+ * boot that stopped. */
+[[nodiscard]] bool ap_volume_cleanly_dismounted(const ap_volume_label_t *label);
 
 /* The node ID a UID carries: its low twenty bits. */
 [[nodiscard]] uint32_t ap_uid_node_id(ap_uid_t uid);

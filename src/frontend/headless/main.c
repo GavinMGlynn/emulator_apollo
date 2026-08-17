@@ -1541,6 +1541,52 @@ static int run_ring_selftest(FILE *out, ap_model_id_t model,
  * from an arbitrary file configures a machine to lie about its identity, and
  * every object it then creates carries the lie -- which outlives the run and
  * cannot be traced back to the moment it was chosen. */
+/* A label time as a date, so a reader can compare it with `--clock` directly.
+ *
+ * The point of printing it at all is that Domain/OS's shutdown check is against
+ * these values and the message it prints when one is wrong talks about the
+ * calendar -- which invites tuning `--clock` instead of reading the volume.
+ *
+ * Days-from-civil inverted, the standard proleptic-Gregorian algorithm, because
+ * `gmtime` needs a `time_t` epoch this core does not use and `AP_VOLUME_TIME`
+ * counts from 1980. A zero is printed as "never" rather than as 1980-01-01: it
+ * is the absence of a time, and a plausible-looking date is exactly what makes
+ * it easy to miss. */
+static void print_volume_time(const char *name, uint32_t ticks) {
+  if (ticks == 0u) {
+    printf("  %-12s (never)\n", name);
+    return;
+  }
+  const uint64_t us = ap_volume_time_microseconds(ticks);
+  uint64_t seconds = us / 1000000u;
+  const unsigned second = (unsigned)(seconds % 60u);
+  seconds /= 60u;
+  const unsigned minute = (unsigned)(seconds % 60u);
+  seconds /= 60u;
+  const unsigned hour = (unsigned)(seconds % 24u);
+  /* Days since 1980-01-01, shifted to the algorithm's 0000-03-01 era.
+   *
+   * `723120` is 1980-01-01 in that era: `719468` is 1970-01-01, the constant the
+   * days-from-civil algorithm is published with, plus the 3652 days of the
+   * seventies (two leap years). A first version used `722449`, which is 671 days
+   * short and put both known volumes about 1.84 years early -- and the
+   * *time of day* was right throughout, which is exactly what makes a wrong
+   * epoch constant easy to believe. Both dates are checked against the
+   * machine's own `CALENDAR` output in `volume_suite`. */
+  uint64_t days = seconds / 24u + 723120u;
+  const uint64_t era = days / 146097u;
+  const uint64_t doe = days % 146097u;
+  const uint64_t yoe =
+      (doe - doe / 1460u + doe / 36524u - doe / 146096u) / 365u;
+  const uint64_t doy = doe - (365u * yoe + yoe / 4u - yoe / 100u);
+  const uint64_t mp = (5u * doy + 2u) / 153u;
+  const unsigned day = (unsigned)(doy - (153u * mp + 2u) / 5u + 1u);
+  const unsigned month = (unsigned)(mp < 10u ? mp + 3u : mp - 9u);
+  const unsigned year = (unsigned)(yoe + era * 400u + (month <= 2u ? 1u : 0u));
+  printf("  %-12s %08X  %04u-%02u-%02u %02u:%02u:%02u\n", name, ticks, year,
+         month, day, hour, minute, second);
+}
+
 static bool node_id_from_volume(const char *path, uint32_t *out) {
   FILE *file = fopen(path, "rb");
   if (file == NULL) {
@@ -1560,6 +1606,20 @@ static bool node_id_from_volume(const char *path, uint32_t *out) {
   printf("  name         %s\n", label.name);
   printf("  creator UID  %08X%08X\n", label.creator.high, label.creator.low);
   printf("  node ID      %05X\n", label.node_id);
+  /* **The mount history, because it decides whether the boot can succeed.**
+   * Domain/OS refuses a volume whose last shutdown is more than fourteen days
+   * behind the clock, and a volume never cleanly dismounted carries zero there
+   * -- so the check fails at *every* `--clock` and the boot stops with a message
+   * about the calendar that invites tuning the clock instead. Three clocks were
+   * tried against such a volume before its label was read (`FINDINGS.md` C132).
+   * Printing it turns that into one line the reader sees before the run. */
+  print_volume_time("mounted", label.mounted_time);
+  print_volume_time("dismounted", label.dismounted_time);
+  if (!ap_volume_cleanly_dismounted(&label)) {
+    printf("  ** never cleanly dismounted: Domain/OS will salvage this volume,\n"
+           "     and its \"more than 14 days since the last shutdown\" check\n"
+           "     measures from a zero, so no --clock can satisfy it\n");
+  }
   *out = label.node_id;
   return true;
 }
