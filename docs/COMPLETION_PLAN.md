@@ -4747,6 +4747,19 @@ Only after the reference core is proven, and only under an identity harness.
       observed behaviour would have buried both. Fix (a) and (b) first — they
       are wiring defects in the step-1-to-4 work, not the per-cycle
       approximation — then this test measures what it was written for.
+      **Where (a) has to be fixed, traced**: the stall consults
+      `ap_board_processor_may_run`, which is exactly
+      `ap_arbiter_processor_may_run(&board->arbiter)`. So a master's tenure only
+      stops the processor if it becomes **a claim the arbiter grants away**, and
+      `ap_master_tick` does raise one — `holding = state == ACKNOWLEDGED ||
+      state == OWNS`, passed to the arbiter on `port->drq`. The next read is
+      therefore why that claim does not make `ap_arbiter_processor_may_run`
+      false: whether the line needs enabling, whether the arbiter ranks it below
+      the processor, or whether the DRQ number chosen by
+      `ap_board_attach_master` is not a line the arbiter arbitrates. That is one
+      read of `ap_arbiter.c` against `008778-03` §2.4.7, and it very likely
+      explains (b) as well — a claim the arbiter never granted is also a claim
+      it can drop.
       **Then the rest of the order**:
       *then* the `MOVEM`-versus-DMA test becomes writable; *then* it decides
       whether the sequencer rewrite is worth its cost. Three items, and the
