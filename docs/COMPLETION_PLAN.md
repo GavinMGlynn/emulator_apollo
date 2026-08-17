@@ -4710,9 +4710,17 @@ Only after the reference core is proven, and only under an identity harness.
       `SYSBOOT REV` descriptor there and SR10.3 does not**, and that descriptor
       is what the PROM validates. Whether our SR10.3 image is truncated at the
       front, framed differently, or simply not a bootable cartridge is **not
-      established** — and the way to settle it is another SR10.3 boot image to
-      compare against, since `bitsavers`' `Apollo_JRJ/SR10.3/` is listed in
-      `TEST_SHELF.md` as a second source. That is a media question, not an
+      established**. **And there is no second copy of *that* image**:
+      `bitsavers`' `Apollo_JRJ/SR10.3/` lists
+      `018847-001.Crtg_Std_Sfw_Boot_1-REV.00-…ct.gz` under the *same filename*
+      we hold, so ours is the canonical copy and "our download is corrupt" is
+      not the explanation. The standard SR10.3 boot cartridge simply does not
+      carry the descriptor.
+      **That directory does hold two *other* SR10.3 boot cartridges**, neither
+      here: `019376-001.CRTG_PSK8_BOOT_1_W_STANDALONE_…-SR10.3-BOOT.ct.gz`
+      (9.0 M) and `019439-001.CRTG_PSKQ3_91_BOOT_1-…SR10.3_BOOT.ct.gz` (15 M),
+      both named `BOOT`, both Product Support Kits. Fetching one and reading
+      block 0 is the next step — a download and one `python3` read. That is a media question, not an
       emulator defect, which is why every device-side hypothesis here failed. Everything else in the cycle is verified and
       the revert plus clean rebuild were done in the same command.
       Everything else in the cycle is verified: the edit rebuilds `sc499.o`,
