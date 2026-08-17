@@ -8469,18 +8469,47 @@ C56's media-change notifier, C139's `set_binary(true)`.
 running them: the SR10.3 cartridge, the SR10.4 cartridge, the node-ID ROM, and the
 reset sequence.
 
-**What has not been tried, and is the mechanical next step**: bisecting the
-*oracle's own edits* against a blank-image INVOL. C50 predates C56 by its own
-numbering, so at least one edit in `ext/mame` is newer than the last successful
-INVOL -- C56's media-change notifier and C139's `set_binary(true)`. Reverting each
-in turn and re-running one INVOL is four runs at most and does not need a
-hypothesis, which is the right shape after four have failed.
+### The bisect was run, and both oracle edits are exonerated
 
-**Also untested and cheaper**: whether INVOL succeeds on a *copy of a volume that
-already has a label* rather than a blank image. `100001` is refused at *assign*,
-before anything is written, so it may be that this INVOL wants a disk it can
-recognise -- which C50's blank image contradicts, but C50 is the observation now
-in doubt.
+Mechanically, no hypothesis: C139's `set_binary(true)` reverted -> `100001`. Then
+C56's media-change notifier reverted as well -> `100001`. Both restored and
+rebuilt. So the cause is **not** in `ext/mame`'s newer edits.
+
+### And the real discriminator: INVOL refuses a blank disk, not this disk
+
+| target | option | result |
+| --- | --- | --- |
+| blank 348 MB image | 7 | `Unable to assign disk - error status = 100001` |
+| blank 348 MB image | **1** | `100001` |
+| **copy of `dn3500-invol-done.awd`** | 7 | **`Done.`** |
+| copy of `dn3500-invol-done.awd` | 1 | **runs to `volume 1: all, dn3500b`** |
+
+So the assign wants a disk it can recognise, and **C50's record of INVOL
+initialising an all-zero image is the observation now in doubt** -- not the
+harness, not the oracle, not the cartridge, not the node-ID ROM, none of which
+survived being tested.
+
+**And the route for a second volume follows from the table**: re-INVOL a *copy* of
+an existing volume. Option 1 on a copy got all the way through the dialogue and
+stopped with INVOL's own instruction, which is exactly C50's 7-then-1 order stated
+by the program itself:
+
+    Use pre-recorded badspot info? n
+    Please use Option 7 to input badspot list.
+    Then rerun Option 1 and reply 'Y' to the above prompt
+
+### One open question, and it is the one that matters for two nodes
+
+The label was rewritten -- the volume is now named `APOLLODN3500B` with a fresh
+creator UID -- but its node is still **`12345`**, not the `22222` the run was
+given. The ROM *did* load; the session's own header says
+`# image node_id: /home/gavin/apollo-scratch/nodeB.ani`, and `oracle_nodeid`
+already pins that the image satisfies `apollo_ni::call_load`.
+
+So the node ID reaches the device and does not reach the UID generator, and that
+-- not INVOL -- is what stands between here and a genuine second node. Next: read
+`apollo_get_node_id`'s callers and where the UID generator takes its node from,
+which is a source read rather than a run.
 
 *Nothing about this blocks the frontend work, which is landed and tested; it
 blocks only the second volume that a two-node Domain/OS run needs.*

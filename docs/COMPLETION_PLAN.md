@@ -4106,11 +4106,24 @@ discipline throughout.
       — matching the AEGIS transcript — and the answer is the same `100001`. Four
       variables eliminated by running them: both cartridges, the node-ID ROM, the
       reset sequence.
-      *Next, and mechanical rather than another hypothesis: bisect the **oracle's
-      own edits**. C50 predates C56 by its numbering, so at least one `ext/mame`
-      change is newer than the last successful INVOL — C56's media-change
-      notifier, C139's `set_binary(true)`. Revert each in turn against one blank
-      INVOL; four runs at most. `FINDINGS.md` C145.*
+      **The bisect was run and both oracle edits are exonerated** — C139 reverted
+      gives `100001`, C56 reverted as well gives `100001`, both restored.
+      **The real discriminator is the disk**: INVOL refuses a *blank* image with
+      `100001` on options 7 *and* 1, and assigns a **copy of an existing volume**
+      fine — `Done.` for option 7, and option 1 runs to `volume 1: all, dn3500b`.
+      So **C50's record of INVOL initialising an all-zero image is the observation
+      in doubt**, nothing else having survived testing.
+      **And that gives the route**: re-INVOL a *copy*. Option 1 stopped with
+      INVOL's own instruction, which states C50's order itself — *"Please use
+      Option 7 to input badspot list. Then rerun Option 1 and reply 'Y'"*.
+      **One open question remains, and it is the one that matters**: the label was
+      rewritten (`APOLLODN3500B`, fresh creator UID) but its node is still
+      **`12345`**, not the `22222` given. The ROM loaded — the run's header says
+      `# image node_id: …nodeB.ani` and `oracle_nodeid` pins that the image
+      satisfies `call_load`. So the node ID reaches the device and not the UID
+      generator, and *that*, not INVOL, is what stands between here and a second
+      node. Next is a source read of `apollo_get_node_id`'s callers, not a run.
+      `FINDINGS.md` C145.
       **Explicitly not** patching a copied volume's label — the objects on a copy
       carry node A's UIDs and the result would be a machine lying about its
       identity.
