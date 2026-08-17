@@ -4670,10 +4670,18 @@ Only after the reference core is proven, and only under an identity harness.
       `check_tape` traces appear (five of them), so **the `LOGMASKED` channel is
       captured and the recipe is complete**: `VERBOSE (LOG_LEVEL0 |
       LOG_LEVEL1)`, rebuild ~30 s, run with `-- -oslog`, revert, rebuild.
-      No `read_block` lines appeared in that run. **Do not read anything into
-      that yet** — check first whether `read_block` carries a
-      `LOGMASKED(LOG_LEVEL1, …)` call at all, since this thread has already
-      drawn one wrong conclusion from an uncaptured channel. Everything else in the cycle is verified and
+      No `read_block` lines appeared in that run. **Checked, and it was right not to**:
+      `read_block` carries exactly **one** `LOGMASKED` call, at `LOG_LEVEL0`,
+      and it is conditional — `"read_block - duplicating block %d"`, an edge
+      case. There is **no per-call trace at any level**, so its absence from the
+      log was never evidence about whether the PROM reads the tape. The
+      tempting conclusion two entries above would have been wrong.
+      **So the recipe needs one line added, not just a level changed**: an
+      unconditional `LOGMASKED(LOG_LEVEL1, "read_block %d", m_tape_pos)` at the
+      top of `sc499_device::read_block`, then the same cycle — rebuild ~30 s,
+      run with `-- -oslog`, revert, rebuild. That finally answers whether
+      `ex domain_os` issues any tape read at all, which is the one question this
+      whole thread reduces to. Everything else in the cycle is verified and
       the revert plus clean rebuild were done in the same command.
       Everything else in the cycle is verified: the edit rebuilds `sc499.o`,
       and the revert plus clean rebuild both work, done in the same sitting.
