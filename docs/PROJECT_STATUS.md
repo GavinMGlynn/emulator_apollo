@@ -6270,8 +6270,28 @@ Nothing in the run is SR10.3-specific, and that was checked rather than assumed:
 self-test failure appear identically in the SR10.4 reference boot, so they are
 this core's standing gaps. Detail in `FINDINGS.md` C130.
 
-**Not done for this item**: a clean shutdown from the target, and SR10.2 -- whose
-media is held and whose boot cartridge already passes both bootability tests.
+**The clean shutdown is done.** Under the oracle in Service mode -- required once
+the disk is bootable, because the PROM then boots it and the serial console goes
+silent -- `ex salvol` reported `Salvage complete`, `di w` / `ex domain_os` brought
+up `Apollo Phase II Environment Revision 10.3`, and `shut` gave
+`Shutdown successful`. The volume reads `dismounted FFF885FA  2015-09-03
+18:17:38` and its label is structurally identical to the SR10.4 volume's.
+
+**And this core still gates it, which moves the question off the clock.** With
+`--clock 2015-09-05`, two days after that dismount, the salvage is gone and the
+kernel loads directly -- and it still says `More than 14 days have elapsed`. Hash
+`3253FD7CFB8821D4`, 9,786,961,926 clocks, MMU enabled, 442,527 ATC descriptor
+fetches. **Two days is not fourteen**, and the volume that works proves the point
+from the other side: SR10.4's dismount stamp is 2002-11-27 and it boots under the
+**default 1987** clock with no calendar message at all.
+
+So the open question is **what this core presents to Domain/OS as the node's
+time**, not which `--clock` to pass: `--clock` seeds the `MC146818` registers
+while `ap_calendar_build_config` writes the battery RAM independently of it. One
+run settles it. Detail in `FINDINGS.md` C133.
+
+**Not done for this item**: that experiment, and SR10.2 -- whose media is held and
+whose boot cartridge already passes both bootability tests.
 
 #### A restored volume is not a bootable volume
 

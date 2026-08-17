@@ -7559,3 +7559,67 @@ RBAK environment's `)` prompt wrote `.dismounted_time` on
 **The general lesson:** a stop that varies with a parameter invites tuning the
 parameter. Two readings were enough to show the answer was not in that
 direction; the third was one too many.
+
+## C133 -- SR10.3 is cleanly dismounted and boots, and `--clock` is not what the kernel compares
+
+The volume is finished. Under the oracle, in Service mode so the PROM stops at MD
+rather than auto-booting a now-bootable disk:
+
+    ex calendar -> w -> n -> **n** to "Is the calendar correct?" -> 2015/09/04
+    ex domain_os -> n to "BOOT VOLUME NEEDS SALVAGING"
+    re, di c, ex salvol -> w -> "1 -f -s -t"  ->  Salvage complete
+    re, di w, ex domain_os
+        Domain/OS kernel(7), revision 10.3, August 22, 1990
+        Apollo Phase II Environment   Revision 10.3
+    shut -> Shutdown successful
+
+Four things in that sequence were learnt rather than known, and each cost a step:
+
+- **CALENDAR branches.** On a volume whose recorded time is *ahead* of the clock
+  it asks `Is the calendar correct?` instead of `Would you like to reset it?`, and
+  answering `n` is what opens the date prompt. C127's transcript is the other
+  branch.
+- **Service mode is required once the disk is bootable.** With a `sysboot` on the
+  volume the PROM boots it and the serial console goes silent -- two sessions
+  produced *zero bytes* before this was understood. `--mode Service` (added for
+  `001746-06` Procedure 2-7) is what reaches MD.
+- **`ex salvol` needs a reset first.** After the kernel's decline the machine is
+  left mapped and MD answers `NO FILE I/O IN MAPPED MODE`.
+- **`di w` then `ex domain_os` boots the disk's own OS**, which is what makes the
+  clean shutdown possible; `di c` would run the cartridge's RBAK.
+
+`media/dn3500-sr10.3-installed.awd` now reads:
+
+    mounted      FFF86BC8  2015-09-03 17:48:20
+    dismounted   FFF885FA  2015-09-03 18:17:38
+    salvage      FFF83FAE  2015-09-03 16:59:01
+
+and its label is **structurally identical** to `dn3500-sr10.4-installed.awd`'s --
+same fields set, cleanly dismounted, differing only in era and in the salvage
+record.
+
+### And this core still gates it, which localises a different question
+
+Booted here with `--clock 2015-09-05`, two days after that dismount, the salvage
+is gone and the kernel loads directly -- and it still says `More than 14 days
+have elapsed since the last shutdown.` Hash `3253FD7CFB8821D4`, 9,786,961,926
+clocks, MMU enabled, 442,527 ATC descriptor fetches.
+
+**Two days is not fourteen, so the kernel is not comparing our `--clock`.** The
+proof is the volume that works: `dn3500-sr10.4-installed.awd` has
+`dismounted 2002-11-27 21:45:12` and boots under the **default 1987** clock with
+no calendar message at all -- fifteen years *behind* its own dismount stamp,
+which the same check would have to reject.
+
+So the open question is no longer "which `--clock`" -- that was C132's mistake and
+this is the evidence it was a mistake in both directions. It is **what this core
+presents to Domain/OS as the node's time**, and the lead is that `--clock` seeds
+the `MC146818` registers while Apollo's own time may be read from the calendar's
+battery RAM, which `ap_calendar_build_config` writes independently of it. That is
+a one-run experiment (`--battery`, and the config block's own time field) and it
+is the next thing to do, rather than a fourth date.
+
+**What is established regardless**: SR10.3 is installed, cleanly dismounted, and
+executes here through the PROM, the self-tests, the kernel and the MMU. What is
+not established is a boot past the calendar check on this core, and the reason it
+is not is now a question about our calendar rather than about the volume.

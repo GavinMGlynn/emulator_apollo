@@ -5100,11 +5100,36 @@ Only after the reference core is proven, and only under an identity harness.
       **identical** in the SR10.4 reference boot, so they are this core's
       standing gaps rather than something the new release exposed.
       *Detail in `FINDINGS.md` C130.*
-      **What is left for this item**: a clean shutdown from the target so the
-      hash is of a settled volume rather than a salvage, and the same route for
-      **SR10.2** — whose media is held and whose standard boot cartridge already
-      passes both bootability tests, so it is the proven route applied once
-      more.
+      **The clean shutdown is DONE**, and four things in the route were learnt
+      rather than known: CALENDAR **branches** (on a volume whose recorded time
+      is ahead of the clock it asks `Is the calendar correct?`, and `n` is what
+      opens the date prompt); **Service mode is required** once the disk is
+      bootable, because the PROM then boots it and the serial console goes
+      silent — two sessions produced zero bytes before that was understood;
+      `ex salvol` needs a **reset** first, since the kernel's decline leaves the
+      machine mapped and MD answers `NO FILE I/O IN MAPPED MODE`; and `di w`
+      then `ex domain_os` boots the *disk's* own OS, which is what makes the
+      shutdown possible. `SALVOL` then reported `Salvage complete`, the OS came
+      up as `Apollo Phase II Environment Revision 10.3`, and `shut` gave
+      `Shutdown successful`. The volume now reads
+      `dismounted FFF885FA  2015-09-03 18:17:38` and its label is
+      **structurally identical** to the SR10.4 volume's.
+      **And this core still gates it, which moves the question.** With
+      `--clock 2015-09-05` — two days after that dismount — the salvage is gone
+      and the kernel loads directly, and it still says `More than 14 days have
+      elapsed`. Hash `3253FD7CFB8821D4`, 9,786,961,926 clocks, MMU enabled.
+      **Two days is not fourteen, so the kernel is not comparing our `--clock`**,
+      and the volume that works proves it: SR10.4's dismount stamp is 2002 and it
+      boots under the **default 1987** clock with no calendar message at all.
+      So C132's "read the label, not the clock" was right about the label and
+      wrong to leave `--clock` as the lever. The next step is **what this core
+      presents as the node's time** — `--clock` seeds the `MC146818` registers
+      while `ap_calendar_build_config` writes the battery RAM independently — and
+      that is a one-run experiment rather than a fourth date. `FINDINGS.md` C133.
+      **What is left for this item**: that experiment, and then the same route
+      for **SR10.2** — whose media is held and whose standard boot cartridge
+      already passes both bootability tests, so it is the proven route applied
+      once more.
       **SR10.3 is held** — five cartridges in `media/sr10.3/`, plus
       `Apollo_DOMAINOS_SR10.3.5.tgz`. What is missing is an **installed volume**;
       this core boots a volume, not a distribution set.
