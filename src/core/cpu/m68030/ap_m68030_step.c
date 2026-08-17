@@ -6198,7 +6198,25 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     int32_t displacement = branch->displacement8;
     if (branch->size != AP_M68030_BRANCH_8BIT) {
       uint16_t high = 0;
+      /* **Take the exception, do not merely report the fault.** `next_word`
+       * records *what* faulted and leaves *taking* it to the caller; these two
+       * sites returned the step's default `FAULT` instead, so a `Bcc.W` whose
+       * displacement lay in a page that was not resident stopped this core dead
+       * where the hardware vectors through 2 and lets the handler page it in.
+       *
+       * That is not a corner: a four-byte branch two bytes below a page
+       * boundary puts its displacement in the *next* page, and Domain/OS pages
+       * code on demand. SR10.3 hit it in `Init` at `PC 3B46C3FE` reaching for
+       * `3B46C400` -- `no translation`, walk stopped after three levels -- while
+       * SR10.4 boots to `SPM Initialized` without ever landing on one. A latent
+       * defect that only a second release's page layout exposed.
+       *
+       * The same fix was made once before for the *opcode* fetch, whose comment
+       * describes the identical failure at `PC 0081CBFE` reaching for
+       * `0081CC00`. Eleven other `next_word` sites in this file already call
+       * `fault_or_unimplemented`; these were the outliers. */
       if (!next_word(cpu, &out.clocks, &high)) {
+        out.status = fault_or_unimplemented(cpu, &out, instruction_address);
         ap_m68030_charge(cpu, out.clocks);
         return out;
       }
@@ -6207,6 +6225,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       } else {
         uint16_t low = 0;
         if (!next_word(cpu, &out.clocks, &low)) {
+          out.status = fault_or_unimplemented(cpu, &out, instruction_address);
           ap_m68030_charge(cpu, out.clocks);
           return out;
         }
