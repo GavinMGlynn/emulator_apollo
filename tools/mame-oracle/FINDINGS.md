@@ -8141,8 +8141,34 @@ falls at a different tape position, which is consistent with a boundary-handling
 difference rather than with the content. The `sc499` filemark path
 (`block_is_filemark`, the `DE AF FA ED` pattern) is where that would live.
 
-**Not chased further here**, and named rather than left as "SR10.2 does not
-install": the next step is to log `sc499`'s block traffic around tape position
-`0x00a79000 / 512 = 21,449` and see what it returns where a filemark is due --
-the same `VERBOSE (LOG_LEVEL0 | LOG_LEVEL1)` plus `-oslog` recipe C124's thread
-established.
+**Narrowed further without an emulator.** Both images have the *same* ANSI label
+sequence -- `VOL1 UVL1 HDR1 HDR2 UHL1 ... EOF1 EOF2 HDR1 ...`, 112 label blocks
+on SR10.2 against 97 on SR10.3 -- and the `EOF1` the guest says is missing is
+**present**, at `0xA79000`, block 21,449. The tape mark between `EOF2` and the
+next `HDR1` is present too and correct in both: one block of `DE AF FA ED`
+repeated to fill it, verified byte for byte. And `sc499` models no track or
+segment geometry that a boundary could fall on -- its only capacity constant is
+`SC499_CTAPE_MAX_BLOCK_COUNT`, 122,880 blocks, and this image is 116,536.
+
+**So the label is on the tape and the drive did not deliver it**, which points at
+one line. `sc499_device::write_block` ends with
+
+    m_ctape_block_count = m_tape_pos;
+
+so **any write truncates the drive's idea of the tape's length to the position
+written**, and `read_block`'s end-of-tape test is `m_tape_pos >
+m_ctape_block_count`. A write anywhere near block 21,449 would make every read
+past it report end-of-tape -- which is exactly "a label is missing where one is
+required". C124 established that MAME opens a cartridge read/write and that a
+guest does write to it.
+
+**The next step is therefore one run, and one comparison**: md5 the staged
+cartridge in the run directory against the source afterwards. If it differs, the
+guest wrote, and the block-count truncation is the mechanism; the `VERBOSE
+(LOG_LEVEL0 | LOG_LEVEL1)` plus `-oslog` recipe then shows where.
+
+**And a rule broken doing this, mine:** the run directory holding that staged copy
+was deleted in a tidy-up before the comparison was made. C124's own lesson is
+*"preserve the inputs of a run whose result you may want to explain"*, and the
+staged copy is exactly such an input. It costs one re-run rather than anything
+irrecoverable, but the rule was written after the same mistake and was available.

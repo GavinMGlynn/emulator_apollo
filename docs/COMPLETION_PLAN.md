@@ -5263,10 +5263,22 @@ Only after the reference core is proven, and only under an identity harness.
       and that was checked before anything was blamed on it**: `ct_extract.py
       --files` lists 22 ANSI files and `--verify` walks 1,049 objects with every
       block's records filling it exactly, on an image that is a whole 116,536
-      blocks. SR10.3's equivalent verifies the same way. So the difference is in
-      how the tape is *presented* at a file boundary, and the next step is to log
-      `sc499`'s block traffic around tape position 21,449 to see what it returns
-      where a filemark is due — the recipe C124's thread already established.
+      blocks. SR10.3's equivalent verifies the same way.
+      **And narrowed further with no emulator**: both images carry the *same*
+      ANSI label sequence, the `EOF1` the guest calls missing is **present** at
+      block 21,449, and the tape mark between `EOF2` and the next `HDR1` is a
+      correct `DE AF FA ED` block in both. `sc499` models no track geometry a
+      boundary could fall on.
+      **So the label is on the tape and the drive did not deliver it, and one
+      line explains that**: `sc499_device::write_block` ends
+      `m_ctape_block_count = m_tape_pos;`, so **any write truncates the drive's
+      idea of the tape's length**, and `read_block`'s end-of-tape test is
+      `m_tape_pos > m_ctape_block_count`. C124 established that MAME opens a
+      cartridge read/write and that a guest writes to it.
+      *Next: one run, then md5 the staged cartridge against the source. The run
+      directory holding the last one was deleted in a tidy-up before that
+      comparison — C124's own "preserve the inputs" rule, broken by the session
+      that wrote it. `FINDINGS.md` C141.*
       **And a tool defect found on the way**: `--boot-limit` parsed into an
       `unsigned`, so `6000000000` silently became **1,705,032,704** (`6e9 mod
       2^32`) and three runs reported the count they reached as if the bound had
