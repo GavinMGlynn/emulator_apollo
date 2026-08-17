@@ -4747,10 +4747,20 @@ Only after the reference core is proven, and only under an identity harness.
       Neither boots a DN3500 from tape on its own. The remaining untried
       candidate is `019439-001.CRTG_PSKQ3_91_BOOT_1…SR10.3_BOOT.ct.gz` (15 M),
       and the check is the same two commands: block 0 for the descriptor,
-      `ct_extract.py --list | grep sau7`. If that one has both, it is the
-      cartridge; if not, SR10.3 for this model may not be tape-bootable from
-      what survives, which is a media fact to record rather than a defect to
-      chase. That is a media question, not an
+      `ct_extract.py --list | grep sau7`. **Checked, and it has both** — it is the
+      cartridge:
+
+          blk0 : 00 13 d8 00  00 13 d8 2a  00 13 f6 b4  50 71 8e dd
+                 "SYSBOOT REV " … " M68K   "
+          SAUs : sau5 sau6 **sau7** sau8 sau9 sau11 sau12 sau14
+
+      Thirteen `sau7/` entries, and the `0013D800` descriptor the PROM demands.
+      So the bootable SR10.3 media for a DN3500 is
+      **`019439-001.CRTG_PSKQ3_91_BOOT_1`**, the Quarterly PSK boot cartridge —
+      not the standard `Crtg_Std_Sfw_Boot_1`, which has the SAU but no
+      descriptor, and not `019376-001`, which has the descriptor but not the
+      SAU. Three cartridges, one of them right, and the discriminator was two
+      commands each. That is a media question, not an
       emulator defect, which is why every device-side hypothesis here failed. Everything else in the cycle is verified and
       the revert plus clean rebuild were done in the same command.
       Everything else in the cycle is verified: the edit rebuilds `sc499.o`,
