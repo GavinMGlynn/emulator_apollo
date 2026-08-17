@@ -4306,7 +4306,17 @@ Only after the reference core is proven, and only under an identity harness.
       Only `ap_m68030_cache_read` needs a new parameter, since a bus does not
       belong on `ap_m68030_cache_t`. So step 1 is one struct field, one
       parameter, and two locals deleted — much smaller than a refactor of the
-      hottest path. Do it as its own
+      hottest path.
+      **Step 1a is DONE**: the write path's bus now lives in
+      `ap_m68030_access_ctx_t` and `ap_m68030_access_write` uses it instead of a
+      local. Behaviour-neutral by construction — `ap_m68030_bus_begin` assigns
+      every field except `rmc`, which it documents as deliberately preserved and
+      which the caller sets immediately before, so a persisting bus is identical
+      to the fresh local it replaces. No signature changed.
+      *Verification: `ctest` 138/138, identity boot `A354786119A3931D`
+      unchanged.* **Step 1b remains**: `ap_m68030_cache_read`'s local, which
+      does need a parameter since a bus does not belong on
+      `ap_m68030_cache_t`. Do it as its own
       commit with `ctest` and the identity boot before anything in (2).
       **Adding the field is hash-safe, checked**: `ap_m68030_hash_cpu`
       (`ap_m68030_state.c:234`) walks **named fields** — `regs`, `tc`, `crp`,

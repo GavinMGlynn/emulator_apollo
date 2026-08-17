@@ -307,11 +307,11 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
    * and no wait states"). A memory system that inserts wait states will make
    * this longer by itself, which is the point of counting ticks rather than
    * asserting a number. */
-  ap_m68030_bus_t write_bus;
+  ap_m68030_bus_t *const write_bus = &access->bus;
   /* The context's RMC, so a cycle inside an indivisible operation carries the
    * signal the operation asserted. */
-  write_bus.rmc = access->rmc;
-  ap_m68030_bus_begin(&write_bus, physical, function_code,
+  write_bus->rmc = access->rmc;
+  ap_m68030_bus_begin(write_bus, physical, function_code,
                       size == 4u ? AP_M68030_SIZE_LONG
                                  : (size == 2u ? AP_M68030_SIZE_WORD
                                                : AP_M68030_SIZE_BYTE),
@@ -326,12 +326,12 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
       access->wait_states != NULL
           ? access->wait_states(access->context, physical, false)
           : 0u;
-  while (ap_m68030_bus_active(&write_bus)) {
-    ap_m68030_bus_terminate(&write_bus,
-                            write_bus.wait_states >= write_waits
+  while (ap_m68030_bus_active(write_bus)) {
+    ap_m68030_bus_terminate(write_bus,
+                            write_bus->wait_states >= write_waits
                                 ? AP_M68030_TERM_STERM
                                 : AP_M68030_TERM_NONE);
-    (void)ap_m68030_bus_tick(&write_bus);
+    (void)ap_m68030_bus_tick(write_bus);
     out.clocks++;
     if (out.clocks > 64u) {
       break; /* as the read path does: a device that never answers is a bug */

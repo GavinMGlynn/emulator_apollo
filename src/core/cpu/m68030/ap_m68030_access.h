@@ -227,6 +227,18 @@ typedef struct {
   ap_m68030_read_sized_fn read_sized;
 
   void *context;
+
+  /* The bus this context's cycles run on, owned here rather than declared
+   * inside `ap_m68030_access_write`.
+   *
+   * **Step 1 of the per-cycle processor, and behaviour-neutral by
+   * construction.** `ap_m68030_bus_begin` assigns every field of the struct
+   * except `rmc`, which it documents as deliberately preserved and which the
+   * write path sets immediately before calling it -- so a bus that persists
+   * across accesses is identical to the fresh local it replaces. What it buys
+   * is that the cycles become reachable from outside the access, which is what
+   * a machine-driven `bus_tick` will need. */
+  ap_m68030_bus_t bus;
 } ap_m68030_access_ctx_t;
 
 
