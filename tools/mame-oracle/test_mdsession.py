@@ -111,6 +111,13 @@ def poll_swap():
     with open(swapfile + ".ack", "w") as handle:
         handle.write("%d\n%s\n" % (sequence, status))
 
+# The era is passed to `mdsession.lua` through the environment, and the
+# environment is the one thing a stub can read that a Lua script would.
+envlog = os.environ.get("MDSTUB_ENVLOG")
+if envlog:
+    with open(envlog, "w") as handle:
+        handle.write(os.environ.get("APOLLO_MD_ERA", "<unset>"))
+
 if mode == "scribble":
     # Stands in for `sc499_device::write_block`, which is an fseek/fwrite
     # straight into whatever file `-ctape` named. A real guest did exactly this
@@ -392,6 +399,22 @@ def main() -> int:
                                 "MDSTUB_CTAPELOG": str(ctapelog)})
         check("a kept run directory re-stages rather than inheriting damage",
               ctapelog.read_bytes().split(b"\n", 1)[1], b"SYSBOOT REV ")
+
+        # The era reaches the driver script, and its default is C47's install
+        # procedure rather than the host's own year. A flag because the two
+        # callers want opposite answers: the install wants the 25-year shift,
+        # and a volume this project built wants none of it -- Domain/OS refuses
+        # a clock 24 years behind its own last-shutdown stamp (C53). An edit to
+        # the Lua table would serve one caller and have to be remembered.
+        eralog = work / "era"
+        proc = run(stub, ["--stage", "prompt"],
+                   environment={"MDSTUB_ENVLOG": str(eralog)})
+        check("the era defaults to the install procedure's 25-year shift",
+              eralog.read_text(), "25")
+        proc = run(stub, ["--stage", "prompt", "--era", "none"],
+                   environment={"MDSTUB_ENVLOG": str(eralog)})
+        check("and --era none reaches the driver script", eralog.read_text(),
+              "none")
 
         # A followed command file, written before the run: the directives parse
         # and arrive in order, and !quit ends the session rather than the

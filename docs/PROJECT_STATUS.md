@@ -5762,7 +5762,7 @@ with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both d
 | Mono and colour graphics controllers (`board/ap_graphics.*`) | **working**: the register block with its scrambled byte lanes, the blitter wired to the memory cycle, the LUT ports and the four screen geometries. Audited line by line against `[S3K]` ch. 10 and ch. 11 on 2026-08-16 — **no structural defect**, and §10.3.1's eleven-item change list checks out entry by entry. One real finding: the colour raster is printed in full in Table 11-4 and had been taken from the oracle, which was off by one in each direction (`h_total` 1346→1344, `v_total` 841→842). `GRAPHICS.md` finding 19; the dot clock stays `PROVISIONAL` at 68 MHz | `graphics_suite`; `./tools/identity-boot.sh --screen c8p` hashes `6140F8E43F3BCC1C` with 2.17 M controller reads |
 | 3c505 802.3 Ethernet (`device/ap_3c505.*`) | **working end to end, host command path included.** The four flag registers from `[HIS]` §3-2/§3-3/§3-5/§3-6 with the sides the right way round, the §3.1.2/§3.1.3 mailbox in both directions, the command set, DMA on DRQ6 and the interrupt on IRQ10. The audit's finding: §3.1.2's *host→adapter* half had never been wired — assembler, dispatcher and responder all existed and were unit-tested, nothing called them, and a host command was answered never. `ETHERNET.md` finding 19; the pacing approximation is 19a. The line-by-line pass then found four more: §3.1.1's accept/reject flags were never signalled at all (20), `02H`'s receive mode was stored and never consulted so every frame on the wire was this station's (21), `3AH`'s length is `10H` not the `0CH` printed -- `[HIS]` App. F, the packet counters became double words in Rev 2.0 (22) -- and `0FH` self-test is now answered while `0CH`/`0DH`/`0EH`/`11H` stay refused because every field of their responses is unmodelled (23), and §1.12's adapter reset both cleared the Host Control Register it must not touch and released the adapter while the host still held `ATTN`+`FLSH` (25) | `etherlink_suite`, 50 tests, of which `test_a_command_written_by_the_host_is_answered_by_the_adapter` crosses the real registers with no test-side wiring |
 | MAME oracle harness | working and used throughout. Beyond the dumper there are now four probe tools — `regprobe.lua` drives every bit of a register in both directions, `writetrace.lua` taps writes to watch firmware program a device, `steptime.lua` single-steps for instruction timing, `mdcapture.lua` traces the serial registers byte-exact — and findings C10 through C14 are all measurements taken with them | `oracle_driver` (19 checks, stub MAME) and `oracle_dump_format` (19 checks, mock machine); `./apollo -listfull` lists all eleven apollo machines |
-| Interactive boot-PROM session (`mdsession.py`, `mdsession.lua`) | working, and it performed the Domain/OS install end to end. Holds a machine open across stages, reads the console and answers it; stdin is a **pty**, so a command is written when its prompt appears rather than trickled at a fixed rate. `--commands FILE` is followed while the run continues, so an unpublished dialogue can be answered as it is read. `!swap` changes a cartridge without stopping the machine. A killed driver takes its emulator with it. **Deliberately not reproducible in the oracle-reading sense**: it is paced by the host, so nothing timed may be measured through it — its products are a disk image and a transcript | `oracle_session`, 41 checks against a stub MAME that goes deaf on `re` as the real machine does, and that writes to the cartridge path it is given as `sc499` does; `FINDINGS.md` C49-C58, C124 |
+| Interactive boot-PROM session (`mdsession.py`, `mdsession.lua`) | working, and it performed the Domain/OS install end to end. Holds a machine open across stages, reads the console and answers it; stdin is a **pty**, so a command is written when its prompt appears rather than trickled at a fixed rate. `--commands FILE` is followed while the run continues, so an unpublished dialogue can be answered as it is read. `!swap` changes a cartridge without stopping the machine. A killed driver takes its emulator with it. **Deliberately not reproducible in the oracle-reading sense**: it is paced by the host, so nothing timed may be measured through it — its products are a disk image and a transcript | `oracle_session`, 43 checks against a stub MAME that goes deaf on `re` as the real machine does, and that writes to the cartridge path it is given as `sc499` does; `FINDINGS.md` C49-C58, C124 |
 | Distribution cartridge extractor (`tools/ct_extract.py`) | **working, and it reads every SR10.3 cartridge**: ANSI labels, `wbak` blocks and records, `--list`, `--extract` by path or basename, `--extract-all`. `ring8a.drvr` came out of it, 29,992 bytes. The AEGIS filesystem walk it replaces is abandoned — see the section below | `ct_extract`, 16 checks against a cartridge it builds; `--verify` parses all five cartridges with zero residue, 9,426 objects |
 | Golden regression harness | working | `golden_model_table`, run under every build preset; drift, `-O3` identity and regeneration all verified |
 | Shared frontend layer (`frontend/common/`) | working: option parsing and the model table report, plus `ap_png` — screenshots as indexed-colour PNGs, so an index and the palette behind it stay separable in the file exactly as they are in the hardware. libpng is optional and the build says which it is; without one the entry point reports "built without libpng", which is a different answer from a failed write | `frontend_common_suite`, 21 tests |
@@ -6199,11 +6199,29 @@ including the two facts that fixed the mechanism, in `FINDINGS.md` C124.
 
 **SR10.3.5 now loads reproducibly**: `Domain/OS kernel(7), revision 10.3.5,
 June 19, 1991` from a clean `invol-done` volume, three runs of one invocation
-with byte-identical consoles and the source cartridge's md5 unchanged. It stops
-at Domain/OS's own calendar gate (`More than 14 days have elapsed since the last
-shutdown`), which is measured to clear with the harness's `25 Years Ago` config
-off. The install onto it, and the state hash the plan item asks for, are not
-done.
+with byte-identical consoles and the source cartridge's md5 unchanged. **The
+install onto it, and the state hash the plan item asks for, are not done**, and
+what blocks them is Domain/OS's own calendar gate.
+
+The gate is measured rather than guessed at. Over 1,200 emulated seconds the
+kernel loads, writes 1,191 disk sectors, prints `More than 14 days have elapsed
+since the last shutdown` and then loops at `3C451DE8`-`3C451E00` with the tape
+and disk write counters **frozen** at 41,753 and 3,513 -- a terminal wait, not a
+halt and not a prompt. A carriage return does not move it.
+
+What it compares is arithmetic: the checkpoint was cleanly shut down on
+2026-08-01 and the host is 2026-08-17, **16 days against a threshold of 14**.
+That is why the SR10.4 install worked -- its checkpoint was made the day it was
+used -- and it means a checkpoint ages into this gate without changing.
+
+**The 25-year era config is not the way out, and that claim is withdrawn.**
+`apollo_m.cpp:1213` shifts the RTC year only when it is `< 25`, `< 30` or
+`>= 70`; a 2026 host presents 26, so the setting does nothing at either
+position and an A/B across it compares two identical machines. `mdsession.py`
+exposes `--era {25,30,none}` anyway, because a config that had been switched
+back and forth for several sessions should be selectable rather than edited --
+but `--era 30` puts the guest in 1996, which is the opposite failure. The three
+routes that remain are named in `FINDINGS.md` C125.
 
 ### Model figures confirmed from `[CFG]`
 

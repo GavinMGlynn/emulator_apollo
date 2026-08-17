@@ -46,6 +46,8 @@
 --                      autobaud (default "Numpad Enter")
 --   APOLLO_MD_POST_AT  emulated seconds to wait before pressing (default 4.0)
 --   APOLLO_MD_HOLD     emulated seconds to hold it down (default 0.2)
+--   APOLLO_MD_ERA      "25" (default, C47's install procedure), "30", or
+--                      "none" for the host's own year. See `ERA` below
 --   APOLLO_MD_DISPLAY  Graphics Controller setting name. **Unset means this
 --                      script leaves the setting alone**, so the machine keeps
 --                      MAME's own default for the driver -- `dn3500` is
@@ -90,11 +92,23 @@
 -- "Graphics Controller" likewise has no Off. A DN3500 always has a display
 -- (`mdcapture.lua`'s header records the search that established it), so the
 -- only question is which, and the default is what the wiki's procedure ran.
+--
+-- `APOLLO_MD_ERA` selects the year shift, because C47's "on" is right for the
+-- *install procedure* and wrong for booting a volume this project built. The
+-- shift puts the guest 25 years behind the host, so a 2026 host presents 2002
+-- to a volume stamped 2026, and Domain/OS refuses a clock that runs backwards
+-- between sessions (C53) -- measured, not reasoned: with the shift on, SR10.3.5
+-- stops at "More than 14 days have elapsed since the last shutdown", and with
+-- it off the kernel proceeds. A flag rather than an edit to this table, since
+-- the install needs the other answer and an edit is a thing to remember to
+-- revert.
+local ERA = os.getenv("APOLLO_MD_ERA") or "25"
+
 local CONFIG = {
 	["Normal/Service"]    = "Normal",
 	["German Keyboard"]   = "Off",
-	["30 Years Ago ..."]  = "Off",
-	["25 Years Ago ..."]  = "On",
+	["30 Years Ago ..."]  = ERA == "30" and "On" or "Off",
+	["25 Years Ago ..."]  = ERA == "25" and "On" or "Off",
 	["Node ID from Disk"] = "Off",
 	["Trap Trace"]        = "Off",
 	["FPU Trace"]         = "Off",

@@ -7187,3 +7187,74 @@ consumed by looking at it.
 **The rule:** an input that a run can open read/write is not an input. Check the
 artefact before the sixth hypothesis -- and hash it before *and* after any run
 whose result you may want to explain.
+
+## C125 -- the "25 Years Ago" config does nothing in 2026, and the gate is a terminal wait
+
+Two findings from one measured run, and the first retires a claim this project
+had recorded as measured.
+
+### The era config is a no-op at this host date
+
+`apollo_m.cpp:1213` shifts the RTC year on **every** reset, but only inside
+three windows:
+
+    if      (year < 25  && APOLLO_CONF_25_YEARS_AGO) year += 75;
+    else if (year < 30  && APOLLO_CONF_30_YEARS_AGO) year += 70;
+    else if (year >= 70 && !30_YEARS_AGO && !25_YEARS_AGO) year -= 70;
+
+A 2026 host presents `26`, which is **not** `< 25`, not `>= 70`, and only
+`< 30` for the 30-year setting. So with "25 Years Ago" on or off the machine
+gets the *same* clock, and an A/B between them compares two identical
+configurations.
+
+**This refutes a recorded measurement.** The plan said the calendar gate
+"clears, measured: with the harness's `25 Years Ago` off the '14 days' message
+is gone and the kernel proceeds". Re-run with the shift off: the message is
+still there, byte for byte. The earlier reading came from a run that also
+differed in its volume -- the confound that ran through that whole thread.
+
+`--era 30` is the one setting that still does something here: `26 + 70` puts the
+guest in **1996**, which is C53's other failure mode rather than a fix.
+
+### The gate is a terminal wait, and the machine is not halted
+
+Measured with `APOLLO_MD_ACTIVITY=15` over a 1,200-emulated-second run, which is
+what distinguishes waiting from stopped:
+
+| emulated | PC | tape w | disk w | what |
+| --- | --- | --- | --- | --- |
+| 15-60 s | `00002BCC`-`000039C0` | 0 → 157 | 2198 → 2322 | PROM, `di c` |
+| 60-440 s | `000039xx` | 157 → 41,753 | 2322 | the PROM's tape loader |
+| ~450 s | `3C451DE8` | 41,753 | 2322 → 3,513 | kernel entered, volume touched |
+| 450-1200 s | `3C451DE8`-`3C451E00` | **41,753** | **3,513** | frozen |
+
+So the kernel loads, writes 1,191 disk sectors, prints the gate and enters a
+tight loop with **no further I/O at all**. A carriage return does not move it,
+and neither do two. It is not a prompt and not a crash: it is the wait the
+message describes, and the message means what it says -- service mode, reset,
+`CALENDAR`.
+
+### What the gate compares, and the three ways past it
+
+`dn3500-invol-done.awd` was cleanly shut down on 2026-08-01 and the host is
+2026-08-17: **16 days**, against a threshold of 14. That is the whole of it, and
+it is why the SR10.4 install worked -- the checkpoint was made the same day it
+was used. A checkpoint ages into this gate whether or not anything about it
+changes.
+
+The routes, none of them taken yet and each a piece of work:
+
+1. **A checkpoint made the same day.** A fresh INVOL, which is blocked on
+   `Unable to assign disk - error status = 100001`.
+2. **A host-clock shim** for the MAME process (`libfaketime`), which is not
+   installed here. MAME has no option to set the emulated date.
+3. **The machine's own remedy**: boot in Service mode, `ex calendar` and set the
+   date (C52 has the dialogue), then boot Normal from the same run directory so
+   the RTC's NVRAM carries it. This needs a *clean* MAME exit -- `!quit` kills
+   the process, and NVRAM is written on exit -- so it needs a driver flag before
+   it can be tried.
+
+**The rule this is an instance of:** a config whose effect depends on the host
+clock has to be checked against the host clock, not assumed from its name. This
+one had been switched on and off across several sessions and reasoned about in
+both directions while doing nothing at all.

@@ -5344,12 +5344,16 @@ Only after the reference core is proven, and only under an identity harness.
       right media rather than unexplained luck. It stops at the same calendar
       gate (`More than 14 days have elapsed since the last shutdown`), which was
       measured earlier to clear with the harness's `25 Years Ago` config off.
-      **The calendar gate clears**, measured: with the harness's `25 Years Ago`
-      off the "14 days" message is gone and the kernel proceeds. It then hits
-      `Crash_Status 00010005 PC 3C451CC2 pid 0001` — which `FINDINGS.md` C54
-      identifies as the *unclean volume* decline, and the volume **is** dirty,
-      because the previous run wrote to it. C54's own line covers this: *a
-      failed stage is not a no-op.*
+      **"The calendar gate clears with `25 Years Ago` off" is WITHDRAWN**, and
+      the reason retires the config as a lever. `apollo_m.cpp:1213` shifts the
+      RTC year only when it is `< 25` (25-year), `< 30` (30-year) or `>= 70`
+      (neither), and a 2026 host presents **26** — so with the shift on or off
+      the machine gets the *same* clock and that A/B compared two identical
+      configurations. Re-run with it off: the message is there byte for byte.
+      The earlier reading also differed in its volume, which is the confound
+      that ran through this whole thread. `--era 30` is the only setting that
+      still does anything here, and it puts the guest in **1996**, which is
+      C53's other failure mode rather than a fix. Detail in `FINDINGS.md` C125.
       **Then a thread of six eliminations, and the answer was the medium.**
       The kernel load would not reproduce: two runs worked and five reported
       `sysboot not found` on the same cartridge. The invocation, the run
@@ -5374,10 +5378,28 @@ Only after the reference core is proven, and only under an identity harness.
       than on the command line; then **three runs of one invocation, one at a
       time, byte-identical consoles** and the source md5 unchanged. Detail in
       `FINDINGS.md` C124.*
-      **So SR10.3.5 loads reproducibly**, and what remains of this item is the
-      calendar gate (measured to clear with the harness's `25 Years Ago` off),
-      then MINST from the four software cartridges, then the state hash the item
-      asks for.
+      **So SR10.3.5 loads reproducibly**, and what remains is the calendar gate,
+      then MINST from the four software cartridges, then the state hash.
+      **The gate is measured and is a terminal wait, not a halt**: over 1,200
+      emulated seconds the kernel loads, writes 1,191 disk sectors, prints the
+      message and then loops at `3C451DE8`-`3C451E00` with tape and disk write
+      counters **frozen** at 41,753 and 3,513. A carriage return does not move
+      it and neither do two. It means what it says.
+      **And what it compares is arithmetic**: `dn3500-invol-done.awd` was shut
+      down cleanly on 2026-08-01 and the host is 2026-08-17 — **16 days against
+      a threshold of 14**. That is why the SR10.4 install worked: its checkpoint
+      was made the day it was used. A checkpoint ages into this gate without
+      changing.
+      **Three routes, none taken, each a piece of work**: a fresh INVOL the same
+      day (blocked on `Unable to assign disk - error status = 100001`); a
+      host-clock shim for the MAME process (`libfaketime`, not installed, and
+      MAME has no option to set the emulated date); or the machine's own remedy
+      — Service mode, `ex calendar`, then Normal from the same run directory so
+      the RTC's NVRAM carries the date, which needs a **clean MAME exit** and so
+      a driver flag before it can be tried at all. Detail in `FINDINGS.md` C125.
+      *`--era {25,30,none}` exists now and is verified (`test_mdsession.py`),
+      because making the config selectable was worth doing even though the
+      measurement it was wanted for came back negative.*
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
       console selection is an autobaud (`000844`-`0008B8`) that the scripted

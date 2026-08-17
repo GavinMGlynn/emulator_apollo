@@ -711,6 +711,11 @@ def main(argv=None) -> int:
                         help="seconds to keep reading after the script ends, "
                              "sending nothing. This is how an unrecorded "
                              "dialogue is learnt rather than guessed at.")
+    parser.add_argument("--era", default="25", choices=("25", "30", "none"),
+                        help="the driver's year shift. C47's install procedure "
+                             "wants 25, and a volume this project built wants "
+                             "none -- Domain/OS refuses a clock 24 years "
+                             "behind its own last-shutdown stamp (C53)")
     parser.add_argument("--keep-rundir", action="store_true",
                         help="do not wipe the run directory first")
     parser.add_argument("mame_args", nargs="*",
@@ -747,6 +752,7 @@ def main(argv=None) -> int:
 
     environment = dict(os.environ)
     environment.setdefault("APOLLO_MD_POST", "Numpad Enter")
+    environment["APOLLO_MD_ERA"] = args.era
 
     swapfile = rundir / "swap"
     environment["APOLLO_MD_SWAPFILE"] = str(swapfile)
