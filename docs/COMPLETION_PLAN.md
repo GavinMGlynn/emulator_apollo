@@ -4314,9 +4314,19 @@ Only after the reference core is proven, and only under an identity harness.
       which the caller sets immediately before, so a persisting bus is identical
       to the fresh local it replaces. No signature changed.
       *Verification: `ctest` 138/138, identity boot `A354786119A3931D`
-      unchanged.* **Step 1b remains**: `ap_m68030_cache_read`'s local, which
-      does need a parameter since a bus does not belong on
-      `ap_m68030_cache_t`. Do it as its own
+      unchanged.* **Step 1b remains, and it is not as mechanical as 1a.**
+      `ap_m68030_cache_read` already takes **ten parameters** and has **twelve
+      call sites** (`ap_m68030_access.c`, `tests/cache_suite.c`), so an
+      eleventh is poor design rather than merely tedious — the honest options
+      are (a) add the parameter anyway and bundle later, or (b) bundle the
+      argument list into a request struct *first*, which touches the same twelve
+      sites once instead of twice.
+      **And a correctness question with it**: whether the read path shares
+      `ap_m68030_access_ctx_t`'s bus or gets its own field. They are never live
+      simultaneously — a read-modify-write is a read *then* a write — so one bus
+      is defensible and would match the hardware, which has one. But that is an
+      argument to make explicitly against `[030]` §7.3.6 rather than to settle
+      by whichever is easier to type. Decide it in 1b's commit message. Do it as its own
       commit with `ctest` and the identity boot before anything in (2).
       **Adding the field is hash-safe, checked**: `ap_m68030_hash_cpu`
       (`ap_m68030_state.c:234`) walks **named fields** — `regs`, `tc`, `crp`,
