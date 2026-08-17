@@ -4147,9 +4147,20 @@ discipline throughout.
       to initialize the configuration table."* Both SR10.3 boot cartridges carry
       `sau7/config`. Its dialogue is in no manual here, like INVOL's was not, so
       it gets read from the machine a turn at a time through `--commands`.
-      *So the remaining step is fully specified: boot node B, `ex config`, set
-      NODEID to `22222`, then INVOL as above — option 7, then option 1 with `y`.
-      Nothing in it is unknown except the `config` prompts. `FINDINGS.md` C147.*
+      **And the `config` prompts are now read from the machine** (C148), which
+      was the last unknown: `Would you like to reconfigure this node` → `y`,
+      `Did the memory configuration change` → `n`, ` NODE_ID:` → **`22222`**,
+      display `New type:` → RETURN, FPU → `y`, FPA → `n`, floppy → `n`,
+      Winchester → `y` then **controller type `0`** (SMS/Omti, which is what
+      `ap_omti.*` models), cartridge tape → `y`, then the rest of
+      `002398-04`'s DEV BIT ARRAY order.
+      **`Node-id: 0` is what `config` reports** on a machine MAME calls node
+      `12345` — a third corroboration that the ROM window and the battery table
+      are different sources and the battery one is empty.
+      *That run wrote nothing: its `--commands-timeout` expired mid-dialogue, so
+      the volume still records `12345` and the transcript is the product. Size the
+      next one for a dialogue read a turn at a time — 900 s was not enough for the
+      prompts alone. `FINDINGS.md` C147, C148.*
       **Item state**: the two-node frontend is built and tested, INVOL runs to
       completion on a copied volume, and the one remaining gap is putting a
       *different* node into that volume.

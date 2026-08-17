@@ -8596,3 +8596,55 @@ runs and a reverted oracle edit establishing by measurement what
 `ap_calendar.h` states in a table. `CLAUDE.md`'s resolution order is reference,
 web, oracle -- and "reference" includes the parts of it this project has already
 transcribed.
+
+## C148 -- `ex config`'s dialogue, read from the machine
+
+C147 named `ex config` as the way to set a node's ID and noted its dialogue is in
+no manual here. Read from the machine, as INVOL's was in C50. `di c` then
+`ex config` off `019593-001`:
+
+    Config - Offline(7), revision 10.4, December 2, 1991
+           Current configuration
+    WARNING -- battery bad or data corrupted
+    Memory:  Total configured memory: 0 megabytes
+    Node-id:       0
+    MMU type:     UNKNOWN
+    Display type: NONE
+    Peripheral devices:  NONE
+
+**`Node-id: 0` on a machine MAME reports as node `12345`** -- which corroborates
+C147 from a third direction: the ROM window and the battery table are different
+sources, and the battery one is empty.
+
+The dialogue, in order, with the answer a DN3500 wants:
+
+| Prompt | Answer |
+| --- | --- |
+| `Would you like to reconfigure this node (Y/N)?` | `y` |
+| *"Type RETURN in response to any question to leave that option unchanged."* | -- |
+| `Did the memory configuration change (Y/N)?` | `n` |
+| ` NODE_ID:` | **`22222`** |
+| ` DISPLAY type:` … `New type:` | RETURN |
+| `Does this node have a MC68881/MC68882 floating point unit (Y/N)?` | `y` |
+| `Does this node have a floating point accelerator (Y/N)?` | `n` |
+| `Does this node have a Floppy disk (FLP7) (Y/N)?` | `n` |
+| `Does this node have a Winchester (WIN7) (Y/N)?` | `y` |
+| `WINCHESTER CONTROLLER Type: 0 -- SMS/Omti, 1 -- Western Digital` … `New type:` | **`0`** |
+| `Does this node have a Cartridge tape (CTAPE7) (Y/N)?` | `y` |
+| *(further device prompts not yet reached)* | |
+
+**Two things to get right that this run did not.** The Winchester answer is
+followed by a *controller type* prompt, and a `y` intended for the next device
+question lands on it -- `0` is SMS/Omti, which is what this core models and what
+`ap_omti.*` implements. And the run's `--commands-timeout` expired mid-dialogue,
+so **nothing was written**: the volume still records `12345`, and the transcript
+above is the product rather than a configured machine.
+
+**The remaining sequence is now free of unknowns** except the device prompts after
+the cartridge tape, which follow `002398-04`'s DEV BIT ARRAY order (`flp`,
+`ctape`, `win`, `fpu`, `ring`, user device, `ethernet`, serial/parallel). Then
+`ex invol` -- option 7, then option 1 with `y` (C145) -- writes a label carrying
+the new node, and `node_id_from_volume` will read `22222` out of it.
+
+*Give the next run a `--commands-timeout` sized for a dialogue read a turn at a
+time: this one was 900 s and the prompts alone took longer.*
