@@ -279,6 +279,10 @@ static void print_usage(const char *program_name) {
           "                        the controller and the keyboard. Every question\n"
           "                        of the form \"why did my keystroke do nothing\"\n"
           "                        this session was answerable from these lines\n"
+          "  --cycle-stepped       drive the boot one machine cycle at a time\n"
+          "                        through the tick rather than one instruction\n"
+          "                        at a time. The two must agree: a differing\n"
+          "                        state hash means the tick reorders something\n"
           "  --mid-access-devices  advance devices to the instant each access\n"
           "                        happens, so a device output is visible to the\n"
           "                        instruction still executing. Off by default:\n"
@@ -1630,6 +1634,12 @@ static ap_ring_medium_t g_ring_segment;
  * on the same 350 M boot, with identical clocks -- and which matches the
  * hardware is a question for the oracle rather than a preference. */
 static bool g_devices_mid_access = false;
+
+/* Drive the boot one *machine cycle* at a time through `ap_machine_tick`
+ * instead of one instruction at a time. The two must produce the same state:
+ * the tick hands out the same clocks the instruction spent, in the order it
+ * spent them, so a differing hash means the tick reorders something. */
+static bool g_cycle_stepped = false;
 
 static const char *g_ring_rom_path = NULL;
 static uint8_t *g_ring_rom = NULL;
@@ -3875,7 +3885,18 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * it is what stops the two diverging again. */
       /* So a watch can name the instruction rather than a byte inside it. */
       machine.executing_address = step_pc;
-      const ap_machine_run_t one = ap_machine_run(&machine, 1u);
+      ap_machine_run_t one;
+      if (g_cycle_stepped) {
+        /* One instruction's worth of cycles, handed out one at a time. The
+         * first tick starts the instruction and delivers its first clock; the
+         * rest deliver the remainder. */
+        one = ap_machine_tick(&machine);
+        while (machine.pending_cycles > 0u) {
+          (void)ap_machine_tick(&machine);
+        }
+      } else {
+        one = ap_machine_run(&machine, 1u);
+      }
       /* The instruction word is read back from where it executed, since the
        * machine's loop reports why a run ended and not which word did it.
        *
@@ -5342,6 +5363,11 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--tape") == 0 && i + 1 < argc) {
       tape_path = argv[i + 1];
       i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--cycle-stepped") == 0) {
+      g_cycle_stepped = true;
+      i++;
       continue;
     }
     if (strcmp(argv[i], "--mid-access-devices") == 0) {

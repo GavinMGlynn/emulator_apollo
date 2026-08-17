@@ -4584,15 +4584,22 @@ Only after the reference core is proven, and only under an identity harness.
       the instruction-stepped path is byte-for-byte what it was.
       *Verification: `ctest` 138/138 and identity boot `A354786119A3931D`
       unchanged.*
-      **What is verified and what is not, plainly.** Verified: the tick exists,
-      compiles, and does not disturb the instruction-stepped loop. **Not
-      verified: that a boot driven *through* the tick reproduces the same
-      hash** — no frontend drives it yet, so nothing exercises it end to end.
-      That is the next thing, and until it is done the tick is a built but
-      unexercised path, which `check_what_is_called_by_nobody` is exactly the
-      warning about.
-      **Ordering half done; feedback half measured; the tick built and not yet
-      driven.**
+      **DRIVEN AND VERIFIED.** `--cycle-stepped` runs the boot one machine cycle
+      at a time through the tick instead of one instruction at a time, and the
+      two produce **byte-identical state**: `9E6CD6DA5B9DD8A8` at 20 M and
+      **`A354786119A3931D` over the full 350 M boot**, `ctest` 138/138, all
+      reachable frontend flags exercised.
+      **So the machine now steps by machine cycle, and it is the same machine.**
+      That is the item's central claim demonstrated rather than designed — and
+      the path is exercised rather than merely present, which is what
+      `check_what_is_called_by_nobody` warns about and what a hash from a flag
+      nothing drove would have hidden.
+      **The one approximation, named and unhidden**: the CPU's *internal* state
+      commits at the instruction's start rather than progressively across its
+      cycles. Everything outside the CPU — bus, arbiter, devices, interrupts —
+      sees a true per-cycle machine. Closing that last gap is the 6,966-line
+      sequencer rewrite, and the 350 M A/B says nothing on this machine can
+      currently tell the difference.
       **Passed the bus explicitly at all twelve rather than defaulting a NULL to
       a local.** A NULL fallback would cost zero test edits and is the tempting
       shortcut, but from increment (3) the bus is *resumable state*, and a test
