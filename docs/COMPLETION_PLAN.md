@@ -5011,9 +5011,50 @@ Only after the reference core is proven, and only under an identity harness.
       releases and applications we lack are named rather than implied.
       *Verification: every cited path is in the repository and `doc_claims`
       checks that.*
-- [ ] Boot every Domain/OS release obtainable (SR9.7, SR10.1–10.4).
+- [ ] Boot every Domain/OS release obtainable — **SR10.2, SR10.3, SR10.4**.
       *Verification: each boot recorded with its state hash; failures explained,
       not hidden.*
+      **The scope is now established rather than assumed.** The item used to say
+      "(SR9.7, SR10.1–10.4)". There is **no SR9.7 or SR10.1 install media
+      online**: bitsavers holds `SR10.2/`, `SR10.3/`, `SR10.4/`, `SR10.4.1/`, and
+      Jim Rees' Apollo archive holds none at all and points at bitsavers for
+      images. Searches return documentation and mentions, not media. SR10.4.1 is
+      an upgrade set over SR10.4 rather than a release to install from bare
+      metal. Detail in `FINDINGS.md` C126.
+      **SR10.2 is now held** — four cartridges in `media/sr10.2/` — and its
+      *standard* boot cartridge passes both of C124's bootability tests, which
+      SR10.3's did not: the `0013D800`/`SYSBOOT REV` descriptor at block 0 and
+      13 `sau7/` entries. Checked before any emulator ran, which is the lesson
+      of that finding applied.
+      **The calendar gate is cleared, by the machine's own documented remedy.**
+      `001746-06` Procedure 2-7 gives the `EX CALENDAR` dialogue; answering `y`
+      to "would you like to reset it" and supplying a date clears
+      `More than 14 days have elapsed`, and `ex domain_os` then offers
+      `RBAK_BS reloading system software` and `Do you wish to proceed? (Y/N)` —
+      the SR10.4 install's own next step. CALENDAR takes the *disk* as its first
+      answer and on the evidence stamps the volume, which is why running it
+      clears a gate about the last shutdown. `mdsession.py --mode Service` now
+      exists because the procedure names the switch; it turns out not to be
+      required here. One thing is unexplained and recorded rather than smoothed
+      over: CALENDAR aborts on exit every time (`10200E6: 6100`, a crash-entry
+      line per `002398-04` §4) and reads back a date other than the one asked
+      for — sufficient, since the gate clears, but not understood. C127.
+      **SR10.3's OS is restored and the volume cleanly shut down**:
+      `media/dn3500-sr10.3-osclean.awd`, 474 entries restored,
+      `Restore complete.` then `shut` → `Shutdown successful`.
+      **But a restored volume is not a bootable volume, and that is now proven
+      rather than suspected.** RBAK's own log says
+      `TFP: Skipping over SYSBOOT found at beginning of volume.`, and
+      `SYSBOOT REV` is present at `0x870` in the MINST-completed SR10.4 volume
+      and **absent** from both `-osclean` volumes and from `invol-done`. `0x870`
+      is block 2 of a 1024-byte-block volume, which is `[AEGIS]` §4.3.2's
+      physical `02`-`0B` exactly. Our core booting either `-osclean` volume gives
+      byte-identical results — `74FD47F132624CFF`, final PC `00000794`,
+      1,266,013,264 clocks — which is the proof that neither volume's contents
+      reached the PROM. So "boot the release" requires **MINST**, not the
+      restore, and the SR10.4 route was right to run it. C128.
+      **MINST from the four SR10.3 software cartridges is the remaining step**,
+      then the state hash under this core for each of the three releases.
       **SR10.3 is held** — five cartridges in `media/sr10.3/`, plus
       `Apollo_DOMAINOS_SR10.3.5.tgz`. What is missing is an **installed volume**;
       this core boots a volume, not a distribution set.

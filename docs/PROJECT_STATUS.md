@@ -6169,8 +6169,9 @@ project made from it, and the section below says how. Everything here is
 gitignored; the built image is pinned instead by
 `docs/references/DOMAINOS_IMAGE.md`.
 
-Also held, in `media/sr10.3/`: three SR10.3 boot cartridges and four software
-ones. Only **`019439-001.CRTG_PSKQ3_91_BOOT_1`** boots a DN3500, and it takes
+Also held, in `media/sr10.2/`: the four SR10.2 cartridges, whose **standard**
+boot cartridge passes both bootability tests below. And in `media/sr10.3/`:
+three SR10.3 boot cartridges and four software ones. Only **`019439-001.CRTG_PSKQ3_91_BOOT_1`** boots a DN3500, and it takes
 two one-line checks to tell — block 0 must carry the `SYSBOOT REV`/`0013D800`
 descriptor the boot PROM validates, *and* the tape must hold the model's SAU
 directory (`sau7`). `018847-001` Crtg_Std_Sfw_Boot_1 has the SAU and no
@@ -6196,6 +6197,26 @@ reported `error: sysboot not found` for every run afterwards. Six emulator-side
 hypotheses were eliminated first, and the volume was `cmp`-ed before and after a
 run, because the cartridge was an input and inputs are not suspected. Detail,
 including the two facts that fixed the mechanism, in `FINDINGS.md` C124.
+
+#### A restored volume is not a bootable volume
+
+`SYSBOOT REV` is at `0x870` in `dn3500-sr10.4-installed.awd` and **absent** from
+`dn3500-osclean.awd`, `dn3500-sr10.3-osclean.awd` and `dn3500-invol-done.awd`.
+`0x870` is block 2 of a 1024-byte-block volume plus a 112-byte header, which is
+`[AEGIS]` §4.3.2's ten contiguous blocks at physical `02`-`0B` (`RING.md` 85d).
+
+RBAK says so itself, at line 45 of its 534-line restore log: `TFP: Skipping over
+SYSBOOT found at beginning of volume.` The install manual `008860-A03` shows why
+-- `sysboot` is a *separate tape file*, `File ID: /base sysboot`, restored after
+`ri.apollo.os.v.10` -- and `001746-06` Table 3-2 lists it as the "Node boot
+program".
+
+So a `-osclean` checkpoint cannot be booted by the PROM **by construction**, and
+this core booting either of them gives byte-identical results:
+`74FD47F132624CFF`, final PC `00000794`, 1,266,013,264 clocks, for SR10.3 and
+SR10.4 alike. Two releases producing the identical wrong answer is the proof that
+the volume's contents never reached the PROM -- and the reason to look for the
+boot block before looking at the boot path. Detail in `FINDINGS.md` C128.
 
 **SR10.3.5 now loads reproducibly**: `Domain/OS kernel(7), revision 10.3.5,
 June 19, 1991` from a clean `invol-done` volume, three runs of one invocation

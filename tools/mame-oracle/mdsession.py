@@ -711,6 +711,13 @@ def main(argv=None) -> int:
                         help="seconds to keep reading after the script ends, "
                              "sending nothing. This is how an unrecorded "
                              "dialogue is learnt rather than guessed at.")
+    parser.add_argument("--mode", default="Normal",
+                        choices=("Normal", "Service"),
+                        help="the NORMAL/SERVICE switch. A documented "
+                             "prerequisite rather than a preference: "
+                             "`001746-06` Procedure 2-7 step 2 puts it on "
+                             "SERVICE before `EX CALENDAR` and step 5 returns "
+                             "it to NORMAL before rebooting")
     parser.add_argument("--era", default="25", choices=("25", "30", "none"),
                         help="the driver's year shift. C47's install procedure "
                              "wants 25, and a volume this project built wants "
@@ -753,6 +760,7 @@ def main(argv=None) -> int:
     environment = dict(os.environ)
     environment.setdefault("APOLLO_MD_POST", "Numpad Enter")
     environment["APOLLO_MD_ERA"] = args.era
+    environment["APOLLO_MD_MODE"] = args.mode
 
     swapfile = rundir / "swap"
     environment["APOLLO_MD_SWAPFILE"] = str(swapfile)

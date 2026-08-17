@@ -7258,3 +7258,111 @@ The routes, none of them taken yet and each a piece of work:
 clock has to be checked against the host clock, not assumed from its name. This
 one had been switched on and off across several sessions and reasoned about in
 both directions while doing nothing at all.
+
+## C126 -- SR9.7 and SR10.1 are not obtainable, so the release item's scope is three
+
+`COMPLETION_PLAN.md` asks for "every Domain/OS release obtainable (SR9.7,
+SR10.1-10.4)". Establishing what *obtainable* means, rather than leaving it
+open:
+
+| Source | Domain/OS media held |
+| --- | --- |
+| `bitsavers.org/bits/Apollo/` | `SR10.3/`, `SR10.4/` |
+| `bitsavers.org/bits/Apollo/Apollo_JRJ/` | `SR10.2/`, `SR10.3/`, `SR10.4/`, `SR10.4.1/` |
+| Jim Rees' Apollo archive (`jim.rees.org/apollo-archive/`) | **none** -- it points at bitsavers for install tape images and holds only patches, `from-tape.txt` and a NetBSD boot block |
+
+So there is **no SR9.7 or SR10.1 install media online**, from the two archives
+this hobby actually uses. Searches return documentation and mentions -- SAU1 was
+dropped "at about SR9.7.5", Emacs support notes for SR10.1 -- and no media.
+
+**The item's scope is therefore SR10.2, SR10.3 and SR10.4**, and it should say so
+rather than list two releases nobody can get. SR10.4.1 is an *upgrade* set over
+SR10.4, not a release to install from bare metal.
+
+**SR10.2 is now held**, four cartridges in `media/sr10.2/`, and its **standard**
+boot cartridge passes both bootability tests where SR10.3's did not (C124's
+lesson applied before any emulator was run):
+
+    017286-001.CRTG_STD_SFW_BOOT_1  blk0 00 13 d8 00 ... "SYSBOOT REV " " M68K "
+                                    13 sau7/ entries
+
+## C127 -- the calendar gate's remedy is the machine's own, and CALENDAR stamps the volume
+
+`001746-06` Procedure 2-7, "Synchronizing Node Hardware Clocks", is the
+documented answer to `More than 14 days have elapsed since the last shutdown.
+Switch to service mode, press reset and run CALENDAR.` -- the message means
+exactly what it says. The manual's dialogue, and what this machine actually
+prints, differ in wording and not in shape:
+
+| Prompt | Answer |
+| --- | --- |
+| `Please select the disk [w=Winch\|s=Storage mod\|f=Floppy\|q=Quit]...` | `w` |
+| `The time-zone is set to 0:00 (UTC). Would you like to reset it?` | `n` |
+| `The calendar date/time is <date>. Would you like to reset it?` | **`y`** |
+| `Please enter today's date (year/month/day):` | `2026/08/05` |
+| `Please enter the local time in 24 hour format (hour:minute):` | `12:00` |
+| `The calendar is being reset forward by more than 5 minutes. Is the above information correct?` | `y` |
+
+The last prompt is not in the manual's example, which sets the clock by three
+minutes. C52 recorded this dialogue with `n` to the third row and so never
+reached it.
+
+**The gate clears, and `ex domain_os` then offers the restore** -- `RBAK_BS
+reloading system software from cartridge tape...` and `Do you wish to proceed?
+(Y/N)`, which is the SR10.4 install's own next step. Service mode was tried and
+is *not* required here despite the manual's step 2: the fault below is identical
+in both positions, and the node has no display to shut down first.
+
+**Why CALENDAR and not the era config**: the utility takes the **disk** as its
+first answer, and on the evidence it stamps the volume rather than only setting
+the RTC -- which is why running it clears a gate about "the last shutdown" and
+why the message names it. The RTC alone would not survive to the next process,
+since MAME writes NVRAM on a clean exit and this harness kills the emulator.
+
+**One thing is unexplained and is recorded rather than smoothed over.**
+CALENDAR aborts on exit, every time, in both switch positions: it prints
+`The calend` -- ten characters of `The calendar has been set to ...` -- and MD
+reports `10200E6: 6100`, which `002398-04` §4 makes an address-and-contents
+crash-entry line at CALENDAR's own entry point. Read back afterwards the clock
+says `2015/09/03`, not the `2026/08/05` asked for, so the write is partial or
+mangled. **It is nonetheless sufficient**: the gate clears and the restore runs.
+Whether the abort is ours, the oracle's, or what the utility does when the jump
+is 24 years is not established, and no result here rests on the date being the
+one requested.
+
+## C128 -- RBAK skips SYSBOOT, so a restored volume is not a bootable volume
+
+Our core booted the freshly restored SR10.3 volume and sat in the boot PROM at
+PC `00000794` to 350 M instructions. The reflex is to look for a defect in our
+disk path. The volume is the answer, and it takes one command and no emulator:
+
+| volume | `SYSBOOT REV` |
+| --- | --- |
+| `dn3500-sr10.4-installed.awd` (MINST run) | at **`0x870`** |
+| `dn3500-osclean.awd` (SR10.4, restored, MINST not run) | **absent** |
+| `dn3500-sr10.3-osclean.awd` (SR10.3, restored, MINST not run) | **absent** |
+| `dn3500-invol-done.awd` (INVOL only) | **absent** |
+
+`0x870` is 2160 -- block 2 of a 1024-byte-block volume plus a 112-byte header --
+which is `[AEGIS]` §4.3.2's ten contiguous blocks at physical `02`-`0B`
+(`RING.md` 85d) exactly.
+
+And the restore log says so in as many words, at line 45 of 534:
+
+    TFP:  Skipping over SYSBOOT found at beginning of volume.
+
+So **RBAK restores the archive's members and deliberately does not write the
+node boot program to the volume's boot blocks.** The install manual
+(`008860-A03`) shows why: `sysboot` is a *separate tape file*, `File ID: /base
+sysboot`, restored after `ri.apollo.os.v.10` -- and `001746-06` Table 3-2 lists
+`sysboot` as the "Node boot program" in `/sys`.
+
+**Two things follow.** A `-osclean` checkpoint cannot be booted by the PROM *by
+construction*, for either release -- both give byte-identical hashes
+(`74FD47F132624CFF`, final PC `00000794`, 1,266,013,264 clocks), which is the
+proof that the volume's contents are not what the PROM got to. And "boot the
+release" requires MINST, not merely the restore.
+
+**The rule:** when a volume will not boot, look for the boot block before
+looking at the boot path. Two releases produced the identical wrong answer,
+which is a stronger signal than either one alone.

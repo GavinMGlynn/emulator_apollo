@@ -48,6 +48,8 @@
 --   APOLLO_MD_HOLD     emulated seconds to hold it down (default 0.2)
 --   APOLLO_MD_ERA      "25" (default, C47's install procedure), "30", or
 --                      "none" for the host's own year. See `ERA` below
+--   APOLLO_MD_MODE     "Normal" (default) or "Service". `001746-06`
+--                      Procedure 2-7 requires SERVICE for `EX CALENDAR`
 --   APOLLO_MD_DISPLAY  Graphics Controller setting name. **Unset means this
 --                      script leaves the setting alone**, so the machine keeps
 --                      MAME's own default for the driver -- `dn3500` is
@@ -93,19 +95,33 @@
 -- (`mdcapture.lua`'s header records the search that established it), so the
 -- only question is which, and the default is what the wiki's procedure ran.
 --
--- `APOLLO_MD_ERA` selects the year shift, because C47's "on" is right for the
--- *install procedure* and wrong for booting a volume this project built. The
--- shift puts the guest 25 years behind the host, so a 2026 host presents 2002
--- to a volume stamped 2026, and Domain/OS refuses a clock that runs backwards
--- between sessions (C53) -- measured, not reasoned: with the shift on, SR10.3.5
--- stops at "More than 14 days have elapsed since the last shutdown", and with
--- it off the kernel proceeds. A flag rather than an edit to this table, since
--- the install needs the other answer and an edit is a thing to remember to
--- revert.
+-- `APOLLO_MD_ERA` selects the year shift. Exposed as a flag rather than edited
+-- in this table because C47 sets it for the *install procedure* and an edit is
+-- a thing to remember to revert.
+--
+-- **It does nothing at a 2026 host date, and that is measured** (`FINDINGS.md`
+-- C125). `apollo_m.cpp:1213` shifts the year only when it is `< 25` (25-year),
+-- `< 30` (30-year) or `>= 70` (neither), and a 2026 host presents 26 -- so this
+-- setting is inert at either position and an A/B across it compares two
+-- identical machines. `"30"` is the one value that still bites here, and it puts
+-- the guest in 1996, which is C53's other failure mode rather than a fix.
+-- The way to move this machine's clock is `EX CALENDAR`, which is what
+-- `001746-06` Procedure 2-7 is for -- see `APOLLO_MD_MODE`.
 local ERA = os.getenv("APOLLO_MD_ERA") or "25"
 
+-- `APOLLO_MD_MODE` selects the NORMAL/SERVICE switch, which is a **documented
+-- prerequisite** of at least one procedure rather than a preference.
+-- `001746-06` Procedure 2-7, "Synchronizing Node Hardware Clocks", step 2:
+-- "Put the node's NORMAL/SERVICE switch on SERVICE" before `EX CALENDAR`, and
+-- step 5 returns it to NORMAL before rebooting. So a harness that can only
+-- offer one of the two cannot follow that procedure at all.
+-- Default stays `Normal`, which is what an install wants -- Service mode is for
+-- the PROM's own diagnostics, and MAME's own default is Service, so leaving
+-- this alone was always a choice too.
+local MODE = os.getenv("APOLLO_MD_MODE") or "Normal"
+
 local CONFIG = {
-	["Normal/Service"]    = "Normal",
+	["Normal/Service"]    = MODE,
 	["German Keyboard"]   = "Off",
 	["30 Years Ago ..."]  = ERA == "30" and "On" or "Off",
 	["25 Years Ago ..."]  = ERA == "25" and "On" or "Off",
