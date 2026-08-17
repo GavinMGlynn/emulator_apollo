@@ -4324,9 +4324,17 @@ Only after the reference core is proven, and only under an identity harness.
       **And a correctness question with it**: whether the read path shares
       `ap_m68030_access_ctx_t`'s bus or gets its own field. They are never live
       simultaneously — a read-modify-write is a read *then* a write — so one bus
-      is defensible and would match the hardware, which has one. But that is an
-      argument to make explicitly against `[030]` §7.3.6 rather than to settle
-      by whichever is easier to type. Decide it in 1b's commit message. Do it as its own
+      is defensible and would match the hardware, which has one. **Settled from §7.3.6, page 7-54**: "Like the
+      asynchronous operation, the synchronous read-modify-write operation is
+      **indivisible**", and "the burst mode is never used during
+      read-modify-write cycles". Indivisible means nothing interleaves between
+      the read and the write, so the two are strictly sequential and never
+      concurrent — **one bus field is correct**, shared by both paths, which is
+      also what the hardware has. RMC then spans the pair naturally, since
+      `ap_m68030_bus_begin` preserves it across a `begin`, and the explicit
+      `rmc` copy in the write path becomes redundant rather than load-bearing.
+      So 1b is: give `ap_m68030_cache_read` access to the same
+      `ap_m68030_access_ctx_t` bus, and delete its local. Do it as its own
       commit with `ctest` and the identity boot before anything in (2).
       **Adding the field is hash-safe, checked**: `ap_m68030_hash_cpu`
       (`ap_m68030_state.c:234`) walks **named fields** — `regs`, `tc`, `crp`,
