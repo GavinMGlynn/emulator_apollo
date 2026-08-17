@@ -836,7 +836,10 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
       /* Batched when the board says the ticks are identical to one -- no DMA
        * able to ask and an idle arbiter -- and looped otherwise. The decision
        * lives in `ap_board_bus_ticks` because both guards are the board's. */
-      ap_board_bus_ticks(machine->board, machine->last_instruction_clocks);
+      /* **Moved to after the step**, below. This charged
+       * `last_instruction_clocks` -- the *previous* instruction's -- so every
+       * bus cycle reached the arbiter one instruction late. The total was
+       * right and the ordering was not. */
 
       /* And now the contention, which is not a penalty and not a figure: the
        * processor is the lowest-priority claimant of a bus somebody else is
@@ -875,6 +878,16 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
       machine->exception_stop_pc = before_pc;
     }
     machine->last_instruction_clocks = machine->cpu.clocks - before;
+    /* The bus advances at the processor's rate, and it advances for the
+     * instruction that just ran rather than the one before it. Charged to the
+     * board and not to the CPU: these are clocks that already happened.
+     *
+     * `ap_board_bus_ticks` loops the arbiter one clock at a time, batching only
+     * where the board can prove the ticks identical, so the resolution was
+     * never the problem -- the lag was. */
+    if (machine->board != NULL) {
+      ap_board_bus_ticks(machine->board, machine->last_instruction_clocks);
+    }
     /* Converted once, here. The step reports CPU clocks; the machine keeps
      * time. A `cpu_clock` that was never initialised has a zero rate and
      * produces no time at all, which is visibly wrong rather than quietly

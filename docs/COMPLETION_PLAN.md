@@ -4378,6 +4378,21 @@ Only after the reference core is proven, and only under an identity harness.
       The bus already knows when each cycle happened, and after step 1 it
       survives the access. What is missing is a record of *which* clock each
       cycle fell on, and a `bus_ticks` call sited to consume it.
+      **Increment 2a is DONE: the one-instruction lag is gone.**
+      `ap_board_bus_ticks` was charged with `last_instruction_clocks` *before*
+      the step, so every bus cycle reached the arbiter **one instruction late**
+      — the total right, the ordering wrong. It now runs after the step, for the
+      instruction that just ran.
+      *Verification: `ctest` 138/138, identity boot `A354786119A3931D`
+      unchanged.* That the hash does not move is itself the measurement this
+      item wanted: the two schedules agree on everything this boot exercises,
+      which is what the tick-loop item asserted and had not shown.
+      **What still blocks true intra-instruction delivery**: `bus_ticks`
+      receives the instruction's **whole** clock count, internal cycles
+      included, not just bus cycles. Delivering per access would change the
+      total the arbiter sees unless the internal clocks are delivered too, and
+      the CPU does not currently report when those elapse. So (3) needs the
+      sequencer to emit a clock timeline, not merely the accesses to call back.
       **Passed the bus explicitly at all twelve rather than defaulting a NULL to
       a local.** A NULL fallback would cost zero test edits and is the tempting
       shortcut, but from increment (3) the bus is *resumable state*, and a test
