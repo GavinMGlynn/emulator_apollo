@@ -5122,10 +5122,17 @@ Only after the reference core is proven, and only under an identity harness.
       and the volume that works proves it: SR10.4's dismount stamp is 2002 and it
       boots under the **default 1987** clock with no calendar message at all.
       So C132's "read the label, not the clock" was right about the label and
-      wrong to leave `--clock` as the lever. The next step is **what this core
-      presents as the node's time** — `--clock` seeds the `MC146818` registers
-      while `ap_calendar_build_config` writes the battery RAM independently — and
-      that is a one-run experiment rather than a fourth date. `FINDINGS.md` C133.
+      wrong to leave `--clock` as the lever. **And the follow-up lead was tested
+      and refuted in the same session**: SR10.4 booted at `--clock 1987-07-31`
+      and at `--clock 2015-09-05` with **zero** calendar complaints in both, so
+      `--clock` does not reach this check and no story about *which* time we
+      present can explain a difference it cannot produce.
+      What remains is a difference **on the volume**, outside the physical label
+      — whose mount history is now modelled and is identical between the two —
+      so the kernel's "last shutdown" comes from the **logical** volume label or
+      `/sys/node_data`. Both are structures this project has not walked, and
+      `002398-04` carries the logical-volume diagram beside the physical one
+      already used. A document to read, not a run. `FINDINGS.md` C133.
       **What is left for this item**: that experiment, and then the same route
       for **SR10.2** — whose media is held and whose standard boot cartridge
       already passes both bootability tests, so it is the proven route applied

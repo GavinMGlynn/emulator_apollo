@@ -6285,10 +6285,17 @@ fetches. **Two days is not fourteen**, and the volume that works proves the poin
 from the other side: SR10.4's dismount stamp is 2002-11-27 and it boots under the
 **default 1987** clock with no calendar message at all.
 
-So the open question is **what this core presents to Domain/OS as the node's
-time**, not which `--clock` to pass: `--clock` seeds the `MC146818` registers
-while `ap_calendar_build_config` writes the battery RAM independently of it. One
-run settles it. Detail in `FINDINGS.md` C133.
+That lead was then tested and refuted in the same session: SR10.4 boots at
+`--clock 1987-07-31` and at `--clock 2015-09-05` with **zero** calendar complaints
+in both. `--clock` does not reach this check, so no account of *which* time we
+present can explain a difference `--clock` cannot produce.
+
+What remains is a difference **on the volume**, outside the physical label -- whose
+mount history is modelled above and is identical between the two volumes. So the
+kernel's "last shutdown" is read from the **logical** volume label or
+`/sys/node_data`, neither of which this project has walked; `002398-04` carries the
+logical-volume diagram beside the physical one already used. A document to read,
+not another run. Detail in `FINDINGS.md` C133.
 
 **Not done for this item**: that experiment, and SR10.2 -- whose media is held and
 whose boot cartridge already passes both bootability tests.

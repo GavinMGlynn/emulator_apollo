@@ -7612,12 +7612,25 @@ no calendar message at all -- fifteen years *behind* its own dismount stamp,
 which the same check would have to reject.
 
 So the open question is no longer "which `--clock`" -- that was C132's mistake and
-this is the evidence it was a mistake in both directions. It is **what this core
-presents to Domain/OS as the node's time**, and the lead is that `--clock` seeds
-the `MC146818` registers while Apollo's own time may be read from the calendar's
-battery RAM, which `ap_calendar_build_config` writes independently of it. That is
-a one-run experiment (`--battery`, and the config block's own time field) and it
-is the next thing to do, rather than a fourth date.
+this is the evidence it was a mistake in both directions.
+
+**The lead first written here was "what this core presents as the node's time",
+pointing at the calendar's battery RAM. That was tested and is refuted.** The
+SR10.4 volume was booted at `--clock 1987-07-31` and at `--clock 2015-09-05`:
+**zero** calendar complaints in both, byte for byte. So `--clock` does not reach
+this check at all, and a story about *which* time we present cannot explain a
+difference that `--clock` cannot produce.
+
+**What that leaves is a difference on the volume, and not in the field modelled
+here.** Both volumes' *physical* volume labels are structurally identical and
+cleanly dismounted, so the kernel's "last shutdown" is being read from something
+else -- the **logical** volume label, or `/sys/node_data`, both of which are
+distinct structures this project has not walked. That is the next thing to read,
+and it is a document question (`002398-04`'s logical-volume-label diagram, beside
+the physical one already used here) rather than another run.
+
+Recorded this way deliberately: a wrong lead left in a findings file is worse than
+none, because the next session spends its first hour on it.
 
 **What is established regardless**: SR10.3 is installed, cleanly dismounted, and
 executes here through the PROM, the self-tests, the kernel and the MMU. What is
