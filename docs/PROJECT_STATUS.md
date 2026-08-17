@@ -643,8 +643,22 @@ mid-instruction but the processor cannot observe it mid-instruction. That needs 
 resumable sequencer, and `ap_m68030_step` is the tail of a 6,966-line file
 sequencing in ordinary nested C — an explicit state machine over the whole file,
 since C has no coroutines, threads would trade away determinism, and re-execution
-is invalid because instructions have side effects before they commit. **The
-ordering half of the per-cycle item is done; the feedback half is not.**
+is invalid because instructions have side effects before they commit.
+
+**That last statement is now out of date in the right direction, and the
+approximation is measured rather than argued.** A cascaded AT bus master —
+wired into `ap_board_t`, attached, acknowledged and taken to ownership on the
+board's own clock — makes `ap_board_processor_may_run` false and costs the
+processor `AP_MACHINE_STALL_LIMIT` clocks for one instruction. With both lines
+dropped the bus returns and a `MOVEM.L D0-D3,(A0)` lands **whole**: four
+registers of four, never part of the transfer.
+
+So the remaining approximation has all three things `CLAUDE.md` asks of a
+deliberate one — **reason** (no resumable sequencer), **cost to close** (an
+explicit state machine over 6,966 lines), and now an **observable
+consequence**: on real hardware a tenure beginning between two of the
+transfer's cycles leaves some subset stored, and this core stores all or none.
+`machine_suite` says so in those terms rather than leaving it as prose.
 
 *Verification: `ctest` 138/138 at every increment; identity boot
 `A354786119A3931D` unchanged throughout; `clock_events_dropped` counts the
