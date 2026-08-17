@@ -4334,7 +4334,17 @@ Only after the reference core is proven, and only under an identity harness.
       `ap_m68030_bus_begin` preserves it across a `begin`, and the explicit
       `rmc` copy in the write path becomes redundant rather than load-bearing.
       So 1b is: give `ap_m68030_cache_read` access to the same
-      `ap_m68030_access_ctx_t` bus, and delete its local. Do it as its own
+      `ap_m68030_access_ctx_t` bus, and delete its local.
+      **And the twelve call sites are one plus eleven**: exactly one is
+      production — `ap_m68030_access.c:182` — and the other eleven are
+      `tests/cache_suite.c`. So the behavioural change is a single line, and the
+      churn is entirely in a suite that already constructs its own caches.
+      **Pass the bus explicitly at all twelve rather than defaulting a NULL to
+      a local.** A NULL fallback would cost zero test edits and is the tempting
+      shortcut, but from increment (3) the bus is *resumable state*, and a test
+      that does not name the bus it ran on is a test that cannot check one.
+      Better to pay the eleven edits now, while they are trivial, than to hide
+      the parameter that the last increment depends on. Do it as its own
       commit with `ctest` and the identity boot before anything in (2).
       **Adding the field is hash-safe, checked**: `ap_m68030_hash_cpu`
       (`ap_m68030_state.c:234`) walks **named fields** — `regs`, `tc`, `crp`,
