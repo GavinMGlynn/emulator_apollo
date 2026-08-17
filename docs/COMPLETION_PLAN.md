@@ -4680,7 +4680,17 @@ Only after the reference core is proven, and only under an identity harness.
       So something in the board path is not what it appears: either the port
       being ticked is not the one being asserted on, or `master_l` is set by
       something unlooked-for, or the run did not use the binary it appeared to.
-      **Reproduce it in isolation before believing it** — a two-assertion test
+      **Reproduced, and it was the experiment — specifically, a defect I put in
+      the wiring.** `ap_master_tick` was inserted by string replacement, and
+      `"  ap_arbiter_tick"` is a substring of `"    ap_arbiter_tick"`, so both
+      replacements fired at the two indented sites and the master was **ticked
+      twice per clock**. It compiled and every test passed, because an idle
+      master does nothing twice as readily as once — which is exactly how a
+      wiring defect hides behind a green suite.
+      Collapsed to one call per arbiter tick, three sites, `ctest` 138/138,
+      identity boot unchanged. **The `owns_bus` anomaly should now be re-tested
+      against the fixed wiring before anything is concluded from it.**
+      *(Original guidance, still sound:* — a two-assertion test
       that attaches, ticks, and prints the state — because an unexplained
       observation that contradicts both the source and an existing suite is
       more likely a fault in the experiment than a fault in the model, and this

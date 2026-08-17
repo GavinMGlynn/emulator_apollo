@@ -723,9 +723,9 @@ void ap_board_bus_ticks(ap_board_t *board, uint64_t n) {
     /* Once, not none: the tick still lowers the processor's request line, and
      * doing it once is the whole of what doing it `n` times would do. */
     ap_arbiter_tick(&board->arbiter);
-    ap_master_tick(&board->master, &board->dma.controller[0], &board->arbiter);
-  /* The master contends on the same clock the arbiter resolves. */
-  ap_master_tick(&board->master, &board->dma.controller[0], &board->arbiter);
+    /* The master contends on the same clock the arbiter resolves. */
+    ap_master_tick(&board->master, &board->dma.controller[0],
+                   &board->arbiter);
     return;
   }
   for (uint64_t i = 0; i < n; i++) {
@@ -747,9 +747,9 @@ void ap_board_bus_tick(ap_board_t *board) {
    * queries and two priority encodes. */
   if (!board->dma_possible) {
     ap_arbiter_tick(&board->arbiter);
-    ap_master_tick(&board->master, &board->dma.controller[0], &board->arbiter);
-  /* The master contends on the same clock the arbiter resolves. */
-  ap_master_tick(&board->master, &board->dma.controller[0], &board->arbiter);
+    /* The master contends on the same clock the arbiter resolves. */
+    ap_master_tick(&board->master, &board->dma.controller[0],
+                   &board->arbiter);
     return;
   }
 
