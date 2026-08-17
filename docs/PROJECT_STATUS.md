@@ -590,6 +590,32 @@ a 350 M-instruction boot, per-charge ordering and end-of-instruction batching
 are indistinguishable — `A354786119A3931D`, clocks identical at 1,497,270,792.
 The tick-loop item asserts that; this demonstrates it.
 
+**The feedback half is now implemented too, and the result is negative.**
+`machine_wait_states` advances the board at the instant each access happens, so
+a device output is visible to the instruction still executing — with **no
+resumable sequencer**: the processor does not stop, the machine catches up to
+it. It is behind `--mid-access-devices`, default off, and
+`ap_board_advance_one` dispatches by region so RAM and PROM advance nothing and
+a device is advanced only when an access actually reaches it.
+
+**Over a 350 M boot the two schedules are byte-for-byte identical** —
+`A354786119A3931D` either way, 37 s against ~35 s. So with the bus
+cycle-accurate, the timeline walked, and devices advanced at access instants,
+this machine produces exactly what instruction-boundary batching produced. The
+tick-loop item's premise that the two "do not agree in general" stays true in
+principle and is **unobserved here**, which is a better outcome than another
+assertion of it.
+
+**Two claims made during this work did not survive measurement, and both are
+retracted rather than buried.** A ">119x cost, measured on a release build" was
+an argument-parsing hang of my own making — the flag was added to a
+`for (int i = 1; i < argc;)` loop without advancing `i` — found by a `perf`
+profile showing `__strcmp_avx2` at **81.18%** under `main`, which is not a shape
+any emulation cost can have. The real figure is **1.08x**. And a divergent hash
+`27AAE57F4EF4E97E` came from advancing *every* device at *every* access, RAM
+included; that is not more accurate, only different, and it disappears once only
+the accessed device advances.
+
 **What is NOT done, and the item stays open for it.** A device output feeding
 back into an instruction *still executing* is still unreachable: the bus advances
 mid-instruction but the processor cannot observe it mid-instruction. That needs a
