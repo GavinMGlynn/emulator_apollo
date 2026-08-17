@@ -4297,8 +4297,16 @@ Only after the reference core is proven, and only under an identity harness.
       hashes must not move. **Not as small as "plumbing" suggests**: neither
       call site holds a `cpu`. `ap_m68030_access.c` works from an `access`
       context and `ap_m68030_cache.c` from a `wait_states` callback plus its
-      own `context`, so the bus must be threaded through both layers' signatures
-      and every caller of them — on the core's hottest path. Do it as its own
+      own `context`, so the bus must reach both layers. **But "thread it
+      through every caller" overstates it, checked**: exactly **two** functions
+      own a local bus — `ap_m68030_access_write(ap_m68030_access_ctx_t *access,
+      …)` and `ap_m68030_cache_read(ap_m68030_cache_t *cache, …)`. The first
+      already takes a **context struct**, so the bus becomes a field of
+      `ap_m68030_access_ctx_t` and *no signature changes at all* on that path.
+      Only `ap_m68030_cache_read` needs a new parameter, since a bus does not
+      belong on `ap_m68030_cache_t`. So step 1 is one struct field, one
+      parameter, and two locals deleted — much smaller than a refactor of the
+      hottest path. Do it as its own
       commit with `ctest` and the identity boot before anything in (2).
       **Adding the field is hash-safe, checked**: `ap_m68030_hash_cpu`
       (`ap_m68030_state.c:234`) walks **named fields** — `regs`, `tc`, `crp`,
