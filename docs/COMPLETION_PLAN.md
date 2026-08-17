@@ -4816,9 +4816,19 @@ Only after the reference core is proven, and only under an identity harness.
       **Checked: all four rundirs are empty** — `q3`, `q3b`, `q3c`, `q3d`
       contain no `nvram`, no `cfg`, no files at all, despite `--keep-rundir`.
       So persisted harness state is not the variable either.
-      **Every candidate is now eliminated by static comparison**: same
-      cartridge, byte-identical volume, empty rundirs, same command file, same
-      binary. The one remaining difference between the successful pair and the
+      **One correction to the elimination above: the `cmp` tested the wrong
+      run.** It compared a volume before and after a **failed** boot, which
+      writes nothing — but `q3` *succeeded*, and a kernel that loads and mounts
+      a volume almost certainly does write. `q3b` then ran on the volume `q3`
+      had left. So the observed pattern is not "a failed boot leaves state" but
+      possibly **"a *successful* boot leaves state, and the run is
+      self-sustaining once one has worked"** — which would make `q3` itself the
+      only real mystery, and every later success a consequence of it.
+      **Untested, and it is the next thing to test**, with `cmp` again rather
+      than an emulator: keep the pre-run copy, run until one *succeeds*, and
+      diff. The elimination below stands only for failed runs.
+      Same cartridge, byte-identical volume, empty rundirs, same command file,
+      same binary. The one remaining difference between the successful pair and the
       failures is **which volume the run started from**, and `cmp` says the
       failing runs leave that volume untouched — so if the *content* is
       identical the start state cannot differ, and the runs should agree. They
