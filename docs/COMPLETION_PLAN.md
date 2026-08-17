@@ -5340,9 +5340,22 @@ Only after the reference core is proven, and only under an identity harness.
       anti-hang guard, it is also how a read the host has *abandoned* terminates.
       Resetting the counter leaves `m_read_block_pending` set and the timer
       running, so a read that should end never does. A faithful retry must
-      distinguish "the host is slow" from "the host has stopped asking", and
-      nothing in the current state does — which makes this real work on the
-      QIC-02 command model, not a counter reset. `FINDINGS.md` C142.
+      distinguish "the host is slow" from "the host has stopped asking".
+      `FINDINGS.md` C142.
+      **And the reference supplies exactly that state.** The Archive SC-499
+      guide, already on disk, gives §1.9's port map: `+2 (202 HEX)` is **DMAGO**,
+      "any write will cause DMAGO to be active", and `+3 (203 HEX)` is **RSTDMA**.
+      The hardware arms and disarms a transfer explicitly, and the model already
+      carries it — `write_dma_reset` ends `m_control = 0`, while the guide's own
+      documented sequence arms with `write_dma_go` then `write_control_port: 30`
+      (`IEN | DNI`). So at the threshold, `m_control` non-zero means the host is
+      slow and zero means it has gone away.
+      *So the fix is: gate reposition-and-retry on the host still being armed and
+      keep the abort for the disarmed case — the read-termination job C142 found
+      the counter was quietly doing. **Verify on both releases**: C142's
+      regression surfaced only because SR10.2 was re-run, and the SR10.3 install
+      is the control that a change has not broken what works. `FINDINGS.md`
+      C143.*
       *A rule broken on the way, mine: the first run's directory was deleted in a
       tidy-up before the comparison, so the re-run was needed to get a number that
       had already existed. `FINDINGS.md` C141.*

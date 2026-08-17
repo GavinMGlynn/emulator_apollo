@@ -8355,3 +8355,42 @@ command model rather than a counter reset.
 **Recorded as a refutation rather than deleted**, because the next person to read
 C141 will have exactly this idea, and the twenty minutes it costs to try are
 better spent knowing it has been tried.
+
+## C143 -- the SC-499 guide has the state C142 said was missing: DMAGO and RSTDMA
+
+C142 refuted the naive retry and named what a faithful one needs: a way to tell
+"the host is slow" from "the host has stopped asking". The Archive SC-499
+Information Guide, already in `docs/references/archive/`, has it -- §1.9's port
+map:
+
+    BASE ADDRESS +2 (202 HEX): Start DMA (DMAGO).  Any write to this register
+                               will cause DMAGO to be active.
+    BASE ADDRESS +3 (203 HEX): Reset DMA (RSTDMA). Any write to this register
+                               will cause RSTDMA to be active.
+
+**So the hardware arms and disarms the transfer explicitly**, and a drive under a
+slow host is in a different state from a drive whose host has torn the transfer
+down. That is exactly the distinction C142 found nothing to make.
+
+**And the model already carries it.** `sc499_device::write_dma_reset` ends
+`m_control = 0`, while the guide's own documented sequence arms a transfer with
+`write_dma_go` followed by `write_control_port: 30` -- `SC499_CTR_IEN |
+SC499_CTR_DNI`. So at the moment the underrun threshold trips, `m_control`
+distinguishes the two cases: non-zero means the host still has the transfer set
+up, zero means it has issued RSTDMA and gone away.
+
+**The shape of the fix that follows**, written down rather than attempted at the
+end of a long session, because C142 is what an untested oracle change costs:
+gate the reposition-and-retry on the host still being armed, and keep the abort
+for the disarmed case, which is the read-termination job C142 discovered the
+counter was quietly doing.
+
+**And it must be verified on both releases, not one.** C142's regression was
+found only because SR10.2 was re-run; the SR10.3 install is the control that
+proves a change has not broken what already works, and any attempt here should
+run both before it is kept.
+
+*Nothing was changed in `ext/mame` for this finding. The checkout carries its two
+documented permanent edits -- C56's media-change notifier and C139's
+`set_binary(true)` -- and nothing else, verified after C142's revert by a run that
+restored 398 objects to `Restore complete.`*
