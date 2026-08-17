@@ -8394,3 +8394,39 @@ run both before it is kept.
 documented permanent edits -- C56's media-change notifier and C139's
 `set_binary(true)` -- and nothing else, verified after C142's revert by a run that
 restored 398 objects to `Restore complete.`*
+
+## C144 -- the host had gone away: the underrun abort is correct, and C141/C143 are withdrawn
+
+C143 designed a fix and said to measure before changing anything, C142 having shown
+what an untested oracle change costs. Measured, observation only, no behaviour
+altered:
+
+    PROBE threshold at=4615 control=00 status=3f
+
+**`m_control` is `00`.** The host had written `RSTDMA` and torn the transfer down
+before the threshold tripped. So at that moment there was **nothing to retry**: the
+abort is not the model giving up where hardware would reposition, it is the model
+correctly terminating a read the host had abandoned -- which is precisely the
+second job C142 discovered the counter was doing.
+
+**So C143's gate would change nothing here** (it would abort on `m_control == 0`,
+as the code already does), and it was refuted before being implemented -- which is
+the whole value of measuring first, and the one procedural thing this thread got
+right after getting it wrong in C142.
+
+**And C141's reading is withdrawn.** "The oracle's tape drive gives up where
+hardware retries" was inferred from the underrun abort being the only behavioural
+difference between the SR10.2 and SR10.3 runs. It is still the only difference
+found, but it is **not** a modelling gap: the drive did the right thing with a
+disarmed host. What remains unexplained is *why the host disarmed* mid-restore at
+block 4,615, and that is a question about the guest and the DMA path, not about the
+tape model.
+
+**Where that leaves SR10.2**, stated without a new hypothesis: media sound, labels
+present, layout identical to SR10.3's, swap working, block count right, filemark
+recognised, underrun abort correct. The failure is upstream of the drive -- the
+host stopped its own transfer -- and the next thing to look at is the 8237 DMA
+channel and the Apollo DMA path around block 4,615, not `sc499`.
+
+*`ext/mame` reverted and rebuilt; the checkout carries only C56's media-change
+notifier and C139's `set_binary(true)`.*

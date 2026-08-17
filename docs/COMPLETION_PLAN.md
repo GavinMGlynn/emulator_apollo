@@ -5350,12 +5350,20 @@ Only after the reference core is proven, and only under an identity harness.
       documented sequence arms with `write_dma_go` then `write_control_port: 30`
       (`IEN | DNI`). So at the threshold, `m_control` non-zero means the host is
       slow and zero means it has gone away.
-      *So the fix is: gate reposition-and-retry on the host still being armed and
-      keep the abort for the disarmed case — the read-termination job C142 found
-      the counter was quietly doing. **Verify on both releases**: C142's
-      regression surfaced only because SR10.2 was re-run, and the SR10.3 install
-      is the control that a change has not broken what works. `FINDINGS.md`
-      C143.*
+      **Measured before changing anything, and the fix is refuted before being
+      written.** `PROBE threshold at=4615 control=00` — `m_control` is **zero**,
+      so the host had written `RSTDMA` and torn the transfer down before the
+      threshold tripped. There was **nothing to retry**: the abort is the model
+      correctly terminating a read the host abandoned, which is exactly the second
+      job C142 found the counter doing. C143's gate would abort here too.
+      **So C141's reading is withdrawn**: "the oracle gives up where hardware
+      retries" was inferred from the abort being the only behavioural difference
+      between the two runs. It is still the only difference found, but it is not a
+      modelling gap — the drive did the right thing with a disarmed host.
+      **What remains unexplained is why the host disarmed** mid-restore at block
+      4,615, which is a question about the guest and the DMA path rather than the
+      tape model. Next to look at: the 8237 channel and the Apollo DMA path around
+      that block, not `sc499`. `FINDINGS.md` C144.
       *A rule broken on the way, mine: the first run's directory was deleted in a
       tidy-up before the comparison, so the re-run was needed to get a number that
       had already existed. `FINDINGS.md` C141.*
