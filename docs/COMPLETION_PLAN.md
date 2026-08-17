@@ -4671,13 +4671,21 @@ Only after the reference core is proven, and only under an identity harness.
       `!ap_master_owns_bus` immediately after `ACKNOWLEDGED`. On a **board**,
       after `ap_board_bus_ticks(32)` with `DRQ` held, `ap_master_owns_bus` is
       already **true** with `MASTER.L` never asserted.
-      Either the port takes the bus on its own after enough acknowledged clocks
-      — in which case `master_suite`'s claim holds only for its own tick count
-      and the rule is not what it says — or the board's tick drives the port
-      differently from the rig's. **Both readings are checkable against
-      `ap_master.c` and `008778-03` §2.4.7**, and it must be settled before any
-      `MOVEM` test, because a test that assumes the wrong one would assert
-      against a bus tenure that never happened.
+      **Read `ap_master.c`, and both readings are wrong — which makes the
+      observation the interesting part.** `AP_MASTER_OWNS` is reached only by
+      `if (port->master_l && in_cascade(port, dma))`, and `ap_master_init`
+      **memsets the port**, so `master_l` is false after
+      `ap_board_attach_master`. The model and `master_suite` agree with each
+      other; the board observation agrees with neither.
+      So something in the board path is not what it appears: either the port
+      being ticked is not the one being asserted on, or `master_l` is set by
+      something unlooked-for, or the run did not use the binary it appeared to.
+      **Reproduce it in isolation before believing it** — a two-assertion test
+      that attaches, ticks, and prints the state — because an unexplained
+      observation that contradicts both the source and an existing suite is
+      more likely a fault in the experiment than a fault in the model, and this
+      session has already produced one of those (the `>119x` that was an
+      argument-parsing hang).
       The attempted test was reverted rather than adjusted: patching the
       assertion to match the behaviour would have buried exactly this.
       **Then the rest of the order**:
