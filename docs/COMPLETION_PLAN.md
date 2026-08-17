@@ -4483,8 +4483,26 @@ Only after the reference core is proven, and only under an identity harness.
       routine measurement either** — a 350 M identity boot would be days. If the
       oracle shows B is the truer schedule, the work is not "switch the flag"
       but "advance only the device being accessed, or advance lazily", which is
-      a design item of its own and should be written as one before anybody
-      reaches for the flag in anger.
+      a design item of its own — **and its correctness argument is already
+      written, in `ap_board_advance`'s own comment**: *"Order does not matter
+      and must not: two devices advanced to the same absolute time cannot
+      influence each other through the advance itself, which is what makes this
+      a tick rather than a schedule."*
+      If devices cannot influence each other *through the advance*, then
+      advancing **only the device being accessed** is equivalent for that
+      access. The rest catch up at the instruction boundary exactly as now, and
+      interrupts are unaffected because the 68030 samples them at instruction
+      boundaries anyway — which this same item established rather than assumed.
+      So the design is `ap_board_advance_one(board, address, now)`, dispatching
+      by region to the per-device advances that already exist
+      (`ap_timer_advance`, `ap_calendar_advance`, …), called from
+      `machine_wait_states` in place of the whole-board walk. The >119x is paid
+      per access across *every* device; this pays it on one.
+      **Check before building**: that every region the CPU can reach has a
+      per-device advance to dispatch to, and that a region with none falls back
+      to the boundary walk rather than being silently skipped — a device that
+      quietly stopped advancing would stay invisible until something timed
+      out.
       That the figure is a lower bound is deliberate: the run was cut at 595 s
       rather than left to complete, because because `CLAUDE.md` allows the
       reference core to be slow but this is the run loop and the cost is paid on
