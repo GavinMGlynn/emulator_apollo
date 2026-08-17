@@ -6329,11 +6329,46 @@ the same era.
 boot has never passed this check**: it stops at 350 M, before it. That is a fact
 about the harness's coverage, not about the volume.
 
-**Left open, with a handle rather than a guess.** Every one of these runs ends at
-**PC `3C456BAE` -> physical `01081BAE`**, the kernel code that prints the message.
-`tools/kernel_symbols.py` exists and the kernel is on the volume; disassembling
-backwards from there answers it outright, where more `--clock` values will not.
-Detail in `FINDINGS.md` C133.
+**The disassembly was then done and it gives the mechanism.** `sau7/domain_os`
+extracted from the boot cartridge with `ct_extract.py` -- no emulator -- and
+disassembled with capstone:
+
+    010C5132  move.l $3C4453FA.l, d0     ; now
+    010C5138  sub.l  $3C4C19E0.l, d0     ; - last shutdown
+    010C513E  cmpi.l #$FFFFFF1B, d0      ; -229 ticks = 60.03 s
+    010C5144  bge.b  $10C5152            ; below -> "calendar is more than a minute slow"
+    010C5152  cmp.l  (a2), d0            ; above the day threshold -> "More than %a days"
+    010C5154  ble.w  $10C51DC            ; in range -> proceed
+
+One signed 32-bit subtraction decides both messages, and `-229` confirms the tick
+unit a third time. **"More than 14 days" was never a threshold** -- the string is
+`More than %a days` and the number is computed, so every earlier reading that
+treated 14 as a limit was reading a formatted variable as a constant. The kernel
+also carries a hard ceiling of its own: *"The UID generator is unable to function
+with the current setting of the calendar (year >= 2015)"*, which is where this tick
+runs out.
+
+`3C4C19E0` dumped at the check reads **`A45E5C08`** -- the volume's own label time
+-- so the physical label **is** the source, and the previous claim that it was not
+is withdrawn.
+
+**The defect is ours, and it is the date rather than the format.** Measured:
+
+| `--clock` | the kernel's `now` | |
+| --- | --- | --- |
+| 2000-01-02 | 2000-01-02 18:01:52 | **correct** -- and `slow` is then the right answer |
+| 2002-11-28 09:00 | 2003-06-11 09:01:52 | **+195 days** |
+| 1999-12-31 | 2018-11-08, wrapped to 1983 | **+18.85 years** |
+
+The time of day is right in all three; only the date is wrong. And it is **not the
+register file**: dumped at the check, `010900` reads day `28`, month `11`, year
+`02`, day-of-week `05` (2002-11-28 was a Thursday) and register B `00` -- correct
+BCD and 12-hour, matching the oracle's own `set_binary(false)`/`set_24hrs(false)`.
+
+**Next**: the battery RAM configuration block that `ap_calendar_build_config`
+writes, the only other date this core presents. `3C4453FA` is `now` and is
+dumpable, so one run beside the register file settles where the guest gets it.
+Detail in `FINDINGS.md` C134.
 
 **Not done for this item**: that experiment, and SR10.2 -- whose media is held and
 whose boot cartridge already passes both bootability tests.

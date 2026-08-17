@@ -5151,12 +5151,34 @@ Only after the reference core is proven, and only under an identity harness.
       across year 99 → 00, so something wraps there — and that `1987-07-31`, the
       clock the identity boot uses, is on the *slow* side. **So the reference
       boot has never passed this check either**; it stops at 350 M, before it.
-      **Left open deliberately** — a third confident conclusion would be worse
-      than none — and with a handle rather than a guess. The message is printed
-      from the kernel and every one of these runs ends at **PC `3C456BAE` →
-      physical `01081BAE`**. `tools/kernel_symbols.py` exists and the kernel is on
-      the volume: disassembling backwards from there answers it outright, where
-      more `--clock` values will not. `FINDINGS.md` C133.
+      **The disassembly was then done, and it answers the mechanism.** The
+      kernel was extracted from the boot cartridge with `ct_extract.py` — no
+      emulator — and disassembled with capstone; the check is at `010C5132`:
+      `now - last_shutdown` as **one signed 32-bit subtraction**, `< -229` →
+      *calendar slow*, `> (a2)` → *More than %a days*, else proceed. `-229` ticks
+      is **60.03 s**, confirming the tick unit a third time.
+      **"More than 14 days" was never a threshold** — the string is `More than
+      %a days` and the number is a computed argument. Every earlier reading that
+      treated 14 as a limit was reading a formatted variable as a constant.
+      **And `3C4C19E0` dumped at the check reads `A45E5C08`, the volume's own
+      label time** — so the physical label *is* the source, and the previous
+      entry's "demonstrably not it" is **withdrawn**.
+      **The defect is ours and it is in the date, not the clock format.**
+      Measured: `--clock 2000-01-02` gives the kernel `now` = 2000-01-02 18:01
+      (**correct**, and *slow* is then the right answer); `2002-11-28 09:00` gives
+      2003-06-11 09:01 (**+195 days**); `1999-12-31` gives 2018-11-08, wrapped
+      (**+18.85 years**). The **time of day is right in all three and only the
+      date is wrong.**
+      **And it is not the register file**, checked rather than assumed: dumped at
+      the check, `010900` reads day `28`, month `11`, year `02`, day-of-week `05`
+      (2002-11-28 was a Thursday), register B `00` — correct BCD and 12-hour,
+      which is exactly what the oracle configures (`set_binary(false)`,
+      `set_24hrs(false)`). So the bytes we hand the guest are right.
+      **What remains is the battery RAM configuration block** —
+      `ap_calendar_build_config`'s — the only other thing this core presents that
+      could carry a date. `3C4453FA` is `now` and is dumpable, so one run beside
+      the register file settles whether the guest builds `now` from the registers
+      or from there. `FINDINGS.md` C134.
       **What is left for this item**: that experiment, and then the same route
       for **SR10.2** — whose media is held and whose standard boot cartridge
       already passes both bootability tests, so it is the proven route applied

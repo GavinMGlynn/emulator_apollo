@@ -7733,3 +7733,83 @@ on the strength of it.
 executes here through the PROM, the self-tests, the kernel and the MMU. What is
 not established is a boot past the calendar check on this core, and the reason it
 is not is now a question about our calendar rather than about the volume.
+
+## C134 -- the calendar check, disassembled, and the defect is in the date we present
+
+Five console messages became a disassembly. `--boot-stop-physical-pc` stops the
+machine on the check and the report prints the registers, so the operands are
+measurable rather than inferred.
+
+### The code
+
+`sau7/domain_os` extracted from the boot cartridge with `ct_extract.py` -- no
+emulator -- and disassembled with capstone. The function ends just before the
+message strings, so walking back for a `link a6` prologue finds it. Addresses are
+file offset + `0x0102A400`, the bias fixed by a string seen in both the file and a
+memory dump:
+
+    010C5132  move.l $3C4453FA.l, d0     ; now
+    010C5138  sub.l  $3C4C19E0.l, d0     ; - last shutdown
+    010C513E  cmpi.l #$FFFFFF1B, d0      ; -229
+    010C5144  bge.b  $10C5152
+    010C5146  ...                        ; "The calendar is more than a minute slow."
+    010C5152  cmp.l  (a2), d0            ; a2 = 3C457AC6, the day threshold
+    010C5154  ble.w  $10C51DC            ; in range -> proceed
+    010C5158  ...                        ; "More than %a days have elapsed ..."
+
+**One signed 32-bit subtraction decides both messages**, and `-229` settles the
+tick unit for a third time: `229 x 0.262144 s = 60.03 s`, which is exactly "more
+than a minute".
+
+**"More than 14 days" was never a threshold.** The string is `More than %a days`
+-- the number is a *computed* argument, from `a3`. Every reading in C132 and C133
+that treated 14 as a limit was reading a formatted variable as a constant.
+
+Also in the same neighbourhood, and worth knowing on its own: *"The UID generator
+is unable to function with the current setting of the calendar (year >= 2015).
+Please run the CALENDAR utility before trying to boot again."* Domain/OS has a
+**hard year-2015 ceiling**, which is where a 32-bit quarter-second-ish tick from
+1980 runs out -- the same arithmetic, stated by the kernel.
+
+### The operands, measured
+
+`3C4C19E0` dumped at the check reads **`A45E5C08`**, 2002-11-27 21:45:11 -- the
+SR10.4 volume's own label time. **So the physical volume label *is* the source**,
+and C133's "demonstrably not it" is **withdrawn**: it was inferred from console
+messages, and the memory says otherwise.
+
+| our `--clock` | `d0` (signed) | the kernel's `now` | verdict |
+| --- | --- | --- | --- |
+| 2000-01-02 | -349,416,349 | 2000-01-02 18:01:52 | **correct**, and `slow` is the right answer |
+| 2002-11-28 09:00 | +64,424,899 | 2003-06-11 09:01:52 | **+195 days wrong** |
+| 1999-12-31 | +1,922,364,402 | 2018-11-08, wrapped to 1983 | **+18.85 years wrong** |
+
+**The time of day is right in all three and only the date is wrong**, which is
+what makes this our defect and not the kernel's arithmetic.
+
+### What it is not, checked rather than assumed
+
+The register file is **correct**. Dumped at the check for the 2002-11-28 09:00
+case, `010900`:
+
+    35 00 01 00 09 00 05 28  11 02 20 00 10 80
+
+-- seconds `35`, minutes `01`, hours `09`, day-of-week `05` (Thursday, and
+2002-11-28 was a Thursday), day `28`, month `11`, year `02`, register B `00`. All
+BCD, 12-hour, which is exactly what the oracle configures: `apollo_m.cpp:1112`
+sets `set_binary(false)` and `set_24hrs(false)`. So the bytes we hand the guest
+are right and the BCD-mismatch reading -- which fits the "every field under ten
+works" pattern seductively well -- is refuted by the dump.
+
+### The next step, and it revives a lead I wrongly buried
+
+What remains is the **battery RAM configuration block**, which
+`ap_calendar_build_config` writes and which Apollo uses for its own stored
+configuration. It is the only remaining thing this core presents that could carry
+a date the register file does not. C133 named it, then "refuted" it on a
+measurement that was itself wrong; the refutation is now doubly retired.
+
+Concretely: `3C4453FA` is `now`, and it is dumpable. One run that dumps it beside
+the register file, for a date whose fields exceed nine, shows whether the guest
+built `now` from the registers or from somewhere else -- and there is no need to
+guess which.
