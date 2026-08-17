@@ -4679,9 +4679,20 @@ Only after the reference core is proven, and only under an identity harness.
       **So the recipe needs one line added, not just a level changed**: an
       unconditional `LOGMASKED(LOG_LEVEL1, "read_block %d", m_tape_pos)` at the
       top of `sc499_device::read_block`, then the same cycle — rebuild ~30 s,
-      run with `-- -oslog`, revert, rebuild. That finally answers whether
-      `ex domain_os` issues any tape read at all, which is the one question this
-      whole thread reduces to. Everything else in the cycle is verified and
+      run with `-- -oslog`, revert, rebuild. **Done, and it answers the thread.**
+      With that trace in place the run logs **18 `read_block` calls**, beginning
+      at `pos=0` and advancing `0,1,2,3,4…` sequentially. So `di c` *does*
+      select the cartridge, the PROM *does* read the tape, it starts at block 0,
+      and it covers blocks `02`-`0B` where `sysboot` lives — and it still
+      reports `sysboot not found`.
+      **So this was never a device, selection, position or media-change
+      question.** It is a *content* one: what sits at those raw blocks is not
+      what the PROM accepts as `sysboot`. The `.ct` is a wbak archive and
+      `ct_extract.py` reads `sysboot` as an archive *member*; the PROM reads raw
+      block offsets. The next question is what the PROM validates at block 2 —
+      a header, a magic, a checksum — which is a disassembly of the `ex` path
+      near `00185B`, and needs no emulator. Compare against the SR10.4
+      cartridge, which boots. Everything else in the cycle is verified and
       the revert plus clean rebuild were done in the same command.
       Everything else in the cycle is verified: the edit rebuilds `sc499.o`,
       and the revert plus clean rebuild both work, done in the same sitting.
