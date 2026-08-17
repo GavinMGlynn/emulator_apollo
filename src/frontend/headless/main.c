@@ -320,6 +320,11 @@ static void print_usage(const char *program_name) {
 
           "  --ring-two-node [N]   two whole machines on one ring segment,\n"
           "                        N instructions each (default 2,000,000)\n"
+          "  --ring-disk-a FILE    node A's Winchester; its node ID comes from\n"
+          "                        the volume, as a single machine's does\n"
+          "  --ring-disk-b FILE    node B's, which must be a volume initialised\n"
+          "                        on a different node -- two nodes answering\n"
+          "                        one address is not a ring\n"
           "  --ring-rom FILE       the same, with its option ROM placed where\n"
           "                        the boot PROM's expansion scan looks, so the\n"
           "                        firmware's own self-test runs\n"
@@ -1154,6 +1159,45 @@ static int run_option_rom_entry(FILE *out, ap_model_id_t model,
  * their boot PROM and reports what each node's ring card saw, which is the
  * check that the *ring* is wired end to end; `lcnode` is the plan's
  * verification and remains ahead. */
+/* One Winchester per node. Two nodes on a ring are two *machines*, and a machine
+ * is its volume: `node_id_from_volume` makes it present the node its disk
+ * records, so a shared image would be two machines claiming one identity. Left
+ * null, the nodes run their boot PROMs and no operating system, which is what
+ * this runner did before disks existed. */
+static const char *g_ring_disk[2] = {NULL, NULL};
+
+/* Defined below, beside the single-machine path that also uses it: a node
+ * presents the ID its own volume records. */
+static bool node_id_from_volume(const char *path, uint32_t *out);
+
+/* One node's Winchester, read into a private buffer and attached.
+ *
+ * The same rule the single-machine path states: the buffer is a copy and nothing
+ * writes it back, so the drive the machine sees behaves like a drive and the
+ * user's image is untouched. A two-node run needs *two* of these, and they must
+ * be different volumes -- `node_id_from_volume` makes a machine present the node
+ * its disk records, so two nodes sharing an image would be two machines claiming
+ * one identity, which is the thing that comment refuses. */
+static bool ring_node_disk(const char *path, uint8_t **bytes, ap_awd_t *image,
+                           ap_board_t *board, unsigned node) {
+  long size = 0;
+  *bytes = read_file(path, &size);
+  if (*bytes == NULL) {
+    fprintf(stderr, "apollo: node %u cannot read disk image %s\n", node, path);
+    return false;
+  }
+  if (!ap_awd_open(image, *bytes, (size_t)size,
+                   ap_awd_geometry_for(AP_AWD_DRIVE_348MB), true)) {
+    free(*bytes);
+    *bytes = NULL;
+    fprintf(stderr, "apollo: node %u: %s is not an Apollo Winchester image\n",
+            node, path);
+    return false;
+  }
+  ap_omti_attach(&board->disk.controller, image);
+  return true;
+}
+
 static int run_ring_two_node(FILE *out, ap_model_id_t model,
                              const char *prom_path, const char *ring_rom_path,
                              unsigned ram_megabytes, uint64_t limit) {
@@ -1204,8 +1248,45 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
   const ap_mc146818_time_t epoch = {0};
   /* Distinct node IDs, because `[MAC]` §2.2.2.2 compares the destination
    * against "the node address of the target" and two nodes answering the same
-   * address is not a ring, it is a fault. */
-  static const uint32_t node_id[NODES] = {0x011111u, 0x022222u};
+   * address is not a ring, it is a fault.
+   *
+   * **A node given a volume takes its ID from that volume**, exactly as the
+   * single-machine path does: a machine must present the node its disk records,
+   * or every object it creates is attributed to a machine that is not there. The
+   * constants below are the fallback for a run with no disks, which is a ring of
+   * two boot PROMs and has no file system to be wrong about. */
+  static uint32_t node_id[NODES] = {0x011111u, 0x022222u};
+  uint8_t *disk_bytes[NODES] = {0};
+  static ap_awd_t disk_image[NODES];
+  for (unsigned i = 0; i < NODES; i++) {
+    if (g_ring_disk[i] == NULL) {
+      continue;
+    }
+    uint32_t from_volume = 0;
+    if (!node_id_from_volume(g_ring_disk[i], &from_volume)) {
+      for (unsigned j = 0; j < NODES; j++) {
+        free(disk_bytes[j]);
+      }
+      free(prom);
+      free(ring_rom);
+      return 2;
+    }
+    node_id[i] = from_volume;
+  }
+  if (g_ring_disk[0] != NULL && g_ring_disk[1] != NULL &&
+      node_id[0] == node_id[1]) {
+    /* Refused rather than run: two volumes recording the same node are one
+     * machine's disk twice over, and a ring whose two stations answer the same
+     * address is not a ring. `[MAC]` §2.2.2.2 decides delivery on that address
+     * alone, so the failure would look like frames vanishing. */
+    fprintf(stderr,
+            "apollo: both ring volumes record node %05X; two nodes need two "
+            "volumes initialised on different nodes\n",
+            node_id[0]);
+    free(prom);
+    free(ring_rom);
+    return 2;
+  }
 
   ap_ring_sched_init(&sched);
   for (unsigned i = 0; i < NODES; i++) {
@@ -1241,6 +1322,19 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
     if (slot < 0) {
       fprintf(stderr, "apollo: node %u could not join the ring\n", i);
       free(prom);
+      return 2;
+    }
+    /* The node's Winchester, before the machine runs: the boot PROM's load-path
+     * scan reaches for it during self-test, so a disk attached later is a disk
+     * the firmware has already decided is absent. */
+    if (g_ring_disk[i] != NULL &&
+        !ring_node_disk(g_ring_disk[i], &disk_bytes[i], &disk_image[i],
+                        &board[i], i)) {
+      for (unsigned j = 0; j < NODES; j++) {
+        free(disk_bytes[j]);
+      }
+      free(prom);
+      free(ring_rom);
       return 2;
     }
     ap_machine_init_model(&machine[i], ram[i], ram_bytes, model);
@@ -5679,6 +5773,16 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--configure") == 0) {
       g_configure = true;
       i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--ring-disk-a") == 0 && i + 1 < argc) {
+      g_ring_disk[0] = argv[i + 1];
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--ring-disk-b") == 0 && i + 1 < argc) {
+      g_ring_disk[1] = argv[i + 1];
+      i += 2;
       continue;
     }
     if (strcmp(argv[i], "--ring-two-node") == 0) {
