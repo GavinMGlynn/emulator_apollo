@@ -4719,8 +4719,21 @@ Only after the reference core is proven, and only under an identity harness.
       **That directory does hold two *other* SR10.3 boot cartridges**, neither
       here: `019376-001.CRTG_PSK8_BOOT_1_W_STANDALONE_…-SR10.3-BOOT.ct.gz`
       (9.0 M) and `019439-001.CRTG_PSKQ3_91_BOOT_1-…SR10.3_BOOT.ct.gz` (15 M),
-      both named `BOOT`, both Product Support Kits. Fetching one and reading
-      block 0 is the next step — a download and one `python3` read. That is a media question, not an
+      both named `BOOT`, both Product Support Kits.
+      **Fetched `019376-001`, and it IS the bootable one:**
+
+          blk0: 00 13 d8 00  00 13 d8 2a  00 13 f7 30  4e ac ac 65
+                "SYSBOOT REV " … " M68K   "
+
+      `0013D800` is the address the PROM demands, identical to SR10.4's. So the
+      **standard `Crtg_Std_Sfw_Boot_1` is not a bootable cartridge and the PSK
+      `_BOOT_` one is** — which is why `ex domain_os` reported `sysboot not
+      found` against a cartridge that nonetheless *contains* a `sysboot` archive
+      member. Nothing was ever wrong with the emulator, the harness, the volume,
+      the clock, the console or the drive.
+      **Next**: run `di c` / `ex domain_os` against
+      `media/sr10.3/019376-001…BOOT.ct` (downloaded, `media/` is gitignored),
+      then MINST from the four software cartridges, then the state hash. That is a media question, not an
       emulator defect, which is why every device-side hypothesis here failed. Everything else in the cycle is verified and
       the revert plus clean rebuild were done in the same command.
       Everything else in the cycle is verified: the edit rebuilds `sc499.o`,
