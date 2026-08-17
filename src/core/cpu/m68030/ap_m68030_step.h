@@ -119,6 +119,21 @@ typedef struct {
 
   uint64_t clocks; /* accumulated across steps */
 
+  /* ## The clock timeline, one entry per charge, in the order they happened
+   *
+   * `clocks` says how long an instruction took; this says *when* within it. The
+   * machine needs the second to hand each clock to the bus at the instant it
+   * occurred rather than in a batch at the end -- the ordering the per-cycle
+   * item exists to fix.
+   *
+   * Bounded by the longest instruction rather than by a guess: `DIVS.L` is the
+   * worst case in `[030]` Table 8-x at ~150 clocks, so 256 cannot overflow on a
+   * real program. `clock_events_dropped` proves that instead of assuming it --
+   * a bound nobody counts against is a bound nobody knows holds. */
+  uint16_t clock_events[256];
+  unsigned clock_event_count;
+  unsigned clock_events_dropped;
+
   /* The MMU registers, which `PMOVE` writes and reads. They live here because
    * there is one MMU and two access paths through it: a caller that wants
    * translation to follow a `PMOVE` points both access contexts' `tc`, `root`,
@@ -349,6 +364,22 @@ void ap_m68030_cpu_reset(ap_m68030_cpu_t *cpu, uint32_t pc);
 void ap_m68030_reset_state(ap_m68030_cpu_t *cpu);
 
 /* Execute one instruction. */
+/* Charge `n` clocks and record that they happened here.
+ *
+ * The single accumulation point, so the timeline cannot drift from the total:
+ * every site that used to write `cpu->clocks` directly goes through this, and
+ * the two quantities are updated together or not at all. */
+static inline void ap_m68030_charge(ap_m68030_cpu_t *cpu, uint64_t n) {
+  cpu->clocks += n;
+  if (cpu->clock_event_count <
+      sizeof cpu->clock_events / sizeof cpu->clock_events[0]) {
+    cpu->clock_events[cpu->clock_event_count++] =
+        (uint16_t)(n > 0xFFFFu ? 0xFFFFu : n);
+  } else {
+    cpu->clock_events_dropped++;
+  }
+}
+
 [[nodiscard]] ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu);
 
 /* ---------------------------------------------------------------------------

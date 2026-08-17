@@ -4401,7 +4401,16 @@ Only after the reference core is proven, and only under an identity harness.
       and 37 mechanical replacements. The bound is the longest instruction — a
       `DIVS` at ~150 clocks — so a fixed array cannot overflow on a real
       program, and a dropped-entry counter proves that rather than assuming it.
-      **3a emits and consumes nothing, and is provably neutral**: a record
+      **3a is DONE.** `ap_m68030_charge(cpu, n)` is the single accumulation
+      point — every site that wrote `cpu->clocks` directly now goes through it,
+      so the timeline cannot drift from the total — and it appends to a
+      256-entry per-instruction buffer on `ap_m68030_cpu_t`, reset at the top of
+      `ap_m68030_step`. `clock_events_dropped` is run-long and deliberately not
+      reset per instruction, since resetting it would hide the one case it
+      exists to catch.
+      *Verification: `ctest` 138/138, identity boot `A354786119A3931D`
+      unchanged*, which is what "emits and consumes nothing" predicts.
+      **3a emitted and consumed nothing, and was provably neutral**: a record
       nothing reads cannot change behaviour, so the identity hash must not move
       — and if it does, the helper changed something it should not have. The
       buffer is deliberately unhashed until 3b.

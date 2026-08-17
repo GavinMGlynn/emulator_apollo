@@ -5944,6 +5944,12 @@ static bool execute_bounds(ap_m68030_cpu_t *cpu,
 }
 
 ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
+  /* The timeline is per instruction: the machine consumes it after each step,
+   * so it starts empty here. `clock_events_dropped` deliberately is *not*
+   * cleared -- it is a run-long count of a bound that was supposed never to be
+   * reached, and resetting it each instruction would hide exactly the case it
+   * exists to catch. */
+  cpu->clock_event_count = 0u;
   ap_m68030_step_result_t out = {.status = AP_M68030_STEP_FAULT};
   uint16_t word = 0;
   bool abnormal = false;
@@ -5974,7 +5980,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     out.clocks = interrupt.clocks;
     out.status = AP_M68030_STEP_EXCEPTION;
 
-    cpu->clocks += out.clocks;
+    ap_m68030_charge(cpu, out.clocks);
     return out;
   }
 
@@ -6004,7 +6010,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     const ap_m68030_exception_result_t taken = ap_m68030_take_address_error(cpu);
     out.clocks += taken.clocks;
     out.status = taken.ok ? AP_M68030_STEP_EXCEPTION : AP_M68030_STEP_FAULT;
-    cpu->clocks += out.clocks;
+    ap_m68030_charge(cpu, out.clocks);
     return out;
   }
 
@@ -6056,7 +6062,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     cpu->fault_function_code = cpu->fetch.function_code;
     cpu->fault_data_output = 0u;
     out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-    cpu->clocks += out.clocks;
+    ap_m68030_charge(cpu, out.clocks);
     return out;
   }
 
@@ -6083,7 +6089,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
        * 68020 the instruction is real, so the machine's trap would dress an
        * unfinished implementation up as correct hardware. */
       out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-      cpu->clocks += out.clocks;
+      ap_m68030_charge(cpu, out.clocks);
       return out;
     }
     if (module.opcode == AP_M68020_MODULE_CALLM) {
@@ -6095,17 +6101,17 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
        * gap: `CALLM` forces a change of flow and would be traced. */
       out.status = AP_M68030_STEP_EXECUTED;
       out.branch_taken = true;
-      cpu->clocks += out.clocks;
+      ap_m68030_charge(cpu, out.clocks);
       return out;
     }
     if (!execute_rtm(cpu, &module, &out.clocks)) {
       out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-      cpu->clocks += out.clocks;
+      ap_m68030_charge(cpu, out.clocks);
       return out;
     }
     out.status = AP_M68030_STEP_EXECUTED;
     out.branch_taken = true;
-    cpu->clocks += out.clocks;
+    ap_m68030_charge(cpu, out.clocks);
     return out;
   }
   out.kind = decoded.kind;
@@ -6144,11 +6150,11 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
                                    instruction_address, instruction_address);
       out.clocks += taken.clocks;
       out.status = taken.ok ? AP_M68030_STEP_EXCEPTION : AP_M68030_STEP_FAULT;
-      cpu->clocks += out.clocks;
+      ap_m68030_charge(cpu, out.clocks);
       return out;
     }
     out.status = AP_M68030_STEP_ILLEGAL;
-    cpu->clocks += out.clocks;
+    ap_m68030_charge(cpu, out.clocks);
     return out;
   }
 
@@ -6173,7 +6179,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     if (!execute_control(cpu, &decoded.as.control, &out.clocks,
                          &branched)) {
       out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-      cpu->clocks += out.clocks;
+      ap_m68030_charge(cpu, out.clocks);
       return out;
     }
     out.branch_taken = branched;
@@ -6193,7 +6199,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     if (branch->size != AP_M68030_BRANCH_8BIT) {
       uint16_t high = 0;
       if (!next_word(cpu, &out.clocks, &high)) {
-        cpu->clocks += out.clocks;
+        ap_m68030_charge(cpu, out.clocks);
         return out;
       }
       if (branch->size == AP_M68030_BRANCH_16BIT) {
@@ -6201,7 +6207,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       } else {
         uint16_t low = 0;
         if (!next_word(cpu, &out.clocks, &low)) {
-          cpu->clocks += out.clocks;
+          ap_m68030_charge(cpu, out.clocks);
           return out;
         }
         displacement = (int32_t)(((uint32_t)high << 16) | low);
@@ -6222,7 +6228,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
        * after this instruction, displacement words included. */
       if (!push_long(cpu, cpu->regs.pc + CONSUMED_LENGTH, &out.clocks)) {
         out.status = AP_M68030_STEP_FAULT;
-        cpu->clocks += out.clocks;
+        ap_m68030_charge(cpu, out.clocks);
         return out;
       }
     }
@@ -6241,7 +6247,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   case AP_M68030_DECODED_MOVE:
     if (!execute_move(cpu, &decoded.as.move, &out.clocks)) {
       out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-      cpu->clocks += out.clocks;
+      ap_m68030_charge(cpu, out.clocks);
       return out;
     }
     break;
@@ -6249,7 +6255,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   case AP_M68030_DECODED_ARITH:
     if (!execute_arith(cpu, &decoded.as.arith, &out.clocks)) {
       out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-      cpu->clocks += out.clocks;
+      ap_m68030_charge(cpu, out.clocks);
       return out;
     }
     break;
@@ -6257,7 +6263,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   case AP_M68030_DECODED_IMMEDIATE:
     if (!execute_immediate(cpu, &decoded.as.immediate, &out.clocks)) {
       out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-      cpu->clocks += out.clocks;
+      ap_m68030_charge(cpu, out.clocks);
       return out;
     }
     break;
@@ -6265,7 +6271,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   case AP_M68030_DECODED_SINGLE:
     if (!execute_single(cpu, &decoded.as.single, &out.clocks)) {
       out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-      cpu->clocks += out.clocks;
+      ap_m68030_charge(cpu, out.clocks);
       return out;
     }
     break;
@@ -6274,7 +6280,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     bool taken = false;
     if (!execute_quick(cpu, &decoded.as.quick, &out.clocks, &taken)) {
       out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-      cpu->clocks += out.clocks;
+      ap_m68030_charge(cpu, out.clocks);
       return out;
     }
     out.branch_taken = taken;
@@ -6284,7 +6290,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   case AP_M68030_DECODED_SHIFT:
     if (!execute_shift(cpu, &decoded.as.shift, &out.clocks)) {
       out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-      cpu->clocks += out.clocks;
+      ap_m68030_charge(cpu, out.clocks);
       return out;
     }
     break;
@@ -6292,7 +6298,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   case AP_M68030_DECODED_MISC:
     if (!execute_misc(cpu, &decoded.as.misc, &out.clocks)) {
       out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-      cpu->clocks += out.clocks;
+      ap_m68030_charge(cpu, out.clocks);
       return out;
     }
     break;
@@ -6323,7 +6329,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
        * convincingly: the firmware would take a plausible exception and carry
        * on, and the gap would stop being visible. */
       out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-      cpu->clocks += out.clocks;
+      ap_m68030_charge(cpu, out.clocks);
       return out;
     }
 
@@ -6369,7 +6375,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
           coproc->type > AP_M68030_CP_RESERVED) {
         cpu->refused_vector = AP_M68030_VECTOR_LINE_F;
         out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-        cpu->clocks += out.clocks;
+        ap_m68030_charge(cpu, out.clocks);
         return out;
       }
 
@@ -6404,7 +6410,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
           break;
         case FP_SOURCE_FAILED:
           out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-          cpu->clocks += out.clocks;
+          ap_m68030_charge(cpu, out.clocks);
           return out;
         }
         break;
@@ -6431,7 +6437,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
           break;
         case FP_SOURCE_FAILED:
           out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-          cpu->clocks += out.clocks;
+          ap_m68030_charge(cpu, out.clocks);
           return out;
         }
         break;
@@ -6448,7 +6454,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
         uint16_t high = 0;
         if (!next_word(cpu, &out.clocks, &high)) {
           out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-          cpu->clocks += out.clocks;
+          ap_m68030_charge(cpu, out.clocks);
           return out;
         }
         uint32_t displacement = (uint32_t)(int32_t)(int16_t)high;
@@ -6456,7 +6462,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
           uint16_t low = 0;
           if (!next_word(cpu, &out.clocks, &low)) {
             out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-            cpu->clocks += out.clocks;
+            ap_m68030_charge(cpu, out.clocks);
             return out;
           }
           displacement = ((uint32_t)high << 16) | (uint32_t)low;
@@ -6484,7 +6490,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       if (coproc->type == AP_M68030_CP_GENERAL &&
           !next_word(cpu, &out.clocks, &command)) {
         out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-        cpu->clocks += out.clocks;
+        ap_m68030_charge(cpu, out.clocks);
         return out;
       }
 
@@ -6544,7 +6550,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
           break;
         case FP_SOURCE_FAILED:
           out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-          cpu->clocks += out.clocks;
+          ap_m68030_charge(cpu, out.clocks);
           return out;
         }
         if (violated) {
@@ -6579,7 +6585,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
             case FP_SOURCE_FAILED:
               out.status =
                   fault_or_unimplemented(cpu, &out, instruction_address);
-              cpu->clocks += out.clocks;
+              ap_m68030_charge(cpu, out.clocks);
               return out;
             }
             if (violated) {
@@ -6604,7 +6610,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
             case FP_SOURCE_FAILED:
               out.status =
                   fault_or_unimplemented(cpu, &out, instruction_address);
-              cpu->clocks += out.clocks;
+              ap_m68030_charge(cpu, out.clocks);
               return out;
             }
             if (violated) {
@@ -6629,7 +6635,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
               case FP_SOURCE_FAILED:
                 out.status =
                     fault_or_unimplemented(cpu, &out, instruction_address);
-                cpu->clocks += out.clocks;
+                ap_m68030_charge(cpu, out.clocks);
                 return out;
               }
               if (violated) {
@@ -6652,7 +6658,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
          * be indistinguishable from a correct unfitted machine, and the gap
          * would stop being visible. */
         out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-        cpu->clocks += out.clocks;
+        ap_m68030_charge(cpu, out.clocks);
         return out;
       }
       /* AP_M68882_TAKE_LINE_F falls through to the trap below, which is where
@@ -6689,12 +6695,12 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       break;
     }
     out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-    cpu->clocks += out.clocks;
+    ap_m68030_charge(cpu, out.clocks);
     return out;
 
   case AP_M68030_DECODED_ILLEGAL:
     out.status = fault_or_unimplemented(cpu, &out, instruction_address);
-    cpu->clocks += out.clocks;
+    ap_m68030_charge(cpu, out.clocks);
     return out;
 
   case AP_M68030_DECODED_LINE_A:
@@ -6748,7 +6754,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       /* A fault while stacking is a double fault, which halts the real part.
        * Reporting a memory fault is honest about not modelling the halt. */
       out.status = AP_M68030_STEP_FAULT;
-      cpu->clocks += out.clocks;
+      ap_m68030_charge(cpu, out.clocks);
       return out;
     }
     out.status = AP_M68030_STEP_EXCEPTION;
@@ -6768,7 +6774,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
         out.status = AP_M68030_STEP_FAULT;
       }
     }
-    cpu->clocks += out.clocks;
+    ap_m68030_charge(cpu, out.clocks);
     return out;
   }
 
@@ -6960,7 +6966,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
                                 : AP_M68030_STEP_FAULT;
   }
 
-  cpu->clocks += out.clocks;
+  ap_m68030_charge(cpu, out.clocks);
   return out;
 }
 #undef CONSUMED_LENGTH
