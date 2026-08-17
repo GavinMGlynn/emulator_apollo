@@ -4621,11 +4621,22 @@ Only after the reference core is proven, and only under an identity harness.
       `arbiter_suite`/`dma_suite` likewise. None of them runs a *CPU
       instruction* while a master holds the bus, which is the whole of what this
       test needs.
-      **So it needs new scaffolding**: a machine and board, a `MOVEM` staged in
-      RAM, a master made to assert part-way through it, and an assertion on
-      memory — run under both stepping modes. That is a day's work rather than
-      an afternoon's, and it is still far cheaper than the sequencer rewrite it
-      would justify or rule out. If it passes under
+      **And the scaffolding cannot be built as a test at all, because the board
+      has no bus master to build it from.** `ap_board_t` owns an
+      `ap_arbiter_t` and **no `ap_master_t`**: the master model exists, is
+      tested at signal level by `master_suite`, and is **connected to no
+      board**. So nothing in this core can currently make an external master
+      contend with the processor, and the `MOVEM` test has nothing to assert
+      against.
+      That is the `check_what_is_called_by_nobody` pattern again — a complete,
+      green-suited module wired to nothing — and it is a **core gap in its own
+      right**, independent of the per-cycle item: a DN3500 with an AT bus master
+      cannot presently take the bus from the CPU at all.
+      **So the order is**: wire `ap_master_t` into `ap_board_t` and give the
+      arbiter a real second claimant (a core item, with its own verification);
+      *then* the `MOVEM`-versus-DMA test becomes writable; *then* it decides
+      whether the sequencer rewrite is worth its cost. Three items, and the
+      first was not previously known to be missing. If it passes under
       both stepping modes the approximation is invisible even to the case built
       to catch it; if it fails, that is the first evidence the sequencer rewrite
       is worth its cost — and better evidence than the item's own assertion.
