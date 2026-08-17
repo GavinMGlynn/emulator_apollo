@@ -118,6 +118,21 @@ typedef struct {
    * happens rather than to the last instruction boundary. */
   uint64_t instruction_start_clocks;
 
+  /* **Which of the two device schedules this machine runs.**
+   *
+   * False -- the default -- advances devices only at instruction boundaries,
+   * which is the schedule every golden in this repository was blessed against.
+   * True advances them to the instant each access happens, so a device output
+   * is visible to the instruction still executing.
+   *
+   * A flag rather than a replacement because the two are **observably
+   * different** and this project does not yet know which matches the hardware:
+   * the same 350 M boot hashes `A354786119A3931D` under the first and
+   * `27AAE57F4EF4E97E` under the second, with identical clocks. That is a
+   * question for the oracle, and until it is asked, replacing the schedule
+   * would be choosing an answer rather than measuring one. */
+  bool devices_advance_mid_access;
+
   /* How many F-line exceptions had been taken when this machine last looked.
    * The board's FP trap status bit is set by *taking* one while the control
    * register holds the coprocessor off -- see `board/ap_boardreg.h` -- and a

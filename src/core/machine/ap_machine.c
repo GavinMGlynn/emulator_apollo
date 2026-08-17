@@ -231,11 +231,13 @@ static unsigned machine_wait_states(void *context, uint32_t physical,
    * all: devices advance to an absolute instant carrying their own remainders,
    * so reaching the end of the instruction in two steps is the same as reaching
    * it in one. */
-  ap_board_advance(machine->board,
-                   machine->now +
+  if (machine->devices_advance_mid_access) {
+    ap_board_advance(machine->board,
+                     machine->now +
                        ap_clock_duration(&machine->cpu_clock,
-                                         machine->cpu.clocks -
-                                             machine->instruction_start_clocks));
+                                           machine->cpu.clocks -
+                                               machine->instruction_start_clocks));
+  }
 
   const ap_time_t needed = ap_board_access_time(machine->board, physical, read);
   if (needed == 0u) {

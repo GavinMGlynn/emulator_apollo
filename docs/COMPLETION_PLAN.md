@@ -4460,9 +4460,17 @@ Only after the reference core is proven, and only under an identity harness.
       the ordering half, where it held five times running. The options are to
       re-bless the goldens deliberately with this change named as the reason, or
       to keep the old schedule behind a flag and run the two as an A/B.
-      **Not re-blessed**: `PROJECT_STATUS.md` still records
-      `A354786119A3931D`, which this makes stale — the honest state until the
-      call is made. The bus now advances mid-instruction, but
+      **Resolved as an A/B rather than a re-bless.** The new schedule is behind
+      `machine.devices_advance_mid_access`, **default off**, exposed as
+      `--mid-access-devices`. So every golden stands unchanged — the default
+      boot is `A354786119A3931D` again — and the new schedule is opt-in.
+      A flag rather than a replacement because the two are *observably
+      different* and this project does not know which matches the hardware:
+      same boot, same clocks, different device state. Replacing the schedule
+      would be choosing an answer where the oracle can measure one, and this
+      core expects to out-accurate MAME on exactly that kind of question.
+      **The A/B is now runnable in one command each**, which is what makes the
+      oracle comparison a next step rather than a project. The bus now advances mid-instruction, but
       the processor cannot yet observe it mid-instruction — that needs the
       resumable sequencer increment (2) showed to be a rewrite of a 6,966-line
       file. The ordering half of the item is done; the feedback half is not.
