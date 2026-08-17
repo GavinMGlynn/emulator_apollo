@@ -4474,7 +4474,25 @@ Only after the reference core is proven, and only under an identity harness.
       **And the A/B has a cost dimension, not only a correctness one.** The
       mid-access schedule calls `ap_board_advance` on *every access* rather than
       once per instruction, and the B run of the identity boot was still going
-      well after the A run had finished. **Measured on a release build, and it is not a margin: >119x.** The
+      well after the A run had finished. **RETRACTED: the >119x below was my own bug, not a cost.** The
+      `--mid-access-devices` flag was added inside
+      `for (int i = 1; i < argc;)` — a loop with **no increment in its header**,
+      where every branch must advance `i` itself — and the new branch did
+      `continue` without one. B never ran slowly; it **hung in argument
+      parsing**. A `perf` profile said `__strcmp_avx2` **81.18%** with `main` as
+      the caller, which is not a shape any emulation cost can have, and that is
+      what found it.
+      **The real figures, fixed and re-measured**: 50 M instructions in
+      **4.9 s** default against **5.3 s** mid-access — **1.08x** — and the state
+      hashes are *identical* at `80899FCE206623A1`. So the two schedules agree
+      at 50 M and diverge only by 350 M, and the mid-access schedule is
+      practically free.
+      **Which also means `ap_board_advance_one` was built to fix a cost that did
+      not exist.** It is correct and default-neutral, so it stays, but the plan
+      no longer claims it was needed. Two lessons, both this project's own:
+      profile before optimising, and a figure that extreme is a bug in the
+      instrument before it is a fact about the program.
+      **The superseded claim follows.** The
       default schedule runs 50 M instructions in **5.0 s**; the mid-access
       schedule **did not finish the same run in 595 s**, so the ratio is a lower
       bound rather than a figure. `ap_board_advance` walks every device, and

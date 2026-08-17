@@ -5346,6 +5346,7 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--mid-access-devices") == 0) {
       g_devices_mid_access = true;
+      i++;
       continue;
     }
     if (strcmp(argv[i], "--ram") == 0 && i + 1 < argc) {
