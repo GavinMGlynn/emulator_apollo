@@ -4756,10 +4756,20 @@ Only after the reference core is proven, and only under an identity harness.
       therefore why that claim does not make `ap_arbiter_processor_may_run`
       false: whether the line needs enabling, whether the arbiter ranks it below
       the processor, or whether the DRQ number chosen by
-      `ap_board_attach_master` is not a line the arbiter arbitrates. That is one
-      read of `ap_arbiter.c` against `008778-03` §2.4.7, and it very likely
-      explains (b) as well — a claim the arbiter never granted is also a claim
-      it can drop.
+      `ap_board_attach_master` is not a line the arbiter arbitrates. **Read, and it narrows to one question.**
+      `ap_arbiter_processor_may_run` is
+      `ap_m68030_arb_processor_is_master(&arbiter->cpu) && arbiter->master ==
+      AP_ARBITER_PROCESSOR` — two conditions, and the manual's §7.7.3 window is
+      why. So the processor stalls only when `arbiter->master` is **not** the
+      processor.
+      And the master *did* reach `ACKNOWLEDGED`, which `master_suite` says can
+      only happen once arbitration has been won — so the arbiter granted, and
+      then either handed mastership back during `ap_machine_run`'s own board
+      ticking, or never set `arbiter->master` away from the processor in the
+      first place. **Those two are distinguishable by printing `arbiter->master`
+      either side of the run**, which is where this goes next and is a smaller
+      question than any so far. It is also the same question as (b): a tenure
+      that ends without either line dropping is one the arbiter took back.
       **Then the rest of the order**:
       *then* the `MOVEM`-versus-DMA test becomes writable; *then* it decides
       whether the sequencer rewrite is worth its cost. Three items, and the
