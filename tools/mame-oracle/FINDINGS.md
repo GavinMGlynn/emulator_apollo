@@ -8513,3 +8513,40 @@ which is a source read rather than a run.
 
 *Nothing about this blocks the frontend work, which is landed and tested; it
 blocks only the second volume that a two-node Domain/OS run needs.*
+
+## C146 -- the node-ID ROM is read and accepted, and the UID generator ignores it
+
+C145 left one question: the ROM loads but the volume records node `12345`. Traced
+to the instruction, with three temporary prints since reverted:
+
+    PROBE apollo_ni::device_start exists=1 node=000000
+    PROBE apollo_ni::call_load file=.../nodeB.ani size=32
+    PROBE apollo_ni::call_load accepted node 022222
+
+So the ordering is `device_start` **then** `call_load`, the image is thirty-two
+bytes as `oracle_nodeid` requires, and `call_load` **accepts node 022222**. The
+device holds the right value.
+
+**A guard was tried and is not the answer.** `device_start` calls
+`set_node_id(DEFAULT_NODE_ID)` unconditionally, which looked like the bug -- but
+it runs *before* `call_load`, so the load wins and the default is already
+harmless. Guarding it on `!exists()` changed nothing: INVOL run to
+`Initialization complete.` still wrote a volume whose creator UID records
+`12345`. Reverted, along with the prints; `apollo_m.cpp` carries only C139.
+
+**So the node the UID generator uses is not the one in the node-ID ROM.** That is
+a narrower and more useful statement than "the node ID does not take", and it
+points somewhere concrete: this project's *own* core writes the node into the
+**calendar's battery RAM** (`ap_calendar_build_config`, `[CFG]`'s configuration
+block at `0x1E`), and Apollo reads its configuration from there. MAME persists
+that RAM as nvram in the run directory.
+
+**Next, and it is a read before a run**: find what the boot PROM and INVOL use as
+the node -- the battery configuration block or the `011200`/`009600` ROM window --
+and if it is the battery, set it there. Our own `ap_calendar_build_config` already
+takes a node ID argument, so the answer for *this* core is known; what is needed is
+the equivalent for the oracle, which is where volumes get made.
+
+**Item state**: the two-node frontend is built and tested, INVOL now runs to
+completion on a copied volume, and the one remaining gap is putting a *different*
+node into that volume.
