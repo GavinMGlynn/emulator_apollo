@@ -5350,83 +5350,34 @@ Only after the reference core is proven, and only under an identity harness.
       identifies as the *unclean volume* decline, and the volume **is** dirty,
       because the previous run wrote to it. C54's own line covers this: *a
       failed stage is not a no-op.*
-      **And restoring the volume brings `sysboot not found` straight back — so
-      the discriminator was the VOLUME all along.** With the *correct*
-      cartridge, the one that had just booted twice, a freshly-restored
-      pristine `invol-done` gives `error: sysboot not found`; a volume already
-      written by a previous boot loads the kernel. That is this morning's
-      unexplained one-off, now **reproducible in both directions** and no longer
-      a mystery: `ex domain_os` needs state on the *disk*, which `invol-done`
-      lacks and a partially-booted volume has.
-      **So `invol-done` is the wrong base**, and the checkpoint list says which
-      is right: `dn3500-osclean.awd`, "OS restored from the boot cartridge and
-      cleanly shut down, MINST not run — the right base for redoing the
-      install". It carries SR10.4's OS, which is *why* it boots, so an SR10.3
-      install onto it must be checked for layering.
-      **Tried `-osclean`, and it fails the same way** — `error: sysboot not
-      found`. So "a volume that already carries an OS" is **not** the
-      discriminator either, and the paragraph above is too strong. What is
-      established is narrower: the *same cartridge* gives different answers on
-      different volumes, and which property decides it is unknown.
-      **Two runs worked (`q3`, `q3b`), three did not** (`q3c` on `invol-done`,
-      `q3d` on `osclean`, and this morning's). The working pair ran on a volume
-      left by a *previous failed boot in the same session*; every failure ran on
-      a freshly-copied checkpoint. That points at something a failed boot leaves
-      behind rather than at the checkpoint's contents — a pattern over five
-      runs, not a mechanism.
-      **Instrumented with `cmp`, and it refutes the pattern.** The volume after
-      the failed `q3d` is **byte-identical** to pristine `osclean` — *zero*
-      differing 1 K blocks over 348 MB. A failed boot writes **nothing**. So
-      "something a failed boot leaves behind" is dead, and with it the volume
-      hypothesis in every form: the same cartridge, on byte-identical volume
-      content, with a fresh rundir, has both loaded the kernel and reported
-      `sysboot not found`.
-      **That leaves non-determinism or an unidentified variable, and it is now
-      the whole question.** Note it also retro-explains this morning: the image
-      that "could have settled it" and was overwritten would have shown nothing,
-      because failed boots do not write. Nothing was lost there.
-      **Checked: all four rundirs are empty** — `q3`, `q3b`, `q3c`, `q3d`
-      contain no `nvram`, no `cfg`, no files at all, despite `--keep-rundir`.
-      So persisted harness state is not the variable either.
-      **One correction to the elimination above: the `cmp` tested the wrong
-      run.** It compared a volume before and after a **failed** boot, which
-      writes nothing — but `q3` *succeeded*, and a kernel that loads and mounts
-      a volume almost certainly does write. `q3b` then ran on the volume `q3`
-      had left. So the observed pattern is not "a failed boot leaves state" but
-      possibly **"a *successful* boot leaves state, and the run is
-      self-sustaining once one has worked"** — which would make `q3` itself the
-      only real mystery, and every later success a consequence of it.
-      **Untested, and it is the next thing to test**, with `cmp` again rather
-      than an emulator: keep the pre-run copy, run until one *succeeds*, and
-      diff. The elimination below stands only for failed runs.
-      Same cartridge, byte-identical volume, empty rundirs, same command file,
-      same binary. The one remaining difference between the successful pair and the
-      failures is **which volume the run started from**, and `cmp` says the
-      failing runs leave that volume untouched — so if the *content* is
-      identical the start state cannot differ, and the runs should agree. They
-      do not.
-      **That is the finding to carry forward: this is not yet a reproducible
-      experiment**, and no result from it — including the two kernel loads —
-      should be built on until it is. The next move is to make one run
-      reproducible before asking anything else of it: fix the volume, the
-      cartridge and the command file, and run the *same* invocation three times
-      to establish whether it agrees with itself.
-      **Started; run 1 of 3 gave `sysboot not found`** on a restored
-      `invol-done` base with the era config off — consistent with `q3c`. Runs 2
-      and 3 did not complete: three ~4-minute runs chained into one command
-      exceeded the 10-minute cap and were killed.
-      **That also ate the revert**, leaving `mdsession.lua` at
-      `"25 Years Ago" = Off` until the next command caught it. **Run long oracle
-      work one invocation at a time**, or put the revert in its own command —
-      an edit whose undo is at the end of a long chain is an edit that will
-      eventually be left behind, and `CLAUDE.md` requires oracle instrumentation
-      to be reverted, not usually-reverted. That is a media question, not an
-      emulator defect, which is why every device-side hypothesis here failed. Everything else in the cycle is verified and
-      the revert plus clean rebuild were done in the same command.
-      Everything else in the cycle is verified: the edit rebuilds `sc499.o`,
-      and the revert plus clean rebuild both work, done in the same sitting.
-      Then MINST from the four software cartridges, then the state hash the
-      item asks for.
+      **Then a thread of six eliminations, and the answer was the medium.**
+      The kernel load would not reproduce: two runs worked and five reported
+      `sysboot not found` on the same cartridge. The invocation, the run
+      directory, the era config, the unclean volume, the drive settling and the
+      `re` sequence were each eliminated, and the volume was `cmp`-ed before and
+      after a run and found byte-identical — at which point the recorded
+      position was that this "is not yet a reproducible experiment".
+      **It was the cartridge, which nobody suspected because it was an input.**
+      `sc499_device::write_block` is an `fseek`/`fwrite` into the image file and
+      MAME opens a cartridge read/write, so `--ctape media/...` handed the guest
+      our only copy. A successful boot overwrote **exactly one 512-byte block of
+      50,727,936** — block 0, carrying the `SYSBOOT REV`/`0013D800` descriptor
+      the PROM validates — and the file's mtime is 6 ms after that run's own
+      log. Re-fetched from bitsavers and restored.
+      **Fixed in the harness**: `mdsession.py` stages every cartridge into the
+      run directory and mounts the copy, on `--ctape` and `!swap ctape` alike,
+      re-copying each run so `--keep-rundir` cannot inherit damage. The disk is
+      deliberately not staged — an install's writes to its volume are the
+      product.
+      *Verification: `test_mdsession.py` 33 → 41 checks, the new ones driving a
+      stub that writes to the path it is given, so they fail on content rather
+      than on the command line; then **three runs of one invocation, one at a
+      time, byte-identical consoles** and the source md5 unchanged. Detail in
+      `FINDINGS.md` C124.*
+      **So SR10.3.5 loads reproducibly**, and what remains of this item is the
+      calendar gate (measured to clear with the harness's `25 Years Ago` off),
+      then MINST from the four software cartridges, then the state hash the item
+      asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
       console selection is an autobaud (`000844`-`0008B8`) that the scripted

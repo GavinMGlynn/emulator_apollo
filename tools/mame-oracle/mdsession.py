@@ -198,6 +198,10 @@ class Session:
         self.closed = False
         self.swapfile = swapfile
         self.swap_sequence = 0
+        # Where `!swap ctape` stages its copies. Derived rather than passed
+        # because it must be the *same* run directory MAME was given, and the
+        # swap channel already establishes which that is.
+        self.media_dir = swapfile.parent if swapfile is not None else None
 
         self.reader = threading.Thread(target=self._read_console, daemon=True)
         self.reader.start()
@@ -468,7 +472,10 @@ def follow_commands(session: Session, path: Path, timeout: float,
                        `\\r`, `\\n` and `\\t` are interpreted
       !cr              send a bare carriage return: an *empty* answer
       !swap NAME PATH  change a mounted medium without stopping the machine,
-                       and wait for the script to confirm it. NAME alone ejects
+                       and wait for the script to confirm it. NAME alone
+                       ejects. A `ctape` is staged into the run directory
+                       first, so the guest cannot write on our only copy of it
+                       -- see `stage_cartridge`
       !quit            end the session
       anything else    sent as typed, with a carriage return
 
@@ -567,7 +574,28 @@ def follow_commands(session: Session, path: Path, timeout: float,
                 # command file silently never read again.
                 parts = line[6:].split(None, 1)
                 name = parts[0]
-                medium = str(Path(parts[1]).resolve()) if len(parts) > 1 else ""
+                medium = ""
+                if len(parts) > 1:
+                    source = Path(parts[1]).resolve()
+                    # Staged for the same reason `--ctape` is, and it matters
+                    # more here: MINST swaps four cartridges in, so an
+                    # unstaged swap exposes four media instead of one. Only
+                    # cartridges -- a disk swapped mid-run is being written on
+                    # purpose. See `stage_cartridge`.
+                    if name.startswith("ctape") and session.media_dir \
+                            and source.is_file():
+                        source = stage_cartridge(source, session.media_dir)
+                    elif name.startswith("ctape") and not source.is_file():
+                        # Passed through unstaged, and said so. A cartridge
+                        # that is not there is an operator error, and the
+                        # error belongs to the image layer -- MAME answers
+                        # "load failed" for it, uniformly with every other
+                        # unloadable medium. Copying it here would replace that
+                        # with a traceback from the stager.
+                        sys.stderr.write(
+                            "mdsession: %s does not exist; not staged\n"
+                            % source)
+                    medium = str(source)
                 sys.stderr.write("mdsession: swap %s -> %s\n" % (name, medium))
                 sys.stderr.write("mdsession: %s\n"
                                  % session.swap(name, medium, timeout))
@@ -592,6 +620,40 @@ def make_disk(path: Path) -> bool:
     return True
 
 
+def stage_cartridge(source: Path, rundir: Path) -> Path:
+    """Copy a cartridge into the run directory and return the copy.
+
+    **MAME mounts a cartridge read/write and a guest that writes to it writes
+    to our file.** `sc499_device::write_block` is an `fseek`/`fwrite` straight
+    into the image, so a `-ctape` argument naming a file in `media/` hands the
+    guest a pen and our only copy of the medium.
+
+    That is not hypothetical and it cost most of a thread. A *successful*
+    SR10.3 boot overwrote exactly block 0 of
+    `019439-001.CRTG_PSKQ3_91_BOOT_1` -- the one block carrying the
+    `SYSBOOT REV`/`0013D800` descriptor the boot PROM validates -- so the
+    cartridge booted twice and then reported `error: sysboot not found`
+    forever. Six emulator-side hypotheses were eliminated (device select, tape
+    position, media change, autobaud, clock era, volume state) and the volume
+    was `cmp`-ed before and after a run, because the *cartridge* was an input
+    and inputs are not suspected. Re-fetched from bitsavers, exactly one
+    512-byte block of 50,727,936 differed.
+
+    So a run gets a copy and the medium in `media/` is never opened by the
+    emulator. A cartridge is write-protected media on the real machine anyway;
+    the copy is what makes that true here, rather than a claim about what a
+    guest ought to do.
+
+    The **disk** is deliberately not staged: an install writes to its volume
+    and the checkpoints in `media/` are those writes. The asymmetry is the
+    hardware's -- a tape is read, a disk is written.
+    """
+    staged = rundir / "media" / source.name
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, staged)
+    return staged
+
+
 def build_command(mame: Path, args, rundir: Path) -> list:
     command = [
         str(mame),
@@ -606,7 +668,7 @@ def build_command(mame: Path, args, rundir: Path) -> list:
     if args.disk is not None:
         command += ["-disk1", str(args.disk)]
     if args.ctape is not None:
-        command += ["-ctape", str(args.ctape)]
+        command += ["-ctape", str(stage_cartridge(args.ctape, rundir))]
     for option in ("nvram", "cfg", "state", "diff", "snapshot", "input"):
         command += ["-%s_directory" % option, str(rundir / option)]
     command += args.mame_args

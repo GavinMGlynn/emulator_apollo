@@ -7142,3 +7142,48 @@ the dumper is no longer `const` because of it.
 **The general rule this is an instance of:** a dump that claims to be "the save
 state as text" must do everything a save does, or it is a different thing with
 a misleading name. The registry is not all live state.
+
+## C124 -- the oracle wrote on its own boot cartridge, and destroyed the one bootable SR10.3
+
+**Class: our-harness-wrong, after six emulator-side hypotheses.**
+`019439-001.CRTG_PSKQ3_91_BOOT_1` loaded the SR10.3 kernel twice and then
+reported `error: sysboot not found` for every run afterwards. The volume, the
+run directory, the era config, the drive-settling pacing, the `re` sequence and
+the `sc499` media-change remedy were each eliminated; the volume was `cmp`-ed
+before and after a run and found byte-identical. The conclusion recorded at the
+time was that the run "is not yet a reproducible experiment".
+
+**It was the cartridge, and the cartridge was an input.** Re-fetched from
+bitsavers and compared: of 50,727,936 bytes, **exactly one 512-byte block
+differed** -- block 0, which carries the descriptor the boot PROM validates:
+
+    pristine  00 13 d8 00  00 13 d8 2a  00 13 f6 b4 ... "SYSBOOT REV "
+    after     00 00 00 00  00 00 00 00  00 00 00 00 ... (a wbak header)
+
+`0013D800` is the address the PROM demands, so a cartridge without that block is
+`sysboot not found` by definition. Two further facts fix the mechanism: the
+file's mtime was **6 ms after** the successful run's own log, and the block
+written is **nowhere in the pristine tape**, so it was not a read-back of the
+same medium.
+
+`sc499_device::write_block` is an `fseek`/`fwrite` straight into the image file
+and MAME opens a cartridge `flags=00000003`. So `-ctape media/...` hands the
+guest a pen and our only copy of the medium. On the evidence the write happened
+on the `Crash_Status 00010005` decline path rather than the calendar gate --
+that was the run whose mtime matches -- but the mechanism does not depend on
+which guest path did it.
+
+**Fixed in the harness, not in MAME**: `mdsession.py` stages every cartridge
+into the run directory and mounts the copy, on `--ctape` and on `!swap ctape`
+alike, re-copying on each run so `--keep-rundir` cannot inherit damage. The
+disk is deliberately *not* staged -- an install's writes to its volume are the
+product. The asymmetry is the hardware's: a tape is read, a disk is written.
+
+Then three runs of one invocation, one at a time: **byte-identical consoles**,
+`Domain/OS kernel(7), revision 10.3.5` each time, source cartridge md5
+unchanged. The load is reproducible and always was; the medium was being
+consumed by looking at it.
+
+**The rule:** an input that a run can open read/write is not an input. Check the
+artefact before the sixth hypothesis -- and hash it before *and* after any run
+whose result you may want to explain.

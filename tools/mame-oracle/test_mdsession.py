@@ -111,6 +111,23 @@ def poll_swap():
     with open(swapfile + ".ack", "w") as handle:
         handle.write("%d\n%s\n" % (sequence, status))
 
+if mode == "scribble":
+    # Stands in for `sc499_device::write_block`, which is an fseek/fwrite
+    # straight into whatever file `-ctape` named. A real guest did exactly this
+    # to block 0 of the one bootable SR10.3 cartridge.
+    ctape = sys.argv[sys.argv.index("-ctape") + 1]
+    with open(ctape, "r+b") as handle:
+        # What was there first, then the damage. Recording the *pre-existing*
+        # bytes is what lets a test tell re-staging from inheritance: a second
+        # scribble over a first one is indistinguishable from a fresh copy
+        # otherwise.
+        was = handle.read(12)
+        handle.seek(0)
+        handle.write(b"SCRIBBLE")
+    with open(os.environ["MDSTUB_CTAPELOG"], "wb") as handle:
+        handle.write(ctape.encode() + b"\n" + was)
+    sys.exit(0)
+
 if mode == "silent":
     # Reads and answers nothing, ever. The machine that hangs.
     while True:
@@ -331,6 +348,51 @@ def main() -> int:
         check("an existing image is left alone", disk.read_bytes(),
               b"already installed")
 
+        # The cartridge is staged, so a guest that writes to the tape cannot
+        # reach our copy of the medium.
+        #
+        # This is a regression test for a real loss, not a precaution. A
+        # successful SR10.3 boot overwrote block 0 of
+        # `019439-001.CRTG_PSKQ3_91_BOOT_1` -- the `SYSBOOT REV`/`0013D800`
+        # descriptor the boot PROM validates -- and the cartridge then reported
+        # `error: sysboot not found` for every run afterwards. Six
+        # emulator-side hypotheses were eliminated first, because the media was
+        # an input and inputs are not suspected.
+        #
+        # The stub writes to the path it is given, which is what
+        # `sc499_device::write_block` does. So this fails on any driver that
+        # hands MAME the source file, and it fails on the *content*, not on the
+        # argument -- a check that only read the command line would pass a
+        # driver that staged the copy and mounted the original anyway.
+        cartridge = work / "pristine.ct"
+        cartridge.write_bytes(b"SYSBOOT REV " + bytes(500))
+        before = cartridge.read_bytes()
+        ctapelog = work / "ctape-path"
+        proc = run(stub, ["--stage", "prompt", "--ctape", str(cartridge)],
+                   environment={"MDSTUB_MODE": "scribble",
+                                "MDSTUB_CTAPELOG": str(ctapelog)})
+        mounted, seen = ctapelog.read_bytes().split(b"\n", 1)
+        mounted = Path(mounted.decode())
+        check("the source cartridge is not what MAME is given",
+              mounted == cartridge, False)
+        check("and a guest that writes to the tape leaves it untouched",
+              cartridge.read_bytes(), before)
+        check("the staged copy carries the source's content",
+              seen, b"SYSBOOT REV ")
+        check("and it is the file written to",
+              mounted.read_bytes()[:8], b"SCRIBBLE")
+
+        # And every run re-stages, so a cartridge damaged by one run is not
+        # inherited by the next. Without this a `--keep-rundir` install would
+        # carry the first run's damage into every later stage, which is the
+        # shape the original defect had.
+        proc = run(stub, ["--stage", "prompt", "--ctape", str(cartridge),
+                          "--keep-rundir"],
+                   environment={"MDSTUB_MODE": "scribble",
+                                "MDSTUB_CTAPELOG": str(ctapelog)})
+        check("a kept run directory re-stages rather than inheriting damage",
+              ctapelog.read_bytes().split(b"\n", 1)[1], b"SYSBOOT REV ")
+
         # A followed command file, written before the run: the directives parse
         # and arrive in order, and !quit ends the session rather than the
         # timeout doing it.
@@ -405,6 +467,10 @@ def main() -> int:
         # install that stops after the first.
         swaplog = work / "swaps"
         commands = work / "swap.txt"
+        # The tapes exist, because a swapped cartridge is staged the same way
+        # `--ctape` is and a copy needs something to copy.
+        (work / "tape1.ct").write_bytes(b"tape one")
+        (work / "tape2.ct").write_bytes(b"tape two")
         commands.write_text(
             "!swap ctape %s\n" % (work / "tape1.ct")
             + "!swap ctape %s\n" % (work / "tape2.ct")
@@ -413,15 +479,33 @@ def main() -> int:
                           "--timeout", "20"],
                    {"MDSTUB_SWAPLOG": str(swaplog)})
         check("two swaps run in order", proc.returncode, 0)
-        # Compared against `resolve()` on both sides, not against the path as
-        # written. macOS makes /var a symlink to /private/var, so resolving is
-        # not a no-op there even for a path that is already absolute -- and the
-        # driver resolves deliberately, because MAME runs from its own
-        # directory. Asserting the unresolved form tests the platform, not us.
-        check("and both reach the machine, resolved to absolute paths",
+        # Absolute paths under the run directory, not the sources: the driver
+        # resolves deliberately, because MAME runs from its own directory, and
+        # it stages, so that MINST's four cartridges are four copies rather
+        # than four originals held open read/write.
+        #
+        # Named `resolve()`d on both sides rather than compared as written.
+        # macOS makes /var a symlink to /private/var, so resolving is not a
+        # no-op there even for a path that is already absolute -- asserting the
+        # unresolved form tests the platform, not us.
+        staged_dir = (work / "run" / "media").resolve()
+        check("and both reach the machine, staged, as absolute paths",
               swaplog.read_text().split(),
-              ["ctape", str((work / "tape1.ct").resolve()),
-               "ctape", str((work / "tape2.ct").resolve())])
+              ["ctape", str(staged_dir / "tape1.ct"),
+               "ctape", str(staged_dir / "tape2.ct")])
+        check("with the source's content",
+              [(staged_dir / n).read_bytes() for n in ("tape1.ct", "tape2.ct")],
+              [b"tape one", b"tape two"])
+
+        # A cartridge that is not there is passed through rather than copied,
+        # so the error stays MAME's "load failed" and does not become a
+        # traceback out of the stager.
+        commands = work / "missing.txt"
+        commands.write_text("!swap ctape %s\n!quit\n" % (work / "absent.ct"))
+        proc = run(stub, ["--stage", "prompt", "--commands", str(commands),
+                          "--timeout", "20"])
+        check("a missing cartridge is reported, not staged", proc.returncode, 0)
+        check_in("and named", "absent.ct does not exist", proc.stderr)
 
         # A swap must not change which file the driver reads its commands
         # from. `!swap` used to assign the resolved medium to a local called

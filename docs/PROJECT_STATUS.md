@@ -5762,7 +5762,7 @@ with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both d
 | Mono and colour graphics controllers (`board/ap_graphics.*`) | **working**: the register block with its scrambled byte lanes, the blitter wired to the memory cycle, the LUT ports and the four screen geometries. Audited line by line against `[S3K]` ch. 10 and ch. 11 on 2026-08-16 — **no structural defect**, and §10.3.1's eleven-item change list checks out entry by entry. One real finding: the colour raster is printed in full in Table 11-4 and had been taken from the oracle, which was off by one in each direction (`h_total` 1346→1344, `v_total` 841→842). `GRAPHICS.md` finding 19; the dot clock stays `PROVISIONAL` at 68 MHz | `graphics_suite`; `./tools/identity-boot.sh --screen c8p` hashes `6140F8E43F3BCC1C` with 2.17 M controller reads |
 | 3c505 802.3 Ethernet (`device/ap_3c505.*`) | **working end to end, host command path included.** The four flag registers from `[HIS]` §3-2/§3-3/§3-5/§3-6 with the sides the right way round, the §3.1.2/§3.1.3 mailbox in both directions, the command set, DMA on DRQ6 and the interrupt on IRQ10. The audit's finding: §3.1.2's *host→adapter* half had never been wired — assembler, dispatcher and responder all existed and were unit-tested, nothing called them, and a host command was answered never. `ETHERNET.md` finding 19; the pacing approximation is 19a. The line-by-line pass then found four more: §3.1.1's accept/reject flags were never signalled at all (20), `02H`'s receive mode was stored and never consulted so every frame on the wire was this station's (21), `3AH`'s length is `10H` not the `0CH` printed -- `[HIS]` App. F, the packet counters became double words in Rev 2.0 (22) -- and `0FH` self-test is now answered while `0CH`/`0DH`/`0EH`/`11H` stay refused because every field of their responses is unmodelled (23), and §1.12's adapter reset both cleared the Host Control Register it must not touch and released the adapter while the host still held `ATTN`+`FLSH` (25) | `etherlink_suite`, 50 tests, of which `test_a_command_written_by_the_host_is_answered_by_the_adapter` crosses the real registers with no test-side wiring |
 | MAME oracle harness | working and used throughout. Beyond the dumper there are now four probe tools — `regprobe.lua` drives every bit of a register in both directions, `writetrace.lua` taps writes to watch firmware program a device, `steptime.lua` single-steps for instruction timing, `mdcapture.lua` traces the serial registers byte-exact — and findings C10 through C14 are all measurements taken with them | `oracle_driver` (19 checks, stub MAME) and `oracle_dump_format` (19 checks, mock machine); `./apollo -listfull` lists all eleven apollo machines |
-| Interactive boot-PROM session (`mdsession.py`, `mdsession.lua`) | working, and it performed the Domain/OS install end to end. Holds a machine open across stages, reads the console and answers it; stdin is a **pty**, so a command is written when its prompt appears rather than trickled at a fixed rate. `--commands FILE` is followed while the run continues, so an unpublished dialogue can be answered as it is read. `!swap` changes a cartridge without stopping the machine. A killed driver takes its emulator with it. **Deliberately not reproducible in the oracle-reading sense**: it is paced by the host, so nothing timed may be measured through it — its products are a disk image and a transcript | `oracle_session`, 31 checks against a stub MAME that goes deaf on `re` as the real machine does; `FINDINGS.md` C49-C58 |
+| Interactive boot-PROM session (`mdsession.py`, `mdsession.lua`) | working, and it performed the Domain/OS install end to end. Holds a machine open across stages, reads the console and answers it; stdin is a **pty**, so a command is written when its prompt appears rather than trickled at a fixed rate. `--commands FILE` is followed while the run continues, so an unpublished dialogue can be answered as it is read. `!swap` changes a cartridge without stopping the machine. A killed driver takes its emulator with it. **Deliberately not reproducible in the oracle-reading sense**: it is paced by the host, so nothing timed may be measured through it — its products are a disk image and a transcript | `oracle_session`, 41 checks against a stub MAME that goes deaf on `re` as the real machine does, and that writes to the cartridge path it is given as `sc499` does; `FINDINGS.md` C49-C58, C124 |
 | Distribution cartridge extractor (`tools/ct_extract.py`) | **working, and it reads every SR10.3 cartridge**: ANSI labels, `wbak` blocks and records, `--list`, `--extract` by path or basename, `--extract-all`. `ring8a.drvr` came out of it, 29,992 bytes. The AEGIS filesystem walk it replaces is abandoned — see the section below | `ct_extract`, 16 checks against a cartridge it builds; `--verify` parses all five cartridges with zero residue, 9,426 objects |
 | Golden regression harness | working | `golden_model_table`, run under every build preset; drift, `-O3` identity and regeneration all verified |
 | Shared frontend layer (`frontend/common/`) | working: option parsing and the model table report, plus `ap_png` — screenshots as indexed-colour PNGs, so an index and the palette behind it stay separable in the file exactly as they are in the hardware. libpng is optional and the build says which it is; without one the entry point reports "built without libpng", which is a different answer from a failed write | `frontend_common_suite`, 21 tests |
@@ -6168,6 +6168,42 @@ All of it except the last row is *installation* media. The last row is what this
 project made from it, and the section below says how. Everything here is
 gitignored; the built image is pinned instead by
 `docs/references/DOMAINOS_IMAGE.md`.
+
+Also held, in `media/sr10.3/`: three SR10.3 boot cartridges and four software
+ones. Only **`019439-001.CRTG_PSKQ3_91_BOOT_1`** boots a DN3500, and it takes
+two one-line checks to tell — block 0 must carry the `SYSBOOT REV`/`0013D800`
+descriptor the boot PROM validates, *and* the tape must hold the model's SAU
+directory (`sau7`). `018847-001` Crtg_Std_Sfw_Boot_1 has the SAU and no
+descriptor; `019376-001` PSK8_BOOT has the descriptor and no `sau7`. A `sysboot`
+found by `ct_extract.py` is an *archive member* and is not the same claim: the
+PROM reads raw physical blocks, so the archive directory says nothing about
+whether the tape is bootable.
+
+#### A run never opens the media in `media/`
+
+`mdsession.py` copies every cartridge into the run directory and mounts the
+copy — on `--ctape` and on `!swap ctape` alike, re-copied each run so
+`--keep-rundir` cannot inherit damage. The **disk is deliberately not staged**:
+an install's writes to its volume are the product. The asymmetry is the
+hardware's — a tape is read, a disk is written.
+
+This is a repair, not a precaution. `sc499_device::write_block` is an
+`fseek`/`fwrite` straight into the image file and MAME opens a cartridge
+read/write, so a `-ctape` naming a file in `media/` hands the guest our only
+copy of the medium. A successful SR10.3 boot overwrote **exactly one 512-byte
+block of 50,727,936** — block 0, the descriptor block — and the cartridge then
+reported `error: sysboot not found` for every run afterwards. Six emulator-side
+hypotheses were eliminated first, and the volume was `cmp`-ed before and after a
+run, because the cartridge was an input and inputs are not suspected. Detail,
+including the two facts that fixed the mechanism, in `FINDINGS.md` C124.
+
+**SR10.3.5 now loads reproducibly**: `Domain/OS kernel(7), revision 10.3.5,
+June 19, 1991` from a clean `invol-done` volume, three runs of one invocation
+with byte-identical consoles and the source cartridge's md5 unchanged. It stops
+at Domain/OS's own calendar gate (`More than 14 days have elapsed since the last
+shutdown`), which is measured to clear with the harness's `25 Years Ago` config
+off. The install onto it, and the state hash the plan item asks for, are not
+done.
 
 ### Model figures confirmed from `[CFG]`
 
