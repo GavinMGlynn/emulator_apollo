@@ -4664,9 +4664,22 @@ Only after the reference core is proven, and only under an identity harness.
       *Verification: `board_suite` 55 -> 56, `ctest` 138/138, identity boot
       `A354786119A3931D` unchanged.*
       **What remains for the `MOVEM` test**: a master that *owns* the bus while
-      the processor is mid-instruction. Owning is a further step than being
-      acknowledged — `master_suite` is explicit that "acknowledged is not
-      owned" — and it is where the approximation finally becomes observable.
+      the processor is mid-instruction.
+      **And attempting it found a contradiction worth chasing.** `master_suite`
+      is explicit that "acknowledged is not owned" — the adapter is *offered*
+      the bus and takes it by asserting `MASTER.L` — and asserts
+      `!ap_master_owns_bus` immediately after `ACKNOWLEDGED`. On a **board**,
+      after `ap_board_bus_ticks(32)` with `DRQ` held, `ap_master_owns_bus` is
+      already **true** with `MASTER.L` never asserted.
+      Either the port takes the bus on its own after enough acknowledged clocks
+      — in which case `master_suite`'s claim holds only for its own tick count
+      and the rule is not what it says — or the board's tick drives the port
+      differently from the rig's. **Both readings are checkable against
+      `ap_master.c` and `008778-03` §2.4.7**, and it must be settled before any
+      `MOVEM` test, because a test that assumes the wrong one would assert
+      against a bus tenure that never happened.
+      The attempted test was reverted rather than adjusted: patching the
+      assertion to match the behaviour would have buried exactly this.
       **Then the rest of the order**:
       *then* the `MOVEM`-versus-DMA test becomes writable; *then* it decides
       whether the sequencer rewrite is worth its cost. Three items, and the
