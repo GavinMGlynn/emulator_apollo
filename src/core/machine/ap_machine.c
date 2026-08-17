@@ -886,7 +886,22 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
      * where the board can prove the ticks identical, so the resolution was
      * never the problem -- the lag was. */
     if (machine->board != NULL) {
-      ap_board_bus_ticks(machine->board, machine->last_instruction_clocks);
+      /* **Walked, not batched.** The step now records when each charge of
+       * clocks happened within the instruction, so the bus is advanced in the
+       * same order the processor spent them rather than in one lump at the end.
+       *
+       * The total is identical by construction -- `ap_m68030_charge` is the
+       * only accumulator, so the entries sum to `clocks` -- and the fallback
+       * covers the one case where they cannot: an instruction that overflowed
+       * the buffer, which `clock_events_dropped` counts and which no real
+       * program should reach. */
+      if (machine->cpu.clock_events_dropped == 0u) {
+        for (unsigned e = 0; e < machine->cpu.clock_event_count; e++) {
+          ap_board_bus_ticks(machine->board, machine->cpu.clock_events[e]);
+        }
+      } else {
+        ap_board_bus_ticks(machine->board, machine->last_instruction_clocks);
+      }
     }
     /* Converted once, here. The step reports CPU clocks; the machine keeps
      * time. A `cpu_clock` that was never initialised has a zero rate and

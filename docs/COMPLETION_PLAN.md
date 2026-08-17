@@ -4414,10 +4414,23 @@ Only after the reference core is proven, and only under an identity harness.
       nothing reads cannot change behaviour, so the identity hash must not move
       — and if it does, the helper changed something it should not have. The
       buffer is deliberately unhashed until 3b.
-      **3b replaces the single `bus_ticks(whole instruction)` with a walk of the
-      timeline**, delivering each clock at its own instant. That one *can*
-      legitimately move the hash, and is the first increment in this item where
-      a moved golden is a finding rather than a bug.
+      **3b is DONE**: `ap_machine_run` walks the timeline, advancing the bus in
+      the order the processor spent the clocks rather than in one lump at the
+      end. The total is identical by construction — `ap_m68030_charge` is the
+      only accumulator, so the entries sum to `clocks` — with a fallback to the
+      batched call if `clock_events_dropped` is ever non-zero.
+      **And the hash still does not move**: `A354786119A3931D`, clocks
+      identical at 1,497,270,792, `ctest` 138/138. This was the increment where
+      a moved golden would have been a *finding*, so an unmoved one is the
+      finding instead — over a 350 M-instruction boot, per-charge ordering and
+      end-of-instruction batching are **indistinguishable**. That is the
+      tick-loop item's claim ("the two schedules agree on everything measured so
+      far") demonstrated rather than assumed.
+      **What is still not reached**: a device output feeding back into an
+      instruction *still executing*. The bus now advances mid-instruction, but
+      the processor cannot yet observe it mid-instruction — that needs the
+      resumable sequencer increment (2) showed to be a rewrite of a 6,966-line
+      file. The ordering half of the item is done; the feedback half is not.
       **Passed the bus explicitly at all twelve rather than defaulting a NULL to
       a local.** A NULL fallback would cost zero test edits and is the tempting
       shortcut, but from increment (3) the bus is *resumable state*, and a test
