@@ -4484,9 +4484,24 @@ Only after the reference core is proven, and only under an identity harness.
       what found it.
       **The real figures, fixed and re-measured**: 50 M instructions in
       **4.9 s** default against **5.3 s** mid-access — **1.08x** — and the state
-      hashes are *identical* at `80899FCE206623A1`. So the two schedules agree
-      at 50 M and diverge only by 350 M, and the mid-access schedule is
-      practically free.
+      hashes are *identical* at `80899FCE206623A1`. **And they agree at 350 M too**: the mid-access
+      boot is `A354786119A3931D`, identical to the default, in 37 s against the
+      default's ~35 s.
+      **Which explains the earlier `27AAE57F4EF4E97E` and retires it.** That
+      reading came from advancing *every* device at *every* access, RAM
+      included. Advancing only the device an access actually reaches — what
+      `ap_board_advance_one` does, and all the correctness argument ever
+      licensed — is **indistinguishable from the boundary schedule** over 350 M
+      instructions. The earlier divergence was devices being dragged forward by
+      accesses that never touched them, which is not more accurate, only
+      different.
+      **So the feedback half is done, and its result is a negative one**: with
+      the bus cycle-accurate, the timeline walked, and devices advanced at the
+      instant an access reaches them, this machine's 350 M boot is byte-for-byte
+      what instruction-boundary batching produced. The per-cycle item's premise
+      — that the two schedules "do not agree in general" — remains true in
+      principle and is **unobserved here**, which is worth more than another
+      assertion of it.
       **Which also means `ap_board_advance_one` was built to fix a cost that did
       not exist.** It is correct and default-neutral, so it stays, but the plan
       no longer claims it was needed. Two lessons, both this project's own:
