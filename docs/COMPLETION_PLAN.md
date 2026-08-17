@@ -4612,9 +4612,19 @@ Only after the reference core is proven, and only under an identity harness.
       as a *member of the wbak archive*; the PROM reads *raw physical blocks*.
       A cartridge is bootable only if `sysboot` lies at blocks `02`-`0B` of the
       tape itself, which its presence in the archive neither establishes nor
-      implies. Comparing blocks `02`-`0B` of the SR10.3 and SR10.4 boot
-      cartridges is the next measurement — two reads of ten blocks, no emulator,
-      and it decides whether this cartridge is bootable at all. Then MINST from the four software cartridges,
+      implies. **Measured, and the SR10.3 cartridge is structurally
+      bootable**: blocks `02`-`0B` carry 4300/5120 non-zero bytes against the
+      SR10.4 cartridge's 4297, and the content is plainly `sysboot` itself —
+      its own error strings (`no drive`, `no tape in drv`) are embedded there on
+      both. So the ten blocks the PROM reads are present and populated.
+      **Every static candidate is now eliminated**: the file is on the media, at
+      the right physical blocks, in the same form as the cartridge that works;
+      the PROM searches positionally so no name can be wrong; the `sc499`
+      media-change remedy is compiled in; `di c` succeeds. The fault is in how
+      the emulated drive *delivers* those blocks to the PROM, and that is the
+      first thing this thread has reached that genuinely needs instrumentation
+      rather than a reference — `sc499`'s `read_block` under a `di c` /
+      `ex domain_os` sequence, logged. Then MINST from the four software cartridges,
       then the state hash the item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
