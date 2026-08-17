@@ -4728,6 +4728,25 @@ Only after the reference core is proven, and only under an identity harness.
       before and after — or it proves nothing. Run it under **both** stepping
       modes; if they agree, the approximation is consistent, and the number of
       registers stored is the figure the sequencer rewrite would change.
+      **Written, and it found two defects before it could measure anything.**
+      A `MOVEQ`/`MOVEA`/`MOVEM.L D0-D3,(A0)`/`STOP` program, with a cascaded
+      master taken to `owns_bus` on the board's own clock, then run:
+      **(a) an owning master does not stall the processor.** The PC advanced
+      `01000100` -> `01000116` — the whole program — while the tenure stood.
+      `ap_machine_run` has the stall ("the processor is the lowest-priority
+      claimant of a bus somebody else is holding", `[030]` §7.7) and a master
+      that owns the bus does not trigger it: `ap_master_owns_bus` is the port's
+      own state and **nothing translates it into a claim the arbiter grants
+      away**, so the CPU never loses.
+      **(b) the tenure does not survive the run.** After
+      `ap_machine_run(&machine, 32)` the master no longer owns the bus, with
+      `DRQ` and `MASTER.L` both still asserted — so something in the board's
+      own ticking drops it.
+      **The test was reverted rather than bent to pass**, because a red suite is
+      this project's stop-everything condition and an assertion trimmed to the
+      observed behaviour would have buried both. Fix (a) and (b) first — they
+      are wiring defects in the step-1-to-4 work, not the per-cycle
+      approximation — then this test measures what it was written for.
       **Then the rest of the order**:
       *then* the `MOVEM`-versus-DMA test becomes writable; *then* it decides
       whether the sequencer rewrite is worth its cost. Three items, and the
