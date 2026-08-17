@@ -7996,3 +7996,38 @@ with the guest clock set through `EX CALENDAR` to a year the OS supports -- the
 nineties are the safe middle of the range -- and every stamp it writes lands
 where a boot can meet it. That is now straightforward, because with C136 in place
 the date this core presents is the date the guest reads.
+
+## C139 -- the oracle's calendar is corrected to match, and its dates become sane
+
+C136 established that this board's battery holds register B's `DM` set and that
+Domain/OS reads the time registers as binary. The oracle had the opposite:
+`apollo_m.cpp` called `set_binary(false)`, and `mc146818.cpp:266` sets `REG_B_DM`
+only when that flag is set, so MAME presented BCD to a guest reading binary.
+
+**Corrected in `ext/mame` as a marked `APOLLO ORACLE EDIT`**, beside the `sc499`
+one, with the reasoning in the source rather than only here. Rebuilt with the
+narrowed command -- `make SUBTARGET=apollo SOURCES=src/mame/apollo/apollo.cpp
+REGENIE=1 TOOLS=0 NOWERROR=1 -j3`, minutes rather than the ~2 h a full build
+takes.
+
+**The effect is immediate and visible in one line.** `EX CALENDAR` on the same
+volume, before and after:
+
+    before   The calendar time is 2002/12/24 05:50:36 UTC
+    after    The calendar time is 1990/12/18 08:44:12 UTC
+
+The `2002/12/24` that every session in this project has reported -- and that C52
+recorded as "MAME's host clock with the driver's 25 Years Ago configuration
+applied" -- was **not** the era config at all. It was the host year's *BCD byte*
+read as binary. The era config, separately, does nothing at a 2026 host date
+(C125), so two sessions' worth of reasoning about it were about the wrong thing.
+
+**Every oracle reading taken before this rebuild is now on the other side of a
+behavioural change**, like the `APOLLO_XXL` edits before it: a date the guest
+reports, a date it writes to a volume, and anything derived from either are not
+comparable across it.
+
+**What this unblocks.** An install can now be given a date that means what it
+says, so a volume's stamps land where a boot can meet them -- which is what
+SR10.3 needs after C138 put its stamps past Domain/OS's own `year >= 2015`
+ceiling.

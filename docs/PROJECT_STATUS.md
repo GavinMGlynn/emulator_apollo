@@ -20856,6 +20856,30 @@ on one invocation, so none of them is affected.
 goldens updated and the reason recorded in the test, and the boot above. Detail in
 `FINDINGS.md` C136.*
 
+### The oracle's calendar is corrected to match, and its dates become sane
+
+`ext/mame`'s Apollo driver called `set_binary(false)`, so MAME presented BCD to a
+Domain/OS that reads the registers as binary -- the same defect as ours, from the
+same cause. Corrected there as a marked `APOLLO ORACLE EDIT` beside the `sc499`
+one, with the reasoning in the source, and rebuilt with the narrowed command
+(minutes, not the ~2 h a full build takes).
+
+The effect is one line. `EX CALENDAR` on the same volume, before and after:
+
+    before   The calendar time is 2002/12/24 05:50:36 UTC
+    after    The calendar time is 1990/12/18 08:44:12 UTC
+
+**That `2002/12/24` was never the "25 Years Ago" config.** `FINDINGS.md` C52
+recorded it as "MAME's host clock with the driver's 25 Years Ago configuration
+applied", and two sessions reasoned about the era setting on that basis. It was
+the host year's BCD byte read as binary; the era config separately does nothing
+at a 2026 host date (C125).
+
+**Every oracle reading taken before this rebuild is on the other side of a
+behavioural change**, as the `APOLLO_XXL` edits were: a date the guest reports, a
+date it writes to a volume, and anything derived from either are not comparable
+across it. Detail in `FINDINGS.md` C139.
+
 ## Main memory answered first, and the invariant that makes it a reordering
 
 `ap_board_region` decides what a physical address is, and `machine_cache_inhibited`
