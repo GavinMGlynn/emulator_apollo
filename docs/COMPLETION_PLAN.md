@@ -4778,12 +4778,21 @@ Only after the reference core is proven, and only under an identity harness.
       identifies as the *unclean volume* decline, and the volume **is** dirty,
       because the previous run wrote to it. C54's own line covers this: *a
       failed stage is not a no-op.*
-      **Remaining for this item, in order**: restore
-      `media/dn3500-sr10.3.awd` from `dn3500-invol-done.awd` **before every
-      attempt**, re-run with the era config off, then MINST from the four
-      software cartridges, then record the state hash. Keep a copy of the volume
-      before each run — that rule was learned the expensive way earlier in this
-      thread and applies from here on. That is a media question, not an
+      **And restoring the volume brings `sysboot not found` straight back — so
+      the discriminator was the VOLUME all along.** With the *correct*
+      cartridge, the one that had just booted twice, a freshly-restored
+      pristine `invol-done` gives `error: sysboot not found`; a volume already
+      written by a previous boot loads the kernel. That is this morning's
+      unexplained one-off, now **reproducible in both directions** and no longer
+      a mystery: `ex domain_os` needs state on the *disk*, which `invol-done`
+      lacks and a partially-booted volume has.
+      **So `invol-done` is the wrong base**, and the checkpoint list says which
+      is right: `dn3500-osclean.awd`, "OS restored from the boot cartridge and
+      cleanly shut down, MINST not run — the right base for redoing the
+      install". It carries SR10.4's OS, which is *why* it boots, so an SR10.3
+      install onto it must be checked for layering. Next: try `-osclean` as the
+      base with the Quarterly PSK cartridge, then MINST, then the state hash.
+      A copy of each volume is kept before every run from here on. That is a media question, not an
       emulator defect, which is why every device-side hypothesis here failed. Everything else in the cycle is verified and
       the revert plus clean rebuild were done in the same command.
       Everything else in the cycle is verified: the edit rebuilds `sc499.o`,
