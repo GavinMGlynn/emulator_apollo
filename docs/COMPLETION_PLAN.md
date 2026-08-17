@@ -5291,10 +5291,29 @@ Only after the reference core is proven, and only under an identity harness.
       with sixteen blocks ahead of `VOL1` where a bootable cartridge's `sysboot`
       lives. The software cartridges start at 0. Worth having on record for any
       tape reasoning.
-      *Next probe, specified so it is not another windowed guess: log sparsely
-      over the whole traversal — every 256th block, every true filemark test, each
-      `check_tape` — so where the read stops on the software cartridge is visible
-      without 100,000 lines. `FINDINGS.md` C141.*
+      **The sparse probe ran, and the drive does its job.** It reads the software
+      cartridge sequentially with the right length to block 21,248 and
+      **recognises the filemark at 21,447**. The true layout is 21,447 FILEMARK,
+      21,448 `EOF1`, 21,449 `EOF2`, 21,450 FILEMARK, 21,451 `HDR1` — my earlier
+      block arithmetic was off by one — and **SR10.3's cartridge has the identical
+      shape** at its own boundary, so the layout is not what separates the release
+      that installs from the one that does not. `m_first_block_hack` is dead as a
+      candidate too: the only duplicated reads are of block 5.
+      **One real artefact surfaced and is not yet the answer**: `sc499` aborted a
+      read once at 5,000 underruns (`tape_pos=4615`), which its own comment calls
+      *"probably the DMA handshake failed"* and attributes to "a loaded Apollo
+      emulation". The restore visibly continued past it, so it is not shown to
+      cause the failure — recorded because a drive that can abort on host timing
+      underlies every tape result here.
+      **Four hypotheses have now been measured and dropped** — the era config,
+      `write_block`'s truncation, the block position, the tape layout — and the
+      cause is still not established. What is known: the media is sound, the swap
+      works, the drive's length is right, the filemark is recognised, the layouts
+      agree.
+      *Next is a **comparison**, not another probe: run the same sparse trace over
+      the SR10.3 install, which succeeds, and diff the two traversals — the method
+      this project already records for when one-hypothesis probing has failed
+      repeatedly. `FINDINGS.md` C141.*
       *A rule broken on the way, mine: the first run's directory was deleted in a
       tidy-up before the comparison, so the re-run was needed to get a number that
       had already existed. `FINDINGS.md` C141.*

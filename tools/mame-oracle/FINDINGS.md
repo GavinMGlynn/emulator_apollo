@@ -8206,15 +8206,58 @@ for any tape reasoning, and `ct_extract.py` finds both without being told.
 Also visible and not yet judged: `read data underrun` from `timer_func` every ten
 blocks or so through the traversal.
 
-### The next probe, specified so it is not another windowed guess
+### The sparse probe: the drive delivers the filemark, and the layouts match
 
-Log **sparsely but over the whole traversal** -- every 256th block, plus every
-`block_is_filemark` that returns true, plus each `check_tape` -- so the shape of
-the read is visible without 100,000 lines. What that answers and this run could
-not: where on the *software* cartridge the read actually stops, which is the
-question. `m_first_block_hack`'s re-read of block 0 (*"why is this
-necessary???"*) remains a candidate, since a duplicated block shifts everything
-after it by one.
+Run and reverted. Traced every 256th block, every recognised filemark, and every
+`nullptr` block, across the whole traversal.
+
+**The drive does its job.** On the software cartridge it reads sequentially with
+`count=116536` -- the right length -- to block 21,248, and it **recognises the
+filemark at 21,447**. My previous arithmetic was off by one: `0xA79000 / 512` is
+21,448, not 21,449, and the true layout is
+
+    21,447  FILEMARK
+    21,448  EOF1
+    21,449  EOF2
+    21,450  FILEMARK
+    21,451  HDR1
+
+**And SR10.3's cartridge has the identical shape** at its own boundary -- 23,261
+FILEMARK, 23,262 EOF1, 23,263 EOF2, 23,264 FILEMARK, 23,265 HDR1 -- so the layout
+is not what separates the release that installs from the one that does not. The
+`m_first_block_hack` candidate is dead too: the only duplicated reads in the log
+are of block 5, before any of this.
+
+### What the run did surface, and it is not yet the answer
+
+`sc499` **aborted a read once**, and MAME's own comment says what that is:
+
+    // handle data underruns in a loaded Apollo emulation
+    // the real ctape will stop, go back and restart reading if appropriate
+    if (++m_underrun_counter >= 5000)
+        // stop tape (after 30 seconds) - probably the DMA handshake failed
+
+    tape_pos=4615 - read data underrun aborted at 5000
+
+10,484 underruns across the run, and one abort, at block **4,615** -- long before
+the boundary, and the restore visibly continued past it, so it is **not**
+demonstrated to cause the failure. It is recorded because it is a real emulation
+artefact by the oracle's own admission ("in a loaded Apollo emulation"), because
+the SR10.3 install that succeeded is the natural control, and because a drive that
+can abort a read on host timing is a thing any tape result here rests on.
+
+**Stated plainly: the cause is still not established.** Four hypotheses have now
+been measured and dropped -- the era config, `write_block`'s truncation, the block
+position, and the tape layout. What is known is that the media is sound, the swap
+works, the drive's length is right, the filemark is recognised, and the layouts of
+the two releases agree.
+
+**The next thing worth doing is a comparison rather than another probe**: run the
+same sparse trace over the SR10.3 install, which succeeds, and diff the two
+traversals. That turns "why does SR10.2 fail" into "what does SR10.3 do
+differently", which is the question this project's own method
+(`prefer-exhaustive-differential-over-probing`) says to ask when one-hypothesis
+probing has failed four times.
 
 **And a rule broken on the way, mine:** the first run's directory was deleted in a
 tidy-up before the comparison was made, so the re-run above was needed to get a
