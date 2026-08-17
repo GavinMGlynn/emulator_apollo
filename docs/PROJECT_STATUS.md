@@ -6285,17 +6285,33 @@ fetches. **Two days is not fourteen**, and the volume that works proves the poin
 from the other side: SR10.4's dismount stamp is 2002-11-27 and it boots under the
 **default 1987** clock with no calendar message at all.
 
-That lead was then tested and refuted in the same session: SR10.4 boots at
-`--clock 1987-07-31` and at `--clock 2015-09-05` with **zero** calendar complaints
-in both. `--clock` does not reach this check, so no account of *which* time we
-present can explain a difference `--clock` cannot produce.
+**That lead, and the "refutation" of it, were both wrong, and the second is the
+one worth remembering.** The refutation rested on SR10.4 booting clean at two
+different clocks -- measured with `--boot-limit 350000000`, the identity harness's
+bound, **which stops before the kernel reaches the check**. At 3 G instructions
+SR10.4 does complain. A bound is part of an experiment; reusing the reference
+boot's number to ask about an event ten times later produced a confident wrong
+answer, and a published conclusion on top of it.
 
-What remains is a difference **on the volume**, outside the physical label -- whose
-mount history is modelled above and is identical between the two volumes. So the
-kernel's "last shutdown" is read from the **logical** volume label or
-`/sys/node_data`, neither of which this project has walked; `002398-04` carries the
-logical-volume diagram beside the physical one already used. A document to read,
-not another run. Detail in `FINDINGS.md` C133.
+Three readings now stand on one cleanly-dismounted volume, and one of them is
+unexplained:
+
+| `--clock` | Domain/OS says |
+| --- | --- |
+| 1987-08-02 | `The calendar is more than a minute slow.` |
+| 2015-09-05, 1.24 days after its own dismount stamp | `More than 14 days have elapsed since the last shutdown.` |
+| 1993-06-15, set through CALENDAR under the oracle | `The calendar is more than a minute slow.` |
+
+CALENDAR was also shown *not* to rewrite the volume's recorded time -- the 2015
+stamp survived a 1993 setting -- and the mount it wrote decodes to 1987-10-11,
+which is neither date.
+
+**Left open rather than answered.** This thread has produced two wrong conclusions
+already and a third would be worse than none. What is needed first is the
+**logical** volume label (`002398-04` p. 4434, "The LV label is the first block of
+a logical volume"), which this project has not walked and where a
+per-logical-volume shutdown record would live. The physical label's mount history,
+modelled above, is demonstrably not it. Detail in `FINDINGS.md` C133.
 
 **Not done for this item**: that experiment, and SR10.2 -- whose media is held and
 whose boot cartridge already passes both bootability tests.

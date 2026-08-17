@@ -7614,23 +7614,81 @@ which the same check would have to reject.
 So the open question is no longer "which `--clock`" -- that was C132's mistake and
 this is the evidence it was a mistake in both directions.
 
-**The lead first written here was "what this core presents as the node's time",
-pointing at the calendar's battery RAM. That was tested and is refuted.** The
-SR10.4 volume was booted at `--clock 1987-07-31` and at `--clock 2015-09-05`:
-**zero** calendar complaints in both, byte for byte. So `--clock` does not reach
-this check at all, and a story about *which* time we present cannot explain a
-difference that `--clock` cannot produce.
+**A lead was written here, then "refuted", and the refutation was itself wrong.
+Both are recorded because the mistake is the instructive part.**
 
-**What that leaves is a difference on the volume, and not in the field modelled
-here.** Both volumes' *physical* volume labels are structurally identical and
-cleanly dismounted, so the kernel's "last shutdown" is being read from something
-else -- the **logical** volume label, or `/sys/node_data`, both of which are
-distinct structures this project has not walked. That is the next thing to read,
-and it is a document question (`002398-04`'s logical-volume-label diagram, beside
-the physical one already used here) rather than another run.
+The lead was that `--clock` does not reach this check, on the evidence that the
+SR10.4 volume booted at `--clock 1987-07-31` and at `--clock 2015-09-05` with
+*zero* calendar complaints in both. **That measurement used `--boot-limit
+350000000`, which stops before the kernel reaches the check.** Re-run at 3 G
+instructions, SR10.4 at `--clock 2015-09-05` says `The calendar is more than a
+minute slow.` So `--clock` does reach it, and the "refutation" was an artefact of
+a bound chosen for a different purpose -- the identity harness's bound, used
+without asking whether it covered the event being tested.
 
-Recorded this way deliberately: a wrong lead left in a findings file is worse than
-none, because the next session spends its first hour on it.
+**The live reading, and it is about representability rather than about which
+date.** `ap_mc146818_read` returns `year % 100` because the part has no century
+byte -- `[146818]` calls it "a 100 year calendar" and the century is the caller's.
+So `--clock 2015-09-05` presents year **15** to the firmware, and a Domain/OS that
+reads that as 19xx cannot be given 2015 at all. MAME's own driver says the same
+thing from the other side: `apollo_m.cpp:1213` shifts the host year *into* the
+eighties and nineties (`year < 25` -> `+75`, `year >= 70` -> `-70`), which is only
+worth doing if that is the era the OS handles.
+
+**And this volume's stamps are 2015**, because the install ran with the guest
+clock where CALENDAR left it. So the volume and the clock may be mutually
+unreachable: no `--clock` this core can express puts a representable year beside a
+2015 stamp.
+
+### The 199x experiment was run, and it produced a third result that fits neither
+
+`EX CALENDAR` was given **1993/06/15 12:00** -- accepted with the documented
+backward-time warning, *"setting the time backward may cause duplicate Unique
+ID's to be generated"*, which `001746-06`'s Procedure 2-7 note also carries. Then
+`re` / `di w` / `ex domain_os` off the disk:
+
+    The calendar is more than a minute slow.
+
+So **CALENDAR sets the RTC and does not rewrite the volume's recorded time** --
+the 2015 stamp stood and the 1993 clock was behind it.
+
+**And the mount it wrote decodes to neither date.** The volume now reads
+
+    mounted      37CC10A0  1987-10-11 06:12:47
+    dismounted   FFF885FA  2015-09-03 18:17:38
+
+`37CC10A0` under the tick rule calibrated above is 1987-10-11, against a clock
+CALENDAR was told to set to 1993-06-15. No unit makes `37CC10A0` into 1993-06-15
+with a 1980 epoch either, so this is not simply the rule being wrong.
+
+### What is measured, and what is not concluded
+
+Three readings on one cleanly-dismounted volume, all on this core:
+
+| `--clock` | Domain/OS says |
+| --- | --- |
+| 1987-08-02 | `The calendar is more than a minute slow.` |
+| 2015-09-05 (1.24 days after its own dismount stamp) | `More than 14 days have elapsed since the last shutdown.` |
+| 1993-06-15, set through CALENDAR under the oracle | `The calendar is more than a minute slow.` |
+
+The second is the one no reading yet explains: 1.24 days is not fourteen, and if
+the firmware were reading the two-digit year 15 as 19xx the clock would be
+*behind* the stamp and the message would be the other one.
+
+**This is left as an open question rather than answered**, because this thread has
+now produced two confident conclusions that were wrong -- a `--clock` sweep C132
+called a mistake, and a "refutation" built on the identity harness's 350 M bound.
+A third would be worse than none. What the next session should have before
+running anything: the *logical* volume label (`002398-04` p. 4434 -- "The LV label
+is the first block of a logical volume"), which this project has not walked and
+which is where a per-logical-volume shutdown record would live. The physical
+label's mount history, modelled and tested here, is demonstrably not it.
+
+**The method lesson, twice over in one thread:** a bound is part of an experiment.
+`--boot-limit 350000000` is the identity harness's number, chosen because the
+reference boot is 350 M, and reusing it to ask a question about something that
+happens at 3 G produced a confident wrong answer -- then a "refutation" published
+on the strength of it.
 
 **What is established regardless**: SR10.3 is installed, cleanly dismounted, and
 executes here through the PROM, the self-tests, the kernel and the MMU. What is
