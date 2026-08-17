@@ -4649,7 +4649,8 @@ Only after the reference core is proven, and only under an identity harness.
       to try first since `mdsession.py` already captures stdout.
       Everything else in the cycle is verified: the edit rebuilds `sc499.o`,
       and the revert plus clean rebuild both work, done in the same sitting.
-      then the state hash the item asks for.
+      Then MINST from the four software cartridges, then the state hash the
+      item asks for.
       **Booting the cartridge directly under this core is *not* required by the
       verification above** and consumed most of a session: the boot PROM's
       console selection is an autobaud (`000844`-`0008B8`) that the scripted
