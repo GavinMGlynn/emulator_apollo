@@ -4393,6 +4393,22 @@ Only after the reference core is proven, and only under an identity harness.
       total the arbiter sees unless the internal clocks are delivered too, and
       the CPU does not currently report when those elapse. So (3) needs the
       sequencer to emit a clock timeline, not merely the accesses to call back.
+      **Scoped, and tractable.** 117 sites accumulate clocks across the CPU, but
+      only **37 are `cpu->clocks`** directly; the rest are local accumulators
+      (`out.clocks`, `result.clocks`, `bus->clocks`) folding into those. So the
+      timeline is one helper `ap_m68030_charge(cpu, n, kind)` that accumulates
+      *and* appends, one bounded per-instruction buffer on `ap_m68030_cpu_t`,
+      and 37 mechanical replacements. The bound is the longest instruction — a
+      `DIVS` at ~150 clocks — so a fixed array cannot overflow on a real
+      program, and a dropped-entry counter proves that rather than assuming it.
+      **3a emits and consumes nothing, and is provably neutral**: a record
+      nothing reads cannot change behaviour, so the identity hash must not move
+      — and if it does, the helper changed something it should not have. The
+      buffer is deliberately unhashed until 3b.
+      **3b replaces the single `bus_ticks(whole instruction)` with a walk of the
+      timeline**, delivering each clock at its own instant. That one *can*
+      legitimately move the hash, and is the first increment in this item where
+      a moved golden is a finding rather than a bug.
       **Passed the bus explicitly at all twelve rather than defaulting a NULL to
       a local.** A NULL fallback would cost zero test edits and is the tempting
       shortcut, but from increment (3) the bus is *resumable state*, and a test
