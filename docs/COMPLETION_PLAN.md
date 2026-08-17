@@ -4474,9 +4474,19 @@ Only after the reference core is proven, and only under an identity harness.
       **And the A/B has a cost dimension, not only a correctness one.** The
       mid-access schedule calls `ap_board_advance` on *every access* rather than
       once per instruction, and the B run of the identity boot was still going
-      well after the A run had finished. That is an observation and not yet a
-      figure — **measure it on a release build and record the ratio** before
-      anyone proposes making B the default, because `CLAUDE.md` allows the
+      well after the A run had finished. **Measured on a release build, and it is not a margin: >119x.** The
+      default schedule runs 50 M instructions in **5.0 s**; the mid-access
+      schedule **did not finish the same run in 595 s**, so the ratio is a lower
+      bound rather than a figure. `ap_board_advance` walks every device, and
+      calling it per *access* instead of per instruction is the whole cost.
+      **So B as implemented cannot be a default, and probably cannot be a
+      routine measurement either** — a 350 M identity boot would be days. If the
+      oracle shows B is the truer schedule, the work is not "switch the flag"
+      but "advance only the device being accessed, or advance lazily", which is
+      a design item of its own and should be written as one before anybody
+      reaches for the flag in anger.
+      That the figure is a lower bound is deliberate: the run was cut at 595 s
+      rather than left to complete, because because `CLAUDE.md` allows the
       reference core to be slow but this is the run loop and the cost is paid on
       every access for the whole life of the project.
       **Three things the oracle comparison needs, then**: which schedule matches
