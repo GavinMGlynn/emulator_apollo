@@ -6306,12 +6306,34 @@ CALENDAR was also shown *not* to rewrite the volume's recorded time -- the 2015
 stamp survived a 1993 setting -- and the mount it wrote decodes to 1987-10-11,
 which is neither date.
 
-**Left open rather than answered.** This thread has produced two wrong conclusions
-already and a third would be worse than none. What is needed first is the
-**logical** volume label (`002398-04` p. 4434, "The LV label is the first block of
-a logical volume"), which this project has not walked and where a
-per-logical-volume shutdown record would live. The physical label's mount history,
-modelled above, is demonstrably not it. Detail in `FINDINGS.md` C133.
+Then five reproducible readings against the **SR10.4** volume -- stamp
+2002-11-27, 64% of the tick range so nothing wraps, at a 6 G bound so the check is
+reached:
+
+| `--clock` | RTC year | Domain/OS says |
+| --- | --- | --- |
+| 1987-07-31 | 87 | `calendar is more than a minute slow` |
+| 1999-12-31 | 99 | `More than 14 days have elapsed` |
+| 2000-01-02 | 00 | `calendar is more than a minute slow` |
+| 2002-11-28 | 02 | `More than 14 days have elapsed` |
+| 2015-09-05 | 15 | `calendar is more than a minute slow` |
+
+`1999-12-31` re-runs identically, so there is a model, and four were tried and all
+fail: 19yy predicts slow at 99; 20yy predicts elapsed at 87; no pivot works because
+the answer is not monotone in the year; and a BCD/binary inversion puts 87 and 99 in
+the same era.
+
+**Two things the table does establish.** The guest's *now* **decreases** across year
+99 -> 00, so something wraps there. And `1987-07-31` -- the clock
+`tools/identity-boot.sh` uses -- is on the *slow* side, which means **the reference
+boot has never passed this check**: it stops at 350 M, before it. That is a fact
+about the harness's coverage, not about the volume.
+
+**Left open, with a handle rather than a guess.** Every one of these runs ends at
+**PC `3C456BAE` -> physical `01081BAE`**, the kernel code that prints the message.
+`tools/kernel_symbols.py` exists and the kernel is on the volume; disassembling
+backwards from there answers it outright, where more `--clock` values will not.
+Detail in `FINDINGS.md` C133.
 
 **Not done for this item**: that experiment, and SR10.2 -- whose media is held and
 whose boot cartridge already passes both bootability tests.

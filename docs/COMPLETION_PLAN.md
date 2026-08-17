@@ -5138,12 +5138,25 @@ Only after the reference core is proven, and only under an identity harness.
       1987-08-02` → slow; `--clock 2015-09-05`, 1.24 days after its own dismount
       stamp → `More than 14 days have elapsed`; CALENDAR-set 1993 → slow. The
       middle one is unexplained, and 1.24 days is not fourteen.
-      **Left open deliberately.** A third confident conclusion would be worse
-      than none. What the next session needs first is the **logical** volume
-      label — `002398-04` p. 4434, "The LV label is the first block of a logical
-      volume" — which this project has not walked and where a per-logical-volume
-      shutdown record would live. The *physical* label's mount history, modelled
-      and tested here, is demonstrably not it. `FINDINGS.md` C133.
+      **Then five reproducible readings against the SR10.4 volume**, whose
+      stamp is 2002-11-27 and sits at 64% of the tick range so nothing wraps, at
+      a 6 G bound so the check is actually reached: `--clock` 1987 → slow,
+      1999-12-31 → **elapsed**, 2000-01-02 → slow, 2002-11-28 → **elapsed**,
+      2015-09-05 → slow. `1999-12-31` re-runs identically, so there is a model.
+      **Four were tried and all fail**: year read as 19yy predicts slow at 99;
+      as 20yy predicts elapsed at 87; any pivot fails because the answer is not
+      monotone in the year; and a BCD/binary inversion puts 87 and 99 in the same
+      era so they could not differ.
+      **What the table does establish** is that the guest's *now* **decreases**
+      across year 99 → 00, so something wraps there — and that `1987-07-31`, the
+      clock the identity boot uses, is on the *slow* side. **So the reference
+      boot has never passed this check either**; it stops at 350 M, before it.
+      **Left open deliberately** — a third confident conclusion would be worse
+      than none — and with a handle rather than a guess. The message is printed
+      from the kernel and every one of these runs ends at **PC `3C456BAE` →
+      physical `01081BAE`**. `tools/kernel_symbols.py` exists and the kernel is on
+      the volume: disassembling backwards from there answers it outright, where
+      more `--clock` values will not. `FINDINGS.md` C133.
       **What is left for this item**: that experiment, and then the same route
       for **SR10.2** — whose media is held and whose standard boot cartridge
       already passes both bootability tests, so it is the proven route applied

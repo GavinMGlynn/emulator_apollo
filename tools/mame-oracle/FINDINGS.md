@@ -7661,7 +7661,46 @@ the 2015 stamp stood and the 1993 clock was behind it.
 CALENDAR was told to set to 1993-06-15. No unit makes `37CC10A0` into 1993-06-15
 with a 1980 epoch either, so this is not simply the rule being wrong.
 
-### What is measured, and what is not concluded
+### Five reproducible readings, and no model that fits them
+
+Against `dn3500-sr10.4-installed.awd`, whose `.dismounted_time` is
+**2002-11-27 21:45:12** and sits at 64% of the tick range so nothing wraps, at
+`--boot-limit 6000000000` so the check is actually reached:
+
+| `--clock` | RTC year register | Domain/OS says |
+| --- | --- | --- |
+| 1987-07-31 | 87 | `calendar is more than a minute slow` |
+| 1999-12-31 | 99 | `More than 14 days have elapsed` |
+| 2000-01-02 | 00 | `calendar is more than a minute slow` |
+| 2002-11-28 | 02 | `More than 14 days have elapsed` |
+| 2015-09-05 | 15 | `calendar is more than a minute slow` |
+
+`1999-12-31` was **re-run and gives the same answer**, so these are deterministic
+and there is a model; four were tried against them and every one fails:
+
+- *two-digit year read as 19yy*: predicts `slow` for 99 (1999 < 2002). Measured
+  `elapsed`.
+- *read as 20yy*: predicts `elapsed` for 87 (2087 overflows). Measured `slow`.
+- *pivoted at some year*: cannot produce `slow` at 87, `elapsed` at 99, `slow` at
+  00 -- the answer is not monotone in the year.
+- *our BCD/binary conversion being inverted*: 87 -> `0x57` -> 57 and 99 ->
+  `0x63` -> 63 land in the same era, so they cannot differ.
+
+**The one thing the table does establish** is that the guest's notion of *now*
+**decreases** as our clock crosses year 99 to year 00, since the message flips from
+`elapsed` back to `slow`. Something wraps there. And `1987-07-31` -- our default,
+the clock the identity boot uses -- is on the `slow` side, which means **the
+reference boot has never passed this check either**; it stops at 350 M, before it.
+
+### The handle for finding it, so the next session does not start from guesses
+
+The message is printed from the kernel, and the boot's own report gives the
+address: the run ends at **PC `3C456BAE`/`3C456BB2` -> physical `01081BAE`** in
+every one of these five runs. `tools/kernel_symbols.py` exists and the kernel is on
+the volume. Disassembling backwards from there is a bounded job and it answers the
+question outright, where five more `--clock` values will not.
+
+**What is measured, and what is not concluded**
 
 Three readings on one cleanly-dismounted volume, all on this core:
 
