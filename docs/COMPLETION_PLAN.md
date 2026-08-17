@@ -4663,10 +4663,17 @@ Only after the reference core is proven, and only under an identity harness.
       that they were not called, and no conclusion about whether the PROM reads
       the tape can be drawn from this run. The two channels are separate and
       only one of them is being captured.
-      **What is actually needed**: get `logerror` out. MAME routes it to
-      `error.log` under `-log`, which produced no file here, so the next thing
-      to establish is *why* — whether the option is reaching MAME at all, since
-      `-verbose` demonstrably does. Everything else in the cycle is verified and
+      **SOLVED, from MAME's own `-showusage`: the option is
+      `-oslog`**, "output error.log data to system diagnostic output (debugger
+      or standard error)" — `-log` writes a *file*, `-oslog` writes the stream
+      the harness captures. With `-- -oslog` and `LOG_LEVEL1` compiled in,
+      `check_tape` traces appear (five of them), so **the `LOGMASKED` channel is
+      captured and the recipe is complete**: `VERBOSE (LOG_LEVEL0 |
+      LOG_LEVEL1)`, rebuild ~30 s, run with `-- -oslog`, revert, rebuild.
+      No `read_block` lines appeared in that run. **Do not read anything into
+      that yet** — check first whether `read_block` carries a
+      `LOGMASKED(LOG_LEVEL1, …)` call at all, since this thread has already
+      drawn one wrong conclusion from an uncaptured channel. Everything else in the cycle is verified and
       the revert plus clean rebuild were done in the same command.
       Everything else in the cycle is verified: the edit rebuilds `sc499.o`,
       and the revert plus clean rebuild both work, done in the same sitting.
