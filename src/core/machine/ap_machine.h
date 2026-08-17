@@ -113,6 +113,10 @@ typedef struct {
    * or a trace does exactly that, which is why no DMA transfer had ever run
    * outside the unit tests. */
   uint64_t last_instruction_clocks;
+  /* The clock count at the start of the instruction now executing, so a device
+   * asked about mid-access can be advanced to the instant the access actually
+   * happens rather than to the last instruction boundary. */
+  uint64_t instruction_start_clocks;
 
   /* How many F-line exceptions had been taken when this machine last looked.
    * The board's FP trap status bit is set by *taking* one while the control

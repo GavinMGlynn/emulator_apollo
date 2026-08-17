@@ -208,10 +208,34 @@ static void machine_fill(void *context, uint32_t line_address,
  * machine and a device that answers within them inserts none. */
 static unsigned machine_wait_states(void *context, uint32_t physical,
                                     bool read) {
-  const ap_machine_t *machine = (const ap_machine_t *)context;
+  ap_machine_t *machine = (ap_machine_t *)context;
   if (machine->board == NULL || machine->cpu_clock.period == 0u) {
     return 0u;
   }
+
+  /* **Advance the devices to the instant this access happens.**
+   *
+   * This is what makes a device output visible to the instruction *still
+   * executing* -- the case the per-cycle item exists for, and the one thing
+   * batching at the instruction boundary cannot express. It needs no resumable
+   * sequencer: the processor does not stop, the machine catches up to it.
+   *
+   * Safe on both counts, checked in the source rather than assumed. Devices
+   * cannot re-enter the CPU: `ap_board.h` names neither `cpu` nor `m68030`, and
+   * `ap_board_advance` takes only a board and a time. And this cannot be
+   * circular: `ap_board_access_time` is `const` and derives from
+   * `ap_atbus_timing(at_bus_series)` and the *address*, so advancing devices
+   * cannot change the answer that triggered the advance.
+   *
+   * Monotonic by construction, which is what lets it run inside an access at
+   * all: devices advance to an absolute instant carrying their own remainders,
+   * so reaching the end of the instruction in two steps is the same as reaching
+   * it in one. */
+  ap_board_advance(machine->board,
+                   machine->now +
+                       ap_clock_duration(&machine->cpu_clock,
+                                         machine->cpu.clocks -
+                                             machine->instruction_start_clocks));
 
   const ap_time_t needed = ap_board_access_time(machine->board, physical, read);
   if (needed == 0u) {
@@ -787,6 +811,7 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
 
   for (unsigned i = 0; i < limit; i++) {
     const uint64_t before = machine->cpu.clocks;
+    machine->instruction_start_clocks = before;
     if (machine->board != NULL) {
       /* Sampled before every instruction, because the lines are levels and a
        * program that has just written a device register has changed them. This
