@@ -1090,6 +1090,30 @@ ways -- so finding 50a holds twice: the firmware never reads that window, and
 this driver never writes `BOARD_RESET`. A boot could not have found any of it,
 and the suite asserted three of them backwards.
 
+### Both nodes boot Domain/OS on one ring segment, and the knock was flooding it
+
+With the `TIMO_ACK` fix in, `--ring-two-node` was launched on two genuinely
+installed volumes -- `012345` and `022222`, no copies, no relabelling -- and
+**both nodes reached `Domain/OS kernel(7), revision 10.4`**. Two whole machines,
+distinct node IDs, one `ap_ring_sched` segment, each running the operating
+system. That is the prerequisite the plan item has been blocked on since the
+runner was written.
+
+**And then the run drowned.** After the kernel banner both nodes produced
+**1347 blank lines** and never printed `Apollo Phase II Environment`, which is
+the line the script was waiting for. The cause is the runner's own knock: it
+keeps sending carriage returns "while the node's script has matched nothing at
+all", which is right for the boot PROM's console-selection poll -- C165 measured
+that a *single* knock leaves both nodes executing in silence -- and wrong the
+moment Domain/OS owns the line. A script whose first `expect` is a line the
+**OS** prints therefore knocks through the entire boot, and every carriage
+return comes back as an echoed blank line.
+
+The knock is now bounded by *where the machine is*: while the PC is executing
+out of the boot PROM. That is the condition it was always really about -- the
+poll lives at `0000xxxx`, and once the machine is running from main memory any
+further knock is typing into the operating system.
+
 ### Nineteen status bits that nothing used, and the sender that could not tell
 
 `ap_ring_ctl.h` had carried every bit of `XMIT_STAT` and `RCV_STAT` since

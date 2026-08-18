@@ -1747,8 +1747,25 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
        * paced so the poll is not flooded -- a character every few slices,
        * which is the shape `mdsession.knock` has. Once the first `expect`
        * matches, the script owns the line. */
-      const bool script_waiting =
-          script[i].steps > 0u && script[i].at == 0u && script[i].sent == 0u;
+      /* **And stop once the machine has left the firmware, which cost a
+       * two-node run.** The rule above -- keep knocking while the script has
+       * matched nothing -- is right for the boot PROM's console-selection poll
+       * and wrong the moment Domain/OS owns the line. A run whose first
+       * `expect` was a line the *OS* prints knocked all the way through the
+       * boot: both nodes reached `Domain/OS kernel(7)` and then produced
+       * **1347 blank lines**, one per carriage return echoed, and never printed
+       * the banner the script was waiting for.
+       *
+       * The firmware poll lives in the boot PROM at `0000xxxx`; once the PC is
+       * executing out of main memory the poll is long past and any further
+       * knock is typing into the operating system. So the knock is bounded by
+       * *where the machine is*, which is the condition it was always really
+       * about. */
+      const bool in_firmware =
+          ap_board_region(&board[i], ap_machine_state(&machine[i]).pc) ==
+          AP_BOARD_REGION_PROM;
+      const bool script_waiting = script[i].steps > 0u && script[i].at == 0u &&
+                                  script[i].sent == 0u && in_firmware;
       if (knocked[i] < sizeof knock - 1u || script_waiting) {
         if (knock_pace[i] == 0u) {
           ap_sio_receive_at(&board[i].sio, AP_SIO_CONSOLE_UNIT,
