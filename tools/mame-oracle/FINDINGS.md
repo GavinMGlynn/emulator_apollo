@@ -8792,3 +8792,94 @@ the last.
 *Item state unchanged: the two-node frontend is built and tested, `!exit` and the
 `ex config` dialogue are landed, and the single blocker is a virgin volume, now
 understood as a device-table question rather than a media one.*
+
+## C151 -- the oracle's node ID is taken from the disk before the harness can say not to, and `-node_id` was never in effect
+
+C146 through C149 measured, from three directions, that a node ID given to the
+oracle did not reach the volume INVOL wrote. Three sources were eliminated --
+the node-ID ROM, the calendar's battery table, `ex config`'s own write -- and
+C149 closed with the only explanation left: that INVOL's option 1 must be
+keeping the node of the label already on the copied disk. **That explanation is
+wrong, and the mechanism is one line of the oracle's driver.**
+
+`apollo.cpp:911`, in `apollo_state::machine_reset()`:
+
+    if (apollo_config(APOLLO_CONF_NODE_ID))
+        m_node_id->set_node_id_from_disk();
+
+`set_node_id_from_disk` (`apollo_m.cpp:1011`) checks for `"APOLLO"` at offset
+`0x22` of block 0 of **unit 0**, then takes the node from bytes `0x49`-`0x4b` of
+block 1 and **overwrites** what `apollo_ni::call_load` accepted. The setting
+defaults to **On**.
+
+**And `mdsession.lua` cannot turn it off in time.** It runs from a periodic
+callback, so its first chance to write `:apollo_config` is after `MACHINE_RESET`
+has already run once with MAME's defaults. The file knows this -- it soft-resets
+so the firmware re-reads the configuration -- and the repair works for every
+field that is *re-read* at each reset. It cannot work for this one, because
+nothing re-reads it: it is acted on once, and a later reset with the setting Off
+does not put back what the first reset destroyed. So every session this harness
+has run reported `# Node ID from Disk = Off` while having already taken the node
+from the disk.
+
+### Measured, before changing anything
+
+`A 11200` at the MD prompt reads the node-ID ROM window (`apollo.cpp:691`), and
+`A` walks words, so `11202`/`11204`/`11206` are the three ID bytes. The *same*
+volume and the *same* `-node_id` image for node `22222`, differing only in which
+unit the volume was mounted on:
+
+| the labelled volume is on | `11202` | `11204` | `11206` | node the guest reads |
+| --- | --- | --- | --- | --- |
+| unit 0 (`-disk1`) | `0100` | `2300` | `4500` | **`12345`** -- the disk's |
+| unit 1 (`-disk2`) | `0200` | `2200` | `2200` | **`22222`** -- the image's |
+
+Unit 1 is not consulted by `set_node_id_from_disk`, which is why moving the
+same file is a discriminating experiment rather than two runs of one.
+
+### The fix is a cfg file, because that is the only thing MAME reads early enough
+
+`mdsession.py` now writes `<rundir>/cfg/<machine>.cfg` before launching, turning
+the field off where `MACHINE_RESET` will see it. With it, the labelled volume
+back on unit 0 and nothing else changed: `0200 2200 2200`. The general rule,
+and the one worth carrying: **a setting whose effect is a one-way write has to
+be in place before the first reset; anything the firmware merely re-reads can
+wait for the Lua.**
+
+*It changes nothing about any earlier run. `DEFAULT_NODE_ID` is `0x12345` and
+every volume this project owns records `0x12345`, so for a run without
+`-node_id` the disk and the default agree and the setting is inert. Only a run
+that supplies a node ID was ever affected -- which is every run of the last four
+findings.*
+
+### And the volume exists
+
+INVOL run on a copy, options 7 then 1, with `-node_id 22222` and the cfg in
+place, to `Initialization complete.` and a clean `!exit`:
+
+    APOLLODN3500B   creator UID 77536D6F10022222   node ID 22222
+
+Read back by this project's own `node_id_from_volume`, and
+`--ring-two-node --ring-disk-a ... --ring-disk-b ...` now runs **two machines
+with two different node IDs**, each taking its ID from its own volume:
+
+    node 0  id 012345  ring slot 0    node 1  id 022222  ring slot 1
+    node 0  pc 0000269E  ran 2000000  node 1  pc 0000269E  ran 2000000
+
+**What C145's `100001` was, then**: a question about a *blank* disk, and no
+longer on the path. The route the table gave -- re-INVOL a copy -- was right all
+along; what made it produce node `12345` every time was this, not INVOL. C150's
+reading of `100001` as `dcte not found` stands and stays open, but it now blocks
+nothing: initialising a genuinely virgin image is a convenience, not a
+requirement, for a second node.
+
+**The lesson is C147's and C150's for the third time, one step further out.**
+Those two found the answer in a manual on disk. This one was in the oracle's own
+source, forty lines from `call_load` -- which C146 had already read and
+instrumented, having gone there to ask why the load did not take. The load did
+take. Nothing after it was checked, and the harness's own header line said the
+configuration was off, so the one place with the answer read as the one place
+already cleared.
+
+*What remains for the two-node item is a Domain/OS install on this volume, which
+is the route `PROJECT_STATUS.md` records end to end for node A.*

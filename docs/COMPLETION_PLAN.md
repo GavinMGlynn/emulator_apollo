@@ -4094,133 +4094,40 @@ discipline throughout.
       not fail loudly — frames would vanish.
       *Verification: `ctest` 139/139, identity boot `03EE415450926A89` with clocks
       unchanged, the single-machine path untouched.*
-      **What remains is a second volume, and INVOL will not make one**:
-      `Unable to assign disk - error status = 100001` on a blank 348 MB image.
-      Three variables eliminated by running them — the SR10.3 cartridge, the
-      SR10.4 cartridge C50 succeeded with, and no `--node-id` ROM at all as a
-      control. All three give `100001`. **INVOL demonstrably works** (C50 built
-      `dn3500-invol-done.awd` that way), so something between that session and
-      this changed; the harness and oracle have both moved.
-      **The built-in `--stage invol` was tried and is not the difference.** It
-      does carry two `re` resets before `di c` that the hand-written file lacked
-      — matching the AEGIS transcript — and the answer is the same `100001`. Four
-      variables eliminated by running them: both cartridges, the node-ID ROM, the
-      reset sequence.
-      **The bisect was run and both oracle edits are exonerated** — C139 reverted
-      gives `100001`, C56 reverted as well gives `100001`, both restored.
-      **The real discriminator is the disk**: INVOL refuses a *blank* image with
-      `100001` on options 7 *and* 1, and assigns a **copy of an existing volume**
-      fine — `Done.` for option 7, and option 1 runs to `volume 1: all, dn3500b`.
-      So **C50's record of INVOL initialising an all-zero image is the observation
-      in doubt**, nothing else having survived testing.
-      **And that gives the route**: re-INVOL a *copy*. Option 1 stopped with
-      INVOL's own instruction, which states C50's order itself — *"Please use
-      Option 7 to input badspot list. Then rerun Option 1 and reply 'Y'"*.
-      **One open question remains, and it is the one that matters**: the label was
-      rewritten (`APOLLODN3500B`, fresh creator UID) but its node is still
-      **`12345`**, not the `22222` given. The ROM loaded — the run's header says
-      `# image node_id: …nodeB.ani` and `oracle_nodeid` pins that the image
-      satisfies `call_load`. So the node ID reaches the device and not the UID
-      generator, and *that*, not INVOL, is what stands between here and a second
-      node. `FINDINGS.md` C145.
-      **Traced to the instruction** (prints since reverted): the order is
-      `device_start` **then** `call_load`, and `call_load` **accepts node
-      022222** — the device holds the right value. `device_start`'s
-      unconditional `set_node_id(DEFAULT_NODE_ID)` looked like the bug and is
-      not: it runs *first*, so the load wins. Guarding it changed nothing —
-      INVOL run to `Initialization complete.` still wrote `12345`.
-      **So the UID generator does not take its node from the node-ID ROM.** That
-      points at the **calendar's battery RAM**: this core's own
-      `ap_calendar_build_config` writes the node into `[CFG]`'s configuration
-      block at `0x1E`, and MAME persists that RAM as nvram in the run directory.
-      **ANSWERED by the manual, which was on disk and transcribed into this
-      core's own header the whole time.** `002398-04` p. 12-3 lays out the
-      battery RAM: `0E-11` CHECKSUM, `12-15` VALID PATTERN, `16-1D` MEM BOARD
-      ARRAY, **`1E-21` NODEID**, `22-25` DEV BIT ARRAY. So a machine's node comes
-      from its **battery configuration table** — which `ap_calendar_build_config`
-      already writes — and `apollo_ni`'s ROM window is a different source the UID
-      generator does not use. MAME's `-node_id` cannot change what a volume
-      records however correctly it loads, which is what C145 and C146 measured
-      from the other end.
-      **And the route is the firmware's own**, printed on every boot of an
-      unconfigured machine: *"Press <<return>> and type `ex config` at the prompt
-      to initialize the configuration table."* Both SR10.3 boot cartridges carry
-      `sau7/config`. Its dialogue is in no manual here, like INVOL's was not, so
-      it gets read from the machine a turn at a time through `--commands`.
-      **And the `config` prompts are now read from the machine** (C148), which
-      was the last unknown: `Would you like to reconfigure this node` → `y`,
-      `Did the memory configuration change` → `n`, ` NODE_ID:` → **`22222`**,
-      display `New type:` → RETURN, FPU → `y`, FPA → `n`, floppy → `n`,
-      Winchester → `y` then **controller type `0`** (SMS/Omti, which is what
-      `ap_omti.*` models), then a **` DISK type:`** prompt — RETURN, since the
-      utility offers "leave unchanged" and only `NODE_ID` needs changing — then
-      cartridge tape → `y`, then the rest of `002398-04`'s DEV BIT ARRAY order.
-      **That `DISK type:` prompt cost a second run.** It was scripted as though
-      cartridge tape followed the controller type; a follow-file is strictly
-      ordered, so the unmatched `!expect` stalled every directive behind it and
-      nothing was written. For a dialogue still being learnt, drive it a turn at a
-      time and append only what the machine has asked for.
-      **The dialogue was then driven to the end, twenty prompts** (C148), and
-      `config` printed the summary this item wants: `Node-id: 22222`, FPU,
-      `WINCHESTER CONTROLLER TYPE -- SMS/Omti`, `CTAPE7`, and
-      `RING -- Apollo Token Ring Network Controller-AT (unit 0)` as the principal
-      network. A third run was lost to `!expect New type (controller` — `(` is a
-      **regex metacharacter**, the same escaping the install script already gets
-      right with `\(Y/N\)`.
-      **And INVOL run in the *same session* still wrote `12345`.** That is the
-      fourth place the node has failed to arrive. Two distinguishable candidates:
-      `config`'s write did not commit — it aborts on exit at `10200E6`, exactly as
-      `CALENDAR` does, and for CALENDAR the set demonstrably took — or the UID
-      generator reads the node from somewhere else again, as it did from the ROM
-      window.
-      **`ex config` writes NODEID correctly, and a clean shutdown persists it.**
-      `Session.close` sends `SIGTERM` and MAME writes no NVRAM on that path, which
-      is why every kept run directory came back empty. `mdsession.py` gained
-      **`!exit`** — it asks the Lua side for `manager.machine:exit()`, the path
-      `APOLLO_MD_UNTIL` already used, at a moment the driver chooses — and the
-      result is `nvram/dn3500/rtc`, 64 bytes, carrying `00 02 22 22` at **`0x1E`**,
-      exactly where the handbook puts NODEID. A capability this project did not
-      have and needs for any battery-backed configuration.
-      *A defect of mine found by using it: `!exit` left its request behind, so the
-      next run in the same directory exited at once having sent nothing — in
-      `--keep-rundir`, the exact case it exists for. Cleared at startup now, with
-      a test.*
-      **And the node still does not reach the volume.** With that NVRAM loaded,
-      INVOL ran to `Initialization complete.` and wrote a fresh UID whose node is
-      **`12345`**. So the UID generator takes its node from *neither* the node-ID
-      ROM *nor* the battery table — three sources eliminated by measurement.
-      **The remaining explanation is not a fourth source.** Every INVOL that has
-      succeeded here ran on a **copy of an existing volume**, because a blank image
-      cannot be assigned. Option 1 is "initialize *virgin* physical volume", and on
-      a disk that already carries a label it may keep the node that label records —
-      `12345`, in the ancestor of every volume this project owns.
-      *So the two open questions are one: **a new node needs a virgin volume, and a
-      virgin volume is what INVOL will not assign.** That is C145's `100001`, and
-      it is the single thing left. `FINDINGS.md` C149.*
-      **And `100001` is documented**, in a manual already on disk: `002398-04`'s
-      status tables give `os / I/O manager: (00100001) dcte not found`. A **DCTE
-      is a device control table entry**, so the failure is the I/O manager not
-      finding a *device* — not a program judging a *medium*. That redirects the
-      search from "what is wrong with a blank image" to "what builds the device
-      table, and why does a blank disk leave it without an entry", and it keeps
-      both measurements intact: if the table is built from what can be recognised
-      on the disk, a labelled copy assigning and a blank not assigning follow
-      together.
-      *It should have been the first lookup, not the last — an error code with a
-      documented meaning is the cheapest reference there is. `FINDINGS.md` C150.*
-      **`Node-id: 0` is what `config` reports** on a machine MAME calls node
-      `12345` — a third corroboration that the ROM window and the battery table
-      are different sources and the battery one is empty.
-      *That run wrote nothing: its `--commands-timeout` expired mid-dialogue, so
-      the volume still records `12345` and the transcript is the product. Size the
-      next one for a dialogue read a turn at a time — 900 s was not enough for the
-      prompts alone. `FINDINGS.md` C147, C148.*
-      **Item state**: the two-node frontend is built and tested, INVOL runs to
-      completion on a copied volume, and the one remaining gap is putting a
-      *different* node into that volume.
-      **Explicitly not** patching a copied volume's label — the objects on a copy
-      carry node A's UIDs and the result would be a machine lying about its
-      identity.
+      **The second volume exists, and four sessions were spent on the wrong
+      mechanism to get it.** `-node_id` loaded an image for node `22222`,
+      `apollo_ni::call_load` accepted it, and every volume INVOL then wrote
+      recorded `12345` -- the node of the ancestor every image here is copied
+      from. Three sources were eliminated by measurement (the node-ID ROM, the
+      battery configuration table, `ex config`'s own write; `FINDINGS.md`
+      C146-C149) before the cause turned out to be one line of the oracle's
+      driver: `apollo.cpp:911` calls `set_node_id_from_disk()` at
+      `MACHINE_RESET`, overwriting the node-ID device from the label of the
+      disk on **unit 0**, and `mdsession.lua` -- running from a periodic
+      callback -- cannot turn that setting off until after the reset has
+      happened. Its soft reset repairs every field the firmware *re-reads*, and
+      cannot repair one that is acted on once. **A setting whose effect is a
+      one-way write has to be in place before the first reset**, so
+      `mdsession.py` now plants MAME's system config in the run directory.
+      *Verification: two runs, same volume and same `-node_id` image, differing
+      only in which unit it was mounted on -- the guest reads `12345` on unit 0
+      and `22222` on unit 1; with the config planted it reads `22222` on unit 0.
+      Four checks in `test_mdsession.py`, `ctest` 139/139. `FINDINGS.md` C151.*
+      **And the volume is made**: INVOL options 7 then 1 on a copy, run to
+      `Initialization complete.` and shut down cleanly with `!exit`, gives
+      `APOLLODN3500B`, creator UID `77536D6F10022222`, node ID **`22222`** --
+      read back by this project's own `node_id_from_volume`. `--ring-two-node`
+      now runs two machines with two *different* node IDs, each taking its ID
+      from its own volume, both reaching `pc 0000269E` at 2,000,000
+      instructions.
+      **What is left is a Domain/OS install on that volume**, which is the route
+      `PROJECT_STATUS.md` records end to end for node A. C145's `100001` on a
+      *blank* image is off the path: C150's reading of it as `dcte not found`
+      stands and stays open, but a second node needs a re-INVOLed copy, not a
+      virgin image.
+      **Explicitly not** patching a copied volume's label -- the objects on a
+      copy carry node A's UIDs and the result would be a machine lying about its
+      identity. The volume above was re-initialised, not edited.
       **Diskless boot is the other route and is now sketched from the web**: a
       diskless node's PROM broadcasts a partnership request, and a partner
       running `netman` with the client listed in `/sys/net/diskless_list`

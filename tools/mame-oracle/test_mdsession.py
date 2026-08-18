@@ -430,6 +430,41 @@ def main() -> int:
         check("and --era none reaches the driver script", eralog.read_text(),
               "none")
 
+        # The system config is planted *before* MAME starts, and `Node ID from
+        # Disk` is off in it.
+        #
+        # `mdsession.lua` sets the same field and cannot set it in time: it runs
+        # from a periodic callback, so `MACHINE_RESET` has already happened once
+        # with MAME's defaults. For every other field that is only late, and the
+        # Lua's soft reset repairs it. This one is not re-read at all --
+        # `apollo.cpp:911` acts on it once, overwriting the node-ID device from
+        # the label of the disk on unit 0 -- so a reset cannot put back what the
+        # first one destroyed, and `-node_id` was silently ignored on every run
+        # that had a labelled volume mounted. Measured: the node-ID ROM read
+        # `01 23 45` (the disk's node) with the volume on unit 0 and `02 22 22`
+        # (the image's) with the same volume on unit 1. `FINDINGS.md` C151.
+        #
+        # Checked against the *file*, because that is the whole mechanism: MAME
+        # reads it at startup, and a cfg naming another machine, or carrying a
+        # mask or default value that does not match the port, is ignored without
+        # a word.
+        proc = run(stub, ["--stage", "prompt"])
+        planted = stub.parent / "run" / "cfg" / "dn3500.cfg"
+        check("the system config is planted for the machine being run",
+              planted.exists(), True)
+        written = planted.read_text()
+        check_in("naming that machine, since MAME matches on it",
+                 '<system name="dn3500">', written)
+        check_in("and turning Node ID from Disk off before the first reset",
+                 '<port tag=":apollo_config" type="CONFIG" mask="256" '
+                 'defvalue="256" value="0" />', written)
+        check_in("the driver says where it put it", "mdsession: config",
+                 proc.stderr)
+        # A different machine gets its own, or MAME ignores the file entirely.
+        proc = run(stub, ["--stage", "prompt", "--machine", "dn3000"])
+        check("and a different machine gets a config of its own name",
+              (stub.parent / "run" / "cfg" / "dn3000.cfg").exists(), True)
+
         # `!exit` asks for a clean shutdown and waits for it. The stub exits when
         # it sees the request file, standing in for `manager.machine:exit()` --
         # what is testable without MAME is that the driver writes the request

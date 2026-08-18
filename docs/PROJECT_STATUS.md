@@ -33143,6 +33143,73 @@ built. `FM_$READ` and `AST_$LOAD_AOTE` are both named and both reachable with
 --boot-log-watch-writes` over the same boot; `tools/kernel_symbols.py` for the
 two writers.*
 
+## The oracle's node ID: `-node_id` had no effect whenever a labelled disk was mounted
+
+**Corrects the record above.** The section on `mdsession.lua` setting nine
+configuration fields is right about what the file *writes* and wrong about what
+the machine *ran with*. `:apollo_config` is read at `MACHINE_RESET`, and the Lua
+side runs from a periodic callback -- so its first write lands after the machine
+has already reset once with MAME's defaults. The file knows this and soft-resets
+so the firmware re-reads the configuration, which repairs every field the
+firmware re-reads.
+
+**`Node ID from Disk` is not re-read. It is acted on, once.**
+`apollo.cpp:911` calls `apollo_ni::set_node_id_from_disk()`, which checks for
+`"APOLLO"` at offset `0x22` of block 0 of **unit 0** and then overwrites the
+node-ID device from bytes `0x49`-`0x4b` of block 1 -- discarding whatever
+`apollo_ni::call_load` accepted from `-node_id`. A later reset with the setting
+Off does not put back what the first reset destroyed. Every session this harness
+has run printed `# Node ID from Disk = Off` while having already taken the node
+from the disk.
+
+**What it cost is four findings.** `FINDINGS.md` C146 through C149 eliminated
+three sources by measurement -- the node-ID ROM, the calendar's battery
+configuration table, and `ex config`'s own write, each confirmed to hold `22222`
+and each apparently ignored -- and closed on the hypothesis that INVOL's option 1
+must preserve the node of the label already on the copied disk. That hypothesis
+is withdrawn. The device held `12345` before INVOL ever ran.
+
+**Measured, and the experiment discriminates.** `A 11200` at the MD prompt reads
+the node-ID ROM window (`apollo.cpp:691`); `A` walks words, so `11202`/`11204`/
+`11206` are the three ID bytes. Same volume, same `-node_id` image for node
+`22222`, differing only in the unit it was mounted on -- unit 1 is not consulted
+by `set_node_id_from_disk`:
+
+```
+  unit 0 (-disk1)   11202: 0100   11204: 2300   11206: 4500   -> 12345, the disk's
+  unit 1 (-disk2)   11202: 0200   11204: 2200   11206: 2200   -> 22222, the image's
+```
+
+**The fix is a cfg file**, because it is the only thing MAME reads early enough.
+`mdsession.py` writes `<rundir>/cfg/<machine>.cfg` before launching, turning the
+field off where `MACHINE_RESET` will see it; with the labelled volume back on
+unit 0 and nothing else changed the guest reads `0200 2200 2200`. The rule
+generalises and is worth carrying: **a setting whose effect is a one-way write
+has to be in place before the first reset; anything the firmware merely re-reads
+can wait for the Lua.**
+
+*It invalidates no earlier run. `DEFAULT_NODE_ID` is `0x12345` and every volume
+this project owns records `0x12345`, so on a run without `-node_id` the disk and
+the default agree and the setting is inert. Only runs supplying a node ID were
+ever affected.*
+
+**And the second volume exists.** INVOL options 7 then 1 on a copy, with the
+config planted, run to `Initialization complete.` and shut down with `!exit`:
+`APOLLODN3500B`, creator UID `77536D6F10022222`, node ID **`22222`**, read back
+by this project's own `node_id_from_volume`. `--ring-two-node --ring-disk-a
+--ring-disk-b` now runs two machines with two *different* node IDs, each taking
+its ID from its own volume, both reaching `pc 0000269E` at 2,000,000
+instructions.
+
+**Still not done, and named**: that volume carries no operating system. The
+two-node item wants `lcnode` on each node listing the other, so node B needs a
+Domain/OS install -- the route this document records end to end for node A.
+
+*Verification: the two MD readings above; four checks in `test_mdsession.py`
+against the planted file, since a cfg naming another machine or carrying a mask
+the port does not match is ignored without a word; `ctest` 139/139.
+`FINDINGS.md` C151.*
+
 ## Archive: the Phase 4 boot item's working notes, closed 2026-08-15
 
 These are the narrative bodies of `COMPLETION_PLAN.md`'s Phase 4 boot item

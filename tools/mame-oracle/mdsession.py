@@ -648,6 +648,69 @@ def make_disk(path: Path) -> bool:
     return True
 
 
+# `:apollo_config`'s `Node ID from Disk` bit and its default, from
+# `apollo.h:317` and `apollo_m.cpp:102`. Both are needed: MAME matches a saved
+# port by tag, mask *and* default value, and silently ignores a node that
+# disagrees with the machine it is loading.
+APOLLO_CONF_NODE_ID = 0x0100
+
+# MAME's system config, written before the machine starts.
+#
+# **`mdsession.lua` sets this same field and cannot set it in time.** The Lua
+# side runs from a periodic callback, so its first chance to write
+# `:apollo_config` is after `MACHINE_RESET` has already run once with the
+# defaults; the file knows this and soft-resets so the firmware re-reads the
+# configuration it wanted. That repairs every field that is *re-read* at each
+# reset -- Normal/Service, the era shift, the trace flags -- and it cannot
+# repair this one, because `Node ID from Disk` is not read by anything. It is
+# acted on: `apollo.cpp:911` calls `apollo_ni::set_node_id_from_disk()`, which
+# overwrites the node-ID device's value from the label of the disk on unit 0.
+# A later reset with the setting Off does not put back what the first reset
+# destroyed.
+#
+# What that cost is `FINDINGS.md` C146 through C149: `-node_id` loaded an image
+# for node `22222`, `apollo_ni::call_load` accepted it, and every volume INVOL
+# then wrote recorded `12345` -- the node of the *ancestor* volume every image
+# here is copied from. Three separate sources were eliminated by measurement
+# before the fourth turned out to be the harness stating a configuration it had
+# not managed to apply.
+#
+# Measured both ways, same volume and same `-node_id` image, differing only in
+# which unit the labelled disk was on (`FINDINGS.md` C151):
+#
+#     unit 0, no cfg     node-ID ROM reads 01 23 45   the disk's node
+#     unit 1, no cfg     node-ID ROM reads 02 22 22   the ROM image's node
+#
+# So the rule is general and worth stating once: **a setting whose effect is a
+# one-way write has to be in place before the first reset, and a cfg file is
+# the only place that is.** Anything the firmware merely re-reads can wait for
+# the Lua.
+MAME_CONFIG_XML = """<?xml version="1.0"?>
+<mameconfig version="10">
+    <system name="%s">
+        <input>
+            <port tag=":apollo_config" type="CONFIG" mask="%d" defvalue="%d" value="0" />
+        </input>
+    </system>
+</mameconfig>
+"""
+
+
+def write_config(rundir: Path, machine: str) -> Path:
+    """Plant MAME's system config, so the *first* reset sees it.
+
+    Named for the machine because that is what MAME looks for -- `dn3500.cfg`
+    for `dn3500` -- and written into the run directory's own `cfg`, which
+    `build_command` already points `-cfg_directory` at. A run therefore
+    configures itself and leaves nothing behind for the next one.
+    """
+    path = rundir / "cfg" / ("%s.cfg" % machine)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(MAME_CONFIG_XML
+                    % (machine, APOLLO_CONF_NODE_ID, APOLLO_CONF_NODE_ID))
+    return path
+
+
 def stage_cartridge(source: Path, rundir: Path) -> Path:
     """Copy a cartridge into the run directory and return the copy.
 
@@ -816,6 +879,9 @@ def main(argv=None) -> int:
     exitfile = Path(str(swapfile) + ".exit")
     if exitfile.exists():
         exitfile.unlink()
+
+    sys.stderr.write("mdsession: config %s\n"
+                     % write_config(rundir, args.machine))
 
     command = build_command(mame, args, rundir)
     sys.stderr.write("mdsession: %s\n" % " ".join(command))
