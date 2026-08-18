@@ -433,6 +433,35 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## SR10.2 boots: every obtainable Domain/OS release now runs here (2026-08-18)
+
+The last unbooted release, on this core, from its own disk:
+
+    Domain/OS kernel(7), revision 10.2, October 13, 1989  12:51:22 pm
+    Apollo Phase II Environment   Revision 10.2   Oct 7, 1989  12:36:28 am
+    Loading Init.
+    ***** Node startup on Wed Nov 27 06:01:51 UTC 2002 *****
+        SERVER_PROCESS_MANAGER, Version 10.2, 89/07/31
+     SPM Initialized on Wednesday, November 27, 2002
+
+**State hash `E5147CD96AB052D9`** at 1,500,000,000 instructions,
+`--clock 2002-11-27T06:00:00`. So `SR10.2`, `SR10.3` and `SR10.4` -- the whole
+set that exists to be obtained -- boot here, each with its hash.
+
+**It took four sessions and the chain had to be undone in order**: the oracle's
+tape model aborts a transfer where `008845` §6.3 gives the part three buffers
+and sixteen retries, which is what stopped the install; the volume was then
+unbootable with `SAU7 not found in root_dir` from *both* PROMs; its root
+directory held the three entries a virgin INVOL leaves, because `!exit` ends
+MAME and asks the guest for nothing and Domain/OS is a single-level store; and
+getting the guest to shut down needed EOT, because `shut` is not a shell command
+and `exit` does not leave that shell. `FINDINGS.md` C178, C185, C192, C196,
+C198.
+
+**Not claimed**: nothing is timed through any of this -- an install is paced by
+the host and `mdsession.py` says so -- and SR10.2 has been booted, not
+exercised.
+
 ## Two ring nodes pass their own self-test (2026-08-18)
 
 The first result of the configuration-table fix below:
@@ -34281,3 +34310,815 @@ boot below, and the boot is not attempted until they are done.
       *This depends on Phase 5, and that dependency was always real and never
       written down -- which is how a display-only milestone came to be measured
       with a serial cable for an entire session.*
+
+## Booting every obtainable Domain/OS release: the plan item's record
+## (moved from COMPLETION_PLAN.md on completion, 2026-08-18)
+
+*Verification: each boot recorded with its state hash; failures explained,
+not hidden.*
+**The scope is now established rather than assumed.** The item used to say
+"(SR9.7, SR10.1–10.4)". There is **no SR9.7 or SR10.1 install media
+online**: bitsavers holds `SR10.2/`, `SR10.3/`, `SR10.4/`, `SR10.4.1/`, and
+Jim Rees' Apollo archive holds none at all and points at bitsavers for
+images. Searches return documentation and mentions, not media. SR10.4.1 is
+an upgrade set over SR10.4 rather than a release to install from bare
+metal. Detail in `FINDINGS.md` C126.
+**SR10.2 is now held** — four cartridges in `media/sr10.2/` — and its
+*standard* boot cartridge passes both of C124's bootability tests, which
+SR10.3's did not: the `0013D800`/`SYSBOOT REV` descriptor at block 0 and
+13 `sau7/` entries. Checked before any emulator ran, which is the lesson
+of that finding applied.
+**SR10.2's install now runs to the end** (2026-08-18). It stopped for four
+sessions at tape block 4615, and the cause was a threshold in the
+*oracle's* SC-499 model: it fails a transfer when the guest has not
+drained a block for 5000 tape-block times, while `008845` rev E0 §6.3
+gives the part "Data Buffering 3 x 512 Byte blocks minimum" and
+"Write/Read re-tries 16 maximum". The drive repositions instead, and RBAK,
+MINST and all three cartridges then complete. `FINDINGS.md` C178.
+**And the volume it produced would not boot, for a reason that is the
+harness's**: `SAU7 not found in root_dir` from *both* PROMs, ours and the
+oracle's, with `/sau7` demonstrably installed. Its root directory held the
+three entries a virgin INVOL leaves. Domain/OS is a single-level store and
+`mdsession.py`'s `!exit` ends **MAME** cleanly -- writing NVRAM, as it
+documents -- while asking the *guest* for nothing, so the directory
+updates were still in the node's cache. The same restore ending in an
+in-guest `shut` leaves seventeen entries. `shut` is not a shell command;
+it belongs to the `)` prompt MINST is started from, so an install has to
+leave the shell first. C185, C187, C192.
+**Done**: SR10.2 boots to `SPM Initialized`, state hash
+`E5147CD96AB052D9` at 1.5 G instructions. All three obtainable releases
+boot here, each with its hash. Detail in `PROJECT_STATUS.md`.
+**The calendar gate is cleared, by the machine's own documented remedy.**
+`001746-06` Procedure 2-7 gives the `EX CALENDAR` dialogue; answering `y`
+to "would you like to reset it" and supplying a date clears
+`More than 14 days have elapsed`, and `ex domain_os` then offers
+`RBAK_BS reloading system software` and `Do you wish to proceed? (Y/N)` —
+the SR10.4 install's own next step. CALENDAR takes the *disk* as its first
+answer and on the evidence stamps the volume, which is why running it
+clears a gate about the last shutdown. `mdsession.py --mode Service` now
+exists because the procedure names the switch; it turns out not to be
+required here. One thing is unexplained and recorded rather than smoothed
+over: CALENDAR aborts on exit every time (`10200E6: 6100`, a crash-entry
+line per `002398-04` §4) and reads back a date other than the one asked
+for — sufficient, since the gate clears, but not understood. C127.
+**SR10.3's OS is restored and the volume cleanly shut down**:
+`media/dn3500-sr10.3-osclean.awd`, 474 entries restored,
+`Restore complete.` then `shut` → `Shutdown successful`.
+**But a restored volume is not a bootable volume, and that is now proven
+rather than suspected.** RBAK's own log says
+`TFP: Skipping over SYSBOOT found at beginning of volume.`, and
+`SYSBOOT REV` is present at `0x870` in the MINST-completed SR10.4 volume
+and **absent** from both `-osclean` volumes and from `invol-done`. `0x870`
+is block 2 of a 1024-byte-block volume, which is `[AEGIS]` §4.3.2's
+physical `02`-`0B` exactly. Our core booting either `-osclean` volume gives
+byte-identical results — `74FD47F132624CFF`, final PC `00000794`,
+1,266,013,264 clocks — which is the proof that neither volume's contents
+reached the PROM. So "boot the release" requires **MINST**, not the
+restore, and the SR10.4 route was right to run it. C128.
+**MINST IS DONE AND SR10.3 RUNS ON THIS CORE.** Authorized Area and
+target both `//node_12345`, template **11 (`large`)** — the SR10.4
+install's own choice — and the four `018848-001..004` cartridges swapped in
+as MINST asked, each staged into the run directory so the media's md5 is
+unchanged. `RAI MINST has completed` with **two** warnings, both named
+because a summary would hide them: a release-notes document
+(`os.v.10.3__bind4.8_operations_guide`) and `Could not delete directory
+//node_12345/bscom`. Neither is an OS file.
+**And MINST is what writes the boot block**, measured on the same file:
+`SYSBOOT REV` absent before, at `0x870` after — which is C128's block 2
+exactly. That is the difference between a restored volume and a bootable
+one.
+**This core then boots it**: the DN3500 self-tests, `Loaded: SELF_TEST
+Revision: 2.4`, the CPU diagnostics, and then Domain/OS's own
+`Salvaging boot volume` /
+`Salvol - Offline(7), revision 10.3, June 5, 1990` — SR10.3's *own*
+salvage utility executing here. The salvage is expected rather than a
+fault: the install session was killed rather than shut down from the
+target. State hash `8E1A2E2E106A367B`, final PC `00002EE4`,
+1,495,341,007 clocks at the 350 M reference bound, recorded as
+mid-salvage.
+**Nothing in the run is SR10.3-specific, and that was checked**: the
+`Configuration information is not initialized` and `Self test failed.
+Expected= 00000000, Actual= 00000012, Address= 00010912` lines are
+**identical** in the SR10.4 reference boot, so they are this core's
+standing gaps rather than something the new release exposed.
+*Detail in `FINDINGS.md` C130.*
+**The clean shutdown is DONE**, and four things in the route were learnt
+rather than known: CALENDAR **branches** (on a volume whose recorded time
+is ahead of the clock it asks `Is the calendar correct?`, and `n` is what
+opens the date prompt); **Service mode is required** once the disk is
+bootable, because the PROM then boots it and the serial console goes
+silent — two sessions produced zero bytes before that was understood;
+`ex salvol` needs a **reset** first, since the kernel's decline leaves the
+machine mapped and MD answers `NO FILE I/O IN MAPPED MODE`; and `di w`
+then `ex domain_os` boots the *disk's* own OS, which is what makes the
+shutdown possible. `SALVOL` then reported `Salvage complete`, the OS came
+up as `Apollo Phase II Environment Revision 10.3`, and `shut` gave
+`Shutdown successful`. The volume now reads
+`dismounted FFF885FA  2015-09-03 18:17:38` and its label is
+**structurally identical** to the SR10.4 volume's.
+**And this core still gates it, which moves the question.** With
+`--clock 2015-09-05` — two days after that dismount — the salvage is gone
+and the kernel loads directly, and it still says `More than 14 days have
+elapsed`. Hash `3253FD7CFB8821D4`, 9,786,961,926 clocks, MMU enabled.
+**Two days is not fourteen, so the kernel is not comparing our `--clock`**,
+and the volume that works proves it: SR10.4's dismount stamp is 2002 and it
+boots under the **default 1987** clock with no calendar message at all.
+**This thread then produced two wrong conclusions, and both are recorded
+because the method failure is the lesson.** First, a "refutation" that
+`--clock` does not reach the check, on the evidence that SR10.4 booted
+clean at two clocks — **measured with `--boot-limit 350000000`, the
+identity harness's bound, which stops before the kernel reaches the
+check.** At 3 G instructions SR10.4 does complain. A bound is part of an
+experiment, and reusing the reference boot's number to ask a question about
+something that happens ten times later gave a confident wrong answer.
+Second, the follow-up: `EX CALENDAR` set to **1993/06/15** — accepted with
+the documented backward-time warning — did **not** rewrite the volume's
+recorded time, so the 2015 stamp stood and the boot said `calendar slow`.
+And the mount it wrote decodes to **1987-10-11**, which is neither date and
+which no unit makes into 1993 with a 1980 epoch.
+**So three readings on one cleanly-dismounted volume**: `--clock
+1987-08-02` → slow; `--clock 2015-09-05`, 1.24 days after its own dismount
+stamp → `More than 14 days have elapsed`; CALENDAR-set 1993 → slow. The
+middle one is unexplained, and 1.24 days is not fourteen.
+**Then five reproducible readings against the SR10.4 volume**, whose
+stamp is 2002-11-27 and sits at 64% of the tick range so nothing wraps, at
+a 6 G bound so the check is actually reached: `--clock` 1987 → slow,
+1999-12-31 → **elapsed**, 2000-01-02 → slow, 2002-11-28 → **elapsed**,
+2015-09-05 → slow. `1999-12-31` re-runs identically, so there is a model.
+**Four were tried and all fail**: year read as 19yy predicts slow at 99;
+as 20yy predicts elapsed at 87; any pivot fails because the answer is not
+monotone in the year; and a BCD/binary inversion puts 87 and 99 in the same
+era so they could not differ.
+**What the table does establish** is that the guest's *now* **decreases**
+across year 99 → 00, so something wraps there — and that `1987-07-31`, the
+clock the identity boot uses, is on the *slow* side. **So the reference
+boot has never passed this check either**; it stops at 350 M, before it.
+**The disassembly was then done, and it answers the mechanism.** The
+kernel was extracted from the boot cartridge with `ct_extract.py` — no
+emulator — and disassembled with capstone; the check is at `010C5132`:
+`now - last_shutdown` as **one signed 32-bit subtraction**, `< -229` →
+*calendar slow*, `> (a2)` → *More than %a days*, else proceed. `-229` ticks
+is **60.03 s**, confirming the tick unit a third time.
+**"More than 14 days" was never a threshold** — the string is `More than
+%a days` and the number is a computed argument. Every earlier reading that
+treated 14 as a limit was reading a formatted variable as a constant.
+**And `3C4C19E0` dumped at the check reads `A45E5C08`, the volume's own
+label time** — so the physical label *is* the source, and the previous
+entry's "demonstrably not it" is **withdrawn**.
+**The defect is ours and it is in the date, not the clock format.**
+Measured: `--clock 2000-01-02` gives the kernel `now` = 2000-01-02 18:01
+(**correct**, and *slow* is then the right answer); `2002-11-28 09:00` gives
+2003-06-11 09:01 (**+195 days**); `1999-12-31` gives 2018-11-08, wrapped
+(**+18.85 years**). The **time of day is right in all three and only the
+date is wrong.**
+**And it is not the register file**, checked rather than assumed: dumped at
+the check, `010900` reads day `28`, month `11`, year `02`, day-of-week `05`
+(2002-11-28 was a Thursday), register B `00` — correct BCD and 12-hour,
+which is exactly what the oracle configures (`set_binary(false)`,
+`set_24hrs(false)`). So the bytes we hand the guest are right.
+**And the defect is now isolated to one field.** A discriminating pair,
+both 09:00 on the third of a month, differing only in whether the month
+exceeds nine: `2001-02-03` → the kernel's `now` is **exact**;
+`2001-11-03` → **+183 days**. A clock whose every field is under ten is
+right, which is the signature of **BCD read as binary** — `0x11` is 11 in
+BCD and 17 in binary, and the two agree only below ten.
+**Our part is right, checked three ways**: the register file dumps as
+correct BCD; a standalone harness shows `B=00 month=11` after reset and
+`B=04 month=0B` after writing `DM`, the datasheet's behaviour exactly; and
+`mc146818_suite` already covers it, so this is not a table-walk gap. The
+oracle configures the same thing — `set_binary(false)`.
+**SOLVED, and Domain/OS BOOTS.** The oracle A/B turned out to be a static
+read: MAME's `to_ram` converts to BCD when `DM` is clear exactly as ours
+does, so both cores present BCD and neither is "wrong" about the bit — the
+question was what the **battery** held, and `[146818]`'s RESET table does
+not clear `DM` because it is battery-backed. Nothing in the machine writes
+it either: register B dumped at a live kernel's calendar check reads `00`.
+**So the board must say what its battery holds, and this one holds it set.**
+`ap_calendar_reset` does it — the board's layer, not the part's — and
+Domain/OS SR10.4 then boots past the check for the first time in this
+project: `Loading Init`, `global libraries loaded`,
+`***** Node startup on Thu Nov 28 09:02:08 2002 *****`, standard daemons,
+`SPM system init complete. Node ID = 12345`,
+`SPM Initialized on Thursday, November 28, 2002`. `--clock` was
+`2002-11-28T09:00` and the node reports that date with the **weekday
+right**. With `DM` clear the same invocation halts.
+**And it explains `FINDINGS.md` C53**, carried since as measured and
+unexplained: *"the kernel stops on a clock that runs backwards between
+sessions"*. Read as binary, BCD dates are not monotone — 27 November maps
+to month 17 day 39 and 1 December to month 18 day 1 — so the later real
+date becomes the earlier guest date. It also retires C132's `--clock` sweep
+and C133's era experiments: no date could work, because the frame they were
+chosen in was not the frame the guest was reading.
+**Inferred, not cited, and marked so**: the datasheet says the bit is
+battery-backed and untouched by RESET; that a DN3500's battery held it
+*set* is inferred from a machine that boots against one that halts. **A
+place we out-accurate the oracle** — MAME's `set_binary(false)` presents BCD
+to a guest that reads binary, and its own sessions show the symptom (a
+requested 2026 stamping a volume 2015, C127).
+*Verification: `ctest` 139/139 on **both** build types, which is the
+harness's own portability claim; `calendar_suite`'s two encoding goldens
+updated, the dump they came from having been an oracle reading and so a
+record of MAME's configuration rather than of a battery; identity boot
+re-baselined `A354786119A3931D` → `03EE415450926A89` with **clocks and
+final PC identical**, so nothing the processor did changed. `FINDINGS.md`
+C134-C136.*
+**SR10.3's first install was stamped 2015** — the guest clock was there,
+because `EX CALENDAR` was asked for 2026 and the oracle's own
+BCD-versus-binary mismatch landed it near 2015 (C127, unexplained at the
+time and now explained). No clock can boot such a volume: the kernel's own
+string says *"The UID generator is unable to function with the current
+setting of the calendar (year >= 2015)"*, which is where a 32-bit 262144 µs
+tick from 1980 runs out. C138.
+**So the install was redone at a supported date, and SR10.3 now clears the
+calendar check.** The oracle's calendar was corrected first (C139) so a
+date means what it says; `EX CALENDAR` was set to **2002/11/28** before
+anything wrote to the volume, and `minst ended Thu Nov 28 11:41:05 2002`
+against the previous attempt's `Thu Sep 3 19:33:19 2015`. Salvaged, booted
+from disk to `Apollo Phase II Environment Revision 10.3`, and `shut` gave
+`Shutdown successful` — `dismounted 2002-11-29 09:45:20`.
+**On this core at `--clock 2002-11-29T10:00` it reaches**
+`Loading Init` / `... global libraries loaded.` **and then faults**:
+`FAULT on 6700` at PC `3B46C3FE` after 733,770,553 instructions, with 1,861
+MMU faults (all `invalid on write`) along the way.
+**That was a defect of ours, and it is FIXED — SR10.3 now boots to a
+running system.** A four-byte `Bcc.W` two bytes below a page boundary puts
+its displacement word in the *next* page, and `3B46C400` had `no
+translation`. `next_word` records what faulted and leaves *taking* the
+exception to its caller; the branch case returned the step's default
+`FAULT`, so a branch whose displacement lay in a non-resident page stopped
+this core where the hardware vectors through 2 and lets the handler page it
+in. Eleven other `next_word` sites already did it right, and the same fix
+had been made once before for the opcode fetch.
+**Only a second release's page layout exposed it** — SR10.4 never lands on
+such a branch, which is why 350 M identity boots never saw it, and is a
+plain argument for content testing. SR10.3 now reaches
+`Node startup on Fri Nov 29 10:02:07 UTC 2002`, cataloging, the daemons,
+`Starting window system: Xapollo.` and
+`SPM Initialized on Friday, November 29, 2002`.
+*Verification: `ctest` 139/139 and identity boot `03EE415450926A89` with
+clocks unchanged — SR10.4 never reaches this path, so the reference is
+untouched, which is what makes a change made on one release's evidence
+safe. `FINDINGS.md` C140, C141.*
+**SR10.2 is installed by the same route and stops partway through RBAK**,
+at a named error: *"an EOV1 (or EOF1) label is missing where one is
+required"*, after 1,036 objects, in tape **file 1**. **The media is sound
+and that was checked before anything was blamed on it**: `ct_extract.py
+--files` lists 22 ANSI files and `--verify` walks 1,049 objects with every
+block's records filling it exactly, on an image that is a whole 116,536
+blocks. SR10.3's equivalent verifies the same way.
+**And narrowed further with no emulator**: both images carry the *same*
+ANSI label sequence, the `EOF1` the guest calls missing is **present** at
+block 21,449, and the tape mark between `EOF2` and the next `HDR1` is a
+correct `DE AF FA ED` block in both. `sc499` models no track geometry a
+boundary could fall on.
+**A one-line explanation was proposed and REFUTED by measurement.**
+`sc499_device::write_block` ends `m_ctape_block_count = m_tape_pos;`, so any
+write truncates the drive's idea of the tape's length — but the install
+re-run with `--keep-rundir` shows both staged cartridges **byte-identical to
+their sources**, so nothing wrote and nothing was truncated. `check_tape`
+is right as well, read rather than assumed: it re-measures whenever the
+length differs, and C56's edit forces that on every media change.
+**Instrumented, and the block-21,449 framing is WITHDRAWN.** The trace was
+windowed on 21,430-21,470 (reverted and rebuilt afterwards). Every line in
+it reads `count=56048` and returns **block 21,449 of the *boot* cartridge**
+— verified statically, since that data occurs there and nowhere in the
+software cartridge, whose own 21,449 begins `45 4F 46 32`, `EOF2`. So the
+window was crossed only *before* the swap and the failure is **not** at that
+block. The identification came from a label map and was never checked
+against when the drive reached it.
+**The swap works**, settled by the same log: `check_tape` reports
+`017287-001 … with 116536 blocks` after it.
+**What the run did establish**: the SR10.2 *boot* cartridge's ANSI labels
+start at block **16**, not 0 — `VOL1@16 … EOF1@56046 EOF2@56047`, one file,
+with sixteen blocks ahead of `VOL1` where a bootable cartridge's `sysboot`
+lives. The software cartridges start at 0. Worth having on record for any
+tape reasoning.
+**The sparse probe ran, and the drive does its job.** It reads the software
+cartridge sequentially with the right length to block 21,248 and
+**recognises the filemark at 21,447**. The true layout is 21,447 FILEMARK,
+21,448 `EOF1`, 21,449 `EOF2`, 21,450 FILEMARK, 21,451 `HDR1` — my earlier
+block arithmetic was off by one — and **SR10.3's cartridge has the identical
+shape** at its own boundary, so the layout is not what separates the release
+that installs from the one that does not. `m_first_block_hack` is dead as a
+candidate too: the only duplicated reads are of block 5.
+**One real artefact surfaced and is not yet the answer**: `sc499` aborted a
+read once at 5,000 underruns (`tape_pos=4615`), which its own comment calls
+*"probably the DMA handshake failed"* and attributes to "a loaded Apollo
+emulation". The restore visibly continued past it, so it is not shown to
+cause the failure — recorded because a drive that can abort on host timing
+underlies every tape result here.
+**Four hypotheses have now been measured and dropped** — the era config,
+`write_block`'s truncation, the block position, the tape layout — and the
+cause is still not established. What is known: the media is sound, the swap
+works, the drive's length is right, the filemark is recognised, the layouts
+agree.
+**The differential settles it.** The same trace over the **SR10.3** install,
+which succeeds, diffed against SR10.2's: at the boundary SR10.3 reads
+*through* all three filemarks (23,261 / 23,264 / 23,268) and carries on to
+23,296, where SR10.2 recognises the first at 21,447 and stops — **on tape
+that is byte-for-byte the same shape**, FILEMARK, `EOF1`, `EOF2`, FILEMARK,
+`HDR1`, `HDR2`, `UHL1`, FILEMARK, data.
+**The one difference is the oracle's own acknowledged gap**: SR10.3 takes
+38,356 underruns and **0** aborts; SR10.2 takes 10,484 and **one** —
+`read data underrun aborted at 5000`. The counter is *consecutive* and
+resets on any successful read, so SR10.3 never strings 5,000 together.
+MAME's comment says what happens: *"the real ctape will stop, go back and
+restart reading if appropriate"* / *"stop tape (after 30 seconds) — probably
+the DMA handshake failed"*. **The real drive repositions and retries; the
+model gives up.**
+*Stated with its limit: the abort is at block 4,615 and the failure surfaces
+at 21,447, so the chain is not watertight — but it is the only behavioural
+difference left after media, layout, swap, block count, block position and
+label structure were each eliminated by measurement. It also makes SR10.2's
+install **host-dependent**: a less loaded machine may never string 5,000
+underruns together. Detail in `FINDINGS.md` C141.*
+**The fix that comment implies was implemented, and it made things worse.**
+Resetting the counter on the threshold and re-attempting the pending block,
+bounded to twenty retries, meant SR10.2 no longer reached its old failure —
+it did not reach the restore at all, crashing at `Crash_Status 00010005`
+against 1,036 objects before. Reverted precisely, rebuilt and re-verified
+(`Restore complete.`, 398 objects).
+**Why, and this is the finding**: the 5,000-underrun abort is not only an
+anti-hang guard, it is also how a read the host has *abandoned* terminates.
+Resetting the counter leaves `m_read_block_pending` set and the timer
+running, so a read that should end never does. A faithful retry must
+distinguish "the host is slow" from "the host has stopped asking".
+`FINDINGS.md` C142.
+**And the reference supplies exactly that state.** The Archive SC-499
+guide, already on disk, gives §1.9's port map: `+2 (202 HEX)` is **DMAGO**,
+"any write will cause DMAGO to be active", and `+3 (203 HEX)` is **RSTDMA**.
+The hardware arms and disarms a transfer explicitly, and the model already
+carries it — `write_dma_reset` ends `m_control = 0`, while the guide's own
+documented sequence arms with `write_dma_go` then `write_control_port: 30`
+(`IEN | DNI`). So at the threshold, `m_control` non-zero means the host is
+slow and zero means it has gone away.
+**Measured before changing anything, and the fix is refuted before being
+written.** `PROBE threshold at=4615 control=00` — `m_control` is **zero**,
+so the host had written `RSTDMA` and torn the transfer down before the
+threshold tripped. There was **nothing to retry**: the abort is the model
+correctly terminating a read the host abandoned, which is exactly the second
+job C142 found the counter doing. C143's gate would abort here too.
+**So C141's reading is withdrawn**: "the oracle gives up where hardware
+retries" was inferred from the abort being the only behavioural difference
+between the two runs. It is still the only difference found, but it is not a
+modelling gap — the drive did the right thing with a disarmed host.
+**What remains unexplained is why the host disarmed** mid-restore at block
+4,615, which is a question about the guest and the DMA path rather than the
+tape model. Next to look at: the 8237 channel and the Apollo DMA path around
+that block, not `sc499`. `FINDINGS.md` C144.
+*A rule broken on the way, mine: the first run's directory was deleted in a
+tidy-up before the comparison, so the re-run was needed to get a number that
+had already existed. `FINDINGS.md` C141.*
+**And a tool defect found on the way**: `--boot-limit` parsed into an
+`unsigned`, so `6000000000` silently became **1,705,032,704** (`6e9 mod
+2^32`) and three runs reported the count they reached as if the bound had
+been honoured. Caught because two boots of *different volumes* reported
+identical instruction counts. Now refused with the ceiling named.
+*Verification: `frontend_flags` gains a check that passes no second flag,
+since `--list-models` exits before the argument loop and would have made
+the check pass regardless — the same class of mistake as the bound.
+`FINDINGS.md` C137.*
+**What is left for this item**: that experiment, and then the same route
+for **SR10.2** — whose media is held and whose standard boot cartridge
+already passes both bootability tests, so it is the proven route applied
+once more.
+**SR10.3 is held** — five cartridges in `media/sr10.3/`, plus
+`Apollo_DOMAINOS_SR10.3.5.tgz`. What is missing is an **installed volume**;
+this core boots a volume, not a distribution set.
+**Take the proven route, not the one this session chased.** SR10.4 was
+installed under the oracle with `tools/mame-oracle/mdsession.py --stage
+prompt --ctape …` driven by `install-domainos.cmds`, and the result boots
+here. Doing the same for SR10.3 is a known, scripted, ~one-session job.
+**Its one prerequisite is now MET**: `ext/mame/apollo` is built, 72 MB,
+and `mdsession.py` finds it. It took **30 seconds**, not the ~2 h a first
+note here estimated — the object tree was already cached from earlier
+sessions, so only `drivlist.cpp` and the link were outstanding. The
+command is `oracle.py`'s own, capped at `-j3` because the budget is
+~2.5 GB per job and this VM has 8 GB free; `-j$(nproc)` would want 20 GB
+and swap.
+So the remaining sequence is just: `truncate -s 348M` a fresh volume,
+INVOL it, then run `install-domainos.cmds` against the SR10.3 cartridges.
+The install is the long pole after all.
+**Started, and where it stands.** `media/dn3500-sr10.3.awd` is truncated
+to 348 M and **still all zeros** — INVOL has *not* run. Two things were
+learned attempting it, both cheap and both worth not rediscovering:
+**(a)** the oracle route is sound — MD's `>` prompt opens immediately
+under `mdsession.py`, which is the thing this core's own console path
+cannot yet do, so nothing about the autobaud work blocks this;
+**(b)** `--stage invol` needs `--ctape` pointing at the boot cartridge,
+or `ex invol` answers `Tape 39  000001  00  C` — it loads `invol` *from*
+the cartridge. With the cartridge fitted `ex invol` loads and then wants
+its dialogue driven (volume name and the rest, `FINDINGS.md` C50), which
+is where this stopped. **That dialogue is now scripted** — `FINDINGS.md`
+C50 records it prompt by prompt, so it was read rather than rediscovered,
+and `mdsession.py --commands` drives it: `di c`, `ex invol`, option `7`,
+`w`. INVOL loads, prints its warning banner and reaches its disk
+selection.
+**INVOL was sidestepped and SR10.3's KERNEL NOW RUNS.** Its
+`Unable to assign disk - error status = 100001` was not solved but routed
+around, and the checkpoint list already offered the route:
+`media/dn3500-invol-done.awd` is an initialised, **OS-free** volume, so it
+is the right base for any release. (`-osclean` is not: it already carries
+SR10.4's OS.) Copied to `media/dn3500-sr10.3.awd`, then `di c` /
+`ex domain_os` off the SR10.3 boot cartridge:
+
+    Domain/OS kernel(7), revision 10.3, August 22, 1990  3:32:49 pm
+
+**The first release other than SR10.4 to run in this project.** It stops
+at `More than 14 days have elapsed since the last shutdown. Switch to
+service mode, press reset and run CALENDAR.` -- a documented Domain/OS
+state, not a fault: the volume's last-shutdown stamp is older than the
+emulated clock.
+**CALENDAR then ran** — `FINDINGS.md` C52 records its dialogue too, so it
+was scripted rather than explored: `ex calendar`, `w`, `n`, `n`. It
+reported `The calendar date/time is 2002/12/23 09:51:30 UTC`, and
+`ex domain_os` after it **faulted at `10200E6`**.
+**That 2002 is the whole problem, and it is C53's.** The base volume
+`dn3500-invol-done.awd` was built in **2026**, so the calendar is
+twenty-four years *behind* the volume, which is precisely the condition
+C53 names: the kernel stops on a clock that runs backwards between
+sessions. The next move is therefore **not** `n` to "Would you like to
+reset it?" but `y`, with a date in the volume's own era — the same rule
+this project already records for booting the SR10.4 image
+(`--clock 2026-…`, never 1996) — **or** turn the harness's
+`25 Years Ago` config off, which is what puts the guest in `2002` on a
+2026 host. That config is set deliberately (`FINDINGS.md` C47) and a note
+elsewhere called it a no-op in 2026; the measured `2002/12/23` shows it is
+not. **Both measured.** Turning `25 Years Ago` off does clear the
+calendar gate — the "14 days" message is gone and the kernel loads — but
+it then reaches `Crash_Status 00010005  PC 3C450042 pid 0001`. So the era
+mismatch was real and is fixed, and a *second*, separate failure is behind
+it. (The oracle edit was reverted; making it selectable is a
+`mdsession.py` flag, not a permanent config change, since C47 sets that
+config for the install procedure.) **And that crash status is already documented** —
+`FINDINGS.md` C54's `Crash_Status 00010005 PC 3C456A56 pid 0001`, the
+same status and pid. It is not a new fault: it is what the kernel returns
+when *"Proceed to bring up OS (and risk volume)?"* is declined because the
+volume is **unclean**, and C54 names the cause in general terms —
+**a failed stage is not a no-op**. The earlier calendar-gated attempt
+wrote to `dn3500-sr10.3.awd` and was stopped, leaving a mount marker, so
+this run inherited that wreckage rather than finding a second defect.
+The documented remedy is to **revert to the clean checkpoint rather than
+salvage**, so the volume has been re-copied from `dn3500-invol-done.awd`.
+**Run in the right order on the clean volume, and it now fails
+differently**: `di c` produces no output and `ex domain_os` answers
+`error: sysboot not found` — where the *identical* command on the same
+cartridge loaded the kernel an hour earlier. So this is not the unclean
+volume and not the era; something about the fresh copy or the cartridge
+attach differs between the two runs, and **which** is not yet known.
+Worth isolating before anything else, because it makes the run
+non-repeatable and every later result would inherit that.
+**The discriminator was run and it did not discriminate**: the *working*
+invocation, verbatim — same `--rundir`, same era config, same cartridge,
+same freshly-copied volume — now also gives `error: sysboot not found`.
+So the invocation is not the variable, and neither is the rundir nor the
+config. **`Domain/OS kernel(7), revision 10.3` ran exactly once and has
+not been reproduced.** Treat that result as provisional until it is.
+What has *not* been ruled out: the volume. The successful run's disk had
+been written by the preceding failed attempt, so it was not byte-identical
+to a fresh `invol-done` copy however much it looked it — `FINDINGS.md`
+C54's "a failed stage is not a no-op" cuts both ways.
+**A third run excludes the rundir**: a brand-new `--rundir`, no
+`--keep-rundir`, default config, fresh volume — `error: sysboot not
+found` again. So persisted harness state (tape position, nvram, cfg) is
+not it either. Eliminated so far: the invocation, the rundir, the era
+config, and the unclean volume. **Not** eliminated, and now the leading
+candidate: that the successful run's disk was not the pristine
+`invol-done` copy it appeared to be. That image is **gone** — it was
+overwritten by the re-copy — which is the real lesson here: *a run whose
+result you may want to explain should have its inputs preserved before
+the next run overwrites them.*
+**And the error itself says what is wrong, once looked up.** `sysboot` is
+a **file on the volume**, not on the cartridge: `RING.md` 85a reads its
+VTOCX out of the VTOC (`002716D0`) and 85d cites `[AEGIS]` §4.3.2 fixing
+its ten contiguous blocks at physical `02`-`0B`. So `error: sysboot not
+found` says *this boot volume has no operating system on it* — which is
+exactly what `dn3500-invol-done.awd` is. The base is right to install
+*onto* and cannot be booted *from*, so `ex domain_os` must take its image
+from the **cartridge** when it works. Why it did once and does not now is
+still open, but it is a question about the cartridge path rather than
+about volumes, rundirs or the clock. **Drive-settling time is excluded too**: a run with
+`!wait 10` before `di c` and `!wait 6` after — the pacing the install
+script uses around cartridge operations — fails identically. So five
+variables are now eliminated (invocation, rundir, era config, unclean
+volume, drive settling) and the one successful load remains unexplained.
+**The honest position is that the SR10.3 kernel load is not currently
+reproducible and no hypothesis survives.** Two things to do before more
+runs, both cheap and neither an emulator invocation: give `di c` an
+**observable** — it prints nothing on success or failure, which is what
+made five runs indistinguishable — and preserve the volume and rundir of
+any run worth explaining *before* the next one starts.
+**And the web supplies the missing step the local notes did not.** The
+AEGIS boot transcript (`aegis_boot.html`, already cited by this project)
+shows the working sequence as **`re` / `re` / `di c` / `ex domain_os`** —
+two resets before the device select. Every failing run here issued
+`di c` with **no `re` at all**. Tried, and it stops after the first `re`,
+which `FINDINGS.md` C50 also already explains: *`re` leaves the machine
+deaf again*, so each reset needs a `\r` knock to re-autobaud before the
+next command — which is what `mdsession.py --knock-char` exists for. So
+the next attempt is `re`, knock, `re`, knock, `di c`, `ex domain_os`, and
+it must be reconciled with the standing "no `re` between stages" rule,
+which was written about the *RTC year shift* and not about this.
+**Tried with `!cr` as the knock and it is not one** — the session still
+stops after the first `re`. C50 named this gap and it was never closed:
+*"The running session had no knock directive, so the knock was improvised
+out of the one thing its command file could send."* `--knock-char` is a
+**session-level** option applied once at startup; there is no way to knock
+*between* commands. **CORRECTION: `!knock REGEX` already exists** — it is
+documented in `mdsession.py`'s own command-file help and used by the
+built-in stages. Claiming the harness lacked it was wrong, and wrong in
+the same way as several other errors this session: asserted from a partial
+read instead of the file's own documentation.
+With `!knock \n\n>` after each `re`, **the sequence runs**: `re` returns
+the `MD7C` banner, `di c` is accepted, and the session reaches
+`ex domain_os`. It then fails *differently* — the command arrives as
+**`eomain_os`**, with `x` and `d` dropped, so the send is losing
+characters on that line. That is the pacing problem C50 documents around
+typed input, now on the command path rather than the knock: adding `!expect \n\n>` between `di c` and the
+command — which the project's own `install-domainos.cmds` has and the
+knock version had dropped — **fixes the character loss**: the command now
+arrives intact.
+**And the result is `error: sysboot not found` again.** So the `re`
+sequence from the web transcript is not the difference either. Six
+variables are now eliminated. Combined with `RING.md` 85a/85d — `sysboot`
+is a file *on the volume* — the standing reading is that `ex domain_os`
+wants a volume that already has an OS, which `invol-done` by definition
+does not, and that the one successful load had something no reconstruction
+here has reproduced. **The observable now exists, and it clears `di c`.**
+Bare `di` — no argument — prints **`E`**, MD's error marker. So MD prints
+`E` on a rejected command and **nothing at all on an accepted one**, which
+means `di c`'s silence was *success* every time and the cartridge has been
+selected in every run. `di c` is therefore not the fault and never was.
+That moves the question to `ex domain_os` itself: with the cartridge
+selected, it still reports `sysboot not found`. Given `RING.md` 85a/85d
+puts `sysboot` on a *volume*, the live candidates are that the SR10.3
+boot cartridge does not carry `sysboot` where `ex` looks, or that the tape
+needs rewinding to BOT before the search. Checked with `ct_extract.py`, no emulator
+involved: **the SR10.3 boot cartridge does carry `sysboot`** — 10,240
+bytes, **10 blocks**, which is `[AEGIS]` §4.3.2's ten contiguous blocks
+exactly (`RING.md` 85d). It also carries `sau7/domain_os`, 889,756 bytes,
+the DN3500's own. So neither file is missing from the media and the error
+is not about absence.
+**One difference from the SR10.4 cartridge that does work**: that one
+carries **both** `sysboot` *and* `sysboot.m68k` (40,960 bytes); SR10.3's
+carries only `sysboot`. **Eliminated from the PROM's own strings**: it
+contains `sysboot` and **no `.m68k` variant at all**, so the plain name is
+what it searches for and that name is present on the SR10.3 cartridge.
+**So the file the PROM wants is on the media and the PROM cannot see
+it.** That is no longer a content question, it is a *reading* one — tape
+position, rewind-to-BOT, or the QIC read path under the oracle. Note the
+PROM does use paths elsewhere (`/SAU7/SELF_TEST`), so whether `ex` looks
+for `sysboot` at the tape's root or under a SAU directory is the one piece
+of the search not yet pinned; both cartridges hold theirs at the root.
+**C56 supplies the mechanism.** `sc499_device::check_tape()` —
+which resets tape status, sets Beginning-of-Media and recomputes
+`m_image_length`/`m_ctape_block_count` — is called from `read_block`/
+`write_block` **only when `m_tape_pos == 0`**. So a tape left at a
+non-zero position is never re-learned, and a search for `sysboot` on it
+finds nothing. C56 also states why `ex` normally works: it *"starts
+reading at block 0, so `check_tape()` runs on the first read"*.
+**So the question is what leaves `m_tape_pos` non-zero before `ex
+domain_os`** — `di c` itself is the obvious candidate, since it is the
+one command that runs between power-on and the load. **Checked, and it eliminates the media-change gap**:
+`sc499.o` (2026-08-11 22:14) is *newer* than the edited `sc499.cpp`
+(19:30), so C56's remedy is compiled into the binary this session built,
+and the edit is visibly present in the source — it forces `check_tape()`
+to recompute length and block count on load rather than trusting
+`m_has_cartridge`. So the cartridge *is* learned at load, and
+`sysboot not found` is not the media-change gap.
+**What that leaves**: the read path works and the PROM's *search* does not
+find the file. **And the search is positional, not by name.** The
+string `sysboot` occurs in the boot PROM exactly once, at `00185B`, and
+only inside `error: sysboot not found` — there is **no filename string to
+match against**. `RING.md` 85d and `[AEGIS]` §4.3.2 supply the other half:
+`sysboot` is ten contiguous blocks at **physical `02`-`0B`**. So `ex`
+reads a fixed physical location on the selected device rather than looking
+a name up.
+**That reframes the cartridge evidence.** `ct_extract.py` finds `sysboot`
+as a *member of the wbak archive*; the PROM reads *raw physical blocks*.
+A cartridge is bootable only if `sysboot` lies at blocks `02`-`0B` of the
+tape itself, which its presence in the archive neither establishes nor
+implies. **Measured, and the SR10.3 cartridge is structurally
+bootable**: blocks `02`-`0B` carry 4300/5120 non-zero bytes against the
+SR10.4 cartridge's 4297, and the content is plainly `sysboot` itself —
+its own error strings (`no drive`, `no tape in drv`) are embedded there on
+both. So the ten blocks the PROM reads are present and populated.
+**Every static candidate is now eliminated**: the file is on the media, at
+the right physical blocks, in the same form as the cartridge that works;
+the PROM searches positionally so no name can be wrong; the `sc499`
+media-change remedy is compiled in; `di c` succeeds. The fault is in how
+the emulated drive *delivers* those blocks to the PROM, and that is the
+first thing this thread has reached that genuinely needs instrumentation
+rather than a reference — `sc499`'s `read_block` under a `di c` /
+`ex domain_os` sequence, logged.
+**The recipe is pinned so it is one pass, not an exploration.**
+`sc499.cpp` line 25 is `#define VERBOSE (LOG_LEVEL0)`, so the
+`LOGMASKED(LOG_LEVEL1, ...)` calls in `check_tape` and the block readers
+are **compiled out** and MAME's `-log` cannot reach them (tried; it
+returns nothing). The cycle: set `VERBOSE (LOG_LEVEL0 | LOG_LEVEL1)`,
+rebuild — **~30 s**, the object tree is warm — run the `di c` /
+`ex domain_os` command file, read which blocks are requested and what
+comes back, then **revert `sc499.cpp`**, which `CLAUDE.md` requires of
+oracle instrumentation.
+**Ran, and one piece is still missing.** The edit and the rebuild both
+work — `sc499.o` recompiles in the ~30 s narrowed build, so the object
+*is* refreshed by a source change, which the incremental build's short
+output disguises. But **no trace reached the session log**: `LOGMASKED`
+writes through `logerror`. So the recipe needs one more step before it
+pays, and **that step is bigger than it looks**. `build_command` *does*
+append `args.mame_args`, and `-- -log` reaches it — the earlier bare
+`-log` failed only because argparse ate it. But **no `error.log` is
+written anywhere**: not in the invoking directory, not in the rundir,
+which comes back empty. So MAME either never enables the log or exits
+before flushing it, and passing the flag is not enough. **`-verbose` is the answer**: it goes to stdout,
+which `mdsession.py` already captures, and `-- -verbose` works today with
+no harness change at all. It also settles one more thing — the cartridge
+**loads**: `sc499_ctape: attempting to load media image …SR10.3.ct`,
+`opened image file … with flags=00000003`, `Starting Archive SC-499
+':isa2:ctape'`. So the drive has the media and the open succeeds.
+**The recipe is therefore complete and needs no harness work**: set
+`VERBOSE (LOG_LEVEL0 | LOG_LEVEL1)` in `sc499.cpp`, rebuild (~30 s), run
+with `-- -verbose`, read the block traffic off stdout, revert and rebuild.
+Use `-verbose`, **not** `-log`, which writes nothing anywhere.
+**Ran it, and the recipe is still one channel short — stated carefully
+because the result is easy to over-read.** With `LOG_LEVEL1` compiled in
+and `-- -verbose`, the only `sc499` lines on stdout are the two
+*image-load* messages. Those are `osd_printf_verbose` calls;
+**`LOGMASKED` writes to `logerror`, which `-verbose` does not enable**. So
+the absence of `check_tape` and `read_block` traces is **not** evidence
+that they were not called, and no conclusion about whether the PROM reads
+the tape can be drawn from this run. The two channels are separate and
+only one of them is being captured.
+**SOLVED, from MAME's own `-showusage`: the option is
+`-oslog`**, "output error.log data to system diagnostic output (debugger
+or standard error)" — `-log` writes a *file*, `-oslog` writes the stream
+the harness captures. With `-- -oslog` and `LOG_LEVEL1` compiled in,
+`check_tape` traces appear (five of them), so **the `LOGMASKED` channel is
+captured and the recipe is complete**: `VERBOSE (LOG_LEVEL0 |
+LOG_LEVEL1)`, rebuild ~30 s, run with `-- -oslog`, revert, rebuild.
+No `read_block` lines appeared in that run. **Checked, and it was right not to**:
+`read_block` carries exactly **one** `LOGMASKED` call, at `LOG_LEVEL0`,
+and it is conditional — `"read_block - duplicating block %d"`, an edge
+case. There is **no per-call trace at any level**, so its absence from the
+log was never evidence about whether the PROM reads the tape. The
+tempting conclusion two entries above would have been wrong.
+**So the recipe needs one line added, not just a level changed**: an
+unconditional `LOGMASKED(LOG_LEVEL1, "read_block %d", m_tape_pos)` at the
+top of `sc499_device::read_block`, then the same cycle — rebuild ~30 s,
+run with `-- -oslog`, revert, rebuild. **Done, and it answers the thread.**
+With that trace in place the run logs **18 `read_block` calls**, beginning
+at `pos=0` and advancing `0,1,2,3,4…` sequentially. So `di c` *does*
+select the cartridge, the PROM *does* read the tape, it starts at block 0,
+and it covers blocks `02`-`0B` where `sysboot` lives — and it still
+reports `sysboot not found`.
+**So this was never a device, selection, position or media-change
+question.** It is a *content* one: what sits at those raw blocks is not
+what the PROM accepts as `sysboot`. The `.ct` is a wbak archive and
+`ct_extract.py` reads `sysboot` as an archive *member*; the PROM reads raw
+block offsets. **ANSWERED by comparing block 0 of the two
+cartridges — no emulator, no disassembly.** The SR10.4 image that boots
+carries a boot header there and the SR10.3 image does not:
+
+    SR10.4 blk0: 00 13 d8 00  00 13 d8 2a  00 13 f6 bc  56 ac 0d 83
+                 53 59 53 42 4f 4f 54 20 52 45 56 20   "SYSBOOT REV "
+    SR10.3 blk0: 00 00 00 00  00 00 00 00  00 00 00 00  01 01 00 00
+
+`0013D800` is the value this plan **already records** at the *Winchester*
+item: "the PROM loads `sysboot` to `010FD800` and demands `0013D800`". So
+the header is the `sysboot` descriptor the PROM validates, and its absence
+is exactly `sysboot not found`.
+**The "misaligned by 16 bytes" reading above was
+overstated and is withdrawn.** Measured: SR10.3's offset 512 does occur in
+SR10.4 at 528, but the match **runs only 585 bytes** — consistent with two
+*versions* of `sysboot` sharing some code, not with a framing shift of one
+tape. There is no evidence these are the same dump differently framed.
+What stands is the block 0 difference alone: **SR10.4 carries a
+`SYSBOOT REV` descriptor there and SR10.3 does not**, and that descriptor
+is what the PROM validates. Whether our SR10.3 image is truncated at the
+front, framed differently, or simply not a bootable cartridge is **not
+established**. **And there is no second copy of *that* image**:
+`bitsavers`' `Apollo_JRJ/SR10.3/` lists
+`018847-001.Crtg_Std_Sfw_Boot_1-REV.00-…ct.gz` under the *same filename*
+we hold, so ours is the canonical copy and "our download is corrupt" is
+not the explanation. The standard SR10.3 boot cartridge simply does not
+carry the descriptor.
+**That directory does hold two *other* SR10.3 boot cartridges**, neither
+here: `019376-001.CRTG_PSK8_BOOT_1_W_STANDALONE_…-SR10.3-BOOT.ct.gz`
+(9.0 M) and `019439-001.CRTG_PSKQ3_91_BOOT_1-…SR10.3_BOOT.ct.gz` (15 M),
+both named `BOOT`, both Product Support Kits.
+**Fetched `019376-001`, and it IS the bootable one:**
+
+    blk0: 00 13 d8 00  00 13 d8 2a  00 13 f7 30  4e ac ac 65
+          "SYSBOOT REV " … " M68K   "
+
+`0013D800` is the address the PROM demands, identical to SR10.4's. So the
+**standard `Crtg_Std_Sfw_Boot_1` is not a bootable cartridge and the PSK
+`_BOOT_` one is** — which is why `ex domain_os` reported `sysboot not
+found` against a cartridge that nonetheless *contains* a `sysboot` archive
+member. Nothing was ever wrong with the emulator, the harness, the volume,
+the clock, the console or the drive.
+**Run, and the two cartridges are complementary
+rather than either being sufficient.** Against `019376-001` the
+`sysboot not found` error is **gone** — the descriptor works — but
+`ex domain_os` returns silently, because that cartridge carries only
+**`sau11`, `sau12`, `sau14`** and a DN3500 is **`sau7`**. Meanwhile the
+standard `018847-001` carries `sau7/domain_os` and has **no descriptor at
+block 0**. So:
+
+| cartridge | block 0 descriptor | `sau7` |
+| --- | --- | --- |
+| `018847-001` Std_Sfw_Boot_1 | no | **yes** |
+| `019376-001` PSK8_BOOT | **yes** | no |
+
+Neither boots a DN3500 from tape on its own. The remaining untried
+candidate is `019439-001.CRTG_PSKQ3_91_BOOT_1…SR10.3_BOOT.ct.gz` (15 M),
+and the check is the same two commands: block 0 for the descriptor,
+`ct_extract.py --list | grep sau7`. **Checked, and it has both** — it is the
+cartridge:
+
+    blk0 : 00 13 d8 00  00 13 d8 2a  00 13 f6 b4  50 71 8e dd
+           "SYSBOOT REV " … " M68K   "
+    SAUs : sau5 sau6 **sau7** sau8 sau9 sau11 sau12 sau14
+
+Thirteen `sau7/` entries, and the `0013D800` descriptor the PROM demands.
+So the bootable SR10.3 media for a DN3500 is
+**`019439-001.CRTG_PSKQ3_91_BOOT_1`**, the Quarterly PSK boot cartridge —
+not the standard `Crtg_Std_Sfw_Boot_1`, which has the SAU but no
+descriptor, and not `019376-001`, which has the descriptor but not the
+SAU. Three cartridges, one of them right, and the discriminator was two
+commands each.
+**And it boots.** `di c` / `ex domain_os` against it:
+
+    low: 01002000  high: 01103BFF  start: 01002024
+    Domain/OS kernel(7), revision 10.3.5, June 19, 1991  8:22:11 am
+
+From a clean `invol-done` volume, with no `re`, no knock, no era config —
+**this is the first reproducible load of a release other than SR10.4**,
+and unlike the earlier one-off it comes with an identified cause and the
+right media rather than unexplained luck. It stops at the same calendar
+gate (`More than 14 days have elapsed since the last shutdown`), which was
+measured earlier to clear with the harness's `25 Years Ago` config off.
+**"The calendar gate clears with `25 Years Ago` off" is WITHDRAWN**, and
+the reason retires the config as a lever. `apollo_m.cpp:1213` shifts the
+RTC year only when it is `< 25` (25-year), `< 30` (30-year) or `>= 70`
+(neither), and a 2026 host presents **26** — so with the shift on or off
+the machine gets the *same* clock and that A/B compared two identical
+configurations. Re-run with it off: the message is there byte for byte.
+The earlier reading also differed in its volume, which is the confound
+that ran through this whole thread. `--era 30` is the only setting that
+still does anything here, and it puts the guest in **1996**, which is
+C53's other failure mode rather than a fix. Detail in `FINDINGS.md` C125.
+**Then a thread of six eliminations, and the answer was the medium.**
+The kernel load would not reproduce: two runs worked and five reported
+`sysboot not found` on the same cartridge. The invocation, the run
+directory, the era config, the unclean volume, the drive settling and the
+`re` sequence were each eliminated, and the volume was `cmp`-ed before and
+after a run and found byte-identical — at which point the recorded
+position was that this "is not yet a reproducible experiment".
+**It was the cartridge, which nobody suspected because it was an input.**
+`sc499_device::write_block` is an `fseek`/`fwrite` into the image file and
+MAME opens a cartridge read/write, so `--ctape media/...` handed the guest
+our only copy. A successful boot overwrote **exactly one 512-byte block of
+50,727,936** — block 0, carrying the `SYSBOOT REV`/`0013D800` descriptor
+the PROM validates — and the file's mtime is 6 ms after that run's own
+log. Re-fetched from bitsavers and restored.
+**Fixed in the harness**: `mdsession.py` stages every cartridge into the
+run directory and mounts the copy, on `--ctape` and `!swap ctape` alike,
+re-copying each run so `--keep-rundir` cannot inherit damage. The disk is
+deliberately not staged — an install's writes to its volume are the
+product.
+*Verification: `test_mdsession.py` 33 → 41 checks, the new ones driving a
+stub that writes to the path it is given, so they fail on content rather
+than on the command line; then **three runs of one invocation, one at a
+time, byte-identical consoles** and the source md5 unchanged. Detail in
+`FINDINGS.md` C124.*
+**So SR10.3.5 loads reproducibly**, and what remains is the calendar gate,
+then MINST from the four software cartridges, then the state hash.
+**The gate is measured and is a terminal wait, not a halt**: over 1,200
+emulated seconds the kernel loads, writes 1,191 disk sectors, prints the
+message and then loops at `3C451DE8`-`3C451E00` with tape and disk write
+counters **frozen** at 41,753 and 3,513. A carriage return does not move
+it and neither do two. It means what it says.
+**And what it compares is arithmetic**: `dn3500-invol-done.awd` was shut
+down cleanly on 2026-08-01 and the host is 2026-08-17 — **16 days against
+a threshold of 14**. That is why the SR10.4 install worked: its checkpoint
+was made the day it was used. A checkpoint ages into this gate without
+changing.
+**Three routes, none taken, each a piece of work**: a fresh INVOL the same
+day (blocked on `Unable to assign disk - error status = 100001`); a
+host-clock shim for the MAME process (`libfaketime`, not installed, and
+MAME has no option to set the emulated date); or the machine's own remedy
+— Service mode, `ex calendar`, then Normal from the same run directory so
+the RTC's NVRAM carries the date, which needs a **clean MAME exit** and so
+a driver flag before it can be tried at all. Detail in `FINDINGS.md` C125.
+*`--era {25,30,none}` exists now and is verified (`test_mdsession.py`),
+because making the config selectable was worth doing even though the
+measurement it was wanted for came back negative.*
+**Booting the cartridge directly under this core is *not* required by the
+verification above** and consumed most of a session: the boot PROM's
+console selection is an autobaud (`000844`-`0008B8`) that the scripted
+terminal cannot yet satisfy, because one `--boot-input-rate` has to serve
+the initial character, the two the selection needs and the `$158(a6)`
+bit 0 sequencing at once. Every link of that is measured and recorded in
+`TEST_SHELF.md`; none of it blocks the release boots. Finish it as
+harness work when it is wanted for its own sake, not as a prerequisite.

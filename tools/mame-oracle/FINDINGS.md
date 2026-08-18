@@ -11103,3 +11103,46 @@ MINST, on an image whose guest never shut down. So SR10.4's install writes its
 root back regardless, SR10.2's does not, and the uncommitted-directory failure
 is not what stops node B -- consistent with C188 and now with a controlled
 observation rather than an inference.*
+
+## C198 -- SR10.2 boots, and every obtainable Domain/OS release now does
+
+The last unbooted release, on this core, from its own disk:
+
+    Domain/OS kernel(7), revision 10.2, October 13, 1989  12:51:22 pm
+    Apollo Phase II Environment   Revision 10.2   Oct 7, 1989  12:36:28 am
+    Loading Init.
+    ***** Node startup on Wed Nov 27 06:01:51 UTC 2002 *****
+    Clearing /tmp
+      06:02:06   Op: CPS  Name: ""  Command: "/com/tctl -line 1 -insync"
+        SERVER_PROCESS_MANAGER, Version 10.2, 89/07/31
+     SPM Initialized on Wednesday, November 27, 2002
+
+**State hash `E5147CD96AB052D9`** at 1,500,000,000 instructions, 5,176,846,240
+clocks, `--clock 2002-11-27T06:00:00`, `media/sr10.2/017286-001` as the boot
+cartridge and `017287-001..003` as the software. Sixteen exception vectors
+taken, including 760 `TRAP #3` and 778 `TRAP #7` -- the supervisor calls C189
+found node B never reaches.
+
+### Four sessions, and the chain in the order it had to be undone
+
+1. **The install stopped at tape block 4615** on a threshold in the *oracle's*
+   SC-499 model. `008845` rev E0 §6.3 gives the part "Data Buffering 3 x 512
+   Byte blocks minimum" and "Write/Read re-tries 16 maximum"; the model has one
+   buffer and no retries and fails the transfer instead. It repositions now, and
+   RBAK, MINST and all three cartridges complete (C178).
+2. **The volume was not bootable**: `SAU7 not found in root_dir` from *both*
+   PROMs, ours and the oracle's, with `/sau7` demonstrably installed (C185).
+3. **Its root directory held three entries** -- what a virgin INVOL leaves --
+   because `!exit` ends MAME and asks the guest for nothing, and Domain/OS is a
+   single-level store (C187, C192).
+4. **`shut` is not a shell command and `exit` does not leave that shell.** EOT
+   does (C196), and `mdsession.py`'s `!raw` gained `\xNN` to send it.
+
+The volume the corrected route produced carries a real dismount stamp --
+`2002-11-27 05:16:42`, an hour after its mount -- and a **28**-name root, beside
+SR10.3's 33 and SR10.4's 27.
+
+*So the item's scope is met: `media/sr10.2/`, `SR10.3` and `SR10.4` all boot
+here, each with its hash. What is **not** claimed: nothing is timed through any
+of this -- an install is paced by the host and `mdsession.py` says so -- and
+SR10.2 has been booted, not exercised.*
