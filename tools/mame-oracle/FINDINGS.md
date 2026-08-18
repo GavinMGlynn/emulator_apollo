@@ -11765,3 +11765,40 @@ New here. **This shell is `sh`, not the Aegis shell**: `wd` and `ld` are
 the machine is no longer at MD, so `re` -- an MD command -- cannot be reached
 and knocking for a prompt that cannot come back merely times out. C133 has the
 order right and this session had to learn it twice.
+
+## C212 -- the two volumes had to be brought into one era, and the label says which
+
+A two-node run shares a **single** `--clock`. After C210 and C211 the two
+volumes disagreed by six years:
+
+    dn3500-nodeA-siologin.awd   mount 2002-11-27T22:06  dismount 2002-11-27T23:30
+    dn3500-nodeB-siologin-salvaged.awd  mount 1996-08-18T05:31  dismount **zero**
+
+and Domain/OS halts on whichever the clock misses -- *"More than 14 days have
+elapsed since the last shutdown. Switch to service mode, press reset and run
+CALENDAR."* Salvaging repairs the filesystem and does **not** write a dismount
+stamp; only a clean `shut` does, which is why node B's was still zero after
+C210.
+
+Both volumes were therefore booted in the oracle with `ex calendar` set to
+2002/11/27 and shut cleanly:
+
+    dn3500-nodeA-siologin.awd  mount 22:06:42  dismount 23:30:15
+    dn3500-nodeB-ready.awd     mount 22:34:40  dismount 22:42:09
+
+**The clock is read from the label, not guessed.** Block `0x440`, `+0xBC` mount
+and `+0xC0` dismount, in 262144 µs ticks from 1980 -- the arithmetic
+`volume-label-mount-history` records. A run at 1996-08-18T06:00 against a volume
+whose stamp was 1996-08-18T05:31 still failed with *"the calendar is more than a
+minute slow"*, which is what sent this to the label in the first place.
+
+### And CALENDAR's question depends on which side is ahead
+
+C133 recorded that it asks `Is the calendar correct?` on a volume whose recorded
+time is *ahead* of the clock, and `Would you like to reset it?` otherwise -- and
+**the answer that opens the date prompt is the opposite one in each case**: `n`
+to the first, `y` to the second. Both branches were taken here, one per volume.
+
+One condition noted rather than fixed: node B's volume prints *"Boot device has
+no OS paging file"* and runs without paging. That is C166's INVOL 7-1-8 order,
+pre-existing on this volume and not introduced by any of the above.

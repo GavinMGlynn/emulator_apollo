@@ -4211,7 +4211,22 @@ discipline throughout.
          `Shutdown successful` and a dismount stamp of 2002-11-27T23:30:15.
          C162's claim was true of a **bare** disk, which is the case it was
          measured on.
-      3. Run the two nodes with a script that waits for
+      3. **A third step the first two exposed, now done too**: the volumes had
+         to be brought into **one era**. A two-node run shares a single
+         `--clock`, and after step 1 node B's volume had a **zero** dismount
+         stamp and a 1996 mount stamp against node A's 2002 -- no clock
+         satisfies both, and Domain/OS halts with *"More than 14 days have
+         elapsed since the last shutdown"* on whichever it misses. Both volumes
+         were booted in the oracle with `ex calendar` set to 2002/11/27 and shut
+         cleanly, which is what writes the stamp:
+
+             dn3500-nodeA-siologin.awd  mount 22:06:42  dismount 23:30:15
+             dn3500-nodeB-ready.awd     mount 22:34:40  dismount 22:42:09
+
+         both carrying `siologin1_local`. **Read the stamps from the label
+         rather than guessing a clock** -- block `0x440`, `+0xBC` mount and
+         `+0xC0` dismount, in 262144 µs ticks from 1980.
+      4. Run the two nodes with a script that waits for
          `SPM system init complete.`, knocks, logs in as `user`, and runs
          **`/com/lcnode`** by absolute path.
       *What is already proven and needs no repeating*: both volumes boot clean
