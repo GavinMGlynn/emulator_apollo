@@ -5160,6 +5160,25 @@ Only after the reference core is proven, and only under an identity harness.
       SR10.3's did not: the `0013D800`/`SYSBOOT REV` descriptor at block 0 and
       13 `sau7/` entries. Checked before any emulator ran, which is the lesson
       of that finding applied.
+      **SR10.2's install now runs to the end** (2026-08-18). It stopped for four
+      sessions at tape block 4615, and the cause was a threshold in the
+      *oracle's* SC-499 model: it fails a transfer when the guest has not
+      drained a block for 5000 tape-block times, while `008845` rev E0 §6.3
+      gives the part "Data Buffering 3 x 512 Byte blocks minimum" and
+      "Write/Read re-tries 16 maximum". The drive repositions instead, and RBAK,
+      MINST and all three cartridges then complete. `FINDINGS.md` C178.
+      **And the volume it produced would not boot, for a reason that is the
+      harness's**: `SAU7 not found in root_dir` from *both* PROMs, ours and the
+      oracle's, with `/sau7` demonstrably installed. Its root directory held the
+      three entries a virgin INVOL leaves. Domain/OS is a single-level store and
+      `mdsession.py`'s `!exit` ends **MAME** cleanly -- writing NVRAM, as it
+      documents -- while asking the *guest* for nothing, so the directory
+      updates were still in the node's cache. The same restore ending in an
+      in-guest `shut` leaves seventeen entries. `shut` is not a shell command;
+      it belongs to the `)` prompt MINST is started from, so an install has to
+      leave the shell first. C185, C187, C192.
+      *Open: the install is being re-run with that ending, and the volume it
+      produces is what the item's boot is waited on.*
       **The calendar gate is cleared, by the machine's own documented remedy.**
       `001746-06` Procedure 2-7 gives the `EX CALENDAR` dialogue; answering `y`
       to "would you like to reset it" and supplying a date clears
