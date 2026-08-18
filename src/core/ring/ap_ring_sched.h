@@ -58,6 +58,22 @@ typedef struct {
 typedef struct {
   ap_ring_medium_t medium;
   ap_ring_participant_t participant[AP_RING_MAX_NODES];
+  /* One past the highest slot ever filled, so the event scan walks the nodes
+   * that exist rather than the sixty-four that could.
+   *
+   * **This is not a micro-optimisation, it is the difference between a
+   * two-node boot being possible and not.** The scan runs once per scheduler
+   * event, and events are dense: the bit clock alone fires every 83 ns of
+   * emulated time against a mean instruction of 171 ns, so two nodes running
+   * 5 M instructions each produce about 20 M events. At sixty-four slots that
+   * is 1.3 billion iterations over mostly-absent participants, and it measured
+   * as **40x slower per node than a single machine** -- 5 M instructions in
+   * 40 s against 1 s. A Domain/OS boot on two nodes would have been hours.
+   *
+   * Slots are handed out by `ap_ring_medium_attach` in order and never freed,
+   * so the bound is exact rather than a heuristic: no `present` participant can
+   * exist at or above it. */
+  unsigned used;
   /* The ring's own clock, which advances the medium one bit at a time. */
   ap_time_t bit_period;
   ap_time_t next_bit;

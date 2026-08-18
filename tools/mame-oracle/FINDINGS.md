@@ -9134,3 +9134,52 @@ C143's retry work was reverted by C144.
 *Item state: the calendar gate is cleared and RBAK works, so SR10.2 gets
 further than it ever has. It is not booted, and the reason is named and has a
 byte offset.*
+
+## C156 -- a ring node costs 40x a lone machine, and the sixty-four-slot scan was not why
+
+The Phase 6 item's `lcnode` check needs two nodes booted to a shell, so the
+first question is whether that run is affordable. Measured, release build, the
+same two volumes:
+
+    two nodes, 5 M instructions each   40 s
+    one node,  5 M instructions         1 s
+
+**40x per node.** A Domain/OS boot needs well past 350 M instructions -- the
+identity harness stops there and is still in the PROM -- so two nodes to a
+shell is hours as the code stands. That is the number the item needed and did
+not have.
+
+### The obvious cause was measured and is not the cause
+
+`ap_ring_sched_run_until` scanned all **sixty-four** participant slots on every
+event, and events are dense: the bit clock fires every 83 ns of emulated time
+against a mean instruction of 171 ns, so two nodes running 5 M instructions
+each produce roughly 20 M events and 1.3 billion iterations over mostly-absent
+slots. That looked like the whole answer.
+
+**It was worth 7%.** 40 s to 37 s. Bounding the scan is kept -- slots are
+handed out in order and never freed, so `used` is exact rather than a
+heuristic, and the ring phase hash is `E0EE304D03995CE9` with and without it --
+but the cost is elsewhere, and the honest record is that the first hypothesis
+was wrong by a factor of five hundred.
+
+**Where it actually goes**, from the same arithmetic: each node is registered
+as a participant *at the medium's own bit rate*, so two nodes produce ~10 M
+medium advances **and** ~20 M station callbacks for 10 M instructions -- three
+units of ring work per node-instruction, each shifting cable cells and driving
+and settling a station. That is the reference core doing what it is for, and
+`CLAUDE.md` forbids weakening it to chase speed.
+
+**So the two-node boot is a scheduling problem, not a tuning one**, which is
+exactly what the "extend exact-skip across nodes" item is for -- and it sharpens
+that item's own refutation. That item says inert windows between ring *events*
+are not the binding term because a node is inert for well under an instruction.
+True, and beside the point: the binding term is that the medium and both
+stations are stepped per bit whether or not anything is on the cable. A ring
+whose stations are all bypassed -- which is where a boot spends its early life,
+before the firmware drives §3.5's relay -- advances nothing observable, and that
+is a provable skip rather than a parallelism argument.
+
+*Not built here, and named rather than implied: the skip needs the medium to
+report "no cell in flight and every station bypassed", which it does not
+currently expose.*

@@ -16,6 +16,7 @@ void ap_ring_sched_init(ap_ring_sched_t *s) {
   s->bit_period = AP_RING_BIT_CELL_TICKS;
   s->next_bit = s->bit_period;
   s->now = 0u;
+  s->used = 0u;
 }
 
 int ap_ring_sched_add(ap_ring_sched_t *s, uint32_t hz,
@@ -39,6 +40,9 @@ int ap_ring_sched_add(ap_ring_sched_t *s, uint32_t hz,
       .step = step,
       .context = context,
   };
+  if ((unsigned)slot >= s->used) {
+    s->used = (unsigned)slot + 1u;
+  }
   return slot;
 }
 
@@ -51,7 +55,7 @@ void ap_ring_sched_run_until(ap_ring_sched_t *s, ap_time_t until) {
     ap_time_t when = s->next_bit;
     int who = -1; /* -1 means the ring's own bit clock */
 
-    for (unsigned i = 0; i < AP_RING_MAX_NODES; i++) {
+    for (unsigned i = 0; i < s->used; i++) {
       if (!s->participant[i].present) {
         continue;
       }
