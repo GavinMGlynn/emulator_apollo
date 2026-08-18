@@ -415,9 +415,20 @@ model table: `--run-probes` runs eight probes on the constructed machine and its
 report is a committed golden, checked under every build preset. This section
 will state exactly what backs the claim when there is one.
 
-Last updated: 2026-08-18 — a second node ID from a relabelled
-volume, the oracle's tape underrun abort corrected against `008845` §6.3, and
-node B's install recorded as an unexplained defect that blocks nothing.
+Last updated: 2026-08-18 — four things, of which the third
+governs every Domain/OS volume this project has built. A second node ID from a
+**relabelled volume**, three bytes rather than an install. The oracle's tape
+**underrun abort** corrected against `008845` §6.3, which is what had stopped
+SR10.2's install. The discovery that **`!exit` commits nothing on the guest
+side**: Domain/OS is a single-level store, so an install that ends there leaves
+its objects without their links, and the fix is EOT out of the shell and `shut`
+at the `)` prompt. And the **two-node runner's configuration table**, which
+described a machine that was not there, so every ring node built here failed its
+own self-test before reaching the loader.
+
+*Two nodes now pass self-test and the Apollo Token Ring diagnostic on one
+segment, and the runner is checked deterministic. `lcnode` has not run: that is
+the ring item's remaining clause.*
 Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
