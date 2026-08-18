@@ -11990,3 +11990,41 @@ with the machine's own documented line rather than an adaptation of it:
 drains only `AP_SIO_CONSOLE_UNIT`/`_CHANNEL`, so unlike a single-node run it
 would show nothing from lines 0, 2 or 3. If the login lands on line 2, the
 two-node run must drain all four channels too.
+
+## C218 -- `siologin` logs its failures to a file, which is why the console shows nothing
+
+The `siologin` binary's own message strings, read out of the volume:
+
+    ** Bad (or no) access code in `node_data/siologin_access. Status = %lh **
+    ** Unable to open stream to sio line -
+    ** Unable to run startup file `node_data/startup_sio.sh -
+    Invalid access code password file
+    Sorry. Access code password file not found.
+    Device not specified in command line.
+    access retry count not specified in command line.
+
+Two things follow, and together they explain every silent run in this thread.
+
+**It wants a third file.** `` `node_data/siologin_access `` -- an access-code
+file, with `/sys/siologin/siologin_access` shipped as the template beside the
+two already copied. Nothing in this thread has created it, and *"Bad (or no)
+access code"* is the failure for its absence.
+
+**And its diagnostics do not go to the terminal.** The same binary carries
+`siologin_log`, so a `siologin` that refuses to start says so in
+`` `node_data/siologin_log `` and prints nothing on the line it was asked to
+serve. **A console that shows nothing is the expected output of a failing
+`siologin`, not evidence about where the login went** -- which retires the whole
+family of hypotheses this thread has been generating (wrong channel, wrong
+timing, wrong knock) in one reading.
+
+*This is the fourth time the answer has been inside the volume: the format
+template (C215), the argument branches in `startup_sio.sh` (C217), the
+line/channel map in `008778-03` §3.9 as quoted by our own header (C217), and now
+the program's own error text. Every one of them cost a 1.4-2.6 G instruction
+boot to not-learn first.*
+
+**The next step follows from the log rather than another guess**: copy
+`siologin_access` from `/sys/siologin`, and read `` `node_data/siologin_log ``
+off the image after a boot -- which needs the *oracle*, because `--disk` on this
+core is read-only and a log written there does not survive the run.
