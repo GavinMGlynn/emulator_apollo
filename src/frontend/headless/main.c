@@ -1586,11 +1586,24 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
       return 2;
     }
   }
-  /* Line state per node, so a prefix is printed once per line rather than once
-   * per byte. Both nodes run the same firmware and produce near-identical
-   * streams; without the tag a reader cannot tell one machine's line from the
-   * other's, which is the whole question `lcnode` is asked to settle. */
-  bool at_line_start[NODES] = {true, true};
+  /* ## A line buffer per node, and it is not a nicety
+   *
+   * Tagging at the start of each line and then writing bytes straight through
+   * produced this, which is what two machines saying the same thing one byte
+   * at a time actually looks like:
+   *
+   *     node 0 | S  node 1 | Seellff  tteessttss  iinn  pprr
+   *
+   * Both nodes run the same firmware and reach the same character at the same
+   * instant, and the slice loop alternates them, so the two streams interleave
+   * *within* a line. Holding each node's line until its newline is what makes
+   * the output attributable -- which is the whole question `lcnode` is asked
+   * to settle, and unreadable output cannot answer it.
+   *
+   * Flushed on the newline and at the end of the run, so a line the machine
+   * has finished is never held back waiting for one it has not started. */
+  static char line[NODES][512];
+  unsigned line_len[NODES] = {0};
 
   const uint64_t slice = 4096u;
   uint64_t done = 0u;
@@ -1625,17 +1638,16 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
                                   AP_SIO_CONSOLE_CHANNEL, &out_byte)) {
         console_script_saw(&script[i], out_byte);
         if (g_ring_console) {
-          if (at_line_start[i]) {
-            fprintf(out, "  node %u | ", i);
-            at_line_start[i] = false;
+          /* `\r` dropped rather than buffered: the firmware ends lines with
+           * CR LF and a held CR would print as a carriage return that rewrites
+           * the tag it was meant to follow. */
+          if (out_byte == '\n' || line_len[i] == sizeof line[i] - 1u) {
+            fprintf(out, "  node %u | %.*s\n", i, (int)line_len[i], line[i]);
+            (void)fflush(out);
+            line_len[i] = 0u;
+          } else if (out_byte != '\r') {
+            line[i][line_len[i]++] = (char)out_byte;
           }
-          fputc((int)out_byte, out);
-          if (out_byte == '\n') {
-            at_line_start[i] = true;
-          }
-          /* Per character, for the reason the single-machine console gives:
-           * a prompt with no newline is exactly what a reader waits on. */
-          (void)fflush(out);
         }
       }
 
@@ -1679,6 +1691,15 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
     /* Only to the time both have reached. */
     ap_ring_sched_run_until(&sched, earliest);
     done += take;
+  }
+
+  /* Whatever each node was part-way through saying. A prompt carries no
+   * newline -- `Do you wish to continue (y,n)? ` -- so the last thing a run
+   * has to show is exactly the thing a line buffer would otherwise eat. */
+  for (unsigned i = 0; i < NODES; i++) {
+    if (g_ring_console && line_len[i] > 0u) {
+      fprintf(out, "  node %u | %.*s\n", i, (int)line_len[i], line[i]);
+    }
   }
 
   for (unsigned i = 0; i < NODES; i++) {
