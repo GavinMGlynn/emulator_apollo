@@ -469,7 +469,10 @@ def follow_commands(session: Session, path: Path, timeout: float,
                        needs after `re`, since a reset leaves the machine deaf
       !wait SECONDS    let the machine run, sending nothing
       !raw TEXT        send exactly this, with no carriage return added.
-                       `\\r`, `\\n` and `\\t` are interpreted
+                       `\\r`, `\\n`, `\\t` and `\\xNN` are interpreted. The last
+                       one is not a convenience: `\\x04` -- EOT -- is what leaves
+                       the RBAK environment's `sh`, where `exit` echoes and the
+                       prompt returns, and `shut` is not a shell command
       !cr              send a bare carriage return: an *empty* answer
       !swap NAME PATH  change a mounted medium without stopping the machine,
                        and wait for the script to confirm it. NAME alone
@@ -558,8 +561,18 @@ def follow_commands(session: Session, path: Path, timeout: float,
             elif line.startswith("!wait "):
                 time.sleep(float(line[6:]))
             elif line.startswith("!raw "):
+                # `\xNN` as well as the three named escapes, because the byte
+                # this dialogue actually needs has no name: **EOT, `\x04`, is
+                # what leaves the RBAK environment's `sh`**. `exit` does not --
+                # it echoes and the `$` comes straight back -- and `shut` is not
+                # a shell command at all, so an install that runs MINST inside
+                # that shell could not shut the guest down, and every volume it
+                # made came out with an uncommitted directory (`FINDINGS.md`
+                # C192).
                 text = (line[5:].replace("\\r", "\r").replace("\\n", "\n")
                         .replace("\\t", "\t"))
+                text = re.sub(r"\\x([0-9A-Fa-f]{2})",
+                              lambda m: chr(int(m.group(1), 16)), text)
                 sys.stderr.write("mdsession: send %r\n" % text)
                 session.send(text)
             elif line == "!cr":
