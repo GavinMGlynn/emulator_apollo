@@ -10943,3 +10943,11 @@ today a comparison's own method produced the result ([[C184]]'s `mtvol`).
 *Bound named as part of the experiment ([[a-bound-is-part-of-the-experiment]]):
 60 M instructions per node, which reaches the Winchester self-test. It does not
 cover the OS load, and the longer run that will is a separate measurement.*
+
+**Kept as `tools/ring-determinism.sh`** rather than as a shell line in a
+finding, for the same reason `identity-boot.sh` exists: the two things this
+comparison gets wrong on its own are both invisible in a command line. It makes
+the disk copies itself, so neither run starts from a disk the other modified,
+and it excludes the `volume` header lines, so the names it deliberately varied
+cannot be reported as a defect. Takes the per-node instruction count as its
+argument.
