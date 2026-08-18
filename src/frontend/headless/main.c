@@ -1401,7 +1401,8 @@ static void console_script_saw(ap_console_script_t *script, uint8_t byte) {
 
 static int run_ring_two_node(FILE *out, ap_model_id_t model,
                              const char *prom_path, const char *ring_rom_path,
-                             unsigned ram_megabytes, uint64_t limit) {
+                             unsigned ram_megabytes, uint64_t limit,
+                             const ap_mc146818_time_t *clock) {
   long prom_size = 0;
   uint8_t *prom = prom_path != NULL ? read_file(prom_path, &prom_size) : NULL;
   if (prom_path != NULL && prom == NULL) {
@@ -1446,7 +1447,27 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
   static ap_machine_t machine[NODES];
   static ap_board_t board[NODES];
   static ap_ring_sched_t sched;
-  const ap_mc146818_time_t epoch = {0};
+  /* **Both nodes power on at the same instant, and it must be one a volume
+   * will accept.** A zero epoch is 1900, and Domain/OS compares the clock
+   * against the volume's own last-dismount stamp: every volume this project
+   * owns was written in 1996 or 2002, so at a zero epoch *both* nodes stop
+   * with `The calendar is more than a minute slow` and neither reaches a
+   * shell. The single-machine path has taken `--clock` for exactly this
+   * reason; this one hardcoded the zero and so could never have booted an
+   * operating system at all. `FINDINGS.md` C158.
+   *
+   * One clock for both, because they share a ring: two nodes whose calendars
+   * disagree are a thing this machine can have, but it is not the default and
+   * nothing here asks for it. */
+  const ap_mc146818_time_t epoch =
+      clock != NULL ? *clock
+                    : (ap_mc146818_time_t){.year = 1987u,
+                                           .month = 7u,
+                                           .day = 31u,
+                                           .day_of_week = 6u,
+                                           .hour = 21u,
+                                           .minute = 9u,
+                                           .second = 21u};
   /* Distinct node IDs, because `[MAC]` §2.2.2.2 compares the destination
    * against "the node address of the target" and two nodes answering the same
    * address is not a ring, it is a fault.
@@ -6189,7 +6210,8 @@ int main(int argc, char **argv) {
   if (g_ring_two_node) {
     return run_ring_two_node(stdout, opt.model->id, boot_prom,
                              g_ring_rom_path, ram_megabytes,
-                             g_ring_two_node_limit);
+                             g_ring_two_node_limit,
+                             boot_clock_set ? &boot_clock : NULL);
   }
 
   if (boot_prom != NULL) {
