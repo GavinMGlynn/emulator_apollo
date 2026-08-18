@@ -11205,6 +11205,14 @@ trace in the report is one that can be wrong for four sessions.***
 synthesised label so it needs no media, identity boot `03EE415450926A89`
 unchanged -- node A's volume is 12345, which is what the default already was.*
 
+**And no recorded hash moved**, checked rather than argued: a change to how a
+machine takes its identity could have shifted every number this project has
+published, so both of the ones a boot from a disk produces were re-measured with
+the fixed binary. SR10.2's `E5147CD96AB052D9` is unchanged, and node B's
+`5671D8D76ACDC046` is the same by `--disk` alone as it was by the explicit
+`--volume` -- which is the stronger of the two checks, because it says the fix
+builds the machine the explicit request built and not merely one that boots.
+
 ## C200 -- the relabelling approximation is superseded, and it would have failed anyway
 
 C180's relabelled copy -- node A's volume with three bytes of creator UID
