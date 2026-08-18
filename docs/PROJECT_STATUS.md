@@ -435,11 +435,19 @@ scan can find, and a configuration table that describes the machine it is
 sealed into. Every previous two-node run here failed the loaded SELF_TEST
 diagnostic at `Expected= 00000000, Actual= 00000010`.
 
+**Determinism is checked and holds.** Two `--ring-two-node 60000000` runs,
+each on its own freshly copied pair of Winchesters, are byte-identical apart from
+the input file names: the same console text, the same *interleaving* of the two
+nodes' lines, the same final PCs, the same per-node configuration checksums and
+the same ring phase hash `E7FD2DDF7B508B98`. That is one of the item's two
+verification clauses. `FINDINGS.md` C194.
+
 **Stated with what is not yet done**, because the item is not finished: the
 nodes have passed self-test and are loading Domain/OS; `lcnode` has not run and
-neither node has yet been observed listing the other, which is the item's
-verification. A boot to an SPM prompt is about three hours of wall clock at
-these rates.
+neither node has yet been observed listing the other, which is the other clause.
+A boot to an SPM prompt is about three hours of wall clock at these rates, and
+the determinism run's 60 M bound reaches the Winchester self-test and no
+further.
 
 **One dependency this exposed and it is worth carrying forward.** Fixing the
 machine broke the dialogue written against it: `Do you wish to continue (y,n)?`

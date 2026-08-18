@@ -10909,3 +10909,37 @@ run was stopped at 42 minutes rather than at three hours.
 each subsequent stage, and types `lcnode` twice. The dependency worth naming for
 next time: **a console script written against a machine with a defect can encode
 the defect**, and fixing the machine is then a breaking change to the script.*
+
+## C194 -- the two-node runner is deterministic, and the first check said otherwise because it was wrong
+
+Phase 6's item asks for *"console output diffed against itself across runs for
+determinism"*. Run: two `--ring-two-node 60000000` boots, **each on its own
+freshly copied pair of Winchesters** -- a run writes to its disks, so re-using
+the files would make the second run a different experiment
+([[an-input-a-run-can-write-is-not-an-input]]).
+
+    DETERMINISM OK: two independent runs identical apart from the input file names
+      ring hash E7FD2DDF7B508B98
+      node 0  pc 0000811C  ran 60000000  executed (op 5380)  frames seen 0 copied 0
+      node 1  pc 0000811C  ran 60000000  executed (op 5380)  frames seen 0 copied 0
+
+Byte-identical: the same console text, the **same interleaving** of the two
+nodes' lines, the same final PCs and opcodes, the same ring phase hash, and the
+same per-node configuration checksums (`00000258` and `00000235` -- different
+from each other because the node IDs differ, identical across runs).
+
+**The first run of this check printed `DETERMINISM FAILED`, and the failure was
+the check's.** Its only two differing lines were
+
+    < volume /home/gavin/apollo-scratch/c151/det1A.awd
+    > volume /home/gavin/apollo-scratch/c151/det2A.awd
+
+-- the input paths, which are different *by construction* because each run needs
+its own copies. A determinism check must exclude the identifiers it deliberately
+varied, or it reports its own setup as a defect. Worth one line here because the
+alarm was loud and the cause was in the harness, and this is the second time
+today a comparison's own method produced the result ([[C184]]'s `mtvol`).
+
+*Bound named as part of the experiment ([[a-bound-is-part-of-the-experiment]]):
+60 M instructions per node, which reaches the Winchester self-test. It does not
+cover the OS load, and the longer run that will is a separate measurement.*
