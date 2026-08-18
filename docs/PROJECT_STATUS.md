@@ -481,7 +481,7 @@ checksum ...` per node, because a configuration table is an input that leaves no
 other trace and that is why the defect survived. `dev bits` `00000010` →
 `0000000F`, and `0000001F` with `--ring-rom`.
 
-*Verification: `ctest` 139/139 on both presets, `check_frontend_flags` 16 → 17
+*Verification: `ctest` 139/139 on both presets, `check_frontend_flags` 19 → 20
 with a check that needs no boot PROM, identity boot `03EE415450926A89`
 unchanged. `FINDINGS.md` C186.*
 

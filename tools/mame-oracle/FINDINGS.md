@@ -10561,7 +10561,7 @@ node, which is what makes it testable at all: `check_frontend_flags.py` gains
 `0000000F` for both nodes, and it needs no boot PROM -- the table is built before
 any instruction runs, and `roms/` is gitignored so CI has none.
 
-*Verification: `ctest` 139/139 on both presets, `check_frontend_flags` 16 → 17,
+*Verification: `ctest` 139/139 on both presets, `check_frontend_flags` 19 → 20,
 identity boot `03EE415450926A89` unchanged.*
 
 *Cost: two three-hour runs were started against nodes that had already failed
