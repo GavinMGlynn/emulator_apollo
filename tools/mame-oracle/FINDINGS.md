@@ -11865,3 +11865,50 @@ Both are now written, each saying in its own comment why the other exists.
 in the boot PROM after 2.6 G instructions, with `Do you wish to continue (y,n)?`
 as the last console line. A machine that has executed 2.6 G instructions and is
 still in the firmware has been waiting, not working.*
+
+## C215 -- why no login appears: C163's `siomonit_file` is missing half of itself
+
+A boot of the configured volume reaches SPM, starts `siomonit`, is knocked twice
+with carriage returns after it -- and **no `login:` ever comes**. The reason is
+not timing, not the line, and not this core: `/sys/siologin/siomonit_file` on
+the volume is a **template that documents its own format**, and C163's file does
+not match it.
+
+The template, read off the volume:
+
+    #  This file is a sample template for the file used by siomonit.  You should
+    #  copy a version of this file to `node_data from /sys/siologin.
+    #
+    #  To use siomonit, you must also put a line like the following in the
+    #  `node_data/startup.xyz file to configure the sio lines and invoke siomonit:
+    #
+    #        cps /sys/siologin/siomonit -n siomonitor `node_data/siomonit_file
+    #
+    #  You must also put an sio line startup file in `node_data/startup_sio.sh.
+    #  (We provide a template sio line startup file in /sys/siologin/startup_sio.sh.)
+
+    #     line 1 is a dial up line ( /dev/tty01 waits for dcd before opening ) :
+    -repeat /dev/tty01 -dialin -n siologin1        /com/sh -f -c user_data/startup_sio.sh 01
+    #     line 2 is a local connection ( /dev/sio2 ignores the stat of dcd on open ) :
+    -repeat /dev/sio2          -n siologin2_local  /com/sh -f -c user_data/startup_sio.sh 2
+
+Against which C163 wrote, and this thread has carried since:
+
+    -repeat /dev/sio1 -n siologin1_local
+
+**Two things are missing.** Every documented entry ends with a **command to
+run**, and ours ends at the process name; and `` `node_data/startup_sio.sh ``,
+which the prose calls a *must*, was never copied from `/sys/siologin`. So
+`siomonit` is given an argument list that names a line and a process and no work
+-- which is exactly a machine that starts a monitor and then says nothing.
+
+*The device name is **not** the fault, which is worth stating because it was the
+first guess.* The template's own comment settles it: `/dev/tty0x` "waits for dcd
+before opening" and `/dev/siox` "ignores the stat of dcd", so `/dev/sio1` is the
+right name for a local line and C163 chose correctly.
+
+**Found by reading the volume, not by running it.** Three boots of 1.4-2.6 G
+instructions each were spent on the timing hypothesis -- knock earlier, knock
+later, knock after `MBX_HELPER` -- and the file that says what the format is had
+been on the disk the whole time. `strings` over the image and 200 bytes of
+context around `siologin2_local` was the whole investigation.
