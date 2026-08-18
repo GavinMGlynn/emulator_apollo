@@ -347,6 +347,10 @@ static void print_usage(const char *program_name) {
   fprintf(stdout,
           "  --screenshot FILE     scan the fitted screen out to a PNG\n"
           "  --disk FILE           fit a Winchester (.awd) to the boot\n"
+          "  --disk-writeback FILE write the machine's disk out when the run\n"
+          "                        ends, so what the guest *wrote* can be read.\n"
+          "                        A separate path, never --disk's own: the\n"
+          "                        input must not be something a run can change\n"
           "  --disk-meta FILE      its sidecar: the per-sector ID-field flags\n"
           "                        and ECC bytes .awd has nowhere to store, so\n"
           "                        bad sectors and READ/WRITE LONG have a\n"
@@ -2256,6 +2260,23 @@ static bool g_cycle_stepped = false;
 
 static const char *g_ring_rom_path = NULL;
 
+/* **Where to write the machine's disk when the run ends**, and why a run that
+ * cannot do this is missing an instrument rather than a feature.
+ *
+ * `--disk` is deliberately a private in-memory copy: an operating system cannot
+ * reach a login prompt on a drive it may not write to, and the user's image
+ * must survive the run regardless. But that makes everything the guest *wrote*
+ * unreadable afterwards -- and some questions are only answerable from what it
+ * wrote. `siologin` is the case in hand: it reports its failures to
+ * `` `node_data/siologin_log `` and prints nothing on the line it was asked to
+ * serve, so a console that shows nothing is its expected output and the log is
+ * the only evidence there is (`FINDINGS.md` C218).
+ *
+ * A *separate* path, never the input: the run's product is a new image, and
+ * overwriting the source would make the input something a run can change --
+ * which this project has already paid for once, on the oracle side. */
+static const char *g_disk_writeback = NULL;
+
 /* **How the console was driven, echoed in the run header.** These exist for the
  * same reason `power-on` is reported: they change what the machine *does*, and
  * nothing else in a run's output said which were in force.
@@ -3563,10 +3584,14 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * against the same geometry and reads past its end fail, which is what a
    * partly written image should do. */
   uint8_t *disk_bytes = NULL;
+  /* Kept beside the pointer so the write-back at the end of the run can see
+   * it: the reader's own `disk_size` is scoped to the branch that fills it. */
+  long disk_bytes_len = 0;
   ap_awd_t disk_image;
   if (disk_path != NULL) {
     long disk_size = 0;
     disk_bytes = read_file(disk_path, &disk_size);
+    disk_bytes_len = disk_size;
     if (disk_bytes == NULL) {
       free(colour_memory);
       free(mono_memory);
@@ -5228,6 +5253,22 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     }
   }
 
+  if (g_disk_writeback != NULL && disk_bytes != NULL) {
+    FILE *image = fopen(g_disk_writeback, "wb");
+    if (image == NULL ||
+        fwrite(disk_bytes, 1u, (size_t)disk_bytes_len, image) !=
+            (size_t)disk_bytes_len) {
+      fprintf(stderr, "apollo: cannot write disk image %s\n", g_disk_writeback);
+      status = 1;
+    } else {
+      printf("  disk written %s, %ld byte(s)\n", g_disk_writeback,
+             disk_bytes_len);
+    }
+    if (image != NULL) {
+      fclose(image);
+    }
+  }
+
   free(disk_bytes);
   free(colour_memory);
   free(mono_memory);
@@ -5812,6 +5853,11 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--disk") == 0 && i + 1 < argc) {
       disk_path = argv[i + 1];
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--disk-writeback") == 0 && i + 1 < argc) {
+      g_disk_writeback = argv[i + 1];
       i += 2;
       continue;
     }
