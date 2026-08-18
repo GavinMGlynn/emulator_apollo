@@ -9180,6 +9180,29 @@ whose stations are all bypassed -- which is where a boot spends its early life,
 before the firmware drives §3.5's relay -- advances nothing observable, and that
 is a provable skip rather than a parallelism argument.
 
-*Not built here, and named rather than implied: the skip needs the medium to
-report "no cell in flight and every station bypassed", which it does not
-currently expose.*
+### The idle-cable skip was built, and it does not fire
+
+The predicate was written exactly rather than conservatively -- no attached
+slot in ring, and every attached slot already holding the `received` the
+advance would give it -- and the scheduler used it to count bit times in bulk up
+to the next participant deadline. It is identity-preserving: ring phase hash
+`469C6112DE1F776E` at 5 M, unchanged.
+
+**It is also worth nothing on this workload: 37 s to 37 s.** The reason is in
+`ap_ring_ctl.c`'s own comment. MISC_CMD's `nct` drives §3.5's relay, and *"the
+AT firmware's own writes here are `$800` and the `move.b #$1,$400` of subtest
+11, so a board the boot PROM drives ends up connected"* -- the station is put
+into the ring within the first moments of the boot, and from then on the cable
+genuinely carries a signal that has to be stepped per bit.
+
+So the skip is reverted, on the same standard the whole-board advance gate was
+(C152): an optimisation that never fires is a check per tick and a reader's
+time. **The 40x is intrinsic to a correct 12 Mbit/s ring against a 25 MHz CPU**,
+and `CLAUDE.md` forbids weakening the reference core to escape it.
+
+*One thing the search turned up and did not act on: `ap_ring_medium_attach`
+leaves a node **in ring** (`bypass.bypassed` false), while `[MAC]` §3.5 says the
+relays bypass "when powered off". A node should therefore power up bypassed and
+be connected by the firmware's own `nct` write. Not changed here -- it moves
+every ring golden and deserves its own item rather than a footnote to a
+performance measurement.*
