@@ -5902,7 +5902,15 @@ Only after the reference core is proven, and only under an identity harness.
       range is left undecoded rather than answering another machine's register.
       Reference, web and oracle are all exhausted for a Series 2500, so
       finishing it is an undocumented-hardware project of its own rather than a
-      tail of this item. The DN4500's memory strap is
+      tail of this item.
+      **Re-verified rather than carried forward on trust** (2026-08-18):
+      bitsavers' whole Apollo index holds **no** Series 2500 document of any
+      kind, and its only register-level hardware reference for any model is
+      `008778-03`, the Series 3000/4000 manual this project already has. A web
+      search for a Series 2500 core-board or service manual returns
+      configuration guides and parts lists and no hardware reference. **What
+      would unblock it is a Series 2500 hardware manual or a machine to
+      measure**, and neither exists to be found. The DN4500's memory strap is
       **solved**: the firmware decodes it with a fourteen-arm `cmp.b` chain,
       identical in the DN3500's PROM, and the oracle's four bank layouts fall
       out of it unchanged. Its self-test failure was our unstrapped port reading
