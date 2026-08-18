@@ -11044,3 +11044,43 @@ that stopped SR10.2 is gone, and the install that fixes the rest is running.
 *One trap, for the fifth recorded time: `pgrep -f PATTERN | xargs kill` matched
 **this session's own shell**, because the pattern appeared in the command line
 running it. Kill by PID recovered from a prior lookup, never by pattern.*
+
+## C197 -- the command file is read *ahead* of where the driver is acting
+
+A harness fact that cost a thirty-five minute install, and it is the opposite of
+what the driver's own design note reads like.
+
+`mdsession.py`'s command file is documented as one the session *follows*, so
+"an operator appends the next answer once it has read the last response". True
+for **appending**. Not true for **editing**: the follow loop does
+
+    handle.seek(offset); raw = handle.read(); offset += len(raw)
+
+-- everything from the offset to end-of-file, in one poll, into a `pending`
+buffer that lines are then taken from. A script written whole before launch is
+therefore **entirely consumed on the first poll**, seconds in, and the blocking
+`!expect` lines are acted on from memory minutes or hours later.
+
+**So there is no unread tail to rewrite.** Node B's rebuild was launched with an
+`exit`/`shut` ending, and when C196 established that EOT is what actually leaves
+the shell, its script was carefully rewritten in place -- prefix left
+byte-identical, only the not-yet-reached lines replaced. The file on disk ended
+with `!raw \x04`; the driver sent
+
+    mdsession: send 'exit'
+    mdsession: send 'shut'
+
+because those were already in `pending`. The install ran to the end and shut
+down nothing.
+
+**The rule, stated so it is usable**: appending to the command file works and is
+the whole point of the design; *rewriting* any part of it after launch does
+nothing, whether or not the driver has reached that line. To change an ending,
+relaunch.
+
+*Also measured on the way, and it settles a question C192 raised about node B:
+that volume's root directory goes from the base's **5** names to **30** across
+MINST, on an image whose guest never shut down. So SR10.4's install writes its
+root back regardless, SR10.2's does not, and the uncommitted-directory failure
+is not what stops node B -- consistent with C188 and now with a controlled
+observation rather than an inference.*
