@@ -11952,3 +11952,41 @@ the same one.
 *Recorded rather than rounded up: three defects were found and fixed on the way
 here (C210 salvage, C211 node A unconfigured, C215 the incomplete file) and the
 verification the item asks for is still not in hand.*
+
+## C217 -- the argument was wrong, and the "wrong channel" hypothesis is refuted by our own code
+
+Two corrections to C216, one to its hypothesis and one to its configuration.
+
+**The channel hypothesis is dead.** C216 reasoned that the login might be
+appearing on `sio1 A`, a channel `--boot-console` could not show. It can: the
+single-node console loop drains **all four** channels --
+`for (unit = 0..1) for (channel = 0..1) while (ap_board_transmitted(...))` --
+straight to stdout. A prompt on any line would have been in the output. So
+`siologin` is not transmitting **anywhere**, and the mapping question C216 posed
+does not need answering. *Read the frontend's own loop before theorising about
+what it cannot see.*
+
+*The mapping is settled anyway, and cheaply, by `008778-03` §3.9 as quoted in
+`ap_sio.h` -- "SIO line 0 is used for the keyboard ... SIO line 1 ... interface
+to all other asynchronous devices" -- against the run's observed rates:
+`sio1 A` 1200 baud is line 0, the keyboard; `sio1 B` 9600 is line 1, the
+console; `sio2 A`/`sio2 B` are lines 2 and 3.*
+
+**And the argument was wrong.** `startup_sio.sh`, the template C215 copied,
+branches on its first argument and has exactly two branches:
+
+    if eqs ^1 01 then  tctl -tty  1 -default -speed 1200 -dcd_enable -insync -nosync
+    if eqs ^1 2  then  tctl -line 2 -default -speed 9600 -dcd_enable -insync -nosync
+
+C215 passed **`1`**, which matches neither, so the line was never configured at
+all -- no speed, no `dcd_enable`, no `insync`. There is no `/dev/sio1` example
+anywhere in either template: the dial-up example is `/dev/tty01` with `01`, and
+the *local* example is `/dev/sio2` with `2`. Both volumes are being rewritten
+with the machine's own documented line rather than an adaptation of it:
+
+    -repeat /dev/sio2 -n siologin2_local /com/sh -f -c /sys/node_data/startup_sio.sh 2
+
+**A frontend asymmetry this exposed, not yet fixed**: the *two-node* runner
+drains only `AP_SIO_CONSOLE_UNIT`/`_CHANNEL`, so unlike a single-node run it
+would show nothing from lines 0, 2 or 3. If the login lands on line 2, the
+two-node run must drain all four channels too.
