@@ -9328,3 +9328,51 @@ files.
 read-ahead against the timer path's `read_block()`. That is the remaining
 suspect and it is now the only one, which is worth more than the fix would have
 been.*
+
+## C160 -- there is no serial login to type `lcnode` at, and the manual says what would make one
+
+C158 booted this core to a live Domain/OS. Run further -- 2,600,000,000
+instructions, state hash `3B021D4148027EFB`, 8,731,324,566 clocks -- and the
+node completes its startup and then says nothing more:
+
+    Starting standard daemons:. / Starting other. / Starting window .
+    SPM system init complete.
+    Node ID = 12345
+
+**No login prompt, on a console that carries every other byte the machine
+printed.** Not a defect: `admin.txt`'s Network Servers chapter is explicit
+about what puts a login on an SIO line.
+
+- **`siologin`** *"waits for a carriage return character from a terminal
+  connected directly to the SIO line ... Upon receiving the character, siologin
+  invokes the operating system log-in sequence"* -- and it is `/sys/siologin`,
+  started by **`siomonit`**, which is *"typically invoked as a background server
+  process from the `'node_data/startup [suffix]` file"*.
+- Enabling it is a setup task with configuration files:
+  `'node_data/siomonit_file` carries siologin's argument list, and
+  `'node_data/startup_sio.sh` configures the line.
+
+Neither is on these volumes -- the installs here answered MINST's defaults, and
+`siologin` appears nowhere in the boot's console output. So **a node booted
+headless has no shell to type at**, which is not something the ring, the
+console plumbing or the clock can fix.
+
+### What that makes the Phase 6 item's remaining work
+
+Two routes, both real, and the first is what a site administrator would do:
+
+1. **Enable `siomonit`/`siologin` on each volume.** That needs a shell with the
+   volume mounted, which this project already reaches: the RBAK environment
+   booted from the cartridge gives one (`sh`, then login `user`), and it is
+   where MINST was driven from. Write the two `'node_data` files, and every
+   later boot offers a login on serial 1 channel B.
+2. **Fit a display and use the Display Manager**, which is where Domain/OS
+   expects a user. That means reading the login prompt out of the framebuffer
+   rather than off a wire, and `--screen` plus the screenshot path exist, but
+   scripted verification against pixels is a different kind of harness.
+
+*Item state, exactly: the volumes, the ring, the two consoles, the per-node
+scripts and the clock are all in place and measured. What is missing is a
+**login server on the SIO line**, named, with the manual page that describes
+enabling it and a route to do so that this project has already driven for
+other purposes.*

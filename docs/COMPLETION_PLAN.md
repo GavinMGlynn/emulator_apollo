@@ -4123,11 +4123,33 @@ discipline throughout.
       now runs two machines with two *different* node IDs, each taking its ID
       from its own volume, both reaching `pc 0000269E` at 2,000,000
       instructions.
-      **What is left is a Domain/OS install on that volume**, which is the route
-      `PROJECT_STATUS.md` records end to end for node A. C145's `100001` on a
-      *blank* image is off the path: C150's reading of it as `dcte not found`
-      stands and stays open, but a second node needs a re-INVOLed copy, not a
-      virgin image.
+      **Node B runs Domain/OS SR10.4**: installed, booted, salvaged, calendar
+      set, cleanly dismounted at `1996-08-18 04:54:26`, paging file added
+      (`FINDINGS.md` C153). Both volumes exist and record different nodes.
+      **And the frontend is finished**: `--ring-console` tags each node's
+      output by line so two machines running one firmware stay attributable,
+      `--ring-script-a/-b` drive a dialogue at each with its own autobaud
+      knock, and `--clock` reaches the ring path -- which it did not, and the
+      runner's hardcoded zero epoch is 1900, so **neither node could ever have
+      reached a shell** whatever else was in place (C158).
+      *Verification: this core boots one node to a live Domain/OS -- `Apollo
+      Phase II Environment`, Init, global libraries, `Node ID = 12345`, daemons
+      -- at `--clock 2002-11-28`, read from the volume's own dismount stamp.
+      1.5 G instructions, 5,419,460,924 clocks, hash `98874E148005986A`.*
+      **What remains is a login server, and the manual names it.** Run to
+      2.6 G instructions the node completes `SPM system init complete.` and
+      then says nothing: there is no login on the SIO line, because
+      `siologin` -- *"waits for a carriage return ... invokes the operating
+      system log-in sequence"* -- is started by `siomonit` from
+      `'node_data/startup`, and neither is configured on these volumes. So
+      `lcnode` has nothing to be typed at. Enabling it needs a shell with the
+      volume mounted, which the RBAK environment gives and which this project
+      has driven before. Detail and the second route -- a display and the
+      Display Manager -- in `FINDINGS.md` C160.
+      **And the run itself is affordable and measured**: about 1.5 G
+      instructions per node against 125 K instructions/s per node (C156), so
+      roughly three hours for two nodes. A run to launch deliberately rather
+      than a gap.
       **Explicitly not** patching a copied volume's label -- the objects on a
       copy carry node A's UIDs and the result would be a machine lying about its
       identity. The volume above was re-initialised, not edited.
