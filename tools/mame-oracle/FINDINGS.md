@@ -9696,3 +9696,63 @@ on this core to a live Domain/OS in about five minutes (C158) because it was
 **cleanly dismounted** in 2002; every volume this thread built was not, and
 every attempt to boot one here ran into the salvage rather than the operating
 system.*
+
+## C168 -- the rewritten `startup.spm` shuts the node down, and the artifact is not good
+
+**Retracting the "complete" description of `media/dn3500-nodeB-full.awd` and
+`-clean.awd`.** Booted Normal on this core, from a cleanly dismounted volume
+with its paging file present, the node does this:
+
+    Self tests passed.
+    low: 01002000 high: 010E986C start: 01002024
+    Domain/OS kernel(7), revision 10.4, February 14, 1992
+    Beginning shutdown sequence...
+    Shutdown successful
+
+The kernel loads and the node shuts down at once. No salvage (the volume is
+clean), no paging-file warning (option 8 ran), and **no startup** -- it never
+reaches `Loading Init`, let alone `SPM system init complete.` Node A's
+untouched volume reaches a full startup on the same core (C158), so the
+difference is the file this session wrote.
+
+### What was actually done to `startup.spm`, and why it is suspect
+
+`tee` overwrites, so writing the file replaced it. The original was
+
+    # STARTUP.SPM, /SYS/SPM, default server process manager startup command file
+    #
+    #  To make sure line 1 listens to XOFFs
+    #
+    cps /com/tctl -line 1 -insync
+
+    #  To disable the shutspm command (when spm is process 1):
+    #
+    # no_shutspm
+
+and what it now holds is
+
+    cps /com/tctl -line 1 -insync
+    cps /sys/siologin/siomonit -n siomonit /sys/node_data/siomonit_file
+
+The comments could not be typed at all -- the Aegis shell eats a line starting
+`#` before `tee` ever sees it, which is why the first attempt produced a file
+holding two lines one of which was junk (C163). So the rewrite is not a
+superset of the original: **every comment is gone, including the one naming
+`no_shutspm`**, and the file's structure is not what SPM was given before.
+
+**Two candidates, and neither is confirmed:**
+
+1. `/sys/siologin/siomonit` may not exist on this volume -- the manual says the
+   installation procedures give siologin manager status, but nothing here has
+   checked that MINST installed the binary. A `cps` of a missing program in
+   SPM's startup file is a plausible way to end startup.
+2. The file's shape matters to SPM in some way the rewrite broke.
+
+*Distinguishing them needs a shell on the volume, which needs the MINST window
+again (C162) -- or `ld /sys/siologin` during the next install, which is one
+command and should be done before writing anything.*
+
+**So the honest state of the volume is: node `22222`, INVOL 7-1-8, SR10.4
+installed, cleanly dismounted -- and a `startup.spm` that stops the node
+booting.** `media/dn3500-nodeB-paged.awd` is the last good artifact in the
+chain: INVOL complete, no OS, nothing edited.
