@@ -1712,9 +1712,19 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
        * Every byte is fed to the node's own script as well: a dialogue matches
        * on what *its* machine said, and a script that saw both nodes' output
        * would answer prompts the other node printed. */
+      /* **All four lines, not just the console's.** `008778-03` §3.9 makes SIO
+       * line 0 the keyboard and lines 1-3 "all other asynchronous devices", and
+       * a login server is configured onto one of *those* -- the volume's own
+       * `siomonit_file` template offers `/dev/sio2`, which is line 2, as its
+       * local-connection example. Draining only line 1 meant a two-node run
+       * could show a machine's startup and none of the login it then offered,
+       * where a single-node run drains every channel and shows both. Two
+       * harnesses disagreeing about what the console *is* is exactly the kind
+       * of difference that gets read as a machine fault. */
       uint8_t out_byte = 0;
-      while (ap_board_transmitted(&board[i], AP_SIO_CONSOLE_UNIT,
-                                  AP_SIO_CONSOLE_CHANNEL, &out_byte)) {
+      for (unsigned unit = 0; unit < 2u; unit++)
+      for (unsigned channel = 0; channel < 2u; channel++)
+      while (ap_board_transmitted(&board[i], unit, channel, &out_byte)) {
         console_script_saw(&script[i], out_byte);
         if (g_ring_console) {
           /* `\r` dropped rather than buffered: the firmware ends lines with
