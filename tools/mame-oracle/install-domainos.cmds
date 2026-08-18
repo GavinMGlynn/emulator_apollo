@@ -73,10 +73,27 @@ yes
 !cr
 !cr
 select
+!expect RAI MINST has completed
+!wait 30
+# **The ending is part of the install**, and the lines this replaced were
+# a search for it left in place: `shut`, then `ls /etc/shutdown /com/shut`,
+# then `exit`, then `ld /com/shut*`, then EOT, then `shut` again, then
+# `!quit`. The answer among them is EOT, and it was never written down.
+#
+# Why it matters: Domain/OS is a single-level store and its directory
+# updates sit in the node's cache until the *guest* shuts down. `!exit`
+# ends MAME and asks the guest for nothing; `!quit` does not even write
+# NVRAM. A volume whose session ended either way has its objects without
+# their links -- a root directory with the three entries a virgin INVOL
+# leaves, and a boot PROM that then says `SAU7 not found in root_dir`
+# (`FINDINGS.md` C192, C196).
+#
+# `shut` belongs to the `)` prompt and is not a shell command
+# (`?(sh) "shut" - name not found`); `exit` does not leave that shell, it
+# echoes and `$` comes straight back. EOT does.
+!raw \x04
+!wait 20
 shut
-ls /etc/shutdown /com/shut /sau11/shut
-exit
-ld /com/shut*
-!raw 
-shut
-!quit
+!expect Shutdown successful
+!wait 25
+!exit
