@@ -11174,7 +11174,10 @@ Proved by giving the same volume the node its disk records -- `--volume` beside
     ***** Node startup on Wed Aug 28 20:02:07 1996 *****
     Starting standard daemons:.
 
-State hash `5671D8D76ACDC046`.
+State hash `5671D8D76ACDC046` -- **the same by both routes**, the explicit
+`--volume` beside `--disk` before the fix and `--disk` alone after it, which is
+the check that the fix builds exactly the machine the explicit request did and
+not merely a machine that boots.
 
 ### What this retires, and what it says about the search
 
