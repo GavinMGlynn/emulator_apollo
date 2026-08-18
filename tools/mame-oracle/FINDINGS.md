@@ -9470,3 +9470,56 @@ so far.
 
 *The second is the cheaper one and it was not visible until the first was
 tried: the window for configuring a node from a shell is the install itself.*
+
+## C163 -- `siologin` is configured on a node, and the install shell has no `echo`
+
+C162 established that the only window for configuring a node from a command
+line is *during* MINST, while the disk still has no operating system to boot
+instead of the restore environment. Taken: a second install of node B, stopped
+at `RAI install has successfully completed` with the shell held open.
+
+**What the manual said, and the machine confirmed.** `'node_data` is
+`/sys/node_data` of the executing node (`admin.txt` p. 2410), so the disk's is
+`//node_22222/sys/node_data`, and `ld` on it lists `startup`, `startup.1280bw`,
+`startup.19l`, `startup.768`, `startup.color`, `startup.spm` -- and no
+`siomonit_file`. Table 3-6 puts `startup.spm` on **DSP's**, nodes with no
+display, which is what this machine is; `startup.spm`'s own first line is
+
+    # STARTUP.SPM, /SYS/SPM, default server process manager startup command file
+
+and its only active statement was `cps /com/tctl -line 1 -insync` -- which is
+exactly the `Op: CPS Command: "/com/tctl -line 1 -insync"` the boot prints.
+**No commented-out `siomonit` line**, so the manual's "uncomment the line that
+reads as follows" does not apply to an SR10.4 install; it has to be added.
+
+### Three things about that shell that cost a turn each
+
+- **`cat` is not there.** `?(sh) "cat" - name not found`. Aegis's catenate is
+  **`catf`**.
+- **Nor is `echo`.** `ld /com` lists 144 commands and `echo` is not among them,
+  so `echo text > file` -- the obvious way to write a one-line file -- does not
+  exist. **`tee` is**, and `tee FILE` with the text on the following line and
+  `^D` to end writes it.
+- **Long lines lose characters.** `echo zz > //node_22222/sys/node_data/zz_probe`
+  arrived as `ecs/node_data/zz_probe`; the guest's receiver is overrun by a
+  line sent in one write. Two fixes together: `wd` into the directory so paths
+  are short, and send anything still long as chunked `!raw` directives with the
+  driver's own pacing between them. A 67-character `cps` line went through
+  intact in four chunks having been mangled as one.
+
+*And a mistake worth recording: rewriting `startup.spm` with `tee` **truncated
+it**, because `tee` overwrites and the comment lines were swallowed. The file
+was left holding two lines, one of them junk. Recovered by rewriting it with
+only its functional content -- comments are not load-bearing -- but the general
+point stands: `tee` is not an editor, and there is no editor here.*
+
+**What is on the volume now**, verified by `catf`:
+
+    siomonit_file:  -repeat /dev/sio1 -n siologin1_local
+    startup.spm:    cps /com/tctl -line 1 -insync
+                    cps /sys/siologin/siomonit -n siomonit /sys/node_data/siomonit_file
+
+Saved as `media/dn3500-nodeB-siologin.awd`. **Not yet verified against a boot**
+-- the next step is calendar, salvol, boot, and a carriage return on the
+console where the node previously went silent after `SPM system init
+complete.`
