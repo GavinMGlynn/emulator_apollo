@@ -9801,3 +9801,44 @@ distribution]` outranks `[a manual for a previous version]`, and one
 `startup_sio.sh` into `` `node_data `` rather than composing them by hand,
 edit the copies, and add the `cps` line exactly as the template prints it.
 That is one `cpf` per file in the MINST shell, and `cpf` is in `/com`.*
+
+## C170 -- two shells, two command sets, and `shut` belongs to neither
+
+C169's correction was applied in place, on the installed volume, using C164's
+route: the oracle's MD reaches `)`, `sh` reaches a login. That works, and the
+shell it gives is **not** the one the install ran in. The differences cost a
+turn each and are worth stating once:
+
+| | install (RBAK, from tape) | installed OS (`sh` at `)`) |
+| --- | --- | --- |
+| `catf startup.spm` | works | `sh: catf: not found` |
+| `wd /sys/node_data` | works, and *persists* | `/com/wd` needed, and does **not** persist |
+| `lcnode` | works | `/com/lcnode` needed (C164) |
+| `shut` | -- | **not a program at all** |
+
+- **`/com` is not on the installed shell's path.** Every command needs its
+  absolute path, which C164 had already found for `lcnode` and this session
+  re-learnt for `catf` and `wd`.
+- **`/com/wd` is a subprocess, so its directory change dies with it.** The
+  install shell's `wd` changed the shell's own directory; here it does nothing
+  the next command can see, so every path must be absolute.
+- **`shut` is the `)` environment's command, not `/com/shut`.** `sh: /com/shut:
+  not found`, and a script that had queued `!expect Shutdown successful` behind
+  it then blocked until its timeout. Nothing was lost -- MAME writes the disk
+  through, so the edited files were already on the volume -- but the volume was
+  left mounted and needed a salvage pass it should not have.
+
+*To shut down from the installed shell, leave it first: the manual's own
+sequence is `<CTRL> Z` to end the login, which returns to `)`, where `shut`
+is a command.*
+
+**What is on the volume now**, verified by `catf` and `ld` before the session
+ended:
+
+    startup.spm      cps /com/tctl -line 1 -insync
+                     cps /sys/siologin/siomonit -n siomonitor `node_data/siomonit_file
+    siomonit_file    -repeat /dev/sio1 -n siologin1_local
+    startup_sio.sh   copied from /sys/siologin with cpf, unmodified
+
+The `cps` line is now the release template's own text, backtick and
+`siomonitor` included (C169), rather than the SR10.2 manual's rendering.
