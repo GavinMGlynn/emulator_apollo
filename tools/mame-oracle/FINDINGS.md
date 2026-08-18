@@ -10668,3 +10668,28 @@ still the right discriminator for SR10.2: if its root then carries the tree the
 flush was the cause after all, and if it stays at three the difference is in what
 SR10.2's `ex domain_os` restores and the next question is why its RBAK writes no
 root entries where SR10.4's writes twenty.*
+
+### A caveat on the method, from the reference rather than from another run
+
+`AEGIS_Internals_and_Data_Structures` §8.3 gives a directory as **five** parts:
+a header, a **linear list of the first 18 entries**, an information block, a
+**43-way hash thread table**, and **directory entry blocks** of three entries
+each, doubly linked into chains. So *"names visible in the first block"* is not
+the same as *"entries in the directory"*: a large directory keeps most of its
+names in blocks the hash table points to, and a scrape of one block undercounts
+it.
+
+**The conclusion survives the caveat; the counts should be read as
+indicative.** Three independent readers agree SR10.2's root is nearly empty --
+both boot PROMs (`SAU7 not found in root_dir`), the RBAK environment's own shell
+(`E0007 ... Trying to set Working Dir to /lib`), and the scrape -- and the
+scrape's numbers track the volumes' known states monotonically from virgin to
+installed.
+
+*Table 8-1 gives the header an explicit **Entry count** field, alongside hash
+value 43, list size 18, pool size 429, entries-per-block 3 and maximum count
+1300. Reading it would turn the scrape into a number. The four constants are not
+consecutive 16-bit words anywhere in the block's first 256 bytes, so the layout
+wants **Figure 8-3 read as a page image** rather than through `pdftotext` --
+which is the rule `CLAUDE.md` states for exactly this kind of table. Named as
+the next step for anyone who needs an exact count; nothing here depends on one.*
