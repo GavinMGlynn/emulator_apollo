@@ -10567,3 +10567,57 @@ identity boot `03EE415450926A89` unchanged.*
 *Cost: two three-hour runs were started against nodes that had already failed
 their self-test, and both were killed. The tell was in their console from the
 first minute and the runs were being polled on their last line only.*
+
+## C187 -- SR10.2's volume has three entries in its root directory, and the reads name the block
+
+The disk-read trace settles what four sessions of listings could not, and it
+needs no oracle and no mount.
+
+**Both PROMs walk the same path and part at one block.** `--boot-report
+--boot-disk-reads 300` on this core, node A's volume against SR10.2's, oldest
+first:
+
+    both      0  2 3 4 5 6 7 8 9 10 11  0  1   160111   165649
+    node A                                     165047  163731 163771 163773
+                                                163774  165571  156305
+                                                156338..156350   (SELF_TEST's blocks)
+    SR10.2    stops at 165649
+
+Same block numbers, because both volumes were initialised from the same INVOL
+image. **165649 is the root directory**, and node A's copy leads on to `165047`
+while SR10.2's leads nowhere.
+
+**So dump block 165649 from each image -- 1056 bytes, offset `165649 * 1056`:**
+
+    node A   dev  node_data  sys5  sys5.3  bsd4.2  bsd4.3  tmp  bin  SYSTYPE
+             systest  sau_sys  domain_examples  sysboot.m68k  ...
+    SR10.2   sysboot   sys   lost+found.list
+
+**Three entries.** MINST wrote its whole tree -- its log has 71
+`//node_12345/sau7` lines and thousands more -- and none of it is catalogued in
+the root. `lost+found.list` is the tell in the other direction: that is what
+SALVOL creates for objects it finds with no directory referring to them, so the
+objects are on the volume and the *links* are what went missing.
+
+### Why, and it is a harness mistake rather than a release incompatibility
+
+Domain/OS is a single-level store. `mdsession.py`'s `!exit` ends **MAME**
+cleanly -- it writes NVRAM, which is what it documents -- and asks the *guest*
+for nothing. Every install here has ended that way (`minstB.cmds` says so in its
+own closing comment), and this is the first time the cost has been visible: the
+directory updates were still in the node's cache and went with the process.
+
+That also explains the two symptoms this thread has been chasing:
+`SAU7 not found in root_dir` from both PROMs (C185), and
+`E0007 ... Trying to set Working Dir to /lib` from the RBAK environment's own
+shell -- three readers agreeing that the root directory has almost nothing in it.
+
+*The install is re-running now ending in an in-guest `shut` instead of `!exit`.
+That is the discriminating experiment: if the root directory then carries the
+tree, the release was never the problem and the harness was.*
+
+*And it retires the suspicion hanging over C178's tape fix: the volume's damage
+is a missing directory flush, not corrupted data. The repositions deliver no
+bytes and move no tape -- they only stop the transfer being failed -- and C147's
+measurement that SR10.3 and SR10.4 never reach 5000 underruns means their
+installs take a byte-identical path.*
