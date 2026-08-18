@@ -10880,3 +10880,32 @@ name not found` -- so an install that runs MINST inside `sh` has to leave the
 shell before shutting down. The SR10.2 install is running again with `exit`
 then `shut`, and that is the first route here expected to produce a bootable
 SR10.2 volume.*
+
+## C193 -- both ring nodes pass their own self-test, and that broke the script
+
+The first result of C186's fix, and the second thing it did was invalidate the
+dialogue written against the broken machine.
+
+    node 0 | Self tests passed.
+    node 1 | Self tests passed.
+
+**Two DN3500s on one ring segment, each with its own volume and node ID, each
+passing the loaded SELF_TEST diagnostic.** Every previous two-node run in this
+thread failed it at `Expected= 00000000, Actual= 00000010`.
+
+**And `Do you wish to continue (y,n)?` is gone.** That prompt is what SELF_TEST
+asks when it finds a discrepancy; a machine whose configuration table describes
+it correctly is never asked. `tools/boot-domainos.script` documents the question
+as *"the one question the PROM asks"* and answers `y` -- true for a single
+machine booted with an uninitialised configuration, and no longer true here.
+
+The ring script's first step was `expect Do you wish to continue`, so it would
+have waited for ever and typed nothing: a three-hour run that boots both nodes
+and never asks either of them anything. Caught by reading the console rather
+than the run's last line ([[read-the-whole-console-not-the-last-line]]), and the
+run was stopped at 42 minutes rather than at three hours.
+
+*`ring-node3.script` waits on `Apollo Phase II Environment` instead, knocks at
+each subsequent stage, and types `lcnode` twice. The dependency worth naming for
+next time: **a console script written against a machine with a defect can encode
+the defect**, and fixing the machine is then a breaking change to the script.*
