@@ -11342,3 +11342,45 @@ the symptom a missing or transposed register field produces.*
 
 *One more code from the same page, worth having recorded because this project
 will meet it: `(0011001F) no nodeid prom on this system`.*
+
+## C202 -- the deciding read is BOARD_TYPE, and the model answers it two ways
+
+`--boot-watch-read` on the three status registers, with only twelve reads of the
+whole controller in the run to choose between:
+
+    watch read   00059000 read 1 time(s), last 3600 by PC 3C44FCD4
+
+**One read decides it**, of `BOARD_TYPE` at the second window's `+000`, from
+`3C44FCD4` -- the same routine that took `vector 162` at `3C44FB4C`. `%0*X` with
+`watch_read_size * 2` makes that four digits, so it is a **word** read returning
+`0x3600`.
+
+### And the model has two answers for it
+
+- The **byte** path returns `0x36` for the even lane and `0x00` for the odd one,
+  and says why: subtest 03 reads this address as a word, does
+  `andi.w #$8,d1`, and requires zero, *"which `FF` in this lane cannot give"*.
+- `ap_ring_ctl_read16`'s ID branch returns `(byte << 8) | 0x00FF` = **`0x36FF`**,
+  whose bit 3 is set -- **the value the same comment says a healthy board cannot
+  give.**
+
+The driver got `0x3600`, so the board assembles this word from bytes and the
+byte path is the live one. `ap_ring_ctl_read16` is called from `ring_ctl_suite`
+and from `ap_ring_ctl.c`'s own non-ID byte path, never with the ID bank from
+outside, so the `0x36FF` branch appears to be unreachable for this register --
+which is why nothing has caught it.
+
+**Stated as what it is: an internal contradiction, not a proven cause.** The
+driver read the value the firmware's own subtest requires, and crashed anyway.
+Two paths answering one register differently is worth fixing on its own terms
+(it is the shape of defect `RING.md` 93i already found once here, an unexercised
+register answering wrongly), but nothing yet shows it is what
+`Crash_Status 00110009` objects to.
+
+*What the next session has that this one did not: the deciding instruction
+(`3C44FCD4`), the register (`59000`), the value (`0x3600`), the interrupt that
+precedes it by 2.7 M instructions (`vector 162` from `3C44FB4C`), and twelve
+controller reads in the entire run to account for. The remaining question is
+what Domain/OS expects a board type to be -- `0x36` is what the **boot
+firmware** gates on (`cmpi.b #$36`, `RING.md` 39), and whether the OS driver
+wants the same byte is not established by anything read so far.*
