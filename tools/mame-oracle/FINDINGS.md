@@ -9672,3 +9672,27 @@ already shutting down.
 is what this project has actually been missing: `dn3500-invol-done.awd`, the
 ancestor of every volume here, was made with 7, 1 and 8 -- and every volume
 this thread built from scratch stopped at 1.*
+
+## C167 -- a volume that needs salvaging is not bootable on this core in any reasonable run
+
+Measured while testing `siologin`: a Normal-mode boot of a freshly installed
+volume on `apollo-headless` spent **forty minutes of wall clock** inside
+`Salvol` and was still there when the run's timeout killed it. The same salvage
+on the oracle takes about half a minute -- `mdsession` reports the machine
+running at 300-400% of real time, and this core runs the reference tick loop at
+roughly 5 M instructions/s.
+
+That is not a defect. It is the reference core doing the work at the rate the
+hardware would, and `CLAUDE.md` forbids weakening it to go faster. But it has a
+practical consequence this project should follow:
+
+**Bring a volume to a cleanly-dismounted state on the oracle, then boot it
+here.** A volume left mounted -- which is what `!exit` leaves behind, and what
+every install produces -- costs a salvage on first boot, and that salvage is
+affordable on the oracle and effectively is not here.
+
+*It also explains an earlier reading. `media/dn3500-sr10.4-installed.awd` boots
+on this core to a live Domain/OS in about five minutes (C158) because it was
+**cleanly dismounted** in 2002; every volume this thread built was not, and
+every attempt to boot one here ran into the salvage rather than the operating
+system.*
