@@ -10705,3 +10705,35 @@ SR10.2 and SR10.4, four years later. **The SR9-era constants do not describe an
 SR10 directory**, and no document on the shelf gives the SR10 ones, so the
 header cannot be located this way and the counts stay indicative. Recorded so
 the next reader does not spend the same half hour.*
+
+## C189 -- node A is running a user process before node B gives up
+
+C182 ended with a named instrument: node A takes `vector 35` and `vector 39` --
+`TRAP #3` and `TRAP #7` -- exactly once each, and node B never takes either, so
+stopping node A on 35 names the path node B does not reach. Run:
+
+    stopped on vector 35 taken from PC 008177B8, after 543511281 instruction(s)
+    a0-a7  008177B6 3B3C0000 3C4F9B10 3C45AC88 0080317E 008286B4 3B3BFF94 3C4F9BF8
+
+**`008177B8` is a user-space address.** Everything else in these boots runs in
+the kernel's mapped range -- `3Cxxxxxx -> 010xxxxx` -- and this is a program at
+`0x817xxx` making a supervisor call, with `a0` pointing just behind the trap.
+
+Two things follow, and the second corrects a reading in C182.
+
+**Node A has started a user process by 543.5 M**; node B has not, and it leaves
+for the PROM at 547 M. So the environment is not merely "about to start" on node
+A when node B gives up -- it is already running.
+
+**And node A is not purely idling in the 535-546 M window**, which is what the
+progress sampler appeared to show. The sampler takes one PC per million
+instructions and landed on `010421A8` each time; the trap at 543.5 M is inside
+that window and was invisible to it. The correct statement is that node A
+*alternates* between the idle loop and user code there, while node B sits in the
+idle loop alone. C182's "both wait in the same loop" is right about node B and
+too strong about node A.
+
+*Next, and smaller than the last one: find the first instruction at which node A
+enters user space at all. That is the moment the two boots stop being the same
+run, and it is somewhere below 543.5 M -- `--boot-stop-physical-pc` over the
+`0x8xxxxx` range, or a stop on the first `vector 174` beyond node B's 42.*
