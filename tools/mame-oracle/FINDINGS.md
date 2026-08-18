@@ -11837,3 +11837,31 @@ yet observed.**
 *This is why one node was run before two: the same failure on a two-node run
 costs twice the instructions and tells you half as much about which node caused
 it.*
+
+## C214 -- one console script cannot serve both harnesses, and the reason is C186
+
+A single-node `--disk` run of the `siologin` volume spent its **whole 2.6 G
+instruction budget** sitting at
+
+    Do you wish to continue (y,n)?
+
+because the script driving it was written for `--ring-two-node`, where that
+question is never asked.
+
+**The asymmetry is C186's fix, working.** The two-node runner builds each node a
+*sealed, valid* configuration table, so the SELF_TEST diagnostic loaded off the
+disk finds the machine described correctly, prints `Self tests passed.` and asks
+nothing. A plain `--disk` run has no such table, so SELF_TEST reports
+`Configuration information is not initialized.` and asks. `boot-domainos.script`
+has carried the two-line answer for exactly this reason since it was written;
+the ring script had no need of it and so did not.
+
+So the two scripts differ by their **first two lines** and cannot be merged:
+carrying the answer on the two-node runner would wait for ever for a question
+never asked, and omitting it on a `--disk` run burns the budget at a prompt.
+Both are now written, each saying in its own comment why the other exists.
+
+*The tell was in the run's own output and took one look: `final PC 00002670`
+in the boot PROM after 2.6 G instructions, with `Do you wish to continue (y,n)?`
+as the last console line. A machine that has executed 2.6 G instructions and is
+still in the firmware has been waiting, not working.*
