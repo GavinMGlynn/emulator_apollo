@@ -4192,9 +4192,15 @@ discipline throughout.
          is dirty: a run here spent all 1.5 G instructions inside SALVOL and
          reached **40%**, so a full salvage on this core is hours. The oracle is
          the right tool for it, as it was for writing the file.
-      2. **Give node A's volume the same treatment** through the same MINST
-         window C162 established -- the only window a node can be configured
-         from a command line.
+      2. **Give node A's volume the same treatment.** C162 called the MINST
+         window "the only window for configuring a node from a command line",
+         and **C164 supersedes that for an installed volume**: in the oracle,
+         `di w` / `ex domain_os` from MD leaves a `)` prompt and `sh` at it
+         gives `login:` and a shell. Node A's volume *is* installed, so it needs
+         no re-install -- boot it in the oracle via MD, write `siomonit_file`
+         and the `startup.spm` line as C163 did, and shut down cleanly. C162's
+         claim was true of a **bare** disk, which is the case it was measured
+         on.
       3. Run the two nodes with a script that waits for
          `SPM system init complete.`, knocks, logs in as `user`, and runs
          **`/com/lcnode`** by absolute path.
