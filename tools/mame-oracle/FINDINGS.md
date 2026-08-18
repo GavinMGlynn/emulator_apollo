@@ -11241,3 +11241,54 @@ reason and restarted with the two real volumes:
 `PROJECT_STATUS.md` is withdrawn -- not because the objection was wrong, but
 because it no longer has to be made. It also means the multi-node workload item
 has the second installed volume it was blocked on.*
+
+## C201 -- the ring card stops Domain/OS booting, and that is the ring item's real blocker
+
+Measured while calibrating how many instructions a two-node run needs, which is
+not what the measurement found. One volume, one clock, one script; the only
+variable is the card.
+
+| configuration | `Self tests passed.` | Domain/OS |
+| --- | --- | --- |
+| **no ring** | 295 M | `kernel(7)` at **500 M**, boots through |
+| **`--ring` only** | ~300 M | **crashes at 503 M**: `Crash_Status 00110009  PC 3C4AED68 pid 0001`, `FAULT on 612C`, final PC `0100040A` |
+| **`--ring --ring-rom`** | 305 M | **no kernel banner in 1.6 G**; ends at `00080200`, which this core's own report labels *AT bus (empty slot)* |
+
+**So fitting the token ring controller prevents this core from booting
+Domain/OS**, and the option ROM changes the failure from a crash into a machine
+that never leaves the firmware. The crash is the more informative of the two:
+`3C4AED68` is mapped kernel space, so the OS *starts* and then dies at the point
+a ring-less boot prints its banner.
+
+### What this corrects
+
+`PROJECT_STATUS.md` says *"Both ring generations now boot a Domain/OS SR10.4
+disk with the card fitted, and the OS loads the driver"*, quoting
+
+    network driver search started...
+       Apollo Token Ring test passed.
+    above driver type loaded.
+    --- Load paths tested.
+    Self tests passed.
+
+**Every one of those lines is printed before `Self tests passed.`, which both
+ring configurations reach.** They are the *firmware* finding the card, running
+its diagnostic and accepting a driver type -- real, and worth what they cost --
+but they are not the operating system booting with the card fitted. Nothing was
+ever run past that point with the ring on until now. Wording corrected.
+
+### And it is why the two-node item could not have been finished as posed
+
+`lcnode` needs a Domain/OS prompt on each node, and a ring-fitted node does not
+reach one. Three two-node runs were spent this session -- 42 minutes, 78, 56 --
+on a boot that cannot complete, and the three-minute single-machine A/B above
+would have said so at any point. **The bound was budgeted and the *precondition*
+was not**: "1.5 G instructions per node" was measured on a machine without the
+card, and carried over to runs that had it.
+
+*Next, and it is now a device question rather than a scheduling one: what does
+the ring model do at 503 M that the OS dies of. `Crash_Status 00110009` and
+`PC 3C4AED68` are the handles, the run is 90 seconds, and
+`--boot-stop-on-vector` over the ring card's interrupt is the obvious first
+instrument -- the card is wired to master IRQ 2 (`RING.md` 104-112) and an
+interrupt the OS does not expect is the shape a crash at first-start takes.*

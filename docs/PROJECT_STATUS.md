@@ -1004,8 +1004,17 @@ unchanged at `A354786119A3931D`.*
 ## Domain/OS boots with the ring fitted, and passes its own self-tests
 ## (2026-08-17)
 
-**Both ring generations now boot a Domain/OS SR10.4 disk with the card fitted,
-and the OS loads the driver:**
+**Both ring generations are found by the firmware, pass its diagnostic and get
+a driver type accepted -- and the OS does *not* boot with the card fitted.**
+Corrected 2026-08-19: every line quoted below is printed **before**
+`Self tests passed.`, and nothing had been run past that point with the ring on.
+Run past it, a card-only machine **crashes** where a ring-less one prints its
+kernel banner -- `Crash_Status 00110009  PC 3C4AED68 pid 0001` at 503 M against
+`kernel(7)` at 500 M -- and with the option ROM as well it never leaves the
+firmware at all. That is the ring item's real blocker and it is a device
+question. `FINDINGS.md` C201.
+
+What the firmware does do, which is what these lines are:
 
        network driver search started...
           Apollo Token Ring test passed.
