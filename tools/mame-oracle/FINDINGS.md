@@ -10082,3 +10082,179 @@ this way.
 another install; or finding where a node ID other than the default reaches the
 kernel's startup path. Neither is a boot away, and this entry exists so the next
 session starts from "not the disk" rather than re-deriving it.*
+
+## C177 -- the node ID is eliminated, in two minutes rather than an install
+
+C176 left `22222` against `12345` as the last candidate and said testing it
+meant another install. It did not. Our frontend reads the node from the
+**creator UID in the volume label**, at block 0 offset `0x48` -- not from the
+block-1 field at `0x49`, which is what MAME's `set_node_id_from_disk` reads.
+Patching four bytes on a copy re-labels the volume without touching a single
+object:
+
+    creator UID 77536D6F10022222 -> 77536D6F10012345
+    node ID     22222            -> 12345
+
+The two copies then boot side by side, same core, same PROM, same
+`--clock 1996-08-19T09:00:00`, same `--boot-script`:
+
+    bisect (22222)   Domain/OS kernel(7) ... / Beginning shutdown sequence... / Shutdown successful
+    nid    (12345)   Domain/OS kernel(7) ... / Beginning shutdown sequence... / Shutdown successful
+
+Byte-identical consoles. The whole run report differs in **five lines**: the
+file name, the creator UID, the node ID, `d2` (`000F0022` against `000F0045` --
+the node in a register, which is the patch showing through), and the state hash.
+
+**So the node ID is not why node B shuts down**, and C173's three candidates
+are now all dead: the file, the clock (C174), and the node.
+
+*Method note, because this is the second time in this thread: the expensive
+route was named in the finding and the cheap one was two commands away. The
+question "what does the code actually read this value from?" was never asked --
+`--volume` printed `node ID 22222` and that was taken as a property of the
+volume rather than of four bytes in its label.*
+
+*One trap on the way: `--volume FILE` only **reports** a label; `--disk FILE`
+fits the drive. Two boots were run with the first and reached
+`Winchester Disk Drive 0 (not found)` -- a diskless machine, reported as a boot.
+A third was run without `--boot-input`/`--boot-script` and stopped at the
+PROM's `Do you wish to continue (y,n)?`, which `tools/identity-boot.sh`
+documents and which no report names.*
+
+## C178 -- SR10.2 stops because the oracle's tape model has one buffer where the part has three
+
+C155 left two named suspects in `sc499.cpp` and the number to aim at. Both were
+instrumented in one pass -- the read-ahead reconciliation, the underrun abort,
+the file-mark test and the end-of-tape path -- rather than one hypothesis at a
+time.
+
+**`m_nasty_readahead` is refuted, and the measurement is unambiguous.** Logging
+every reconciliation shows the counter reaching `63` on *every* burst and the
+stride between bursts holding at exactly 64 blocks for the entire restore:
+
+    APDBG skip readahead=63 tape_pos=4486
+    APDBG skip readahead=63 tape_pos=4550
+    APDBG skip readahead=63 tape_pos=4614
+
+The guest's DMA drains a 32 KB burst, the timer fires once and swallows one
+skip, and the tape advances 64. Across 1,429 logged events the stride breaks
+only at rewinds. Nothing is delivered twice and nothing is dropped -- so the
+stream reaching `rbak` is byte-exact and in order, which also retires the
+"delivery is shifted by one block" reading of `m_first_block_hack` that C159
+had already tested from the other side.
+
+**What actually stops it:**
+
+    APDBG UNDERRUN-ABORT tape_pos=4615 counter=5000
+
+`sc499.cpp`'s read timer counts ticks on which the guest has not drained the
+block, and at 5000 -- about 30 seconds of tape -- it stops the tape and sets
+`SC499_ST_READ_ERROR`. `rbak` then finds no more data where a record should be
+and reports the label it cannot find. The error message names `EOF1`; the fault
+is 17,000 blocks earlier and is not a label at all.
+
+### The reference says the model is under-buffered, and by how much
+
+`docs/references/archive/08845_Apollo_Specification_for_QIC-36_Tape_Controller_Jan86.pdf`
+sheet 10, section 6.3 -- read as the page image, and the only place in three
+Archive documents on the shelf that states it:
+
+    Data Buffering        3 x 512 Byte blocks minimum
+    Write/Read re-tries   16 maximum
+
+The model has **one** 512-byte buffer and **no** retries. A real controller is
+three blocks ahead of the host and stops and repositions when the host falls
+further behind; `sc499.cpp`'s own comment says as much -- *"the real ctape will
+stop, go back and restart reading if appropriate"* -- immediately above the code
+that instead fails the transfer.
+
+### The change, and what it is worth
+
+`ext/mame` gains `m_underrun_retries`: on reaching 5000 the drive repositions --
+counter cleared, tape left where it is -- up to the manual's 16 times per block,
+and only the 17th is the dead-handshake abort MAME meant to catch. Marked
+`APOLLO_XXL` like every other local edit ([[mame-oracle-modified-apollo-xxl]]).
+
+**SR10.2's `rbak` of file 1 now runs to completion after one reposition**, past
+`aa.aegis_large` and on to the template menu -- the first time this release has
+got there. `11) large` is the same template SR10.4's install used.
+
+*Why this is the oracle's defect and not ours: the medium was exonerated three
+ways in C155, the delivery is now proven byte-exact, and the abort is a
+threshold in MAME's model with no counterpart in the part's specification. This
+is the "expect to out-accurate the oracle" case `CLAUDE.md` names, with the
+manual page as the evidence.*
+
+## C179 -- the salvage record is eliminated, in both directions
+
+The label diff that produced C177 also showed node B carrying a salvage record
+that both booting volumes have as zero:
+
+    field              nodeA             nodeB
+    salvage_node       00000000          00022222
+    salvage_time       00000000          7753DA01  1996-08-18 04:01:33
+
+Tested both ways rather than one, because a field that differs is not yet a
+cause:
+
+- node B with `salvage_node`/`salvage_time` zeroed -- **still** shuts down.
+- node A with node B's salvage record written in -- **still** boots, past the
+  kernel to `MBX_HELPER not running. Starting one.`
+
+So it is neither necessary nor sufficient. The same diff walked every field of
+`002398-04`'s physical-volume-label structure and the whole 2048-byte label: the
+only other differences are the mount stamps (C174), the node (C177), and a
+free-space table whose zero entries `dn3500-sr10.3-installed.awd` also has while
+booting fine.
+
+**The volume's label is now exhausted, as its file tree was in C176.**
+
+## C180 -- the second volume was four bytes, not another install
+
+C177 established that this frontend reads a machine's node from the **creator
+UID at block 0 offset `0x48`**. The consequence was not drawn at the time, and
+it retires the blocker Phase 6's ring item has carried for five sessions:
+
+> *"`lcnode` needs either a second installed image with a different node ID, or
+> diskless boot over the ring"* -- `COMPLETION_PLAN.md`
+
+Neither. **Copy the volume that already boots and change three bytes of its
+creator UID** (and the same three at block 1 `0x49`, which is the field MAME
+reads, so the two machines agree):
+
+    A45AA67310012345 -> A45AA67310022222
+
+That copy boots on this core, all the way through:
+
+    Domain/OS kernel(7), revision 10.4, February 14, 1992
+    Apollo Phase II Environment   Revision 10.4   Jan 25, 1992
+    Loading Init. / ... global libraries loaded.
+    ***** Node startup on Thu Nov 28 09:02:08 2002 *****
+    SPM system init complete.
+    SERVER_PROCESS_MANAGER, Version 10.2, 89/07/31
+
+and `--ring-two-node` then starts two machines that disagree about who they are,
+which is the whole requirement:
+
+    node 0  id 012345  ring slot 0  reset 0000633C sp 01000180
+    node 1  id 022222  ring slot 1  reset 0000633C sp 01000180
+
+**The objection C145 raised is real and is not fatal here.** Every object on the
+copy still carries `12345` in its UID, so the volume is *not* a volume node
+22222 could have created, and it must never be presented as one. What the ring
+item needs is two machines answering two ring addresses under Domain/OS, and the
+node an object was made on does not enter that. Recorded as a **deliberate
+approximation** with its cost: a real second node still wants a real second
+install, and any test that reads object UIDs across the ring will see the seam.
+
+*One measured thing this cost: booted with `--disk` alone, the node prints
+`Node ID = 12345` whatever the label says, because `node_id_from_volume` is
+wired to `--volume` and not to `--disk` on the single-machine path. The
+two-node runner does apply it per disk (`main.c:1489`), which is where it is
+needed. That is a real asymmetry in the frontend and it read exactly like the
+guest ignoring the relabelling.*
+
+*Rate, for whoever plans the next run: two nodes execute at **138,000
+instructions/s each** on this machine, against roughly 5 M for a lone one. A
+node reaches `SPM system init complete` at about 1.5 G instructions, so a
+two-node boot to a prompt is a **three-hour** run and has to be started and left.*

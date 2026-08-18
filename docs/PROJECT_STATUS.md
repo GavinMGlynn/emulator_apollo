@@ -415,9 +415,99 @@ model table: `--run-probes` runs eight probes on the constructed machine and its
 report is a committed golden, checked under every build preset. This section
 will state exactly what backs the claim when there is one.
 
-Last updated: 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
+Last updated: 2026-08-18 — a second node ID from a relabelled
+volume, the oracle's tape underrun abort corrected against `008845` §6.3, and
+node B's install recorded as an unexplained defect that blocks nothing.
+Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
+
+## A second node ID is four bytes of label, not a second install (2026-08-18)
+
+**Phase 6's two-node item was blocked for five sessions on "two nodes need two
+volumes", and the blocker was a misreading of where a node ID lives.**
+
+This frontend takes a machine's node from the **creator UID in the volume
+label**, at block 0 offset `0x48` (`AP_VOLUME_CREATOR_UID_OFFSET`) -- not from
+the block-1 field at `0x49` that MAME's `set_node_id_from_disk` reads. Both are
+three bytes. Patching them on a *copy of the volume that already boots* produces
+a second volume that boots identically and answers a different address:
+
+    A45AA67310012345 -> A45AA67310022222
+
+The copy reaches `SPM system init complete.` and
+`SERVER_PROCESS_MANAGER, Version 10.2` on this core, and `--ring-two-node`
+starts two machines that disagree about who they are --
+`node 0 id 012345 ring slot 0`, `node 1 id 022222 ring slot 1`.
+
+**Named as the approximation it is.** Every object on the copy still carries
+`12345` in its UID, so the volume is not one node 22222 could have created. That
+is invisible to a ring-membership test and visible to anything that reads object
+UIDs across the ring; a real second node still wants a real second install.
+Cost to close: one install. `FINDINGS.md` C180.
+
+**An asymmetry this exposed, and it is a real one:** `node_id_from_volume` is
+wired to `--volume` and not to `--disk` on the single-machine path, so a machine
+booted with `--disk` alone reports the compiled-in `12345` whatever its label
+says. The two-node runner does apply it per disk (`main.c:1489`). The
+single-machine path reads exactly like the guest ignoring a relabelling.
+
+**Rate, since it governs how this item is worked:** two nodes execute at
+**138,000 instructions/s each** against roughly 5 M for a lone machine, and a
+node reaches SPM at about 1.5 G instructions. A two-node boot to a prompt is a
+three-hour run.
+
+## The oracle's tape model has one buffer where the part has three (2026-08-18)
+
+**SR10.2's install stopped at tape block 4615 of 21,443 for four sessions, and
+the cause is a threshold in MAME's SC-499 model with no counterpart in the
+hardware.**
+
+Measured, not inferred. Instrumenting the read path in one pass -- the
+read-ahead reconciliation, the underrun abort, the file-mark test and the
+end-of-tape path -- showed the delivered stream is byte-exact and in order
+(stride exactly 64 blocks across 1,429 bursts, breaking only at rewinds), which
+refutes `m_nasty_readahead` and the "shifted by one block" reading of
+`m_first_block_hack`. What stops it is `APDBG UNDERRUN-ABORT tape_pos=4615
+counter=5000`: the model fails the transfer when the guest has not drained a
+block for 5000 tape-block times.
+
+`008845` rev E0 §6.3, read as the page image, gives this controller
+**"Data Buffering 3 x 512 Byte blocks minimum"** and **"Write/Read re-tries 16
+maximum"**. The model has one buffer and no retries. `sc499.cpp`'s own comment
+says what the part does -- *"the real ctape will stop, go back and restart
+reading if appropriate"* -- immediately above the code that instead fails.
+
+`ext/mame` gains `m_underrun_retries`: the drive repositions rather than
+failing, up to the manual's 16 times per block, and only the 17th is the
+dead-handshake abort MAME meant to catch. **SR10.2's `rbak` of file 1 then runs
+to completion after one reposition** and MINST proceeds through all three
+cartridges -- the first time this release has got past the wall. Marked
+`APOLLO_XXL` with the other oracle edits; the temporary probes are reverted.
+`FINDINGS.md` C178.
+
+**This is an oracle defect, not ours**, and it is the "expect to out-accurate
+the oracle" case with a manual page as the evidence.
+
+## Node B's own install is broken, and it is no longer on any item's path
+## (2026-08-18)
+
+Stated with the fraction first: **`media/dn3500-nodeB-*.awd` boot on the oracle
+and shut down on this core**, immediately after the kernel banner and before the
+environment starts. It is unexplained.
+
+What is eliminated, each by a discriminating experiment rather than a plausible
+story: the `startup.spm` file and its content and object type (C168-C172), the
+clock and the 14-day gate (C174), the disk's file tree (C176), the **node ID**
+(C177: `12345` and `22222` give byte-identical consoles), and the **salvage
+record** (C179: removing it from B does not help, adding it to A does not hurt).
+The artifact chain shows the shutdown is present in `dn3500-nodeB-sr10.4.awd`
+-- the image taken straight from MINST -- so nothing done to the volume
+afterwards is responsible.
+
+**It is no longer blocking anything.** It existed only to supply a second node
+ID, and the relabelling above supplies that in four bytes. Kept as a named
+defect with its evidence rather than as a live investigation.
 
 ## Two ring nodes that actually execute: the runner never reset them
 ## (2026-08-17)

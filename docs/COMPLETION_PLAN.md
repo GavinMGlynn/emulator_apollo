@@ -4066,13 +4066,17 @@ discipline throughout.
       instruction 262 on a stack push, at every limit from 3 M to 80 M, while
       reporting only a PC that looked like progress. Both now reach the same PC
       as a single machine at the same instruction count.
-      **What remains, and its real shape: two nodes need two volumes.** A
-      Domain volume label carries its own `node_id`, and `node_id_from_volume`
-      refuses a node that disagrees with its disk -- "every object it then
-      creates carries the lie". So `lcnode` needs either a **second installed
-      image** with a different node ID, or **diskless boot over the ring**,
-      which is how a real second node joins and is a protocol project of its
-      own. Plus a console per node. Detail in `PROJECT_STATUS.md`.
+      **The second volume is no longer a blocker: it is four bytes.** The node
+      a machine presents comes from the **creator UID at block 0 `0x48`**, so a
+      copy of the volume that already boots, with three bytes changed, boots
+      identically as node `22222` and the runner starts `node 0 id 012345` and
+      `node 1 id 022222` on one segment. Deliberate approximation, cost named:
+      the copy's objects still carry `12345`. Detail in `PROJECT_STATUS.md`,
+      `FINDINGS.md` C180.
+      **What remains is the run itself.** Two nodes execute at 138 k
+      instructions/s each and a node reaches SPM at about 1.5 G, so the boot to
+      a prompt is a three-hour run; `lcnode` is scripted through
+      `--ring-script-a`/`-b` and the console per node exists.
       **This was recorded as "a media question with no route". It has a route,
       and it was in the oracle's source rather than in any manual.** `apollo_ni`
       is a `device_image_interface`, so the node ID is a **loadable 32-byte ROM
