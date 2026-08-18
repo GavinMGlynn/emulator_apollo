@@ -8630,8 +8630,28 @@ The dialogue, in order, with the answer a DN3500 wants:
 | `Does this node have a Floppy disk (FLP7) (Y/N)?` | `n` |
 | `Does this node have a Winchester (WIN7) (Y/N)?` | `y` |
 | `WINCHESTER CONTROLLER Type: 0 -- SMS/Omti, 1 -- Western Digital` … `New type:` | **`0`** |
+| ` DISK type:` (`2` Vertex 86 MB, `4` Priam/Maxtor 380 MB, `6` Micropolis 86 MB, `7` Micropolis 170 MB, `8` 760MB, `C` 380MB--FA, `D` None) … `New type (controller 0  unit 0):` | RETURN |
 | `Does this node have a Cartridge tape (CTAPE7) (Y/N)?` | `y` |
 | *(further device prompts not yet reached)* | |
+
+**The `DISK type:` prompt corrects the order above, and was found the hard way.**
+A second run scripted `Cartridge tape` as following the controller type; the
+machine asked for a **disk type** instead, so the expectation could never match and
+every directive queued behind it -- the answer included -- was never sent. The run
+sat at that prompt until it was killed, and again **nothing was written**.
+
+RETURN is the right answer there for this purpose. The utility states *"Type RETURN
+in response to any question to leave that option unchanged"*, the machines this
+project has built were never configured at all, and the only field that needs
+changing is `NODE_ID`. Choosing a type that merely looks close -- `4` or `C`, both
+380 MB against this core's 348 -- would be inventing a number where the tool offers
+a no-op.
+
+**The method note, since this is the second run lost to it**: a follow-file is
+strictly ordered, so one wrong `!expect` stalls everything behind it. For a
+dialogue still being learnt, drive it a turn at a time and append only what the
+machine has actually asked for -- which is what `--commands` was built for and what
+C50 did.
 
 **Two things to get right that this run did not.** The Winchester answer is
 followed by a *controller type* prompt, and a `y` intended for the next device

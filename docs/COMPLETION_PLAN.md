@@ -4152,8 +4152,14 @@ discipline throughout.
       `Did the memory configuration change` → `n`, ` NODE_ID:` → **`22222`**,
       display `New type:` → RETURN, FPU → `y`, FPA → `n`, floppy → `n`,
       Winchester → `y` then **controller type `0`** (SMS/Omti, which is what
-      `ap_omti.*` models), cartridge tape → `y`, then the rest of
-      `002398-04`'s DEV BIT ARRAY order.
+      `ap_omti.*` models), then a **` DISK type:`** prompt — RETURN, since the
+      utility offers "leave unchanged" and only `NODE_ID` needs changing — then
+      cartridge tape → `y`, then the rest of `002398-04`'s DEV BIT ARRAY order.
+      **That `DISK type:` prompt cost a second run.** It was scripted as though
+      cartridge tape followed the controller type; a follow-file is strictly
+      ordered, so the unmatched `!expect` stalled every directive behind it and
+      nothing was written. For a dialogue still being learnt, drive it a turn at a
+      time and append only what the machine has asked for.
       **`Node-id: 0` is what `config` reports** on a machine MAME calls node
       `12345` — a third corroboration that the ROM window and the battery table
       are different sources and the battery one is empty.
