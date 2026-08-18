@@ -479,10 +479,21 @@ def follow_commands(session: Session, path: Path, timeout: float,
                        ejects. A `ctape` is staged into the run directory
                        first, so the guest cannot write on our only copy of it
                        -- see `stage_cartridge`
-      !exit            ask the machine to shut down **cleanly**, and wait for
-                       it. NVRAM -- which holds the calendar's battery
-                       configuration table, and so the node ID -- is written on
-                       this path and not on `!quit`'s
+      !exit            end **MAME** cleanly, and wait for it. NVRAM -- which
+                       holds the calendar's battery configuration table, and so
+                       the node ID -- is written on this path and not on
+                       `!quit`'s.
+                       **It is not a guest shutdown and does not stand in for
+                       one.** Domain/OS is a single-level store: its directory
+                       updates sit in the node's cache until the *guest* shuts
+                       down, so an install that ends here leaves its objects
+                       without their links -- a root directory with the three
+                       entries a virgin INVOL leaves, and a PROM that then says
+                       `SAU7 not found in root_dir` (`FINDINGS.md` C192). Send
+                       `shut` at the `)` prompt first; from inside `sh`, `!raw
+                       \\x04` to leave the shell and then `shut`. Standalone
+                       utilities -- INVOL, SALVOL, CALENDAR -- write through and
+                       need none of that
       !quit            end the session
       anything else    sent as typed, with a carriage return
 

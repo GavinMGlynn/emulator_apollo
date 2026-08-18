@@ -4121,7 +4121,10 @@ discipline throughout.
       and node B's volume with no `--node-id` reads its own `22222`. Seven
       checks in `test_mdsession.py`, `ctest` 139/139. `FINDINGS.md` C151.*
       **And the volume is made**: INVOL options 7 then 1 on a copy, run to
-      `Initialization complete.` and shut down cleanly with `!exit`, gives
+      `Initialization complete.` and ended with `!exit` -- which is enough
+      *here* because INVOL is a standalone utility and writes through; an
+      install under Domain/OS is not, and needs the guest itself shut down
+      (C192) -- gives
       `APOLLODN3500B`, creator UID `77536D6F10022222`, node ID **`22222`** --
       read back by this project's own `node_id_from_volume`. `--ring-two-node`
       now runs two machines with two *different* node IDs, each taking its ID
