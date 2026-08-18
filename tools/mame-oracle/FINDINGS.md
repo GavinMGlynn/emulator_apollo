@@ -9883,3 +9883,47 @@ the shutdown path.
 dismounted, and the bisect is one oracle session using C164's route: `)`, `sh`,
 `login`, `/com/tee /sys/node_data/startup.spm`, then `CTRL-Z` and `shut` --
 which C170 records as the way out that this session got wrong.*
+
+## C172 -- the bisect answers it: replacing `startup.spm` breaks the node, whatever it contains
+
+C171 left two candidates. The bisect settles them. `startup.spm` was rewritten
+to hold **only** the line node A's copy has --
+
+    cps /com/tctl -line 1 -insync
+
+-- verified by `catf`, the volume salvaged and cleanly dismounted, and booted
+Normal on this core:
+
+    Domain/OS kernel(7), revision 10.4, February 14, 1992
+    Beginning shutdown sequence...
+    Shutdown successful
+
+**Identical to the two-line version.** So the `cps /sys/siologin/siomonit`
+line is not the trigger and never was -- C168, C169 and C171 all pursued it,
+and two of those spent a run on it. **The trigger is the act of replacing the
+file.**
+
+Node A's volume, whose `startup.spm` has never been touched, boots fully on the
+same core with the same content plus comments. So a `tee`-written file with the
+same functional text is not equivalent to the installed one.
+
+### The likely reason, named rather than assumed
+
+Domain objects carry a **type**, and the file system is typed: `startup.spm` as
+MINST installs it is presumably a script object, while `tee` creates whatever
+`tee` creates. SPM reading a file of the wrong type would explain a startup
+that ends immediately and identically for every content.
+
+Two things support it without confirming it. `cpf /sys/siologin/startup_sio.sh`
+worked and preserved whatever the original was; and the comment lines were
+never the difference, since the shell ate them before `tee` ever saw them
+(C163) and the bisect shows content is not what matters.
+
+**The next experiment is `ld -a` on `startup.spm` before and after a `tee`**,
+which prints the object type, and then appending to the original rather than
+replacing it -- there is no editor in either shell (C163, C170), so the
+append mechanism is the open question, not the content.
+
+*What that means for the item: node B's volume needs its `startup.spm` restored
+from a copy that preserves the type -- `cpf` from another volume or from the
+distribution -- before any `siologin` line can be added at all.*
