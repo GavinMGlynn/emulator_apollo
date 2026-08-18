@@ -10175,6 +10175,15 @@ counter cleared, tape left where it is -- up to the manual's 16 times per block,
 and only the 17th is the dead-handshake abort MAME meant to catch. Marked
 `APOLLO_XXL` like every other local edit ([[mame-oracle-modified-apollo-xxl]]).
 
+**It cannot regress a run that was not already failing, and that is structural
+rather than tested.** The new branch's condition is `m_underrun_counter + 1 >=
+5000`, which is exactly the condition under which the old code aborted; below it
+not a line changes. So every SR10.3 and SR10.4 install -- which C147 measured as
+never stringing 5000 underruns together -- takes byte-identical paths. That
+argument is worth stating because C159's oracle edit *did* regress the oracle
+and was reverted for it, and the difference is that this one is gated on the
+failure it repairs.
+
 **SR10.2's `rbak` of file 1 now runs to completion after one reposition**, past
 `aa.aegis_large` and on to the template menu -- the first time this release has
 got there. `11) large` is the same template SR10.4's install used.
@@ -10207,7 +10216,15 @@ only other differences are the mount stamps (C174), the node (C177), and a
 free-space table whose zero entries `dn3500-sr10.3-installed.awd` also has while
 booting fine.
 
-**The volume's label is now exhausted, as its file tree was in C176.**
+**And the volume name, which was the last untested difference**: node B's
+volume is `APOLLODN3500B` against node A's `APOLLODN3500`, one byte at `0x22`.
+Renamed to match, it **still** shuts down at the same line. `SYSBOOT REV` at
+`0x870` -- the descriptor `COMPLETION_PLAN.md` names as the mark of a bootable
+volume -- is byte-identical on both.
+
+**The volume's label is now exhausted, as its file tree was in C176.** Every
+field of `002398-04`'s structure has been tested, three of them in both
+directions, and the whole 2048 bytes diffed. Nothing on the disk explains it.
 
 ## C180 -- the second volume was four bytes, not another install
 

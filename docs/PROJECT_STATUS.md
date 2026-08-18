@@ -505,9 +505,12 @@ The artifact chain shows the shutdown is present in `dn3500-nodeB-sr10.4.awd`
 -- the image taken straight from MINST -- so nothing done to the volume
 afterwards is responsible.
 
-**It is no longer blocking anything.** It existed only to supply a second node
-ID, and the relabelling above supplies that in four bytes. Kept as a named
-defect with its evidence rather than as a live investigation.
+**It no longer blocks the ring item, and it does still block the multi-node
+workload item.** The relabelling above supplies a second *node ID*, which is all
+ring membership needs; it does not supply a second *installed volume*, and
+`COMPLETION_PLAN.md`'s distributed-store item is right that a copy whose objects
+carry the first node's UIDs cannot stand in for one. Kept as a named defect with
+its evidence, and it is the thing between that item and being startable.
 
 ## Two ring nodes that actually execute: the runner never reset them
 ## (2026-08-17)

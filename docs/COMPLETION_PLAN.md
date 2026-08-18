@@ -5967,16 +5967,21 @@ Only after the reference core is proven, and only under an identity harness.
 - [ ] Real multi-node Domain workloads: distributed single-level store across
       nodes, `lcnode`, remote file access. *Verification: content finds what
       unit tests did not; each finding lands with a test.*
-      **Blocked on the Phase 6 two-node item, and on nothing else** -- every
-      workload here is a thing two booted nodes do, and this project has one
-      installed volume. The specific gap is that gap: a Domain volume label
-      carries its own `node_id` and `node_id_from_volume` makes a machine present
-      it, so a second node needs either a second installed image or diskless
-      boot over the ring. Patching a copy's label is **not** the route: the
-      objects on it were created by the first node and carry its ID, so the copy
-      would be a machine lying about its identity -- which is exactly what
-      `node_id_from_volume`'s own comment refuses, and this item's findings would
-      then be findings about a fiction.
+      **Blocked on a second *installed* volume, and this objection still
+      stands after C180.** Every workload here is a thing two booted nodes do.
+      Patching a copy's label -- which is how the Phase 6 item's two nodes are
+      now made -- is **not** the route for *this* item: the objects on the copy
+      were created by the first node and carry its ID, so distributed
+      single-level store and remote file access would be reading two volumes
+      whose UIDs collide, and the findings would be findings about a fiction.
+      The boundary is exact: ring **membership** is a function of the node a
+      machine presents, and C180's relabelling settles that; anything reading
+      **object UIDs across the ring** is not, and this item is all of that.
+      **So this item needs the second install to work**, and the attempt at one
+      is `media/dn3500-nodeB-*.awd`, which boots on the oracle and shuts down on
+      this core immediately after the kernel banner. Its whole label and its
+      whole file tree are eliminated (C176-C180); it is unexplained, and it is
+      what stands between this item and being startable.
 
 ## Deferred tails
 
