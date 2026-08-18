@@ -9080,3 +9080,57 @@ cursors or the disk completes its commands early.
 item's text is not evidence about the code. Grep the implementation before
 picking up a named gap -- this one would have been a day's work re-doing
 something already done.*
+
+## C155 -- SR10.2's install fails reproducibly about 1 MB into file 1, and the media is exonerated three ways
+
+`ex domain_os` on SR10.2 needs the calendar set first, exactly as node B did:
+the volume's last recorded time is 2002-11-27 and the guest clock is 1996, so
+CALENDAR takes the `Is the calendar correct?` branch and `n` opens the date
+prompt. With the calendar at `2002/11/27 04:10:00 UTC` the kernel loads, RBAK
+restores, and MINST runs.
+
+**And MINST then fails, twice, at the same object**:
+
+    (file) ".../install/templates/apollo/os.v.10.2/aa.aegis_large" restored.
+    ?(rbak) (restore_object_data) Unexpected error from next_entry.
+     - an EOV1 (or EOF1) label is missing where one is required (library/tfp)
+    ERROR: Rbak of file 1 was not successful.
+
+Two runs, the second on a quieter machine, stopping on the same file. **It is
+deterministic**, which is worth stating because the first run was taken under
+load and a race was the obvious first guess.
+
+### The media is not the fault, and that is established statically
+
+- `ct_extract.py --verify` passes: **1049 objects**, every block's records
+  filling it exactly.
+- The image is a whole number of 512-byte blocks, and its `DE AF FA ED` file
+  marks are in the same pattern as SR10.4's.
+- The ANSI framing at the end of file 1 is **byte-for-byte the same shape** as
+  the cartridge that works:
+
+      SR10.2  21447 FILEMARK  21448 EOF1 force  21449 EOF2  21450 FILEMARK  21451 HDR1 ri.apollo…
+      SR10.4  19168 FILEMARK  19169 EOF1 force  19170 EOF2  19171 FILEMARK  19172 HDR1 ri.apollo…
+
+- `ct_extract.py --list` reads **many more objects past the failure point** --
+  `aa.aegis_medium`, `aa.aegis_small` and the rest of the template set.
+- MINST issues the *identical* command on both releases:
+  `rbak_sr10 -dev ct -f 1 install -as //node_N/install -ms -sacl -pdt -force -du -l`.
+
+### Where it stops, which is the number the next session needs
+
+`aa.aegis_large` is **object 135 of file 1**, at cumulative object-data block
+**2002** -- byte `1025024` (`0xFA400`). File 1 is 10,978,816 bytes, so the read
+desynchronises **about a tenth of the way in**, nowhere near the end-of-file
+labels the error names. rbak's `next_entry` is looking for a label at a place
+the tape has data.
+
+**So the fault is in the guest's read path through the oracle's SC-499 model,
+not in the medium**, and the next step is instrumenting `sc499.cpp` to log the
+block number and DMA state around that offset. The only local edit to that
+device is C56's media-change notifier, which does not touch reads; C142 and
+C143's retry work was reverted by C144.
+
+*Item state: the calendar gate is cleared and RBAK works, so SR10.2 gets
+further than it ever has. It is not booted, and the reason is named and has a
+byte offset.*
