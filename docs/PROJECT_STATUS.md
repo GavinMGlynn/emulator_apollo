@@ -33218,6 +33218,66 @@ against the planted file, since a cfg naming another machine or carrying a mask
 the port does not match is ignored without a word; `ctest` 139/139.
 `FINDINGS.md` C151.*
 
+## Domain/OS runs on this core, and what it took
+
+**`apollo-headless` boots Domain/OS SR10.4 to a running system.** Not the boot
+PROM, not a salvage: `Domain/OS kernel(7) revision 10.4`, `Apollo Phase II
+Environment`, `Loading Init`, global libraries, `Initializing /etc/mnttab`,
+standard daemons, `SPM system init complete.`, `Node ID = 12345`, and
+`MBX_HELPER` started. 2.6 G instructions, 8,731,324,566 clocks, state hash
+`3B021D4148027EFB`.
+
+**The ingredient was never emulation. It was the clock.** The volume records
+`dismounted 2002-11-27 21:45:12` and Domain/OS compares against that stamp, so
+`--clock 2002-11-28`. `tools/identity-boot.sh` deliberately uses a **1987**
+epoch and says so in its own header -- which is why the reference boot stops in
+the PROM and why this had never been seen. `FINDINGS.md` C158.
+
+### The calendar gate is the normal case here, and now says so once
+
+Four sessions hit it independently before it was written down: node B's first
+boot, SR10.2's RBAK, this boot, and a shell session. Every volume this project
+owns was written in 1996 or 2002 and every clock starts behind that.
+
+* **On the oracle:** `ex calendar` before anything else. CALENDAR *states its
+  own branch* -- it prints the calendar time and the volume's last recorded
+  time, then asks `Is the calendar correct?` when the volume is ahead (`n`
+  opens the date prompt) or `Would you like to reset it?` in the opposite case.
+  It aborts on exit at `10200E6: 6100` every time and the set still takes.
+* **On this core:** `--clock` after the dismount stamp, which
+  `apollo-headless --volume FILE` prints.
+* **And for any bootable volume:** `--mode Service` and `--knock-timeout 900`.
+  In Normal mode the PROM boots the disk and the console goes silent; at the
+  default 180 s knock the driver gives up and the failure *reads* like that
+  silence. Three runs were lost to the pair. `FINDINGS.md` C161, C153.
+
+### A second node exists, and the ring frontend is finished
+
+`media/dn3500-nodeB-sr10.4.awd` records node **`22222`**: INVOL'd under that
+node, SR10.4 installed (`RAI install has successfully completed`, `SYSBOOT` at
+`0x870`), salvaged, calendar set, paging file added, cleanly dismounted at
+`1996-08-18 04:54:26`.
+
+`--ring-console` prints both nodes' output with each line tagged by the node
+that said it -- buffered per line, because two machines running one firmware
+reach the same character at the same instant and the raw streams interleave
+*within* a line. `--ring-script-a/-b` drive a dialogue at each node, each fed
+only its own machine's output. And `--clock` now reaches the ring path, which
+it did not: `run_ring_two_node` hardcoded a zero epoch, which is 1900, so
+**neither node could ever have reached a shell** whatever else was in place.
+
+**What is left is a login server.** A booted node completes `SPM system init
+complete.` and then says nothing: `siologin` is not configured, so there is no
+shell on the SIO line to type `lcnode` at. `admin.txt`'s Network Servers
+chapter gives the two files -- `'node_data/siomonit_file` carrying
+`-repeat /dev/sio1 -n siologin1_local`, and the `cps /sys/siologin/siomonit`
+line in `'node_data/startup`. `FINDINGS.md` C160.
+
+*Cost, measured rather than estimated: a ring node runs at about 125 K
+instructions/s against 5 M for a lone machine -- **40x** -- because the medium
+and both stations step once per bit whether or not anything is on the cable.
+So two nodes to a shell is about three hours. `FINDINGS.md` C156.*
+
 ## Archive: the Phase 4 boot item's working notes, closed 2026-08-15
 
 These are the narrative bodies of `COMPLETION_PLAN.md`'s Phase 4 boot item
