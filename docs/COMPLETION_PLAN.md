@@ -5102,6 +5102,16 @@ Only after the reference core is proven, and only under an identity harness.
       `ap_board_advance_one` refreshes each device's cursor on every access that
       reaches it, so the stored `now` *is* the caller's instant today -- and
       exactly the latent hazard the next schedule has to clear first.
+      **And it cannot be done one small part at a time**, which was tried and
+      abandoned on 2026-08-19. The graphics cursor looked like pure residue --
+      `advance` writes it, `ap_graphics_beam` reads it, and the part's own
+      comment says the raster is "a function of the instant, not an
+      accumulation". It is not: `graphics_status` reads the beam from the
+      **register-read** path, and a register read has no instant of its own.
+      Every one of the four is that shape. So the instant has to reach
+      `ap_board_read`/`ap_board_write`, which is 120 call sites, 114 of them in
+      tests -- a single mechanical change to make with the schedule it is for,
+      not a series of small ones.
   - [x] **The timer advance is skipped until a pulse is due**, the PTM keeping
     no `now` of its own so nothing can be left stale. *Verification: interleaved
     A/B, faster in all three pairs, 29.65 s against 30.20 s; hash and reports
