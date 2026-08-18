@@ -40,6 +40,42 @@ static void wired_build(wired_t *w) {
   ap_ring_ctl_attach_ring(&w->ctl, &w->station[0], &w->medium);
 }
 
+/* ## A card comes up out of the ring, and the firmware puts it in
+ *
+ * `[MAC]` §3.5 p. 3-5: "When powered **off** or under command of the
+ * controller, relays connect a node's input coaxial cable to its output
+ * coaxial cable." Powered off is the first clause, and a card that has just
+ * been plugged into a segment has not run the firmware that would energise
+ * anything -- so it must arrive bypassed.
+ *
+ * It arrived *in ring*, because a fresh medium slot has `bypassed` false. On
+ * real hardware that is the failure the relay exists to prevent: an unpowered
+ * workstation breaking the ring for everyone else.
+ *
+ * And the second clause is the other half of the test. MISC_CMD's `nct` is
+ * what the boot PROM writes (`$800`, and subtest 11's `move.b #$1,$400`), so a
+ * board its firmware has driven ends up connected exactly as before. */
+static void test_a_card_arrives_bypassed_and_nct_connects_it(void) {
+  wired_t w;
+  wired_build(&w);
+
+  TEST_ASSERT_FALSE(
+      ap_ring_node_in_ring(w.medium.node[w.station[0].slot].bypass));
+  TEST_ASSERT_TRUE(
+      ap_ring_node_loopback(w.medium.node[w.station[0].slot].bypass));
+
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  TEST_ASSERT_TRUE(
+      ap_ring_node_in_ring(w.medium.node[w.station[0].slot].bypass));
+
+  /* And clearing it takes the node back out, which is the same relay. */
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS, 0u);
+  TEST_ASSERT_FALSE(
+      ap_ring_node_in_ring(w.medium.node[w.station[0].slot].bypass));
+}
+
+
 static void wired_step(wired_t *w) {
   for (unsigned i = 0; i < 2u; i++) {
     ap_ring_station_drive(&w->station[i], &w->medium);
@@ -919,6 +955,7 @@ int main(void) {
   RUN_TEST(test_the_data_port_round_trips_the_firmwares_own_pattern);
   RUN_TEST(test_a_unit_is_both_of_its_at_windows);
   RUN_TEST(test_the_id_register_answers_one_of_the_two_values_init_accepts);
+  RUN_TEST(test_a_card_arrives_bypassed_and_nct_connects_it);
   RUN_TEST(test_an_empty_slot_reads_as_absent_rather_than_as_an_error);
   RUN_TEST(test_the_init_clear_sequence_does_not_erase_the_presence_gate);
   RUN_TEST(test_the_firmwares_timer_initialisation_reaches_two_8254s);

@@ -269,6 +269,29 @@ void ap_ring_ctl_attach_ring(ap_ring_ctl_t *ctl, ap_ring_station_t *station,
   if (station != NULL) {
     ap_ring_station_set_address(station, ctl->node_id);
   }
+  /* **And the relay comes up de-energised, which is `[MAC]` §3.5 read
+   * literally**: "when powered *off* or under command of the controller,
+   * relays connect a node's input coaxial cable to its output coaxial cable".
+   * Powered off is the first clause, and a card that has just been plugged
+   * into a segment has not yet run the firmware that would energise anything.
+   *
+   * It was in-ring, because `ap_ring_medium_attach` leaves a fresh slot with
+   * `bypassed` false. That made a card a retiming element before its
+   * controller had said a word -- and on real hardware it is the failure the
+   * relay exists to prevent, an unpowered workstation breaking the ring for
+   * everyone else.
+   *
+   * Set here rather than in `ap_ring_medium_attach` because the relay is the
+   * *controller's*, not the cable's: a medium built directly by a test is a
+   * piece of coax with no card behind it, and giving it an opinion about
+   * bypass would be modelling a card that is not there.
+   *
+   * The firmware energises it almost at once -- MISC_CMD's `nct`, which the
+   * boot PROM writes as `$800` and subtest 11 as `move.b #$1,$400` -- so a
+   * board driven by firmware reaches the same state it always did. */
+  if (medium != NULL && station != NULL) {
+    ap_ring_medium_set_bypass(medium, station->slot, true);
+  }
 }
 
 void ap_ring_ctl_reset(ap_ring_ctl_t *ctl, bool present) {

@@ -9206,3 +9206,41 @@ relays bypass "when powered off". A node should therefore power up bypassed and
 be connected by the firmware's own `nct` write. Not changed here -- it moves
 every ring golden and deserves its own item rather than a footnote to a
 performance measurement.*
+
+## C157 -- a ring card came up *in* the ring, and `[MAC]` §3.5 says it must not
+
+Found while asking why the idle-cable skip never fires (C156), and it is a
+correctness defect rather than a performance one.
+
+`[MAC]` §3.5 p. 3-5, the sentence this core already quotes in
+`ap_ring_phy.h`: *"When powered **off** or under command of the controller,
+relays connect a node's input coaxial cable to its output coaxial cable."*
+
+**Powered off is the first clause**, and it was not modelled.
+`ap_ring_medium_attach` leaves a fresh slot with `bypassed` false, so a card
+became a retiming element the instant it was plugged into a segment -- before
+its controller had said a word. On real hardware that is the exact failure the
+relay exists to prevent: an unpowered workstation breaking the ring for
+everyone else on it.
+
+**Fixed in the controller, not the medium**, and the placement is the point.
+The relay belongs to the card: a medium built directly by a test is a piece of
+coax with no card behind it, and giving *it* an opinion about bypass would be
+modelling a card that is not there. Putting it in `ap_ring_medium_attach`
+instead was tried first and broke five suites, all of which were right to
+break -- they build bare cable and drive it. `ap_ring_ctl_attach_ring` now
+leaves the relay de-energised.
+
+**And the second clause is what keeps every existing result**: MISC_CMD's `nct`
+energises it, and the boot PROM writes it almost at once -- `$800`, and subtest
+11's `move.b #$1,$400` -- so a board its firmware has driven ends up connected
+exactly as before. `ctest` 139/139, the ring probes unchanged, and the identity
+boot untouched at `03EE415450926A89` since it fits no ring.
+
+*The two-node ring phase hash moves, from `E0EE304D03995CE9` to
+`3393012256C190C1`, and that is the change being correct rather than a
+regression: the machine now starts in the state the manual describes.*
+
+*Verification: `ring_ctl_suite` 20 -> 21 -- a card arrives bypassed and looped
+back, `nct` puts it in the ring, and clearing `nct` takes it out again, which
+is the same relay in both directions.*
