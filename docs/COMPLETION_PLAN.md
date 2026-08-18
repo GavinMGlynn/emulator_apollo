@@ -4188,10 +4188,12 @@ discipline throughout.
       neither `dn3500-sr10.4-installed.awd` (node A) nor `nodeB4.awd`, the two
       volumes the two-node runs actually use, carries the configuration. So the
       chain is three steps and none of them is a ring question:
-      1. **Salvage `dn3500-nodeB-siologin.awd`.** It has never been booted and
-         is dirty: a run here spent all 1.5 G instructions inside SALVOL and
-         reached **40%**, so a full salvage on this core is hours. The oracle is
-         the right tool for it, as it was for writing the file.
+      1. ~~Salvage `dn3500-nodeB-siologin.awd`.~~ **DONE** (C210): 32 seconds
+         in the oracle, against 40% of the way through 1.5 G instructions on
+         this core. `di w` / `ex salvol` / `w` / `1 -f -t -s`; **not**
+         `ex domain_os`, which offers to bring the OS up *without* salvaging and
+         says so. Saved as `media/dn3500-nodeB-siologin-salvaged.awd` with
+         `siologin1_local` intact.
       2. **Give node A's volume the same treatment.** C162 called the MINST
          window "the only window for configuring a node from a command line",
          and **C164 supersedes that for an installed volume**: in the oracle,

@@ -11676,3 +11676,50 @@ volumes. Service mode is fine; **the key press is what breaks it**, and neither
 record named it because neither had varied it. A conflict between two notes is
 a reason to run one control, not to pick the newer note -- and the control cost
 ten minutes against the ~35 minutes already spent believing each in turn.
+
+## C210 -- the siologin volume is salvaged, in 32 seconds
+
+C163 wrote `siomonit_file` and the `startup.spm` line onto node B's volume and
+the session ended without a clean shutdown, so it had never been booted. On this
+core SALVOL is hours -- a 1.5 G instruction run reached **40%** -- and in the
+oracle, once C209's key press was out of the way, it took **32 seconds**.
+
+The route, and two wrong turns worth keeping:
+
+    di w
+    ex salvol
+    w                     <- Select disk: [w=Winch|f=Floppy|q=Quit]
+    1 -f -t -s            <- Please input lv_num (1)[-option]...
+
+**Not `ex domain_os`.** That reaches
+
+    BOOT VOLUME NEEDS SALVAGING.
+    Proceed to bring up OS (and risk volume)?
+
+and the first version of this script answered `Y` there, which brings the OS up
+**without** salvaging -- the prompt says so in its own words. On the only volume
+carrying the `siologin` configuration. Reading the prompt is what stopped it.
+
+**And the options are not interchangeable.** `-v` is *verify only, don't write
+anything to disk*, which would have reported the damage and repaired none of it;
+`-f` fixes without prompting and `-t` stops it pausing, which a scripted session
+cannot answer. `-s` printed the statistics that make this a measurement:
+
+    836 vtoces were deferred for processing; do_deferred_vtoces called 9 times
+    1 pass over the vtoc
+    Total run took 32 seconds, of which 4 seconds were spent sorting
+    Salvage complete
+
+Saved as `media/dn3500-nodeB-siologin-salvaged.awd`; `siologin1_local` is still
+on it after the repair, checked, and the image differs from the pre-salvage one.
+
+### The append mechanism, settled from the code
+
+C197 recorded that appending to a live commands file does nothing. It works:
+`follow_commands` reads in chunks and deliberately keeps a trailing **partial**
+line back -- *"a file being appended to can be read between the text and its
+newline"* -- and every answer above was appended while the machine waited.
+C197's edit failed for a different reason: it rewrote a tail the follower had
+already consumed. The real trap is a long `!wait` at the end of a file you mean
+to append to, which blocks the **follower** rather than the machine, and
+`--settle` applying *before* the commands as well as after.
