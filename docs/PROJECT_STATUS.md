@@ -608,6 +608,15 @@ unchanged. `FINDINGS.md` C199.*
 
 ## Node B's shutdown is a wait that times out, not a fault (2026-08-18)
 
+**ANSWERED the next day, and the measurements below stand.** The wait was real
+and so was everything the differential found; what it was waiting for is
+explained by the section above -- the machine was calling itself `12345` while
+its disk recorded `22222`, and Domain/OS declines to run as a node its disk
+contradicts. Kept because the differential is how the question was narrowed from
+"it shuts down" to five million instructions and one program load, and because
+it is the record of what a schedule-level differential can and cannot see.
+`FINDINGS.md` C199.
+
 The differential was run rather than left as a plan. Both volumes booted on this
 core with `--boot-progress 1000000` and the PC sequences diffed:
 
@@ -676,9 +685,15 @@ the oracle" case with a manual page as the evidence.
 ## Node B's own install is broken, and it is no longer on any item's path
 ## (2026-08-18)
 
-Stated with the fraction first: **`media/dn3500-nodeB-*.awd` boot on the oracle
+**SUPERSEDED**: the install was never broken. `media/dn3500-nodeB-*.awd` boot
+on this core once the machine is given the node its disk records; what shut them
+down was this frontend's `--disk` path, not the volume. See the node-ID section
+above. The eliminations below were all correct and none of them was the cause --
+which is the useful part of this section, and why it is kept.
+
+Stated as it was: **`media/dn3500-nodeB-*.awd` boot on the oracle
 and shut down on this core**, immediately after the kernel banner and before the
-environment starts. It is unexplained.
+environment starts.
 
 What is eliminated, each by a discriminating experiment rather than a plausible
 story: the `startup.spm` file and its content and object type (C168-C172), the
