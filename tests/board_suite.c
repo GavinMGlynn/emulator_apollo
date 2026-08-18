@@ -1780,6 +1780,36 @@ static void test_two_boards_on_one_ring_segment_exchange_a_frame(void) {
   /* A is not its own addressee, so A copied nothing. A model that reported
    * every passing frame as received would pass every assertion above. */
   TEST_ASSERT_EQUAL_UINT64(0u, a.ring_station.frames_copied);
+
+  /* **And A can read that it got through, which is the half that was missing.**
+   * `[MAC]` §2.2.2.5's late acknowledge is written by the receivers a frame
+   * passes and read by the sender when it comes back; p. 12-31 puts it in
+   * XMIT_STAT's `cpd` at bit 14 and `wak` at 13. Until `RING.md` 137 the
+   * station kept no returning acknowledge and this register answered an echo of
+   * the command written to it -- so a frame could cross the ring and the sender
+   * had no way to know. Every one of the nineteen status bits named in
+   * `ap_ring_ctl.h` was used by nothing. */
+  const uint16_t xmit =
+      ap_ring_ctl_read16(&a.ring, true, AP_RING_CTL_BANK_STATUS + 2u);
+  TEST_ASSERT_TRUE((xmit & AP_RING_CTL_XMIT_CPD) != 0u);
+  TEST_ASSERT_EQUAL_HEX16(0u, xmit & AP_RING_CTL_XMIT_WAK);
+  /* And the low byte is undisturbed by the new high half: it reads `B0`, which
+   * is the ROM's own subtest 23 value after a completed transmit -- `xen` has
+   * cleared with the operation while `nct`, `iby` and `xby` stay set. Asserting
+   * the *idle* `F0` here was wrong and the suite said so; the completion is the
+   * point of the test. */
+  TEST_ASSERT_EQUAL_HEX16(0x00B0u, xmit & 0x00FFu);
+
+  /* And B, the receiver, reports the copy in p. 12-30's RCV_STAT bit 14. */
+  TEST_ASSERT_TRUE((ap_ring_ctl_read16(&b.ring, true,
+                                       AP_RING_CTL_BANK_STATUS + 4u) &
+                    AP_RING_CTL_RCV_CPD) != 0u);
+  /* B transmitted nothing, so B has no acknowledge to report -- which is not
+   * the same as reporting that nothing was copied. */
+  TEST_ASSERT_EQUAL_HEX16(0u,
+                          ap_ring_ctl_read16(&b.ring, true,
+                                             AP_RING_CTL_BANK_STATUS + 2u) &
+                              AP_RING_CTL_XMIT_CPD);
 }
 
 

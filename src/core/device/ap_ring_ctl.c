@@ -70,6 +70,13 @@ static bool ring_ctl_queue_from_buffer(ap_ring_ctl_t *ctl) {
   if (!ap_ring_station_queue_frame(ctl->station, &fields)) {
     return false;
   }
+  /* The previous frame's outcome is not this one's, and the station has already
+   * dropped it. Both sides forget together or a driver reads a stale `cpd`. */
+  ctl->tx_ack_seen = false;
+  ctl->a2.xmit_status = (uint16_t)(
+      ctl->a2.xmit_status & (uint16_t) ~(AP_RING_CTL_XMIT_CPD |
+                                         AP_RING_CTL_XMIT_WAK |
+                                         AP_RING_CTL_XMIT_ICP));
   /* The transmit trio, in `ring8a.drvr`'s units (`RING.md` 100): `XMT_HDR`
    * "Transmitter Header **Word**" and `XMT_PKT` "Transmitter Total **Word**".
    * Words, where the receive pair count bytes -- which is the asymmetry
@@ -188,6 +195,39 @@ void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl) {
   if (ctl == NULL || ctl->station == NULL) {
     return;
   }
+  /* **`[MAC]` §2.2.2.5's read-back, folded into XMIT_STAT.** The frame this
+   * node sent has been round the ring and back; the late acknowledge it carries
+   * was written by the receivers it passed, and reading it is the only way a
+   * sender ever learns whether anybody took the packet. p. 12-31 names where it
+   * lands: `cpd` at bit 14, `wak` at 13, `icp` at 12.
+   *
+   * **Only those three are mapped, because only those three are named the same
+   * in both documents.** Figure 2-8's remaining bit is "an error was observed,
+   * *or* the sender aborted", and p. 12-31 offers `pke` (packet error) and
+   * `abt` (packet aborted) as separate destinations -- nothing in either source
+   * says which, so it is left unmapped and recorded rather than fitted.
+   * `RING.md` 137b. */
+  {
+    uint8_t ack = 0u;
+    if (!ctl->tx_ack_seen &&
+        ap_ring_station_transmit_ack(ctl->station, &ack)) {
+      ctl->tx_ack_seen = true;
+      ctl->a2.xmit_status = (uint16_t)(
+          ctl->a2.xmit_status &
+          (uint16_t) ~(AP_RING_CTL_XMIT_CPD | AP_RING_CTL_XMIT_WAK |
+                       AP_RING_CTL_XMIT_ICP));
+      if ((ack & AP_RING_LATE_COPIED) != 0u) {
+        ctl->a2.xmit_status |= AP_RING_CTL_XMIT_CPD;
+      }
+      if ((ack & AP_RING_LATE_WAIT_ACK) != 0u) {
+        ctl->a2.xmit_status |= AP_RING_CTL_XMIT_WAK;
+      }
+      if ((ack & AP_RING_LATE_INTEND_TO_COPY) != 0u) {
+        ctl->a2.xmit_status |= AP_RING_CTL_XMIT_ICP;
+      }
+    }
+  }
+
   /* One deposit per frame the station *copied*, which is its own count of
    * §2.2.2.2 acceptances -- addressed to this node, or broadcast, with the
    * receiver enabled. Edge-triggered on that counter rather than on a level,
@@ -196,6 +236,10 @@ void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl) {
     return;
   }
   ctl->rx_copied_seen = ctl->station->frames_copied;
+  /* p. 12-30 bit 14: this station copied the packet. The receive counterpart of
+   * the transmit read-back above, and the other half of what a driver needs to
+   * see a frame arrive rather than infer it from an interrupt. */
+  ctl->a2.rcv_status |= AP_RING_CTL_RCV_CPD;
 
   /* **Where it lands is `RCV_ADDR`, and how much is the firmware's own
    * answer.** `002398-04` p. 12-29 gives `59004` as `RCV_ADDR` on write, and
@@ -745,14 +789,22 @@ uint16_t ap_ring_ctl_read16(ap_ring_ctl_t *ctl, bool second_window,
        *
        * Only those four bits are asserted by anything measured, so only those
        * are answered -- the same restraint as the ID lane in finding 62. */
-      return (uint16_t)((w->command_402 & 0xFF00u) | w->command_402_status);
+      /* p. 12-31's XMIT_STS: `pe` and the seven bits it selects in the high
+       * byte, `nct`/`xen`/`iby`/`xby` and the transmit tags in the low. The
+       * high byte was an echo of the written command, which no source
+       * describes; it satisfied the ROM only because the ROM wants that half
+       * to read **zero** at the one point it checks it (subtest 23's `$00B0`,
+       * after an internal loopback with no addressed receiver -- which is
+       * exactly what real status reads there too). */
+      return (uint16_t)((w->xmit_status & 0xFF00u) | w->command_402_status);
     case 4u:
       /* The same shape one register along: subtest 15 requires
        * `(+404) & $F8 == $E0` after the firmware has written only the command
        * lane, so bits 7-5 read set and bits 4-3 clear. `+402`'s four bits and
        * these three are the whole of what the ROM asserts about either status
        * half; nothing else is answered. */
-      return (uint16_t)((w->command_404 & 0xFF00u) | w->command_404_status);
+      /* p. 12-30's RCV_STS, high byte, on the same reasoning as `+402`. */
+      return (uint16_t)((w->rcv_status & 0xFF00u) | w->command_404_status);
     default:
       /* `+406` is `RAM_DATA`, the buffer's data port -- finding 46a's
        * read-ahead latch, which answers with the word the *previous* access

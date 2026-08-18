@@ -100,6 +100,7 @@
 #include <stdint.h>
 
 #include "device/ap_i8254.h"
+#include "ring/ap_ring_frame.h"
 #include "ring/ap_ring_medium.h"
 #include "ring/ap_ring_phy.h"
 #include "ring/ap_ring_station.h"
@@ -428,6 +429,24 @@ typedef struct {
    * requires `B0` once a `$6` command has been taken, so bit 6 goes with the
    * operation. Held per window because it changes. */
   uint16_t command_402_status;
+
+  /* **XMIT_STAT's high byte, which is status and not an echo of the command.**
+   * `002398-04` p. 12-31 tabulates `59402`'s read as sixteen status bits: `pe`
+   * at 15 selecting what 14-8 mean, then the low byte's `nct`/`xen`/`iby`/`xby`
+   * and the two transmit tags. This core returned the *written command* in the
+   * high half, which no source describes and which happened to satisfy the ROM
+   * only because the ROM wants that half to read zero at the one point it looks
+   * (subtest 23's `$00B0`).
+   *
+   * That left every one of the nineteen bits named in this header used by
+   * nothing at all -- and `cpd`/`wak` are how a driver learns whether its
+   * packet was taken, which is the whole of "two nodes see each other". */
+  uint16_t xmit_status;
+
+  /* And RCV_STAT's, for the same reason: p. 12-30 gives `59404`'s read as
+   * sixteen status bits with `pe` at 15 a status bit rather than a selector,
+   * so there is one layout here and no echo either. */
+  uint16_t rcv_status;
   /* `+404`'s low lane, the same shape and cleared by the same event. */
   uint16_t command_404_status;
   uint16_t command_404;
@@ -509,6 +528,10 @@ typedef struct {
   /* The station's copied-frame count as of the last deposit, so a frame lands
    * in the buffer once however often the ring is polled. */
   uint64_t rx_copied_seen;
+  /* Edge-triggering for the transmit read-back, the same shape as
+   * `rx_copied_seen`: the station holds its acknowledge until the next frame is
+   * queued, so a level test would refold it on every poll. */
+  bool tx_ack_seen;
 } ap_ring_ctl_t;
 
 /* Join a controller to a station on a medium. Both pointers are borrowed and

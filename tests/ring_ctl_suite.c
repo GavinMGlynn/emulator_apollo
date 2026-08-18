@@ -329,10 +329,18 @@ static void test_the_two_windows_are_separate_register_sets(void) {
 
   TEST_ASSERT_EQUAL_HEX8(0xB0u, ctl.a2.timer_a.counter[2].control);
   TEST_ASSERT_EQUAL_HEX8(0x00u, ctl.a1.timer_a.counter[2].control);
-  /* `+402`'s **high** lane is the command byte and round-trips; its low lane is
-   * status, which finding 48 said it carried and subtest 13 pinned. */
+  /* **`+402`'s high lane does not round-trip, and this required that it did.**
+   * `002398-04` p. 12-31 gives `59402`'s read as XMIT_STS -- sixteen status
+   * bits -- so a written command is not what comes back out of it. The echo
+   * was this core's own invention and two tests asserted it; it survived only
+   * because the ROM checks that half at one point and wants **zero** there
+   * (subtest 23's `$00B0`), which real status also gives. `RING.md` 137.
+   *
+   * The written command is still held -- the transmit path reads it -- it is
+   * simply not what the register answers. */
+  TEST_ASSERT_EQUAL_HEX16(0xB800u, ctl.a2.command_402);
   TEST_ASSERT_EQUAL_HEX16(
-      0xB800u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 2u) &
+      0x0000u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 2u) &
                    0xFF00u);
 
   /* **The first window's `+402` is not a second copy of that register**, and
@@ -478,19 +486,23 @@ static void test_the_unknown_command_slots_are_storage_and_nothing_more(void) {
   ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_STATUS + 2u, 0x1111u);
   ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_STATUS + 4u, 0x2222u);
 
-  /* Storage in the command lane, and **not** "nothing more": the low lane of
-   * `+402` answers with status the firmware requires (`RING.md` 63), so this
-   * test now says which half is storage rather than assuming both are. */
+  /* **Neither lane is storage, and the name of this test is now the record of
+   * what it used to claim.** The low lane answers status the firmware requires
+   * (`RING.md` 63) and the high lane answers p. 12-31's XMIT_STS rather than
+   * the command written to it (`RING.md` 137). The command is kept, because the
+   * transmit path reads it; it is not what the register returns. */
+  TEST_ASSERT_EQUAL_HEX16(0x1111u, ctl.a2.command_402);
   TEST_ASSERT_EQUAL_HEX16(
-      0x1100u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 2u) &
+      0x0000u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 2u) &
                    0xFF00u);
   TEST_ASSERT_EQUAL_HEX16(
       AP_RING_CTL_COMMAND_STATUS_IDLE,
       ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 2u) & 0x00FFu);
-  /* `+404` the same way, from subtest 15: command lane storage, status lane
-   * answering. The two command registers turn out to share one shape. */
+  /* `+404` the same way: p. 12-30 gives it as RCV_STS, one layout, sixteen
+   * status bits. The two registers do share one shape -- neither echoes. */
+  TEST_ASSERT_EQUAL_HEX16(0x2222u, ctl.a2.command_404);
   TEST_ASSERT_EQUAL_HEX16(
-      0x2200u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 4u) &
+      0x0000u, ap_ring_ctl_read16(&ctl, true, AP_RING_CTL_BANK_STATUS + 4u) &
                    0xFF00u);
   /* **The status lane is not pure storage either: `ren` follows the command's
    * `rcv`.** p. 12-32 gives `RCV_CMD` one bit, 11, "1 => receive enable", and

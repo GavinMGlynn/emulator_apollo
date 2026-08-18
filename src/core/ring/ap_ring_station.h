@@ -166,6 +166,22 @@ typedef struct {
   bool tx_seen_own_frame_start;
   size_t tx_stripped_own;
 
+  /* ## §2.2.2.5's read-back: what this station's own frame came back carrying
+   *
+   * A late acknowledge is written by the *receivers* a frame passes and read by
+   * the **transmitter** when the frame comes back round to be stripped. That
+   * read is the only way a sender ever learns whether anybody took its packet,
+   * and it is what a driver's "did that go through?" reduces to.
+   *
+   * The station already destuffs and accumulates every passing frame's late
+   * field in `rx_late`, including its own; all that was missing was keeping the
+   * one that belongs to the frame this station sent. Without it the whole path
+   * from `[MAC]` Figure 2-8 to the board's `XMIT_STAT` `cpd`/`wak` bits was
+   * absent, and `ap_ring_ctl` answered a driver's status read with an echo of
+   * the command it had written. */
+  uint8_t tx_ack;
+  bool tx_ack_valid;
+
   /* The last nine received bits, most recent in bit 0. Nine because that is an
    * out-of-band character's width; anything narrower cannot recognise one. */
   uint16_t window;
@@ -238,6 +254,16 @@ void ap_ring_station_attach_rx(ap_ring_station_t *s, uint8_t *bytes,
 
 /* Whether a queued frame has been fully driven onto the ring. */
 [[nodiscard]] bool ap_ring_station_transmitted(const ap_ring_station_t *s);
+
+/* `[MAC]` §2.2.2.5's read-back: the late acknowledge field the last frame this
+ * station transmitted came back carrying, decoded with the `AP_RING_LATE_*`
+ * bits in `ap_ring_frame.h`.
+ *
+ * False until the frame has been round -- a station that has just transmitted
+ * does not yet know, and answering "not copied" in that window would be a lie
+ * rather than a delay. Queueing the next frame clears it. */
+[[nodiscard]] bool ap_ring_station_transmit_ack(const ap_ring_station_t *s,
+                                                uint8_t *ack);
 
 /* Put a free token onto the ring from this station, nine bits, one per call to
  * `ap_ring_station_drive` until it is done. Used to start a ring: on real

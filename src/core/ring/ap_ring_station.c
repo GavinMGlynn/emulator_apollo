@@ -60,6 +60,11 @@ bool ap_ring_station_queue_frame(ap_ring_station_t *s,
   s->tx_armed = true;
   s->tx_seen_own_frame_start = false;
   s->tx_stripped_own = 0u;
+  /* The previous frame's acknowledge is not this frame's. Cleared here rather
+   * than when the new one arrives, so that "have I heard back yet?" is false
+   * for the whole time the answer is unknown. */
+  s->tx_ack = 0u;
+  s->tx_ack_valid = false;
   /* Step 1: "A node generates a packet and enables its transmitter." */
   s->wants_ring = true;
   return true;
@@ -68,6 +73,16 @@ bool ap_ring_station_queue_frame(ap_ring_station_t *s,
 bool ap_ring_station_transmitted(const ap_ring_station_t *s) {
   return s != NULL && !s->tx_armed && s->tx_bit_count > 0u &&
          s->tx_bit_pos >= s->tx_bit_count;
+}
+
+bool ap_ring_station_transmit_ack(const ap_ring_station_t *s, uint8_t *ack) {
+  if (s == NULL || !s->tx_ack_valid) {
+    return false;
+  }
+  if (ack != NULL) {
+    *ack = s->tx_ack;
+  }
+  return true;
 }
 
 void ap_ring_station_originate_token(ap_ring_station_t *s, uint16_t symbol) {
@@ -385,6 +400,15 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
               } else {
                 s->frames_wacked++;
               }
+            }
+            /* **§2.2.2.5's read-back.** If this station is stripping its own
+             * frame, the field that just completed is that frame's -- written
+             * by whatever receivers it passed on the way round. This is the
+             * only moment a transmitter ever learns whether anybody copied it,
+             * and `s->rx_late` already holds it destuffed. */
+            if (s->stripping && s->tx_seen_own_frame_start) {
+              s->tx_ack = s->rx_late;
+              s->tx_ack_valid = true;
             }
             s->rx_state = RX_IDLE;
           }

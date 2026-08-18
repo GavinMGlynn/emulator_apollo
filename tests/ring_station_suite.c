@@ -587,6 +587,48 @@ static void test_a_receiver_not_enabled_to_copy_sets_wait_ack(void) {
   TEST_ASSERT_TRUE(ap_ring_ack_parity_ok(r.station[2].rx_late));
 }
 
+/* **The transmitter's own read-back, `[MAC]` §2.2.2.5.** A late acknowledge is
+ * written by the receivers a frame passes and read by the sender when the frame
+ * comes back round to be stripped -- and that read is the only way a node ever
+ * learns whether anybody took its packet.
+ *
+ * The station destuffed and accumulated every passing frame's late field,
+ * including its own, and kept none of them. So the whole path from Figure 2-8
+ * to the board's `XMIT_STAT` `cpd`/`wak` bits was missing, and `ap_ring_ctl`
+ * answered a driver's status read with an echo of the command written to it.
+ * Nineteen named status bits in that header were used by nothing at all. */
+static void test_a_transmitter_reads_back_that_its_frame_was_copied(void) {
+  ring_t r;
+  static uint8_t txbuf[2048];
+  late_ack_ring(&r, txbuf, sizeof txbuf, true);
+
+  uint8_t ack = 0u;
+  TEST_ASSERT_TRUE(ap_ring_station_transmit_ack(&r.station[0], &ack));
+  TEST_ASSERT_TRUE((ack & AP_RING_LATE_COPIED) != 0u);
+  TEST_ASSERT_EQUAL_HEX8(0u, ack & AP_RING_LATE_WAIT_ACK);
+  TEST_ASSERT_TRUE(ap_ring_ack_parity_ok(ack));
+
+  /* The bystander transmitted nothing, so it has nothing to read back --
+   * distinct from reading back "not copied", which is what a model that
+   * defaulted the field would have said. */
+  TEST_ASSERT_FALSE(ap_ring_station_transmit_ack(&r.station[2], NULL));
+}
+
+/* The other arm: an addressed receiver that is not enabled to copy sets
+ * wait-ack, and the sender must be able to tell the two apart -- a driver
+ * retries a WACK and does not retry a copy. */
+static void test_a_transmitter_reads_back_a_wait_acknowledge(void) {
+  ring_t r;
+  static uint8_t txbuf[2048];
+  late_ack_ring(&r, txbuf, sizeof txbuf, false);
+
+  uint8_t ack = 0u;
+  TEST_ASSERT_TRUE(ap_ring_station_transmit_ack(&r.station[0], &ack));
+  TEST_ASSERT_TRUE((ack & AP_RING_LATE_WAIT_ACK) != 0u);
+  TEST_ASSERT_EQUAL_HEX8(0u, ack & AP_RING_LATE_COPIED);
+  TEST_ASSERT_TRUE(ap_ring_ack_parity_ok(ack));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_stripping_timeout_matches_both_forms_the_manual_gives);
@@ -607,5 +649,7 @@ int main(void) {
   RUN_TEST(test_an_addressed_receiver_sets_intend_to_copy_in_flight);
   RUN_TEST(test_an_addressed_receiver_sets_copied_in_the_late_ack);
   RUN_TEST(test_a_receiver_not_enabled_to_copy_sets_wait_ack);
+  RUN_TEST(test_a_transmitter_reads_back_that_its_frame_was_copied);
+  RUN_TEST(test_a_transmitter_reads_back_a_wait_acknowledge);
   return UNITY_END();
 }
