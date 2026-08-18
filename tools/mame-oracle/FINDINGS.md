@@ -11021,6 +11021,25 @@ than by re-running a forty-minute install to find out. That is the discipline
 `CLAUDE.md` asks for and it was not applied to the two installs before this one,
 both of which ran to the end and then failed at the last line.*
 
+**And the answer was already in the repository.**
+`tools/mame-oracle/install-domainos.cmds` ended with
+
+    select
+    shut
+    ls /etc/shutdown /com/shut /sau11/shut
+    exit
+    ld /com/shut*
+    !raw <EOT>
+    shut
+    !quit
+
+-- a previous session working the problem out, left in the tracked file as
+though it were the recipe, with the right answer sitting unremarked in the
+middle of it and `!quit` (which does not even write NVRAM) as the actual ending.
+Nothing said EOT was the one that worked, so every install since ended with
+`!exit`. The file now carries the working ending and the reason. This is
+[[consult-references-before-iterating]] with the reference being our own tree.
+
 ### And the PROM finds SAU7 on it, which is the whole point
 
 The committed volume booted on **our** core, no oracle involved:
