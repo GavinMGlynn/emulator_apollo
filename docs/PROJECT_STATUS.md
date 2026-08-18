@@ -1004,15 +1004,29 @@ unchanged at `A354786119A3931D`.*
 ## Domain/OS boots with the ring fitted, and passes its own self-tests
 ## (2026-08-17)
 
-**Both ring generations are found by the firmware, pass its diagnostic and get
-a driver type accepted -- and the OS does *not* boot with the card fitted.**
-Corrected 2026-08-19: every line quoted below is printed **before**
-`Self tests passed.`, and nothing had been run past that point with the ring on.
-Run past it, a card-only machine **crashes** where a ring-less one prints its
-kernel banner -- `Crash_Status 00110009  PC 3C4AED68 pid 0001` at 503 M against
-`kernel(7)` at 500 M -- and with the option ROM as well it never leaves the
-firmware at all. That is the ring item's real blocker and it is a device
-question. `FINDINGS.md` C201.
+**Both ring generations are found by the firmware, pass its diagnostic, get a
+driver type accepted, and Domain/OS boots to its Phase II environment with the
+card fitted.**
+
+This heading was wrong twice before it was right, and the sequence is worth
+keeping. It first claimed a boot on lines printed **before** `Self tests
+passed.` -- nothing had been run past that point with the ring on. Run past it,
+a card-fitted machine **crashed** where a ring-less one printed its kernel
+banner: `Crash_Status 00110009  PC 3C4AED68 pid 0001` at 503 M against
+`kernel(7)` at 500 M (C201). That crash was then traced to one inverted bit in
+this core -- the first window's `TIMO_ACK` *asserted* the active-low `tmi` it
+was meant to acknowledge, so a driver that acknowledged a timeout was handed
+one -- and with it fixed the same machine boots (C208):
+
+    Domain/OS kernel(7), revision 10.4, February 14, 1992
+    Apollo Phase II Environment   Revision 10.4   Jan 25, 1992
+    Loading Init.
+    ... global libraries loaded.
+
+700 M instructions, `state hash 957B42F3C3AE6DE7`, no `Crash_Status` line. The
+lesson is C201's, not C208's: **the blocker was ours all along**, and the
+firmware's `Apollo Token Ring test passed.` was never evidence about the OS,
+because the diagnostic never issues a `TIMO_ACK`. `FINDINGS.md` C201, C208.
 
 What the firmware does do, which is what these lines are:
 

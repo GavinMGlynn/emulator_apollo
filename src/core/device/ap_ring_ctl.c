@@ -796,7 +796,20 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
        * register table, not by a failure: the AT firmware never writes it, so
        * nothing could have caught it. */
       if (!second_window) {
-        ctl->a2.status &= (uint16_t)~AP_RING_CTL_STATUS_TMI;
+        /* **An acknowledge clears the interrupt, and `tmi` is active low, so
+         * acknowledging *sets* it.** This cleared it, which is the assertion
+         * rather than the acknowledgement -- so a driver that acknowledged a
+         * timeout was given one. `RING.md` 111 establishes the polarity from
+         * `RING_PROC`'s `7A4D0944`: "a healthy board reads 1 and clear is the
+         * pending timeout", and the `RCV_ACK` path twenty lines above already
+         * states the rule for its twin -- "writing `RCV_ACK` at the first
+         * window's `+4` sets it again".
+         *
+         * This is what Domain/OS died of. Its driver reads MISC_STAT, does
+         * `lsr.b #1,d0` to put `tmi` in the carry and `bcs` past the error
+         * call, so a clear bit *is* the error path -- and it read `F006`
+         * (`FINDINGS.md` C208). */
+        ctl->a2.status |= AP_RING_CTL_STATUS_TMI;
         return;
       }
       /* Finding 46: the pointer `+406` advances from. Writing it does **not**

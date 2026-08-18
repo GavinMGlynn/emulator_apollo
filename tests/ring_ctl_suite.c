@@ -432,8 +432,22 @@ static void test_the_first_windows_write_only_registers_clear_what_they_name(
   TEST_ASSERT_EQUAL_HEX16(AP_RING_CTL_STATUS_TMI,
                           ctl.a2.status & AP_RING_CTL_STATUS_TMI);
 
+  /* **`TIMO_ACK` clears the *condition*, and `tmi` is active low, so the bit
+   * goes to 1.** This asserted the opposite until 2026-08-19, and so did the
+   * code -- both read "clear register" as "clear the bit" without carrying the
+   * polarity `RING.md` 111 establishes from `RING_PROC`'s `7A4D0944`, "a
+   * healthy board reads 1 and clear is the pending timeout". `RCV_ACK` twenty
+   * lines into `ap_ring_ctl.c` already had it right for its twin: acknowledging
+   * *sets* the bit again.
+   *
+   * The cost of getting it backwards was the whole of Domain/OS: its driver
+   * reads MISC_STAT, does `lsr.b #1,d0` to put `tmi` in the carry and `bcs`
+   * past its error call, so a board that answers an acknowledgement by
+   * asserting a timeout is one it refuses (`FINDINGS.md` C208). */
+  ctl.a2.status &= (uint16_t)~AP_RING_CTL_STATUS_TMI;
   ap_ring_ctl_write16(&ctl, false, AP_RING_CTL_W1_TIMO_ACK, 0u);
-  TEST_ASSERT_EQUAL_HEX16(0u, ctl.a2.status & AP_RING_CTL_STATUS_TMI);
+  TEST_ASSERT_EQUAL_HEX16(AP_RING_CTL_STATUS_TMI,
+                          ctl.a2.status & AP_RING_CTL_STATUS_TMI);
 
   /* And `TIMO_ACK` is not the RAM pointer. Writing a pointer-shaped value to
    * the first window's `+006` must not arm the buffer, which is what the bug

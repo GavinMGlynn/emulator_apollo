@@ -11586,3 +11586,58 @@ to it is what the driver's initialisation expects `tmo` and `gps` to be before
 it will proceed. Until then `0xF807` stands, because it was derived from the
 firmware's subtests and changing it on the strength of "the driver would be
 happier" is exactly the reasoning `CLAUDE.md` forbids.*
+
+## C208 -- `TIMO_ACK` asserted the timeout it was acknowledging, and Domain/OS boots with the ring
+
+The driver's own instructions, dumped at the deciding PC with `--dump-logical`
+and decoded by hand:
+
+    3C4AED56  30 28 14 00   move.w $1400(a0),d0    ; read MISC_STAT
+    3C4AED5A  E2 08         lsr.b  #1,d0           ; bit 0 -- tmi -- into carry
+    3C4AED5C  65 0C         bcs.s  3C4AED6A        ; branch away if SET
+    3C4AED5E  48 7A F7 68   pea    (-2200,pc)      ; else push and
+    3C4AED62  4E B9 ...     jsr    $3C42B928       ; call the error routine
+    3C4AED68  58 4F         addq.l #4,a7           ; <- the reported crash PC
+
+**So the driver branches past its error call only when `tmi` is set**, and it
+read `F006`, whose bit 0 is clear. `tmi` is active low -- `RING.md` 111 has it
+from `RING_PROC`'s `7A4D0944` -- so clear *is* a pending timeout, and a pending
+timeout is what Domain/OS refuses to run on.
+
+### The defect
+
+The first window's `+006` is `TIMO_ACK`, and this core did
+
+    ctl->a2.status &= (uint16_t)~AP_RING_CTL_STATUS_TMI;
+
+-- **clearing an active-low bit, which asserts the condition.** An acknowledge
+that asserts what it acknowledges: a driver that acknowledged a timeout was
+given one. The `RCV_ACK` path twenty lines earlier in the same file already
+states the rule for its twin -- *"writing `RCV_ACK` at the first window's `+4`
+sets it again"* -- and this one was written the other way round.
+
+**And the test asserted the same thing**, which is why nothing caught it:
+`test_the_first_windows_write_only_registers_clear_what_they_name` required
+`TIMO_ACK` to *clear* the bit. Both the code and the test read "clear register"
+as "clear the bit" without carrying the polarity across. `CLAUDE.md` names this
+exactly -- *"tests encode the same misreadings as the code"* -- and here they
+did, in the same three words.
+
+### The result
+
+    Domain/OS kernel(7), revision 10.4, February 14, 1992
+    Apollo Phase II Environment   Revision 10.4   Jan 25, 1992
+    Loading Init.
+    ... global libraries loaded.
+
+**Domain/OS boots on a machine with the token ring card fitted**, state hash
+`957B42F3C3AE6DE7` at 700 M instructions, zero `Crash_Status` lines. Every
+previous ring-fitted boot died at 503 M. C201's *"fitting the ring card prevents
+this core from booting Domain/OS"* is now a fixed defect rather than a standing
+one.
+
+*Verification: `ctest` 139/139, identity boot `03EE415450926A89` unchanged, and
+the ROM diagnostic still prints `Apollo Token Ring test passed.` with the option
+ROM fitted. The two-node run is launched again on the strength of it -- it was
+stopped three times today against a boot that could not complete, and now it
+can.*
