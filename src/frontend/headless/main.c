@@ -1402,7 +1402,8 @@ static void console_script_saw(ap_console_script_t *script, uint8_t byte) {
 static int run_ring_two_node(FILE *out, ap_model_id_t model,
                              const char *prom_path, const char *ring_rom_path,
                              unsigned ram_megabytes, uint64_t limit,
-                             const ap_mc146818_time_t *clock) {
+                             const ap_mc146818_time_t *clock,
+                             bool service_mode) {
   long prom_size = 0;
   uint8_t *prom = prom_path != NULL ? read_file(prom_path, &prom_size) : NULL;
   if (prom_path != NULL && prom == NULL) {
@@ -1520,6 +1521,15 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
       return 2;
     }
     ap_board_attach_ring(&board[i], true);
+    /* **The Normal/Service switch, per node.** In Normal mode the boot PROM
+     * boots the disk and goes straight to the Server Process Manager, which
+     * offers no prompt at all; in Service it stops in the Mnemonic Debugger,
+     * where `di w` and `ex domain_os` start the operating system with the
+     * console as its terminal -- and *that* path ends at a `)` prompt whose
+     * `sh` gives a login and a shell. `lcnode` needs the shell, so a two-node
+     * run that could not select Service could not run the check this item
+     * exists for (`FINDINGS.md` C164). */
+    ap_boardreg_set_normal_mode(&board[i].registers, !service_mode);
     if (prom != NULL) {
       (void)ap_board_load_prom(&board[i], prom, (uint32_t)prom_size);
     }
@@ -1645,7 +1655,16 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
       ran[i] += r.executed;
       status[i] = r.status;
       instruction[i] = r.instruction;
-      if (r.status != AP_M68030_STEP_EXECUTED) {
+      /* **An exception is progress, and treating it as a stop ended every
+       * long run at its first trap.** `ap_machine_run` says so itself -- "an
+       * exception is progress: the handler runs next" -- and returns early
+       * only for the statuses that are *not*. This loop stopped on any status
+       * but EXECUTED, so a Service-mode boot ended at instruction 49,152 with
+       * `exception (op 0C91)` on both nodes: the firmware's own first trap,
+       * reported as a stall. The short runs that came before never hit one at
+       * a slice boundary, which is why it went unnoticed. */
+      if (r.status != AP_M68030_STEP_EXECUTED &&
+          r.status != AP_M68030_STEP_EXCEPTION) {
         stalled = true;
       }
 
@@ -6211,7 +6230,8 @@ int main(int argc, char **argv) {
     return run_ring_two_node(stdout, opt.model->id, boot_prom,
                              g_ring_rom_path, ram_megabytes,
                              g_ring_two_node_limit,
-                             boot_clock_set ? &boot_clock : NULL);
+                             boot_clock_set ? &boot_clock : NULL,
+                             service_mode);
   }
 
   if (boot_prom != NULL) {
