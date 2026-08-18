@@ -4182,10 +4182,25 @@ discipline throughout.
       because it waits for a carriage return from a terminal on the SIO line.
       Then knock with carriage returns, log in as `user`, and run
       **`/com/lcnode`** by absolute path, since `/com` is not on the path.
-      **So the remaining work is named**: node B's volume already carries the
-      `siologin` configuration (C163); **node A's does not** and needs the same
-      treatment through the same MINST window. That is the one prerequisite, and
-      it is a volume-preparation task rather than a ring one.
+      **So the remaining work is named**, and 2026-08-19 measured it exactly.
+      Searching the images for `siologin1_local` -- the string C163 wrote --
+      finds it in **`media/dn3500-nodeB-siologin.awd` and nowhere else**:
+      neither `dn3500-sr10.4-installed.awd` (node A) nor `nodeB4.awd`, the two
+      volumes the two-node runs actually use, carries the configuration. So the
+      chain is three steps and none of them is a ring question:
+      1. **Salvage `dn3500-nodeB-siologin.awd`.** It has never been booted and
+         is dirty: a run here spent all 1.5 G instructions inside SALVOL and
+         reached **40%**, so a full salvage on this core is hours. The oracle is
+         the right tool for it, as it was for writing the file.
+      2. **Give node A's volume the same treatment** through the same MINST
+         window C162 established -- the only window a node can be configured
+         from a command line.
+      3. Run the two nodes with a script that waits for
+         `SPM system init complete.`, knocks, logs in as `user`, and runs
+         **`/com/lcnode`** by absolute path.
+      *What is already proven and needs no repeating*: both volumes boot clean
+      (no salvage line in a two-node run), and **both nodes reach
+      `Domain/OS kernel(7)` on one segment** with distinct node IDs.
       **And the run itself is affordable and measured**: about 1.5 G
       instructions per node against 125 K instructions/s per node (C156), so
       roughly three hours for two nodes. A run to launch deliberately rather
