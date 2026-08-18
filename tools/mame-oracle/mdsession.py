@@ -902,7 +902,25 @@ def main(argv=None) -> int:
     rundir.mkdir(parents=True, exist_ok=True)
 
     environment = dict(os.environ)
-    environment.setdefault("APOLLO_MD_POST", "Numpad Enter")
+    # **A key press selects the *display* console, and then the serial line
+    # never speaks.** The boot PROM polls for whichever console answers first;
+    # a keystroke wins that race and posts `09` (keyboard selected) where a
+    # serial character posts `0A`. So pressing a key of our own and then
+    # knocking on the serial port asks the machine two questions and reads the
+    # answer to the other one.
+    #
+    # Measured 2026-08-19, one variable, a known-good volume in Service mode:
+    #
+    #     APOLLO_MD_POST="Numpad Enter"   no prompt after 600s, console ''
+    #     APOLLO_MD_POST=none             MD7C REV 8.00, 1989/08/16.17:23:52
+    #
+    # and the failing side twice, since the salvage session had already spent
+    # 900 s on it. `STAGES` records this for `watch` -- "pair with
+    # `APOLLO_MD_POST=none`" -- and the pairing is not particular to `watch`:
+    # every stage that reads the console off the serial line needs it. So the
+    # default is now "none" and a caller who wants the key press asks for it,
+    # which is the way round the evidence points.
+    environment.setdefault("APOLLO_MD_POST", "none")
     environment["APOLLO_MD_ERA"] = args.era
     environment["APOLLO_MD_MODE"] = args.mode
 

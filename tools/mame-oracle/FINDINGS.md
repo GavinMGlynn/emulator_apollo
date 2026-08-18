@@ -11641,3 +11641,38 @@ the ROM diagnostic still prints `Apollo Token Ring test passed.` with the option
 ROM fitted. The two-node run is launched again on the strength of it -- it was
 stopped three times today against a boot that could not complete, and now it
 can.*
+
+## C209 -- the harness's own key press was selecting the other console
+
+Three sessions in a row read **zero console bytes** and reported
+`no prompt after 900s of knocking` with `console since the last match was ''`.
+The volume was suspected first; a control settled that it was not.
+
+| | volume | mode | `APOLLO_MD_POST` | result |
+| --- | --- | --- | --- | --- |
+| salvage | node B siologin | Service | `Numpad Enter` (default) | nothing, 900 s |
+| control | **known-good** | Service | `Numpad Enter` (default) | nothing, 600 s |
+| control | **known-good** | Service | **`none`** | `MD7C REV 8.00, 1989/08/16.17:23:52` |
+
+**The boot PROM polls for whichever console answers first**, and a keystroke
+wins that race: `md-keyboard-console-recipe` has the posted codes -- `09`
+keyboard selected, `0A` serial 1 channel B selected. So the harness pressed
+`Numpad Enter` at 4.0 s, the PROM chose the **display**, and the serial knock it
+was about to receive had nowhere to arrive. Asking two questions and reading the
+answer to the other one.
+
+`mdsession.py`'s own `STAGES` table already said so for one stage -- *"pair with
+`APOLLO_MD_POST=none`, which stops the Lua side pressing a key of its own"* --
+and the pairing is not particular to that stage. **Every stage that reads the
+console off the serial line needs it**, so the default is now `none` and a
+caller who wants the key press asks for it.
+
+### What it cost, and the two records that disagreed
+
+Two memories of mine contradicted each other and both were partly right:
+`apollo-md-capture-recipe` listed "service mode" among routes that do not work,
+and `read-the-drivers-own-error-first` prescribed `--mode Service` for installed
+volumes. Service mode is fine; **the key press is what breaks it**, and neither
+record named it because neither had varied it. A conflict between two notes is
+a reason to run one control, not to pick the newer note -- and the control cost
+ten minutes against the ~35 minutes already spent believing each in turn.
