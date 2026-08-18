@@ -11425,3 +11425,52 @@ unexercised register answering the wrong thing is exactly the defect class
 page says the two variants differ in which registers exist, and this core
 implements one behaviour while reporting a type it has never checked against a
 driver.
+
+## C204 -- `nct` is doing duty as "board present", so the ring never reads connected
+
+The twelve controller reads enumerated one register at a time, and the last one
+lands next to the crash:
+
+    59000 BOARD_TYPE   1 read   3600  by PC 3C44FCD4
+    59400 MISC_STAT    3 reads  F006  by PC 3C4AED56   <- crash is at 3C4AED68
+    59402 XMIT_STAT    1 read   01F0  by PC 3C4AE5C0
+    59004 / 59404 / 59406        0 reads
+
+`F006` decoded against `002398-04` p. 12-30 (`RING.md` 93a):
+
+    bit 15  nct = 1   -- "0 => network connect", so **not connected**
+    bit 14  tmo = 1   -- timeout
+    bit 13  xby = 1   -- not transmitting      bit 12  rby = 1 -- not receiving
+    bit  3  gps = 0   -- **no good packet ever seen**
+    bit  2  xi  = 1   bit 1 ri = 1 -- both interrupts pending
+
+**So the driver is right and the board is wrong.** It reads a controller that
+says it is not connected to a network, has timed out, and has never seen a good
+packet, and it reports `Crash_Status 00110009`, *network hardware error*. Given
+those bits that is the correct conclusion, which is why no amount of looking at
+the driver was going to explain it.
+
+### The defect
+
+`ap_ring_ctl.h:135` is the whole of it:
+
+    #define AP_RING_CTL_STATUS_PRESENT 0x8000u /* nct, 0 => network connect */
+
+The name says *present*, the comment says *nct*, and `ap_ring_ctl.c:870` sets it
+`ctl->present ? ... : 0` -- so **a fitted board always reads "not connected"**,
+and nothing ever clears it. The two meanings coexist on real hardware and that
+is why this survived: before the connect command `nct` really is 1, which is
+what the boot firmware's presence gate (findings 40, 50a) tests and why
+`--ring-selftest` and `Apollo Token Ring test passed.` are unaffected. **After**
+MISC_CMD's bit 11 connects the relay -- which this core already models, driving
+`ap_ring_medium_set_bypass` -- `nct` must go to 0, and here it does not.
+
+*The fix is bounded and its constraint is known: `nct` must read 1 while the
+station is bypassed or absent and 0 while it is in the ring, which is the state
+`ap_ring_medium` already holds. It must not disturb the presence gate the
+firmware tests before connecting, and `ring_ctl_suite` asserts the current
+behaviour in at least the `STATUS_IDLE` (`0xF807`) constant, so the suite is
+part of the change rather than a check on it. Not attempted here: it is a
+one-bit change to a register whose two readings are both load-bearing, and it
+deserves its own commit with the self-test and the identity boot run against
+it.*
