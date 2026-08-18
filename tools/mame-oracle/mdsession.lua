@@ -389,6 +389,33 @@ local function do_swap(sequence, name, path)
 	end
 end
 
+-- A clean shutdown, asked for from the driver.
+--
+-- `Session.close` sends SIGTERM, and MAME does not write NVRAM on that path:
+-- every run directory this project has kept came back with an empty `nvram/`.
+-- That matters because the machine's **configuration table lives in the
+-- calendar's battery RAM** (`002398-04` p. 12-3), so a node ID set with
+-- `ex config` survives only inside the run that set it -- which is exactly the
+-- gap that stopped a second ring node from being made.
+--
+-- `manager.machine:exit()` is the clean path, and `APOLLO_MD_UNTIL` already uses
+-- it; this makes it available at a moment the *driver* chooses rather than at a
+-- fixed emulated instant, which is what a dialogue-driven session needs.
+--
+-- Polled beside the swap channel, on the same file-per-request pattern and the
+-- same emulated-time budget, because a second timer would cost a Lua call per
+-- callback for a file that is read a handful of times in a run.
+local function poll_exit()
+	local handle = io.open(swapfile .. ".exit", "r")
+	if handle == nil then
+		return
+	end
+	handle:close()
+	note("# clean exit requested at %.1f emulated seconds\n",
+	     manager.machine.time.seconds)
+	manager.machine:exit()
+end
+
 local function poll_swap()
 	local handle = io.open(swapfile, "r")
 	if handle == nil then
@@ -939,6 +966,7 @@ emu.register_periodic(function()
 	   manager.machine.time.seconds - swap_at >= swap_every then
 		swap_at = manager.machine.time.seconds
 		poll_swap()
+		poll_exit()
 	end
 
 	if activity_s > 0 and

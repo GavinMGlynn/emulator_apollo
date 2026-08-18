@@ -476,6 +476,10 @@ def follow_commands(session: Session, path: Path, timeout: float,
                        ejects. A `ctape` is staged into the run directory
                        first, so the guest cannot write on our only copy of it
                        -- see `stage_cartridge`
+      !exit            ask the machine to shut down **cleanly**, and wait for
+                       it. NVRAM -- which holds the calendar's battery
+                       configuration table, and so the node ID -- is written on
+                       this path and not on `!quit`'s
       !quit            end the session
       anything else    sent as typed, with a carriage return
 
@@ -599,6 +603,30 @@ def follow_commands(session: Session, path: Path, timeout: float,
                 sys.stderr.write("mdsession: swap %s -> %s\n" % (name, medium))
                 sys.stderr.write("mdsession: %s\n"
                                  % session.swap(name, medium, timeout))
+            elif line == "!exit":
+                # A **clean** shutdown, which `!quit` is not. `Session.close`
+                # sends SIGTERM and MAME does not write NVRAM on that path --
+                # every run directory kept here came back with an empty
+                # `nvram/`. The machine's configuration table lives in the
+                # calendar's battery RAM (`002398-04` p. 12-3), so a node ID set
+                # with `ex config` survived only inside the run that set it,
+                # which is what stopped a second ring node from being made.
+                #
+                # A file beside the swap channel, for the same reason that one is
+                # a file: the two processes share nothing else, and the Lua side
+                # already polls there on an emulated-time budget.
+                if session.swapfile is None:
+                    raise SessionError("this session has no exit channel")
+                Path(str(session.swapfile) + ".exit").write_text("exit\n")
+                sys.stderr.write("mdsession: !exit -- clean shutdown requested\n")
+                deadline = time.monotonic() + 60.0
+                while time.monotonic() < deadline:
+                    if session.proc.poll() is not None:
+                        sys.stderr.write("mdsession: the machine exited cleanly\n")
+                        return
+                    time.sleep(0.2)
+                sys.stderr.write("mdsession: no clean exit after 60s\n")
+                return
             elif line == "!quit":
                 sys.stderr.write("mdsession: !quit\n")
                 return
@@ -778,6 +806,16 @@ def main(argv=None) -> int:
 
     swapfile = rundir / "swap"
     environment["APOLLO_MD_SWAPFILE"] = str(swapfile)
+
+    # **A stale exit request would kill the next run before it started.**
+    # `!exit` leaves its request file behind, and `--keep-rundir` is exactly the
+    # case where a configuration is set in one run and used by the next -- so the
+    # second machine polled, found the first one's request, and exited with
+    # status 0 having sent nothing. Removed here rather than by the Lua side,
+    # because the driver is what knows a *new* run is starting.
+    exitfile = Path(str(swapfile) + ".exit")
+    if exitfile.exists():
+        exitfile.unlink()
 
     command = build_command(mame, args, rundir)
     sys.stderr.write("mdsession: %s\n" % " ".join(command))

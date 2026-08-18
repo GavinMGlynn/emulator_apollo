@@ -118,6 +118,20 @@ if envlog:
     with open(envlog, "w") as handle:
         handle.write(os.environ.get("APOLLO_MD_ERA", "<unset>"))
 
+if mode == "exitwatch":
+    # Stands in for mdsession.lua's poll_exit: notice the request file beside the
+    # swap channel and shut down. The real one calls manager.machine:exit(),
+    # which is the path that writes NVRAM.
+    import time as _t
+    out = sys.stdout
+    out.write("\nMD7C REV 8.00, 1989/08/16.17:23:52\n\n>")
+    out.flush()
+    target = (swapfile or "") + ".exit"
+    while True:
+        if swapfile and os.path.exists(target):
+            sys.exit(0)
+        _t.sleep(0.05)
+
 if mode == "scribble":
     # Stands in for `sc499_device::write_block`, which is an fseek/fwrite
     # straight into whatever file `-ctape` named. A real guest did exactly this
@@ -415,6 +429,40 @@ def main() -> int:
                    environment={"MDSTUB_ENVLOG": str(eralog)})
         check("and --era none reaches the driver script", eralog.read_text(),
               "none")
+
+        # `!exit` asks for a clean shutdown and waits for it. The stub exits when
+        # it sees the request file, standing in for `manager.machine:exit()` --
+        # what is testable without MAME is that the driver writes the request
+        # beside the swap channel and then waits for the process rather than
+        # killing it, which is the whole difference from `!quit`.
+        #
+        # It matters because NVRAM -- the calendar's battery configuration table,
+        # and so the node ID -- is written on the clean path only.
+        commands = work / "exit.txt"
+        commands.write_text("!exit\n")
+        proc = run(stub, ["--stage", "prompt", "--commands", str(commands),
+                          "--timeout", "20"],
+                   {"MDSTUB_MODE": "exitwatch"})
+        check("!exit asks for a clean shutdown", proc.returncode, 0)
+        check_in("and says so", "clean shutdown requested", proc.stderr)
+        check_in("and waits for the machine rather than killing it",
+                 "the machine exited cleanly", proc.stderr)
+
+        # And a stale request does not kill the *next* run. `--keep-rundir` is
+        # precisely the case `!exit` exists for -- set a configuration in one run,
+        # use it in the next -- and the request file left behind by the first made
+        # the second exit at once, with nothing sent. The check is that a normal
+        # stage still reaches the prompt in a run directory that already holds
+        # one.
+        stale = stub.parent / "run" / "swap.exit"
+        stale.parent.mkdir(parents=True, exist_ok=True)
+        stale.write_text("exit\n")
+        proc = run(stub, ["--stage", "prompt", "--keep-rundir"])
+        check("a stale exit request does not end the next run",
+              proc.returncode, 0)
+        check_in("which still reaches the prompt", "at the MD prompt",
+                 proc.stderr)
+        check("and the request is gone", stale.exists(), False)
 
         # A followed command file, written before the run: the directives parse
         # and arrive in order, and !quit ends the session rather than the

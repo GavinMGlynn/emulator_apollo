@@ -4173,12 +4173,30 @@ discipline throughout.
       `CALENDAR` does, and for CALENDAR the set demonstrably took — or the UID
       generator reads the node from somewhere else again, as it did from the ROM
       window.
-      *The decisive check is cheap: run `ex config` a second time and read the
-      `Node-id:` it reports. `22222` means the write committed and the UID's
-      source is elsewhere; `0` means the abort ate it. Also: the run directory's
-      `nvram/` was empty afterwards — MAME writes it on clean exit and this
-      session was killed, so a configuration set this way survives only within its
-      own run. `FINDINGS.md` C148.*
+      **`ex config` writes NODEID correctly, and a clean shutdown persists it.**
+      `Session.close` sends `SIGTERM` and MAME writes no NVRAM on that path, which
+      is why every kept run directory came back empty. `mdsession.py` gained
+      **`!exit`** — it asks the Lua side for `manager.machine:exit()`, the path
+      `APOLLO_MD_UNTIL` already used, at a moment the driver chooses — and the
+      result is `nvram/dn3500/rtc`, 64 bytes, carrying `00 02 22 22` at **`0x1E`**,
+      exactly where the handbook puts NODEID. A capability this project did not
+      have and needs for any battery-backed configuration.
+      *A defect of mine found by using it: `!exit` left its request behind, so the
+      next run in the same directory exited at once having sent nothing — in
+      `--keep-rundir`, the exact case it exists for. Cleared at startup now, with
+      a test.*
+      **And the node still does not reach the volume.** With that NVRAM loaded,
+      INVOL ran to `Initialization complete.` and wrote a fresh UID whose node is
+      **`12345`**. So the UID generator takes its node from *neither* the node-ID
+      ROM *nor* the battery table — three sources eliminated by measurement.
+      **The remaining explanation is not a fourth source.** Every INVOL that has
+      succeeded here ran on a **copy of an existing volume**, because a blank image
+      cannot be assigned. Option 1 is "initialize *virgin* physical volume", and on
+      a disk that already carries a label it may keep the node that label records —
+      `12345`, in the ancestor of every volume this project owns.
+      *So the two open questions are one: **a new node needs a virgin volume, and a
+      virgin volume is what INVOL will not assign.** That is C145's `100001`, and
+      it is the single thing left. `FINDINGS.md` C149.*
       **`Node-id: 0` is what `config` reports** on a machine MAME calls node
       `12345` — a third corroboration that the ROM window and the battery table
       are different sources and the battery one is empty.

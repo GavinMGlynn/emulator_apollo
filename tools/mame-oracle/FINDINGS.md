@@ -8708,3 +8708,54 @@ the new node, and `node_id_from_volume` will read `22222` out of it.
 
 *Give the next run a `--commands-timeout` sized for a dialogue read a turn at a
 time: this one was 900 s and the prompts alone took longer.*
+
+## C149 -- a clean shutdown persists the battery RAM, and the node still is not the volume's
+
+### `!exit`, and why the harness needed it
+
+`Session.close` sends `SIGTERM`, and **MAME does not write NVRAM on that path** --
+every run directory this project has kept came back with an empty `nvram/`. That
+matters because the machine's configuration table lives in the calendar's battery
+RAM (`002398-04` p. 12-3), so a node ID set with `ex config` survived only inside
+the run that set it.
+
+`!exit` asks the Lua side to call `manager.machine:exit()` -- the path
+`APOLLO_MD_UNTIL` already used -- at a moment the *driver* chooses, and waits for
+the process. It works:
+
+    nvram/dn3500/rtc   64 bytes
+    offset 0x1E:       00 02 22 22
+
+**`0x1E` is NODEID**, exactly where the handbook puts it, so `ex config` writes the
+right field and a clean exit keeps it. That is a capability this project did not
+have and needs for any battery-backed configuration.
+
+**And a defect of mine, found by using it**: `!exit` left its request file behind,
+so the *next* run in the same directory polled, found it, and exited with status 0
+having sent nothing -- in `--keep-rundir`, which is the exact case `!exit` exists
+for. The driver now clears a stale request at startup, with a test that a normal
+stage still reaches the prompt in a directory holding one.
+
+### The node still does not reach the volume
+
+With that NVRAM loaded -- battery node `22222`, verified in the file -- INVOL ran
+to `Initialization complete.` and wrote `APOLLODN3500B` with a fresh creator UID
+whose node is **`12345`**.
+
+So the UID generator takes its node from **neither** the node-ID ROM (C146) **nor**
+the battery configuration table. Three sources eliminated by measurement.
+
+**The remaining explanation fits everything, and it is not another source.** Every
+INVOL that has succeeded here ran on a **copy of an existing volume**, because a
+blank image cannot be assigned (C145's `100001`). Option 1 is "initialize *virgin*
+physical volume", and on a disk that already carries a label it may keep the node
+the label records -- which is `12345` in `dn3500-invol-done.awd`, the ancestor of
+every volume this project owns.
+
+That closes the loop: **a new node needs a virgin volume, and a virgin volume is
+what INVOL will not assign.** The two open questions are one question, and it is
+C145's -- why an all-zero image answers `100001` when C50 records one being
+initialised.
+
+*What is landed regardless: `!exit`, the stale-request fix, and the knowledge that
+`ex config` writes NODEID correctly and a clean exit persists it.*
