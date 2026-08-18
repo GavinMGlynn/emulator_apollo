@@ -11513,3 +11513,37 @@ refuse, and it is the next thing to put to `002398-04` p. 12-30.
 `03EE415450926A89` unchanged, and the ROM diagnostic still prints
 `Apollo Token Ring test passed.` with the option ROM fitted -- which was the
 constraint C204 named, since the firmware's presence gate reads the same bit.*
+
+## C206 -- p. 12-30 read in full: the bit map is right, and two bits remain
+
+The MISC_STS page read as an image, every bit against the model:
+
+    15 nct "0=>network connect"   14 tmo "1 => timeout"
+    13 xby "0=> xmt busy"         12 rby "0=> rcv busy"
+    11 iov "1=> initialize overrun"  10 rlk "1=> rcv lock error"
+     9 esb  8 bpe  (sticky)        3 gps "sticky good pkt <=1"
+     2 xi "XMIT intr pending <=0"  1 ri "RCV intr pending <=0"
+     0 tmi "GA timeout intr pending <=0"
+
+**The low four use a different notation from the rest** -- `<=1` and `<=0`
+against the upper bits' `1 =>` and `0 =>` -- which reads as a polarity
+statement: `gps` asserted high, the three interrupt-pendings asserted **low**.
+That would be three more active-low bits after `xby` and `rby` (`RING.md` 93g),
+and it was worth checking.
+
+**It is already right.** `ap_ring_ctl.c` treats all three as active low and says
+so from an independent source: *"a healthy board reads 1 and clear is the
+pending timeout"*, from `RING_PROC`'s `7A4D0944` branching past its error call
+when the bit is **set** (`RING.md` 111), and a pending receive interrupt
+*clearing* `ri`. So `F006` reads: no transmit interrupt, no receive interrupt,
+**a gate-array timeout interrupt pending**, and no good packet ever seen.
+
+*So the walk is complete for this register and two bits remain unexplained
+rather than unmodelled:* **`tmo`, set at reset by `AP_RING_CTL_STATUS_IDLE`'s
+`0xF807`**, so a board that has just been reset already reports a timeout; and
+**`gps`, which nothing in a lone-node boot ever sets**. Both are what the driver
+saw and both are consistent with a controller that has never carried a packet.
+The idle word came from the firmware's own subtests (finding 40), so changing it
+is a claim about what a real board reads at reset and needs a source, not a
+guess -- `010005-00` is the remaining unread document for this, and the ring
+firmware disassembly the other.
