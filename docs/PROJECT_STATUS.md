@@ -1090,6 +1090,49 @@ ways -- so finding 50a holds twice: the firmware never reads that window, and
 this driver never writes `BOARD_RESET`. A boot could not have found any of it,
 and the suite asserted three of them backwards.
 
+### Both volumes are prepared for the two-node check (2026-08-19)
+
+The `lcnode` verification needs a *shell* on each node, and on this core that
+needs `siologin` -- C165: a node booted Normal prints its whole Domain/OS
+startup on serial 1 channel B and then goes quiet, and `siologin` is what turns
+that silence into a login. Three preparation steps, all in the oracle, all now
+done:
+
+1. **Node B's volume salvaged** (C210). C163 wrote its configuration during a
+   MINST window and the session never shut down cleanly, so it had never booted.
+   32 seconds in the oracle; on this core a 1.5 G instruction run reached 40%.
+2. **Node A's volume configured** (C211) -- and the plan's "full re-install
+   through the MINST window" was **not** needed. C162's claim was measured on a
+   *bare* disk; C164 reaches a shell on an installed one, because the `login:`
+   after `sh` is **the shell's own prompt, not `siologin`'s**. That is exactly
+   why a volume lacking `siologin` can still be reached to be given it.
+3. **Both volumes brought into one era** (C212). A two-node run shares a single
+   `--clock`, and the two disagreed by six years -- node A dismounting
+   2002-11-27T23:30 against node B mounting 1996-08-18 with a **zero** dismount.
+   Salvaging repairs a filesystem and does not write a dismount stamp; only a
+   clean `shut` does. The clock is read from the label -- block `0x440`, `+0xBC`
+   mount, `+0xC0` dismount, 262144 µs ticks from 1980 -- after guessing one
+   twice and being told *"the calendar is more than a minute slow"* both times.
+
+**And the mechanism is verified on one node before two** (C213):
+
+    SPM system init complete.  /  Node ID = 22222
+      Op: CPS  Name: "siomonit"  Command: "/sys/siologin/siomonit /sys/node_data/siomonit_file"
+     SPM Initialized on Monday, December 2, 2002 at 19:47:23
+      MBX_HELPER not running.  Starting one.
+
+That second `CPS` line is the one C163 wrote, executed by the machine that has
+to run it. **`siomonit` is started; a `login:` prompt is not yet observed** --
+the run ended on its instruction limit there, so what remains is how many more
+instructions it takes, not whether the mechanism works.
+
+*One harness fault found on the way and fixed in the frontend*: the two-node
+runner knocked carriage returns for as long as its script had matched nothing,
+which is right for the boot PROM's console poll and wrong once Domain/OS owns
+the line -- both nodes reached `Domain/OS kernel(7)` and then produced 1347
+blank lines. The knock is now bounded by whether the PC is executing out of the
+boot PROM.
+
 ### Both nodes boot Domain/OS on one ring segment, and the knock was flooding it
 
 With the `TIMO_ACK` fix in, `--ring-two-node` was launched on two genuinely
