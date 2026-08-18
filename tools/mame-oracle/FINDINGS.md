@@ -10643,10 +10643,20 @@ SR10.4's raises it to twenty at the same stage. So MINST is not what went
 missing -- there was never anything for MINST to add to.
 
 **What C187 got right and what it got wrong.** Right: the volume's root
-directory holds three entries, both PROMs and the RBAK shell agree, and the
-objects exist without links. Wrong: *"a harness mistake rather than a release
-incompatibility"* -- that was inferred from one run with nothing to compare it
-against, and the comparison was one command away. Withdrawn.
+directory holds three entries, and both PROMs and the RBAK environment's shell
+agree about it. Wrong on two counts, both withdrawn: *"a harness mistake rather
+than a release incompatibility"*, inferred from one run with nothing to compare
+against when the comparison was one command away; and *"`lost+found.list` is the
+tell -- that is what SALVOL creates for orphans"*, which is simply false --
+`lost+found.list` is one of the three names the **virgin** INVOL root already
+carries, so its presence says nothing about orphans and SALVOL need never have
+run.
+
+*RBAK is not idle, either, which is what makes the three-entry root strange
+rather than merely empty: its log restores **398 objects**, `sau7/calendar`
+through `dev/tty03`, and reports `(dir) "sau7" restored`, `(dir) "dev"
+restored`, `(dir) "tmp" restored`, `Restore complete.` Directories it says it
+restored are not in the root block the PROM reads.*
 
 **And it clears node B**, which is worth as much as the SR10.2 result: node B's
 volume has a **thirty**-entry root, in the same range as SR10.3's and SR10.4's.
