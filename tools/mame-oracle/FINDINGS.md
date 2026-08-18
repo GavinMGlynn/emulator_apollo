@@ -10822,6 +10822,61 @@ between those is one comparison -- dump node B's volume for an object whose UID
 time falls inside its own mount window -- and it is the next step, not a
 conclusion.*
 
+**The comparison was run and it does not decide anything, which is worth
+recording so it is not run again.** Scanning each volume for sectors whose first
+longword falls inside that volume's own mount window gives 208,451 on node A and
+**zero** on both node B images -- and that is an artefact, not a result. Node A's
+last mount *is* the mount MINST ran in, so essentially the whole volume dates
+from it; node B's installs happened in an earlier mount than the one its label
+records. The test measures when the install ran, not whether a boot happened.
+
+A sharper version exists: node A's program UID is `A45E2FDE**5**0012345` where
+the volume's creator UID is `A45AA673**1**0012345`, so the nibble after the
+timestamp is a class field and the program is class 5 against the volume's class
+1. Selecting on class rather than on time is the comparison that would mean
+something.
+
 *Node B's status for the plan: it blocks the multi-node workload item and
 nothing else, and the shape is now known to five million instructions and one
 program-load rather than "it shuts down".*
+
+## C192 -- the flush *was* the cause, and C188's withdrawal of it was itself confounded
+
+C187 said SR10.2's empty root was `mdsession`'s `!exit` ending MAME without the
+guest committing. C188 withdrew that on a control -- RBAK alone, no MINST, root
+still three entries. **The control shared the confound: it also ended with
+`!exit`.** Run again with the one change, `shut` at the `)` prompt the
+environment offers after `Restore complete`:
+
+    )shut
+    Beginning shutdown sequence...
+    Shutdown successful
+
+and block `165649` on the two volumes, same restore, same media, same script
+apart from the ending:
+
+    rbak + !exit          3   sysboot  sys  lost+found.list
+    rbak + guest shut    17   tmp dev usr user_data install etc com lib sau5 sau6 sau8 sau9 ...
+
+**So C187's causal claim is reinstated and C188's withdrawal of it is
+withdrawn.** Domain/OS is a single-level store; the directory updates live in
+the node's cache until it shuts down, and `!exit` -- which ends MAME cleanly and
+writes NVRAM, exactly as it documents -- asks the guest for nothing.
+
+**What C188 got right and keeps**: three entries is the virgin INVOL root, so
+MINST is not the loser of anything; the objects were written and the *links*
+were never committed; and node B's thirty-entry root means this is not node B's
+problem.
+
+*Method note, and it is the useful part. C188 was a correct inference from a
+control that could not separate the two candidates, and it read as decisive
+because it compared eight volumes. **The confound was that every one of them
+ended the same way.** A control has to vary the thing under test and nothing
+else, and this one varied MINST while holding the ending fixed -- when the
+ending was the hypothesis. See [[withdrawal-needs-a-discriminating-experiment]].*
+
+*Consequence for the item: `shut` is not a shell command -- `?(sh) "shut" -
+name not found` -- so an install that runs MINST inside `sh` has to leave the
+shell before shutting down. The SR10.2 install is running again with `exit`
+then `shut`, and that is the first route here expected to produce a bootable
+SR10.2 volume.*
