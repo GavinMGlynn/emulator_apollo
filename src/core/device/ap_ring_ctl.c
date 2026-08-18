@@ -76,7 +76,8 @@ static bool ring_ctl_queue_from_buffer(ap_ring_ctl_t *ctl) {
   ctl->a2.xmit_status = (uint16_t)(
       ctl->a2.xmit_status & (uint16_t) ~(AP_RING_CTL_XMIT_CPD |
                                          AP_RING_CTL_XMIT_WAK |
-                                         AP_RING_CTL_XMIT_ICP));
+                                         AP_RING_CTL_XMIT_ICP |
+                                         AP_RING_CTL_XMIT_PKE));
   /* The transmit trio, in `ring8a.drvr`'s units (`RING.md` 100): `XMT_HDR`
    * "Transmitter Header **Word**" and `XMT_PKT` "Transmitter Total **Word**".
    * Words, where the receive pair count bytes -- which is the asymmetry
@@ -201,12 +202,21 @@ void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl) {
    * sender ever learns whether anybody took the packet. p. 12-31 names where it
    * lands: `cpd` at bit 14, `wak` at 13, `icp` at 12.
    *
-   * **Only those three are mapped, because only those three are named the same
-   * in both documents.** Figure 2-8's remaining bit is "an error was observed,
-   * *or* the sender aborted", and p. 12-31 offers `pke` (packet error) and
-   * `abt` (packet aborted) as separate destinations -- nothing in either source
-   * says which, so it is left unmapped and recorded rather than fitted.
-   * `RING.md` 137b. */
+   * **And p. 12-34 says which bit the fourth one goes to**, by giving the OS's
+   * own rules for turning XMIT_STS into `RING_$SEND_STAT_T`:
+   *
+   *     8000 copied   NO errors AND cpd AND icp
+   *     4000 wacked   NOT pe AND wak
+   *     2000 nacked   NOT pe AND NOT icp
+   *     0100 overrun  abt AND ife
+   *     0040 error    NOT pe AND pke AND icp
+   *
+   * `abt` is paired with `ife` and means *this* node aborted -- a transmitter
+   * knows that without the ring -- while a receiver-observed error is `pke`.
+   * Figure 2-8's bit is set by the receiver, so `pke` is where it lands. Which
+   * also confirms the other three are load-bearing rather than decorative:
+   * "copied" needs `cpd` **and** `icp`, and a NACK is precisely nobody having
+   * intended to copy. `RING.md` 137b, 137c. */
   {
     uint8_t ack = 0u;
     if (!ctl->tx_ack_seen &&
@@ -215,7 +225,7 @@ void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl) {
       ctl->a2.xmit_status = (uint16_t)(
           ctl->a2.xmit_status &
           (uint16_t) ~(AP_RING_CTL_XMIT_CPD | AP_RING_CTL_XMIT_WAK |
-                       AP_RING_CTL_XMIT_ICP));
+                       AP_RING_CTL_XMIT_ICP | AP_RING_CTL_XMIT_PKE));
       if ((ack & AP_RING_LATE_COPIED) != 0u) {
         ctl->a2.xmit_status |= AP_RING_CTL_XMIT_CPD;
       }
@@ -224,6 +234,9 @@ void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl) {
       }
       if ((ack & AP_RING_LATE_INTEND_TO_COPY) != 0u) {
         ctl->a2.xmit_status |= AP_RING_CTL_XMIT_ICP;
+      }
+      if ((ack & AP_RING_LATE_ERROR) != 0u) {
+        ctl->a2.xmit_status |= AP_RING_CTL_XMIT_PKE;
       }
     }
   }

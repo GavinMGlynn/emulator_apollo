@@ -1068,6 +1068,58 @@ static void test_a_write_to_the_board_type_resets_the_board(void) {
   TEST_ASSERT_EQUAL_HEX16(0x4321u, ctl.a2.slot_002);
 }
 
+/* **p. 12-34's mapping table, which is what the OS actually computes from this
+ * register.** That page gives `RING_$SEND_STAT_T` in terms of XMIT_STS --
+ * `copied` = "NO errors AND cpd AND icp", `wacked` = "NOT pe AND wak",
+ * `nacked` = "NOT pe AND NOT icp", `error` = "NOT pe AND pke AND icp" -- so
+ * every bit folded in from `[MAC]` Figure 2-8's late acknowledge has to land
+ * where that arithmetic expects it.
+ *
+ * `icp` in particular is load-bearing and looked decorative: a NACK is exactly
+ * *nobody having intended to copy*, so a model that set `cpd` alone would have
+ * the OS report every delivered packet as nacked. And the fourth acknowledge
+ * bit is `pke` rather than `abt`, because `abt` is paired with `ife` for
+ * "overrun" and is this node's own abort -- which a transmitter knows without
+ * asking the ring. `RING.md` 137c, 137e. */
+static void test_the_returned_acknowledge_lands_where_the_os_reads_it(void) {
+  wired_t w;
+  wired_build(&w);
+
+  static const struct {
+    uint8_t ack;
+    uint16_t expect;
+  } cases[] = {
+      {AP_RING_LATE_COPIED | AP_RING_LATE_INTEND_TO_COPY,
+       AP_RING_CTL_XMIT_CPD | AP_RING_CTL_XMIT_ICP},
+      {AP_RING_LATE_WAIT_ACK, AP_RING_CTL_XMIT_WAK},
+      {AP_RING_LATE_ERROR | AP_RING_LATE_INTEND_TO_COPY,
+       AP_RING_CTL_XMIT_PKE | AP_RING_CTL_XMIT_ICP},
+      /* Nobody intended to copy: p. 12-34's `nacked`, which is the *absence*
+       * of `icp` and so has no bit of its own to check. */
+      {0u, 0u},
+  };
+  const uint16_t mask = (uint16_t)(AP_RING_CTL_XMIT_CPD | AP_RING_CTL_XMIT_WAK |
+                                   AP_RING_CTL_XMIT_ICP | AP_RING_CTL_XMIT_PKE);
+
+  for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    w.station[0].tx_ack = cases[i].ack;
+    w.station[0].tx_ack_valid = true;
+    w.ctl.tx_ack_seen = false;
+    ap_ring_ctl_poll_ring(&w.ctl);
+    TEST_ASSERT_EQUAL_HEX16(
+        cases[i].expect,
+        ap_ring_ctl_read16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 2u) & mask);
+  }
+
+  /* And it is edge-triggered: the station holds its acknowledge until the next
+   * frame is queued, so a second poll must not re-fold it over a lane the
+   * driver has since acted on. */
+  w.ctl.a2.xmit_status = 0u;
+  ap_ring_ctl_poll_ring(&w.ctl);
+  TEST_ASSERT_EQUAL_HEX16(
+      0u, ap_ring_ctl_read16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 2u) & mask);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_transmit_command_puts_the_buffers_frame_on_the_ring);
@@ -1083,6 +1135,7 @@ int main(void) {
   RUN_TEST(test_a_card_arrives_bypassed_and_nct_connects_it);
   RUN_TEST(test_nct_reads_connected_only_once_the_connect_command_is_given);
   RUN_TEST(test_a_write_to_the_board_type_resets_the_board);
+  RUN_TEST(test_the_returned_acknowledge_lands_where_the_os_reads_it);
   RUN_TEST(test_an_empty_slot_reads_as_absent_rather_than_as_an_error);
   RUN_TEST(test_the_init_clear_sequence_does_not_erase_the_presence_gate);
   RUN_TEST(test_the_firmwares_timer_initialisation_reaches_two_8254s);
