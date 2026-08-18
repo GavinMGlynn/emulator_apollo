@@ -9417,3 +9417,56 @@ says so, which is why the reference boot never sees any of this.
 the date read off the volume; for this core, `--clock` after the dismount
 stamp; and for a bootable volume, `--mode Service` and `--knock-timeout 900`
 (C153).*
+
+## C162 -- the RBAK shell is not reachable on an installed volume, so the only way in is a display
+
+C160 named two routes to a shell for enabling `siologin`, and called the first
+-- the RBAK environment booted from the cartridge -- the one a site
+administrator would take. **It was tried and it does not exist on an installed
+volume.**
+
+The same two commands, `di c` then `ex domain_os`, take different paths
+depending on what is on the disk:
+
+    empty volume (node B's install)   RBAK_BS reloading system software from
+                                      cartridge tape.... Do you wish to
+                                      proceed? (Y/N)   -> restore, then `sh`
+
+    installed volume (node A's copy)  BOOT VOLUME NEEDS SALVAGING.
+                                      Proceed to bring up OS (and risk volume)?
+
+So the cartridge's `domain_os` finds a bootable volume and brings *that* up
+rather than its own restore environment. The shell the install used exists only
+while the disk has no operating system on it -- which is exactly when there is
+nothing to configure.
+
+*The salvage prompt is a second finding of its own: the volume was cleanly
+dismounted before this run, and `ex calendar` is what left it needing salvage.
+C127 recorded that CALENDAR "takes the disk as its first answer and on the
+evidence stamps the volume"; this is that stamp costing a mount. So the order
+for any session that both sets the clock and boots is **calendar, salvol,
+boot** -- which is what node B's route did and this one did not.*
+
+### Which leaves one route, and it is the one Domain/OS was built for
+
+A headless node runs SPM and waits for `crp` from another node; a node with a
+**display** runs the Display Manager, and that is where a user logs in. This
+core has `--screen`, a keyboard and a mouse, and `PROJECT_STATUS.md` records
+screen captures from the oracle -- so the parts exist. What it means is that
+`lcnode`'s output would be read out of a **framebuffer** rather than off a
+wire, which is a different harness from every dialogue this project has driven
+so far.
+
+**So the Phase 6 item's remaining work is now precisely one of:**
+
+1. Fit a display to one node, drive the DM from the keyboard, and read the
+   answer from the frame buffer. The frontend has the pieces; the reading is
+   new.
+2. Configure `siologin` at **install time**, while the RBAK shell still exists
+   -- writing `'node_data/siomonit_file` and the `cps` line into
+   `'node_data/startup` during MINST rather than after it. That reaches a
+   serial login on every later boot and needs no framebuffer at all, and it
+   means redoing an install rather than editing a volume.
+
+*The second is the cheaper one and it was not visible until the first was
+tried: the window for configuring a node from a shell is the install itself.*

@@ -4142,10 +4142,22 @@ discipline throughout.
       `siologin` -- *"waits for a carriage return ... invokes the operating
       system log-in sequence"* -- is started by `siomonit` from
       `'node_data/startup`, and neither is configured on these volumes. So
-      `lcnode` has nothing to be typed at. Enabling it needs a shell with the
-      volume mounted, which the RBAK environment gives and which this project
-      has driven before. Detail and the second route -- a display and the
-      Display Manager -- in `FINDINGS.md` C160.
+      `lcnode` has nothing to be typed at (`FINDINGS.md` C160).
+      **And the obvious way to configure it does not exist.** The RBAK shell
+      was tried and `di c` / `ex domain_os` takes a different path once the
+      disk has an operating system on it: an empty volume gets
+      `RBAK_BS reloading system software ... (Y/N)` and then `sh`, an installed
+      one gets `BOOT VOLUME NEEDS SALVAGING. Proceed to bring up OS?`. The
+      shell exists only while there is nothing on the disk to configure
+      (`FINDINGS.md` C162).
+      **So it is one of two, and the cheaper one only became visible by trying
+      the other**: configure `siologin` *during* MINST, while the RBAK shell is
+      still there -- `'node_data/siomonit_file` carrying
+      `-repeat /dev/sio1 -n siologin1_local` and the `cps /sys/siologin/siomonit`
+      line in `'node_data/startup` -- which is redoing an install rather than
+      editing a volume; or fit a display to one node and drive the Display
+      Manager, which is where Domain/OS expects a user and which means reading
+      `lcnode`'s answer out of a **frame buffer** rather than off a wire.
       **And the run itself is affordable and measured**: about 1.5 G
       instructions per node against 125 K instructions/s per node (C156), so
       roughly three hours for two nodes. A run to launch deliberately rather
