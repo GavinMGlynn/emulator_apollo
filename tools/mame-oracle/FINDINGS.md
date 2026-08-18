@@ -11802,3 +11802,38 @@ to the first, `y` to the second. Both branches were taken here, one per volume.
 One condition noted rather than fixed: node B's volume prints *"Boot device has
 no OS paging file"* and runs without paging. That is C166's INVOL 7-1-8 order,
 pre-existing on this volume and not introduced by any of the above.
+
+## C213 -- `siomonit` runs on this core, and the boot reaches SPM
+
+The first Normal-mode boot of a `siologin`-configured volume on **this core**,
+`media/dn3500-nodeB-ready.awd` at `--clock 2002-11-27T23:45`:
+
+    Apollo Phase II Environment   Revision 10.4   Jan 25, 1992
+    Loading Init. ... global libraries loaded.
+    *****  Node startup on Mon Dec 02 19:47:07 2002  *****
+    Cataloging in: /lost+found ... Preserving editor files
+    Clearing /tmp / Initializing /etc/mnttab
+    Starting standard daemons:. / Starting othe. / Starting window .
+    SPM system init complete.
+    Node ID = 22222
+      19:47:18   Op: CPS  Name: ""          Command: "/com/tctl -line 1 -insync"
+      19:47:18   Op: CPS  Name: "siomonit"  Command: "/sys/siologin/siomonit /sys/node_data/siomonit_file"
+        SERVER_PROCESS_MANAGER, Version 10.2, 89/07/31
+     SPM Initialized on Monday, December 2, 2002 at 19:47:23
+      19:47:24   MBX_HELPER not running.  Starting one.
+
+**The second `CPS` line is C163's**, written into `startup.spm` and read back
+here by the machine that has to run it -- so `siomonit` starts, and `siologin`
+with it. Every previous boot on this core went quiet at
+`SPM system init complete.` with nothing behind it (C165); this one names the
+process that answers a carriage return.
+
+The run ended on its 1.4 G instruction limit at `MBX_HELPER`, so the `login:`
+prompt itself is not yet seen -- the *mechanism* is verified and the remaining
+question is only how many more instructions it takes. Worth stating precisely
+rather than claiming the login: **`siomonit` is started; a login prompt is not
+yet observed.**
+
+*This is why one node was run before two: the same failure on a two-node run
+costs twice the instructions and tells you half as much about which node caused
+it.*
