@@ -11384,3 +11384,44 @@ controller reads in the entire run to account for. The remaining question is
 what Domain/OS expects a board type to be -- `0x36` is what the **boot
 firmware** gates on (`cmpi.b #$36`, `RING.md` 39), and whether the OS driver
 wants the same byte is not established by anything read so far.*
+
+## C203 -- the table walk against p. 12-29, and what it does and does not explain
+
+`CLAUDE.md`'s rule applied: before instrumenting further, the controller's
+registers walked against `002398-04` p. 12-29 read as the page image. Three
+things it says that this model does not.
+
+**The first window is mostly PROM, and this core decodes it as the second.**
+The page gives the first window (bus `220`-`23E`, phy `51000`-`51C06`) as
+`Node_ID3`-`Node_ID0` at `51000`-`51006`, then **`(unused - PROM)`** for every
+read at `51400`-`51406`, `51800`-`51806` and `51C00`-`51C04`, with named *write*
+functions -- `SOFT_RCV_REQ`, `XMIT_ACK`, `RCV_ACK`, `TIMO_ACK`, `ERR_BITS_CLR`,
+`GPS_CLR`, `SOFT_XMIT_REQ`, `LERR_CLR`. This core applies one bank decode to
+both windows, so the first window's `+400` answers as `MISC_STAT` and its `+800`
+and `+C00` as two 8254 timers. `RING.md` 93i fixed `+000` this way once and
+stopped there.
+
+**`51C06` is `Node_ID_CHECKSUM` and is not modelled at all.**
+
+**And the board comes in two versions**, which the footnotes make load-bearing:
+*"Registers are write only for the two-board version"* for `XMIT_ADDR` and
+`RAM_ADDR`, and `59004` reads `XMIT_ABORT` on the two-board version against
+`RCV_ADDR` on the single-board one -- *"single-board abort is clear xmit_enable
+in xmit_cmd"*. Nothing in this model chooses a version, and `BOARD_TYPE` is the
+obvious thing a driver would read to pick one.
+
+### What it does not explain
+
+**The checksum hypothesis is dead, measured not argued**: `--boot-watch-read
+51C06` reports `read 0 time(s)` across the boot. The driver never asks for it,
+so a missing checksum register cannot be what it objects to. The first window's
+`+400` is likewise never read (`read 0 time(s)`).
+
+So the gaps above are **completeness work the rule exists to find** -- an
+unexercised register answering the wrong thing is exactly the defect class
+`RING.md` 93i already caught here once -- and none of them is yet shown to be
+`Crash_Status 00110009`. The one read that decides remains `59000`'s `0x3600`
+(C202), and the version question is the first thing to put to the driver: the
+page says the two variants differ in which registers exist, and this core
+implements one behaviour while reporting a type it has never checked against a
+driver.
