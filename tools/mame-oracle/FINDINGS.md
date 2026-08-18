@@ -10686,10 +10686,22 @@ both boot PROMs (`SAU7 not found in root_dir`), the RBAK environment's own shell
 scrape's numbers track the volumes' known states monotonically from virgin to
 installed.
 
-*Table 8-1 gives the header an explicit **Entry count** field, alongside hash
-value 43, list size 18, pool size 429, entries-per-block 3 and maximum count
-1300. Reading it would turn the scrape into a number. The four constants are not
-consecutive 16-bit words anywhere in the block's first 256 bytes, so the layout
-wants **Figure 8-3 read as a page image** rather than through `pdftotext` --
-which is the rule `CLAUDE.md` states for exactly this kind of table. Named as
-the next step for anyone who needs an exact count; nothing here depends on one.*
+**The exact count was pursued to a dead end, and the dead end is worth
+recording.** Figure 8-3, read as a page image, gives the header word for word:
+
+    0   Version = 1        5   High Block        11  Entry Count
+    1   Hash Value         6   Free Chain        12  Maximum Count
+    2   List Size          7-10 Parent UID       13+ Linear list (18 entries),
+    3   Pool Size                                    Information Block,
+    4   Entries/Block                                Hash Threads (43),
+                                                     Entry Block Pool (429)
+
+So `0001 002B 0012 01AD 0003` is an exact signature for the start of a
+directory. **It appears nowhere** in block `165649` on either volume, and
+neither do `43`, `18`, `429` or `1300` as 16-bit words anywhere in the block --
+while the block plainly contains directory *names*. The manual is January 1986
+and says of each constant *"Currently, this value is 43"*; these volumes are
+SR10.2 and SR10.4, four years later. **The SR9-era constants do not describe an
+SR10 directory**, and no document on the shelf gives the SR10 ones, so the
+header cannot be located this way and the counts stay indicative. Recorded so
+the next reader does not spend the same half hour.*
