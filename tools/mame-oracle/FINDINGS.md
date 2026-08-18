@@ -10050,3 +10050,35 @@ hold constant: the clock, and the file itself.
 one session with **both volumes attached** -- `-disk1` node A, `-disk2` node B,
 `mtvol` the second -- and `ld` walked over both trees. That compares everything
 at once instead of one candidate per run, and `mtvol` is in `/com`.
+
+## C176 -- the two volumes are equivalent, so the difference is not on the disk
+
+C175's recommended experiment, run: node A's volume booted with node B's
+attached as unit 1 and mounted with `mtvol w1 nb` -- one session comparing
+everything, instead of one boot per candidate.
+
+    /       node A   22 entries
+    /nb     node B   22 entries, the same names
+
+    /sys/node_data       node A   31 entries
+    /nb/sys/node_data    node B   33 entries
+
+**The two extra entries are exactly the two files this session added** --
+`siomonit_file` and `startup_sio.sh`. Everything else matches name for name,
+including the whole `startup.*` family and the `.06.26` / `.08.18` dated
+backups MINST leaves.
+
+*`mtvol` takes INVOL's device syntax, not a spaced one: `mtvol w 1 nb` answers
+`disk already mounted` because `w` alone is unit 0, the boot volume. `mtvol w1
+nb` mounts unit 1.*
+
+**So the volume is not the difference**, and with C173's finding that the
+shutdown precedes the stage which reads `startup.spm`, the entire disk-side
+explanation is exhausted. The remaining variable from C173's list is the **node
+ID** -- `22222` against `12345` -- which is not a file and cannot be compared
+this way.
+
+*Testing it means building a volume under `12345` and booting it here, which is
+another install; or finding where a node ID other than the default reaches the
+kernel's startup path. Neither is a boot away, and this entry exists so the next
+session starts from "not the disk" rather than re-deriving it.*
