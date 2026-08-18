@@ -9376,3 +9376,44 @@ scripts and the clock are all in place and measured. What is missing is a
 **login server on the SIO line**, named, with the manual page that describes
 enabling it and a route to do so that this project has already driven for
 other purposes.*
+
+## C161 -- the calendar gate is a standing prerequisite, not an incident
+
+Four sessions in this thread have hit it and each treated it as a surprise:
+node B's first boot (C153), SR10.2's RBAK (C155), the single-node boot on this
+core (C158), and a shell session against node A's volume. The rule behind all
+four is one sentence:
+
+**Any Domain/OS session against a volume whose recorded time is ahead of the
+guest clock stops with `The calendar is more than a minute slow`, and the
+remedy is `ex calendar` before anything else.**
+
+Every volume this project owns was written in 1996 or 2002; the oracle's guest
+clock starts well behind that, and this core's default epoch is 1987. So the
+gate is the *normal* case here, not an exception.
+
+**The dialogue does not have to be guessed, because CALENDAR states its own
+branch**, which is the part worth carrying:
+
+    The system calendar contains a time which precedes the logical volume's
+    last recorded time.  The calendar time is 1996/08/18 02:57:27 UTC;
+    last recorded time was 1996/08/18 03:26:47 UTC.
+    Is the calendar correct?
+
+`n` there opens `Please enter today's date (year/month/day):`, then
+`Please enter the local time in 24 hour format (hour:minute):`, then
+`Is the above information correct?`. The other branch --
+`Would you like to reset it?` / `y` -- belongs to the opposite case, and the
+machine prints which one it is asking, so a script driven a turn at a time
+never has to choose blind. CALENDAR then aborts on exit at `10200E6: 6100`
+every time, and the set still takes.
+
+**On this core the same gate is `--clock`**, read from the volume rather than
+tuned: `apollo-headless --volume FILE` prints `dismounted`, and a clock after
+that stamp boots (C158). `tools/identity-boot.sh` deliberately uses 1987 and
+says so, which is why the reference boot never sees any of this.
+
+*Practical form, for the next session: for the oracle, `ex calendar` first with
+the date read off the volume; for this core, `--clock` after the dismount
+stamp; and for a bootable volume, `--mode Service` and `--knock-timeout 900`
+(C153).*
