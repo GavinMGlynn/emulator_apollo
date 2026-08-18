@@ -556,17 +556,22 @@ The copy reaches `SPM system init complete.` and
 starts two machines that disagree about who they are --
 `node 0 id 012345 ring slot 0`, `node 1 id 022222 ring slot 1`.
 
-**Named as the approximation it is.** Every object on the copy still carries
-`12345` in its UID, so the volume is not one node 22222 could have created. That
-is invisible to a ring-membership test and visible to anything that reads object
-UIDs across the ring; a real second node still wants a real second install.
-Cost to close: one install. `FINDINGS.md` C180.
+**SUPERSEDED the next day, and both halves of it were wrong to keep.** The
+relabelled copy is not used and is not needed: node B's own volume boots, and
+what had stopped it was the asymmetry named in the paragraph below. The copy
+would also not have worked in the ring runner -- its objects carry `12345`, the
+runner takes each node's ID from its disk, so the machine would present `22222`
+against objects saying `12345`, which is the mismatch Domain/OS shuts a node
+down for. It booted in the single-machine tests only because `--disk` was not
+applying the label then, so machine and objects agreed at `12345` by accident.
+The section below is the fix. `FINDINGS.md` C199, C200.
 
-**An asymmetry this exposed, and it is a real one:** `node_id_from_volume` is
-wired to `--volume` and not to `--disk` on the single-machine path, so a machine
-booted with `--disk` alone reports the compiled-in `12345` whatever its label
-says. The two-node runner does apply it per disk (`main.c:1489`). The
-single-machine path reads exactly like the guest ignoring a relabelling.
+**An asymmetry this exposed, and it was the whole of node B's four-session
+shutdown:** `node_id_from_volume` was wired to `--volume`, which only reports a
+label, and not to `--disk`, which fits the drive -- so a machine booted from a
+disk presented the compiled-in `12345` whatever its volume recorded. Noticed
+here as an aside and not connected to the symptom for another six findings.
+Fixed; see the section above.
 
 **Rate, since it governs how this item is worked:** two nodes execute at
 **138,000 instructions/s each** against roughly 5 M for a lone machine, and a
