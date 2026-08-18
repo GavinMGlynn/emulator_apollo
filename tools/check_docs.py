@@ -71,6 +71,33 @@ def registered(suite: str) -> int | None:
     return len(re.findall(r"\bRUN_TEST\(", source.read_text()))
 
 
+# The same drift, in the same direction, for the one check that is a script
+# rather than a CTest suite. A commit claimed "`check_frontend_flags` 16 -> 17"
+# when the script ran 19 checks and then 20: **neither number had been
+# measured**, and nothing could catch it, because this file verified suite
+# counts, paths and symbols and this was prose with numbers in it.
+#
+# The claim is written as a delta -- "N -> M" -- so only the number *after* the
+# arrow is a claim about the tree; the one before it is history and is left
+# alone. A bare "`check_frontend_flags` N" is checked too.
+FLAGS_CLAIM = re.compile(
+    r"`check_frontend_flags`[^0-9\n]*(?:(\d+)\s*(?:->|→)\s*)?(\d+)")
+FLAGS_SCRIPT = REPO / "tools" / "check_frontend_flags.py"
+
+
+def flag_checks() -> int | None:
+    """How many checks `check_frontend_flags.py` runs.
+
+    Counted from the source rather than by running it, so this stays a document
+    check and not a test run: `check(` at statement position, which is how every
+    one of them is written. `skip(` is deliberately not counted -- a skipped
+    flag is named in the output but is not a check that passed.
+    """
+    if not FLAGS_SCRIPT.is_file():
+        return None
+    return len(re.findall(r"^\s+check\(", FLAGS_SCRIPT.read_text(), re.MULTILINE))
+
+
 # A completed plan item is a summary. Sixteen lines is not the rule -- the rule
 # is one line of what was done, its verification, and "Detail in
 # PROJECT_STATUS.md" -- it is the point past which an item is certainly carrying
@@ -454,6 +481,23 @@ def main() -> int:
             if actual != int(claimed):
                 problems.append(
                     f"{suite}: the table says {claimed}, the suite registers {actual}")
+
+    # Not restricted to table rows: this claim is always made in prose, in the
+    # verification line of whatever landed the check.
+    actual_flags = flag_checks()
+    for doc in (STATUS, PLAN):
+        if not doc.is_file():
+            continue
+        for _before, claimed in FLAGS_CLAIM.findall(doc.read_text()):
+            if actual_flags is None:
+                problems.append(
+                    "check_frontend_flags: claimed in the docs, no such script")
+                continue
+            checked += 1
+            if int(claimed) != actual_flags:
+                problems.append(
+                    f"check_frontend_flags: {doc.name} says {claimed}, "
+                    f"the script runs {actual_flags}")
 
     checked += check_references(problems)
     checked += check_item_length(problems)
