@@ -10362,10 +10362,35 @@ exception vectors node B never reaches, 35 and 39, which are `TRAP #3` and
 sectors, the bus faults in the same places, and the machines diverge on what
 Domain/OS *does* with what it read.
 
-*Next instrument, and it is now a small one: identify what the loop at
-`010421A8` polls -- a `--boot-watch-read` on the word it tests, or the
-disassembly of those two instructions -- and the wait's subject is named. That
-is a single bounded run rather than another candidate.*
+### The loop is the idle loop, and it is waiting for an interrupt
+
+`--dump-logical 3C43F590:64` at a bound just before node B leaves, decoded by
+hand:
+
+    01042198  70 0F                    moveq   #15,d0
+    0104219A  2F 3C FF FF FF FF        move.l  #$FFFFFFFF,-(sp)
+    010421A0  51 C8 FF F8              dbf     d0,$0104219A
+    010421A4  4C DF 7F FF              movem.l (sp)+,d0-d7/a0-a6
+    010421A8  02 7C F8 FF              andi.w  #$F8FF,sr
+    010421AC  60 FA                    bra.s   $010421A8
+
+`andi.w #$F8FF,sr` clears the interrupt priority mask and the branch goes back
+to it: **enable everything and spin.** The sixteen `$FFFFFFFF` pushed and popped
+into every register just before are a deliberate poison, which is also why both
+runs report `d0-d7` and `a0-a6` as all-ones at the bound -- that had read as a
+crashed machine and is nothing of the kind.
+
+So this is not a poll of a flag: it is the processor **idle, waiting for an
+interrupt**, and both nodes reach it normally. Node B is therefore not stuck and
+not missing something -- an interrupt *does* arrive at 547 M and its handler
+takes the node to the PROM, four million instructions before node A's handler
+takes it into the environment.
+
+*So the question is now "what runs at 547 M", not "what is it waiting for". Two
+exception vectors point at it: node A takes **vector 35 and vector 39 exactly
+once each** -- `TRAP #3` and `TRAP #7` -- and node B never takes either.
+`--boot-stop-on-vector 35` on node A names the caller of the one node B never
+reaches, which is a single bounded run.*
 
 ## C183 -- SR10.2 installs and does not yet boot, and the remaining gap is exact
 
@@ -10406,3 +10431,93 @@ entry" from "the PROM cannot read the directory". That is one oracle run.*
 *One trap recorded because it cost an image: `sr102final.awd` was copied three
 seconds after a `SIGTERM` to MAME and was not a copy of a finished disk. Every
 salvage since ends with `!exit` ([[an-input-a-run-can-write-is-not-an-input]]).*
+
+## C184 -- `mtvol` on the oracle did not attach the second disk, and C176 needs re-checking
+
+A method finding, and it is worth more than the question it was asked for.
+
+**MAME has the second disk.** The run's own output says so, which is the check
+[[confirm-configuration-from-run-output]] exists for:
+
+    # image winchester1: .../sauA2.awd
+    # image winchester2: .../sauB2.awd
+
+**Domain/OS never sees it.** `mtvol` returns without an error and every path
+through the mount point resolves to the *booted* node's own volume:
+
+    $ /com/mtvol w1 s2
+    $ /com/ld /s2/install     ->  Directory "/install": ... ri.apollo.os.v.10.4
+    $ /com/ld /install        ->  Directory "/install": ... ri.apollo.os.v.10.4
+
+The mounted volume is SR10.**2**; both listings say 10.4. `/s2/sau7` and
+`/sau7` are byte-identical, 47 entries each. `002547-04`'s MTVOL page was read
+first -- *"the unit number must follow the disk_type ID immediately: no blanks
+in between"*, `MTVOL disk_type[unit] [log_vol_number] [pathname]` -- and the
+full documented form fails the same way:
+
+    $ /com/dmtvol w1
+    $ /com/mtvol w1 1 /s3
+    $ /com/ld /s3/install     ->  ri.apollo.os.v.10.4
+
+**The failure mode is silent and it is `ld`'s, not `mtvol`'s.** `ld /s2` prints
+the header `Directory "/"`, and `ld /s2/install` prints `Directory "/install"` --
+the leading component is being *dropped*, and the rest resolved from the root.
+So a wrong answer arrives formatted exactly like a right one, with no error on
+either command.
+
+### What this costs C176
+
+C176 concluded *"the two volumes are equivalent, so the difference is not on the
+disk"* from listings obtained this same way -- `/com/mtvol w1 nb`, then
+`/com/ld /nb`. Its headline evidence, *"`/com/ld /` → 22 entries; `/com/ld /nb`
+→ the same 22"*, is **exactly what an unattached mount produces**.
+
+One datum resists that reading: C176 also reported `/sys/node_data` at 31
+entries against `/nb/sys/node_data` at 33, the two extras being files added to
+node B's volume only. An unattached mount cannot produce a difference. So C176's
+mount may well have worked and this session's may be the anomaly -- the volumes
+differ in that this one's label was patched by hand first.
+
+**Stated as it stands rather than resolved either way: C176's conclusion is no
+longer supported by the evidence it cites, and one command settles it** --
+`/com/ld /nb/install`, which names the release and cannot be faked by a dropped
+path component. Until that is run, *"the difference is not on the disk"* is
+withdrawn to *"not established"*, and the disk is back among node B's
+candidates. C182's differential is unaffected: it compares two boots on this
+core and never mounts anything.
+
+*The rule this is an instance of: a comparison whose two sides can silently be
+the same object needs a discriminator that names the side --
+[[withdrawal-needs-a-discriminating-experiment]] and
+[[cross-machine-comparisons-need-sample-free-quantities]]. `ld /X/install`
+naming `ri.apollo.os.v.10.4` is such a discriminator; entry counts are not.*
+
+## C185 -- both emulators give SR10.2's volume the same boot error, so it is the volume
+
+The cheapest cross-check available, and it was not run until now: boot the
+salvaged SR10.2 volume on **our** core and compare with the oracle's PROM.
+
+    oracle   >ex domain_os
+             boot error: SAU7 not found in root_dir
+               status=000E0007
+
+    ours     --- Load paths tested.
+             Loading SELF_TEST diagnostics from boot device.
+             boot error: SAU7 not found in root_dir
+                Could not load /SAU7/SELF_TEST.
+
+**Two independent implementations of the boot PROM's directory reader agree.**
+That places the fault on the volume rather than on either machine, and it is
+worth having because C184 had just shown the oracle-side comparison tool to be
+unreliable -- this check needs no mount and no second disk.
+
+It also says the same thing about our own core, from the other direction: our
+PROM finds `SAU7` on `dn3500-sr10.4-installed.awd` and on
+`dn3500-sr10.3-installed.awd`, and does not find it here, which is three
+volumes' worth of agreement with the oracle on the same code path.
+
+*So the open question for the item is narrow and is about the install, not the
+emulator: MINST's log says `Directory //node_12345/sau7 reused` and hard-links
+every file of it, and neither PROM can then find the entry. The measurement is a
+listing of that volume's root taken **without** `mtvol` -- from the tape-booted
+environment MINST itself ran in, which reaches the target as `//node_12345`.*
