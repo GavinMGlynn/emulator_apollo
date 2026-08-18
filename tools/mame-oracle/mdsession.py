@@ -689,25 +689,40 @@ MAME_CONFIG_XML = """<?xml version="1.0"?>
 <mameconfig version="10">
     <system name="%s">
         <input>
-            <port tag=":apollo_config" type="CONFIG" mask="%d" defvalue="%d" value="0" />
+            <port tag=":apollo_config" type="CONFIG" mask="%d" defvalue="%d" value="%d" />
         </input>
     </system>
 </mameconfig>
 """
 
 
-def write_config(rundir: Path, machine: str) -> Path:
+def write_config(rundir: Path, machine: str, node_id: Path | None) -> Path:
     """Plant MAME's system config, so the *first* reset sees it.
 
     Named for the machine because that is what MAME looks for -- `dn3500.cfg`
     for `dn3500` -- and written into the run directory's own `cfg`, which
     `build_command` already points `-cfg_directory` at. A run therefore
     configures itself and leaves nothing behind for the next one.
+
+    **Off only when a node-ID image is supplied**, and the file is written
+    either way. Taking the node from the disk is the right behaviour for a run
+    that does not name one: it is how a machine with a volume from some other
+    node presents the ID that volume records, which is what this project's own
+    `node_id_from_volume` does for the same reason. Turning it off across the
+    board would silently give such a run MAME's `DEFAULT_NODE_ID` instead --
+    trading one wrong node for another. `--node-id` is the caller saying which
+    source they mean, so it is the thing that decides.
+
+    Written in both cases because a configuration that is only stated when it
+    is interesting is one nobody can confirm from the run: the file is the
+    answer to "what did this run actually get", and an absent file is not one.
     """
+    off = node_id is not None
     path = rundir / "cfg" / ("%s.cfg" % machine)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(MAME_CONFIG_XML
-                    % (machine, APOLLO_CONF_NODE_ID, APOLLO_CONF_NODE_ID))
+                    % (machine, APOLLO_CONF_NODE_ID, APOLLO_CONF_NODE_ID,
+                       0 if off else APOLLO_CONF_NODE_ID))
     return path
 
 
@@ -880,8 +895,10 @@ def main(argv=None) -> int:
     if exitfile.exists():
         exitfile.unlink()
 
-    sys.stderr.write("mdsession: config %s\n"
-                     % write_config(rundir, args.machine))
+    sys.stderr.write("mdsession: config %s (node from %s)\n"
+                     % (write_config(rundir, args.machine, args.node_id),
+                        "the -node_id image" if args.node_id is not None
+                        else "the disk, as MAME defaults"))
 
     command = build_command(mame, args, rundir)
     sys.stderr.write("mdsession: %s\n" % " ".join(command))

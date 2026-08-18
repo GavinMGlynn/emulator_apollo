@@ -33188,6 +33188,14 @@ generalises and is worth carrying: **a setting whose effect is a one-way write
 has to be in place before the first reset; anything the firmware merely re-reads
 can wait for the Lua.**
 
+**Off only when `--node-id` names an image**, and the file is written either
+way. Off across the board would trade one wrong node for another: a run given
+node B's volume and no ROM image would present `DEFAULT_NODE_ID` rather than the
+`22222` its disk records, which is the lie `node_id_from_volume` exists to
+prevent. Measured: that volume on unit 0 with no `--node-id` reads
+`0200 2200 2200`. The file is written in both cases because a configuration
+stated only when it is interesting cannot be confirmed from the run.
+
 *It invalidates no earlier run. `DEFAULT_NODE_ID` is `0x12345` and every volume
 this project owns records `0x12345`, so on a run without `-node_id` the disk and
 the default agree and the setting is inert. Only runs supplying a node ID were

@@ -4108,11 +4108,14 @@ discipline throughout.
       happened. Its soft reset repairs every field the firmware *re-reads*, and
       cannot repair one that is acted on once. **A setting whose effect is a
       one-way write has to be in place before the first reset**, so
-      `mdsession.py` now plants MAME's system config in the run directory.
+      `mdsession.py` now plants MAME's system config in the run directory -- off
+      only when `--node-id` names an image, since off across the board would
+      trade one wrong node for another.
       *Verification: two runs, same volume and same `-node_id` image, differing
       only in which unit it was mounted on -- the guest reads `12345` on unit 0
-      and `22222` on unit 1; with the config planted it reads `22222` on unit 0.
-      Four checks in `test_mdsession.py`, `ctest` 139/139. `FINDINGS.md` C151.*
+      and `22222` on unit 1; with the config planted it reads `22222` on unit 0,
+      and node B's volume with no `--node-id` reads its own `22222`. Seven
+      checks in `test_mdsession.py`, `ctest` 139/139. `FINDINGS.md` C151.*
       **And the volume is made**: INVOL options 7 then 1 on a copy, run to
       `Initialization complete.` and shut down cleanly with `!exit`, gives
       `APOLLODN3500B`, creator UID `77536D6F10022222`, node ID **`22222`** --

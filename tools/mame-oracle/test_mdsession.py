@@ -448,18 +448,32 @@ def main() -> int:
         # reads it at startup, and a cfg naming another machine, or carrying a
         # mask or default value that does not match the port, is ignored without
         # a word.
-        proc = run(stub, ["--stage", "prompt"])
+        # Off only when a node-ID image is named, and the file is written either
+        # way: without one, taking the node from the disk is what lets a volume
+        # from another node present the ID it records, and turning it off would
+        # trade that for MAME's `DEFAULT_NODE_ID`.
+        image = work / "node.ani"
+        image.write_bytes(b"\0" * 32)
         planted = stub.parent / "run" / "cfg" / "dn3500.cfg"
+
+        proc = run(stub, ["--stage", "prompt", "--node-id", str(image)])
         check("the system config is planted for the machine being run",
               planted.exists(), True)
         written = planted.read_text()
         check_in("naming that machine, since MAME matches on it",
                  '<system name="dn3500">', written)
-        check_in("and turning Node ID from Disk off before the first reset",
+        check_in("and a named node-ID image turns Node ID from Disk off",
                  '<port tag=":apollo_config" type="CONFIG" mask="256" '
                  'defvalue="256" value="0" />', written)
-        check_in("the driver says where it put it", "mdsession: config",
-                 proc.stderr)
+        check_in("the driver says which source the run got",
+                 "node from the -node_id image", proc.stderr)
+
+        proc = run(stub, ["--stage", "prompt"])
+        check_in("and a run without one leaves MAME taking it from the disk",
+                 '<port tag=":apollo_config" type="CONFIG" mask="256" '
+                 'defvalue="256" value="256" />', planted.read_text())
+        check_in("saying so", "node from the disk", proc.stderr)
+
         # A different machine gets its own, or MAME ignores the file entirely.
         proc = run(stub, ["--stage", "prompt", "--machine", "dn3000"])
         check("and a different machine gets a config of its own name",

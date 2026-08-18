@@ -8846,6 +8846,16 @@ and the one worth carrying: **a setting whose effect is a one-way write has to
 be in place before the first reset; anything the firmware merely re-reads can
 wait for the Lua.**
 
+**Off only when `--node-id` names an image, and the file is written either
+way.** Turning it off across the board would have replaced one wrong node with
+another: a run given node B's volume and no ROM image would present MAME's
+`DEFAULT_NODE_ID` instead of the `22222` its disk records, which is precisely
+the lie `node_id_from_volume` exists to prevent. `--node-id` is the caller
+naming which source they mean, so it is what decides. Measured on the machine:
+node B's volume on unit 0 with **no** `--node-id` reads `0200 2200 2200` -- the
+disk's own node -- so the install that volume still needs does not have to carry
+the ROM image around.
+
 *It changes nothing about any earlier run. `DEFAULT_NODE_ID` is `0x12345` and
 every volume this project owns records `0x12345`, so for a run without
 `-node_id` the disk and the default agree and the setting is inert. Only a run
