@@ -11912,3 +11912,43 @@ instructions each were spent on the timing hypothesis -- knock earlier, knock
 later, knock after `MBX_HELPER` -- and the file that says what the format is had
 been on the disk the whole time. `strings` over the image and 200 bytes of
 context around `siologin2_local` was the whole investigation.
+
+## C216 -- the template was followed and the login still does not appear
+
+C215's diagnosis was right about the file and **wrong about it being the whole
+cause**. Both volumes now carry exactly what `/sys/siologin/siomonit_file`'s own
+template prescribes, written and read back on the machine:
+
+    siomonit_file:   -repeat /dev/sio1 -n siologin1_local /com/sh -f -c /sys/node_data/startup_sio.sh 1
+    startup_sio.sh:  copied from /sys/siologin, "1 entry listed"
+
+saved as `media/dn3500-nodeA-siologin2.awd` and
+`media/dn3500-nodeB-siologin2.awd`, both cleanly shut. A 2.6 G instruction boot
+of the completed volume reaches SPM and starts `siomonit` exactly as before --
+and **no `login:` appears**. So the missing command and the missing
+`startup_sio.sh` were real defects and were not the reason.
+
+### What the serial statistics narrow it to
+
+Per-channel, from the run's own report:
+
+    sio1 A   1200 baud   reg 3  transmit:    15 write(s)     3 discarded unread
+    sio1 B   9600 baud   reg 11 transmit:  2829 write(s)     <- our console
+    sio2 A   9600 baud   no transmit at all
+    sio2 B   9600 baud   no transmit at all
+
+Domain/OS's startup is the 2829 writes on **sio1 B**, which is where
+`--boot-console` listens. `sio2` transmits **nothing**, so the login is not
+being offered there. That leaves `sio1 A` -- fifteen characters on a channel
+this frontend cannot show, because `--boot-console` is fixed to one unit and
+channel.
+
+**So the open question is now precise, and it is a mapping question rather than
+a configuration one**: which physical channel is Domain/OS's `/dev/sio1`? If it
+is `sio1 A`, the login has been appearing all along on a line nothing was
+watching. The next experiment is to capture that channel -- not another boot of
+the same one.
+
+*Recorded rather than rounded up: three defects were found and fixed on the way
+here (C210 salvage, C211 node A unconfigured, C215 the incomplete file) and the
+verification the item asks for is still not in hand.*
