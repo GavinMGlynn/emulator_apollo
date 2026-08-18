@@ -14,5 +14,14 @@
 # reports that the configuration table in the calendar's battery-backed RAM is
 # uninitialised. Answering **y** continues past that -- it is a setup step and
 # not a fault -- and every test then passes.
+#
+# **That question is conditional, and a script must not be written as though it
+# were not.** SELF_TEST asks it when the configuration table disagrees with the
+# machine; a node whose table describes it correctly prints `Self tests passed.`
+# and asks nothing. `--ring-two-node` builds such a node, and its dialogue --
+# copied from this one -- waited for ever on a prompt that never came, typing
+# nothing for forty-two minutes (`FINDINGS.md` C193). This file stays as it is
+# because the single-machine path really does boot with an uninitialised
+# configuration; anything else should expect a line the boot always prints.
 expect Do you wish to continue
 send y\r
