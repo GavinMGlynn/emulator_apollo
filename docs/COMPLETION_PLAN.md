@@ -4197,6 +4197,17 @@ discipline throughout.
       *So the two open questions are one: **a new node needs a virgin volume, and a
       virgin volume is what INVOL will not assign.** That is C145's `100001`, and
       it is the single thing left. `FINDINGS.md` C149.*
+      **And `100001` is documented**, in a manual already on disk: `002398-04`'s
+      status tables give `os / I/O manager: (00100001) dcte not found`. A **DCTE
+      is a device control table entry**, so the failure is the I/O manager not
+      finding a *device* — not a program judging a *medium*. That redirects the
+      search from "what is wrong with a blank image" to "what builds the device
+      table, and why does a blank disk leave it without an entry", and it keeps
+      both measurements intact: if the table is built from what can be recognised
+      on the disk, a labelled copy assigning and a blank not assigning follow
+      together.
+      *It should have been the first lookup, not the last — an error code with a
+      documented meaning is the cheapest reference there is. `FINDINGS.md` C150.*
       **`Node-id: 0` is what `config` reports** on a machine MAME calls node
       `12345` — a third corroboration that the ROM window and the battery table
       are different sources and the battery one is empty.

@@ -8759,3 +8759,36 @@ initialised.
 
 *What is landed regardless: `!exit`, the stale-request fix, and the knowledge that
 `ex config` writes NODEID correctly and a clean exit persists it.*
+
+## C150 -- `100001` is "dcte not found", and it is the I/O manager's, not the medium's
+
+C145 read `Unable to assign disk - error status = 100001` as INVOL refusing a
+blank medium, on the evidence that a copy of a labelled volume assigns and an
+all-zero image does not. **The status code is documented, in a manual on disk**,
+and it says something narrower. `002398-04`'s status-code tables:
+
+    os / I/O manager:
+    (00100001)      dcte not found
+
+**A DCTE is a device control table entry** -- so the failure is the I/O manager
+not finding a *device*, not a program judging a *medium*. That is a different
+question from the one four runs were spent on, and it redirects the search from
+"what is wrong with a blank image" to "what builds the device table, and why does
+a blank disk leave it without an entry".
+
+**It also keeps the observation intact.** A copy of `dn3500-invol-done.awd`
+assigns and a blank does not, measured both ways; what changes is the reading. If
+the I/O manager builds its device entries from what it can recognise on the disk,
+both facts hold at once -- and that is a hypothesis with a table behind it rather
+than an inference from two runs.
+
+**The lesson is the same one C147 recorded and this thread did not learn**: the
+answer was in a manual already extracted to `/home/gavin/apollo-scratch/eh.txt`,
+found by grepping for the number. `CLAUDE.md`'s order is reference, web, oracle,
+and an error code with a documented meaning is the cheapest possible reference
+lookup -- it should have been the *first* thing done when `100001` appeared, not
+the last.
+
+*Item state unchanged: the two-node frontend is built and tested, `!exit` and the
+`ex config` dialogue are landed, and the single blocker is a virgin volume, now
+understood as a device-table question rather than a media one.*
