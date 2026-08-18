@@ -11286,9 +11286,27 @@ would have said so at any point. **The bound was budgeted and the *precondition*
 was not**: "1.5 G instructions per node" was measured on a machine without the
 card, and carried over to runs that had it.
 
-*Next, and it is now a device question rather than a scheduling one: what does
-the ring model do at 503 M that the OS dies of. `Crash_Status 00110009` and
-`PC 3C4AED68` are the handles, the run is 90 seconds, and
-`--boot-stop-on-vector` over the ring card's interrupt is the obvious first
-instrument -- the card is wired to master IRQ 2 (`RING.md` 104-112) and an
-interrupt the OS does not expect is the shape a crash at first-start takes.*
+### The status decodes, and the manual names it
+
+`002398-04` p. 4-6 tabulates Domain/OS status codes by subsystem. Subsystem
+`0011` is **`os / network`**, and read as the page image rather than through
+`pdftotext` -- the extraction interleaves two columns and has already corrupted
+`0011000D` into `00110000`:
+
+    (00110009)  network hardware error
+
+**So the machine is not crashing obscurely: its network layer is reporting that
+the hardware is broken, and saying so.** With the card absent there is no
+network layer to object. That also fits the option-ROM configuration, where the
+driver is accepted by the firmware and the OS then never starts at all.
+
+*So the next instrument is directed rather than general: find what the driver
+reads before it decides. The card is wired to master IRQ 2 (`RING.md` 104-112);
+`--boot-stop-pc 3C4AED68` puts the machine at the deciding instruction in 90
+seconds, and `CLAUDE.md`'s rule applies from there -- **walk `ap_ring_ctl`'s
+register tables against `002398-04` p. 12-29/12-30 and `010005-00` before
+instrumenting anything**, because "the OS says the hardware is wrong" is exactly
+the symptom a missing or transposed register field produces.*
+
+*One more code from the same page, worth having recorded because this project
+will meet it: `(0011001F) no nodeid prom on this system`.*

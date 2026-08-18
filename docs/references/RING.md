@@ -519,6 +519,21 @@ bypass; app. A coaxial driver, receiver and cable.
 | 135c | **No frames cross, and the reason is the disk, not the ring.** At 120 M both nodes sit in `6EFC` -- `bgt.s -4`, a spin -- at `00002BE0`, with `frames seen 0`. A single machine with no disk sits at the *same* PC, and one *with* a disk reaches `network driver search started...` only after the Winchester tests. So the firmware never reaches its ring code without a boot device, which is the same blocker the plan item records: two nodes need two volumes | 134, 135b | confirmed |
 
 
+## Decoding a `Crash_Status`
+
+`002398-04` p. 4-6 lists Domain/OS status codes as `subsystem << 16 | error`,
+subsystem by subsystem. The two this project meets:
+
+- **`0011` `os / network`** -- `00110009` is **network hardware error**, which
+  is what a machine with the ring card fitted crashes with today
+  (`FINDINGS.md` C201). `0011001F` is `no nodeid prom on this system`.
+- **`0012` `os / fault handler`** -- `00120003` integer divide by zero,
+  `0012000C` bus time-out, and the rest of the processor faults.
+
+**Read it as the page image.** `pdftotext` interleaves the table's two columns
+and corrupts `0011000D` to `00110000` and `0011001D` to `00110010`, so the
+code-to-message alignment cannot be trusted from the extraction.
+
 ## Open
 
 | # | Question | How it will be answered |
