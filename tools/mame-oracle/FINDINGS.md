@@ -10275,3 +10275,134 @@ guest ignoring the relabelling.*
 instructions/s each** on this machine, against roughly 5 M for a lone one. A
 node reaches `SPM system init complete` at about 1.5 G instructions, so a
 two-node boot to a prompt is a **three-hour** run and has to be started and left.*
+
+## C181 -- node B: the whole install route is eliminated, and another release's volume boots
+
+Three more negatives, and the third is the control this thread never ran.
+
+**The in-guest shutdown is not it.** C173's list did not include it, but the
+install route does: `minstB.cmds`'s own closing comment says the next step is
+*"salvol, then `shut` from the disk's own OS, which is the route node A took"*,
+and node B's volume never received either. Booted on the oracle to its `)`
+prompt and given a real `shut`:
+
+    mdsession: send 'shut'  ->  Shutdown successful
+    volume  mounted 1996-08-19 14:03:51  dismounted 1996-08-19 14:05:55
+
+A genuine dismount stamp written by Domain/OS. On this core it **still** stops
+at `Beginning shutdown sequence...`.
+
+**The salvage is not it either.** `ex salvol` from the boot cartridge, `w`,
+`1 -f -s -t`: `1 pass over the vtoc`, `Salvage complete`, and the volume's mount
+time corrected by salvol itself. Booted on this core: **the same shutdown**.
+
+So every step of `sr10-3-install-route` has now been applied to node B's volume
+and it fails identically after each.
+
+**And the control, which reframes the question.** `media/dn3500-sr10.3-installed.awd`
+had never been booted on this core in this thread. It boots:
+
+    Domain/OS kernel(7), revision 10.3, August 22, 1990  3:32:49 pm
+    Apollo Phase II Environment   Revision 10.3   Aug 7, 1990  5:39:56 pm
+
+So it is **not** "only node A's volume works". Two volumes of two different
+releases boot here; a third, built by the same MINST route as the first, does
+not. That also kills the last label candidate: a three-byte field at `0x4E1`
+that is non-zero on node A and zero on node B is **also zero on SR10.3's
+volume**, which boots.
+
+### What is left, named as the instrument rather than as a hypothesis
+
+Nothing about the volume distinguishes them -- label walked field by field and
+diffed whole, file tree compared under a running OS, install route applied step
+by step. The remaining instrument is the one
+[[prefer-exhaustive-differential-over-probing]] names: **trace both boots from
+the kernel banner and find the first instruction at which they diverge**, node A's
+volume against node B's on this same core. That is a bounded, well-specified
+run and it is the next thing to do on this thread; it has not been done, and
+saying so is more useful than a thirteenth candidate.
+
+## C182 -- the differential was run, and node B's shutdown is a *wait that times out*
+
+C181 named the instrument; this is the result of using it. Both volumes booted
+on this core with `--boot-progress 1000000`, the two PC sequences diffed.
+
+**The two boots are in lockstep to the kernel banner.** Both print
+`Domain/OS kernel(7)` after the *same* progress point, 502 M instructions, and
+the sampled PC agrees at all 500 points before it, modulo a few bytes of jitter
+inside PROM loops.
+
+**Both then enter the same loop and wait**, at physical `010421A8`/`AC`:
+
+    535M  A=3C43F5AC -> 010421AC   B=3C43F5AC -> 010421AC
+    ...   both spin here
+    546M  A=3C43F5A8 -> 010421A8   B=3C43F5A8 -> 010421A8
+    547M  A=3C43F5A8 -> 010421A8   B=3FFA269E -> 0000269E   <- node B is in the PROM
+    551M  A=3C471830 -> 0109C830   (node A enters the environment)
+
+Node B prints `Beginning shutdown sequence...` after 547 M; node A prints
+`Apollo Phase II Environment` after 551 M. **So it is not a fault and not a
+refusal: both machines wait in the same two-instruction loop, node A's wait is
+satisfied and node B's is not, and node B gives up.**
+
+**And every device counter is identical up to that point.** Both runs stopped at
+548 M and their reports compared:
+
+    bus errors    393, first 00030000, last FD800008 from PC 3C443E8C   -- identical
+    unmapped      1564 read, 0 written, first 00030000                  -- identical
+    disk reads    command 08 x1265                                       -- identical
+    posted codes  same 32 distinct values in the same order
+
+The only counters that differ are ones node A accrues *after* node B has left --
+`0E`/`1E` disk commands (69/69 against 38/37), MMU faults (349/290), and two
+exception vectors node B never reaches, 35 and 39, which are `TRAP #3` and
+`TRAP #7`.
+
+**So no model of ours is answering differently.** The disk returns the same
+sectors, the bus faults in the same places, and the machines diverge on what
+Domain/OS *does* with what it read.
+
+*Next instrument, and it is now a small one: identify what the loop at
+`010421A8` polls -- a `--boot-watch-read` on the word it tests, or the
+disassembly of those two instructions -- and the wait's subject is named. That
+is a single bounded run rather than another candidate.*
+
+## C183 -- SR10.2 installs and does not yet boot, and the remaining gap is exact
+
+With C178's tape fix the install runs to the end for the first time: RBAK,
+MINST, all three cartridges, the template menu answered `11) large`, the release
+notes, `select`, and
+
+    ***          RAI MINST has completed.           ***
+
+with **one** error in the whole run --
+`ERROR:Soft link create for //node_12345/dev to \`node_data/dev failed`.
+
+**The volume does not boot, and the PROM says exactly why:**
+
+    >di w
+    >ex domain_os
+    boot error: SAU7 not found in root_dir
+      status=000E0007
+
+`000E0007` is "name not found" ([[e0007-name-not-found]]). And `/sau7` **is**
+there: the install log has 71 `//node_12345/sau7` lines, `Directory
+//node_12345/sau7 reused`, and every file of it hard-linked from the authorized
+area. The media carries it too -- `ct_extract.py --list` counts 22 `sau7`
+entries on cartridge 1, alongside sau2, 3, 4, 5, 6, 8 and 9.
+
+**Salvage was the documented missing step and it is not enough.** `ex salvol`,
+`w`, `1 -f -s -t` runs `1 pass over the vtoc`, reports `Salvage complete`, and
+corrects the volume's mount time by itself -- and `ex domain_os` still cannot
+find SAU7 afterwards. `ld` at the MD prompt gives the same error, so the PROM's
+directory reader is failing before any lookup this session controls.
+
+*Item state, with the fraction first: the **install** is fixed and completes;
+the **volume is not bootable** and the reason is one lookup. The next step is to
+mount this volume from a running node -- the `-disk2` plus `/com/mtvol` route
+C176 used -- and list its root, which distinguishes "MINST did not write the
+entry" from "the PROM cannot read the directory". That is one oracle run.*
+
+*One trap recorded because it cost an image: `sr102final.awd` was copied three
+seconds after a `SIGTERM` to MAME and was not a copy of a finished disk. Every
+salvage since ends with `!exit` ([[an-input-a-run-can-write-is-not-an-input]]).*

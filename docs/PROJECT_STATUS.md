@@ -457,6 +457,41 @@ single-machine path reads exactly like the guest ignoring a relabelling.
 node reaches SPM at about 1.5 G instructions. A two-node boot to a prompt is a
 three-hour run.
 
+## Node B's shutdown is a wait that times out, not a fault (2026-08-18)
+
+The differential was run rather than left as a plan. Both volumes booted on this
+core with `--boot-progress 1000000` and the PC sequences diffed:
+
+- **Lockstep to the kernel banner.** Both print `Domain/OS kernel(7)` after the
+  *same* 502 M instructions.
+- **Both then wait in the same two-instruction loop** at physical `010421A8`.
+  Node A leaves it at 551 M into `Apollo Phase II Environment`; node B leaves it
+  at 547 M into the boot PROM and prints `Beginning shutdown sequence...`.
+- **Every device counter is identical up to that point** -- 393 bus errors with
+  the same first, last and PC; 1564 unmapped reads; 1265 disk reads; the same 32
+  posted codes in the same order.
+
+So no model of ours answers differently: the disk returns the same sectors and
+the machines diverge on what Domain/OS does with them. The remaining step is
+small and named -- identify what the loop polls, by watching the word it tests.
+`FINDINGS.md` C182.
+
+## SR10.2 installs; the volume does not yet boot (2026-08-18)
+
+Stated with the fraction first. **The install is fixed** by the tape work below
+and completes for the first time -- RBAK, MINST, three cartridges, template
+`11) large`, `RAI MINST has completed.` -- with one error in the whole run, a
+soft link for `/dev`. **The volume is not bootable**, and the PROM says why:
+`boot error: SAU7 not found in root_dir`, `status=000E0007`, "name not found" --
+while `/sau7` is demonstrably present, 71 entries hard-linked from the
+authorized area, and the media carries sau2 through sau9. `ex salvol` runs a
+full pass and does not change it; `ld` at the MD prompt fails the same way, so
+the PROM's directory reader fails before the lookup.
+
+Next step, one oracle run: mount the volume from a running node and list its
+root, which separates "MINST did not write the entry" from "the PROM cannot read
+the directory". `FINDINGS.md` C183.
+
 ## The oracle's tape model has one buffer where the part has three (2026-08-18)
 
 **SR10.2's install stopped at tape block 4615 of 21,443 for four sessions, and
