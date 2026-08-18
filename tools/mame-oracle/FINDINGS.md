@@ -8893,3 +8893,91 @@ already cleared.
 
 *What remains for the two-node item is a Domain/OS install on this volume, which
 is the route `PROJECT_STATUS.md` records end to end for node A.*
+
+## C152 -- the whole-board advance gate is identity-preserving and does not pay, and four devices still carry the cursor the item thought it had removed
+
+The exact-skip item's remaining work was specified down to the function list:
+`next_event()` per device, an aggregate minimum on the board invalidated by the
+three sites that already clear `interrupt_valid_until`, and a gate in
+`ap_machine_run`. Built as specified. Two things came out of it, and only one
+was expected.
+
+### The item called this "provably identity-preserving". It is not, as specified
+
+First version, against a baseline built from HEAD on the same machine:
+
+    baseline   state hash 03EE415450926A89   clocks 1497270792
+    gated      state hash 58105715891CEA4E   clocks 1497270693
+
+Ninety-nine clocks in 1.5 billion. **Two fixes reasoned from the source changed
+the hash not at all** -- advancing when either promise expires, and renewing the
+promise only from the run loop rather than from `ap_board_advance_one`'s
+mid-instruction calls. That is a useful negative: neither hole is ever reached
+in this boot, and `devices_advance_mid_access` is false by default, which
+explains the second.
+
+**Bisected on `--boot-limit`**, which is what finally located it -- clocks agree
+at 1 M, 10 M, 50 M and 100 M and disagree at 200 M.
+
+### The cause is a stored cursor, and it is the third instance of a pattern this project has already cured twice
+
+Four parts keep a `now` field: the disk, the tape, the keyboard and the
+graphics. `ap_omti.h` says why where the field is declared -- *"so a deadline
+can be set from inside a register write that has no `now` of its own"*. Only
+the advance refreshes it, so a skipped advance leaves it behind and the next
+command dates itself from a stale instant:
+
+    ap_omti.c:352   omti->completion_at = omti->now + duration;
+
+The PTM's `now` and the DUART's `now` were both deleted for exactly this
+reason, and the item's own text tells that story -- without noticing that four
+parts still had one. These four cannot simply lose the field: a disk command's
+deadline is real state. `ap_board_carry` therefore carries the four cursors on
+the skip path, four stores against the advance's eight device walks, and a
+flush at run exit makes a run that ends mid-skip leave the same machine as one
+that does not.
+
+**Byte-identical after that**: `03EE415450926A89`, clocks `1497270792`, both
+matching the baseline exactly, at 200 M and at the full 350 M.
+
+### And then it lost, which is the answer to the item
+
+Three interleaved pairs on the reference boot, the bound recomputed each time:
+
+    base   33.64  33.59  34.72     gated  37.90  37.25  38.31
+
+**11% slower.** The arithmetic was in the item all along and points the same
+way: the ceiling is 38.4% of `ap_board_advance` calls, because §3.9's refresh
+counter pulses every 6.944 CPU clocks against a mean instruction of 4.278 --
+and a bound costing five device queries cannot pay for skipping an advance
+costing eight. Taking the interrupt half from `interrupt_valid_until`, which
+`ap_board_sample_interrupts` has already computed and cached, removes most of
+that cost and keeps the hash byte-identical.
+
+**And the cheap version loses by the same margin**, which is what settles it.
+Taking the interrupt half from the cache leaves the bound at a timer pulse, the
+keyboard, the keyboard's reply queue, four transmit-pending checks and the
+ring. Three interleaved pairs, and the spread is a fifth of a second:
+
+    base   31.22  31.04  31.01     cached bound  34.74  34.77  34.81
+
+**11.8% slower.** The reason is structural rather than a detail of this
+implementation: the bound is recomputed after *every* advance and can skip at
+most 38.4% of them, so it is paid eight times for every three it saves. A
+version that could win would have to make the bound **incremental** -- each
+part publishing that its next event moved, rather than the board asking -- and
+that is a different design from the one the item specifies.
+
+### So the gate is reverted, and the item's remaining work is answered
+
+Not landed: it is a 12% slowdown of the reference core for no gain, and
+`CLAUDE.md`'s rule against weakening the reference core to chase speed applies
+with more force when the speed is negative. The patch is kept at
+`/home/gavin/apollo-scratch/c151/exact-skip-refuted.patch` rather than in the
+tree, because dead code that nothing calls is the thing the audit check exists
+to find.
+
+**What is worth keeping from it is the defect**: four parts date deadlines from
+a stored cursor, and any future work that stops advancing the board every
+instruction -- the per-cycle processor item, above all -- has to deal with them
+first. That is now a named prerequisite rather than a surprise.

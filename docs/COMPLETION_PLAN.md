@@ -5015,13 +5015,32 @@ Only after the reference core is proven, and only under an identity harness.
       nothing, and not the order-of-magnitude the item's title suggests: this
       board has a device whose observable state changes faster than the
       processor executes. Detail in `PROJECT_STATUS.md`.
-      **So the remaining work is bounded and specified**: `next_event()` for the
-      calendar, tape, disk and keyboard (the serial part and timer have theirs),
-      an aggregate min on the board invalidated by the same three sites that
-      already clear `interrupt_valid_until`, and a gate in `ap_machine_run`.
-      Provably identity-preserving — devices still advance *at* instruction
-      boundaries, just not at boundaries where nothing could have changed — so
-      it needs no flag and no deferred decision, unlike the mid-access schedule.
+      **The remaining work was built, and it is REFUTED by measurement.**
+      `next_event()` per device, the aggregate minimum on the board, the same
+      three invalidation sites and a gate in `ap_machine_run` -- all of it, and
+      it makes the reference core **11.8% slower**. Three interleaved pairs,
+      base `31.22/31.04/31.01` s against `34.74/34.77/34.81`, with the
+      interrupt half of the bound taken from the cache
+      `ap_board_sample_interrupts` already fills; recomputing it was 11% slower
+      again. The reason is structural: the bound is recomputed after *every*
+      advance and skips at most 38.4% of them, so it is paid eight times for
+      every three it saves. Not landed -- a 12% slowdown for no gain is
+      weakening the reference core, which is the one thing this phase may not
+      do. A version that could win would need an **incremental** bound, each
+      part publishing when its next event moves rather than the board asking,
+      and that is a different design from this item's.
+      **And it found a defect that outlives it.** The item calls this increment
+      "provably identity-preserving"; as specified it is not. Four parts -- the
+      disk, tape, keyboard and graphics -- date deadlines from a stored `now`
+      that only the advance refreshes (`ap_omti.c:352`,
+      `completion_at = omti->now + duration`), so a skipped advance made the
+      next disk command complete early: hash `03EE415450926A89` became
+      `58105715891CEA4E`, 99 clocks apart, bisected to between 100 M and 200 M
+      instructions. This is the third instance of a pattern already cured twice
+      here, in the PTM and the DUART. **Carrying the four cursors makes it
+      byte-identical**, and the prerequisite is now named for the per-cycle
+      processor item, which cannot stop advancing the board every instruction
+      until those four are dealt with. Detail in `FINDINGS.md` C152.
   - [x] **The timer advance is skipped until a pulse is due**, the PTM keeping
     no `now` of its own so nothing can be left stale. *Verification: interleaved
     A/B, faster in all three pairs, 29.65 s against 30.20 s; hash and reports
