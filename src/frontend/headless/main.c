@@ -1608,7 +1608,11 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
    * `tools/identity-boot.sh` documents it as an invisible input. */
   static ap_console_script_t script[NODES];
   unsigned knocked[NODES] = {0};
+  unsigned knock_pace[NODES] = {0};
   static const char knock[] = "\r";
+/* Slices between knocks. One knock per 4096-instruction slice would flood the
+ * poll; a few slices apart is the cadence `mdsession.py` uses in wall time. */
+#define AP_RING_KNOCK_SLICES 8u
   for (unsigned i = 0; i < NODES; i++) {
     if (g_ring_script[i] != NULL &&
         !console_script_load(&script[i], g_ring_script[i])) {
@@ -1691,16 +1695,38 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
         }
       }
 
-      /* The autobaud knock first, then the script -- the same order and the
-       * same retry rule as the single-machine path. A receiver that is still
-       * disabled drops the byte, so nothing advances until it is taken. */
-      if (knocked[i] < sizeof knock - 1u) {
-        ap_sio_receive_at(&board[i].sio, AP_SIO_CONSOLE_UNIT,
-                          AP_SIO_CONSOLE_CHANNEL,
-                          (uint8_t)knock[knocked[i]], AP_SIO_CONSOLE_RATE);
-        if (ap_sio_receiver_ready(&board[i].sio, AP_SIO_CONSOLE_UNIT,
-                                  AP_SIO_CONSOLE_CHANNEL)) {
-          knocked[i]++;
+      /* ## Knock until it answers, not once
+       *
+       * **One carriage return is not enough and this cost a whole run.** The
+       * firmware autobauds, so it cannot transmit until it has received a
+       * character -- but on this core, in Service mode, it then sits in the
+       * boot PROM's *console-selection poll* at `0007A0` and needs more.
+       * `docs/references/MD.md` records the sign-on being got out of this core
+       * with "carriage returns paced onto serial 1 channel B", plural, and
+       * `mdsession.py` knocks repeatedly for the same reason. A single knock
+       * left both ring nodes executing 120 M instructions apiece in silence,
+       * with the script waiting for a prompt that needed one more keystroke to
+       * exist.
+       *
+       * So: keep knocking while the node's script has matched nothing at all,
+       * paced so the poll is not flooded -- a character every few slices,
+       * which is the shape `mdsession.knock` has. Once the first `expect`
+       * matches, the script owns the line. */
+      const bool script_waiting =
+          script[i].steps > 0u && script[i].at == 0u && script[i].sent == 0u;
+      if (knocked[i] < sizeof knock - 1u || script_waiting) {
+        if (knock_pace[i] == 0u) {
+          ap_sio_receive_at(&board[i].sio, AP_SIO_CONSOLE_UNIT,
+                            AP_SIO_CONSOLE_CHANNEL, (uint8_t)knock[0],
+                            AP_SIO_CONSOLE_RATE);
+          if (ap_sio_receiver_ready(&board[i].sio, AP_SIO_CONSOLE_UNIT,
+                                    AP_SIO_CONSOLE_CHANNEL) &&
+              knocked[i] < sizeof knock - 1u) {
+            knocked[i]++;
+          }
+          knock_pace[i] = AP_RING_KNOCK_SLICES;
+        } else {
+          knock_pace[i]--;
         }
       } else if (script[i].steps > 0u &&
                  !ap_sio_receiver_ready(&board[i].sio, AP_SIO_CONSOLE_UNIT,

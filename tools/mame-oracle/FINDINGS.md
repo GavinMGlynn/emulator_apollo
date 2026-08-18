@@ -9577,3 +9577,53 @@ data to avoid.
 **So the two-node run needs the frontend to drive each node's MD to a shell**
 -- `di w`, `ex domain_os`, `sh`, `user`, and `/com/lcnode` -- which is exactly
 what `--ring-script-a/-b` are for.
+
+## C165 -- this core cannot put MD on the serial line, so `siologin` is the answer after all
+
+C164 reached a shell on the **oracle** by `di w` / `ex domain_os` from MD in
+Service mode, and concluded the two-node check needed only to drive each node's
+MD the same way. Applied to this core, that is wrong, and the measurement is
+short:
+
+    --service-mode, 30 M instructions, one CR on serial 1 B
+        final PC 000007A0, and not one console byte
+
+    --service-mode, 60 M instructions, CRs knocked repeatedly at both ring nodes
+        both nodes final PC 000007A0, no console output
+
+    --service-mode --boot-key 0x4B, 40 M instructions
+        final PC 00002684  -- the Mnemonic Debugger
+
+**A key press releases the boot PROM's console-selection poll and serial
+characters do not.** And `md-keyboard-console-recipe` says what that costs:
+*"This console **is** the display, so `--boot-console` prints nothing and every
+run without a screenshot has been silent by construction."* MD on this core
+talks to the frame buffer. The oracle's MD talks to a serial port because MAME
+fits an `apollo_stdio` device, which is a MAME convenience and not this
+machine.
+
+So the three states are:
+
+| | our core, Normal | our core, Service | oracle, Service |
+| --- | --- | --- | --- |
+| serial console | full Domain/OS boot to SPM | silent, PROM poll | MD, then `)` and `sh` |
+| shell on serial | **no** | no | yes |
+
+### Which makes C163's `siologin` work the answer rather than a detour
+
+C164 said `siologin` "is not what this check needed". That is true of the
+oracle and false of this core. A node booted **Normal** on this core prints its
+whole Domain/OS startup on serial 1 channel B and then goes quiet at
+`SPM system init complete.` -- and `siologin` is precisely the thing that turns
+that silence into a login, because it *"waits for a carriage return character
+from a terminal connected directly to the SIO line"*.
+
+**So the route is: Normal mode, `siologin` configured, knock with carriage
+returns, log in, `/com/lcnode`.** Node B's volume already carries the
+configuration (C163). Node A's does not, and needs the same treatment through
+the same MINST window.
+
+*The knock-repeatedly fix stands regardless -- it is what any serial dialogue
+with this firmware needs -- and so does `--service-mode` on the ring path, which
+is how a display-fitted node would reach MD. Neither is wasted; both were
+needed to find out which state this machine is actually in.*
