@@ -4226,9 +4226,24 @@ discipline throughout.
          both carrying `siologin1_local`. **Read the stamps from the label
          rather than guessing a clock** -- block `0x440`, `+0xBC` mount and
          `+0xC0` dismount, in 262144 µs ticks from 1980.
-      4. Run the two nodes with a script that waits for
+      4. **Model the SIO lines' modem control** (C220) -- the step the first
+         three uncovered. `siologin2_local` is a live process and a carriage
+         return delivered to its line reads
+         `sio2 A  1 discarded unread`: taken by the port, never read by the OS.
+         The line is configured `tctl -line 2 ... -dcd_enable ...` by the
+         template the volume ships, and `008778-03` Figure 3-5 carries
+         `SI01_DCD`/`SI02_DCD`/`SI03_DCD` with §3.9 listing Data Carrier Detect
+         and Data Terminal Ready among the six signals each line supports.
+         **This core models one of the six**: `ap_mc68681.h` has CTS and RTS,
+         nothing has DCD or DTR, serial 1's `IP0` is §3.9's refresh loopback,
+         and serial 2's input port is never driven. Sources for it are on disk
+         -- §3.9 and Figure 3-5 for the board, `[MC68681]` §4.2.11 for the
+         part's ports -- and the oracle's `apollo_m.cpp` cross-checks the pin
+         assignment, which Figure 3-5 does not give.
+      5. Run the two nodes with a script that waits for
          `SPM system init complete.`, knocks, logs in as `user`, and runs
-         **`/com/lcnode`** by absolute path.
+         **`/com/lcnode`** by absolute path -- now with `--boot-script-line`
+         pointing the dialogue at the line `siologin` serves.
       *What is already proven and needs no repeating*: both volumes boot clean
       (no salvage line in a two-node run), and **both nodes reach
       `Domain/OS kernel(7)` on one segment** with distinct node IDs.

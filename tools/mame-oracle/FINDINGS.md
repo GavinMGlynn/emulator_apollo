@@ -12069,3 +12069,46 @@ nothing until a terminal types at it (C165), and no terminal ever did. C218's
 half right -- it is also the expected output of a **working** one that nobody
 has typed at, and those two are indistinguishable on this harness. That is
 precisely why the disk, and not the console, is what settled it.
+
+## C220 -- the SIO lines' modem control is unmodelled, and `siologin`'s line wants DCD
+
+With `--boot-script-line 2:A` the carriage return finally reached the line
+`siologin2_local` is listening on, and the run reports:
+
+    sio2 A      1 discarded unread,  0 dropped with the receiver disabled
+
+**Delivered, and never read.** The receiver is enabled, the process is alive
+(C219), and Domain/OS does not take the character. So the line is not being
+serviced, and the reason is a signal this core does not have.
+
+`startup_sio.sh`'s line-2 branch -- the one the volume ships and C217 made the
+configuration match -- is
+
+    tctl -line 2 -default -speed 9600 -dcd_enable -insync -nosync
+
+**`-dcd_enable`**, and `008778-03` Figure 3-5 shows DCD is a real pin on every
+line: the P2 connector carries `SI01_DCD`, `SI02_DCD` and `SI03_DCD`, and §3.9's
+text says the interface "supports the following signals: Serial Transmit Data,
+Serial Receive Data, **Data Terminal Ready**, **Data Carrier Detect**, Request
+To Send, Clear To Send".
+
+**This core models one of those six.** `ap_mc68681.h` names CTS as `IP0`/`IP1`
+and RTS as `OP0`/`OP1`; nothing models DCD or DTR, `ap_sio.c` drives serial 1's
+`IP0` as §3.9's **refresh loopback** rather than as a modem line, and serial 2's
+input port is never driven at all.
+
+**Named as a gap, not asserted as the cause.** That `-dcd_enable` is configured
+and that DCD is undriven are both facts; that the second is why the character
+goes unread is a *reading* of them, and the discriminating experiment -- assert
+DCD and see whether the line is serviced -- has not been run. The DUART pin each
+connector line lands on is also not established here: Figure 3-5 gives the
+*connector*, not the `IP`/`OP` assignment, and that is what a model needs.
+
+### The item this opens
+
+**Model the SIO lines' modem control**: DCD and DTR at minimum, from
+`008778-03` §3.9 and Figure 3-5 for the board side and `[MC68681]` §4.2.11 for
+the part's input/output ports, with the oracle's `apollo_m.cpp` wiring as a
+cross-check for the pin assignment. `tctl`'s own options -- `-dcd_enable`,
+`-dialin` -- are what a driver does with them, so the behaviour is observable
+rather than decorative.
