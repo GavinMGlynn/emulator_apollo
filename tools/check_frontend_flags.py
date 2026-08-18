@@ -253,6 +253,22 @@ def main() -> int:
             source_check("the run header records how the console was driven: "
                          "%s" % what, fragment in main_c)
 
+        # `--boot-script-line` needs a booted machine to observe, so it is
+        # checked in the source for the same reason as the header line above.
+        # It exists because the console's *output* drains all four serial
+        # channels and its *input* went to exactly one: a login offered on
+        # line 2 could be seen and never answered, and a working `siologin`
+        # waiting for a carriage return was indistinguishable from a failing
+        # one (`FINDINGS.md` C219).
+        for fragment, what in (
+                ('strcmp(argv[i], "--boot-script-line")', "the flag is parsed"),
+                ("g_script_line_set ? g_script_unit : input_unit",
+                 "the single-node path honours it"),
+                ("g_script_line_set ? g_script_unit : AP_SIO_CONSOLE_UNIT",
+                 "the two-node path honours it")):
+            source_check("the script can type at a line other than the "
+                         "console's: %s" % what, fragment in main_c)
+
         # ---- what needs firmware, named rather than omitted ----
         for flag in ("--boot-prom", "--boot-limit", "--boot-trace",
                      "--boot-watch", "--boot-console", "--boot-input",

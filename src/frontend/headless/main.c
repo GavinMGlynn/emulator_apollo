@@ -1198,6 +1198,28 @@ static const char *g_ring_script[2] = {NULL, NULL};
  * uses, and the rate the DN3500's own firmware configures both ports to at
  * reset (measured off the oracle). Named here rather than repeated so a ring
  * console and a single-machine console cannot drift apart. */
+/* **Which serial line the *script* types at, when that is not the line the
+ * firmware talks on.** `008778-03` §3.9 makes SIO line 0 the keyboard and lines
+ * 1-3 "all other asynchronous devices", and a login server is configured onto
+ * one of those: the volume's own `siomonit_file` template offers `/dev/sio2`,
+ * which is line 2, as its local-connection example.
+ *
+ * Until this existed the console's *output* drained all four channels and its
+ * *input* went to exactly one, so a login offered on line 2 could be seen and
+ * never answered -- and a working `siologin` waiting for a carriage return
+ * looked exactly like a failing one, because it prints nothing until a terminal
+ * types at it. Several boots were spent on that difference (`FINDINGS.md`
+ * C216-C219).
+ *
+ * Defaults to the `--boot-input` line, so a run that does not set it behaves
+ * exactly as before. Setting it only makes sense when the firmware asks the
+ * script nothing -- with `--configure`, or under `--ring-two-node`, whose nodes
+ * get a sealed configuration table and so are never asked
+ * `Do you wish to continue` (C186, C214). */
+static bool g_script_line_set = false;
+static unsigned g_script_unit = 0u;
+static unsigned g_script_channel = 0u;
+
 #define AP_SIO_CONSOLE_UNIT 0u
 #define AP_SIO_CONSOLE_CHANNEL 1u
 #define AP_SIO_CONSOLE_RATE 0xBBu
@@ -1711,6 +1733,13 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
         stalled = true;
       }
 
+      /* The script's line, which is the console's unless told otherwise --
+       * see `g_script_line_set`. The *knock* deliberately stays on the console:
+       * it is answering the boot PROM's own poll, which lives there. */
+      const unsigned script_unit =
+          g_script_line_set ? g_script_unit : AP_SIO_CONSOLE_UNIT;
+      const unsigned script_channel =
+          g_script_line_set ? g_script_channel : AP_SIO_CONSOLE_CHANNEL;
       /* **Drain this node's console before the next node runs**, so the two
        * streams cannot be reordered against each other by the slice boundary.
        * Every byte is fed to the node's own script as well: a dialogue matches
@@ -1795,19 +1824,18 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
           knock_pace[i]--;
         }
       } else if (script[i].steps > 0u &&
-                 !ap_sio_receiver_ready(&board[i].sio, AP_SIO_CONSOLE_UNIT,
-                                        AP_SIO_CONSOLE_CHANNEL) &&
-                 ap_sio_character_bits(&board[i].sio, AP_SIO_CONSOLE_UNIT,
-                                       AP_SIO_CONSOLE_CHANNEL) == 8u &&
-                 ap_sio_receiver_enabled(&board[i].sio, AP_SIO_CONSOLE_UNIT,
-                                         AP_SIO_CONSOLE_CHANNEL)) {
+                 !ap_sio_receiver_ready(&board[i].sio, script_unit,
+                                        script_channel) &&
+                 ap_sio_character_bits(&board[i].sio, script_unit,
+                                       script_channel) == 8u &&
+                 ap_sio_receiver_enabled(&board[i].sio, script_unit,
+                                         script_channel)) {
         const int byte = console_script_next(&script[i]);
         if (byte >= 0) {
-          ap_sio_receive_at(&board[i].sio, AP_SIO_CONSOLE_UNIT,
-                            AP_SIO_CONSOLE_CHANNEL, (uint8_t)byte,
-                            AP_SIO_CONSOLE_RATE);
-          if (!ap_sio_receiver_ready(&board[i].sio, AP_SIO_CONSOLE_UNIT,
-                                     AP_SIO_CONSOLE_CHANNEL)) {
+          ap_sio_receive_at(&board[i].sio, script_unit, script_channel,
+                            (uint8_t)byte, AP_SIO_CONSOLE_RATE);
+          if (!ap_sio_receiver_ready(&board[i].sio, script_unit,
+                                     script_channel)) {
             script[i].sent--; /* not taken: put it back */
           }
         }
@@ -4203,17 +4231,21 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * has to be able to carry them for the same reasons. It runs after the
        * fixed script so that `--boot-input`'s carriage return can still do the
        * autobaud before a dialogue begins. */
+      const unsigned script_unit =
+          g_script_line_set ? g_script_unit : input_unit;
+      const unsigned script_channel =
+          g_script_line_set ? g_script_channel : input_channel;
       if (input_sent >= input_length && script.steps > 0u &&
           ap_machine_now(&machine) >= input_next_at &&
-          !ap_sio_receiver_ready(&board->sio, input_unit, input_channel) &&
-          ap_sio_character_bits(&board->sio, input_unit, input_channel) == 8u &&
-          ap_sio_receiver_enabled(&board->sio, input_unit, input_channel)) {
+          !ap_sio_receiver_ready(&board->sio, script_unit, script_channel) &&
+          ap_sio_character_bits(&board->sio, script_unit, script_channel) == 8u &&
+          ap_sio_receiver_enabled(&board->sio, script_unit, script_channel)) {
         const int byte = console_script_next(&script);
         if (byte >= 0) {
-          ap_sio_receive_at(&board->sio, input_unit, input_channel,
+          ap_sio_receive_at(&board->sio, script_unit, script_channel,
                             (uint8_t)byte, input_rate);
           input_next_at = ap_machine_now(&machine) + input_interval;
-          if (!ap_sio_receiver_ready(&board->sio, input_unit, input_channel)) {
+          if (!ap_sio_receiver_ready(&board->sio, script_unit, script_channel)) {
             /* Not taken: put it back, the same retry the fixed script does. */
             script.sent--;
           }
@@ -5853,6 +5885,20 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--disk") == 0 && i + 1 < argc) {
       disk_path = argv[i + 1];
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-script-line") == 0 && i + 1 < argc) {
+      /* `PORT:CHANNEL`, the board's own naming: `1:B` is serial 1 channel B,
+       * which is the console. `2:A` is the line the volume's `siomonit_file`
+       * template calls `/dev/sio2`. */
+      const char *spec = argv[i + 1];
+      const unsigned long port = strtoul(spec, NULL, 0);
+      const char *colon = strchr(spec, ':');
+      const char c = colon != NULL ? colon[1] : 'A';
+      g_script_unit = (port >= 2u) ? 1u : 0u;
+      g_script_channel = (c == 'b' || c == 'B' || c == '1') ? 1u : 0u;
+      g_script_line_set = true;
       i += 2;
       continue;
     }
