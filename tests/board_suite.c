@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "board/ap_board.h"
+#include "board/ap_nodeid.h"
 #include "device/ap_i8237.h"
 #include "device/ap_3c505.h"
 #include "model/ap_model.h"
@@ -305,9 +306,30 @@ static void test_every_ring_window_reaches_the_card_from_the_bus(void) {
   for (unsigned i = 0; i < sizeof bases / sizeof bases[0]; i++) {
     TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_RING,
                            ap_board_region(&b, bases[i]));
-    TEST_ASSERT_EQUAL_HEX8(AP_RING_CTL_ID_6, ap_board_read(&b, bases[i], &ok));
+    (void)ap_board_read(&b, bases[i], &ok);
     TEST_ASSERT_TRUE(ok);
   }
+
+  /* Only the *second* window answers the board type. The first is the node ID
+   * PROM -- `[EH]` p. 12-29 -- and this assertion required `$36` from both
+   * until that page was walked. Finding 93i corrected the 16-bit path and this
+   * test reaches the card eight bits at a time, so it kept asserting the
+   * defect through the fix aimed at it. */
+  TEST_ASSERT_EQUAL_HEX8(AP_RING_CTL_ID_6, ap_board_read(&b, 0x059000u, &ok));
+
+  /* And the ring board's PROM is the *same identity* as the one at `011200`,
+   * register for register, which is the property that makes it a node ID at
+   * all. Sixteen slots, stride two: `00 01 23 45` and a `69` checksum. */
+  for (unsigned reg = 0; reg < AP_NODEID_REGISTERS; reg++) {
+    /* The PROM's sixteen slots are contiguous at `011200` and spread over four
+     * banks a kilobyte apart in the ring window: four slots, then `+400`. */
+    const uint32_t ring = 0x051000u + (uint32_t)((reg >> 2) << 10) +
+                          (uint32_t)((reg & 3u) << 1);
+    TEST_ASSERT_EQUAL_HEX8(ap_board_read(&b, 0x011200u + (uint32_t)(reg << 1),
+                                         &ok),
+                           ap_board_read(&b, ring, &ok));
+  }
+  TEST_ASSERT_EQUAL_HEX8(0x69u, ap_board_read(&b, 0x051C06u, &ok));
 
   /* `[ROM3500]` `0000C6`: `$30` to `+806`, which is timer A's control word. */
   ap_board_write(&b, 0x059806u, 0x30u, &ok);

@@ -60,6 +60,20 @@ def run(args: list[str]) -> subprocess.CompletedProcess:
                           text=True, timeout=300)
 
 
+def source_check(name: str, held: bool) -> None:
+    """Assert something about the frontend's source rather than its output.
+
+    For properties that need firmware to observe, which CI has none of. Weaker
+    than running the binary, and named so that is visible in the log.
+    """
+    global failures
+    if held:
+        sys.stdout.write("ok   %s (source)\n" % name)
+        return
+    failures += 1
+    sys.stderr.write("FAIL %s (source)\n" % name)
+
+
 def check(name: str, args: list[str], expect: str, want_ok: bool = True) -> None:
     """Run the binary and require `expect` in its output.
 
@@ -220,6 +234,24 @@ def main() -> int:
               ["--ring-two-node", "2000"],
               r"node 0  calendar ram: dev bits 0000000F"
               r"(.|\n)*node 1  calendar ram: dev bits 0000000F")
+
+        # ---- what only the source can assert, and why ----
+        #
+        # The run header's `console` line needs a boot PROM to print, so CI --
+        # which has no `roms/` -- cannot observe it. It is checked here anyway,
+        # in the source, because the thing it guards against is precise: two
+        # runs printing identical headers while one boots and one does not.
+        # `--boot-console`, `--boot-input` and `--boot-script` were invisible in
+        # the header for as long as they existed, and the silent run was read as
+        # a device regression before the flags were noticed.
+        main_c = (REPO / "src/frontend/headless/main.c").read_text()
+        for fragment, what in (
+                ('printf("  console      %s"', "the header's console line"),
+                ("g_boot_console = boot_console;", "--boot-console reaches it"),
+                ("g_boot_script_path = boot_script;", "--boot-script reaches it"),
+                ("g_boot_input_text = boot_input;", "--boot-input reaches it")):
+            source_check("the run header records how the console was driven: "
+                         "%s" % what, fragment in main_c)
 
         # ---- what needs firmware, named rather than omitted ----
         for flag in ("--boot-prom", "--boot-limit", "--boot-trace",

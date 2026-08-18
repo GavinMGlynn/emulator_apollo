@@ -2228,6 +2228,27 @@ static bool g_devices_mid_access = false;
 static bool g_cycle_stepped = false;
 
 static const char *g_ring_rom_path = NULL;
+
+/* **How the console was driven, echoed in the run header.** These exist for the
+ * same reason `power-on` is reported: they change what the machine *does*, and
+ * nothing else in a run's output said which were in force.
+ *
+ * That gap cost a wrong conclusion. Two runs of this frontend printed byte-for-
+ * byte identical headers -- same PROM, same disk, same size, same clock, `ring
+ * fitted, no option ROM` on both -- and one reached `Apollo Phase II
+ * Environment` while the other sat in the boot PROM at `00002670` forever. The
+ * difference was `--boot-console`, `--boot-input` and `--boot-script`, none of
+ * which the header mentioned: the PROM autobauds, so a console nobody types at
+ * never speaks, and the machine waits at a prompt that is never answered. The
+ * silent run was briefly read as a regression in a device model.
+ *
+ * A header that cannot distinguish a machine that boots from one that does not
+ * is not a record of the run, so these are now part of it. */
+static bool g_boot_console = false;
+static const char *g_boot_script_path = NULL;
+static const char *g_boot_input_text = NULL;
+static unsigned g_boot_input_unit = 0u;
+static unsigned g_boot_input_channel = 0u;
 static uint8_t *g_ring_rom = NULL;
 static uint32_t g_ring_rom_bytes = 0;
 static bool g_fit_matrox = false;
@@ -3818,6 +3839,17 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * moves them, and nothing else in a run's output says which epoch it used. */
   printf("  power-on     %04u-%02u-%02uT%02u:%02u:%02u\n", epoch.year,
          epoch.month, epoch.day, epoch.hour, epoch.minute, epoch.second);
+  printf("  console      %s",
+         g_boot_console ? "captured" : "not captured");
+  if (g_boot_input_text != NULL) {
+    printf(", %lu byte(s) typed at sio%u %c",
+           (unsigned long)strlen(g_boot_input_text), g_boot_input_unit + 1u,
+           g_boot_input_channel != 0u ? 'B' : 'A');
+  }
+  if (g_boot_script_path != NULL) {
+    printf(", script %s", g_boot_script_path);
+  }
+  printf("\n");
 
   ap_machine_t machine;
   /* The same model as the board, or the processor would run at one machine's
@@ -6368,6 +6400,12 @@ int main(int argc, char **argv) {
   }
 
   if (boot_prom != NULL) {
+    /* Hand the console driving to the run header; see the declarations. */
+    g_boot_console = boot_console;
+    g_boot_script_path = boot_script;
+    g_boot_input_text = boot_input;
+    g_boot_input_unit = boot_input_unit;
+    g_boot_input_channel = boot_input_channel;
     return boot_from_prom(boot_prom, boot_limit, boot_trace, boot_watch,
                           boot_input, boot_input_unit, boot_input_channel,
                           (uint8_t)boot_input_rate, boot_input_interval_us,

@@ -751,11 +751,32 @@ static void test_the_first_window_reads_the_node_id(void) {
   ap_ring_ctl_set_node_id(&ctl, 0x00012345u);
 
   /* Node_ID3 is the most significant of the four, and a 24-bit node leaves it
-   * zero -- which is what `ap_nodeid.h` records the PROM's own dump showing. */
-  TEST_ASSERT_EQUAL_HEX16(0x00FFu, ap_ring_ctl_read16(&ctl, false, 0u));
-  TEST_ASSERT_EQUAL_HEX16(0x01FFu, ap_ring_ctl_read16(&ctl, false, 2u));
-  TEST_ASSERT_EQUAL_HEX16(0x23FFu, ap_ring_ctl_read16(&ctl, false, 4u));
-  TEST_ASSERT_EQUAL_HEX16(0x45FFu, ap_ring_ctl_read16(&ctl, false, 6u));
+   * zero -- which is what `ap_nodeid.h` records the PROM's own dump showing.
+   *
+   * **The low half reads `00`, not `FF`.** This asserted `FF` on the general
+   * principle that the odd lane of this board is undriven, and
+   * `roms/firmware/3500_NI_1C874.bin` refutes it directly: sixteen words
+   * reading `0000 0100 c800 7400 ... 3d00`, zero in every low half. The same
+   * disagreement sat between this path and `read8`, which already answered
+   * `00` -- one address, two answers, for as long as nothing read it. */
+  TEST_ASSERT_EQUAL_HEX16(0x0000u, ap_ring_ctl_read16(&ctl, false, 0u));
+  TEST_ASSERT_EQUAL_HEX16(0x0100u, ap_ring_ctl_read16(&ctl, false, 2u));
+  TEST_ASSERT_EQUAL_HEX16(0x2300u, ap_ring_ctl_read16(&ctl, false, 4u));
+  TEST_ASSERT_EQUAL_HEX16(0x4500u, ap_ring_ctl_read16(&ctl, false, 6u));
+
+  /* The eleven slots between read "(unused - PROM)", and the sixteenth is
+   * `Node_ID_CHECKSUM`: `0x01 + 0x23 + 0x45 = 0x69`, the sum self-test 8
+   * computes at `008218` over registers 0-14. Neither existed here -- the
+   * eleven answered a status register and two 8254s the board does not have,
+   * and the checksum answered timer B's control word. */
+  static const uint32_t unused[] = {0x400u, 0x402u, 0x404u, 0x406u, 0x800u,
+                                    0x802u, 0x804u, 0x806u, 0xC00u, 0xC02u,
+                                    0xC04u};
+  for (unsigned i = 0; i < sizeof unused / sizeof unused[0]; i++) {
+    TEST_ASSERT_EQUAL_HEX16(0x0000u,
+                            ap_ring_ctl_read16(&ctl, false, unused[i]));
+  }
+  TEST_ASSERT_EQUAL_HEX16(0x6900u, ap_ring_ctl_read16(&ctl, false, 0xC06u));
 
   /* And the second window still answers the board type, which is what finding
    * 39's `cmpi.b #$36` gate reads and what the self-test depends on. */
@@ -993,6 +1014,48 @@ static void test_a_received_frame_lands_at_rcv_addr_and_raises_ri(void) {
   TEST_ASSERT_TRUE((w.ctl.a2.status & AP_RING_CTL_STATUS_RI) != 0u);
 }
 
+/* `002398-04` p. 12-29's "When Written" column for `59000`: `BOARD_RESET`. The
+ * register reads `BOARD_TYPE`, and this core absorbed the write on the reading
+ * that a board type is not host-writable -- which is true of the read side and
+ * silently dropped the other half of the entry.
+ *
+ * The board keeps its identity and its place on the ring across one: a reset
+ * command does not unsolder the ID PROM. */
+static void test_a_write_to_the_board_type_resets_the_board(void) {
+  ap_ring_ctl_t ctl;
+  ap_ring_ctl_reset(&ctl, true);
+  ap_ring_ctl_set_node_id(&ctl, 0x00012345u);
+
+  /* Move the board off its reset state: connect it, load a command lane, put
+   * a word in the buffer and arm the read-ahead. */
+  ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_ID + 2u, 0x1234u);
+  ctl.buffer[0] = 0xBEEFu;
+  TEST_ASSERT_TRUE(ctl.a2.connected);
+  TEST_ASSERT_EQUAL_HEX16(0x1234u, ctl.a2.slot_002);
+
+  ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_ID, 0u);
+
+  TEST_ASSERT_FALSE(ctl.a2.connected);
+  TEST_ASSERT_EQUAL_HEX16(0u, ctl.a2.slot_002);
+  TEST_ASSERT_EQUAL_HEX16(0u, ctl.buffer[0]);
+  TEST_ASSERT_EQUAL_HEX16(AP_RING_CTL_STATUS_IDLE, ctl.a2.status);
+
+  /* Identity survives: the board still answers its type, and its PROM still
+   * answers the node ID and the checksum. */
+  TEST_ASSERT_EQUAL_HEX16((uint16_t)((AP_RING_CTL_ID_6 << 8) | 0x00FFu),
+                          ap_ring_ctl_read16(&ctl, true, 0u));
+  TEST_ASSERT_EQUAL_HEX16(0x2300u, ap_ring_ctl_read16(&ctl, false, 4u));
+  TEST_ASSERT_EQUAL_HEX16(0x6900u, ap_ring_ctl_read16(&ctl, false, 0xC06u));
+
+  /* And the *first* window's `51000` takes no write at all -- it is PROM, and
+   * the page gives it `SOFT_RCV_REQ`, not a reset. */
+  ap_ring_ctl_write16(&ctl, true, AP_RING_CTL_BANK_ID + 2u, 0x4321u);
+  ap_ring_ctl_write16(&ctl, false, AP_RING_CTL_BANK_ID, 0u);
+  TEST_ASSERT_EQUAL_HEX16(0x4321u, ctl.a2.slot_002);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_transmit_command_puts_the_buffers_frame_on_the_ring);
@@ -1007,6 +1070,7 @@ int main(void) {
   RUN_TEST(test_the_id_register_answers_one_of_the_two_values_init_accepts);
   RUN_TEST(test_a_card_arrives_bypassed_and_nct_connects_it);
   RUN_TEST(test_nct_reads_connected_only_once_the_connect_command_is_given);
+  RUN_TEST(test_a_write_to_the_board_type_resets_the_board);
   RUN_TEST(test_an_empty_slot_reads_as_absent_rather_than_as_an_error);
   RUN_TEST(test_the_init_clear_sequence_does_not_erase_the_presence_gate);
   RUN_TEST(test_the_firmwares_timer_initialisation_reaches_two_8254s);

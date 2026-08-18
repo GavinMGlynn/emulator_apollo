@@ -98,8 +98,11 @@ void ap_nodeid_init(ap_nodeid_t *prom, uint32_t id);
 [[nodiscard]] bool ap_nodeid_decode(uint32_t address, unsigned *reg);
 [[nodiscard]] uint8_t ap_nodeid_read(const ap_nodeid_t *prom, uint32_t address);
 
-/* The checksum byte the PROM presents in register 14: the sum of the identifier
- * bytes, truncated to eight bits. */
+/* The checksum byte the PROM presents in register **15**: the sum of the
+ * identifier bytes, truncated to eight bits. This said 14, which is the error
+ * `AP_NODEID_CHECKSUM_REGISTER` above records having been corrected -- the
+ * prose beside the constant outlived the constant. `3500_NI_1C874.bin` shows
+ * it a third way: `3d00` in the sixteenth word, and `00+01+C8+74 = 0x13D`. */
 [[nodiscard]] uint8_t ap_nodeid_checksum(const ap_nodeid_t *prom);
 
 #endif /* APOLLO_BOARD_AP_NODEID_H */

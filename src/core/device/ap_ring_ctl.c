@@ -1,4 +1,5 @@
 #include "device/ap_ring_ctl.h"
+#include "board/ap_nodeid.h"
 
 #include <string.h>
 
@@ -294,6 +295,80 @@ void ap_ring_ctl_attach_ring(ap_ring_ctl_t *ctl, ap_ring_station_t *station,
   }
 }
 
+/* The just-reset register state, shared by power-on and by `BOARD_RESET`.
+ * Identity and attachment are *not* touched: a board reset does not change the
+ * node's address, unsolder its ID PROM or unplug it from the cable. */
+static void ring_ctl_reset_registers(ap_ring_ctl_t *ctl) {
+  ap_i8254_reset(&ctl->a1.timer_a);
+  ap_i8254_reset(&ctl->a1.timer_b);
+  ap_i8254_reset(&ctl->a2.timer_a);
+  ap_i8254_reset(&ctl->a2.timer_b);
+
+  ctl->a1.slot_002 = 0u;
+  ctl->a2.slot_002 = 0u;
+  ctl->a1.slot_004 = 0u;
+  ctl->a2.slot_004 = 0u;
+  ctl->a1.slot_406 = 0u;
+  ctl->a2.slot_406 = 0u;
+  ctl->a1.pointer = 0u;
+  ctl->a2.pointer = 0u;
+  ctl->a1.read_ahead = 0u;
+  ctl->a2.read_ahead = 0u;
+  ctl->a1.port_latch = 0u;
+  ctl->a2.port_latch = 0u;
+  ctl->a1.port_write_high = 0u;
+  ctl->a2.port_write_high = 0u;
+  ctl->a1.command_402 = 0u;
+  ctl->a2.command_402 = 0u;
+  ctl->a1.command_404 = 0u;
+  ctl->a2.command_404 = 0u;
+  ctl->a1.connected = false;
+  ctl->a2.connected = false;
+  ctl->a2.operation_pending = false;
+
+  if (!ctl->present) {
+    ctl->a1.status = 0u;
+    ctl->a2.status = 0u;
+    return;
+  }
+  /* Finding 39: init accepts `$36` or `$37` and nothing else. `[ROM3500]` is
+   * the Apollo 10666 board, so this unit answers as one; a model that answered
+   * `$37` would be equally consistent with the ROM, and the choice between them
+   * is not evidenced -- recorded here rather than hidden, since the firmware
+   * only ever compares. */
+  ctl->a1.id = AP_RING_CTL_ID_6;
+  ctl->a2.id = AP_RING_CTL_ID_6;
+  /* Finding 40: bit 15 is what init reads to decide the slot is populated. */
+  /* **The idle value the firmware's own self-test asserts.** Subtest 01 reads
+   * `+400`, masks with `$F806` and requires the result to *equal* `$F806`
+   * (`$A6E`: `move.w (a1),d1 / and.w d4,d1 / cmp.w d1,d2` with `d2 = d4 =
+   * $F806`), failing to `loc_08D2` with code `E0000001` otherwise. So bits 15,
+   * 14, 13, 12, 11, 2 and 1 all read set on a healthy board that has just been
+   * reset.
+   *
+   * This is the firmware specifying its own hardware, which is the strongest
+   * source this controller has -- there is no register manual for the AT board,
+   * five documentary and cross-reading attempts failed to settle these bits,
+   * and the ROM asserts them directly. It is *not* fitting the model to the
+   * test: the assertion is what a working board reads, and the later subtests
+   * constrain the same register further rather than agreeing with this one by
+   * construction. `AP_RING_CTL_STATUS_PRESENT` is bit 15 of it, finding 40. */
+  ctl->a1.status = AP_RING_CTL_STATUS_IDLE;
+  ctl->a2.status = AP_RING_CTL_STATUS_IDLE;
+  ctl->a1.command_402_status = AP_RING_CTL_COMMAND_STATUS_IDLE;
+  ctl->a2.command_402_status = AP_RING_CTL_COMMAND_STATUS_IDLE;
+  ctl->a1.command_404_status = AP_RING_CTL_COMMAND2_STATUS_IDLE;
+  ctl->a2.command_404_status = AP_RING_CTL_COMMAND2_STATUS_IDLE;
+}
+
+void ap_ring_ctl_board_reset(ap_ring_ctl_t *ctl) {
+  if (ctl == NULL) {
+    return;
+  }
+  memset(ctl->buffer, 0, sizeof ctl->buffer);
+  ring_ctl_reset_registers(ctl);
+}
+
 void ap_ring_ctl_reset(ap_ring_ctl_t *ctl, bool present) {
   if (ctl == NULL) {
     return;
@@ -308,6 +383,9 @@ void ap_ring_ctl_reset(ap_ring_ctl_t *ctl, bool present) {
   memset(ctl, 0, sizeof *ctl);
   ctl->present = present;
 
+  /* `a1` shares the window type but is PROM, so these two are inert. They are
+   * still reset, because a shared struct with one half left to whatever `init`
+   * memset it to is the sort of thing a state hash notices later. */
   ap_i8254_reset(&ctl->a1.timer_a);
   ap_i8254_reset(&ctl->a1.timer_b);
   ap_i8254_reset(&ctl->a2.timer_a);
@@ -354,11 +432,53 @@ void ap_ring_ctl_set_node_id(ap_ring_ctl_t *ctl, uint32_t node_id) {
 
 /* One byte of the node ID in the high lane -- this board's convention for
  * every byte-wide register -- with the odd half undriven. */
-static uint16_t node_id_lane(const ap_ring_ctl_t *ctl, unsigned shift) {
+/* **The whole first window is the node ID PROM, and this core already models
+ * that part.** `002398-04` p. 12-29 tabulates all sixteen of its slots at
+ * stride two -- `Node_ID3` (msb) through `Node_ID0` at `51000`-`51006`,
+ * `Node_ID_CHECKSUM` at `51C06`, and **"(unused - PROM)" at the eleven
+ * between** -- with a `-` under "When Written" for the `51800` and `51C00`
+ * banks, which have no write side at all.
+ *
+ * `roms/firmware/3500_NI_1C874.bin` is that PROM, and it reads
+ *
+ *     0000 0100 c800 7400 0000 0000 0000 0000
+ *     0000 0000 0000 0000 0000 0000 0000 3d00
+ *
+ * -- sixteen big-endian words, each carrying its byte in the **high** half and
+ * zero in the low one; `0001C874` in the first four (the file's own name); and
+ * `00 + 01 + C8 + 74 = 0x13D`, whose low byte is the `3D` in the last. Which is
+ * `ap_nodeid`'s layout exactly, derived independently from `011200`'s dump and
+ * from self-test 8's disassembly at `008218`. **One part, and it had two
+ * models here** -- so this window now serves the one that is right.
+ *
+ * What the second model had wrong, none of it reachable by the firmware
+ * (finding 50a) and so none of it caught by a boot:
+ *
+ *   - the twelve PROM slots answered a status register and **two 8254s that
+ *     this board does not have** -- p. 12-29 puts its only counters in the
+ *     *second* window's `59800`/`59C00` banks, where they are modelled and
+ *     driven;
+ *   - `Node_ID_CHECKSUM` was absent, reading timer B's control word;
+ *   - the low half of each ID lane answered `FF` where the PROM holds `00`,
+ *     and `read8` and `read16` disagreed about it;
+ *   - and `read8` of `+000` still returned the **board type**, which is
+ *     finding 93i's defect surviving in the path 93i did not touch.
+ */
+static uint16_t ring_ctl_prom_word(const ap_ring_ctl_t *ctl, uint32_t offset) {
   if (!ctl->present) {
+    /* An unpopulated slot leaves the bus to the pull-ups, as everywhere else
+     * in this window. */
     return 0xFFFFu;
   }
-  return (uint16_t)((((ctl->node_id >> shift) & 0xFFu) << 8) | 0x00FFu);
+  ap_nodeid_t prom;
+  ap_nodeid_init(&prom, ctl->node_id);
+  /* Four banks of four slots, in address order: bank picks the group of four,
+   * the slot picks within it, so `51C06` is register 15 and `51000` is 0. */
+  const unsigned reg = (((offset & AP_RING_CTL_BANK_MASK) >> 10) << 2) |
+                       ((offset & AP_RING_CTL_SLOT_MASK) >> 1);
+  const uint8_t byte =
+      ap_nodeid_read(&prom, AP_NODEID_ADDR + (uint32_t)(reg << 1));
+  return (uint16_t)((uint16_t)byte << 8);
 }
 
 bool ap_ring_ctl_decode(uint32_t address, unsigned *unit, bool *second_window,
@@ -417,6 +537,17 @@ uint8_t ap_ring_ctl_read8(ap_ring_ctl_t *ctl, bool second_window,
    * register at all -- it is the other half of the lane, which nothing drives.
    */
   const bool odd = (offset & 1u) != 0u;
+
+  /* The first window is PROM in all four banks -- see `ring_ctl_prom_word` --
+   * so it is answered ahead of the decode below, which describes the second
+   * window only. The odd half of every lane reads zero, which the PROM image
+   * shows directly and which this path previously answered `FF`. */
+  if (!second_window) {
+    if (odd) {
+      return ctl->present ? 0x00u : 0xFFu;
+    }
+    return (uint8_t)(ring_ctl_prom_word(ctl, offset) >> 8);
+  }
 
   switch (offset & AP_RING_CTL_BANK_MASK) {
   case AP_RING_CTL_BANK_ID:
@@ -535,13 +666,18 @@ void ap_ring_ctl_write8(ap_ring_ctl_t *ctl, bool second_window, uint32_t offset,
     ap_ring_ctl_write16(ctl, second_window, offset & ~1u, merged);
     return;
   }
+  /* Both counter banks belong to the **second** window: p. 12-29 gives the
+   * first window's `51800` and `51C00` a bare `-` under "When Written", the
+   * only registers on the board with no write side at all, because that window
+   * is PROM. This core had an 8254 pair behind each window and clocked all
+   * four. */
   case AP_RING_CTL_BANK_TIMER_A:
-    if (!odd) {
+    if (!odd && second_window) {
       ap_i8254_write(&w->timer_a, timer_reg(offset), value);
     }
     return;
   case AP_RING_CTL_BANK_TIMER_B:
-    if (!odd) {
+    if (!odd && second_window) {
       ap_i8254_write(&w->timer_b, timer_reg(offset), value);
     }
     return;
@@ -557,18 +693,18 @@ uint16_t ap_ring_ctl_read16(ap_ring_ctl_t *ctl, bool second_window,
   }
   ap_ring_ctl_window_t *w = window_of(ctl, second_window);
 
+  /* PROM, in all four banks, for the same reason `read8` answers it first. */
+  if (!second_window) {
+    return ring_ctl_prom_word(ctl, offset);
+  }
+
   if ((offset & AP_RING_CTL_BANK_MASK) == AP_RING_CTL_BANK_ID) {
     switch (offset & AP_RING_CTL_SLOT_MASK) {
     case 0u:
       {
-        /* **The first window reads the node ID, not the board type.** `[EH]`
-         * p. 12-29 gives bus `220` as `Node_ID3` (msb) and `59000` as
-         * `BOARD_TYPE`; this answered the type from both until `RING.md` 93.
-         * Nothing caught it because finding 50a established the firmware never
-         * reads the first window -- an unexercised register answering wrongly. */
-        if (!second_window) {
-          return node_id_lane(ctl, 24u);
-        }
+        /* `BOARD_TYPE`. The node ID that `[EH]` p. 12-29 puts at bus `220` is
+         * the *first* window's answer and is served from the PROM above; this
+         * is `59000`, and the two were once the same wrong value (finding 93). */
         const uint16_t byte = ctl->present ? w->id : 0xFFu;
         /* The odd half of the lane is undriven, as everywhere else on this
          * board. Finding 15's `movea.l (a2),a0` reads a long here and this is
@@ -576,26 +712,17 @@ uint16_t ap_ring_ctl_read16(ap_ring_ctl_t *ctl, bool second_window,
         return (uint16_t)((uint16_t)(byte << 8) | 0x00FFu);
       }
     case 2u:
-      /* `Node_ID2`; the second window's `+002` is `XMIT_ADDR`, which this core
-       * stores and does not yet act on. */
-      if (!second_window) {
-        return node_id_lane(ctl, 16u);
-      }
+      /* `XMIT_ADDR`, which this core stores and does not yet act on. */
       return w->slot_002;
     case 4u:
-      /* `Node_ID1`; the second window's `+004` is `XMIT_ABORT`/`RCV_ADDR`. */
-      if (!second_window) {
-        return node_id_lane(ctl, 8u);
-      }
+      /* `XMIT_ABORT` on the two-board version, `RCV_ADDR` on the single-board
+       * one -- p. 12-29 note *2. */
       return w->slot_004;
     default:
-      /* `Node_ID0`, the least significant, on the first window. On the second
-       * `+006` is `RAM_ADDR`, the buffer pointer -- the firmware only ever
-       * writes it, so a read-back is the least-surprising answer. */
-      if (!second_window) {
-        return node_id_lane(ctl, 0u);
-      }
-      /* Re-encoded, because the pointer is held decoded: the swap is its own
+      /* `+006` is `RAM_ADDR`, the buffer pointer -- the firmware only ever
+       * writes it, so a read-back is the least-surprising answer.
+       *
+       * Re-encoded, because the pointer is held decoded: the swap is its own
        * inverse, so a read taken before any access returns what was written. */
       return ring_ctl_addr(w->pointer);
     }
@@ -627,13 +754,9 @@ uint16_t ap_ring_ctl_read16(ap_ring_ctl_t *ctl, bool second_window,
        * half; nothing else is answered. */
       return (uint16_t)((w->command_404 & 0xFF00u) | w->command_404_status);
     default:
-      /* `+406`. On the `a2` window this is the buffer's data port -- finding
-       * 46a's read-ahead latch, which answers with the word the *previous*
-       * access fetched and then fetches the next. On `a1` it is storage,
-       * because finding 50a shows the firmware never reads it. */
-      if (!second_window) {
-        return w->slot_406;
-      }
+      /* `+406` is `RAM_DATA`, the buffer's data port -- finding 46a's
+       * read-ahead latch, which answers with the word the *previous* access
+       * fetched and then fetches the next. */
       {
         const uint16_t answered = w->read_ahead;
         w->read_ahead = w->pointer < AP_RING_CTL_BUFFER_WORDS
@@ -661,6 +784,13 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
   if ((offset & AP_RING_CTL_BANK_MASK) == AP_RING_CTL_BANK_ID) {
     switch (offset & AP_RING_CTL_SLOT_MASK) {
     case 0u:
+      /* **`BOARD_RESET`.** p. 12-29 gives `59000` as `BOARD_TYPE` when read and
+       * `BOARD_RESET` when written, and this absorbed the write on the reading
+       * that the type is "not host-writable" -- true, and not the whole entry.
+       * The first window's `51000` is PROM and takes no write at all. */
+      if (second_window) {
+        ap_ring_ctl_board_reset(ctl);
+      }
       return;
     case 2u:
       w->slot_002 = value;
@@ -1109,9 +1239,11 @@ void ap_ring_ctl_clock(ap_ring_ctl_t *ctl, bool second_window) {
     return;
   }
   ap_ring_ctl_window_t *w = window_of(ctl, second_window);
-  ap_i8254_clock(&w->timer_a);
-  ap_i8254_clock(&w->timer_b);
   if (second_window) {
+    /* The board's two 8254s are both in this window -- p. 12-29's `59800` and
+     * `59C00` banks. The first window is PROM and has none. */
+    ap_i8254_clock(&w->timer_a);
+    ap_i8254_clock(&w->timer_b);
     ap_ring_ctl_poll_ring(ctl);
   }
 }

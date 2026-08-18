@@ -542,6 +542,18 @@ void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl);
 /* Power-on. `present` chooses whether the unit answers as a fitted board. */
 void ap_ring_ctl_reset(ap_ring_ctl_t *ctl, bool present);
 
+/* `BOARD_RESET`, `002398-04` p. 12-29: what a write to the second window's
+ * `59000` does. Register state returns to its just-reset values and the buffer
+ * is cleared, but the board keeps its identity and stays plugged into the ring
+ * -- a reset command does not unsolder the ID PROM or unplug the cable, which
+ * is the difference from `ap_ring_ctl_reset` above (that one is also the
+ * initialiser, and clears the attachment for the reason recorded there).
+ *
+ * The register read `BOARD_TYPE` and the write was absorbed on the reading
+ * that a type is "not host-writable" -- true of the read side, and the page's
+ * "When Written" column was never carried across. */
+void ap_ring_ctl_board_reset(ap_ring_ctl_t *ctl);
+
 /* **The board carries its own node ID, and the first window is where it
  * reads** -- `[EH]` p. 12-29 (`RING.md` 93): bus `220`-`226` read `Node_ID3`
  * (msb) through `Node_ID0` (lsb), while the *second* window's `+000` reads

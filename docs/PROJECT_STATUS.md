@@ -1028,6 +1028,98 @@ lesson is C201's, not C208's: **the blocker was ours all along**, and the
 firmware's `Apollo Token Ring test passed.` was never evidence about the OS,
 because the diagnostic never issues a `TIMO_ACK`. `FINDINGS.md` C201, C208.
 
+### The whole first window was the wrong device (2026-08-19)
+
+The `TIMO_ACK` inversion above was found by decoding the driver's instructions
+-- by accident, in effect, from the outside in. **`CLAUDE.md` says to walk the
+register tables first**, so the table was then walked, and `002398-04` p. 12-29
+turned out to describe a different part from the one this core implemented.
+
+The page tabulates all thirty-two ring registers by bus address, physical
+address, "When Read" and "When Written". Its **first window** is sixteen slots
+at stride two: `Node_ID3` (msb) through `Node_ID0` at `51000`-`51006`,
+**"(unused - PROM)" at the eleven between**, `Node_ID_CHECKSUM` at `51C06`, and
+a bare `-` under "When Written" for the `51800` and `51C00` banks -- the only
+registers on the board with no write side at all. This core had a status
+register and **two 8254 counter chips behind that window**, clocked every tick.
+The board's only counters are in the *second* window, at `59800`/`59C00`, where
+they were also modelled. Four 8254s for a board with two.
+
+`roms/firmware/3500_NI_1C874.bin` is that PROM and settles it in one read:
+
+    0000 0100 c800 7400 0000 0000 0000 0000
+    0000 0000 0000 0000 0000 0000 0000 3d00
+
+Sixteen big-endian words, each byte in the **high** half; `0001C874` in the
+first four, which is the file's own name; eleven genuinely zero; and
+`00 + 01 + C8 + 74 = 0x13D`, whose low byte is the `3D` in the sixteenth. Which
+is `ap_nodeid`'s layout exactly -- **derived independently** from a dump of
+`011200` and from self-test 8's disassembly at `008218`. One part, two models in
+this core, and the ring's was wrong in every slot but four. The window now
+serves `ap_nodeid`.
+
+**Two more defects fell out of the same walk, both in the path a previous fix
+had missed.** `read8` of the first window's `+000` still returned the board
+type: finding 93i corrected that in `read16` and the board reaches the card
+eight bits at a time. And the low half of each ID lane answered `FF` where
+`read8` answered `00` -- one address, two answers, neither measured.
+
+**A test asserted each of them.** `board_suite` required `$36` from *both*
+windows; `ring_ctl_suite` required the `FF`. That is the fourth and fifth time a
+page-image walk has found a test asserting this core's own guess back at it
+(`RING.md` 88b, 93i, 98e), and it is why a green suite is not evidence of
+completeness. The board test now asserts the property finding 93i was reaching
+for: the ring board's PROM and the one at `011200` **agree register for
+register**, two views of one identity.
+
+One entry on the page is answered by choice rather than measurement, and is
+recorded rather than left silent: notes *1 and *2 make `59002`/`59006`
+write-only and `59004` read `XMIT_ABORT` on the **two-board** version. This core
+models the single board, because `RING.md` 42 has the two-board set as the older
+DN3000's and a DN3500 is later than both. Nothing distinguishes them yet,
+because the firmware never reads those registers. `RING.md` 136-136d.
+
+`BOARD_RESET` was the same shape of miss one register along: `59000` reads
+`BOARD_TYPE` and **writes** `BOARD_RESET`, and the write was absorbed with the
+note that a board type is not host-writable -- true of the read side, and the
+column beside it was never carried across.
+
+**None of this is visible to a boot, which is the point.** The ring-fitted
+Domain/OS boot is byte-identical before and after -- `957B42F3C3AE6DE7` both
+ways -- so finding 50a holds twice: the firmware never reads that window, and
+this driver never writes `BOARD_RESET`. A boot could not have found any of it,
+and the suite asserted three of them backwards.
+
+### A run header that could not tell a booting machine from a hung one
+
+Verifying the above cost three boots and a wrong suspicion, for a reason worth
+fixing rather than remembering. The reference run and the check printed
+**byte-for-byte identical headers** -- same PROM, same disk, same size, same
+clock, `ring fitted, no option ROM` on both -- and one reached
+`Apollo Phase II Environment` while the other sat in the boot PROM at
+`00002670` forever. The difference was `--boot-console`, `--boot-input` and
+`--boot-script`, none of which the header mentioned: the PROM autobauds, so a
+console nobody types at never speaks, and the machine waits at a prompt that is
+never answered. The silent run was briefly read as a regression in the device
+model just changed.
+
+The existing rule -- confirm a run's configuration from its own output, never
+from a file name -- was followed and **did not help**, because the output did
+not carry the distinguishing flags. So the header now reports them:
+
+    console      captured, 1 byte(s) typed at sio1 B, script tools/boot-domainos.script
+    console      not captured
+
+`check_frontend_flags.py` asserts it, in the source rather than by running the
+binary, because the line needs a boot PROM to print and CI has no `roms/`. That
+is weaker and is logged as `(source)` so the log says which kind of check it
+was.
+
+*Verification: `ctest` 139/139 with `board_suite` 55 -> 56 and `ring_ctl_suite`
+22 -> 23; identity boot `03EE415450926A89` unchanged; the ring-fitted boot
+`957B42F3C3AE6DE7` unchanged and still reaching `Apollo Phase II Environment`;
+`check_frontend_flags.py` 21 -> 25 checks.*
+
 What the firmware does do, which is what these lines are:
 
        network driver search started...
@@ -5994,7 +6086,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 23 tests sweeping every device field by field |
 | Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 56 tests, incl. the same workload run twice on two boards agreeing at every step |
 | Ring protocol stack (`ring/ap_ring_{mac,frame,framer,phy,medium,station}.*`) | **JOINED TO THE CONTROLLER, and two boards on one segment exchange a frame; not yet reachable from a *booting* machine.** `ap_ring_ctl_attach_ring` is the wire `RING.md` 85e opened and 104 closed: a transmit command assembles the frame in the board's buffer and hands it to the station, MISC_CMD's `nct` drives §3.5's bypass relay and RCV_CMD's `rcv` the receiver, and the board's node ID becomes the station's ring address. The medium now has a home: `ap_board_t` owns the **station** (the card) and `ap_board_join_ring` lends it a **shared segment** (the cable), because a board that owned a medium would make every ring single-node by construction. `board_suite` drives two boards through their register interfaces and the header arrives in the other's buffer. `--ring` now owns a **segment** and joins the card to it, `ap_board_advance` polls the ring when the card has a cable, and the card's **interrupt line is wired** — master IRQ 2, documented at last (`RING.md` 107). **A frame now crosses under `ap_board_advance`** — the ring's 12 Mbit/s bit clock is driven from board time, with only the segment's lowest attached slot stepping the shared cable, and `board_suite` advances two boards' *clocks* and requires the frame to arrive. **And `ap_ring_sched` is wired**: `ap_board_join_ring_sched` registers a board as a ring participant at the medium's own bit rate, so nodes of different models can share one segment against `AP_TIME_BASE_HZ` — `board_suite` runs a real exchange through it and asserts the scheduler's phase hash is identical across two runs. **And a segment now crosses process boundaries**: `frontend/common/ap_ring_link.*` carries the cable's cells between two emulator instances in strict lock-step, batched a cable-length at a time — which `[MAC]` §3.4 makes free, since a bit cannot reach the next node for 64 bit times anyway. **The DMA question is answered and it was the wrong question**: `002398-04` p. 12-23 enumerates the DN3000's DMA Channel Usage in full — SDLC, floppy, cascade, the rest available — and the ring is not among them, so there is no host channel to model. The host reaches the buffer through `RAM_ADDR`/`RAM_DATA`, which is what this core does; finding 79's "loop xmit DMA to rcv DMA" is the gate array's own internal DMA. **And `--ring-two-node [N]` runs two whole machines on one segment** — two boards with distinct node IDs on one `ap_ring_sched`, each machine run a slice at a time with the ring advanced only to the time *both* have reached, reporting each node's PC and the ring's phase hash, reproducibly and without needing firmware. **Domain/OS now accepts the card** (`RING.md` 119): with a sealed configuration table, the device bits set from what is fitted, register `2B` = 2 and a ring option ROM, the SR10.4 diagnostic runs `network driver search` and an Apollo Token Ring test — and fails on `Expected= 0000FC03, Actual= 0000FC00, Address= 00059800`, which is SUBTEST 32's number reached by a second, independent path. **What is still missing**: that one count — so the plan's `lcnode` check needs a booted Domain/OS per node, a disk question rather than a ring one. And 80c's loopback residual. What else is done, and audited line by line against `[MAC]` chapters 1-3 and Appendix A (findings 85-94): bit stuffing and the four out-of-band characters, the three separators, all five framing sequences and the CRC, the bi-phase physical layer with both clock domains, §3.5's bypass relay in both halves, per-hop cable delay, and the station's §2.1 transmit sequence, §2.2.2.2 destination and broadcast matching, and both acknowledge fields modified in flight. The row said "not started", which was stale by six modules | `ring_mac_suite`, 11 tests; `ring_frame_suite`, 9 tests; `ring_framer_suite`, 12 tests; `ring_phy_suite`, 9 tests; `ring_medium_suite`, 12 tests, including a three-station ring circulating a token; `ring_station_suite`, 18 tests, including a frame delivered to its addressee with a bystander required *not* to accept it; `ring_sched_suite`, 7 tests |
-| Ring controller (`device/ap_ring_ctl.*`) | **register interface working**, wired into the AT decode: a unit's two windows, the ID register, the presence gate and its two Intel 8254 timers, all from the firmware disassembly that is this board's only specification. Fitted only on request -- an empty slot reads `FF`, which `RING.md` finding 40 makes the successful outcome of the firmware's probe. The dual-ported RAM buffer is **64 KB reached through the `+406` data port**, not a memory window -- findings 46, 46a and 47, which correct finding 42. **Nothing is blocked on a source any more**: `+400` MISC_STAT, `+402` XMIT_STAT and `+404` RCV_STAT are named bit for bit from `002398-04` pp. 12-30/12-31, and `ring8a.drvr` corroborates them from the board's own driver (`RING.md` 93, 97). The row said the meanings were blocked, which was stale by two findings | `ring_ctl_suite`, 22 tests, one of which is the firmware's own 64 KB memory test, one of which decomposes all three idle words into their named bits, and one of which walks the first window's eight write-only registers; the three receive counters are clocked individually since `[EH]` pp. 12-30/12-31 show header and data are separate phases on this board (`RING.md` 95a-95c); `i8254_suite`, 7 tests; `board_suite` 38 -> 40 |
+| Ring controller (`device/ap_ring_ctl.*`) | **register interface working**, wired into the AT decode: a unit's two windows, the ID register, the presence gate and its two Intel 8254 timers, all from the firmware disassembly that is this board's only specification. Fitted only on request -- an empty slot reads `FF`, which `RING.md` finding 40 makes the successful outcome of the firmware's probe. The dual-ported RAM buffer is **64 KB reached through the `+406` data port**, not a memory window -- findings 46, 46a and 47, which correct finding 42. **Nothing is blocked on a source any more**: `+400` MISC_STAT, `+402` XMIT_STAT and `+404` RCV_STAT are named bit for bit from `002398-04` pp. 12-30/12-31, and `ring8a.drvr` corroborates them from the board's own driver (`RING.md` 93, 97). The row said the meanings were blocked, which was stale by two findings | `ring_ctl_suite`, 23 tests, one of which is the firmware's own 64 KB memory test, one of which decomposes all three idle words into their named bits, one of which walks the first window's eight write-only registers, one of which reads that window as the node ID PROM it is -- four ID lanes, eleven unused slots and a checksum (`RING.md` 136) -- and one of which resets the board through `BOARD_RESET` at `59000`; the three receive counters are clocked individually since `[EH]` pp. 12-30/12-31 show header and data are separate phases on this board (`RING.md` 95a-95c); `i8254_suite`, 7 tests; `board_suite` 38 -> 40 |
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
 | 68030 bus cycle state machine | working, including burst line fills | `bus_suite`, 25 tests, each citing `MC68030 User's Manual 3ed` ch. 7 (read, write and burst cycles) |
 | 68030 bus arbitration control unit | working: the five-state machine of `[030]` §7.7.4, the processor at lowest priority, both documented deferrals (a committed bus cycle, and a locked read-modify-write) and the single-wire BGACK-alone path. Figure 7-61 did not survive the scan and the states are recovered from the prose walking it; one edge is marked `INFERRED` in code against the two passages supporting it. The input synchroniser is `PROVISIONAL` | `arb_suite`, 16 tests, `MC68030 User's Manual 3ed` §7.7 |
