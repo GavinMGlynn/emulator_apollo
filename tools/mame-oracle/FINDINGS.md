@@ -12028,3 +12028,44 @@ boot to not-learn first.*
 `siologin_access` from `/sys/siologin`, and read `` `node_data/siologin_log ``
 off the image after a boot -- which needs the *oracle*, because `--disk` on this
 core is read-only and a log written there does not survive the run.
+
+## C219 -- `siologin` was running the whole time; the harness cannot type at its line
+
+`--disk-writeback` was built to read `siologin`'s log (C218). The log is not what
+answered the question -- the **process table** was. Diffing the written-back
+image against its input, 902 sectors changed, and one of them holds:
+
+    siologin2_local
+    mbx_helper
+    siomonit
+    server_process_manager
+
+**`siologin2_local` is a live process.** It is not failing, not refusing an
+access code, not missing its startup file. The line-2 configuration (C217) is
+correct and has been since it was written.
+
+### What was actually wrong: an asymmetry in this frontend
+
+    console OUTPUT   drains all four channels -- unit 0..1 x channel 0..1
+    console INPUT    goes to exactly ONE, chosen by
+                     --boot-input-port / --boot-input-channel
+
+So a login offered on **line 2** can be *seen* and never *answered*, and every
+carriage return this thread has sent went to line 1. `008778-03` §3.9 makes
+line 0 the keyboard and lines 1-3 the asynchronous devices; our input has been
+pinned to line 1 throughout because that is where the boot PROM's console is.
+
+**One flag cannot serve both**: the firmware's own dialogue must be answered on
+line 1, and `siologin` on line 2 must be answered on line 2. So either
+`siologin` moves to line 1 -- the only line this harness can type at -- or the
+frontend learns to direct input at a second channel.
+
+### The correction this forces
+
+C216's "the login is not being transmitted anywhere" was right about the console
+and wrong about the machine: nothing was transmitted because `siologin` prints
+nothing until a terminal types at it (C165), and no terminal ever did. C218's
+"a console that shows nothing is the expected output of a failing siologin" was
+half right -- it is also the expected output of a **working** one that nobody
+has typed at, and those two are indistinguishable on this harness. That is
+precisely why the disk, and not the console, is what settled it.
