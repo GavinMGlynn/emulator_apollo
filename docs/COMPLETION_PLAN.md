@@ -4171,16 +4171,14 @@ discipline throughout.
       instructions per node against 125 K instructions/s per node (C156), so
       roughly three hours for two nodes. A run to launch deliberately rather
       than a gap.
-      **The prohibition on patching a copied volume's label needs its scope,
-      because this item now relies on exactly that** (C180). The objection is
-      real: the objects on a copy carry node A's UIDs, so the copy is not a
-      volume the second node could have created. It is decisive for the
-      *multi-node workload* item, whose findings would be about object UIDs read
-      across the ring. It is **not** decisive here: ring membership is a
-      function of the node a machine presents, which comes from the creator UID
-      the frontend reads, and nothing in `lcnode` consults an object's maker.
-      So this item uses a relabelled copy and says so as a deliberate
-      approximation; the workload item still needs a real second install.
+      **No copied volume is used and none is needed** (C199, C200). Node B's
+      own volume boots -- what stopped it was this frontend not giving a machine
+      its disk's node on the `--disk` path -- so the run uses two genuinely
+      installed volumes, `012345` and `022222`. The relabelling C180 proposed is
+      withdrawn: besides being an approximation, it could not have worked here,
+      because the runner takes each node's ID from its disk and the copy's
+      objects carry the *other* node's, which is the mismatch Domain/OS shuts a
+      node down for.
       **Diskless boot is the other route and is now sketched from the web**: a
       diskless node's PROM broadcasts a partnership request, and a partner
       running `netman` with the client listed in `/sys/net/diskless_list`
@@ -5223,11 +5221,12 @@ Only after the reference core is proven, and only under an identity harness.
       The boundary is exact: ring **membership** is a function of the node a
       machine presents, and C180's relabelling settles that; anything reading
       **object UIDs across the ring** is not, and this item is all of that.
-      **So this item needs the second install to work**, and the attempt at one
-      is `media/dn3500-nodeB-*.awd`, which boots on the oracle and shuts down on
-      this core immediately after the kernel banner. Its whole label and its
-      whole file tree are eliminated (C176-C180); it is unexplained, and it is
-      what stands between this item and being startable.
+      **The second install now works and this item is startable** (C199): node
+      B's volume boots. What had stopped it was this frontend never giving a
+      machine its disk's node on the `--disk` path, so a volume recording node
+      `22222` ran on a machine calling itself `12345` and Domain/OS declined to
+      run as a node its disk contradicts. Given its own node the same volume
+      reaches `Starting standard daemons:.`, hash `5671D8D76ACDC046`.
 
 ## Deferred tails
 

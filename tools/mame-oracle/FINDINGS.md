@@ -11201,3 +11201,32 @@ trace in the report is one that can be wrong for four sessions.***
 *Verification: `ctest` 139/139, `check_frontend_flags` 19 → 21 with a
 synthesised label so it needs no media, identity boot `03EE415450926A89`
 unchanged -- node A's volume is 12345, which is what the default already was.*
+
+## C200 -- the relabelling approximation is superseded, and it would have failed anyway
+
+C180's relabelled copy -- node A's volume with three bytes of creator UID
+changed -- was the way round "two nodes need two volumes" while node B's own
+volume could not boot. C199 removes both halves of that.
+
+**Node B's volume is fine and always was**, so a real second installed volume
+exists: `nodeB4.awd`, node `22222`, root directory committed, and it boots to
+`Starting standard daemons:.` on this core.
+
+**And the relabelled copy could not have worked in the ring runner.** Its
+objects were created by node `12345`; the runner takes each node's ID from its
+disk, so the machine would present `22222` against objects saying `12345` --
+exactly the mismatch C199 shows Domain/OS shuts a node down for. The copy booted
+in the single-machine tests only because `--disk` was *not* applying the label
+then, so machine and objects agreed at `12345` by accident. **The bug hid its
+own consequence.**
+
+The two-node run in flight when this was found was stopped at 1 h 18 for that
+reason and restarted with the two real volumes:
+
+    node 0  id 012345  ring slot 0
+    node 1  id 022222  ring slot 1
+
+*So the deliberate approximation named in `COMPLETION_PLAN.md` and
+`PROJECT_STATUS.md` is withdrawn -- not because the objection was wrong, but
+because it no longer has to be made. It also means the multi-node workload item
+has the second installed volume it was blocked on.*
