@@ -435,6 +435,17 @@ scan can find, and a configuration table that describes the machine it is
 sealed into. Every previous two-node run here failed the loaded SELF_TEST
 diagnostic at `Expected= 00000000, Actual= 00000010`.
 
+**Both nodes pass the ring hardware diagnostic on one segment:**
+
+    node 0 |       Apollo Token Ring test passed.
+    node 1 |       Apollo Token Ring test passed.
+    node 0 |    above driver type loaded.
+    node 1 |    above driver type loaded.
+
+The same three lines this file already records from a *single* machine, now with
+a second station attached to the same medium -- which is the part a one-node run
+cannot test. `FINDINGS.md` C195.
+
 **Determinism is checked and holds.** Two `--ring-two-node 60000000` runs,
 each on its own freshly copied pair of Winchesters, are byte-identical apart from
 the input file names: the same console text, the same *interleaving* of the two

@@ -10951,3 +10951,32 @@ the disk copies itself, so neither run starts from a disk the other modified,
 and it excludes the `volume` header lines, so the names it deliberately varied
 cannot be reported as a defect. Takes the per-node instruction count as its
 argument.
+
+## C195 -- two nodes pass the Apollo Token Ring diagnostic on one segment
+
+From the run C193 stopped, and it is the strongest ring evidence this project
+has:
+
+    node 0 |    network driver search started...
+    node 1 |    network driver search started...
+    node 0 |       Apollo Token Ring test passed.
+    node 1 |       Apollo Token Ring test passed.
+    node 0 |    above driver type loaded.
+    node 1 |    above driver type loaded.
+
+**Two DN3500s, each with the card fitted and its option ROM, each running the
+firmware's own token-ring hardware diagnostic to completion, on one shared
+`ap_ring_medium`** -- and each then loading the Domain/OS driver for it.
+
+PROJECT_STATUS records the same three lines from a **single** machine
+(`821C92EAB86AD568`), where they were "the first time anything above the boot
+PROM has accepted this card". This is that result with a second station on the
+segment, which is the part a one-node run cannot test: the diagnostic exercises
+the medium while another node is attached to it and bypassed or not by its own
+relay.
+
+*What it is not: `lcnode`. The diagnostic is the card testing itself, not one
+node naming another, and the item's verification is the latter. But it removes a
+whole class of doubt about the medium and the two stations' coexistence, and it
+cost nothing extra -- it was in a console that was being polled by its last
+line.*
