@@ -5965,7 +5965,15 @@ Only after the reference core is proven, and only under an identity harness.
       `00`, which the firmware reads as twenty megabytes rather than as no
       answer. Still open: the DN5500, now precisely diagnosed — it stops at its
       second instruction, `cinva`, because the 68040 is modelled and nothing
-      executes on it. **Both ring generations now boot**, and Domain/OS's own
+      executes on it. **Re-verified 2026-08-18 down to the opcode**: `4E71`
+      (`nop`) at `00060C`, `F4D8` (`cinva bc`) at `00060E`, and the F-line is
+      taken there — `stopped on vector 11 taken from PC 0000060E, after 1
+      instruction(s)`. What follows is worth knowing so "stops" is not
+      misread: the run does *not* halt there. The 68030 core takes the F-line
+      correctly, the PROM's handler runs ~135 more instructions, and the
+      machine ends on a bus error writing its exception frame at `FFFFFFFC`
+      with `a7` zero. So the core's exception path is not what is missing;
+      the instruction is. **Both ring generations now boot**, and Domain/OS's own
       self-test suite passes with the card fitted -- `Apollo Token Ring test
       passed.`, `above driver type loaded.`, `Self tests passed.` -- with
       reproducible hashes for each. It found one defect of ours that no
