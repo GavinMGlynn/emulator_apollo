@@ -445,7 +445,9 @@ The last unbooted release, on this core, from its own disk:
      SPM Initialized on Wednesday, November 27, 2002
 
 **State hash `E5147CD96AB052D9`** at 1,500,000,000 instructions,
-`--clock 2002-11-27T06:00:00`. So `SR10.2`, `SR10.3` and `SR10.4` -- the whole
+`--clock 2002-11-27T06:00:00`, **reproduced exactly** by a second run from a
+fresh copy of the volume -- which the check needs, because a boot writes to its
+disk. So `SR10.2`, `SR10.3` and `SR10.4` -- the whole
 set that exists to be obtained -- boot here, each with its hash.
 
 **It took four sessions and the chain had to be undone in order**: the oracle's

@@ -11118,7 +11118,9 @@ The last unbooted release, on this core, from its own disk:
      SPM Initialized on Wednesday, November 27, 2002
 
 **State hash `E5147CD96AB052D9`** at 1,500,000,000 instructions, 5,176,846,240
-clocks, `--clock 2002-11-27T06:00:00`, `media/sr10.2/017286-001` as the boot
+clocks, `--clock 2002-11-27T06:00:00`, **reproduced exactly by a second run from
+a fresh copy of the volume** -- a boot writes to its disk, so the check needs
+one ([[an-input-a-run-can-write-is-not-an-input]]), `media/sr10.2/017286-001` as the boot
 cartridge and `017287-001..003` as the software. Sixteen exception vectors
 taken, including 760 `TRAP #3` and 778 `TRAP #7` -- the supervisor calls C189
 found node B never reaches.
