@@ -5086,6 +5086,14 @@ Only after the reference core is proven, and only under an identity harness.
       byte-identical**, and the prerequisite is now named for the per-cycle
       processor item, which cannot stop advancing the board every instruction
       until those four are dealt with. Detail in `FINDINGS.md` C152.
+      **The carry itself is NOT in the tree** -- checked 2026-08-18 rather than
+      assumed: it was part of the reverted patch and went out with it, so the
+      board-level carry helper that patch added is nowhere in `src/`, and
+      `ap_omti.c:352` still reads
+      `omti->completion_at = omti->now + duration`. Not a live defect --
+      `ap_board_advance_one` refreshes each device's cursor on every access that
+      reaches it, so the stored `now` *is* the caller's instant today -- and
+      exactly the latent hazard the next schedule has to clear first.
   - [x] **The timer advance is skipped until a pulse is due**, the PTM keeping
     no `now` of its own so nothing can be left stale. *Verification: interleaved
     A/B, faster in all three pairs, 29.65 s against 30.20 s; hash and reports
