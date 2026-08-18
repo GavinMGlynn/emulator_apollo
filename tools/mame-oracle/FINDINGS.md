@@ -8981,3 +8981,102 @@ to find.
 a stored cursor, and any future work that stops advancing the board every
 instruction -- the per-cycle processor item, above all -- has to deal with them
 first. That is now a named prerequisite rather than a surprise.
+
+## C153 -- node B runs Domain/OS SR10.4, and three steps of the route were learnt rather than known
+
+C151 made a volume recording node `22222`. This is the rest: an operating
+system on it, by the route `PROJECT_STATUS.md` records for node A.
+
+**RBAK and MINST completed**, four cartridges swapped as asked, and the install
+reported `RAI install has **successfully** completed` -- no errors at all, where
+node A's SR10.3 finished with two warnings. `SYSBOOT REV` is at `0x870`, which
+is `[AEGIS]` §4.3.2's block 2 and the difference between a restored volume and a
+bootable one (C128). Every path MINST printed is `//node_22222/...`, so the
+install took the volume's node without being told it.
+
+### The tracked install script is not replayable unattended, and that cost a run
+
+`tools/mame-oracle/install-domainos.cmds` records the SR10.4 dialogue "as it was
+actually driven", and its tail has **no pacing at all** -- the four `!swap`
+directives and the closing commands follow one another with `!wait 6` between,
+which is what a human at a terminal needed and not what an unattended replay
+does. Run as written it quit while volume 1 was still restoring.
+
+The prompt to pace on is the machine's own, and it is exact:
+
+    Please insert volume 2 into the cartridge tape drive.
+    Press <RETURN> when ready :
+
+With `!expect Please insert volume N` before each swap the install runs to
+completion untended. **And one answer has to be given on its own prompt**: `11`
+and `yes` sent together made the machine echo `You have selected 'ylarge'` and
+leave `es` at the next prompt -- the template line had eaten the `y`.
+
+### Three things about the *first boot* that the record did not carry
+
+- **`--knock-timeout 180` is too short for this machine.** A first attempt
+  produced zero console bytes and read exactly like the "the PROM boots the disk
+  and the console goes silent" trap the route warns about. It was not: the
+  driver's own last line said `no prompt after 180s of knocking`. The same
+  volume with `--knock-timeout 900` reached `MD7C REV 8.00` and every step
+  after it. **The error message was there from the first minute and was not
+  read**, which is the whole lesson -- two hypotheses about cartridges and
+  volumes were tested before the log was.
+- **The cartridge stays mounted.** Every run in the record that reached MD after
+  the disk became bootable had `-ctape`, because the standalone utilities are
+  loaded from it with `di c`.
+- **The calendar step is not optional on a fresh volume.** Skipped deliberately
+  on the grounds that this volume had never been mounted, and Domain/OS refused:
+  `The calendar is more than a minute slow. Switch to service mode, press reset
+  and run CALENDAR.` The machine then states the branch outright, which removes
+  the guesswork the route warns about:
+
+      The system calendar contains a time which precedes the logical volume's
+      last recorded time.  The calendar time is 1996/08/18 02:57:27 UTC;
+      last recorded time was 1996/08/18 03:26:47 UTC.
+      Is the calendar correct?
+
+  `n` opens `Please enter today's date (year/month/day):`, then
+  `Please enter the local time in 24 hour format (hour:minute):`, then
+  `The calendar is being reset forward by more than 5 minutes. Is the above
+  information correct?` -- and CALENDAR aborts on exit at `10200E6: 6100` as it
+  always does, with the set having taken. With the calendar ahead of the
+  volume's stamp the kernel loads.
+
+## C154 -- the per-cycle item's first increment is already built, and the plan describes it as work to do
+
+The item scopes a per-cycle processor into increments and specifies the first
+one exactly: *"hoist the bus into the CPU struct, still ticked to completion
+inline -- pure plumbing, hashes must not move"*, with the note that
+`ap_m68030_access_write` already takes a context struct so the bus becomes a
+field of it with no signature change, and that *"only `ap_m68030_cache_read`
+needs a new parameter"*.
+
+**All of that is in the tree**, and was before this session:
+
+    ap_m68030_access.h:241   ap_m68030_bus_t bus;          -- a context field
+    ap_m68030_access.c:310   ap_m68030_bus_t *const write_bus = &access->bus;
+    ap_m68030_cache.h:319    ap_m68030_cache_read(..., ap_m68030_bus_t *bus, ...)
+    ap_machine.h:334-335     instruction_access, data_access
+    ap_machine.c:600         set up once, in `ap_machine_init`
+
+So the machine owns two long-lived access contexts and each owns its bus, which
+is the ownership the increment asks for. `ap_m68030_bus_begin` still clears the
+bus at the start of every access, and that is not a gap: each access *is* a new
+bus cycle on the real part, and the increment was about where the storage lives.
+
+**What actually remains** is the increment after it, and it is a different kind
+of work: `ap_m68030_access.c:329` and `ap_m68030_cache.c:313` both loop
+`while (ap_m68030_bus_active(...))` and tick to completion inside one access, so
+the machine cannot drive `bus_tick` until an instruction can *stop* inside an
+access -- a resumable sequencer, which is the rewrite the item is really about.
+
+**And C152 adds a prerequisite the item did not have**: four parts date
+deadlines from a stored `now` that only `ap_board_advance` refreshes, so any
+schedule that stops advancing the board once per instruction has to carry those
+cursors or the disk completes its commands early.
+
+*The lesson is one this project has recorded twice for graphics prose: a plan
+item's text is not evidence about the code. Grep the implementation before
+picking up a named gap -- this one would have been a day's work re-doing
+something already done.*

@@ -4354,21 +4354,26 @@ Only after the reference core is proven, and only under an identity harness.
       invisible to the machine's tick. Per-cycle stepping therefore means
       hoisting bus ownership into `ap_m68030_cpu_t` and letting the machine
       drive `bus_tick`, not writing a cycle model — that part exists.
-      **Increments, each identity-checked before the next**: (1) hoist the bus
-      into the CPU struct, still ticked to completion inline — pure plumbing,
-      hashes must not move. **Not as small as "plumbing" suggests**: neither
-      call site holds a `cpu`. `ap_m68030_access.c` works from an `access`
-      context and `ap_m68030_cache.c` from a `wait_states` callback plus its
-      own `context`, so the bus must reach both layers. **But "thread it
-      through every caller" overstates it, checked**: exactly **two** functions
-      own a local bus — `ap_m68030_access_write(ap_m68030_access_ctx_t *access,
-      …)` and `ap_m68030_cache_read(ap_m68030_cache_t *cache, …)`. The first
-      already takes a **context struct**, so the bus becomes a field of
-      `ap_m68030_access_ctx_t` and *no signature changes at all* on that path.
-      Only `ap_m68030_cache_read` needs a new parameter, since a bus does not
-      belong on `ap_m68030_cache_t`. So step 1 is one struct field, one
-      parameter, and two locals deleted — much smaller than a refactor of the
-      hottest path.
+      **Increment 1 is ALREADY BUILT, and this text was describing it as work
+      to do.** Checked in the source, not inferred: `ap_m68030_access.h:241`
+      has `ap_m68030_bus_t bus` as a field of the access context,
+      `ap_m68030_access.c:310` takes `&access->bus`,
+      `ap_m68030_cache_read` already takes the bus as a parameter
+      (`ap_m68030_cache.h:319`), and the machine owns two long-lived contexts
+      set up once in `ap_machine_init` (`ap_machine.h:334-335`,
+      `ap_machine.c:600`). `ap_m68030_bus_begin` still clears the bus per
+      access, which is not a gap -- each access is a new bus cycle on the part,
+      and the increment was about where the storage lives.
+      **So the next increment is the real one**: `ap_m68030_access.c:329` and
+      `ap_m68030_cache.c:313` both loop `while (ap_m68030_bus_active(...))` and
+      tick to completion inside one access, so the machine cannot drive
+      `bus_tick` until an instruction can *stop* inside an access. That is a
+      resumable sequencer, and it is the rewrite this item is actually about.
+      **And it has a prerequisite it did not know about** (`FINDINGS.md` C152):
+      four parts -- disk, tape, keyboard, graphics -- date deadlines from a
+      stored `now` that only `ap_board_advance` refreshes, so any schedule that
+      stops advancing the board once per instruction must carry those cursors
+      or the disk completes its commands early. Detail in `FINDINGS.md` C154.
       **Step 1a is DONE**: the write path's bus now lives in
       `ap_m68030_access_ctx_t` and `ap_m68030_access_write` uses it instead of a
       local. Behaviour-neutral by construction — `ap_m68030_bus_begin` assigns
