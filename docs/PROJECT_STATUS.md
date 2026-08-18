@@ -422,6 +422,33 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## Two ring nodes pass their own self-test (2026-08-18)
+
+The first result of the configuration-table fix below:
+
+    node 0 | Self tests passed.
+    node 1 | Self tests passed.
+
+**Two DN3500s on one ring segment**, each with its own Winchester, its own node
+ID from that volume's creator UID, the ring option ROM the firmware's expansion
+scan can find, and a configuration table that describes the machine it is
+sealed into. Every previous two-node run here failed the loaded SELF_TEST
+diagnostic at `Expected= 00000000, Actual= 00000010`.
+
+**Stated with what is not yet done**, because the item is not finished: the
+nodes have passed self-test and are loading Domain/OS; `lcnode` has not run and
+neither node has yet been observed listing the other, which is the item's
+verification. A boot to an SPM prompt is about three hours of wall clock at
+these rates.
+
+**One dependency this exposed and it is worth carrying forward.** Fixing the
+machine broke the dialogue written against it: `Do you wish to continue (y,n)?`
+is what SELF_TEST asks when the table disagrees with the hardware, so a correct
+machine is never asked, and a script whose first step expects that prompt waits
+for ever and types nothing. `tools/boot-domainos.script` still calls it "the one
+question the PROM asks" -- true for a single machine with an uninitialised
+configuration, not for a ring node. `FINDINGS.md` C193.
+
 ## Every ring node failed its own self-test, and the table said so (2026-08-18)
 
 **`--ring-two-node` sealed "a ring and nothing else" into each node's battery
