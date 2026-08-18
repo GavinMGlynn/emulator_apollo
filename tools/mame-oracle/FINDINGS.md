@@ -11300,6 +11300,15 @@ the hardware is broken, and saying so.** With the card absent there is no
 network layer to object. That also fits the option-ROM configuration, where the
 driver is accepted by the firmware and the OS then never starts at all.
 
+*And the single-machine A/B is like-for-like, which was checked rather than
+assumed: `--ring` does not fit a cardless controller. `main.c:3349` attaches the
+card, initialises `g_ring_segment` and **joins the board to it**, so the lone
+node is a one-station ring rather than a card with no cable. The obvious
+alternative reading -- "of course it fails, there is nothing on the other end"
+-- is therefore not available, and stopping the two-node run on this evidence
+was justified: both configurations have a medium and both fail to reach the
+kernel banner.*
+
 *So the next instrument is directed rather than general: find what the driver
 reads before it decides. The card is wired to master IRQ 2 (`RING.md` 104-112);
 `--boot-stop-pc 3C4AED68` puts the machine at the deciding instruction in 90
