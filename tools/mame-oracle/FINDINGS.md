@@ -8631,8 +8631,48 @@ The dialogue, in order, with the answer a DN3500 wants:
 | `Does this node have a Winchester (WIN7) (Y/N)?` | `y` |
 | `WINCHESTER CONTROLLER Type: 0 -- SMS/Omti, 1 -- Western Digital` … `New type:` | **`0`** |
 | ` DISK type:` (`2` Vertex 86 MB, `4` Priam/Maxtor 380 MB, `6` Micropolis 86 MB, `7` Micropolis 170 MB, `8` 760MB, `C` 380MB--FA, `D` None) … `New type (controller 0  unit 0):` | RETURN |
+| `New type (controller 0  unit 1):` | RETURN |
 | `Does this node have a Cartridge tape (CTAPE7) (Y/N)?` | `y` |
-| *(further device prompts not yet reached)* | |
+| `Is this a SCSI cartridge tape (Y/N)?` | `n` |
+| `Does this node have a Magnetic tape (MAGTAPE7) (Y/N)?` | `n` |
+| `Does this node have an 8mm tape (VTAPE7) (Y/N)?` | `n` |
+| `Does this node have a Serial Parallel board (Y/N)?` | `n` |
+| `Does this node have a PC Compatibility board (Y/N)?` | `n` |
+| ` NETWORK type:` (`1` RING two-slot, `2` RING unit 0, `3` RING unit 1, `4`/`5` ETH802.3_AT, `6`/`7` RING802.5_AT) … `New type(s):` | **`2`** |
+| `Does this node have any Unknown devices (Y/N)?` | `n` |
+| ` Anything more to do (Y/N)?` | `n` |
+
+**The dialogue is now complete**, twenty prompts, and none of it is in any manual
+here -- the same position INVOL's was in before C50. `config` then prints its
+summary, and it is the right one:
+
+    Node-id:       22222
+    Peripheral devices:
+           FPU5 -- MC68881/MC68882
+           WINCHESTER CONTROLLER TYPE --  SMS/Omti
+           CTAPE7 -- Cartridge Tape (QIC-II)
+           RING -- Apollo Token Ring Network Controller-AT (unit 0)
+           Principal network: RING -- ... (unit 0)
+
+**And INVOL run in the *same session* still wrote a volume recording `12345`.**
+That is the fourth place the node has failed to arrive, and it narrows the
+question rather than answering it. Two candidates, and they are distinguishable:
+
+- **`config`'s write did not commit.** It aborts on exit exactly as `CALENDAR`
+  does -- `D` then `10200E6: 6100`, the same address, both being `sau7` utilities
+  loaded at `01020000`. For CALENDAR the set demonstrably took; for `config` it is
+  untested.
+- **The UID generator reads the node from somewhere else again**, as it did from
+  the ROM window (C146).
+
+**The decisive check is cheap and is the next thing to do**: run `ex config` a
+second time and read the `Node-id:` it reports. If it says `22222` the write
+committed and the UID's source is elsewhere; if `0`, the abort ate it.
+
+*Also worth knowing for any battery-RAM work: the run directory's `nvram/` was
+**empty** afterwards. MAME writes NVRAM on a clean exit and this session was
+killed, so nothing persisted -- a configuration set this way survives only within
+its own run unless the emulator is allowed to exit properly.*
 
 **The `DISK type:` prompt corrects the order above, and was found the hard way.**
 A second run scripted `Cartridge tape` as following the controller type; the

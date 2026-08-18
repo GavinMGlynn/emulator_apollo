@@ -4160,6 +4160,25 @@ discipline throughout.
       ordered, so the unmatched `!expect` stalled every directive behind it and
       nothing was written. For a dialogue still being learnt, drive it a turn at a
       time and append only what the machine has asked for.
+      **The dialogue was then driven to the end, twenty prompts** (C148), and
+      `config` printed the summary this item wants: `Node-id: 22222`, FPU,
+      `WINCHESTER CONTROLLER TYPE -- SMS/Omti`, `CTAPE7`, and
+      `RING -- Apollo Token Ring Network Controller-AT (unit 0)` as the principal
+      network. A third run was lost to `!expect New type (controller` — `(` is a
+      **regex metacharacter**, the same escaping the install script already gets
+      right with `\(Y/N\)`.
+      **And INVOL run in the *same session* still wrote `12345`.** That is the
+      fourth place the node has failed to arrive. Two distinguishable candidates:
+      `config`'s write did not commit — it aborts on exit at `10200E6`, exactly as
+      `CALENDAR` does, and for CALENDAR the set demonstrably took — or the UID
+      generator reads the node from somewhere else again, as it did from the ROM
+      window.
+      *The decisive check is cheap: run `ex config` a second time and read the
+      `Node-id:` it reports. `22222` means the write committed and the UID's
+      source is elsewhere; `0` means the abort ate it. Also: the run directory's
+      `nvram/` was empty afterwards — MAME writes it on clean exit and this
+      session was killed, so a configuration set this way survives only within its
+      own run. `FINDINGS.md` C148.*
       **`Node-id: 0` is what `config` reports** on a machine MAME calls node
       `12345` — a third corroboration that the ROM window and the battery table
       are different sources and the battery one is empty.
