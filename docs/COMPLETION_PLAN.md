@@ -4171,9 +4171,16 @@ discipline throughout.
       instructions per node against 125 K instructions/s per node (C156), so
       roughly three hours for two nodes. A run to launch deliberately rather
       than a gap.
-      **Explicitly not** patching a copied volume's label -- the objects on a
-      copy carry node A's UIDs and the result would be a machine lying about its
-      identity. The volume above was re-initialised, not edited.
+      **The prohibition on patching a copied volume's label needs its scope,
+      because this item now relies on exactly that** (C180). The objection is
+      real: the objects on a copy carry node A's UIDs, so the copy is not a
+      volume the second node could have created. It is decisive for the
+      *multi-node workload* item, whose findings would be about object UIDs read
+      across the ring. It is **not** decisive here: ring membership is a
+      function of the node a machine presents, which comes from the creator UID
+      the frontend reads, and nothing in `lcnode` consults an object's maker.
+      So this item uses a relabelled copy and says so as a deliberate
+      approximation; the workload item still needs a real second install.
       **Diskless boot is the other route and is now sketched from the web**: a
       diskless node's PROM broadcasts a partnership request, and a partner
       running `netman` with the client listed in `/sys/net/diskless_list`
