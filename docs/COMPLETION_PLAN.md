@@ -4167,6 +4167,25 @@ discipline throughout.
       **So what remains is one run**: `--ring-script-a/-b` driving each node's
       MD through `di w`, `ex domain_os`, `sh`, `user`, `/com/lcnode`, with both
       volumes and `--clock`. Everything it needs is built.
+      **That sentence is stale and C165 already refuted it** -- left standing
+      here for a session while the finding sat in `FINDINGS.md`. **This core
+      cannot put MD on the serial line**: a *key press* releases the boot PROM's
+      console-selection poll and serial characters do not, so MD here talks to
+      the frame buffer. The oracle's MD answers a serial port only because MAME
+      fits an `apollo_stdio` device, which is a MAME convenience and not this
+      machine. The MD route is the *oracle's*, and `ring-a.script` was written
+      for it.
+      **The route on this core is C165's**: boot **Normal**, where a node prints
+      its whole Domain/OS startup on serial 1 channel B and then goes quiet at
+      `SPM system init complete.`, with **`siologin`** configured -- which is
+      precisely the thing that turns that silence into a `login:` prompt,
+      because it waits for a carriage return from a terminal on the SIO line.
+      Then knock with carriage returns, log in as `user`, and run
+      **`/com/lcnode`** by absolute path, since `/com` is not on the path.
+      **So the remaining work is named**: node B's volume already carries the
+      `siologin` configuration (C163); **node A's does not** and needs the same
+      treatment through the same MINST window. That is the one prerequisite, and
+      it is a volume-preparation task rather than a ring one.
       **And the run itself is affordable and measured**: about 1.5 G
       instructions per node against 125 K instructions/s per node (C156), so
       roughly three hours for two nodes. A run to launch deliberately rather
