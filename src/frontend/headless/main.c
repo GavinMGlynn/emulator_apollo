@@ -1545,10 +1545,43 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
                                  AP_BOARD_ATBUS_MEMORY_BASE);
     }
     {
+      /* **The table must describe the machine that was actually built**, and
+       * this said "a ring and nothing else" while fitting a Winchester, an
+       * FPU and -- unless `--ring-rom` was given -- no ring card at all. The
+       * firmware compares the two and says so, in three lines that name every
+       * discrepancy:
+       *
+       *     Winchester/Floppy exists but doesn't appear in the configuration table.
+       *     FPU exists but doesn't appear in the configuration table.
+       *     Apollo Token Ring 0 doesn't exist but appears in the configuration table.
+       *     Self test failed.
+       *
+       * A single machine has always built this correctly (the mask at the
+       * `run_boot` end of this file); only the two-node runner did not, so
+       * every ring node built here failed its own self-test before reaching
+       * the loader. The ring bit is conditional on the *option ROM* rather
+       * than on `--ring`: the card the firmware can find is the one whose ROM
+       * answers the expansion scan, which is the same condition the
+       * `ap_board_attach_option_rom` above is written against. */
+      uint32_t devices = (1u << AP_CONFIG_DEV_FLOPPY) |
+                         (1u << AP_CONFIG_DEV_CTAPE) |
+                         (1u << AP_CONFIG_DEV_WINCHESTER) |
+                         (1u << AP_CONFIG_DEV_FPU);
+      if (ring_rom != NULL) {
+        devices |= 1u << AP_CONFIG_DEV_RING;
+      }
       uint8_t battery[AP_CALENDAR_BATTERY_BYTES];
-      ap_calendar_build_config(battery, sizeof battery, node_id[i],
-                               1u << AP_CONFIG_DEV_RING);
+      ap_calendar_build_config(battery, sizeof battery, node_id[i], devices);
+      ap_calendar_set_memory_boards(battery, sizeof battery, ram_megabytes);
       ap_calendar_load_battery(&board[i].calendar, battery, sizeof battery);
+      /* Printed for the same reason the single-machine path prints it: a
+       * configuration table is an *input* that leaves no other trace, and this
+       * one was wrong for as long as it was invisible. A run can now be checked
+       * against the machine it claims to be without a boot PROM, which is what
+       * lets `check_frontend_flags.py` test it at all -- `roms/` is gitignored
+       * and CI has none. */
+      printf("  node %u  calendar ram: dev bits %08X, checksum %08X\n", i,
+             devices, ap_calendar_config_checksum(battery, sizeof battery));
     }
     const int slot = ap_board_join_ring_sched(&board[i], &sched);
     if (slot < 0) {

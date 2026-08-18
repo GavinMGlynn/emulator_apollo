@@ -422,6 +422,34 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## Every ring node failed its own self-test, and the table said so (2026-08-18)
+
+**`--ring-two-node` sealed "a ring and nothing else" into each node's battery
+RAM** -- `ap_calendar_build_config(..., 1u << AP_CONFIG_DEV_RING)` -- while
+fitting a Winchester and an FPU and, without `--ring-rom`, no ring card at all.
+The boot PROM compares the table against the machine and names every
+discrepancy:
+
+    Winchester/Floppy exists but doesn't appear in the configuration table.
+    FPU exists but doesn't appear in the configuration table.
+    Apollo Token Ring 0 doesn't exist but appears in the configuration table.
+    Self test failed.
+     Expected= 00000000, Actual= 00000010, Address= 00010922
+
+`00000010` is the single bit, read back. The single-machine path has always
+built the full mask and the memory-board array; only this mode did not, so every
+two-node boot attempted here ran nodes that had already failed self-test.
+
+**Fixed**, with the ring bit conditional on the option ROM rather than the flag,
+and **made visible**: the runner now prints `node N calendar ram: dev bits ...,
+checksum ...` per node, because a configuration table is an input that leaves no
+other trace and that is why the defect survived. `dev bits` `00000010` →
+`0000000F`, and `0000001F` with `--ring-rom`.
+
+*Verification: `ctest` 139/139 on both presets, `check_frontend_flags` 16 → 17
+with a check that needs no boot PROM, identity boot `03EE415450926A89`
+unchanged. `FINDINGS.md` C186.*
+
 ## A second node ID is four bytes of label, not a second install (2026-08-18)
 
 **Phase 6's two-node item was blocked for five sessions on "two nodes need two

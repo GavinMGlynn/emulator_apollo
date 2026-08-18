@@ -187,6 +187,19 @@ def main() -> int:
         # multi-node run comparable across builds at all.
         check("--ring-two-node reports the ring's scheduling hash",
               ["--ring-two-node", "2000"], r"ring +hash [0-9A-F]{16}")
+        # **The configuration table must describe the machine that was built.**
+        # This mode used to seal "a ring and nothing else" into every node's
+        # battery RAM while fitting a Winchester and an FPU, and -- with no
+        # option ROM -- no findable ring at all, so the firmware failed its own
+        # self-test naming all three discrepancies before it reached the loader
+        # (FINDINGS.md C186). The bits are FLOPPY|CTAPE|WINCHESTER|FPU = 0x0F,
+        # with RING (0x10) added only when `--ring-rom` gives the card a ROM for
+        # the expansion scan to find. Checked without firmware because that is
+        # what CI has: the table is built before any instruction runs.
+        check("a ring node's configuration table lists the devices it was given",
+              ["--ring-two-node", "2000"],
+              r"node 0  calendar ram: dev bits 0000000F"
+              r"(.|\n)*node 1  calendar ram: dev bits 0000000F")
 
         # ---- what needs firmware, named rather than omitted ----
         for flag in ("--boot-prom", "--boot-limit", "--boot-trace",

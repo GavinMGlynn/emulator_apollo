@@ -10521,3 +10521,49 @@ emulator: MINST's log says `Directory //node_12345/sau7 reused` and hard-links
 every file of it, and neither PROM can then find the entry. The measurement is a
 listing of that volume's root taken **without** `mtvol` -- from the tape-booted
 environment MINST itself ran in, which reaches the target as `//node_12345`.*
+
+## C186 -- every ring node built by the two-node runner failed its own self-test
+
+Found by reading the console of the long run rather than only its last line, and
+it invalidates every two-node boot this thread has attempted.
+
+    node 0 | Winchester/Floppy exists but doesn't appear in the configuration table.
+    node 0 | FPU exists but doesn't appear in the configuration table.
+    node 0 | Apollo Token Ring 0 doesn't exist but appears in the configuration table.
+    node 0 | Self test failed.
+    node 0 |  Expected= 00000000, Actual= 00000010, Address= 00010922
+
+**The firmware names all three discrepancies and it is right about each.** The
+runner sealed exactly one bit into each node's battery RAM:
+
+    ap_calendar_build_config(battery, sizeof battery, node_id[i],
+                             1u << AP_CONFIG_DEV_RING);
+
+-- "a ring and nothing else" -- while fitting a Winchester and an FPU, and, with
+no `--ring-rom` on the command line, no ring card for the expansion scan to
+find. `Actual= 00000010` is that single bit, read back. The single-machine path
+has always built the full mask (`FLOPPY|CTAPE|WINCHESTER|FPU`, plus `RING` and
+`ETHERNET` when fitted) **and** the memory-board array; only this mode did not.
+
+**Fixed**, with the ring bit now conditional on the option ROM rather than on
+the flag -- the card the firmware can find is the one whose ROM answers the
+scan, which is the condition the `attach_option_rom` call beside it is already
+written against. `dev bits` go from `00000010` to `0000000F`, and `0000001F`
+with `--ring-rom`.
+
+**And made visible, because that is why it survived.** A configuration table is
+an input that leaves no other trace; the single-machine path prints
+`calendar ram configured: ...` and this one printed nothing, so a wrong table
+looked exactly like a right one for as long as nobody read a firmware banner.
+The runner now prints `node N calendar ram: dev bits ..., checksum ...` per
+node, which is what makes it testable at all: `check_frontend_flags.py` gains
+*"a ring node's configuration table lists the devices it was given"*, asserting
+`0000000F` for both nodes, and it needs no boot PROM -- the table is built before
+any instruction runs, and `roms/` is gitignored so CI has none.
+
+*Verification: `ctest` 139/139 on both presets, `check_frontend_flags` 16 → 17,
+identity boot `03EE415450926A89` unchanged.*
+
+*Cost: two three-hour runs were started against nodes that had already failed
+their self-test, and both were killed. The tell was in their console from the
+first minute and the runs were being polled on their last line only.*
