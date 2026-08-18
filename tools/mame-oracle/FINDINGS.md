@@ -9842,3 +9842,44 @@ ended:
 
 The `cps` line is now the release template's own text, backtick and
 `siomonitor` included (C169), rather than the SR10.2 manual's rendering.
+
+## C171 -- the shutdown survives the corrected `cps` line, and the two sides disagree
+
+C169 corrected `startup.spm` to the release template's own text -- backtick
+path, `-n siomonitor` -- and C170 added the `startup_sio.sh` the template
+requires, copied with `cpf`. The volume was then salvaged and cleanly
+dismounted. **The shutdown is unchanged:**
+
+    Self tests passed.
+    Domain/OS kernel(7), revision 10.4, February 14, 1992
+    Beginning shutdown sequence...
+    Shutdown successful
+
+**And the same volume boots normally on the oracle.** The salvage pass that
+produced it ran `di w` / `ex domain_os` in Service mode and reached
+`Apollo Phase II Environment` and the `)` prompt with no complaint at all. So
+the file is not simply malformed -- something about *this core in Normal mode*
+declines where the oracle in Service mode does not.
+
+### What that isolates, and what it does not
+
+Node A's volume boots fully on this core in Normal mode (C158: Init, global
+libraries, SPM, daemons). Node B's shuts down. The two differ in their
+`startup.spm`:
+
+    node A   the file as MINST installed it -- comments, `cps /com/tctl -line 1
+             -insync`, and a commented-out `no_shutspm`
+    node B   two lines, no comments: the same `cps /com/tctl`, plus the
+             `cps /sys/siologin/siomonit` the template prints
+
+So the trigger is in that difference, and it is now **one bisect away**: put
+node A's content back on node B's volume, with the `siomonit` line removed and
+nothing else changed. If it boots, the `cps siomonit` line is the trigger; if
+it still shuts down, the rewrite itself is -- most likely the loss of the
+`no_shutspm` comment line, which is the only text in the original that names
+the shutdown path.
+
+*Not attempted here. The volume is `media/dn3500-nodeB-sio.awd`, cleanly
+dismounted, and the bisect is one oracle session using C164's route: `)`, `sh`,
+`login`, `/com/tee /sys/node_data/startup.spm`, then `CTRL-Z` and `shut` --
+which C170 records as the way out that this session got wrong.*
