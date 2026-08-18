@@ -9265,3 +9265,66 @@ regression: the machine now starts in the state the manual describes.*
 *Verification: `ring_ctl_suite` 20 -> 21 -- a card arrives bypassed and looped
 back, `nct` puts it in the ring, and clearing `nct` takes it out again, which
 is the same relay in both directions.*
+
+## C158 -- this core boots Domain/OS to a running system, and the missing ingredient was the clock
+
+The Phase 6 `lcnode` check needs two nodes booted to a shell, so the first
+thing to establish is what one node costs. It had never been measured here,
+because the identity harness deliberately stops at 350 M instructions with a
+**1987** epoch -- and `tools/identity-boot.sh` says so in as many words: *"this
+clock is not the one the crash investigation wants"*.
+
+**With a clock after the volume's own dismount stamp, this core boots Domain/OS
+SR10.4 to a running system.** `media/dn3500-sr10.4-installed.awd` records
+`dismounted 2002-11-27 21:45:12`, so `--clock 2002-11-28`:
+
+    Domain/OS kernel(7), revision 10.4, February 14, 1992
+    Apollo Phase II Environment   Revision 10.4   Jan 25, 1992
+    Loading Init. / ... global libraries loaded. / Initializing /etc/mnttab
+    Node ID = 12345
+    12:02:18  Op: CPS  Name: ""  Command: "/com/tctl -line 1 -insync"
+    12:02:24  MBX_HELPER not running.  Starting one.
+
+No salvage and no calendar complaint -- the volume is cleanly dismounted and
+the clock is ahead of its stamp, which is the pair of conditions the kernel
+checks. **The first attempt used the harness's default epoch and got
+`The calendar is more than a minute slow`**, which is the same gate node B hit
+(C153) arriving from the other side: there the guest clock was behind, here the
+*harness* was, by fifteen years.
+
+**The numbers**: 1,500,000,000 instructions, 5,419,460,924 clocks, final PC
+`3C43F5AC -> 010421AC`, state hash `98874E148005986A`, still starting daemons
+at the bound. So a single node reaches a live Domain/OS well inside 1.5 G
+instructions and about five minutes of wall clock.
+
+*That fixes the two-node estimate at roughly 1.5 G per node against C156's
+125 K instructions/s per node -- about three hours -- which is a run to launch
+deliberately rather than a gap in the frontend. The console and scripts it
+needs are built (C156's commit).*
+
+## C159 -- the first-block duplication is not what breaks SR10.2, and the oracle edit is reverted
+
+C155 named two suspects in the oracle's tape path, both kludges MAME's own
+author flagged. The first was testable and is now **refuted**.
+
+`do_reset()` sets `m_first_block_hack`, whose comment says it exists *"in MD
+for `di c` and `ld` or `ex ...`"* -- the boot PROM's loader re-reading the first
+block. C56's media-change notifier calls `do_reset()`, so every `!swap` armed
+it, and a block delivered twice to `rbak` mid-install would desynchronise its
+record stream exactly as observed.
+
+**Disarmed for a media change, armed for a reset, oracle rebuilt, install
+re-run: the failure recurs, same object, same message.** Third occurrence of
+
+    (file) ".../install/templates/apollo/os.v.10.2/aa.aegis_large" restored.
+    ?(rbak) (restore_object_data) Unexpected error from next_entry.
+
+**Reverted.** It changed nothing observable, and an unverified behavioural edit
+to the oracle is a difference between our checkout and upstream that later
+readings would have to account for. `ext/mame` is back to its nine marked
+files.
+
+*What survives: `m_nasty_readahead`, the counter reconciling `dack_r`'s
+read-ahead against the timer path's `read_block()`. That is the remaining
+suspect and it is now the only one, which is worth more than the fix would have
+been.*
