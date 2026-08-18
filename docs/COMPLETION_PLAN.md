@@ -4136,28 +4136,30 @@ discipline throughout.
       Phase II Environment`, Init, global libraries, `Node ID = 12345`, daemons
       -- at `--clock 2002-11-28`, read from the volume's own dismount stamp.
       1.5 G instructions, 5,419,460,924 clocks, hash `98874E148005986A`.*
-      **What remains is a login server, and the manual names it.** Run to
-      2.6 G instructions the node completes `SPM system init complete.` and
-      then says nothing: there is no login on the SIO line, because
-      `siologin` -- *"waits for a carriage return ... invokes the operating
-      system log-in sequence"* -- is started by `siomonit` from
-      `'node_data/startup`, and neither is configured on these volumes. So
-      `lcnode` has nothing to be typed at (`FINDINGS.md` C160).
-      **And the obvious way to configure it does not exist.** The RBAK shell
-      was tried and `di c` / `ex domain_os` takes a different path once the
-      disk has an operating system on it: an empty volume gets
-      `RBAK_BS reloading system software ... (Y/N)` and then `sh`, an installed
-      one gets `BOOT VOLUME NEEDS SALVAGING. Proceed to bring up OS?`. The
-      shell exists only while there is nothing on the disk to configure
-      (`FINDINGS.md` C162).
-      **So it is one of two, and the cheaper one only became visible by trying
-      the other**: configure `siologin` *during* MINST, while the RBAK shell is
-      still there -- `'node_data/siomonit_file` carrying
-      `-repeat /dev/sio1 -n siologin1_local` and the `cps /sys/siologin/siomonit`
-      line in `'node_data/startup` -- which is redoing an install rather than
-      editing a volume; or fit a display to one node and drive the Display
-      Manager, which is where Domain/OS expects a user and which means reading
-      `lcnode`'s answer out of a **frame buffer** rather than off a wire.
+      **`lcnode` RUNS, and the way in was never a login server.** Booting the
+      OS from MD -- `di w`, `ex domain_os` -- leaves a `)` prompt, which is not
+      a shell (`lcnode` there gives `? Unknown command`) but `sh` at it is:
+      `login: user`, and then, by absolute path because `/com` is not on the
+      path,
+
+          $ /com/lcnode
+           The node ID of this node is 22222.
+           No other nodes responded.
+           Node ID      Boot time           Current time      Entry Directory
+           22222   1996/08/18  6:16:41   1996/08/18  7:05:58  //node_22222
+
+      *That is this item's verification command, working, on the node this
+      session built.* `No other nodes responded` is right for one machine with
+      no cable.
+      **The earlier "there is no login" conclusion was measured on one path
+      only** -- the PROM's autoboot, which goes to SPM and never prompts. True
+      of that path, false of the MD path, and the difference went untested for
+      a session. `siologin` was configured on the volume anyway
+      (`FINDINGS.md` C163) and is a real capability; it is simply not what this
+      check needed. Detail in `FINDINGS.md` C164.
+      **So what remains is one run**: `--ring-script-a/-b` driving each node's
+      MD through `di w`, `ex domain_os`, `sh`, `user`, `/com/lcnode`, with both
+      volumes and `--clock`. Everything it needs is built.
       **And the run itself is affordable and measured**: about 1.5 G
       instructions per node against 125 K instructions/s per node (C156), so
       roughly three hours for two nodes. A run to launch deliberately rather

@@ -9523,3 +9523,57 @@ Saved as `media/dn3500-nodeB-siologin.awd`. **Not yet verified against a boot**
 -- the next step is calendar, salvol, boot, and a carriage return on the
 console where the node previously went silent after `SPM system init
 complete.`
+
+## C164 -- `lcnode` runs, and the way in was never `siologin`
+
+The Phase 6 item's check is `lcnode` on each node listing the other. C160 said
+that needed a login server on the SIO line and C163 configured one. **Neither
+was necessary**, and the route was two commands away the whole time.
+
+Booting the OS from MD -- `di w`, `ex domain_os` -- leaves a `)` prompt on the
+console. That prompt is **not a shell**: `lcnode` there answers
+`? Unknown command`. But `sh` at it is:
+
+    )sh
+    ... loading global libraries
+    Domain/OS kernel(7), revision 10.4, February 14, 1992
+    login: user
+    Password:
+    Registries unavailable. You are logged in as user.none.none.
+    $
+
+And on that shell, by absolute path -- `lcnode` alone gives
+`sh: lcnode: not found`, so `/com` is not on the path:
+
+    $ /com/lcnode
+
+     The node ID of this node is 22222.
+     No other nodes responded.
+
+     Node ID      Boot time           Current time         Entry Directory
+     22222   1996/08/18  6:16:41   1996/08/18  7:05:58  //node_22222
+
+**That is the item's verification command, working, on the node this session
+built.** `No other nodes responded` is the correct answer for one machine with
+no cable; the check the item wants is the same command on two nodes on one
+ring, each naming the other.
+
+### What this costs the earlier findings
+
+C160's "there is no login to type at" was measured on a node booted by the
+**PROM's own autoboot**, which goes to SPM and never offers a prompt. It is
+true of that path and false of the MD path, and the difference was never
+tested -- the conclusion outran the evidence by one experiment. C163's
+`siologin` work stands as a real capability and is *not* needed for this check.
+
+*Two smaller traps, both mine.* `!expect \)` matched the parenthesis in
+`Proceed to bring up OS (and risk volume)?` and fed `lcnode` to a yes/no
+prompt -- a one-character pattern is not a prompt. And the calendar was set
+from the volume's *mount* stamp when CALENDAR had just printed the *last
+recorded* time on the same screen: it warned `setting the time backward may
+cause duplicate Unique ID's`, which is the machine catching an error I had the
+data to avoid.
+
+**So the two-node run needs the frontend to drive each node's MD to a shell**
+-- `di w`, `ex domain_os`, `sh`, `user`, and `/com/lcnode` -- which is exactly
+what `--ring-script-a/-b` are for.
