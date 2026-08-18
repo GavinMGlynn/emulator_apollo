@@ -10737,3 +10737,43 @@ too strong about node A.
 enters user space at all. That is the moment the two boots stop being the same
 run, and it is somewhere below 543.5 M -- `--boot-stop-physical-pc` over the
 `0x8xxxxx` range, or a stop on the first `vector 174` beyond node B's 42.*
+
+## C190 -- node B stops working at 537.2 M and nothing ever wakes it
+
+Sampling every 100,000 instructions instead of every million turns C182's "both
+idle" into a time and a direction.
+
+**Node B's last non-idle instruction is at 537.2 M**, at `01007A80`. From
+537.3 M it is in the idle loop at `010421A8`/`AC` and *never leaves it* --
+5,449 samples, unbroken -- until it goes to the PROM at 547 M and prints
+`Beginning shutdown sequence...`.
+
+**Node A goes idle at the same moment and is woken.** Its last non-idle sample
+before the same lull is 537.2 M too, at `01004134`; it then idles until
+**539.5 M**, when it resumes at `01053D3C`, works again at 542.1 M
+(`0101354C`, `010CA7D2`), and **enters user space at PC `0080000C` after
+542,349,024 instructions** -- proved separately with `--boot-stop-pc
+00800000:00100000`, which node B does not trigger in 600 M.
+
+So the shape is not "node A got further". It is:
+
+    537.2M   both machines finish what they were doing and idle
+    539.5M   node A is woken; node B is not
+    542.3M   node A starts a user process at 0080000C
+    543.5M   that process makes its first supervisor call (C189)
+    547.0M   node B, still unwoken, gives up and shuts down
+
+**Node B is waiting for something that never arrives**, and the wait is about
+ten million instructions -- under two seconds of emulated time -- which is the
+shape of a timeout rather than of a fault.
+
+*Next, and it is the last cheap one: node A issued more disk commands than node
+B by 548 M (`0E` and `1E`, 69/69 against 38/37 -- C182), and all of that
+difference is after 537.2 M. So capture both runs' sector lists at a 545 M bound
+and take the set difference: **the sectors node A reads after going idle are what
+woke it**, and whether node B ever asks for them separates "the disk did not
+answer" from "the OS never asked".*
+
+*This also puts the disk back in scope, which C184 had already reopened by
+withdrawing C176 -- the two volumes' contents have never actually been compared
+by a method that names which side it is reading.*
