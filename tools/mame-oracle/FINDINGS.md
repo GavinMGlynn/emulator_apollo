@@ -10980,3 +10980,47 @@ node naming another, and the item's verification is the latter. But it removes a
 whole class of doubt about the medium and the two stations' coexistence, and it
 cost nothing extra -- it was in a console that was being polled by its last
 line.*
+
+## C196 -- EOT is how an install leaves the shell, and `!raw \xNN` is how to send it
+
+C192 established that the guest has to shut down, and left the practical problem
+open: MINST runs inside the RBAK environment's `sh`, and `shut` is not a shell
+command. Both documented ways out were tried and neither works:
+
+    $ shut
+    ?(sh) "shut" - name not found (OS/naming server)
+    $ exit
+    $                                   <- echoed, and the prompt comes back
+
+**EOT does.** `!raw \x04`, then `shut` at the `)` prompt it returns to:
+
+    $
+    Returned status (from pm_$init): ok
+    ))shut
+    So long...
+    Beginning shutdown sequence...
+    Shutdown successful
+    >
+
+and the volume's root directory, block `165649`, proves it committed:
+
+    rbak + !exit               3   sysboot  sys  lost+found.list
+    rbak + shut at `)`        17   tmp dev usr user_data install etc com lib sau5 sau6 sau8 sau9
+    rbak + sh + EOT + shut    17   (identical)
+
+**So the full route through a shell now commits exactly as the shell-free one
+does**, which is what an install that runs MINST needs.
+
+`mdsession.py`'s `!raw` gained `\xNN` for this. The escape is not a
+convenience: `\x04` has no name among `\r`, `\n` and `\t`, and without it the
+driver could not send the one byte that ends the session properly. The directive
+list says so rather than listing it as another escape.
+
+*Tested in the cheap shape first -- RBAK only, ten minutes, no MINST -- rather
+than by re-running a forty-minute install to find out. That is the discipline
+`CLAUDE.md` asks for and it was not applied to the two installs before this one,
+both of which ran to the end and then failed at the last line.*
+
+*One trap, for the fifth recorded time: `pgrep -f PATTERN | xargs kill` matched
+**this session's own shell**, because the pattern appeared in the command line
+running it. Kill by PID recovered from a prior lookup, never by pattern.*
