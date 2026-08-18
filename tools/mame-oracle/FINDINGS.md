@@ -11309,6 +11309,29 @@ alternative reading -- "of course it fails, there is nothing on the other end"
 was justified: both configurations have a medium and both fail to reach the
 kernel banner.*
 
+### The chain, as far as it is measured
+
+    500,314,656   vector 162 taken from PC 3C44FB4C   -- a *vectored* interrupt
+                                                         from the card, and the
+                                                         one exception the
+                                                         ring-less boot never takes
+    503,028,933   Crash_Status 00110009 PC 3C4AED68   -- network hardware error
+    503,028,718   vector 5 from PC 00002B1C            -- the PROM's crash handler
+                                                         dividing by zero, a
+                                                         consequence
+
+**So the driver takes an interrupt from the card, spends 2.7 M instructions on
+it, and concludes the hardware is broken.** That is the whole of what is
+established; the register it objects to is not identified.
+
+Two readings were checked and neither is available. The controller's register
+map is **not** an unwalked table -- `RING.md` 93, 93a, 93g and 93h record it
+walked field by field against `002398-04` pp. 12-29..12-31, including the two
+active-low bits. And a lone station is **not** a station with nowhere to send:
+`ap_ring_medium_advance` shifts a cable per slot and models both halves of
+§3.5's relay, so a single attached, unbypassed node's cell circulates back to
+it.
+
 *So the next instrument is directed rather than general: find what the driver
 reads before it decides. The card is wired to master IRQ 2 (`RING.md` 104-112);
 `--boot-stop-pc 3C4AED68` puts the machine at the deciding instruction in 90
