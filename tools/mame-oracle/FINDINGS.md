@@ -9627,3 +9627,48 @@ the same MINST window.
 with this firmware needs -- and so does `--service-mode` on the ring path, which
 is how a display-fitted node would reach MD. Neither is wasted; both were
 needed to find out which state this machine is actually in.*
+
+## C166 -- INVOL's option 8 needs a virgin volume, and the 7-1-8 order is a requirement
+
+C50 recorded the install's INVOL sequence as options **7, 1 and 8**. This
+thread twice treated the 8 as optional or deferrable, and the machine refused
+both times.
+
+    on a volume that had been MINST'd and salvaged
+        Size in kB for the OS paging file (CR for default value = 640) 640
+        Intern
+        10200E6: 6100                       <- SAU abort, no `Done.`
+
+    on a volume freshly INVOL'd, never mounted
+        Size in kB for the OS paging file (CR for default value = 640) 640
+
+        Done.
+
+        Anything more to do?
+
+**So option 8 belongs with 7 and 1, before anything is installed**, and C50's
+order is a requirement rather than a convention.
+
+### What that cost, and it was the whole of a boot
+
+A node whose volume has no paging file does not merely warn. On the oracle,
+with the OS started from MD, it prints
+
+    Boot device has no OS paging file.
+    ... For now, the OS will NOT page
+
+and carries on. **On this core, booted Normal, it does not carry on:**
+
+    ... see the Installation Procedures chapter in the Release Document
+    for information on how toBeginning shutdown sequence...
+
+-- the message cut off mid-sentence by the shutdown it triggers. So the first
+`siologin` volume could never have shown a login prompt whatever else was right
+about it, and the run that tested for one was measuring a machine that was
+already shutting down.
+
+*`media/dn3500-nodeB-paged.awd` is the volume with all three options run, node
+`22222`, never mounted. That is the state an install should start from, and it
+is what this project has actually been missing: `dn3500-invol-done.awd`, the
+ancestor of every volume here, was made with 7, 1 and 8 -- and every volume
+this thread built from scratch stopped at 1.*
