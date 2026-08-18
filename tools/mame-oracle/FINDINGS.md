@@ -10777,3 +10777,51 @@ answer" from "the OS never asked".*
 *This also puts the disk back in scope, which C184 had already reopened by
 withdrawing C176 -- the two volumes' contents have never actually been compared
 by a method that names which side it is reading.*
+
+## C191 -- both nodes read their `node_data`; only node A loads a program, and that program was made by a previous boot
+
+C190's set difference, run. Both boots to a 545 M bound, `--boot-disk-reads 400`,
+the buffered-read addresses (`1E`, READ TO BUFFER) taken as sets.
+
+**The plain READ count is identical**: `08 x1265` on both. So no sector either
+machine asked for went unanswered, and the difference is entirely in what was
+asked.
+
+**Both read their own `/sys/node_data`.** Node A's is at sector 165848 --
+`spm_mbx`, `startup`, `startup.1280bw`, `startup.06.26`, `spm_control`,
+`preserve.sys5` -- and node B's at 165993/165995, carrying the same set plus the
+two files this thread added: `siomonit_file`, `startup_sio.sh`. So node B is not
+stopped at the directory SPM reads, and C173's reasoning that it never reaches
+that stage is **wrong**: it reaches it and reads it.
+
+**What node A reads and node B never asks for is a program.** Eleven sectors in
+one cluster, `66472 66497 66529 66539 66543 66547 66551 66555 66559 66654
+66662`, read in the window that ends with node A entering user space at
+`0080000C`. Node B's unique reads are five directory blocks and no program at
+all.
+
+### The program is younger than the volume's installation
+
+Its object header carries UID `A45E2FDE50012345`, and that timestamp decodes
+inside node A's own last mount:
+
+    volume mounted    2002-11-27 19:51:49
+    object created    2002-11-27 20:55:47
+    volume dismounted 2002-11-27 21:45:12
+
+**So node A's volume carries an object created during a previous, successful
+boot of that volume**, and node B's volume has never had one. That is a
+bootstrap difference rather than a missing file: node A boots partly because it
+has already booted.
+
+*Stated with its own counter-evidence, because it is not proof: node B's volume
+**has** completed a full Domain/OS boot on the oracle and been given a real
+in-guest `shut` (C181), and it still fails here. So either the oracle's boot does
+not create the equivalent object, or the object is not what matters. Deciding
+between those is one comparison -- dump node B's volume for an object whose UID
+time falls inside its own mount window -- and it is the next step, not a
+conclusion.*
+
+*Node B's status for the plan: it blocks the multi-node workload item and
+nothing else, and the shape is now known to five million instructions and one
+program-load rather than "it shuts down".*
