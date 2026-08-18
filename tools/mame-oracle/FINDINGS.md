@@ -11474,3 +11474,42 @@ part of the change rather than a check on it. Not attempted here: it is a
 one-bit change to a register whose two readings are both load-bearing, and it
 deserves its own commit with the self-test and the identity boot run against
 it.*
+
+## C205 -- `nct` fixed and tested; the crash is unchanged, and the measurement says why
+
+C204's defect is fixed: MISC_STAT bit 15 now answers the question
+`002398-04` p. 12-30 says it answers -- 1 while the station is not connected,
+0 once MISC_CMD's bit 11 has connected it -- instead of repeating what
+`present` already says. `ring_ctl_suite` gains
+`test_nct_reads_connected_only_once_the_connect_command_is_given`, which asserts
+**both** readings so they cannot be confused again: the presence gate the boot
+firmware tests before connecting, and the connected state after.
+
+*The test earned its place immediately: the first version of the fix masked only
+bit 11 before recomputing, so bit 15's old value survived and OR-ing zero could
+not clear it. The suite caught that; a boot would not have.*
+
+**And the crash is byte-identical**: `Crash_Status 00110009 PC 3C4AED68` at
+instruction **503,028,933**, the same number as before the fix. That is not a
+failed fix, it is the measurement telling us the driver never reaches the state
+the fix changes:
+
+    watch write  1 at 00059400 value 0000 size 2 by PC 3C44FEB6 after 450523180
+
+**One write to MISC_CMD in the entire boot, and its bit 11 is clear.** The
+driver clears the register, reads `BOARD_TYPE`, reads `MISC_STAT` three times,
+and gives up -- it never asks to connect. So `nct` was never going to be what it
+objected to, and the remaining candidates are the other two bits it saw:
+
+    bit 14  tmo = 1   -- a board that has just been reset reporting a timeout
+    bit  3  gps = 0   -- and never having seen a good packet
+
+`AP_RING_CTL_STATUS_IDLE` is `0xF807`, which sets `tmo` at reset. That constant
+came from the firmware's own subtests (finding 40), so it is not obviously wrong
+-- but "freshly reset and already timed out" is the kind of thing a driver would
+refuse, and it is the next thing to put to `002398-04` p. 12-30.
+
+*Verification: `ctest` 139/139, `ring_ctl_suite` 21 → 22, identity boot
+`03EE415450926A89` unchanged, and the ROM diagnostic still prints
+`Apollo Token Ring test passed.` with the option ROM fitted -- which was the
+constraint C204 named, since the firmware's presence gate reads the same bit.*

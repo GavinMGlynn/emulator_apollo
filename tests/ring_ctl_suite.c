@@ -76,6 +76,42 @@ static void test_a_card_arrives_bypassed_and_nct_connects_it(void) {
 }
 
 
+/* **`nct` is a status bit and the manual says which way round.** `002398-04`
+ * p. 12-30 gives MISC_STAT bit 15 as `nct`, "0 => network connect", against
+ * MISC_CMD bit 11 as the connect command. This core had bit 15 answering
+ * `present` instead, so a fitted board reported "not connected" for ever and
+ * nothing cleared it -- and Domain/OS, reading a controller that says it is not
+ * on a network, has timed out and has never seen a good packet, reports
+ * `Crash_Status 00110009`, network hardware error (`FINDINGS.md` C204).
+ *
+ * The presence reading is *also* real, which is why this survived: before the
+ * connect command `nct` is 1, and that is the gate the boot firmware tests
+ * (findings 40, 50a). Both are asserted here so the two cannot be confused
+ * again. */
+static void test_nct_reads_connected_only_once_the_connect_command_is_given(void) {
+  wired_t w;
+  wired_build(&w);
+
+  /* Before connecting: the firmware's presence gate, bit 15 set. */
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS, 0u);
+  TEST_ASSERT_TRUE((ap_ring_ctl_read16(&w.ctl, true, AP_RING_CTL_BANK_STATUS) &
+                    AP_RING_CTL_STATUS_PRESENT) != 0u);
+
+  /* After it: `nct` reads 0, which is what "0 => network connect" means. */
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  TEST_ASSERT_EQUAL_UINT16(
+      0u, ap_ring_ctl_read16(&w.ctl, true, AP_RING_CTL_BANK_STATUS) &
+              AP_RING_CTL_STATUS_PRESENT);
+
+  /* And disconnecting puts it back, so the bit tracks the relay rather than
+   * latching once. */
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS, 0u);
+  TEST_ASSERT_TRUE((ap_ring_ctl_read16(&w.ctl, true, AP_RING_CTL_BANK_STATUS) &
+                    AP_RING_CTL_STATUS_PRESENT) != 0u);
+}
+
+
 static void wired_step(wired_t *w) {
   for (unsigned i = 0; i < 2u; i++) {
     ap_ring_station_drive(&w->station[i], &w->medium);
@@ -956,6 +992,7 @@ int main(void) {
   RUN_TEST(test_a_unit_is_both_of_its_at_windows);
   RUN_TEST(test_the_id_register_answers_one_of_the_two_values_init_accepts);
   RUN_TEST(test_a_card_arrives_bypassed_and_nct_connects_it);
+  RUN_TEST(test_nct_reads_connected_only_once_the_connect_command_is_given);
   RUN_TEST(test_an_empty_slot_reads_as_absent_rather_than_as_an_error);
   RUN_TEST(test_the_init_clear_sequence_does_not_erase_the_presence_gate);
   RUN_TEST(test_the_firmwares_timer_initialisation_reaches_two_8254s);

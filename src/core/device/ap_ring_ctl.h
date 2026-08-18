@@ -442,6 +442,12 @@ typedef struct {
    * 123 -- and it is the *only* difference between the two sites that write
    * that command after a byte-identical preamble. */
   bool loopback_enabled;
+  /* **`nct` is a status bit, not a presence bit.** `002398-04` p. 12-30 gives
+   * MISC_STAT bit 15 as `nct`, "0 => network connect", and MISC_CMD bit 11 as
+   * the connect command. This window tracks what the command asked for, so the
+   * status can answer the question the manual says it answers instead of
+   * repeating what `present` already says. `FINDINGS.md` C204. */
+  bool connected;
   /* Whether the last transmitted early acknowledge carried intend-to-copy --
    * `[MAC]` Figure 2-7 bit 3. It decides whether the *receive* interrupt pends
    * when the operation completes (`RING.md` 126). */

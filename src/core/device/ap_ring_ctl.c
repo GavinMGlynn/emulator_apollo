@@ -866,8 +866,14 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
        * subtest 16 requires them set after it. The presence bit is one of them
        * and is held explicitly, which is why finding 40's `clr.w +400` does not
        * make the board vanish. */
-      w->status = (uint16_t)((w->status & ~AP_RING_CTL_STATUS_BIT11) |
-                             (ctl->present ? AP_RING_CTL_STATUS_PRESENT : 0u));
+      /* The connect state is taken from *this* write before the status is
+       * recomputed from it: a driver that connects and then reads `nct` must
+       * see the connection it just asked for, not the one before it. */
+      w->connected = (value & AP_RING_CTL_MISC_CMD_NCT) != 0u;
+      w->status = (uint16_t)(
+          (w->status & (uint16_t) ~(AP_RING_CTL_STATUS_BIT11 |
+                                    AP_RING_CTL_STATUS_PRESENT)) |
+          ((ctl->present && !w->connected) ? AP_RING_CTL_STATUS_PRESENT : 0u));
       /* The write half is MISC_CMD, and `lpb` is kept: see the `+402` handler
        * for the three sites that make it the discriminator. */
       w->loopback_enabled = (value & AP_RING_CTL_MISC_CMD_LPB) != 0u;
