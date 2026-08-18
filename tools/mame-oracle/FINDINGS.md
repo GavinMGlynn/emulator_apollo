@@ -11547,3 +11547,42 @@ The idle word came from the firmware's own subtests (finding 40), so changing it
 is a claim about what a real board reads at reset and needs a source, not a
 guess -- `010005-00` is the remaining unread document for this, and the ring
 firmware disassembly the other.
+
+## C207 -- the documents run out on `tmo` at reset, and there is no oracle to ask
+
+`CLAUDE.md`'s resolution order followed to its end for the one bit left.
+
+**Read, and what each settled:**
+
+- `002398-04` p. 12-29 -- the register map, by bus address, physical address and
+  name. Confirms this core's placements exactly; found three gaps in the *first*
+  window (C203).
+- `002398-04` p. 12-30 -- MISC_STS bit by bit. Confirms every bit including the
+  polarity of the low four (C206).
+- `002398-04` p. 4-6 -- the status-code table. Decodes the crash as
+  `os / network`, **network hardware error** (C201).
+- `010005-00` §2.1-2.2 -- the MAC layer's timeouts. Gives **two**: a
+  *"10.9 msec (214 byte)"* stripping timeout that *"prevents a node from
+  stripping bits forever"*, and a claim-token timeout after which a node on a
+  ring with no token *"can generate a claimed token in order to force
+  transmission"*.
+
+**What none of them says: what `tmo` reads on a board that has just been
+reset.** The MAC spec describes when a timeout *occurs*; the handbook names the
+bit and its sense. Neither gives the power-on state, which is the only thing
+that would settle whether `AP_RING_CTL_STATUS_IDLE`'s `0xF807` is right to set
+it.
+
+**And there is no oracle for this.** `CLAUDE.md` states it as a project fact --
+*"The ring has no runnable oracle"* -- and `RING.md` bears it out: every ring
+figure cites `010005-00`, patent 4,716,575, `008778-03`, or a ring-firmware
+disassembly address, never a MAME reading. So the fourth step of the resolution
+order does not exist here.
+
+*What remains, named rather than guessed: the **ring firmware's own
+disassembly**, which `RING.md` already uses as a primary source and which
+settled the polarity of `tmi` at `7A4D0944` (finding 111). The question to put
+to it is what the driver's initialisation expects `tmo` and `gps` to be before
+it will proceed. Until then `0xF807` stands, because it was derived from the
+firmware's subtests and changing it on the strength of "the driver would be
+happier" is exactly the reasoning `CLAUDE.md` forbids.*
