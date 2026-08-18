@@ -10561,7 +10561,7 @@ node, which is what makes it testable at all: `check_frontend_flags.py` gains
 `0000000F` for both nodes, and it needs no boot PROM -- the table is built before
 any instruction runs, and `roms/` is gitignored so CI has none.
 
-*Verification: `ctest` 139/139 on both presets, `check_frontend_flags` 19 → 20,
+*Verification: `ctest` 139/139 on both presets, `check_frontend_flags` 19 → 21,
 identity boot `03EE415450926A89` unchanged.*
 
 *Cost: two three-hour runs were started against nodes that had already failed
@@ -11148,3 +11148,56 @@ SR10.3's 33 and SR10.4's 27.
 here, each with its hash. What is **not** claimed: nothing is timed through any
 of this -- an install is paced by the host and `mdsession.py` says so -- and
 SR10.2 has been booted, not exercised.*
+
+## C199 -- node B's shutdown was ours: `--disk` never gave the machine its disk's node
+
+Four sessions, thirteen eliminated candidates, and the cause was a missing
+`else` in this project's own frontend.
+
+`node_id_from_volume` was wired to **`--volume`**, which only *reports* a label,
+and not to **`--disk`**, which fits the drive. So every boot from a disk
+presented the compiled-in `12345` whatever its volume recorded.
+
+**Invisible for as long as it was, because the one installed volume *was* node
+12345.** `media/dn3500-nodeB-*.awd` is node `22222`, and booted on a machine
+calling itself `12345` Domain/OS reaches its kernel banner and goes straight to
+`Beginning shutdown sequence...`. It is not a fault, a missing file, or a
+timeout in the ordinary sense: **the OS declines to run as a node whose disk
+says it is somebody else.**
+
+Proved by giving the same volume the node its disk records -- `--volume` beside
+`--disk`, before the fix -- and again with `--disk` alone after it:
+
+    Domain/OS kernel(7), revision 10.4, February 14, 1992
+    Apollo Phase II Environment   Revision 10.4   Jan 25, 1992
+    Loading Init. / ... global libraries loaded.
+    ***** Node startup on Wed Aug 28 20:02:07 1996 *****
+    Starting standard daemons:.
+
+State hash `5671D8D76ACDC046`.
+
+### What this retires, and what it says about the search
+
+Everything C168-C197 eliminated was eliminated correctly and none of it was the
+cause: the `startup.spm` file, its content and object type, the clock, the
+14-day gate, the paging file, the node ID *as recorded on the volume*, the
+salvage record, the volume name, the file tree, the install's ending, and the
+directory commit. **The one thing never varied was the machine's own identity**,
+because nothing in the report named it -- the run printed the volume's node when
+asked with `--volume` and never printed the machine's.
+
+**C180 saw this and did not connect it.** It recorded, as an aside, *"a machine
+booted with `--disk` alone reports `Node ID = 12345` whatever the label says...
+That is a real asymmetry in the frontend"* -- and then went on treating node B's
+shutdown as a mystery for another six findings. The observation and the symptom
+were in the same session and were not put together.
+
+*Fixed: `--disk` derives the node when the image carries a label, `--volume`
+still wins when both are given, and a raw image without one keeps the default --
+an INVOL run starts from exactly that. The `disk` line now names the node it
+gives the machine, which is the C186 principle again: **an input that leaves no
+trace in the report is one that can be wrong for four sessions.***
+
+*Verification: `ctest` 139/139, `check_frontend_flags` 19 → 21 with a
+synthesised label so it needs no media, identity boot `03EE415450926A89`
+unchanged -- node A's volume is 12345, which is what the default already was.*

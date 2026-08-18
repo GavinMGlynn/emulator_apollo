@@ -1201,6 +1201,8 @@ static const char *g_ring_script[2] = {NULL, NULL};
 /* Defined below, beside the single-machine path that also uses it: a node
  * presents the ID its own volume records. */
 static bool node_id_from_volume(const char *path, uint32_t *out);
+[[nodiscard]] static bool node_id_from_volume_quietly(const char *path,
+                                                      uint32_t *out);
 
 /* One node's Winchester, read into a private buffer and attached.
  *
@@ -2083,6 +2085,32 @@ static void print_volume_time(const char *name, uint32_t ticks) {
   const unsigned year = (unsigned)(yoe + era * 400u + (month <= 2u ? 1u : 0u));
   printf("  %-12s %08X  %04u-%02u-%02u %02u:%02u:%02u\n", name, ticks, year,
          month, day, hour, minute, second);
+}
+
+/* The node a volume records, without the report.
+ *
+ * `node_id_from_volume` prints a label for a reader who asked for one with
+ * `--volume`. The `--disk` path needs the same number and no report: a disk is
+ * fitted to be booted from, not described, and the run's own header already
+ * says which node the machine is. Returns false for an image that is not a
+ * Domain volume, which `--disk` treats as "no label yet" rather than as an
+ * error -- an INVOL run starts from exactly that. */
+[[nodiscard]] static bool node_id_from_volume_quietly(const char *path,
+                                                      uint32_t *out) {
+  FILE *file = fopen(path, "rb");
+  if (file == NULL) {
+    return false;
+  }
+  uint8_t blocks[AP_VOLUME_LABEL_BYTES];
+  const size_t got = fread(blocks, 1u, sizeof blocks, file);
+  fclose(file);
+
+  ap_volume_label_t label;
+  if (!ap_volume_read_label(blocks, got, &label)) {
+    return false;
+  }
+  *out = label.node_id;
+  return true;
 }
 
 static bool node_id_from_volume(const char *path, uint32_t *out) {
@@ -3529,7 +3557,20 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       return 1;
     }
     ap_omti_attach(&board->disk.controller, &disk_image);
-    printf("disk %s, %ld bytes\n", disk_path, disk_size);
+    {
+      /* **The node this disk gives the machine, said out loud.** It is an input
+       * with no other trace in the report, and while it had none a machine
+       * booted from a disk presented the compiled-in `12345` whatever the
+       * volume recorded -- which cost four sessions (`FINDINGS.md` C199). A
+       * raw image with no label keeps the default and says nothing. */
+      uint32_t disk_node = 0;
+      if (node_id_from_volume_quietly(disk_path, &disk_node)) {
+        printf("disk %s, %ld bytes, node %05X\n", disk_path, disk_size,
+               disk_node);
+      } else {
+        printf("disk %s, %ld bytes\n", disk_path, disk_size);
+      }
+    }
 
     /* ## The sidecar, without which every sector is defect-free
      *
@@ -6270,9 +6311,42 @@ int main(int argc, char **argv) {
 
   /* Read before anything is built, so a machine is never constructed with an
    * identity that is about to be replaced -- and so a volume that is not one
-   * fails before a run rather than during it. */
-  if (volume_path != NULL && !node_id_from_volume(volume_path, &node_id)) {
-    return 1;
+   * fails before a run rather than during it.
+   *
+   * ## A machine given a disk presents that disk's node, and for four sessions
+   * ## it did not
+   *
+   * This was wired to `--volume`, which only *reports* a label, and not to
+   * `--disk`, which fits the drive. So every boot from a disk presented the
+   * compiled-in `12345` whatever its volume recorded -- invisible while the only
+   * installed volume happened to *be* node `12345`, and the whole of
+   * `FINDINGS.md` C168-C199 while it was not.
+   *
+   * **Domain/OS shuts the node down.** `media/dn3500-nodeB-*.awd` carries
+   * objects created by node `22222`; booted on a machine calling itself
+   * `12345`, the OS reached its kernel banner and went straight to
+   * `Beginning shutdown sequence...` -- for four sessions, through thirteen
+   * eliminated candidates. Given the node its disk records, the same volume
+   * boots to `Apollo Phase II Environment` and `Loading Init.`
+   *
+   * The two-node runner has always done this per disk (`node_id_from_volume`
+   * above the board build), which is why a ring node was never affected and why
+   * the asymmetry survived: the path that needed it worked, and the path that
+   * silently did without it was the one every single-machine boot took.
+   *
+   * `--volume` still wins when both are given: it is the explicit request. */
+  if (volume_path != NULL) {
+    if (!node_id_from_volume(volume_path, &node_id)) {
+      return 1;
+    }
+  } else if (disk_path != NULL) {
+    uint32_t from_disk = 0;
+    if (node_id_from_volume_quietly(disk_path, &from_disk)) {
+      node_id = from_disk;
+    }
+    /* A disk that is not a Domain volume is not an error here -- `--disk` takes
+     * a raw image and a machine may legitimately boot one that has no label
+     * yet, which is what every INVOL run is. It keeps the default. */
   }
 
   if (floppy_path != NULL) {

@@ -534,7 +534,7 @@ checksum ...` per node, because a configuration table is an input that leaves no
 other trace and that is why the defect survived. `dev bits` `00000010` →
 `0000000F`, and `0000001F` with `--ring-rom`.
 
-*Verification: `ctest` 139/139 on both presets, `check_frontend_flags` 19 → 20
+*Verification: `ctest` 139/139 on both presets, `check_frontend_flags` 19 → 21
 with a check that needs no boot PROM, identity boot `03EE415450926A89`
 unchanged. `FINDINGS.md` C186.*
 
@@ -572,6 +572,34 @@ single-machine path reads exactly like the guest ignoring a relabelling.
 **138,000 instructions/s each** against roughly 5 M for a lone machine, and a
 node reaches SPM at about 1.5 G instructions. A two-node boot to a prompt is a
 three-hour run.
+
+## Node B's shutdown was ours: `--disk` never gave the machine its disk's node
+## (2026-08-19)
+
+**`node_id_from_volume` was wired to `--volume`, which only reports a label, and
+not to `--disk`, which fits the drive.** So every boot from a disk presented the
+compiled-in `12345` whatever its volume recorded -- invisible for as long as the
+one installed volume *was* node 12345.
+
+`media/dn3500-nodeB-*.awd` is node `22222`. Booted on a machine calling itself
+`12345`, Domain/OS reaches its kernel banner and goes straight to
+`Beginning shutdown sequence...`: **the OS declines to run as a node whose disk
+says it is somebody else.** Given the node its disk records, the same volume
+boots through `Apollo Phase II Environment`, `Loading Init.`,
+`***** Node startup *****` and `Starting standard daemons:.` -- state hash
+`5671D8D76ACDC046`.
+
+**Everything the four-session search eliminated was eliminated correctly and
+none of it was the cause** -- the `startup.spm` file, its type, the clock, the
+14-day gate, the paging file, the salvage record, the volume name, the file
+tree, the install's ending, the directory commit. The one thing never varied was
+the machine's own identity, because nothing in the report named it.
+
+Fixed, with the `disk` line now naming the node it gives the machine: an input
+that leaves no trace in the report is one that can be wrong for four sessions.
+*Verification: `ctest` 139/139, `check_frontend_flags` 19 → 21 with a
+synthesised label so it needs no media, identity boot `03EE415450926A89`
+unchanged. `FINDINGS.md` C199.*
 
 ## Node B's shutdown is a wait that times out, not a fault (2026-08-18)
 

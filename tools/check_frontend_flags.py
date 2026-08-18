@@ -196,6 +196,26 @@ def main() -> int:
         # with RING (0x10) added only when `--ring-rom` gives the card a ROM for
         # the expansion scan to find. Checked without firmware because that is
         # what CI has: the table is built before any instruction runs.
+        # **A machine takes its node from the volume it is given**, and for
+        # four sessions `--disk` did not: it presented the compiled-in 12345
+        # whatever the disk recorded, which is invisible while the only
+        # installed volume happens to *be* 12345 and is a node that shuts itself
+        # down when it is not (FINDINGS.md C199). The label is synthesised here
+        # -- `media/` is gitignored and CI has none -- and it exercises the same
+        # reader both flags now use: the creator UID at block 0 0x48, whose low
+        # three bytes are the node.
+        label = Path(tmp) / "node.awd"
+        blob = bytearray(2048)
+        blob[0x418:0x41C] = (0xFEDCA986).to_bytes(4, "big")     # the magic
+        blob[0x48:0x50] = bytes.fromhex("A45AA673") + bytes([0x10, 0x03, 0x33, 0x33])
+        label.write_bytes(bytes(blob))
+        # `want_ok=False`: `--volume` reports a label and then declines to
+        # build a machine, because without a boot PROM there is nothing to run.
+        # The report is the point; the refusal afterwards is the same one every
+        # PROM-less invocation gives.
+        check("a volume's node comes from the creator UID",
+              ["--volume", str(label)], r"node ID\s+33333", want_ok=False)
+
         check("a ring node's configuration table lists the devices it was given",
               ["--ring-two-node", "2000"],
               r"node 0  calendar ram: dev bits 0000000F"
