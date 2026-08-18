@@ -9927,3 +9927,52 @@ append mechanism is the open question, not the content.
 *What that means for the item: node B's volume needs its `startup.spm` restored
 from a copy that preserves the type -- `cpf` from another volume or from the
 distribution -- before any `siologin` line can be added at all.*
+
+## C173 -- the object type is not it either, and the shutdown is earlier than `startup.spm` is ever read
+
+Two negatives, and the second retires the whole line of investigation from C168
+to C172.
+
+**The type hypothesis is dead.** `ld -a` on the same volume, the `tee`-written
+file against a sibling MINST installed and nothing has touched:
+
+    file  unstruct  1 block  30 bytes   P  -rwx-  /sys/node_data/startup.spm
+    file  unstruct  1 block  810 bytes  P  -rwx-  /sys/node_data/startup.19l
+
+Same system type, same object type, same attributes, same rights. A
+`tee`-written file is indistinguishable from an installed one except in length.
+
+**And the shutdown happens before the environment starts.** Side by side:
+
+    node A   Domain/OS kernel(7) ... / Apollo Phase II Environment ... / Loading Init.
+    node B   Domain/OS kernel(7) ... / Beginning shutdown sequence... / Shutdown successful
+
+Node B never reaches `Apollo Phase II Environment`. **`startup.spm` is read by
+SPM, which starts long after that line** -- so the file cannot be the cause, and
+C168, C169, C171 and C172 were all aimed at a stage the machine never reaches.
+The bisect in C172 was right that content does not matter; the reason is that
+the file is never opened.
+
+### What the question actually is
+
+Three facts, and they bracket it:
+
+| machine | mode | volume | result |
+| --- | --- | --- | --- |
+| this core | Normal | node A (2002, untouched) | full startup |
+| this core | Normal | node B (built this session) | shutdown after the kernel banner |
+| oracle | Service | node B | full startup, `)` prompt |
+
+So it is not the file, not the file's type, and not the OS image -- both
+volumes carry the same SR10.4. It is something about **node B's volume** that
+this core's Normal-mode boot declines and the oracle's Service-mode boot does
+not.
+
+*Candidates worth one experiment each, none tested: the 14-day shutdown check
+against the volume's dismount stamp (`FINDINGS.md` C132/C133 record that gate
+and that `--clock` is not what it compares); the node ID itself, `22222` against
+`12345`; and Service versus Normal, which is the one variable the oracle run
+also changed and therefore cannot be separated from the machine.*
+
+**The honest state: the `siologin` work is sound and untested, because the node
+it was written on does not reach the stage that would use it.**
