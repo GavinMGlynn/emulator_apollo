@@ -9126,10 +9126,31 @@ labels the error names. rbak's `next_entry` is looking for a label at a place
 the tape has data.
 
 **So the fault is in the guest's read path through the oracle's SC-499 model,
-not in the medium**, and the next step is instrumenting `sc499.cpp` to log the
-block number and DMA state around that offset. The only local edit to that
-device is C56's media-change notifier, which does not touch reads; C142 and
-C143's retry work was reverted by C144.
+not in the medium.** The only local edit to that device is C56's media-change
+notifier; C142 and C143's retry work was reverted by C144.
+
+### And the read path has two kludges its own author did not understand
+
+Both are in `sc499.cpp`, both named as such, and both sit exactly where a
+stream would desynchronise:
+
+- **`m_first_block_hack`** -- *"we must read first block twice (in MD for `di c`
+  and `ld` or `ex ...`) **why is this necessary???**"*. Armed by `do_reset()`,
+  and therefore by C56's media-change notifier on **every cartridge swap**, so
+  the block after each `!swap` is delivered twice.
+- **`m_nasty_readahead`** -- `dack_r` reads a block ahead when the DMA index
+  runs out and increments this; the timer path then *skips* one `read_block()`
+  to compensate. Two paths reading the same tape, kept in step by a counter.
+
+A counter reconciling a DMA read-ahead against a timer-driven read is precisely
+what fails one block late or early when the two interleave differently -- and
+where the interleaving falls depends on record sizes, which is what differs
+between two releases whose tapes are otherwise identically framed.
+
+**Named as the hypothesis it is**: neither is confirmed, and confirming one
+means logging `m_tape_pos` against the host's byte count around block ~2050 of
+file 1. That is a bounded session's work with a number to aim at, which is what
+this finding exists to leave behind.
 
 *Item state: the calendar gate is cleared and RBAK works, so SR10.2 gets
 further than it ever has. It is not booted, and the reason is named and has a
