@@ -9976,3 +9976,39 @@ also changed and therefore cannot be separated from the machine.*
 
 **The honest state: the `siologin` work is sound and untested, because the node
 it was written on does not reach the stage that would use it.**
+
+## C174 -- the clock is eliminated, and the 14-day gate is a *message*, not this shutdown
+
+C173 left three candidates. The clock was the one this session had introduced
+without holding constant -- node A booted at `--clock 2002-11-28` and node B at
+`1996-08-19` -- so it went first. Node B's volume at node A's epoch:
+
+    Domain/OS kernel(7), revision 10.4, February 14, 1992
+
+    More than 14 days have elapsed since the last shutdown.
+
+    Switch to service mode, press reset and run CALENDAR.
+
+**A different failure, and a legible one.** The volume was dismounted
+1996-08-18, so a 2002 clock is six years past it and the gate fires correctly.
+What matters is the *shape*: the 14-day check **says what it wants**. It does
+not shut the node down silently.
+
+So the clock is eliminated in both directions:
+
+| clock | vs dismount stamp | result |
+| --- | --- | --- |
+| `1996-08-19` | one day after | `Beginning shutdown sequence` -- no message |
+| `2002-11-28` | six years after | `More than 14 days...` -- the documented gate |
+
+At `1996-08-19` the node is *inside* the 14-day window, which is the same
+position node A is in at `2002-11-28` (dismounted 2002-11-27, booted one day
+later) -- and node A boots. **So the 14-day gate is not what stops node B**, and
+neither is the era.
+
+*What is left of C173's list: the node ID, `22222` against `12345`, and
+whatever else differs between a volume this project inherited and one it built.
+The next experiment that would actually discriminate is a comparison of the two
+volumes' contents -- `ld` over `/sys` and `/` on each -- rather than another
+boot, because four boots have now each eliminated one candidate at about
+fifteen minutes apiece and the list is not short.*
