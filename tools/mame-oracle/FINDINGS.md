@@ -11723,3 +11723,45 @@ C197's edit failed for a different reason: it rewrote a tail the follower had
 already consumed. The real trap is a long `!wait` at the end of a file you mean
 to append to, which blocks the **follower** rather than the machine, and
 `--settle` applying *before* the commands as well as after.
+
+## C211 -- node A's volume is configured, and no re-install was needed
+
+C162 recorded that the MINST window is "the only window for configuring a node
+from a command line", and the plan carried that as a **full re-install of node
+A**. It is true of a *bare* disk, which is what it was measured on, and C164
+already superseded it for an installed one without the plan noticing.
+
+The route, on `media/dn3500-sr10.4-installed.awd`:
+
+    di w / ex calendar / w / n / n / 2002/11/27 / 22:00 / y
+    ex domain_os  ->  )
+    sh  ->  login: user  ->  Password: <CR>  ->  $
+
+**`login:` there is the *shell's* prompt, not `siologin`'s** -- which is the
+whole reason a volume that lacks `siologin` can still be reached to be given it.
+That distinction is what made the re-install unnecessary.
+
+Both files written with `tee` and read back with `catf`:
+
+    siomonit_file:  -repeat /dev/sio1 -n siologin1_local
+    startup.spm:    cps /com/tctl -line 1 -insync
+                    cps /sys/siologin/siomonit -n siomonit /sys/node_data/siomonit_file
+
+Saved as `media/dn3500-nodeA-siologin.awd`, `shut` reporting
+`Shutdown successful` and stamping a dismount of 2002-11-27T23:30:15.
+
+### Four things C163 recorded that were needed verbatim, and two it did not
+
+Needed: `cat` is `catf`; there is no `echo`, so `tee FILE` with the text on the
+next line and `^D`; long lines lose characters, and the **67-character** `cps`
+line went through in four `!raw` chunks having been mangled as one; and `tee`
+overwrites, so `startup.spm` is rewritten with its functional content -- the
+comments are not load-bearing.
+
+New here. **This shell is `sh`, not the Aegis shell**: `wd` and `ld` are
+`sh: not found` and the builtin is `cd`, with `/com/ld` for the listing --
+`/com` is not on the path (C164). And **the calendar must be set before
+`ex domain_os`, not after**: once the kernel has halted on its calendar check
+the machine is no longer at MD, so `re` -- an MD command -- cannot be reached
+and knocking for a prompt that cannot come back merely times out. C133 has the
+order right and this session had to learn it twice.

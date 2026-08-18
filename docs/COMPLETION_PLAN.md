@@ -4194,15 +4194,23 @@ discipline throughout.
          `ex domain_os`, which offers to bring the OS up *without* salvaging and
          says so. Saved as `media/dn3500-nodeB-siologin-salvaged.awd` with
          `siologin1_local` intact.
-      2. **Give node A's volume the same treatment.** C162 called the MINST
-         window "the only window for configuring a node from a command line",
-         and **C164 supersedes that for an installed volume**: in the oracle,
-         `di w` / `ex domain_os` from MD leaves a `)` prompt and `sh` at it
-         gives `login:` and a shell. Node A's volume *is* installed, so it needs
-         no re-install -- boot it in the oracle via MD, write `siomonit_file`
-         and the `startup.spm` line as C163 did, and shut down cleanly. C162's
-         claim was true of a **bare** disk, which is the case it was measured
-         on.
+      2. ~~Give node A's volume the same treatment.~~ **DONE** (C211), and no
+         re-install was needed: C162 called the MINST window "the only window
+         for configuring a node from a command line", and **C164 supersedes
+         that for an installed volume**. `di w` / `ex calendar` / `ex domain_os`
+         leaves a `)` prompt, `sh` at it gives `login:` -- **that prompt is the
+         shell's, not `siologin`'s**, which is exactly why a volume lacking
+         `siologin` can still be reached here to be given it. Both files written
+         and read back:
+
+             siomonit_file:  -repeat /dev/sio1 -n siologin1_local
+             startup.spm:    cps /com/tctl -line 1 -insync
+                             cps /sys/siologin/siomonit -n siomonit /sys/node_data/siomonit_file
+
+         Saved as `media/dn3500-nodeA-siologin.awd`, `shut` giving
+         `Shutdown successful` and a dismount stamp of 2002-11-27T23:30:15.
+         C162's claim was true of a **bare** disk, which is the case it was
+         measured on.
       3. Run the two nodes with a script that waits for
          `SPM system init complete.`, knocks, logs in as `user`, and runs
          **`/com/lcnode`** by absolute path.
