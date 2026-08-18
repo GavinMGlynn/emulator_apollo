@@ -10012,3 +10012,41 @@ The next experiment that would actually discriminate is a comparison of the two
 volumes' contents -- `ld` over `/sys` and `/` on each -- rather than another
 boot, because four boots have now each eliminated one candidate at about
 fifteen minutes apiece and the list is not short.*
+
+## C175 -- where the node-B shutdown investigation stands, and what it cost
+
+Eight findings (C166-C174) and roughly a dozen emulator runs have gone into one
+question: why node B's volume shuts down after the kernel banner on this core
+in Normal mode, when node A's boots and node B's own volume boots on the
+oracle. **It is not solved.** What is solved is the surrounding ground, and
+this entry is the map so the next session does not re-walk it.
+
+**Eliminated by measurement**, each with a run behind it:
+
+| candidate | verdict |
+| --- | --- |
+| the `cps siomonit` line in `startup.spm` | no -- removing it changes nothing (C172) |
+| `startup.spm`'s content at all | no -- the file is read by SPM, which starts *after* the environment banner the node never reaches (C173) |
+| the file's object type | no -- `ld -a` shows `file unstruct` for both a `tee`-written file and an untouched sibling (C173) |
+| the clock era | no -- at node A's epoch the volume gives the *documented* 14-day message instead (C174) |
+| the 14-day gate | no -- it prints `More than 14 days have elapsed`; this shutdown is silent (C174) |
+| a missing paging file | no -- fixed by INVOL option 8, and its warning is a different message (C166) |
+| the volume being structurally short | no -- `ld /` lists a complete Domain/OS root, 22 entries |
+
+**What remains**: the node ID (`22222` against `12345`), and whatever else
+differs between a volume this project inherited from an early session and one
+built here. `'node_data/startup` is *not* it -- read on the machine, it is the
+**Display Manager**'s file, full of DM commands and `env DISPLAY ':0'`, and a
+display-less node runs `startup.spm` instead (Table 3-6).
+
+**The method note, which is the expensive part.** Twelve runs at fifteen to
+ninety minutes each eliminated one candidate apiece, and four of those chased
+`startup.spm` because it was the thing this session had *changed* -- while the
+machine's own output said the shutdown came before the stage that reads it. Two
+of the eliminations were of variables this session introduced and failed to
+hold constant: the clock, and the file itself.
+
+**The experiment that should come first next time** is not another boot. It is
+one session with **both volumes attached** -- `-disk1` node A, `-disk2` node B,
+`mtvol` the second -- and `ld` walked over both trees. That compares everything
+at once instead of one candidate per run, and `mtvol` is in `/com`.
