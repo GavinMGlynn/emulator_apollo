@@ -325,6 +325,13 @@ static void print_usage(const char *program_name) {
           "  --ring-disk-b FILE    node B's, which must be a volume initialised\n"
           "                        on a different node -- two nodes answering\n"
           "                        one address is not a ring\n"
+          "  --ring-console        print each node's console, every line tagged\n"
+          "                        with the node that said it: two machines\n"
+          "                        running one firmware say the same things\n"
+          "  --ring-script-a FILE  a console dialogue for node A, in\n"
+          "                        --boot-script's format. This is how `lcnode`\n"
+          "                        gets typed at a node\n"
+          "  --ring-script-b FILE  the same for node B\n"
           "  --ring-rom FILE       the same, with its option ROM placed where\n"
           "                        the boot PROM's expansion scan looks, so the\n"
           "                        firmware's own self-test runs\n"
@@ -1166,6 +1173,31 @@ static int run_option_rom_entry(FILE *out, ap_model_id_t model,
  * this runner did before disks existed. */
 static const char *g_ring_disk[2] = {NULL, NULL};
 
+/* ## A console per node, which is what `lcnode` needs
+ *
+ * The two-node runner reported each node's PC and the ring's hash and nothing
+ * else -- it had no console and no input path at all, so the one check the
+ * plan item asks for (`lcnode` on each node listing the other) could not be
+ * typed, let alone read. These are that path, and they are per node for the
+ * obvious reason: the answer to "does node A see node B" is a sentence printed
+ * on node A's terminal, and a single stream with both nodes interleaved could
+ * not be attributed.
+ *
+ * Prefixed rather than interleaved raw, for the same reason. `--ring-console`
+ * tags every line with the node that said it; without a tag two machines
+ * booting the same firmware produce two identical streams and a reader cannot
+ * tell whether one node printed twice or both printed once. */
+static bool g_ring_console = false;
+static const char *g_ring_script[2] = {NULL, NULL};
+
+/* Serial 1 channel B, and `BB` -- the port and rate the single-machine boot
+ * uses, and the rate the DN3500's own firmware configures both ports to at
+ * reset (measured off the oracle). Named here rather than repeated so a ring
+ * console and a single-machine console cannot drift apart. */
+#define AP_SIO_CONSOLE_UNIT 0u
+#define AP_SIO_CONSOLE_CHANNEL 1u
+#define AP_SIO_CONSOLE_RATE 0xBBu
+
 /* Defined below, beside the single-machine path that also uses it: a node
  * presents the ID its own volume records. */
 static bool node_id_from_volume(const char *path, uint32_t *out);
@@ -1196,6 +1228,175 @@ static bool ring_node_disk(const char *path, uint8_t **bytes, ap_awd_t *image,
   }
   ap_omti_attach(&board->disk.controller, image);
   return true;
+}
+
+/* ## A console script: wait for what the machine says, then answer it
+ *
+ * `--boot-input` sends a fixed string, paced by a timer. That is right for the
+ * one thing it was built for -- autobauding the port with a carriage return --
+ * and wrong for a dialogue: the boot PROM asks questions at times that depend
+ * on how long a disk took, so a fixed script answers the wrong prompt. Feeding
+ * `ex domain_os` that way put an `o` into "Do you wish to continue (y,n)?".
+ *
+ * A line is `expect <text>` or `send <text>`, in order. `expect` waits until
+ * that text has appeared in what the machine has transmitted; `send` delivers
+ * its text, with `\r` for a carriage return. Matching is a plain substring
+ * search over the whole console stream so far, which is what the oracle
+ * harness's own procedures use and is enough for every prompt the PROM asks.
+ *
+ * This is the "scripted input" half of the frontend-flags item, and it is what
+ * the item meant: input *at the machine's pace* rather than at ours. */
+typedef struct {
+  bool send;      /* false for expect */
+  char text[128];
+} ap_console_step_t;
+
+#define AP_CONSOLE_SCRIPT_STEPS 64u
+
+typedef struct {
+  ap_console_step_t step[AP_CONSOLE_SCRIPT_STEPS];
+  unsigned steps;
+  unsigned at;        /* which step is current */
+  unsigned sent;      /* how far through the current send */
+  /* What the machine has transmitted, kept only as far as the longest pattern
+   * needs. A whole boot's console is megabytes and matching wants a tail. */
+  char seen[512];
+  unsigned seen_len;
+} ap_console_script_t;
+
+/* `\r` and `\n` are the only escapes: a prompt answer is a line, and anything
+ * richer would be a language rather than a script. */
+static int console_script_hex_digit(char c) {
+  if (c >= '0' && c <= '9') {
+    return c - '0';
+  }
+  if (c >= 'a' && c <= 'f') {
+    return c - 'a' + 10;
+  }
+  if (c >= 'A' && c <= 'F') {
+    return c - 'A' + 10;
+  }
+  return -1;
+}
+
+/* `\r`, `\n` and `\xHH`.
+ *
+ * **The hex form is not a convenience.** The boot PROM's console selection is
+ * an *autobaud*: `000844`-`0008B8` matches the byte it read against `$FF`,
+ * `$FE`, `$C7`, `$72` and `$C0` -- the shapes a carriage return takes when
+ * sampled at the wrong rate -- and writes the matching clock select. None of
+ * those five is printable, so a script that can only say `\r` can only send
+ * `$0D`, which matches nothing and leaves the firmware polling forever. That is
+ * exactly what it did: eleven characters read, `RxRDY` clear, no console ever
+ * selected. */
+static void console_script_unescape(char *text) {
+  char *out = text;
+  for (const char *in = text; *in != '\0'; in++) {
+    if (*in != '\\') {
+      *out++ = *in;
+      continue;
+    }
+    if (in[1] == 'r') {
+      *out++ = '\r';
+      in++;
+    } else if (in[1] == 'n') {
+      *out++ = '\n';
+      in++;
+    } else if (in[1] == 'x' && console_script_hex_digit(in[2]) >= 0 &&
+               console_script_hex_digit(in[3]) >= 0) {
+      *out++ = (char)(console_script_hex_digit(in[2]) * 16 +
+                      console_script_hex_digit(in[3]));
+      in += 3;
+    } else {
+      *out++ = *in;
+    }
+  }
+  *out = '\0';
+}
+
+[[nodiscard]] static bool console_script_load(ap_console_script_t *script,
+                                              const char *path) {
+  FILE *file = fopen(path, "r");
+  if (file == NULL) {
+    fprintf(stderr, "apollo: cannot read console script %s\n", path);
+    return false;
+  }
+  char line[192];
+  bool ok = true;
+  while (fgets(line, (int)sizeof line, file) != NULL) {
+    size_t length = strlen(line);
+    while (length > 0u && (line[length - 1u] == '\n' || line[length - 1u] == '\r')) {
+      line[--length] = '\0';
+    }
+    if (line[0] == '\0' || line[0] == '#') {
+      continue;
+    }
+    if (script->steps >= AP_CONSOLE_SCRIPT_STEPS) {
+      fprintf(stderr, "apollo: console script has more than %u steps\n",
+              AP_CONSOLE_SCRIPT_STEPS);
+      ok = false;
+      break;
+    }
+    ap_console_step_t *step = &script->step[script->steps];
+    if (strncmp(line, "send ", 5u) == 0) {
+      step->send = true;
+      snprintf(step->text, sizeof step->text, "%s", line + 5);
+    } else if (strncmp(line, "expect ", 7u) == 0) {
+      step->send = false;
+      snprintf(step->text, sizeof step->text, "%s", line + 7);
+    } else {
+      fprintf(stderr, "apollo: console script line is not send or expect: %s\n",
+              line);
+      ok = false;
+      break;
+    }
+    console_script_unescape(step->text);
+    script->steps++;
+  }
+  fclose(file);
+  return ok;
+}
+
+/* A byte the machine transmitted. Kept in a sliding tail, and an `expect` that
+ * matches advances the script. */
+static void console_script_saw(ap_console_script_t *script, uint8_t byte) {
+  if (script->steps == 0u) {
+    return;
+  }
+  if (script->seen_len + 1u >= sizeof script->seen) {
+    /* Keep the tail: a pattern longer than what is kept could never match, and
+     * the buffer is far larger than any prompt. */
+    const unsigned keep = (unsigned)(sizeof script->seen) / 2u;
+    memmove(script->seen, script->seen + script->seen_len - keep, keep);
+    script->seen_len = keep;
+  }
+  script->seen[script->seen_len++] = (char)byte;
+  script->seen[script->seen_len] = '\0';
+
+  while (script->at < script->steps && !script->step[script->at].send &&
+         strstr(script->seen, script->step[script->at].text) != NULL) {
+    /* Matched: consume the stream so the next `expect` cannot be satisfied by
+     * the same text, which is how a script silently skips a prompt. */
+    script->seen_len = 0u;
+    script->seen[0] = '\0';
+    script->at++;
+    script->sent = 0u;
+  }
+}
+
+/* The next byte to deliver, or -1 when the script is waiting or finished. */
+[[nodiscard]] static int console_script_next(ap_console_script_t *script) {
+  if (script->at >= script->steps || !script->step[script->at].send) {
+    return -1;
+  }
+  const char *text = script->step[script->at].text;
+  const unsigned length = (unsigned)strlen(text);
+  if (script->sent >= length) {
+    script->at++;
+    script->sent = 0u;
+    return -1;
+  }
+  return (unsigned char)text[script->sent++];
 }
 
 static int run_ring_two_node(FILE *out, ap_model_id_t model,
@@ -1363,6 +1564,34 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
    * the ring catches up, and long enough that the loop is not all bookkeeping.
    * It bounds *skew*, not correctness: the `min` below is what makes the ring
    * safe at any slice. */
+  /* ## Each node's console, and the terminal typing at it
+   *
+   * `AP_SIO_CONSOLE_UNIT`/`_CHANNEL` are serial 1 channel B -- the port the
+   * single-machine boot uses and the one the DN3500's firmware configures at
+   * reset, so a scripted terminal here is the same terminal that path drives.
+   *
+   * The carriage return before anything else is not conversation: the boot PROM
+   * **autobauds**, and cannot transmit a byte until it has received one. A node
+   * nobody types at prints nothing at all, which is exactly what the
+   * single-machine path's `--boot-input $'\r'` exists for and why
+   * `tools/identity-boot.sh` documents it as an invisible input. */
+  static ap_console_script_t script[NODES];
+  unsigned knocked[NODES] = {0};
+  static const char knock[] = "\r";
+  for (unsigned i = 0; i < NODES; i++) {
+    if (g_ring_script[i] != NULL &&
+        !console_script_load(&script[i], g_ring_script[i])) {
+      free(prom);
+      free(ring_rom);
+      return 2;
+    }
+  }
+  /* Line state per node, so a prefix is printed once per line rather than once
+   * per byte. Both nodes run the same firmware and produce near-identical
+   * streams; without the tag a reader cannot tell one machine's line from the
+   * other's, which is the whole question `lcnode` is asked to settle. */
+  bool at_line_start[NODES] = {true, true};
+
   const uint64_t slice = 4096u;
   uint64_t done = 0u;
   uint64_t ran[NODES] = {0};
@@ -1384,6 +1613,60 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
       instruction[i] = r.instruction;
       if (r.status != AP_M68030_STEP_EXECUTED) {
         stalled = true;
+      }
+
+      /* **Drain this node's console before the next node runs**, so the two
+       * streams cannot be reordered against each other by the slice boundary.
+       * Every byte is fed to the node's own script as well: a dialogue matches
+       * on what *its* machine said, and a script that saw both nodes' output
+       * would answer prompts the other node printed. */
+      uint8_t out_byte = 0;
+      while (ap_board_transmitted(&board[i], AP_SIO_CONSOLE_UNIT,
+                                  AP_SIO_CONSOLE_CHANNEL, &out_byte)) {
+        console_script_saw(&script[i], out_byte);
+        if (g_ring_console) {
+          if (at_line_start[i]) {
+            fprintf(out, "  node %u | ", i);
+            at_line_start[i] = false;
+          }
+          fputc((int)out_byte, out);
+          if (out_byte == '\n') {
+            at_line_start[i] = true;
+          }
+          /* Per character, for the reason the single-machine console gives:
+           * a prompt with no newline is exactly what a reader waits on. */
+          (void)fflush(out);
+        }
+      }
+
+      /* The autobaud knock first, then the script -- the same order and the
+       * same retry rule as the single-machine path. A receiver that is still
+       * disabled drops the byte, so nothing advances until it is taken. */
+      if (knocked[i] < sizeof knock - 1u) {
+        ap_sio_receive_at(&board[i].sio, AP_SIO_CONSOLE_UNIT,
+                          AP_SIO_CONSOLE_CHANNEL,
+                          (uint8_t)knock[knocked[i]], AP_SIO_CONSOLE_RATE);
+        if (ap_sio_receiver_ready(&board[i].sio, AP_SIO_CONSOLE_UNIT,
+                                  AP_SIO_CONSOLE_CHANNEL)) {
+          knocked[i]++;
+        }
+      } else if (script[i].steps > 0u &&
+                 !ap_sio_receiver_ready(&board[i].sio, AP_SIO_CONSOLE_UNIT,
+                                        AP_SIO_CONSOLE_CHANNEL) &&
+                 ap_sio_character_bits(&board[i].sio, AP_SIO_CONSOLE_UNIT,
+                                       AP_SIO_CONSOLE_CHANNEL) == 8u &&
+                 ap_sio_receiver_enabled(&board[i].sio, AP_SIO_CONSOLE_UNIT,
+                                         AP_SIO_CONSOLE_CHANNEL)) {
+        const int byte = console_script_next(&script[i]);
+        if (byte >= 0) {
+          ap_sio_receive_at(&board[i].sio, AP_SIO_CONSOLE_UNIT,
+                            AP_SIO_CONSOLE_CHANNEL, (uint8_t)byte,
+                            AP_SIO_CONSOLE_RATE);
+          if (!ap_sio_receiver_ready(&board[i].sio, AP_SIO_CONSOLE_UNIT,
+                                     AP_SIO_CONSOLE_CHANNEL)) {
+            script[i].sent--; /* not taken: put it back */
+          }
+        }
       }
     }
     ap_time_t earliest = ap_machine_state(&machine[0]).now;
@@ -2321,174 +2604,6 @@ static int write_screenshot(const char *path, const ap_graphics_t *graphics,
   return 0;
 }
 
-/* ## A console script: wait for what the machine says, then answer it
- *
- * `--boot-input` sends a fixed string, paced by a timer. That is right for the
- * one thing it was built for -- autobauding the port with a carriage return --
- * and wrong for a dialogue: the boot PROM asks questions at times that depend
- * on how long a disk took, so a fixed script answers the wrong prompt. Feeding
- * `ex domain_os` that way put an `o` into "Do you wish to continue (y,n)?".
- *
- * A line is `expect <text>` or `send <text>`, in order. `expect` waits until
- * that text has appeared in what the machine has transmitted; `send` delivers
- * its text, with `\r` for a carriage return. Matching is a plain substring
- * search over the whole console stream so far, which is what the oracle
- * harness's own procedures use and is enough for every prompt the PROM asks.
- *
- * This is the "scripted input" half of the frontend-flags item, and it is what
- * the item meant: input *at the machine's pace* rather than at ours. */
-typedef struct {
-  bool send;      /* false for expect */
-  char text[128];
-} ap_console_step_t;
-
-#define AP_CONSOLE_SCRIPT_STEPS 64u
-
-typedef struct {
-  ap_console_step_t step[AP_CONSOLE_SCRIPT_STEPS];
-  unsigned steps;
-  unsigned at;        /* which step is current */
-  unsigned sent;      /* how far through the current send */
-  /* What the machine has transmitted, kept only as far as the longest pattern
-   * needs. A whole boot's console is megabytes and matching wants a tail. */
-  char seen[512];
-  unsigned seen_len;
-} ap_console_script_t;
-
-/* `\r` and `\n` are the only escapes: a prompt answer is a line, and anything
- * richer would be a language rather than a script. */
-static int console_script_hex_digit(char c) {
-  if (c >= '0' && c <= '9') {
-    return c - '0';
-  }
-  if (c >= 'a' && c <= 'f') {
-    return c - 'a' + 10;
-  }
-  if (c >= 'A' && c <= 'F') {
-    return c - 'A' + 10;
-  }
-  return -1;
-}
-
-/* `\r`, `\n` and `\xHH`.
- *
- * **The hex form is not a convenience.** The boot PROM's console selection is
- * an *autobaud*: `000844`-`0008B8` matches the byte it read against `$FF`,
- * `$FE`, `$C7`, `$72` and `$C0` -- the shapes a carriage return takes when
- * sampled at the wrong rate -- and writes the matching clock select. None of
- * those five is printable, so a script that can only say `\r` can only send
- * `$0D`, which matches nothing and leaves the firmware polling forever. That is
- * exactly what it did: eleven characters read, `RxRDY` clear, no console ever
- * selected. */
-static void console_script_unescape(char *text) {
-  char *out = text;
-  for (const char *in = text; *in != '\0'; in++) {
-    if (*in != '\\') {
-      *out++ = *in;
-      continue;
-    }
-    if (in[1] == 'r') {
-      *out++ = '\r';
-      in++;
-    } else if (in[1] == 'n') {
-      *out++ = '\n';
-      in++;
-    } else if (in[1] == 'x' && console_script_hex_digit(in[2]) >= 0 &&
-               console_script_hex_digit(in[3]) >= 0) {
-      *out++ = (char)(console_script_hex_digit(in[2]) * 16 +
-                      console_script_hex_digit(in[3]));
-      in += 3;
-    } else {
-      *out++ = *in;
-    }
-  }
-  *out = '\0';
-}
-
-[[nodiscard]] static bool console_script_load(ap_console_script_t *script,
-                                              const char *path) {
-  FILE *file = fopen(path, "r");
-  if (file == NULL) {
-    fprintf(stderr, "apollo: cannot read console script %s\n", path);
-    return false;
-  }
-  char line[192];
-  bool ok = true;
-  while (fgets(line, (int)sizeof line, file) != NULL) {
-    size_t length = strlen(line);
-    while (length > 0u && (line[length - 1u] == '\n' || line[length - 1u] == '\r')) {
-      line[--length] = '\0';
-    }
-    if (line[0] == '\0' || line[0] == '#') {
-      continue;
-    }
-    if (script->steps >= AP_CONSOLE_SCRIPT_STEPS) {
-      fprintf(stderr, "apollo: console script has more than %u steps\n",
-              AP_CONSOLE_SCRIPT_STEPS);
-      ok = false;
-      break;
-    }
-    ap_console_step_t *step = &script->step[script->steps];
-    if (strncmp(line, "send ", 5u) == 0) {
-      step->send = true;
-      snprintf(step->text, sizeof step->text, "%s", line + 5);
-    } else if (strncmp(line, "expect ", 7u) == 0) {
-      step->send = false;
-      snprintf(step->text, sizeof step->text, "%s", line + 7);
-    } else {
-      fprintf(stderr, "apollo: console script line is not send or expect: %s\n",
-              line);
-      ok = false;
-      break;
-    }
-    console_script_unescape(step->text);
-    script->steps++;
-  }
-  fclose(file);
-  return ok;
-}
-
-/* A byte the machine transmitted. Kept in a sliding tail, and an `expect` that
- * matches advances the script. */
-static void console_script_saw(ap_console_script_t *script, uint8_t byte) {
-  if (script->steps == 0u) {
-    return;
-  }
-  if (script->seen_len + 1u >= sizeof script->seen) {
-    /* Keep the tail: a pattern longer than what is kept could never match, and
-     * the buffer is far larger than any prompt. */
-    const unsigned keep = (unsigned)(sizeof script->seen) / 2u;
-    memmove(script->seen, script->seen + script->seen_len - keep, keep);
-    script->seen_len = keep;
-  }
-  script->seen[script->seen_len++] = (char)byte;
-  script->seen[script->seen_len] = '\0';
-
-  while (script->at < script->steps && !script->step[script->at].send &&
-         strstr(script->seen, script->step[script->at].text) != NULL) {
-    /* Matched: consume the stream so the next `expect` cannot be satisfied by
-     * the same text, which is how a script silently skips a prompt. */
-    script->seen_len = 0u;
-    script->seen[0] = '\0';
-    script->at++;
-    script->sent = 0u;
-  }
-}
-
-/* The next byte to deliver, or -1 when the script is waiting or finished. */
-[[nodiscard]] static int console_script_next(ap_console_script_t *script) {
-  if (script->at >= script->steps || !script->step[script->at].send) {
-    return -1;
-  }
-  const char *text = script->step[script->at].text;
-  const unsigned length = (unsigned)strlen(text);
-  if (script->sent >= length) {
-    script->at++;
-    script->sent = 0u;
-    return -1;
-  }
-  return (unsigned char)text[script->sent++];
-}
 
 /* One step, kept rather than printed.
  *
@@ -5782,6 +5897,21 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--ring-disk-b") == 0 && i + 1 < argc) {
       g_ring_disk[1] = argv[i + 1];
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--ring-console") == 0) {
+      g_ring_console = true;
+      i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--ring-script-a") == 0 && i + 1 < argc) {
+      g_ring_script[0] = argv[i + 1];
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--ring-script-b") == 0 && i + 1 < argc) {
+      g_ring_script[1] = argv[i + 1];
       i += 2;
       continue;
     }
