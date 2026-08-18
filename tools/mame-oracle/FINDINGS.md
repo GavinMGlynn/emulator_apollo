@@ -10621,3 +10621,40 @@ is a missing directory flush, not corrupted data. The repositions deliver no
 bytes and move no tape -- they only stop the transfer being failed -- and C147's
 measurement that SR10.3 and SR10.4 never reach 5000 underruns means their
 installs take a byte-identical path.*
+
+## C188 -- correction to C187: SR10.2's *restore* leaves the root exactly as INVOL made it
+
+C187 read the three-entry root as MINST's links lost to `!exit`. The control run
+-- RBAK alone, no MINST -- refutes that, and widening the comparison to every
+checkpoint on the shelf makes it plain. Block `165649`, distinct names:
+
+    invol-base (virgin)          3   sysboot  sys  lost+found.list
+    sr10.2 rbak-only             3   sysboot  sys  lost+found.list
+    sr10.2 rbak + minst          3   sysboot  sys  lost+found.list
+    sr10.4 osrestored (RBAK)    20   usr user_data tmp node_data sau7 sau8 sau9 sau11 sau12 sau14 ...
+    sr10.4 osclean              20
+    sr10.4 atminst              21
+    sr10.4 installed            27
+    sr10.3 installed            33
+    nodeB  sio                  30
+
+**Three is the virgin INVOL root.** SR10.2's restore does not change it, and
+SR10.4's raises it to twenty at the same stage. So MINST is not what went
+missing -- there was never anything for MINST to add to.
+
+**What C187 got right and what it got wrong.** Right: the volume's root
+directory holds three entries, both PROMs and the RBAK shell agree, and the
+objects exist without links. Wrong: *"a harness mistake rather than a release
+incompatibility"* -- that was inferred from one run with nothing to compare it
+against, and the comparison was one command away. Withdrawn.
+
+**And it clears node B**, which is worth as much as the SR10.2 result: node B's
+volume has a **thirty**-entry root, in the same range as SR10.3's and SR10.4's.
+Whatever stops it, it is not a root directory that lost its links -- so C184's
+withdrawal of C176 does not reopen *this* as a candidate.
+
+*The install now running ends in an in-guest `shut` instead of `!exit`, which is
+still the right discriminator for SR10.2: if its root then carries the tree the
+flush was the cause after all, and if it stays at three the difference is in what
+SR10.2's `ex domain_os` restores and the next question is why its RBAK writes no
+root entries where SR10.4's writes twenty.*
