@@ -172,6 +172,22 @@ typedef enum {
    * reason the other two are: an unfitted slot is the machine that boots. */
   AP_BOARD_REGION_MATROX,
   AP_BOARD_REGION_ATBUS,
+  /* **A Series 2500-only register block, with no document anywhere.**
+   * `2500_BOOT_16182_8`'s reset sequence reaches `0202CC`, `0202D0` and
+   * `0202D4` before it does anything else, and the DN3500's PROM references
+   * **none** of those three offsets -- searched exhaustively -- so this is not
+   * that machine's core-register page at this family's displacement. No Series
+   * 2500 allocation table exists on disk or on the web and the oracle has no
+   * 2500 driver, so the firmware is the only source there is.
+   *
+   * `PROVISIONAL`: modelled as plain storage, which is what this project does
+   * for a register whose meaning is unknown -- the same restraint the ring's
+   * unmapped slots are kept under, "so a driver reads back what it wrote, and
+   * nothing here acts on any of it". Its **one** measured requirement is that
+   * `0202D4`'s low nibble reads back what was written, which the firmware
+   * spins on for ever otherwise. Cost to close: a Series 2500 register
+   * document, or a 2500 driver to instrument. */
+  AP_BOARD_REGION_S2500_CONTROL,
   AP_BOARD_REGION_RAM,
 } ap_board_region_t;
 
@@ -278,6 +294,11 @@ typedef struct ap_board {
   /* The Matrox graphics controller, absent until `ap_board_attach_matrox`
    * fits it. `docs/references/GRAPHICS.md`. */
   bool matrox_present;
+  /* `AP_BOARD_REGION_S2500_CONTROL`'s bytes: one page, which is all the
+   * firmware reaches into. Storage, `PROVISIONAL`, for the reasons at the
+   * region's declaration. */
+  uint8_t s2500_control[0x100];
+
   ap_matrox_t matrox;
 
   /* The 3Com EtherLink Plus, absent until `ap_board_attach_ethernet` fits it.

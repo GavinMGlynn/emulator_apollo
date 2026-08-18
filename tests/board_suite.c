@@ -1958,6 +1958,58 @@ static void test_two_boards_exchange_a_frame_on_a_scheduled_ring(void) {
   TEST_ASSERT_EQUAL_HEX64(hashes[0], hashes[1]);
 }
 
+/* **The Series 2500's own register block, which its firmware needs before it
+ * executes anything else.** `2500_BOOT_16182_8` resets to `0001F040` and does
+ *
+ *     move.b #$1F,$00020800    ; the posted code
+ *     move.b #$FF,$000202D0
+ *     move.b #$40,$000202CC
+ *     move.b #$2, $00020800
+ *     move.b #$1, $000202D4
+ *     move.b $000202D4,d0 / andi.b #$0F,d0 / cmpi.b #$1,d0 / beq
+ *     ... else spin here for ever
+ *
+ * so `0202D4`'s low nibble must read back what was written or the machine never
+ * leaves its second instruction. **This is not the DN3500's core-register page
+ * at this family's displacement**: that PROM references none of `0202CC`,
+ * `0202D0` or `0202D4`, searched exhaustively. It is Series 2500-only, no
+ * document for it exists on disk or on the web, and the oracle has no 2500
+ * driver -- so it is storage, `PROVISIONAL`, and says so at its declaration.
+ *
+ * `020000` and `020100` *are* the DN3500's CPU status and control at the same
+ * displacement, which is the reading three other blocks here already make. */
+static void test_the_series_2500_control_block_reads_back_what_it_is_given(void) {
+  ap_board_t b;
+  bool ok = false;
+  TEST_ASSERT_TRUE(ap_board_init_model(&b, ram, sizeof ram, &START, 0x012345u,
+                                       AP_MODEL_DN2500));
+
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_S2500_CONTROL,
+                         ap_board_region(&b, 0x0202D4u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_S2500_CONTROL,
+                         ap_board_region(&b, 0x0202CCu));
+  ap_board_write(&b, 0x0202D4u, 0x01u, &ok);
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_HEX8(0x01u, ap_board_read(&b, 0x0202D4u, &ok) & 0x0Fu);
+  TEST_ASSERT_TRUE(ok);
+
+  /* The documented pair beside it, and the SIO the map already had -- so the
+   * displacement this block is placed at is the same one three other blocks
+   * are placed at, rather than a fourth guess. */
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_CORE_REGISTER,
+                         ap_board_region(&b, 0x020000u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_SIO, ap_board_region(&b, 0x020400u));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_TIMER, ap_board_region(&b, 0x020800u));
+
+  /* And a DN3500 has none of it: this is model variance, not a new address
+   * every machine grew. */
+  ap_board_t d;
+  TEST_ASSERT_TRUE(ap_board_init_model(&d, ram, sizeof ram, &START, 0x012345u,
+                                       AP_MODEL_DN3500));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED,
+                         ap_board_region(&d, 0x0202D4u));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_ethernet_card_is_absent_until_it_is_fitted);
@@ -1991,6 +2043,7 @@ int main(void) {
   RUN_TEST(test_an_empty_at_bus_window_reads_ff_rather_than_faulting);
   RUN_TEST(test_the_ring_windows_are_an_empty_slot_until_a_card_is_fitted);
   RUN_TEST(test_every_ring_window_reaches_the_card_from_the_bus);
+  RUN_TEST(test_the_series_2500_control_block_reads_back_what_it_is_given);
   RUN_TEST(test_a_second_ring_unit_is_an_empty_slot_when_one_card_is_fitted);
   RUN_TEST(test_the_boards_clock_reaches_an_attached_bus_master);
   RUN_TEST(test_a_cascaded_master_is_acknowledged_on_the_boards_own_clock);

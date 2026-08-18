@@ -5215,7 +5215,43 @@ Only after the reference core is proven, and only under an identity harness.
       search for a Series 2500 core-board or service manual returns
       configuration guides and parts lists and no hardware reference. **What
       would unblock it is a Series 2500 hardware manual or a machine to
-      measure**, and neither exists to be found. The DN4500's memory strap is
+      **DN2500, 2026-08-19: from 18 instructions to 60 M, and the next blocker
+      is named.** The tail recorded here -- "the Series 2500 PROM is 131072
+      bytes against `AP_BOARD_PROM_SIZE`" -- was already closed: `DS2500_MAP`
+      carries `prom_size 0x020000`. What actually stopped it was its **second
+      instruction**, and its own reset code says so:
+
+          0001F040  move.b #$1F,$00020800    ; the posted code, mapped
+          0001F048  move.b #$FF,$000202D0    ; <- bus error, nothing decoded
+          0001F050  move.b #$40,$000202CC
+          0001F058  move.b #$2, $00020800
+          0001F060  move.b #$1, $000202D4
+          0001F068  move.b $000202D4,d0 / andi.b #$0F,d0 / cmpi.b #$1,d0 / beq
+          0001F078  ... else spin here for ever
+
+      So `0202D4`'s low nibble must read back what was written. **It is not the
+      DN3500's core-register page at this family's displacement**: that PROM
+      references none of `0202CC`, `0202D0` or `0202D4`, searched exhaustively
+      over the image. Series 2500-only, no document on disk, and a fresh web
+      search finds none -- `[CFG]`'s Product Summary is configuration, not
+      registers -- and the oracle has no 2500 driver.
+      Modelled as `AP_BOARD_REGION_S2500_CONTROL`: **storage, `PROVISIONAL`**,
+      the same restraint the ring's unmapped slots are kept under. `020000` and
+      `020100` *are* the DN3500's CPU status and control at the same
+      displacement, which is the reading three other blocks in this map already
+      make (`010400`->`020400`, `010800`->`020800`, `010C00`->`020C00`).
+      *Verification: `board_suite` 56 -> 57; the machine runs **60 M
+      instructions with zero bus errors**, PC `0000BB06`, against 18
+      instructions and a fault before.*
+      **The next blocker, measured rather than guessed**: it prints nothing and
+      sits with `a1`/`a2` at `00020200` and `a3` at `00020280`, so the block is a
+      real device with register sets `$80` apart and the firmware is polling a
+      status bit. **Storage cannot satisfy a bit that must change**, which is
+      exactly the limit a storage model has. Closing it needs a Series 2500
+      register document or a 2500 driver to instrument, and neither exists
+      today -- so this is `PROVISIONAL` with its cost to close named, not a
+      module claimed finished.
+      The DN4500's memory strap is
       **solved**: the firmware decodes it with a fourteen-arm `cmp.b` chain,
       identical in the DN3500's PROM, and the oracle's four bank layouts fall
       out of it unchanged. Its self-test failure was our unstrapped port reading

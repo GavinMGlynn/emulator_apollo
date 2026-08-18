@@ -159,6 +159,33 @@ static const ap_board_map_t DS3000_MAP = {
  * whose peripherals are a different generation's. */
 static const ap_board_placement_t DS2500_PLACEMENT[] = {
     {0x000000u, 0x020000u, AP_BOARD_REGION_PROM, AP_BOARD_PROM_BASE},
+    /* **The core registers, and the firmware's second instruction needs them.**
+     * `2500_BOOT_16182_8` resets to `0001F040` and does
+     *
+     *     move.b #$1F,$00020800    ; the posted code, already mapped here
+     *     move.b #$FF,$000202D0
+     *     move.b #$40,$000202CC
+     *     move.b #$2, $00020800
+     *
+     * and the second of those was a bus error: nothing decoded `0202xx`. It is
+     * the DN3500's `010200` cache-control page at this family's offset, and the
+     * offset is not a guess -- the three device blocks already here are the
+     * DN3500's at **exactly** `+$10000`, on three independent placements
+     * (`AP_SIO1_ADDR` `010400` -> `020400`, `AP_TIMER_ADDR` `010800` ->
+     * `020800`, `AP_DMA1_ADDR` `010C00` -> `020C00`). A fourth block at the
+     * same displacement is the reading those three make, and the firmware
+     * reaching into it is what says the block exists.
+     *
+     * `canonical` sends them to the DN3500 addresses the register module was
+     * written against, which is what that field is for. */
+    /* `020000` CPU status and `020100` CPU control: **these two are the
+     * DN3500's**, at this family's displacement, and the firmware reads
+     * `020000` immediately after the block above. Unlike `0202xx` they are
+     * documented registers whose DN3500 originals this core already models, and
+     * the displacement is the one three other blocks here already establish. */
+    {0x020000u, 2u * AP_BOARDREG_RANGE, AP_BOARD_REGION_CORE_REGISTER,
+     AP_BOARDREG_CPU_STATUS_ADDR},
+    {0x020200u, AP_BOARDREG_RANGE, AP_BOARD_REGION_S2500_CONTROL, 0x020200u},
     /* Twenty-five references, and `[S3K]`-shaped usage: the serial ports. */
     {0x020400u, 2u * AP_SIO_RANGE, AP_BOARD_REGION_SIO, AP_SIO1_ADDR},
     /* The reset sequence's first three writes -- `#$1F`, `#$2`, `#$1C` -- are
@@ -885,7 +912,9 @@ void ap_board_advance_one(ap_board_t *board, uint32_t address, ap_time_t now) {
   switch (ap_board_region(board, address)) {
   case AP_BOARD_REGION_RAM:
   case AP_BOARD_REGION_PROM:
-    /* Nothing to observe: neither keeps time. */
+  case AP_BOARD_REGION_S2500_CONTROL:
+    /* Nothing to observe: none of them keeps time. The Series 2500 block is
+     * storage with no modelled behaviour at all (see its declaration). */
     return;
   case AP_BOARD_REGION_SIO:
     ap_sio_advance(&board->sio, now);
@@ -1159,6 +1188,7 @@ bool ap_board_cache_inhibited(const ap_board_t *board, uint32_t address) {
     return false;
   case AP_BOARD_REGION_UNMAPPED:
   case AP_BOARD_REGION_CORE_REGISTER:
+  case AP_BOARD_REGION_S2500_CONTROL:
   case AP_BOARD_REGION_SIO:
   case AP_BOARD_REGION_TIMER:
   case AP_BOARD_REGION_CALENDAR:
@@ -1202,6 +1232,7 @@ const char *ap_board_region_name(ap_board_region_t region) {
   case AP_BOARD_REGION_GRAPHICS: return "display controller";
   case AP_BOARD_REGION_RING: return "token ring controller";
   case AP_BOARD_REGION_MATROX: return "Matrox graphics";
+  case AP_BOARD_REGION_S2500_CONTROL: return "Series 2500 control";
   case AP_BOARD_REGION_ATBUS: return "AT bus (empty slot)";
   case AP_BOARD_REGION_RAM: return "main memory";
   }
@@ -1417,6 +1448,11 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     (void)ap_matrox_decode(address, &block, &offset);
     return ap_matrox_read8(&board->matrox, block, offset);
   }
+  case AP_BOARD_REGION_S2500_CONTROL:
+    /* Reads back what was written, which is the firmware's one measured
+     * requirement of this block: `1F060` writes `#$1` to `0202D4`, reads it,
+     * masks `$0F` and requires `$1`, spinning for ever if it does not get it. */
+    return board->s2500_control[address & 0xFFu];
   case AP_BOARD_REGION_RING: {
     /* **Unit 1 is a second slot, and it is empty.** Finding 38 left open
      * whether its windows were a second board or a second decode of the first,
@@ -1632,6 +1668,9 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
     ap_matrox_write8(&board->matrox, block, offset, value);
     return;
   }
+  case AP_BOARD_REGION_S2500_CONTROL:
+    board->s2500_control[address & 0xFFu] = value;
+    return;
   case AP_BOARD_REGION_RING: {
     /* Unit 1 is an empty slot, and a write into one goes nowhere. */
     unsigned unit = 0u;
