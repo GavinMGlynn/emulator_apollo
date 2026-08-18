@@ -9756,3 +9756,48 @@ command and should be done before writing anything.*
 installed, cleanly dismounted -- and a `startup.spm` that stops the node
 booting.** `media/dn3500-nodeB-paged.awd` is the last good artifact in the
 chain: INVOL complete, no OS, nothing edited.
+
+## C169 -- SR10.4 ships its own `siologin` templates, and they are not the SR10.2 manual's figure
+
+C168 left two candidates for why the rewritten `startup.spm` stops the node.
+The first is answered without an emulator, from the distribution media:
+`ct_extract.py --list` over the four SR10.4 software cartridges finds, on
+`019594-004`,
+
+    /base_sys  install/ri.apollo.os.v.10.4/sys/siologin/siologin        13079
+    /base_sys  install/ri.apollo.os.v.10.4/sys/siologin/siomonit         9005
+    /base_sys  install/ri.apollo.os.v.10.4/sys/siologin/siomonit_file    1526
+    /base_sys  install/ri.apollo.os.v.10.4/sys/siologin/startup_sio.sh    656
+
+**So `/sys/siologin/siomonit` does exist** -- candidate 1 is dead -- **and the
+release ships templates for exactly the files this session hand-wrote.**
+Extracted, they say the configuration is wrong in three ways:
+
+    #        cps /sys/siologin/siomonit -n siomonitor `node_data/siomonit_file
+    #
+    #  You must also put an sio line startup file in `node_data/startup_sio.sh.
+
+- **A backtick, not an apostrophe.** The path is `` `node_data ``. This
+  project's own notes, `admin.txt`'s OCR and every line written this session
+  used `'node_data`, and the shell's quoting is not the same character.
+- **`-n siomonitor`**, not `-n siomonit`.
+- **A third file is required** -- `` `node_data/startup_sio.sh `` -- which was
+  never written. Its template configures the line with `tctl` and is passed the
+  line number as `^1`.
+
+And the sample's own local entry is on **`/dev/sio2`**, not `sio1`:
+
+    -repeat /dev/tty01 -dialin -n siologin1  /com/sh -f -c user_data/startup_sio.sh 01
+    -repeat /dev/sio2   -n siologin2_local  /com/sh -f -c user_data/startup_sio.sh 2
+
+**The lesson is the resolution order, applied one step too shallowly.** The
+`siologin` configuration was taken from `admin.txt` -- a real manual, on disk,
+and the right kind of source -- but it documents an *older release*, and the
+release being installed carries its own templates on its own media. `[the
+distribution]` outranks `[a manual for a previous version]`, and one
+`ct_extract --list` would have said so before any of this was typed.
+
+*What a corrected attempt does: `cpf /sys/siologin/siomonit_file` and
+`startup_sio.sh` into `` `node_data `` rather than composing them by hand,
+edit the copies, and add the `cps` line exactly as the template prints it.
+That is one `cpf` per file in the MINST shell, and `cpf` is in `/com`.*
