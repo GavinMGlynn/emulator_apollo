@@ -11021,6 +11021,26 @@ than by re-running a forty-minute install to find out. That is the discipline
 `CLAUDE.md` asks for and it was not applied to the two installs before this one,
 both of which ran to the end and then failed at the last line.*
 
+### And the PROM finds SAU7 on it, which is the whole point
+
+The committed volume booted on **our** core, no oracle involved:
+
+    --- Load paths tested.
+    Loading SELF_TEST diagnostics from boot device.
+    Loaded:  SELF_TEST     Revision:  2.4
+
+against `boot error: SAU7 not found in root_dir` / `Could not load
+/SAU7/SELF_TEST.` from the volume the same restore produced under `!exit`
+(C185). Its label also carries a real dismount stamp -- `2002-11-27 04:18:11`,
+four minutes after the mount -- where the `!exit` volumes carry zero and no
+`--clock` can satisfy the fourteen-day check.
+
+**So the chain is closed by measurement at every link**: `!exit` leaves three
+root entries and a PROM that cannot find SAU7; EOT then `shut` leaves seventeen
+and a PROM that loads it. This is a restore only -- MINST is what writes
+`SYSBOOT`, so this particular volume is still not *bootable* -- but the failure
+that stopped SR10.2 is gone, and the install that fixes the rest is running.
+
 *One trap, for the fifth recorded time: `pgrep -f PATTERN | xargs kill` matched
 **this session's own shell**, because the pattern appeared in the command line
 running it. Kill by PID recovered from a prior lookup, never by pattern.*
