@@ -433,6 +433,97 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The parity error register was read-only and we let programs write it
+## (2026-08-20)
+
+From the `002398-04` walk, pages 12-23 to 12-28 — the DMA controllers, the fault
+vectors, the parity error register and the two interrupt controllers.
+
+### What `008778-03` gave a name to, this handbook gives contents
+
+Table 2-8 calls the register at `9300` "Latch Page on Parity" and stops.
+`002398-04` p. 12-27:
+
+> **PARITY ERROR REGISTER (read only)** `[ 9300 | 03FFA300 ]`
+>
+>     15 14 13 ......................... 0
+>     | x | x |        FAILING PPN        |
+>
+> The upper two bits must be masked off.
+
+cited to `type mmu_$parity_ppn in /os/kins/term.pvt.pas`. So it holds the
+**failing physical page number** and it is **read only**.
+
+`ap_board.c`'s `parity_error` already latched `address >> 10`, and the fourteen
+bits confirm that shift rather than merely allowing it: fourteen is what a
+24-bit address leaves after dividing by a 1024-byte page. What was wrong is the
+other half — a bus write **stored** here, so a program could overwrite the one
+thing a parity handler exists to read. Writes are absorbed now, like every other
+read-only register on this board.
+
+The width is recorded and **not enforced**. Fourteen bits is the DN3000's
+address space; `019411-A00` §4.2.1.4 gives the Series 4000's page number as bits
+`<25:10>`, sixteen of them, and this core models the wider machine. Masking to
+fourteen would throw away real address bits. `boardreg_suite`'s test used to
+assert that the register "stores all sixteen bits" — the wrong half of a
+two-part claim — and now asserts the width from the side that has it, the
+hardware's latch, plus the refusal of a bus write.
+
+### Confirmed, and worth saying so
+
+The 8237s: both polarity bits of the command register — the pair that sat
+unresolved until a board could measure them — and all six others, the status
+register's request and terminal-count halves, the mask registers, and the mode
+register's four transfer types and four modes. The 8259As: the cascade on the
+master's IR3 for the third time in this project's sources, the `0A`/`0B` read
+selects, the `20` non-specific EOI, and **the whole initialization sequence** the
+boot PROM writes, with Apollo's reading of each word — `ICW1 19` level
+triggered, `ICW2 A0`/`A8`, `ICW3 08`/`03`, `ICW4 01`.
+
+And one statement this core has to *earn* rather than encode: "the priority of
+IRQ8-15 is **higher** than IRQ4-7 since they use the second PIC which is slaved
+to the master at IRQ3". That falls out of modelling the cascade; a model with a
+priority table would have to be told.
+
+The vector table confirms `ap_parity`'s level-7 autovector at `07C`, the ring on
+`IRQ2` at vector `A2` — which is the `162` side of the tension `ap_board.h`
+records against finding 53d's `163` — and names the user vectors at `40`-`9F` as
+"used for prom entry pts".
+
+### Three disagreements, recorded and not adopted
+
+**The ethernet boards' interrupt lines.** p. 12-26 and p. 12-28 both read "IRQ9
+Ethernet board 1, IRQ10 Ethernet board 2". `008778-03` §14.1 says the first card
+uses IRQ10 and the second IRQ9, and Figure 14-3 draws **one card's straps** with
+"Interrupt Level 10" and "Hex Address 300" on the same figure — the address this
+core decodes and the line it raises, on the same board. `AP_BOARD_ETHERNET_IRQ`
+stays 10: a jumper figure outranks two summary tables, and a summary that
+transposes two adjacent rows looks exactly like this. The same handbook also
+puts board 2 at ISA `308` where Figure 14-4 jumpers the alternate card to `310`,
+so the two documents disagree about that board twice. Named in `ap_board.h`;
+what would settle it is the DN3000's own driver or a photograph.
+
+**The DMA channel usage.** p. 12-23 lists "CH1 SDLC option" where Table 2-4 has
+DRQ1 Tape and Table 8-1 straps the SC-499 to channel 1, and "CH7 avail" where
+Table 2-4 reserves DRQ7 for the Winchester. The reading that fits both is that
+"avail" means unclaimed in the base configuration — from which it follows that a
+machine cannot carry both the tape and the SDLC option, a configuration
+exclusivity nothing states outright.
+
+**The 8237's byte-pointer address.** p. 12-24 prints "Clear Byte Pointer
+`[900D]`", which is the part's **master clear**; the byte-pointer flip-flop is
+offset `C`. A driver following that line would reset the controller before
+loading every address. The other five addresses on the page are right.
+
+### Chapter 12 delegates two sections to chapter 7
+
+p. 12-25 sends FAULT FRAME AND FAULT TYPES and p. 12-26 sends FLOATING-POINT
+REGISTERS to "CHAPTER 7, DN300,320". So the chapter this walk's reading order
+treats as another machine family carries DN3000 content, and chapter 12 is not
+finished until those two sections are read. Recorded in the walk's Resume block
+and as a plan item, so that a delegated section cannot be mistaken for a covered
+one.
+
 ## The 4-plane board's palette, and a hash that did not cover the picture
 ## (2026-08-20)
 

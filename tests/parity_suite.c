@@ -148,6 +148,33 @@ static void test_a_parity_error_names_its_lane_and_latches_its_page(void) {
 
   TEST_ASSERT_EQUAL_HEX16((uint16_t)(TEST_ADDR >> 10),
                           board.registers.latch_page_on_parity);
+
+  /* `002398-04` p. 12-27 gives the field as bits 13-0, "the upper two bits must
+   * be masked off" -- fourteen bits, which is what the **DN3000's** 24-bit
+   * physical address leaves after a shift of ten. That confirms the shift and
+   * the 1024-byte page; it is not a width to enforce here, because this board's
+   * address space is wider and `019411-A00` §4.2.1.4 gives the Series 4000's
+   * page number as bits <25:10>. Masking to fourteen would throw away real
+   * address bits on the machine this core models. */
+}
+
+/* The same page heads the register "PARITY ERROR REGISTER (**read only**)", and
+ * this core stored what was written to it -- so a program could overwrite the
+ * one thing a parity handler exists to read. */
+static void test_the_parity_page_register_cannot_be_written(void) {
+  build();
+
+  control(AP_BOARDREG_CONTROL_FORCE_BAD_PARITY);
+  write_byte(TEST_ADDR, 0x00u);
+  control(0u);
+  (void)read_byte(TEST_ADDR);
+  const uint16_t latched = board.registers.latch_page_on_parity;
+  TEST_ASSERT_EQUAL_HEX16((uint16_t)(TEST_ADDR >> 10), latched);
+
+  ap_boardreg_write16(&board.registers, AP_BOARDREG_LATCH_PAGE_ADDR, 0x1234u);
+  TEST_ASSERT_EQUAL_HEX16(latched, board.registers.latch_page_on_parity);
+  TEST_ASSERT_EQUAL_HEX16(
+      latched, ap_boardreg_read16(&board.registers, AP_BOARDREG_LATCH_PAGE_ADDR));
 }
 
 /* ## Level 7, and only while the control register enables it
@@ -281,6 +308,7 @@ int main(void) {
   RUN_TEST(test_a_forced_write_fails_its_check_and_still_returns_the_byte);
   RUN_TEST(test_an_ordinary_write_regenerates_parity);
   RUN_TEST(test_a_parity_error_names_its_lane_and_latches_its_page);
+  RUN_TEST(test_the_parity_page_register_cannot_be_written);
   RUN_TEST(test_a_parity_error_raises_level_seven_only_when_enabled);
   RUN_TEST(test_the_interrupt_is_a_level_that_either_clear_drops);
   RUN_TEST(test_the_lane_bits_are_inverted_on_this_family_only);

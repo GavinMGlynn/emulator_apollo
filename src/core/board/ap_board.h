@@ -182,7 +182,30 @@ typedef enum {
  * jumpering, and Table 2-3 — against one erratum. Figure 14-3 also jumpers
  * "Control Status Registers Hex Address **300**", confirming
  * `AP_BOARD_ETHERNET_ADDR` from the card's own side rather than only from
- * Table 2-7 and the oracle tap. */
+ * Table 2-7 and the oracle tap.
+ *
+ * ## And a fourth source disagrees, twice, in the same chapter
+ *
+ * `002398-04` numbers the two boards the other way round. Its vector table on
+ * p. 12-26 reads "IRQ9 - Ethernet board 1 / IRQ10 - Ethernet board 2", and its
+ * interrupt assignment table on p. 12-28 repeats it — so the handbook is
+ * self-consistent and opposite to `008778-03` about the card at ISA `300`,
+ * which is the card this core models. Its address-space table on p. 279 puts
+ * **board 2 at ISA `308`** where Figure 14-4 jumpers the alternate card to
+ * `310`, so the two documents disagree about that board's address as well.
+ *
+ * **`IRQ10` is kept**, and not by counting sources. `008778-03` Figure 14-3 is a
+ * drawing of *one card's straps* showing "Interrupt Level 10" and "Hex Address
+ * 300" together — the address this core decodes and the line it raises, on the
+ * same board in the same figure — where the handbook's are two summary tables
+ * naming devices beside vector numbers. A summary that transposes two adjacent
+ * rows looks exactly like this, and the handbook's neighbouring pages transpose
+ * the disk controller's mask register and misaddress its own DMA byte-pointer
+ * register.
+ *
+ * Recorded rather than resolved away: the disagreement is real, it is about the
+ * modelled card, and what would settle it is the DN3000's own ethernet driver
+ * or a jumper photograph. */
 #define AP_BOARD_ETHERNET_IRQ 10u
 
 /* **The ring is on master IRQ 2, and it is documented** -- `RING.md` 107.
@@ -190,7 +213,24 @@ typedef enum {
  * `002398-04` p. 12-28 tabulates the DN3000's "Interrupt Request Line
  * Assignments" outright: `IRQ 0` timers, `IRQ 1` sio, **`IRQ 2` ring**,
  * `IRQ 3 ---> slave pic to master`, then `IRQ8` calendar, `IRQ9`/`IRQ10` the
- * two ethernet boards, `IRQ14` winchester, `IRQ5` tape, `IRQ6` floppy.
+ * two ethernet boards, `IRQ11`/`IRQ15` a PC option board's primary and
+ * alternate, `IRQ14` winchester, `IRQ5` tape, `IRQ6` floppy. p. 12-26's vector
+ * table gives the same assignment against vector numbers, and adds `IRQ13
+ * Diagnostic Interrupt`, which p. 12-28 leaves blank.
+ *
+ * **The initialization sequence is on the same page**, and it is what the boot
+ * PROM writes: master `ICW1 = 19` "level triggered, need ICW4", `ICW2 = A0`
+ * "vector byte value for ints at $280+", `ICW3 = 08` "have slave at IRQ3",
+ * `ICW4 = 01` "normal EOI, 8086 mode", `OCW1 = FF`; slave the same but
+ * `ICW2 = A8`, `ICW3 = 03` "am slave with ID 3". Every value this core's
+ * `ap_i8259` decodes, written out with Apollo's reading of each.
+ *
+ * And the priority consequence, stated: "On slave interrupt, EOI slave first,
+ * then master. The priority of IRQ8-15 is **higher** than IRQ4-7 since they use
+ * the second PIC which is slaved to the master at IRQ3." That is emergent here
+ * rather than coded -- the cascade sits at IR3 and the slave's lines inherit its
+ * priority -- which is what a cascade model gets right for free and a table of
+ * priorities would have to be told.
  *
  * That settles open question 82's **three-way disagreement**, and by agreeing
  * with the measurement rather than overriding it: `FINDINGS.md` C11 measured

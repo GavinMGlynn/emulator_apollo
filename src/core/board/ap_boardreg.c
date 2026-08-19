@@ -332,7 +332,12 @@ static void store(ap_boardreg_t *regs, ap_boardreg_id_t id, uint16_t value) {
     regs->cache_control = (uint8_t)(value & AP_BOARDREG_CACHE_WRITABLE);
     break;
   case AP_BOARDREG_LATCH_PAGE_ON_PARITY:
-    regs->latch_page_on_parity = value;
+    /* **Read only**, and this stored. `002398-04` p. 12-27 heads it "PARITY
+     * ERROR REGISTER (read only)" and gives its contents as the FAILING PPN in
+     * bits 13-0 with "the upper two bits must be masked off" -- so what it holds
+     * is the hardware's answer to *which page*, and a program writing it would
+     * have overwritten the one thing the parity handler is there to read.
+     * Absorbed, like every other write to a read-only register here. */
     break;
   case AP_BOARDREG_MASTER_REQUEST:
     /* Byte-wide: every one of the 29 firmware sites is a `CLR.B` or a `MOVE.B`.

@@ -114,6 +114,35 @@ typedef enum {
 #define AP_BOARDREG_CPU_CONTROL_ADDR 0x010100u
 #define AP_BOARDREG_CACHE_CONTROL_ADDR 0x010200u
 #define AP_BOARDREG_TASK_ALIAS_ADDR 0x010300u
+/* ## The parity error register, and what it actually contains
+ *
+ * `008778-03` Table 2-8 gives this only a name -- "Latch Page on Parity" -- and
+ * this file modelled it as sixteen bits of storage on that basis. `002398-04`
+ * p. 12-27 gives its contents, for the DN3000 where it sits at `9300`:
+ *
+ *     PARITY ERROR REGISTER (read only)  [ 9300 | 03FFA300 ]
+ *
+ *     15 14 13 ......................... 0
+ *     | x | x |        FAILING PPN        |
+ *
+ *     The upper two bits must be masked off.
+ *
+ * -- cited to `type mmu_$parity_ppn in /os/kins/term.pvt.pas`. So it is the
+ * **failing physical page number**, fourteen bits, and it is **read only**.
+ *
+ * Both halves matter and this core had one of them. `ap_board.c`'s
+ * `parity_error` already latches `address >> 10`, which is the page number on a
+ * machine whose page is 1024 bytes -- and fourteen bits is exactly what the
+ * DN3000's 24-bit physical address leaves after that shift, so the field width
+ * confirms the shift and the page size rather than merely permitting them. What
+ * was wrong is that a bus write **stored** here, so a program could overwrite
+ * the one thing a parity handler reads.
+ *
+ * The fourteen bits are **not** enforced. They are the DN3000's address space,
+ * and this core models a machine with a wider one: `019411-A00` §4.2.1.4 gives
+ * the Series 4000's physical page number as bits `<25:10>`, sixteen of them, so
+ * masking to fourteen would throw away real address bits. The two documents
+ * describe the same field on two machines. */
 #define AP_BOARDREG_LATCH_PAGE_ADDR 0x011300u
 #define AP_BOARDREG_MASTER_REQUEST_ADDR 0x011600u
 #define AP_BOARDREG_SELECTIVE_CLEAR_ADDR 0x016400u

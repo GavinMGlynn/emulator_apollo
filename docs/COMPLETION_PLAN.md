@@ -5591,7 +5591,27 @@ The record is `docs/references/002398-04_WALK.md`, in the same shape as the
 finished `008778-03_WALK.md`.
 
 **Started 2026-08-20. Front matter read (PDF 5–11); chapter 12 begins at PDF
-279 and runs to 313. 22 content pages of 330.**
+279 and runs to 313. 28 content pages of 330.**
+
+- [ ] **Chapter 7's FAULT FRAME and FLOATING-POINT REGISTERS sections are
+      chapter 12's.** `002398-04` p. 12-25 and p. 12-26 delegate both to
+      "CHAPTER 7, DN300,320", so the chapter this reading order treats as
+      another machine family carries DN3000 content. Chapter 7 keeps its
+      scheduled place; what this records is that **chapter 12 is not finished
+      until those two sections are read**, so that a later reader cannot mistake
+      a delegated section for a covered one.
+
+- [x] **The DMA, vector and interrupt pages** (`002398-04` pp. 12-23 – 12-28,
+      PDF 301–306). One defect fixed: the **parity error register** at `9300`
+      is documented read-only and holds the failing physical page number, and
+      this core let a bus write store there — over the one thing a parity
+      handler exists to read. The 8237's command, status, mask and mode
+      registers, the two 8259As and their whole initialization sequence, and the
+      DN3000's vector table all confirm unchanged. Two tests; `ctest` 139/139.
+      **Three disagreements recorded and not adopted**: the ethernet boards'
+      IRQs against `008778-03` §14.1 and Figure 14-3, the DMA channel usage
+      table against Table 2-4, and the 8237's byte-pointer address. Detail in
+      `PROJECT_STATUS.md`.
 
 - [x] **The display controller's eight pages** (`002398-04` pp. 12-15 – 12-22,
       PDF 293–300). The 4-plane colour board's **lookup table** — three

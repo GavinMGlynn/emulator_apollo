@@ -44,6 +44,37 @@
  * a transfer far below the 64 KB the counter allows, and nothing else here
  * corroborates it, so it is quoted rather than enforced.
  *
+ * ## The channel usage table, and where it disagrees with `008778-03`
+ *
+ * p. 12-23 lists what each channel is *for*, and it is a kernel allocation table
+ * rather than a strapping one: "CH0 avail, **CH1 SDLC option**, CH2 floppy, CH3
+ * avail" on the first chip and "CH4 cascade for chip 1, CH5 avail, CH6 avail,
+ * CH7 avail" on the second.
+ *
+ * `008778-03` Table 2-4 assigns three of those: DRQ1 **Tape**, DRQ2 Floppy,
+ * DRQ7 "Reserved for Winchester" -- and Table 8-1 independently straps the
+ * SC-499 tape controller to "DMA Channel 1". Only the floppy and the cascade
+ * agree between the two documents.
+ *
+ * The reading that fits both: "avail" means no card in the base configuration
+ * claims the channel, and the option boards are strapped to channels the kernel
+ * then allocates. It follows that a machine cannot carry both the SC-499 tape
+ * and the SDLC option, since Apollo straps both to channel 1 -- which is a
+ * configuration exclusivity worth knowing and is not stated anywhere as such.
+ *
+ * Nothing here changes: this core's channels come from Table 2-4 and from the
+ * cards' own straps, which is the level the hardware works at.
+ *
+ * Two more from the same pages, neither modelled and both recorded. p. 12-23:
+ * the first 8237 "supports only 8 bit transfers (channels 0-3) and the second
+ * 16 bit transfers (channels 5-7)", which is Table 2-4's split stated as a chip
+ * property. And p. 12-24 prints the **Clear Byte Pointer register at `900D`**,
+ * which is the master clear: the 8237A's byte-pointer flip-flop is at offset
+ * `C` and `D` resets the part, so a driver following that line would reset the
+ * controller before loading every address. `AP_I8237_REG_CLEAR_FLIPFLOP` is the
+ * datasheet's `C`, and the handbook's other five addresses on that page are all
+ * right, which is what makes this one a slip rather than a board difference.
+ *
  * ## It *is* the AT's layout, and it took a document to say so
  *
  * The first write this core sees is to `009207`, and on an AT channel 0's page

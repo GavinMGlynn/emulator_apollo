@@ -210,13 +210,29 @@ static void test_the_control_register_stores_all_sixteen_bits(void) {
   }
 }
 
-static void test_the_latch_page_register_stores_all_sixteen_bits(void) {
+/* The latch-page register is sixteen bits wide and **read only**, which is two
+ * claims and this used to test the wrong one: it wrote each bit and read it
+ * back, asserting a store the hardware does not have. `002398-04` p. 12-27
+ * heads it "PARITY ERROR REGISTER (read only)" and gives its contents as the
+ * failing page number, so what a program writes must not reach it -- see
+ * `AP_BOARDREG_LATCH_PAGE_ADDR`.
+ *
+ * The width is still asserted, from the side that has it: the *hardware* latches
+ * the page, and every bit of what it latches must read back. */
+static void test_the_latch_page_register_is_read_only_and_sixteen_bits(void) {
   ap_boardreg_t regs;
   ap_boardreg_init(&regs);
 
   for (unsigned bit = 0; bit < 16; bit++) {
-    uint16_t one = (uint16_t)(1u << bit);
-    ap_boardreg_write16(&regs, AP_BOARDREG_LATCH_PAGE_ADDR, one);
+    const uint16_t one = (uint16_t)(1u << bit);
+    regs.latch_page_on_parity = one;
+    TEST_ASSERT_EQUAL_HEX16(one,
+                            ap_boardreg_read16(&regs,
+                                               AP_BOARDREG_LATCH_PAGE_ADDR));
+
+    /* And a bus write of anything at all leaves it standing. */
+    ap_boardreg_write16(&regs, AP_BOARDREG_LATCH_PAGE_ADDR,
+                        (uint16_t)~one);
     TEST_ASSERT_EQUAL_HEX16(one,
                             ap_boardreg_read16(&regs,
                                                AP_BOARDREG_LATCH_PAGE_ADDR));
@@ -703,7 +719,7 @@ int main(void) {
   RUN_TEST(test_clear_all_clears_every_condition_and_nothing_else);
   RUN_TEST(test_the_graphics_trap_location_decodes_and_clears_nothing);
   RUN_TEST(test_the_control_register_stores_all_sixteen_bits);
-  RUN_TEST(test_the_latch_page_register_stores_all_sixteen_bits);
+  RUN_TEST(test_the_latch_page_register_is_read_only_and_sixteen_bits);
   RUN_TEST(test_the_cache_control_register_is_a_byte_not_a_word);
   RUN_TEST(test_only_bit_seven_of_the_cache_control_register_is_writable);
   RUN_TEST(test_a_register_is_aliased_across_its_whole_range);
