@@ -86,14 +86,51 @@ static void test_the_memory_read_cycle_is_the_one_row_that_differs(void) {
 }
 
 /* The durations come out in `AP_TIME_BASE_HZ` units and not in anybody's
- * clocks, which is this machine's standing rule. 750 ns is 4950 base units
- * exactly -- 6.6 per nanosecond -- and an implementation that divided before
- * multiplying would return 4500, nine per cent short. */
+ * clocks, which is this machine's standing rule. An implementation that
+ * divided before multiplying would come out nine per cent short.
+ *
+ * **1000 ns, not 750.** This asserted the Series 3000's `#48` *command width*
+ * for as long as that was the best figure in hand; §3.4 publishes the
+ * **cycle** -- "1 microsecond for 8-bit transfers to 8-bit devices" -- and
+ * §2.4.2 gives it independently as four wait states on a two-clock base, which
+ * is six of this board's 166.67 ns bus clocks. The header records why the
+ * count rather than the nanoseconds is what travels between the families. */
 static void test_a_cycle_time_is_a_duration_in_base_units(void) {
   const ap_atbus_timing_t *a = ap_atbus_timing(AP_ATBUS_SERIES_3000);
   const ap_time_t io = ap_atbus_access_time(a, AP_ATBUS_CYCLE_IO_8, true);
 
-  TEST_ASSERT_EQUAL_UINT64(750ull * AP_TIME_BASE_HZ / 1000000000ull, io);
+  TEST_ASSERT_EQUAL_UINT64(1000ull * AP_TIME_BASE_HZ / 1000000000ull, io);
+}
+
+/* **The cycle is six bus clocks for 8-bit I/O and three for 16-bit, on both
+ * boards** -- which is what makes it a derivation rather than a transcription
+ * of one family's nanoseconds. §3.4's printed 500 ns and 1 us fall out of the
+ * Series 3000's clock; the Series 4000 runs the same counts faster. */
+static void test_an_io_cycle_is_a_fixed_number_of_bus_clocks(void) {
+  for (unsigned i = 0; i < 2u; i++) {
+    const ap_atbus_timing_t *t =
+        ap_atbus_timing(i == 0u ? AP_ATBUS_SERIES_3000 : AP_ATBUS_SERIES_4000);
+    TEST_ASSERT_NOT_NULL(t);
+    /* Rounded to the nearest hundredth of a clock, as `centiclocks` does, so
+     * the Series 3000's 166.67 ns period does not read as a mismatch. */
+    const uint64_t eight =
+        ((uint64_t)t->io_8_cycle_ns * t->bus_clock_hz * 100u + 500000000u) /
+        1000000000u;
+    const uint64_t sixteen =
+        ((uint64_t)t->io_16_cycle_ns * t->bus_clock_hz * 100u + 500000000u) /
+        1000000000u;
+    TEST_ASSERT_EQUAL_UINT64(600u, eight);
+    TEST_ASSERT_EQUAL_UINT64(300u, sixteen);
+  }
+}
+
+/* And a 16-bit transfer to an 8-bit device needs no figure of its own: §2.4.1
+ * says it "is converted to two 8-bit transfers", and §3.4's 2 us is twice its
+ * own 1 us. Asserted so the absence of a third cycle kind is a decision on
+ * record rather than an omission. */
+static void test_a_wide_transfer_to_a_narrow_device_is_two_cycles(void) {
+  const ap_atbus_timing_t *a = ap_atbus_timing(AP_ATBUS_SERIES_3000);
+  TEST_ASSERT_EQUAL_UINT32(2000u, 2u * a->io_8_cycle_ns);
 }
 
 /* ---------------------------------------------------------------------------
@@ -180,8 +217,9 @@ static void test_a_faster_processor_waits_more_clocks_for_the_same_card(void) {
   const uint64_t slow_clocks =
       (cycle + slow.cpu_clock.period - 1u) / slow.cpu_clock.period;
 
-  TEST_ASSERT_EQUAL_UINT64(19u, fast_clocks);
-  TEST_ASSERT_EQUAL_UINT64(9u, slow_clocks);
+  /* 25 and 12, up from 19 and 9: the cycle is the published one now. */
+  TEST_ASSERT_EQUAL_UINT64(25u, fast_clocks);
+  TEST_ASSERT_EQUAL_UINT64(12u, slow_clocks);
   TEST_ASSERT_TRUE(fast_clocks > slow_clocks);
 }
 
@@ -215,7 +253,13 @@ static void test_an_at_device_read_costs_a_machine_more_than_memory(void) {
   TEST_ASSERT_FALSE(r.fault);
   const uint32_t device_clocks = r.clocks;
   TEST_ASSERT_EQUAL_UINT(AP_M68030_MIN_BUS_CLOCKS, ram_clocks);
-  TEST_ASSERT_EQUAL_UINT(19u, device_clocks);
+  /* **25 processor clocks, up from 19.** A DN3500's 8-bit AT I/O cycle is
+   * §3.4's published 1 microsecond -- six bus clocks -- where this asserted
+   * `#48`'s 750 ns command width while that was the best figure in hand. The
+   * relationship the test exists for is unchanged and stronger: a device read
+   * still costs far more than a RAM read, and now by the documented amount. */
+  TEST_ASSERT_EQUAL_UINT(25u, device_clocks);
+  TEST_ASSERT_TRUE(device_clocks > ram_clocks);
 }
 
 int main(void) {
@@ -224,6 +268,8 @@ int main(void) {
   RUN_TEST(test_the_two_appendices_agree_in_bus_clocks);
   RUN_TEST(test_the_memory_read_cycle_is_the_one_row_that_differs);
   RUN_TEST(test_a_cycle_time_is_a_duration_in_base_units);
+  RUN_TEST(test_an_io_cycle_is_a_fixed_number_of_bus_clocks);
+  RUN_TEST(test_a_wide_transfer_to_a_narrow_device_is_two_cycles);
   RUN_TEST(test_the_at_windows_declare_a_figure_and_nothing_else_does);
   RUN_TEST(test_an_at_memory_read_costs_more_than_a_write);
   RUN_TEST(test_a_faster_processor_waits_more_clocks_for_the_same_card);

@@ -56,7 +56,37 @@
  * The alternative is not "no approximation" but "no wait states at all", which
  * on a 25 MHz processor is 80 ns against a documented 750 -- wrong by an order
  * of magnitude in the direction that hides every contention this core exists to
- * show. Cost to close: a published AT I/O cycle time, or a measurement.
+ * show.
+ *
+ * ## CLOSED: §3.4 publishes the cycle, and §2.4.2 says why
+ *
+ * That paragraph named its own price -- "a published AT I/O cycle time, or a
+ * measurement" -- and the `008778-03` walk found the first. **§3.4**: "The
+ * normal AT bus cycle takes **500 nanoseconds for 16-bit transfers**. It takes
+ * **1 microsecond for 8-bit transfers to 8-bit devices**. It takes **2
+ * microseconds for 16-bit transfers to 8-bit devices**. These are the minimum
+ * cycle times for devices on the AT bus."
+ *
+ * **§2.4.2 gives the same fact as a count**, which is the form used here:
+ * "devices that need to produce more wait states than the **nominal 1 for
+ * 16-bit designs or 4 for 8-bit designs**". Against a two-clock base that is
+ * **3 bus clocks** for 16-bit and **6** for 8-bit -- and at the Series 3000's
+ * 166.67 ns bus clock those are 500 ns and 1000 ns, reproducing §3.4's printed
+ * figures exactly. Three sections agreeing is what makes this a derivation
+ * rather than a transcription.
+ *
+ * **The count is used rather than the nanoseconds, deliberately.** §3.4 gives
+ * one pair of figures while discussing both families, and they match the
+ * *Series 3000's* clock; the appendices show cycles are not equal in absolute
+ * time across the two boards -- memory read is 666 ns against 375 ns. A wait
+ * state count is family-independent where a nanosecond figure is not, so the
+ * Series 4000 gets 3 and 6 of *its* bus clocks, 375 ns and 750 ns. If a source
+ * ever states the DS4000's I/O cycle in nanoseconds and it is not those, this
+ * is the reasoning to revisit.
+ *
+ * The 2 microsecond figure for a 16-bit transfer to an 8-bit device needs no
+ * row: §2.4.1 says such a transfer "is converted to two 8-bit transfers", and
+ * two 1 us cycles is 2 us.
  *
  * ## The DS3500 is in neither appendix, and this is the PROVISIONAL
  *
@@ -132,8 +162,14 @@ typedef struct {
 
   uint32_t memory_read_ns;  /* #18 */
   uint32_t memory_write_ns; /* #30 */
+  /* The **command widths**, `#37` and `#48` -- kept because the suite checks
+   * the two appendices against each other through them, and because they are
+   * what the tables actually print. They are *not* the cycle; see below. */
   uint32_t io_16_ns;        /* #37 */
   uint32_t io_8_ns;         /* #48 */
+  /* The **cycles**, which the appendices do not give and §3.4 does. */
+  uint32_t io_16_cycle_ns;
+  uint32_t io_8_cycle_ns;
 } ap_atbus_timing_t;
 
 [[nodiscard]] const ap_atbus_timing_t *ap_atbus_timing(ap_atbus_series_t series);
