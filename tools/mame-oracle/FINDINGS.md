@@ -12445,3 +12445,38 @@ So the three readings of a zero, in order of what would distinguish them:
 verification may have to go back to `lcnode` after all -- which would make the
 rewrite a clarification of what the item means rather than a route around its
 blocker.*
+
+## C230 -- Domain/OS *does* arm receive on line 2, which kills two of C222's readings
+
+The new armed-state report, on a boot of the line-2 volume:
+
+    sio1 armed  imr A2  isr 19  (A sr 04, B sr 0C)
+    sio2 armed  imr A2  isr 11  (A sr 04, B sr 04)
+
+`imr = A2` on **both parts**. `ap_mc68681.h` names the bits: `RXRDY_A` is
+`0x02`, `RXRDY_B` is `0x20`. So **Domain/OS arms the receive-ready interrupt on
+`sio2` channel A** -- the line `siologin2_local` was configured onto -- and does
+the same on the first part it uses for the console.
+
+**That settles a question three readings have hung on.** C229 listed "the OS
+never brought the ring line up for traffic, only far enough to accept the
+driver" as one of the ways a silent line could be explained. It did bring it up:
+the mask is armed, the receiver is enabled (`A sr 04` is TxRDY with RxRDY clear,
+which is an enabled receiver with nothing in it), and this run delivered no
+character, so a clear RxRDY is exactly right.
+
+**What it leaves.** A character delivered to that line was reported
+`sio2 A  1 discarded unread` (C219) *while* the mask was armed. So the sequence
+is: the OS arms receive on line 2, a character arrives, the port takes it, and
+the guest never reads the register. The discriminating run is now obvious and is
+in flight -- deliver the character and read `isr`/`sr` afterwards:
+
+  - **`isr` shows `RxRDY A` set and it stayed set** -- the interrupt was pending
+    and the operating system never serviced it. That points back at the shared
+    interrupt line C223 raised and C224 reduced: both parts are ORed onto the
+    one `IRQ 1` that `002398-04` p. 12-28 calls "sio", and a handler that
+    inspects only the first part's `ISR` would find nothing and return.
+  - **`isr` shows it clear** -- the character was consumed by something, and the
+    fault is further up, in `siologin` rather than in the delivery.
+
+*Recorded before that run reports, for the same reason C229 was.*
