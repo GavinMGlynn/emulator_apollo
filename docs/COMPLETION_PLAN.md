@@ -5324,6 +5324,22 @@ Only after the reference core is proven, and only under an identity harness.
       it means this item's remaining work is **one** change rather than two:
       teach `ap_machine` to build the CPU and MMU its model row names. The
       68040 and 68851 halves are already written and tested behind it.
+      **And the same shape appears a third time in the same table** (C228).
+      Counting readers for every field of `ap_model_t` outside `ap_model.c`
+      puts `cpu` at 110, `fpu` at 30, `ram_base` at 10 -- and **`has_ring` at
+      zero**. It is declared, set on eleven rows, and referenced outside the
+      table only by `model_suite`, which asserts the rows are what the table
+      already says; the card is fitted by `--ring` instead. So a row claiming a
+      card the machine never consults sits beside a row claiming an MMU the
+      machine never builds.
+      *Three sub-items, each small and none started here*: `ap_machine` builds
+      the CPU its row names; `.mmu` selects the MMU its own enum documents; and
+      `has_ring` either gates the default fit or is deleted. **The middle one is
+      not behaviour-neutral** -- an MMU with a different descriptor format is a
+      translation change -- and the third is not either, since gating the fit
+      would put a card in machines the reference boot has none in. Both need the
+      identity harness on the other side, which is why they are named rather
+      than done in passing.
 
       **DN2500, 2026-08-19: from 18 instructions to 60 M, and the next blocker
       is named.** The tail recorded here -- "the Series 2500 PROM is 131072
