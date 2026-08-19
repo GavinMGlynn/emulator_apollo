@@ -21456,7 +21456,7 @@ the defect was in the report and the fix is there.*
 
 ## The reference is re-baselined: two writable registers were outside the hash
 
-**`03EE415450926A89` is retired; the reference is `C275692A693D11D2`.** The
+**`03EE415450926A89` is retired; the reference is `74250CF07CD01373`.** The
 invocation is unchanged — `tools/identity-boot.sh` — and nothing the machine
 does changed. What changed is what the hash *covers*.
 
@@ -21570,6 +21570,31 @@ new golden are **byte-identical** — `ran`, `status`, `d0`, `pc`, `clocks` and
 `berr` all agree, for every probe. Adding a scope changes every hash it appears
 in, including the probes with no coprocessor, which is what a new scope does and
 not what a behaviour change looks like.
+
+### The third level, and the sweep is finished
+
+`machine_hash_into` is board + CPU + memory + time. Asked of `ap_machine_t`'s
+own 58 members, the diff named five that are state and were out:
+`last_instruction_clocks` and `instruction_start_clocks`, timing cursors
+carried *between* instructions — the same argument that puts `cpu->clocks` in;
+`pending_cycles`, bus time owed to the board and not yet delivered, which is
+work outstanding rather than work done; and `defer_cycle_delivery` and
+`devices_advance_mid_access`, which decide *when* devices advance, so two
+machines differing in either run a different schedule while agreeing on every
+register. Reference `C275692A693D11D2` → **`74250CF07CD01373`**, and `probes.txt`
+again byte-identical outside the hash column.
+
+Everything else `ap_machine_t` holds is instrumentation and is now recorded as
+such rather than merely absent: the fault and MMU site tables, the watch
+registers, the probe and table-fetch counters, and the exception- and fault-stop
+conditions, which are how a *run* was asked to end rather than anything the
+machine holds.
+
+**All three levels are now swept** — machine, CPU, board — and the method is
+worth stating because "is every hasher called" answers yes at all three while
+the real question is "does every stateful member have one". Twelve things were
+outside the identity hash: two registers, nine board members, the coprocessor,
+and this schedule state.
 
 **Diagnostic counters stay out throughout**, which is the convention this file
 already had: `parity`'s error tallies, `matrox`'s `frame_writes`, and the ring

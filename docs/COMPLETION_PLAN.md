@@ -4522,7 +4522,15 @@ discipline throughout.
       different addresses hash **alike**. `probes.txt` regenerated, and with the
       hash column stripped the old and new goldens are byte-identical — every
       behavioural column agrees, which is what says a new scope was added and no
-      behaviour moved. Reference `C275692A693D11D2`.*
+      behaviour moved.*
+- [x] **The third level, and the sweep is finished.** `ap_machine_t`'s own
+      members: five are state and were out — the two inter-instruction timing
+      cursors, the bus cycles owed to the board, and the two flags that decide
+      *when* devices advance. Everything else it holds is instrumentation and is
+      recorded as such. Detail in `PROJECT_STATUS.md`.
+      *Verification: reference `74250CF07CD01373`; `probes.txt` byte-identical
+      outside the hash column again; `ctest` 139/139. Twelve things were outside
+      the identity hash across the three levels.*
 - [x] **The ring station's buffers were lent by nobody, so a booting node could
       neither transmit nor receive.** `attach_tx` was called by tests only and
       `attach_rx` by nothing at all, so `ap_ring_station_queue_frame` returned

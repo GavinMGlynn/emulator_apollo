@@ -1020,8 +1020,29 @@ static uint64_t machine_hash_into(ap_hash_t *stp, const ap_machine_t *machine) {
   ap_hash_time(&st, machine->now);
   ap_hash_u32(&st, machine->cpu_clock.hz);
 
+  /* **The machine's own schedule state, which was outside the hash.** The board
+   * and the CPU were both swept for members with no hasher; this is the third
+   * and last level, and the same question found five here.
+   *
+   * `last_instruction_clocks` and `instruction_start_clocks` are timing cursors
+   * carried *between* instructions -- the same argument that puts `cpu->clocks`
+   * in. `pending_cycles` is bus time owed to the board and not yet delivered,
+   * which is work outstanding rather than work done. And the two mode flags
+   * decide *when* devices are advanced, so two machines differing in either run
+   * a different schedule while agreeing on every register. */
+  ap_hash_scope(&st, "machine.schedule");
+  ap_hash_u64(&st, machine->last_instruction_clocks);
+  ap_hash_u64(&st, machine->instruction_start_clocks);
+  ap_hash_u32(&st, machine->pending_cycles);
+  ap_hash_u8(&st, machine->defer_cycle_delivery ? 1u : 0u);
+  ap_hash_u8(&st, machine->devices_advance_mid_access ? 1u : 0u);
+
   /* `bus_errors` is deliberately absent -- see ap_machine.h. It is reported by
-   * `ap_machine_state` instead. */
+   * `ap_machine_state` instead, and it keeps company with the rest of
+   * `ap_machine_t` that is instrumentation rather than state: the fault and MMU
+   * site tables, the watch registers, the probe and table-fetch counters, and
+   * the exception- and fault-stop conditions, which are how a *run* was asked
+   * to end rather than anything the machine holds. */
   return ap_hash_end(&st);
 }
 
