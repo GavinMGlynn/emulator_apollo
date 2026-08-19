@@ -436,8 +436,8 @@ summarised, with their reasoning moved to the end of this file.
 ## The floppy drive had no access time, and chapter 6 named the Winchester
 ## (2026-08-20)
 
-From the `008778-03` whole-document walk, chapters 6 through 14. Coverage in
-`docs/references/008778-03_WALK.md`, now 135 pages of 209.
+From the `008778-03` whole-document walk, chapters 6 through 15. Coverage in
+`docs/references/008778-03_WALK.md`, now 141 pages of 209.
 
 ### The floppy had the defect the fixed disk was fixed for
 
@@ -565,6 +565,47 @@ clocks. A 0.10% shift is what a change touching 14.6 M disk accesses out of
 number, `A354786119A3931D`, was superseded twice earlier in this walk by the AT
 bus cycle time and the 16-bit Winchester transfer, and was stale here. **It was
 superseded again one commit later — see below.**
+
+### Chapter 15: the board C237 had to argue away, described
+
+The chapter the structure table omitted turns out to be the one that settles
+`FINDINGS.md` C237's last loose end, and it does so by *description* where the
+argument had been by elimination.
+
+C237 asks whether the on-board second 2681 has an interrupt line. Four
+statements in chapter 2 say the on-board set is closed at five with no room for
+one — §2.1's eleven bus levels, Tables 2-1 and 2-2 showing `IRQ0/1/2/8/13` on
+neither connector, and §2.4.8's "one is used for cascading, four are used
+internally ... and 11 are available". The awkward part was always Table 2-3's
+two "SPE Board Serial Line" rows on IRQ4 and IRQ9, which *look* like the second
+DUART.
+
+**Chapter 15 is that board's chapter.** The SPE is an **IDEAssociates**
+Serial/Parallel Controller — a bought-in XT-size expansion card with two RS-232
+ports and a Centronics parallel port, which is why the chapter describes
+connectors and switches and never a register. §15.4.1 puts serial port 1 on
+IRQ4, §15.4.2 puts port 2 on IRQ9, §15.4.3 puts the parallel port on IRQ7, and
+Figure 15-5's switchpack places all three at `3F8`, `2F8` and `378` — Table
+2-7's SPE rows, from the card's own switches. So those rows belong to a card
+that is not fitted here, and the on-board second DUART genuinely has no line.
+Recorded in `board/ap_sio.h` beside `AP_SIO_IRQ`.
+
+**One trap in that chapter, disarmed rather than absorbed.** §15.1 and §15.4.2
+say serial port 2 "generates interrupts on **IRQ2** (logically connected to
+IRQ9)". That is the *card's* connector position — what an ISA card's silkscreen
+calls IRQ2 — and Table 2-1 shows the Apollo 62-pin connector carrying IRQ3, 4,
+5, 6, 7 and **9**, with no IRQ2 on it at all. It is **not** the master
+controller's `IR2`, which carries the ring and which Tables 2-1/2-2 show reaches
+no connector. Two different things called IRQ2, one on a card and one on the
+motherboard; reading them as one would put the ring and an expansion serial port
+on the same input.
+
+**And a warning in chapter 8 gets its motive.** Figure 15-5's *alternate*
+settings put SPE serial port 2 at `218–21F` — the tape controller's base
+address, which Table 8-1 prints under a notice that the tape "must be configured
+as follows to avoid bus contention between the tape controller and any other
+controller using the AT-compatible bus". The alternate SPE configuration is
+precisely the contention that notice warns about.
 
 ### Chapter 14: an inference becomes a quotation, and a chapter was missing
 

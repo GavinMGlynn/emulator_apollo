@@ -51,7 +51,44 @@
 #define AP_SIO_RANGE 0x100u
 
 /* `008778-03` Table 2-3: "IRQ1 ... 2681 SIO Port 1", priority 2 -- second only
- * to the interval timer. */
+ * to the interval timer.
+ *
+ * ## The second DUART has no line of its own, and the board that looks like it
+ *
+ * `ap_sio_irq` ORs **both** DUARTs into this one line, and Table 2-3 names only
+ * Port 1. Four independent statements in that manual say the on-board set is
+ * closed and has no room for a second: §2.1's "11 Interrupt levels" against
+ * Table 2-3's eleven unstarred rows; Tables 2-1 and 2-2, where `IRQ0`, `1`, `2`,
+ * `8` and `13` appear on **neither** bus connector; and §2.4.8's count -- "one
+ * is used for cascading, four are used internally by the system processor, and
+ * 11 are available on the AT-compatible bus". `FINDINGS.md` C237 holds the
+ * discriminating experiment, and this is the question it turns on.
+ *
+ * **The two rows that look like the answer are a different board, and chapter
+ * 15 is that board's chapter.** Table 2-3 gives IRQ4 and IRQ9 to "SPE Board
+ * Serial Line 1" and "Line 2", which reads like the second 2681 until you read
+ * §15: the SPE is an **IDEAssociates** Serial/Parallel Controller, a
+ * third-party XT-size expansion card with two RS-232 ports and a Centronics
+ * parallel port. §15.4.1 puts serial port 1 on **IRQ4**, §15.4.2 puts serial
+ * port 2 on **IRQ9**, and §15.4.3 puts the parallel port on **IRQ7** -- the
+ * three lines §15.1 announces. Figure 15-5's switchpack then places them at
+ * `3F8`, `2F8` and `378`, which is Table 2-7's SPE row for row.
+ *
+ * So the IRQ4/IRQ9 rows belong to a card that is not fitted here and that this
+ * core does not model, and the on-board second DUART genuinely has no line.
+ * That is now established from the board's own chapter rather than by
+ * elimination.
+ *
+ * **One trap in that chapter, disarmed**: §15.1 and §15.4.2 say serial port 2
+ * "generates interrupts on **IRQ2** (logically connected to IRQ9)". That is the
+ * *card's* connector position -- the AT bus pin an ISA card's silkscreen calls
+ * IRQ2 -- and Table 2-1 shows what the Apollo bus calls the same wire: the
+ * 62-pin connector's interrupts are IRQ3, 4, 5, 6, 7 and **9**, with no IRQ2 on
+ * it at all. It is **not** the master controller's `IR2`, which carries the ring
+ * (`board/ap_board.h`) and which Tables 2-1 and 2-2 show reaches no connector.
+ * Two different things called IRQ2, one on a card and one on the motherboard,
+ * and reading them as one would put the ring and an expansion serial port on the
+ * same input. */
 #define AP_SIO_IRQ 1u
 
 /* §3.9's refresh square wave, in base units. Exact; see the header. */
