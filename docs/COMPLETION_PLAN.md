@@ -5586,8 +5586,8 @@ one row per page range, including the ones that yield nothing — is
 section is only the list of **gaps the walk has opened and not yet closed**, so
 that they are findable from the plan rather than from a reference file.
 
-**125 of 209 pages walked.** Chapters 1–12 complete; resume at page 146,
-chapter 13.
+**131 of 209 pages walked.** Chapters 1–13 complete; resume at page 152,
+chapter 14.
 
 - [ ] **The Series 4000 virtual cache and write buffer, and their 16 KB of
       board-visible RAM.** §1.3.1: "an **8-KB, direct-mapped** cache ... 2048
@@ -5636,6 +5636,17 @@ chapter 13.
       and **not** the `siologin` blocker — on the SR10.4 reference boot `sio2`
       shows seven registers written and register 13 never read — but real, and
       formally untested in the line-2-configured case.
+- [ ] **Mode 3, absolute pointing-device packets.** `008778-03` §13.3.3 and
+      Figure 13-7: four bytes, 12-bit unsigned X and Y split across bytes 3 and
+      4, and `1 = switch depressed` -- the opposite polarity from every relative
+      format in that chapter. `ap_kbd_mouse_packet` implements Modes 0 and 2 and
+      not this. **What it waits on is not the packet**, which is fully
+      specified, but an absolute pointing device: this core models none and no
+      frontend offers one, so a caller has nowhere to get coordinates from.
+      §13's preamble bounds the cost -- "A quadrature mouse transmits data in
+      relative mode only", and the quadrature mouse is "the standard pointing
+      device for the *Domain System*", so the standard configuration never
+      reaches Mode 3.
 - [ ] **The keyboard's N-key rollover and its 16-byte buffer.** §12.2: "All keys
       exhibit **N-key rollover** for a minimum of six simultaneous key
       depressions", and "The keyboard buffers **at least 16 bytes** of data.

@@ -472,13 +472,6 @@ unsigned ap_kbd_mouse_packet(const ap_kbd_t *kbd, int dx, int dy, bool left,
   if (kbd == NULL || out == NULL) {
     return 0u;
   }
-  /* Mode 1 carries pointing data as its own packet types rather than as an
-   * escape, and those are not modelled. Nothing is emitted rather than a
-   * Mode 0 packet on a link that is not in Mode 0. */
-  if (kbd->keystate_mode) {
-    return 0u;
-  }
-
   /* "+127 to -128": the counts are one signed byte, so a larger movement is
    * clamped rather than wrapped. Wrapping would turn a fast drag right into a
    * jump left, which is a bug a person sees and a test does not. */
@@ -506,9 +499,18 @@ unsigned ap_kbd_mouse_packet(const ap_kbd_t *kbd, int dx, int dy, bool left,
   }
   /* Both invalid fields stay clear: this model's counts are always valid. */
 
-  out[0] = AP_KBD_MOUSE_ESCAPE_RELATIVE;
-  out[1] = b1;
-  out[2] = (uint8_t)dx;
-  out[3] = (uint8_t)dy;
-  return AP_KBD_MOUSE_PACKET;
+  /* §13.3.2, Mode 2: "In this mode, **all transmissions are relative cursor
+   * coordinate information packets**", so there is nothing to escape and the
+   * escape byte is absent. Figure 13-6's three bytes are Figure 13-4's B1, B2
+   * and B3 unchanged -- same button polarity, same invalid indicators, same
+   * signed counts -- which is why one builder serves both modes and only the
+   * leading byte differs. See the header. */
+  unsigned n = 0u;
+  if (!kbd->keystate_mode) {
+    out[n++] = AP_KBD_MOUSE_ESCAPE_RELATIVE;
+  }
+  out[n++] = b1;
+  out[n++] = (uint8_t)dx;
+  out[n++] = (uint8_t)dy;
+  return n;
 }

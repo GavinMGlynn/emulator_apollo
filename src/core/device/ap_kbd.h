@@ -279,15 +279,45 @@ void ap_kbd_reset(ap_kbd_t *kbd);
  * **up**. The buttons are true when *depressed*, and this reports them the way
  * Figure 13-4 does, so a caller never has to know the inversion.
  *
- * Returns the number of bytes written. Zero in keystate mode: §13.3 gives that
+ * Returns the number of bytes written: **four in Mode 0 and three in Mode 2**.
+ *
+ * ## Mode 2, which this used to decline
+ *
+ * This returned **zero** in keystate mode, with the note that "§13.3 gives that
  * mode its own packet types (2 and 3) rather than an escape, and this model
- * does not implement them -- reporting nothing is honest where emitting a Mode
- * 0 packet on a Mode 1 link would be a fabrication. */
+ * does not implement them". That was honest and it was also a gap, and the
+ * `008778-03` walk reached the section that closes it.
+ *
+ * **§13.3.2**: "In this mode, **all transmissions are relative cursor
+ * coordinate information packets**." There is nothing to escape, because in
+ * Mode 2 nothing else is on the line -- the escape exists in Mode 0 precisely
+ * to distinguish pointing data from key codes, and Mode 2 carries no key codes.
+ * Figure 13-6's three bytes are then Figure 13-4's `B1`, `B2` and `B3`
+ * **unchanged**: same fixed bit 7, same M/R/L in bits 6-4 with zero meaning
+ * depressed, same two-bit invalid indicators, same signed counts with positive
+ * meaning up and right. So the whole of Mode 2 is Mode 0 without its first
+ * byte, and one builder serves both.
+ *
+ * **Mode 3 stays unimplemented and is now a named gap rather than a lumped
+ * one.** §13.3.3 is absolute cursor control: four bytes, twelve-bit unsigned X
+ * and Y split across bytes 3 and 4, and `1 = switch depressed` -- the
+ * *opposite* button polarity from every relative format in this chapter. It
+ * needs an absolute pointing device, which this core does not model and no
+ * frontend offers; a caller has nowhere to get the coordinates from. Named in
+ * `docs/COMPLETION_PLAN.md`.
+ *
+ * One erratum, recorded so a later reader does not follow it: Figure 13-6's
+ * legend reads "X0 to X7 = **Y** coordinate ... Y0 to Y7 = Y coordinate". The
+ * first is X, as Figure 13-4's identical legend prints correctly one page
+ * earlier. */
 [[nodiscard]] unsigned ap_kbd_mouse_packet(const ap_kbd_t *kbd, int dx, int dy,
                                            bool left, bool middle, bool right,
                                            uint8_t *out);
 
+/* Mode 0's escape plus three bytes; Mode 2's three alone. A buffer of the
+ * larger takes either. */
 #define AP_KBD_MOUSE_PACKET 4u
+#define AP_KBD_MOUSE_PACKET_MODE2 3u
 
 [[nodiscard]] bool ap_kbd_press(ap_kbd_t *kbd, unsigned key, uint8_t *code);
 [[nodiscard]] bool ap_kbd_release(ap_kbd_t *kbd, unsigned key, uint8_t *code);

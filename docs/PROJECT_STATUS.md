@@ -436,8 +436,8 @@ summarised, with their reasoning moved to the end of this file.
 ## The floppy drive had no access time, and chapter 6 named the Winchester
 ## (2026-08-20)
 
-From the `008778-03` whole-document walk, chapters 6 through 12. Coverage in
-`docs/references/008778-03_WALK.md`, now 125 pages of 209.
+From the `008778-03` whole-document walk, chapters 6 through 13. Coverage in
+`docs/references/008778-03_WALK.md`, now 131 pages of 209.
 
 ### The floppy had the defect the fixed disk was fixed for
 
@@ -565,6 +565,50 @@ clocks. A 0.10% shift is what a change touching 14.6 M disk accesses out of
 number, `A354786119A3931D`, was superseded twice earlier in this walk by the AT
 bus cycle time and the 16-bit Winchester transfer, and was stale here. **It was
 superseded again one commit later — see below.**
+
+### Chapter 13: the mouse packet keystate mode used to decline
+
+`ap_kbd_mouse_packet` returned **zero bytes** whenever the keyboard was in
+keystate mode, with the note that Mode 1 "carries pointing data as its own
+packet types rather than as an escape, and those are not modelled — reporting
+nothing is honest where emitting a Mode 0 packet on a Mode 1 link would be a
+fabrication". That was the right call at the time and it left a mouse that
+stopped working the moment the host selected the other code set.
+
+**§13.3.2 is the specification, and it turns out to be almost nothing.** "In
+this mode, all transmissions are relative cursor coordinate information
+packets" — so there is nothing to escape. Mode 0's escape exists only to
+separate pointing data from key codes, and Mode 2 carries no key codes. Figure
+13-6's three bytes are then Figure 13-4's `B1`, `B2` and `B3` **unchanged**:
+same fixed bit 7, same M/R/L with zero meaning depressed, same invalid
+indicators, same signed counts with positive meaning up and right.
+
+So Mode 2 is Mode 0 without its first byte, one builder serves both, and
+`kbd_suite` asserts that identity directly — one movement through both modes,
+tails compared — so a later change that gave Mode 2 its own button polarity or
+sign convention would be caught.
+
+**Mode 3 is now a named gap rather than a lumped one.** §13.3.3 is absolute
+cursor control: four bytes, 12-bit unsigned coordinates split across bytes 3
+and 4, and `1 = switch depressed` — the *opposite* polarity from every relative
+format in the chapter. It needs an absolute pointing device, which this core
+does not model and no frontend offers, so a caller has nowhere to get
+coordinates from. And §13's preamble says what it costs: "A quadrature mouse
+transmits data in relative mode only", and the quadrature mouse is "the standard
+pointing device for the *Domain System*" — so the standard configuration never
+reaches Mode 3.
+
+**No identity re-run**, and the reason is checked rather than assumed: the diff
+adds a `#define` and a function branch and touches no struct field, so nothing
+hashed moved. That is the distinction the chapter-9 correction turned on — a
+changed *default* is hashed state; a changed *function body* on a path the
+reference boot never calls is not.
+
+Two errata and one polarity trap recorded in the walk file: Figure 13-6's legend
+prints "X0 to X7 = Y coordinate" where Figure 13-4's identical legend gets it
+right one page earlier; and §13.2's two pointing-device packets disagree on
+button sense four lines apart, `0 = depressed` for relative and `1 = depressed`
+for absolute.
 
 ### Chapter 12: the CAPS LOCK lamp the chapter opens by naming
 

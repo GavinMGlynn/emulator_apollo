@@ -551,17 +551,50 @@ static void test_a_movement_past_a_signed_byte_clamps(void) {
   TEST_ASSERT_EQUAL_HEX8(0x80u, packet[3]);
 }
 
-/* §13.3: keystate mode carries pointing data as Modes 2 and 3 rather than as an
- * escape. Those are not modelled, so nothing is emitted -- a Mode 0 packet on a
- * Mode 1 link would be a fabrication. */
-static void test_keystate_mode_emits_no_mode_zero_packet(void) {
+/* §13.3.2, Mode 2: "In this mode, **all transmissions are relative cursor
+ * coordinate information packets**", so there is nothing to escape and the
+ * escape byte is absent -- Mode 0's escape exists to separate pointing data
+ * from key codes, and Mode 2 carries no key codes.
+ *
+ * This test used to assert that keystate mode emitted **nothing**, which was
+ * the honest report of an unimplemented mode rather than the hardware's
+ * behaviour. §13.3.2 is what closed it. */
+static void test_keystate_mode_emits_a_mode_two_packet_with_no_escape(void) {
   ap_kbd_t kbd;
   ap_kbd_reset(&kbd);
   kbd.keystate_mode = true;
 
   uint8_t packet[AP_KBD_MOUSE_PACKET];
-  TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_mouse_packet(&kbd, 1, 1, false, false,
-                                                 false, packet));
+  TEST_ASSERT_EQUAL_UINT(AP_KBD_MOUSE_PACKET_MODE2,
+                         ap_kbd_mouse_packet(&kbd, 1, 1, false, false, false,
+                                             packet));
+  /* The first byte is B1, not the escape. */
+  TEST_ASSERT_NOT_EQUAL_UINT8(AP_KBD_MOUSE_ESCAPE_RELATIVE, packet[0]);
+  TEST_ASSERT_EQUAL_HEX8(AP_KBD_MOUSE_B1_FIXED, packet[0] & AP_KBD_MOUSE_B1_FIXED);
+  TEST_ASSERT_EQUAL_UINT8(1u, packet[1]);
+  TEST_ASSERT_EQUAL_UINT8(1u, packet[2]);
+}
+
+/* Figure 13-6's bytes are Figure 13-4's B1/B2/B3 unchanged, which is the claim
+ * that lets one builder serve both modes. Asserted directly by running the same
+ * movement through both and comparing the tails -- if a later change gave Mode
+ * 2 its own button polarity or its own sign convention, this is what would
+ * catch it. */
+static void test_mode_two_is_mode_zero_without_its_first_byte(void) {
+  ap_kbd_t mode0;
+  ap_kbd_t mode2;
+  ap_kbd_reset(&mode0);
+  ap_kbd_reset(&mode2);
+  mode2.keystate_mode = true;
+
+  uint8_t a[AP_KBD_MOUSE_PACKET];
+  uint8_t b[AP_KBD_MOUSE_PACKET];
+  TEST_ASSERT_EQUAL_UINT(AP_KBD_MOUSE_PACKET,
+                         ap_kbd_mouse_packet(&mode0, -5, 7, true, false, true, a));
+  TEST_ASSERT_EQUAL_UINT(AP_KBD_MOUSE_PACKET_MODE2,
+                         ap_kbd_mouse_packet(&mode2, -5, 7, true, false, true, b));
+  TEST_ASSERT_EQUAL_HEX8(AP_KBD_MOUSE_ESCAPE_RELATIVE, a[0]);
+  TEST_ASSERT_EQUAL_HEX8_ARRAY(&a[1], b, AP_KBD_MOUSE_PACKET_MODE2);
 }
 
 /* ---- The CAPS LOCK lamp, `008778-03` §12.2 ------------------------------- */
@@ -641,7 +674,8 @@ int main(void) {
   RUN_TEST(test_a_mouse_packet_is_the_escape_and_three_bytes);
   RUN_TEST(test_a_depressed_button_clears_its_bit);
   RUN_TEST(test_a_movement_past_a_signed_byte_clamps);
-  RUN_TEST(test_keystate_mode_emits_no_mode_zero_packet);
+  RUN_TEST(test_keystate_mode_emits_a_mode_two_packet_with_no_escape);
+  RUN_TEST(test_mode_two_is_mode_zero_without_its_first_byte);
   RUN_TEST(test_a_key_sends_its_index_down_and_bit_seven_up);
   RUN_TEST(test_every_release_is_its_press_plus_the_flag);
   RUN_TEST(test_a_non_transition_sends_nothing);
