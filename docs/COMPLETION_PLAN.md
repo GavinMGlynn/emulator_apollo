@@ -4529,16 +4529,29 @@ discipline throughout.
       what `ap_board_hash_translation_map` walks. Growing that constant globally
       would change **every** model's state hash, so the widening has to be
       per-map or the reference hash and every golden go with it.
-- [ ] **The DS5500's `010200` is a cache *status* register, not the cache
-      control register this core models there.** `PROVISIONAL`. `019411-A00`
-      §4.2.1.14 makes it 8-bit **read-only** with `HSI Present <3>` ("cleared
-      (0) to indicate that a graphics device is in the HSI connector") and
-      `MEM Time <0>` ("an access to non-existant memory"), bits 7:4 and 2:1 not
-      used. What this core has at that address is the DN3500's writable cache
-      control register, measured against the oracle. Both siblings on disk were
-      searched for the same section — `008778-03` and `002398-04` carry neither
-      "cache status" nor "HSI" nor "MEM Time" anywhere — so the addendum is the
-      only source and the base handbook `007861` is still the missing document.
+- [x] **The DS5500's `010200` is a cache *status* register**, and is now one:
+      `019411-A00` §4.2.1.14, 8-bit read-only, `HSI Present <3>` and
+      `MEM Time <0>`, where Table 2-8's row at that address is the writable
+      cache *control* register this core measured on a DN3500. Both bits
+      derived, not stored. Detail in `PROJECT_STATUS.md`.
+      *Verification: `boardreg_suite` 26 → 29 — read-only against all 256
+      writes, `HSI Present` cleared by a fitted display, and `MEM Time`
+      following the latched bus error through the selective clear that clears
+      it. Identity harness re-run: `03EE415450926A89`, unchanged.*
+      **One reading is documentary rather than stated and is flagged**: bit 0's
+      polarity is nowhere given, and it is taken as active high because the same
+      figure marks `HSI Present` "cleared (0) to indicate" and marks bit 0
+      nothing. The bits the figure calls "not used" read all-ones, which is
+      `PROVISIONAL` — no DS5500 runs on this core or on the oracle, so a single
+      read would settle both. Both siblings on disk carry neither section;
+      `007861` remains the missing document.
+- [ ] **Table 4-6's added line, which cannot be implemented from what is held.**
+      `PROVISIONAL`. The addendum says "On page 4-19, add the following line to
+      Table 4-6: `PC ON/OFF — Physical Cache (DS4500 Only)`", and page 4-19 is
+      in the handbook this project does not have. A row's name and meaning
+      without the table it belongs to says a DS4500 has a physical-cache
+      control and does not say which register or bit carries it. What would
+      close it is `007861` itself; bitsavers does not hold it.
 ## Phase 8 — Verified fast mode
 
 Only after the reference core is proven, and only under an identity harness.

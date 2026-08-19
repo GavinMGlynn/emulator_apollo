@@ -84,6 +84,14 @@ void ap_boardreg_set_active_low_lanes(ap_boardreg_t *regs, bool active_low) {
   regs->active_low_parity_lanes = active_low;
 }
 
+void ap_boardreg_set_ds5500_cache_status(ap_boardreg_t *regs, bool ds5500) {
+  regs->ds5500_cache_status = ds5500;
+}
+
+void ap_boardreg_set_hsi_graphics(ap_boardreg_t *regs, bool present) {
+  regs->hsi_graphics_present = present;
+}
+
 bool ap_boardreg_fpu_trapped(const ap_boardreg_t *regs) {
   return (regs->cpu_control & AP_BOARDREG_CONTROL_FPU_TRAP) != 0u;
 }
@@ -203,6 +211,20 @@ static uint16_t value_of(const ap_boardreg_t *regs, ap_boardreg_id_t id) {
   case AP_BOARDREG_CPU_CONTROL:
     return regs->cpu_control;
   case AP_BOARDREG_CACHE_CONTROL:
+    if (regs->ds5500_cache_status) {
+      /* `019411-A00` §4.2.1.14: a different register at the same address.
+       * Read-only, two named bits, and both derived -- see the header. */
+      uint16_t status = AP_BOARDREG_CACHE_STATUS_UNUSED;
+      if (!regs->hsi_graphics_present) {
+        /* Active low: "cleared (0) to indicate that a graphics device is in
+         * the HSI connector", so the bit stands when there is none. */
+        status |= AP_BOARDREG_CACHE_STATUS_HSI_PRESENT;
+      }
+      if ((regs->cpu_status & AP_BOARDREG_STATUS_BUS_ERROR) != 0u) {
+        status |= AP_BOARDREG_CACHE_STATUS_MEM_TIME;
+      }
+      return status;
+    }
     /* Eight bits. Only bit 7 is storage, the rest read a fixed pattern -- and
      * bit 4 is neither: it is the master controller's request line. See the
      * header on why the probe's "fixed" pattern could not contain it. */
@@ -302,6 +324,11 @@ static void store(ap_boardreg_t *regs, ap_boardreg_id_t id, uint16_t value) {
     ap_boardreg_post_code(regs, (uint8_t)(value >> 8));
     break;
   case AP_BOARDREG_CACHE_CONTROL:
+    if (regs->ds5500_cache_status) {
+      /* "This 8-bit, **read-only** register". Nothing a program writes can
+       * put a graphics device in the connector or un-see a memory timeout. */
+      break;
+    }
     regs->cache_control = (uint8_t)(value & AP_BOARDREG_CACHE_WRITABLE);
     break;
   case AP_BOARDREG_LATCH_PAGE_ON_PARITY:

@@ -1359,6 +1359,17 @@ bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
     ap_boardreg_set_active_low_lanes(
         &board->registers,
         entry == NULL || entry->has_active_low_parity_lanes);
+    /* `019411-A00` §4.2.1.14: on a DS5500 `010200` is a read-only *status*
+     * register and not the cache control register Table 2-8 puts there. By
+     * model, like the map, because no flag in the table distinguishes them --
+     * and the register file is given the answer rather than deciding it. */
+    ap_boardreg_set_ds5500_cache_status(&board->registers,
+                                        model == AP_MODEL_DN5500);
+    /* "a graphics device is in the HSI connector". A DSP5500 is this board
+     * without a display, which is exactly what the bit reports. */
+    ap_boardreg_set_hsi_graphics(&board->registers,
+                                 entry != NULL &&
+                                     entry->display != AP_DISPLAY_NONE);
   }
   {
     /* What `011400` reports, on the model that has it: which slots hold boards

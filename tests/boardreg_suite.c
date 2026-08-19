@@ -619,6 +619,79 @@ static void test_each_memory_slot_owns_its_own_pair_of_bits(void) {
   }
 }
 
+/* `019411-A00` §4.2.1.14. The DS5500's `010200` is a different register from
+ * the one this core measured on a DN3500 at the same address: read-only, and
+ * both its named bits derived rather than stored. */
+static void test_the_ds5500_cache_status_register_is_read_only(void) {
+  ap_boardreg_t regs;
+  ap_boardreg_init(&regs);
+  ap_boardreg_set_ds5500_cache_status(&regs, true);
+  const uint8_t before =
+      ap_boardreg_read8(&regs, AP_BOARDREG_CACHE_CONTROL_ADDR);
+  for (unsigned value = 0u; value < 256u; value++) {
+    ap_boardreg_write8(&regs, AP_BOARDREG_CACHE_CONTROL_ADDR, (uint8_t)value);
+    TEST_ASSERT_EQUAL_HEX8(
+        before, ap_boardreg_read8(&regs, AP_BOARDREG_CACHE_CONTROL_ADDR));
+  }
+  /* And a DN3500's is still writable in bit 7, so this is a model difference
+   * rather than the cache register having been made read-only for everyone. */
+  ap_boardreg_t series4000;
+  ap_boardreg_init(&series4000);
+  ap_boardreg_write8(&series4000, AP_BOARDREG_CACHE_CONTROL_ADDR, 0x80u);
+  TEST_ASSERT_EQUAL_HEX8(0x80u,
+                         ap_boardreg_read8(&series4000,
+                                           AP_BOARDREG_CACHE_CONTROL_ADDR) &
+                             0x80u);
+}
+
+/* "This bit is cleared (0) to indicate that a graphics device is in the HSI
+ * connector" -- so a machine with a display clears it and a headless one does
+ * not. Active low, which is the polarity the section states outright. */
+static void test_hsi_present_is_cleared_when_a_graphics_device_is_fitted(void) {
+  ap_boardreg_t regs;
+  ap_boardreg_init(&regs);
+  ap_boardreg_set_ds5500_cache_status(&regs, true);
+
+  ap_boardreg_set_hsi_graphics(&regs, true);
+  TEST_ASSERT_EQUAL_HEX8(
+      0u, ap_boardreg_read8(&regs, AP_BOARDREG_CACHE_CONTROL_ADDR) &
+              AP_BOARDREG_CACHE_STATUS_HSI_PRESENT);
+
+  ap_boardreg_set_hsi_graphics(&regs, false);
+  TEST_ASSERT_EQUAL_HEX8(
+      AP_BOARDREG_CACHE_STATUS_HSI_PRESENT,
+      ap_boardreg_read8(&regs, AP_BOARDREG_CACHE_CONTROL_ADDR) &
+          AP_BOARDREG_CACHE_STATUS_HSI_PRESENT);
+}
+
+/* "This bit indicates an access to non-existant memory" -- the same condition
+ * the CPU status register latches, reported rather than kept twice, so the
+ * selective clear that clears one clears both. */
+static void test_mem_time_follows_the_latched_bus_error(void) {
+  ap_boardreg_t regs;
+  ap_boardreg_init(&regs);
+  ap_boardreg_set_ds5500_cache_status(&regs, true);
+  TEST_ASSERT_EQUAL_HEX8(
+      0u, ap_boardreg_read8(&regs, AP_BOARDREG_CACHE_CONTROL_ADDR) &
+              AP_BOARDREG_CACHE_STATUS_MEM_TIME);
+
+  ap_boardreg_latch_status(&regs, AP_BOARDREG_STATUS_BUS_ERROR);
+  TEST_ASSERT_EQUAL_HEX8(
+      AP_BOARDREG_CACHE_STATUS_MEM_TIME,
+      ap_boardreg_read8(&regs, AP_BOARDREG_CACHE_CONTROL_ADDR) &
+          AP_BOARDREG_CACHE_STATUS_MEM_TIME);
+
+  /* `019411-A00`'s "Clear Bus Error Status" clears the condition, and so the
+   * bit -- which is the whole reason it is derived and not stored. */
+  ap_boardreg_write8(&regs,
+                     AP_BOARDREG_SELECTIVE_CLEAR_ADDR +
+                         AP_BOARDREG_CLEAR_BUS_ERROR_OFFSET,
+                     0u);
+  TEST_ASSERT_EQUAL_HEX8(
+      0u, ap_boardreg_read8(&regs, AP_BOARDREG_CACHE_CONTROL_ADDR) &
+              AP_BOARDREG_CACHE_STATUS_MEM_TIME);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_bit_fifteen_of_the_status_register_always_reads_set);
@@ -647,5 +720,8 @@ int main(void) {
   RUN_TEST(test_the_memory_present_register_ignores_every_write);
   RUN_TEST(test_a_board_size_the_manual_does_not_list_has_no_encoding);
   RUN_TEST(test_each_memory_slot_owns_its_own_pair_of_bits);
+  RUN_TEST(test_the_ds5500_cache_status_register_is_read_only);
+  RUN_TEST(test_hsi_present_is_cleared_when_a_graphics_device_is_fitted);
+  RUN_TEST(test_mem_time_follows_the_latched_bus_error);
   return UNITY_END();
 }

@@ -184,6 +184,60 @@ typedef enum {
  * every pair set is every slot empty. */
 #define AP_BOARDREG_MEM_PRESENT_EMPTY 0xFFu
 
+/* ## The DS5500's `010200` is a cache *status* register, and a different part
+ *
+ * `019411-A00` §4.2.1.14 replaces the handbook's §4.2.1.14 outright: "This
+ * 8-bit, **read-only** register exists in the DS5500. This register holds
+ * miscellaneous status information." What this core models at `010200` is the
+ * Series 4000's cache **control** register -- one writable bit, a measured
+ * fixed pattern -- so on a DS5500 the same address is a different register with
+ * different bits and no writable ones at all.
+ *
+ * Figures 4-9 and 4-10 give it twice over, and between them name two bits:
+ *
+ *     7:4  not used
+ *     3    HSI Present   "This bit is cleared (0) to indicate that a graphics
+ *                         device is in the HSI connector."
+ *     2:1  not used
+ *     0    MEM Time      "This bit indicates an access to non-existant memory."
+ *                        Figure 4-10 labels the same bit *Memory Timeout*.
+ *
+ * ## The polarity of bit 0, which the section does not state and the figure does
+ *
+ * `HSI Present` carries "is cleared (0) to indicate" and `MEM Time` carries only
+ * "indicates" -- in the same figure, in the same typeface, written by the same
+ * author who marked the active-low one explicitly. So the contrast is evidence
+ * rather than an omission: bit 0 reads **1** when a timeout has been seen.
+ * Recorded because it is the one place here where a reading rests on how the
+ * document is written rather than on what it says.
+ *
+ * ## Both bits are derived, not stored
+ *
+ * Neither is state a program can put there. `MEM Time` is the same condition the
+ * CPU status register already latches in `AP_BOARDREG_STATUS_BUS_ERROR` -- an
+ * access that nothing answered -- so it is reported from there rather than
+ * kept twice and cleared in one place; `016408` "Clear Bus Error Status" then
+ * clears both by clearing the one. Same reasoning as
+ * `AP_BOARDREG_CACHE_INTERRUPT_PENDING`, which is the master controller's line
+ * rather than a copy of it.
+ *
+ * `HSI Present` follows the model's display: a machine with one has a graphics
+ * device in the connector. A DSP5500 is the headless variant of exactly this
+ * board and has none, which is what makes the bit worth deriving rather than
+ * fixing.
+ *
+ * ## What the unused bits read
+ *
+ * Not stated, and not measurable -- the oracle has no working DS5500 and this
+ * core cannot yet run one. All ones, which is what `FINDINGS.md` C10 measured
+ * nothing-driving-this-machine's-bus to look like and what the selective clear
+ * range already answers for the same reason. `PROVISIONAL`; a DS5500 that runs
+ * would settle it in one read. */
+#define AP_BOARDREG_CACHE_STATUS_HSI_PRESENT 0x08u
+#define AP_BOARDREG_CACHE_STATUS_MEM_TIME 0x01u
+/* Bits 7:4 and 2:1: named "not used" and read as undriven. PROVISIONAL. */
+#define AP_BOARDREG_CACHE_STATUS_UNUSED 0xF6u
+
 /* ## The selective clear locations, which are the one part of this file with a
  * ## page behind it
  *
@@ -456,6 +510,13 @@ typedef struct {
   /* Not storage in the sense the others are: read-only, and what it holds is
    * how much memory is fitted rather than anything software put there. */
   uint8_t memory_present;
+  /* Whether `010200` is the DS5500's read-only *status* register rather than
+   * the Series 4000's cache control register. A model difference, set from the
+   * table exactly as `active_low_parity_lanes` is -- never decided here. */
+  bool ds5500_cache_status;
+  /* "a graphics device is in the HSI connector". Set by the board from the
+   * model's display; the bit it drives is active low. */
+  bool hsi_graphics_present;
 } ap_boardreg_t;
 
 /* Reset to the measured power-on values.
@@ -476,6 +537,15 @@ void ap_boardreg_init(ap_boardreg_t *regs);
  * -- the reference superset, as everywhere else here -- and a DS3000 board sets
  * it false from `ap_model_t::has_active_low_parity_lanes`. */
 void ap_boardreg_set_active_low_lanes(ap_boardreg_t *regs, bool active_low);
+
+/* Make `010200` the DS5500's cache **status** register: `019411-A00` §4.2.1.14,
+ * read-only, and a different set of bits from the register this core measured
+ * at that address on a DN3500. Set from the model table by the board. */
+void ap_boardreg_set_ds5500_cache_status(ap_boardreg_t *regs, bool ds5500);
+
+/* Whether a graphics device occupies the HSI connector. Drives `HSI Present`,
+ * which is cleared when one is. */
+void ap_boardreg_set_hsi_graphics(ap_boardreg_t *regs, bool present);
 
 /* The master interrupt controller's request line, which the cache register
  * reports in bit 4. Called by the board whenever it samples its devices. */
