@@ -150,6 +150,58 @@ static void build_board(void) {
   TEST_ASSERT_TRUE(ap_board_init(&board, ram, RAM_BYTES, &epoch, 0x012345u));
 }
 
+/* ## `RESET` drives the board's reset line
+ *
+ * `002398-04` p. 12-8: "Neither RSA **nor the reset instruction** reset the SIO
+ * lines" — one sentence saying the two have the same effect and naming the same
+ * exclusion. `rsa` has called `ap_board_reset_devices` since it was
+ * implemented; the instruction could not, because the processor knows nothing
+ * about a board. `ap_machine` holds both halves and is where the wire goes.
+ *
+ * This suite rather than `machine_suite` because it is the one that already
+ * builds a machine with a board attached, which is the whole condition being
+ * tested.
+ *
+ * **Measured before it was made**: the identity boot is byte-identical either
+ * way — state hash `717289781987BD4A` and the same console — so the reference
+ * path does not depend on it. */
+static void test_the_reset_instruction_resets_the_board_but_not_the_sio(void) {
+  build_board();
+
+  ap_machine_t m;
+  ap_machine_init_model(&m, ram, RAM_BYTES, AP_MODEL_DN3500);
+  ap_machine_set_board(&m, &board);
+  ap_machine_reset(&m, AP_BOARD_RAM_BASE, AP_BOARD_RAM_BASE + 0x8000u);
+
+  /* `RESET` is privileged, and `ap_machine_reset` starts in supervisor state.
+   * `4E70` then a `NOP` to land on. */
+  bool ok = false;
+  ap_board_write(&board, AP_BOARD_RAM_BASE + 0u, 0x4Eu, &ok);
+  TEST_ASSERT_TRUE(ok);
+  ap_board_write(&board, AP_BOARD_RAM_BASE + 1u, 0x70u, &ok);
+  ap_board_write(&board, AP_BOARD_RAM_BASE + 2u, 0x4Eu, &ok);
+  ap_board_write(&board, AP_BOARD_RAM_BASE + 3u, 0x71u, &ok);
+
+  board.interrupts.master.imr = 0x5Au;
+  board.dma_page.page[0] = 0xA5u;
+  board.calendar.rtc.ram[AP_CALENDAR_CONFIG_NODEID] = 0x7Bu;
+  board.sio.port[0].channel[0].mr[0] = 0x13u;
+  const unsigned before = m.cpu.external_resets;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_machine_step(&m).status);
+
+  /* The processor saw the instruction, and the board saw the line. */
+  TEST_ASSERT_EQUAL_UINT(before + 1u, m.cpu.external_resets);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, board.interrupts.master.imr);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, board.dma_page.page[0]);
+
+  /* And the two exclusions hold for the instruction exactly as they do for
+   * `rsa`, which is what makes the page's one sentence true of both. */
+  TEST_ASSERT_EQUAL_HEX8(0x7Bu,
+                         board.calendar.rtc.ram[AP_CALENDAR_CONFIG_NODEID]);
+  TEST_ASSERT_EQUAL_HEX8(0x13u, board.sio.port[0].channel[0].mr[0]);
+}
+
 /* "Decided by address, not by device." Everything in the I/O window takes the
  * I/O figure, which is how the disk, the tape and an empty slot get one without
  * anyone deciding device by device which is an AT card. */
@@ -291,6 +343,7 @@ int main(void) {
   RUN_TEST(test_a_cycle_time_is_a_duration_in_base_units);
   RUN_TEST(test_an_io_cycle_is_a_fixed_number_of_bus_clocks);
   RUN_TEST(test_a_wide_transfer_to_a_narrow_device_is_two_cycles);
+  RUN_TEST(test_the_reset_instruction_resets_the_board_but_not_the_sio);
   RUN_TEST(test_the_at_windows_declare_a_figure_and_nothing_else_does);
   RUN_TEST(test_an_at_memory_read_costs_more_than_a_write);
   RUN_TEST(test_a_faster_processor_waits_more_clocks_for_the_same_card);

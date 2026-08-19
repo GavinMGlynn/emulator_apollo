@@ -5662,17 +5662,14 @@ END — PDF 279–313, all 35 pages. 35 content pages of 330.**
       against because every boot PROM here branches over its own RSA pulse.
       Detail in `PROJECT_STATUS.md`.
 
-- [ ] **The `RESET` instruction should reset the on-board devices too.** The
-      same sentence that excludes the SIO from `rsa` — "Neither RSA **nor the
-      reset instruction** reset the SIO lines" — says the two have the same
-      effect, and only `rsa` is wired. The CPU counts the opcode already
-      (`external_resets`, "counted rather than acted on: this module has no
-      external devices") and `ap_machine_step` holds both halves, so the wiring
-      is small. **What it needs first is a measurement**: each boot PROM
-      contains three `RESET` opcodes — `3500_BOOT_12191_7` at `166C`, `25EC` and
-      `5A7E` — and unlike the `rsa` block nothing shows they are unreachable, so
-      giving them this effect is a behaviour change on a path the reference boot
-      may take. Wire it behind an identity boot, not in front of one.
+- [x] **The `RESET` instruction resets the on-board devices too.** The other
+      half of p. 12-8's sentence — "Neither RSA **nor the reset instruction**
+      reset the SIO lines" — wired at `ap_machine`, which is the layer holding
+      both the processor that counts the opcode and the board that owns the
+      devices. **Measured first, as this item required**: the identity boot is
+      byte-identical either way, state hash `717289781987BD4A` and the same
+      console, so the reference path does not depend on it. Detail in
+      `PROJECT_STATUS.md`.
 
 - [x] **The tape's STATUS SUMMARY table** (`002398-04` p. 12-5). **The column
       convention is established and it cost two defects.** Every row's bits 6-0

@@ -797,8 +797,35 @@ bool ap_machine_read_logical(ap_machine_t *machine, uint32_t logical,
   return ap_machine_read(machine, physical, size, value);
 }
 
+/* ## `RESET` drives the board's reset line, and only the machine can join them
+ *
+ * `002398-04` p. 12-8, of the CPU control register's `rsa` bit: "**Neither RSA
+ * nor the reset instruction reset the SIO lines**". One sentence, two claims —
+ * the SIO is spared, and the two have the *same* effect, which is the only
+ * reason the exclusion is worth stating once for both.
+ *
+ * `ap_board_reset_devices` is that effect and `rsa` already calls it. The
+ * instruction could not, because `src/core/cpu` knows nothing about a board:
+ * `[030]` has `RESET` "assert the RSTO signal ... resetting all external
+ * devices" without affecting the processor, and `ap_m68030_step` counts it
+ * as `external_resets` with a comment saying it is "counted rather than acted
+ * on: this module has no external devices". This layer holds both halves, so
+ * this is where the wire goes.
+ *
+ * Watching the counter rather than adding a callback keeps the processor free
+ * of the board, which is the boundary the whole core is arranged around. It
+ * costs one comparison per step. */
+static void drive_external_reset(ap_machine_t *machine, unsigned before) {
+  if (machine->cpu.external_resets != before && machine->board != NULL) {
+    ap_board_reset_devices(machine->board);
+  }
+}
+
 ap_m68030_step_result_t ap_machine_step(ap_machine_t *machine) {
-  return ap_m68030_step(&machine->cpu);
+  const unsigned resets = machine->cpu.external_resets;
+  const ap_m68030_step_result_t result = ap_m68030_step(&machine->cpu);
+  drive_external_reset(machine, resets);
+  return result;
 }
 
 /* No `flatten` here, and that is a measured decision rather than an omission.
@@ -894,8 +921,13 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
     const unsigned before_taken =
         watched != 0u ? machine->cpu.exceptions_taken[watched & 0xFFu] : 0u;
     const uint32_t before_pc = machine->cpu.regs.pc;
+    const unsigned before_resets = machine->cpu.external_resets;
 
     const ap_m68030_step_result_t result = ap_m68030_step(&machine->cpu);
+    /* `RESET` drives the board's reset line -- see `drive_external_reset`. Both
+     * step sites need it, because a caller stepping one instruction at a time
+     * and one running the loop are the same machine. */
+    drive_external_reset(machine, before_resets);
     if (watched != 0u && !machine->exception_stopped &&
         machine->cpu.exceptions_taken[watched & 0xFFu] != before_taken &&
         machine->exception_stop_seen++ >= machine->exception_stop_skip) {
