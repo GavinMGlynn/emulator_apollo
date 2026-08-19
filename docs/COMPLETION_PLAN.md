@@ -5302,6 +5302,23 @@ Only after the reference core is proven, and only under an identity harness.
       search for a Series 2500 core-board or service manual returns
       configuration guides and parts lists and no hardware reference. **What
       would unblock it is a Series 2500 hardware manual or a machine to
+      **A third tail, found by audit on 2026-08-19 and sized rather than
+      guessed** (`FINDINGS.md` C226, C227). Two whole parts are built, tested
+      and **unreachable from any machine** -- `ap_m68040` (3,181 lines, 13
+      modules) and `ap_m68851` (2,039 lines, 9 suites) have **zero** call sites
+      anywhere in `src/` outside their own directories. And the field that would
+      select between them is consumed only by a hash-scope *name* and a line in
+      the frontend's report, so `.mmu = AP_MMU_M68851` on the DN3000 rows is a
+      declaration the machine does not honour: `ap_machine` builds an
+      `ap_m68030_cpu_t` unconditionally, which is the same root cause as the
+      DN5500 stopping at its second instruction.
+      *Not a live defect* -- the DN3000 diffs pass, so its firmware does not
+      depend on the difference within the window measured -- but it is exactly
+      what `model/`'s own rule forbids, "all machine variance lives here", and
+      it means this item's remaining work is **one** change rather than two:
+      teach `ap_machine` to build the CPU and MMU its model row names. The
+      68040 and 68851 halves are already written and tested behind it.
+
       **DN2500, 2026-08-19: from 18 instructions to 60 M, and the next blocker
       is named.** The tail recorded here -- "the Series 2500 PROM is 131072
       bytes against `AP_BOARD_PROM_SIZE`" -- was already closed: `DS2500_MAP`
