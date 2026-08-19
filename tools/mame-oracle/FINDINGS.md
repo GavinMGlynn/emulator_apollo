@@ -12554,3 +12554,46 @@ it.
 *The lesson is narrow and worth keeping: a counter with two increment sites was
 read as though it had one, and that produced a confident "the counter and the
 status disagree". Read every site before concluding the instrument is broken.*
+
+## C233 -- the interrupt is pending and unserviced, and C224 withdrew C223 too soon
+
+With C232's repeating knock on the script's line, the character finally survives:
+
+    script line sio2 A, knocked 4 time(s) before its first match
+    sio2 armed  imr A2  isr 13  (A sr 05, B sr 04)
+    sio2 A      4 discarded unread
+    sio2 reg 3  never read
+
+`isr 13` has **bit 1 set** -- `RXRDY_A` -- and `A sr 05` has `RxRDY` set. So a
+character sits in `sio2` channel A's receive register, the mask arms that very
+interrupt (`imr A2`), and `isr & imr` is therefore non-zero: **`ap_sio_irq` is
+asserting the board's serial interrupt as the run ends**, and Domain/OS has
+never read the register (`reg 3`, still absent).
+
+This is C230's first branch, reached by measurement: *the interrupt was pending
+and the operating system never serviced it.*
+
+### Which re-opens C223, and says why C224's withdrawal was too quick
+
+C223 objected that this core ORs **both** 2681s onto one line, where
+`008778-03` Table 2-3 names `IRQ1` as "2681 SIO Port **1**". C224 withdrew that
+on `002398-04` p. 12-28, which lists `IRQ 1` as "sio" with no port qualifier --
+and treated the less specific wording as settling it.
+
+**But p. 12-28 is the DN3000's table, and a DN3000 has only one 2681.** §3.9,
+quoted in `ap_sio.h`: "SIO line 0 is used for the keyboard ... SIO line **1** in
+the DS3000 and lines **1, 2, and 3** in the DS4000". Two lines is one part; four
+lines needs two. So the page that "settled" it *had no second part to assign* --
+its unqualified "sio" is not evidence that two parts share a line, it is the
+absence of a second part to mention. C224 read a silence as a statement.
+
+**What that makes the live hypothesis.** Domain/OS on a four-line machine
+configures our second 2681 -- it writes its registers 22 times and arms its mask
+-- and then never services the interrupt it armed. If the second part's
+interrupt reaches the processor on a line this core does not model, the guest is
+waiting on a vector that never arrives, which is exactly this state.
+
+*Not asserted: the alternative is that the interrupt does arrive and Domain/OS's
+handler inspects only the first part. Both are testable and neither is tested --
+what has changed is that the symptom is now a **pending, armed, unserviced
+interrupt** rather than a silence, which is a far narrower thing to chase.*
