@@ -2283,6 +2283,38 @@ static void test_a_transmit_with_no_cable_completes_at_once(void) {
   TEST_ASSERT_FALSE(solo.ring.a2.completion_deferred);
 }
 
+/* **The three `MASTER.L` timings, and the pair that is the finding.**
+ *
+ * `008778-03` §2.3.2 states them in prose and Appendix A's Table A-1 gives them
+ * as figures: #75 "Bus Driven from MASTER.L Asserted" 166 ns minimum, #76
+ * "MEMCMD, IOCMD Asserted from Master.L" 333 ns, #77 "Master Width Asserted"
+ * 12 us maximum.
+ *
+ * The first two are §2.3.2's "one system clock period before driving the
+ * address and data lines, and two clock periods before issuing a Read or Write
+ * command" in units -- one 6-MHz bus clock, which Table A-1 #26 gives a 166 ns
+ * cycle time. Asserted so the two derivations cannot drift apart.
+ *
+ * The third is the one worth a test of its own. §2.3.2 warns that holding
+ * MASTER.L "for more than 15 microseconds ... the system memory may be lost
+ * because no refresh is performed", and §2.4.6 puts the refresh interval at the
+ * same 15 us. Table A-1 caps the master at **12**, below it. A later reader who
+ * finds the 15 in one section and the 12 in another needs to know they are a
+ * failure threshold and a design margin rather than a contradiction, and this
+ * is where that is written down. */
+static void test_the_master_timings_are_one_clock_two_clocks_and_a_margin(void) {
+  /* One and two bus clocks, to the nanosecond the table prints -- the second
+   * rounded up, since 333 is 2 x 166.5 and the table cannot print halves. */
+  const unsigned bus_clock_ns = 166u;
+  TEST_ASSERT_EQUAL_UINT(bus_clock_ns, AP_MASTER_T_BUS_DRIVEN_NS);
+  TEST_ASSERT_EQUAL_UINT(2u * bus_clock_ns + 1u, AP_MASTER_T_COMMAND_NS);
+
+  /* The margin: the enforced limit sits under the interval that loses memory. */
+  TEST_ASSERT_TRUE(AP_MASTER_T_WIDTH_MAX_NS < AP_MASTER_T_REFRESH_INTERVAL_NS);
+  TEST_ASSERT_EQUAL_UINT(3000u, AP_MASTER_T_REFRESH_INTERVAL_NS -
+                                    AP_MASTER_T_WIDTH_MAX_NS);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_ethernet_card_is_absent_until_it_is_fitted);
@@ -2320,6 +2352,7 @@ int main(void) {
   RUN_TEST(test_a_second_ring_unit_is_an_empty_slot_when_one_card_is_fitted);
   RUN_TEST(test_the_boards_clock_reaches_an_attached_bus_master);
   RUN_TEST(test_a_cascaded_master_is_acknowledged_on_the_boards_own_clock);
+  RUN_TEST(test_the_master_timings_are_one_clock_two_clocks_and_a_margin);
   RUN_TEST(test_the_empty_slot_addresses_are_kept_distinct_and_in_order);
   RUN_TEST(test_more_empty_slot_addresses_than_fit_are_counted_not_dropped);
   RUN_TEST(test_the_windows_do_not_swallow_the_devices_inside_them);

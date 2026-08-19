@@ -5586,8 +5586,8 @@ one row per page range, including the ones that yield nothing — is
 section is only the list of **gaps the walk has opened and not yet closed**, so
 that they are findable from the plan rather than from a reference file.
 
-**144 of 209 pages walked.** **Every numbered chapter (1–16) is complete**;
-resume at page 166, Appendix A.
+**146 of 209 pages walked.** **Every numbered chapter (1–16) is complete**;
+Appendix A is in progress — resume at page 168.
 
 - [ ] **The Series 4000 virtual cache and write buffer, and their 16 KB of
       board-visible RAM.** §1.3.1: "an **8-KB, direct-mapped** cache ... 2048
@@ -5621,11 +5621,22 @@ resume at page 166, Appendix A.
       *cycles*: nothing consumes bus time for it. For a core whose claim is
       emergent contention, a cycle stolen every 15 µs is not cosmetic, and the
       same interval explains `MASTER.L`'s documented 15 µs ceiling.
-- [ ] **Three `MASTER.L` timings, one of them a failure mode.** §2.3.2: one
-      system clock before driving address and data, two before a command, and
-      "if this signal is held low for **more than 15 microseconds, the system
-      memory may be lost because no refresh is performed**". `ap_master.h` has
-      the four-state handshake and none of the three.
+- [ ] **Three `MASTER.L` timings — the figures are now in hand, the clock is
+      not.** §2.3.2 gives them in prose and **Appendix A's Table A-1 numbers all
+      three** for the 6-MHz bus: #75 "Bus Driven from MASTER.L Asserted" 166 ns
+      minimum, #76 "MEMCMD, IOCMD Asserted from Master.L" 333 ns, #77 "Master
+      Width Asserted" **12 us maximum**. All three are now constants in
+      `board/ap_master.h` with their citations, and `board_suite` asserts the
+      pair that matters: #77's 12 us sits **below** §2.3.2's 15 us "memory may
+      be lost" threshold, so those are a design margin and a failure point
+      rather than a contradiction.
+      **What is left is enforcement, and it is blocked on structure rather than
+      on evidence.** `ap_master_t` holds no clock; giving it one needs a caller
+      to drive it, and there is none — §16.2 establishes that the only card that
+      can assert `MASTER.L` is the PC Coprocessor, which `ap_board.c` maps at
+      neither of its two addresses. A timestamp would add unexercised state to
+      the identity hash for no behaviour. Closes when a PC Coprocessor is
+      modelled, not before.
 - [ ] **DRAM access times, and `IO_CH_RDY`'s 2.5 µs ceiling.** §3.3 gives both
       families **120 ns RAS / 60 ns CAS**, a 4 ms refresh period over 256 row
       addresses (DS3000) or 1000 (DS4000). §2.3.2 caps `IO_CH_RDY` low at 2.5 µs.

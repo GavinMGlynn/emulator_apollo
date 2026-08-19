@@ -98,6 +98,48 @@
  * reference, or a runnable DN4500 oracle.
  *
  *
+ * ## The three timings, now numbered -- and what enforcing them would cost
+ *
+ * §2.3.2 states three constraints on `MASTER.L` in prose, and **Appendix A's
+ * Table A-1 gives all three as figures** for the Series 3000's 6-MHz bus:
+ *
+ *     #75  Bus Driven from MASTER.L Asserted          166 ns minimum
+ *     #76  MEMCMD, IOCMD Asserted from Master.L       333 ns minimum
+ *     #77  Master Width Asserted                       12 us maximum
+ *
+ * The first two are §2.3.2's prose in units: the adapter "must wait one system
+ * clock period before driving the address and data lines, and two clock periods
+ * before issuing a Read or Write command", and one 6-MHz bus clock is 166 ns.
+ * Table A-1 #26 gives that clock a 166 ns cycle time, so the three numbers are
+ * one fact counted two ways and they agree.
+ *
+ * **The third resolves an apparent contradiction rather than restating it.**
+ * §2.3.2 warns that holding `MASTER.L` "for more than **15 microseconds** ...
+ * the system memory may be lost because no refresh is performed", and §2.4.6
+ * puts the refresh interval at "approximately 15 microseconds" -- the same
+ * number, which is why the walk recorded the warning as a documented failure
+ * mode. Table A-1 caps `Master Width Asserted` at **12 us**, which is *below*
+ * the interval by 3 us. So 15 us is the point at which memory is lost and 12 us
+ * is the limit the bus specification enforces to keep clear of it: a failure
+ * threshold and a design margin, not two versions of one figure.
+ *
+ * **Recorded, not enforced, and the reason is structural.** This module holds no
+ * clock -- `ap_master_t` has no `ap_time_t` in it -- so enforcing any of the
+ * three means giving it one and a caller to drive it. It has neither, because
+ * nothing in a machine this core builds can assert `MASTER.L` at all (see
+ * above). Adding a timestamp would put unexercised state into the identity hash
+ * and buy no behaviour. The figures are here so that whoever fits a PC
+ * Coprocessor does not have to find them again, and the plan item says exactly
+ * that rather than claiming the timings are modelled.
+ */
+#define AP_MASTER_T_BUS_DRIVEN_NS 166u
+#define AP_MASTER_T_COMMAND_NS 333u
+#define AP_MASTER_T_WIDTH_MAX_NS 12000u
+/* §2.4.6's interval, above which §2.3.2 says memory is lost. Kept beside the
+ * limit because the pair is the finding: `WIDTH_MAX` is deliberately under it. */
+#define AP_MASTER_T_REFRESH_INTERVAL_NS 15000u
+
+/*
  * ## Ownership ends when *both* signals are released
  *
  * "until it releases the DRQx and MASTER.L signals" -- both, which is stronger
