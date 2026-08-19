@@ -4495,23 +4495,17 @@ discipline throughout.
       including all **35** configurations `019411-A00` §4.2.1.18 publishes for
       the memory present register. Identity harness re-run: `03EE415450926A89`,
       unchanged, which is what says the DN3500 is untouched.*
-- [x] **Two writable registers were outside the identity hash.** Master request
-      and task alias were added to the model as Table 2-8's byte-wide storage
-      and never added to `ap_board_hash_registers`, so state software can change
-      was invisible to the one instrument every optimisation in Phase 8 is
-      checked with. The reference boot writes one of them — its report has
-      always read `master request 0/1`. Detail in `PROJECT_STATUS.md`.
-      *Verification: the reference re-baselines `03EE415450926A89` →
-      `D7BA23DD7961F1A1`, and that it moved at all is the measurement: a
-      register left at zero would have changed nothing. No golden embeds a state
-      hash, so nothing else moved; `ctest` 139/139 either side.*
-      **And the same question asked once more was bigger.** "Is every hasher
-      called" comes back clean because `ap_board_hash` calls every hasher that
-      exists; the question that finds anything is "does every stateful member
-      *have* one". **Nine did not.** Seven now do — parity, DMA page, arbiter,
-      external master, Matrox, the 3c505 card and the ring station — and the
-      reference moved again, `D7BA23DD7961F1A1` → `FF63E141DB798A21`. Detail and
-      the state-versus-diagnostic table in `PROJECT_STATUS.md`.
+- [x] **The identity hash did not cover the state it was guarding.** Two
+      writable registers were missing from a hasher, and **nine board members
+      had no hasher at all** — `ap_board_hash` calls every hasher that exists,
+      so the audit that asks "is each one wired" comes back clean. Seven now
+      have one. Detail, and the state-versus-diagnostic table, in
+      `PROJECT_STATUS.md`.
+      *Verification: the reference re-baselines twice,
+      `03EE415450926A89` → `D7BA23DD7961F1A1` → `FF63E141DB798A21`. That it
+      moved at each step is the measurement — state left untouched by the boot
+      would have changed nothing. No golden embeds a state hash; `ctest`
+      139/139 throughout.*
 - [ ] **Hash `ap_3c505_adapter_t`.** `PROVISIONAL`, and scoped rather than
       deferred vaguely: an address PROM, receive mode and multicast table, six
       host-readable statistics counters (state, not diagnostics — the host reads
