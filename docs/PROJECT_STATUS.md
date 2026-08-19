@@ -567,6 +567,43 @@ number, `A354786119A3931D`, was superseded twice earlier in this walk by the AT
 bus cycle time and the 16-bit Winchester transfer, and was stale here. **It was
 superseded again one commit later — see below.**
 
+### `002398-04` chapter 12 settles the tape's ISA address
+
+The `002398-04` walk is under way, chapter 12 (DN3000) first. Its opening page
+is an **address space table with three columns — physical, virtual, and I/O
+Bus** — and one row closes a question the `008778-03` walk hit three separate
+times without settling.
+
+`008778-03` Table 2-7 names the tape at ISA `218` beside physical `050000`;
+Table 8-1's prose repeats "Device Address (base address) 218 (hex)"; and Figure
+15-5 shows the SPE board's *alternate* jumpering claiming `218`–`21F`. But this
+board maps ISA to physical by `(AT_addr/8) * $400 + $40000`, which sends `218`
+to `050C00` and `200` to `050000` — so Table 2-7's own two columns could not
+both be right. Each time, the walk recorded that `AP_TAPE_ADDR` follows the
+physical column because that is what the board decodes.
+
+**The handbook's row is `50000 tape ... 200`.** The ISA address is `200`,
+`008778-03` prints `218` in two places, and the measurement, the physical column
+and this handbook all agree. The constant does not change; what changes is that
+it no longer rests on preferring one column of a self-contradicting table.
+
+The same table **confirms every other device address this core places** — `win`
+`4D000`/`1A0`, ethernet `58000`/`300`, mono `5D800`/`3B0`, floppy `5F800`/`3F0`
+— and the whole core-board block, including **one `8400 sios` row**, which is
+the DS3000's single 2681 that this walk's predecessor corrected.
+
+Page 12-2 then gives the mapping's **granularity**, which `ETHERNET.md`'s
+measured `physical = 0x040000 + (ISA << 7)` does not: "Every **8 bytes** of the
+bus i/o space is mapped to **one page** of DN3000 space." The two formulas are
+arithmetically identical — `(a/8) * 0x400` is `a << 7` — so the measurement and
+the handbook are one rule, and the handbook names the unit as an 8-byte ISA
+block occupying a 1-KB page.
+
+**Two leads recorded and not resolved**: the table lists **eight ring pages**
+(ISA `220`–`238` and `320`–`338`), a layout `RING.md` should be checked against;
+and it puts **ethernet board 2 at ISA `308`** where `008778-03` Figure 14-4
+jumpers the alternate card to `310`.
+
 ### `008778-03` is walked whole — 209 of 209 pages
 
 Chapters 1–16, both appendices, the index and the back matter. Begun 2026-08-19

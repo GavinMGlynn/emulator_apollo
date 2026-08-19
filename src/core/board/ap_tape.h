@@ -3,6 +3,35 @@
  * `008778-03` Table 2-9 places the drive at `050000`-`050F80`, AT `218`-`21F`.
  * The part is `device/ap_sc499.h`.
  *
+ * ## The ISA address is `200`, not `218` -- settled by the handbook
+ *
+ * That `218` never added up. `008778-03`'s own physical column gives `050000`,
+ * and this board maps ISA to physical by `(AT_addr/8) * $400 + $40000`, which
+ * sends `218` to `050C00` and `200` to `050000`. The `008778-03` walk hit the
+ * arithmetic three separate times -- at Table 2-7, at Table 8-1's prose
+ * "Device Address (base address) 218 (hex)", and at Figure 15-5, where the SPE
+ * board's *alternate* jumpering claims `218`-`21F` for its own serial port --
+ * and each time recorded that our constant follows the physical column because
+ * that is what the board decodes.
+ *
+ * **`002398-04` p. 12-1 gives the ISA address directly.** Its DN3000 address
+ * table has three columns -- physical, virtual, I/O Bus -- and the row is
+ * `50000 tape ... 200`. So the ISA address is **`200`**, `008778-03` prints
+ * `218` in two places and its own physical column contradicts it, and the
+ * measurement, the physical column and this handbook all agree.
+ *
+ * `AP_TAPE_ADDR` does not change; what changes is that it no longer rests on
+ * preferring one column of a self-contradicting table. And the SPE collision
+ * the walk recorded is real but is with the *alternate* SPE setting at `218`,
+ * which is not where the tape is.
+ *
+ * The same table confirms every other device address this core places -- `win`
+ * at `4D000`/ISA `1A0`, ethernet at `58000`/`300`, mono at `5D800`/`3B0`,
+ * floppy at `5F800`/`3F0` -- and the core-board block: `8000 mmu/cpu`,
+ * `8400 sios` (**one** SIO row, as the DS3000 has one 2681), `8800 timers`,
+ * `8900 calendar`, `9000`/`9100` DMA, `9200` DMA page register, `9300` parity,
+ * `9400`/`9500` the two interrupt controllers.
+ *
  * ## Placement, measured and then explained
  *
  * The oracle's controller dumps as `00 40 FF FF FF FF FF FF`, repeating on an

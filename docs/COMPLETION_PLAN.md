@@ -5590,7 +5590,8 @@ interrupt request line assignments that settled the ring's IRQ2, and the
 The record is `docs/references/002398-04_WALK.md`, in the same shape as the
 finished `008778-03_WALK.md`.
 
-**Started 2026-08-20. Front matter read (PDF 5–11); 0 content pages of 330.**
+**Started 2026-08-20. Front matter read (PDF 5–11); chapter 12 begins at PDF
+279 and runs to 313. 2 content pages of 330.**
 
 - [ ] **Chapter 12, DN3000 — first, and the reason is scope.** Chapters 7–11 are
       other machine families (DN300/320/330, DN400/420/600, DN460/660/DSP160,
