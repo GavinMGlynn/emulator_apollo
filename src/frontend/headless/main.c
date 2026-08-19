@@ -5159,6 +5159,22 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
              board->sio.register_reads[unit][reg]);
     }
   }
+  /* **What each part was left armed to do**, which the counts above cannot say.
+   * `sio2 reg 5` writes tell you the interrupt mask was programmed twice and
+   * not what it was programmed *to*, and the difference decides whether an
+   * operating system meant to service a line at all (`FINDINGS.md` C222).
+   *
+   * A `--boot-watch-write` on the register's canonical address does not answer
+   * it either: `ap_sio_decode` masks the register index, so sixteen registers
+   * at stride two alias eight times across the part's 256-byte range and a
+   * watch on one exact address misses writes to the other seven. */
+  for (unsigned unit = 0; unit < 2u; unit++) {
+    const ap_mc68681_t *part = &board->sio.port[unit];
+    printf("    sio%u armed  imr %02X  isr %02X  (A sr %02X, B sr %02X)\n",
+           unit + 1u, part->imr, part->isr, part->channel[0].sr,
+           part->channel[1].sr);
+  }
+
   /* Characters the ports threw away, by *which* of the two ways. A run that
    * delivered a dialogue and saw none of it arrive cannot tell "the machine
    * took it and reset the FIFO" from "the machine was not listening", and the
