@@ -5591,7 +5591,28 @@ The record is `docs/references/002398-04_WALK.md`, in the same shape as the
 finished `008778-03_WALK.md`.
 
 **Started 2026-08-20. Front matter read (PDF 5–11); chapter 12 begins at PDF
-279 and runs to 313. 7 content pages of 330.**
+279 and runs to 313. 8 content pages of 330.**
+
+- [ ] **Three things `002398-04` p. 12-8 says about the CPU control register.**
+      Its two bit maps agree with `board/ap_boardreg.h` on the parity field, the
+      diag-mode and FP-trap bits and the write-to-acknowledge rule, and differ
+      on three points that each need the firmware checked against them rather
+      than a constant added:
+      **(a)** the control register's upper byte is documented **"1 => led off"**
+      — an inverted sense `ap_boardreg_post_code` neither records nor applies,
+      and the boot PROM's posted codes would read complemented if it is right.
+      **(b)** bit 1 is **`rsa`, "reset on-board devices"**, and has no constant
+      at all. The page adds the exclusion "**Neither RSA nor the reset
+      instruction reset the SIO lines**", which is a specific behaviour to
+      model, not just a bit to name.
+      **(c)** bit 0 is `AP_BOARDREG_CONTROL_INTERRUPT_ENABLE` here and **`nme`,
+      non-maskable interrupt enable**, there — and the page states a gate this
+      core does not implement: "**Non-maskable interrupts must be enabled to
+      receive parity errors.**" That would make `ap_parity`'s level-7 path
+      conditional on this bit, which is a behaviour change to a path the
+      reference boot exercises, so it needs measuring before it is made.
+      Also stated and not modelled: the control register "is write-only (the
+      BSET instruction may not be used to turn bits on and off)".
 
 - [ ] **The tape's STATUS SUMMARY table** (`002398-04` p. 12-5). Fifteen rows
       giving which *pairs* of status bytes mean which condition — no cartridge,
