@@ -1220,6 +1220,12 @@ static bool g_script_line_set = false;
 static unsigned g_script_unit = 0u;
 static unsigned g_script_channel = 0u;
 
+/* How often the script's own line is knocked while it waits for its first
+ * match. A terminal's rate, not a pipe's: `MD.md` records the firmware wanting
+ * "one carriage return every 0.4 s", and the event being waited for here --
+ * `siologin` finishing its receiver reset -- is on the same human scale. */
+#define AP_SCRIPT_KNOCK_INTERVAL ((ap_time_t)AP_TIME_BASE_HZ / 2u)
+
 #define AP_SIO_CONSOLE_UNIT 0u
 #define AP_SIO_CONSOLE_CHANNEL 1u
 #define AP_SIO_CONSOLE_RATE 0xBBu
@@ -4093,6 +4099,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   const ap_time_t input_interval =
       requested > wire_floor ? requested : wire_floor;
   ap_time_t input_next_at = 0u;
+  ap_time_t script_knock_at = 0;
+  unsigned script_knocks = 0;
 
   ap_machine_run_t run;
   /* **`typed_length` belongs in this list, and leaving it out is the trap this
@@ -4271,6 +4279,32 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
           g_script_line_set ? g_script_unit : input_unit;
       const unsigned script_channel =
           g_script_line_set ? g_script_channel : input_channel;
+
+      /* **Knock the script's own line until it answers, when that line is not
+       * the console's.** `FINDINGS.md` C232: a character delivered to a line
+       * the operating system has not finished taking over is *destroyed* by the
+       * receiver reset that takes it over -- §4.2.7.2, "the receiver is
+       * immediately disabled", FIFO and all -- and the sender is never told.
+       * The retry below cannot see it either, because the character was
+       * accepted at the time it was sent and `RxRDY` was duly set; the reset
+       * came afterwards.
+       *
+       * The event to wait for produces **no output**: `siologin` prints nothing
+       * until a terminal types at it (C165), so there is no line to `expect`.
+       * A knock that must follow a silent event is answered by repetition, and
+       * only repetition. Bounded to before the script's first match, as the
+       * two-node runner's is, so once the dialogue is underway the script owns
+       * the line. */
+      if (g_script_line_set && script.steps > 0u && script.at == 0u &&
+          input_sent >= input_length &&
+          ap_machine_now(&machine) >= script_knock_at &&
+          ap_sio_receiver_enabled(&board->sio, script_unit, script_channel) &&
+          !ap_sio_receiver_ready(&board->sio, script_unit, script_channel)) {
+        ap_sio_receive_at(&board->sio, script_unit, script_channel, (uint8_t)'\r',
+                          input_rate);
+        script_knock_at = ap_machine_now(&machine) + AP_SCRIPT_KNOCK_INTERVAL;
+        script_knocks++;
+      }
       if (input_sent >= input_length && script.steps > 0u &&
           ap_machine_now(&machine) >= input_next_at &&
           !ap_sio_receiver_ready(&board->sio, script_unit, script_channel) &&
@@ -5168,6 +5202,11 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * it either: `ap_sio_decode` masks the register index, so sixteen registers
    * at stride two alias eight times across the part's 256-byte range and a
    * watch on one exact address misses writes to the other seven. */
+  if (g_script_line_set) {
+    printf("    script line sio%u %c, knocked %u time(s) before its first "
+           "match\n",
+           g_script_unit + 1u, (char)('A' + g_script_channel), script_knocks);
+  }
   for (unsigned unit = 0; unit < 2u; unit++) {
     const ap_mc68681_t *part = &board->sio.port[unit];
     printf("    sio%u armed  imr %02X  isr %02X  (A sr %02X, B sr %02X)\n",
