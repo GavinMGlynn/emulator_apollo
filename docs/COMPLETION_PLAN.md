@@ -5291,7 +5291,13 @@ Only after the reference core is proven, and only under an identity harness.
       and runs**, on a `DS2500_MAP` holding only measured placements, and stops
       at a named gap: its core block is **not** the Series 4000's — thirty-two
       four-byte registers where that has one aliased across 256 bytes — so the
-      range is left undecoded rather than answering another machine's register.
+      range was left undecoded rather than answering another machine's register.
+      *Superseded 2026-08-19 by the entry below*: the block is now decoded as
+      `AP_BOARD_REGION_S2500_CONTROL`, **storage and `PROVISIONAL`**, because
+      the firmware's own reset code requires `0202D4` to read back what it
+      writes and spins for ever otherwise. That is the same restraint, not a
+      reversal of it -- the range answers *itself* rather than another machine's
+      register -- and it took the machine from 18 instructions to 60 M.
       Reference, web and oracle are all exhausted for a Series 2500, so
       finishing it is an undocumented-hardware project of its own rather than a
       tail of this item.
