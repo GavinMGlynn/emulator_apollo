@@ -55,6 +55,11 @@ void ap_omti_reset(ap_omti_t *omti) {
    * latter being the diskette-change bit with no media in the drive. */
   omti->fdc_data = 0xFFu;
   omti->disk_change = true;
+  omti->fdc_completion_at = 0u;
+  /* Not zero: no drive is seeking, and zero is a deadline a freshly started
+   * machine has already passed. */
+  omti->fdc_seek_at[0] = AP_TIME_NEVER;
+  omti->fdc_seek_at[1] = AP_TIME_NEVER;
 }
 
 bool ap_omti_disk_dma_request(const ap_omti_t *omti) {
@@ -65,12 +70,25 @@ bool ap_omti_disk_dma_request(const ap_omti_t *omti) {
 }
 
 ap_time_t ap_omti_interrupt_next_change(const ap_omti_t *omti) {
-  /* The guard is `ap_omti_advance`'s own, so the two cannot disagree about
-   * when this part is capable of moving. */
-  if (omti->phase != AP_OMTI_PHASE_EXECUTING) {
-    return AP_TIME_NEVER;
+  /* The guards are `ap_omti_advance`'s own, so the two cannot disagree about
+   * when this part is capable of moving. Three deadlines, because the two
+   * halves of this board are independent and the floppy's drives are
+   * independent of each other: the soonest of them is when anything here can
+   * next change. */
+  ap_time_t next = AP_TIME_NEVER;
+  if (omti->phase == AP_OMTI_PHASE_EXECUTING && omti->completion_at < next) {
+    next = omti->completion_at;
   }
-  return omti->completion_at;
+  if (omti->fdc_phase == AP_OMTI_PHASE_EXECUTING &&
+      omti->fdc_completion_at < next) {
+    next = omti->fdc_completion_at;
+  }
+  for (unsigned unit = 0u; unit < 2u; unit++) {
+    if (omti->fdc_seek_at[unit] < next) {
+      next = omti->fdc_seek_at[unit];
+    }
+  }
+  return next;
 }
 
 bool ap_omti_disk_irq(const ap_omti_t *omti) {
@@ -356,13 +374,40 @@ static void finish(ap_omti_t *omti, bool error, uint8_t sense) {
                            AP_OMTI_ST_BSY);
 }
 
+/* Defined with the rest of the floppy half, far below: this is the only place
+ * above it that needs to reach it. */
+static void fdc_complete(ap_omti_t *omti);
+
 void ap_omti_advance(ap_omti_t *omti, ap_time_t now) {
   omti->now = now;
+
+  /* The heads first, then the controllers that may be waiting on them.
+   *
+   * A drive arriving at its cylinder is what `SENSE INTERRUPT STATUS` reports
+   * and what takes the Main Status Register's per-drive Seek bit down. §6.3
+   * gives `SEEK` and `RECALIBRATE` no result phase, so nothing else marks the
+   * moment. */
+  for (unsigned unit = 0u; unit < 2u; unit++) {
+    if (omti->fdc_seek_at[unit] == AP_TIME_NEVER ||
+        now < omti->fdc_seek_at[unit]) {
+      continue;
+    }
+    omti->fdc_seek_at[unit] = AP_TIME_NEVER;
+    omti->fdc_seek_done = true;
+    omti->fdc_seek_st0 =
+        (uint8_t)(AP_OMTI_ST0_IC_NORMAL | AP_OMTI_ST0_SEEK_END | (uint8_t)unit);
+  }
+
+  /* `>=` and not `>`: a deadline is the instant the completion is visible, and
+   * a device advanced exactly onto it has reached it. */
+  if (omti->fdc_phase == AP_OMTI_PHASE_EXECUTING &&
+      now >= omti->fdc_completion_at) {
+    fdc_complete(omti);
+  }
+
   if (omti->phase != AP_OMTI_PHASE_EXECUTING) {
     return;
   }
-  /* `>=` and not `>`: the deadline is the instant the completion is visible,
-   * and a device advanced exactly onto it has reached it. */
   if (now >= omti->completion_at) {
     complete(omti);
   }
@@ -1684,9 +1729,95 @@ static void fdc_idle(ap_omti_t *omti) {
   omti->fdc_status = AP_OMTI_MSR_RQM;
 }
 
-/* Enter the result phase, or go straight back to idle when §6.3 gives the
- * command no result bytes. */
-static void fdc_result(ap_omti_t *omti) {
+/* How long the heads take to cross `from` cylinders to `to`.
+ *
+ * `008778-03` Table 7-7: one step per track at 3 ms minimum, and less than 15 ms
+ * to settle "excluding track-to-track time" -- so the settle is charged once, at
+ * the end, and only when the heads actually moved. A seek to the cylinder the
+ * head is already on costs nothing, which is the one case a step-and-settle
+ * model must not charge for.
+ *
+ * See the header for the check that this composition reproduces Table 7-7's own
+ * published 94 ms average. */
+static ap_time_t fdc_seek_duration(uint8_t from, uint8_t to) {
+  const unsigned distance = from > to ? (unsigned)(from - to)
+                                      : (unsigned)(to - from);
+  if (distance == 0u) {
+    return 0u;
+  }
+  return (ap_time_t)distance * AP_OMTI_FDC_TRACK_TO_TRACK +
+         AP_OMTI_FDC_SETTLING;
+}
+
+/* Start a drive moving, and let the Main Status Register say so.
+ *
+ * The controller itself is free the moment the command is accepted -- §6.3 gives
+ * `SEEK` and `RECALIBRATE` no result phase -- so this sets no controller
+ * deadline. What it sets is the *drive's*, and `ap_omti_advance` is what marks
+ * the arrival. A seek of zero distance arrives at once, so the driver's next
+ * `SENSE INTERRUPT STATUS` finds it done, which is what the hardware does with
+ * a head already on the requested cylinder. */
+static void fdc_begin_seek(ap_omti_t *omti, unsigned unit, uint8_t to) {
+  const ap_time_t duration = fdc_seek_duration(omti->fdc_cylinder[unit], to);
+  omti->fdc_cylinder[unit] = to;
+  if (duration == 0u) {
+    omti->fdc_seek_done = true;
+    omti->fdc_seek_st0 = (uint8_t)(AP_OMTI_ST0_IC_NORMAL |
+                                   AP_OMTI_ST0_SEEK_END | (uint8_t)unit);
+    return;
+  }
+  omti->fdc_seek_at[unit] = omti->now + duration;
+}
+
+/* Whether a drive is still moving, which is the Main Status Register's per-drive
+ * "in the Seek mode" bit. */
+static bool fdc_seeking(const ap_omti_t *omti, unsigned unit) {
+  return omti->fdc_seek_at[unit] != AP_TIME_NEVER;
+}
+
+/* How long the command in `fdc_command` keeps the *controller* busy.
+ *
+ * Zero for everything answered out of the controller's own registers --
+ * `SENSE DRIVE STATUS`, `SENSE INTERRUPT STATUS`, `SPECIFY`, and the invalid
+ * opcode -- on the same division the fixed disk's `command_duration` draws, and
+ * for the same reason: nothing touched a surface, so there is nothing to wait
+ * for and charging would be inventing time.
+ *
+ * No seek component. The 765 does not position implicitly: the head is where a
+ * prior `SEEK` left it, and `fdc_begin_seek` has already charged that. What is
+ * left is the wait for the sector to come round and the time its bytes take to
+ * cross the head. */
+static ap_time_t fdc_command_duration(const ap_omti_t *omti) {
+  unsigned sectors = 0u;
+  switch ((uint8_t)(omti->fdc_command[0] & AP_OMTI_FDC_OPCODE_MASK)) {
+  case AP_OMTI_FDC_READ_DATA:
+  case AP_OMTI_FDC_SCAN_EQUAL:
+  case AP_OMTI_FDC_SCAN_LOW_EQUAL:
+  case AP_OMTI_FDC_SCAN_HIGH_EQUAL:
+    /* One sector through the buffer, whatever EOT names: this model moves them
+     * one at a time, exactly as the fixed disk's data path does. §6.3's set has
+     * no WRITE DATA and no READ ID, so those are not cases here -- see the
+     * header's command enum for why nothing is invented from 765 knowledge. */
+    sectors = 1u;
+    break;
+  case AP_OMTI_FDC_FORMAT_TRACK:
+    /* A whole track written, `SC` sectors of it, and it starts at the index
+     * hole -- so the wait is for the index rather than for a sector, which
+     * averages the same half revolution. */
+    sectors = omti->fdc_command[3];
+    break;
+  default:
+    return 0u;
+  }
+  const uint64_t bytes = (uint64_t)sectors * AP_AFD_SECTOR_BYTES;
+  return AP_OMTI_FDC_AVERAGE_LATENCY +
+         (ap_time_t)((uint64_t)AP_TIME_BASE_HZ * bytes /
+                     AP_OMTI_FDC_TRANSFER_BYTES_PER_SEC);
+}
+
+/* The result phase the deadline was standing in front of. */
+static void fdc_complete(ap_omti_t *omti) {
+  omti->fdc_completion_at = 0u;
   if (omti->fdc_result_length == 0u) {
     fdc_idle(omti);
     return;
@@ -1695,6 +1826,27 @@ static void fdc_result(ap_omti_t *omti) {
   omti->fdc_result_index = 0u;
   /* Controller to host, and busy until the last byte is taken. */
   omti->fdc_status = AP_OMTI_MSR_RQM | AP_OMTI_MSR_DIO | AP_OMTI_MSR_BUSY;
+}
+
+/* Enter the result phase, or go straight back to idle when §6.3 gives the
+ * command no result bytes -- after the drive has taken as long over it as
+ * `008778-03` chapter 7 says it does.
+ *
+ * `[OMTI]` §4.5 is the shape being modelled: "The controller then goes 'Busy'
+ * and executes the command. Upon completion of the command the controller
+ * becomes 'not busy' and results may be obtained." So while the deadline stands
+ * the Main Status Register reads busy with `RQM` down -- there is no byte to
+ * move in either direction -- and the result bytes, already prepared by the
+ * caller, are not offered yet. */
+static void fdc_result(ap_omti_t *omti) {
+  const ap_time_t duration = fdc_command_duration(omti);
+  if (duration == 0u) {
+    fdc_complete(omti);
+    return;
+  }
+  omti->fdc_phase = AP_OMTI_PHASE_EXECUTING;
+  omti->fdc_completion_at = omti->now + duration;
+  omti->fdc_status = AP_OMTI_MSR_BUSY;
 }
 
 /* The seven-byte result the data commands share. C, H, R and N come back as the
@@ -1808,20 +1960,15 @@ static void fdc_execute(ap_omti_t *omti) {
 
   case AP_OMTI_FDC_RECALIBRATE:
     /* §6.3.6 steps to track 0. Equipment Check is what a drive that never gets
-     * there reports, and this one always does. */
-    omti->fdc_cylinder[unit] = 0u;
-    omti->fdc_seek_done = true;
-    omti->fdc_seek_st0 =
-        (uint8_t)(AP_OMTI_ST0_IC_NORMAL | AP_OMTI_ST0_SEEK_END | (uint8_t)unit);
+     * there reports, and this one always does. It steps, so it costs one step
+     * per cylinder from wherever the head was. */
+    fdc_begin_seek(omti, unit, 0u);
     fdc_result(omti);
     return;
 
   case AP_OMTI_FDC_SEEK:
-    /* §6.3.10's NCN, which is simply where the head now is. */
-    omti->fdc_cylinder[unit] = omti->fdc_command[2];
-    omti->fdc_seek_done = true;
-    omti->fdc_seek_st0 =
-        (uint8_t)(AP_OMTI_ST0_IC_NORMAL | AP_OMTI_ST0_SEEK_END | (uint8_t)unit);
+    /* §6.3.10's NCN, which is where the head is going. */
+    fdc_begin_seek(omti, unit, omti->fdc_command[2]);
     fdc_result(omti);
     return;
 
@@ -1965,6 +2112,18 @@ uint8_t ap_omti_fdc_read(ap_omti_t *omti, unsigned reg) {
         (omti->dor & AP_OMTI_DOR_INT_DMA) == 0u) {
       status |= AP_OMTI_MSR_NDMA;
     }
+    /* Bits 0 and 1, "Drive A/B is in the Seek mode when 1". Composed here
+     * rather than stored in `fdc_status`, because a drive can be seeking while
+     * the controller is idle, busy on the other drive, or in a data phase --
+     * §6.3 releases the controller the moment a `SEEK` is accepted -- and a
+     * stored bit would have to be maintained at every one of those transitions.
+     * The deadline is the single source. */
+    if (fdc_seeking(omti, 0u)) {
+      status |= AP_OMTI_MSR_SEEK_A;
+    }
+    if (fdc_seeking(omti, 1u)) {
+      status |= AP_OMTI_MSR_SEEK_B;
+    }
     return status;
   }
   case AP_OMTI_FDC_DATA:
@@ -1997,6 +2156,17 @@ void ap_omti_fdc_write(ap_omti_t *omti, unsigned reg, uint8_t value) {
     } else if (!was_reset && ap_omti_fdc_in_reset(omti)) {
       omti->fdc_phase = AP_OMTI_PHASE_IDLE;
       omti->fdc_status = 0u;
+      /* And every deadline the floppy half was working towards. Abandoned
+       * rather than left standing, for the reason `ap_omti_disk_reset` gives
+       * for the Winchester's: the deadlines are hashed, so two controllers held
+       * in reset must be the same machine however they got there. A seek left
+       * outstanding would also arrive later and set `fdc_seek_done` on a
+       * controller that has forgotten it ever issued one. */
+      omti->fdc_completion_at = 0u;
+      omti->fdc_seek_at[0] = AP_TIME_NEVER;
+      omti->fdc_seek_at[1] = AP_TIME_NEVER;
+      omti->fdc_seek_done = false;
+      omti->fdc_seek_st0 = 0u;
     }
     return;
   }

@@ -243,7 +243,28 @@ void ap_omti_cdb_decode(const uint8_t *bytes, ap_omti_cdb_t *out);
 [[nodiscard]] bool ap_omti_cdb_touches_surface(uint8_t command);
 
 /* Whether an ESDI controller accepts this command. False for the ST506-only
- * command and for anything not in §5.1.2. */
+ * command and for anything not in §5.1.2.
+ *
+ * **That this machine's drive is ESDI is now settled from Apollo's side, not
+ * only from `[OMTI]`'s.** `008778-03` chapter 5 describes the controller's
+ * cabling as ST506/412 throughout -- §5.3.4.2's J3/J4 carry MFM read and write
+ * data, and §5.4.1.2 has the five OMTI chips controlling "one or two ST506/412
+ * type hard disks" -- which reads like a flat contradiction of an ESDI command
+ * set. §6.3 resolves it by drive rather than by controller: "The 72-MB drive,
+ * used only in the DS3000, should be ... compatible with the industry-standard
+ * **ST412** rigid disk drive interface, transferring MFM data at 5.0
+ * megabits/second. The **155-MB and 348-MB** drives should be ... compatible
+ * with the industry-standard **ESDI** rigid disk drive interfaces, transferring
+ * NRZ data at 10.0 megabits/second." Chapter 5 is describing the 72 Mbyte
+ * drive's wiring, which is the only one a DS3000 takes; the drives a DS4000
+ * carries -- and the class this core's image is -- are ESDI.
+ *
+ * It follows that §5.4.5's power-on drive parameters (4 heads, maximum cylinder
+ * 306, reduced write current and write precompensation both at cylinder 153)
+ * are **not a gap in this model**. They are defaults for the parameter list of
+ * `0C INITIALIZE DRIVE CHARACTERISTICS`, the one command this predicate
+ * refuses, so on an ESDI controller nothing ever reads them. They were recorded
+ * as an open gap while the interface was unsettled; §6.3 closes it. */
 [[nodiscard]] bool ap_omti_cdb_accepted_by_esdi(uint8_t command);
 
 /* How many bytes the command's descriptor block occupies: ten for COPY, six for

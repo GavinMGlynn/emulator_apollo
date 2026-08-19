@@ -433,6 +433,153 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The floppy drive had no access time, and chapter 6 named the Winchester
+## (2026-08-20)
+
+From the `008778-03` whole-document walk, chapters 6 and 7 — the two drive
+specifications. Coverage in `docs/references/008778-03_WALK.md`.
+
+### The floppy had the defect the fixed disk was fixed for
+
+`ap_omti`'s Winchester half has carried an access time since 2026-08-12,
+because a zero one crashes Domain/OS with `CRASH_STATUS 00120020`. **Its floppy
+half had none at all**: every §6.3 command completed in the instant its last
+byte was written, `SEEK` and `RECALIBRATE` included. The header said so and
+named the boundary — the Main Status Register's per-drive "in the Seek mode"
+bits were documented as "never set, and that is the model being honest ... they
+become real when seeks take time".
+
+Chapter 7 is the document that supplies the times, and every figure now in the
+code is printed in it: Table 7-1's 360 rpm, 83.3 ms average latency and 500
+Kbit/s; Table 7-7's 3 ms track-to-track and 15 ms settling "excluding
+track-to-track time".
+
+**The composition is checked against the document's own aggregate**, which is
+what makes it the manual's model rather than ours. Table 7-7 also publishes
+"Average Track Access Time (including settling time) **94 msec** (for 80
+cylinders)". Composing one step per cylinder plus a single settle over every
+ordered pair of the drive's 80 cylinders gives **94.8 ms** — 0.9% high, a
+rounding difference and not a structural one. `afd_suite` asserts it.
+
+So the floppy's seek is **distance-dependent** where the Winchester's is not:
+`fdc_cylinder[]` already tracked each head, and the fixed disk still has no
+modelled head position, so every Winchester seek costs the average.
+
+What this changed in behaviour:
+
+- `SEEK` and `RECALIBRATE` set a **per-drive** deadline and return the
+  controller to idle at once, because §6.3 gives them no result phase. Two
+  drives can be seeking at the same time, which is why the status register has
+  a bit each.
+- Those two status bits are now reachable. **No seek-completion interrupt was
+  added**: `[OMTI]` §4.5 describes the whole floppy protocol as command, busy,
+  results and names no interrupt anywhere in it, and §6.3 gives these two
+  commands nothing to raise one from. The documented way to learn a seek
+  finished is to watch the bit fall and then issue `SENSE INTERRUPT STATUS`,
+  and that is what is modelled. Inventing an interrupt no manual on this shelf
+  describes would have been the easy wrong answer.
+- Data commands cost half a revolution plus their transfer, and **no seek** —
+  the 765 does not position implicitly.
+
+**The state hash did not cover the floppy at all.** Four registers were hashed;
+the command phase, the head positions and the outstanding seeks were not, so two
+machines differing only in where a floppy head stood hashed alike. Invisible
+while nothing could differ, and fatal to an identity harness the moment the
+drive got a clock. Now hashed, buffers excepted as the fixed disk's is.
+
+**`PROVISIONAL`, named rather than guessed**: Table 7-1's 500 ms spindle start
+time is not modelled. This core does not time the motor from the Digital Output
+Register, so a command issued into a stopped spindle completes as though the
+disk were at speed. Closing it needs a motor-on timestamp *and* a decision about
+what a too-early command does — and no manual here says whether that is an error
+or a wait, so modelling it now would mean inventing a failure mode. Table 7-1's
+35 ms head load time is deliberately *not* a gap: §7.7.5 says "The *Domain
+System* does not require a head load solenoid".
+
+### The Winchester drive is named in Apollo's own manual
+
+`ap_omti.h` carried a `PROVISIONAL` on the drive identification — that the 348
+Mbyte drive was a Maxtor was "inferred from capacity and era rather than from
+Apollo documentation". **Table 6-5 names it outright: "Maxtor EXT-4380"**, and
+Table 6-4 names the 155 Mbyte drive "Micropolis 1355" — the pair `ap_awd.h` had
+taken from the oracle's disk types. The marking is closed.
+
+Three figures were **confirmed** rather than changed: 3600 rpm (Tables 6-5 and
+6-7), 8.33 ms average latency, and 1.25 Mbyte/s, which is §6.3's "10.0
+megabits/second (NRZ)" exactly. `AP_AWD_SECTOR_BYTES` 1056 likewise, from §6.2's
+"18 sectors per track (1056 total bytes in each sector)" — previously only the
+oracle's constant.
+
+One figure **changed**. The average seek was 16 ms, from the published sheet of
+a Maxtor XT-4380E — a part number that was itself the inference. Table 6-5 gives
+the EXT-4380 a **1/3 stroke seek of 30 msec**, and 1/3 stroke is the average
+seek: a uniformly random seek over N cylinders travels N/3, and this document
+says so by its own layout, since Table 6-3 puts "Average" in the row position
+where 6-4 and 6-5 put "1/3 stroke". `omti8621.cpp`'s comment independently puts
+the average at ~30 ms, so the oracle's comment and Apollo's table agree and the
+inferred datasheet was the outlier. **Now 30 ms.**
+
+### The first time in this walk the oracle out-accurated the manual
+
+Table 6-6's **348 Mbyte column is an erratum**, and the table's own arithmetic
+proves it: it prints "Capacity 380 MB" and "Capacity per track 20,808 bytes",
+then "1023 cylinders, 8 heads" copied from the 155 Mbyte column beside it.
+20,808 x 8 x 1023 is 170 MB, contradicting the 380 MB three rows above in the
+same column; 20,808 x **15** x **1223** is 381.7 MB. Table 6-5 carries the same
+slip: its "Formatted sectors 147,312" is the 155 Mbyte drive's count.
+
+So Apollo's published capacities confirm the 1223 x 15 geometry `ap_awd.h` took
+from the oracle, and Apollo's published cylinder and head counts for that one
+drive are wrong. Twice before, this walk found the published table out-accurating
+MAME; this is the first time it went the other way.
+
+### Verified on the reference boot, before and against after
+
+A disk access time is exactly the quantity that crashed Domain/OS once, so
+nearly doubling the Winchester's seek is not a change to land on a green
+`ctest` alone. `tools/identity-boot.sh` run either side of it, release build,
+350 M instructions:
+
+    reference boot        before              after
+    state hash            38F1BEC968B88156    0078D6E07ED8D80E
+    stopped               EXECUTED            EXECUTED
+    clocks                1,409,366,593       1,407,948,042   (-0.10%)
+    elapsed (base units)  1,214,445,555,721,728  1,213,223,195,999,232
+    final PC              00002EE6            00002EE4
+    exceptions            391 x vector 2, 1 x 11, 1 x 31, 3 x 160, 1 x 173
+                                              — identical
+
+The console is unchanged line for line, through the PROM self-tests, the loaded
+`SELF_TEST Revision 2.4` diagnostics and `Self tests passed.` The two final PCs
+are two adjacent instructions of the same PROM poll loop, so the machine is in
+the same place at the bound.
+
+**The clock fell slightly while the disk got slower**, which is the right sign
+rather than a paradox: the run is bounded by *instructions*, not by time, and a
+slower disk puts more of those 350 M into the cheap serial poll loop — 34.2 M
+reads of `sio1 reg 9` in this boot — so the same instruction count buys fewer
+clocks. A 0.10% shift is what a change touching 14.6 M disk accesses out of
+150 M total should produce when the boot is dominated by polling.
+
+**New identity reference: `0078D6E07ED8D80E`.** The previous published number,
+`A354786119A3931D`, was superseded twice earlier in this walk by the AT bus
+cycle time and the 16-bit Winchester transfer, and was stale here.
+
+### ESDI against ST506/412, the tension chapter 5 left open
+
+Chapter 5 describes the controller's cabling as ST506/412 throughout, which read
+like a flat contradiction of `ap_omti_cdb_accepted_by_esdi`. §6.3 resolves it by
+*drive*: the 72 Mbyte drive is ST412/MFM at 5 megabits and is fitted only to a
+DS3000; the 155 and 348 Mbyte drives are **ESDI**/NRZ at 10 megabits. Chapter 5
+is describing the one drive a DS3000 takes.
+
+It follows that §5.4.5's power-on drive parameters — 4 heads, maximum cylinder
+306, reduced write current and write precompensation at 153 — are **not a gap**,
+which the walk had recorded them as while the interface was unsettled. They are
+defaults for `0C INITIALIZE DRIVE CHARACTERISTICS`, the one command an ESDI
+controller refuses, so nothing ever reads them. The walk's other chapter-5 gap
+was already stale: `E4 CONTROLLER DIAGNOSTIC` is implemented and has been.
+
 ## SR10.2 boots: every obtainable Domain/OS release now runs here (2026-08-18)
 
 The last unbooted release, on this core, from its own disk:
@@ -6384,10 +6531,10 @@ failure that cost a bit position in the 68020's module entry word.
 | OMTI command descriptor blocks | working: the 6-byte CDB decoded with the **cylinder reassembled from three bytes** (C10 in byte 1, C09/C08 in byte 2, low eight in byte 3), the command byte exposed both whole and split into class and opcode, and acceptance checked against the ESDI command set — which **refuses** `0C INITIALIZE DRIVE CHARACTERISTICS`, an ST506-only command that would make ESDI geometry look settable | `omti_cdb_suite`, 7 tests; `FINDINGS.md` C27 |
 | OMTI 862X ESDI/floppy controller (the part) | **register model complete for both halves**: the fixed disk's four ports with their read/write asymmetries and the status register's fixed bits, and the floppy's five at the standard PC layout. Modelled as two independent register sets sharing nothing, as `[OMTI]` §4.1 and §3.4 describe. Both measured dumps reproduced as tests. **Both command sets now modelled**: §5's fixed disk over `.awd`, and §6's floppy over `.afd` — ten commands and INVALID, with ST0–ST3 result bytes, and **no `WRITE DATA`**, which neither our §6 nor the sibling 8640's §5.3 lists. **`1E READ DATA TO BUFFER` implemented** -- §5.4.19's "reads data from the disk
 to the controller's buffer ... does not transfer the data to the host", paired
-with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both derived from the STATUS register as §4.2 and §4.3 give them: the interrupt from `IREQ` and the MASK byte's interrupt enable, the DMA request from `DREQ`, which the MASK byte's DMA enable gates. IRQ6 and DRQ2 are placed and not yet driven: the floppy side's completion is the FDC's result phase, not this one | `omti_suite`, 15 tests; `awd_suite`, 49; `afd_suite`, 26; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |
+with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both derived from the STATUS register as §4.2 and §4.3 give them: the interrupt from `IREQ` and the MASK byte's interrupt enable, the DMA request from `DREQ`, which the MASK byte's DMA enable gates. IRQ6 and DRQ2 are placed and not yet driven: the floppy side's completion is the FDC's result phase, not this one | `omti_suite`, 15 tests; `awd_suite`, 49; `afd_suite`, 34; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |
 | OMTI 8621 placement (the DN3500's disk) | measured, both halves. Placement characterised at `04D000`: the range is the card's (all `FF` without it, control verified by device enumeration), aliased on an eight-byte period, with offsets 1-3 driven. Offsets 0 and 4-7 read `FF`, which a read sweep cannot distinguish from undriven | `FINDINGS.md` C20 |
 | WD7000 ESDI/SCSI (DN4500) | not started | — |
-| Floppy (`device/ap_omti.c`'s second half, `image/ap_afd.c`), QIC cartridge tape (`device/ap_qic.c`, `board/ap_tape.c`) | **modelled, and the floppy is now reachable.** §6.3's ten commands with their ST0-ST3 result bytes, the motor, MFM, multitrack and skip-deleted flags, over a 77x2x8x1024 `.afd`. The row said "not started", which was stale by a whole subsystem | `afd_suite`, 26 tests; `qic_suite`; `tape_suite`; `--diskette` fits one |
+| Floppy (`device/ap_omti.c`'s second half, `image/ap_afd.c`), QIC cartridge tape (`device/ap_qic.c`, `board/ap_tape.c`) | **modelled, and the floppy is now reachable.** §6.3's ten commands with their ST0-ST3 result bytes, the motor, MFM, multitrack and skip-deleted flags, over a 77x2x8x1024 `.afd`. The row said "not started", which was stale by a whole subsystem | `afd_suite`, 34 tests; `qic_suite`; `tape_suite`; `--diskette` fits one |
 | Mono and colour graphics controllers (`board/ap_graphics.*`) | **working**: the register block with its scrambled byte lanes, the blitter wired to the memory cycle, the LUT ports and the four screen geometries. Audited line by line against `[S3K]` ch. 10 and ch. 11 on 2026-08-16 — **no structural defect**, and §10.3.1's eleven-item change list checks out entry by entry. One real finding: the colour raster is printed in full in Table 11-4 and had been taken from the oracle, which was off by one in each direction (`h_total` 1346→1344, `v_total` 841→842). `GRAPHICS.md` finding 19; the dot clock stays `PROVISIONAL` at 68 MHz | `graphics_suite`; `./tools/identity-boot.sh --screen c8p` hashes `6140F8E43F3BCC1C` with 2.17 M controller reads |
 | 3c505 802.3 Ethernet (`device/ap_3c505.*`) | **working end to end, host command path included.** The four flag registers from `[HIS]` §3-2/§3-3/§3-5/§3-6 with the sides the right way round, the §3.1.2/§3.1.3 mailbox in both directions, the command set, DMA on DRQ6 and the interrupt on IRQ10. The audit's finding: §3.1.2's *host→adapter* half had never been wired — assembler, dispatcher and responder all existed and were unit-tested, nothing called them, and a host command was answered never. `ETHERNET.md` finding 19; the pacing approximation is 19a. The line-by-line pass then found four more: §3.1.1's accept/reject flags were never signalled at all (20), `02H`'s receive mode was stored and never consulted so every frame on the wire was this station's (21), `3AH`'s length is `10H` not the `0CH` printed -- `[HIS]` App. F, the packet counters became double words in Rev 2.0 (22) -- and `0FH` self-test is now answered while `0CH`/`0DH`/`0EH`/`11H` stay refused because every field of their responses is unmodelled (23), and §1.12's adapter reset both cleared the Host Control Register it must not touch and released the adapter while the host still held `ATTN`+`FLSH` (25) | `etherlink_suite`, 50 tests, of which `test_a_command_written_by_the_host_is_answered_by_the_adapter` crosses the real registers with no test-side wiring |
 | MAME oracle harness | working and used throughout. Beyond the dumper there are now four probe tools — `regprobe.lua` drives every bit of a register in both directions, `writetrace.lua` taps writes to watch firmware program a device, `steptime.lua` single-steps for instruction timing, `mdcapture.lua` traces the serial registers byte-exact — and findings C10 through C14 are all measurements taken with them | `oracle_driver` (19 checks, stub MAME) and `oracle_dump_format` (19 checks, mock machine); `./apollo -listfull` lists all eleven apollo machines |

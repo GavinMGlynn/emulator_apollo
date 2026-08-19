@@ -5577,6 +5577,74 @@ Only after the reference core is proven, and only under an identity harness.
       run as a node its disk contradicts. Given its own node the same volume
       reaches `Starting standard daemons:.`, hash `5671D8D76ACDC046`.
 
+## The `008778-03` whole-document walk
+
+`CLAUDE.md`: a document that yields one unimplemented fact is read **whole**.
+`008778-03` triggered it on 2026-08-19 (Table 2-3's IRQ1). The coverage record —
+one row per page range, including the ones that yield nothing — is
+`docs/references/008778-03_WALK.md`, which is where the reasoning lives; this
+section is only the list of **gaps the walk has opened and not yet closed**, so
+that they are findable from the plan rather than from a reference file.
+
+**81 of 209 pages walked.** Chapters 1–7 complete; resume at page 98,
+chapter 8.
+
+- [ ] **The Series 4000 virtual cache and write buffer, and their 16 KB of
+      board-visible RAM.** §1.3.1: "an **8-KB, direct-mapped** cache ... 2048
+      4-byte instruction and/or data entries ... **write-through with
+      write-allocate**". §1.3.2's write buffer "resides on the virtual bus
+      **between the microprocessor and the PMMU**". Neither is modelled, and
+      neither is the 68030's on-chip cache — Figure 1-2 draws both on a **68020**
+      logical bus beside a separate 68851. **Not merely internal**: Table 2-8
+      gives `012000`-`013FFF` CACHE RAM and `014000`-`015FFF` CACHE CONDITION
+      CODE RAM, so firmware can read and write the cache's data *and* its
+      condition-code RAM, and a diagnostic almost certainly does. Open question
+      the walk has not settled: whether a DS3500 carries the structure at all.
+- [ ] **The DS4000 is absent from the model table.** Figure 1-2: 25-MHz MC68020,
+      MC68851 PMMU, MC68881 FPU, 4–32 MB, four serial lines. `--list-models` has
+      `dn3000` (68020 @ 12 MHz) and `dn4500` (68030 @ 33 MHz); the DS4000 is
+      neither, and `DS4000_MAP` in `ap_board.c` is named after it while actually
+      serving the DS3500.
+- [ ] **`IO_CH_CK.L` and the AT bus's NMI path.** §2.3.2: an uncorrectable bus
+      error "asynchronously sets a flip-flop that causes a **Non-Maskable-
+      Interrupt** ... provides an **on-board register bit, which can be read and
+      reset**". §3.2 narrows it: this is the *same* level-7 autovector interrupt
+      `ap_parity` already implements, with two sources, and the handler "checks
+      the status register" to tell them apart. What is unknown is only **which
+      bit** of `010000`/`008000`. Nothing this core models raises a channel
+      check, so the path is unexercised — which is why it went unnoticed, not a
+      reason to leave it.
+- [ ] **Refresh cycles are not inserted on the AT bus.** §2.4.6: the system board
+      drives refresh "at **regular intervals (approximately 15 microseconds)**"
+      via "a state machine, driven by a timebase". This core models the refresh
+      *source* — §3.9's 15 µs square wave on the 2681's `OP3` — and not the
+      *cycles*: nothing consumes bus time for it. For a core whose claim is
+      emergent contention, a cycle stolen every 15 µs is not cosmetic, and the
+      same interval explains `MASTER.L`'s documented 15 µs ceiling.
+- [ ] **Three `MASTER.L` timings, one of them a failure mode.** §2.3.2: one
+      system clock before driving address and data, two before a command, and
+      "if this signal is held low for **more than 15 microseconds, the system
+      memory may be lost because no refresh is performed**". `ap_master.h` has
+      the four-state handshake and none of the three.
+- [ ] **DRAM access times, and `IO_CH_RDY`'s 2.5 µs ceiling.** §3.3 gives both
+      families **120 ns RAS / 60 ns CAS**, a 4 ms refresh period over 256 row
+      addresses (DS3000) or 1000 (DS4000). §2.3.2 caps `IO_CH_RDY` low at 2.5 µs.
+      None is modelled or enforced.
+- [ ] **The 2681's modem-control signals.** §3.9 and Figures 3-4/3-5: RS-232
+      DTR, DCD, RTS and CTS per line, pinned out for SIO1/2/3. `[MC68681]`'s CTS
+      and RTS are fully modelled; **DCD and DTR have no model at all**. Measured
+      and **not** the `siologin` blocker — on the SR10.4 reference boot `sio2`
+      shows seven registers written and register 13 never read — but real, and
+      formally untested in the line-2-configured case.
+- [ ] **The floppy spindle's 500 ms start time.** `PROVISIONAL`, marked in
+      `ap_omti.h` and `PROJECT_STATUS.md`. `008778-03` Table 7-1 and Table 7-4
+      both give it; this core does not time the motor from the Digital Output
+      Register, so a command issued into a stopped spindle completes as though
+      the disk were at speed. **What would close it**: a motor-on timestamp, and
+      a documented answer to what a too-early command *does*. No manual held here
+      says whether that is an error or a wait, and inventing a failure mode is
+      worse than the gap.
+
 ## Deferred tails
 
 Nothing is deferred silently. Current list:

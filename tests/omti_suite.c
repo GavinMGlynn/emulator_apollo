@@ -155,8 +155,14 @@ static void test_the_two_halves_share_nothing(void) {
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_COMMAND, ap_omti_fdc_phase(&o));
   TEST_ASSERT_FALSE(ap_omti_fdc_in_reset(&o));
 
-  /* The seek completes across all of that, on the cylinder it was given. */
+  /* The seek completes across all of that, on the cylinder it was given -- and
+   * it takes the seventeen cylinders' worth of stepping that `008778-03`
+   * Table 7-7 says it does, so the clock has to be advanced onto the arrival
+   * before `SENSE INTERRUPT STATUS` has anything to report. Asked any earlier,
+   * the part answers "never started", which is the documented reply to a sense
+   * with no seek outstanding. */
   ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0x11);
+  ap_omti_advance(&o, ap_omti_interrupt_next_change(&o));
   ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SENSE_INTERRUPT);
   (void)ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA);
   TEST_ASSERT_EQUAL_HEX8(0x11, ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA));

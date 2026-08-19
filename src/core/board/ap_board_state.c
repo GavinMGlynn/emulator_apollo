@@ -312,6 +312,42 @@ void ap_board_hash_disk(ap_hash_t *st, const ap_disk_t *disk) {
    * phase alone would not separate them: the deadline is the state. */
   ap_hash_u8(st, (uint8_t)omti->phase);
   ap_hash_u64(st, omti->completion_at);
+
+  /* ## The floppy half's own progress, which nothing here used to cover
+   *
+   * Everything above this line was the fixed disk's, plus the four floppy
+   * *registers*. The floppy's command phase, its head positions and its
+   * outstanding seeks were absent, so two machines that differed only in where
+   * a floppy head stood -- or in whether a seek had landed -- hashed alike.
+   * That was invisible while every floppy command completed in the instant it
+   * was issued and no head position could differ; giving the drive its access
+   * time from `008778-03` chapter 7 is what makes the difference observable,
+   * and an identity harness that cannot see it is not an identity harness.
+   *
+   * The two 1024-byte sector buffers are deliberately still out, as the fixed
+   * disk's is: their *indices* are here, so a half-drained transfer is
+   * distinguished from a full one, and the contents come from an image both
+   * machines share. */
+  ap_hash_u8(st, (uint8_t)omti->fdc_phase);
+  ap_hash_u64(st, omti->fdc_completion_at);
+  ap_hash_u64(st, omti->fdc_seek_at[0]);
+  ap_hash_u64(st, omti->fdc_seek_at[1]);
+  ap_hash_u8(st, omti->fdc_cylinder[0]);
+  ap_hash_u8(st, omti->fdc_cylinder[1]);
+  hash_bool(st, omti->fdc_seek_done);
+  ap_hash_u8(st, omti->fdc_seek_st0);
+  for (unsigned i = 0; i < AP_OMTI_FDC_COMMAND_MAX; i++) {
+    ap_hash_u8(st, omti->fdc_command[i]);
+  }
+  ap_hash_u32(st, (uint32_t)omti->fdc_command_length);
+  ap_hash_u32(st, (uint32_t)omti->fdc_command_index);
+  for (unsigned i = 0; i < AP_OMTI_FDC_RESULT_MAX; i++) {
+    ap_hash_u8(st, omti->fdc_result[i]);
+  }
+  ap_hash_u32(st, (uint32_t)omti->fdc_result_length);
+  ap_hash_u32(st, (uint32_t)omti->fdc_result_index);
+  ap_hash_u32(st, (uint32_t)omti->fdc_buffer_index);
+  ap_hash_u32(st, (uint32_t)omti->fdc_buffer_length);
 }
 
 void ap_board_hash_tape(ap_hash_t *st, const ap_tape_t *tape) {

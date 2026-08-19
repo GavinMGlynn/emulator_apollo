@@ -47,14 +47,53 @@ static void build_controller(void) {
   ap_omti_fdc_write(&omti, AP_OMTI_FDC_DOR, AP_OMTI_DOR_NOT_RESET);
 }
 
+/* Let whatever the last command set in motion arrive.
+ *
+ * `008778-03` chapter 7 gives this drive an access time, so a command no longer
+ * completes in the instant its last byte is written: the controller is busy and
+ * the heads are moving. A real driver polls the Main Status Register across
+ * that interval; these tests advance the clock instead, which is the same wait
+ * without the polling. The durations themselves are asserted by the timing
+ * tests at the end of this file, not here -- everything above them is about
+ * what the command *does*, and should not have to restate how long it takes. */
+static void settle(void) {
+  /* Bounded rather than `while`: each pass retires at least one deadline and
+   * three is all there are, so a fourth would mean a deadline that re-arms
+   * itself and this should fail the test rather than hang it. */
+  for (unsigned pass = 0; pass < 4u; pass++) {
+    const ap_time_t next = ap_omti_interrupt_next_change(&omti);
+    if (next == AP_TIME_NEVER) {
+      return;
+    }
+    ap_omti_advance(&omti, next);
+  }
+  TEST_FAIL_MESSAGE("a deadline outlived four advances");
+}
+
 static void send(const uint8_t *bytes, unsigned count) {
   for (unsigned i = 0; i < count; i++) {
     ap_omti_fdc_write(&omti, AP_OMTI_FDC_DATA, bytes[i]);
   }
+  settle();
 }
 
+/* A byte out of the data register, and then the same wait `send` does.
+ *
+ * The byte that *ends* a data phase is what hands the command to the result
+ * phase, and that handover now goes through the drive's access time -- so the
+ * settle belongs on every data-register access rather than only after a
+ * command's last byte. Everywhere else it costs nothing: outside an execution
+ * phase there is no deadline to advance onto. */
 static uint8_t take(void) {
-  return ap_omti_fdc_read(&omti, AP_OMTI_FDC_DATA);
+  const uint8_t byte = ap_omti_fdc_read(&omti, AP_OMTI_FDC_DATA);
+  settle();
+  return byte;
+}
+
+/* The same, going the other way: the data-out phases of the three scans. */
+static void put(uint8_t byte) {
+  ap_omti_fdc_write(&omti, AP_OMTI_FDC_DATA, byte);
+  settle();
 }
 
 static uint8_t status(void) {
@@ -361,7 +400,7 @@ static void test_scan_equal_reports_a_hit_when_every_byte_matches(void) {
   /* Towards the controller, so DIO is clear. */
   TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_DIO) == 0u);
   for (unsigned i = 0; i < AP_AFD_SECTOR_BYTES; i++) {
-    ap_omti_fdc_write(&omti, AP_OMTI_FDC_DATA, 0u);
+    put(0u);
   }
   TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST0_IC_NORMAL, take());
   (void)take(); /* ST1 */
@@ -377,7 +416,7 @@ static void test_a_single_mismatched_byte_leaves_the_scan_not_satisfied(void) {
                              3u,                     8u, 0x1Bu, 1u};
   send(command, sizeof command);
   for (unsigned i = 0; i < AP_AFD_SECTOR_BYTES; i++) {
-    ap_omti_fdc_write(&omti, AP_OMTI_FDC_DATA, i == 500u ? 0xFFu : 0u);
+    put(i == 500u ? 0xFFu : 0u);
   }
   (void)take();
   (void)take();
@@ -397,7 +436,7 @@ static void test_the_low_and_high_scans_compare_the_media_against_the_host(void)
                           3u,                          8u, 0x1Bu, 1u};
   send(high, sizeof high);
   for (unsigned i = 0; i < AP_AFD_SECTOR_BYTES; i++) {
-    ap_omti_fdc_write(&omti, AP_OMTI_FDC_DATA, 0u);
+    put(0u);
   }
   (void)take();
   (void)take();
@@ -409,7 +448,7 @@ static void test_the_low_and_high_scans_compare_the_media_against_the_host(void)
                          3u,                         8u, 0x1Bu, 1u};
   send(low, sizeof low);
   for (unsigned i = 0; i < AP_AFD_SECTOR_BYTES; i++) {
-    ap_omti_fdc_write(&omti, AP_OMTI_FDC_DATA, 0u);
+    put(0u);
   }
   (void)take();
   (void)take();
@@ -529,6 +568,206 @@ static void test_a_floppy_command_does_not_disturb_the_fixed_disk_phase(void) {
   release_floppy();
 }
 
+/* ---- The drive's access time, `008778-03` chapter 7 ---------------------- */
+
+/* Issue a command without letting anything arrive, so a test can look at the
+ * controller mid-flight. `send` settles by design; this is its counterpart. */
+static void send_only(const uint8_t *bytes, unsigned count) {
+  for (unsigned i = 0; i < count; i++) {
+    ap_omti_fdc_write(&omti, AP_OMTI_FDC_DATA, bytes[i]);
+  }
+}
+
+static void seek_to(uint8_t cylinder) {
+  const uint8_t command[] = {AP_OMTI_FDC_SEEK, 0u, cylinder};
+  send_only(command, sizeof command);
+}
+
+/* Table 7-7: "Track-to-Track Time 3 msec minimum", "Settling Time Less than 15
+ * msec (**excluding track-to-track time**)". The exclusion is the whole shape
+ * of the model -- the settle is charged once at the end, not per step. */
+static void test_a_seek_costs_one_step_a_cylinder_and_a_single_settle(void) {
+  build_floppy(true);
+  build_controller();
+  seek_to(10u);
+  TEST_ASSERT_EQUAL_UINT64(10u * AP_OMTI_FDC_TRACK_TO_TRACK +
+                               AP_OMTI_FDC_SETTLING,
+                           omti.fdc_seek_at[0]);
+
+  /* And it is the *distance* that is paid for, not the destination: the same
+   * drive going ten further costs the same again. */
+  settle();
+  const ap_time_t at_ten = omti.now;
+  seek_to(20u);
+  TEST_ASSERT_EQUAL_UINT64(at_ten + 10u * AP_OMTI_FDC_TRACK_TO_TRACK +
+                               AP_OMTI_FDC_SETTLING,
+                           omti.fdc_seek_at[0]);
+  release_floppy();
+}
+
+/* A head already on the requested cylinder has nowhere to go, and a
+ * step-and-settle model that charged the settle anyway would invent 15 ms per
+ * redundant seek -- which a driver that re-seeks defensively issues constantly.
+ */
+static void test_a_seek_to_the_cylinder_the_head_is_on_arrives_at_once(void) {
+  build_floppy(true);
+  build_controller();
+  seek_to(0u);
+  TEST_ASSERT_EQUAL_UINT64(AP_TIME_NEVER, omti.fdc_seek_at[0]);
+  /* Arrived, so the sense has something to report without any wait. */
+  const uint8_t sense[] = {AP_OMTI_FDC_SENSE_INTERRUPT};
+  send(sense, sizeof sense);
+  TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST0_IC_NORMAL | AP_OMTI_ST0_SEEK_END, take());
+  release_floppy();
+}
+
+/* `[OMTI]` Table 4-3, Main Status Register bits 1 and 0: "Drive B/A is in the
+ * Seek mode when 1". They were unreachable while every seek finished inside the
+ * command that issued it; the drive's step time is what gives them an interval
+ * to be observed in, and this is the polled path a driver uses to wait -- §4.5
+ * describes no interrupt for a command with no result phase. */
+static void test_the_status_register_shows_a_drive_in_the_seek_mode(void) {
+  build_floppy(true);
+  build_controller();
+  seek_to(40u);
+  TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_SEEK_A) != 0u);
+  TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_SEEK_B) == 0u);
+  /* The controller itself is free: §6.3 gives SEEK no result phase, so it is
+   * back at idle while the head is still moving. */
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_IDLE, ap_omti_fdc_phase(&omti));
+
+  /* One base unit short of arrival it is still moving. */
+  ap_omti_advance(&omti, omti.fdc_seek_at[0] - 1u);
+  TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_SEEK_A) != 0u);
+
+  ap_omti_advance(&omti, omti.fdc_seek_at[0]);
+  TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_SEEK_A) == 0u);
+  release_floppy();
+}
+
+/* Two drives, two deadlines: §4.5's status register has a bit each because a
+ * seek on drive A does not stop drive B, and one shared deadline would make the
+ * second seek cancel the first. */
+static void test_the_two_drives_seek_independently(void) {
+  build_floppy(true);
+  build_controller();
+  seek_to(40u);
+  /* Select drive B in the Digital Output Register and send it somewhere
+   * nearer, so its arrival is strictly the earlier of the two. */
+  ap_omti_fdc_write(&omti, AP_OMTI_FDC_DOR,
+                    (uint8_t)(AP_OMTI_DOR_NOT_RESET | 0x01u));
+  const uint8_t command[] = {AP_OMTI_FDC_SEEK, 0x01u, 5u};
+  send_only(command, sizeof command);
+  TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_SEEK_A) != 0u);
+  TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_SEEK_B) != 0u);
+  TEST_ASSERT_TRUE(omti.fdc_seek_at[1] < omti.fdc_seek_at[0]);
+
+  /* B arrives; A is still moving. */
+  ap_omti_advance(&omti, omti.fdc_seek_at[1]);
+  TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_SEEK_B) == 0u);
+  TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_SEEK_A) != 0u);
+  TEST_ASSERT_EQUAL_UINT8(5u, omti.fdc_cylinder[1]);
+  TEST_ASSERT_EQUAL_UINT8(40u, omti.fdc_cylinder[0]);
+  release_floppy();
+}
+
+/* **The check that the three published figures describe one mechanism.**
+ *
+ * Table 7-7 gives track-to-track, settling *and* an aggregate: "Average Track
+ * Access Time (including settling time) 94 msec (for 80 cylinders)". Composing
+ * the first two over the drive's 80 cylinders has to reproduce the third, or
+ * the composition is this core's invention rather than the document's model.
+ * It comes out at 94.8 ms -- 0.9% high, which is a rounding difference and not
+ * a structural one.
+ *
+ * The mean is over every ordered pair of cylinders, which is what "average
+ * access" means for a drive with no idea where its next request will be. */
+static void test_the_step_and_settle_model_gives_table_7_7s_average_of_94_ms(
+    void) {
+  uint64_t total = 0u;
+  for (unsigned from = 0; from < AP_OMTI_FDC_DRIVE_CYLINDERS; from++) {
+    for (unsigned to = 0; to < AP_OMTI_FDC_DRIVE_CYLINDERS; to++) {
+      const unsigned distance = from > to ? from - to : to - from;
+      if (distance == 0u) {
+        continue;
+      }
+      total += (uint64_t)distance * AP_OMTI_FDC_TRACK_TO_TRACK +
+               AP_OMTI_FDC_SETTLING;
+    }
+  }
+  const uint64_t pairs =
+      (uint64_t)AP_OMTI_FDC_DRIVE_CYLINDERS * AP_OMTI_FDC_DRIVE_CYLINDERS;
+  const uint64_t millisecond = AP_TIME_BASE_HZ / 1000u;
+  const uint64_t mean_ms = total / pairs / millisecond;
+  TEST_ASSERT_EQUAL_UINT64(94u, mean_ms);
+}
+
+/* Table 7-1: "Average Latency Time 83.3 msec" and "Data Transfer Rate 500K"
+ * bits a second. A read waits for the sector to come round and then for its
+ * bytes to cross the head; it does *not* pay a seek, because the 765 does not
+ * position implicitly -- the head is where SEEK left it. */
+static void test_a_read_costs_half_a_revolution_and_the_sectors_transfer(void) {
+  build_floppy(true);
+  build_controller();
+  const uint8_t command[] = {AP_OMTI_FDC_READ_DATA, 0u, 0u, 0u, 1u,
+                             3u,                    8u, 0x1Bu, 0xFFu};
+  send_only(command, sizeof command);
+  /* The data phase comes first and is not itself delayed -- the named
+   * approximation this shares with the fixed disk, see `ap_omti.h`. */
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_fdc_phase(&omti));
+  for (unsigned i = 0; i < AP_AFD_SECTOR_BYTES; i++) {
+    (void)ap_omti_fdc_read(&omti, AP_OMTI_FDC_DATA);
+  }
+  /* And now the drive's time is charged, before the result bytes are offered. */
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_EXECUTING, ap_omti_fdc_phase(&omti));
+  TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_BUSY) != 0u);
+  TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_RQM) == 0u);
+  TEST_ASSERT_EQUAL_UINT64(
+      AP_OMTI_FDC_AVERAGE_LATENCY +
+          (ap_time_t)((uint64_t)AP_TIME_BASE_HZ * AP_AFD_SECTOR_BYTES /
+                      AP_OMTI_FDC_TRANSFER_BYTES_PER_SEC),
+      omti.fdc_completion_at);
+
+  settle();
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_fdc_phase(&omti));
+  release_floppy();
+}
+
+/* The same division the fixed disk draws: a command the controller answers out
+ * of its own registers touched no surface, so there is nothing to wait for and
+ * charging would be inventing time. */
+static void test_a_command_that_touches_no_surface_costs_nothing(void) {
+  build_floppy(true);
+  build_controller();
+  const uint8_t sense[] = {AP_OMTI_FDC_SENSE_DRIVE, 0u};
+  send_only(sense, sizeof sense);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_fdc_phase(&omti));
+  TEST_ASSERT_EQUAL_UINT64(0u, omti.fdc_completion_at);
+  drain();
+
+  const uint8_t specify[] = {AP_OMTI_FDC_SPECIFY, 0xDFu, 0x02u};
+  send_only(specify, sizeof specify);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_IDLE, ap_omti_fdc_phase(&omti));
+  TEST_ASSERT_EQUAL_UINT64(0u, omti.fdc_completion_at);
+  release_floppy();
+}
+
+/* Holding the floppy half in reset abandons what it was working towards. Left
+ * standing, a seek would arrive later and set the seek-done flag on a
+ * controller that has forgotten it ever issued one -- and the deadlines are
+ * hashed, so two controllers in reset must be the same machine. */
+static void test_a_reset_abandons_an_outstanding_seek(void) {
+  build_floppy(true);
+  build_controller();
+  seek_to(40u);
+  TEST_ASSERT_TRUE(omti.fdc_seek_at[0] != AP_TIME_NEVER);
+  ap_omti_fdc_write(&omti, AP_OMTI_FDC_DOR, 0u);
+  TEST_ASSERT_EQUAL_UINT64(AP_TIME_NEVER, omti.fdc_seek_at[0]);
+  TEST_ASSERT_FALSE(omti.fdc_seek_done);
+  TEST_ASSERT_EQUAL_UINT64(AP_TIME_NEVER, ap_omti_interrupt_next_change(&omti));
+  release_floppy();
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_an_afd_image_is_exactly_one_floppy_or_it_is_refused);
@@ -557,5 +796,13 @@ int main(void) {
   RUN_TEST(test_specify_consumes_three_bytes_and_produces_none);
   RUN_TEST(test_a_command_written_before_the_result_phase_is_drained_is_lost);
   RUN_TEST(test_a_floppy_command_does_not_disturb_the_fixed_disk_phase);
+  RUN_TEST(test_a_seek_costs_one_step_a_cylinder_and_a_single_settle);
+  RUN_TEST(test_a_seek_to_the_cylinder_the_head_is_on_arrives_at_once);
+  RUN_TEST(test_the_status_register_shows_a_drive_in_the_seek_mode);
+  RUN_TEST(test_the_two_drives_seek_independently);
+  RUN_TEST(test_the_step_and_settle_model_gives_table_7_7s_average_of_94_ms);
+  RUN_TEST(test_a_read_costs_half_a_revolution_and_the_sectors_transfer);
+  RUN_TEST(test_a_command_that_touches_no_surface_costs_nothing);
+  RUN_TEST(test_a_reset_abandons_an_outstanding_seek);
   return UNITY_END();
 }

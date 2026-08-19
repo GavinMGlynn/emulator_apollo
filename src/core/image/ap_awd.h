@@ -23,6 +23,28 @@
  *     348 MB  Maxtor EXT-4380-E   1223 cylinders, 15 heads, 18 sectors
  *     155 MB  Micropolis 1355     1023 cylinders,  8 heads, 18 sectors
  *
+ * **Apollo's own manual names both drives**, which was not known when the two
+ * were taken from the oracle: `008778-03` Table 6-4 is headed "Micropolis 1355"
+ * and Table 6-5 "Maxtor EXT-4380". Table 6-6 then publishes the geometry, and
+ * it confirms the 155 Mbyte row exactly -- 1023 cylinders, 8 heads, 18 sectors
+ * per track, 20,832 bytes per track, 170 MB unformatted.
+ *
+ * **Its 348 Mbyte column is an erratum, and the table's own arithmetic proves
+ * it.** That column prints "Capacity 380 MB" and "Capacity per track 20,808
+ * bytes" -- and then "Number of cylinders 1023, Number of heads 8", copied
+ * across from the 155 Mbyte column beside it. 20,808 x 8 x 1023 is 170 MB, not
+ * the 380 MB printed three rows above in the same column, so the column
+ * contradicts itself. 20,808 x **15** x **1223** is 381.7 MB, which is the
+ * stated capacity. Table 6-5 carries the same slip one table earlier: its
+ * "Formatted sectors 147,312" is 1023 x 8 x 18, the 155 Mbyte drive's count,
+ * where 1223 x 15 x 18 is 330,210.
+ *
+ * So Apollo's published *capacities* confirm the oracle's 1223 x 15 geometry
+ * that this module already used, and Apollo's published *cylinder and head
+ * counts* for that one drive are wrong. This is the first time in the
+ * `008778-03` walk that the oracle has out-accurated the manual; twice before
+ * it went the other way. Recorded in `docs/references/008778-03_WALK.md`.
+ *
  * A caller names the type; there is nothing to detect. An image whose size does
  * not reach the geometry's last sector is accepted and short -- a read past the
  * end fails rather than returning whatever follows in memory, which is the same
@@ -45,7 +67,17 @@
 
 /* `OMTI_DISK_SECTOR_SIZE`. 1024 of data and 32 beyond it; what the last
  * thirty-two carry is not established here, and no read this core performs
- * depends on it. */
+ * depends on it.
+ *
+ * **Confirmed from Apollo's own requirement**, which was previously only the
+ * oracle's constant: `008778-03` §6.2, "The 155-MB and 348-MB drives must be
+ * formattable for 18 sectors per track (**1056 total bytes in each sector**)".
+ * Table 6-6's "Format (reference only)" row prints 1117 bytes/sector for the
+ * same two drives -- 61 bytes more, and 18 x 1117 = 20,106 still fits inside
+ * that table's 20,808-byte track, so the larger figure is the byte cell
+ * including its gap and the smaller is the sector. The 72 Mbyte ST412 drive is
+ * formatted differently again: 9 sectors of 1114 bytes, which both places
+ * agree on and which this core does not model. */
 #define AP_AWD_SECTOR_BYTES 1056u
 
 /* The two drives `omti8621.cpp` configures, by its own type codes. */

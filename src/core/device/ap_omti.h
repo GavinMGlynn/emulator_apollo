@@ -123,14 +123,22 @@ typedef enum {
 #define AP_OMTI_MSR_BUSY 0x10u /* executing a command */
 #define AP_OMTI_MSR_SEEK_B 0x02u
 #define AP_OMTI_MSR_SEEK_A 0x01u
-/* **Never set, and that is the model being honest.** These report a seek *in
- * progress*, and this core's `SEEK` and `RECALIBRATE` complete within the
- * command that issues them -- there is no interval during which one is
- * outstanding, so there is no moment at which the bit could be observed set. A
- * driver polling for "seek finished" reads the finished state, which is the
- * right answer arrived at by there being nothing to wait for.
- * They become real when seeks take time, which is the same boundary the fixed
- * disk's positioning has. */
+/* **Now real.** These used to be documented here as "never set, and that is the
+ * model being honest": `SEEK` and `RECALIBRATE` completed inside the command
+ * that issued them, so there was no interval during which one was outstanding
+ * and no moment at which the bit could be observed set. That note ended "they
+ * become real when seeks take time", and `008778-03` chapter 7 is the document
+ * that supplies the times -- see `AP_OMTI_FDC_TRACK_TO_TRACK` below.
+ *
+ * The polled path they serve is the whole mechanism, and it is the documented
+ * one: `[OMTI]` §4.5 describes the floppy protocol as command phase, busy,
+ * results, and **names no interrupt anywhere in it**. Neither does §6.3 for
+ * `SEEK` or `RECALIBRATE`, which have no result phase to raise one from. So a
+ * driver learns a seek has finished by watching its drive's bit here fall and
+ * then issuing `SENSE INTERRUPT STATUS` -- which is exactly what a per-drive
+ * "in the Seek mode" bit is for, and why the part has two of them. No
+ * seek-completion interrupt is modelled, because no manual on this shelf
+ * describes one. */
 
 /* §6.3's floppy command set: the opcode is the low five bits of the first
  * command byte, the top three being MT, MF and SK on the commands that take
@@ -226,32 +234,133 @@ typedef enum {
 /* ## The drive's own figures, which is where an access time has to come from
  *
  * The controller does not determine access time -- the drive does -- and none
- * of `[OMTI]`'s three manuals gives one, which is correct of them. The DN3500
- * shipped 85, 170, 348 and 760 Mbyte drives from Micropolis and Maxtor, and the
- * image this core is developed against is the 348 Mbyte class.
+ * of `[OMTI]`'s three manuals gives one, which is correct of them. The figures
+ * are the *drive's*, and Apollo published them: `008778-03` §6.4 lists the
+ * approved Winchester drives by manufacturer's part number and tabulates each
+ * one's operating characteristics.
  *
- * **`PROVISIONAL`: the drive identification, not the arithmetic.** That the
- * 348 Mbyte drive is specifically a Maxtor XT-4380E is inferred from capacity
- * and era rather than from Apollo documentation, and the geometry does not
- * match exactly -- this core's address conversion is 16 heads x 18 sectors
- * where the drive is 15 x 36 of half the sector size, the same bytes per track
- * in a different shape. The figures below are that drive's published ones and
- * each is applied as its own component, so replacing the drive replaces
- * numbers rather than structure. See `docs/PROJECT_STATUS.md`.
+ * **The `PROVISIONAL` this block used to carry is closed.** That the 348 Mbyte
+ * drive is a Maxtor was inferred from capacity and era; Table 6-5 names it
+ * outright -- **"Maxtor EXT-4380"** -- and Table 6-4 names the 155 Mbyte drive
+ * as the **Micropolis 1355**, which is the pair `image/ap_awd.h` had taken from
+ * the oracle's disk types. Apollo's own manual and MAME agree on which two
+ * drives this machine shipped.
  *
- * Deliberately *not* MAME's figure: `omti8621.cpp` uses a flat 1 ms while its
- * own comment puts the average at ~30 ms, so matching it would be matching a
- * known approximation. */
+ * Table 6-5's four timings for the 348 Mbyte drive, which is the class this
+ * core's image is:
+ *
+ *     Transfer rate            10   (megabits/second, NRZ -- see below)
+ *     Single cylinder seek      4 msec (typical)
+ *     1/3 stroke seek          30 msec (typical)
+ *     Maximum stroke seek      58 msec (typical)
+ *     Average latency        8.33 msec
+ *     Nominal rpm            3600
+ *
+ * **1/3 stroke *is* the average seek**, and this document says so by its own
+ * layout: Table 6-3 gives the 72 Mbyte drive "Track-to-track / **Average** /
+ * Maximum" in the three row positions where Tables 6-4 and 6-5 give "Single
+ * cylinder / **1/3 stroke** / Maximum stroke". A uniformly random seek over N
+ * cylinders travels N/3 on average, which is why the industry quotes the
+ * third-stroke figure as the average one.
+ *
+ * So the average seek is **30 ms**, not the 16 ms this core carried. The 16
+ * came from the published sheet of a *Maxtor XT-4380E* -- a part number that
+ * was inferred, and a different one from the EXT-4380 Apollo approved.
+ * `omti8621.cpp` uses a flat 1 ms and its own comment puts the average at
+ * ~30 ms, so the oracle's *comment* and Apollo's *table* agree with each other
+ * and the inferred datasheet was the outlier. (MAME's 1 ms is still not
+ * followed: it is a known approximation its own author flagged.)
+ *
+ * Distance-dependent seek is still a tail here, and deliberately: the fixed
+ * disk has no modelled head position, so every seek costs the average. The
+ * floppy *does* -- see `AP_OMTI_FDC_AVERAGE_SEEK` below, where the same
+ * document's figures compose into a distance model that reproduces its own
+ * published average. */
 #define AP_OMTI_DRIVE_RPM 3600u
-/* Half a revolution is the average rotational wait for a sector to arrive. */
+/* Table 6-5 "Nominal rpm 3600", and Table 6-7 "Rotational speed 3600 rpm
+ * (+/- 0.5%), Index period 16.67 msec (+/- 0.5%)". Half a revolution is the
+ * average rotational wait for a sector to arrive, and it comes out at 8.33 ms
+ * -- which is Table 6-5's "Average latency" to the digit. */
 #define AP_OMTI_ROTATION_TIME (AP_TIME_BASE_HZ * 60u / AP_OMTI_DRIVE_RPM)
 #define AP_OMTI_AVERAGE_LATENCY (AP_OMTI_ROTATION_TIME / 2u)
-/* "Average seek 16 ms typical", against 3.0 ms track-to-track and 29 ms full
- * stroke. Distance-dependent seek is a tail: this core does not model where the
- * heads are, so every seek costs the average. */
-#define AP_OMTI_AVERAGE_SEEK (AP_TIME_BASE_HZ / 1000u * 16u)
-/* 1.25 Mbyte/s sustained. */
+/* Table 6-5's 1/3 stroke figure, against 4 ms single-cylinder and 58 ms
+ * maximum stroke. */
+#define AP_OMTI_AVERAGE_SEEK (AP_TIME_BASE_HZ / 1000u * 30u)
+/* §6.2 and §6.3: the 155 Mbyte and 348 Mbyte drives "must be interface-
+ * compatible with ESDI disk drives at a data transfer rate of 10.0
+ * megabits/second (NRZ)". Ten megabits is 1.25 Mbyte/s, which is the figure
+ * this core already carried -- confirmed rather than changed. Table 6-3/6-4/6-5
+ * head their first row "Transfer rate (MB/second)" and print 5 and 10; the unit
+ * in that heading is wrong and the prose is right, which the 72 Mbyte drive's
+ * own numbers settle: 10,416 bytes per track at 3600 rpm is 625 Kbyte/s, and
+ * that is 5 mega*bits*. */
 #define AP_OMTI_TRANSFER_BYTES_PER_SEC 1250000u
+
+/* ## The floppy drive's figures, which are a different drive's
+ *
+ * The floppy half of this board is a separate mechanism -- §5.4.1.2 has it
+ * "independent of the Z8681 and ... operated entirely by the host CPU" -- and it
+ * had **no access time at all** until `008778-03` chapter 7 was walked. That is
+ * the same defect the fixed disk carried, and the fixed disk's is documented
+ * above as not merely imprecise but fatal to Domain/OS.
+ *
+ * Chapter 7 is a drive specification, and every figure below is printed in it:
+ *
+ *     Table 7-1  Disk rotation speed        360 rpm (+/- 2%)
+ *     Table 7-1  Average latency time      83.3 msec
+ *     Table 7-1  Data transfer rate         500 Kbit/sec
+ *     Table 7-7  Track-to-track time           3 msec minimum
+ *     Table 7-7  Settling time                15 msec (excluding track-to-track)
+ *     Table 7-7  Average track access time    94 msec (for 80 cylinders,
+ *                                                      including settling)
+ *
+ * **The composition is checked against the document's own aggregate.** A seek
+ * of `d` cylinders costs `d` steps plus one settle, and the mean of that over
+ * an 80-cylinder drive is 94.8 ms against Table 7-7's published 94 -- 0.9%
+ * apart, which is what a step-plus-settle model should give and is the evidence
+ * that the three figures describe one mechanism rather than three unrelated
+ * numbers. `omti_suite` asserts it. So unlike the fixed disk, whose head
+ * position this core does not model, the floppy's seek is **distance-
+ * dependent**: `fdc_cylinder[]` already tracks where each head is.
+ *
+ * Chapter 7 also confirms the format `image/ap_afd.h` took from the oracle:
+ * §7.2's "high-density mode at 360 rpm, with a data transfer rate of 500
+ * Kb/sec" and Table 7-1's MFM, 2 sides, 96 TPI are `apollo_dsk.cpp`'s
+ * "FF_525, DSHD, MFM, 1200 (1 us, 360 rpm)" exactly. The one apparent
+ * difference is explained rather than left open: Table 7-1 gives the **drive**
+ * 80 cylinders and 160 tracks where the Apollo format uses 77, and §7.3 says
+ * why -- "In the high density mode, the FDD is **equivalent to an 8-inch,
+ * double-sided, double-density** flexible disk drive in data storage capacity
+ * and data transfer rate". The medium is formatted to 8-inch equivalence on an
+ * 80-cylinder mechanism, so 77 of 80 is the format and 80 is the drive.
+ *
+ * **Documented and deliberately not modelled**, each with its reason:
+ *   - Head load time, Table 7-1's 35 msec. §7.7.5: "The *Domain System* does
+ *     not require a head load solenoid." A drive without one loads no head, and
+ *     charging for a mechanism the system specification excludes would be
+ *     inventing time.
+ *   - Start time, Table 7-1's 500 msec maximum to speed. `PROVISIONAL`: this
+ *     core does not time the spindle from the Digital Output Register's motor
+ *     bits, so a command issued into a stopped spindle completes as though the
+ *     disk were at speed. What it would take to close it is a motor-on
+ *     timestamp and a decision about what a too-early command *does* -- and
+ *     since no manual here says whether that is an error or a wait, modelling
+ *     it now would mean inventing a failure mode. Named in
+ *     `docs/PROJECT_STATUS.md`.
+ */
+#define AP_OMTI_FDC_DRIVE_RPM 360u
+#define AP_OMTI_FDC_ROTATION_TIME \
+  (AP_TIME_BASE_HZ * 60u / AP_OMTI_FDC_DRIVE_RPM)
+/* Half a revolution, which comes out at 83.33 ms -- Table 7-1's "Average
+ * latency time 83.3 msec" to the digit, as the Winchester's did. */
+#define AP_OMTI_FDC_AVERAGE_LATENCY (AP_OMTI_FDC_ROTATION_TIME / 2u)
+#define AP_OMTI_FDC_TRACK_TO_TRACK (AP_TIME_BASE_HZ / 1000u * 3u)
+#define AP_OMTI_FDC_SETTLING (AP_TIME_BASE_HZ / 1000u * 15u)
+/* 500 Kbit/s is 62,500 bytes a second. */
+#define AP_OMTI_FDC_TRANSFER_BYTES_PER_SEC 62500u
+/* Table 7-1's drive, which is not `AP_AFD_CYLINDERS`'s format. Used only by the
+ * test that checks the composition against Table 7-7's published average. */
+#define AP_OMTI_FDC_DRIVE_CYLINDERS 80u
 
 /* ## The sector buffer, and the one command that reads it whole
  *
@@ -462,10 +571,34 @@ typedef struct {
     uint32_t drained;
   } recent_commands[512];
   unsigned recent_command_count;
-  /* Set by SEEK and RECALIBRATE, read and cleared by SENSE INTERRUPT STATUS --
-   * which is the only way a driver learns a seek finished. */
+  /* Set when SEEK and RECALIBRATE *arrive*, read and cleared by SENSE INTERRUPT
+   * STATUS -- which is the only way a driver learns a seek finished. Arrival is
+   * `fdc_seek_at` below, not the instant the command was issued. */
   bool fdc_seek_done;
   uint8_t fdc_seek_st0;
+
+  /* ## The floppy's two deadlines
+   *
+   * The floppy half runs its own clock because §4.1 makes the two halves
+   * independent and §3.4 has them running at once: a floppy seek must not
+   * cancel a Winchester read, so nothing here may share `completion_at`.
+   *
+   * `fdc_completion_at` is the controller's: while it stands, `fdc_phase` is
+   * `AP_OMTI_PHASE_EXECUTING`, the Main Status Register reads busy with `RQM`
+   * down, and the result bytes are already prepared but not yet offered. It
+   * carries the same named approximation the Winchester's `completion_at` does,
+   * three fields above -- the data phase is not delayed, only the completion.
+   *
+   * `fdc_seek_at[unit]` is the *drive's*, one per drive, and it is why there are
+   * two: `SEEK` and `RECALIBRATE` return the controller to idle at once -- §6.3
+   * gives them no result phase -- while the head is still moving. The Main
+   * Status Register's `SEEK_A` and `SEEK_B` are set while the deadline stands,
+   * which is what "Drive A is in the Seek mode" means, and a second drive can be
+   * seeking at the same time. `AP_TIME_NEVER` for a drive not seeking; a zero
+   * would be a deadline in the past on a machine that has just started, and the
+   * two must not be confusable. */
+  ap_time_t fdc_completion_at;
+  ap_time_t fdc_seek_at[2];
 
   /* The floppy drive, caller-owned and optional, as the Winchester is. */
   ap_afd_t *floppy;
