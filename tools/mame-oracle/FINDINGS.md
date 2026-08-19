@@ -12678,3 +12678,43 @@ step is named as `CLAUDE.md` requires:
 *What remains is the measurement this core can make on itself: whether
 Domain/OS services the interrupt when it is raised on a line other than
 `IRQ 1`. That is an experiment, not a document, and it is the honest next step.*
+
+## C236 -- the addendum read as page images: §4.2.1.4 was already modelled, three sections were not
+
+C234 concluded "`019411-A00` ... assigns [the second SIO controller] no
+interrupt", from a **grep of the text layer**. That was the wrong instrument and
+`CLAUDE.md` says so in as many words -- *"read the page image, not a text
+extraction: OCR mangles precisely what timing and register tables are made of"*.
+The extraction renders `SIO CONTROLLER` as `SIO CONTROlLER` and addresses as
+`FAOOOOFDFFFF`, so a table could have been there and invisible.
+
+Read properly, all ten pages. **C234's conclusion survives** -- there is no
+interrupt assignment anywhere in the addendum -- but three of its sections carry
+content this core does not have, and one it already had:
+
+**Already modelled, correctly.** §4.2.1.4, the Address Translation Map for
+DS3500/DS4000/DS4500/DS5500: 8-bit transfers index one of **64** entries from
+address bits `<15:10>` with the offset from `<9:0>`; 16-bit transfers index one
+of **128** from `<16:10>` with the offset from `<9:1>`; the entry is a 16-bit
+physical page number at `<25:10>`, yielding a 26-bit address. `ap_atmap.h`
+carries every one of those, cites this document as `[ADD]`, and reconciles the
+512-KB aperture against the 64-to-128-KB window. Nothing to do.
+
+**Not modelled, and each is a named gap for the DN5500 tail:**
+
+  - **§4.2.1.14 DS5500 Cache Status Register.** 8-bit, read-only.
+    `HSI Present <3>` -- "cleared (0) to indicate that a graphics device is in
+    the HSI connector" -- and `MEM Time <0>`, "an access to non-existant
+    memory". Figures 4-9 and 4-10.
+  - **§4.2.1.18 DS5500 Memory Present Register.** 8-bit, read-only.
+    `MEM Present <7-0>`, "cleared (0) when memory boards are present", with
+    **each consecutive pair of bits identifying one slot** -- bits 0/1 slot 0
+    through bits 6/7 slot 3 -- and the slots located at P25, P24, P23 and P22 on
+    the CPU motherboard, right to left.
+  - **Table 4-6 gains a line**: `PC ON/OFF -- Physical Cache (DS4500 Only)`.
+
+*The DS5500 pair are the shape of thing the memory-strap work needed for other
+models: a read-only register whose bits a boot PROM consults to size what is
+fitted. They are recorded now rather than when a 68040 core makes them
+reachable, because the document is in hand today and the reading of a page image
+is what made them visible.*

@@ -5320,6 +5320,20 @@ Only after the reference core is proven, and only under an identity harness.
       search for a Series 2500 core-board or service manual returns
       configuration guides and parts lists and no hardware reference. **What
       would unblock it is a Series 2500 hardware manual or a machine to
+      **Three DS5500 registers the addendum documents and this core does not**
+      (`FINDINGS.md` C236), found by reading `019411-A00` as **page images**
+      after a text-layer grep had declared it silent. §4.2.1.14 **DS5500 Cache
+      Status Register**, 8-bit read-only, `HSI Present <3>` cleared when a
+      graphics device is in the HSI connector and `MEM Time <0>` for an access
+      to non-existent memory; §4.2.1.18 **DS5500 Memory Present Register**,
+      8-bit read-only, `MEM Present <7-0>` cleared when boards are present with
+      each consecutive **pair** of bits identifying a slot, P25/P24/P23/P22
+      right to left; and Table 4-6's added line `PC ON/OFF -- Physical Cache
+      (DS4500 Only)`. The first two are the shape the memory strap needed on
+      other models -- read-only registers a boot PROM consults to size what is
+      fitted -- so they belong with this item even though a 68040 core is what
+      makes them reachable.
+
       **A third tail, found by audit on 2026-08-19 and sized rather than
       guessed** (`FINDINGS.md` C226, C227). Two whole parts are built, tested
       and **unreachable from any machine** -- `src/core/cpu/m68040/` (3,181
