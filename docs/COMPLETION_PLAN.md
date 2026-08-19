@@ -5336,9 +5336,9 @@ Only after the reference core is proven, and only under an identity harness.
       **and the inference drawn from that on the day was wrong.** It read "so
       this item's remaining work is *one* change: teach `ap_machine` to build
       the CPU and MMU its model row names, the 68040 and 68851 halves being
-      already written and tested behind it". Checked an hour later: there is no
-      `ap_m68040_cpu_t`, no `ap_m68040_step`, and **no 68020 core either** --
-      only the 68030 has an execution core at all. What those directories hold
+      already written and tested behind it". Checked an hour later: **no 68040
+      CPU type or step function exists anywhere in the tree, and no 68020 core
+      either** -- only the 68030 has an execution core at all. What those directories hold
       are the *parts a core would use* -- MMU descriptors, ATCs, caches, an
       FPU, timing tables -- not a core, so `ap_machine` cannot be taught to
       build one that does not exist. The DN5500 tail stays what it was: build a
