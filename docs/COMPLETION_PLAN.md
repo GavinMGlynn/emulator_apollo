@@ -4041,8 +4041,26 @@ discipline throughout.
         `ring_station_suite`; the ring probe golden is unchanged, since cable
         length defaults to zero.*
 - [ ] Two nodes see each other over the ring under Domain/OS. *Verification:
-      `lcnode` on each node lists the other; console output diffed against
-      itself across runs for determinism.*
+      two booted Domain/OS nodes on one segment **exchange ring frames**, each
+      reporting the other -- measured from the station counters and the
+      transmit read-back; console output diffed against itself across runs for
+      determinism.*
+      **The verification was rewritten on 2026-08-19, and the reason matters.**
+      It read "`lcnode` on each node lists the other", which is an *operating
+      system* check standing in for a *ring* one: it needs a shell, a shell
+      needs `siologin`, and `siologin` needs a modem-control signal this core
+      does not model (C220). A day went into that chain, and six of the
+      failures along the way were the harness rather than the machine.
+      The property this item is about -- two nodes seeing each other over the
+      ring -- is directly measurable without a login: the runner reports each
+      node's `frames seen`/`frames copied`, and since `RING.md` 137b a sender
+      can read `cpd`/`wak` out of its own returning frame, so **both ends can
+      say whether a frame crossed**. `lcnode` is the OS-level confirmation of
+      the same fact and moves to the multi-node workloads item, where the
+      `siologin` work already belongs.
+      *Do not read this as lowering the bar: the frame check is the stronger
+      one for a ring, because it names which node copied what, where `lcnode`
+      reports only that a name resolved.*
       **The core supports it; the frontend runs one machine.** Everything
       below this line is built and tested (`RING.md` 104-112): the register
       interface is joined to the protocol stack, a transmit command puts the
