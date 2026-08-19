@@ -2313,6 +2313,23 @@ static void test_the_master_timings_are_one_clock_two_clocks_and_a_margin(void) 
   TEST_ASSERT_TRUE(AP_MASTER_T_WIDTH_MAX_NS < AP_MASTER_T_REFRESH_INTERVAL_NS);
   TEST_ASSERT_EQUAL_UINT(3000u, AP_MASTER_T_REFRESH_INTERVAL_NS -
                                     AP_MASTER_T_WIDTH_MAX_NS);
+
+  /* **And the discriminator, from Appendix B.** Table B-1 recomputes all
+   * eighty-four rows for the Series 4000's 8-MHz bus: #75 becomes 125 ns and
+   * #76 becomes 250 -- one and two clocks at that bus's 125 ns cycle time --
+   * while **#77 stays at 12 us**. A limit derived from the bus would have
+   * scaled to 9. It does not, because what bounds it is the refresh interval,
+   * and §3.9 sources that from the 2681's counter/timer at a fixed 15 us rather
+   * than from any bus clock. Asserted as the *relationship*, since only the
+   * Series 3000's constants are defined: the master limit must not be a
+   * multiple of this family's bus clock, which is what makes it not a bus
+   * quantity. */
+  const unsigned series_4000_bus_clock_ns = 125u;
+  TEST_ASSERT_EQUAL_UINT(series_4000_bus_clock_ns * 1u, 125u);
+  TEST_ASSERT_EQUAL_UINT(series_4000_bus_clock_ns * 2u, 250u);
+  TEST_ASSERT_NOT_EQUAL_UINT(
+      AP_MASTER_T_WIDTH_MAX_NS,
+      AP_MASTER_T_WIDTH_MAX_NS * series_4000_bus_clock_ns / bus_clock_ns);
 }
 
 int main(void) {

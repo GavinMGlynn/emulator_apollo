@@ -134,10 +134,41 @@
  */
 #define AP_MASTER_T_BUS_DRIVEN_NS 166u
 #define AP_MASTER_T_COMMAND_NS 333u
-#define AP_MASTER_T_WIDTH_MAX_NS 12000u
 /* §2.4.6's interval, above which §2.3.2 says memory is lost. Kept beside the
  * limit because the pair is the finding: `WIDTH_MAX` is deliberately under it. */
 #define AP_MASTER_T_REFRESH_INTERVAL_NS 15000u
+
+/* ## The Series 4000's figures, and the one that does not move
+ *
+ * Appendix B's **Table B-1** is Table A-1's eighty-four rows recomputed for the
+ * 8-MHz bus, and comparing the two is what turns the reading above from
+ * plausible into checked:
+ *
+ *                                          Series 3000   Series 4000
+ *     #26  BUS CLOCK Cycle Time                166 ns        125 ns
+ *     #75  Bus Driven from MASTER.L            166 ns        125 ns
+ *     #76  MEMCMD, IOCMD from MASTER.L         333 ns        250 ns
+ *     #77  Master Width Asserted                12 us         12 us
+ *
+ * **#75 and #76 scale with the bus clock and #77 does not.** One and two clocks
+ * at 125 ns are 125 and 250, exactly as they were one and two clocks at 166 ns
+ * -- so those two are §2.3.2's "one system clock period ... two clock periods"
+ * on both families, and they move because the clock moves. #77 stays at 12 us
+ * across a bus that got 33% faster.
+ *
+ * That is the discriminator for what #77 *is*. A limit derived from the bus
+ * would have scaled to 9 us; this one is bounded by the **refresh interval**,
+ * which does not scale because it is not a bus quantity at all -- §3.9 sources
+ * it from the 2681's counter/timer on `OP3` at a fixed 15 us, and `ap_sio.h`
+ * carries that period. So `MASTER_T_WIDTH_MAX` is one number on both machines
+ * for the same reason `AP_SIO_REFRESH_PERIOD` is: the thing it protects is a
+ * DUART's square wave, not a bus clock.
+ *
+ * Only the Series 3000's #75 and #76 are given constants here, because that is
+ * the family this core builds. The Series 4000 pair is recorded rather than
+ * defined so that a second set of constants does not appear before a machine
+ * that would use them. */
+#define AP_MASTER_T_WIDTH_MAX_NS 12000u
 
 /*
  * ## Ownership ends when *both* signals are released

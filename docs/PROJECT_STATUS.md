@@ -436,9 +436,9 @@ summarised, with their reasoning moved to the end of this file.
 ## The floppy drive had no access time, and chapter 6 named the Winchester
 ## (2026-08-20)
 
-From the `008778-03` whole-document walk, chapters 6 through 16 and into
-Appendix A. Coverage in `docs/references/008778-03_WALK.md`, 158 pages of 209;
-every numbered chapter is walked and the appendix is continuous to page 179.
+From the `008778-03` whole-document walk, chapters 6 through 16 and the
+appendices. Coverage in `docs/references/008778-03_WALK.md`, 164 pages of 209;
+every numbered chapter and Appendix A are walked, Appendix B in progress.
 
 ### The floppy had the defect the fixed disk was fixed for
 
@@ -566,6 +566,48 @@ clocks. A 0.10% shift is what a change touching 14.6 M disk accesses out of
 number, `A354786119A3931D`, was superseded twice earlier in this walk by the AT
 bus cycle time and the 16-bit Winchester transfer, and was stale here. **It was
 superseded again one commit later — see below.**
+
+### Appendix B settles what `#77` actually is
+
+Appendix B is Appendix A recomputed for the Series 4000's 8-MHz bus — the same
+eighty-four rows and the same fifteen figures. **Comparing the two tables is
+what turns last session's reading of `MASTER.L`'s 12 µs limit from plausible
+into checked.**
+
+                                     Series 3000   Series 4000
+    #26  BUS CLOCK Cycle Time            166 ns        125 ns
+    #75  Bus Driven from MASTER.L        166 ns        125 ns
+    #76  MEMCMD, IOCMD from MASTER.L     333 ns        250 ns
+    #77  Master Width Asserted            12 us         12 us
+
+**#75 and #76 scale with the bus clock; #77 does not.** One and two clocks at
+125 ns are 125 and 250, exactly as they were one and two clocks at 166 — so
+those are §2.3.2's "one system clock period ... two clock periods" on both
+families, moving because the clock moves. #77 stays at 12 µs across a bus that
+got a third faster.
+
+That is the discriminator. A limit derived from the bus would have scaled to 9
+µs. This one is bounded by the **refresh interval**, which does not scale
+because it is not a bus quantity at all — §3.9 sources it from the 2681's
+counter/timer on `OP3` at a fixed 15 µs, which is what `AP_SIO_REFRESH_PERIOD`
+carries. So `MASTER_T_WIDTH_MAX` is one number on both machines for the same
+reason that period is. `board_suite` asserts the relationship.
+
+**#26 also confirms `ap_atbus.h`'s second divisor**: 125 ns, the figure this
+core has used for the Series 4000 all along, now from that family's own table.
+And #25 shows the DS4000's internal clock is **16 MHz** at 62 ns where the
+DS3000's is 12 MHz at 83.
+
+**One erratum recorded**: Appendix B's preamble says "Table A-1 contains
+reference information for the cycle times shown in the timing diagrams contained
+in this chapter". The next page is **Table B-1**. The sentence is Appendix A's,
+copied and not updated — and following it would read every Series 4000 diagram
+against the Series 3000's numbers.
+
+**Appendix A is complete at 166–182.** Appendix B's fourteen diagram pages are
+recorded as owed in the walk file, on the same principle as the last debt: its
+head, its table and its final figure are read, which establishes the mirror and
+the range, and a sampled appendix must not read as a walked one.
 
 ### Appendix A's diagrams: the debt paid, and two confirmations
 
