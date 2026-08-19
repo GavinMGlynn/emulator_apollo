@@ -436,8 +436,8 @@ summarised, with their reasoning moved to the end of this file.
 ## The floppy drive had no access time, and chapter 6 named the Winchester
 ## (2026-08-20)
 
-From the `008778-03` whole-document walk, chapters 6 through 13. Coverage in
-`docs/references/008778-03_WALK.md`, now 131 pages of 209.
+From the `008778-03` whole-document walk, chapters 6 through 14. Coverage in
+`docs/references/008778-03_WALK.md`, now 135 pages of 209.
 
 ### The floppy had the defect the fixed disk was fixed for
 
@@ -565,6 +565,36 @@ clocks. A 0.10% shift is what a change touching 14.6 M disk accesses out of
 number, `A354786119A3931D`, was superseded twice earlier in this walk by the AT
 bus cycle time and the 16-bit Winchester transfer, and was stale here. **It was
 superseded again one commit later — see below.**
+
+### Chapter 14: an inference becomes a quotation, and a chapter was missing
+
+Chapter 14 yields **no gap** — the second such after 10 and 11 — and what it
+does is upgrade the evidence behind two constants.
+
+`AP_BOARD_ETHERNET_IRQ` rested on an inference: Figure 14-3 jumpers the standard
+AT-slot card to interrupt level 10, Table 2-3 lists IRQ10 for controller #1, and
+Table 2-4 prints "#2" on *both* DRQ3 and DRQ6, which cannot be right. **§14.1
+states the conclusion outright**: "The first 802.3 Network Controller-AT in a
+system uses interrupt line IRQ10 and DMA request line DRQ6; the second one uses
+interrupt line IRQ9 and DMA request line DRQ3." Three sources now agree against
+one erratum, and the comment quotes rather than argues.
+
+`AP_BOARD_ETHERNET_ADDR` gains a third independent route. It was established
+from Table 2-7's physical column and confirmed by an oracle traffic tap; Figure
+14-3 jumpers "Control Status Registers Hex Address **300**" on the card itself.
+
+One design rule is now stated twice by the same manual about two different
+cards: §14.2, like §10.4 before it, says "**the controller is a Slave device on
+the bus**". That is why neither the graphics controller nor the 802.3 card
+appears in `ap_arbiter`'s priority list — an absence that reads as an omission
+until the manual says it twice.
+
+**And the walk's own structure table was wrong.** It listed chapters 14 then 16,
+and there is a **chapter 15, Serial/Parallel Controller** — the *SPE board* that
+chapter 2 keeps referring to, whose serial lines are Table 2-7's `3F8` and `2F8`
+and whose parallel line is `378`, and which Table 2-3 gives IRQ4 and IRQ9. A
+chapter listed by nobody is the one most likely to go unread, so the table is
+corrected and chapter 15 is the resume point.
 
 ### Chapter 13: the mouse packet keystate mode used to decline
 

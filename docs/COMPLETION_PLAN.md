@@ -5586,8 +5586,8 @@ one row per page range, including the ones that yield nothing — is
 section is only the list of **gaps the walk has opened and not yet closed**, so
 that they are findable from the plan rather than from a reference file.
 
-**131 of 209 pages walked.** Chapters 1–13 complete; resume at page 152,
-chapter 14.
+**135 of 209 pages walked.** Chapters 1–14 complete; resume at page 156,
+chapter 15 — a chapter the walk's own structure table had omitted.
 
 - [ ] **The Series 4000 virtual cache and write buffer, and their 16 KB of
       board-visible RAM.** §1.3.1: "an **8-KB, direct-mapped** cache ... 2048

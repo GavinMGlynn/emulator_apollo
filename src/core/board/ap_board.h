@@ -172,7 +172,17 @@ typedef enum {
  * it genuinely prints `#2` on both rows.** The duplication is an erratum in the
  * document, not damage from an extraction — which matters, because the first
  * reading suggests a better copy of the page would settle it and the second
- * says no copy ever will. */
+ * says no copy ever will.
+ *
+ * **And §14.1 says it outright**, which the walk reached later and which turns
+ * the inference above into a quotation: "The **first** 802.3 Network
+ * Controller-AT in a system uses interrupt line **IRQ10** and DMA request line
+ * **DRQ6**; the **second** one uses interrupt line **IRQ9** and DMA request
+ * line **DRQ3**." Three sources now agree — the prose, Figure 14-3's AT-slot
+ * jumpering, and Table 2-3 — against one erratum. Figure 14-3 also jumpers
+ * "Control Status Registers Hex Address **300**", confirming
+ * `AP_BOARD_ETHERNET_ADDR` from the card's own side rather than only from
+ * Table 2-7 and the oracle tap. */
 #define AP_BOARD_ETHERNET_IRQ 10u
 
 /* **The ring is on master IRQ 2, and it is documented** -- `RING.md` 107.
