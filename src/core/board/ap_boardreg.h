@@ -645,7 +645,27 @@ void ap_boardreg_set_normal_mode(ap_boardreg_t *regs, bool normal);
  * and a ring of every write would hold nothing but the last two. */
 
 /* Record a byte written to the control register as a posted code, exactly as
- * written. */
+ * written.
+ *
+ * **The byte is active low, and it is stored uninverted on purpose.**
+ * `002398-04` p. 12-8 gives the control register's upper byte as `ld7`-`ld0`
+ * with "**1 => led off**", so `FF` is every diagnostic lamp *dark* and `00` is
+ * every lamp *lit*. Storing the register byte rather than a lamp state is the
+ * right choice -- this is a record of what the firmware wrote, and inverting it
+ * would put an interpretation between the write and the report -- but the
+ * polarity has to be written down or the report is unreadable.
+ *
+ * The reference boot's own sequence is the evidence that the polarity is that
+ * way round: it opens `FF EF DF FE EE DE CF BF AF 9F 8F ...` and reaches `00`
+ * exactly once. Under "1 => off" that is a machine starting with every lamp
+ * dark and lighting them as it goes, which is what a power-on self-test display
+ * does. Under the opposite reading it would start with all nine lit and stay
+ * mostly lit, which is not a progress indicator.
+ *
+ * So a reader of `--boot-report`'s `posted codes` line should read a **clear**
+ * bit as a lit lamp. `008778-03` §3.7 gives the physical arrangement: nine
+ * LEDs, of which the green `PWR` is not used for diagnostics, leaving eight --
+ * four on the CPU board and four on the front panel labelled A B C D. */
 void ap_boardreg_post_code(ap_boardreg_t *regs, uint8_t written);
 
 #endif /* APOLLO_BOARD_AP_BOARDREG_H */

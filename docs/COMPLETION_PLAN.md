@@ -5598,9 +5598,15 @@ finished `008778-03_WALK.md`.
       diag-mode and FP-trap bits and the write-to-acknowledge rule, and differ
       on three points that each need the firmware checked against them rather
       than a constant added:
-      **(a)** the control register's upper byte is documented **"1 => led off"**
-      — an inverted sense `ap_boardreg_post_code` neither records nor applies,
-      and the boot PROM's posted codes would read complemented if it is right.
+      **(a)** ~~the control register's upper byte's polarity~~ — **settled, no
+      code change needed.** The byte is documented "1 => led off", and the
+      reference boot's own sequence confirms it: `FF EF DF FE EE DE CF BF AF 9F
+      8F ...`, opening all-dark and reaching `00` exactly once. Under the
+      opposite reading the machine would start with all nine lamps lit and stay
+      mostly lit, which is not a progress display. `ap_boardreg_post_code`
+      stores the register byte uninverted, which is right — it records what the
+      firmware wrote — and the polarity is now recorded beside it so the
+      `posted codes` report is readable: a **clear** bit is a **lit** lamp.
       **(b)** bit 1 is **`rsa`, "reset on-board devices"**, and has no constant
       at all. The page adds the exclusion "**Neither RSA nor the reset
       instruction reset the SIO lines**", which is a specific behaviour to
