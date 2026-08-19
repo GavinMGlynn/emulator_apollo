@@ -196,7 +196,7 @@ static void test_a_parity_error_raises_level_seven_only_when_enabled(void) {
   TEST_ASSERT_FALSE(ap_board_parity_interrupt(&board));
   TEST_ASSERT_EQUAL_UINT(0u, ap_board_interrupt_level(&board));
 
-  control(AP_BOARDREG_CONTROL_INTERRUPT_ENABLE);
+  control(AP_BOARDREG_CONTROL_NMI_ENABLE);
   TEST_ASSERT_TRUE(ap_board_parity_interrupt(&board));
   TEST_ASSERT_EQUAL_UINT(AP_BOARD_PARITY_LEVEL,
                          ap_board_interrupt_level(&board));
@@ -214,7 +214,7 @@ static void test_the_interrupt_is_a_level_that_either_clear_drops(void) {
     build();
     control(AP_BOARDREG_CONTROL_FORCE_BAD_PARITY);
     write_byte(TEST_ADDR, 0x00u);
-    control(AP_BOARDREG_CONTROL_INTERRUPT_ENABLE);
+    control(AP_BOARDREG_CONTROL_NMI_ENABLE);
     (void)read_byte(TEST_ADDR);
     TEST_ASSERT_TRUE(ap_board_parity_interrupt(&board));
 
@@ -270,7 +270,7 @@ static void test_a_board_without_parity_ram_counts_what_it_cannot_do(void) {
 
   control(AP_BOARDREG_CONTROL_FORCE_BAD_PARITY);
   write_byte(TEST_ADDR, 0x5Au);
-  control(AP_BOARDREG_CONTROL_INTERRUPT_ENABLE);
+  control(AP_BOARDREG_CONTROL_NMI_ENABLE);
 
   TEST_ASSERT_EQUAL_HEX8(0x5Au, read_byte(TEST_ADDR));
   TEST_ASSERT_EQUAL_UINT(1u, board.parity.forced_writes);

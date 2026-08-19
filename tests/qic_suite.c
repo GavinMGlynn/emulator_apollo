@@ -350,6 +350,127 @@ static void test_reading_off_the_end_reports_end_of_media(void) {
   TEST_ASSERT_TRUE((ap_qic_exception_word(&q) & AP_QIC_EXS_END_OF_MEDIA) != 0u);
 }
 
+/* ## `002398-04` p. 12-5's STATUS SUMMARY, used as the check it is
+ *
+ * Fifteen rows, each a condition and the pair of status bytes that reports it.
+ * This core sets status bits one at a time, so the summary is the check on
+ * whether it can emit a pair the real controller never would.
+ *
+ * **The column convention had to be established first**, and it is now. Every
+ * row's bits 6-0 decode exactly under p. 12-4's own bit maps; only bit 7 looked
+ * wrong, printing `1` where byte 0's map draws a literal `0`. It is not a
+ * constant: `QIC-02 Rev D` §5.2 gives both bit 7s as summary bits -- "set if
+ * any other bit in" that byte "is set" -- which fits the whole table and is
+ * what `ap_qic` was corrected to.
+ *
+ * One cell of the table is a misprint and is recorded rather than followed:
+ * "Marginal block detected" prints Status 1 as `00010000`, with `mgn` set and
+ * the summary bit clear, where "Read abort" two rows above prints the identical
+ * condition as `10010000`. A dropped leading digit, and the only cell in either
+ * column that the rule does not explain.
+ *
+ * `X` is don't-care. The rows below are the ones this model can be *put into*;
+ * the rest need media errors it cannot produce, and they are listed in the
+ * comment at the end so that the omission is a statement rather than a gap.
+ */
+/* Read the status once and throw it away, which is what clears `por`. Every row
+ * of the summary describes a drive that has already been asked once. */
+static void clear_power_on(ap_qic_t *q) {
+  uint8_t block[AP_QIC_STATUS_BYTES];
+  TEST_ASSERT_TRUE(ap_qic_command(q, AP_QIC_CMD_READ_STATUS));
+  TEST_ASSERT_TRUE(ap_qic_read_status(q, block));
+}
+
+static void check_summary(const char *what, uint16_t exs, uint8_t status0,
+                          uint8_t care0, uint8_t status1, uint8_t care1) {
+  const uint8_t got0 = (uint8_t)(exs >> 8);
+  const uint8_t got1 = (uint8_t)(exs & 0xFFu);
+  UNITY_TEST_ASSERT_EQUAL_HEX8((uint8_t)(status0 & care0),
+                               (uint8_t)(got0 & care0), __LINE__, what);
+  UNITY_TEST_ASSERT_EQUAL_HEX8((uint8_t)(status1 & care1),
+                               (uint8_t)(got1 & care1), __LINE__, what);
+}
+
+static void test_every_reachable_status_summary_row_is_reproduced(void) {
+  ap_qic_t q;
+
+  /* Row "No cartridge": Status 0 `110X0000`, Status 1 `00000000`. `noc` at bit
+   * 6, `wp` a don't-care -- a cartridge that is not there cannot be known
+   * write-protected -- and the summary bit above them.
+   *
+   * **The drive has to be selected**, and the row says so by printing bit 5,
+   * `usd`, as a hard `0`: an unselected empty drive reports `E0` and is the
+   * *next* row down, "No drive". The two differ by that one bit, which is the
+   * distinction between a drive that is there with nothing in it and a drive
+   * that is not there -- and it is why this row is worth testing rather than
+   * assuming. */
+  ap_qic_init(&q);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT));
+  /* And the power-on condition has to have been read out first, or byte 1
+   * carries `por` and the row's `00000000` cannot be met. That is not a
+   * concession to the model: QIC-02 §5.2 has `POR` "set after the host asserts
+   * RESET or when the controller is powered up ... reset by a Read Status
+   * Sequence", so every row of this table describes a drive that has already
+   * been asked once. */
+  clear_power_on(&q);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
+  check_summary("no cartridge", ap_qic_exception_word(&q),
+                0xC0u, 0xEFu, 0x00u, 0xFFu);
+
+  /* Row "Write protected": Status 0 `10010000`, Status 1 `X000X000`. A
+   * read-only cartridge, selected, at the beginning of tape -- so `bom` stands
+   * too, which the row's don't-care at Status 1 bit 3 permits. */
+  ap_qic_init(&q);
+  TEST_ASSERT_TRUE(ap_qic_load(&q, image, sizeof image,
+                               AP_QIC_CARTRIDGE_DC600A, false));
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT));
+  clear_power_on(&q);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
+  check_summary("write protected", ap_qic_exception_word(&q),
+                0x90u, 0xF0u, 0x00u, 0x77u);
+
+  /* Row "End of media": Status 0 `10001000`, Status 1 `00000000`. Read the
+   * cartridge out and the drive is past its last block. */
+  load(&q);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT));
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ));
+  {
+    uint8_t block[AP_CT_BLOCK_SIZE];
+    while (ap_qic_read_block(&q, block)) {
+      /* to the end */
+    }
+  }
+  clear_power_on(&q);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
+  check_summary("end of media", ap_qic_exception_word(&q),
+                0x88u, 0xF8u, 0x00u, 0xF7u);
+
+  /* Row "Power on/reset": Status 0 `XXXX0000`, Status 1 `1000X001`. Byte 0's
+   * top four are don't-care because a freshly loaded drive also reports where
+   * the tape is; what the row pins is `por` and the summary bit above it. */
+  load(&q);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT));
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
+  check_summary("power on/reset", ap_qic_exception_word(&q),
+                0x00u, 0x0Fu, 0x81u, 0xF7u);
+}
+
+/* The rows this model cannot be put into, named so the omission above is a
+ * statement rather than a gap. Nine of the fifteen describe media faults --
+ * read abort, write abort, the four read errors, filemark read, marginal block
+ * -- and a `.ct` image is block data with no medium under it, so no read can
+ * fail and no block can be marginal. "Drive not ready" and "No drive" are
+ * controller-generated conditions for hardware that is absent rather than
+ * empty, which this model expresses as an unselected drive. "Illegal command"
+ * is reachable at the *controller* -- `ap_tape` raises Exception for a command
+ * the drive refuses -- but `ap_qic` does not latch `ill`, which is the one row
+ * here that is a real gap rather than an inapplicable one.
+ *
+ * That gap is deliberate and bounded: latching `ill` means deciding which of
+ * QIC-02 §5.2's six causes this model can distinguish, and it refuses commands
+ * for reasons the standard does not list (no cartridge, unselected). Named in
+ * `docs/PROJECT_STATUS.md` rather than half-implemented. */
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_cartridge_type_must_be_supplied);
@@ -370,5 +491,6 @@ int main(void) {
   RUN_TEST(test_an_empty_drive_reports_no_cartridge_rather_than_beginning);
   RUN_TEST(test_the_power_on_flag_survives_until_read_and_not_after);
   RUN_TEST(test_reading_off_the_end_reports_end_of_media);
+  RUN_TEST(test_every_reachable_status_summary_row_is_reproduced);
   return UNITY_END();
 }

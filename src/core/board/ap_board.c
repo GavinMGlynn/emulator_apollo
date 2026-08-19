@@ -596,6 +596,24 @@ void ap_board_sample_interrupts(ap_board_t *board) {
   board->interrupt_valid_until = ap_board_interrupt_next_change(board);
 }
 
+void ap_board_reset_devices(ap_board_t *board) {
+  if (board == NULL) {
+    return;
+  }
+  /* The parts a reset line on this board reaches. See
+   * `AP_BOARDREG_CONTROL_RESET_DEVICES` for where the list comes from and for
+   * why the SIO and the calendar are not in it -- the first because the page
+   * says so, the second because its RAM is the node ID. */
+  ap_intr_reset(&board->interrupts);
+  ap_dma_reset(&board->dma);
+  ap_dmapage_reset(&board->dma_page);
+  /* `ap_timer_reset` re-establishes the three clock divisors as well as the
+   * part, and it can fail only on a rate the time base does not divide -- which
+   * is a configuration error caught at `ap_board_init`, not something a bus
+   * write can introduce. */
+  (void)ap_timer_reset(&board->timer);
+}
+
 bool ap_board_parity_interrupt(const ap_board_t *board) {
   /* A level, not an event, and so held rather than latched: `008778-03` §3.2
    * says "writing to the status register clears the interrupt status", which is
@@ -604,7 +622,7 @@ bool ap_board_parity_interrupt(const ap_board_t *board) {
    * Parity Error Flag both work without either being wired for. */
   return (board->registers.cpu_status & AP_BOARDREG_STATUS_PARITY_MASK) != 0u &&
          (board->registers.cpu_control &
-          AP_BOARDREG_CONTROL_INTERRUPT_ENABLE) != 0u;
+          AP_BOARDREG_CONTROL_NMI_ENABLE) != 0u;
 }
 
 unsigned ap_board_interrupt_level(const ap_board_t *board) {
@@ -1758,6 +1776,14 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
   }
     count_declined(board, address, false);
     ap_boardreg_write8(&board->registers, address, value);
+    /* `002398-04` p. 12-8, control register bit 1: `rsa`, "reset on-board
+     * devices". The register itself cannot do this -- `ap_boardreg` knows about
+     * registers and not about the parts around them -- so the board watches the
+     * bit as it goes by. See `ap_board_reset_devices`. */
+    if ((board->registers.cpu_control & AP_BOARDREG_CONTROL_RESET_DEVICES) !=
+        0u) {
+      ap_board_reset_devices(board);
+    }
     return;
   case AP_BOARD_REGION_SIO:
     ap_sio_write(&board->sio, address, value);

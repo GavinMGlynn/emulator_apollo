@@ -433,6 +433,112 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The three items chapter 12 left open are closed (2026-08-20)
+
+The walk of chapter 12 finished with three findings named rather than
+implemented, each because it needed something checked first. All three are
+closed, and two of them were defects rather than the documentation gaps they
+looked like.
+
+### The tape's STATUS SUMMARY: the convention, and two defects behind it
+
+p. 12-5 tabulates fifteen conditions against the pair of status bytes that
+reports each. It could not be used, because its "Status 0" column prints bit 7
+as `1` where p. 12-4's own bit map for that byte draws a literal `0` and
+annotates it "0 => Status byte 0".
+
+**Every row's bits 6-0 decode exactly** under the bit maps — `noc` at 6, `usd`
+at 5, `wp` at 4, `eom` at 3, `ude` at 2, `bnl` at 1, `fm` at 0 — so only bit 7
+was in question. `QIC-02 Rev D` §5.2 answers it, and it is the standard both
+Apollo tape documents defer to (`08845` §12.1.10 and `[SC499]` §1.13.1 each say
+only that the device "transfers the standard six bytes"):
+
+> BIT 7: **ST0** – Status Byte 0 bit is set if any other bit in Status Byte 0
+> is set.
+>
+> BIT 7: **ST1** – Status byte 1 bit is set if any other bit in Status byte 1
+> is set.
+
+Both are summary bits, one rule. That fits fourteen of the fifteen rows in both
+columns; the fifteenth — "Marginal block detected", Status 1 `00010000` — is a
+dropped leading digit, since "Read abort" two rows above prints the identical
+condition as `10010000`.
+
+**Two defects fell out of it.**
+
+`AP_QIC_EXS_BYTE_0` was set when byte 0 carried **nothing** — the exact
+complement of the rule — so a drive with a condition in byte 0 told the host
+that byte held nothing, and an untroubled drive claimed one that did. It came
+from the oracle's transcription. `AP_QIC_EXS_BYTE_1` was already right, which is
+why the pair looked deliberate rather than transposed.
+
+`AP_QIC_EXS_WRITE_PROTECTED` was **defined and never set**, although the drive
+knows: `ap_ct_write_block` enforces the same flag and `WRITE` already refuses on
+it. Found by checking the summary's "Write protected" row against the model and
+getting `00` back. QIC-02 §5.2 makes it a condition of the cartridge rather than
+a latched event, which is exactly what this model can answer.
+
+Neither was caught by the existing suite — both suites passed before and after
+the first fix — which is the "a green suite is not evidence of completeness"
+rule arriving on schedule.
+
+The four rows this model can be put into are now asserted against the table.
+The other eleven need media faults a `.ct` image cannot have, plus one real gap
+named rather than half-implemented: `ap_qic` does not latch `ill`, and doing so
+means deciding which of QIC-02 §5.2's six causes this model can distinguish.
+
+### `rsa`: implemented, and the firmware says why that is safe
+
+Control register bit 1, "reset on-board devices", had no constant at all. It has
+one now, and the reset is real: the two 8259s, the two 8237s, the DMA page
+registers and the 6840 timer. **Two exclusions, each with its reason** — the
+SIO because the page excludes it outright ("Neither RSA nor the reset
+instruction reset the SIO lines"), and the calendar because it is
+battery-backed and its RAM holds the node ID, so a reset that cleared it would
+invent a failure this hardware does not have.
+
+The plan carried this as needing the firmware checked first, and the check is
+decisive. **Every boot PROM on this shelf contains the RSA pulse and branches
+over it.** In `3500_BOOT_12191_7`:
+
+```
+0073FC  BRA.W   $007418        <-- jumps past the whole block
+007400  MOVE.B  #$02,$010101   ; rsa asserted
+007408  MOVE.W  #$7FFF,D0
+00740C  DBRA    D0,$00740C     ; the pulse width
+007410  MOVE.B  #$00,$010101   ; rsa released
+007418  BSR.S   ...            <-- the branch's target
+```
+
+Both DN3000 revisions have the identical shape at `0067F6` and `0067A2`. No
+image references `007400` absolutely and no branch of any kind lands inside the
+block, so it is disabled code in every shipped PROM here — someone put a `BRA`
+over a reset that presumably misbehaved. That is why this could be implemented
+without a boot to measure it against.
+
+**The reset *instruction* is deliberately not wired**, and it is the other half
+of the same sentence. The three `RESET` opcodes in each PROM may well execute,
+so giving them this effect is a behaviour change on a path the boot may take.
+Named as a plan item with the wiring point (`ap_machine_step`, since the CPU
+already counts them as `external_resets`) and the instruction that it goes
+behind an identity boot rather than in front of one.
+
+### `nme`: the gate was already there, and the item was wrong
+
+p. 12-8 states "Non-maskable interrupts must be enabled to receive parity
+errors", which the plan carried as a behaviour change needing measurement.
+`ap_board_parity_interrupt` has required that bit since it was written —
+derived from the boot PROM's self-test 7, which sets it before forcing a parity
+error and clears it afterwards. So the handbook is a second, independent
+statement of a rule this core already implements, and nothing changed but the
+constant's name: `AP_BOARDREG_CONTROL_INTERRUPT_ENABLE` is now
+`AP_BOARDREG_CONTROL_NMI_ENABLE`, because "which interrupt" is the whole content
+of the sentence.
+
+Recorded plainly because the plan asserted a gap that was not there, and a
+status document that only reports found gaps and never withdrawn ones is not
+being read as evidence.
+
 ## Chapter 12 of `002398-04` is read end to end (2026-08-20)
 
 All 35 pages, PDF 279–313 — the DN3000's own register chapter, and the family
@@ -7425,7 +7531,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 14 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
-| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none. **The DS5500 now has its own map**, from `019411-A00` Table 2-5 rather than the Series 4000 table it borrowed until that page was read: it places the memory present register at `011400` that no other model has, it does *not* place the task alias at `010300`, and its main memory is four 16 MB banks to `4FFFFFF` where Table 2-8 gives three. One difference in that table is recorded and **not** implemented — Table 2-5 gives the address translation map 4 KB where `[S3K]` §2.5 gives 2 KB, and widening it needs the region size to become a property of the map because `AP_ATMAP_ENTRIES` is what the state hash walks; `PROVISIONAL` | `board_suite`, 65 tests, one of them the Series 2500's own register block -- storage, `PROVISIONAL`, and the only thing standing between that firmware and its second instruction; `atbus_suite`, 10 tests  **Main memory's extent is `1000000`–`2FFFFFF`, 32 MB, corrected from `3FFFFFF` on 2026-08-19**: `008778-03` §1.5.2 gives the DS4000's memory one module at a time — `$17FFFFF` with one 8-MB module, `$1FFFFFF` with two, `$27FFFFF` with three, `$2FFFFFF` with four — and `1000000`–`3FFFFFF` is **48 MB**, not 32. The old value was the oracle's `DN3500_RAM_END`, imported without checking the arithmetic; the same MAME file gives `DN5500_RAM_END 0x2ffffff` for the same 32 MB four lines away, so the oracle contradicts itself and the manual says which is the slip. The cost was exactly what that constant's own comment warns of — sixteen megabytes of unmapped space were being reported to a trace as "main memory". Identity hash unchanged, so the reference boot never reached there  **The DS3000 has one 2681, not two, and its kilobyte is aliased** — corrected 2026-08-19 during the `008778-03` walk. Table 2-6 gives the DS3000 a single `008400`-`0087FF` row named "SIO" where Table 2-8 gives the Series 4000 two 256-byte rows, and §1.5.1 says why: the DS3000 drives "two asynchronous serial lines, SIO0 and SIO1" and the DS4000 four. One 2681 has two channels. The oracle agrees independently — `dn3000_map` sends the whole range to `m_sio` and the DN3000 configuration does `config.device_remove(APOLLO_SIO2_TAG)`. This core had mapped `2 × AP_SIO_RANGE`, putting a second DUART at `008500` and leaving `008600`-`0087FF` unmapped. Now four placements folding onto `AP_SIO1_ADDR`. **Behaviourally invisible to the boot that exists**: both DN3000 revisions run 400,000 instructions to a byte-identical state hash either side, because the PROM never reaches into that kilobyte — so this is a latent error corrected, not a failure explained |
+| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none. **The DS5500 now has its own map**, from `019411-A00` Table 2-5 rather than the Series 4000 table it borrowed until that page was read: it places the memory present register at `011400` that no other model has, it does *not* place the task alias at `010300`, and its main memory is four 16 MB banks to `4FFFFFF` where Table 2-8 gives three. One difference in that table is recorded and **not** implemented — Table 2-5 gives the address translation map 4 KB where `[S3K]` §2.5 gives 2 KB, and widening it needs the region size to become a property of the map because `AP_ATMAP_ENTRIES` is what the state hash walks; `PROVISIONAL` | `board_suite`, 67 tests, one of them the Series 2500's own register block -- storage, `PROVISIONAL`, and the only thing standing between that firmware and its second instruction; `atbus_suite`, 10 tests  **Main memory's extent is `1000000`–`2FFFFFF`, 32 MB, corrected from `3FFFFFF` on 2026-08-19**: `008778-03` §1.5.2 gives the DS4000's memory one module at a time — `$17FFFFF` with one 8-MB module, `$1FFFFFF` with two, `$27FFFFF` with three, `$2FFFFFF` with four — and `1000000`–`3FFFFFF` is **48 MB**, not 32. The old value was the oracle's `DN3500_RAM_END`, imported without checking the arithmetic; the same MAME file gives `DN5500_RAM_END 0x2ffffff` for the same 32 MB four lines away, so the oracle contradicts itself and the manual says which is the slip. The cost was exactly what that constant's own comment warns of — sixteen megabytes of unmapped space were being reported to a trace as "main memory". Identity hash unchanged, so the reference boot never reached there  **The DS3000 has one 2681, not two, and its kilobyte is aliased** — corrected 2026-08-19 during the `008778-03` walk. Table 2-6 gives the DS3000 a single `008400`-`0087FF` row named "SIO" where Table 2-8 gives the Series 4000 two 256-byte rows, and §1.5.1 says why: the DS3000 drives "two asynchronous serial lines, SIO0 and SIO1" and the DS4000 four. One 2681 has two channels. The oracle agrees independently — `dn3000_map` sends the whole range to `m_sio` and the DN3000 configuration does `config.device_remove(APOLLO_SIO2_TAG)`. This core had mapped `2 × AP_SIO_RANGE`, putting a second DUART at `008500` and leaving `008600`-`0087FF` unmapped. Now four placements folding onto `AP_SIO1_ADDR`. **Behaviourally invisible to the boot that exists**: both DN3000 revisions run 400,000 instructions to a byte-identical state hash either side, because the PROM never reaches into that kilobyte — so this is a latent error corrected, not a failure explained |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
 | Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board runs transfers: controller 1's request cascaded onto controller 2's channel 0 and one request reaching the arbiter, the address through the translation map, and the processor stalled while a controller holds the bus. The cascade and the channel assignments are `008778-03` Table 2-4's, so the AT convention this module used to refuse is now cited rather than assumed. **The peripheral side is wired**: the tape drives its own request line and its cartridge reaches memory by DMA, and the disk's two data ports move under an acknowledge | `dma_suite`, 18 tests; `FINDINGS.md` C13 |
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 29 tests, `8237A` 231466 |
@@ -7436,7 +7542,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Node ID PROM (`011200`) | working: the layout measured from the oracle's own PROM — stride 2 with the **odd byte reading zero** (unlike the serial ports at the same stride), the identifier big-endian in registers 0-3, and a checksum in register **15** confirmed arithmetically (`01 + 23 + 45 = 69`) and then by the boot PROM's own self-test, which sums registers 0-14 and compares. The identifier is supplied by the caller, never a constant: a device whose purpose is to be unique per machine must not be the same on every one | `nodeid_suite`, 8 tests; `008778-03` Table 2-8, CPU self-test 8 at `008218` |
 | Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 34 tests, one of them pinning that a character on the **second** 2681 raises the single serial interrupt line -- `002398-04` p. 12-28 gives `IRQ 1` to "sio" unqualified, where `008778-03` Table 2-3 names "2681 SIO Port 1" (`RING.md`-style sibling-manual resolution, `FINDINGS.md` C223-C224); `FINDINGS.md` C14 |
 | MC68681 / SCN2681 DUART (the part) | **programming model complete**: all sixteen register addresses of `[68681]` Table 4-1, both channels' mode registers with their shared pointer, clock-select, command and status registers, the three-deep receive FIFO with overrun, the interrupt status and mask registers, the input and output ports, and the counter/timer with both address-triggered commands. **All eight of §4.2.7.2's miscellaneous commands** — the audit found three falling through a bare `default: break;` (reset break change interrupt, start break, stop break) and, in the same paragraph, three outright errors in the transmitter status bits; see below. **Serial framing is modelled**, and the claim that it was not was stale: `ap_mc68681_resample` reshapes a character arriving at a mismatched baud rate rather than flagging an intact one, `ap_mc68681_character_bits` applies `MR1`'s width, parity is checked on both enable *and* type, `MR2`'s stop-bit field is read, and all four channel modes — normal, auto-echo, local loopback, remote loopback — behave differently. **Wired to the board** through `board/ap_sio.h` | **the receive shift register is modelled**: the part is quadruple-buffered, so a character meeting a full FIFO is held rather than lost and only the next one overruns, and a read that frees a position refills the FIFO from it -- which is why §4.2.9.7 says `FFULL` is not cleared by that read | `mc68681_suite`, 57 tests, `MC68681 DUART Sep85` |
-| QIC-02 tape drive | **the whole command set**, all eleven of `[SC499]` §1.13: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, both format selects, READ, READ STATUS, and WRITE, WRITE FILE MARK, READ FILE MARK and ERASE recognised and refused. **WRITE places a block** on a cartridge loaded writable, the distinction `ap_ct_t` now carries; a read-only one refuses. WRITE FILE MARK and ERASE are still refused, and for a reason that has not changed — a `.ct` is a raw block image with no file marks in it. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. **The two opcodes C25 recorded as lost are recovered**: §1.13's summary table has a previous owner's pen through `H'22'` and `H'26'`, and §1.13.1's numbered descriptions two pages on give the same codes in clean binary, corroborated by the three codes either side of them that this core already had. **READ STATUS now transfers its block**: six bytes, the length `[SC499]` §1.13.1 gives outright, as three 16-bit fields LSB-first — exception flags, data-error count, underrun count — and reading it clears the power-on condition it reports | `qic_suite`, 18 tests; `FINDINGS.md` C25 |
+| QIC-02 tape drive | **the whole command set**, all eleven of `[SC499]` §1.13: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, both format selects, READ, READ STATUS, and WRITE, WRITE FILE MARK, READ FILE MARK and ERASE recognised and refused. **WRITE places a block** on a cartridge loaded writable, the distinction `ap_ct_t` now carries; a read-only one refuses. WRITE FILE MARK and ERASE are still refused, and for a reason that has not changed — a `.ct` is a raw block image with no file marks in it. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. **The two opcodes C25 recorded as lost are recovered**: §1.13's summary table has a previous owner's pen through `H'22'` and `H'26'`, and §1.13.1's numbered descriptions two pages on give the same codes in clean binary, corroborated by the three codes either side of them that this core already had. **READ STATUS now transfers its block**: six bytes, the length `[SC499]` §1.13.1 gives outright, as three 16-bit fields LSB-first — exception flags, data-error count, underrun count — and reading it clears the power-on condition it reports | `qic_suite`, 19 tests; `FINDINGS.md` C25 |
 | Cartridge tape images (`image/ap_ct.c`) | working: block addressing over a raw `.ct` image, refusing any size that is not a whole number of 512-byte blocks, and boot-record parsing that returns the four header words. Their reading as load address and entry point is now **confirmed by the boot code itself** — its first instruction, a PC-relative `LEA`, computes word 0 exactly when executed at word 1, so the image proves its own layout. `ap_ct_boot_image` therefore *names* load address, entry point and length, and refuses a cartridge that does not announce itself, or whose header describes more than the file holds. Takes memory, never a filename, so `src/core` keeps its zero file I/O and the tests need no gitignored media | `ct_suite`, 12 tests; `FINDINGS.md` C24 |
 | Apollo display controller (`05D800`, `05E800`) | **identification**: both register blocks decode whether or not a screen is fitted, and the device ID at offset 1 reports `C4P=8`, `19I=9`, `C8P=10` or `15I=11` for the fitted family and `FF` for the other. An absent screen reads `FF` and does **not** bus error — "nothing is fitted" and "nothing is there" are different answers, and getting that wrong cost an investigation. **Drawing**: `CR0`'s mode and shift, `CR1`'s bits named per family, `CR2`'s two plane-select encodings, all sixteen raster operations, the word-level data path with its two active-low fields, and the blit that is the plane loop around them. **Lookup table**: *both* of them -- the 8-plane board's Bt458 behind its data and control ports, active-low chip selects and the FIFO that commits a palette on the release of `CPAL_CS`; and the **4-plane board's own**, three write-only registers carrying sixteen entries of four bits a gun, from `002398-04` p. 12-19. **A/D converter**: the diagnostic register at offset `407`, whose channel byte selects a gun's video output and whose result is hundredths of a volt. **Raster**: both dot clocks, the beam as a function of the instant, and the status register's timing bits gated on `CR1`. **Scanout**: the four geometries, each buffer width being the manual's own printed capacity divided out, planes composed with plane 0 as bit 0 and bit 15 as the leftmost pixel. **Registers**: sixteen of them in two groups of eight, the low group aliased across the block, `CR0`-`CR3B`, the 16-bit write enable and the 32-bit raster operation, with `CR3A` as a bit port onto `CR1`. **Corrected 2026-08-11**: this line previously said the status register, the raster operation's low half and the lookup table's two ports were "still unmodelled and reading `FF`". All three are modelled -- the status register answers from the raster (`graphics_status`), the lookup table has its Bt458 with the release-committed FIFO, and the raster operation's low half reads `FF` because it is **write-only in the hardware**, which is a model of the part rather than a gap in it. What genuinely reads `FF` is the low register group on a board that is not 8-plane, and registers that are write-only -- `FF` rather than zero, because zero is a state a real register can report and these cannot report anything | `graphics_suite`, 87 tests; `FINDINGS.md` C31-C32 |
 | Apollo cartridge tape (`050000`) | working, **controller joined to the drive**: a data-register write with the request bit set is a QIC-02 command, reads deliver the cartridge a byte at a time across the drive's block boundary, and a refused command or the end of tape raises Exception. The command handshake's **three entry conditions** are modelled — ready, exception, device-holds-the-bus, one figure each — and now **its timings too**: the device carries a clock, a command deasserts READY at once and reaches its destination only when the figure's interval has passed. Every interval is `PROVISIONAL`, since §1.13.2 publishes bounds rather than values. Four registers at stride 1, the upper four of each eight floating to `FF`, aliased through the range, on IRQ5 through to vector `A5`. The measured reset dump is reproduced over two aliasing periods | `tape_suite`, 19 tests; `FINDINGS.md` C16-C19 |

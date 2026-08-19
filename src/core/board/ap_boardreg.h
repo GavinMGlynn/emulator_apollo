@@ -482,7 +482,74 @@ typedef enum {
  * core does what the comment describes instead. */
 #define AP_BOARDREG_CONTROL_FPU_TRAP 0x0004u
 
-#define AP_BOARDREG_CONTROL_INTERRUPT_ENABLE 0x0001u
+/* ## Bit 0 is `nme`, and the gate it names was already here
+ *
+ * `002398-04` p. 12-8 gives the control register's low nibble as `dg` enable
+ * diag mode, `fp` enable fp owner trap, `rsa` reset on-board devices and `nme`
+ * **non-maskable interrupt enable**, and then states the gate outright:
+ * "**Non-maskable interrupts must be enabled to receive parity errors.**"
+ *
+ * That is `ap_board_parity_interrupt`, which has required this bit since it was
+ * written -- derived from the boot PROM's self-test 7, which sets it before
+ * forcing a parity error and clears it afterwards. So the handbook is a second,
+ * independent statement of a rule this core already implements, and the item
+ * that carried it as an open question was wrong to say it was not modelled.
+ * Renamed from `INTERRUPT_ENABLE` to the name the document uses, because "which
+ * interrupt" is the whole content of the sentence. */
+#define AP_BOARDREG_CONTROL_NMI_ENABLE 0x0001u
+
+/* ## Bit 1 is `rsa`, "reset on-board devices" -- with one named exclusion
+ *
+ * p. 12-8: "**Neither RSA nor the reset instruction reset the SIO lines.**"
+ * That sentence does two things. It excludes the SIO from what this bit
+ * touches, and it says RSA and the 68030's `RESET` instruction have the *same*
+ * effect -- which is what makes the exclusion worth stating at all.
+ *
+ * ## What it resets, and what it does not
+ *
+ * The page says "on-board devices" and enumerates nothing, so the list is drawn
+ * from what a reset line on this board can reach and each exclusion is stated:
+ *
+ *   - the two 8259 interrupt controllers, the two 8237 DMA controllers, the DMA
+ *     page registers and the 6840 timer -- **reset**;
+ *   - the **SIO**, excluded by the sentence above, and with it the keyboard and
+ *     the beeper, which are behind it;
+ *   - the **calendar**, excluded because it is battery-backed. Its RAM holds
+ *     the node ID and the configuration table, and a machine that lost those on
+ *     a register write would be a machine that could not boot -- so a reset
+ *     that cleared them would be inventing a failure this hardware does not
+ *     have. The MC146818's own RESET pin clears two interrupt-enable bits and
+ *     leaves the clock and the RAM standing, which is the same conclusion from
+ *     the part's side.
+ *
+ * ## Why implementing it cannot move the reference boot
+ *
+ * **Every boot PROM on this shelf contains the RSA pulse and branches over
+ * it.** In `3500_BOOT_12191_7` the sequence is
+ *
+ *     0073FC  BRA.W   $007418        <-- jumps past the whole block
+ *     007400  MOVE.B  #$02,$010101   ; rsa asserted
+ *     007408  MOVE.W  #$7FFF,D0
+ *     00740C  DBRA    D0,$00740C     ; the pulse width
+ *     007410  MOVE.B  #$00,$010101   ; rsa released
+ *     007418  BSR.S   ...            <-- the branch's target
+ *
+ * and both DN3000 revisions have the identical shape at `0067F6` and `0067A2`.
+ * Nothing in any image references `007400` absolutely and no branch of any kind
+ * lands inside the block, so it is disabled code in every shipped PROM here --
+ * someone put a `BRA` over a reset that presumably misbehaved. That is why this
+ * could be implemented without a boot to measure it against: the firmware never
+ * executes the write.
+ *
+ * **The reset *instruction* is a different matter and is not wired.** The three
+ * `RESET` opcodes in each PROM may well execute, so giving them this effect is
+ * a behaviour change on a path the boot may take, and it belongs behind a
+ * measurement rather than in front of one. The CPU counts them already --
+ * `external_resets` in `ap_m68030_step.h`, "counted rather than acted on: this
+ * module has no external devices" -- and the wiring point is `ap_machine_step`,
+ * which holds both halves. Named in `docs/COMPLETION_PLAN.md`. */
+#define AP_BOARDREG_CONTROL_RESET_DEVICES 0x0002u
+
 #define AP_BOARDREG_CONTROL_FORCE_BAD_PARITY 0x0008u
 #define AP_BOARDREG_CONTROL_PARITY_LANE_MASK 0x00F0u
 

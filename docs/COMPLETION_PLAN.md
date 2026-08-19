@@ -5653,41 +5653,38 @@ END — PDF 279–313, all 35 pages. 35 content pages of 330.**
       five constant bits — see `PROJECT_STATUS.md`. Detail in
       `PROJECT_STATUS.md`.
 
-- [ ] **Three things `002398-04` p. 12-8 says about the CPU control register.**
-      Its two bit maps agree with `board/ap_boardreg.h` on the parity field, the
-      diag-mode and FP-trap bits and the write-to-acknowledge rule, and differ
-      on three points that each need the firmware checked against them rather
-      than a constant added:
-      **(a)** ~~the control register's upper byte's polarity~~ — **settled, no
-      code change needed.** The byte is documented "1 => led off", and the
-      reference boot's own sequence confirms it: `FF EF DF FE EE DE CF BF AF 9F
-      8F ...`, opening all-dark and reaching `00` exactly once. Under the
-      opposite reading the machine would start with all nine lamps lit and stay
-      mostly lit, which is not a progress display. `ap_boardreg_post_code`
-      stores the register byte uninverted, which is right — it records what the
-      firmware wrote — and the polarity is now recorded beside it so the
-      `posted codes` report is readable: a **clear** bit is a **lit** lamp.
-      **(b)** bit 1 is **`rsa`, "reset on-board devices"**, and has no constant
-      at all. The page adds the exclusion "**Neither RSA nor the reset
-      instruction reset the SIO lines**", which is a specific behaviour to
-      model, not just a bit to name.
-      **(c)** bit 0 is `AP_BOARDREG_CONTROL_INTERRUPT_ENABLE` here and **`nme`,
-      non-maskable interrupt enable**, there — and the page states a gate this
-      core does not implement: "**Non-maskable interrupts must be enabled to
-      receive parity errors.**" That would make `ap_parity`'s level-7 path
-      conditional on this bit, which is a behaviour change to a path the
-      reference boot exercises, so it needs measuring before it is made.
-      Also stated and not modelled: the control register "is write-only (the
-      BSET instruction may not be used to turn bits on and off)".
+- [x] **Three things `002398-04` p. 12-8 says about the CPU control register.**
+      All three closed. The LED polarity was settled from the boot's own posted
+      codes; bit 1 `rsa`, "reset on-board devices", is implemented with the
+      page's own SIO exclusion and with the battery-backed calendar spared; and
+      bit 0 `nme`'s gate — "non-maskable interrupts must be enabled to receive
+      parity errors" — turned out to be **already implemented**, so the item was
+      wrong to carry it as a gap. Implementing `rsa` needed no boot to measure
+      against because every boot PROM here branches over its own RSA pulse.
+      Detail in `PROJECT_STATUS.md`.
 
-- [ ] **The tape's STATUS SUMMARY table** (`002398-04` p. 12-5). Fifteen rows
-      giving which *pairs* of status bytes mean which condition — no cartridge,
-      no drive, read abort, read error with no data and EOM, and so on. This
-      core sets status bits individually, so the summary is the check on whether
-      `ap_qic` can emit a pair the real controller never would. **Before using
-      it**: its "Status 0" column prints patterns with bit 7 set where byte 0's
-      marker bit is zero, so the column's convention has to be established
-      first.
+- [ ] **The `RESET` instruction should reset the on-board devices too.** The
+      same sentence that excludes the SIO from `rsa` — "Neither RSA **nor the
+      reset instruction** reset the SIO lines" — says the two have the same
+      effect, and only `rsa` is wired. The CPU counts the opcode already
+      (`external_resets`, "counted rather than acted on: this module has no
+      external devices") and `ap_machine_step` holds both halves, so the wiring
+      is small. **What it needs first is a measurement**: each boot PROM
+      contains three `RESET` opcodes — `3500_BOOT_12191_7` at `166C`, `25EC` and
+      `5A7E` — and unlike the `rsa` block nothing shows they are unreachable, so
+      giving them this effect is a behaviour change on a path the reference boot
+      may take. Wire it behind an identity boot, not in front of one.
+
+- [x] **The tape's STATUS SUMMARY table** (`002398-04` p. 12-5). **The column
+      convention is established and it cost two defects.** Every row's bits 6-0
+      decode exactly under p. 12-4's bit maps; only bit 7 looked wrong, printing
+      `1` where byte 0's map draws a literal `0`. `QIC-02 Rev D` §5.2 settles
+      it — both bit 7s are **summary bits**, "set if any other bit in" that byte
+      "is set" — and that is the standard both Apollo tape documents defer to.
+      **`ap_qic` had byte 0's inverted**, setting it when the byte was *empty*,
+      and **never set `WRITE_PROTECTED` at all** although the drive knew. Both
+      fixed, and the four rows this model can be put into are now asserted
+      against the table. Detail in `PROJECT_STATUS.md`.
 
 - [ ] **Chapter 12, DN3000 — first, and the reason is scope.** Chapters 7–11 are
       other machine families (DN300/320/330, DN400/420/600, DN460/660/DSP160,

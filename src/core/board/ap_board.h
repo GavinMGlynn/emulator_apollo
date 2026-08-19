@@ -995,6 +995,17 @@ void ap_board_sample_interrupts(ap_board_t *board);
 /* Whether the memory array is holding a parity error interrupt up. */
 [[nodiscard]] bool ap_board_parity_interrupt(const ap_board_t *board);
 
+/* Reset the on-board devices -- the control register's `rsa`, `002398-04`
+ * p. 12-8. The SIO is excluded because the page excludes it, and the calendar
+ * because it is battery-backed; `AP_BOARDREG_CONTROL_RESET_DEVICES` carries
+ * both reasons and the evidence that no shipped boot PROM reaches this.
+ *
+ * Exposed rather than kept private to the write path so that a test can assert
+ * what it does, and so that the `RESET` instruction can be given the same
+ * effect on the day that is measured -- which is the other half of the page's
+ * sentence and is deliberately not wired yet. */
+void ap_board_reset_devices(ap_board_t *board);
+
 /* Run the acknowledge cycle and answer the vector the controllers supply.
  *
  * The Apollo scheme is vectored, not autovectored: the two controllers carry

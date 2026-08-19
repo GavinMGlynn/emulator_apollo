@@ -233,6 +233,19 @@ uint16_t ap_qic_exception_word(const ap_qic_t *qic) {
   if (!qic->selected) {
     exs |= AP_QIC_EXS_UNSELECTED;
   }
+  /* **Defined and never set**, until `002398-04` p. 12-5's summary row for
+   * "Write protected" was checked against this function and came back `00`.
+   *
+   * `QIC-02 Rev D` §5.2: "WRP - Write Protected bit is set if the cartridge
+   * write protect plug is set in the file protect 'safe' position. Operator
+   * must change the write protect plug position before the status bit will
+   * reset." So it is a *condition* of the cartridge rather than a latched
+   * event, which is exactly what this model can answer -- `ap_ct_write_block`
+   * already enforces the same flag, and `WRITE` already refuses on it. The
+   * drive knew and would not say. */
+  if (qic->loaded && !qic->image.writable) {
+    exs |= AP_QIC_EXS_WRITE_PROTECTED;
+  }
   if (qic->loaded && qic->position == 0u) {
     /* Beginning of media: the head is before the first block. The oracle sets
      * exactly this on loading a cartridge. */
@@ -245,10 +258,12 @@ uint16_t ap_qic_exception_word(const ap_qic_t *qic) {
     exs |= AP_QIC_EXS_POWER_ON;
   }
 
-  /* The two "this byte is present" markers, which are not conditions but
-   * framing: byte 0's is asserted low and byte 1's high, per the oracle's
-   * transcription, and each is set when its half carries anything. */
-  if ((exs & 0x7F00u) == 0u) {
+  /* The two summary bits, and they follow **one** rule rather than two.
+   * `QIC-02 Rev D` §5.2: each byte's bit 7 "is set if any other bit in" that
+   * byte "is set". See the header for how this file came to have byte 0's
+   * inverted, and for why the handbook's own summary table is what exposed it.
+   */
+  if ((exs & 0x7F00u) != 0u) {
     exs |= AP_QIC_EXS_BYTE_0;
   }
   if ((exs & 0x007Fu) != 0u) {

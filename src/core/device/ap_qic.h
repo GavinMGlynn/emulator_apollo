@@ -100,8 +100,44 @@ typedef enum {
  * inventing a fault. */
 #define AP_QIC_STATUS_BYTES 6u
 
+/* ## The two bit-7s are **summary bits**, and this file had one of them backwards
+ *
+ * `002398-04` p. 12-4 draws byte 0's bit 7 as a literal `0` annotated "0 =>
+ * Status byte 0" and byte 1's as a literal `1`, "1 => Status byte 1", which
+ * reads as two constants identifying the bytes. That reading is wrong, and the
+ * same handbook's own STATUS SUMMARY on p. 12-5 disproves it: bit 7 of the
+ * "Status 0" column is **1** in every one of the twelve rows where byte 0
+ * carries a condition, and `X` in the two where it carries none.
+ *
+ * `QIC-02 Rev D` §5.2 settles it outright, and it is the standard both Apollo
+ * tape documents defer to -- §12.1.10 of Apollo's own `08845` and §1.13.1 of
+ * `[SC499]` each say only that the device "transfers the standard six bytes":
+ *
+ *     BIT 7:  ST0 - Status Byte 0 bit is set if any other bit in
+ *             Status Byte 0 is set.
+ *     BIT 7:  ST1 - Status byte 1 bit is set if any other bit in
+ *             Status byte 1 is set.
+ *
+ * So both are the same rule: a byte's top bit says "this byte carries
+ * something", which is what lets a host see at a glance which half to decode.
+ *
+ * **`AP_QIC_EXS_BYTE_0` was set when byte 0 was *empty*** -- the exact
+ * complement -- so a drive with a condition in byte 0 reported the byte as
+ * carrying nothing, and an untroubled drive reported one that carried
+ * something. It came from the oracle's transcription; the standard's sentence
+ * is unambiguous and the handbook's own summary table agrees with the standard.
+ *
+ * `AP_QIC_EXS_BYTE_1` was already right, which is why the pair looked
+ * deliberate rather than transposed.
+ *
+ * Using QIC-02 here does not reopen what `COMPLETION_PLAN.md` refused: that
+ * refusal was of the standard's *transfer order* for the six-byte block, which
+ * this controller delivers as three 16-bit fields LSB-first. What the bits
+ * **mean** is the standard's, and §5.1's summary already matches every other
+ * constant below name for name. */
+
 /* Status byte 0, the high half of the exception word. */
-#define AP_QIC_EXS_BYTE_0 0x8000u    /* "0 => status byte 0" */
+#define AP_QIC_EXS_BYTE_0 0x8000u /* ST0: set iff any other byte-0 bit is set */
 #define AP_QIC_EXS_NO_CARTRIDGE 0x4000u
 #define AP_QIC_EXS_UNSELECTED 0x2000u
 #define AP_QIC_EXS_WRITE_PROTECTED 0x1000u
@@ -111,7 +147,7 @@ typedef enum {
 #define AP_QIC_EXS_FILE_MARK 0x0100u
 
 /* Status byte 1, the low half. */
-#define AP_QIC_EXS_BYTE_1 0x0080u /* "1 => status byte 1" */
+#define AP_QIC_EXS_BYTE_1 0x0080u /* ST1: set iff any other byte-1 bit is set */
 #define AP_QIC_EXS_ILLEGAL 0x0040u
 #define AP_QIC_EXS_NO_DATA 0x0020u
 #define AP_QIC_EXS_MARGINAL 0x0010u

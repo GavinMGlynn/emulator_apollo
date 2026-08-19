@@ -2302,6 +2302,68 @@ static void test_a_transmit_with_no_cable_completes_at_once(void) {
  * finds the 15 in one section and the 12 in another needs to know they are a
  * failure threshold and a design margin rather than a contradiction, and this
  * is where that is written down. */
+/* ## `rsa`, and the two things it must not touch
+ *
+ * `002398-04` p. 12-8: control register bit 1 is "reset on-board devices", and
+ * "**Neither RSA nor the reset instruction reset the SIO lines.**" So the test
+ * is as much about the exclusions as about the reset -- a bit that reset
+ * everything would pass a test that only checked the interrupt controller.
+ *
+ * The calendar is excluded for a reason the page does not give and the machine
+ * does: its RAM holds the node ID, and a board that lost it on a register write
+ * could not boot. See `AP_BOARDREG_CONTROL_RESET_DEVICES`.
+ */
+static void test_resetting_the_on_board_devices_spares_the_sio_and_the_clock(void) {
+  static ap_board_t b;
+  init(&b);
+
+  /* Put four things into a state a reset would visibly undo. */
+  b.interrupts.master.imr = 0x5Au;
+  b.dma.controller[0].mask = 0x00u;
+  b.dma_page.page[0] = 0xA5u;
+  b.timer.ptm.timer[0].latch = 0x1234u;
+
+  /* The two that must survive: a byte of the calendar's battery RAM -- the node
+   * ID lives in exactly this region -- and the SIO's programmed state. */
+  b.calendar.rtc.ram[AP_CALENDAR_CONFIG_NODEID] = 0x7Bu;
+  b.sio.port[0].channel[0].mr[0] = 0x13u;
+
+  bool ok = false;
+  ap_board_write(&b, AP_BOARDREG_CPU_CONTROL_ADDR + 1u,
+                 (uint8_t)AP_BOARDREG_CONTROL_RESET_DEVICES, &ok);
+  TEST_ASSERT_TRUE(ok);
+
+  TEST_ASSERT_EQUAL_HEX8(0x0Fu, b.dma.controller[0].mask); /* all four masked */
+  TEST_ASSERT_EQUAL_HEX8(0x00u, b.dma_page.page[0]);
+  /* `FFFF`, not zero: the 6840's counter latches come out of reset all-ones,
+   * which is the part's own power-on value and is what makes this assertion
+   * evidence that the reset ran rather than that the field was cleared. */
+  TEST_ASSERT_EQUAL_HEX16(0xFFFFu, b.timer.ptm.timer[0].latch);
+
+  /* And the two exclusions. */
+  TEST_ASSERT_EQUAL_HEX8(0x7Bu,
+                         b.calendar.rtc.ram[AP_CALENDAR_CONFIG_NODEID]);
+  TEST_ASSERT_EQUAL_HEX8(0x13u, b.sio.port[0].channel[0].mr[0]);
+
+  /* The timer's clock divisors are re-established, not zeroed -- a reset that
+   * left the machine's highest-priority interrupt without a rate would be a
+   * reset that stopped time. */
+  TEST_ASSERT_NOT_EQUAL_UINT32(0u, b.timer.clock[0].hz);
+}
+
+/* A write without the bit resets nothing, which is what makes the arm above a
+ * behaviour rather than an accident of the write path. */
+static void test_a_control_write_without_rsa_resets_nothing(void) {
+  static ap_board_t b;
+  init(&b);
+  b.interrupts.master.imr = 0x5Au;
+  bool ok = false;
+  ap_board_write(&b, AP_BOARDREG_CPU_CONTROL_ADDR + 1u,
+                 (uint8_t)AP_BOARDREG_CONTROL_NMI_ENABLE, &ok);
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, b.interrupts.master.imr);
+}
+
 static void test_the_master_timings_are_one_clock_two_clocks_and_a_margin(void) {
   /* One and two bus clocks, to the nanosecond the table prints -- the second
    * rounded up, since 333 is 2 x 166.5 and the table cannot print halves. */
@@ -2400,5 +2462,7 @@ int main(void) {
   RUN_TEST(test_a_received_frame_reaches_the_stations_own_buffer);
   RUN_TEST(test_a_transmit_completes_when_the_ring_has_carried_it);
   RUN_TEST(test_a_transmit_with_no_cable_completes_at_once);
+  RUN_TEST(test_resetting_the_on_board_devices_spares_the_sio_and_the_clock);
+  RUN_TEST(test_a_control_write_without_rsa_resets_nothing);
   return UNITY_END();
 }
