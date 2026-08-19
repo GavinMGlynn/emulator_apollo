@@ -12112,3 +12112,39 @@ the part's input/output ports, with the oracle's `apollo_m.cpp` wiring as a
 cross-check for the pin assignment. `tctl`'s own options -- `-dcd_enable`,
 `-dialin` -- are what a driver does with them, so the behaviour is observable
 rather than decorative.
+
+## C221 -- C220 WITHDRAWN: `-dcd_enable` is not why the line goes unserviced
+
+The discriminating experiment, one token varied and everything else held --
+same volume lineage, same `siomonit_file`, same script, same
+`--boot-script-line 2:A`, and the clock read from the volume's own dismount
+stamp both times:
+
+    tctl -line 2 -default -speed 9600 -dcd_enable -insync -nosync   ->  sio2 A  1 discarded unread
+    tctl -line 2 -default -speed 9600              -insync -nosync   ->  sio2 A  1 discarded unread
+
+Identical. No `login:` either way, and `sio2 reg 3` -- channel A's receive
+holding register -- is never accessed at all in either run. **So `-dcd_enable`
+is not the reason, and C220's reading of it is withdrawn.**
+
+What survives C220 is only the part that was a *fact* rather than a reading:
+this core models one of the six signals `008778-03` §3.9 lists for an SIO line
+-- CTS as `IP0`/`IP1`, RTS as `OP0`/`OP1`, and nothing for DCD or DTR, with
+serial 1's `IP0` used as the refresh loopback and serial 2's input port never
+driven. That remains a genuine gap in the model and a fair plan item on its own
+merits. It is **not** the explanation for this symptom.
+
+### Three readings, three withdrawals, one thread
+
+C216 said the login was not being transmitted anywhere -- withdrawn by C219,
+which found `siologin2_local` alive in the process table. C218 said a silent
+console is the expected output of a *failing* `siologin` -- half withdrawn by
+the same finding, since it is equally the output of a *working* one nobody has
+typed at. C220 said `-dcd_enable` was why the character goes unread -- withdrawn
+here.
+
+Each was a story that explained the evidence, and each survived until an
+experiment could tell it from its alternative. **The evidence that has never
+moved** is narrow and worth stating alone: a character is delivered to line 2,
+the receiver is enabled, `siologin2_local` is a live process, and the OS never
+reads the register. Nothing established so far says why.
