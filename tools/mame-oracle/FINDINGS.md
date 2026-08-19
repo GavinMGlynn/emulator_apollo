@@ -12319,3 +12319,38 @@ manual and its tests, and a part modelled ahead of its core is a legitimate
 order to build in. What was missing was the number -- thirteen modules, zero
 call sites from a machine -- which is what makes "needs a 68040 execution core"
 a measured statement rather than an impression.*
+
+## C227 -- the 68851 is the second unreachable part, and the model's `mmu` field only prints
+
+The audit that produced C226 was widened, and found the same shape once more.
+
+    ap_m68040   0 call sites in src/ outside cpu/m68040   (C226; 3,181 lines, 13 modules)
+    ap_m68851   0 call sites in src/ outside cpu/m68851   (2,039 lines, 9 suites)
+
+And the field that would choose between them is consumed by **nothing that
+executes**:
+
+    $ grep -rn '\.mmu\b|->mmu\b' src/ --include=*.c
+    src/core/cpu/m68030/ap_m68030_state.c:236:  ap_hash_scope(st, "cpu.mmu");
+    src/frontend/common/ap_frontend.c:68:  ... ap_mmu_name(m->mmu), ...
+
+-- a hash scope *name*, and a line in a report. `ap_model.c` sets
+`.mmu = AP_MMU_M68851` on two rows and `ap_model.h` documents the enum as
+"external PMMU, DN3000 / on-chip, DN2500/DN3500/DN4500 / on-chip, different
+descriptor format, DN5500". **Every model runs the 68030's on-chip MMU whatever
+its row says**, because `ap_machine` builds an `ap_m68030_cpu_t` unconditionally
+-- the same reason the DN5500 stops at its second instruction.
+
+**Not claimed: that this is a live defect.** The DN3000 diffs in this project
+pass, so its firmware evidently does not depend on the difference within the
+window measured, and a `PMMU` whose descriptor formats differ would show up as a
+translation mismatch rather than silently. What *is* claimed is narrower and
+checkable: the model table declares a part per row, the part is built and
+tested, and nothing reads the declaration to choose one. **A field that only
+prints is a claim the machine does not honour**, and this project's own
+`model/` rule -- "all machine variance lives here" -- is what makes that worth
+recording rather than shrugging at.
+
+*Two parts, 5,220 lines, twenty-two test suites, reachable only from their own
+tests. `check-what-is-called-by-nobody` has now found three instances in one
+day: the ring's nineteen status bits (C137/C219 thread), the 68040, and this.*
