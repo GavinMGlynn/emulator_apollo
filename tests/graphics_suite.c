@@ -2087,9 +2087,148 @@ static void test_init_does_not_inherit_the_callers_stack(void) {
       ap_graphics_read(&g, AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_DEVICE_ID));
 }
 
+/* ## `002398-04` p. 12-19's own initialization sequence
+ *
+ * The handbook prints what a driver writes "to initialize and set normal access
+ * to display memory (no blts)", by register and value:
+ *
+ *     Chip_reg  = $80   set all ports to basic output mode
+ *     Misc_cntl = $8B   enable display, normal memory access
+ *     Plane_sel = $CE   select plane 0 for normal memory access
+ *     Blt_cntl  = $E0   set for normal memory access, no shift
+ *
+ * Four registers and four sentences saying what each value means, which is a
+ * complete check on this core's decode of all four -- and one Apollo wrote,
+ * rather than one derived here from the bit maps. */
+static void test_the_handbooks_initialisation_sequence_decodes(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_4_PLANE);
+
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_CR3A, 0x80u);
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_CR1, 0x8Bu);
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_CR2, 0xCEu);
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_CR0, 0xE0u);
+
+  /* `$80` is the 8255A's mode-set word with every port an output, and it is
+   * **not** a bit set/reset command -- bit 7 tells the part which it is, so a
+   * model applying the bit operation to it would clear `CR1` bit 0. */
+  TEST_ASSERT_EQUAL_HEX8(0x8Bu, g.reg.cr1);
+
+  /* "enable display, normal memory access": video enabled, sync generator
+   * enabled and out of reset -- which is what the raster requires before it
+   * runs -- and `adb` for normal memory access. */
+  TEST_ASSERT_TRUE((g.reg.cr1 & AP_GRAPHICS_CR1_DISP_EN) != 0u);
+  TEST_ASSERT_TRUE((g.reg.cr1 & AP_GRAPHICS_CR1_SYNC_EN) != 0u);
+  TEST_ASSERT_TRUE((g.reg.cr1 & AP_GRAPHICS_CR1_RESET) != 0u);
+  TEST_ASSERT_TRUE((g.reg.cr1 & AP_GRAPHICS_CR1_COLOUR_AD_BIT) != 0u);
+  TEST_ASSERT_TRUE((g.reg.cr1 & AP_GRAPHICS_CR1_ROP_EN) == 0u);
+
+  /* "select plane 0 for normal memory access". `CE` is `11 00 1110`: source
+   * data unchanged, source plane 0, and a destination mask whose **clear** bit
+   * is plane 0 -- which is the active-low select this core carries and the
+   * handbook states outright. */
+  unsigned s_plane = 0u, d_plane = 0u;
+  ap_graphics_cr2_access_t access = AP_GRAPHICS_CR2_CONSTANT_ACCESS;
+  ap_graphics_cr2_fields(&g, &s_plane, &d_plane, &access);
+  TEST_ASSERT_EQUAL_INT(AP_GRAPHICS_CR2_PLANE_ACCESS, access);
+  TEST_ASSERT_EQUAL_UINT(0u, s_plane);
+  TEST_ASSERT_TRUE(ap_graphics_plane_selected(d_plane, 0u));
+  TEST_ASSERT_FALSE(ap_graphics_plane_selected(d_plane, 1u));
+  TEST_ASSERT_FALSE(ap_graphics_plane_selected(d_plane, 2u));
+  TEST_ASSERT_FALSE(ap_graphics_plane_selected(d_plane, 3u));
+
+  /* "set for normal memory access, no shift". */
+  TEST_ASSERT_EQUAL_INT(AP_GRAPHICS_CR0_NORMAL, ap_graphics_cr0_mode(g.reg.cr0));
+  TEST_ASSERT_EQUAL_UINT(0u, ap_graphics_cr0_shift(g.reg.cr0));
+  TEST_ASSERT_EQUAL_INT(0, ap_graphics_cr0_shift_signed(g.reg.cr0));
+}
+
+/* p. 12-17: "Signed shift count (positive is right-shift)", five bits. So the
+ * raw field's top half is negative, which is what the shifter's rotate branch
+ * has always implemented and nothing here could say. */
+static void test_the_blt_shift_count_is_signed(void) {
+  TEST_ASSERT_EQUAL_INT(0, ap_graphics_cr0_shift_signed(0xE0u));
+  TEST_ASSERT_EQUAL_INT(15, ap_graphics_cr0_shift_signed(0xEFu));
+  TEST_ASSERT_EQUAL_INT(-16, ap_graphics_cr0_shift_signed(0xF0u));
+  TEST_ASSERT_EQUAL_INT(-1, ap_graphics_cr0_shift_signed(0xFFu));
+  /* The raw field is unchanged and is what the shifter uses. */
+  TEST_ASSERT_EQUAL_UINT(31u, ap_graphics_cr0_shift(0xFFu));
+}
+
+/* p. 12-20's Diagnostic Register at offset `407`, which this core answered `FF`
+ * at on a 4-plane board because the offset was marked 8-plane only. The write
+ * selects a gun and the read is the level, in hundredths of a volt. */
+static void test_the_four_plane_diagnostic_register_reads_the_converter(void) {
+  ap_graphics_t g;
+  scanout_setup(&g, AP_SCREEN_COLOUR_4_PLANE);
+  g.reg.cr1 = AP_GRAPHICS_CR1_RESET | AP_GRAPHICS_CR1_SYNC_EN;
+  ap_graphics_advance(&g, 0u); /* line 0, pixel 0: drawing */
+
+  /* Palette entry 0 is what an all-zero frame buffer shows: give the three guns
+   * different levels so a channel confusion cannot pass. Four bits each, so
+   * `F`, `8` and `0` become `FF`, `88` and `00`. */
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_LUT_RED,
+                    0x0Fu);
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_LUT_GREEN,
+                    0x08u);
+  ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_LUT_BLUE,
+                    0x00u);
+
+  const uint32_t at = AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_DIAGNOSTIC;
+  /* `04` is red: bit 2 set to measure video, channel `00`. Drawing, so the
+   * level is `10 + R/2`. */
+  ap_graphics_write(&g, at, AP_GRAPHICS_ADC_VIDEO | 0u);
+  TEST_ASSERT_EQUAL_HEX8(10u + 0xFFu / 2u, ap_graphics_read(&g, at));
+  ap_graphics_write(&g, at, AP_GRAPHICS_ADC_VIDEO | 1u);
+  TEST_ASSERT_EQUAL_HEX8(70u + 0x88u / 2u, ap_graphics_read(&g, at));
+  ap_graphics_write(&g, at, AP_GRAPHICS_ADC_VIDEO | 2u);
+  TEST_ASSERT_EQUAL_HEX8(10u + 0x00u / 2u, ap_graphics_read(&g, at));
+
+  /* A channel that is not a video measurement has no answer, and `FF` is what
+   * every unreadable register in this block gives. */
+  ap_graphics_write(&g, at, 0x00u);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_graphics_read(&g, at));
+}
+
+/* The three LUT registers are write-only -- "Both registers and LUTs are
+ * write-only" -- so a read of any of them is `FF` however much has been loaded,
+ * and the table is reached through `ap_graphics_lut4` instead. */
+static void test_the_four_plane_lut_registers_do_not_read_back(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_4_PLANE);
+
+  static const uint32_t ports[3] = {AP_GRAPHICS_REG_LUT_RED,
+                                    AP_GRAPHICS_REG_LUT_GREEN,
+                                    AP_GRAPHICS_REG_LUT_BLUE};
+  for (unsigned i = 0; i < 3u; i++) {
+    ap_graphics_write(&g, AP_GRAPHICS_COLOUR_ADDR + ports[i], 0x3Au);
+    TEST_ASSERT_EQUAL_HEX8(
+        0xFFu, ap_graphics_read(&g, AP_GRAPHICS_COLOUR_ADDR + ports[i]));
+  }
+
+  uint8_t rgb[3] = {0u, 0u, 0u};
+  TEST_ASSERT_TRUE(ap_graphics_lut4(&g, 3u, rgb));
+  TEST_ASSERT_EQUAL_HEX8(0xAAu, rgb[0]);
+  TEST_ASSERT_EQUAL_HEX8(0xAAu, rgb[1]);
+  TEST_ASSERT_EQUAL_HEX8(0xAAu, rgb[2]);
+
+  /* No other board has this table: an 8-plane controller's palette is the
+   * Bt458's and a monochrome one has none. */
+  ap_graphics_t eight;
+  ap_graphics_init(&eight, AP_SCREEN_COLOUR_8_PLANE);
+  TEST_ASSERT_FALSE(ap_graphics_lut4(&eight, 0u, rgb));
+  ap_graphics_t mono;
+  ap_graphics_init(&mono, AP_SCREEN_MONO_19_INCH);
+  TEST_ASSERT_FALSE(ap_graphics_lut4(&mono, 0u, rgb));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_init_does_not_inherit_the_callers_stack);
+  RUN_TEST(test_the_handbooks_initialisation_sequence_decodes);
+  RUN_TEST(test_the_blt_shift_count_is_signed);
+  RUN_TEST(test_the_four_plane_diagnostic_register_reads_the_converter);
+  RUN_TEST(test_the_four_plane_lut_registers_do_not_read_back);
   RUN_TEST(test_each_screen_reports_the_id_the_firmware_compares_against);
   RUN_TEST(test_the_other_family_s_block_reads_ff);
   RUN_TEST(test_an_absent_screen_still_decodes_and_reads_ff);

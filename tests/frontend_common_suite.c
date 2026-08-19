@@ -392,17 +392,40 @@ static void test_a_monochrome_palette_is_ink_on_paper(void) {
   TEST_ASSERT_EQUAL_HEX8(0x00u, palette.rgb[1][0]);
 }
 
-/* The 4-plane board's sixteen-entry table is not modelled, so its palette is an
- * even ramp -- and must say so, or a screenshot written from it would be passed
- * off as the colours the monitor showed. */
-static void test_an_unmodelled_lookup_table_is_not_claimed_as_real(void) {
+/* The 4-plane board's sixteen-entry table **is** modelled -- `002398-04`
+ * p. 12-19 gives the three registers it is written through -- so its palette is
+ * the one the firmware loaded and says so. This used to assert the opposite,
+ * because an even ramp flagged `real = false` was all this could answer.
+ *
+ * A fresh controller's table is all zeroes, which is black rather than a ramp,
+ * and that is the hardware's power-on state rather than a placeholder. */
+static void test_the_four_plane_palette_is_the_one_the_registers_hold(void) {
   ap_graphics_t graphics;
   ap_graphics_init(&graphics, AP_SCREEN_COLOUR_4_PLANE);
 
   ap_scanout_palette_t palette;
   TEST_ASSERT_TRUE(ap_scanout_palette(&graphics, &palette));
-  TEST_ASSERT_FALSE(palette.real);
+  TEST_ASSERT_TRUE(palette.real);
   TEST_ASSERT_EQUAL_UINT(16u, palette.colours);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, palette.rgb[5][0]);
+
+  /* Entry 5 to full red, half green, no blue: the address is the top nibble and
+   * the level the bottom one, and four bits scale to eight by seventeen. */
+  ap_graphics_write(&graphics, AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_LUT_RED,
+                    0x5Fu);
+  ap_graphics_write(&graphics,
+                    AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_LUT_GREEN, 0x58u);
+  ap_graphics_write(&graphics,
+                    AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_LUT_BLUE, 0x50u);
+
+  TEST_ASSERT_TRUE(ap_scanout_palette(&graphics, &palette));
+  TEST_ASSERT_TRUE(palette.real);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, palette.rgb[5][0]);
+  TEST_ASSERT_EQUAL_HEX8(0x88u, palette.rgb[5][1]);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, palette.rgb[5][2]);
+  /* And no other entry moved: the address nibble selects one of sixteen. */
+  TEST_ASSERT_EQUAL_HEX8(0x00u, palette.rgb[4][0]);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, palette.rgb[6][0]);
 }
 
 
@@ -642,7 +665,7 @@ int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_scanout_expands_every_pixel_not_just_the_first);
   RUN_TEST(test_a_monochrome_palette_is_ink_on_paper);
-  RUN_TEST(test_an_unmodelled_lookup_table_is_not_claimed_as_real);
+  RUN_TEST(test_the_four_plane_palette_is_the_one_the_registers_hold);
   RUN_TEST(test_the_default_machine_is_the_reference_superset);
   RUN_TEST(test_model_selects_a_machine_by_name);
   RUN_TEST(test_model_without_a_value_is_an_error);

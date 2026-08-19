@@ -126,9 +126,30 @@ typedef enum {
  * `008778-03` Chapter 10 is *physical only* -- board dimensions, connectors,
  * cables -- and gives no register offsets at all. Its §10.3 change list names
  * the registers and their widths, which is what settled `CR2`'s plane selects
- * and the 32-bit ROP register, and the offsets themselves are the **oracle's**.
- * That is the same position this subsystem has been in since it started and it
- * is stated again here rather than left implicit.
+ * and the 32-bit ROP register.
+ *
+ * **The offsets are no longer only the oracle's.** They were, and this comment
+ * said so; `002398-04` pp. 12-16 to 12-22 print them for the DN3000's 4-plane
+ * colour and 1280x1024 monochrome boards, and every one agrees:
+ *
+ *     5E800  status (read) / write enable (write)      offset 000
+ *     5E801  display type (read)                              001
+ *     5E802  raster op (write)                                002
+ *     5EC00  BLT control          = `CR0`                      400
+ *     5EC01  Red LUT register                                  401
+ *     5EC02  misc control         = `CR1`                      402
+ *     5EC03  Green LUT register                                403
+ *     5EC04  plane select         = `CR2`                      404
+ *     5EC05  Blue LUT register                                 405
+ *     5EC06  chip init            = `CR3A`                     406
+ *     5EC07  diagnostic           = `CR3B`                     407
+ *
+ * -- which also names four registers this file only ever had numbers for. The
+ * monochrome block's own base is `5D800`, and the handbook's monochrome section
+ * prints `5EC0x` for everything past its second register, which is the colour
+ * block's address: that section was written by copying the colour pages, and
+ * the addresses were not all changed. The two blocks are separate here, as they
+ * are in the hardware and in the boot PROM's probe of both.
  *
  * ### The block decodes sixteen registers, aliased
  *
@@ -174,8 +195,30 @@ typedef enum {
 #define AP_GRAPHICS_REG_CR1 0x402u
 #define AP_GRAPHICS_REG_CR2 0x404u  /* CR2A on an 8-plane board */
 #define AP_GRAPHICS_REG_CR2B 0x405u /* 8-plane only */
+/* `CR3A` is the **8255A**'s control register, and that is what makes its
+ * behaviour follow rather than be a quirk. `002398-04` p. 12-19 calls it the
+ * "Chip Init Register", "Initializes the 8255A chip. Set just once per system
+ * reset", with `$80` meaning "set all ports to basic output mode".
+ *
+ * The part's control register is two things chosen by bit 7: a **mode-set**
+ * word when the bit is set -- `80` is mode 0 with every port an output -- and a
+ * **bit set/reset** command for port C when it is clear, with bits 3-1 naming
+ * the bit and bit 0 the value. `apply_bit_port` is that second form, and the
+ * display controller wires port C to `CR1`, which is why a write here can turn
+ * one bit of the misc control register on or off without touching the rest.
+ *
+ * The mode-set word therefore has to be ignored as a bit operation, or `$80`
+ * -- the very value the initialization sequence starts with -- would clear
+ * `CR1` bit 0 and leave the display disabled. It is, and now for a reason with
+ * a part number rather than because a mask happened to exclude it. */
 #define AP_GRAPHICS_REG_CR3A 0x406u
-#define AP_GRAPHICS_REG_CR3B 0x407u /* 8-plane only */
+#define AP_GRAPHICS_8255A_MODE_SET 0x80u
+/* Offset 407 is `CR3B`, the lookup table's control port, on an 8-plane board
+ * and the **Diagnostic Register** on a 4-plane one -- see
+ * `AP_GRAPHICS_REG_DIAGNOSTIC`, which is the same offset under the name the
+ * board that has it uses. It was marked "8-plane only" and answered `FF`
+ * otherwise, which made the 4-plane board's A/D converter unreachable. */
+#define AP_GRAPHICS_REG_CR3B 0x407u
 
 /* The widest board this machine has. The 8-plane colour controller; every
  * other is a subset, and the arrays below are sized for the widest rather than
@@ -237,6 +280,78 @@ typedef struct {
 #define AP_GRAPHICS_REG_LUT_DATA 0x401u
 #define AP_GRAPHICS_REG_LUT_CONTROL 0x403u
 
+/* ## The 4-plane board's lookup table, which is not a Bt458 and not two ports
+ *
+ * The same three offsets carry something else entirely on a 4-plane
+ * controller, and `002398-04` p. 12-19 is the only document here that says
+ * what. Three registers, one per gun:
+ *
+ *     Red LUT Register    [ 5EC01 | 3FF9801 ]
+ *     Green LUT Register  [ 5EC03 | 3FF9803 ]
+ *     Blue LUT Register   [ 5EC05 | 3FF9805 ]
+ *
+ *     7   6   5   4   3   2   1   0
+ *     a3  a2  a1  a0  d3  d2  d1  d0
+ *     \_ address in LUT _/\_ data _/
+ *
+ * Sixteen entries -- one per index a 4-plane board can produce -- and **four
+ * bits per gun**, so the whole palette is 16 x 3 x 4 bits and a driver loads it
+ * with 48 byte writes. `ap_scanout_palette` used to answer an even grey ramp
+ * here and flag it `real = false`, with a comment naming exactly this register
+ * set as the thing it could not model. It is modelled now.
+ *
+ * "Both registers and LUTs are **write-only**", which is why a read of any of
+ * the three answers `FF` like every other write-only register in the block.
+ *
+ * ### The loading window, recorded and deliberately not enforced
+ *
+ * "LUTS can be loaded only during the vertical blanking period. When LOK=0 in
+ * status register, there is sufficient time to load all 16 locations of the
+ * three LUTs." That is why the colour status register's bit 0 exists.
+ *
+ * A write outside the window is **accepted here**. The page says when a driver
+ * may load, not what the hardware does to a driver that does not -- and
+ * dropping the write would invent a failure mode this core could not otherwise
+ * produce, in the one place where the symptom (a palette that is silently
+ * partly stale) is indistinguishable from a modelling bug. Named rather than
+ * chosen quietly; closing it needs a statement of what a mistimed write does.
+ */
+#define AP_GRAPHICS_REG_LUT_RED 0x401u
+#define AP_GRAPHICS_REG_LUT_GREEN 0x403u
+#define AP_GRAPHICS_REG_LUT_BLUE 0x405u
+#define AP_GRAPHICS_LUT4_ENTRIES 16u
+#define AP_GRAPHICS_LUT4_GUNS 3u
+#define AP_GRAPHICS_LUT4_ADDRESS_MASK 0xF0u
+#define AP_GRAPHICS_LUT4_ADDRESS_SHIFT 4u
+#define AP_GRAPHICS_LUT4_DATA_MASK 0x0Fu
+
+/* ## The diagnostic register, which is the A/D converter's own port
+ *
+ * `002398-04` p. 12-20, at `[ 5EC07 | 3FF9807 ]` on the colour board -- the
+ * offset this file previously marked "8-plane only" and answered `FF` at.
+ *
+ *     WRITE   bits 7-3 zero, bit 2 one, bits 1-0 the input channel:
+ *             00 Red Video Output, 01 Green Video Output, 10 Blue Video Output
+ *     READ    the result, 00 => 0.00 Volts, 01 => 0.01, 80 => 1.28, FF => 2.55
+ *
+ * **The write format is the channel byte `ap_graphics_adc` already takes**, to
+ * the bit: bit 2 set to measure video at all and the gun below it, which is why
+ * `04` is red and `06` is blue in the boot PROM. Two independent arrivals at
+ * the same encoding, one from the oracle and one from Apollo.
+ *
+ * And the read format is the **scale**, which nothing here had: the byte is
+ * hundredths of a volt, linear from 0.00 to 2.55. So the firmware's range check
+ * of `[52, 70)` is 0.52 V to 0.70 V, and the levels this core returns are volts
+ * rather than an arbitrary index -- 70 for green in the blanking interval is
+ * 0.70 V, which is the sync level a composite-sync-on-green monitor expects.
+ */
+#define AP_GRAPHICS_REG_DIAGNOSTIC 0x407u
+#define AP_GRAPHICS_ADC_VIDEO 0x04u /* bit 2: measure video output */
+#define AP_GRAPHICS_ADC_CHANNEL_MASK 0x03u
+/* Hundredths of a volt per count, from the four rows above. Named so a report
+ * can print volts instead of a number with no unit. */
+#define AP_GRAPHICS_ADC_MILLIVOLTS_PER_COUNT 10u
+
 typedef struct {
   ap_screen_kind_t screen;
 
@@ -254,21 +369,33 @@ typedef struct {
   /* Counted, not assumed away: the depth is the oracle's and no manual gives
    * one, so a run that overruns it is a run whose palette cannot be trusted. */
   unsigned lut_fifo_overruns;
-  /* The A/D converter behind the third chip select. Not modelled -- it reads a
-   * monitor's identification and a brightness pot, neither of which this core
-   * has -- so an access is counted rather than answered with a number nothing
-   * stands behind.
+
+  /* The **4-plane** board's palette, which is a different mechanism from the
+   * one above and lives in three registers rather than a part -- see
+   * `AP_GRAPHICS_REG_LUT_RED`. Sixteen entries, four bits per gun, indexed
+   * `[gun][entry]` with the guns in red, green, blue order. Write-only from the
+   * bus; `ap_graphics_lut4` is how anything here reads it back. */
+  uint8_t lut4[AP_GRAPHICS_LUT4_GUNS][AP_GRAPHICS_LUT4_ENTRIES];
+  /* The channel the diagnostic register last selected on a 4-plane board. The
+   * 8-plane board reaches the same converter through the lookup table's data
+   * port instead, which is why this is not shared with `lut_data`. */
+  uint8_t diag_channel;
+  /* How many times the A/D converter was reached through the 8-plane board's
+   * third chip select. Counted since before the converter was modelled at all.
    *
-   * The search for a document is exhausted. The only mention of it anywhere in
-   * `docs/references/` is `002398-04` p. 4-23, and it is an *error code* rather
-   * than a specification: the boot PROM's diagnostic table lists "A/D converter
-   * error" as one of the display controller's tests, alongside "Pixel test",
-   * "Video output" and "LUT red, blue high level output". That confirms the
-   * converter exists and that the firmware range-checks it; it gives no
-   * conversion, no channel map and no scale. The oracle cannot close it either
-   * -- MAME returns its own `m_ad_result`, so measuring it would recover MAME's
-   * choice and not the hardware's. Closing route: a monitor or controller
-   * specification giving the levels, which no manual here is. */
+   * **The document this comment said did not exist is `002398-04` p. 12-20**,
+   * and it was found by walking the handbook rather than by searching it. This
+   * used to record that the search was exhausted -- "the only mention of it
+   * anywhere in `docs/references/` is `002398-04` p. 4-23, and it is an *error
+   * code* rather than a specification" -- and that the converter "reads a
+   * monitor's identification and a brightness pot, neither of which this core
+   * has". Both are wrong: p. 12-20's Diagnostic Register gives the channel map
+   * (bit 2 set, then red, green or blue **video output**) and the scale (the
+   * byte is hundredths of a volt), which is what `ap_graphics_adc` had
+   * meanwhile arrived at from the oracle. The page was in the same chapter as
+   * the registers it belongs to, four pages from the ones this file was quoting
+   * from chapter 4 -- which is the whole argument for reading a document rather
+   * than querying it. */
   unsigned lut_ad_accesses;
 
   /* The diagnostic memory-refresh trigger, offsets 4 and 5 on every board but
@@ -402,11 +529,31 @@ void ap_graphics_write(ap_graphics_t *graphics, uint32_t address,
  *
  * ## Two of the eight are unknown, and stay unknown
  *
- * The oracle's own source lists modes 5 and 6 as `???`, and access mode 2 the
- * same. That is the state of the knowledge, not a gap in the transcription, so
- * they are named `UNKNOWN` rather than given a plausible label. A guess here
- * would be indistinguishable from a fact for as long as nobody exercised it,
- * and the first thing to exercise it would be firmware doing something real.
+ * The oracle's own source lists modes 5 and 6 as `???`. That is the state of
+ * the knowledge, not a gap in the transcription, so they are named `UNKNOWN`
+ * rather than given a plausible label. A guess here would be indistinguishable
+ * from a fact for as long as nobody exercised it, and the first thing to
+ * exercise it would be firmware doing something real.
+ *
+ * **A second source is now silent about the same two**, which is what turns
+ * "the oracle does not know" into "nothing here does": `002398-04` p. 12-17
+ * lists the BLT Control Register's mode field as `000`, `001`, `010`, `011`,
+ * `100` and `111`, and prints no row for `101` or `110`. Two documents, the
+ * same two holes.
+ *
+ * What it does supply is the other six in Apollo's words, which are richer than
+ * the labels here -- `000` "CPU destination BLT (bus write to provide disp mem
+ * addr, bus read to get data)", `001` "Alternating BLT (alternating bus writes
+ * provide src/dest addrs, second write provides Write-enables)", `010` "Vector
+ * or fill mode", `011` "CPU source BLT", `100` "Double access BLT (fastest BLT
+ * mode) ... src addr on address lines, dest addr on data lines (16-bit WORD
+ * offset)", `111` "Normal access to display memory".
+ *
+ * `CR2`'s access field is **not** among the unknowns and this comment used to
+ * say it was: p. 12-16 gives all four -- "set source to all ones (used for
+ * vectors)", "replicate 4 lsb of data bus", "replicate lsb of shifter", "use
+ * source data unchanged (normal use)" -- which are the four modelled below,
+ * value for value.
  */
 
 typedef enum {
@@ -455,6 +602,18 @@ typedef enum {
  * that still runs -- the bit would be read, believed, and mean something else.
  */
 #define AP_GRAPHICS_CR1_MONO_INV 0x80u
+/* `002398-04` p. 12-22 names this bit twice over, and neither name is quite
+ * this one: "**BLT Mode 4 destination address bit 17** (syg = 1) / when syg=0,
+ * disable vert mode clock (diagnostics)". So it is bit **17** rather than 16,
+ * and which of the two functions it has depends on whether the sync generator
+ * is running -- the same gating the three clock-step bits have. The oracle's
+ * name is kept, because renaming a constant every caller uses to correct a
+ * digit would be a worse trade than recording the digit here; what matters is
+ * that a reader looking for "bit 16" in the handbook will not find it.
+ *
+ * Neither function is modelled: mode 4's destination address is not carried
+ * across boards here, and a monochrome controller has no vertical step -- which
+ * this file already says, from the other direction, at `v_clock`. */
 #define AP_GRAPHICS_CR1_MONO_DADDR_16 0x40u
 #define AP_GRAPHICS_CR1_COLOUR_AD_BIT 0x80u
 #define AP_GRAPHICS_CR1_COLOUR_DV_CK 0x40u
@@ -906,7 +1065,37 @@ void ap_graphics_cr2_fields(const ap_graphics_t *graphics, unsigned *s_plane,
  * `R_M_W`, `ALT` and `DONE` are not timing at all -- they report a
  * read-modify-write cycle, an alternating-blit phase and an A/D conversion --
  * and are **not** modelled here; they read as zero, which is the state a
- * controller doing none of those is in. */
+ * controller doing none of those is in.
+ *
+ * ### The colour board's names for bits 5, 2 and 0, which Apollo prints
+ * differently from the oracle
+ *
+ * The names above are the **oracle's** aliases. `002398-04` gives both boards'
+ * registers a page each and the monochrome one agrees exactly -- p. 12-21's
+ * `blk`, `vb`, `hs`, `rmc`, `alt`, `vs`, `hck`, `vd` are these eight in these
+ * positions, so `H_SYNC`, `V_SYNC` and `V_DATA` are Apollo's own names.
+ *
+ * The colour board's page, p. 12-16, does **not**:
+ *
+ *     bit  002398-04 p. 12-16 (colour)          oracle's alias
+ *     5    `syn`  composite sync                 DONE
+ *     2    `ad`   a-d conversion done            SYNC
+ *     0    `lok`  okay to load LUT (100 us)      V_FLAG (4-plane)
+ *
+ * -- bits 5 and 2 exchanged, and bit 0 named for the loading window
+ * `AP_GRAPHICS_REG_LUT_RED` describes rather than for a vertical flag. p. 12-19
+ * corroborates bit 0 from the other side: "When **LOK=0** in status register,
+ * there is sufficient time to load all 16 locations of the three LUTs."
+ *
+ * **Unresolved, and deliberately not flipped.** What this core *drives* is the
+ * oracle's arrangement -- bit 5 the horizontal sync pulse and bit 2 the
+ * vertical, on both families -- and the boot PROM's display-present probe at
+ * `007026` tests bit 2. Changing which bit carries which timing is a behaviour
+ * change on a path a `--screen c8p` boot exercises, and the handbook describes
+ * the **DN3000's 4-plane** board where the 8-plane one is a later design whose
+ * changes `008778-03` §10.3 lists. `PROVISIONAL`, named in
+ * `docs/PROJECT_STATUS.md`. **What would settle it**: instrumenting the oracle
+ * to show which bit its firmware waits on, or a colour boot that hangs. */
 
 #define AP_GRAPHICS_SR_BLANK 0x80u
 #define AP_GRAPHICS_SR_V_BLANK 0x40u
@@ -946,6 +1135,27 @@ void ap_graphics_cr2_fields(const ap_graphics_t *graphics, unsigned *s_plane,
  * conversion this core has nothing to say about rather than a zero. */
 [[nodiscard]] bool ap_graphics_adc(const ap_graphics_t *graphics,
                                    uint8_t channel, uint8_t *level);
+
+/* One entry of a 4-plane board's palette, the three guns scaled from the four
+ * bits the registers carry to the eight a renderer wants.
+ *
+ * The scale is `level * 255 / 15`, which is `level * 17` -- so `F` is `FF` and
+ * `0` is `00`, and the sixteen steps are even. Anything else would either fail
+ * to reach white or crowd one end.
+ *
+ * False for an index the table does not have, or a board that has no such
+ * table: an 8-plane controller's palette is the Bt458's and is read through
+ * `ap_bt458_palette`, and a monochrome one has none at all. */
+[[nodiscard]] bool ap_graphics_lut4(const ap_graphics_t *graphics,
+                                    unsigned index, uint8_t rgb[3]);
+
+/* `CR0`'s shift count as the **signed** value `002398-04` p. 12-17 says it is:
+ * "Signed shift count (positive is right-shift)", five bits, so -16 to +15.
+ *
+ * `ap_graphics_cr0_shift` returns the raw field and is what the shifter uses;
+ * this is what a report should print, because `31` and `-1` are the same
+ * programming and only one of them says what the driver asked for. */
+[[nodiscard]] int ap_graphics_cr0_shift_signed(uint8_t cr0);
 
 /* Advance the controller to an absolute instant. Only the raster moves. */
 void ap_graphics_advance(ap_graphics_t *graphics, ap_time_t now);

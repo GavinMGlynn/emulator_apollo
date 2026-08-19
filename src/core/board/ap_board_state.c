@@ -413,6 +413,67 @@ void ap_board_hash_graphics(ap_hash_t *st, const ap_graphics_t *graphics) {
   if (graphics->mono_memory != NULL) {
     ap_hash_bytes(st, graphics->mono_memory, graphics->mono_bytes);
   }
+
+  /* ## What the controller was programmed to, which the frame buffer does not
+   * imply
+   *
+   * The buffers above were the whole of this, and they are only half the
+   * picture -- literally: a frame buffer holds palette *indices*, so two runs
+   * that drew identical bits through different palettes are different pictures
+   * and used to hash alike. So did two controllers with the same memory and
+   * different raster operations, plane selects or video-enable states.
+   *
+   * Found while adding the 4-plane board's lookup table from `002398-04`
+   * p. 12-19: new state that nothing hashed would have been invisible, and
+   * checking why led to the registers being invisible too.
+   *
+   * The programmed registers, then both palettes -- the 8-plane board's Bt458
+   * and the 4-plane board's three-register table. `lut_control` and `lut_data`
+   * are the ports' own latched state and are hashed with them; the FIFO is
+   * hashed by its contents *and* its extent, so a committed palette and a
+   * pending one are not confusable.
+   *
+   * Deliberately **not** hashed, for the reason the disk controller's counters
+   * are not: `lut_fifo_overruns`, `lut_ad_accesses` and `diag_refresh_requests`
+   * are this core watching the machine rather than state the machine has. */
+  ap_hash_u8(st, graphics->reg.cr0);
+  ap_hash_u8(st, graphics->reg.cr1);
+  ap_hash_u8(st, graphics->reg.cr2);
+  ap_hash_u8(st, graphics->reg.cr2b);
+  ap_hash_u8(st, graphics->reg.cr3a);
+  ap_hash_u8(st, graphics->reg.cr3b);
+  ap_hash_u16(st, graphics->reg.write_enable);
+  ap_hash_u32(st, graphics->reg.rop);
+
+  ap_hash_u8(st, graphics->lut_control);
+  ap_hash_u8(st, graphics->lut_data);
+  ap_hash_u32(st, (uint32_t)graphics->lut_fifo_count);
+  for (unsigned i = 0; i < graphics->lut_fifo_count; i++) {
+    ap_hash_u8(st,
+               graphics->lut_fifo[(graphics->lut_fifo_head + i) %
+                                  AP_GRAPHICS_LUT_FIFO_BYTES]);
+  }
+  for (unsigned index = 0; index < 256u; index++) {
+    uint8_t rgb[3] = {0u, 0u, 0u};
+    (void)ap_bt458_palette(&graphics->lut, index, rgb);
+    ap_hash_bytes(st, rgb, sizeof rgb);
+  }
+  for (unsigned gun = 0; gun < AP_GRAPHICS_LUT4_GUNS; gun++) {
+    ap_hash_bytes(st, graphics->lut4[gun], AP_GRAPHICS_LUT4_ENTRIES);
+  }
+  ap_hash_u8(st, graphics->diag_channel);
+  ap_hash_u8(st, graphics->diag_refresh_request);
+
+  /* The blitter's carried state and the raster the diagnostic wound by hand.
+   * Two controllers mid-blit are not the same machine, and the stepped
+   * counters are where the boot PROM's display test left the beam. */
+  for (unsigned i = 0; i < AP_GRAPHICS_MAX_PLANES; i++) {
+    ap_hash_u32(st, graphics->guard_latch[i]);
+  }
+  ap_hash_u32(st, (uint32_t)graphics->blt_cycle);
+  ap_hash_u32(st, (uint32_t)graphics->h_clock);
+  ap_hash_u32(st, (uint32_t)graphics->v_clock);
+  ap_hash_u32(st, (uint32_t)graphics->p_clock);
 }
 
 /* One window of the ring controller. Both are hashed: `RING.md` finding 38

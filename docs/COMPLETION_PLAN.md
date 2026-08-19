@@ -5591,7 +5591,22 @@ The record is `docs/references/002398-04_WALK.md`, in the same shape as the
 finished `008778-03_WALK.md`.
 
 **Started 2026-08-20. Front matter read (PDF 5–11); chapter 12 begins at PDF
-279 and runs to 313. 14 content pages of 330.**
+279 and runs to 313. 22 content pages of 330.**
+
+- [x] **The display controller's eight pages** (`002398-04` pp. 12-15 – 12-22,
+      PDF 293–300). The 4-plane colour board's **lookup table** — three
+      registers, sixteen entries, four bits a gun — which `ap_scanout_palette`
+      named as the thing it could not model and answered a grey ramp for; the
+      **diagnostic register** at offset `407`, gated "8-plane only" so the one
+      board with an A/D port of its own could not be asked; and the **display
+      controller's registers and palettes were not hashed at all**, so two runs
+      that drew the same indices through different palettes were the same run.
+      All three implemented, with the register offsets — previously "the
+      oracle's" — now confirmed from Apollo's own pages, `CR3A` named as an
+      8255A, and the handbook's four-register initialization sequence asserted
+      as a test. Nine tests; `ctest` 139/139. **One `PROVISIONAL` named, not
+      closed**: the colour status register's bits 5 and 2 — see
+      `PROJECT_STATUS.md`. Detail in `PROJECT_STATUS.md`.
 
 - [x] **The disk controller's six pages** (`002398-04` pp. 12-9 – 12-14, PDF
       287–292). Three defects in `ap_omti` fixed and two documentary gains, all

@@ -38,7 +38,19 @@ bool ap_scanout_palette(const ap_graphics_t *graphics,
   }
 
   /* A 4-plane board's lookup table is sixteen entries written through three
-   * registers of the controller's own, and is not modelled. An even ramp,
+   * registers of the controller's own -- `002398-04` p. 12-19, four bits per
+   * gun -- and it **is** modelled now. This used to answer an even grey ramp
+   * and flag it `real = false`, naming exactly those registers as the thing it
+   * could not read. */
+  if (ap_graphics_lut4(graphics, 0u, out->rgb[0])) {
+    out->real = true;
+    for (unsigned i = 0; i < out->colours; i++) {
+      (void)ap_graphics_lut4(graphics, i, out->rgb[i]);
+    }
+    return true;
+  }
+
+  /* Any other multi-plane board: no palette this core can read, so an even ramp
    * flagged as not real rather than passed off as colours. */
   for (unsigned i = 0; i < out->colours; i++) {
     const uint8_t level = (uint8_t)(i * 255u / (out->colours - 1u));

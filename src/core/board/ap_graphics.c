@@ -31,6 +31,16 @@ void ap_graphics_init(ap_graphics_t *graphics, ap_screen_kind_t screen) {
   graphics->lut_fifo_count = 0u;
   graphics->lut_fifo_overruns = 0u;
   graphics->lut_ad_accesses = 0u;
+  /* A 4-plane board's palette powers up all-zero, which is sixteen entries of
+   * black. A screen showing nothing until the firmware loads a palette is what
+   * the hardware does; a default ramp here would be this model deciding what
+   * the machine looks like before any software has said. */
+  for (unsigned gun = 0; gun < AP_GRAPHICS_LUT4_GUNS; gun++) {
+    for (unsigned entry = 0; entry < AP_GRAPHICS_LUT4_ENTRIES; entry++) {
+      graphics->lut4[gun][entry] = 0u;
+    }
+  }
+  graphics->diag_channel = 0u;
   graphics->diag_refresh_request = 0u;
   graphics->diag_refresh_requests = 0u;
   graphics->blt_cycle = 0u;
@@ -144,6 +154,16 @@ static void apply_bit_port(uint8_t *target, uint8_t value) {
   } else {
     *target = (uint8_t)(*target & (uint8_t)~mask);
   }
+}
+
+/* One write to a 4-plane board's Red, Green or Blue LUT Register: the entry is
+ * the top nibble and the level is the bottom one. See
+ * `AP_GRAPHICS_REG_LUT_RED` for the layout and for why a write outside the
+ * vertical blanking interval is accepted rather than dropped. */
+static void lut4_write(ap_graphics_t *graphics, unsigned gun, uint8_t value) {
+  const unsigned entry = (value & AP_GRAPHICS_LUT4_ADDRESS_MASK) >>
+                         AP_GRAPHICS_LUT4_ADDRESS_SHIFT;
+  graphics->lut4[gun][entry] = (uint8_t)(value & AP_GRAPHICS_LUT4_DATA_MASK);
 }
 
 /* The FIFO between the data port and the part. Bytes go in while `FIFO_CS` is
@@ -407,7 +427,20 @@ uint8_t ap_graphics_read(ap_graphics_t *graphics, uint32_t address) {
       return eight ? lut_data_read(graphics) : 0xFFu;
     case AP_GRAPHICS_REG_LUT_CONTROL:
       return eight ? graphics->lut_control : 0xFFu;
-    case AP_GRAPHICS_REG_CR3B: return eight ? graphics->reg.cr3b : 0xFFu;
+    case AP_GRAPHICS_REG_CR3B:
+      if (eight) {
+        return graphics->reg.cr3b;
+      }
+      if (graphics->screen == AP_SCREEN_COLOUR_4_PLANE) {
+        /* p. 12-20's read side: the conversion the last write asked for, in
+         * hundredths of a volt. A channel that is not a video measurement has
+         * no answer, and `FF` is what every unreadable register here gives. */
+        uint8_t level = 0u;
+        return ap_graphics_adc(graphics, graphics->diag_channel, &level)
+                   ? level
+                   : 0xFFu;
+      }
+      return 0xFFu;
     case AP_GRAPHICS_REG_STATUS:
       return graphics_status(graphics);
     default:
@@ -552,13 +585,25 @@ void ap_graphics_write(ap_graphics_t *graphics, uint32_t address,
     }
     case AP_GRAPHICS_REG_CR2: graphics->reg.cr2 = value; return;
     case AP_GRAPHICS_REG_CR2B:
-      if (eight) { graphics->reg.cr2b = value; }
+      if (eight) {
+        graphics->reg.cr2b = value;
+      } else if (graphics->screen == AP_SCREEN_COLOUR_4_PLANE) {
+        lut4_write(graphics, 2u, value); /* Blue LUT Register */
+      }
       return;
     case AP_GRAPHICS_REG_LUT_DATA:
-      if (eight) { lut_data_write(graphics, value); }
+      if (eight) {
+        lut_data_write(graphics, value);
+      } else if (graphics->screen == AP_SCREEN_COLOUR_4_PLANE) {
+        lut4_write(graphics, 0u, value); /* Red LUT Register */
+      }
       return;
     case AP_GRAPHICS_REG_LUT_CONTROL:
-      if (eight) { lut_control_write(graphics, value); }
+      if (eight) {
+        lut_control_write(graphics, value);
+      } else if (graphics->screen == AP_SCREEN_COLOUR_4_PLANE) {
+        lut4_write(graphics, 1u, value); /* Green LUT Register */
+      }
       return;
     case AP_GRAPHICS_REG_CR3A:
       graphics->reg.cr3a = value;
@@ -569,8 +614,18 @@ void ap_graphics_write(ap_graphics_t *graphics, uint32_t address,
        * that `CR3A` does for `CR1`. The LUT is not wired to this board, so the
        * register stores and the bit operation has nothing to apply to -- which
        * is recorded rather than pretended, and is why `cr3b` is storage here
-       * and `cr3a` is not only storage. */
-      if (eight) { graphics->reg.cr3b = value; }
+       * and `cr3a` is not only storage.
+       *
+       * The same offset on a **4-plane** board is `002398-04` p. 12-20's
+       * Diagnostic Register: a write selects which gun the A/D converter
+       * measures, and a read returns the level. This arm answered `FF` and
+       * absorbed the write, so the one board whose converter has a port of its
+       * own was the one that could not be asked. */
+      if (eight) {
+        graphics->reg.cr3b = value;
+      } else if (graphics->screen == AP_SCREEN_COLOUR_4_PLANE) {
+        graphics->diag_channel = value;
+      }
       return;
     default:
       /* Offset 0 and 1 as *writes* are the write enable register above; every
@@ -613,6 +668,26 @@ const char *ap_graphics_cr2_access_name(ap_graphics_cr2_access_t a) {
 
 unsigned ap_graphics_cr0_shift(uint8_t cr0) {
   return (unsigned)(cr0 & AP_GRAPHICS_CR0_SHIFT_MASK);
+}
+
+int ap_graphics_cr0_shift_signed(uint8_t cr0) {
+  const unsigned raw = ap_graphics_cr0_shift(cr0);
+  /* Five bits, two's complement: `10000` is -16 and `11111` is -1. */
+  return raw >= 16u ? (int)raw - 32 : (int)raw;
+}
+
+bool ap_graphics_lut4(const ap_graphics_t *graphics, unsigned index,
+                      uint8_t rgb[3]) {
+  if (graphics == NULL || rgb == NULL ||
+      graphics->screen != AP_SCREEN_COLOUR_4_PLANE ||
+      index >= AP_GRAPHICS_LUT4_ENTRIES) {
+    return false;
+  }
+  for (unsigned gun = 0; gun < AP_GRAPHICS_LUT4_GUNS; gun++) {
+    /* Four bits to eight, evenly: `* 17` is `* 255 / 15`. */
+    rgb[gun] = (uint8_t)(graphics->lut4[gun][index] * 17u);
+  }
+  return true;
 }
 
 unsigned ap_graphics_cr2_source_plane(uint8_t cr2, bool eight) {
@@ -1238,8 +1313,15 @@ bool ap_graphics_adc(const ap_graphics_t *graphics, uint8_t channel,
     index |= (unsigned)((image_word(memory, at) >> 15) & 1u) << p;
   }
 
+  /* The palette the pixel goes through, which is not the same mechanism on the
+   * two colour boards: the 8-plane one's is the Bt458 and the 4-plane one's is
+   * the three LUT registers. Reading the Bt458 for a 4-plane screen measured a
+   * palette that board does not have, so every conversion came back as though
+   * the pixel were black. */
   uint8_t rgb[3] = {0u, 0u, 0u};
-  (void)ap_bt458_palette(&graphics->lut, index, rgb);
+  if (!ap_graphics_lut4(graphics, index, rgb)) {
+    (void)ap_bt458_palette(&graphics->lut, index, rgb);
+  }
 
   /* Which of the three guns. */
   const unsigned gun = channel & 0x03u;

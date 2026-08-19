@@ -353,6 +353,72 @@ static void test_a_buffered_tape_block_counts_and_an_unbuffered_one_does_not(
  *
  * Two boards with two different buffers holding the same picture must still
  * agree, which is where a leaked host pointer would show. */
+/* ## The frame buffer is only half the picture
+ *
+ * A frame buffer holds palette *indices*, so two runs that drew identical bits
+ * through different palettes drew different pictures -- and used to hash alike,
+ * because the buffers were the only thing here that was hashed. So did two
+ * controllers with the same memory and different raster operations or plane
+ * selects.
+ *
+ * Named per field rather than by a memory compare so that a field added and not
+ * hashed fails here, which is how the omission was found in the first place. */
+static void test_every_display_controller_field_moves_the_hash(void) {
+  ap_graphics_init(&scratch.graphics, AP_SCREEN_COLOUR_4_PLANE);
+
+  MOVES_THE_HASH(scratch.graphics.reg.cr0 ^= 0xE0u);
+  MOVES_THE_HASH(scratch.graphics.reg.cr1 ^= 0x01u);
+  MOVES_THE_HASH(scratch.graphics.reg.cr2 ^= 0x0Fu);
+  MOVES_THE_HASH(scratch.graphics.reg.cr2b ^= 0x07u);
+  MOVES_THE_HASH(scratch.graphics.reg.cr3a ^= 0x80u);
+  MOVES_THE_HASH(scratch.graphics.reg.cr3b ^= 0x04u);
+  MOVES_THE_HASH(scratch.graphics.reg.write_enable ^= 0xF00Fu);
+  MOVES_THE_HASH(scratch.graphics.reg.rop ^= 0x12345678u);
+  MOVES_THE_HASH(scratch.graphics.lut_control ^= 0x20u);
+  MOVES_THE_HASH(scratch.graphics.lut_data ^= 0x5Au);
+  MOVES_THE_HASH(scratch.graphics.lut_fifo_count = 1u);
+  MOVES_THE_HASH(scratch.graphics.diag_channel ^= 0x06u);
+  MOVES_THE_HASH(scratch.graphics.diag_refresh_request ^= 0x01u);
+  MOVES_THE_HASH(scratch.graphics.guard_latch[3] ^= 0xDEADBEEFu);
+  MOVES_THE_HASH(scratch.graphics.blt_cycle ^= 1u);
+  MOVES_THE_HASH(scratch.graphics.h_clock ^= 7u);
+  MOVES_THE_HASH(scratch.graphics.v_clock ^= 7u);
+  MOVES_THE_HASH(scratch.graphics.p_clock ^= 7u);
+
+  /* Both palettes: the 4-plane board's three-register table and the 8-plane
+   * board's Bt458, which is reached through the part rather than a field. */
+  MOVES_THE_HASH(scratch.graphics.lut4[1][9] ^= 0x0Fu);
+  /* Three writes, because the part takes red, green and blue in turn and an
+   * entry is not changed until all three have arrived. */
+  MOVES_THE_HASH(ap_bt458_write(&scratch.graphics.lut, AP_BT458_ADDRESS, 0x00u);
+                 ap_bt458_write(&scratch.graphics.lut, AP_BT458_PALETTE, 0x7Fu);
+                 ap_bt458_write(&scratch.graphics.lut, AP_BT458_PALETTE, 0x11u);
+                 ap_bt458_write(&scratch.graphics.lut, AP_BT458_PALETTE, 0x22u));
+
+  /* The FIFO is hashed by its *pending window*, not by the whole array: a byte
+   * a driver has already committed is not state the controller still holds, and
+   * two machines that reached the same empty FIFO by different routes are the
+   * same machine. So a byte inside the window counts and one beyond it does
+   * not, and both halves are asserted -- the second is what stops the window
+   * quietly becoming the array again. */
+  make_board(&scratch);
+  scratch.graphics.lut_fifo_count = 1u;
+  const uint64_t pending = ap_board_state_hash(&scratch);
+  scratch.graphics.lut_fifo[0] = 0x33u;
+  TEST_ASSERT_NOT_EQUAL_UINT64(pending, ap_board_state_hash(&scratch));
+  const uint64_t inside = ap_board_state_hash(&scratch);
+  scratch.graphics.lut_fifo[1] = 0x44u;
+  TEST_ASSERT_EQUAL_HEX64(inside, ap_board_state_hash(&scratch));
+
+  /* And the counters are *not* in it, for the reason the disk controller's are
+   * not: they are this core watching the machine. */
+  const uint64_t before = ap_board_state_hash(&scratch);
+  scratch.graphics.lut_fifo_overruns++;
+  scratch.graphics.lut_ad_accesses++;
+  scratch.graphics.diag_refresh_requests++;
+  TEST_ASSERT_EQUAL_HEX64(before, ap_board_state_hash(&scratch));
+}
+
 static void test_the_graphics_memory_is_hashed_and_its_address_is_not(void) {
   static uint8_t first_memory[256];
   static uint8_t second_memory[256];
@@ -787,6 +853,7 @@ int main(void) {
   RUN_TEST(test_every_disk_controller_field_moves_the_hash);
   RUN_TEST(test_every_tape_field_moves_the_hash);
   RUN_TEST(test_a_buffered_tape_block_counts_and_an_unbuffered_one_does_not);
+  RUN_TEST(test_every_display_controller_field_moves_the_hash);
   RUN_TEST(test_the_graphics_memory_is_hashed_and_its_address_is_not);
   RUN_TEST(test_the_screen_kind_moves_the_hash);
   RUN_TEST(test_the_keyboard_matrix_moves_the_hash);
