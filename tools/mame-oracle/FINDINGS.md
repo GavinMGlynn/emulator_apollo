@@ -12354,3 +12354,47 @@ recording rather than shrugging at.
 *Two parts, 5,220 lines, twenty-two test suites, reachable only from their own
 tests. `check-what-is-called-by-nobody` has now found three instances in one
 day: the ring's nineteen status bits (C137/C219 thread), the 68040, and this.*
+
+## C228 -- the model table audited field by field: two declare variance nothing honours
+
+C227 found `.mmu` consumed only by a hash-scope name and a line in a report. The
+question that raises is whether it is alone, so every field of `ap_model_t` was
+counted for readers outside `ap_model.c`:
+
+    cpu                          110   core + frontend
+    fpu                           30   core
+    name                          25   core + frontend
+    id                            24   core + frontend
+    ram_base                      10   core + frontend
+    cpu_hz                         3   core + frontend
+    provisional                    3   frontend
+    mmu                            2   a hash-scope NAME and a report line (C227)
+    ram_max_bytes                  2   frontend
+    board_of                       1   core
+    description                    1   core
+    display                        1   frontend
+    has_active_low_parity_lanes    1   core
+    has_address_translation_map    1   core
+    oracle                         1   frontend
+    has_ring                       0   NONE
+
+**`has_ring` is read by nothing in `src/` at all** -- declared on `ap_model.h`
+line 110, set on **eleven** rows of the table, and referenced outside it only by
+`model_suite.c:120`, which asserts the rows are what the table already says.
+The card is fitted by `--ring` instead, so a model whose row says it has one does
+not get one, and a model whose row says it has none can be given one.
+
+**Whether that is a defect depends on intent, and the honest statement is the
+narrow one.** An explicit `--ring` is a reasonable thing for a frontend to
+offer -- this project fits cards deliberately, and `RING.md` 40 makes an empty
+slot a legitimate outcome rather than an error. But then the field is either
+documentation or dead, and `model/`'s own rule -- "all machine variance lives
+here, and every other model is expressed as a subset from the one table" -- is
+what makes the difference worth naming. A row that claims a card the machine
+never consults is the same shape as a row that claims an MMU the machine never
+builds.
+
+*Both are cheap to close and neither is closed here: `has_ring` should either
+gate the default fit or be deleted, and `.mmu` should select the MMU its own
+enum documents. Recorded together because one instance is an oversight and two
+are a pattern in how this table is consumed.*
