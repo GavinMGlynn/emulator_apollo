@@ -4486,6 +4486,36 @@ discipline throughout.
       MAME does not register at all and so has no runnable reference. `dsp5500`
       is `MACHINE_NOT_WORKING` on the oracle and stops at `cinva` here -- the
       68040 blocker, which is Phase 2b's item and not this one.*
+- [x] **The DS5500 gets its own address map**, from `019411-A00` Table 2-5. It
+      had been running on the Series 4000's since the model was added; the
+      addendum's replacement for handbook page 2-7 is the DS5500's own
+      allocation table and differs in three places. Detail in
+      `PROJECT_STATUS.md`.
+      *Verification: `board_suite` 57 → 60 and `boardreg_suite` 21 → 26,
+      including all **35** configurations `019411-A00` §4.2.1.18 publishes for
+      the memory present register. Identity harness re-run: `03EE415450926A89`,
+      unchanged, which is what says the DN3500 is untouched.*
+- [ ] **The DS5500's address translation map is 4 KB, and ours is 2 KB.**
+      `PROVISIONAL`. Table 2-5 gives `017000`-`017FFF` where `[S3K]` §2.5 gives
+      `017000`-`0177FF`, and `AP_ATMAP_LIMIT` follows the latter. Placing the
+      wider region as things stand would alias its upper half onto its lower —
+      the exact fault `ap_atmap.h` records the loaded diagnostic catching — so
+      the DS5500 map keeps 2 KB and this is named rather than approximated.
+      What would close it: the region size becoming a property of
+      `ap_board_map_t` rather than the constant `AP_ATMAP_ENTRIES`, which is
+      what `ap_board_hash_translation_map` walks. Growing that constant globally
+      would change **every** model's state hash, so the widening has to be
+      per-map or the reference hash and every golden go with it.
+- [ ] **The DS5500's `010200` is a cache *status* register, not the cache
+      control register this core models there.** `PROVISIONAL`. `019411-A00`
+      §4.2.1.14 makes it 8-bit **read-only** with `HSI Present <3>` ("cleared
+      (0) to indicate that a graphics device is in the HSI connector") and
+      `MEM Time <0>` ("an access to non-existant memory"), bits 7:4 and 2:1 not
+      used. What this core has at that address is the DN3500's writable cache
+      control register, measured against the oracle. Both siblings on disk were
+      searched for the same section — `008778-03` and `002398-04` carry neither
+      "cache status" nor "HSI" nor "MEM Time" anywhere — so the addendum is the
+      only source and the base handbook `007861` is still the missing document.
 ## Phase 8 — Verified fast mode
 
 Only after the reference core is proven, and only under an identity harness.

@@ -33,9 +33,14 @@ void ap_board_hash_registers(ap_hash_t *st, const ap_boardreg_t *registers) {
 
 void ap_board_hash_translation_map(ap_hash_t *st, const ap_atmap_t *map) {
   ap_hash_scope(st, "translation_map");
-  /* All 128 entries, including the 64 an 8-bit transfer can never reach.
-   * Software writes them and a later 16-bit transfer reads them, so an entry
-   * out of an 8-bit transfer's range is still live state. */
+  /* Every entry in the region, not the 128 a 16-bit transfer can reach: the
+   * map is 1024 entries of storage and only some of them are ever indexed by a
+   * transfer. Software writes them all -- the loaded diagnostic walks the whole
+   * region -- so an entry out of any transfer's range is still live state.
+   *
+   * This said "all 128 entries" while looping over `AP_ATMAP_ENTRIES`, from
+   * before storage and reach were separated in `ap_atmap.h`. The loop was
+   * right; the sentence was describing a map that no longer existed. */
   ap_hash_group_begin(st, "entries");
   for (unsigned i = 0; i < AP_ATMAP_ENTRIES; i++) {
     ap_hash_u16(st, map->entry[i]);

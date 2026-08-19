@@ -502,6 +502,123 @@ static void test_the_cache_register_reports_the_master_request(void) {
                                            AP_BOARDREG_CACHE_CONTROL_ADDR));
 }
 
+/* `019411-A00` §4.2.1.18's table, transcribed whole from the page image: the
+ * board sizes in megabytes for slots 0-3 -- 0 for an empty slot -- and the
+ * hexadecimal value the register reads. Thirty-five rows, which is every
+ * configuration the manual lists and not a sample of them.
+ *
+ * This is the strongest test in this file, because it is the only register here
+ * whose *values* were published rather than measured. If the two-bit code were
+ * read wrong -- and it is not ordered by capacity, so a plausible reading gets
+ * several rows right -- the table catches it: `8 8 8 8` reads 00 under both the
+ * right code and a size-ordered one, `16 4 4 4` reads A9 only under the right
+ * one. */
+static const struct {
+  unsigned slot[AP_BOARDREG_MEM_PRESENT_SLOTS];
+  uint8_t value;
+} PUBLISHED_MEMORY_CONFIGURATIONS[] = {
+    {{0u, 0u, 0u, 0u}, 0xFFu},   /* (No Board) */
+    {{4u, 0u, 0u, 0u}, 0xFEu},   {{4u, 4u, 0u, 0u}, 0xFAu},
+    {{4u, 4u, 4u, 0u}, 0xEAu},   {{4u, 4u, 4u, 4u}, 0xAAu},
+    {{8u, 0u, 0u, 0u}, 0xFCu},   {{8u, 4u, 0u, 0u}, 0xF8u},
+    {{8u, 4u, 4u, 0u}, 0xE8u},   {{8u, 4u, 4u, 4u}, 0xA8u},
+    {{8u, 8u, 0u, 0u}, 0xF0u},   {{8u, 8u, 4u, 0u}, 0xE0u},
+    {{8u, 8u, 4u, 4u}, 0xA0u},   {{8u, 8u, 8u, 0u}, 0xC0u},
+    {{8u, 8u, 8u, 4u}, 0x80u},   {{8u, 8u, 8u, 8u}, 0x00u},
+    {{16u, 0u, 0u, 0u}, 0xFDu},  {{16u, 4u, 0u, 0u}, 0xF9u},
+    {{16u, 4u, 4u, 0u}, 0xE9u},  {{16u, 4u, 4u, 4u}, 0xA9u},
+    {{16u, 8u, 0u, 0u}, 0xF1u},  {{16u, 8u, 4u, 0u}, 0xE1u},
+    {{16u, 8u, 4u, 4u}, 0xA1u},  {{16u, 8u, 8u, 0u}, 0xC1u},
+    {{16u, 8u, 8u, 4u}, 0x81u},  {{16u, 8u, 8u, 8u}, 0x01u},
+    {{16u, 16u, 0u, 0u}, 0xF5u}, {{16u, 16u, 4u, 0u}, 0xE5u},
+    {{16u, 16u, 4u, 4u}, 0xA5u}, {{16u, 16u, 8u, 0u}, 0xC5u},
+    {{16u, 16u, 8u, 4u}, 0x85u}, {{16u, 16u, 8u, 8u}, 0x05u},
+    {{16u, 16u, 16u, 0u}, 0xD5u},{{16u, 16u, 16u, 4u}, 0x95u},
+    {{16u, 16u, 16u, 8u}, 0x15u},{{16u, 16u, 16u, 16u}, 0x55u},
+};
+
+static void test_the_memory_present_register_matches_every_published_configuration(
+    void) {
+  ap_boardreg_t regs;
+  const unsigned rows = sizeof PUBLISHED_MEMORY_CONFIGURATIONS /
+                        sizeof PUBLISHED_MEMORY_CONFIGURATIONS[0];
+  TEST_ASSERT_EQUAL_UINT(35u, rows);
+  for (unsigned i = 0; i < rows; i++) {
+    ap_boardreg_init(&regs);
+    TEST_ASSERT_TRUE(ap_boardreg_set_memory_boards(
+        &regs, PUBLISHED_MEMORY_CONFIGURATIONS[i].slot,
+        AP_BOARDREG_MEM_PRESENT_SLOTS));
+    TEST_ASSERT_EQUAL_HEX8(PUBLISHED_MEMORY_CONFIGURATIONS[i].value,
+                           ap_boardreg_memory_present(&regs));
+    /* And through the bus, at the address Table 2-5 gives it. */
+    TEST_ASSERT_EQUAL_HEX8(
+        PUBLISHED_MEMORY_CONFIGURATIONS[i].value,
+        ap_boardreg_read8(&regs, AP_BOARDREG_MEMORY_PRESENT_ADDR));
+  }
+}
+
+/* "These bits are cleared (0) when memory boards are present" -- so the empty
+ * machine is all ones, and that is what the register holds before anything
+ * tells it otherwise. */
+static void test_an_unconfigured_memory_present_register_reports_no_boards(
+    void) {
+  ap_boardreg_t regs;
+  ap_boardreg_init(&regs);
+  TEST_ASSERT_EQUAL_HEX8(AP_BOARDREG_MEM_PRESENT_EMPTY,
+                         ap_boardreg_memory_present(&regs));
+}
+
+/* "This 8-bit, read-only register". Which slots hold boards is not something
+ * software can assert by writing it. */
+static void test_the_memory_present_register_ignores_every_write(void) {
+  ap_boardreg_t regs;
+  const unsigned fitted[AP_BOARDREG_MEM_PRESENT_SLOTS] = {16u, 16u, 16u, 16u};
+  ap_boardreg_init(&regs);
+  TEST_ASSERT_TRUE(ap_boardreg_set_memory_boards(
+      &regs, fitted, AP_BOARDREG_MEM_PRESENT_SLOTS));
+  for (unsigned value = 0u; value < 256u; value++) {
+    ap_boardreg_write8(&regs, AP_BOARDREG_MEMORY_PRESENT_ADDR, (uint8_t)value);
+    TEST_ASSERT_EQUAL_HEX8(0x55u, ap_boardreg_memory_present(&regs));
+  }
+  ap_boardreg_write16(&regs, AP_BOARDREG_MEMORY_PRESENT_ADDR, 0x0000u);
+  TEST_ASSERT_EQUAL_HEX8(0x55u, ap_boardreg_memory_present(&regs));
+}
+
+/* All four codes are spoken for, so there is no encoding left for a size the
+ * table does not list -- and a caller must be told so rather than handed a
+ * value that reads like a real configuration. */
+static void test_a_board_size_the_manual_does_not_list_has_no_encoding(void) {
+  ap_boardreg_t regs;
+  unsigned code = 0u;
+  const unsigned unlisted[AP_BOARDREG_MEM_PRESENT_SLOTS] = {32u, 0u, 0u, 0u};
+  ap_boardreg_init(&regs);
+  TEST_ASSERT_FALSE(ap_boardreg_memory_present_code(32u, &code));
+  TEST_ASSERT_FALSE(ap_boardreg_memory_present_code(1u, &code));
+  TEST_ASSERT_FALSE(ap_boardreg_memory_present_code(64u, &code));
+  TEST_ASSERT_FALSE(ap_boardreg_set_memory_boards(
+      &regs, unlisted, AP_BOARDREG_MEM_PRESENT_SLOTS));
+  /* Rejected whole: slot 0 is not left encoded from a run that failed later. */
+  TEST_ASSERT_EQUAL_HEX8(AP_BOARDREG_MEM_PRESENT_EMPTY,
+                         ap_boardreg_memory_present(&regs));
+}
+
+/* The pair positions, asserted on their own rather than only through the value
+ * table: "Bits 0 and 1 are slot 0 ... bits 6 and 7 are slot 3." */
+static void test_each_memory_slot_owns_its_own_pair_of_bits(void) {
+  ap_boardreg_t regs;
+  for (unsigned slot = 0; slot < AP_BOARDREG_MEM_PRESENT_SLOTS; slot++) {
+    unsigned sizes[AP_BOARDREG_MEM_PRESENT_SLOTS] = {0u, 0u, 0u, 0u};
+    /* 16 MB is code 01, so exactly one bit of the pair clears. */
+    sizes[slot] = 16u;
+    ap_boardreg_init(&regs);
+    TEST_ASSERT_TRUE(ap_boardreg_set_memory_boards(
+        &regs, sizes, AP_BOARDREG_MEM_PRESENT_SLOTS));
+    const uint8_t expected =
+        (uint8_t)(AP_BOARDREG_MEM_PRESENT_EMPTY & ~(0x2u << (slot * 2u)));
+    TEST_ASSERT_EQUAL_HEX8(expected, ap_boardreg_memory_present(&regs));
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_bit_fifteen_of_the_status_register_always_reads_set);
@@ -525,5 +642,10 @@ int main(void) {
   RUN_TEST(test_posted_codes_are_kept_distinct_in_order);
   RUN_TEST(test_a_posted_code_is_not_complemented_by_the_model);
   RUN_TEST(test_the_code_buffer_keeps_the_earliest_and_stops);
+  RUN_TEST(test_the_memory_present_register_matches_every_published_configuration);
+  RUN_TEST(test_an_unconfigured_memory_present_register_reports_no_boards);
+  RUN_TEST(test_the_memory_present_register_ignores_every_write);
+  RUN_TEST(test_a_board_size_the_manual_does_not_list_has_no_encoding);
+  RUN_TEST(test_each_memory_slot_owns_its_own_pair_of_bits);
   return UNITY_END();
 }

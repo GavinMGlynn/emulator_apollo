@@ -74,6 +74,13 @@
  * reader acts on. */
 #define AP_BOARD_RAM_LIMIT 0x3FFFFFFu
 
+/* The DS5500's, which is one bank larger. `019411-A00` Table 2-5 lists four
+ * 16 MB "MAIN MEMORY" rows at `1000000`, `2000000`, `3000000` and `4000000`
+ * where Table 2-8 lists three, and the addendum's replaced Figure 1-5 says
+ * "Main Memory (4 to 64 MB)". §4.2.1.18's memory present register agrees from a
+ * third direction: four slots, largest board 16 MB. */
+#define AP_BOARD_RAM_LIMIT_DS5500 0x4FFFFFFu
+
 /* The two AT bus windows. `008778-03`, and confirmed against the oracle's
  * `dn3500_map`: `ATBUS_IO_BASE 0x040000`, `ATBUS_IO_END 0x05ffff`,
  * `ATBUS_MEMORY_BASE 0x080000`, `ATBUS_MEMORY_END 0xffffff`.

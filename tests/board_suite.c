@@ -2010,6 +2010,66 @@ static void test_the_series_2500_control_block_reads_back_what_it_is_given(void)
                          ap_board_region(&d, 0x0202D4u));
 }
 
+/* `019411-A00` Table 2-5 against `008778-03` Table 2-8, at the three addresses
+ * where the two disagree. The DS5500 ran on the Series 4000 map until the
+ * addendum was read, so each of these was previously wrong in a way no boot
+ * would have reported -- an address that answers is invisible until something
+ * depends on what it answers with. */
+static void test_only_the_ds5500_places_the_memory_present_register(void) {
+  for (ap_model_id_t id = 0; id < AP_MODEL_COUNT; id++) {
+    const ap_board_map_t *map = ap_board_map_for(id);
+    TEST_ASSERT_NOT_NULL(map);
+    bool placed = false;
+    for (unsigned i = 0; i < map->placements; i++) {
+      if (map->placement[i].base == AP_BOARDREG_MEMORY_PRESENT_ADDR) {
+        placed = true;
+      }
+    }
+    TEST_ASSERT_EQUAL_MESSAGE(id == AP_MODEL_DN5500, placed, map->name);
+  }
+}
+
+/* Table 2-5 runs `010000`, `010100`, `010200` and then jumps to `010400`. The
+ * Series 4000's block of four core registers is a block of three here. */
+static void test_the_ds5500_has_no_task_alias_register(void) {
+  ap_board_t ds5500;
+  TEST_ASSERT_TRUE(ap_board_init_model(&ds5500, ram, sizeof ram, &START,
+                                       0x012345u, AP_MODEL_DN5500));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED,
+                         ap_board_region(&ds5500, AP_BOARDREG_TASK_ALIAS_ADDR));
+  /* Its three neighbours are still there, so this is an absent register and
+   * not an absent block. */
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_CORE_REGISTER,
+                         ap_board_region(&ds5500, AP_BOARDREG_CPU_STATUS_ADDR));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_CORE_REGISTER,
+                         ap_board_region(&ds5500, AP_BOARDREG_CPU_CONTROL_ADDR));
+  TEST_ASSERT_EQUAL_UINT(
+      AP_BOARD_REGION_CORE_REGISTER,
+      ap_board_region(&ds5500, AP_BOARDREG_CACHE_CONTROL_ADDR));
+  /* And a DS3500's does have it, which is what makes this a model difference
+   * rather than a register this core dropped. */
+  ap_board_t ds3500;
+  TEST_ASSERT_TRUE(ap_board_init_model(&ds3500, ram, sizeof ram, &START,
+                                       0x012345u, AP_MODEL_DN3500));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_CORE_REGISTER,
+                         ap_board_region(&ds3500, AP_BOARDREG_TASK_ALIAS_ADDR));
+}
+
+/* "MAIN MEMORY (16 MB)" four times over, `1000000`-`4FFFFFF`, where Table 2-8
+ * gives three banks. */
+static void test_the_ds5500_address_space_holds_a_fourth_memory_bank(void) {
+  const ap_board_map_t *ds5500 = ap_board_map_for(AP_MODEL_DN5500);
+  const ap_board_map_t *ds3500 = ap_board_map_for(AP_MODEL_DN3500);
+  TEST_ASSERT_NOT_NULL(ds5500);
+  TEST_ASSERT_NOT_NULL(ds3500);
+  TEST_ASSERT_EQUAL_HEX32(AP_BOARD_RAM_BASE, ds5500->ram_base);
+  TEST_ASSERT_EQUAL_HEX32(0x4FFFFFFu, ds5500->ram_limit);
+  TEST_ASSERT_EQUAL_HEX32(0x3FFFFFFu, ds3500->ram_limit);
+  /* Four banks of 16 MB, counted rather than asserted as a magic number. */
+  const uint32_t span = ds5500->ram_limit - ds5500->ram_base + 1u;
+  TEST_ASSERT_EQUAL_UINT32(4u * 16u * 1024u * 1024u, span);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_ethernet_card_is_absent_until_it_is_fitted);
@@ -2070,5 +2130,8 @@ int main(void) {
   RUN_TEST(test_two_boards_on_one_ring_segment_exchange_a_frame);
   RUN_TEST(test_a_frame_crosses_the_ring_under_board_time);
   RUN_TEST(test_two_boards_exchange_a_frame_on_a_scheduled_ring);
+  RUN_TEST(test_only_the_ds5500_places_the_memory_present_register);
+  RUN_TEST(test_the_ds5500_has_no_task_alias_register);
+  RUN_TEST(test_the_ds5500_address_space_holds_a_fourth_memory_bank);
   return UNITY_END();
 }

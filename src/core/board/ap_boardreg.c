@@ -30,6 +30,54 @@ void ap_boardreg_init(ap_boardreg_t *regs) {
   regs->cache_control = CACHE_CONTROL_RESET;
   regs->latch_page_on_parity = LATCH_PAGE_RESET;
   regs->active_low_parity_lanes = true;
+  /* "(No Board)  FF". A board with memory fitted calls
+   * `ap_boardreg_set_memory_boards`; until it does, the register says what an
+   * empty machine's would. */
+  regs->memory_present = AP_BOARDREG_MEM_PRESENT_EMPTY;
+}
+
+bool ap_boardreg_memory_present_code(unsigned megabytes, unsigned *out) {
+  if (out == NULL) {
+    return false;
+  }
+  /* `019411-A00` §4.2.1.18's table, read back as a code per size. Not ordered
+   * by capacity -- see the header. */
+  switch (megabytes) {
+  case 0u: *out = AP_BOARDREG_MEM_PRESENT_CODE_NONE; return true;
+  case 4u: *out = AP_BOARDREG_MEM_PRESENT_CODE_4MB; return true;
+  case 8u: *out = AP_BOARDREG_MEM_PRESENT_CODE_8MB; return true;
+  case 16u: *out = AP_BOARDREG_MEM_PRESENT_CODE_16MB; return true;
+  default: break;
+  }
+  /* Every code is taken, so an unlisted size has no honest encoding. */
+  return false;
+}
+
+bool ap_boardreg_set_memory_boards(ap_boardreg_t *regs,
+                                   const unsigned *slot_megabytes,
+                                   unsigned slots) {
+  if (regs == NULL || slot_megabytes == NULL ||
+      slots != AP_BOARDREG_MEM_PRESENT_SLOTS) {
+    return false;
+  }
+  /* Assembled whole and stored once: a slot rejected halfway through must not
+   * leave the register holding a configuration no machine has. */
+  uint8_t value = 0u;
+  for (unsigned slot = 0; slot < slots; slot++) {
+    unsigned code = 0u;
+    if (!ap_boardreg_memory_present_code(slot_megabytes[slot], &code)) {
+      return false;
+    }
+    /* "Bits 0 and 1 are slot 0, bits 2 and 3 are slot 1, bits 4 and 5 are slot
+     * 2, and bits 6 and 7 are slot 3." */
+    value |= (uint8_t)(code << (slot * 2u));
+  }
+  regs->memory_present = value;
+  return true;
+}
+
+uint8_t ap_boardreg_memory_present(const ap_boardreg_t *regs) {
+  return regs == NULL ? AP_BOARDREG_MEM_PRESENT_EMPTY : regs->memory_present;
 }
 
 void ap_boardreg_set_active_low_lanes(ap_boardreg_t *regs, bool active_low) {
@@ -79,6 +127,15 @@ bool ap_boardreg_decode(uint32_t address, ap_boardreg_id_t *out) {
     *out = AP_BOARDREG_SELECTIVE_CLEAR;
     return true;
   }
+  if (in_range(address, AP_BOARDREG_MEMORY_PRESENT_ADDR)) {
+    /* Decoded here for every model, and *placed* only by the DS5500 map. The
+     * board decides which addresses exist -- `011400` is outside every
+     * placement in `DS4000_PLACEMENT`, so a DN3500 still bus-errors on it and
+     * this arm is unreachable there. Gating it twice would put the model test
+     * in the file that has no model. */
+    *out = AP_BOARDREG_MEMORY_PRESENT;
+    return true;
+  }
   return false;
 }
 
@@ -124,6 +181,19 @@ uint8_t ap_boardreg_master_request(const ap_boardreg_t *regs) {
   return regs == NULL ? 0u : regs->master_request;
 }
 
+/* Registers that are eight bits wide and aliased across their whole 256-byte
+ * range, so that neither read nor write has a byte lane to choose.
+ *
+ * Measured for the cache register -- `010201` behaves identically to `010200`,
+ * and a word read returns the byte twice. The memory present register is here
+ * on the family's evidence rather than its own: `019411-A00` calls it "8-bit"
+ * and gives it a 256-byte row in Table 2-5, exactly as for the registers whose
+ * aliasing was measured, and no source on disk reports a read of `011401`. */
+static bool is_byte_register(ap_boardreg_id_t id) {
+  return id == AP_BOARDREG_CACHE_CONTROL || id == AP_BOARDREG_MASTER_REQUEST ||
+         id == AP_BOARDREG_TASK_ALIAS || id == AP_BOARDREG_MEMORY_PRESENT;
+}
+
 /* The value a register reads as, at its own width. */
 static uint16_t value_of(const ap_boardreg_t *regs, ap_boardreg_id_t id) {
   switch (id) {
@@ -147,6 +217,8 @@ static uint16_t value_of(const ap_boardreg_t *regs, ap_boardreg_id_t id) {
     return regs->master_request;
   case AP_BOARDREG_TASK_ALIAS:
     return regs->task_alias;
+  case AP_BOARDREG_MEMORY_PRESENT:
+    return regs->memory_present;
   case AP_BOARDREG_SELECTIVE_CLEAR:
     /* Write-only as far as anything here can say: no firmware in hand reads
      * the range, so there is no measurement and no page. All-ones because C10
@@ -182,8 +254,7 @@ uint8_t ap_boardreg_read8(const ap_boardreg_t *regs, uint32_t address) {
     return 0u;
   }
   const uint16_t value = value_of(regs, id);
-  if (id == AP_BOARDREG_CACHE_CONTROL || id == AP_BOARDREG_MASTER_REQUEST ||
-      id == AP_BOARDREG_TASK_ALIAS) {
+  if (is_byte_register(id)) {
     /* Byte registers, aliased across their whole range: the same byte at
      * `010200` and `010201`, which is why a word read of the cache register
      * returns `EFEF`. There is no lane to choose. */
@@ -250,6 +321,13 @@ static void store(ap_boardreg_t *regs, ap_boardreg_id_t id, uint16_t value) {
      * as its neighbour. */
     regs->task_alias = (uint8_t)value;
     break;
+  case AP_BOARDREG_MEMORY_PRESENT:
+    /* "This 8-bit, **read-only** register". What it holds is which slots have
+     * boards in them, which no store can change -- so a write is dropped rather
+     * than letting software tell the machine it has memory it does not.
+     * `ap_boardreg_set_memory_boards` is the only way in, and the board calls
+     * it from the same per-slot sizes the configuration table gets. */
+    break;
   case AP_BOARDREG_SELECTIVE_CLEAR:
     /* Never reaches here: the write paths route this id by address before
      * calling `store`, because the value is not what it carries. */
@@ -282,8 +360,7 @@ void ap_boardreg_write8(ap_boardreg_t *regs, uint32_t address, uint8_t value) {
     selective_clear(regs, address);
     return;
   }
-  if (id == AP_BOARDREG_CACHE_CONTROL || id == AP_BOARDREG_MASTER_REQUEST ||
-      id == AP_BOARDREG_TASK_ALIAS) {
+  if (is_byte_register(id)) {
     /* Byte registers, aliased across the *whole* range -- `010201` behaves
      * identically to `010200`, measured for the cache register. So there is no
      * lane to choose.

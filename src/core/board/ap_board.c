@@ -98,6 +98,82 @@ static const ap_board_map_t DS4000_MAP = {
     .address_mask = 0xFFFFFFFFu,
 };
 
+/* `019411-A00` Table 2-5, "DS5500 256-MB Physical Address Space Allocation",
+ * which the addendum gives as a wholesale replacement for the handbook's page
+ * 2-7. The DS5500 ran on `DS4000_MAP` until this table was read, and it is a
+ * near copy -- which is why the differences are worth naming rather than
+ * leaving to a diff:
+ *
+ *   - **`011400` memory present register.** Table 2-8 has no such row at all,
+ *     so this is the one placement here that exists on no other model. See
+ *     `ap_boardreg.h` §4.2.1.18.
+ *   - **No task alias at `010300`.** Table 2-5 runs `010000`, `010100`,
+ *     `010200` and then jumps to `010400` for the first SIO. The Series 4000
+ *     block of four 256-byte registers is a block of three here, and a DS5500
+ *     access to `010300` therefore bus-errors where a DS3500's does not.
+ *     Consistent with what the firmware already said: task alias is at no
+ *     absolute address in any of the five boot images.
+ *   - **64 MB of main memory, not 48.** Table 2-5 gives four 16 MB banks at
+ *     `1000000`-`4FFFFFF` where Table 2-8 gives three. The addendum's replaced
+ *     Figure 1-5 says "Main Memory (4 to 64 MB)" independently, and
+ *     §4.2.1.18's own table tops out at four 16 MB boards -- three sources for
+ *     the same ceiling.
+ *   - **`010200` is a cache *status* register**, read-only, where Table 2-8's
+ *     row is the cache control register this core measured on a DN3500. Not
+ *     yet modelled separately; see `ap_boardreg.h` and `PROJECT_STATUS.md`.
+ *
+ * One further difference is recorded and **deliberately not implemented**:
+ * Table 2-5 gives the address translation map `017000`-`017FFF`, 4 KB, where
+ * `[S3K]` §2.5 gives 2 KB and this core's `AP_ATMAP_LIMIT` follows it. Widening
+ * it needs the region size to become a property of the map rather than a
+ * constant, because `AP_ATMAP_ENTRIES` is what `ap_board_hash_translation_map`
+ * walks and growing it would change every model's state hash. Placing 4 KB
+ * without that would alias the upper half onto the lower -- the exact fault
+ * `ap_atmap.h` records the diagnostic catching. PROVISIONAL, and a named item
+ * in `COMPLETION_PLAN.md`. */
+static const ap_board_placement_t DS5500_PLACEMENT[] = {
+    {AP_BOARD_PROM_BASE, AP_BOARD_PROM_SIZE, AP_BOARD_REGION_PROM,
+     AP_BOARD_PROM_BASE},
+    /* Three, not the Series 4000's four: no task alias. */
+    {AP_BOARDREG_CPU_STATUS_ADDR, 3u * AP_BOARDREG_RANGE,
+     AP_BOARD_REGION_CORE_REGISTER, AP_BOARDREG_CPU_STATUS_ADDR},
+    {AP_BOARDREG_LATCH_PAGE_ADDR, AP_BOARDREG_RANGE,
+     AP_BOARD_REGION_CORE_REGISTER, AP_BOARDREG_LATCH_PAGE_ADDR},
+    {AP_BOARDREG_MEMORY_PRESENT_ADDR, AP_BOARDREG_RANGE,
+     AP_BOARD_REGION_CORE_REGISTER, AP_BOARDREG_MEMORY_PRESENT_ADDR},
+    {AP_BOARDREG_MASTER_REQUEST_ADDR, AP_BOARDREG_RANGE,
+     AP_BOARD_REGION_CORE_REGISTER, AP_BOARDREG_MASTER_REQUEST_ADDR},
+    {AP_BOARDREG_SELECTIVE_CLEAR_ADDR, AP_BOARDREG_RANGE,
+     AP_BOARD_REGION_CORE_REGISTER, AP_BOARDREG_SELECTIVE_CLEAR_ADDR},
+    {AP_SIO1_ADDR, 2u * AP_SIO_RANGE, AP_BOARD_REGION_SIO, AP_SIO1_ADDR},
+    {AP_TIMER_ADDR, AP_TIMER_RANGE, AP_BOARD_REGION_TIMER, AP_TIMER_ADDR},
+    {AP_CALENDAR_ADDR, AP_CALENDAR_RANGE, AP_BOARD_REGION_CALENDAR,
+     AP_CALENDAR_ADDR},
+    {AP_DMA1_ADDR, 2u * AP_DMA_RANGE, AP_BOARD_REGION_DMA, AP_DMA1_ADDR},
+    {AP_INTR_MASTER_ADDR, 2u * AP_INTR_RANGE, AP_BOARD_REGION_INTERRUPT,
+     AP_INTR_MASTER_ADDR},
+    {AP_NODEID_ADDR, AP_NODEID_RANGE, AP_BOARD_REGION_NODE_ID, AP_NODEID_ADDR},
+    {AP_ATMAP_BASE, AP_ATMAP_LIMIT - AP_ATMAP_BASE + 1u,
+     AP_BOARD_REGION_TRANSLATION_MAP, AP_ATMAP_BASE},
+    {AP_DISK_FIXED_ADDR, AP_DISK_FIXED_SIZE, AP_BOARD_REGION_DISK,
+     AP_DISK_FIXED_ADDR},
+    {AP_DISK_FLOPPY_ADDR, AP_DISK_FLOPPY_SIZE, AP_BOARD_REGION_DISK,
+     AP_DISK_FLOPPY_ADDR},
+    {AP_TAPE_ADDR, AP_TAPE_RANGE, AP_BOARD_REGION_TAPE, AP_TAPE_ADDR},
+};
+
+static const ap_board_map_t DS5500_MAP = {
+    .name = "DS5500",
+    .placement = DS5500_PLACEMENT,
+    .placements = sizeof DS5500_PLACEMENT / sizeof DS5500_PLACEMENT[0],
+    .ram_base = AP_BOARD_RAM_BASE,
+    /* Four 16 MB banks, `1000000`-`4FFFFFF`. */
+    .ram_limit = AP_BOARD_RAM_LIMIT_DS5500,
+    .prom_size = AP_BOARD_PROM_SIZE,
+    .has_translation_map = true,
+    .address_mask = 0xFFFFFFFFu,
+};
+
 /* "MAIN MEMORY (FIRST MB)" through "(EIGHTH MB)", `100000` to `8FFFFF`. */
 static const ap_board_map_t DS3000_MAP = {
     .name = "DS3000",
@@ -220,6 +296,14 @@ const ap_board_map_t *ap_board_map_for(ap_model_id_t model) {
    * by model, and says why rather than looking like an oversight. */
   if (model == AP_MODEL_DN2500) {
     return &DS2500_MAP;
+  }
+  /* Also by model, and for the opposite reason to the 2500: the DS5500 has
+   * every flag the DS3500 has, so the table cannot tell them apart. What
+   * separates them is `019411-A00` Table 2-5 -- a register the DS3500 has not,
+   * a register it has that the DS5500 has not, and a fourth memory bank. See
+   * `DS5500_PLACEMENT`. */
+  if (model == AP_MODEL_DN5500) {
+    return &DS5500_MAP;
   }
   if (entry != NULL && !entry->has_address_translation_map) {
     return &DS3000_MAP;
@@ -1262,6 +1346,25 @@ bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
     ap_boardreg_set_active_low_lanes(
         &board->registers,
         entry == NULL || entry->has_active_low_parity_lanes);
+  }
+  {
+    /* What `011400` reports, on the model that has it. The split from a total
+     * to four boards is `ap_calendar_set_memory_boards`'s -- four fitted slots
+     * of `megabytes / 4` -- and is repeated rather than shared because the two
+     * live on opposite sides of what SELF_TEST compares: the battery RAM is
+     * "megabytes of memory in configuration table" and this register is
+     * "megabytes of memory sized". A machine whose RAM does not divide into
+     * four boards of a size §4.2.1.18's table lists leaves the register at its
+     * "(No Board)" reset, because the alternative is inventing a code for a
+     * board Apollo did not sell. */
+    const unsigned megabytes = ram_bytes / (1024u * 1024u);
+    const unsigned per_board = megabytes / AP_BOARDREG_MEM_PRESENT_SLOTS;
+    unsigned slots[AP_BOARDREG_MEM_PRESENT_SLOTS];
+    for (unsigned i = 0; i < AP_BOARDREG_MEM_PRESENT_SLOTS; i++) {
+      slots[i] = per_board;
+    }
+    (void)ap_boardreg_set_memory_boards(&board->registers, slots,
+                                        AP_BOARDREG_MEM_PRESENT_SLOTS);
   }
   ap_parity_init(&board->parity);
   ap_atmap_init(&board->translation_map);

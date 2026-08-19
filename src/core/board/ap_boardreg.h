@@ -99,6 +99,9 @@ typedef enum {
    * the storage is modelled, the semantics are not invented. */
   AP_BOARDREG_MASTER_REQUEST,
   AP_BOARDREG_TASK_ALIAS,
+  /* The one register in this file with a published bit layout *and* a published
+   * value for every configuration it can hold. DS5500 only; see below. */
+  AP_BOARDREG_MEMORY_PRESENT,
   AP_BOARDREG_COUNT,
 } ap_boardreg_id_t;
 
@@ -114,6 +117,72 @@ typedef enum {
 #define AP_BOARDREG_LATCH_PAGE_ADDR 0x011300u
 #define AP_BOARDREG_MASTER_REQUEST_ADDR 0x011600u
 #define AP_BOARDREG_SELECTIVE_CLEAR_ADDR 0x016400u
+/* `019411-A00` Table 2-5, which replaces page 2-7: `011400`-`0114FF`. Absent
+ * from `008778-03` Table 2-8 entirely, which is why only the DS5500 map places
+ * it -- see `ap_board.c`. */
+#define AP_BOARDREG_MEMORY_PRESENT_ADDR 0x011400u
+
+/* ## The memory present register, and the only complete bit table in this file
+ *
+ * `019411-A00` §4.2.1.18, added after §4.2.1.17: "This 8-bit, read-only
+ * register exists in the DS5500. This register holds memory board existence
+ * information." Every other register here was measured because no page carried
+ * its bits; this one has a page, a figure, *and* a table of the register's value
+ * for all 35 configurations it can hold. Nothing in it is inferred.
+ *
+ *     MEM Present <7-0>
+ *     These bits are cleared (0) when memory boards are present.
+ *
+ * "In this register, each consecutive pair of bits identifies the condition of a
+ * memory board slot. Bits 0 and 1 are slot 0, bits 2 and 3 are slot 1, bits 4
+ * and 5 are slot 2, and bits 6 and 7 are slot 3."
+ *
+ * ## The two-bit code, which the manual gives only as a table
+ *
+ * §4.2.1.18 says a pair identifies a slot's *condition* and never says what the
+ * four values mean. The table on the following page does, exhaustively -- it
+ * lists the register value for every combination of 4, 8 and 16 MB boards and
+ * empty slots -- so the code is read back out of it rather than guessed:
+ *
+ *     11  no board      (No Board) reads FF, every pair set
+ *     10  4 MB          `4 - - -` reads FE: slot 0's pair is 10
+ *     00  8 MB          `8 - - -` reads FC: slot 0's pair is 00
+ *     01  16 MB         `16 - - -` reads FD: slot 0's pair is 01
+ *
+ * Checked against the far end of the table rather than only its head, because a
+ * code recovered from four rows and applied to thirty-five is exactly the kind
+ * of reading that fits the easy cases: `16 8 8 4` reads `81` -- `10 00 00 01`,
+ * slot 3 a 4 MB and slot 0 a 16 MB -- and `16 16 16 16` reads `55`, four `01`
+ * pairs. `test_the_memory_present_register_matches_every_published_configuration`
+ * asserts all thirty-five rows, which is the whole table and not a sample.
+ *
+ * Note the code is not ordered by size: 8 MB is `00` and 4 MB is `10`. A model
+ * that sorted the codes by capacity would agree with the manual on `8 8 8 8`
+ * and disagree on most of the rest.
+ *
+ * ## Which slot is which board
+ *
+ * "Slot 0 is location P25 on the CPU Motherboard (Right-most slot)", then P24,
+ * P23, and "Slot 3 is location P22 on the CPU Motherboard (Left-most slot)".
+ * Recorded because it is the fact a service manual would want and this is the
+ * only source on disk that carries it; nothing here depends on the geometry.
+ *
+ * ## Why it agrees with the calendar's configuration table by construction
+ *
+ * Domain/OS SELF_TEST prints, per slot, both "megabytes of memory in
+ * configuration table" and "megabytes of memory sized" and complains when they
+ * differ -- the battery RAM is the first and this register is the second. So
+ * the split from a total to four boards is `ap_calendar_set_memory_boards`'s
+ * and this file does not repeat it: the board hands both the same per-slot
+ * sizes. See `ap_calendar.h`. */
+#define AP_BOARDREG_MEM_PRESENT_SLOTS 4u
+#define AP_BOARDREG_MEM_PRESENT_CODE_8MB 0u
+#define AP_BOARDREG_MEM_PRESENT_CODE_16MB 1u
+#define AP_BOARDREG_MEM_PRESENT_CODE_4MB 2u
+#define AP_BOARDREG_MEM_PRESENT_CODE_NONE 3u
+/* "(No Board)  FF" -- the table's first row, and this register's reset value:
+ * every pair set is every slot empty. */
+#define AP_BOARDREG_MEM_PRESENT_EMPTY 0xFFu
 
 /* ## The selective clear locations, which are the one part of this file with a
  * ## page behind it
@@ -384,6 +453,9 @@ typedef struct {
   /* Table 2-8's remaining two, byte-wide storage and no interpretation. */
   uint8_t master_request;
   uint8_t task_alias;
+  /* Not storage in the sense the others are: read-only, and what it holds is
+   * how much memory is fitted rather than anything software put there. */
+  uint8_t memory_present;
 } ap_boardreg_t;
 
 /* Reset to the measured power-on values.
@@ -428,6 +500,26 @@ void ap_boardreg_set_interrupt_pending(ap_boardreg_t *regs, bool pending);
  * and 6 without ever reading the register back. So this reports the byte and
  * makes no claim about what any bit does. */
 [[nodiscard]] uint8_t ap_boardreg_master_request(const ap_boardreg_t *regs);
+
+/* The two-bit code §4.2.1.18's table gives a board of this size, and
+ * `AP_BOARDREG_MEM_PRESENT_CODE_NONE` for an empty slot -- `megabytes` zero.
+ *
+ * False, with `*out` untouched, for any other size. All four codes are spoken
+ * for, so there is nothing left to encode a 32 MB board as; a machine fitted
+ * with one is a question this register cannot answer and the caller must not be
+ * handed a value that looks like it did. */
+[[nodiscard]] bool ap_boardreg_memory_present_code(unsigned megabytes,
+                                                   unsigned *out);
+
+/* Assemble the register from four slot sizes in megabytes, slot 0 first, zero
+ * for an empty slot. False and no change if any slot carries a size the table
+ * does not list. */
+[[nodiscard]] bool ap_boardreg_set_memory_boards(ap_boardreg_t *regs,
+                                                 const unsigned *slot_megabytes,
+                                                 unsigned slots);
+
+/* What `011400` reads on a machine that has one. */
+[[nodiscard]] uint8_t ap_boardreg_memory_present(const ap_boardreg_t *regs);
 
 /* Access. A 16-bit read of the cache control register returns its byte in both
  * halves, which is what the hardware was measured to do rather than a
