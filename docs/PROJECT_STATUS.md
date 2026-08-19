@@ -437,8 +437,8 @@ summarised, with their reasoning moved to the end of this file.
 ## (2026-08-20)
 
 From the `008778-03` whole-document walk, chapters 6 through 16 and into
-Appendix A. Coverage in `docs/references/008778-03_WALK.md`, 146 pages of 209;
-every numbered chapter is walked and the appendix is in progress.
+Appendix A. Coverage in `docs/references/008778-03_WALK.md`, 158 pages of 209;
+every numbered chapter is walked and the appendix is continuous to page 179.
 
 ### The floppy had the defect the fixed disk was fixed for
 
@@ -566,6 +566,40 @@ clocks. A 0.10% shift is what a change touching 14.6 M disk accesses out of
 number, `A354786119A3931D`, was superseded twice earlier in this walk by the AT
 bus cycle time and the 16-bit Winchester transfer, and was stale here. **It was
 superseded again one commit later — see below.**
+
+### Appendix A's diagrams: the debt paid, and two confirmations
+
+Pages 168–176 were owed — read out of order last session to find the appendix's
+extent, leaving nine pages behind. They are paid, and the appendix is now
+continuous from 166 to 179.
+
+**The check `ap_atbus.h` was waiting for.** The walk's page-36 row found
+§2.4.2's wait-state counts and said closing that approximation needed "the base
+cycle the waits are added to, which the Appendix A/B diagrams carry". §3.4
+supplied the base cycle first, so the approximation was already closed — and
+these are the diagrams that check it. Figures A-3/A-4 show a 16-bit I/O command
+asserted for Table A-1 **#37's 250 ns**, inside the three bus clocks §3.4's
+500 ns implies at #26's 166 ns. Figures A-7/A-8 give the 8-bit command **#48's
+750 ns** — three times as long, inside a cycle §3.4 makes twice as long. Both
+are what §2.4.2's "1 wait state for 16-bit, 4 for 8-bit" predicts. **Three
+sections and four figures agreeing on one pair of numbers**, and the closed
+figure survives it.
+
+**Figure A-11 is `ap_master`'s state machine drawn.** Every timing recorded from
+Table A-1 appears in its position: DRQ, DACK (#58), #74 DACK-to-`MASTER.L`, then
+`MASTER.L` — after which the address lines change from "DRIVEN BY CPU" to
+"DRIVEN BY EXTERNAL MASTER" at **#75** and the commands follow at **#76**, with
+**#77** spanning the whole assertion. The ordering `ap_master.h` argues for from
+§2.4.7's prose — request, acknowledge, `MASTER.L`, *then* the bus — is exactly
+what the figure shows.
+
+Two things recorded and not modelled, each with its reason. Figure A-9 shows an
+internal **3 MHz** clock beside the 6 MHz bus clock, so the DMA controller runs
+at half the bus rate — `ap_i8237` is stepped by the board rather than by its own
+clock, and §3.5's 1.66 µs transfer is ten bus clocks, which that figure's
+two-cycle structure is the shape of. And Figure A-12 draws §2.4.2's `OWS.L`
+zero-wait-state path, which `ap_atbus.h` does not model because nothing on this
+board asserts `OWS.L`.
 
 ### Appendix A: the three `MASTER.L` timings get their numbers
 
