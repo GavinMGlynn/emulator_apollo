@@ -2070,10 +2070,18 @@ static void test_the_ds5500_address_space_holds_a_fourth_memory_bank(void) {
   TEST_ASSERT_NOT_NULL(ds3500);
   TEST_ASSERT_EQUAL_HEX32(AP_BOARD_RAM_BASE, ds5500->ram_base);
   TEST_ASSERT_EQUAL_HEX32(0x4FFFFFFu, ds5500->ram_limit);
-  TEST_ASSERT_EQUAL_HEX32(0x3FFFFFFu, ds3500->ram_limit);
-  /* Four banks of 16 MB, counted rather than asserted as a magic number. */
-  const uint32_t span = ds5500->ram_limit - ds5500->ram_base + 1u;
-  TEST_ASSERT_EQUAL_UINT32(4u * 16u * 1024u * 1024u, span);
+  /* `2FFFFFF`, not `3FFFFFF`. This asserted the latter until `008778-03`
+   * §1.5.2 was read: "an upper address limit of **$2FFFFFF** with four 8-MB
+   * modules in place", the last of a four-point progression 8 MB apart. The
+   * old value came from the oracle's `DN3500_RAM_END`, is 48 MB rather than
+   * 32, and this test was encoding it. */
+  TEST_ASSERT_EQUAL_HEX32(0x2FFFFFFu, ds3500->ram_limit);
+  /* Both counted rather than restated: four banks of 16 MB against four of
+   * 8 MB, which is the whole difference between the two machines' memory. */
+  TEST_ASSERT_EQUAL_UINT32(4u * 16u * 1024u * 1024u,
+                           ds5500->ram_limit - ds5500->ram_base + 1u);
+  TEST_ASSERT_EQUAL_UINT32(4u * 8u * 1024u * 1024u,
+                           ds3500->ram_limit - ds3500->ram_base + 1u);
 }
 
 /* **The board lends the station both buffers, and nothing else did.**

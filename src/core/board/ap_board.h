@@ -60,19 +60,37 @@
 #define AP_BOARD_PROM_BASE 0x000000u
 #define AP_BOARD_PROM_SIZE 0x010000u
 #define AP_BOARD_RAM_BASE 0x1000000u
-/* The largest main memory a DN3500 takes, and so the end of the address space
- * allocated to it. The oracle's map is built with `DN3500_RAM_END` at
- * `017FFFFF`, `01FFFFFF` or `03FFFFFF` for 8, 16 or 32 Mbyte -- the base is
- * fixed and the top moves with what is fitted, so the *space* ends at the
- * largest of them.
+/* The largest main memory a Series 4000 takes, and so the end of the address
+ * space allocated to it.
  *
  * Bounded rather than open-ended because the region enum's whole purpose is to
  * answer "what did the firmware reach for". Claiming main memory for every
  * address above the base made a final PC of `FFFF060E` print as "main memory",
  * which is a worse answer than "unmapped": the read path refused it correctly,
  * so the only thing wrong was the name, and a confident wrong name is what a
- * reader acts on. */
-#define AP_BOARD_RAM_LIMIT 0x3FFFFFFu
+ * reader acts on.
+ *
+ * ## `2FFFFFF`, not `3FFFFFF`: an oracle bug this core had imported
+ *
+ * This was `03FFFFFF`, taken from the oracle's `DN3500_RAM_END` for its 32 MB
+ * build -- and `1000000` to `3FFFFFF` is **48 MB**, not 32. The arithmetic was
+ * never checked; it was copied.
+ *
+ * `008778-03` §1.5.2 gives the progression outright, one module at a time:
+ * "memory ranges from physical address **$1000000 to $17FFFFF** with one 8-MB
+ * module; **$1FFFFFF** for two modules; **$27FFFFF** with three modules; and an
+ * upper address limit of **$2FFFFFF** with four 8-MB modules in place." Four
+ * points, 8 MB apart, ending where "up to 32 MB" says they must.
+ *
+ * **And the oracle contradicts itself, which is what settles it**: the same
+ * file gives `DN5500_RAM_END 0x2ffffff` for *its* 32 MB build, four lines
+ * apart from the DN3500's `0x3ffffff` for the same size. One of the two is a
+ * slip, and §1.5.2 says which.
+ *
+ * The cost of the old value was exactly what this comment already warned
+ * about: sixteen megabytes of unmapped space -- `3000000`-`3FFFFFF` -- were
+ * being reported to a trace as "main memory". */
+#define AP_BOARD_RAM_LIMIT 0x2FFFFFFu
 
 /* The DS5500's, which is one bank larger. `019411-A00` Table 2-5 lists four
  * 16 MB "MAIN MEMORY" rows at `1000000`, `2000000`, `3000000` and `4000000`

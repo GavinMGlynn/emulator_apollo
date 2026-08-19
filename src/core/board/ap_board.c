@@ -526,9 +526,10 @@ void ap_board_sample_interrupts(ap_board_t *board) {
                       ap_tape_irq(&board->tape));
   /* The fixed disk's `IRQ14`, which the controller now derives from `IREQ` and
    * the MASK register's enable bit -- both of which it already keeps, so
-   * nothing here is invented. `AP_DISK_FLOPPY_IRQ` is still absent: the floppy
-   * side's completion condition is the FDC's result phase rather than this
-   * one, and it lands with the floppy's own item.
+   * nothing here is invented. The floppy's own line follows below, from the
+   * FDC's result phase rather than this condition -- this comment used to say
+   * it "is still absent", which was true when written and had been false since
+   * the line twenty rows down was added.
    *
    * The boot PROM's driver polls, so a machine without this line still loaded
    * an operating system off the disk. Domain/OS's driver waits for the
