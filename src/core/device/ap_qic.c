@@ -8,6 +8,12 @@ void ap_qic_init(ap_qic_t *qic) {
    * them can be called on memory that has never held a drive. */
   memset(qic, 0, sizeof *qic);
   qic->power_on = true;
+  /* The one field the zero is wrong for. `008778-03` Table 8-1's Tape Format
+   * jumper ships IN, which is QIC-24; see the header. A `memset` alone would
+   * put a first-use drive in QIC-11 and a reset one in QIC-24, which is the
+   * kind of difference between two initialisers that this file's reset comment
+   * already warns about. */
+  qic->q24_format = true;
 }
 
 void ap_qic_reset(ap_qic_t *qic) {
@@ -26,7 +32,9 @@ void ap_qic_reset(ap_qic_t *qic) {
    * assigns everything it does not deliberately keep can be. */
   qic->selected = false;
   qic->soft_lock = false;
-  qic->q24_format = false;
+  /* `008778-03` Table 8-1's jumper CC, which is fitted for QIC-24. See the
+   * header: this was the zero rather than a documented default. */
+  qic->q24_format = true;
   qic->position = 0u;
   qic->reading = false;
   qic->writing = false;

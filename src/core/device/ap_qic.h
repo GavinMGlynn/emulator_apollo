@@ -136,6 +136,15 @@ typedef struct {
    * RESET" -- state, not a momentary action. */
   bool selected;
   bool soft_lock;
+  /* **QIC-24 out of reset, and that is Apollo's jumper rather than a default.**
+   * `[SC499]` §1.13.1 defines the two SELECT FORMAT commands and says nothing
+   * about which format a part powers on in; this was `false` -- QIC-11 -- for no
+   * reason beyond being the zero. `008778-03` Table 8-1 settles it from the
+   * board: the Tape Format jumper is location **CC**, "IN = QIC-24, OUT =
+   * QIC-11", and QIC-24 carries the table's "Configuration from vendor" mark.
+   * A *Domain System* controller therefore comes out of reset in QIC-24, and a
+   * host that never issues a SELECT FORMAT command gets QIC-24 rather than the
+   * older format. */
   bool q24_format;
 
   uint64_t position; /* next block to be read */

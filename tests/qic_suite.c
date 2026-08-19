@@ -212,13 +212,19 @@ static void test_the_two_recovered_opcodes_do_what_the_manual_says(void) {
   TEST_ASSERT_EQUAL_HEX8(0x22u, AP_QIC_CMD_ERASE);
   TEST_ASSERT_EQUAL_HEX8(0x26u, AP_QIC_CMD_SELECT_Q11);
 
+  /* Out of reset the format is **QIC-24**, which is the board's jumper rather
+   * than a language default: `008778-03` Table 8-1 gives the Tape Format jumper
+   * at location CC as "IN = QIC-24" and marks that as the configuration the
+   * vendor ships. A host that issues no SELECT FORMAT command gets QIC-24. */
+  TEST_ASSERT_TRUE(q.q24_format);
+
   /* The format select is a switch with two settings, not two flags: §1.13.1
    * items 11 and 12 each say the command "selects the ... format as the current
    * format". */
-  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT_Q24));
-  TEST_ASSERT_TRUE(q.q24_format);
   TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT_Q11));
   TEST_ASSERT_FALSE(q.q24_format);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT_Q24));
+  TEST_ASSERT_TRUE(q.q24_format);
 
   /* ERASE is recognised and **refused**, as WRITE is: the cartridge is a
    * read-only image and an erase reported as successful would leave a driver

@@ -436,8 +436,9 @@ summarised, with their reasoning moved to the end of this file.
 ## The floppy drive had no access time, and chapter 6 named the Winchester
 ## (2026-08-20)
 
-From the `008778-03` whole-document walk, chapters 6 and 7 — the two drive
-specifications. Coverage in `docs/references/008778-03_WALK.md`.
+From the `008778-03` whole-document walk, chapters 6, 7 and 8 — the two drive
+specifications and the tape controller. Coverage in
+`docs/references/008778-03_WALK.md`, now 88 pages of 209.
 
 ### The floppy had the defect the fixed disk was fixed for
 
@@ -564,6 +565,40 @@ clocks. A 0.10% shift is what a change touching 14.6 M disk accesses out of
 **New identity reference: `0078D6E07ED8D80E`.** The previous published number,
 `A354786119A3931D`, was superseded twice earlier in this walk by the AT bus
 cycle time and the 16-bit Winchester transfer, and was stale here.
+
+### Chapter 8: the tape's format default was the zero, not a default
+
+Table 8-1 is the tape controller's jumper table, and it prints the board's
+required configuration outright: **base address 218 hex, DMA channel 1,
+interrupt request level 5.** Two of those are independent second sources for
+what this core already had from one table each — `AP_TAPE_IRQ 5` from Table 2-3,
+and DRQ1 for the tape from Table 2-4.
+
+The gap is the **Tape Format** row: jumper CC, "IN = QIC-24, OUT = QIC-11",
+with QIC-24 carrying the table's *Configuration from vendor* mark. `ap_qic` came
+out of reset with `q24_format` **false** — QIC-11 — because `[SC499]` §1.13.1
+defines both SELECT FORMAT commands without saying which a part powers on in, so
+the value was the C initialiser's zero rather than anything documented. A
+*Domain System* controller ships jumpered for QIC-24, and a host that issues no
+SELECT FORMAT command must get it. **Fixed in `ap_qic_init` and `ap_qic_reset`
+both** — they disagreed with each other after the first fix, which is exactly
+the two-initialiser hazard that file's own reset comment warns about.
+
+Also confirmed rather than changed: §8.1 names the part as the interface between
+a **QIC-36** drive and a **QIC-02** host, which is the `ap_sc499`/`ap_qic` split;
+§8.3.3's "the controller performs a set of basic diagnostic tests at power-on
+**and when the *Domain System* issues a RESET**" is Apollo stating the POC
+behaviour `ap_sc499` models from `[SC499]` §1.8.1; and Table 8-2's failure codes
+name a **16K RAM buffer**, the size that header already reasons about.
+
+**One inconsistency recorded and deliberately not acted on.** Table 8-1's prose
+gives base address `218`, while the jumper row marked as the DS3000's (A9 in,
+A3–A8 out) encodes `200` — and `200` is what Table 2-7's physical column, Table
+2-9's start address and the oracle's measured placement all agree on.
+`AP_TAPE_ADDR 0x050000` was *measured*: four registers at stride 1 aliased
+through 256 bytes, and `FF` across the whole range with the card pulled. A
+measurement is not moved on one line of prose that the same page's own table
+contradicts.
 
 ### ESDI against ST506/412, the tension chapter 5 left open
 
