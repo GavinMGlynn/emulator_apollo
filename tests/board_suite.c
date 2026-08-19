@@ -2182,6 +2182,99 @@ static void test_a_received_frame_reaches_the_stations_own_buffer(void) {
   TEST_ASSERT_EQUAL_UINT64(0u, a.ring_station.frames_copied);
 }
 
+/* **A completing command no longer finishes before the frame has gone.**
+ *
+ * `RING.md` 73b parked the completion *duration* "until `ap_ring_station`
+ * drives it". The station could not drive anything while nothing lent it a
+ * transmit buffer, so completion was immediate everywhere; now a frame that
+ * really goes onto a cable finishes when the ring has carried it, and the
+ * duration is the frame's own length at the ring's bit rate rather than a
+ * constant chosen inside 73a's 8-85 us bracket.
+ *
+ * Asserted as an *ordering*, not a number: the operation is still outstanding
+ * on the clock after the command, and complete once the station reports the
+ * frame driven. A model that completed immediately passes the second half and
+ * fails the first. */
+static void test_a_transmit_completes_when_the_ring_has_carried_it(void) {
+  static ap_ring_medium_t segment;
+  static ap_board_t a;
+  static ap_board_t b;
+
+  ap_ring_medium_init(&segment);
+  init(&a);
+  init(&b);
+  ap_board_attach_ring(&a, true);
+  ap_board_attach_ring(&b, true);
+  ap_ring_ctl_set_node_id(&a.ring, 0x00011111u);
+  ap_ring_ctl_set_node_id(&b.ring, 0x00022222u);
+  ap_board_join_ring(&a, &segment);
+  ap_board_join_ring(&b, &segment);
+
+  uint8_t header[AP_RING_CTL_XMIT_HEADER_BYTES] = {0};
+  ap_ring_header_set_destination(header, 0x00022222u);
+  ap_ring_header_set_type(header, AP_RING_TYPE_USER);
+  ap_ring_header_set_source(header, 0x00011111u);
+  for (unsigned i = 0; i < AP_RING_CTL_XMIT_HEADER_WORDS; i++) {
+    a.ring.buffer[0x40u + i] =
+        (uint16_t)((header[i * 2u] << 8) | header[i * 2u + 1u]);
+  }
+
+  /* Loopback off -- `MISC_CMD` `nct` and no `lpb` -- so a frame genuinely
+   * leaves, which is the case this change is confined to. */
+  ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_W2_XMIT_ADDR,
+                      ring_addr_reg(0x0040u));
+  ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_BANK_STATUS + 2u, 0x0200u);
+
+  /* Immediately after the command the frame has not been anywhere, so the
+   * operation is still outstanding. */
+  TEST_ASSERT_TRUE(a.ring.a2.completion_deferred);
+
+  ap_ring_station_originate_token(&b.ring_station, AP_RING_OOB_FREE_TOKEN);
+  unsigned bits = 0u;
+  for (; bits < 4000u && a.ring.a2.completion_deferred; bits++) {
+    ap_ring_station_drive(&a.ring_station, &segment);
+    ap_ring_station_drive(&b.ring_station, &segment);
+    ap_ring_medium_advance(&segment);
+    ap_ring_station_receive(&a.ring_station, &segment);
+    ap_ring_station_receive(&b.ring_station, &segment);
+    ap_ring_ctl_clock(&a.ring, true);
+    ap_ring_ctl_clock(&b.ring, true);
+  }
+
+  /* It completed, and it took the ring some bit times to do it -- which is the
+   * whole difference from an immediate completion. */
+  TEST_ASSERT_FALSE(a.ring.a2.completion_deferred);
+  TEST_ASSERT_GREATER_THAN_UINT(0u, bits);
+  TEST_ASSERT_LESS_THAN_UINT(4000u, bits);
+  /* And the frame's own length is what set it: the station drove at least as
+   * many bits as the assembled frame occupies. */
+  TEST_ASSERT_GREATER_OR_EQUAL_UINT(
+      (unsigned)a.ring_station.tx_bit_count, bits);
+}
+
+/* And the paths where nothing is on a wire keep finding 66's immediate
+ * completion, which is what `RING.md` 108a requires: the ring firmware's own
+ * self-test loops transmit DMA to receive DMA and no frame crosses a medium at
+ * all, so waiting for one would wait for ever. */
+static void test_a_transmit_with_no_cable_completes_at_once(void) {
+  static ap_board_t solo;
+  init(&solo);
+  ap_board_attach_ring(&solo, true);
+  ap_ring_ctl_set_node_id(&solo.ring, 0x00011111u);
+  /* Deliberately not joined to any segment. */
+
+  ap_ring_ctl_write16(&solo.ring, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  ap_ring_ctl_write16(&solo.ring, true, AP_RING_CTL_W2_XMIT_ADDR,
+                      ring_addr_reg(0x0040u));
+  ap_ring_ctl_write16(&solo.ring, true, AP_RING_CTL_BANK_STATUS + 2u, 0x0200u);
+  TEST_ASSERT_FALSE(solo.ring.a2.completion_deferred);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_ethernet_card_is_absent_until_it_is_fitted);
@@ -2247,5 +2340,7 @@ int main(void) {
   RUN_TEST(test_the_ds5500_address_space_holds_a_fourth_memory_bank);
   RUN_TEST(test_a_fitted_ring_card_has_both_of_its_buffers);
   RUN_TEST(test_a_received_frame_reaches_the_stations_own_buffer);
+  RUN_TEST(test_a_transmit_completes_when_the_ring_has_carried_it);
+  RUN_TEST(test_a_transmit_with_no_cable_completes_at_once);
   return UNITY_END();
 }

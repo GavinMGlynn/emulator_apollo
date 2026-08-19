@@ -461,6 +461,21 @@ typedef struct {
    * 123 -- and it is the *only* difference between the two sites that write
    * that command after a byte-identical preamble. */
   bool loopback_enabled;
+  /* A completing command whose frame is still going round the ring.
+   *
+   * `RING.md` 73b parked the completion *duration* "until `ap_ring_station`
+   * drives it", and the station could not drive anything until the board began
+   * lending it buffers -- before that `ap_ring_station_queue_frame` refused on
+   * its first line, `tx_bits == NULL`. It can now, so a frame that genuinely
+   * goes onto a cable finishes when the ring has carried it, and the duration
+   * is **emergent** from the frame's length at 12 Mbit/s rather than a constant
+   * chosen inside 73a's 8-85 us bracket. Choosing one there is the parameter
+   * search `CLAUDE.md` forbids; measuring what the ring takes is not.
+   *
+   * Set only when a frame is really on a wire -- see `ring_ctl_defer_completion`
+   * -- so the digital-loopback and no-medium paths keep finding 66's immediate
+   * completion, which is what `RING.md` 108a requires of them. */
+  bool completion_deferred;
   /* **`nct` is a status bit, not a presence bit.** `002398-04` p. 12-30 gives
    * MISC_STAT bit 15 as `nct`, "0 => network connect", and MISC_CMD bit 11 as
    * the connect command. This window tracks what the command asked for, so the

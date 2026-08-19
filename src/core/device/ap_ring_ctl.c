@@ -192,9 +192,104 @@ bool ap_ring_ctl_irq(const ap_ring_ctl_t *ctl) {
   return (ctl->a2.status & pending) != pending;
 }
 
+/* **What a completing command does, in one place because it now has two
+ * callers.** It ran inline and at once; a frame that genuinely goes onto a
+ * cable is now finished by `ap_ring_ctl_poll_ring` instead, when the ring has
+ * carried it. `ring_ctl_defer_completion` decides which. */
+static void ring_ctl_complete_operation(ap_ring_ctl_window_t *w) {
+  w->status &= (uint16_t)~(AP_RING_CTL_STATUS_BIT13 |
+                           AP_RING_CTL_STATUS_BIT2 |
+                           AP_RING_CTL_STATUS_BIT1 |
+                           AP_RING_CTL_STATUS_BIT14);
+  /* **The receive interrupt pends only if the frame asked to be
+   * copied.** Subtest 24 follows a `$B70` carrying `$A` in `d4` --
+   * Figure 2-7's intend-to-copy plus its parity bit -- and requires
+   * `+400`'s bit 1 **clear**; subtest 63 follows one carrying `$0` and
+   * requires it to **remain set** (`moveq #$1,d4` against 24's
+   * `clr.l d4`). Same `#$6`, same `MISC_CMD` `$0`, same `$976`/`$944`
+   * preamble: the transmitted early acknowledge is the only difference
+   * between the two groups, and a frame nobody intended to copy raises
+   * no receive interrupt. `RING.md` 126. */
+  if (!w->xmit_intend_to_copy) {
+    w->status |= AP_RING_CTL_STATUS_BIT1;
+  }
+  /* Something is now outstanding, and the acknowledge in the *first*
+   * window is what finishes it (`RING.md` 74a, 75). */
+  w->operation_pending = true;
+  /* **The extent is bracketed, not chosen.** Two derived durations have
+   * been tried and both refused: `RING.md` 70's 8 us (the 12-byte
+   * minimum transmission) finished *before* subtest 22 polled, and the
+   * firmware's own larger count at `[MAC]`'s 83.33 ns bit cell -- 1023
+   * cells, 85 us -- had *not* finished by subtest 26. So the true extent
+   * lies between, and picking a value inside that bracket, or picking
+   * the smaller counter because the larger failed, is the parameter
+   * search `CLAUDE.md` forbids. Completion stays immediate (finding 66's
+   * `PROVISIONAL`) until the station drives it. `RING.md` 73. */
+  /* Subtest 23: once the command has been taken the command lane reads
+   * back **zero**, not the value written, and the status lane drops bit
+   * 6 -- `B0` where an idle register reads `F0`. Both are the same event
+   * seen in the two halves of one register, which is why they are done
+   * together rather than as two rules. */
+  w->command_402 = 0u;
+  w->command_402_status &= (uint16_t)~0x0040u;
+  /* **And `+404` with it: one completion, three registers.** Subtests 15
+   * and 25 both follow `$976` (which writes zero to `+404`), a
+   * `move.b #$8,$404(a4)`, and `$944` (which loads the 8254s) -- an
+   * identical sequence. The only difference is the command written to
+   * `+402` next: `#$2` before 15, which requires `+404`'s status bit 6
+   * **set**, and `#$6` before 25, which requires it **clear** with the
+   * command lane read back as zero. So the completing command is what
+   * clears them, and this is the event that ends an operation rather than
+   * three separate register rules. */
+  w->command_404 = 0u;
+  /* **And `ren` survives a frame nobody intended to copy.** Subtest 25
+   * follows a `$B70` carrying `$A` and requires `(+404) & $FFF8 == $A0`
+   * -- bit 6, `ren`, **clear**; subtest 64 follows one carrying `$0` and
+   * requires `$E0`, with it **set**. Same `#$6`, same preamble: the
+   * receive enable is consumed by a receive that happened, and a
+   * transmission no receiver intended to copy leaves it armed. The same
+   * discriminator as bit 1 above, one register along. `RING.md` 126a. */
+  if (w->xmit_intend_to_copy) {
+    w->command_404_status &= (uint16_t)~0x0040u;
+  }
+}
+
+/* Whether this completion waits for the station, and the condition is
+ * `RING.md` 108a's rather than a convenience.
+ *
+ * It waits only when all three hold:
+ *
+ *   - the command actually **queued a frame** -- a completing command with
+ *     nothing to send has nothing to wait for;
+ *   - a **medium** is attached, because with no cable no frame leaves;
+ *   - digital **loopback is off**. 108a is explicit that the self-test's
+ *     `8000` "loop xmit DMA to rcv DMA" means *no frame crosses a medium at
+ *     all*, so gating that path on transmission would wait for something that
+ *     never happens -- it keeps finding 66's immediate completion, which is
+ *     what 108a says it must.
+ *
+ * So finding 66's approximation is not removed everywhere. It is confined to
+ * the paths where nothing is on a wire, and those paths are named. */
+static bool ring_ctl_defer_completion(const ap_ring_ctl_t *ctl,
+                                      const ap_ring_ctl_window_t *w,
+                                      bool queued) {
+  return queued && ctl->medium != NULL && ctl->station != NULL &&
+         !w->loopback_enabled;
+}
+
 void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl) {
   if (ctl == NULL || ctl->station == NULL) {
     return;
+  }
+
+  /* **The deferred completion, finished by the ring rather than by the write
+   * that started it.** `RING.md` 73b's "until `ap_ring_station` drives it",
+   * now that it can: the duration is the frame's own length at the ring's bit
+   * rate, and nothing here chooses a number. */
+  if (ctl->a2.completion_deferred &&
+      ap_ring_station_transmitted(ctl->station)) {
+    ctl->a2.completion_deferred = false;
+    ring_ctl_complete_operation(&ctl->a2);
   }
   /* **`[MAC]` §2.2.2.5's read-back, folded into XMIT_STAT.** The frame this
    * node sent has been round the ring and back; the late acknowledge it carries
@@ -1154,9 +1249,13 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
       if (second_window && (value & 0x0200u) != 0u) {
         ring_ctl_block_move(ctl);
       }
+      /* Whether *this* command handed the station a frame. The result used to
+       * be discarded; it is what separates a completion the ring finishes from
+       * one with nothing to wait for. */
+      bool queued_this_command = false;
       if (second_window && ctl->station != NULL &&
           (value == 0x0200u || value == 0x0600u)) {
-        (void)ring_ctl_queue_from_buffer(ctl);
+        queued_this_command = ring_ctl_queue_from_buffer(ctl);
       }
       /* **`PROVISIONAL`: a `6` command completes an operation, and clears the
        * two status bits the firmware then waits on.**
@@ -1193,60 +1292,11 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
        * 67 measured across all four of its sites. `RING.md` 123. */
       if ((value & 0x0400u) != 0u ||
           ((value & 0x0200u) != 0u && !w->loopback_enabled)) {
-        w->status &= (uint16_t)~(AP_RING_CTL_STATUS_BIT13 |
-                                 AP_RING_CTL_STATUS_BIT2 |
-                                 AP_RING_CTL_STATUS_BIT1 |
-                                 AP_RING_CTL_STATUS_BIT14);
-        /* **The receive interrupt pends only if the frame asked to be
-         * copied.** Subtest 24 follows a `$B70` carrying `$A` in `d4` --
-         * Figure 2-7's intend-to-copy plus its parity bit -- and requires
-         * `+400`'s bit 1 **clear**; subtest 63 follows one carrying `$0` and
-         * requires it to **remain set** (`moveq #$1,d4` against 24's
-         * `clr.l d4`). Same `#$6`, same `MISC_CMD` `$0`, same `$976`/`$944`
-         * preamble: the transmitted early acknowledge is the only difference
-         * between the two groups, and a frame nobody intended to copy raises
-         * no receive interrupt. `RING.md` 126. */
-        if (!w->xmit_intend_to_copy) {
-          w->status |= AP_RING_CTL_STATUS_BIT1;
-        }
-        /* Something is now outstanding, and the acknowledge in the *first*
-         * window is what finishes it (`RING.md` 74a, 75). */
-        w->operation_pending = true;
-        /* **The extent is bracketed, not chosen.** Two derived durations have
-         * been tried and both refused: `RING.md` 70's 8 us (the 12-byte
-         * minimum transmission) finished *before* subtest 22 polled, and the
-         * firmware's own larger count at `[MAC]`'s 83.33 ns bit cell -- 1023
-         * cells, 85 us -- had *not* finished by subtest 26. So the true extent
-         * lies between, and picking a value inside that bracket, or picking
-         * the smaller counter because the larger failed, is the parameter
-         * search `CLAUDE.md` forbids. Completion stays immediate (finding 66's
-         * `PROVISIONAL`) until the station drives it. `RING.md` 73. */
-        /* Subtest 23: once the command has been taken the command lane reads
-         * back **zero**, not the value written, and the status lane drops bit
-         * 6 -- `B0` where an idle register reads `F0`. Both are the same event
-         * seen in the two halves of one register, which is why they are done
-         * together rather than as two rules. */
-        w->command_402 = 0u;
-        w->command_402_status &= (uint16_t)~0x0040u;
-        /* **And `+404` with it: one completion, three registers.** Subtests 15
-         * and 25 both follow `$976` (which writes zero to `+404`), a
-         * `move.b #$8,$404(a4)`, and `$944` (which loads the 8254s) -- an
-         * identical sequence. The only difference is the command written to
-         * `+402` next: `#$2` before 15, which requires `+404`'s status bit 6
-         * **set**, and `#$6` before 25, which requires it **clear** with the
-         * command lane read back as zero. So the completing command is what
-         * clears them, and this is the event that ends an operation rather than
-         * three separate register rules. */
-        w->command_404 = 0u;
-        /* **And `ren` survives a frame nobody intended to copy.** Subtest 25
-         * follows a `$B70` carrying `$A` and requires `(+404) & $FFF8 == $A0`
-         * -- bit 6, `ren`, **clear**; subtest 64 follows one carrying `$0` and
-         * requires `$E0`, with it **set**. Same `#$6`, same preamble: the
-         * receive enable is consumed by a receive that happened, and a
-         * transmission no receiver intended to copy leaves it armed. The same
-         * discriminator as bit 1 above, one register along. `RING.md` 126a. */
-        if (w->xmit_intend_to_copy) {
-          w->command_404_status &= (uint16_t)~0x0040u;
+        if (ring_ctl_defer_completion(ctl, w, queued_this_command)) {
+          /* The station has the frame; the ring finishes the operation. */
+          w->completion_deferred = true;
+        } else {
+          ring_ctl_complete_operation(w);
         }
       }
       return;
