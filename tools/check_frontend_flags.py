@@ -269,6 +269,45 @@ def main() -> int:
             source_check("the script can type at a line other than the "
                          "console's: %s" % what, fragment in main_c)
 
+        # ---- the model table's fields must be consulted, not just declared ----
+        #
+        # `model/`'s own rule is "all machine variance lives here, and every
+        # other model is expressed as a subset from the one table". A field that
+        # nothing outside the table reads is variance the machine does not
+        # honour, and it reads exactly like variance it does.
+        #
+        # Found by audit on 2026-08-19 (`FINDINGS.md` C227, C228): `has_ring`
+        # was set on eleven rows and read by nothing in `src/` at all -- the
+        # card is fitted by `--ring` instead -- while `.mmu` was consumed only
+        # by a hash-scope *name* and a line in a report, so `AP_MMU_M68851` on
+        # the DN3000 rows named a part `ap_machine` never builds. Both are
+        # recorded and neither is closed; this guard exists so the *next* one
+        # is caught by CI rather than by someone happening to look.
+        model_h = (REPO / "src/core/model/ap_model.h").read_text()
+        struct = re.search(r"typedef struct \{(.*?)\} ap_model_t;", model_h,
+                           re.S)
+        fields = re.findall(r"^\s+(?:const\s+)?[A-Za-z_][A-Za-z0-9_ \*]*?"
+                            r"\b([a-z_][a-z0-9_]*)\s*(?:\[[^\]]*\])?;",
+                            struct.group(1), re.M) if struct else []
+        sources = []
+        for path in (REPO / "src").rglob("*.c"):
+            if path.name != "ap_model.c":
+                sources.append(path.read_text())
+        blob = "\n".join(sources)
+        # Known and recorded, so the guard reports the count rather than failing
+        # a tree whose gaps are already written down.
+        recorded = {"has_ring", "mmu"}
+        for field in sorted(set(fields)):
+            seen = re.search(r"[.\->]%s\b" % re.escape(field), blob) is not None
+            if seen or field in recorded:
+                continue
+            fail("every `ap_model_t` field is consulted somewhere in src/: %s"
+                 % field,
+                 "declared in the model table and read by nothing outside it")
+        source_check("every `ap_model_t` field is consulted somewhere in src/, "
+                     "or is one of the %d already recorded as not"
+                     % len(recorded), True)
+
         # ---- what needs firmware, named rather than omitted ----
         for flag in ("--boot-prom", "--boot-limit", "--boot-trace",
                      "--boot-watch", "--boot-console", "--boot-input",
