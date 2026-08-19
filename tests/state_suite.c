@@ -438,6 +438,93 @@ static void test_only_the_history_bit_survives_an_invalid_atc_entry(void) {
   TEST_ASSERT_NOT_EQUAL_UINT64(clean, ap_m68030_state_hash(&m.cpu));
 }
 
+/* ## The coprocessor, which had no scope at all
+ *
+ * There was no `cpu.fpu` and `machine_hash_into` added none, so the 68882's
+ * eight extended registers, FPCR, FPSR and FPIAR were outside the identity
+ * hash -- on a machine whose boot PROM runs an FP trap test. Found by diffing
+ * the CPU struct's members against the fields the hasher names, which is a
+ * different question from "is the hasher called".
+ */
+static void test_every_floating_point_register_reaches_the_hash(void) {
+  machine_t m = {0};
+  static ap_m68882_t fpu;
+  make_machine(&m);
+  fpu = (ap_m68882_t){0};
+  m.cpu.fpu = &fpu;
+
+  for (unsigned i = 0; i < AP_M68882_DATA_REGISTERS; i++) {
+    const uint64_t before = ap_m68030_state_hash(&m.cpu);
+    fpu.regs.fp[i].sign = !fpu.regs.fp[i].sign;
+    TEST_ASSERT_NOT_EQUAL_UINT64(before, ap_m68030_state_hash(&m.cpu));
+
+    const uint64_t after_sign = ap_m68030_state_hash(&m.cpu);
+    fpu.regs.fp[i].exponent ^= 0x0001u;
+    TEST_ASSERT_NOT_EQUAL_UINT64(after_sign, ap_m68030_state_hash(&m.cpu));
+
+    const uint64_t after_exp = ap_m68030_state_hash(&m.cpu);
+    fpu.regs.fp[i].mantissa ^= UINT64_C(1);
+    TEST_ASSERT_NOT_EQUAL_UINT64(after_exp, ap_m68030_state_hash(&m.cpu));
+  }
+}
+
+static void test_every_floating_point_control_register_reaches_the_hash(void) {
+  machine_t m = {0};
+  static ap_m68882_t fpu;
+  make_machine(&m);
+  fpu = (ap_m68882_t){0};
+  m.cpu.fpu = &fpu;
+
+#define FPU_MOVES(statement)                                                   \
+  do {                                                                         \
+    const uint64_t before = ap_m68030_state_hash(&m.cpu);                      \
+    statement;                                                                 \
+    TEST_ASSERT_NOT_EQUAL_UINT64(before, ap_m68030_state_hash(&m.cpu));        \
+  } while (0)
+
+  FPU_MOVES(fpu.regs.fpcr ^= 0x00000010u);
+  FPU_MOVES(fpu.regs.fpsr ^= 0x08000000u);
+  FPU_MOVES(fpu.regs.fpiar ^= 0x00000002u);
+  FPU_MOVES(fpu.cpid ^= 1u);
+  FPU_MOVES(fpu.version ^= 1u);
+  FPU_MOVES(fpu.executed = !fpu.executed);
+#undef FPU_MOVES
+}
+
+/* A machine with no coprocessor fitted is a different machine from one with an
+ * all-zero coprocessor -- the same distinction `test_an_absent_access_context_
+ * is_not_an_empty_one` makes for the access contexts. */
+static void test_an_absent_coprocessor_is_not_a_cleared_one(void) {
+  machine_t fitted = {0};
+  machine_t bare = {0};
+  static ap_m68882_t fpu;
+  make_machine(&fitted);
+  make_machine(&bare);
+  fpu = (ap_m68882_t){0};
+  fitted.cpu.fpu = &fpu;
+  bare.cpu.fpu = nullptr;
+
+  TEST_ASSERT_NOT_EQUAL_UINT64(ap_m68030_state_hash(&fitted.cpu),
+                               ap_m68030_state_hash(&bare.cpu));
+}
+
+/* And where the host put the coprocessor is not a fact about any machine. */
+static void test_the_coprocessors_address_does_not_reach_the_hash(void) {
+  machine_t first = {0};
+  machine_t second = {0};
+  static ap_m68882_t one;
+  static ap_m68882_t two;
+  make_machine(&first);
+  make_machine(&second);
+  one = (ap_m68882_t){0};
+  two = (ap_m68882_t){0};
+  first.cpu.fpu = &one;
+  second.cpu.fpu = &two;
+
+  TEST_ASSERT_EQUAL_HEX64(ap_m68030_state_hash(&first.cpu),
+                          ap_m68030_state_hash(&second.cpu));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_two_identically_built_machines_hash_alike);
@@ -452,5 +539,9 @@ int main(void) {
   RUN_TEST(test_only_the_history_bit_survives_an_invalid_atc_entry);
   RUN_TEST(test_the_accumulated_clock_reaches_the_hash);
   RUN_TEST(test_an_absent_access_context_is_not_an_empty_one);
+  RUN_TEST(test_every_floating_point_register_reaches_the_hash);
+  RUN_TEST(test_every_floating_point_control_register_reaches_the_hash);
+  RUN_TEST(test_an_absent_coprocessor_is_not_a_cleared_one);
+  RUN_TEST(test_the_coprocessors_address_does_not_reach_the_hash);
   return UNITY_END();
 }

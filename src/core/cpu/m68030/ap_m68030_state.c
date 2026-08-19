@@ -231,6 +231,27 @@ static void hash_access(ap_hash_t *st, const ap_m68030_access_ctx_t *access,
    * Hashing a second copy was hashing a field that could not change. */
 }
 
+/* The 68882's own state. An extended-precision register is fed field by field
+ * rather than as bytes, so that two encodings of the same number cannot hash
+ * alike and padding in the struct cannot make identical registers differ. */
+void ap_m68030_hash_fpu(ap_hash_t *st, const ap_m68882_t *fpu) {
+  for (unsigned i = 0; i < AP_M68882_DATA_REGISTERS; i++) {
+    const ap_m68882_extended_t *r = &fpu->regs.fp[i];
+    hash_bool(st, r->sign);
+    ap_hash_u16(st, r->exponent);
+    ap_hash_u64(st, r->mantissa);
+  }
+  ap_hash_u32(st, fpu->regs.fpcr);
+  ap_hash_u32(st, fpu->regs.fpsr);
+  ap_hash_u32(st, fpu->regs.fpiar);
+  /* Which coprocessor this is and whether it has run: `cpid` and `version` are
+   * how the part answers the CPU's recognition, and `executed` distinguishes a
+   * coprocessor that has completed an instruction from one that has not. */
+  ap_hash_u32(st, (uint32_t)fpu->cpid);
+  ap_hash_u32(st, (uint32_t)fpu->version);
+  hash_bool(st, fpu->executed);
+}
+
 void ap_m68030_hash_cpu(ap_hash_t *st, const ap_m68030_cpu_t *cpu) {
   ap_m68030_hash_regs(st, &cpu->regs);
   ap_hash_scope(st, "cpu.mmu");
@@ -292,6 +313,23 @@ void ap_m68030_hash_cpu(ap_hash_t *st, const ap_m68030_cpu_t *cpu) {
    * caches exchanged does not hash the same as one without. */
   hash_access(st, cpu->fetch.access, "i");
   hash_access(st, cpu->data, "d");
+
+  /* **The coprocessor, which was outside the hash entirely.** There was no
+   * `cpu.fpu` scope and `machine_hash_into` added none, so the 68882's eight
+   * extended-precision data registers, its control, status and instruction
+   * address registers were invisible to the identity harness -- on a machine
+   * whose boot PROM has an *FP trap test* and whose operating system does
+   * floating point.
+   *
+   * `fpu` is a pointer, so presence is hashed and the address never is: a
+   * machine with no coprocessor fitted is a different machine, and where the
+   * host put one is not a fact about any machine. Same rule as the 3c505's
+   * wire in `ap_board_state.c`. */
+  ap_hash_scope(st, "cpu.fpu");
+  hash_bool(st, cpu->fpu != NULL);
+  if (cpu->fpu != NULL) {
+    ap_m68030_hash_fpu(st, cpu->fpu);
+  }
 
   /* Timing is state. Two runs reaching the same registers by different numbers
    * of bus cycles are not the same run on a machine whose whole claim is

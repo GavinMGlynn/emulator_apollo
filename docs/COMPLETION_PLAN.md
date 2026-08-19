@@ -4512,8 +4512,17 @@ discipline throughout.
       the pointers are hashed by *presence*. Detail in `PROJECT_STATUS.md`.
       *Verification: `board_state_suite` 23 → 34 — one test per newly-hashed
       member, every field asserted individually, plus one that gives two boards
-      two different contexts and requires them to hash **alike**. The reference
-      moves a third time, `FF63E141DB798A21` → `5E0A1A6BE4B54647`.*
+      two different contexts and requires them to hash **alike**.*
+- [x] **The coprocessor had no scope at all.** The same diff run against
+      `ap_m68030_cpu_t` found `fpu`: the 68882's eight extended registers,
+      `FPCR`, `FPSR` and `FPIAR` were outside the identity hash, on a machine
+      whose boot PROM runs an FP trap test. Detail in `PROJECT_STATUS.md`.
+      *Verification: `state_suite` 12 → 16, including that an absent
+      coprocessor and an all-zero one hash **differently** while two at
+      different addresses hash **alike**. `probes.txt` regenerated, and with the
+      hash column stripped the old and new goldens are byte-identical — every
+      behavioural column agrees, which is what says a new scope was added and no
+      behaviour moved. Reference `C275692A693D11D2`.*
 - [x] **The ring station's buffers were lent by nobody, so a booting node could
       neither transmit nor receive.** `attach_tx` was called by tests only and
       `attach_rx` by nothing at all, so `ap_ring_station_queue_frame` returned

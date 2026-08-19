@@ -6324,7 +6324,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 prefetch marginal cost | `NCC − CC` over the published prefetch count, computed in code across every row; the two rows where it is not integral are named in the test rather than rounded away | `timing_table_suite`, 16 tests |
 | 68030 effective address timings (§11.6.1, §11.6.3) | fetch and calculate rows for the non-full-format modes, with the table's `-` and "2+op head" notations carried rather than flattened. Not yet composed into the step | `ea_timing_suite`, 26 tests |
 | 68030 instruction overlap (§11.3's Equations 11-1 and 11-2) | both compositions, deliberately without §11.6's per-instruction figures — those must be measured, not transcribed. The cache case through head and tail, the no-cache case by plain addition, and (11-2) shown to be (11-1) over *components* rather than a second rule | `overlap_suite`, 15 tests and `ea_timing_suite`, 12 — including both of the manual's own worked examples, at 6 clocks and **40** |
-| 68030 state hash (the identity harness's CPU half) | working: every architectural register, the MMU and cache control registers, the pipe, both caches, the ATC, and the accumulated clock — host pointers excluded by construction, since `ap_hash.h` has no pointer helper | `state_suite`, 12 tests sweeping every field; `step_suite`'s same-program-twice check |
+| 68030 state hash (the identity harness's CPU half) | working: every architectural register, the MMU and cache control registers, the pipe, both caches, the ATC, and the accumulated clock — host pointers excluded by construction, since `ap_hash.h` has no pointer helper | `state_suite`, 16 tests sweeping every field; `step_suite`'s same-program-twice check |
 | 68030 addressing mode categories (Data / Memory / Control / Alterable) | working; derived from §2.3's definitions rather than transcribed from Table 2-4, whose Alterable column is exchanged between two row pairs in the scan | `category_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §2.3 |
 | 68030 operand access (read/write through an effective address) | working; a sub-long-word operand is selected from the long word by position, and one straddling two long words is split into a bus cycle per long word in address order | `operand_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` |
 | 68030 instruction step (fetch → decode → execute → advance) | **complete**: every one of the 65,536 opcode words executes, and **no word in the space reports `UNIMPLEMENTED`** — a swept property, not a list. The sweep extends through the coprocessor extension space and the MMU extension word, where *which instruction a word is* lives in the extension rather than the opcode; both found real gaps (664 coprocessor forms, 94,316 MMU forms) that an opcode-only sweep could not see. This row used to enumerate the dozen families that worked and end "everything else reports unimplemented, including divide-by-zero", which was stale by the whole instruction set | `step_suite`, 297 tests |
@@ -21456,7 +21456,7 @@ the defect was in the report and the fix is there.*
 
 ## The reference is re-baselined: two writable registers were outside the hash
 
-**`03EE415450926A89` is retired; the reference is `5E0A1A6BE4B54647`.** The
+**`03EE415450926A89` is retired; the reference is `C275692A693D11D2`.** The
 invocation is unchanged — `tools/identity-boot.sh` — and nothing the machine
 does changed. What changed is what the hash *covers*.
 
@@ -21540,6 +21540,36 @@ reason.
 structs existed — so nothing could be missing from a test that was never
 written. It is 23 → 34, one per newly-hashed member, and every field asserted
 individually.
+
+### And the same question on the CPU found the coprocessor
+
+The board was one half of `machine_hash_into`. Asked of the other — diff
+`ap_m68030_cpu_t`'s members against the fields `ap_m68030_hash_cpu` names — the
+answer was **`fpu`**. There was no `cpu.fpu` scope at all, so the 68882's eight
+extended-precision data registers, `FPCR`, `FPSR` and `FPIAR` were outside the
+identity hash, on a machine whose boot PROM runs an *FP trap test* and whose
+operating system does floating point. The reference moved again,
+`5E0A1A6BE4B54647` → `C275692A693D11D2`.
+
+An extended register is fed field by field — sign, exponent, mantissa — rather
+than as bytes, so that struct padding cannot make identical registers differ.
+`fpu` is a **pointer**, so presence is hashed and the address never is, and both
+halves are asserted: an absent coprocessor and an all-zero one hash differently,
+and two machines whose coprocessors sit at different addresses hash alike.
+
+The other eighteen CPU fields the diff named are correctly out, and now
+recorded as such rather than merely absent: the `acknowledge` callback and its
+context are host pointers, `exceptions_taken`, `clock_events` and `entry_regs`
+are the report's, and `dbcc_condition_true`, `dbcc_count_expired` and the
+`fault_*` group are intra-instruction temporaries that no two runs can observe
+each other in.
+
+**`probes.txt` was regenerated, and the reason it is not a behavioural change
+is checked rather than asserted**: with the hash column stripped, the old and
+new golden are **byte-identical** — `ran`, `status`, `d0`, `pc`, `clocks` and
+`berr` all agree, for every probe. Adding a scope changes every hash it appears
+in, including the probes with no coprocessor, which is what a new scope does and
+not what a behaviour change looks like.
 
 **Diagnostic counters stay out throughout**, which is the convention this file
 already had: `parity`'s error tallies, `matrox`'s `frame_writes`, and the ring

@@ -70,6 +70,11 @@ void ap_m68030_hash_atc(ap_hash_t *st, const ap_m68030_atc_t *atc);
  * machine with the two caches exchanged does not hash the same as one without.
  * A null access context feeds a marker rather than nothing, since "no data side
  * at all" and "a data side whose cache is empty" are different machines. */
+/* The floating-point coprocessor's registers. Called by `ap_m68030_hash_cpu`
+ * when one is fitted; there was no `cpu.fpu` scope at all until 2026-08-19, so
+ * every 68882 register was outside the identity hash. */
+void ap_m68030_hash_fpu(ap_hash_t *st, const ap_m68882_t *fpu);
+
 void ap_m68030_hash_cpu(ap_hash_t *st, const ap_m68030_cpu_t *cpu);
 
 /* The whole processor as one number, which is what a long run reports. */
