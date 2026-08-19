@@ -12398,3 +12398,45 @@ builds.
 gate the default fit or be deleted, and `.mmu` should select the MMU its own
 enum documents. Recorded together because one instance is an oversight and two
 are a pattern in how this table is consumed.*
+
+## C229 -- a caveat on the frame check, recorded before its result
+
+The Phase 6 item's verification was rewritten to "two booted Domain/OS nodes
+exchange ring frames", because that is the ring property the item is about and
+it needs no shell. A caveat belongs with it, and it is being written **before**
+the run reports, so it cannot be a rationalisation afterwards.
+
+**Nothing establishes that an idle Domain/OS node transmits at all.** The
+documents on disk are hardware specifications: `[MAC]` gives the broadcast
+packet *type* (bit 7 of the type word) and `002398-04` p. 12-33 the hardware
+packet types, and neither describes an announcement protocol, because that is
+operating-system behaviour and not a property of the ring.
+
+**And C164's own transcript points the other way.** Its single-node `lcnode`
+printed
+
+    The node ID of this node is 22222.
+    No other nodes responded.
+
+**"Responded"** is the language of a request and a reply. If `lcnode` asks and
+other nodes answer, then two nodes that have booted and are sitting idle would
+exchange **no frames at all**, and a zero from this run would mean *nothing
+asked* rather than *the ring cannot carry it*.
+
+So the three readings of a zero, in order of what would distinguish them:
+
+1. **Nothing asked.** The most likely, on the evidence above. Distinguished by
+   running `lcnode` -- which needs the shell that C222 is blocking.
+2. **The OS never brought the ring up for traffic**, only far enough to accept
+   the driver. Distinguished by the board's own transmit registers: a driver
+   that armed a transmit would leave `XMIT_CMD` written, which this core now
+   records.
+3. **Our ring cannot carry a frame between two machines.** Already refuted at
+   the layer below by `board_suite`, which drives two boards through their
+   register interfaces and requires the frame to arrive, and by the sender
+   reading `cpd` out of its own returning acknowledge (`RING.md` 137b).
+
+*If the number is zero, reading (3) is the one not to reach for, and the item's
+verification may have to go back to `lcnode` after all -- which would make the
+rewrite a clarification of what the item means rather than a route around its
+blocker.*
