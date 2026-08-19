@@ -5695,14 +5695,17 @@ END — PDF 279–313, all 35 pages. 35 content pages of 330.**
       **programmable interrupt controller**, **ring**, **SIO** and **timers**.
       Every one has a module in `src/core`, and none of those thirty-five pages
       has been read whole.
-- [ ] **Chapters 1–6, machine-independent. Chapter 1 is started: five of its
-      twenty-three pages read (PDF 12, 13, 16, 28, 31), the rest owed, resume at
-      PDF 14.** The sample yielded no code change — chapter 1 is AEGIS's own
+- [ ] **Chapters 1–6, machine-independent. Chapter 1 is under way: eight of its
+      twenty-three pages read (PDF 12–17 contiguously, plus 28 and 31 out of
+      order), the rest owed, resume at PDF 18.** The sample yielded no code change — chapter 1 is AEGIS's own
       structures rather than hardware — and one lead for chapter 5: p. 1-20's
       **resource lock table** gives twenty-six named locks with their bit
       values, and `CRASH_STATUS 00120020` decodes under it as `flp_$lock +
       ast_$lock + file_$lock_lock`. Suggestive, not settled; whether the crash
-      word's low half is the lock set is chapter 5's question. AEGIS structures including the
+      word's low half is the lock set is chapter 5's question. p. 1-6 confirmed
+      the 6840's timer-3 prescaler from a third document and named what each of
+      the three clocks is for — real-time clock, process timer, real-time
+      intervals. AEGIS structures including the
       **ring packet format** and trap codes; the file system including the
       **logical and physical volume labels** and the VTOC, which is what
       `image/ap_volume.h` and the volume-label work are about; programming
