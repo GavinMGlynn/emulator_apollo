@@ -12292,3 +12292,30 @@ remains is the guest's own code -- the `siologin` binary and the SIO driver on
 the volume -- which is a disassembly job, or the oracle, which cannot help
 because MAME reaches its shell through MD rather than through `siologin` and so
 has never exercised this path either.*
+
+## C226 -- the 68040 audited: thirteen finished modules, nothing in the machine reaches one
+
+`check-what-is-called-by-nobody` applied to `src/core/cpu/m68040/`, because the
+DN5500 tail's blocker was recorded as "the part is modelled and nothing executes
+on it" and that deserved a number.
+
+**Nothing in `src/` outside `cpu/m68040/` names a single `ap_m68040_` symbol.**
+Not `ap_machine`, not `ap_model`, not `ap_board`. Every one of the thirteen
+modules -- `atc`, `cache`, `cache_timing`, `descriptor`, `fp_pipeline`, `fpu`,
+`fpu_timing`, `iu_timing`, `misc_timing`, `move_timing`, `regs`, `search`,
+`timing`, 3,181 lines -- is reached only by its own test suite.
+
+**Which reframes the item.** The work is not "finish the 68040": the MMU
+descriptor formats, the ATC, the caches, the FPU and five timing tables are
+built and tested against the `MC68040 User's Manual`. The work is the
+**execution core that would use them** -- decode and step -- against the
+68030's 14,034 lines of the same. That is why `5500_BOOT_A1631-80046` stops at
+its second instruction on a 68030 core: `ap_machine` builds an
+`ap_m68030_cpu_t` whatever the model row says, and the 68040 beside it is
+unreachable.
+
+*Recorded as sizing, not as a criticism of the modules: each was landed with its
+manual and its tests, and a part modelled ahead of its core is a legitimate
+order to build in. What was missing was the number -- thirteen modules, zero
+call sites from a machine -- which is what makes "needs a 68040 execution core"
+a measured statement rather than an impression.*
