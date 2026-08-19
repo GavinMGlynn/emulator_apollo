@@ -5304,9 +5304,9 @@ Only after the reference core is proven, and only under an identity harness.
       would unblock it is a Series 2500 hardware manual or a machine to
       **A third tail, found by audit on 2026-08-19 and sized rather than
       guessed** (`FINDINGS.md` C226, C227). Two whole parts are built, tested
-      and **unreachable from any machine** -- `ap_m68040` (3,181 lines, 13
-      modules) and `ap_m68851` (2,039 lines, 9 suites) have **zero** call sites
-      anywhere in `src/` outside their own directories. And the field that would
+      and **unreachable from any machine** -- `src/core/cpu/m68040/` (3,181
+      lines, 13 modules) and `src/core/cpu/m68851/` (2,039 lines, 9 suites) have
+      **zero** call sites anywhere in `src/` outside their own directories. And the field that would
       select between them is consumed only by a hash-scope *name* and a line in
       the frontend's report, so `.mmu = AP_MMU_M68851` on the DN3000 rows is a
       declaration the machine does not honour: `ap_machine` builds an
