@@ -1716,7 +1716,6 @@ static void test_two_boards_on_one_ring_segment_exchange_a_frame(void) {
   static ap_ring_medium_t segment;
   static ap_board_t a;
   static ap_board_t b;
-  static uint8_t txbuf[2048];
 
   ap_ring_medium_init(&segment);
   init(&a);
@@ -1734,7 +1733,10 @@ static void test_two_boards_on_one_ring_segment_exchange_a_frame(void) {
   TEST_ASSERT_EQUAL_HEX32(0x00011111u, a.ring_station.address);
   TEST_ASSERT_EQUAL_HEX32(0x00022222u, b.ring_station.address);
 
-  ap_ring_station_attach_tx(&a.ring_station, txbuf, sizeof txbuf);
+  /* No buffer is lent here on purpose: the *board* owns the station's
+   * transmit and receive storage, and a test that supplied it would pass
+   * whether or not anything did in a running machine -- which is exactly
+   * how `attach_rx` came to be called by nothing at all. */
 
   /* A's buffer holds a header addressed to B, at word 0x40. */
   uint8_t header[AP_RING_CTL_XMIT_HEADER_BYTES] = {0};
@@ -1824,7 +1826,6 @@ static void test_a_frame_crosses_the_ring_under_board_time(void) {
   static ap_ring_medium_t segment;
   static ap_board_t a;
   static ap_board_t b;
-  static uint8_t txbuf[2048];
 
   ap_ring_medium_init(&segment);
   init(&a);
@@ -1835,7 +1836,10 @@ static void test_a_frame_crosses_the_ring_under_board_time(void) {
   ap_ring_ctl_set_node_id(&b.ring, 0x00022222u);
   ap_board_join_ring(&a, &segment);
   ap_board_join_ring(&b, &segment);
-  ap_ring_station_attach_tx(&a.ring_station, txbuf, sizeof txbuf);
+  /* No buffer is lent here on purpose: the *board* owns the station's
+   * transmit and receive storage, and a test that supplied it would pass
+   * whether or not anything did in a running machine -- which is exactly
+   * how `attach_rx` came to be called by nothing at all. */
 
   uint8_t header[AP_RING_CTL_XMIT_HEADER_BYTES] = {0};
   ap_ring_header_set_destination(header, 0x00022222u);
@@ -1903,7 +1907,6 @@ static void test_two_boards_exchange_a_frame_on_a_scheduled_ring(void) {
   static ap_ring_sched_t sched;
   static ap_board_t a;
   static ap_board_t b;
-  static uint8_t txbuf[2048];
   uint64_t hashes[2] = {0u, 0u};
 
   for (unsigned pass = 0; pass < 2u; pass++) {
@@ -1916,7 +1919,10 @@ static void test_two_boards_exchange_a_frame_on_a_scheduled_ring(void) {
     ap_ring_ctl_set_node_id(&b.ring, 0x00022222u);
     TEST_ASSERT_EQUAL_INT(0, ap_board_join_ring_sched(&a, &sched));
     TEST_ASSERT_EQUAL_INT(1, ap_board_join_ring_sched(&b, &sched));
-    ap_ring_station_attach_tx(&a.ring_station, txbuf, sizeof txbuf);
+    /* No buffer is lent here on purpose: the *board* owns the station's
+   * transmit and receive storage, and a test that supplied it would pass
+   * whether or not anything did in a running machine -- which is exactly
+   * how `attach_rx` came to be called by nothing at all. */
 
     uint8_t header[AP_RING_CTL_XMIT_HEADER_BYTES] = {0};
     ap_ring_header_set_destination(header, 0x00022222u);
@@ -2070,6 +2076,112 @@ static void test_the_ds5500_address_space_holds_a_fourth_memory_bank(void) {
   TEST_ASSERT_EQUAL_UINT32(4u * 16u * 1024u * 1024u, span);
 }
 
+/* **The board lends the station both buffers, and nothing else did.**
+ *
+ * `ap_ring_station` allocates nothing, so its transmit bit stream and its
+ * received frame live in storage a caller lends. `attach_tx` was called by
+ * tests only and `attach_rx` by *nothing at all*, so in a running machine
+ * `ap_ring_station_queue_frame` returned false on its first line and every byte
+ * a station received was dropped -- without even the overrun flag, since that
+ * arm needs a non-NULL buffer to report against. The suites passed throughout,
+ * because each one attached its own.
+ *
+ * Asserted on the board rather than through a frame so the failure names the
+ * cause: a frame test that regressed here would report "nothing crossed". */
+static void test_a_fitted_ring_card_has_both_of_its_buffers(void) {
+  static ap_ring_medium_t segment;
+  static ap_board_t a;
+  ap_ring_medium_init(&segment);
+  init(&a);
+  ap_board_attach_ring(&a, true);
+  ap_board_join_ring(&a, &segment);
+
+  TEST_ASSERT_NOT_NULL(a.ring_station.tx_bits);
+  TEST_ASSERT_NOT_NULL(a.ring_station.rx_buffer);
+  TEST_ASSERT_EQUAL_UINT(sizeof a.ring_tx_bits, a.ring_station.tx_capacity);
+  TEST_ASSERT_EQUAL_UINT(sizeof a.ring_rx_frame, a.ring_station.rx_capacity);
+
+  /* And the transmit path gets past the line that was refusing it. */
+  uint8_t header[AP_RING_CTL_XMIT_HEADER_BYTES] = {0};
+  ap_ring_header_set_destination(header, 0x00022222u);
+  ap_ring_header_set_type(header, AP_RING_TYPE_USER);
+  ap_ring_header_set_source(header, 0x00011111u);
+  const ap_ring_frame_fields_t fields = {
+      .header = header,
+      .header_bytes = sizeof header,
+      .data = NULL,
+      .data_bytes = 0u,
+      .late_acknowledge = 0u,
+  };
+  TEST_ASSERT_TRUE(ap_ring_station_queue_frame(&a.ring_station, &fields));
+}
+
+/* And the receive buffer fills, which is the half that could not be observed at
+ * all before: with `rx_capacity` zero the capture ran, decided correctly whether
+ * it was addressed, set the acknowledge bits in flight -- and stored nothing. */
+static void test_a_received_frame_reaches_the_stations_own_buffer(void) {
+  static ap_ring_medium_t segment;
+  static ap_board_t a;
+  static ap_board_t b;
+
+  ap_ring_medium_init(&segment);
+  init(&a);
+  init(&b);
+  ap_board_attach_ring(&a, true);
+  ap_board_attach_ring(&b, true);
+  ap_ring_ctl_set_node_id(&a.ring, 0x00011111u);
+  ap_ring_ctl_set_node_id(&b.ring, 0x00022222u);
+  ap_board_join_ring(&a, &segment);
+  ap_board_join_ring(&b, &segment);
+
+  uint8_t header[AP_RING_CTL_XMIT_HEADER_BYTES] = {0};
+  ap_ring_header_set_destination(header, 0x00022222u);
+  ap_ring_header_set_type(header, AP_RING_TYPE_USER);
+  ap_ring_header_set_source(header, 0x00011111u);
+  for (unsigned i = 0; i < AP_RING_CTL_XMIT_HEADER_WORDS; i++) {
+    a.ring.buffer[0x40u + i] =
+        (uint16_t)((header[i * 2u] << 8) | header[i * 2u + 1u]);
+  }
+
+  ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_W2_RCV_ADDR,
+                      ring_addr_reg(0x0010u));
+  ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_BANK_STATUS + 4u,
+                      AP_RING_CTL_RCV_CMD_RCV);
+  ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_W2_XMIT_ADDR,
+                      ring_addr_reg(0x0040u));
+  ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_BANK_STATUS + 2u, 0x0200u);
+
+  ap_ring_station_originate_token(&b.ring_station, AP_RING_OOB_FREE_TOKEN);
+  for (unsigned i = 0; i < 4000u; i++) {
+    ap_ring_station_drive(&a.ring_station, &segment);
+    ap_ring_station_drive(&b.ring_station, &segment);
+    ap_ring_medium_advance(&segment);
+    ap_ring_station_receive(&a.ring_station, &segment);
+    ap_ring_station_receive(&b.ring_station, &segment);
+    ap_ring_ctl_clock(&a.ring, true);
+    ap_ring_ctl_clock(&b.ring, true);
+  }
+
+  /* Bytes captured, and no overrun -- a buffer sized from `[EH]` p. 12-29's
+   * 1 KB header plus 1 KB data against a twelve-byte frame. */
+  TEST_ASSERT_TRUE(b.ring_station.rx_bytes > 0u);
+  TEST_ASSERT_FALSE(b.ring_station.rx_overrun);
+  /* The destination in the captured bytes is B's own, big-endian, so this is
+   * the frame and not whatever the buffer held. */
+  TEST_ASSERT_EQUAL_HEX8(0x00u, b.ring_rx_frame[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x02u, b.ring_rx_frame[1]);
+  TEST_ASSERT_EQUAL_HEX8(0x22u, b.ring_rx_frame[2]);
+  TEST_ASSERT_EQUAL_HEX8(0x22u, b.ring_rx_frame[3]);
+  /* Capture is unconditional on being addressed -- a station has to be able to
+   * report a length for a frame it merely forwarded -- so A captured it too. */
+  TEST_ASSERT_TRUE(a.ring_station.rx_bytes > 0u);
+  TEST_ASSERT_EQUAL_UINT64(0u, a.ring_station.frames_copied);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_ethernet_card_is_absent_until_it_is_fitted);
@@ -2133,5 +2245,7 @@ int main(void) {
   RUN_TEST(test_only_the_ds5500_places_the_memory_present_register);
   RUN_TEST(test_the_ds5500_has_no_task_alias_register);
   RUN_TEST(test_the_ds5500_address_space_holds_a_fourth_memory_bank);
+  RUN_TEST(test_a_fitted_ring_card_has_both_of_its_buffers);
+  RUN_TEST(test_a_received_frame_reaches_the_stations_own_buffer);
   return UNITY_END();
 }

@@ -4495,6 +4495,16 @@ discipline throughout.
       including all **35** configurations `019411-A00` §4.2.1.18 publishes for
       the memory present register. Identity harness re-run: `03EE415450926A89`,
       unchanged, which is what says the DN3500 is untouched.*
+- [x] **The ring station's buffers were lent by nobody, so a booting node could
+      neither transmit nor receive.** `attach_tx` was called by tests only and
+      `attach_rx` by nothing at all, so `ap_ring_station_queue_frame` returned
+      false on its first line in every real run and every received byte was
+      dropped — with a green ring suite over it, because each test attached its
+      own. Found by sweeping `src/core` for exported functions nothing calls.
+      Detail in `PROJECT_STATUS.md`.
+      *Verification: `board_suite` 60 → 62, and the three existing board tests
+      no longer attach their own buffer — they pass on the board's wiring or not
+      at all. Identity harness re-run: `03EE415450926A89`, unchanged.*
 - [x] **The memory bank layouts were comments, and two callers divided by four
       instead.** Every row of the RAM strap table carries a layout read out of
       the boot PROMs' own decode chain — `4-4-4-0`, `8-4-4-4`, `2-2-2-2` — and

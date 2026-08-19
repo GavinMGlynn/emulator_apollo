@@ -81,6 +81,12 @@
  * third direction: four slots, largest board 16 MB. */
 #define AP_BOARD_RAM_LIMIT_DS5500 0x4FFFFFFu
 
+/* See `ap_board_t::ring_tx_bits`. `[EH]` p. 12-29's 1 KB header plus 1 KB data
+ * is the largest frame any source on disk describes; the transmit side holds
+ * that as a bit stream with stuffing and framing on top. */
+#define AP_BOARD_RING_RX_BYTES 2048u
+#define AP_BOARD_RING_TX_BYTES 3072u
+
 /* The two AT bus windows. `008778-03`, and confirmed against the oracle's
  * `dn3500_map`: `ATBUS_IO_BASE 0x040000`, `ATBUS_IO_END 0x05ffff`,
  * `ATBUS_MEMORY_BASE 0x080000`, `ATBUS_MEMORY_END 0xffffff`.
@@ -286,6 +292,35 @@ typedef struct ap_board {
    * owned one would make every ring single-node by construction.
    * `ap_board_join_ring` lends this board a segment. */
   ap_ring_station_t ring_station;
+  /* ## The station's two buffers, which nothing was lending it
+   *
+   * `ap_ring_station` allocates nothing -- `src/core` never does -- so both the
+   * transmit bit stream and the received frame live in storage a caller lends.
+   * `ap_ring_station_attach_tx` was called by **tests only**, and
+   * `ap_ring_station_attach_rx` by nothing at all, so on a real machine
+   * `ap_ring_station_queue_frame` returned false on its first line (`tx_bits ==
+   * NULL`) and every byte a station received was dropped without even setting
+   * the overrun flag. A ring that cannot transmit and cannot deliver, with a
+   * green suite over it, because the tests supplied the wiring the board did
+   * not.
+   *
+   * They live here rather than in `ap_ring_station` so that the station keeps
+   * lending semantics and a caller with its own memory -- the two-node runner,
+   * a future frontend -- can still supply its own.
+   *
+   * **Sizes are from the documents, not from what fits.** `[EH]` p. 12-29 gives
+   * a message buffer "1k bytes of header and 1k bytes of data", and `[MAC]`
+   * §2.2.2 caps a header at 1024 bytes, so 2048 bytes is the largest frame
+   * either source describes -- that is the receive buffer, which stores bytes.
+   * The transmit buffer stores the *bit stream*, packed eight to a byte, so the
+   * same frame is 16384 bits before framing: add §2.2.1's worst-case stuffing
+   * of one zero every five ones (a fifth), and the frame start and check
+   * sequences, and 3072 bytes covers it with room to spare. The controller's
+   * own frames are far smaller -- `AP_RING_CTL_XMIT_HEADER_BYTES` is 12,
+   * §2.2.2's minimum -- so this is sized for the largest frame the manuals
+   * permit rather than the smallest one this core sends today. */
+  uint8_t ring_tx_bits[AP_BOARD_RING_TX_BYTES];
+  uint8_t ring_rx_frame[AP_BOARD_RING_RX_BYTES];
   /* How far the ring's bit clock has been advanced, in base units. The medium
    * runs at `[MAC]` §3.2's 12 Mbit/s, which is neither the CPU's cycle nor any
    * other device's -- `CLAUDE.md`'s reason for counting in `AP_TIME_BASE_HZ`. */

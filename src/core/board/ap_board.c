@@ -624,6 +624,17 @@ void ap_board_attach_master(ap_board_t *board, unsigned unit, unsigned channel,
   ap_master_init(&board->master, unit, channel, drq);
 }
 
+/* Both of them, together, every time a station is initialised -- `init` clears
+ * the pointers, so lending has to follow it rather than precede it. The board
+ * owns the storage; see `ap_board_t::ring_tx_bits` for why it lives there, and
+ * for what was broken while nothing called either of these. */
+static void board_lend_ring_buffers(ap_board_t *board) {
+  ap_ring_station_attach_tx(&board->ring_station, board->ring_tx_bits,
+                            sizeof board->ring_tx_bits);
+  ap_ring_station_attach_rx(&board->ring_station, board->ring_rx_frame,
+                            sizeof board->ring_rx_frame);
+}
+
 void ap_board_attach_ring(ap_board_t *board, bool fitted) {
   ap_ring_ctl_reset(&board->ring, fitted);
   /* The board's own node, so the ring's first window reads the same identity
@@ -658,6 +669,7 @@ int ap_board_join_ring_sched(ap_board_t *board, ap_ring_sched_t *sched) {
     return -1;
   }
   ap_ring_station_init(&board->ring_station, slot);
+  board_lend_ring_buffers(board);
   ap_ring_ctl_attach_ring(&board->ring, &board->ring_station, &sched->medium);
   board->ring_scheduled = true;
   return slot;
@@ -679,6 +691,7 @@ void ap_board_join_ring(ap_board_t *board, ap_ring_medium_t *medium) {
     return;
   }
   ap_ring_station_init(&board->ring_station, slot);
+  board_lend_ring_buffers(board);
   /* Attach *after* the reset in `ap_board_attach_ring`, never before: that
    * reset is also the controller's initialiser and clears the attachment
    * (`RING.md` 104d). */
