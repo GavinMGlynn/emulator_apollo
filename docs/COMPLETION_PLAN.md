@@ -4545,6 +4545,25 @@ discipline throughout.
       `PROVISIONAL` — no DS5500 runs on this core or on the oracle, so a single
       read would settle both. Both siblings on disk carry neither section;
       `007861` remains the missing document.
+- [ ] **The DN5500 needs a 68040 instruction core, measured rather than
+      assumed.** Run on 2026-08-19 with `--boot-trace-last`: the machine
+      executes `NOP` at `00060C` and then takes **vector 11, the F-line
+      emulator trap**, on `F4D8` at `00060E` — `CINVA BC`, a 68040
+      cache-invalidate. `4E7B 0004` follows it, `MOVEC` to `ITT0`, so the PROM
+      is programming 68040 transparent translation two instructions in. Our
+      68030 core's response is *correct*; there is simply no 68040 to execute
+      it. The handler then runs 135 more instructions and dies at `005070`,
+      `MOVEA.L $156(A6),A7`, loading a stack pointer from `010002D6` that
+      nothing initialised — so the reported `FAULT on 6100` at `005074` is a
+      `BSR` pushing to `FFFFFFFC`, three failures downstream of the real one.
+      **Confirmed independent of the new DS5500 map**: the identical 137
+      instructions and identical fault occur on `DS4000_MAP`, checked by a
+      temporary one-line revert.
+      `src/core/cpu/m68040/` is 3,181 lines of ATC, descriptors, caches, FPU
+      and timing tables and contains **no step and no decoder**, so this is a
+      Phase 2b project rather than a tail of this item. What would close it is
+      a 68040 instruction core; nothing in `docs/references/` is missing for
+      it — `motorola/` holds the manual.
 - [ ] **Table 4-6's added line, which cannot be implemented from what is held.**
       `PROVISIONAL`. The addendum says "On page 4-19, add the following line to
       Table 4-6: `PC ON/OFF — Physical Cache (DS4500 Only)`", and page 4-19 is

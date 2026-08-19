@@ -5146,9 +5146,18 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
              c->channel[ch].base_count);
     }
   }
+  /* `010200` is read through the register rather than printed from the stored
+   * field. On a DS5500 the two disagree by construction: `019411-A00`
+   * §4.2.1.14 makes that address a read-only *status* register whose bits are
+   * derived, so `cache_control` keeps its power-on `EF` for ever and the
+   * report was quoting a byte no program could read. A report that prints
+   * storage rather than the register is the same class of error as a trace
+   * naming a region wrongly -- confidently, and about the wrong thing. */
   printf("  core status  %04X, control %04X, cache %02X\n",
          board->registers.cpu_status | AP_BOARDREG_STATUS_ALWAYS_SET,
-         board->registers.cpu_control, board->registers.cache_control);
+         board->registers.cpu_control,
+         ap_boardreg_read8(&board->registers,
+                           AP_BOARDREG_CACHE_CONTROL_ADDR));
   if (board->core_register_write_count > 0u) {
     printf("  core writes  ");
     for (unsigned i = 0; i < board->core_register_write_count; i++) {
