@@ -5717,6 +5717,21 @@ END — PDF 279–313, all 35 pages. 35 content pages of 330.**
       front contents omitted its chapter 15 and its back index omitted its
       chapter 16; each aid was missing a chapter the other had. Do not trust one.
 
+- [ ] **ST3's five constant bits** — the walk's remaining `PROVISIONAL`.
+      `[OMTI]` §6.4.4 and the 8640's §5.6.4 give ST3 three live bits and five
+      constants; `002398-04` p. 12-14 gives the generic 765's eight, and
+      `008778-03` §5.4.1.2 names the part an "FDC765". This core follows the
+      part's own manual — see `AP_GRAPHICS_SR_V_SYNC`'s neighbour finding for
+      why that is not automatic.
+      **Settle it the way the colour status register was settled: from the
+      firmware, not the oracle.** What is wanted is a driver that branches on
+      ST3 bit 5. A first scan of `3500_BOOT_12191_7` found neither
+      `MOVE.B #$04,$5(An)` (SENSE DRIVE STATUS issued through a base register)
+      nor `BTST #5,(An)`, which is a **weak** negative: the floppy driver is
+      table-driven, and `002A86` loads the floppy base into `A0` with two tables
+      into `A3` and `A4`, so the command may be issued from a table and the
+      result tested with `ANDI.B #$20`. Start the disassembly at `002A86`.
+
 ## The `008778-03` whole-document walk
 
 `CLAUDE.md`: a document that yields one unimplemented fact is read **whole**.
