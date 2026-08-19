@@ -453,9 +453,25 @@ typedef struct ap_board {
    * `008778-03` covers the DS3000 and DS4000, our reference machine is a
    * DS3500, and `019411-A00` -- the addendum that does cover it -- publishes no
    * bus cycle times at all. `board/ap_atbus.h` states the bracket the two
-   * published sets give and what closing it needs. Series 3000 is the set here
-   * because this is a Series 3000-family board; the disagreement the other
-   * choice would produce is one bus clock on a memory read. */
+   * published sets give and what closing it needs.
+   *
+   * **The reason this used to give is wrong, and the choice is still open.** It
+   * said "Series 3000 is the set here because this is a Series 3000-family
+   * board". A DS3500 is **not**: `ap_boardreg.h` puts it in the **Series 4000
+   * architecture group**, citing `019411-A00` §4.2.1.4 -- which gives the
+   * address translation map to DS3500, DS4000, DS4500 and DS5500 -- and the
+   * master request register's firmware census, where the DS3500's PROM
+   * references it nine times and no Series 3000 image references it at all.
+   * Two features, one model set, from two independent sources.
+   *
+   * So the *justification* is retracted while the *choice* stands, because
+   * nothing in hand settles it: neither manual states a DS3500's AT bus clock,
+   * and Series 4000 would make it 8 MHz rather than 6. What the `008778-03`
+   * walk did establish is that the difference is no longer "one bus clock on a
+   * memory read" -- since §3.4's published cycles landed, every AT I/O access
+   * scales with the bus clock too. Closing it needs a DS3500 bus figure or a
+   * measurement; until then this is a `PROVISIONAL` with an honest reason
+   * rather than a wrong one. */
   ap_atbus_series_t at_bus_series;
 
   /* The boot PROM, caller-owned. NULL until one is loaded, and the region then
