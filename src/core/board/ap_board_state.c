@@ -563,22 +563,100 @@ void ap_board_hash_ethernet(ap_hash_t *st, const ap_3c505_t *card,
   hash_bool(st, card->dma_pause_owed);
   hash_bool(st, card->adapter_initialising);
 
-  /* **The adapter behind it is NOT hashed, and that is a named gap rather than
-   * an oversight.** `ap_3c505_adapter_t` is a different and much larger part:
-   * an address PROM, a receive mode and multicast table, six statistics
-   * counters the host can *read back* (so they are state and not diagnostics),
-   * two staged frame buffers, and three nested structures -- `ap_3c505_pcb_t`,
-   * `ap_3c505_pcb_rx_t`, `ap_3c505_pcb_tx_t` -- plus an `ap_3c505_wire_t`.
-   *
-   * It also carries a `transmit` **function pointer** and a `void *context`,
-   * and those must never reach a hash: `ap_hash.h` has no `ap_hash_ptr` for
-   * exactly this reason, so that a host address cannot make two identical
-   * machines differ. Hashing the rest around them needs each nested struct
-   * walked the way `hash_i8259` and `hash_mc6840_timer` are walked above, and
-   * doing that carelessly is worse than the gap.
-   *
-   * `COMPLETION_PLAN.md` carries it as an item with this scope. */
-  (void)adapter;
+  ap_board_hash_ethernet_adapter(st, adapter);
+}
+
+static void hash_3c505_pcb(ap_hash_t *st, const ap_3c505_pcb_t *pcb) {
+  ap_hash_u8(st, pcb->command);
+  ap_hash_u8(st, pcb->length);
+  /* To the declared length: bytes past it are whatever the last PCB left, and
+   * two adapters agreeing on every readable byte must hash alike. */
+  for (unsigned i = 0; i < pcb->length && i < AP_3C505_PCB_DATA_MAX; i++) {
+    ap_hash_u8(st, pcb->data[i]);
+  }
+}
+
+/* Whether a host callback is attached, and **never the pointer**. `ap_hash.h`
+ * has no `ap_hash_ptr` so that a host address cannot make two identical
+ * machines differ; a wire that is present and one that is not are genuinely
+ * different machines, and that much is a boolean. */
+static void hash_3c505_wire(ap_hash_t *st, const ap_3c505_wire_t *wire) {
+  hash_bool(st, wire->transmit != NULL);
+  hash_bool(st, wire->context != NULL);
+}
+
+void ap_board_hash_ethernet_adapter(ap_hash_t *st,
+                                    const ap_3c505_adapter_t *adapter) {
+  ap_hash_scope(st, "ethernet.adapter");
+
+  /* The address PROM: which card this *is*, hashed for the same reason
+   * `ap_master_t::unit` is -- two machines wired differently must not hash
+   * alike. */
+  for (unsigned i = 0; i < AP_3C505_ADDRESS_BYTES; i++) {
+    ap_hash_u8(st, adapter->address[i]);
+  }
+  ap_hash_u16(st, adapter->receive_mode);
+  ap_hash_u32(st, adapter->multicast_count);
+  for (unsigned i = 0; i < adapter->multicast_count &&
+                       i < AP_3C505_MULTICAST_MAX; i++) {
+    for (unsigned b = 0; b < AP_3C505_ADDRESS_BYTES; b++) {
+      ap_hash_u8(st, adapter->multicast[i][b]);
+    }
+  }
+
+  /* **The statistics are state, not diagnostics**, and they are the exception
+   * that shows where this file draws the line: a driver reads them back with a
+   * `Network Statistics` command, so two adapters differing in them behave
+   * differently. `parity`'s error tallies and the ring station's frame counters
+   * stay out because nothing in the machine can read those -- they exist for
+   * the run report. */
+  ap_hash_u32(st, adapter->receive_packets);
+  ap_hash_u32(st, adapter->transmit_packets);
+  ap_hash_u16(st, adapter->crc_errors);
+  ap_hash_u16(st, adapter->alignment_errors);
+  ap_hash_u16(st, adapter->no_resource_errors);
+  ap_hash_u16(st, adapter->overrun_errors);
+
+  hash_3c505_wire(st, &adapter->wire);
+
+  /* The PCB coming in from the host. `written` is a *total* and the write
+   * position is that modulo the buffer, so every byte of the buffer can be
+   * live and all of it is hashed -- unlike the frame buffers below, which have
+   * a length that says where the live part ends. */
+  ap_hash_u32(st, adapter->incoming.written);
+  ap_hash_bytes(st, adapter->incoming.buffer, AP_3C505_PCB_MAX);
+
+  /* And the one going out. */
+  hash_3c505_pcb(st, &adapter->pending.pcb);
+  ap_hash_u32(st, adapter->pending.sent);
+  hash_bool(st, adapter->pending.active);
+  hash_bool(st, adapter->pending_total);
+
+  /* `09H`'s armed transmit. */
+  hash_bool(st, adapter->transmitting);
+  ap_hash_u32(st, adapter->transmit_length);
+  ap_hash_u32(st, adapter->transmit_received);
+  ap_hash_u16(st, adapter->transmit_offset);
+  ap_hash_u16(st, adapter->transmit_segment);
+  /* To what has been received, not the whole frame buffer: the tail is the
+   * previous frame's. */
+  for (unsigned i = 0; i < adapter->transmit_received &&
+                       i < AP_3C505_FRAME_MAX; i++) {
+    ap_hash_u8(st, adapter->transmit_buffer[i]);
+  }
+
+  /* `08H`'s armed receive, and the frame staged for upload. */
+  hash_bool(st, adapter->receive_armed);
+  ap_hash_u16(st, adapter->receive_offset);
+  ap_hash_u16(st, adapter->receive_segment);
+  ap_hash_u16(st, adapter->receive_buffer_length);
+  ap_hash_u16(st, adapter->receive_timeout);
+  ap_hash_u32(st, adapter->staged_length);
+  ap_hash_u32(st, adapter->staged_read);
+  for (unsigned i = 0; i < adapter->staged_length && i < AP_3C505_FRAME_MAX;
+       i++) {
+    ap_hash_u8(st, adapter->staged[i]);
+  }
 }
 
 void ap_board_hash_ring_station(ap_hash_t *st, const ap_ring_station_t *s) {

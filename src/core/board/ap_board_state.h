@@ -100,6 +100,8 @@ void ap_board_hash_master(ap_hash_t *st, const ap_master_t *master);
 void ap_board_hash_matrox(ap_hash_t *st, const ap_matrox_t *matrox);
 void ap_board_hash_ethernet(ap_hash_t *st, const ap_3c505_t *card,
                             const ap_3c505_adapter_t *adapter);
+void ap_board_hash_ethernet_adapter(ap_hash_t *st,
+                                    const ap_3c505_adapter_t *adapter);
 void ap_board_hash_ring_station(ap_hash_t *st, const ap_ring_station_t *s);
 
 /* The whole board: every device above, in a fixed order, plus the boot PROM and

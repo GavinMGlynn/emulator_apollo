@@ -546,6 +546,210 @@ static void test_two_cartridges_of_equal_size_hash_apart(void) {
   TEST_ASSERT_TRUE(w.digest != before);
 }
 
+/* ## The seven members that had no hasher, and the two registers that had none
+ *
+ * The `MOVES_THE_HASH` discipline above is thorough per *struct* and was silent
+ * about which structs existed: nine of the board's members had no hasher at
+ * all, so there was nothing to write a `test_every_..._moves_the_hash` against
+ * and nobody noticed one was missing. These are those tests.
+ */
+
+static void test_the_last_two_board_registers_move_the_hash(void) {
+  /* Table 2-8's remaining pair. Writable storage, and outside the hash until
+   * 2026-08-19 -- the reference boot writes one of them. */
+  MOVES_THE_HASH(scratch.registers.master_request ^= 0x40u);
+  MOVES_THE_HASH(scratch.registers.task_alias ^= 0x01u);
+}
+
+static void test_every_parity_bit_moves_the_hash(void) {
+  /* The bad-parity bitmap is a lent buffer whose contents the control
+   * register's force-bad-parity function writes, so it is hashed the way main
+   * memory is. Only meaningful with one attached. */
+  static uint8_t bad[(sizeof ram + 7u) / 8u];
+  make_board(&scratch);
+  TEST_ASSERT_TRUE(ap_board_attach_parity(&scratch, bad, sizeof bad));
+  const uint64_t before = ap_board_state_hash(&scratch);
+  bad[0] ^= 0x01u;
+  TEST_ASSERT_NOT_EQUAL_UINT64(before, ap_board_state_hash(&scratch));
+  /* And the far end, so a hash covering only the first byte fails here. */
+  bad[0] ^= 0x01u;
+  bad[sizeof bad - 1u] ^= 0x80u;
+  TEST_ASSERT_NOT_EQUAL_UINT64(before, ap_board_state_hash(&scratch));
+}
+
+static void test_every_dma_page_register_moves_the_hash(void) {
+  for (unsigned i = 0; i < AP_DMAPAGE_REGISTERS; i++) {
+    MOVES_THE_HASH(scratch.dma_page.page[i] ^= 0xFFu);
+  }
+}
+
+static void test_every_arbiter_field_moves_the_hash(void) {
+  /* Live bus arbitration, which changes on the machine's own clock. */
+  MOVES_THE_HASH(scratch.arbiter.request ^= 0x02u);
+  MOVES_THE_HASH(scratch.arbiter.selected = 3);
+  MOVES_THE_HASH(scratch.arbiter.master = 1);
+  MOVES_THE_HASH(scratch.arbiter.cpu.br = !scratch.arbiter.cpu.br);
+  MOVES_THE_HASH(scratch.arbiter.cpu.bgack = !scratch.arbiter.cpu.bgack);
+  MOVES_THE_HASH(scratch.arbiter.cpu.br_sync ^= 0x01u);
+  MOVES_THE_HASH(scratch.arbiter.cpu.bgack_sync ^= 0x01u);
+  MOVES_THE_HASH(scratch.arbiter.cpu.r = !scratch.arbiter.cpu.r);
+  MOVES_THE_HASH(scratch.arbiter.cpu.a = !scratch.arbiter.cpu.a);
+  MOVES_THE_HASH(scratch.arbiter.cpu.bg = !scratch.arbiter.cpu.bg);
+  MOVES_THE_HASH(scratch.arbiter.cpu.three_state =
+                     !scratch.arbiter.cpu.three_state);
+}
+
+static void test_every_external_master_field_moves_the_hash(void) {
+  MOVES_THE_HASH(scratch.master.unit ^= 1u);
+  MOVES_THE_HASH(scratch.master.channel ^= 1u);
+  MOVES_THE_HASH(scratch.master.drq ^= 1u);
+  MOVES_THE_HASH(scratch.master.request = !scratch.master.request);
+  MOVES_THE_HASH(scratch.master.master_l = !scratch.master.master_l);
+  MOVES_THE_HASH(scratch.master.state =
+                     (ap_master_state_t)(scratch.master.state + 1));
+}
+
+static void test_every_matrox_field_moves_the_hash(void) {
+  MOVES_THE_HASH(scratch.matrox.microcode_words ^= 1u);
+  MOVES_THE_HASH(scratch.matrox.last_transfer ^= 0x01u);
+  MOVES_THE_HASH(scratch.matrox.transfer_armed =
+                     !scratch.matrox.transfer_armed);
+  MOVES_THE_HASH(scratch.matrox.data_latch ^= 0x0001u);
+}
+
+static void test_every_ethernet_card_field_moves_the_hash(void) {
+  MOVES_THE_HASH(scratch.ethernet.hcr ^= 0x01u);
+  MOVES_THE_HASH(scratch.ethernet.acr ^= 0x01u);
+  MOVES_THE_HASH(scratch.ethernet.aux_dma ^= 0x01u);
+  MOVES_THE_HASH(scratch.ethernet.to_adapter ^= 0x01u);
+  MOVES_THE_HASH(scratch.ethernet.to_adapter_full =
+                     !scratch.ethernet.to_adapter_full);
+  MOVES_THE_HASH(scratch.ethernet.to_host ^= 0x01u);
+  MOVES_THE_HASH(scratch.ethernet.to_host_full =
+                     !scratch.ethernet.to_host_full);
+  MOVES_THE_HASH(scratch.ethernet.dma_done = !scratch.ethernet.dma_done);
+  MOVES_THE_HASH(scratch.ethernet.test_jumper = !scratch.ethernet.test_jumper);
+  MOVES_THE_HASH(scratch.ethernet.sixteen_bit = !scratch.ethernet.sixteen_bit);
+  MOVES_THE_HASH(scratch.ethernet.dma_since_pause ^= 1u);
+  MOVES_THE_HASH(scratch.ethernet.dma_pause_owed =
+                     !scratch.ethernet.dma_pause_owed);
+  MOVES_THE_HASH(scratch.ethernet.adapter_initialising =
+                     !scratch.ethernet.adapter_initialising);
+  /* The FIFO counts to its count and no further, the same rule the serial
+   * FIFO already follows. */
+  MOVES_THE_HASH(scratch.ethernet.fifo_count = 1u;
+                 scratch.ethernet.fifo[0] ^= 0xFFu);
+}
+
+/* A FIFO byte past the count is stale, and two cards agreeing on everything
+ * readable must hash alike. The serial port has this test; the 3c505 did not,
+ * because it had no hasher. */
+static void test_an_ethernet_fifo_byte_beyond_the_count_does_not_move_the_hash(
+    void) {
+  make_board(&scratch);
+  scratch.ethernet.fifo_count = 1u;
+  const uint64_t before = ap_board_state_hash(&scratch);
+  scratch.ethernet.fifo[AP_3C505_DATA_FIFO - 1u] ^= 0xFFu;
+  TEST_ASSERT_EQUAL_HEX64(before, ap_board_state_hash(&scratch));
+}
+
+static void test_every_ethernet_adapter_field_moves_the_hash(void) {
+  MOVES_THE_HASH(scratch.ethernet_adapter.address[0] ^= 0x01u);
+  MOVES_THE_HASH(scratch.ethernet_adapter.address[AP_3C505_ADDRESS_BYTES - 1u]
+                 ^= 0x01u);
+  MOVES_THE_HASH(scratch.ethernet_adapter.receive_mode ^= 0x0001u);
+  MOVES_THE_HASH(scratch.ethernet_adapter.multicast_count = 1u;
+                 scratch.ethernet_adapter.multicast[0][0] ^= 0xFFu);
+  /* Host-readable statistics: state, because a driver reads them back with a
+   * Network Statistics command. */
+  MOVES_THE_HASH(scratch.ethernet_adapter.receive_packets ^= 1u);
+  MOVES_THE_HASH(scratch.ethernet_adapter.transmit_packets ^= 1u);
+  MOVES_THE_HASH(scratch.ethernet_adapter.crc_errors ^= 1u);
+  MOVES_THE_HASH(scratch.ethernet_adapter.alignment_errors ^= 1u);
+  MOVES_THE_HASH(scratch.ethernet_adapter.no_resource_errors ^= 1u);
+  MOVES_THE_HASH(scratch.ethernet_adapter.overrun_errors ^= 1u);
+  MOVES_THE_HASH(scratch.ethernet_adapter.incoming.written ^= 1u);
+  MOVES_THE_HASH(scratch.ethernet_adapter.incoming.buffer[0] ^= 0xFFu);
+  MOVES_THE_HASH(
+      scratch.ethernet_adapter.incoming.buffer[AP_3C505_PCB_MAX - 1u] ^= 0xFFu);
+  MOVES_THE_HASH(scratch.ethernet_adapter.pending.pcb.command ^= 0x01u);
+  MOVES_THE_HASH(scratch.ethernet_adapter.pending.pcb.length = 1u;
+                 scratch.ethernet_adapter.pending.pcb.data[0] ^= 0xFFu);
+  MOVES_THE_HASH(scratch.ethernet_adapter.pending.sent ^= 1u);
+  MOVES_THE_HASH(scratch.ethernet_adapter.pending.active =
+                     !scratch.ethernet_adapter.pending.active);
+  MOVES_THE_HASH(scratch.ethernet_adapter.pending_total =
+                     !scratch.ethernet_adapter.pending_total);
+  MOVES_THE_HASH(scratch.ethernet_adapter.transmitting =
+                     !scratch.ethernet_adapter.transmitting);
+  MOVES_THE_HASH(scratch.ethernet_adapter.transmit_length ^= 1u);
+  MOVES_THE_HASH(scratch.ethernet_adapter.transmit_received = 1u;
+                 scratch.ethernet_adapter.transmit_buffer[0] ^= 0xFFu);
+  MOVES_THE_HASH(scratch.ethernet_adapter.transmit_offset ^= 1u);
+  MOVES_THE_HASH(scratch.ethernet_adapter.transmit_segment ^= 1u);
+  MOVES_THE_HASH(scratch.ethernet_adapter.receive_armed =
+                     !scratch.ethernet_adapter.receive_armed);
+  MOVES_THE_HASH(scratch.ethernet_adapter.receive_offset ^= 1u);
+  MOVES_THE_HASH(scratch.ethernet_adapter.receive_segment ^= 1u);
+  MOVES_THE_HASH(scratch.ethernet_adapter.receive_buffer_length ^= 1u);
+  MOVES_THE_HASH(scratch.ethernet_adapter.receive_timeout ^= 1u);
+  MOVES_THE_HASH(scratch.ethernet_adapter.staged_read ^= 1u);
+  MOVES_THE_HASH(scratch.ethernet_adapter.staged_length = 1u;
+                 scratch.ethernet_adapter.staged[0] ^= 0xFFu);
+}
+
+/* **The property the whole file rests on, for the part most able to break it.**
+ * The adapter carries a `transmit` function pointer and a `void *context`, and
+ * a hash that fed either would make two identical machines differ by where the
+ * host happened to put them. Whether one is *attached* is state; its address
+ * is not. */
+static void test_the_ethernet_wire_is_hashed_by_presence_not_by_address(void) {
+  static int context_a = 0;
+  static int context_b = 0;
+  make_board(&scratch);
+  make_board(&other);
+
+  scratch.ethernet_adapter.wire.context = &context_a;
+  other.ethernet_adapter.wire.context = &context_b;
+  TEST_ASSERT_EQUAL_HEX64(ap_board_state_hash(&scratch),
+                          ap_board_state_hash(&other));
+
+  /* But present and absent are different machines. */
+  other.ethernet_adapter.wire.context = nullptr;
+  TEST_ASSERT_NOT_EQUAL_UINT64(ap_board_state_hash(&scratch),
+                               ap_board_state_hash(&other));
+}
+
+static void test_every_ring_station_field_moves_the_hash(void) {
+  MOVES_THE_HASH(scratch.ring_station.slot ^= 1);
+  MOVES_THE_HASH(scratch.ring_station.address ^= 0x00000001u);
+  MOVES_THE_HASH(scratch.ring_station.receive_enabled =
+                     !scratch.ring_station.receive_enabled);
+  MOVES_THE_HASH(scratch.ring_station.tx_armed =
+                     !scratch.ring_station.tx_armed);
+  MOVES_THE_HASH(scratch.ring_station.tx_bit_pos ^= 1u);
+  MOVES_THE_HASH(scratch.ring_station.rx_state ^= 1u);
+  MOVES_THE_HASH(scratch.ring_station.rx_ones_run ^= 1u);
+  MOVES_THE_HASH(scratch.ring_station.rx_bit_count ^= 1u);
+  MOVES_THE_HASH(scratch.ring_station.rx_byte ^= 0xFFu);
+  MOVES_THE_HASH(scratch.ring_station.rx_header[0] ^= 0xFFu);
+  MOVES_THE_HASH(scratch.ring_station.rx_header[7] ^= 0xFFu);
+  MOVES_THE_HASH(scratch.ring_station.rx_header_len ^= 1u);
+  MOVES_THE_HASH(scratch.ring_station.rx_addressed =
+                     !scratch.ring_station.rx_addressed);
+  MOVES_THE_HASH(scratch.ring_station.rx_overrun =
+                     !scratch.ring_station.rx_overrun);
+  MOVES_THE_HASH(scratch.ring_station.rx_header_bits ^= 1u);
+  MOVES_THE_HASH(scratch.ring_station.rx_flipped_parity =
+                     !scratch.ring_station.rx_flipped_parity);
+  MOVES_THE_HASH(scratch.ring_station.rx_separators ^= 1u);
+  MOVES_THE_HASH(scratch.ring_station.rx_fcs_bits ^= 1u);
+  MOVES_THE_HASH(scratch.ring_station.rx_late_bits ^= 1u);
+  MOVES_THE_HASH(scratch.ring_station.rx_late ^= 0xFFu);
+  MOVES_THE_HASH(scratch.ring_station.rx_frame_error =
+                     !scratch.ring_station.rx_frame_error);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_two_cartridges_of_equal_size_hash_apart);
@@ -571,5 +775,16 @@ int main(void) {
   RUN_TEST(test_the_memory_extent_counts_and_its_contents_are_hashed_elsewhere);
   RUN_TEST(test_the_diagnostic_counters_do_not_move_the_hash);
   RUN_TEST(test_two_boards_given_the_same_accesses_agree_at_every_step);
+  RUN_TEST(test_the_last_two_board_registers_move_the_hash);
+  RUN_TEST(test_every_parity_bit_moves_the_hash);
+  RUN_TEST(test_every_dma_page_register_moves_the_hash);
+  RUN_TEST(test_every_arbiter_field_moves_the_hash);
+  RUN_TEST(test_every_external_master_field_moves_the_hash);
+  RUN_TEST(test_every_matrox_field_moves_the_hash);
+  RUN_TEST(test_every_ethernet_card_field_moves_the_hash);
+  RUN_TEST(test_an_ethernet_fifo_byte_beyond_the_count_does_not_move_the_hash);
+  RUN_TEST(test_every_ethernet_adapter_field_moves_the_hash);
+  RUN_TEST(test_the_ethernet_wire_is_hashed_by_presence_not_by_address);
+  RUN_TEST(test_every_ring_station_field_moves_the_hash);
   return UNITY_END();
 }

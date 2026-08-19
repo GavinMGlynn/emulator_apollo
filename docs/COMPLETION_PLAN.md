@@ -4501,20 +4501,19 @@ discipline throughout.
       so the audit that asks "is each one wired" comes back clean. Seven now
       have one. Detail, and the state-versus-diagnostic table, in
       `PROJECT_STATUS.md`.
-      *Verification: the reference re-baselines twice,
-      `03EE415450926A89` → `D7BA23DD7961F1A1` → `FF63E141DB798A21`. That it
-      moved at each step is the measurement — state left untouched by the boot
-      would have changed nothing. No golden embeds a state hash; `ctest`
-      139/139 throughout.*
-- [ ] **Hash `ap_3c505_adapter_t`.** `PROVISIONAL`, and scoped rather than
-      deferred vaguely: an address PROM, receive mode and multicast table, six
-      host-readable statistics counters (state, not diagnostics — the host reads
-      them back), two staged frame buffers, three nested PCB structures and an
-      `ap_3c505_wire_t`. It also carries a `transmit` function pointer and a
-      `void *context`, which must never reach a hash — `ap_hash.h` has no
-      `ap_hash_ptr` so that a host address cannot make two identical machines
-      differ. What it needs is each nested struct walked the way `hash_i8259`
-      and `hash_mc6840_timer` are, which is a piece of work rather than a line.
+      *Verification: the reference re-baselines to `5E0A1A6BE4B54647` over
+      three steps, and that it moved at each is the measurement — state left
+      untouched by the boot would have changed nothing. No golden embeds a state
+      hash; `ctest` 139/139 throughout.*
+- [x] **Hash `ap_3c505_adapter_t`** — the ninth member, and the one left as a
+      named gap because it carries a `transmit` function pointer and a
+      `void *context` that must never reach a hash. Each nested PCB struct is
+      now walked, variable-length buffers are hashed to their live length, and
+      the pointers are hashed by *presence*. Detail in `PROJECT_STATUS.md`.
+      *Verification: `board_state_suite` 23 → 34 — one test per newly-hashed
+      member, every field asserted individually, plus one that gives two boards
+      two different contexts and requires them to hash **alike**. The reference
+      moves a third time, `FF63E141DB798A21` → `5E0A1A6BE4B54647`.*
 - [x] **The ring station's buffers were lent by nobody, so a booting node could
       neither transmit nor receive.** `attach_tx` was called by tests only and
       `attach_rx` by nothing at all, so `ap_ring_station_queue_frame` returned

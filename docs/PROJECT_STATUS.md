@@ -6305,7 +6305,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Model table (`model/`) | working, 9 models | `model_suite`, 21 tests |
 | Time base (`time/`) | working | `time_suite`, 17 tests |
 | State hash (`state/`) | primitive working | `hash_suite`, 13 tests, incl. published FNV-1a 64 vectors |
-| Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 23 tests sweeping every device field by field |
+| Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 34 tests sweeping every device field by field |
 | Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 56 tests, incl. the same workload run twice on two boards agreeing at every step |
 | Ring protocol stack (`ring/ap_ring_{mac,frame,framer,phy,medium,station}.*`) | **JOINED TO THE CONTROLLER, and two boards on one segment exchange a frame; not yet reachable from a *booting* machine.** `ap_ring_ctl_attach_ring` is the wire `RING.md` 85e opened and 104 closed: a transmit command assembles the frame in the board's buffer and hands it to the station, MISC_CMD's `nct` drives §3.5's bypass relay and RCV_CMD's `rcv` the receiver, and the board's node ID becomes the station's ring address. The medium now has a home: `ap_board_t` owns the **station** (the card) and `ap_board_join_ring` lends it a **shared segment** (the cable), because a board that owned a medium would make every ring single-node by construction. `board_suite` drives two boards through their register interfaces and the header arrives in the other's buffer. `--ring` now owns a **segment** and joins the card to it, `ap_board_advance` polls the ring when the card has a cable, and the card's **interrupt line is wired** — master IRQ 2, documented at last (`RING.md` 107). **A frame now crosses under `ap_board_advance`** — the ring's 12 Mbit/s bit clock is driven from board time, with only the segment's lowest attached slot stepping the shared cable, and `board_suite` advances two boards' *clocks* and requires the frame to arrive. **And `ap_ring_sched` is wired**: `ap_board_join_ring_sched` registers a board as a ring participant at the medium's own bit rate, so nodes of different models can share one segment against `AP_TIME_BASE_HZ` — `board_suite` runs a real exchange through it and asserts the scheduler's phase hash is identical across two runs. **And a segment now crosses process boundaries**: `frontend/common/ap_ring_link.*` carries the cable's cells between two emulator instances in strict lock-step, batched a cable-length at a time — which `[MAC]` §3.4 makes free, since a bit cannot reach the next node for 64 bit times anyway. **The DMA question is answered and it was the wrong question**: `002398-04` p. 12-23 enumerates the DN3000's DMA Channel Usage in full — SDLC, floppy, cascade, the rest available — and the ring is not among them, so there is no host channel to model. The host reaches the buffer through `RAM_ADDR`/`RAM_DATA`, which is what this core does; finding 79's "loop xmit DMA to rcv DMA" is the gate array's own internal DMA. **And `--ring-two-node [N]` runs two whole machines on one segment** — two boards with distinct node IDs on one `ap_ring_sched`, each machine run a slice at a time with the ring advanced only to the time *both* have reached, reporting each node's PC and the ring's phase hash, reproducibly and without needing firmware. **Domain/OS now accepts the card** (`RING.md` 119): with a sealed configuration table, the device bits set from what is fitted, register `2B` = 2 and a ring option ROM, the SR10.4 diagnostic runs `network driver search` and an Apollo Token Ring test — and fails on `Expected= 0000FC03, Actual= 0000FC00, Address= 00059800`, which is SUBTEST 32's number reached by a second, independent path. **What is still missing**: that one count, and 80c's loopback residual. *The clause that used to follow -- "so the plan's `lcnode` check needs a booted Domain/OS per node, a disk question rather than a ring one" -- was answered on 2026-08-19*: both nodes now boot Domain/OS from their own installed volumes on one segment, each reaching `Domain/OS kernel(7)` with `Apollo Token Ring test passed.` and its driver loaded. `lcnode` itself moved to the multi-node workloads item, because it needs a *shell*, which needs `siologin`, which is a separate open thread (`FINDINGS.md` C222); this item's verification was rewritten to the ring property it is actually about -- two booted nodes exchanging frames, which the runner now reports as it happens. What else is done, and audited line by line against `[MAC]` chapters 1-3 and Appendix A (findings 85-94): bit stuffing and the four out-of-band characters, the three separators, all five framing sequences and the CRC, the bi-phase physical layer with both clock domains, §3.5's bypass relay in both halves, per-hop cable delay, and the station's §2.1 transmit sequence, §2.2.2.2 destination and broadcast matching, and both acknowledge fields modified in flight. **And the station's two buffers are now lent by the board, which nothing was doing.** `ap_ring_station` allocates nothing, so both the transmit bit stream and the received frame live in caller storage — and `ap_ring_station_attach_tx` was called by **tests only** while `ap_ring_station_attach_rx` was called by **nothing at all**. On a running machine `ap_ring_station_queue_frame` therefore returned false on its first line (`tx_bits == NULL`), so a booting node could never transmit, and every received byte was discarded without even setting the overrun flag, which needs a non-NULL buffer to report against. Every ring suite passed throughout, because each one attached its own buffer — the failure mode where the test supplies the wiring the board does not. Found by sweeping `src/core`'s exported functions for ones nothing calls. The board owns the storage now, sized from `[EH]` p. 12-29's 1 KB header plus 1 KB data, and the three board tests that used to attach their own no longer do — so they exercise the machine's wiring rather than their own. The row said "not started", which was stale by six modules | `ring_mac_suite`, 11 tests; `ring_frame_suite`, 9 tests; `ring_framer_suite`, 12 tests; `ring_phy_suite`, 9 tests; `ring_medium_suite`, 12 tests, including a three-station ring circulating a token; `ring_station_suite`, 20 tests, including a frame delivered to its addressee with a bystander required *not* to accept it, and a **transmitter reading back the acknowledge its own frame returned with** -- `[MAC]` §2.2.2.5, the only way a sender ever learns whether anybody took its packet (`RING.md` 137); `ring_sched_suite`, 7 tests |
 | Ring controller (`device/ap_ring_ctl.*`) | **register interface working**, wired into the AT decode: a unit's two windows, the ID register, the presence gate and its two Intel 8254 timers, all from the firmware disassembly that is this board's only specification. Fitted only on request -- an empty slot reads `FF`, which `RING.md` finding 40 makes the successful outcome of the firmware's probe. The dual-ported RAM buffer is **64 KB reached through the `+406` data port**, not a memory window -- findings 46, 46a and 47, which correct finding 42. **Nothing is blocked on a source any more**: `+400` MISC_STAT, `+402` XMIT_STAT and `+404` RCV_STAT are named bit for bit from `002398-04` pp. 12-30/12-31, and `ring8a.drvr` corroborates them from the board's own driver (`RING.md` 93, 97). The row said the meanings were blocked, which was stale by two findings | `ring_ctl_suite`, 24 tests, one of which is the firmware's own 64 KB memory test, one of which decomposes all three idle words into their named bits, one of which walks the first window's eight write-only registers, one of which reads that window as the node ID PROM it is -- four ID lanes, eleven unused slots and a checksum (`RING.md` 136) -- and one of which resets the board through `BOARD_RESET` at `59000`; the three receive counters are clocked individually since `[EH]` pp. 12-30/12-31 show header and data are separate phases on this board (`RING.md` 95a-95c); `i8254_suite`, 7 tests; `board_suite` 38 -> 40 |
@@ -21456,7 +21456,7 @@ the defect was in the report and the fix is there.*
 
 ## The reference is re-baselined: two writable registers were outside the hash
 
-**`03EE415450926A89` is retired; the reference is `FF63E141DB798A21`.** The
+**`03EE415450926A89` is retired; the reference is `5E0A1A6BE4B54647`.** The
 invocation is unchanged — `tools/identity-boot.sh` — and nothing the machine
 does changed. What changed is what the hash *covers*.
 
@@ -21510,14 +21510,36 @@ Seven now do, and the hash moved again, `D7BA23DD7961F1A1` →
 | `ethernet` | the 3c505's eight host-visible registers and its FIFO |
 | `ring_station` | the ring card: where it sits on the cable, what it is transmitting, and how far into a passing frame its receiver has got |
 
-**One is deliberately still out, with its scope named.** `ap_3c505_adapter_t` is
-a much larger part — an address PROM, receive mode and multicast table, six
-host-readable statistics counters, two staged frame buffers, three nested PCB
-structures and a wire — and it carries a `transmit` **function pointer** and a
-`void *context`. Those must never reach a hash; `ap_hash.h` has no `ap_hash_ptr`
-precisely so a host address cannot make two identical machines differ. Hashing
-around them needs each nested struct walked the way `hash_i8259` is, and doing
-that carelessly is worse than the gap. It is an item in `COMPLETION_PLAN.md`.
+**And the ninth is now in too**, which took the reference to
+`5E0A1A6BE4B54647`. `ap_3c505_adapter_t` was the one left out as a named gap
+because it is a much larger part: an address PROM, receive mode and multicast
+table, six host-readable statistics counters, two staged frame buffers, three
+nested PCB structures and a wire. Each nested struct is now walked the way
+`hash_i8259` is, and the variable-length parts are hashed to their live length —
+`pending.pcb.data` to `length`, `transmit_buffer` to `transmit_received`,
+`staged` to `staged_length` — because bytes past it are the previous frame's and
+two adapters agreeing on everything readable must hash alike. `incoming.buffer`
+is the exception and is hashed whole: its `written` is a *total* and the write
+position is that modulo the buffer, so every byte of it can be live.
+
+**The statistics are the case that shows where the line falls.** They are
+hashed, where `parity`'s error tallies and the ring station's frame counters are
+not — because a driver reads the 3c505's back with a `Network Statistics`
+command, and nothing in the machine can read the others. "Counter" is not the
+test; "can the machine see it" is.
+
+**The `transmit` function pointer and the `void *context` stay out**, and that
+is now asserted rather than merely intended:
+`test_the_ethernet_wire_is_hashed_by_presence_not_by_address` gives two boards
+two different contexts and requires them to hash **alike**, then clears one and
+requires them to differ. `ap_hash.h` has no `ap_hash_ptr` for exactly this
+reason.
+
+**The tests are the other half of the fix.** `board_state_suite` had a thorough
+`test_every_X_field_moves_the_hash` per struct and was silent about which
+structs existed — so nothing could be missing from a test that was never
+written. It is 23 → 34, one per newly-hashed member, and every field asserted
+individually.
 
 **Diagnostic counters stay out throughout**, which is the convention this file
 already had: `parity`'s error tallies, `matrox`'s `frame_writes`, and the ring
