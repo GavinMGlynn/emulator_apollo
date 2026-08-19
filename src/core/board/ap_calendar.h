@@ -297,9 +297,26 @@ void ap_calendar_build_config(uint8_t *battery, unsigned count,
  * one thing the utility's strings do not settle -- so it is written as the
  * diagnostic's own arithmetic checks it: Domain/OS SELF_TEST prints, per slot,
  * both "megabytes of memory in configuration table" and "megabytes of memory
- * sized", and the two agreeing is the confirmation. `PROJECT_STATUS.md`. */
+ * sized", and the two agreeing is the confirmation. `PROJECT_STATUS.md`.
+ *
+ * ## Per slot, because "the total over four" is not the same question
+ *
+ * This took a total and divided it by the four fitted slots. That is right on
+ * the two sizes it was ever exercised at -- 16 MB is four 4 MB boards, 32 MB is
+ * four 8 MB ones -- and wrong on every other configuration the firmware's own
+ * decode chain lists: **20 MB is `8-4-4-4`**, not five megabytes four times,
+ * and 12 MB is `4-4-4-0`, three boards and an empty slot rather than four
+ * boards of three. Neither five nor three is a size Apollo shipped, so the
+ * configuration table was describing hardware that does not exist -- and this
+ * is precisely the field SELF_TEST compares against what it sizes.
+ *
+ * `ap_sio_ram_bank_layout` is where the layouts now live; they had been
+ * comments beside the strap bytes since they were read out of the boot PROMs.
+ * The caller passes what that returns, so the two halves of SELF_TEST's
+ * comparison come from one source. */
 void ap_calendar_set_memory_boards(uint8_t *battery, unsigned count,
-                                   unsigned megabytes);
+                                   const unsigned *slot_megabytes,
+                                   unsigned slots);
 
 void ap_calendar_load_battery(ap_calendar_t *calendar, const uint8_t *bytes,
                               unsigned count);

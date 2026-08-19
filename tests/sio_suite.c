@@ -777,6 +777,78 @@ static void test_the_second_2681_asks_on_the_first_ones_interrupt_line(void) {
   TEST_ASSERT_FALSE(ap_mc68681_irq(&sio.port[0]));
 }
 
+/* Every row's bank layout, asserted against the byte it sits beside -- because
+ * the layouts were comments for as long as they existed and two callers
+ * computed their own instead. The rows chosen are the ones where dividing the
+ * total by four gives a different answer, plus the two where it agrees, so the
+ * test would fail if the layouts were quietly replaced by an even split. */
+static void test_the_bank_layout_is_the_firmwares_and_not_an_even_split(void) {
+  static const struct {
+    ap_model_id_t model;
+    unsigned megabytes;
+    unsigned bank[AP_SIO_RAM_BANKS];
+  } rows[] = {
+      /* Agrees with dividing: the two sizes this was ever exercised at. */
+      {AP_MODEL_DN3500, 16u, {4u, 4u, 4u, 4u}},
+      {AP_MODEL_DN3500, 32u, {8u, 8u, 8u, 8u}},
+      /* Does not: 20 is 8-4-4-4, not four boards of five. */
+      {AP_MODEL_DN3500, 20u, {8u, 4u, 4u, 4u}},
+      /* Nor does 12: three boards and an empty slot, not four of three. */
+      {AP_MODEL_DN3500, 12u, {4u, 4u, 4u, 0u}},
+      {AP_MODEL_DN3500, 4u, {4u, 0u, 0u, 0u}},
+      {AP_MODEL_DN3500, 24u, {8u, 8u, 4u, 4u}},
+      {AP_MODEL_DN3500, 28u, {8u, 8u, 8u, 4u}},
+      /* A Series 3000's boards are 2 MB, which is what makes the strap byte
+       * model-dependent -- `20` is 2-2-2-2 here and 8-8-8-8 above. */
+      {AP_MODEL_DN3000, 8u, {2u, 2u, 2u, 2u}},
+      /* And the DN5500 disagrees with an even split at a size that divides:
+       * its own chain makes sixteen megabytes two 8 MB boards. */
+      {AP_MODEL_DN5500, 16u, {8u, 8u, 0u, 0u}},
+      {AP_MODEL_DN5500, 32u, {8u, 8u, 8u, 8u}},
+  };
+  for (unsigned i = 0; i < sizeof rows / sizeof rows[0]; i++) {
+    unsigned got[AP_SIO_RAM_BANKS] = {0u, 0u, 0u, 0u};
+    TEST_ASSERT_TRUE(ap_sio_ram_bank_layout(
+        rows[i].model, rows[i].megabytes * 1024u * 1024u, got,
+        AP_SIO_RAM_BANKS));
+    unsigned total = 0u;
+    for (unsigned b = 0; b < AP_SIO_RAM_BANKS; b++) {
+      TEST_ASSERT_EQUAL_UINT(rows[i].bank[b], got[b]);
+      total += got[b];
+    }
+    /* The layout has to add up to the size it is the layout of. */
+    TEST_ASSERT_EQUAL_UINT(rows[i].megabytes, total);
+  }
+}
+
+/* Refused rather than approximated, exactly as the byte is: a layout for a size
+ * no row lists would be this core deciding how Apollo populated a machine. */
+static void test_a_size_with_no_row_has_no_bank_layout(void) {
+  unsigned got[AP_SIO_RAM_BANKS];
+  TEST_ASSERT_FALSE(ap_sio_ram_bank_layout(AP_MODEL_DN3500, 64u * 1024u * 1024u,
+                                           got, AP_SIO_RAM_BANKS));
+  TEST_ASSERT_FALSE(ap_sio_ram_bank_layout(AP_MODEL_DN3000, 16u * 1024u * 1024u,
+                                           got, AP_SIO_RAM_BANKS));
+  /* A DN5500 has no 20 MB row even though its Series 4000 siblings do. */
+  TEST_ASSERT_FALSE(ap_sio_ram_bank_layout(AP_MODEL_DN5500, 20u * 1024u * 1024u,
+                                           got, AP_SIO_RAM_BANKS));
+}
+
+/* The strap is a property of the board, so a headless variant answers as the
+ * workstation it is built from -- the same rule the byte follows, and the one
+ * whose absence left all four DSPs unstrapped. */
+static void test_a_headless_variant_has_its_workstations_bank_layout(void) {
+  unsigned dsp[AP_SIO_RAM_BANKS];
+  unsigned dn[AP_SIO_RAM_BANKS];
+  TEST_ASSERT_TRUE(ap_sio_ram_bank_layout(AP_MODEL_DSP3500, 20u * 1024u * 1024u,
+                                          dsp, AP_SIO_RAM_BANKS));
+  TEST_ASSERT_TRUE(ap_sio_ram_bank_layout(AP_MODEL_DN3500, 20u * 1024u * 1024u,
+                                          dn, AP_SIO_RAM_BANKS));
+  for (unsigned b = 0; b < AP_SIO_RAM_BANKS; b++) {
+    TEST_ASSERT_EQUAL_UINT(dn[b], dsp[b]);
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_transmit_rate_comes_from_the_channels_clock_select);
@@ -810,5 +882,8 @@ int main(void) {
   RUN_TEST(test_the_strap_drives_seven_input_pins);
   RUN_TEST(test_the_refresh_output_returns_to_the_input_port);
   RUN_TEST(test_the_loopback_leaves_the_ram_config_pins_alone);
+  RUN_TEST(test_the_bank_layout_is_the_firmwares_and_not_an_even_split);
+  RUN_TEST(test_a_size_with_no_row_has_no_bank_layout);
+  RUN_TEST(test_a_headless_variant_has_its_workstations_bank_layout);
   return UNITY_END();
 }

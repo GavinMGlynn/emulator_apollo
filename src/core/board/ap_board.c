@@ -1348,23 +1348,26 @@ bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
         entry == NULL || entry->has_active_low_parity_lanes);
   }
   {
-    /* What `011400` reports, on the model that has it. The split from a total
-     * to four boards is `ap_calendar_set_memory_boards`'s -- four fitted slots
-     * of `megabytes / 4` -- and is repeated rather than shared because the two
-     * live on opposite sides of what SELF_TEST compares: the battery RAM is
-     * "megabytes of memory in configuration table" and this register is
-     * "megabytes of memory sized". A machine whose RAM does not divide into
-     * four boards of a size §4.2.1.18's table lists leaves the register at its
-     * "(No Board)" reset, because the alternative is inventing a code for a
-     * board Apollo did not sell. */
-    const unsigned megabytes = ram_bytes / (1024u * 1024u);
-    const unsigned per_board = megabytes / AP_BOARDREG_MEM_PRESENT_SLOTS;
-    unsigned slots[AP_BOARDREG_MEM_PRESENT_SLOTS];
-    for (unsigned i = 0; i < AP_BOARDREG_MEM_PRESENT_SLOTS; i++) {
-      slots[i] = per_board;
+    /* What `011400` reports, on the model that has it: which slots hold boards
+     * and how big each one is.
+     *
+     * **From the strap table's layout, not from dividing the total by four.**
+     * The two are the same for 16 and 32 MB and differ everywhere else -- 20 MB
+     * is `8-4-4-4` and 12 MB is `4-4-4-0` -- and on this very model they differ
+     * at a size that divides cleanly: the DN5500's own decode chain makes 16 MB
+     * `8-8-0-0`. Dividing would have had the register report four 4 MB boards
+     * on a machine whose firmware says it has two 8 MB ones, which is a
+     * disagreement SELF_TEST is built to notice.
+     *
+     * Left at its "(No Board)" reset when the model and size are not a row, or
+     * when a row names a board size §4.2.1.18 has no code for -- a Series
+     * 3000's 2 MB. Both are honest silences rather than invented values, and
+     * neither can arise on a machine that has this register. */
+    unsigned slots[AP_SIO_RAM_BANKS];
+    if (ap_sio_ram_bank_layout(model, ram_bytes, slots, AP_SIO_RAM_BANKS)) {
+      (void)ap_boardreg_set_memory_boards(&board->registers, slots,
+                                          AP_BOARDREG_MEM_PRESENT_SLOTS);
     }
-    (void)ap_boardreg_set_memory_boards(&board->registers, slots,
-                                        AP_BOARDREG_MEM_PRESENT_SLOTS);
   }
   ap_parity_init(&board->parity);
   ap_atmap_init(&board->translation_map);

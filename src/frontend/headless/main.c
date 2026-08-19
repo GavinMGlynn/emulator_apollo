@@ -1606,7 +1606,18 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
       }
       uint8_t battery[AP_CALENDAR_BATTERY_BYTES];
       ap_calendar_build_config(battery, sizeof battery, node_id[i], devices);
-      ap_calendar_set_memory_boards(battery, sizeof battery, ram_megabytes);
+      {
+        /* The firmware's own bank layout, so the configuration table and the
+         * memory the board reports are one answer. Silently left empty when the
+         * size is not a row -- the same position `ap_sio_ram_config_byte` takes,
+         * and the strap byte's own failure is the visible one. */
+        unsigned slots[AP_SIO_RAM_BANKS];
+        if (ap_sio_ram_bank_layout(model, ram_bytes, slots,
+                                   AP_SIO_RAM_BANKS)) {
+          ap_calendar_set_memory_boards(battery, sizeof battery, slots,
+                                        AP_SIO_RAM_BANKS);
+        }
+      }
       ap_calendar_load_battery(&board[i].calendar, battery, sizeof battery);
       /* Printed for the same reason the single-machine path prints it: a
        * configuration table is an *input* that leaves no other trace, and this
@@ -3878,7 +3889,15 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     }
     ap_calendar_build_config(battery, sizeof battery, board->node_id.id,
                              devices);
-    ap_calendar_set_memory_boards(battery, sizeof battery, ram_megabytes);
+    {
+      unsigned slots[AP_SIO_RAM_BANKS];
+      if (ap_sio_ram_bank_layout(model,
+                                 (uint32_t)ram_megabytes * 1024u * 1024u, slots,
+                                 AP_SIO_RAM_BANKS)) {
+        ap_calendar_set_memory_boards(battery, sizeof battery, slots,
+                                      AP_SIO_RAM_BANKS);
+      }
+    }
     ap_calendar_load_battery(&board->calendar, battery, sizeof battery);
     printf("calendar ram configured: node %06X, dev bits %08X, checksum %08X\n",
            board->node_id.id, devices,

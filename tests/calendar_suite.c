@@ -350,7 +350,9 @@ static void test_the_config_checksum_is_the_sum_the_utility_computes(void) {
 static void test_each_memory_board_is_one_byte_of_megabytes(void) {
   uint8_t battery[AP_CALENDAR_BATTERY_BYTES];
   ap_calendar_build_config(battery, sizeof battery, 0x012345u, 0u);
-  ap_calendar_set_memory_boards(battery, sizeof battery, 16u);
+  /* A DN3500's sixteen megabytes, which its firmware lays out as 4-4-4-4. */
+  const unsigned sixteen[4] = {4u, 4u, 4u, 4u};
+  ap_calendar_set_memory_boards(battery, sizeof battery, sixteen, 4u);
 
   const unsigned base = AP_CALENDAR_CONFIG_MEM_BOARD_ARRAY - 0x0Eu;
   /* Sixteen megabytes over the four boards this machine populates. */
@@ -395,6 +397,34 @@ static void test_a_sealed_config_table_carries_its_own_checksum(void) {
                            ap_calendar_config_checksum(battery, sizeof battery));
 }
 
+/* The array is per slot, and the layouts that are not four equal boards are
+ * the reason. This took a total and divided it by four, which is right for
+ * 16 and 32 MB and wrong for every other row of the firmware's own decode
+ * chain -- and a configuration table describing five- or three-megabyte boards
+ * is one SELF_TEST compares against memory it cannot find. */
+static void test_an_uneven_bank_layout_reaches_the_configuration_table(void) {
+  uint8_t battery[AP_CALENDAR_BATTERY_BYTES];
+  const unsigned base = AP_CALENDAR_CONFIG_MEM_BOARD_ARRAY - 0x0Eu;
+  /* Twenty megabytes: `8-4-4-4`, not four boards of five. */
+  const unsigned twenty[4] = {8u, 4u, 4u, 4u};
+  ap_calendar_build_config(battery, sizeof battery, 0x012345u, 0u);
+  ap_calendar_set_memory_boards(battery, sizeof battery, twenty, 4u);
+  TEST_ASSERT_EQUAL_HEX8(8u, battery[base + 0u]);
+  TEST_ASSERT_EQUAL_HEX8(4u, battery[base + 1u]);
+  TEST_ASSERT_EQUAL_HEX8(4u, battery[base + 2u]);
+  TEST_ASSERT_EQUAL_HEX8(4u, battery[base + 3u]);
+
+  /* Twelve: `4-4-4-0`, three boards and an **empty slot** -- which dividing
+   * cannot produce at all, since it fills every fitted slot. */
+  const unsigned twelve[4] = {4u, 4u, 4u, 0u};
+  ap_calendar_build_config(battery, sizeof battery, 0x012345u, 0u);
+  ap_calendar_set_memory_boards(battery, sizeof battery, twelve, 4u);
+  TEST_ASSERT_EQUAL_HEX8(4u, battery[base + 0u]);
+  TEST_ASSERT_EQUAL_HEX8(4u, battery[base + 1u]);
+  TEST_ASSERT_EQUAL_HEX8(4u, battery[base + 2u]);
+  TEST_ASSERT_EQUAL_HEX8(0u, battery[base + 3u]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_battery_keeps_the_ram_and_not_the_clock);
@@ -410,5 +440,6 @@ int main(void) {
   RUN_TEST(test_the_config_checksum_is_the_sum_the_utility_computes);
   RUN_TEST(test_a_sealed_config_table_carries_its_own_checksum);
   RUN_TEST(test_each_memory_board_is_one_byte_of_megabytes);
+  RUN_TEST(test_an_uneven_bank_layout_reaches_the_configuration_table);
   return UNITY_END();
 }

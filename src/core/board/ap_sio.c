@@ -315,6 +315,64 @@ bool ap_sio_receiver_enabled(const ap_sio_t *sio, unsigned unit,
   return sio->port[unit].channel[channel].rx_enabled;
 }
 
+/* The RAM configuration strap table, at file scope because two questions are
+ * answered out of one row: the byte the firmware reads, and the bank layout that
+ * byte stands for. See the header. */
+static const struct {
+  ap_model_id_t model;
+  uint32_t megabytes;
+  uint8_t byte;
+  /* The layout the same firmware decode chain gives beside the byte, slot 0
+   * first, zero for an empty slot. Data rather than the comment it used to
+   * be -- see `ap_sio_ram_bank_layout` in the header for the two callers that
+   * were dividing the total by four instead, and the rows where that is
+   * wrong. */
+  uint8_t bank[AP_SIO_RAM_BANKS];
+} table[] = {
+    /* Series 4000 firmware, both revisions, and the DN3500 runs the same
+     * chain. The unused spellings are `44` 8-0-0-0, `70` 8-4-0-0, `40`
+     * 8-4-4-0, `00` 8-8-4-0 and `30` 8-8-8-0. */
+    {AP_MODEL_DN3500, 4u, 0x54, {4u, 0u, 0u, 0u}}, /* 4-0-0-0 */
+    {AP_MODEL_DN3500, 8u, 0x64, {4u, 4u, 0u, 0u}}, /* 4-4-0-0 */
+    {AP_MODEL_DN3500, 12u, 0x50, {4u, 4u, 4u, 0u}}, /* 4-4-4-0 */
+    {AP_MODEL_DN3500, 16u, 0x60, {4u, 4u, 4u, 4u}}, /* 4-4-4-4 */
+    {AP_MODEL_DN3500, 20u, 0x10, {8u, 4u, 4u, 4u}}, /* 8-4-4-4 */
+    {AP_MODEL_DN3500, 24u, 0x04, {8u, 8u, 4u, 4u}}, /* 8-8-4-4 */
+    {AP_MODEL_DN3500, 28u, 0x24, {8u, 8u, 8u, 4u}}, /* 8-8-8-4 */
+    {AP_MODEL_DN3500, 32u, 0x20, {8u, 8u, 8u, 8u}}, /* 8-8-8-8 */
+    /* The DN3550 is a Series 3500 machine -- `[CFG]` p. D-77 opens "The
+       Domain Series 3500 Model 3550" -- and runs the same fourteen-arm chain,
+       so it strap for strap matches the rows above it. It needs its own rows
+       because the lookup keys on the board, and a workstation is its own
+       board. Without them it would go out unstrapped and the firmware would
+       read the port's `00` as twenty megabytes, which is exactly how the
+       DN4500 used to fail its memory self-test. */
+    {AP_MODEL_DN3550, 4u, 0x54, {4u, 0u, 0u, 0u}}, /* 4-0-0-0 */
+    {AP_MODEL_DN3550, 8u, 0x64, {4u, 4u, 0u, 0u}}, /* 4-4-0-0 */
+    {AP_MODEL_DN3550, 12u, 0x50, {4u, 4u, 4u, 0u}}, /* 4-4-4-0 */
+    {AP_MODEL_DN3550, 16u, 0x60, {4u, 4u, 4u, 4u}}, /* 4-4-4-4 */
+    {AP_MODEL_DN3550, 20u, 0x10, {8u, 4u, 4u, 4u}}, /* 8-4-4-4 */
+    {AP_MODEL_DN3550, 24u, 0x04, {8u, 8u, 4u, 4u}}, /* 8-8-4-4 */
+    {AP_MODEL_DN3550, 28u, 0x24, {8u, 8u, 8u, 4u}}, /* 8-8-8-4 */
+    {AP_MODEL_DN3550, 32u, 0x20, {8u, 8u, 8u, 8u}}, /* 8-8-8-8 */
+    {AP_MODEL_DN4500, 4u, 0x54, {4u, 0u, 0u, 0u}}, /* 4-0-0-0 */
+    {AP_MODEL_DN4500, 8u, 0x64, {4u, 4u, 0u, 0u}}, /* 4-4-0-0 */
+    {AP_MODEL_DN4500, 12u, 0x50, {4u, 4u, 4u, 0u}}, /* 4-4-4-0 */
+    {AP_MODEL_DN4500, 16u, 0x60, {4u, 4u, 4u, 4u}}, /* 4-4-4-4 */
+    {AP_MODEL_DN4500, 20u, 0x10, {8u, 4u, 4u, 4u}}, /* 8-4-4-4 */
+    {AP_MODEL_DN4500, 24u, 0x04, {8u, 8u, 4u, 4u}}, /* 8-8-4-4 */
+    {AP_MODEL_DN4500, 28u, 0x24, {8u, 8u, 8u, 4u}}, /* 8-8-8-4 */
+    {AP_MODEL_DN4500, 32u, 0x20, {8u, 8u, 8u, 8u}}, /* 8-8-8-8 */
+    /* Series 3000: a different firmware whose chain has not been read, so
+     * this stays the oracle's single point. `20` here is 2-2-2-2 and eight
+     * megabytes, which is what makes the byte model-dependent. */
+    {AP_MODEL_DN3000, 8u, 0x20, {2u, 2u, 2u, 2u}}, /* 2-2-2-2 */
+    /* DN5500, confirmed against its own chain (lists from `8260`), which
+     * carries the same fourteen and nineteen more above them. */
+    {AP_MODEL_DN5500, 16u, 0x14, {8u, 8u, 0u, 0u}}, /* 8-8-0-0 */
+    {AP_MODEL_DN5500, 32u, 0x20, {8u, 8u, 8u, 8u}}, /* 8-8-8-8 */
+};
+
 bool ap_sio_ram_config_byte(ap_model_id_t model, uint32_t ram_bytes,
                             uint8_t *out) {
   if (out == NULL) {
@@ -337,54 +395,6 @@ bool ap_sio_ram_config_byte(ap_model_id_t model, uint32_t ram_bytes,
    * twenty. A pair not listed is refused rather than approximated: a wrong byte
    * is a machine that sizes memory it does not have and finds out by
    * bus-erroring in the middle of its self-test. */
-  static const struct {
-    ap_model_id_t model;
-    uint32_t megabytes;
-    uint8_t byte;
-  } table[] = {
-      /* Series 4000 firmware, both revisions, and the DN3500 runs the same
-       * chain. The unused spellings are `44` 8-0-0-0, `70` 8-4-0-0, `40`
-       * 8-4-4-0, `00` 8-8-4-0 and `30` 8-8-8-0. */
-      {AP_MODEL_DN3500, 4u, 0x54u},   /* 4-0-0-0 */
-      {AP_MODEL_DN3500, 8u, 0x64u},   /* 4-4-0-0 */
-      {AP_MODEL_DN3500, 12u, 0x50u},  /* 4-4-4-0 */
-      {AP_MODEL_DN3500, 16u, 0x60u},  /* 4-4-4-4 */
-      {AP_MODEL_DN3500, 20u, 0x10u},  /* 8-4-4-4 */
-      {AP_MODEL_DN3500, 24u, 0x04u},  /* 8-8-4-4 */
-      {AP_MODEL_DN3500, 28u, 0x24u},  /* 8-8-8-4 */
-      {AP_MODEL_DN3500, 32u, 0x20u},  /* 8-8-8-8 */
-      /* The DN3550 is a Series 3500 machine -- `[CFG]` p. D-77 opens "The
-         Domain Series 3500 Model 3550" -- and runs the same fourteen-arm chain,
-         so it strap for strap matches the rows above it. It needs its own rows
-         because the lookup keys on the board, and a workstation is its own
-         board. Without them it would go out unstrapped and the firmware would
-         read the port's `00` as twenty megabytes, which is exactly how the
-         DN4500 used to fail its memory self-test. */
-      {AP_MODEL_DN3550, 4u, 0x54u},   /* 4-0-0-0 */
-      {AP_MODEL_DN3550, 8u, 0x64u},   /* 4-4-0-0 */
-      {AP_MODEL_DN3550, 12u, 0x50u},  /* 4-4-4-0 */
-      {AP_MODEL_DN3550, 16u, 0x60u},  /* 4-4-4-4 */
-      {AP_MODEL_DN3550, 20u, 0x10u},  /* 8-4-4-4 */
-      {AP_MODEL_DN3550, 24u, 0x04u},  /* 8-8-4-4 */
-      {AP_MODEL_DN3550, 28u, 0x24u},  /* 8-8-8-4 */
-      {AP_MODEL_DN3550, 32u, 0x20u},  /* 8-8-8-8 */
-      {AP_MODEL_DN4500, 4u, 0x54u},   /* 4-0-0-0 */
-      {AP_MODEL_DN4500, 8u, 0x64u},   /* 4-4-0-0 */
-      {AP_MODEL_DN4500, 12u, 0x50u},  /* 4-4-4-0 */
-      {AP_MODEL_DN4500, 16u, 0x60u},  /* 4-4-4-4 */
-      {AP_MODEL_DN4500, 20u, 0x10u},  /* 8-4-4-4 */
-      {AP_MODEL_DN4500, 24u, 0x04u},  /* 8-8-4-4 */
-      {AP_MODEL_DN4500, 28u, 0x24u},  /* 8-8-8-4 */
-      {AP_MODEL_DN4500, 32u, 0x20u},  /* 8-8-8-8 */
-      /* Series 3000: a different firmware whose chain has not been read, so
-       * this stays the oracle's single point. `20` here is 2-2-2-2 and eight
-       * megabytes, which is what makes the byte model-dependent. */
-      {AP_MODEL_DN3000, 8u, 0x20u},   /* 2-2-2-2 */
-      /* DN5500, confirmed against its own chain (lists from `8260`), which
-       * carries the same fourteen and nineteen more above them. */
-      {AP_MODEL_DN5500, 16u, 0x14u},  /* 8-8-0-0 */
-      {AP_MODEL_DN5500, 32u, 0x20u},  /* 8-8-8-8 */
-  };
   /* The strap is a property of the **board**, so a DSP variant is looked up as
    * the workstation it is built from. Keying this on the model left all four
    * unstrapped and failing their memory self-tests -- the same failure an
@@ -397,6 +407,27 @@ bool ap_sio_ram_config_byte(ap_model_id_t model, uint32_t ram_bytes,
   for (unsigned i = 0; i < sizeof table / sizeof table[0]; i++) {
     if (table[i].model == board && table[i].megabytes == megabytes) {
       *out = table[i].byte;
+      return true;
+    }
+  }
+  return false;
+}
+
+bool ap_sio_ram_bank_layout(ap_model_id_t model, uint32_t ram_bytes,
+                            unsigned *slot_megabytes, unsigned slots) {
+  if (slot_megabytes == NULL || slots != AP_SIO_RAM_BANKS) {
+    return false;
+  }
+  /* The same lookup as the byte, keyed on the board for the same reason: the
+   * strap and the layout are one row, and a DSP variant is its workstation. */
+  const ap_model_t *entry = ap_model_by_id(model);
+  const ap_model_id_t board = entry != NULL ? entry->board_of : model;
+  const uint32_t megabytes = ram_bytes / (1024u * 1024u);
+  for (unsigned i = 0; i < sizeof table / sizeof table[0]; i++) {
+    if (table[i].model == board && table[i].megabytes == megabytes) {
+      for (unsigned slot = 0; slot < slots; slot++) {
+        slot_megabytes[slot] = table[i].bank[slot];
+      }
       return true;
     }
   }

@@ -4495,6 +4495,19 @@ discipline throughout.
       including all **35** configurations `019411-A00` §4.2.1.18 publishes for
       the memory present register. Identity harness re-run: `03EE415450926A89`,
       unchanged, which is what says the DN3500 is untouched.*
+- [x] **The memory bank layouts were comments, and two callers divided by four
+      instead.** Every row of the RAM strap table carries a layout read out of
+      the boot PROMs' own decode chain — `4-4-4-0`, `8-4-4-4`, `2-2-2-2` — and
+      those layouts had never been data. `ap_calendar_set_memory_boards` and the
+      new memory present register both computed `total / 4`, which agrees with
+      the firmware on 16 and 32 MB and disagrees on every other row it can
+      reach, and disagrees with the DN5500 even at 16 MB (`8-8-0-0`). Now one
+      source, `ap_sio_ram_bank_layout`. Detail in `PROJECT_STATUS.md`.
+      *Verification: `sio_suite` 31 → 34 asserting all ten rows including the
+      three where an even split differs, `calendar_suite` 13 → 14 on `8-4-4-4`
+      and `4-4-4-0`'s empty slot. Identity harness re-run: `03EE415450926A89`,
+      unchanged — 16 MB is `4-4-4-4` either way, which is why this was invisible
+      for as long as it was.*
 - [ ] **The DS5500's address translation map is 4 KB, and ours is 2 KB.**
       `PROVISIONAL`. Table 2-5 gives `017000`-`017FFF` where `[S3K]` §2.5 gives
       `017000`-`0177FF`, and `AP_ATMAP_LIMIT` follows the latter. Placing the

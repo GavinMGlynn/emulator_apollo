@@ -329,6 +329,37 @@ void ap_sio_receive_framed(ap_sio_t *sio, unsigned unit, unsigned channel,
 [[nodiscard]] bool ap_sio_ram_config_byte(ap_model_id_t model,
                                           uint32_t ram_bytes, uint8_t *out);
 
+/* ## The bank layout behind each byte, which is a different question
+ *
+ * Every row of that table carries a layout -- `4-4-4-0`, `8-4-4-4`, `2-2-2-2` --
+ * read out of the firmware's own decode chain along with the byte. Those
+ * layouts were **comments** for as long as they existed, and two places that
+ * needed exactly this fact computed it instead by dividing the total by four:
+ * `ap_calendar_set_memory_boards`, which fills the battery RAM's configuration
+ * table, and the DS5500's memory present register.
+ *
+ * Dividing agrees with the firmware on the sizes that divide -- 16 MB is
+ * `4-4-4-4` and 32 MB is `8-8-8-8` -- and disagrees on every other row it can
+ * reach. **20 MB is `8-4-4-4`, not five megabytes four times**; 12 MB is
+ * `4-4-4-0`, three populated slots and an empty one, not four of three. And the
+ * DN5500 contradicts it at a size that *does* divide: its own chain makes 16 MB
+ * `8-8-0-0`, so a machine that reported four 4 MB boards would be describing
+ * hardware that model does not ship.
+ *
+ * `slot_megabytes` is filled slot 0 first, zero for an empty slot. False when
+ * the model and size are not a row, for the same reason the byte is refused.
+ *
+ * Note the sizes are **board** sizes, so a row can name one this project's
+ * other tables have no encoding for: `2-2-2-2` is a Series 3000 and
+ * `019411-A00` §4.2.1.18's two-bit code has no 2 MB. That is a real difference
+ * between the machines rather than a conflict -- a DN3000 has no memory present
+ * register to encode it into. */
+#define AP_SIO_RAM_BANKS 4u
+[[nodiscard]] bool ap_sio_ram_bank_layout(ap_model_id_t model,
+                                          uint32_t ram_bytes,
+                                          unsigned *slot_megabytes,
+                                          unsigned slots);
+
 /* ## The keyboard's own framing
  *
  * Measured, not assumed: `apollo_kbd_device::device_reset` says "keyboard comms
