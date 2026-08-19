@@ -436,9 +436,10 @@ summarised, with their reasoning moved to the end of this file.
 ## The floppy drive had no access time, and chapter 6 named the Winchester
 ## (2026-08-20)
 
-From the `008778-03` whole-document walk, chapters 6 through 9 — the two disk
-drive specifications, the tape controller and the tape drive. Coverage in
-`docs/references/008778-03_WALK.md`, now 95 pages of 209.
+From the `008778-03` whole-document walk, chapters 6 through 11 — the two disk
+drive specifications, the tape controller and drive, the graphics controllers
+and the monitors. Coverage in `docs/references/008778-03_WALK.md`, now 116 pages
+of 209.
 
 ### The floppy had the defect the fixed disk was fixed for
 
@@ -566,6 +567,41 @@ clocks. A 0.10% shift is what a change touching 14.6 M disk accesses out of
 number, `A354786119A3931D`, was superseded twice earlier in this walk by the AT
 bus cycle time and the 16-bit Winchester transfer, and was stale here. **It was
 superseded again one commit later — see below.**
+
+### Chapters 10 and 11: the graphics chapters confirm, and name three boards
+
+The two display chapters are the first in this walk to yield **no gap**, and
+that is a finished result rather than a thin one — the raster work done on
+2026-08-16 had already derived both of their timing tables, and the walk
+re-checked every step.
+
+Table 11-4 gives the colour raster and states the vertical total in prose:
+"Within the composite sync signal, **842 horizontal periods** occur for each
+vertical period" — the figure that corrected the oracle's 841. Its horizontal
+decomposes exactly at the implied 14.73 ns pixel, 1024 of display and 320 of
+blanking for `h_total` 1344. Table 11-8 gives the monochrome raster and closes
+to the digit: 15.625 ms a frame is **64.00 Hz**, 1066.0 lines, and the porches
+at 8.47 ns sum to 448 of blanking for `h_total` 1728.
+
+**One internal inconsistency, settled by arithmetic.** §11's prose calls the
+19-inch monochrome monitor "60-Hz"; §10.2 gives its controller 64 Hz, and Table
+11-8 four pages later resolves to 64.00. `ap_graphics.h` had already noted that
+the prose "matches neither" — this walk confirms the prose is the outlier.
+
+What the chapters add is **identification**, now recorded in `ap_graphics.h`:
+the monochrome controller is **008157** on the DN3000's 6-MHz bus and **010735**
+on the DN4000's 8-MHz, and §10.2 says they are one design — "the major
+differences ... are an increase in clock speed ... The remaining major
+specifications, including board layout and population, are unchanged" — which is
+why one model serves both. The 8-plane colour board is **010104**. And §10.3.1's
+eleven-item difference list, the same one `[S3K]` carries, gives the 8-plane
+"Device ID changed register to readback **$0A**" — which is
+`AP_SCREEN_COLOUR_8_PLANE = 10`, a value read off the boot PROM's comparison
+sequence and now confirmed from the manual's side.
+
+Also recorded: §10.4's "**the controller is a slave device on the bus**", which
+is why no graphics controller appears in `ap_arbiter`'s priority list. An
+absence that would otherwise read as an omission.
 
 ### Chapter 9: the tape drive's rate, and a reference hash published too early
 

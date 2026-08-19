@@ -81,7 +81,29 @@
 
 /* The screen types the firmware knows, by the value it compares the ID
  * register against. The boot PROM tests for them in this order: `08` and `0A`
- * at the colour block, then `09` and `0B` at the monochrome one. */
+ * at the colour block, then `09` and `0B` at the monochrome one.
+ *
+ * **`0A` is confirmed from Apollo's own side**, which these values were not
+ * when they were read off the PROM's comparison sequence: `008778-03` §10.3.1,
+ * *8-Plane Differences*, lists "**Device ID changed register to readback
+ * $0A**" among the eleven things that distinguish the 8-plane board from the
+ * 4-plane it was modelled after. Firmware and manual agreeing on a byte.
+ *
+ * Chapter 10 also names the boards, which nothing here recorded before. They
+ * are identification rather than behaviour -- no register reports a part number
+ * -- but they pin which physical board each of these enumerators is, and the
+ * two monochrome entries are a bus-speed pair rather than two designs:
+ *
+ *     008157   1280x1024 monochrome, DN3000, 6-MHz AT bus
+ *     010735   1280x1024 monochrome, DN4000, 8-MHz AT bus
+ *     010104   1024x800 8-plane colour
+ *
+ * §10.2 on the two monochrome boards: "The major differences in the
+ * con[t]rollers are an increase in clock speed for the DN4000 controller and
+ * the alteration of several logic elements to support the new clock speed. The
+ * remaining major specifications, including board layout and population, are
+ * unchanged." So one monochrome model serves both, and the difference is the
+ * bus cycle time `board/ap_atbus.h` already carries per family. */
 typedef enum {
   AP_SCREEN_NONE = 0,           /* no display controller fitted */
   AP_SCREEN_COLOUR_4_PLANE = 8, /* C4P */
@@ -716,6 +738,13 @@ typedef struct {
    * Closing it means recomputing the time base, which changes the unit of
    * account for every clock in the machine and no behaviour, and is not worth
    * 0.15% on one monitor.
+   *
+   * The band that check is against, made explicit because "inside Table 11-3's
+   * bounds" is doing real work here: **50.2 kHz +/- 500 Hz** horizontal and
+   * **47 to 80 Hz** vertical. With `h_total` 1344 the horizontal band admits a
+   * dot clock of 66.80 to 68.14 MHz, so the modelled 68 has 140 kHz of margin
+   * -- and Table 11-4's own 50.519 kHz sits inside the same band, which is how
+   * the two tables are known to agree rather than assumed to.
    *
    * Table 11-8 does the same for the 1280x1024 monochrome, giving active video,
    * blanking, both porches and the sync pulse. Its totals corroborate the
