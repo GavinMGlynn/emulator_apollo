@@ -5577,6 +5577,47 @@ Only after the reference core is proven, and only under an identity harness.
       run as a node its disk contradicts. Given its own node the same volume
       reaches `Starting standard daemons:.`, hash `5671D8D76ACDC046`.
 
+## The `002398-04` whole-document walk
+
+`002398-04` *Domain Engineering Handbook* Rev 4, **330 pages**, marked Apollo
+Confidential. The rule applies to it for the strongest possible reason: it has
+been **consulted five times and yielded a fact every time** — the keyboard
+beeper's command sequence and 300 ms auto-off, the DMA channel usage, the DMA
+page register's offset-to-channel map that `008778-03` omits, the DN3000's
+interrupt request line assignments that settled the ring's IRQ2, and the
+`CRASH_STATUS` list. It has never been derived in full.
+
+The record is `docs/references/002398-04_WALK.md`, in the same shape as the
+finished `008778-03_WALK.md`.
+
+**Started 2026-08-20. Front matter read (PDF 5–11); 0 content pages of 330.**
+
+- [ ] **Chapter 12, DN3000 — first, and the reason is scope.** Chapters 7–11 are
+      other machine families (DN300/320/330, DN400/420/600, DN460/660/DSP160,
+      DN5xx, DSP80/90); only chapter 12 is the family `src/core/model/` is built
+      around. Its contents name, at register level: address space by physical
+      address, beeper, calendar, **cartridge tape with six named registers**,
+      configuration, **CPU control/status register**, **disk (floppy/Winchester)
+      controller**, colour and monochrome display, fault frames and types, fault
+      vectors, floating-point registers, **parity error register**,
+      **programmable interrupt controller**, **ring**, **SIO** and **timers**.
+      Every one has a module in `src/core`, and none of those thirty-five pages
+      has been read whole.
+- [ ] **Chapters 1–6, machine-independent.** AEGIS structures including the
+      **ring packet format** and trap codes; the file system including the
+      **logical and physical volume labels** and the VTOC, which is what
+      `image/ap_volume.h` and the volume-label work are about; programming
+      information; **boot PROM diagnostic error codes per machine family** and
+      the MD and sysboot codes; **crash analysis**; peripheral I/O including the
+      **Low-Profile II keyboard charts in ASCII and keystate mode**, which is a
+      second source for `008778-03` Tables 12-1 and 12-2.
+- [ ] **Chapters 7–11 and the appendices.** Other families, out of the modelled
+      scope but inside the rule — a chapter describing a DN400's ring registers
+      may still be the only place a shared structure is written down.
+- [ ] **Read the index and cross-check it against the contents.** `008778-03`'s
+      front contents omitted its chapter 15 and its back index omitted its
+      chapter 16; each aid was missing a chapter the other had. Do not trust one.
+
 ## The `008778-03` whole-document walk
 
 `CLAUDE.md`: a document that yields one unimplemented fact is read **whole**.
