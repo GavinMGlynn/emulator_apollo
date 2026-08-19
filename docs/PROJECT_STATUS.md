@@ -1090,6 +1090,43 @@ ways -- so finding 50a holds twice: the firmware never reads that window, and
 this driver never writes `BOARD_RESET`. A boot could not have found any of it,
 and the suite asserted three of them backwards.
 
+### Three approximations were marked in code and never here (2026-08-19)
+
+`CLAUDE.md`: "model the documented value, mark it `PROVISIONAL` in code **and**
+in `docs/PROJECT_STATUS.md`, and make it a named plan item." Sixty-one
+`PROVISIONAL` markers are in the source and sixty-four mentions are in this
+document, which looked consistent and was not: three approximations are in the
+code only, and a reader of this file would not know they exist.
+
+**The AT bus clock rate** (`board/ap_atbus.h`). `008778-03`'s preface supports
+"the Domain Series 3000 (DS3000) and Series 4000 (DS4000)"; our reference
+machine is a **DS3500**, which `019411-A00` covers and which publishes no bus
+cycle times at all. So no document on disk pins the rate. What *is* pinned is the
+bracket -- an AT-compatible bus runs at one of two rates, the cycle counts agree
+at both, and only the memory read differs -- so the board takes the Series 3000
+set and **the disagreement it can produce is one bus clock on a memory read**.
+Both closing routes were tried and are dead: `019411-A00` is an *addendum* to a
+base handbook that bitsavers does not hold, and a web search does not find it.
+
+**Which parity lane bit is which byte** (`board/ap_parity.*`). Every boot PROM in
+hand drives the four lane bits **together** -- `08` on this family, `F8` on the
+DN3000's, both meaning all four -- so the field is only ever all-or-nothing and
+**no image distinguishes bit 4 from bit 7**. Neither manual lays the register
+out. The assignment is therefore a convention: lane `n` is the byte counted from
+the most significant of the longword, taking status bit `4 + n`. Nothing in the
+machine can tell it from the other three assignments.
+
+**The 68882's microcode version number** (`cpu/m68882/ap_m68882_cir.*`). The
+manual: "the format of this number is defined internally by the FPCP" and it
+publishes no value for any part -- so there is nothing to transcribe and nothing
+to be correct about. Recorded because a version register that answers *something*
+is a choice, even when no choice can be wrong.
+
+*None of the three is a defect and all three are the honest form -- a documented
+value where one exists, a named bracket where it does not. What was missing is
+that this file never said so, which is the half of the rule that makes an
+approximation reviewable by someone who did not write it.*
+
 ### An audit sweep: what is built and what the machine can reach (2026-08-19)
 
 `check-what-is-called-by-nobody` run across the core, prompted by it finding
