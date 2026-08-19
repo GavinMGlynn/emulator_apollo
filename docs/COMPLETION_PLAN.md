@@ -5333,9 +5333,20 @@ Only after the reference core is proven, and only under an identity harness.
       *Not a live defect* -- the DN3000 diffs pass, so its firmware does not
       depend on the difference within the window measured -- but it is exactly
       what `model/`'s own rule forbids, "all machine variance lives here", and
-      it means this item's remaining work is **one** change rather than two:
-      teach `ap_machine` to build the CPU and MMU its model row names. The
-      68040 and 68851 halves are already written and tested behind it.
+      **and the inference drawn from that on the day was wrong.** It read "so
+      this item's remaining work is *one* change: teach `ap_machine` to build
+      the CPU and MMU its model row names, the 68040 and 68851 halves being
+      already written and tested behind it". Checked an hour later: there is no
+      `ap_m68040_cpu_t`, no `ap_m68040_step`, and **no 68020 core either** --
+      only the 68030 has an execution core at all. What those directories hold
+      are the *parts a core would use* -- MMU descriptors, ATCs, caches, an
+      FPU, timing tables -- not a core, so `ap_machine` cannot be taught to
+      build one that does not exist. The DN5500 tail stays what it was: build a
+      68040 execution core, against the 68030's 14,034 lines of the same.
+      *The audit's facts stand -- 22 suites reachable only from their own tests,
+      and a model table whose `.mmu` only prints. The reading that this made the
+      work small did not, and it is the same shape as C220: a plausible
+      conclusion from real evidence, wrong because one thing was not checked.*
       **And the same shape appears a third time in the same table** (C228).
       Counting readers for every field of `ap_model_t` outside `ap_model.c`
       puts `cpu` at 110, `fpu` at 30, `ram_base` at 10 -- and **`has_ring` at
