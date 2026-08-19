@@ -5591,7 +5591,7 @@ The record is `docs/references/002398-04_WALK.md`, in the same shape as the
 finished `008778-03_WALK.md`.
 
 **Started 2026-08-20. Front matter read (PDF 5–11); chapter 12 begins at PDF
-279 and runs to 313. 5 content pages of 330.**
+279 and runs to 313. 6 content pages of 330.**
 
 - [ ] **The tape's STATUS SUMMARY table** (`002398-04` p. 12-5). Fifteen rows
       giving which *pairs* of status bytes mean which condition — no cartridge,

@@ -104,6 +104,18 @@ typedef enum {
 /* Status register, read only. Positions and polarity both from `[SC499]`'s page
  * image; see the header. **Two of these are asserted low**, which is why they
  * are not simply OR'd together on a read. */
+/* **The polarity has a second, independent source**, which matters because
+ * reading it wrong is what this file was corrected for. `002398-04` p. 12-6 is
+ * the DN3000's own description of these four registers, and it prints the sense
+ * as an explicit direction per bit: `irq`, `rdy` and `exc` each as **"0 =>"**,
+ * `don` and `dir` each as "1 =>". So the three bits this core marks active low
+ * are the three Apollo marks active low -- from the machine's vendor rather
+ * than the controller's, in a document that does not inherit `[SC499]`'s
+ * column-dropping text layer.
+ *
+ * The same page states the flag as a disjunction *with* its gate: "Interrupt
+ * request flag, **'or' of rdy and exc, and done if dni is set**" -- which is
+ * `ap_sc499_irq`'s list and its DONE-gated-on-DNIEN term in one sentence. */
 #define AP_SC499_ST_IRQ 0x80u /* **active low**: ORing of RDY and EXC, DONE if DNIEN */
 #define AP_SC499_ST_RDY 0x40u /* **active low**: "Ready, from LSI chip" */
 #define AP_SC499_ST_EXC 0x20u /* **active low**: "Exception, from LSI chip" */
