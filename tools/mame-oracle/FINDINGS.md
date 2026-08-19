@@ -12718,3 +12718,61 @@ models: a read-only register whose bits a boot PROM consults to size what is
 fitted. They are recorded now rather than when a 68040 core makes them
 reachable, because the document is in hand today and the reading of a page image
 is what made them visible.*
+
+## C237 -- Table 2-3 read as an image: IRQ1 is SIO **Port 1**, and no line is listed for Port 2
+
+`C234`/`C235` left the `siologin` blocker as "whether the second 2681's
+interrupt reaches a line we don't model is undocumented in every source". Part
+of that is now settled, and the rest is sharpened into something a single
+experiment can decide.
+
+**What the code does.** `ap_sio_irq` returns
+`ap_mc68681_irq(&sio->port[0]) || ap_mc68681_irq(&sio->port[1])` -- **both**
+DUARTs ORed into one line -- and `ap_board_sample_interrupts` drives
+`AP_SIO_IRQ`, which is `1`, from it. So in this core the second DUART at
+`010500` interrupts on IRQ1.
+
+**What `008778-03` Table 2-3 says**, read as a page image (PDF page 33, printed
+2-8) rather than an extraction:
+
+    IRQ0  *  prio 1    ctlr 1  CPU  MC6840 Timer
+    IRQ1  *  prio 2    ctlr 1  CPU  2681 SIO Port 1
+    IRQ2  *  --        ctlr 1  8    Cascaded Slave PIC to Master
+    IRQ8  *  prio 4+1  ctlr 2  CPU  MC146818 Calendar
+    IRQ13 *  prio 4+6  ctlr 2  CPU  Used During Diagnostic Tests
+    ...
+    IRQ4     prio 5    ctlr 1  8    SPE Board Serial Line 1 or User Device
+    IRQ9     prio 4+2  ctlr 2  8    802.3 Network Controller-AT #2, SPE Serial
+                                    Line 2, or User Device
+
+    * Used on-board CPU. Not available on the Bus.
+
+The starred rows are precisely the on-board lines, and they are enumerated:
+timer, **SIO Port 1**, cascade, calendar, diagnostics. **There is no row for
+SIO Port 2.** The two "SPE Serial Line" rows are an *SPE expansion board*, on
+the AT bus and unstarred, not the second on-board DUART.
+
+**And the tension, which is the useful part.** The observed symptom is that
+Domain/OS **arms the second DUART's interrupt mask** -- the run report reads
+`sio2 armed imr A2 isr 13` -- and then never reads `sio2 reg 3`, its interrupt
+status. An operating system does not arm an IMR on a part it believes cannot
+interrupt. So either Table 2-3 does not enumerate every on-board line, or the
+second DUART reaches the CPU by a route the table does not show.
+
+**The discriminating experiment, stated before it is run so its result cannot
+be read backwards.** Remove `port[1]` from `ap_sio_irq` -- exactly Table 2-3's
+reading -- and boot with the `siologin` volume:
+
+  - if `siologin` then makes progress, our ORing was the defect: the OS was
+    receiving an IRQ1 it could not clear, because it services port 1, which has
+    nothing pending, while port 1's line was being held up by port 2;
+  - if it makes no difference, the ORing is not implicated and `sio2 reg 3`
+    going unread has another cause, with Table 2-3 recorded as agreeing with a
+    change that bought nothing.
+
+**This is deliberately not done as a fix here.** The table walk is evidence
+about the hardware and the symptom is not; changing the model because a change
+"could explain the failure" is what `CLAUDE.md` names as the tell for stopping.
+What has been established is that the code and the manual **disagree**, which
+they were not known to before, and that the disagreement is testable in one
+boot.

@@ -50,6 +50,25 @@ reference core to chase speed** — that is the classic mistake.
   **The tell:** if a fix is justified by "this could explain the failure"
   rather than "this was measured to be the failure", stop and walk the tables.
   Detail and the session it came from: `../emulator-setup-guide.md`, Appendix.
+- **A document that turns out to contain one unimplemented thing is a document
+  that must be read WHOLE — page by page, line by line.** This is mandatory and
+  overrides the resolution order's economy: the moment a manual, addendum or
+  datasheet yields *one* fact this core does not have, stop treating it as a
+  reference to be queried and start treating it as a document to be **derived
+  in full**. Walk every page, capture every register, field, table row, figure,
+  timing and stated behaviour into code — or into a named `PROVISIONAL` gap
+  where it genuinely cannot be implemented — before moving on.
+  **Why it is not optional.** A document that was wrong about one thing was
+  never *consulted* about the rest; it was consulted about the one question
+  someone happened to ask. `019411-A00` was grepped and declared silent, then
+  read as page images and yielded three registers, a whole address map, a
+  fourth memory bank and a bank-layout correction — from ten pages. The
+  question "what else is in here?" has never once come back empty.
+  **The tell:** finding a gap and fixing only that gap. If the commit that
+  closes a documentary finding does not also say what the *rest* of the
+  document contained, the document was not read.
+  Record the walk's coverage — pages read, sections derived, what each yielded
+  — so a later reader can tell a finished document from a sampled one.
 - **FINISH THE MODULE. 100%, or it is not finished.** This is the rule most
   often broken here, and breaking it is the single most expensive habit in this
   project. A module is finished when **every** documented behaviour of the part
