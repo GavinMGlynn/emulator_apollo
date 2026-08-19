@@ -12480,3 +12480,38 @@ in flight -- deliver the character and read `isr`/`sr` afterwards:
     fault is further up, in `siologin` rather than in the delivery.
 
 *Recorded before that run reports, for the same reason C229 was.*
+
+## C231 -- the mask is armed and nothing reads the register: the two facts do not meet
+
+The discriminating run of C230 reported, with a carriage return delivered to
+`sio2` channel A:
+
+    sio2 armed  imr A2  isr 11  (A sr 04, B sr 04)
+    sio2 A      1 discarded unread,  0 dropped with the receiver disabled
+
+and its per-register counts are **identical** to the run that delivered no
+character at all -- `sio2 reg 2` 22 writes in both, and **no `sio2 reg 3` line
+in either**. Register 3 is `RHR A`, the receive holding register.
+
+**So the guest never reads line 2's data register, in either run**, while
+`imr = A2` says the receive-ready interrupt for that very channel is armed. The
+two facts do not meet: something armed the mask and nothing is draining the
+port. The most economical reading is that the mask is set by the generic SIO
+initialisation for both parts, and that no process is actually servicing line
+2 -- which is `siologin` blocked before its first read, exactly where C222 left
+it, and not a different fault.
+
+**And one observation is left unexplained rather than smoothed over.** `isr 11`
+has `RxRDY A` (`0x02`) **clear** and `A sr 04` has RxRDY clear, yet a character
+was counted discarded -- and `rx_flushed` increments only on a true overrun,
+"FIFO full **and** a character already in the receive shift register"
+(§4.2.9.4). A FIFO that overran should not then read empty with nothing having
+read it. Either the frontend's send-retry -- which resends whenever RxRDY is
+clear after a send, unable to tell "consumed" from "not accepted" -- drove more
+characters in than the script asked for, or the counter and the status disagree.
+**Both are our side, not the guest's**, and neither is established here.
+
+*Recorded as an open thread rather than resolved, because the alternative is a
+fifth story about a silence. What is now solid on this line: `siologin2_local`
+runs (C219), the mask for its channel is armed (C230), and its data register is
+never read (here).*
