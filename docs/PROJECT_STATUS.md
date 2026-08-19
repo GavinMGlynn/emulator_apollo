@@ -1090,6 +1090,49 @@ ways -- so finding 50a holds twice: the firmware never reads that window, and
 this driver never writes `BOARD_RESET`. A boot could not have found any of it,
 and the suite asserted three of them backwards.
 
+### An audit sweep: what is built and what the machine can reach (2026-08-19)
+
+`check-what-is-called-by-nobody` run across the core, prompted by it finding
+nineteen named ring status bits that nothing used. Four more results, and the
+scope of them matters as much as the count.
+
+**Two whole CPU parts are unreachable.** `src/core/cpu/m68040/` (3,181 lines, 13
+modules) and `src/core/cpu/m68851/` (2,039 lines, 9 suites) have **zero** call
+sites anywhere in `src/` outside their own directories -- not from `ap_machine`,
+not from `ap_model`, not from `ap_board`. Each was landed with its manual and
+its tests; what is missing is the execution core that would use them, because
+`ap_machine` builds an `ap_m68030_cpu_t` whatever the model row says. That is
+why `5500_BOOT` stops at its second instruction, and it reframes the DN5500 tail
+from "finish the 68040" to "build the core the finished 68040 sits behind".
+
+**And the model table declares variance the machine does not honour.** Counting
+readers for every field of `ap_model_t` outside `ap_model.c`: `cpu` 110, `fpu`
+30, `name` 25, `id` 24, `ram_base` 10 -- against `mmu` **2**, which are a
+hash-scope *name* and a line in the frontend's report, and `has_ring` **0**,
+referenced outside the table only by `model_suite` asserting the rows say what
+they say. So a row claiming a card the machine never consults sits beside a row
+claiming an MMU the machine never builds, in the one file whose stated rule is
+"all machine variance lives here".
+
+**Scope, stated because it changes how the above reads.** All fifteen device
+modules are reached -- `ap_bt458` 7 call sites, `ap_qic` 11, `ap_i8237` 16 --
+and the quirk table's two entries are both read. **There is no general wiring
+problem**: the disconnection is specific to the CPU modules and three fields of
+one table, which is one place and one fix rather than a pattern in the core.
+
+*None of it is closed here, and two of the three sub-items are not
+behaviour-neutral -- an MMU with a different descriptor format is a translation
+change, and gating the ring fit on `has_ring` would put a card in machines the
+reference boot has none in. Both land on the identity hash, so they wait for the
+harness. `FINDINGS.md` C226-C228.*
+
+**What the sweep cost against what booting cost.** These five findings took
+about an hour of grepping. The `siologin` thread in the same session took eight
+runs of 1.2-2.6 G instructions and produced three readings that were each
+withdrawn. The difference is not diligence, it is that "what does our code
+actually do" is a question the code answers directly, and it was repeatedly put
+to the machine instead.
+
 ### Both volumes are prepared for the two-node check (2026-08-19)
 
 The `lcnode` verification needs a *shell* on each node, and on this core that
