@@ -5233,12 +5233,20 @@ Only after the reference core is proven, and only under an identity harness.
 - [ ] Extend exact-skip across nodes: run node cores in parallel only within
       provably inert windows between ring events. *Verification: whole-ring
       state hash identical to the single-threaded reference.*
-      **Blocked on the thing it would optimise, and named rather than implied**:
-      `--ring-two-node` runs two machines that execute their boot PROMs, but
-      neither runs Domain/OS, so there is no multi-node workload whose wall
-      clock this could improve and nothing to hold a whole-ring hash of beyond
-      firmware. What unblocks it is the Phase 6 two-node item, and that is a
-      media question -- see it for the shape.
+      **That blocker is half cleared, 2026-08-19.** It read "`--ring-two-node`
+      runs two machines that execute their boot PROMs, but **neither runs
+      Domain/OS**", and both nodes now do: two whole machines with distinct node
+      IDs on one `ap_ring_sched` segment, each reaching
+      `Domain/OS kernel(7), revision 10.4` from its own installed volume, no
+      copies and no relabelling. So a multi-node workload whose wall clock this
+      could improve **exists**, and there is a whole-ring state to hash beyond
+      firmware.
+      What is *not* cleared is the prerequisite above it: this item extends the
+      exact-skip machinery across nodes, and that machinery's remaining half is
+      refuted by measurement (11.8% slower as specified, needing an incremental
+      bound instead). So the order stands -- exact-skip first, with a design
+      that wins -- but the reason has changed from "there is nothing to
+      optimise" to "the thing being extended is not finished".
       **And one part of the design is already refuted by measurement.** The
       window between ring events is not the binding term: §3.9's memory refresh
       runs each node's serial counter off X1 for the life of the machine, at
