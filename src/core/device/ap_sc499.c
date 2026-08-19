@@ -16,6 +16,23 @@ ap_sc499_entry_t ap_sc499_command_entry(const ap_sc499_t *tape) {
   return AP_SC499_ENTRY_READY;
 }
 
+ap_time_t ap_sc499_block_duration(unsigned bytes) {
+  /* `008778-03` Table 9-1's nominal 90 KB/second, which that table's own tape
+   * speed and bit density derive: 90 in/s x 8000 bits/in / 8 = 90,000 bytes/s.
+   * See the header for why the transfer rate is the one row of Table 9-1 that
+   * may be adopted as a duration and the maxima are not. */
+  const ap_time_t across_the_head = (ap_time_t)(
+      (uint64_t)AP_TIME_BASE_HZ * bytes / AP_SC499_DRIVE_BYTES_PER_SEC);
+  /* Figure 1-5's `100 us <` is a minimum on the *interface*, so a block that
+   * crossed the head faster than the interface can turn round still waits for
+   * the interface. At 512 bytes the media is far slower and this floor never
+   * binds; it binds only for a block size no QIC-02 drive uses, and is kept
+   * because dropping it would silently discard a documented bound. */
+  return across_the_head > AP_SC499_T_BLOCK_TO_READY_MIN
+             ? across_the_head
+             : AP_SC499_T_BLOCK_TO_READY_MIN;
+}
+
 ap_time_t ap_sc499_handshake_duration(ap_sc499_entry_t entry) {
   switch (entry) {
   case AP_SC499_ENTRY_EXCEPTION:
@@ -31,8 +48,10 @@ ap_time_t ap_sc499_handshake_duration(ap_sc499_entry_t entry) {
      * whole is their sum rather than the larger of them. */
     return AP_SC499_T_DIRECTION_RELEASE + AP_SC499_T_DIRECTION_TO_READY;
   case AP_SC499_ENTRY_DATA_BLOCK:
-    /* Figure 1-5's T14->T15, the gap between data blocks. */
-    return AP_SC499_T_BLOCK_TO_READY;
+    /* Figure 1-5's T14->T15, the gap between data blocks -- which is how long
+     * the *media* takes over a block, not how fast the interface could turn
+     * round. `008778-03` Table 9-1 supplies the media rate; see the header. */
+    return ap_sc499_block_duration(AP_SC499_BLOCK_BYTES);
   case AP_SC499_ENTRY_READY:
     break;
   }

@@ -555,9 +555,74 @@ static void test_the_modelled_times_sit_inside_apollos_documented_maxima(void) {
   TEST_ASSERT_EQUAL_UINT64(AP_SC499_US(5000000), AP_SC499_MAX_RESET);
 }
 
+/* ---- The drive's own rate, `008778-03` Table 9-1 ------------------------- */
+
+/* The nominal transfer rate is not taken on trust: two other rows of the same
+ * table derive it. 90 inches per second at 8000 bits per inch is 720,000
+ * bits/s, which is 90,000 bytes a second -- so "90 KB/second" means 1000-byte
+ * kilobytes, and the table is internally consistent about the drive it is
+ * specifying. Getting that unit wrong by 2.4% would be invisible in every other
+ * test here. */
+static void test_the_nominal_rate_is_the_tape_speed_times_the_bit_density(void) {
+  const unsigned inches_per_second = 90u;
+  const unsigned bits_per_inch = 8000u;
+  TEST_ASSERT_EQUAL_UINT(AP_SC499_DRIVE_BYTES_PER_SEC,
+                         inches_per_second * bits_per_inch / 8u);
+}
+
+/* A data block costs the time the *media* takes over it, which is what Figure
+ * 1-5's gap between blocks physically is. It used to cost that figure's `100 us
+ * <` minimum -- a bound on the *interface*, standing in for a drive rate no
+ * document on the shelf gave until chapter 9 was walked. */
+static void test_a_data_block_costs_the_drives_nominal_transfer_rate(void) {
+  const ap_time_t expected = (ap_time_t)((uint64_t)AP_TIME_BASE_HZ *
+                                         AP_SC499_BLOCK_BYTES /
+                                         AP_SC499_DRIVE_BYTES_PER_SEC);
+  TEST_ASSERT_EQUAL_UINT64(expected,
+                           ap_sc499_handshake_duration(AP_SC499_ENTRY_DATA_BLOCK));
+
+  /* 5.69 ms, against the 100 us it was: the media is fifty-seven times slower
+   * than the interface bound that was standing in for it. */
+  TEST_ASSERT_TRUE(expected > 50u * AP_SC499_T_BLOCK_TO_READY_MIN);
+}
+
+/* The interface minimum survives as a floor rather than being discarded: a
+ * block small enough to cross the head faster than the interface can turn round
+ * still waits for the interface. No QIC-02 drive uses such a block, which is
+ * why this is asserted rather than reachable. */
+static void test_the_interface_minimum_is_a_floor_under_the_media_rate(void) {
+  TEST_ASSERT_EQUAL_UINT64(AP_SC499_T_BLOCK_TO_READY_MIN,
+                           ap_sc499_block_duration(1u));
+  TEST_ASSERT_EQUAL_UINT64(AP_SC499_T_BLOCK_TO_READY_MIN,
+                           ap_sc499_block_duration(0u));
+  /* And at the real block size the media is what binds. */
+  TEST_ASSERT_TRUE(ap_sc499_block_duration(AP_SC499_BLOCK_BYTES) >
+                   AP_SC499_T_BLOCK_TO_READY_MIN);
+}
+
+/* **Table 9-1's rewind maximum cannot be adopted, and the reason is a conflict
+ * between two Apollo documents.** `008778-03` gives a 600-ft cartridge a rewind
+ * time of up to 85 seconds; `08845` §12.3 times a host's BOT command out at 80.
+ * A drive rewinding at its published maximum would be abandoned before it
+ * arrived, which is what shows that figure to be an acceptance limit rather
+ * than a duration -- the same reading this module already applies to the
+ * five-second power-on confidence ceiling. Asserted so that a later reader who
+ * finds the 85 seconds in the manual meets the reason it is not here. */
+static void test_the_published_rewind_maximum_exceeds_the_hosts_patience(void) {
+  const ap_time_t rewind_600ft_max = AP_SC499_US(85000000);
+  TEST_ASSERT_TRUE(rewind_600ft_max > AP_SC499_MAX_BOT);
+  /* The modelled command execution is inside the host's patience, which is the
+   * property that matters and the one the maxima exist to check. */
+  TEST_ASSERT_TRUE(AP_SC499_T_COMMAND_EXECUTION < AP_SC499_MAX_BOT);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_modelled_times_sit_inside_apollos_documented_maxima);
+  RUN_TEST(test_the_nominal_rate_is_the_tape_speed_times_the_bit_density);
+  RUN_TEST(test_a_data_block_costs_the_drives_nominal_transfer_rate);
+  RUN_TEST(test_the_interface_minimum_is_a_floor_under_the_media_rate);
+  RUN_TEST(test_the_published_rewind_maximum_exceeds_the_hosts_patience);
   RUN_TEST(test_the_handshake_times_are_exact_in_base_units);
   RUN_TEST(test_the_command_entry_condition_selects_a_figure);
   RUN_TEST(test_accepting_a_command_applies_all_three_figures);

@@ -311,16 +311,87 @@ typedef struct {
 #define AP_SC499_MAX_RETENSION AP_SC499_US(241000000)    /* 600 ft, worst case */
 #define AP_SC499_MAX_ERASE AP_SC499_US(240000000)        /* 4 min */
 
+/* ## The drive's own figures, which `008778-03` chapter 9 supplies
+ *
+ * Everything above this point is the *controller's*: `[SC499]`'s handshake
+ * bounds and `08845` §12.3's host time-outs. That block's own comment says the
+ * maxima "bound this module's figures rather than supplying them", and until
+ * chapter 9 was walked nothing supplied them. Table 9-1, *Cartridge Tape Drive
+ * Performance Specifications*, is Apollo specifying the drive:
+ *
+ *     Data capacity (minimum)     45 MB (450-ft tape), 60 MB (600-ft tape)
+ *     Number of tracks             9
+ *     Recording density        10,000 flux changes/inch, 8000 bits/inch (GCR)
+ *     Transfer rate (nominal)     90 KB/second
+ *     Tape speed (long term)      90 inches/second +/- 3%
+ *     Start/stop time (max)      300 milliseconds
+ *     Rewind time (max)           85 seconds (600 ft), 65 seconds (450 ft)
+ *     Track selection time (max) 600 milliseconds
+ *     Power-up initialization     10 seconds at BOT, 90 seconds at EOT
+ *
+ * **Only one of those is adoptable as a duration, and the table says which by
+ * its own qualifiers.** Every other timing row is a *maximum* -- an acceptance
+ * limit a drive must not exceed -- and the transfer rate alone is marked
+ * **nominal**. Taking a maximum as a duration is what this file already refuses
+ * to do with §12.3's time-outs.
+ *
+ * **And one of the maxima proves the point, because it is unusable.** Table
+ * 9-1's rewind maximum for a 600-ft cartridge is **85 seconds**, while `08845`
+ * §12.3 times a host's BOT command out at **80 seconds** -- `AP_SC499_MAX_BOT`
+ * below. A drive rewinding at its published maximum would be abandoned by the
+ * host before it arrived. So the 85 s is a worst-case limit for acceptance and
+ * not a figure any model may adopt, exactly as the 5-second POC ceiling is "a
+ * *failure* threshold rather than a typical". Two Apollo documents, and the
+ * conflict between them is what tells you which kind of number each is.
+ *
+ * Not modelled, recorded here so a later reader does not re-derive them: the
+ * 300 ms start/stop, the 600 ms track selection -- this core models no tape
+ * *track*, the serpentine turnaround being below the QIC-02 command interface --
+ * and the power-up initialization, which is the drive's rather than the
+ * controller's POC and which no command in this model waits on.
+ *
+ * ### The transfer rate, and why it is safe where the maxima are not
+ *
+ * 90 KB/second is **nominal**, and the table's other rows derive it: 90 inches
+ * per second at 8000 bits per inch is 720,000 bits/s, which is 90,000 bytes/s
+ * exactly. So "KB" here is 1000 bytes and the figure is cross-checked inside
+ * its own table rather than taken on trust -- the same check the floppy's 94 ms
+ * average access got in `device/ap_omti.h`.
+ */
+#define AP_SC499_DRIVE_BYTES_PER_SEC 90000u
+
 /* Figure 1-5, Data Transfer Write Operation, T14->T15: "Device Asserts READY
  * (Device READY For Next Data Block)", timed `100 us. < T14--->T15`.
  *
- * **`PROVISIONAL`, and the direction is the reason.** This is a *minimum* --
- * the device must wait at least this long -- so the figure constrains the delay
- * without fixing it, and any value at or above it is legal. The bound itself is
- * taken, which models the fastest drive the specification permits; a real one
- * may be slower and nothing here would notice. Closes with a measurement of a
- * drive, not with another reading. */
-#define AP_SC499_T_BLOCK_TO_READY ((AP_TIME_BASE_HZ * 100u) / 1000000u)
+ * **That 100 us is a *minimum*, and it was being used as the whole interval.**
+ * The device must wait at least that long; any value at or above it is legal,
+ * so the bound modelled the fastest drive the specification permits and a real
+ * one would be slower with nothing here noticing. This comment said so, and
+ * said it "closes with a measurement of a drive, not with another reading".
+ *
+ * `008778-03` Table 9-1 is not another reading of the *controller* -- it is
+ * Apollo's specification of the **drive**, which is the thing the 100 us was
+ * standing in for. A 512-byte QIC-02 block at the nominal 90,000 bytes/second
+ * takes **5.69 ms**, fifty-seven times the interface minimum, and that is what
+ * a block now costs. The Figure 1-5 bound is kept as a floor: a block small
+ * enough to cross the head faster than the interface can turn round still waits
+ * for the interface.
+ *
+ * `image/ap_ct.h`'s `AP_CT_BLOCK_SIZE` is deliberately not reached for here:
+ * that constant is a property of the *image format*, and this one is a property
+ * of the QIC-02 *interface*. They are both 512 and they are different facts, so
+ * `sc499_suite` asserts the two agree rather than one being defined from the
+ * other -- the same rule this core keeps for every pair of numbers that happen
+ * to coincide. */
+#define AP_SC499_T_BLOCK_TO_READY_MIN ((AP_TIME_BASE_HZ * 100u) / 1000000u)
+
+/* QIC-02 Rev D: the fixed block. `archive/QIC-02_Rev_D_Specification_Sep82.pdf`
+ * is on the shelf and §4.2's data block is 512 bytes. */
+#define AP_SC499_BLOCK_BYTES 512u
+
+/* How long a block of `bytes` takes to cross the head at the drive's nominal
+ * rate, floored at the interface's own turnaround. */
+[[nodiscard]] ap_time_t ap_sc499_block_duration(unsigned bytes);
 #define AP_SC499_T_CLOSE_MIN AP_SC499_US(20)           /* 20 us <, T6->T8 */
 #define AP_SC499_T_CLOSE_MAX AP_SC499_US(100)           /* < 100 us, T6->T8 */
 
