@@ -160,12 +160,19 @@ typedef enum {
  * standard AT-slot card, and **Table 2-3** independently lists `IRQ10` as
  * "802.3 Network Controller-AT #1 or User Device".
  *
- * The pair also disambiguates a table the OCR destroyed. Table 2-3 gives IRQ9
- * to controller **#2**, and the DRQ table names controller "#2" on *both* DRQ3
- * and DRQ6, which cannot be right. Figure 14-4 settles it: the **alternate**
- * card, in an XT-compatible slot, is I/O `310`, DMA 3, IRQ 9. So the standard
- * card is #1 on DMA 6 and IRQ 10 and the alternate is #2 on DMA 3 and IRQ 9,
- * and the mangled row is the alternate's. */
+ * The pair also disambiguates a contradiction **in the manual itself**. Table
+ * 2-3 gives IRQ9 to controller **#2**, and Table 2-4 names controller "#2" on
+ * *both* DRQ3 and DRQ6, which cannot be right. Figure 14-4 settles it: the
+ * **alternate** card, in an XT-compatible slot, is I/O `310`, DMA 3, IRQ 9. So
+ * the standard card is #1 on DMA 6 and IRQ 10 and the alternate is #2 on DMA 3
+ * and IRQ 9, and the duplicated row is the alternate's.
+ *
+ * This said "a table the OCR destroyed", which was a reasonable guess and is
+ * wrong: **Table 2-4 was read as a page image during the `008778-03` walk and
+ * it genuinely prints `#2` on both rows.** The duplication is an erratum in the
+ * document, not damage from an extraction — which matters, because the first
+ * reading suggests a better copy of the page would settle it and the second
+ * says no copy ever will. */
 #define AP_BOARD_ETHERNET_IRQ 10u
 
 /* **The ring is on master IRQ 2, and it is documented** -- `RING.md` 107.
