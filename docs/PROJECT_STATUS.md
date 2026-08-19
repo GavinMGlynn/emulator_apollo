@@ -436,9 +436,9 @@ summarised, with their reasoning moved to the end of this file.
 ## The floppy drive had no access time, and chapter 6 named the Winchester
 ## (2026-08-20)
 
-From the `008778-03` whole-document walk, chapters 6 through 16 and the
-appendices. Coverage in `docs/references/008778-03_WALK.md`, 164 pages of 209;
-every numbered chapter and Appendix A are walked, Appendix B in progress.
+From the `008778-03` whole-document walk. **It is finished: 209 of 209 pages.**
+Coverage in `docs/references/008778-03_WALK.md`, one row per page range
+including the ones that yielded nothing.
 
 ### The floppy had the defect the fixed disk was fixed for
 
@@ -566,6 +566,40 @@ clocks. A 0.10% shift is what a change touching 14.6 M disk accesses out of
 number, `A354786119A3931D`, was superseded twice earlier in this walk by the AT
 bus cycle time and the 16-bit Winchester transfer, and was stale here. **It was
 superseded again one commit later — see below.**
+
+### `008778-03` is walked whole — 209 of 209 pages
+
+Chapters 1–16, both appendices, the index and the back matter. Begun 2026-08-19
+when Table 2-3 was found to name IRQ1 as "2681 SIO **Port 1**" and to give the
+second DUART no line — one fact this core did not have, which under `CLAUDE.md`
+turns a reference into a document to be derived in full.
+
+**What it produced.** Nine chapters yielded implemented fixes: the floppy
+drive's entire missing access time, the Winchester's drive identity and a wrong
+average seek, the tape's power-on format and its missing media transfer rate,
+the CAPS LOCK lamp, the mouse's Mode 2 packet, the AT bus cycle time, the 16-bit
+Winchester transfer, main memory's extent, and the DS3000's single 2681. The
+floppy and keyboard state hashes were found to be missing most of their fields.
+Four chapters yielded no gap but upgraded inferences to quotations. Two
+navigation aids were found to be incomplete. Three published tables were found
+to be wrong, one of them against the oracle.
+
+**Two debts, both paid.** Pages 168–176 and 186–199 were each created by reading
+a later page out of order to find a section's extent, each recorded in the walk
+file's resume block, and each paid the following session. Neither would have
+been paid if it had not been written down.
+
+**The last content page argues for the rule.** The index (202–204) is a second
+contents list, and cross-checking it found that it lists chapter 15 — which the
+front contents omitted, and which cost this walk a session to notice — while
+itself omitting **chapter 16**, which has no "PC Coprocessor" entry. Each aid is
+missing a chapter the other has. Neither alone covers the document; only reading
+every page does.
+
+The back matter confirms the document's own identity from inside it: Order No.
+**008778**, Revision **03**, August **1987**.
+
+**Next under the same rule: `002398-04`**, 330 pages.
 
 ### Appendix B settles what `#77` actually is
 
