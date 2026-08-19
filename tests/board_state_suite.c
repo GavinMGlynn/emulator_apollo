@@ -388,6 +388,25 @@ static void test_the_keyboard_matrix_moves_the_hash(void) {
   }
 }
 
+/* **The matrix was the whole of the keyboard's hasher**, so a keyboard in the
+ * other code set, still in loopback, part-way through a command, sounding its
+ * beeper or lit at CAPS LOCK hashed the same as one that was none of those.
+ * Three of the six are changed by a host command directly.
+ *
+ * `loopback` is the sharpest: a keyboard taken out of loopback answers commands
+ * where one still in it echoes them. `caps_lock_led` joined the model in the
+ * `008778-03` chapter 12 walk, which is what put a lamp here at all. */
+static void test_every_other_keyboard_field_moves_the_hash(void) {
+  MOVES_THE_HASH(scratch.keyboard.loopback = !scratch.keyboard.loopback);
+  MOVES_THE_HASH(scratch.keyboard.rx_message = 0xFF1221u);
+  MOVES_THE_HASH(scratch.keyboard.keystate_mode = true);
+  MOVES_THE_HASH(scratch.keyboard.caps_lock_led = true);
+  MOVES_THE_HASH(scratch.keyboard.held = 3u);
+  MOVES_THE_HASH(scratch.keyboard.repeating = true);
+  MOVES_THE_HASH(scratch.keyboard.repeat_at = 12345u);
+  MOVES_THE_HASH(scratch.keyboard.beeper_until = 67890u);
+}
+
 /* Which firmware is running is the largest single fact about a boot. */
 static void test_the_prom_contents_move_the_hash(void) {
   static uint8_t first_prom[64];
@@ -770,6 +789,7 @@ int main(void) {
   RUN_TEST(test_the_graphics_memory_is_hashed_and_its_address_is_not);
   RUN_TEST(test_the_screen_kind_moves_the_hash);
   RUN_TEST(test_the_keyboard_matrix_moves_the_hash);
+  RUN_TEST(test_every_other_keyboard_field_moves_the_hash);
   RUN_TEST(test_the_prom_contents_move_the_hash);
   RUN_TEST(test_no_prom_and_a_blank_prom_hash_differently);
   RUN_TEST(test_the_memory_extent_counts_and_its_contents_are_hashed_elsewhere);

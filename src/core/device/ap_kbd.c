@@ -27,15 +27,29 @@ bool ap_kbd_press(ap_kbd_t *kbd, unsigned key, uint8_t *code) {
   kbd->held = key;
   kbd->repeat_at = kbd->now + AP_KBD_REPEAT_DELAY;
   kbd->repeating = false;
+  /* §12.2: the lamp "comes on during down transitions of the key when it was
+   * previously off". The guard is the switch's, not ours -- `down[]` above
+   * already refused a second press without a release -- so the down transition
+   * and the lamp coming on are the same event. See the header for why an
+   * alternate-action keyswitch is what makes that a *lock*. */
+  if (key == AP_KBD_CAPS_LOCK_LED_ON) {
+    kbd->caps_lock_led = true;
+  }
   *code = (uint8_t)key;
   return true;
 }
+
+bool ap_kbd_caps_lock_led(const ap_kbd_t *kbd) { return kbd->caps_lock_led; }
 
 bool ap_kbd_release(ap_kbd_t *kbd, unsigned key, uint8_t *code) {
   if (key >= AP_KBD_KEYS || !kbd->down[key]) {
     return false;
   }
   kbd->down[key] = false;
+  /* And "goes off during up transitions when it was previously on". */
+  if (key == AP_KBD_CAPS_LOCK_LED_ON) {
+    kbd->caps_lock_led = false;
+  }
   /* The make code with bit 7 set. Not a separate table: the release code *is*
    * the press code plus the flag, which is why the matrix stops at 0x80. */
   *code = (uint8_t)(key | AP_KBD_RELEASE);

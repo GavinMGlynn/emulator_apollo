@@ -480,6 +480,37 @@ void ap_board_hash_keyboard(ap_hash_t *st, const ap_kbd_t *keyboard) {
   for (unsigned i = 0; i < AP_KBD_KEYS; i++) {
     hash_bool(st, keyboard->down[i]);
   }
+
+  /* ## And the rest of it, which nothing here used to cover
+   *
+   * The loop above was the whole hasher, so two keyboards differing in which
+   * *code set* they were in, whether they were still in loopback, how far a
+   * command had accumulated, or whether the beeper was sounding all hashed
+   * alike. Every one of those is state a run changes, and three of them a host
+   * command changes directly.
+   *
+   * `loopback` is the sharpest of them: a keyboard that has been taken out of
+   * loopback answers commands where one still in it echoes them, which is a
+   * different machine by any reading. It is also the field a `memset` would get
+   * wrong, since the part powers up with it *set* -- see `ap_kbd_reset`.
+   *
+   * The repeat cursor is here for the reason the timer's and the calendar's
+   * are: two keyboards holding the same key but due to repeat at different
+   * instants diverge on the next advance.
+   *
+   * `caps_lock_led` joins them as of the `008778-03` chapter 12 walk, which is
+   * what put a lamp in the model at all -- chapter 12's opening sentence has
+   * this part "controls and reports the status of the CAPS LOCK LED", and a
+   * reported status that the hash cannot see is a claim the identity harness
+   * cannot check. */
+  hash_bool(st, keyboard->loopback);
+  ap_hash_u32(st, keyboard->rx_message);
+  hash_bool(st, keyboard->keystate_mode);
+  hash_bool(st, keyboard->caps_lock_led);
+  ap_hash_u32(st, (uint32_t)keyboard->held);
+  hash_bool(st, keyboard->repeating);
+  ap_hash_time(st, keyboard->repeat_at);
+  ap_hash_time(st, keyboard->beeper_until);
 }
 
 /* ## The nine that had no hasher

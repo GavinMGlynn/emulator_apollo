@@ -5586,8 +5586,8 @@ one row per page range, including the ones that yield nothing — is
 section is only the list of **gaps the walk has opened and not yet closed**, so
 that they are findable from the plan rather than from a reference file.
 
-**116 of 209 pages walked.** Chapters 1–11 complete; resume at page 136,
-chapter 12.
+**125 of 209 pages walked.** Chapters 1–12 complete; resume at page 146,
+chapter 13.
 
 - [ ] **The Series 4000 virtual cache and write buffer, and their 16 KB of
       board-visible RAM.** §1.3.1: "an **8-KB, direct-mapped** cache ... 2048
@@ -5636,6 +5636,23 @@ chapter 12.
       and **not** the `siologin` blocker — on the SR10.4 reference boot `sio2`
       shows seven registers written and register 13 never read — but real, and
       formally untested in the line-2-configured case.
+- [ ] **The keyboard's N-key rollover and its 16-byte buffer.** §12.2: "All keys
+      exhibit **N-key rollover** for a minimum of six simultaneous key
+      depressions", and "The keyboard buffers **at least 16 bytes** of data.
+      When all 16 positions are used, further processing of data is inhibited
+      until a new position becomes available." `ap_kbd` has neither: any number
+      of keys may be down, and transitions are handed to the caller directly
+      with no queue. The rollover gap is **permissive rather than wrong** — the
+      model accepts more than the hardware, so no byte it produces is one the
+      part could not send. The buffer is the real one: a host that stopped
+      draining would see no back-pressure, and both figures are minima ("at
+      least six", "at least 16"), so a modelled depth would be a floor rather
+      than the part's.
+- [ ] **The keyboard's self-diagnostics.** Chapter 12's opening sentence has the
+      part "performs power-up and operator requested self-diagnostics". No
+      command in `ap_kbd_receive`'s set runs one and no result is defined
+      anywhere in the chapter, so this is named rather than modelled —
+      inventing a diagnostic result would be inventing a failure mode.
 - [ ] **The floppy spindle's 500 ms start time.** `PROVISIONAL`, marked in
       `ap_omti.h` and `PROJECT_STATUS.md`. `008778-03` Table 7-1 and Table 7-4
       both give it; this core does not time the motor from the Digital Output

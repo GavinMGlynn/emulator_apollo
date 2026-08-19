@@ -564,6 +564,78 @@ static void test_keystate_mode_emits_no_mode_zero_packet(void) {
                                                  false, packet));
 }
 
+/* ---- The CAPS LOCK lamp, `008778-03` §12.2 ------------------------------- */
+
+/* Chapter 12's opening sentence has this part "controls and reports the status
+ * of the CAPS LOCK LED", and nothing here held one until that chapter was
+ * walked. §12.2 gives the transitions: the lamp "comes on during down
+ * transitions of the key when it was previously off, and goes off during up
+ * transitions when it was previously on". */
+static void test_the_caps_lock_lamp_follows_the_keys_two_transitions(void) {
+  ap_kbd_t k;
+  ap_kbd_reset(&k);
+  uint8_t code = 0u;
+
+  /* Dark out of reset: a lamp is off until something lights it. */
+  TEST_ASSERT_FALSE(ap_kbd_caps_lock_led(&k));
+
+  TEST_ASSERT_TRUE(ap_kbd_press(&k, AP_KBD_CAPS_LOCK_LED_ON, &code));
+  TEST_ASSERT_TRUE(ap_kbd_caps_lock_led(&k));
+
+  /* **It stays lit across the whole latched interval.** This is the reading the
+   * header argues for: an alternate-action keyswitch holds down between the
+   * press that latches it and the press that frees it, so the lamp is on for
+   * everything the operator types in between. A momentary reading would make
+   * CAPS LOCK a shift you have to hold, and the key is not labelled that. */
+  uint8_t other = 0u;
+  TEST_ASSERT_TRUE(ap_kbd_press(&k, 0x2Du, &other)); /* Q */
+  TEST_ASSERT_TRUE(ap_kbd_release(&k, 0x2Du, &other));
+  TEST_ASSERT_TRUE(ap_kbd_caps_lock_led(&k));
+
+  TEST_ASSERT_TRUE(ap_kbd_release(&k, AP_KBD_CAPS_LOCK_LED_ON, &code));
+  TEST_ASSERT_FALSE(ap_kbd_caps_lock_led(&k));
+}
+
+/* §12.2: "When the LED comes on, a 7E (hexadecimal) is transmitted; when the
+ * LED goes off, an FE (hexadecimal) is transmitted."
+ *
+ * **Nothing was added to produce those.** Table 12-2's up code is the down code
+ * with bit 7 set for every row in it, and CAPS LOCK sits at key number 7E, so
+ * the pair falls out of the encoding this model already had. Asserted because
+ * the note reads like a special case and is not one -- a later reader who
+ * "fixes" it into a table entry would be adding a code the part already
+ * sends. */
+static void test_the_caps_lock_codes_fall_out_of_the_ordinary_encoding(void) {
+  ap_kbd_t k;
+  ap_kbd_reset(&k);
+  uint8_t code = 0u;
+
+  TEST_ASSERT_TRUE(ap_kbd_press(&k, AP_KBD_CAPS_LOCK_LED_ON, &code));
+  TEST_ASSERT_EQUAL_HEX8(0x7Eu, code);
+  TEST_ASSERT_TRUE(ap_kbd_release(&k, AP_KBD_CAPS_LOCK_LED_ON, &code));
+  TEST_ASSERT_EQUAL_HEX8(0xFEu, code);
+
+  /* The rule itself, since that is what makes the pair not a special case. */
+  TEST_ASSERT_EQUAL_HEX8(AP_KBD_CAPS_LOCK_LED_OFF,
+                         AP_KBD_CAPS_LOCK_LED_ON | AP_KBD_RELEASE);
+}
+
+/* The switch guards the lamp, not the lamp's own code: a repeated press with no
+ * release is refused before it reaches the transition, so a host that stutters
+ * cannot drive the lamp out of step with the switch. */
+static void test_a_repeated_press_cannot_desynchronise_the_lamp(void) {
+  ap_kbd_t k;
+  ap_kbd_reset(&k);
+  uint8_t code = 0u;
+
+  TEST_ASSERT_TRUE(ap_kbd_press(&k, AP_KBD_CAPS_LOCK_LED_ON, &code));
+  TEST_ASSERT_FALSE(ap_kbd_press(&k, AP_KBD_CAPS_LOCK_LED_ON, &code));
+  TEST_ASSERT_TRUE(ap_kbd_caps_lock_led(&k));
+  TEST_ASSERT_TRUE(ap_kbd_release(&k, AP_KBD_CAPS_LOCK_LED_ON, &code));
+  TEST_ASSERT_FALSE(ap_kbd_release(&k, AP_KBD_CAPS_LOCK_LED_ON, &code));
+  TEST_ASSERT_FALSE(ap_kbd_caps_lock_led(&k));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_mouse_packet_is_the_escape_and_three_bytes);
@@ -597,5 +669,8 @@ int main(void) {
   RUN_TEST(test_the_beeper_goes_off_by_itself_after_300_ms);
   RUN_TEST(test_the_off_sequence_stops_the_tone_early);
   RUN_TEST(test_an_advance_past_the_whole_tone_still_ends_it);
+  RUN_TEST(test_the_caps_lock_lamp_follows_the_keys_two_transitions);
+  RUN_TEST(test_the_caps_lock_codes_fall_out_of_the_ordinary_encoding);
+  RUN_TEST(test_a_repeated_press_cannot_desynchronise_the_lamp);
   return UNITY_END();
 }

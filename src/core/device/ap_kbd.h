@@ -159,7 +159,50 @@ typedef struct {
    * Zero when silent. The *sound* is still not modelled and is not claimed to
    * be: this core has no audio path, and a caller wanting one reads the level. */
   ap_time_t beeper_until;
+
+  /* ## The CAPS LOCK LED, which the chapter opens by naming
+   *
+   * `008778-03` chapter 12's first sentence lists what this part does, and one
+   * of the four is "**controls and reports the status of the CAPS LOCK LED**".
+   * Nothing here held it, so a host could ask and there was nothing to answer
+   * with -- the one observable of a lamp is whether it is lit.
+   *
+   * §12.2's note to Table 12-2 gives the transitions exactly: "The LED comes on
+   * during **down** transitions of the key when it was previously off, and goes
+   * off during **up** transitions when it was previously on." Read against an
+   * ordinary momentary key that would make CAPS LOCK a shift you have to hold;
+   * read against an **alternate-action** keyswitch -- one that latches down on
+   * one press and releases on the next -- it is the ordinary locking behaviour,
+   * and the down and up transitions are a whole press-release-press-release
+   * cycle apart in the operator's hand. That is the reading taken, because it
+   * is the only one under which a key labelled CAPS *LOCK* locks.
+   *
+   * **The codes needed nothing added, and they belong to the lamp rather than
+   * to the key.** Table 12-2's key rows stop at RF3 ENTER, and the row *after*
+   * the last key is headed "**CAPS LOCK LED**" with `7E (ON)` and `FE (OFF)` in
+   * the down- and up-transition columns. The key's own row, D1, has no codes at
+   * all -- it prints "CAPITOL LETTERS" and "LOCK KEY" across them, the same way
+   * Table 12-1 marks CTRL and SHIFT as state rather than characters. So in the
+   * keystate set a host never learns that CAPS LOCK was *struck*; it learns the
+   * lamp changed, which is the only thing that changed for it.
+   *
+   * That makes `7E`/`FE` fall out of the encoding this model already had, since
+   * Table 12-2's up code is the down code with bit 7 set for every row in it.
+   * Driving the lamp through the ordinary transition path is therefore not a
+   * shortcut: the transition *is* the lamp's, and the byte on the wire is the
+   * same either way. */
+  bool caps_lock_led;
 } ap_kbd_t;
+
+/* Table 12-2's final row: the CAPS LOCK **LED**'s two transition codes. `7E` is
+ * also the transition this model drives the lamp from, which is why one
+ * constant serves both -- see the struct field above for why that is the
+ * table's own arrangement rather than a conflation. */
+#define AP_KBD_CAPS_LOCK_LED_ON 0x7Eu
+#define AP_KBD_CAPS_LOCK_LED_OFF 0xFEu
+
+/* Whether the CAPS LOCK lamp is lit. */
+[[nodiscard]] bool ap_kbd_caps_lock_led(const ap_kbd_t *kbd);
 
 /* "It will go off automatically after 300 milliseconds." Written as a quotient
  * of the base so a recomputed `AP_TIME_BASE_HZ` keeps the *duration* rather
