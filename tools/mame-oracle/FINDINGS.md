@@ -12428,9 +12428,14 @@ So the three readings of a zero, in order of what would distinguish them:
 1. **Nothing asked.** The most likely, on the evidence above. Distinguished by
    running `lcnode` -- which needs the shell that C222 is blocking.
 2. **The OS never brought the ring up for traffic**, only far enough to accept
-   the driver. Distinguished by the board's own transmit registers: a driver
-   that armed a transmit would leave `XMIT_CMD` written, which this core now
-   records.
+   the driver. Distinguished by whether either station ever **claimed the
+   ring** -- §2.1 step 3's claim is what a node does to transmit, so
+   `claims_made` at zero means nothing was ever armed.
+   *Corrected an hour after writing: this first said "`XMIT_CMD` ... which this
+   core now records", and the core **stores** it while the frontend reported
+   neither it nor the claim count. A discriminator nobody can observe is not a
+   discriminator, so the two-node runner now prints `claims` beside the frame
+   counts, in the heartbeat and the final report.*
 3. **Our ring cannot carry a frame between two machines.** Already refuted at
    the layer below by `board_suite`, which drives two boards through their
    register interfaces and requires the frame to arrive, and by the sender

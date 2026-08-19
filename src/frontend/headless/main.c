@@ -1706,6 +1706,7 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
   /* Last-reported ring counts, for the heartbeat below. */
   uint64_t last_seen[NODES] = {0};
   uint64_t last_copied[NODES] = {0};
+  uint64_t last_claims[NODES] = {0};
   uint64_t ran[NODES] = {0};
   ap_m68030_step_status_t status[NODES] = {AP_M68030_STEP_EXECUTED};
   uint16_t instruction[NODES] = {0};
@@ -1865,15 +1866,24 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
     for (unsigned i = 0; i < NODES; i++) {
       const uint64_t seen = board[i].ring_station.frames_seen;
       const uint64_t copied = board[i].ring_station.frames_copied;
-      if (seen != last_seen[i] || copied != last_copied[i]) {
+      /* **Claims are reported beside them, because a zero has three readings
+       * and only this one separates two of them** (`FINDINGS.md` C229). A node
+       * that never claimed the ring never tried to talk -- the operating system
+       * did not arm a transmit -- where a node that claimed and saw nothing
+       * arrive is a different fault entirely. Counting only what *arrived*
+       * cannot tell "nothing asked" from "nothing carried it". */
+      const uint64_t claims = board[i].ring_station.claims_made;
+      if (seen != last_seen[i] || copied != last_copied[i] ||
+          claims != last_claims[i]) {
         fprintf(out,
-                "  node %u  ring  frames seen %llu  copied %llu  after %llu "
-                "instruction(s)\n",
-                i, (unsigned long long)seen, (unsigned long long)copied,
-                (unsigned long long)done);
+                "  node %u  ring  claims %llu  frames seen %llu  copied %llu  "
+                "after %llu instruction(s)\n",
+                i, (unsigned long long)claims, (unsigned long long)seen,
+                (unsigned long long)copied, (unsigned long long)done);
         (void)fflush(out);
         last_seen[i] = seen;
         last_copied[i] = copied;
+        last_claims[i] = claims;
       }
     }
   }
@@ -1893,10 +1903,11 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
                                      "illegal",     "fault",
                                      "exception",   "stopped"};
     fprintf(out,
-            "  node %u  pc %08X  ran %llu  %s (op %04X)  frames seen %llu "
-            "copied %llu\n",
+            "  node %u  pc %08X  ran %llu  %s (op %04X)  ring claims %llu  "
+            "frames seen %llu copied %llu\n",
             i, st.pc, (unsigned long long)ran[i], why[status[i]],
             instruction[i],
+            (unsigned long long)board[i].ring_station.claims_made,
             (unsigned long long)board[i].ring_station.frames_seen,
             (unsigned long long)board[i].ring_station.frames_copied);
   }
