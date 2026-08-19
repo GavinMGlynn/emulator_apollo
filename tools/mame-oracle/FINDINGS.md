@@ -12183,3 +12183,40 @@ character delivered to `sio2` raises the DUART interrupt the guest has armed --
 `ap_sio_irq` ORs both parts, and `sio2 reg 5` (IMR) is written twice, but
 whether an arriving character on the second part actually reaches the CPU has
 never been tested. That is a unit test in `sio_suite`, not a boot.
+
+## C223 -- both 2681s are ORed onto the line Table 2-3 gives to *Port 1*
+
+C222 named the next check as this core rather than the guest. It is this.
+
+`ap_board_sample_interrupts` drives one line for the serial hardware:
+
+    ap_intr_set_request(&board->interrupts, AP_SIO_IRQ, ap_sio_irq(&board->sio));
+
+and `ap_sio_irq` is `ap_mc68681_irq(&sio->port[0]) || ap_mc68681_irq(&sio->port[1])`
+-- **both parts onto one line**. `ap_sio.h` cites the source for that line:
+
+    `008778-03` Table 2-3: "IRQ1 ... 2681 SIO Port 1", priority 2
+
+**Read as a page image, the table says Port 1 and stops there.** Its rows are
+`IRQ0` MC6840 Timer, **`IRQ1` 2681 SIO Port 1**, `IRQ3` Network Board, `IRQ2`
+cascade, `IRQ8` MC146818 Calendar, `IRQ9` "802.3 Network Controller-AT #2, **SPE
+Serial Line 2**, or User Device", `IRQ10` 802.3 #1, `IRQ11`/`IRQ12` coprocessor
+and user, `IRQ13` diagnostics, `IRQ14` Winchester, `IRQ15` coprocessor alternate,
+**`IRQ4` "SPE Board Serial Line 1"**, `IRQ5` tape, `IRQ6` floppy, `IRQ7` SPE
+parallel.
+
+So there is **one** 2681 entry, and the two serial lines that do appear belong to
+the **SPE expansion board**, not to an on-board second 2681. §3.9 fits that: "SIO
+line 0 ... keyboard ... SIO line **1** in the DS3000 and lines **1, 2, and 3** in
+the DS4000" -- a DS3000 has two lines, which is *one* 2681; four lines needs two.
+Table 2-3 is the DS3000's, so **it never had a second part to assign**.
+
+**This core has two parts and gives the second one Port 1's interrupt.** That is
+an assumption, it is not flagged as one, and no source on disk supports it.
+
+*Not asserted as the cause of C222's unserved line* -- that needs a test, and the
+test is cheap and belongs in `sio_suite`: deliver a character to the second part
+with its `IMR` armed and assert what the board's interrupt lines do. But it is a
+documented gap in the model, it is exactly the shape that would leave a guest
+waiting on a line it had armed, and three withdrawn readings on this thread say
+to write it down before believing it.
