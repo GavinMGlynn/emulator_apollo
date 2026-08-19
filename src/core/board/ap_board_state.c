@@ -304,6 +304,9 @@ void ap_board_hash_disk(ap_hash_t *st, const ap_disk_t *disk) {
   ap_hash_u8(st, omti->fdc_status);
   ap_hash_u8(st, omti->fdc_data);
   ap_hash_u8(st, omti->fdc_control);
+  /* AT `3F7` written, which shared `3F6`'s byte until Table 4-3 was walked
+   * against this model. Two registers, two fields, two hashed values. */
+  ap_hash_u8(st, omti->fdc_rate);
   hash_bool(st, omti->disk_change);
   /* The command in flight, and when it lands. A controller waiting out a seek
    * is not a controller that has finished one, and two machines whose drives

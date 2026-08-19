@@ -5591,7 +5591,21 @@ The record is `docs/references/002398-04_WALK.md`, in the same shape as the
 finished `008778-03_WALK.md`.
 
 **Started 2026-08-20. Front matter read (PDF 5–11); chapter 12 begins at PDF
-279 and runs to 313. 8 content pages of 330.**
+279 and runs to 313. 14 content pages of 330.**
+
+- [x] **The disk controller's six pages** (`002398-04` pp. 12-9 – 12-14, PDF
+      287–292). Three defects in `ap_omti` fixed and two documentary gains, all
+      found by walking the pages against the code. `23 Volume Overflow` — the
+      sense code for a multiblock command that runs off the end after it has
+      started — had no path that could produce it and eight sites were reporting
+      `21 Illegal Disk Address` instead; AT `3F6` and `3F7` were sharing one byte
+      of state, so a data-rate write cleared the write precompensation; and ST3
+      was built as `ALWAYS | unit`, mixing two manuals' readings into a byte
+      neither describes. The Additional Control Register's fields and MD's
+      `DISK operation ERROR` line are documented nowhere else on this shelf.
+      Three tests; `ctest` 139/139. **One open question named, not closed**: ST3's
+      five constant bits — see `PROJECT_STATUS.md`. Detail in
+      `PROJECT_STATUS.md`.
 
 - [ ] **Three things `002398-04` p. 12-8 says about the CPU control register.**
       Its two bit maps agree with `board/ap_boardreg.h` on the parity field, the

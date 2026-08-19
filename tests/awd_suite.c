@@ -503,6 +503,78 @@ static void test_a_bad_address_fails_and_the_sense_says_so(void) {
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
 }
 
+/* ## `21` and `23` divide the same failure by when it happens
+ *
+ * Appendix A: `21 Illegal Disk Address` is "a command with a Sector Address
+ * beyond the capacity of the drive"; `23 Volume Overflow` is "**after the
+ * commencement of a multiblock command**, the end of volume was reached". The
+ * test above is the first; this is the second, and it used to report `21` --
+ * telling a driver its descriptor block was wrong when the descriptor block had
+ * been accepted and sectors had already crossed the bus.
+ *
+ * The small drive holds sixteen sectors. A four-block read from sector 14 is a
+ * legal address with an illegal end: two sectors are delivered and the third
+ * runs off the volume. */
+static void test_a_multiblock_read_off_the_end_is_a_volume_overflow(void) {
+  build_controller();
+
+  issue(AP_OMTI_CMD_READ, 1u, 1u, 2u, 4u); /* sector 14 of 16, four blocks */
+  settle();
+
+  /* The two sectors that exist arrive first, which is what makes this a
+   * commenced command rather than a refused one. */
+  for (unsigned block = 14u; block < 16u; block++) {
+    TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_disk_phase(&omti));
+    for (unsigned i = 0; i < AP_AWD_SECTOR_BYTES; i++) {
+      TEST_ASSERT_EQUAL_HEX8(block, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+    }
+  }
+
+  /* The refusal ends the command the way any other ending does -- through the
+   * drive's access time -- so the status phase is reached by settling, not
+   * immediately. */
+  settle();
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_TRUE((take_status() & 0x02u) != 0u);
+
+  issue(AP_OMTI_CMD_REQUEST_SENSE, 0u, 0u, 0u, 0u);
+  /* `A3`: the code, with §5.4.3's validity bit above it. The address is the
+   * block the transfer stopped on -- sector 16, which on a two-cylinder,
+   * two-head, four-sector drive normalises to cylinder 2, head 0, sector 0 --
+   * and not the one the command named. A controller that reported the command's
+   * address here would be describing an address that worked. */
+  TEST_ASSERT_EQUAL_HEX8(0xA3u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  TEST_ASSERT_EQUAL_HEX8(0x02u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+}
+
+/* The same division on the write side, through the streaming data-out path:
+ * `0A WRITE` with a block count that outlasts the volume. The host hands over
+ * every byte of both sectors and the third has nowhere to go. */
+static void test_a_multiblock_write_off_the_end_is_a_volume_overflow(void) {
+  build_controller();
+
+  issue(AP_OMTI_CMD_WRITE, 1u, 1u, 2u, 4u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_OUT, ap_omti_disk_phase(&omti));
+  for (unsigned block = 0; block < 3u; block++) {
+    for (unsigned i = 0; i < AP_AWD_SECTOR_BYTES; i++) {
+      ap_omti_disk_write(&omti, AP_OMTI_DISK_DATA, 0xA5u);
+    }
+  }
+  settle();
+  TEST_ASSERT_TRUE((take_status() & 0x02u) != 0u);
+
+  issue(AP_OMTI_CMD_REQUEST_SENSE, 0u, 0u, 0u, 0u);
+  TEST_ASSERT_EQUAL_HEX8(0xA3u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+
+  /* And the two sectors that fitted were written, rather than the whole command
+   * being rolled back: `23` reports where a transfer stopped, not that it never
+   * started. */
+  TEST_ASSERT_EQUAL_HEX8(0xA5u, backing[14u * AP_AWD_SECTOR_BYTES]);
+  TEST_ASSERT_EQUAL_HEX8(0xA5u, backing[15u * AP_AWD_SECTOR_BYTES]);
+}
+
 /* The eleven-bit cylinder crosses three bytes, and a refusal above 255 is where
  * a plausible-looking one-byte answer stops being right. Cylinder 1941 is the
  * address Domain/OS's crash path actually asks for on the 348 MB drive. */
@@ -1342,6 +1414,8 @@ int main(void) {
   RUN_TEST(test_a_block_count_of_zero_means_two_hundred_and_fifty_six);
   RUN_TEST(test_a_multi_sector_read_walks_forward);
   RUN_TEST(test_a_bad_address_fails_and_the_sense_says_so);
+  RUN_TEST(test_a_multiblock_read_off_the_end_is_a_volume_overflow);
+  RUN_TEST(test_a_multiblock_write_off_the_end_is_a_volume_overflow);
   RUN_TEST(test_the_refused_address_carries_the_whole_cylinder);
   RUN_TEST(test_a_write_to_a_read_only_image_reports_write_protected);
   RUN_TEST(test_a_bad_track_format_is_refused_afterwards);

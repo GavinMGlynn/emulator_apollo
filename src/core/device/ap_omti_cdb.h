@@ -50,6 +50,19 @@
  * accept at all until §5.4 was read end to end. Byte 4 bit 0 is START. */
 #define AP_OMTI_CMD_START_STOP 0x1Au
 #define AP_OMTI_CMD_CHANGE_CARTRIDGE 0x1Bu
+/* `002398-04` p. 12-11 lists the DN3000's disk op codes and agrees with §5.1.2
+ * on twenty of the twenty-two it prints. The two it does not:
+ *
+ *     Assign Alternate Track    handbook $10   §5.1.2 `11`
+ *     Read to Sector Buffer     handbook $30   §5.1.2 `1E`
+ *
+ * `10` in §5.1.2 is CHECK TRACK FORMAT, so the first would collide; the second
+ * names no code the manual lists at all. §5.1.2's are used, and the second is
+ * settled by measurement rather than by preference: **Domain/OS issues `1E`**,
+ * paired with `0E`, and this core's own boot records it -- `1E` being
+ * unimplemented is what crashed the machine (see `ap_omti.c`'s
+ * `AP_OMTI_CMD_READ_TO_BUFFER`). The handbook's list is what a driver's header
+ * file says, not what the controller decodes. */
 #define AP_OMTI_CMD_READ_TO_BUFFER 0x1Eu
 #define AP_OMTI_CMD_WRITE_FROM_BUFFER 0x1Fu
 #define AP_OMTI_CMD_COPY 0x20u
@@ -220,7 +233,18 @@ typedef struct {
  *   The Domain/OS boot measured here never sets the bit, so nothing observed
  *   depends on this; it is implemented because the document defines it.
  * - **`STEP` (bits 2-0)** picks one of eight step rates, from 3 milliseconds
- *   per step to 10 microseconds buffered. Seeks in this model complete inside
+ *   per step to 10 microseconds buffered.
+ *
+ *   `002398-04` p. 12-10 prints the same eight rows for the DN3000 and calls the
+ *   field "**drive type and step option**", which is a second document agreeing
+ *   value for value -- 25, 50, 200 and 70 microseconds at `010`, `011`, `100`
+ *   and `101`, and 3 milliseconds at `000`, `110` and `111`. It differs in one
+ *   row and the difference is Apollo's rather than a contradiction: `001`, which
+ *   `[OMTI]` gives as "10 microseconds, buffered step", is marked **N/A** --
+ *   a rate none of this machine's approved drives takes. It also names `000`
+ *   "unknown drive", which is what a 3 ms default is for.
+ *
+ *   Seeks in this model complete inside
  *   the command that issues them -- the same reason `MSR_SEEK_A`/`_B` are
  *   documented as never set -- so no step rate is observable. It becomes real
  *   when seeks take time, and the field is decoded now so that the day it does,

@@ -109,6 +109,35 @@ bool ap_omti_fdc_in_reset(const ap_omti_t *omti) {
 #define COMPLETION_ERROR 0x02u
 /* §5.3's status register, bit 5. */
 #define COMPLETION_LUN 0x20u
+/* §5.3's third field, and the one this file named only in passing: bits 3 and 2
+ * are the **Error Recovery Status**, "valid only for commands which read data
+ * from the disk".
+ *
+ *     0 0  No error recovery
+ *     0 1  One retry accomplished successfully
+ *     1 0  More than one retry accomplished successfully
+ *     1 1  Error correction done successfully
+ *
+ * Always `00` here, and that is a fact about this model rather than an omission:
+ * an `.awd` image is sector data with no medium under it, a read either
+ * addresses a sector the image holds or is refused, so no read has ever needed a
+ * retry or an ECC correction to succeed. It becomes observable on the same day
+ * `AP_OMTI_CONTROL_DISABLE_RETRY` and `DISABLE_ECC` do -- when media errors can
+ * be injected -- and the field is named now so that the day it does, the value
+ * has somewhere to go.
+ *
+ * `002398-04` p. 12-10 draws this byte too, and draws bits 3 and 2 as zero; its
+ * one addition is a legend for **bit 6** -- "1 => winchester status, 0 => tape
+ * status" -- which §5.3 gives as one of the four bits "set to zero". Not
+ * modelled: the tape on this machine is an SC-499 at its own address and does
+ * not answer through this controller's data port, so a bit distinguishing the
+ * two would report a device this part cannot see. Recorded rather than dropped,
+ * because the handbook's page is the only place it appears. */
+#define COMPLETION_ERROR_RECOVERY_MASK 0x0Cu
+#define COMPLETION_ERROR_RECOVERY_NONE 0x00u
+#define COMPLETION_ERROR_RECOVERY_ONE_RETRY 0x04u
+#define COMPLETION_ERROR_RECOVERY_RETRIES 0x08u
+#define COMPLETION_ERROR_RECOVERY_CORRECTED 0x0Cu
 
 /* §5.1.3's sense bytes, named by Appendix A, "Sense Code Summary and
  * Description". Only the codes this core can genuinely produce are ever set;
@@ -130,6 +159,32 @@ bool ap_omti_fdc_in_reset(const ap_omti_t *omti) {
 #define SENSE_INVALID_COMMAND 0x20u
 #define SENSE_ILLEGAL_ADDRESS 0x21u
 #define SENSE_DRIVE_NOT_READY 0x04u
+/* `23 Volume Overflow`, and it is one line below `21` in the same appendix:
+ * "This indicates that **after the commencement of a multiblock command**, the
+ * end of volume was reached."
+ *
+ * So the two codes divide the same failure by *when* it happens. `21` is the
+ * address the command named being outside the drive; `23` is a command whose
+ * address was inside it running off the end part-way through. Every multiblock
+ * path here reported `21` for both, which tells a driver its descriptor block
+ * was wrong when the descriptor block was accepted and the transfer had already
+ * started -- the same class of misreport as `20` against `21` two paragraphs
+ * above, and found the same way, by walking the table rather than by a failure.
+ *
+ * `002398-04` p. 12-11 is what sent this file back to the appendix: its error
+ * code list prints `Volume Overflow $23` beside the four codes this core does
+ * emit, and there was no path here that could ever produce it.
+ *
+ * That page's list agrees with Appendix A on every code both print, and adds two
+ * the appendix does not have -- `32 Processor Test error` and `33 Winc control
+ * test error`, where the appendix's TYPE 3 stops at `31`. Both are results of
+ * the controller's own self tests, which this model passes: §5.4.23 and §5.4.26
+ * have "no fault to report", so a code for a failure that cannot happen would be
+ * inventing one. Recorded because the page is the only place they appear, and
+ * because Apollo shipped its own firmware in this controller -- the
+ * `3000_OMTI_8621_102640-B` ROM -- which is where two extra diagnostic codes
+ * would come from. */
+#define SENSE_VOLUME_OVERFLOW 0x23u
 /* `22 Illegal Function for Drive Type`, and Appendix A names the command in the
  * description itself: "a Change Cartridge command (HEX 1B) was issued to a LUN
  * assigned as a Fixed drive type". This machine's drive is fixed, so that is
@@ -232,9 +287,15 @@ static void finish(ap_omti_t *omti, bool error, uint8_t sense);
  * it, and had already recorded it for its own report.
  *
  * Recording and reporting are one function because they were two, and every
- * caller had to remember to do both. */
+ * caller had to remember to do both.
+ *
+ * `sense` is the caller's because the address is reported the same way for two
+ * different codes: `21` for an address the command named and the drive does not
+ * have, `23` for a multiblock command that ran off the end after it had
+ * started. Both are addresses this controller knows, and §5.4.3's validity bit
+ * says so for either. */
 static void refuse(ap_omti_t *omti, uint16_t cylinder, uint8_t head,
-                   uint8_t sector, uint32_t lba) {
+                   uint8_t sector, uint32_t lba, uint8_t sense) {
   omti->refused_cylinder = cylinder;
   omti->refused_head = head;
   omti->refused_sector = sector;
@@ -244,8 +305,8 @@ static void refuse(ap_omti_t *omti, uint16_t cylinder, uint8_t head,
     omti->refused_cdb[i] = omti->command[i];
   }
 
-  finish(omti, true, SENSE_ILLEGAL_ADDRESS);
-  omti->sense[0] = (uint8_t)(SENSE_ILLEGAL_ADDRESS | AP_OMTI_SENSE_ADDRESS_VALID);
+  finish(omti, true, sense);
+  omti->sense[0] = (uint8_t)(sense | AP_OMTI_SENSE_ADDRESS_VALID);
   omti->sense[1] = (uint8_t)((head & 0x1Fu) |
                              ((cylinder & 0x0400u) != 0u ? 0x80u : 0x00u));
   omti->sense[2] = (uint8_t)((sector & 0x3Fu) |
@@ -350,11 +411,14 @@ static void finish(ap_omti_t *omti, bool error, uint8_t sense) {
    * of the device associated with this command"**. Only bit 1 was ever set, so
    * a driver reading the completion byte was told every command belonged to
    * unit 0. Bits 7, 6, 4 and 0 are "set to zero", and the error-recovery field
-   * at bits 3 and 2 is left alone here.
+   * at bits 3 and 2 is `COMPLETION_ERROR_RECOVERY_NONE` for the reason set out
+   * where it is defined -- nothing in this model can retry, so no command has
+   * ever recovered from anything.
    *
    * Written now, at the end of the command, rather than when the drive
    * announces it -- see `complete`. */
   omti->completion = (uint8_t)((error ? COMPLETION_ERROR : 0u) |
+                               COMPLETION_ERROR_RECOVERY_NONE |
                                (omti->command_lun != 0u ? COMPLETION_LUN : 0u));
   omti->sense[0] = error ? sense : 0u;
   omti->sense[1] = 0u;
@@ -463,7 +527,8 @@ static bool addressed(ap_omti_t *omti, const ap_omti_cdb_t *cdb,
             AP_OMTI_CONVERSION_SECTORS +
         cdb->sector;
     if (converted >= ap_awd_sector_count(omti->selected->geometry)) {
-      refuse(omti, cdb->cylinder, cdb->head, cdb->sector, 0u);
+      refuse(omti, cdb->cylinder, cdb->head, cdb->sector, 0u,
+             SENSE_ILLEGAL_ADDRESS);
       return false;
     }
     *lba = converted;
@@ -471,7 +536,8 @@ static bool addressed(ap_omti_t *omti, const ap_omti_cdb_t *cdb,
   }
   if (!ap_awd_lba(omti->selected->geometry, cdb->cylinder, cdb->head, cdb->sector,
                   lba)) {
-    refuse(omti, cdb->cylinder, cdb->head, cdb->sector, 0u);
+    refuse(omti, cdb->cylinder, cdb->head, cdb->sector, 0u,
+           SENSE_ILLEGAL_ADDRESS);
     return false;
   }
   /* Appendix A `19 Bad Track Encountered`: "the specified track has previously
@@ -526,7 +592,7 @@ static void feed(ap_omti_t *omti) {
     uint8_t h = 0;
     uint8_t sec = 0;
     chs_of(omti->selected->geometry, omti->next_lba, &c, &h, &sec);
-    refuse(omti, c, h, sec, omti->next_lba);
+    refuse(omti, c, h, sec, omti->next_lba, SENSE_VOLUME_OVERFLOW);
     return;
   }
   note_read(omti, omti->next_lba);
@@ -808,7 +874,17 @@ static void execute(ap_omti_t *omti) {
     for (unsigned i = 0; i < (cdb.block_count == 0u ? 256u : cdb.block_count); i++) {
       note_read(omti, lba + i);
       if (!ap_awd_read(omti->selected, lba + i, omti->buffer)) {
-        finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+        /* The command's own address was accepted above, so a block that is not
+         * there is the end of the volume arriving mid-verify -- `23`, not `21`.
+         * And the address is reported, which it was not: this arm ended the
+         * command with a bare sense byte and left bytes 1-3 zero with §5.4.3's
+         * validity bit clear, telling a driver the controller did not know
+         * where the verify stopped. It does know. */
+        uint16_t c = 0;
+        uint8_t h = 0;
+        uint8_t sec = 0;
+        chs_of(omti->selected->geometry, lba + i, &c, &h, &sec);
+        refuse(omti, c, h, sec, lba + i, SENSE_VOLUME_OVERFLOW);
         return;
       }
     }
@@ -936,7 +1012,8 @@ static void execute(ap_omti_t *omti) {
     for (unsigned block = 0; block < blocks; block++) {
       if (!ap_awd_read(omti->selected, lba + block,
                        &omti->buffer[block * AP_AWD_SECTOR_BYTES])) {
-        refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block);
+        refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block,
+               SENSE_VOLUME_OVERFLOW);
         return;
       }
       note_read(omti, lba + block);
@@ -965,7 +1042,7 @@ static void execute(ap_omti_t *omti) {
       const uint8_t first = (c == cdb.cylinder) ? cdb.head : 0u;
       for (uint8_t h = first; h < omti->selected->geometry.heads; h++) {
         if (!format_track(omti, c, h, cdb.control, 0u)) {
-          refuse(omti, c, h, 0u, 0u);
+          refuse(omti, c, h, 0u, 0u, SENSE_ILLEGAL_ADDRESS);
           return;
         }
       }
@@ -990,7 +1067,7 @@ static void execute(ap_omti_t *omti) {
                       cdb.command == AP_OMTI_CMD_FORMAT_BAD_TRACK
                           ? AP_AWD_FLAG_BAD_TRACK
                           : 0u)) {
-      refuse(omti, cdb.cylinder, cdb.head, 0u, 0u);
+      refuse(omti, cdb.cylinder, cdb.head, 0u, 0u, SENSE_ILLEGAL_ADDRESS);
       return;
     }
     finish(omti, false, 0u);
@@ -1035,7 +1112,7 @@ static void execute(ap_omti_t *omti) {
     if (!ap_awd_lba(omti->selected->geometry, destination.cylinder,
                     destination.head, destination.sector, &to)) {
       refuse(omti, destination.cylinder, destination.head, destination.sector,
-             0u);
+             0u, SENSE_ILLEGAL_ADDRESS);
       return;
     }
     const unsigned blocks = block_count(&cdb);
@@ -1043,7 +1120,8 @@ static void execute(ap_omti_t *omti) {
       note_read(omti, lba + block);
       if (!ap_awd_read(omti->selected, lba + block, omti->buffer) ||
           !ap_awd_write(omti->selected, to + block, omti->buffer)) {
-        refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block);
+        refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block,
+               SENSE_VOLUME_OVERFLOW);
         return;
       }
     }
@@ -1069,7 +1147,8 @@ static void execute(ap_omti_t *omti) {
     for (unsigned block = 0; block < blocks; block++) {
       if (!ap_awd_write(omti->selected, lba + block,
                         &omti->buffer[block * AP_AWD_SECTOR_BYTES])) {
-        refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block);
+        refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block,
+               SENSE_VOLUME_OVERFLOW);
         return;
       }
     }
@@ -1156,7 +1235,8 @@ static void execute(ap_omti_t *omti) {
       note_read(omti, lba + block);
       if (!ap_awd_read(omti->selected, lba + block,
                        &omti->buffer[block * AP_OMTI_LONG_BLOCK_BYTES])) {
-        refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block);
+        refuse(omti, cdb.cylinder, cdb.head, cdb.sector, lba + block,
+               SENSE_VOLUME_OVERFLOW);
         return;
       }
     }
@@ -1199,12 +1279,14 @@ static void execute(ap_omti_t *omti) {
       uint32_t at = 0;
       if (!ap_awd_lba(omti->selected->geometry, cdb.cylinder, cdb.head,
                       (uint8_t)s, &at)) {
-        refuse(omti, cdb.cylinder, cdb.head, (uint8_t)s, at);
+        refuse(omti, cdb.cylinder, cdb.head, (uint8_t)s, at,
+               SENSE_ILLEGAL_ADDRESS);
         return;
       }
       note_read(omti, at);
       if (!ap_awd_read(omti->selected, at, omti->buffer)) {
-        refuse(omti, cdb.cylinder, cdb.head, (uint8_t)s, at);
+        refuse(omti, cdb.cylinder, cdb.head, (uint8_t)s, at,
+               SENSE_ILLEGAL_ADDRESS);
         return;
       }
     }
@@ -1353,7 +1435,8 @@ static void take_byte(ap_omti_t *omti, uint8_t value) {
         omti->assigning_alternate = false;
         if (!format_track(omti, alternate.cylinder, alternate.head, 0u,
                           AP_AWD_FLAG_IS_ALTERNATE)) {
-          refuse(omti, alternate.cylinder, alternate.head, 0u, 0u);
+          refuse(omti, alternate.cylinder, alternate.head, 0u, 0u,
+                 SENSE_ILLEGAL_ADDRESS);
           return;
         }
         finish(omti, false, 0u);
@@ -1378,7 +1461,15 @@ static void take_byte(ap_omti_t *omti, uint8_t value) {
         if (!ap_awd_write(omti->selected, omti->long_write_lba + block,
                           &omti->buffer[block * AP_OMTI_LONG_BLOCK_BYTES])) {
           omti->long_write_blocks = 0u;
-          finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+          /* Past the end of the volume, and the host has already handed over
+           * every byte -- as commenced as a command gets. */
+          uint16_t c = 0;
+          uint8_t h = 0;
+          uint8_t sec = 0;
+          chs_of(omti->selected->geometry, omti->long_write_lba + block, &c, &h,
+                 &sec);
+          refuse(omti, c, h, sec, omti->long_write_lba + block,
+                 SENSE_VOLUME_OVERFLOW);
           return;
         }
       }
@@ -1396,7 +1487,15 @@ static void take_byte(ap_omti_t *omti, uint8_t value) {
       return;
     }
     if (!ap_awd_write(omti->selected, omti->next_lba, omti->buffer)) {
-      finish(omti, true, SENSE_ILLEGAL_ADDRESS);
+      /* The streaming WRITE's counterpart to `feed`'s refusal on the read side,
+       * and the same code for the same reason: the descriptor block's address
+       * was accepted, the host has been handing over sectors, and this one has
+       * run off the end. */
+      uint16_t c = 0;
+      uint8_t h = 0;
+      uint8_t sec = 0;
+      chs_of(omti->selected->geometry, omti->next_lba, &c, &h, &sec);
+      refuse(omti, c, h, sec, omti->next_lba, SENSE_VOLUME_OVERFLOW);
       return;
     }
     omti->next_lba++;
@@ -1689,6 +1788,30 @@ bool ap_omti_fdc_motor_on(const ap_omti_t *omti, unsigned drive) {
   const uint8_t bit = drive == 0u ? AP_OMTI_DOR_DRIVE_A_MOTOR
                                   : AP_OMTI_DOR_DRIVE_B_MOTOR;
   return (omti->dor & bit) != 0u;
+}
+
+uint8_t ap_omti_fdc_precompensation(const ap_omti_t *omti) {
+  return (uint8_t)(omti->fdc_control & AP_OMTI_FDC_CONTROL_PRECOMP_MASK);
+}
+
+bool ap_omti_fdc_control_pin(const ap_omti_t *omti, unsigned pin) {
+  /* `002398-04` p. 12-14 names three, at 3, 4 and 5, and calls them by the
+   * interface pin each drives -- 2, 4 and 6. Asking by the pin number is how the
+   * page reads; anything else is not a pin this register has. */
+  switch (pin) {
+  case 2u:
+    return (omti->fdc_control & AP_OMTI_FDC_CONTROL_PIN2) != 0u;
+  case 4u:
+    return (omti->fdc_control & AP_OMTI_FDC_CONTROL_PIN4) != 0u;
+  case 6u:
+    return (omti->fdc_control & AP_OMTI_FDC_CONTROL_PIN6) != 0u;
+  default:
+    return false;
+  }
+}
+
+ap_omti_fdc_rate_t ap_omti_fdc_data_rate(const ap_omti_t *omti) {
+  return (ap_omti_fdc_rate_t)(omti->fdc_rate & AP_OMTI_FDC_RATE_MASK);
 }
 
 /* §6.3's three command modifiers, from the first byte of the command in
@@ -1990,8 +2113,17 @@ static void fdc_execute(ap_omti_t *omti) {
 
   case AP_OMTI_FDC_SENSE_DRIVE:
     /* §6.3.9's ST3. Bit 0 is "always 1"; track 0 and the head come from where
-     * the drive actually is, and write protect from the image. */
-    omti->fdc_result[0] = AP_OMTI_ST3_ALWAYS | (uint8_t)unit;
+     * the drive actually is, and write protect from the image.
+     *
+     * **The unit was being reported here and must not be.** This built the byte
+     * as `ALWAYS | unit`, which is neither manual's register: §6.4.4 has bits 1
+     * and 0 constant, and `002398-04` p. 12-14 has them as `UN1`/`UN0` with no
+     * constant anywhere. The two readings were mixed, so a `SENSE DRIVE STATUS`
+     * for drive B answered `03` -- the part's constant and the handbook's unit
+     * field at once, a value neither document describes. The header sets out
+     * which reading is followed and what would settle it; whichever wins, this
+     * byte is not both. */
+    omti->fdc_result[0] = AP_OMTI_ST3_ALWAYS;
     if (omti->fdc_cylinder[unit] == 0u) {
       omti->fdc_result[0] |= AP_OMTI_ST3_TRACK_0;
     }
@@ -2177,8 +2309,12 @@ void ap_omti_fdc_write(ap_omti_t *omti, unsigned reg, uint8_t value) {
     }
     return;
   case AP_OMTI_FDC_CONTROL:
-  case AP_OMTI_FDC_DIR:
     omti->fdc_control = value;
+    return;
+  case AP_OMTI_FDC_DIR:
+    /* Table 4-3's Diskette Control Register, which is a different register from
+     * the one above and used to be the same byte. See `fdc_rate`. */
+    omti->fdc_rate = value;
     return;
   default:
     return;

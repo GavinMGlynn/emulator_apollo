@@ -433,6 +433,122 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## Three defects in `ap_omti`, from six pages of the DN3000's own handbook
+## (2026-08-20)
+
+From the `002398-04` whole-document walk, pages 12-9 to 12-14 — the DN3000's
+disk controller, read against `ap_omti` register by register. Coverage in
+`docs/references/002398-04_WALK.md`.
+
+None of the three was visible to a test or a boot. All three came from putting
+the handbook's bit maps beside the code, which is what the *table walk* rule in
+`CLAUDE.md` is for.
+
+### `23 Volume Overflow`: a sense code with no path that could produce it
+
+p. 12-11 lists the DN3000's disk error codes. Nineteen of them match `[OMTI]`
+Appendix A and the four this core emits are among them — and one more is printed
+that nothing here could ever return. Appendix A-5 defines it:
+
+> **23 Volume Overflow.** This indicates that after the commencement of a
+> multiblock command, the end of volume was reached.
+
+One line above it:
+
+> **21 Illegal Disk Address.** This indicates that the controller received a
+> command with a Sector Address beyond the capacity of the drive.
+
+**The two divide the same failure by when it happens**, and every multiblock path
+in `ap_omti.c` reported `21` for both. A driver whose descriptor block was
+accepted, whose first sectors crossed the bus, and whose transfer then ran off
+the end was told its *address* was wrong — a statement about a command that had
+already worked. That is the same class of misreport as the `20`-against-`21`
+defect this file records from 2026-08-12, and it was found the same way.
+
+Eight sites now report `23`: `feed` (the streaming read's next sector), the
+streaming write, `05 READ VERIFY`, `1E READ DATA TO BUFFER`, `1F WRITE DATA FROM
+BUFFER`, `20 COPY`, `E5 READ LONG` and `E6 WRITE LONG`'s placement loop. The
+address-refusal helper takes the code as a parameter, because §5.4.3's validity
+bit and the three address bytes behind it apply to either. **Two of those arms
+were also ending with a bare sense byte** — no address, validity bit clear —
+which told a driver the controller did not know where the transfer stopped, from
+a controller that did. They report it now.
+
+What stays `21`, and why it is not an oversight: the address the command itself
+named (`addressed()`), a `FORMAT TRACK` or `ASSIGN ALTERNATE` naming a track the
+drive does not have, and `CHECK TRACK FORMAT`'s sweep. None is a multiblock
+command, which is the condition Appendix A puts on `23`.
+
+`awd_suite`: a four-block read from sector 14 of a sixteen-sector drive delivers
+two sectors and then reports `A3` with the address it stopped on, and the same
+on the write side — with the two sectors that fitted still written, because `23`
+reports where a transfer stopped, not that it never started.
+
+### AT `3F6` and `3F7` were one byte of state
+
+p. 12-14 is the only document on this shelf that decomposes the **Additional
+Control Register** — `[OMTI]` Table 4-3 lists it by name and stops there. Its
+fields are write precompensation in bits 2-0, then interface pins 2 ("density &
+speed control"), 4 and 6.
+
+Writing them down is what showed that `3F7` was landing on them: Table 4-3 has
+`3F6` write as the Additional Control Register and `3F7` write as the Diskette
+Control Register, **two registers**, and this model kept both in `fdc_control`.
+Selecting a data rate silently cleared whatever precompensation had been
+programmed, and reading either back gave the other.
+
+They are two fields now, both hashed. `3F7`'s contents are transcribed from the
+8640 manual's §5.1 — `00` 500 Kbit/s, `01` 300, `10` 250, `11` reserved — which
+is the same sibling-manual route the Main Status Register's bits came by. Zero at
+reset is 500 Kbit/s, and that is the only rate this machine's drive takes
+(`008778-03` §7.2), so the register powers up already selecting it. Nothing is
+timed off either register: precompensation and recording density are properties
+of a magnetic surface, and an `.afd` image is decoded sector data. Both are
+exposed rather than absorbed, which is the fix this file recorded once before for
+the Digital Output Register's motor bits — "defined and never read".
+
+### ST3 was built from two manuals at once
+
+`SENSE DRIVE STATUS` returned `AP_OMTI_ST3_ALWAYS | unit`. `[OMTI]` §6.4.4 gives
+ST3 three live bits and five constants, bit 0 "not used - always 1" and bit 1
+"not used - always zero"; `002398-04` p. 12-14 gives the generic 765's eight,
+with `UN1`/`UN0` in bits 1-0 and no constant anywhere. **The code was both**: for
+drive B it answered `03`, a value neither document describes.
+
+Resolved to the part's own manual — two OMTI manuals say the same thing about
+this board, and against them stands one handbook page whose neighbours transpose
+this controller's mask register and print its floppy reset polarity backwards.
+
+**`PROVISIONAL`, and named rather than decided by preference.** `008778-03`
+§5.4.1.2 does call the part an "FDC765", so the silicon has all eight bits, and
+what OMTI describes is what they read as once AT cabling is attached. The
+handbook also explains a garble both OMTI manuals carry — "Track 0 (T0) - Status
+of the **'ready'** signal", which is bit 5's description attached to bit 4's
+name. **What would settle it**: a driver that branches on bit 5. If the DN3000's
+floppy driver polls ST3 for `RDY` before using the drive, the handbook's reading
+is the machine's and this model would hang instead. No boot measured here reaches
+the floppy, so nothing has yet distinguished them. The five bits are defined in
+`ap_omti.h` so that the day one does, the positions are already written down.
+
+### Confirmed, and worth recording as confirmed
+
+The status register's six live bits, the whole six-byte descriptor block, the
+control byte's eight step rates, ST1's six bits and ST2's seven, the Digital
+Output Register's five, and the Main Status Register's four — all agree with this
+core position for position. The handbook adds Apollo's own annotations to two of
+them: step option `001` is marked **N/A** where `[OMTI]` gives "10 microseconds,
+buffered step", and `000` is named "unknown drive".
+
+Three of its statements are **not** followed, each against the part's own manual
+and both recorded in `ap_omti.h`: the interrupt mask register's `dma` and `int`
+labels are transposed (the oracle agrees with `[OMTI]`), ST0's bits 3-2 are given
+names where §6.4.1 has them always zero, and the floppy's reset bit is annotated
+"1 => Reset" where reset is at **0**.
+
+**The state hash has moved**, because `fdc_rate` is new state and is hashed. Boot
+hashes recorded in this file before this entry are not comparable with ones taken
+after it; the machine's behaviour is unchanged unless a driver writes `3F7`.
+
 ## The floppy drive had no access time, and chapter 6 named the Winchester
 ## (2026-08-20)
 

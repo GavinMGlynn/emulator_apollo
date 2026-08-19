@@ -734,8 +734,73 @@ static void test_sector_address_conversion_uses_sixteen_heads(void) {
   TEST_ASSERT_EQUAL_UINT(18u, maxtor.sectors);
 }
 
+/* Table 4-3 gives AT `3F6` write as the Additional Control Register and `3F7`
+ * write as the Diskette Control Register. Two registers -- and this model kept
+ * both in one byte, so a data-rate selection cleared whatever write
+ * precompensation had been programmed. `002398-04` p. 12-14 is what made it
+ * visible, by being the only document that says what `3F6` contains. */
+static void test_the_two_floppy_control_registers_are_not_one_register(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+
+  /* p. 12-14: write precompensation in bits 2-0, interface pin 2 -- density and
+   * speed control -- at bit 3, pins 4 and 6 above it. */
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_CONTROL, 0x2Du); /* precomp 5, pins 2 and 6 */
+  TEST_ASSERT_EQUAL_HEX8(5u, ap_omti_fdc_precompensation(&o));
+  TEST_ASSERT_TRUE(ap_omti_fdc_control_pin(&o, 2u));
+  TEST_ASSERT_FALSE(ap_omti_fdc_control_pin(&o, 4u));
+  TEST_ASSERT_TRUE(ap_omti_fdc_control_pin(&o, 6u));
+
+  /* The 8640 manual's §5.1 data rates. Selecting one must not disturb the
+   * register above, which is the whole of what was wrong. */
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DIR, AP_OMTI_FDC_RATE_250K);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_FDC_RATE_250K, ap_omti_fdc_data_rate(&o));
+  TEST_ASSERT_EQUAL_HEX8(5u, ap_omti_fdc_precompensation(&o));
+  TEST_ASSERT_TRUE(ap_omti_fdc_control_pin(&o, 6u));
+
+  /* Zero at reset is 500 Kbit/s, which is the only rate this machine's drive
+   * runs at -- `008778-03` §7.2, and `AP_OMTI_FDC_TRANSFER_BYTES_PER_SEC` is
+   * that figure in bytes. So the register powers up already selecting the
+   * drive's rate, which is why nothing here is timed off it. */
+  ap_omti_reset(&o);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_FDC_RATE_500K, ap_omti_fdc_data_rate(&o));
+  TEST_ASSERT_EQUAL_UINT(62500u, AP_OMTI_FDC_TRANSFER_BYTES_PER_SEC);
+}
+
+/* §6.4.4: ST3's bit 0 is "not used - always 1" and bit 1 "not used - always
+ * zero". This built the byte as `ALWAYS | unit`, which is neither that register
+ * nor `002398-04` p. 12-14's `UN1`/`UN0` -- it was both at once, and answered
+ * `03` for drive B. The header records which reading is followed and what would
+ * settle it; this asserts that the byte is one of them rather than a mixture. */
+static void test_sense_drive_status_does_not_report_the_unit(void) {
+  ap_omti_t o;
+
+  for (unsigned unit = 0u; unit < 2u; unit++) {
+    ap_omti_reset(&o);
+    /* Out of reset, and with a drive selected: §6.3.9 takes the unit in the
+     * command's second byte, bits 1-0. */
+    ap_omti_fdc_write(&o, AP_OMTI_FDC_DOR, AP_OMTI_DOR_NOT_RESET);
+    ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SENSE_DRIVE);
+    ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, (uint8_t)unit);
+    const uint8_t st3 = ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA);
+
+    /* Track 0 because the heads have never moved, write protect because no
+     * media is fitted, and bit 0's constant. Nothing in bits 1-0 beyond it. */
+    TEST_ASSERT_EQUAL_HEX8(0u, st3 & 0x02u);
+    TEST_ASSERT_EQUAL_HEX8(AP_OMTI_ST3_ALWAYS, st3 & AP_OMTI_ST3_ALWAYS);
+    TEST_ASSERT_EQUAL_HEX8(AP_OMTI_ST3_TRACK_0, st3 & AP_OMTI_ST3_TRACK_0);
+    /* And the three the handbook names and this part calls constant stay
+     * clear, which is the reading being followed made assertable. */
+    TEST_ASSERT_EQUAL_HEX8(0u, st3 & AP_OMTI_ST3_FAULT);
+    TEST_ASSERT_EQUAL_HEX8(0u, st3 & AP_OMTI_ST3_READY);
+    TEST_ASSERT_EQUAL_HEX8(0u, st3 & AP_OMTI_ST3_TWO_SIDED);
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_two_floppy_control_registers_are_not_one_register);
+  RUN_TEST(test_sense_drive_status_does_not_report_the_unit);
   RUN_TEST(test_sector_address_conversion_uses_sixteen_heads);
   RUN_TEST(test_test_drive_ready_fails_for_a_lun_with_no_drive);
   RUN_TEST(test_the_completion_byte_carries_the_commands_lun);

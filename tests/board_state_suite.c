@@ -297,6 +297,7 @@ static void test_every_disk_controller_field_moves_the_hash(void) {
   MOVES_THE_HASH(scratch.disk.controller.fdc_status ^= 0x80u);
   MOVES_THE_HASH(scratch.disk.controller.fdc_data ^= 0x55u);
   MOVES_THE_HASH(scratch.disk.controller.fdc_control ^= 0x03u);
+  MOVES_THE_HASH(scratch.disk.controller.fdc_rate ^= 0x03u);
   MOVES_THE_HASH(scratch.disk.controller.disk_change =
                      !scratch.disk.controller.disk_change);
 }

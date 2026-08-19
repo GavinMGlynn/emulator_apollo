@@ -155,6 +155,27 @@ so nothing was ever displayed to the right of the separator. The handbook's
 So the parser can be written against the address field and the separator's
 width rule, and **cannot** yet be written against the contents field.
 
+## MD's disk error line, and where its number comes from
+
+`002398-04` p. 12-11 gives the DN3000's disk sense codes and then says what MD
+does with them:
+
+> Error codes 'xx' are returned by `sense_status` and reported by MD driver as:
+>
+> ```
+> DISK operation ERROR: xx recordnum unit type
+> ```
+
+Four fields after the code, in that order. `xx` is the controller's sense byte
+from `03 REQUEST SENSE`, so a capture showing this line names the failure exactly
+— `21` an address the drive does not have, `23` a multiblock transfer that ran
+off the end, `17` a write-protected drive, `04` no drive. The full list is on the
+same page and is transcribed in `ap_omti.c` beside the codes this core emits.
+
+Worth having before a floppy or Winchester capture rather than after: the line is
+the only place MD reports *why* a transfer failed, and without the format it
+reads as four unlabelled numbers.
+
 ## `A` is not the display command
 
 From the Engineering Handbook (`002398-04`, "MNEMONIC DEBUGGER (PROM)"), the

@@ -52,7 +52,13 @@
 typedef enum {
   AP_OMTI_DISK_DATA = 0u,   /* read DATA IN, write DATA OUT */
   AP_OMTI_DISK_STATUS = 1u, /* read STATUS, write RESET (a function) */
-  AP_OMTI_DISK_CONFIG = 2u, /* read CONFIGURATION, write SELECT (a function) */
+  /* Read CONFIGURATION, write SELECT (a function). §4.2: the configuration byte
+   * is "the status of the drive configuration jumpers", bits 7-4 not used and
+   * set to 1, bits 3-0 the straps `W20`-`W23` on an 8620/8627. `002398-04`
+   * p. 12-9 calls the same register the **Jumper Setting Register** and names
+   * its four bits `j1`-`j4`, "1 => jumperN in place" -- so the measured `FC`
+   * this core answers with is jumpers 1 and 2 fitted and 3 and 4 out. */
+  AP_OMTI_DISK_CONFIG = 2u,
   AP_OMTI_DISK_MASK = 3u,   /* read N/A, write MASK */
 } ap_omti_disk_reg_t;
 
@@ -75,8 +81,17 @@ typedef enum {
  * driver polling for it waits for ever -- which is exactly what a `FORCE LOAD`
  * did here, timing out on `STATUS` and then five times on `DATA`. */
 #define AP_OMTI_ST_IO 0x02u    /* 1 = controller to host */
-/* §4.2's MASK register: "Enables and disables interrupts and DMA transfers."
- * Bits 7-2 are not used. */
+/* §4.2's MASK register: "Enables and disables interrupts and DMA transfers.
+ * Bits 7-2 Not used. **Bit 1 INTERRUPT ENABLE** ... **Bit 0 DMA ENABLE** ...
+ * 1 = DREQ is gated onto system bus".
+ *
+ * `002398-04` p. 12-9 draws the same register with the two labels the other way
+ * round -- `dma` at bit 1, `int` at bit 0. The part's own manual is followed,
+ * and the oracle is on its side: `omti8621.cpp` has `OMTI_MASK_DMAE 0x01` and
+ * `OMTI_MASK_INTE 0x02`. Recorded because the handbook is otherwise a good
+ * second source for this board and a reader comparing the two pages needs to
+ * know which was preferred and why -- the same page also transposes the status
+ * register's address and draws the floppy's reset polarity backwards. */
 #define AP_OMTI_MASK_INTERRUPT_ENABLE 0x02u
 #define AP_OMTI_MASK_DMA_ENABLE 0x01u
 #define AP_OMTI_ST_REQ 0x01u   /* 1 = transfer one byte or word */
@@ -106,8 +121,57 @@ typedef enum {
 
 /* Digital Input Register: "Bit 7 ... is received from pin 34 of the floppy disk
  * control cable and is normally used for diskette change status. Bits 0 through
- * 6 are Reserved." */
+ * 6 are Reserved."
+ *
+ * `002398-04` p. 12-14 names all seven of those reserved bits -- `WG` write
+ * gate, `HD3` "head select 3 / reduced write current", `HD2`, `HD1`, `HD0`,
+ * `UN1` and `UN0` -- which is the drive-interface state read back rather than a
+ * register the host writes. Not modelled, and the reason is the same one that
+ * keeps the ECC bytes zero: an `.afd` image has no write gate and no reduced
+ * write current, so three of the seven have no value this core could give that
+ * would not be invented. Recorded because `[OMTI]` calls them reserved and this
+ * is the only page that says what they are. */
 #define AP_OMTI_DIR_DISK_CHANGE 0x80u
+
+/* The Additional Control Register at AT `3F6`, which `[OMTI]` Table 4-3 lists by
+ * name and does not decompose. `002398-04` p. 12-14 is the only document on this
+ * shelf that gives its fields:
+ *
+ *     7-6  reserve
+ *     5    PN6   interface pin 6
+ *     4    PN4   interface pin 4
+ *     3    PN2   interface pin 2 (density & speed control)
+ *     2    WP2 |
+ *     1    WP1 |  write precompensation, three bits
+ *     0    WP0 |
+ *
+ * The register is accepted and kept, and none of the three functions is
+ * modelled -- honestly, not by omission. Write precompensation shifts *when* a
+ * bit cell is written to counter peak shift on the inner tracks; density and
+ * speed control select the medium's recording rate at the drive. Both are
+ * properties of a magnetic surface, and an `.afd` image is decoded sector data
+ * with no surface underneath it, so there is no quantity here for either to
+ * change. `PN4` and `PN6` are interface pins this document names and does not
+ * define.
+ *
+ * They are named so that a driver's writes can be *read* -- `ap_omti_fdc_...`
+ * exposes the byte -- rather than disappearing into a field nobody can decode.
+ */
+#define AP_OMTI_FDC_CONTROL_PRECOMP_MASK 0x07u
+#define AP_OMTI_FDC_CONTROL_PIN2 0x08u /* density and speed control */
+#define AP_OMTI_FDC_CONTROL_PIN4 0x10u
+#define AP_OMTI_FDC_CONTROL_PIN6 0x20u
+
+/* The Diskette Control Register at AT `3F7` written -- the data rate, from the
+ * 8640 manual's §5.1. See `fdc_rate` in the structure below for why these are
+ * kept and not acted on, and for what it cost to have them share `3F6`'s byte. */
+#define AP_OMTI_FDC_RATE_MASK 0x03u
+typedef enum {
+  AP_OMTI_FDC_RATE_500K = 0u,
+  AP_OMTI_FDC_RATE_300K = 1u,
+  AP_OMTI_FDC_RATE_250K = 2u,
+  AP_OMTI_FDC_RATE_RESERVED = 3u,
+} ap_omti_fdc_rate_t;
 
 /* The floppy Main Status Register.
  *
@@ -173,7 +237,14 @@ typedef enum {
 #define AP_OMTI_FDC_SK 0x20u /* skip deleted-data address mark */
 
 /* ST0. Bits 7-6 are the interrupt code, and the four values are the whole of
- * what a driver checks first. */
+ * what a driver checks first.
+ *
+ * §6.4.1's other two entries are constants: "**Bit 3 and 2  Not Used - Always
+ * zero**", then bits 1-0 the unit. `002398-04` p. 12-13 gives those two bits
+ * names -- `NR` not ready at 3, `HD` head address at 2 -- which is the generic
+ * 765's register, as its ST3 is. The part's own manual is followed here for the
+ * reason set out at `AP_OMTI_ST3_*`, and both are recorded so that a reader who
+ * finds the handbook's page knows this file has seen it. */
 #define AP_OMTI_ST0_IC_MASK 0xC0u
 #define AP_OMTI_ST0_IC_NORMAL 0x00u  /* completed and properly executed */
 #define AP_OMTI_ST0_IC_ABRUPT 0x40u  /* started, not successfully completed */
@@ -200,19 +271,54 @@ typedef enum {
 #define AP_OMTI_ST2_BAD_CYLINDER 0x02u
 #define AP_OMTI_ST2_MISSING_DATA_MARK 0x01u
 
-/* ST3. Bit 0 is "always 1", which is the only constant bit in the four.
+/* ST3, and the one register on this part that two manuals describe differently.
  *
- * Bit 4's description in the 8640 manual contradicts its own name: "Track 0
+ * `[OMTI]` §6.4.4 -- the controller's own manual, and the 8640's §5.6.4 word for
+ * word -- gives three live bits and five constants: bit 6 Write Protect, bit 4
+ * Track 0, bit 2 Head Address, and bits 7, 5, 3 and 1 "not used - always zero"
+ * with bit 0 "not used - always 1". That is what is modelled below.
+ *
+ * `002398-04` p. 12-14 draws the **generic 765 register** for the same machine
+ * and names all eight: `FT` fault, `WP` write protect, `RDY` ready, `TR0` track
+ * 0, `TS` two sided, `HD` head address, `UN1` and `UN0` unit select -- each
+ * annotated "from drive". The three both documents agree on sit in the same
+ * three positions, so the disagreement is confined to the five OMTI calls
+ * constant.
+ *
+ * **Which to follow, and why the part's own manual wins here.** The handbook's
+ * table is the µPD765's, and `008778-03` §5.4.1.2 does name the part as an
+ * "FDC765" -- so the *silicon* has these bits. What OMTI's manual describes is
+ * what they read as once the AT cabling is attached, and a drive that supplies
+ * no fault, ready or two-side line leaves them at their tied values. Two OMTI
+ * manuals say the same thing about the same board; against them stands one page
+ * of a handbook whose adjacent pages transpose this controller's mask register
+ * bits and print its floppy reset polarity backwards.
+ *
+ * **What it would take to settle it**: a driver that branches on bit 5. If the
+ * DN3000's floppy driver polls ST3 for `RDY` before using the drive, the
+ * handbook's reading is the machine's and this model would hang instead; no boot
+ * measured here reaches the floppy, so nothing has yet distinguished them. Named
+ * in `docs/PROJECT_STATUS.md` rather than decided by preference.
+ *
+ * Bit 4's description in *both* OMTI manuals contradicts its own name: "Track 0
  * (TO) - Status of the 'ready' signal from the diskette drive". The name is
- * modelled and the sentence is not, because bit 4 is Track 0 on every 765-family
- * part and a drive-ready bit that moves when the head reaches cylinder 0 would
- * be reported to a driver as readiness it never gained. Recorded rather than
- * quietly resolved: no manual here states the drive-ready bit's position, so a
- * driver polling for ready will not see it change. */
+ * modelled and the sentence is not, because bit 4 is Track 0 on every
+ * 765-family part and a drive-ready bit that moves when the head reaches
+ * cylinder 0 would be reported to a driver as readiness it never gained. The
+ * handbook explains the sentence rather than the name: `RDY` is the bit above,
+ * and its description slid one row down OMTI's table. */
 #define AP_OMTI_ST3_WRITE_PROTECT 0x40u
 #define AP_OMTI_ST3_TRACK_0 0x10u
 #define AP_OMTI_ST3_HEAD 0x04u
 #define AP_OMTI_ST3_ALWAYS 0x01u
+/* The five `002398-04` p. 12-14 names and `[OMTI]` §6.4.4 calls constant.
+ * Defined so that a reader who finds the handbook's table can see which bits it
+ * means, and so that the day the question above is settled the positions are
+ * already written down. Nothing sets them. */
+#define AP_OMTI_ST3_FAULT 0x80u
+#define AP_OMTI_ST3_READY 0x20u
+#define AP_OMTI_ST3_TWO_SIDED 0x08u
+#define AP_OMTI_ST3_UNIT_MASK 0x03u
 
 /* Where the fixed-disk half is in a command.
  *
@@ -492,6 +598,36 @@ typedef struct {
   uint8_t fdc_status;
   uint8_t fdc_data;
   uint8_t fdc_control;
+  /* AT `3F7` written, which is **not** `3F6` and was sharing its byte.
+   *
+   * Table 4-3 gives `3F6` write as the Additional Control Register and `3F7`
+   * write as the Diskette Control Register -- two registers, and this model put
+   * both into `fdc_control`, so selecting a data rate silently cleared whatever
+   * write precompensation had been programmed and reading either back gave the
+   * other. Found by walking `002398-04` p. 12-14 against this file: the handbook
+   * prints `3F6`'s fields, which is what made it visible that `3F7`'s writes
+   * were landing on them.
+   *
+   * `[OMTI]` names the register and does not decompose it; the sibling 8640
+   * manual's §5.1 does, and is the transcription used here as it is for the Main
+   * Status Register: "an output only register which gives the controller data
+   * rate information. All bits are cleared when a channel reset occurs. Bits
+   * 7-2 Reserved", then bits 1 and 0 --
+   *
+   *     0 0   500 Kbits/sec
+   *     0 1   300 Kbits/sec
+   *     1 0   250 Kbits/sec
+   *     1 1   Reserved
+   *
+   * Zero at reset is therefore **500 Kbit/s**, which is the rate this machine's
+   * drive runs at: `008778-03` §7.2 requires it to "operate in high-density mode
+   * at 360 rpm, with a data transfer rate of 500 Kb/sec", and
+   * `AP_OMTI_FDC_TRANSFER_BYTES_PER_SEC` is that figure. So the register's
+   * power-on value is already the only rate this drive has, which is why nothing
+   * here is timed off it: selecting 300 or 250 would describe a medium the Apollo
+   * drive does not take. The byte is kept and reported rather than acted on, and
+   * `ap_omti_fdc_data_rate` says which of the four a driver asked for. */
+  uint8_t fdc_rate;
   bool disk_change;
 
   /* The floppy's own command phase, which shares nothing with the fixed disk's:
@@ -848,6 +984,18 @@ void ap_omti_attach_floppy(ap_omti_t *omti, ap_afd_t *floppy);
 /* Whether a drive's motor is running -- Table 4-3's `DOR` bits 4 and 5, which
  * were stored and never read. */
 [[nodiscard]] bool ap_omti_fdc_motor_on(const ap_omti_t *omti, unsigned drive);
+
+/* The Additional Control Register's three fields and the Diskette Control
+ * Register's data rate, as the driver last wrote them.
+ *
+ * They exist because the alternative is a register that is stored and never
+ * read, which this file has already had to fix once -- the Digital Output
+ * Register's motor bits, "defined and never read". None of the four changes any
+ * timing here, for the reasons given beside their definitions; what an accessor
+ * buys is that a driver's request is *observable* rather than absorbed. */
+[[nodiscard]] uint8_t ap_omti_fdc_precompensation(const ap_omti_t *omti);
+[[nodiscard]] bool ap_omti_fdc_control_pin(const ap_omti_t *omti, unsigned pin);
+[[nodiscard]] ap_omti_fdc_rate_t ap_omti_fdc_data_rate(const ap_omti_t *omti);
 
 [[nodiscard]] bool ap_omti_fdc_multitrack(const ap_omti_t *omti);
 [[nodiscard]] bool ap_omti_fdc_mfm(const ap_omti_t *omti);
