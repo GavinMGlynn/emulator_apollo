@@ -5723,14 +5723,14 @@ END — PDF 279–313, all 35 pages. 35 content pages of 330.**
       `008778-03` §5.4.1.2 names the part an "FDC765". This core follows the
       part's own manual — see `AP_GRAPHICS_SR_V_SYNC`'s neighbour finding for
       why that is not automatic.
-      **Settle it the way the colour status register was settled: from the
-      firmware, not the oracle.** What is wanted is a driver that branches on
-      ST3 bit 5. A first scan of `3500_BOOT_12191_7` found neither
-      `MOVE.B #$04,$5(An)` (SENSE DRIVE STATUS issued through a base register)
-      nor `BTST #5,(An)`, which is a **weak** negative: the floppy driver is
-      table-driven, and `002A86` loads the floppy base into `A0` with two tables
-      into `A3` and `A4`, so the command may be issued from a table and the
-      result tested with `ANDI.B #$20`. Start the disassembly at `002A86`.
+      **The firmware route is exhausted and the answer is not in the ROM.** The
+      boot PROM's floppy path was disassembled from `002A86`: `003266`
+      initialises the drive — Digital Output `$1C`, Diskette Control `$00`,
+      Additional Control `$02` — and never issues `SENSE DRIVE STATUS`, so it
+      never reads ST3. The discriminator must be **Domain/OS's** floppy driver,
+      which is on disk rather than in ROM and needs a running system that uses
+      the floppy. A larger experiment than a disassembly, and named as such so
+      the ROM is not searched again.
 
 ## The `008778-03` whole-document walk
 

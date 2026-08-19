@@ -767,6 +767,45 @@ static void test_the_two_floppy_control_registers_are_not_one_register(void) {
   TEST_ASSERT_EQUAL_UINT(62500u, AP_OMTI_FDC_TRANSFER_BYTES_PER_SEC);
 }
 
+/* ## The boot PROM's own floppy initialisation, which proves the split
+ *
+ * `3500_BOOT_12191_7` at `003266`:
+ *
+ *     MOVE.B #$1C,$0002(A0)    ; 3F2 Digital Output
+ *     MOVE.L #$00061A80,D0     ; a delay
+ *     SUBQ.L #1,D0
+ *     BPL.S  $003272
+ *     MOVE.B #$00,$0007(A0)    ; 3F7 Diskette Control
+ *     MOVE.B #$02,$0006(A0)    ; 3F6 Additional Control
+ *
+ * Two registers, two different values, in adjacent instructions. **That is the
+ * proof the split was right**: with both landing in one byte -- which is what
+ * this model did until `002398-04` p. 12-14 was walked against it -- the second
+ * write would overwrite the first, and a driver reading the data rate back
+ * would get `2`, which is 250 Kbit/s on a drive that runs at 500.
+ *
+ * The fix was made from documents alone. Here is the machine's own firmware
+ * making the same distinction, four sessions of reasoning later and in six
+ * bytes. */
+static void test_the_boot_proms_floppy_initialisation_needs_two_registers(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DOR, 0x1Cu);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DIR, 0x00u);     /* 3F7 */
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_CONTROL, 0x02u); /* 3F6 */
+
+  /* `$1C` is drive A's motor, interrupts and DMA enabled, and out of reset --
+   * the three the firmware needs before it can do anything at all. */
+  TEST_ASSERT_TRUE(ap_omti_fdc_motor_on(&o, 0u));
+  TEST_ASSERT_FALSE(ap_omti_fdc_in_reset(&o));
+
+  /* And both of the last two writes survive. The rate is the one the drive
+   * runs at, not the precompensation value wearing its address. */
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_FDC_RATE_500K, ap_omti_fdc_data_rate(&o));
+  TEST_ASSERT_EQUAL_HEX8(2u, ap_omti_fdc_precompensation(&o));
+}
+
 /* §6.4.4: ST3's bit 0 is "not used - always 1" and bit 1 "not used - always
  * zero". This built the byte as `ALWAYS | unit`, which is neither that register
  * nor `002398-04` p. 12-14's `UN1`/`UN0` -- it was both at once, and answered
@@ -800,6 +839,7 @@ static void test_sense_drive_status_does_not_report_the_unit(void) {
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_two_floppy_control_registers_are_not_one_register);
+  RUN_TEST(test_the_boot_proms_floppy_initialisation_needs_two_registers);
   RUN_TEST(test_sense_drive_status_does_not_report_the_unit);
   RUN_TEST(test_sector_address_conversion_uses_sixteen_heads);
   RUN_TEST(test_test_drive_ready_fails_for_a_lun_with_no_drive);

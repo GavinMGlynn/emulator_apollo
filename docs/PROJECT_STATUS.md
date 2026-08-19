@@ -433,6 +433,55 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The boot PROM confirms the `3F6`/`3F7` split, and cannot settle ST3
+## (2026-08-20)
+
+Chasing the last `PROVISIONAL` into the floppy driver did not settle it, and
+found something else worth more.
+
+### The firmware makes the distinction this session made from documents
+
+`3500_BOOT_12191_7` at `003266`, the floppy initialisation:
+
+```
+003266  MOVE.B #$1C,$0002(A0)    ; 3F2 Digital Output: motor A, INT/DMA, out of reset
+00326C  MOVE.L #$00061A80,D0     ; a delay
+003272  SUBQ.L #1,D0
+003274  BPL.S  $003272
+003276  MOVE.B #$00,$0007(A0)    ; 3F7 Diskette Control  <- data rate 500 Kbit/s
+00327C  MOVE.B #$02,$0006(A0)    ; 3F6 Additional Control <- write precomp 2
+```
+
+Two registers, two different values, in adjacent instructions. **That is the
+proof the split was right.** With both landing in one byte — which is what this
+model did until `002398-04` p. 12-14 was walked against it — the second write
+overwrites the first, and a driver reading the data rate back gets `2`, which is
+250 Kbit/s on a drive that runs at 500.
+
+The split was made from the handbook and the 8640 manual, with no firmware
+consulted. Here is the machine's own ROM making the same distinction in six
+bytes. `omti_suite` now runs the sequence.
+
+`$1C` in the Digital Output Register is drive A's motor, interrupts and DMA
+enabled, and out of reset — three `AP_OMTI_DOR_*` bits confirmed by the firmware
+that has to get them right before it can do anything at all.
+
+### And the negative result, which is the useful part for ST3
+
+**The boot PROM's floppy path does not issue `SENSE DRIVE STATUS`.** The
+initialisation writes the Digital Output, Diskette Control and Additional
+Control registers and nothing else; no `MOVE.B #$04,$5(An)` and no `BTST #5`
+appears anywhere in the image.
+
+So the firmware route that settled the colour status register **cannot** settle
+ST3: the PROM never reads that register. The discriminator has to be Domain/OS's
+floppy driver, which lives on disk rather than in ROM and is reachable only by
+tracing a running system that uses the floppy — a different and much larger
+experiment than disassembling a ROM.
+
+That is a real narrowing rather than a failure. The plan item now says where the
+answer is not, which is what stops the next session repeating this search.
+
 ## The colour status register's bit 2 is the A/D converter's, and the boot PROM
 ## proves it (2026-08-20)
 
