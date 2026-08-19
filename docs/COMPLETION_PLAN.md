@@ -4505,6 +4505,22 @@ discipline throughout.
       `D7BA23DD7961F1A1`, and that it moved at all is the measurement: a
       register left at zero would have changed nothing. No golden embeds a state
       hash, so nothing else moved; `ctest` 139/139 either side.*
+      **And the same question asked once more was bigger.** "Is every hasher
+      called" comes back clean because `ap_board_hash` calls every hasher that
+      exists; the question that finds anything is "does every stateful member
+      *have* one". **Nine did not.** Seven now do — parity, DMA page, arbiter,
+      external master, Matrox, the 3c505 card and the ring station — and the
+      reference moved again, `D7BA23DD7961F1A1` → `FF63E141DB798A21`. Detail and
+      the state-versus-diagnostic table in `PROJECT_STATUS.md`.
+- [ ] **Hash `ap_3c505_adapter_t`.** `PROVISIONAL`, and scoped rather than
+      deferred vaguely: an address PROM, receive mode and multicast table, six
+      host-readable statistics counters (state, not diagnostics — the host reads
+      them back), two staged frame buffers, three nested PCB structures and an
+      `ap_3c505_wire_t`. It also carries a `transmit` function pointer and a
+      `void *context`, which must never reach a hash — `ap_hash.h` has no
+      `ap_hash_ptr` so that a host address cannot make two identical machines
+      differ. What it needs is each nested struct walked the way `hash_i8259`
+      and `hash_mc6840_timer` are, which is a piece of work rather than a line.
 - [x] **The ring station's buffers were lent by nobody, so a booting node could
       neither transmit nor receive.** `attach_tx` was called by tests only and
       `attach_rx` by nothing at all, so `ap_ring_station_queue_frame` returned

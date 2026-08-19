@@ -21456,7 +21456,7 @@ the defect was in the report and the fix is there.*
 
 ## The reference is re-baselined: two writable registers were outside the hash
 
-**`03EE415450926A89` is retired; the reference is `D7BA23DD7961F1A1`.** The
+**`03EE415450926A89` is retired; the reference is `FF63E141DB798A21`.** The
 invocation is unchanged — `tools/identity-boot.sh` — and nothing the machine
 does changed. What changed is what the hash *covers*.
 
@@ -21488,6 +21488,42 @@ machines* differ for a reason the report already states plainly.
 **No golden moved.** No file under `tests/goldens/` embeds a state hash, so the
 re-baseline is confined to the documented reference value; `ctest` is 139/139
 either side of it.
+
+### The same question asked once more, and it was bigger than two registers
+
+Widening the register hasher answered "which fields of a hashed struct are
+missing". The other half is **which structs have no hasher at all**, and
+`ap_board_hash` hid it: it calls *every hasher that exists*, so the natural
+audit — is each one wired? — comes back clean. Nine of the board's members had
+no hasher to wire.
+
+Seven now do, and the hash moved again, `D7BA23DD7961F1A1` →
+`FF63E141DB798A21`:
+
+| member | why it is state |
+| --- | --- |
+| `parity` | which bytes carry bad parity — the control register's force-bad-parity function writes it. Hashed by extent and bytes, as main memory is |
+| `dma_page` | the DS3000's page registers, a program writes every one |
+| `arbiter` | live bus arbitration — who is asking, who is selected, who holds the bus. It changes on the machine's own clock, which makes it the most surprising of the nine |
+| `master` | the external bus master's handshake, plus which device it is |
+| `matrox` | the DN4500 graphics board and its frame, which its own ROM draws into |
+| `ethernet` | the 3c505's eight host-visible registers and its FIFO |
+| `ring_station` | the ring card: where it sits on the cable, what it is transmitting, and how far into a passing frame its receiver has got |
+
+**One is deliberately still out, with its scope named.** `ap_3c505_adapter_t` is
+a much larger part — an address PROM, receive mode and multicast table, six
+host-readable statistics counters, two staged frame buffers, three nested PCB
+structures and a wire — and it carries a `transmit` **function pointer** and a
+`void *context`. Those must never reach a hash; `ap_hash.h` has no `ap_hash_ptr`
+precisely so a host address cannot make two identical machines differ. Hashing
+around them needs each nested struct walked the way `hash_i8259` is, and doing
+that carelessly is worse than the gap. It is an item in `COMPLETION_PLAN.md`.
+
+**Diagnostic counters stay out throughout**, which is the convention this file
+already had: `parity`'s error tallies, `matrox`'s `frame_writes`, and the ring
+station's `frames_copied`/`frames_wacked`/`frames_seen` are the *report's*, not
+the machine's. The 3c505's statistics are the exception that shows the rule —
+they would be in, because the host can read them back.
 
 ## The reference is re-baselined again: the calendar's battery holds DM
 

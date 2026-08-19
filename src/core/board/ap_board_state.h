@@ -82,6 +82,26 @@ void ap_board_hash_graphics(ap_hash_t *st, const ap_graphics_t *graphics);
 void ap_board_hash_ring(ap_hash_t *st, const ap_ring_ctl_t *ring);
 void ap_board_hash_keyboard(ap_hash_t *st, const ap_kbd_t *keyboard);
 
+/* ## The nine members that had no hasher at all
+ *
+ * `ap_board_hash` called every hasher that existed, and that was the trap: the
+ * question "is every hasher called" answers yes while "does every stateful
+ * member have one" answers no. Nine did not, so the identity hash -- the one
+ * instrument this project checks every optimisation with -- was blind to them.
+ *
+ * The same convention as the hashers above: **state is hashed, diagnostic
+ * counters are not**, and a lent buffer is hashed by its extent and its bytes,
+ * as main memory already is. Where a field is configuration rather than state
+ * it is named in the function rather than left to the reader. */
+void ap_board_hash_parity(ap_hash_t *st, const ap_parity_t *parity);
+void ap_board_hash_dma_page(ap_hash_t *st, const ap_dmapage_t *page);
+void ap_board_hash_arbiter(ap_hash_t *st, const ap_arbiter_t *arbiter);
+void ap_board_hash_master(ap_hash_t *st, const ap_master_t *master);
+void ap_board_hash_matrox(ap_hash_t *st, const ap_matrox_t *matrox);
+void ap_board_hash_ethernet(ap_hash_t *st, const ap_3c505_t *card,
+                            const ap_3c505_adapter_t *adapter);
+void ap_board_hash_ring_station(ap_hash_t *st, const ap_ring_station_t *s);
+
 /* The whole board: every device above, in a fixed order, plus the boot PROM and
  * main memory's extent. Not main memory's contents, and not the diagnostic
  * counters — see the header comment for both. */

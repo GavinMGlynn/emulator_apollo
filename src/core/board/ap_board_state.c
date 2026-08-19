@@ -446,6 +446,196 @@ void ap_board_hash_keyboard(ap_hash_t *st, const ap_kbd_t *keyboard) {
   }
 }
 
+/* ## The nine that had no hasher
+ *
+ * See the header. Each of these holds state a run changes, and none of it was
+ * in the identity hash. Diagnostic counters stay out, as they do above.
+ */
+
+void ap_board_hash_parity(ap_hash_t *st, const ap_parity_t *parity) {
+  ap_hash_scope(st, "parity");
+  /* The extent is configuration and the bits are state -- hashed the way main
+   * memory is, for the same reason: a lent buffer whose *contents* a program
+   * changes. Forcing bad parity is a documented control-register function, so
+   * which bytes carry it is exactly what a divergence would show up in. */
+  ap_hash_u32(st, parity->ram_bytes);
+  ap_hash_u32(st, parity->bad_bytes);
+  if (parity->bad != NULL) {
+    ap_hash_u8(st, 0x01u);
+    ap_hash_bytes(st, parity->bad, parity->bad_bytes);
+  } else {
+    ap_hash_u8(st, 0xFFu);
+  }
+  /* `forced_writes`, `unstorable_writes`, `errors` and `first_error_offset`
+   * are the report's, not the machine's. */
+}
+
+void ap_board_hash_dma_page(ap_hash_t *st, const ap_dmapage_t *page) {
+  ap_hash_scope(st, "dma_page");
+  /* The DS3000's counterpart to the translation map: registers a program
+   * writes, and every one of them is state. */
+  for (unsigned i = 0; i < AP_DMAPAGE_REGISTERS; i++) {
+    ap_hash_u8(st, page->page[i]);
+  }
+}
+
+static void hash_cpu_arb(ap_hash_t *st, const ap_m68030_arb_t *arb) {
+  ap_hash_u8(st, (uint8_t)arb->state);
+  hash_bool(st, arb->br);
+  hash_bool(st, arb->bgack);
+  ap_hash_u8(st, arb->br_sync);
+  ap_hash_u8(st, arb->bgack_sync);
+  hash_bool(st, arb->r);
+  hash_bool(st, arb->a);
+  hash_bool(st, arb->bg);
+  hash_bool(st, arb->three_state);
+  ap_hash_u8(st, (uint8_t)arb->rmc);
+}
+
+void ap_board_hash_arbiter(ap_hash_t *st, const ap_arbiter_t *arbiter) {
+  ap_hash_scope(st, "arbiter");
+  /* Live bus arbitration: which channels are asking, which is selected, and
+   * who holds the bus. It changes on the machine's own clock, which is what
+   * makes its absence from the hash the most surprising of the nine. */
+  hash_cpu_arb(st, &arbiter->cpu);
+  ap_hash_u8(st, arbiter->request);
+  ap_hash_u32(st, (uint32_t)arbiter->selected);
+  ap_hash_u32(st, (uint32_t)arbiter->master);
+}
+
+void ap_board_hash_master(ap_hash_t *st, const ap_master_t *master) {
+  ap_hash_scope(st, "master");
+  /* `unit`, `channel` and `drq` say which device this master *is* -- fitting,
+   * not state -- and are hashed for the same reason the AT bus series is: two
+   * machines wired differently must not hash alike. The rest is the handshake
+   * in flight. */
+  ap_hash_u32(st, (uint32_t)master->unit);
+  ap_hash_u32(st, (uint32_t)master->channel);
+  ap_hash_u32(st, (uint32_t)master->drq);
+  hash_bool(st, master->request);
+  hash_bool(st, master->master_l);
+  ap_hash_u8(st, (uint8_t)master->state);
+}
+
+void ap_board_hash_matrox(ap_hash_t *st, const ap_matrox_t *matrox) {
+  ap_hash_scope(st, "matrox");
+  /* The DN4500's graphics board. Its frame is a lent buffer the board's own
+   * ROM draws into -- the item that landed it verified the picture by decoding
+   * a PNG, which is exactly the state a hash should be able to speak for. */
+  ap_hash_u32(st, (uint32_t)matrox->microcode_words);
+  ap_hash_u32(st, matrox->last_transfer);
+  hash_bool(st, matrox->transfer_armed);
+  ap_hash_u16(st, matrox->data_latch);
+  ap_hash_u32(st, matrox->frame_bytes);
+  if (matrox->frame != NULL) {
+    ap_hash_u8(st, 0x01u);
+    ap_hash_bytes(st, matrox->frame, matrox->frame_bytes);
+  } else {
+    ap_hash_u8(st, 0xFFu);
+  }
+  /* `frame_writes` is a counter. */
+}
+
+void ap_board_hash_ethernet(ap_hash_t *st, const ap_3c505_t *card,
+                            const ap_3c505_adapter_t *adapter) {
+  ap_hash_scope(st, "ethernet");
+  /* The **card**: the eight registers and the FIFO the host sees, which is all
+   * of `ap_3c505_t`. */
+  ap_hash_u8(st, card->hcr);
+  ap_hash_u8(st, card->acr);
+  ap_hash_u8(st, card->aux_dma);
+  ap_hash_u8(st, card->to_adapter);
+  hash_bool(st, card->to_adapter_full);
+  ap_hash_u8(st, card->to_host);
+  hash_bool(st, card->to_host_full);
+  /* The FIFO to its count and no further: bytes past it are stale, and hashing
+   * them would make two identical cards differ over what neither can read. */
+  ap_hash_u32(st, card->fifo_count);
+  for (unsigned i = 0; i < card->fifo_count && i < AP_3C505_DATA_FIFO; i++) {
+    ap_hash_u8(st, card->fifo[i]);
+  }
+  hash_bool(st, card->dma_done);
+  /* The jumper and the slot width are how the card is *fitted*, hashed for the
+   * same reason `ap_master_t::unit` is. */
+  hash_bool(st, card->test_jumper);
+  hash_bool(st, card->sixteen_bit);
+  ap_hash_u32(st, card->dma_since_pause);
+  hash_bool(st, card->dma_pause_owed);
+  hash_bool(st, card->adapter_initialising);
+
+  /* **The adapter behind it is NOT hashed, and that is a named gap rather than
+   * an oversight.** `ap_3c505_adapter_t` is a different and much larger part:
+   * an address PROM, a receive mode and multicast table, six statistics
+   * counters the host can *read back* (so they are state and not diagnostics),
+   * two staged frame buffers, and three nested structures -- `ap_3c505_pcb_t`,
+   * `ap_3c505_pcb_rx_t`, `ap_3c505_pcb_tx_t` -- plus an `ap_3c505_wire_t`.
+   *
+   * It also carries a `transmit` **function pointer** and a `void *context`,
+   * and those must never reach a hash: `ap_hash.h` has no `ap_hash_ptr` for
+   * exactly this reason, so that a host address cannot make two identical
+   * machines differ. Hashing the rest around them needs each nested struct
+   * walked the way `hash_i8259` and `hash_mc6840_timer` are walked above, and
+   * doing that carelessly is worse than the gap.
+   *
+   * `COMPLETION_PLAN.md` carries it as an item with this scope. */
+  (void)adapter;
+}
+
+void ap_board_hash_ring_station(ap_hash_t *st, const ap_ring_station_t *s) {
+  ap_hash_scope(st, "ring_station");
+  /* The card, as against `ap_board_hash_ring`'s controller. Where it sits on
+   * the cable, what it is transmitting, and how far into a passing frame its
+   * receiver has got -- all of it changes on the ring's own bit clock. */
+  ap_hash_u32(st, (uint32_t)s->slot);
+  ap_hash_u32(st, s->address);
+  hash_bool(st, s->receive_enabled);
+
+  ap_hash_u32(st, (uint32_t)s->tx_capacity);
+  ap_hash_u32(st, (uint32_t)s->tx_bit_count);
+  ap_hash_u32(st, (uint32_t)s->tx_bit_pos);
+  hash_bool(st, s->tx_armed);
+  if (s->tx_bits != NULL) {
+    ap_hash_u8(st, 0x01u);
+    /* Only the bits the assembled frame occupies: the rest of the buffer is
+     * whatever the last frame left, which two identical rings may differ in. */
+    const size_t bytes = (s->tx_bit_count + 7u) / 8u;
+    ap_hash_bytes(st, s->tx_bits, bytes < s->tx_capacity ? bytes
+                                                         : s->tx_capacity);
+  } else {
+    ap_hash_u8(st, 0xFFu);
+  }
+
+  ap_hash_u32(st, s->rx_state);
+  ap_hash_u32(st, s->rx_ones_run);
+  ap_hash_u32(st, s->rx_bit_count);
+  ap_hash_u8(st, s->rx_byte);
+  for (unsigned i = 0; i < sizeof s->rx_header; i++) {
+    ap_hash_u8(st, s->rx_header[i]);
+  }
+  ap_hash_u32(st, s->rx_header_len);
+  hash_bool(st, s->rx_addressed);
+  ap_hash_u32(st, (uint32_t)s->rx_capacity);
+  ap_hash_u32(st, (uint32_t)s->rx_bytes);
+  ap_hash_u32(st, (uint32_t)s->rx_header_bytes);
+  hash_bool(st, s->rx_overrun);
+  ap_hash_u32(st, s->rx_header_bits);
+  hash_bool(st, s->rx_flipped_parity);
+  ap_hash_u32(st, s->rx_separators);
+  ap_hash_u32(st, s->rx_fcs_bits);
+  ap_hash_u32(st, s->rx_late_bits);
+  ap_hash_u8(st, s->rx_late);
+  hash_bool(st, s->rx_frame_error);
+  if (s->rx_buffer != NULL) {
+    ap_hash_u8(st, 0x01u);
+    ap_hash_bytes(st, s->rx_buffer,
+                  s->rx_bytes < s->rx_capacity ? s->rx_bytes : s->rx_capacity);
+  } else {
+    ap_hash_u8(st, 0xFFu);
+  }
+  /* `frames_copied`, `frames_wacked` and `frames_seen` are counters -- the
+   * two-node runner's report, not the machine's state. */
+}
+
 void ap_board_hash(ap_hash_t *st, const ap_board_t *board) {
   ap_board_hash_registers(st, &board->registers);
   ap_board_hash_translation_map(st, &board->translation_map);
@@ -460,6 +650,13 @@ void ap_board_hash(ap_hash_t *st, const ap_board_t *board) {
   ap_board_hash_graphics(st, &board->graphics);
   ap_board_hash_ring(st, &board->ring);
   ap_board_hash_keyboard(st, &board->keyboard);
+  ap_board_hash_parity(st, &board->parity);
+  ap_board_hash_dma_page(st, &board->dma_page);
+  ap_board_hash_arbiter(st, &board->arbiter);
+  ap_board_hash_master(st, &board->master);
+  ap_board_hash_matrox(st, &board->matrox);
+  ap_board_hash_ethernet(st, &board->ethernet, &board->ethernet_adapter);
+  ap_board_hash_ring_station(st, &board->ring_station);
   /* The board's own fields, after the devices it owns. */
   ap_hash_scope(st, "board");
   ap_hash_u32(st, board->quirks.bits);
