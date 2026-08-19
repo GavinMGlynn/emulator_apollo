@@ -436,8 +436,9 @@ summarised, with their reasoning moved to the end of this file.
 ## The floppy drive had no access time, and chapter 6 named the Winchester
 ## (2026-08-20)
 
-From the `008778-03` whole-document walk, chapters 6 through 15. Coverage in
-`docs/references/008778-03_WALK.md`, now 141 pages of 209.
+From the `008778-03` whole-document walk, chapters 6 through 16 — **every
+numbered chapter is now walked**, and only the appendices remain. Coverage in
+`docs/references/008778-03_WALK.md`, 144 pages of 209.
 
 ### The floppy had the defect the fixed disk was fixed for
 
@@ -565,6 +566,39 @@ clocks. A 0.10% shift is what a change touching 14.6 M disk accesses out of
 number, `A354786119A3931D`, was superseded twice earlier in this walk by the AT
 bus cycle time and the 16-bit Winchester transfer, and was stale here. **It was
 superseded again one commit later — see below.**
+
+### Chapter 16: the one bus master, and every chapter walked
+
+Three chapters had said the same thing about three different cards — §10.4 of
+the graphics controller, §14.2 of the 802.3 controller, §15.2 of the
+serial/parallel controller: "the controller is a **Slave** device on the bus".
+That is why no card appears in `ap_arbiter`'s priority list, and repetition is
+what made it a design rule rather than three omissions.
+
+**§16.2 is the exception, and it is the only one in the document.** The PC
+Coprocessor "acts as a Slave device on the bus. However, when directing the
+actions of another PC-type adapter board (8- or 16-bit), the PC Coprocessor acts
+as a **Master** on the bus."
+
+So the card `board/ap_master.h`'s §2.4.7 handshake exists for is now named, and
+with it the module's real status: it is complete against §2.4.7 and
+**structurally unexercised**. Nothing in a machine this core builds can assert
+`MASTER.L`, because the only card that would is the PC Coprocessor at `C00000`
+and `ap_board.c` deliberately maps neither it nor its `D00000` alternate. That
+is the configuration, not a defect — and it is now written where someone finding
+the module quiet will read it.
+
+Figures 16-2 and 16-3 confirm both PC Coprocessor rows of Table 2-6 from the
+card's own jumper block: `$C00000` with IRQ11 and DRQ5 standard, `$D00000` with
+IRQ15 alternate.
+
+**Every numbered chapter of `008778-03` is walked** — 144 of 209 pages, with the
+appendices remaining. Appendix A is the bus timing the walk's page-36 row was
+waiting on: it found §2.4.2's wait-state counts and noted that closing
+`ap_atbus.h`'s approximation needed "the base cycle the waits are added to,
+which the Appendix A/B diagrams carry". §3.4 supplied that base cycle first and
+the approximation is already closed, so Appendix A is now a **check** on it
+rather than the only route to it.
 
 ### Chapter 15: the board C237 had to argue away, described
 

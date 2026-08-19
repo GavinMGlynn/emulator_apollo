@@ -20,6 +20,30 @@
  *   available to the bus Master. The I/O adapter now has full ownership of the
  *   bus until it releases the DRQx and MASTER.L signals."
  *
+ * ## Which card ever does this, and why nothing here exercises it
+ *
+ * §2.4.7 describes the mechanism without naming a user, and for most of this
+ * manual the answer is *none*: §10.4 says the graphics controller "is a slave
+ * device on the bus", §14.2 says the same of the 802.3 controller, and §15.2 of
+ * the Serial/Parallel controller. Three cards, three statements, no masters --
+ * which is why no card appears in `board/ap_arbiter.h`'s priority list and why
+ * that absence is a design fact rather than an omission.
+ *
+ * **§16.2 is the exception, and it is the only one in the document.** The PC
+ * Coprocessor "acts as a Slave device on the bus. **However, when directing the
+ * actions of another PC-type adapter board (8- or 16-bit), the PC Coprocessor
+ * acts as a Master on the bus.**" So the card this handshake exists for is the
+ * PC Coprocessor at `C00000` (Table 2-6, Figure 16-2), and it is not fitted
+ * here and not modelled -- `ap_board.c` maps neither it nor its `D00000`
+ * alternate.
+ *
+ * That is worth stating rather than leaving implicit. This module is complete
+ * against §2.4.7 and **structurally unexercised**: nothing in a machine this
+ * core builds can assert `MASTER.L`, so the path is reachable only from a test.
+ * A reader who finds it quiet should know that is the configuration and not a
+ * defect, and a reader who fits a PC Coprocessor one day should know this is
+ * the module that wakes up.
+ *
  * ## Why cascade mode is the load-bearing part
  *
  * The same DRQ line, on a channel in any other mode, is an ordinary DMA
