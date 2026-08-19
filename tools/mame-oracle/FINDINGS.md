@@ -12597,3 +12597,45 @@ waiting on a vector that never arrives, which is exactly this state.
 handler inspects only the first part. Both are testable and neither is tested --
 what has changed is that the symptom is now a **pending, armed, unserviced
 interrupt** rather than a silence, which is a far narrower thing to chase.*
+
+## C234 -- the DS3500's own map has two SIO controllers, and no document on disk assigns the second an interrupt
+
+C233 re-opened C223 by arguing that `002398-04` p. 12-28's unqualified "IRQ 1 --
+sio" is the *absence* of a second 2681 rather than a statement that two share a
+line. `019411-A00`, the addendum that covers this machine, settles the first
+half outright. Its address map:
+
+    010400 0104FF   SIO CONTROLLER No.1
+    010500 0105FF   SIO CONTROLLER No.2
+
+**Two controllers, at exactly the addresses this core places them** -- which
+independently confirms `ap_sio.h`'s `AP_SIO1_ADDR`/`AP_SIO2_ADDR` from the
+DS3500's own document rather than from the Series 3000's, and confirms §3.9's
+"lines 1, 2, and 3" needing a second part.
+
+**And the same document does not assign it an interrupt.** Searched
+exhaustively: the addendum's only interrupt entries are the two controllers
+themselves in the address map --
+
+    011000 0110FF   INTERRUPT CONTROLLER No.1
+    011100 0111FF   INTERRUPT CONTROLLER No.2
+
+-- the 8259 pair's registers. There is no IRQ assignment table in it at all.
+
+So the state of the question, with every source on disk named:
+
+  - `008778-03` Table 2-3 gives `IRQ1` to "2681 SIO Port **1**" -- a Series
+    3000 machine, one part.
+  - `002398-04` p. 12-28 gives `IRQ 1` to "sio" -- the DN3000, also one part,
+    so its silence about a second is not evidence.
+  - `019411-A00` proves this machine has **two** and assigns neither.
+
+**This core ORs them onto Port 1's line, and nothing supports or refutes that.**
+It is now a `PROVISIONAL` of the same kind as the AT bus clock rate: a bracket
+where the document runs out. What would settle it is a DS3500 interrupt
+assignment -- the base *Hardware Architecture Handbook* this file is an addendum
+*to*, which bitsavers does not hold (recorded already for the bus clock) -- or
+the oracle, which models no second SIO interrupt to compare against.
+
+*C224 is therefore fully withdrawn: its evidence was a page that could not speak
+to the question. C223's objection stands as an open, documented gap.*
