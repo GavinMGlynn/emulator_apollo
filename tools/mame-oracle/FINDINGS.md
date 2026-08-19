@@ -12639,3 +12639,42 @@ the oracle, which models no second SIO interrupt to compare against.
 
 *C224 is therefore fully withdrawn: its evidence was a page that could not speak
 to the question. C223's objection stands as an open, documented gap.*
+
+## C235 -- the missing document has a number: 007861, and bitsavers does not hold it
+
+C234 left two `PROVISIONAL`s pointing at the same absent book -- the AT bus
+clock rate (`ap_atbus.h`, "`019411-A00` is titled an *Addendum to* the ...
+Hardware Architecture Handbook, so a base handbook exists") and now the second
+SIO controller's interrupt. The web step of the resolution order was taken and
+it produced the book's **order number**.
+
+    Domain ... Hardware Architecture Handbook -- order no. 007861
+    (cited as 007861-A01, and as "Series 3000/Series 4000 ... Rev. 02")
+
+**And bitsavers does not have it.** Its Apollo index was fetched and listed in
+full: forty-nine numbered files from `000792-04` to `019411-A00`, and **no
+`007861`**, no file containing "Hardware_Architecture_Handbook" without
+"Addendum". The addendum is there; the handbook it amends is not.
+
+So both gaps close on one document, and that document is now named by number
+rather than described. That is worth more than another search: a part number can
+be watched for, asked for, or recognised in a lot of scanned material, where
+"the base handbook" cannot.
+
+**The resolution order is now exhausted for the second SIO interrupt**, and each
+step is named as `CLAUDE.md` requires:
+
+  1. *The part's own manual* -- `[MC68681]` describes one DUART and its `IRQ`
+     pin; which board line that pin reaches is not a property of the part.
+  2. *The sibling manuals* -- `008778-03` Table 2-3 and `002398-04` p. 12-28
+     both describe machines with **one** 2681 (C234), so neither can assign a
+     second.
+  3. *The machine's own document* -- `019411-A00` proves there are **two**
+     controllers and assigns neither an interrupt.
+  4. *The web* -- yields the missing handbook's number and no copy of it.
+  5. *The oracle* -- models no second SIO interrupt at all, so it has nothing
+     to measure against.
+
+*What remains is the measurement this core can make on itself: whether
+Domain/OS services the interrupt when it is raised on a line other than
+`IRQ 1`. That is an experiment, not a document, and it is the honest next step.*
