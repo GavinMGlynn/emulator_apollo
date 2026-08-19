@@ -1703,6 +1703,9 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
 
   const uint64_t slice = 4096u;
   uint64_t done = 0u;
+  /* Last-reported ring counts, for the heartbeat below. */
+  uint64_t last_seen[NODES] = {0};
+  uint64_t last_copied[NODES] = {0};
   uint64_t ran[NODES] = {0};
   ap_m68030_step_status_t status[NODES] = {AP_M68030_STEP_EXECUTED};
   uint16_t instruction[NODES] = {0};
@@ -1851,6 +1854,28 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
     /* Only to the time both have reached. */
     ap_ring_sched_run_until(&sched, earliest);
     done += take;
+
+    /* **A frame crossing is reported when it happens, not at the end.**
+     * `long-runs-need-flush-and-heartbeat`: this runner printed its counters
+     * only in the final report, so a run whose budget was set too high showed
+     * nothing at all for hours -- and the counters are the whole verification
+     * of the two-node item. Edge-triggered on the counts, so a run where
+     * nothing crosses stays silent and a run where something does says so
+     * within a slice. */
+    for (unsigned i = 0; i < NODES; i++) {
+      const uint64_t seen = board[i].ring_station.frames_seen;
+      const uint64_t copied = board[i].ring_station.frames_copied;
+      if (seen != last_seen[i] || copied != last_copied[i]) {
+        fprintf(out,
+                "  node %u  ring  frames seen %llu  copied %llu  after %llu "
+                "instruction(s)\n",
+                i, (unsigned long long)seen, (unsigned long long)copied,
+                (unsigned long long)done);
+        (void)fflush(out);
+        last_seen[i] = seen;
+        last_copied[i] = copied;
+      }
+    }
   }
 
   /* Whatever each node was part-way through saying. A prompt carries no
