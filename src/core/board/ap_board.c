@@ -70,7 +70,28 @@ static const ap_board_placement_t DS3000_PLACEMENT[] = {
      AP_BOARDREG_CPU_STATUS_ADDR},
     {0x009300u, AP_BOARDREG_RANGE, AP_BOARD_REGION_CORE_REGISTER,
      AP_BOARDREG_LATCH_PAGE_ADDR},
-    {0x008400u, 2u * AP_SIO_RANGE, AP_BOARD_REGION_SIO, AP_SIO1_ADDR},
+    /* **One 2681, aliased across the whole kilobyte** -- not two.
+     *
+     * Table 2-6 gives the DS3000 a single row, `008400`-`0087FF`, named "SIO",
+     * where Table 2-8 gives the Series 4000 two 256-byte rows for SIO 1 and
+     * SIO 2. §1.5.1 says why: "In the DS3000, the serial I/O control component
+     * drives **two** asynchronous serial lines, SIO0 and SIO1; in the DS4000,
+     * **four** ... SIO0, SIO1, SIO2, and SIO3", and a 2681 has two channels.
+     * So a DS3000 carries one part and a DS4000 carries two.
+     *
+     * The oracle agrees independently and more bluntly: `dn3000_map` has
+     * `map(0x008400, 0x0087ff)` to **`m_sio`** alone, and the DN3000 machine
+     * configuration does `config.device_remove(APOLLO_SIO2_TAG)`.
+     *
+     * This was `2u * AP_SIO_RANGE`, which put a **second DUART** at `008500`
+     * on a machine that has one, and left `008600`-`0087FF` unmapped where the
+     * table says SIO. Four placements rather than one because `canonical` is
+     * how this table expresses aliasing -- each 256-byte block folds onto
+     * `AP_SIO1_ADDR`, so every one of them reaches unit 0. */
+    {0x008400u, AP_SIO_RANGE, AP_BOARD_REGION_SIO, AP_SIO1_ADDR},
+    {0x008500u, AP_SIO_RANGE, AP_BOARD_REGION_SIO, AP_SIO1_ADDR},
+    {0x008600u, AP_SIO_RANGE, AP_BOARD_REGION_SIO, AP_SIO1_ADDR},
+    {0x008700u, AP_SIO_RANGE, AP_BOARD_REGION_SIO, AP_SIO1_ADDR},
     {0x008800u, AP_TIMER_RANGE, AP_BOARD_REGION_TIMER, AP_TIMER_ADDR},
     {0x008900u, AP_CALENDAR_RANGE, AP_BOARD_REGION_CALENDAR, AP_CALENDAR_ADDR},
     {0x009000u, 2u * AP_DMA_RANGE, AP_BOARD_REGION_DMA, AP_DMA1_ADDR},
