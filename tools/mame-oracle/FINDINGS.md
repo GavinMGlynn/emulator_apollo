@@ -12148,3 +12148,38 @@ experiment could tell it from its alternative. **The evidence that has never
 moved** is narrow and worth stating alone: a character is delivered to line 2,
 the receiver is enabled, `siologin2_local` is a live process, and the OS never
 reads the register. Nothing established so far says why.
+
+## C222 -- what is established about the unserved line, with no story attached
+
+C216, C218 and C220 each proposed a reason and each was withdrawn. This records
+only what has been measured, so the next attempt starts from evidence rather
+than from the last hypothesis.
+
+**Established:**
+
+- `siologin2_local` is a **live process**, alongside `mbx_helper`, `siomonit`
+  and `server_process_manager` -- read from the process table on a written-back
+  image (C219).
+- It has **logged nothing**. `` `node_data/siologin_log `` carries no entries:
+  every `siologin_log` match on the image is the *binary's own format string*
+  (`%a`, `%lh` placeholders), not written output. So it is not reporting a
+  failure it knows about.
+- A carriage return **is delivered** to line 2 and the port takes it:
+  `sio2 A  1 discarded unread,  0 dropped with the receiver disabled`.
+- Domain/OS **never accesses either of `sio2`'s data registers** -- neither
+  `reg 3` (RHR A) nor `reg 11` (RHR B) appears in the access counts at all, on
+  any run.
+- The line/channel mapping is settled and is not the problem: `ap_sio.h` cites
+  §3.9 for `AP_SIO_KEYBOARD_PORT 0`/`_CHANNEL 0`, so line 0 is `sio1 A` -- which
+  the observed 1200 baud confirms -- line 1 is `sio1 B`, the console, and
+  Figure 3-5's three connectors `SI01`/`SI02`/`SI03` are lines 1-3. `/dev/sio2`
+  is `sio2 A`, which is where the character was typed.
+- `-dcd_enable` is not the cause (C221), and the configuration matches the
+  volume's own template exactly (C217).
+
+**Not established:** why a live `siologin` with no logged error leaves its line
+unread. The next thing to check is *this core*, not the guest: whether a
+character delivered to `sio2` raises the DUART interrupt the guest has armed --
+`ap_sio_irq` ORs both parts, and `sio2 reg 5` (IMR) is written twice, but
+whether an arriving character on the second part actually reaches the CPU has
+never been tested. That is a unit test in `sio_suite`, not a boot.
