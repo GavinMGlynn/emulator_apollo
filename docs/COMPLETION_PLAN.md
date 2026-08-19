@@ -5695,9 +5695,9 @@ END — PDF 279–313, all 35 pages. 35 content pages of 330.**
       **programmable interrupt controller**, **ring**, **SIO** and **timers**.
       Every one has a module in `src/core`, and none of those thirty-five pages
       has been read whole.
-- [ ] **Chapters 1–6, machine-independent. Chapter 1 is under way: eight of its
-      twenty-three pages read (PDF 12–17 contiguously, plus 28 and 31 out of
-      order), the rest owed, resume at PDF 18.** The sample yielded no code change — chapter 1 is AEGIS's own
+- [ ] **Chapters 1–6, machine-independent. Chapter 1 is under way: twelve of its
+      twenty-three pages read (PDF 12–21 contiguously, plus 28 and 31 out of
+      order), the rest owed, resume at PDF 22.** The sample yielded no code change — chapter 1 is AEGIS's own
       structures rather than hardware — and one lead for chapter 5: p. 1-20's
       **resource lock table** gives twenty-six named locks with their bit
       values, and `CRASH_STATUS 00120020` decodes under it as `flp_$lock +
