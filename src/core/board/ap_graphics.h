@@ -380,6 +380,17 @@ typedef struct {
    * 8-plane board reaches the same converter through the lookup table's data
    * port instead, which is why this is not shared with `lut_data`. */
   uint8_t diag_channel;
+  /* The A/D converter's "conversion done" flag -- the colour status register's
+   * bit 2, which the boot PROM polls between writing a channel and reading the
+   * result.
+   *
+   * Set by a channel write and cleared by the read that takes the result, which
+   * is the whole handshake the firmware performs and needs no conversion time
+   * of its own: no manual here gives one, and inventing an interval would put a
+   * number in a poll loop that nothing measured. The flag is *state* rather
+   * than a derived level, because "a conversion has completed and its result
+   * has not been taken" is not visible in anything else this part holds. */
+  bool adc_done;
   /* How many times the A/D converter was reached through the 8-plane board's
    * third chip select. Counted since before the converter was modelled at all.
    *
@@ -1067,8 +1078,7 @@ void ap_graphics_cr2_fields(const ap_graphics_t *graphics, unsigned *s_plane,
  * and are **not** modelled here; they read as zero, which is the state a
  * controller doing none of those is in.
  *
- * ### The colour board's names for bits 5, 2 and 0, which Apollo prints
- * differently from the oracle
+ * ### The colour board's names for bits 5, 2 and 0 -- **settled by the firmware**
  *
  * The names above are the **oracle's** aliases. `002398-04` gives both boards'
  * registers a page each and the monochrome one agrees exactly -- p. 12-21's
@@ -1087,22 +1097,47 @@ void ap_graphics_cr2_fields(const ap_graphics_t *graphics, unsigned *s_plane,
  * corroborates bit 0 from the other side: "When **LOK=0** in status register,
  * there is sufficient time to load all 16 locations of the three LUTs."
  *
- * **Unresolved, and deliberately not flipped.** What this core *drives* is the
- * oracle's arrangement -- bit 5 the horizontal sync pulse and bit 2 the
- * vertical, on both families -- and the boot PROM's display-present probe at
- * `007026` tests bit 2. Changing which bit carries which timing is a behaviour
- * change on a path a `--screen c8p` boot exercises, and the handbook describes
- * the **DN3000's 4-plane** board where the 8-plane one is a later design whose
- * changes `008778-03` §10.3 lists. `PROVISIONAL`, named in
- * `docs/PROJECT_STATUS.md`. **What would settle it**: instrumenting the oracle
- * to show which bit its firmware waits on, or a colour boot that hangs. */
+ * **Settled, and in Apollo's favour, by the machine's own boot PROM.** This was
+ * `PROVISIONAL` on the grounds that only the oracle could show which bit the
+ * firmware waits on. It does not take the oracle -- it takes reading the
+ * firmware, which is on disk. `3500_BOOT_12191_7` at `007004`:
+ *
+ *     MOVEA.L #$0005EC01,A2     ; the LUT/ADC data port
+ *     MOVE.B  D0,(A2)           ; write the channel byte
+ *     MOVE.W  #$2000,D0
+ *     DBRA    D0,$007010        ; wait
+ *     MOVEA.L #$0005E800,A2     ; the colour status register
+ *     BTST    #2,(A2)           ; poll bit 2 ...
+ *     BNE.S   $007044           ;   ... until it is SET
+ *     DBRA    D0,$007026
+ *     MOVE.B  #$2F,D1           ; timeout: post diagnostic code $2F
+ *     ...
+ *     MOVEA.L #$0005EC01,A2
+ *     MOVE.B  (A2),D0           ; read the converted value back
+ *
+ * Write a channel, wait, poll a bit until it is set, read the result. That is
+ * an **A/D conversion**, and bit 2 is its *done* flag -- `002398-04`'s `ad`,
+ * exactly. It is not a sync bit and it is not a display-present probe: this
+ * file used to call it both, in two comments that contradicted each other,
+ * because the A/D section knew the firmware "reads two channels and
+ * range-checks the answers" while this section had it polling for a raster.
+ *
+ * So the handbook is right about bit 2, and by exchange about bit 5: a colour
+ * board has **one** sync bit carrying the composite of both pulses, which is
+ * what frees bit 2 for the converter. Both are driven that way now, and
+ * `V_DATA`'s colour name is `lok` for the same reason p. 12-19 gives it --
+ * "when LOK=0 ... there is sufficient time to load all 16 locations". */
 
 #define AP_GRAPHICS_SR_BLANK 0x80u
 #define AP_GRAPHICS_SR_V_BLANK 0x40u
 #define AP_GRAPHICS_SR_H_SYNC 0x20u  /* monochrome; DONE on a colour board */
 #define AP_GRAPHICS_SR_R_M_W 0x10u
 #define AP_GRAPHICS_SR_ALT 0x08u
+/* Monochrome `vs`; on a colour board the same bit is `ad`, "a-d conversion
+ * done" -- see above, and `AP_GRAPHICS_SR_ADC_DONE`, which is the name to use
+ * when a colour board is meant. */
 #define AP_GRAPHICS_SR_V_SYNC 0x04u
+#define AP_GRAPHICS_SR_ADC_DONE 0x04u
 #define AP_GRAPHICS_SR_H_CK 0x02u
 #define AP_GRAPHICS_SR_V_DATA 0x01u
 

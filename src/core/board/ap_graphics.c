@@ -41,6 +41,7 @@ void ap_graphics_init(ap_graphics_t *graphics, ap_screen_kind_t screen) {
     }
   }
   graphics->diag_channel = 0u;
+  graphics->adc_done = false;
   graphics->diag_refresh_request = 0u;
   graphics->diag_refresh_requests = 0u;
   graphics->blt_cycle = 0u;
@@ -230,6 +231,9 @@ static void lut_data_write(ap_graphics_t *graphics, uint8_t value) {
      * kind of conversion -- and the result is read back through the same port.
      * Counted as well, so a run still says how much of this the firmware did. */
     graphics->lut_ad_accesses++;
+    /* And the conversion completes: the status register's bit 2 is what the
+     * firmware polls between this write and the read below. */
+    graphics->adc_done = true;
     return;
   }
   if ((control & AP_GRAPHICS_LUT_CPAL_CS) == 0u) {
@@ -259,6 +263,10 @@ static uint8_t lut_data_read(ap_graphics_t *graphics) {
     /* The A/D's result. The channel is whatever was last written to the data
      * port, which is how the converter is told what to measure. */
     graphics->lut_ad_accesses++;
+    /* Taking the result ends the conversion, so the done flag drops -- a
+     * driver that polled it again without asking for another would otherwise
+     * read a completion that had already been collected. */
+    graphics->adc_done = false;
     uint8_t level = 0u;
     if (ap_graphics_adc(graphics, graphics->lut_data, &level)) {
       return level;
@@ -337,9 +345,7 @@ static uint8_t graphics_status(const ap_graphics_t *graphics) {
   if (!v_blank && !h_blank) {
     sr |= AP_GRAPHICS_SR_BLANK;
   }
-  /* The **vertical sync pulse**, also active low, and the bit the boot PROM
-   * waits on at `007026` before it will believe there is a display -- a bounded
-   * `dbra` loop that falls through to the no-display path when it times out.
+  /* The **vertical sync pulse**, also active low.
    *
    * Four lines into the blanking interval and four lines long. That is the
    * oracle's structure for every family, and the two it gives outright agree:
@@ -348,8 +354,17 @@ static uint8_t graphics_status(const ap_graphics_t *graphics) {
    * both. */
   const unsigned v_sync_start = geometry.height + 4u;
   const unsigned v_sync_end = geometry.height + 8u;
-  if (!(line >= v_sync_start && line < v_sync_end)) {
+  const bool v_sync = line >= v_sync_start && line < v_sync_end;
+  const bool colour = ap_graphics_is_colour(graphics->screen);
+  /* **Bit 2 is not the vertical sync on a colour board**, and the firmware
+   * proves it -- see `AP_GRAPHICS_SR_V_SYNC` in the header. A monochrome board
+   * reports `vs` here; a colour one reports `ad`, "a-d conversion done", which
+   * has nothing to do with the raster and is driven where the converter is. */
+  if (!colour && !v_sync) {
     sr |= AP_GRAPHICS_SR_V_SYNC;
+  }
+  if (colour && graphics->adc_done) {
+    sr |= AP_GRAPHICS_SR_ADC_DONE;
   }
   /* `H_CK` is the horizontal clock, and it toggles once a line -- the lowest
    * bit of the line number, so a driver watching it sees a square wave at half
@@ -367,7 +382,11 @@ static uint8_t graphics_status(const ap_graphics_t *graphics) {
   const unsigned sync_start = geometry.width + blank_pixels / 8u;
   const unsigned sync_end = sync_start + blank_pixels / 2u;
   const bool h_sync = pixel >= sync_start && pixel < sync_end;
-  if (!h_sync) {
+  /* On a monochrome board bit 5 is `hs`, the horizontal sync alone. On a colour
+   * board it is `syn`, **composite sync** -- one bit carrying both pulses,
+   * which is why that board has no separate vertical one and can spend bit 2 on
+   * the converter. Active low either way. */
+  if (!(h_sync || (colour && v_sync))) {
     sr |= AP_GRAPHICS_SR_H_SYNC;
   }
   return sr;
@@ -435,6 +454,7 @@ uint8_t ap_graphics_read(ap_graphics_t *graphics, uint32_t address) {
         /* p. 12-20's read side: the conversion the last write asked for, in
          * hundredths of a volt. A channel that is not a video measurement has
          * no answer, and `FF` is what every unreadable register here gives. */
+        graphics->adc_done = false;
         uint8_t level = 0u;
         return ap_graphics_adc(graphics, graphics->diag_channel, &level)
                    ? level
@@ -625,6 +645,7 @@ void ap_graphics_write(ap_graphics_t *graphics, uint32_t address,
         graphics->reg.cr3b = value;
       } else if (graphics->screen == AP_SCREEN_COLOUR_4_PLANE) {
         graphics->diag_channel = value;
+        graphics->adc_done = true;
       }
       return;
     default:

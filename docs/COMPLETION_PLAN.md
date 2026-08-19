@@ -5634,9 +5634,11 @@ END — PDF 279–313, all 35 pages. 35 content pages of 330.**
       All three implemented, with the register offsets — previously "the
       oracle's" — now confirmed from Apollo's own pages, `CR3A` named as an
       8255A, and the handbook's four-register initialization sequence asserted
-      as a test. Nine tests; `ctest` 139/139. **One `PROVISIONAL` named, not
-      closed**: the colour status register's bits 5 and 2 — see
-      `PROJECT_STATUS.md`. Detail in `PROJECT_STATUS.md`.
+      as a test. Nine tests; `ctest` 139/139. The `PROVISIONAL` it opened —
+      the colour status register's bits 5 and 2 — is **closed**: the boot PROM's
+      A/D routine at `007026` polls bit 2 between writing a channel and reading
+      the result, so it is the converter's done flag as the handbook says and
+      not the sync the oracle's alias claims. Detail in `PROJECT_STATUS.md`.
 
 - [x] **The disk controller's six pages** (`002398-04` pp. 12-9 – 12-14, PDF
       287–292). Three defects in `ap_omti` fixed and two documentary gains, all

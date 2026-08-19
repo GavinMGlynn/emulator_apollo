@@ -1790,15 +1790,22 @@ static void test_the_blanking_bits_are_active_low(void) {
  * lines into the blanking interval and four lines long: the oracle blanks an
  * 8-plane board at line 800 and syncs 804 to 808, and a 19-inch at 1023 syncing
  * 1028 to 1032, which is `height + 4` to `height + 8` in both. */
+/* **Monochrome**, because bit 2 is the vertical sync on that board and *not* on
+ * a colour one: `002398-04` p. 12-16 gives the colour board `ad`, "a-d
+ * conversion done", in this position, and the boot PROM's own A/D routine at
+ * `007026` polls it for exactly that. This test used to run on an 8-plane board
+ * and asserted the reading the firmware disproves -- which is what a test
+ * written from the same source as the code does. The colour board's sync is
+ * asserted below, on the bit that carries it. */
 static void test_the_vertical_sync_pulse_sits_inside_the_blanking(void) {
   ap_graphics_t g;
-  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+  ap_graphics_init(&g, AP_SCREEN_MONO_19_INCH);
   g.reg.cr1 = AP_GRAPHICS_CR1_RESET | AP_GRAPHICS_CR1_SYNC_EN;
   ap_graphics_geometry_t geometry;
-  TEST_ASSERT_TRUE(ap_graphics_geometry(AP_SCREEN_COLOUR_8_PLANE, &geometry));
+  TEST_ASSERT_TRUE(ap_graphics_geometry(AP_SCREEN_MONO_19_INCH, &geometry));
   ap_clock_t dot;
   TEST_ASSERT_TRUE(ap_clock_init(&dot, geometry.dot_clock_hz));
-  const uint32_t status = AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_STATUS;
+  const uint32_t status = AP_GRAPHICS_MONO_ADDR + AP_GRAPHICS_REG_STATUS;
 
   /* Drawing: sync inactive, so the bit is set. */
   ap_graphics_advance(&g, dot.period * geometry.h_total * 400u);
@@ -1850,9 +1857,11 @@ static void test_the_status_register_is_not_a_constant(void) {
     all &= sr;
   }
   /* Every modelled bit is seen both set and clear over a frame. */
+  /* Bit 2 is **not** in this set on a colour board: it is the A/D converter's
+   * done flag, which no amount of elapsed time moves. Bit 5 is the composite
+   * sync, so it carries both pulses and is still seen both ways. */
   const uint8_t modelled = AP_GRAPHICS_SR_BLANK | AP_GRAPHICS_SR_V_BLANK |
-                           AP_GRAPHICS_SR_H_SYNC | AP_GRAPHICS_SR_H_CK |
-                           AP_GRAPHICS_SR_V_SYNC;
+                           AP_GRAPHICS_SR_H_SYNC | AP_GRAPHICS_SR_H_CK;
   TEST_ASSERT_EQUAL_HEX8(modelled, (uint8_t)(seen & modelled));
   TEST_ASSERT_EQUAL_HEX8(0u, (uint8_t)(all & modelled));
 }
@@ -2222,6 +2231,89 @@ static void test_the_four_plane_lut_registers_do_not_read_back(void) {
   TEST_ASSERT_FALSE(ap_graphics_lut4(&mono, 0u, rgb));
 }
 
+/* ## The colour status register's bit 2 is the converter's, and the firmware
+ * says so
+ *
+ * `3500_BOOT_12191_7` at `007004`: write a channel byte to the data port, wait,
+ * poll status bit 2 until it is **set**, then read the result back from the
+ * same port. Write-wait-poll-read is an A/D conversion, and the bit is its done
+ * flag -- `002398-04` p. 12-16's `ad`, against the oracle's alias `SYNC`.
+ *
+ * The whole handshake is asserted here because it is what settled a
+ * `PROVISIONAL` this project had marked as needing the oracle: it needed the
+ * firmware, which was on disk the whole time. */
+static void test_the_converters_done_flag_follows_the_firmwares_handshake(void) {
+  ap_graphics_t g;
+  scanout_setup(&g, AP_SCREEN_COLOUR_8_PLANE);
+  g.reg.cr1 = AP_GRAPHICS_CR1_RESET | AP_GRAPHICS_CR1_SYNC_EN;
+  ap_graphics_advance(&g, 0u);
+
+  const uint32_t status = AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_STATUS;
+  const uint32_t data = AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_LUT_DATA;
+  const uint32_t control = AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_LUT_CONTROL;
+
+  /* Nothing asked for: no conversion outstanding, whatever the beam is doing. */
+  TEST_ASSERT_EQUAL_HEX8(
+      0u, (uint8_t)(ap_graphics_read(&g, status) & AP_GRAPHICS_SR_ADC_DONE));
+
+  /* Select the A/D -- its chip select is active low -- and write the channel. */
+  ap_graphics_write(&g, control, (uint8_t)~AP_GRAPHICS_LUT_AD_CS);
+  ap_graphics_write(&g, data, AP_GRAPHICS_ADC_VIDEO | 0u);
+  TEST_ASSERT_EQUAL_HEX8(
+      AP_GRAPHICS_SR_ADC_DONE,
+      (uint8_t)(ap_graphics_read(&g, status) & AP_GRAPHICS_SR_ADC_DONE));
+
+  /* Taking the result ends it, which is what stops a second poll reading a
+   * completion that has already been collected. */
+  (void)ap_graphics_read(&g, data);
+  TEST_ASSERT_EQUAL_HEX8(
+      0u, (uint8_t)(ap_graphics_read(&g, status) & AP_GRAPHICS_SR_ADC_DONE));
+
+  /* And time does not move it, which is the whole difference from the bit this
+   * position used to carry: a raster bit would toggle across a frame. */
+  for (unsigned i = 0; i < 64u; i++) {
+    ap_graphics_advance(&g, (ap_time_t)i * 100000u);
+    TEST_ASSERT_EQUAL_HEX8(
+        0u, (uint8_t)(ap_graphics_read(&g, status) & AP_GRAPHICS_SR_ADC_DONE));
+  }
+}
+
+/* The colour board's bit 5 is `syn`, **composite** sync, so it is clear during
+ * the vertical pulse as well as the horizontal one. A monochrome board's `hs`
+ * is the horizontal alone -- which is what makes the two boards' bit 5 the same
+ * position and a different signal. */
+static void test_the_colour_boards_sync_bit_carries_both_pulses(void) {
+  ap_graphics_t g;
+  ap_graphics_init(&g, AP_SCREEN_COLOUR_8_PLANE);
+  g.reg.cr1 = AP_GRAPHICS_CR1_RESET | AP_GRAPHICS_CR1_SYNC_EN;
+  ap_graphics_geometry_t geometry;
+  TEST_ASSERT_TRUE(ap_graphics_geometry(AP_SCREEN_COLOUR_8_PLANE, &geometry));
+  ap_clock_t dot;
+  TEST_ASSERT_TRUE(ap_clock_init(&dot, geometry.dot_clock_hz));
+  const uint32_t status = AP_GRAPHICS_COLOUR_ADDR + AP_GRAPHICS_REG_STATUS;
+
+  /* Drawing, at the start of a line: neither pulse, so the bit is set. */
+  ap_graphics_advance(&g, dot.period * geometry.h_total * 400u);
+  TEST_ASSERT_EQUAL_HEX8(
+      AP_GRAPHICS_SR_H_SYNC,
+      (uint8_t)(ap_graphics_read(&g, status) & AP_GRAPHICS_SR_H_SYNC));
+
+  /* Inside the vertical pulse, at the same point in the line: cleared, which a
+   * horizontal-only bit would not be. */
+  for (unsigned line = geometry.height + 4u; line < geometry.height + 8u;
+       line++) {
+    ap_graphics_advance(&g, dot.period * geometry.h_total * line);
+    TEST_ASSERT_EQUAL_HEX8(
+        0u, (uint8_t)(ap_graphics_read(&g, status) & AP_GRAPHICS_SR_H_SYNC));
+  }
+
+  /* And out the other side. */
+  ap_graphics_advance(&g, dot.period * geometry.h_total * (geometry.height + 8u));
+  TEST_ASSERT_EQUAL_HEX8(
+      AP_GRAPHICS_SR_H_SYNC,
+      (uint8_t)(ap_graphics_read(&g, status) & AP_GRAPHICS_SR_H_SYNC));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_init_does_not_inherit_the_callers_stack);
@@ -2229,6 +2321,8 @@ int main(void) {
   RUN_TEST(test_the_blt_shift_count_is_signed);
   RUN_TEST(test_the_four_plane_diagnostic_register_reads_the_converter);
   RUN_TEST(test_the_four_plane_lut_registers_do_not_read_back);
+  RUN_TEST(test_the_converters_done_flag_follows_the_firmwares_handshake);
+  RUN_TEST(test_the_colour_boards_sync_bit_carries_both_pulses);
   RUN_TEST(test_each_screen_reports_the_id_the_firmware_compares_against);
   RUN_TEST(test_the_other_family_s_block_reads_ff);
   RUN_TEST(test_an_absent_screen_still_decodes_and_reads_ff);
