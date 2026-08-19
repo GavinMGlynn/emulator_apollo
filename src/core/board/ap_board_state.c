@@ -29,6 +29,23 @@ void ap_board_hash_registers(ap_hash_t *st, const ap_boardreg_t *registers) {
   ap_hash_u16(st, registers->cpu_control);
   ap_hash_u8(st, registers->cache_control);
   ap_hash_u16(st, registers->latch_page_on_parity);
+  /* **Both of Table 2-8's remaining registers, which were writable state
+   * outside the hash.** They were added to the model as byte-wide storage and
+   * never added here, so a divergence in either was invisible to the one
+   * instrument this project checks every optimisation with -- and the firmware
+   * does write one: the reference boot's report reads `master request 0/1`.
+   * A hash that omits storage software can change is weaker than the guarantee
+   * built on it.
+   *
+   * What stays out, and why it is not the same question: `memory_present` is
+   * how much memory is *fitted*, `ds5500_cache_status` and
+   * `active_low_parity_lanes` are model facts, and `interrupt_pending` is the
+   * master controller's line refreshed from elsewhere each sample. None of
+   * those is state a run can change, and hashing configuration would make two
+   * identical runs of different machines differ for a reason the hash already
+   * has better ways to say. */
+  ap_hash_u8(st, registers->master_request);
+  ap_hash_u8(st, registers->task_alias);
 }
 
 void ap_board_hash_translation_map(ap_hash_t *st, const ap_atmap_t *map) {

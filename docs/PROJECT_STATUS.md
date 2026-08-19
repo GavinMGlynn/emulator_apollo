@@ -21454,6 +21454,41 @@ and the old value is retired rather than corrected.
 already pinned that the hash covers the screen kind and the frame buffers, so
 the defect was in the report and the fix is there.*
 
+## The reference is re-baselined: two writable registers were outside the hash
+
+**`03EE415450926A89` is retired; the reference is `D7BA23DD7961F1A1`.** The
+invocation is unchanged — `tools/identity-boot.sh` — and nothing the machine
+does changed. What changed is what the hash *covers*.
+
+**The hole, and how it was found.** `ap_board_hash_registers` hashed four
+registers: CPU status, CPU control, cache control and latch-page-on-parity.
+Table 2-8's remaining two — **master request (`011600`) and task alias
+(`010300`)** — were added to the model later as the byte-wide storage the table
+says exists, and were never added here. So they were **writable state outside
+the identity hash**, and this project checks every optimisation with that hash
+and nothing else. The firmware writes one of them: the reference boot's own
+report has always read `master request 0/1 (read/write)`.
+
+Found by the audit sweep of 2026-08-19, on the same pass that found the ring
+station's unlent buffers — this one by asking what the hash covers rather than
+what calls what.
+
+**That the hash moved is the measurement.** If `master_request` had been left at
+zero by the boot, widening the hash would have changed nothing and the hole
+would have been theoretical. It changed, so the register was carrying a live
+value that no identity check could see.
+
+**What stays out, and why that is a different question.** `memory_present` is
+how much memory is fitted; `ds5500_cache_status` and
+`active_low_parity_lanes` are model facts; `interrupt_pending` is the master
+controller's line, refreshed from elsewhere on every sample. None is state a
+run can change, and hashing configuration would make two runs of *different
+machines* differ for a reason the report already states plainly.
+
+**No golden moved.** No file under `tests/goldens/` embeds a state hash, so the
+re-baseline is confined to the documented reference value; `ctest` is 139/139
+either side of it.
+
 ## The reference is re-baselined again: the calendar's battery holds DM
 
 **`A354786119A3931D` is retired; the reference is `03EE415450926A89`.** The

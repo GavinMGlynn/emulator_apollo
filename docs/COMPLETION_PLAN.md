@@ -4495,6 +4495,16 @@ discipline throughout.
       including all **35** configurations `019411-A00` §4.2.1.18 publishes for
       the memory present register. Identity harness re-run: `03EE415450926A89`,
       unchanged, which is what says the DN3500 is untouched.*
+- [x] **Two writable registers were outside the identity hash.** Master request
+      and task alias were added to the model as Table 2-8's byte-wide storage
+      and never added to `ap_board_hash_registers`, so state software can change
+      was invisible to the one instrument every optimisation in Phase 8 is
+      checked with. The reference boot writes one of them — its report has
+      always read `master request 0/1`. Detail in `PROJECT_STATUS.md`.
+      *Verification: the reference re-baselines `03EE415450926A89` →
+      `D7BA23DD7961F1A1`, and that it moved at all is the measurement: a
+      register left at zero would have changed nothing. No golden embeds a state
+      hash, so nothing else moved; `ctest` 139/139 either side.*
 - [x] **The ring station's buffers were lent by nobody, so a booting node could
       neither transmit nor receive.** `attach_tx` was called by tests only and
       `attach_rx` by nothing at all, so `ap_ring_station_queue_frame` returned
