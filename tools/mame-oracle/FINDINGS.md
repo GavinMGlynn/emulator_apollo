@@ -12220,3 +12220,45 @@ with its `IMR` armed and assert what the board's interrupt lines do. But it is a
 documented gap in the model, it is exactly the shape that would leave a guest
 waiting on a line it had armed, and three withdrawn readings on this thread say
 to write it down before believing it.
+
+## C224 -- C223's concern is reduced: the sibling manual gives IRQ1 to "sio", unqualified
+
+C223 read `008778-03` Table 2-3's `IRQ1 ... 2681 SIO Port **1**` and worried that
+this core ORs *both* 2681s onto a line the manual assigns to the first. The
+sibling manual answers it. `002398-04` p. 12-28, "Interrupt Request Line
+Assignments", read as a page image:
+
+    Master    Slave    Device
+    IRQ 0              timers
+    IRQ 1              sio
+    IRQ 2              ring
+    IRQ 3-----> slave pic to master
+                IRQ8   calendar
+                IRQ9   ethernet board 1
+                IRQ10  ethernet board 2
+                IRQ11  pc option primary
+                IRQ14  winchester
+                IRQ15  pc option alternate
+    IRQ 5              tape
+    IRQ 6              floppy
+
+**`IRQ 1` is "sio" with no port qualifier** -- one line for the serial hardware,
+which is what `ap_sio_irq` implements. So the ORing is supported after all, and
+C223's "no source on disk supports it" is wrong: this source does. The test it
+prompted stays, because it makes the behaviour explicit either way.
+
+*This is `CLAUDE.md`'s sibling-manual rule paying out exactly as written --
+"the same table, typeset differently, often carries the note that resolves an
+ambiguity in ours". Two manuals, one naming a port and one naming a subsystem,
+and the less specific one is the one that settles it.*
+
+**Two corroborations fall out of the same page.** `IRQ 2` is **ring**, which is
+where `RING.md` 107 put the card from the firmware's own programming; and
+`IRQ 4` and `IRQ 7` are **blank**, against Table 2-3's "SPE Board Serial Line 1"
+and "SPE Board Parallel Port" -- consistent with the SPE being an option this
+machine does not carry, which is why its serial lines are not the on-board
+2681s.
+
+**So C222 is still unexplained**, and one more candidate is eliminated rather
+than added: the interrupt reaches the CPU on the line the guest is watching, and
+`sio_suite` now pins that a character on the second part raises it.

@@ -733,11 +733,56 @@ static void test_the_transmit_rate_comes_from_the_channels_clock_select(void) {
   TEST_ASSERT_EQUAL_UINT(0u, ap_sio_transmit_baud(&sio, 0u, 2u));
 }
 
+/* **Both 2681s share one interrupt line, and `008778-03` Table 2-3 assigns that
+ * line to *Port 1*.** Read as a page image the table has exactly one 2681 row --
+ * `IRQ1 ... 2681 SIO Port 1` -- and its only other serial entries, `IRQ4 SPE
+ * Board Serial Line 1` and `IRQ9 SPE Serial Line 2`, belong to the optional SPE
+ * expansion board rather than to an on-board second part. §3.9 fits: "SIO line 0
+ * ... keyboard ... SIO line **1** in the DS3000 and lines **1, 2, and 3** in the
+ * DS4000" -- two lines is one 2681, four needs two -- and Table 2-3 is the
+ * DS3000's, so it never had a second part to assign.
+ *
+ * This core has two parts and `ap_sio_irq` ORs them, so the second one asks on
+ * the first one's line. **That is an assumption and no source on disk supports
+ * it**, which is why it is pinned here rather than left implicit: a reader who
+ * finds the DS3500's real assignment can see exactly what changes.
+ *
+ * Written while `FINDINGS.md` C222 was open -- a live `siologin` on line 2 whose
+ * register the guest never reads -- because an interrupt raised on the wrong
+ * line is the shape of that symptom. It is *not* asserted to be its cause: this
+ * test says what the model does, not that the model is right. */
+static void test_the_second_2681_asks_on_the_first_ones_interrupt_line(void) {
+  ap_sio_t sio;
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
+
+  /* Quiet to begin with: neither part is asking. */
+  TEST_ASSERT_FALSE(ap_sio_irq(&sio));
+
+  /* Arm the *second* part's channel A receiver interrupt and give it a
+   * character, which is what a login server waiting on `/dev/sio2` amounts to.
+   * `IMR` bit 1 is `RxRDY A` -- `[MC68681]` Table 4-5. */
+  ap_sio_write(&sio, AP_SIO2_ADDR + 2u * AP_MC68681_CR_A, 0x05u);
+  ap_sio_write(&sio, AP_SIO2_ADDR + 2u * AP_MC68681_ISR_IMR,
+               AP_MC68681_ISR_RXRDY_A);
+  ap_sio_receive(&sio, 1u, 0u, (uint8_t)'\r');
+
+  /* The part is asking, and `ap_sio_irq` -- the board's single serial line --
+   * carries it. So a character on the *second* part raises the interrupt
+   * Table 2-3 names for the *first*. */
+  TEST_ASSERT_TRUE(ap_mc68681_irq(&sio.port[1]));
+  TEST_ASSERT_TRUE(ap_sio_irq(&sio));
+
+  /* And the first part is silent throughout, so the line above is genuinely the
+   * second part's and not a stray from the fixture. */
+  TEST_ASSERT_FALSE(ap_mc68681_irq(&sio.port[0]));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_transmit_rate_comes_from_the_channels_clock_select);
   RUN_TEST(test_op7_can_carry_channel_bs_transmitter_ready);
   RUN_TEST(test_serial_ones_op7_is_the_diagnostic_interrupt);
+  RUN_TEST(test_the_second_2681_asks_on_the_first_ones_interrupt_line);
   RUN_TEST(test_the_diagnostic_line_idles_asserted_after_reset);
   RUN_TEST(test_the_firmwares_preload_gives_the_documented_refresh_period);
   RUN_TEST(test_the_refresh_output_is_a_square_wave_of_that_period);
