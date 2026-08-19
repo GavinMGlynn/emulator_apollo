@@ -161,7 +161,17 @@ static void test_the_at_windows_declare_a_figure_and_nothing_else_does(void) {
 
   /* The window itself, and three devices inside it. */
   TEST_ASSERT_EQUAL_UINT64(io, ap_board_access_time(&board, 0x040000u, true));
-  TEST_ASSERT_EQUAL_UINT64(io, ap_board_access_time(&board, 0x04D000u, true));
+  /* The **floppy**, `05F800`, not the Winchester: §5.4.2 makes the fixed disk
+   * a 16-bit device and the floppy an 8-bit one, so `io` -- the 8-bit figure --
+   * is the floppy's. Asserting it at the Winchester was right only while every
+   * card was charged the same width. */
+  TEST_ASSERT_EQUAL_UINT64(io,
+                           ap_board_access_time(&board, AP_DISK_FLOPPY_ADDR,
+                                                true));
+  /* And the Winchester is half of it: three bus clocks against six. */
+  TEST_ASSERT_EQUAL_UINT64(io / 2u,
+                           ap_board_access_time(&board, AP_DISK_FIXED_ADDR,
+                                                true));
   TEST_ASSERT_EQUAL_UINT64(io, ap_board_access_time(&board, 0x050000u, true));
   TEST_ASSERT_EQUAL_UINT64(io, ap_board_access_time(&board, 0x05FFFFu, true));
 
@@ -207,7 +217,8 @@ static void test_a_faster_processor_waits_more_clocks_for_the_same_card(void) {
   ap_machine_init_model(&slow, ram, RAM_BYTES, AP_MODEL_DN3000);
   ap_machine_set_board(&slow, &board);
 
-  const ap_time_t cycle = ap_board_access_time(&board, 0x04D000u, true);
+  const ap_time_t cycle =
+      ap_board_access_time(&board, AP_DISK_FLOPPY_ADDR, true);
   TEST_ASSERT_TRUE(cycle > 0u);
 
   /* Computed here the way the machine must: rounded up, because a device that
@@ -248,7 +259,8 @@ static void test_an_at_device_read_costs_a_machine_more_than_memory(void) {
   TEST_ASSERT_FALSE(r.fault);
   const uint32_t ram_clocks = r.clocks;
 
-  r = ap_m68030_access_read(&m.data_access, 0x04D000u,
+  /* The floppy: an 8-bit card, so this is the four-wait-state cycle. */
+  r = ap_m68030_access_read(&m.data_access, AP_DISK_FLOPPY_ADDR,
                             AP_M68030_FC_SUPERVISOR_DATA);
   TEST_ASSERT_FALSE(r.fault);
   const uint32_t device_clocks = r.clocks;
@@ -257,9 +269,18 @@ static void test_an_at_device_read_costs_a_machine_more_than_memory(void) {
    * §3.4's published 1 microsecond -- six bus clocks -- where this asserted
    * `#48`'s 750 ns command width while that was the best figure in hand. The
    * relationship the test exists for is unchanged and stronger: a device read
-   * still costs far more than a RAM read, and now by the documented amount. */
+   * still costs far more than a RAM read, and now by the documented amount.
+   *
+   * **And the Winchester is a 16-bit card**, so it costs half again -- which is
+   * `008778-03` §5.4.2's word-versus-byte transfer format made observable. */
   TEST_ASSERT_EQUAL_UINT(25u, device_clocks);
   TEST_ASSERT_TRUE(device_clocks > ram_clocks);
+
+  r = ap_m68030_access_read(&m.data_access, AP_DISK_FIXED_ADDR,
+                            AP_M68030_FC_SUPERVISOR_DATA);
+  TEST_ASSERT_FALSE(r.fault);
+  TEST_ASSERT_EQUAL_UINT(13u, r.clocks);
+  TEST_ASSERT_TRUE(r.clocks < device_clocks);
 }
 
 int main(void) {

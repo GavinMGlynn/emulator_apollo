@@ -21456,7 +21456,7 @@ the defect was in the report and the fix is there.*
 
 ## The reference is re-baselined: two writable registers were outside the hash
 
-**`03EE415450926A89` is retired; the reference is `63ED84FB64B18857`.** The
+**`03EE415450926A89` is retired; the reference is `38F1BEC968B88156`.** The
 invocation is unchanged — `tools/identity-boot.sh` — and nothing the machine
 does changed. What changed is what the hash *covers*.
 
@@ -21589,6 +21589,38 @@ such rather than merely absent: the fault and MMU site tables, the watch
 registers, the probe and table-fetch counters, and the exception- and fault-stop
 conditions, which are how a *run* was asked to end rather than anything the
 machine holds.
+
+### A seventh: the Winchester is a 16-bit card
+
+`63ED84FB64B18857` → **`38F1BEC968B88156`**, and clocks **1,585,718,610 →
+1,409,366,593**, down 11%.
+
+`ap_board_access_time` charged every AT card the 8-bit cycle, and said why:
+"a card that asserts one is faster, and **nothing on this board is known to**".
+The walk reached chapter 5 and something is. **§5.4.2**: "The **Winchester disk
+uses the 16-bit (word) data transfer format**; the floppy disk uses the 8-bit
+(byte) data transfer format." So the fixed disk asserts `IO_CS16.L` and takes
+§2.4.2's **one** wait state rather than four — three bus clocks against six,
+half the time — while the floppy keeps the 8-bit cycle, which is also why it is
+the machine's only DMA device.
+
+The boot is disk-heavy, so this outweighs the sixth re-baseline in the other
+direction: net across the two, the reference boot is **faster** than it was
+this morning, and both moves are the document's rather than a guess.
+
+`atbus_suite` now exercises **both** widths — the floppy for the 8-bit figure,
+the Winchester asserted at half of it — where it had asserted the 8-bit cycle
+at the Winchester's address, which was right only while every card was charged
+alike.
+
+**A related contradiction is recorded and NOT acted on.** `ap_board.h`
+justifies `at_bus_series = AP_ATBUS_SERIES_3000` with "this is a Series
+3000-family board" — but `ap_boardreg.h` puts the DS3500 in the **Series 4000**
+architecture group, citing `019411-A00` §4.2.1.4 and the master request
+register's firmware census. Both cannot be right. The *choice* stays
+`PROVISIONAL` regardless, because no document on disk gives a DS3500's AT bus
+clock; what is now known to be wrong is the stated reason for it. Series 4000
+would make the bus 8 MHz rather than 6, so this is worth settling.
 
 ### And a sixth, which is the only one today that changed behaviour
 

@@ -446,8 +446,22 @@ ap_time_t ap_board_access_time(const ap_board_t *board, uint32_t address,
    *
    * Eight bits wide because that is what a card gets when it does not assert
    * `MEM_CS16.L` or `IO_CS16.L` -- the AT's default rather than a choice made
-   * here. A card that asserts one is faster, and nothing on this board is known
-   * to. */
+   * here.
+   *
+   * **Except the Winchester, and `008778-03` §5.4.2 is what says so.** That
+   * comment used to end "a card that asserts one is faster, and nothing on this
+   * board is *known* to", which was true until the walk reached chapter 5: "Data
+   * may be transferred to and from the host CPU in either a byte or word format.
+   * **The Winchester disk uses the 16-bit (word) data transfer format; the
+   * floppy disk uses the 8-bit (byte) data transfer format.**"
+   *
+   * So the fixed disk asserts `IO_CS16.L` and takes §2.4.2's **one** wait state
+   * rather than four -- three bus clocks against six, half the time. The floppy
+   * keeps the 8-bit cycle, which §5.4.2 states just as plainly and which is also
+   * why it is the machine's only DMA device (§1.5.1). */
+  if (in(address, AP_DISK_FIXED_ADDR, AP_DISK_FIXED_SIZE)) {
+    return ap_atbus_access_time(timing, AP_ATBUS_CYCLE_IO_16, read);
+  }
   if (in(address, AP_BOARD_ATBUS_IO_BASE,
          AP_BOARD_ATBUS_IO_END - AP_BOARD_ATBUS_IO_BASE + 1u)) {
     return ap_atbus_access_time(timing, AP_ATBUS_CYCLE_IO_8, read);
