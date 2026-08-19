@@ -385,6 +385,29 @@ void ap_board_hash_tape(ap_hash_t *st, const ap_tape_t *tape) {
   hash_bool(st, drive->q24_format);
   ap_hash_u64(st, drive->position);
   hash_bool(st, drive->reading);
+  /* ## The drive's own latches and counters, which were not in this
+   *
+   * `reading` was hashed and `writing` was not, and neither were the two
+   * conditions a driver reads out of the status block: `power_on`, which
+   * survives until a status read reports it, and `illegal_command`, which does
+   * the same. Two drives differing only in whether they have already
+   * acknowledged their power-on reset are two different machines -- one will
+   * send an initialisation sequence and the other will not.
+   *
+   * `status_pending` is the READ STATUS data phase, which is phase state like
+   * `reading`. The two counters are the drive's own, reported in bytes 2-5 of
+   * the status block, and so are machine state rather than this core watching
+   * the machine -- the distinction the diagnostic counters elsewhere fall on
+   * the other side of.
+   *
+   * Found the same way the display controller's hole was, one commit earlier:
+   * by adding a latch and asking what would notice it. */
+  hash_bool(st, drive->writing);
+  hash_bool(st, drive->status_pending);
+  hash_bool(st, drive->power_on);
+  hash_bool(st, drive->illegal_command);
+  ap_hash_u16(st, drive->data_errors);
+  ap_hash_u16(st, drive->underruns);
 
   /* The buffered block, which is the part of the tape a run *has* changed its
    * relationship with. Only when it holds something: an invalid buffer keeps

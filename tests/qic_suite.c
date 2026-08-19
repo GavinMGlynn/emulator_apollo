@@ -455,6 +455,45 @@ static void test_every_reachable_status_summary_row_is_reproduced(void) {
                 0x00u, 0x0Fu, 0x81u, 0xF7u);
 }
 
+/* The summary's "Illegal command" row, which is reachable now.
+ *
+ * `QIC-02 Rev D` §5.2 gives `ILL` six causes and this model can distinguish one
+ * of them -- "any unimplemented command is issued" -- which is the one the row
+ * describes. Status 0 `XXXX0000`, Status 1 `1100X000`: the code in bit 6 and
+ * the summary bit above it, with byte 0's top four don't-care because a drive
+ * reporting an illegal command is also still reporting where its tape is. */
+static void test_an_unimplemented_command_latches_illegal_until_read(void) {
+  ap_qic_t q;
+  load(&q);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT));
+  clear_power_on(&q);
+
+  /* A code outside `[SC499]` §1.13's set entirely. */
+  TEST_ASSERT_FALSE(ap_qic_command_known(0x55u));
+  TEST_ASSERT_FALSE(ap_qic_command(&q, 0x55u));
+
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
+  check_summary("illegal command", ap_qic_exception_word(&q),
+                0x00u, 0x0Fu, 0xC0u, 0xF7u);
+
+  /* "The bit is reset by a Read Status Sequence" -- so it survives until the
+   * status is taken, and not after. A latch that outlived its own report would
+   * have a driver rejecting every command that followed one bad one. */
+  uint8_t block[AP_QIC_STATUS_BYTES];
+  TEST_ASSERT_TRUE(ap_qic_read_status(&q, block));
+  TEST_ASSERT_TRUE((block[0] & (uint8_t)AP_QIC_EXS_ILLEGAL) != 0u);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
+  TEST_ASSERT_EQUAL_HEX16(
+      0u, (uint16_t)(ap_qic_exception_word(&q) & AP_QIC_EXS_ILLEGAL));
+
+  /* And a *known* command that is merely refused is not illegal: WRITE FILE
+   * MARK is recognised and declined for want of file marks in a `.ct`, which
+   * §5.2 does not make a cause. */
+  TEST_ASSERT_FALSE(ap_qic_command(&q, AP_QIC_CMD_WRITE_FILE_MARK));
+  TEST_ASSERT_EQUAL_HEX16(
+      0u, (uint16_t)(ap_qic_exception_word(&q) & AP_QIC_EXS_ILLEGAL));
+}
+
 /* The rows this model cannot be put into, named so the omission above is a
  * statement rather than a gap. Nine of the fifteen describe media faults --
  * read abort, write abort, the four read errors, filemark read, marginal block
@@ -492,5 +531,6 @@ int main(void) {
   RUN_TEST(test_the_power_on_flag_survives_until_read_and_not_after);
   RUN_TEST(test_reading_off_the_end_reports_end_of_media);
   RUN_TEST(test_every_reachable_status_summary_row_is_reproduced);
+  RUN_TEST(test_an_unimplemented_command_latches_illegal_until_read);
   return UNITY_END();
 }

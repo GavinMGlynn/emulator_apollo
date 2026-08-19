@@ -5593,16 +5593,15 @@ finished `008778-03_WALK.md`.
 **Started 2026-08-20. Front matter read (PDF 5–11). CHAPTER 12 IS READ END TO
 END — PDF 279–313, all 35 pages. 35 content pages of 330.**
 
-- [ ] **Three sections of chapter 12 are in chapters 7 and 9.** It delegates
-      them: FAULT FRAME AND FAULT TYPES (p. 12-25) and FLOATING-POINT REGISTERS
-      (p. 12-26) to chapter 7, and SIO (p. 12-35) to chapter 9 — "same as first
-      chip of DN460, **except for the definition of the output port register in
-      which the `dtr_b` bit has moved**", which is a named difference this core
-      must check `ap_sio` against. So the chapters this reading order treats as
-      other machine families carry DN3000 content. They keep their scheduled
-      place; what this records is that **chapter 12 is covered but not finished
-      until those three sections are read**, so a later reader cannot mistake a
-      delegated section for a covered one.
+- [x] **Chapter 12's three delegated sections, read.** FAULT FRAME and
+      FLOATING-POINT REGISTERS in chapter 7 (PDF 153–155, 157–158) and SIO in
+      chapter 9, which delegates again to chapter 7 (PDF 241, 170). All three
+      confirm this core: the 68020/68030 medium and long bus-fault frames and
+      the whole format table, the 68881 FPCR field for field, and the SC2681's
+      register map and both baud tables. **One fact is defined nowhere**: the
+      `dtr_b` bit chapter 12 flags as having moved is not in any page of the
+      chain, and `008778-03` gives only OP7. Recorded as a dead end. Chapter 12
+      is now finished, delegations included.
 
 - [x] **Chapter 12 read end to end** (`002398-04` pp. 12-1 – 12-35, PDF
       279–313). Six defects in this core fixed and two documentary gaps closed,

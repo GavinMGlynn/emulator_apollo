@@ -193,6 +193,36 @@ typedef struct {
    * that is how a driver distinguishes a drive it has already talked to from
    * one that has just come up. */
   bool power_on;
+  /* ## `ill`, and the five causes this model cannot distinguish
+   *
+   * `QIC-02 Rev D` §5.2 gives status byte 1 bit 6 six causes, and this latch is
+   * the sixth: "**Any unimplemented command is issued**". Like `power_on` it
+   * survives until a status read reports it -- the standard says "the bit is
+   * reset by a Read Status Sequence" of every byte-1 bit except `BOM`.
+   *
+   * The other five are recorded rather than approximated, because each needs a
+   * fact this model does not carry:
+   *
+   *   a. "SELECT command issued with no drives or more than one drive
+   *      indicated" -- this drive's SELECT names no drive mask, so there is no
+   *      count to be wrong.
+   *   b. "ONLINE not asserted when a WRITE, WRITE FILE MARK, READ or READ FILE
+   *      MARK command is issued" -- ONLINE is a QIC-02 interface line and this
+   *      model has the command layer, not the pin.
+   *   c,d. a command other than the transfer's own issued "during the execution
+   *      of a Write/Read Data Sequence" -- `reading` and `writing` do say when a
+   *      sequence is live, but the standard's list of what is *permitted*
+   *      during one is written for a device with WRITE FILE MARK and READ FILE
+   *      MARK implemented, and both are refused here for want of file marks in
+   *      a `.ct`. Modelling the rule with two of its four allowed commands
+   *      missing would report as illegal a sequence the real drive accepts.
+   *   e. "a drive is deselected by another SELECT command when the cartridge
+   *      ... is not at beginning of tape" -- one drive, so nothing deselects
+   *      another.
+   *
+   * So the latch is one cause of six, and that is a statement about the
+   * interface this model has rather than an omission. */
+  bool illegal_command;
   /* Counts the block reader maintains, reported in the status block. Both are
    * genuinely zero here rather than unmodelled: this core rewrites no block and
    * never interrupts streaming, so a nonzero count would be an invention. */

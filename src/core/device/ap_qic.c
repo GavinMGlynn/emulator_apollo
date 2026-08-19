@@ -41,6 +41,11 @@ void ap_qic_reset(ap_qic_t *qic) {
   qic->status_pending = false;
   qic->data_errors = 0u;
   qic->underruns = 0u;
+  /* Assigned rather than left standing, per this function's own rule two
+   * paragraphs up: a reset reinitialises the controller, and an illegal-command
+   * latch that outlived one would report a command the drive no longer
+   * remembers being given. */
+  qic->illegal_command = false;
 
   /* `SC499_ST1_POR`, "power on/reset occurred". Set by the reset and cleared
    * only by the status read that reports it. */
@@ -98,6 +103,18 @@ bool ap_qic_command_known(uint8_t command) {
 }
 
 bool ap_qic_command(ap_qic_t *qic, uint8_t command) {
+  /* `QIC-02 Rev D` §5.2, status byte 1 bit 6: "**ILL** - Illegal Command bit is
+   * set if any of the following occurs ... **f. Any unimplemented command is
+   * issued.** The bit is reset by a Read Status Sequence."
+   *
+   * That is the one of the standard's six causes this model can distinguish
+   * from the others without inventing state, and it is the one `002398-04`
+   * p. 12-5's "Illegal command" row reports. The other five, and why each is
+   * out of reach, are set out at `ap_qic_t::illegal_command`. */
+  if (!ap_qic_command_known(command)) {
+    qic->illegal_command = true;
+    return false;
+  }
   switch ((ap_qic_command_t)command) {
   case AP_QIC_CMD_SELECT:
     /* "The SELECT command selects the tape drive ... Execution of the SELECT
@@ -257,6 +274,9 @@ uint16_t ap_qic_exception_word(const ap_qic_t *qic) {
   if (qic->power_on) {
     exs |= AP_QIC_EXS_POWER_ON;
   }
+  if (qic->illegal_command) {
+    exs |= AP_QIC_EXS_ILLEGAL;
+  }
 
   /* The two summary bits, and they follow **one** rule rather than two.
    * `QIC-02 Rev D` §5.2: each byte's bit 7 "is set if any other bit in" that
@@ -290,6 +310,9 @@ bool ap_qic_read_status(ap_qic_t *qic, uint8_t out[AP_QIC_STATUS_BYTES]) {
    * power-on flag survived being read would report a reset that had already
    * been acknowledged, forever. */
   qic->power_on = false;
+  /* §5.2 again: `ILL` "is reset by a Read Status Sequence", like every byte-1
+   * bit except `BOM`. */
+  qic->illegal_command = false;
   qic->status_pending = false;
   return true;
 }

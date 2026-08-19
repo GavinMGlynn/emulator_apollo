@@ -325,6 +325,18 @@ static void test_every_tape_field_moves_the_hash(void) {
   MOVES_THE_HASH(scratch.tape.drive.q24_format = !scratch.tape.drive.q24_format);
   MOVES_THE_HASH(scratch.tape.drive.position += 1u);
   MOVES_THE_HASH(scratch.tape.drive.reading = !scratch.tape.drive.reading);
+  /* The drive's own latches and counters. `reading` was hashed and `writing`
+   * was not; neither were the two conditions a driver reads out of the status
+   * block, so two drives differing only in whether they had acknowledged their
+   * power-on reset hashed alike. */
+  MOVES_THE_HASH(scratch.tape.drive.writing = !scratch.tape.drive.writing);
+  MOVES_THE_HASH(scratch.tape.drive.status_pending =
+                     !scratch.tape.drive.status_pending);
+  MOVES_THE_HASH(scratch.tape.drive.power_on = !scratch.tape.drive.power_on);
+  MOVES_THE_HASH(scratch.tape.drive.illegal_command =
+                     !scratch.tape.drive.illegal_command);
+  MOVES_THE_HASH(scratch.tape.drive.data_errors += 1u);
+  MOVES_THE_HASH(scratch.tape.drive.underruns += 1u);
 
   MOVES_THE_HASH(scratch.tape.offset += 1u);
   MOVES_THE_HASH(scratch.tape.block_valid = !scratch.tape.block_valid);
