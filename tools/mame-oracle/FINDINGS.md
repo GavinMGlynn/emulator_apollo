@@ -12262,3 +12262,33 @@ machine does not carry, which is why its serial lines are not the on-board
 **So C222 is still unexplained**, and one more candidate is eliminated rather
 than added: the interrupt reaches the CPU on the line the guest is watching, and
 `sio_suite` now pins that a character on the second part raises it.
+
+## C225 -- two reference avenues closed by looking, recorded so they are not reopened
+
+Negative results, which are worth writing down precisely because the next reader
+would otherwise spend the same half hour.
+
+**`002398-04` has no Series 2500 chapter.** Its own front matter: "This manual
+contains 12 chapters", 7 = DN300/320/330, 8 = DN400/420/600, 9 =
+DN460/660/DSP160, 10 = DN5xx, 11 = DSP80/80A/90, **12 = DN3000**, and the
+introduction names its scope as "DN3000, DSP3000, and the DN5xx-T". Rev 4 is
+January 1987 and the Series 2500 is a later machine, so the handbook never
+covered it. That closes the last documentary route this project had for the
+DN2500's register block (`COMPLETION_PLAN` item; the block at `0202CC`-`0202D4`
+remains `PROVISIONAL` storage, with the firmware as its only source).
+
+**Chapter 6 "Peripheral I/O" has no serial-line section.** Consulted for C222,
+because a chapter that "describes characteristics of peripheral I/O devices"
+sounds like where a tty driver's requirements would live. Its contents are AT
+bus devices, device addresses, disk parameters, the Low-Profile II keyboard maps
+and charts, the magtape controller's configuration and channel blocks, multibus
+devices, the register set, timers, touchpad and the Xylogics controller. No SIO,
+no tty, no line discipline.
+
+*So the documentary sources for C222 are exhausted at this level: `008778-03`
+§3.9 and Figure 3-5 give the lines and their signals, `002398-04` p. 12-28 gives
+the interrupt, and neither describes what a driver does with a line. What
+remains is the guest's own code -- the `siologin` binary and the SIO driver on
+the volume -- which is a disassembly job, or the oracle, which cannot help
+because MAME reaches its shell through MD rather than through `siologin` and so
+has never exercised this path either.*
