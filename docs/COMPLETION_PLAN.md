@@ -4091,10 +4091,22 @@ discipline throughout.
       `node 1 id 022222` on one segment. Deliberate approximation, cost named:
       the copy's objects still carry `12345`. Detail in `PROJECT_STATUS.md`,
       `FINDINGS.md` C180.
-      **What remains is the run itself.** Two nodes execute at 138 k
-      instructions/s each and a node reaches SPM at about 1.5 G, so the boot to
-      a prompt is a three-hour run; `lcnode` is scripted through
-      `--ring-script-a`/`-b` and the console per node exists.
+      **What remained was the run itself, and it has been taken** (2026-08-19).
+      Both nodes boot Domain/OS from their own installed volumes on one segment,
+      each reaching `Domain/OS kernel(7)` with `Apollo Token Ring test passed.`
+      and its driver loaded. `lcnode` has moved to the multi-node workloads
+      item -- it needs a shell, which needs `siologin`, which is its own open
+      thread -- and this item's verification is the ring property instead.
+      **The rate estimate here was optimistic and the correction is worth
+      keeping**: "138 k instructions/s each ... a three-hour run" became, under
+      a real two-node run with other work on the machine, closer to **60 k per
+      node**. `--ring-two-node`'s budget is moreover **per node** (`done +=
+      take`, with `take` instructions run on each), so a limit chosen as though
+      it were a total is out by a factor of two on top of that. A run bounded at
+      6 G on those two mistakes would have taken about **28 hours**; it was
+      stopped at three, and killing it produced no report at all, because the
+      ring counters printed only at the end. The runner now reports a frame
+      crossing when it happens.
       **This was recorded as "a media question with no route". It has a route,
       and it was in the oracle's source rather than in any manual.** `apollo_ni`
       is a `device_image_interface`, so the node ID is a **loadable 32-byte ROM
