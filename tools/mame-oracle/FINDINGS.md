@@ -12515,3 +12515,42 @@ characters in than the script asked for, or the counter and the status disagree.
 fifth story about a silence. What is now solid on this line: `siologin2_local`
 runs (C219), the mask for its channel is armed (C230), and its data register is
 never read (here).*
+
+## C232 -- C231's anomaly explained: the OS resets the receiver and our character dies with it
+
+C231 left "a FIFO that overran should not then read empty with nothing having
+read it" as an open thread with two candidate causes, both ours. Neither was
+right, and the answer was in this core's own model.
+
+`rx_flushed` -- the counter printed as "discarded unread" -- has **two**
+increment sites, and C231 reasoned from the first alone. The second is the
+receiver **reset** command, §4.2.7.2: *"This command resets the channel A
+receiver. The receiver is immediately disabled"*, and the FIFO goes with it:
+
+    ch->rx_flushed += ch->fifo_count + (ch->rx_shift_full ? 1u : 0u);
+    ch->fifo_count = 0u;  ch->rx_shift_full = false;  ch->rx_enabled = false;
+
+`ap_mc68681.c`'s own comment beside it records the same event on the console
+line: *"the operating system takes the console over with `CRA` `05 0A 2A 3A`,
+and `2A` discards a character delivered moments earlier, unread."*
+
+**So every observation falls out of one mechanism.** Our carriage return reached
+`sio2` channel A; Domain/OS reset that receiver -- `sio2 reg 2`, the command
+register, takes **22 writes** -- and the character was destroyed and counted;
+the reset cleared `RxRDY`, which is why `isr` and `sr` show it clear; and
+`reg 3` was never read because the character never survived to be readable. No
+counter disagrees with any status, and the send-retry is not at fault.
+
+**What it means for C222.** The character is being delivered **too early** --
+before the operating system has finished taking that line over -- which is the
+same class of mistake as knocking before `siomonit` exists, corrected earlier by
+moving the knock after `SPM Initialized`. The line-2 knock needs to come after
+`siologin` has reset and configured its own line, and nothing in the console
+stream marks that moment, because `siologin` prints nothing until it is typed
+at (C165). **A knock that must follow an event which produces no output is the
+shape of this problem**, and repetition -- not better timing -- is what answers
+it.
+
+*The lesson is narrow and worth keeping: a counter with two increment sites was
+read as though it had one, and that produced a confident "the counter and the
+status disagree". Read every site before concluding the instrument is broken.*
