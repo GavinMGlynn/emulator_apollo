@@ -5590,16 +5590,27 @@ interrupt request line assignments that settled the ring's IRQ2, and the
 The record is `docs/references/002398-04_WALK.md`, in the same shape as the
 finished `008778-03_WALK.md`.
 
-**Started 2026-08-20. Front matter read (PDF 5–11); chapter 12 begins at PDF
-279 and runs to 313. 28 content pages of 330.**
+**Started 2026-08-20. Front matter read (PDF 5–11). CHAPTER 12 IS READ END TO
+END — PDF 279–313, all 35 pages. 35 content pages of 330.**
 
-- [ ] **Chapter 7's FAULT FRAME and FLOATING-POINT REGISTERS sections are
-      chapter 12's.** `002398-04` p. 12-25 and p. 12-26 delegate both to
-      "CHAPTER 7, DN300,320", so the chapter this reading order treats as
-      another machine family carries DN3000 content. Chapter 7 keeps its
-      scheduled place; what this records is that **chapter 12 is not finished
-      until those two sections are read**, so that a later reader cannot mistake
-      a delegated section for a covered one.
+- [ ] **Three sections of chapter 12 are in chapters 7 and 9.** It delegates
+      them: FAULT FRAME AND FAULT TYPES (p. 12-25) and FLOATING-POINT REGISTERS
+      (p. 12-26) to chapter 7, and SIO (p. 12-35) to chapter 9 — "same as first
+      chip of DN460, **except for the definition of the output port register in
+      which the `dtr_b` bit has moved**", which is a named difference this core
+      must check `ap_sio` against. So the chapters this reading order treats as
+      other machine families carry DN3000 content. They keep their scheduled
+      place; what this records is that **chapter 12 is covered but not finished
+      until those three sections are read**, so a later reader cannot mistake a
+      delegated section for a covered one.
+
+- [x] **Chapter 12 read end to end** (`002398-04` pp. 12-1 – 12-35, PDF
+      279–313). Six defects in this core fixed and two documentary gaps closed,
+      across the tape, disk, display, DMA, parity and interrupt subsystems —
+      one finding roughly every three pages, none visible to a test or a boot.
+      The ring's eight pages and the two interrupt controllers confirm
+      unchanged. Detail in `PROJECT_STATUS.md` and in the walk record's
+      per-page rows.
 
 - [x] **The DMA, vector and interrupt pages** (`002398-04` pp. 12-23 – 12-28,
       PDF 301–306). One defect fixed: the **parity error register** at `9300`

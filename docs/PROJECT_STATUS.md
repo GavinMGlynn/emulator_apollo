@@ -433,6 +433,60 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## Chapter 12 of `002398-04` is read end to end (2026-08-20)
+
+All 35 pages, PDF 279–313 — the DN3000's own register chapter, and the family
+`src/core/model/` is built around. The per-page record, including the pages that
+yielded nothing, is `docs/references/002398-04_WALK.md`.
+
+**Six defects fixed and two documentary gaps closed**, at roughly one finding
+every three pages. None was visible to a test or a boot; every one came from
+putting a page beside the code. In the order they were found:
+
+1. the tape's ISA address, settling a question `008778-03` raised three times
+   and never closed;
+2. **`23 Volume Overflow`** — eight multiblock paths in `ap_omti` reported `21
+   Illegal Disk Address` for a transfer that ran off the end after it had
+   started, telling a driver its descriptor block was wrong when the block had
+   been accepted;
+3. AT **`3F6` and `3F7` sharing one byte of state**, so selecting a floppy data
+   rate cleared whatever write precompensation had been programmed;
+4. **ST3 built as `ALWAYS | unit`** — the part manual's constant and the
+   handbook's unit field at once, a value neither document describes;
+5. the **4-plane colour board's lookup table**, three registers our own code
+   named as the thing it could not model, and its **diagnostic register**, gated
+   "8-plane only" so the one board with an A/D port of its own could not be
+   asked;
+6. the **display controller's registers and palettes not being hashed at all**,
+   so two runs that drew identical indices through different palettes were the
+   same run;
+7. the **parity error register** at `9300`, documented read-only and holding the
+   failing page number, which a bus write could overwrite.
+
+And two things no other document on this shelf carries: the **Additional Control
+Register**'s fields, and **MD's `DISK operation ERROR` line**.
+
+**What the chapter is, and how to read the next one.** It is a *second*
+description of parts whose own manuals are already here, so most pages confirm —
+and the value is in the three-way comparison between the part's manual, Apollo's
+handbook and this core. Where it disagrees with a part's own manual it is
+usually wrong: the disk controller's mask register transposed, the floppy's
+reset polarity inverted, a DMA byte-pointer address that is really the master
+clear, the monochrome display's registers printed at the colour block's
+addresses. Where it is the only source, it is pure gain. Each disagreement was
+judged on which document sits closer to the hardware — a jumper figure of one
+card's straps outranks a summary table — and every one is recorded in the code
+beside the constant it bears on, with what would settle it.
+
+**Two `PROVISIONAL`s opened and named, not closed**: the colour status
+register's bits 5 and 2, and ST3's five constant bits. Both are below.
+
+**Covered is not finished.** Chapter 12 delegates its fault frames and
+floating-point registers to chapter 7 and its SIO registers to chapter 9 — the
+last with a named difference, "the `dtr_b` bit has moved". Those three sections
+are chapter 12's and are unread; the walk's Resume block and the completion plan
+both say so.
+
 ## The parity error register was read-only and we let programs write it
 ## (2026-08-20)
 
