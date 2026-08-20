@@ -5854,8 +5854,23 @@ same number is what let them diverge once already.
       posted sequence alternates every code with `FF` and what `led_update`
       swaps; and the control register's address is held at `A6+$15A` rather than
       being immediate.
-      *Remaining*: the four computed sites need their code traced back through
-      `D0`, which is per-site work and the only thing between here and a decode.
+      **The four computed sites, traced:**
+
+          000930  303C 000C   MOVE.W #$000C,D0      -> posts 0C
+          0025A6  3017        MOVE.W (A7),D0        -> caller's value
+          002648              (D0 set before entry) -> not resolved
+          003EFE  103C 0085   MOVE.B #$85,D0        -> posts 85 or 84,
+          003F08  103C 0084   MOVE.B #$84,D0           chosen by ($1BC,A6)
+
+      **`0C` is recovered**, and with it the run is `03`-`0C` **contiguous** —
+      ten codes against p. 4-23's ten consecutive Ext-0 entries, Bus Error,
+      Enable Instruction Cache, Keyboard SIO, Parity circuitry, MMU, Interrupt,
+      Timers, DMA page register, DMA controller 1, DMA controller 2. Ten for ten
+      is past coincidence: **the DN3500 uses the DN3000's numbering.**
+      *Remaining*: only `0D`, Calendar and configuration — and the reference boot
+      does run a calendar test, so it is likely one of the two sites whose `D0`
+      comes from a variable. The decode can be written for `03`-`0C` on this
+      evidence; `0D` and the `8x` band want their own tracing first.
       *Verification: a `--boot-report` line naming each posted code for a DN3000
       boot, and a test that the DN3500 path stays undecoded until its own source
       exists.*
