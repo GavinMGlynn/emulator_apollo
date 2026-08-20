@@ -44,7 +44,14 @@ static void init_region_board(void) {
       ap_board_init(&region_board, ram, sizeof ram, &START, 0x012345u));
 }
 
+static ap_time_t wire_time = 0u;
+static void clock_out_one_byte(ap_board_t *b) {
+  wire_time += AP_KBD_TX_CHARACTER;
+  ap_board_advance(b, wire_time);
+}
+
 static void init(ap_board_t *b) {
+  wire_time = 0u;
   TEST_ASSERT_TRUE(ap_board_init(b, ram, sizeof ram, &START, 0x012345u));
 }
 
@@ -612,6 +619,15 @@ static void test_every_core_board_register_is_reachable_through_the_map(void) {
 /* The keyboard reaches serial 1 channel A — the port both the oracle's machine
  * configuration and the boot PROM's own poll loop identify. A scan code
  * delivered here is what the firmware's translation table searches for. */
+/* Carry the board far enough that the keyboard's transmitter has put one more
+ * byte on the wire.
+ *
+ * `008778-03` §12.2 gives the part a buffer, so a keystroke no longer appears
+ * in the DUART the instant it is pressed -- it is queued and clocked out at
+ * 1200 baud, one character per `AP_KBD_TX_CHARACTER`. These tests used to read
+ * the receiver immediately, which passed only because the board was delivering
+ * at infinite speed. The counter is static so successive calls keep advancing:
+ * time does not go backwards between the presses in one test. */
 static void test_a_key_press_reaches_serial_one_channel_a(void) {
   ap_board_t b;
   bool ok = false;
@@ -633,6 +649,7 @@ static void test_a_key_press_reaches_serial_one_channel_a(void) {
   ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
 
   TEST_ASSERT_TRUE(ap_board_key_press(&b, 0x4Bu));
+  clock_out_one_byte(&b);
 
   TEST_ASSERT_EQUAL_HEX8(
       0x4Bu, ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
@@ -641,6 +658,7 @@ static void test_a_key_press_reaches_serial_one_channel_a(void) {
   /* And the release carries bit 7, which is how the firmware tells them
    * apart. */
   TEST_ASSERT_TRUE(ap_board_key_release(&b, 0x4Bu));
+  clock_out_one_byte(&b);
   TEST_ASSERT_EQUAL_HEX8(
       0xCBu, ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
 }
@@ -663,17 +681,20 @@ static void test_typing_sends_the_character_not_a_matrix_index(void) {
   ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
 
   TEST_ASSERT_TRUE(ap_board_key_type(&b, 'y'));
+  clock_out_one_byte(&b);
   TEST_ASSERT_EQUAL_HEX8(
       'y', ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
 
   /* A capital comes over as the capital, with no shift key sent before it. */
   TEST_ASSERT_TRUE(ap_board_key_type(&b, 'Y'));
+  clock_out_one_byte(&b);
   TEST_ASSERT_EQUAL_HEX8(
       'Y', ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
 
   /* RETURN is reachable only as its own code, `CB` -- sending `0D` raw would be
    * sending a byte no key on this keyboard produces. */
   TEST_ASSERT_TRUE(ap_board_key_type(&b, '\r'));
+  clock_out_one_byte(&b);
   TEST_ASSERT_EQUAL_HEX8(
       0xCBu, ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
 
@@ -704,7 +725,9 @@ static void test_a_typed_command_arrives_character_for_character(void) {
 
   for (unsigned i = 0; command[i] != '\0'; i++) {
     TEST_ASSERT_TRUE(ap_board_key_type(&b, command[i]));
-    /* Drained between characters, so nothing here depends on FIFO depth. */
+    /* Clocked out between characters as well as drained: the keyboard buffers
+     * now, so the byte reaches the port a character time after it is typed. */
+    clock_out_one_byte(&b);
     const uint8_t got =
         ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok);
     TEST_ASSERT_EQUAL_HEX8((uint8_t)command[i], got);
@@ -2424,6 +2447,76 @@ static void test_the_master_timings_are_one_clock_two_clocks_and_a_margin(void) 
       AP_MASTER_T_WIDTH_MAX_NS * series_4000_bus_clock_ns / bus_clock_ns);
 }
 
+
+/* §12.2's inhibit, reaching the caller. The keyboard clocks bytes out at 1200
+ * baud, so a frontend pressing keys faster than that fills the buffer and is
+ * told to stop -- which is the whole observable effect of the buffer existing,
+ * and what the board used to have no way of expressing. */
+static void test_a_burst_faster_than_the_wire_is_inhibited_at_sixteen(void) {
+  ap_board_t b;
+  init(&b);
+
+  /* Sixteen distinct keys struck with no time passing at all. */
+  for (unsigned i = 0; i < AP_KBD_BUFFER; i++) {
+    TEST_ASSERT_TRUE(ap_board_key_press(&b, 0x10u + i));
+  }
+  /* The seventeenth is refused: "further processing of data is inhibited". */
+  TEST_ASSERT_FALSE(ap_board_key_press(&b, 0x30u));
+
+  /* And it is refused *before* the matrix moves, so once the wire has carried a
+   * byte the same key presses normally. A press that had marked the key down
+   * while failing to queue would refuse it here for ever. */
+  ap_board_advance(&b, AP_KBD_TX_CHARACTER * 2u);
+  TEST_ASSERT_TRUE(ap_board_key_press(&b, 0x30u));
+}
+
+/* The bytes reach the port in order and at the wire's pace, not all at once.
+ * The DUART's receive FIFO is three deep, so a keyboard with no transmitter
+ * would overrun it on the fourth byte of any burst -- the real part paces the
+ * same burst out over 27 ms and the host keeps up. */
+static void test_the_buffered_burst_reaches_the_port_in_order(void) {
+  ap_board_t b;
+  bool ok = false;
+  init(&b);
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
+                 AP_SIO_KEYBOARD_MR1, &ok);
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
+                 AP_SIO_KEYBOARD_CSR, &ok);
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
+
+  static const unsigned KEYS = 5u;
+  for (unsigned i = 0; i < KEYS; i++) {
+    TEST_ASSERT_TRUE(ap_board_key_press(&b, 0x40u + i));
+  }
+  /* Nothing has reached the port yet: no time has passed. */
+  TEST_ASSERT_EQUAL_UINT(KEYS, ap_kbd_buffered(&b.keyboard));
+
+  ap_time_t now = AP_KBD_TX_CHARACTER;
+  for (unsigned i = 0; i < KEYS; i++) {
+    ap_board_advance(&b, now);
+    const uint8_t got =
+        ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok);
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)(0x40u + i), got);
+    now += AP_KBD_TX_CHARACTER;
+  }
+  TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_buffered(&b.keyboard));
+}
+
+/* A coarse advance delivers every byte the wire really carried, rather than one
+ * per call -- the same rule `ap_kbd_advance` follows for repeats. A board
+ * stepped once per instruction and once per millisecond must agree. */
+static void test_a_coarse_advance_delivers_the_whole_burst(void) {
+  ap_board_t b;
+  init(&b);
+  for (unsigned i = 0; i < 8u; i++) {
+    TEST_ASSERT_TRUE(ap_board_key_press(&b, 0x50u + i));
+  }
+  TEST_ASSERT_EQUAL_UINT(8u, ap_kbd_buffered(&b.keyboard));
+  /* One jump past all eight character times. */
+  ap_board_advance(&b, AP_KBD_TX_CHARACTER * 9u);
+  TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_buffered(&b.keyboard));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_ethernet_card_is_absent_until_it_is_fitted);
@@ -2495,5 +2588,8 @@ int main(void) {
   RUN_TEST(test_a_transmit_with_no_cable_completes_at_once);
   RUN_TEST(test_resetting_the_on_board_devices_spares_the_sio_and_the_clock);
   RUN_TEST(test_a_control_write_without_rsa_resets_nothing);
+  RUN_TEST(test_a_burst_faster_than_the_wire_is_inhibited_at_sixteen);
+  RUN_TEST(test_the_buffered_burst_reaches_the_port_in_order);
+  RUN_TEST(test_a_coarse_advance_delivers_the_whole_burst);
   return UNITY_END();
 }

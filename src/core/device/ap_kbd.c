@@ -315,6 +315,60 @@ bool ap_kbd_auto_repeats(const ap_kbd_ascii_t *key) {
   return key != nullptr && key->auto_repeat;
 }
 
+/* ---- §12.2's transmit buffer ---------------------------------------------- */
+
+unsigned ap_kbd_buffered(const ap_kbd_t *kbd) { return kbd->buffered; }
+
+bool ap_kbd_buffer_full(const ap_kbd_t *kbd) {
+  return kbd->buffered >= AP_KBD_BUFFER;
+}
+
+bool ap_kbd_buffer(ap_kbd_t *kbd, uint8_t code) {
+  if (ap_kbd_buffer_full(kbd)) {
+    /* "Further processing of data is inhibited until a new position becomes
+     * available." The byte is refused rather than dropped silently at the far
+     * end: the caller learns the transition did not happen, which is what lets
+     * a press leave the matrix alone so its release cannot be sent either. */
+    return false;
+  }
+  /* **When the character starts is decided here, not at transmit.**
+   *
+   * An idle transmitter begins this byte the instant it is queued, so it
+   * finishes one character time from `kbd->now`. A byte joining a queue that is
+   * already going out inherits whatever point the run has reached and needs no
+   * stamp of its own.
+   *
+   * Deciding it at transmit instead cannot work, and the failure is worth
+   * naming: a caller advancing coarsely calls `ap_kbd_transmit` once with a
+   * `now` several character times past the queueing, and from that alone the
+   * part cannot tell a byte queued long ago from one queued this instant. It
+   * delivered one byte per call, so a coarse step lost the rest of the burst --
+   * which is the same defect `ap_kbd_advance` avoids for repeats. */
+  if (kbd->buffered == 0u) {
+    kbd->tx_at = kbd->now + AP_KBD_TX_CHARACTER;
+  }
+  kbd->buffer[(kbd->buffer_head + kbd->buffered) % AP_KBD_BUFFER] = code;
+  kbd->buffered++;
+  return true;
+}
+
+bool ap_kbd_transmit(ap_kbd_t *kbd, ap_time_t now, uint8_t *code) {
+  if (kbd->buffered == 0u || now < kbd->tx_at) {
+    return false;
+  }
+  if (code != nullptr) {
+    *code = kbd->buffer[kbd->buffer_head];
+  }
+  kbd->buffer_head = (kbd->buffer_head + 1u) % AP_KBD_BUFFER;
+  kbd->buffered--;
+  /* A character on from the last one and **not** from `now`, so the rate is a
+   * property of the wire rather than of how often this is called. `ap_kbd_buffer`
+   * has already set the first character's finish for a transmitter that was
+   * idle, so this never runs ahead of the queueing. */
+  kbd->tx_at += AP_KBD_TX_CHARACTER;
+  return true;
+}
+
 bool ap_kbd_advance(ap_kbd_t *kbd, ap_time_t now, unsigned *key) {
   if (now > kbd->now) {
     kbd->now = now;

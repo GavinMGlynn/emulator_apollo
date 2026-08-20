@@ -6093,26 +6093,36 @@ below; everything else it found is implemented and recorded in
       not 0 to 4095, so a frontend scaling a window to the full twelve bits puts
       the pointer off the pad at both ends. Transcribed in `ap_kbd.h`; no further
       page render is needed for either mode.
-- [ ] **The keyboard's N-key rollover and its 16-byte buffer.** *(Scoped
-      2026-08-20: the buffer is **not** a local change to `ap_kbd`. Its whole
-      observable effect is back-pressure, and the thing that would apply it is
-      `ap_board`'s `deliver_key`, which hands each code straight to
-      `ap_sio_receive_framed` — so today the model behaves as a buffer drained
-      instantly by the UART. Implementing it means the keyboard holding bytes
-      while the SIO declines them, which changes timing on a path the reference
-      boot uses and therefore needs an identity boot either side. Budget it as
-      a measured change, not a struct field.)* §12.2: "All keys
-      exhibit **N-key rollover** for a minimum of six simultaneous key
-      depressions", and "The keyboard buffers **at least 16 bytes** of data.
-      When all 16 positions are used, further processing of data is inhibited
-      until a new position becomes available." `ap_kbd` has neither: any number
-      of keys may be down, and transitions are handed to the caller directly
-      with no queue. The rollover gap is **permissive rather than wrong** — the
-      model accepts more than the hardware, so no byte it produces is one the
-      part could not send. The buffer is the real one: a host that stopped
-      draining would see no back-pressure, and both figures are minima ("at
-      least six", "at least 16"), so a modelled depth would be a floor rather
-      than the part's.
+- [x] **The keyboard's N-key rollover and its 16-byte buffer.** §12.2 gives the
+      part "at least 16 bytes" of buffering with "further processing of data
+      inhibited" when full, and N-key rollover "for a minimum of six".
+      Both are **floors**, and each is now honoured as one: the buffer models
+      the documented 16, and the matrix has no rollover limit at all — which is
+      permissive rather than wrong, since it accepts more than the part
+      guarantees and so emits no byte the hardware could not. The buffer drains
+      at the wire's own rate, 1200 baud 8E1 = 11 bits, exact on the time base;
+      a buffer emptied instantly is not a buffer. The inhibit is checked
+      *before* the matrix moves, or a refused press would leave a key marked
+      down and let its release be sent for a press the host never saw.
+      *Verification: `kbd_suite` 44 -> 50 and `board_suite` 68 -> 71 — the
+      seventeenth byte refused, order kept across the ring's wrap, a coarse
+      advance delivering the whole burst, six keys down at once, and the
+      identity boot byte-identical.* Detail in `PROJECT_STATUS.md`.
+
+- [ ] **One keyboard, two transmitters.** Found while landing the buffer above.
+      `ap_board`'s `kbd_reply` paces the keyboard's *answers* and the new
+      buffer paces its *key data*, so both can put a byte on the wire at the
+      same instant — which one transmitter cannot. They also disagree on rate:
+      `kbd_reply` uses `ap_sio_character_time`, the **port's** programmed rate,
+      while the key path uses the keyboard's own fixed 1200 8E1, which is what
+      `deliver_key` argues for in the same file. Both cannot be right.
+      Deliberately not unified when the buffer landed: `kbd_reply`'s pacing is
+      load-bearing for the reference boot — its comment records a real finding
+      about the PROM flushing the receiver mid-answer — so merging them moves
+      boot timing on evidence not yet gathered. **What would close it**: one
+      queue and one rate in `ap_kbd`, with an identity boot either side to say
+      what the merge costs, and a decision on which rate is the part's.
+      `PROVISIONAL`, marked in `ap_board.c` and `PROJECT_STATUS.md`.
 - [ ] **The keyboard's self-diagnostics.** Chapter 12's opening sentence has the
       part "performs power-up and operator requested self-diagnostics". No
       command in `ap_kbd_receive`'s set runs one and no result is defined

@@ -976,6 +976,142 @@ static void test_a_byte_two_keys_send_decodes_to_the_chart_s_choice(void) {
   TEST_ASSERT_EQUAL_UINT(AP_KBD_MOD_NONE, mod);
 }
 
+
+/* ---- §12.2's transmit buffer and N-key rollover --------------------------- */
+
+/* "The keyboard buffers at least 16 bytes of data. When all 16 positions are
+ * used, further processing of data is inhibited until a new position becomes
+ * available." Sixteen go in; the seventeenth is refused rather than dropped. */
+static void test_the_buffer_takes_sixteen_bytes_and_inhibits_the_seventeenth(
+    void) {
+  ap_kbd_t kbd;
+  ap_kbd_reset(&kbd);
+  TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_buffered(&kbd));
+  TEST_ASSERT_FALSE(ap_kbd_buffer_full(&kbd));
+
+  for (unsigned i = 0; i < AP_KBD_BUFFER; i++) {
+    TEST_ASSERT_TRUE(ap_kbd_buffer(&kbd, (uint8_t)i));
+    TEST_ASSERT_EQUAL_UINT(i + 1u, ap_kbd_buffered(&kbd));
+  }
+  TEST_ASSERT_TRUE(ap_kbd_buffer_full(&kbd));
+  TEST_ASSERT_FALSE(ap_kbd_buffer(&kbd, 0xFFu));
+  /* Refused, not dropped in place of an earlier byte. */
+  TEST_ASSERT_EQUAL_UINT(AP_KBD_BUFFER, ap_kbd_buffered(&kbd));
+}
+
+/* One byte per character time and no more: the buffer drains at 1200 baud 8E1,
+ * which is what makes it a buffer rather than a formality. */
+static void test_the_buffer_drains_at_one_byte_per_character_time(void) {
+  ap_kbd_t kbd;
+  uint8_t code = 0u;
+  ap_kbd_reset(&kbd);
+  TEST_ASSERT_TRUE(ap_kbd_buffer(&kbd, 0x11u));
+  TEST_ASSERT_TRUE(ap_kbd_buffer(&kbd, 0x22u));
+
+  /* Not instantly: a byte takes a character time to get out, so at the instant
+   * it was queued it is still on the wire. */
+  TEST_ASSERT_FALSE(ap_kbd_transmit(&kbd, 0u, &code));
+  TEST_ASSERT_FALSE(ap_kbd_transmit(&kbd, AP_KBD_TX_CHARACTER - 1u, &code));
+  TEST_ASSERT_TRUE(ap_kbd_transmit(&kbd, AP_KBD_TX_CHARACTER, &code));
+  TEST_ASSERT_EQUAL_HEX8(0x11u, code);
+
+  /* The second waits out a further character rather than following it. */
+  TEST_ASSERT_FALSE(ap_kbd_transmit(&kbd, AP_KBD_TX_CHARACTER * 2u - 1u, &code));
+  TEST_ASSERT_EQUAL_UINT(1u, ap_kbd_buffered(&kbd));
+  TEST_ASSERT_TRUE(ap_kbd_transmit(&kbd, AP_KBD_TX_CHARACTER * 2u, &code));
+  TEST_ASSERT_EQUAL_HEX8(0x22u, code);
+
+  /* And an empty buffer sends nothing however long it is left. */
+  TEST_ASSERT_FALSE(
+      ap_kbd_transmit(&kbd, AP_KBD_TX_CHARACTER * 100u, &code));
+}
+
+/* The order is the order they were struck in, across the ring's wrap -- the
+ * failure a shifting array would not have and a mis-indexed ring would. */
+static void test_the_buffer_keeps_its_order_across_the_ring_s_wrap(void) {
+  ap_kbd_t kbd;
+  uint8_t code = 0u;
+  ap_time_t now = AP_KBD_TX_CHARACTER;
+  ap_kbd_reset(&kbd);
+
+  /* Fill, drain half, refill: the head is now past zero and the tail wraps. */
+  for (unsigned i = 0; i < AP_KBD_BUFFER; i++) {
+    TEST_ASSERT_TRUE(ap_kbd_buffer(&kbd, (uint8_t)i));
+  }
+  for (unsigned i = 0; i < AP_KBD_BUFFER / 2u; i++) {
+    TEST_ASSERT_TRUE(ap_kbd_transmit(&kbd, now, &code));
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)i, code);
+    now += AP_KBD_TX_CHARACTER;
+  }
+  for (unsigned i = 0; i < AP_KBD_BUFFER / 2u; i++) {
+    TEST_ASSERT_TRUE(ap_kbd_buffer(&kbd, (uint8_t)(0xA0u + i)));
+  }
+  TEST_ASSERT_TRUE(ap_kbd_buffer_full(&kbd));
+
+  for (unsigned i = AP_KBD_BUFFER / 2u; i < AP_KBD_BUFFER; i++) {
+    TEST_ASSERT_TRUE(ap_kbd_transmit(&kbd, now, &code));
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)i, code);
+    now += AP_KBD_TX_CHARACTER;
+  }
+  for (unsigned i = 0; i < AP_KBD_BUFFER / 2u; i++) {
+    TEST_ASSERT_TRUE(ap_kbd_transmit(&kbd, now, &code));
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)(0xA0u + i), code);
+    now += AP_KBD_TX_CHARACTER;
+  }
+  TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_buffered(&kbd));
+}
+
+/* The character time is the wire's, and it lands exactly on the time base --
+ * asserted rather than trusted, since a rounded constant would make every
+ * keyboard timing drift by a little on every byte. */
+static void test_the_character_time_is_eleven_bits_at_1200_baud_exactly(void) {
+  TEST_ASSERT_EQUAL_UINT(11u, AP_KBD_TX_BITS);
+  TEST_ASSERT_EQUAL_UINT(1200u, AP_KBD_TX_BAUD);
+  TEST_ASSERT_EQUAL_UINT64((ap_time_t)197472000000u, AP_KBD_TX_CHARACTER);
+  /* Exact: the base divides by the baud rate with nothing left over. */
+  TEST_ASSERT_EQUAL_UINT64(
+      0u, ((ap_time_t)AP_TIME_BASE_HZ * AP_KBD_TX_BITS) % AP_KBD_TX_BAUD);
+}
+
+/* "All keys exhibit N-key rollover for a minimum of six simultaneous key
+ * depressions." This model has no limit at all, which is permissive rather than
+ * wrong -- but the guarantee is asserted rather than assumed. */
+static void test_six_keys_are_down_at_once_and_all_six_report(void) {
+  ap_kbd_t kbd;
+  uint8_t code = 0u;
+  ap_kbd_reset(&kbd);
+
+  static const unsigned keys[AP_KBD_ROLLOVER] = {0x10u, 0x11u, 0x12u,
+                                                 0x20u, 0x21u, 0x22u};
+  for (unsigned i = 0; i < AP_KBD_ROLLOVER; i++) {
+    TEST_ASSERT_TRUE(ap_kbd_press(&kbd, keys[i], &code));
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)keys[i], code);
+  }
+  /* All six still held -- a press does not release the one before it. */
+  for (unsigned i = 0; i < AP_KBD_ROLLOVER; i++) {
+    TEST_ASSERT_FALSE(ap_kbd_press(&kbd, keys[i], &code)); /* already down */
+  }
+  /* And each releases as itself, with the release bit set. */
+  for (unsigned i = 0; i < AP_KBD_ROLLOVER; i++) {
+    TEST_ASSERT_TRUE(ap_kbd_release(&kbd, keys[i], &code));
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)(keys[i] | AP_KBD_RELEASE), code);
+  }
+}
+
+/* A reset empties the buffer. A keyboard that came up holding bytes from before
+ * the reset would send them into a machine that had just started. */
+static void test_a_reset_empties_the_transmit_buffer(void) {
+  ap_kbd_t kbd;
+  uint8_t code = 0u;
+  ap_kbd_reset(&kbd);
+  for (unsigned i = 0; i < 4u; i++) {
+    TEST_ASSERT_TRUE(ap_kbd_buffer(&kbd, (uint8_t)i));
+  }
+  ap_kbd_reset(&kbd);
+  TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_buffered(&kbd));
+  TEST_ASSERT_FALSE(ap_kbd_transmit(&kbd, AP_KBD_TX_CHARACTER * 4u, &code));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_both_pointing_device_escapes_match_their_documents);
@@ -1022,5 +1158,11 @@ int main(void) {
   RUN_TEST(test_a_byte_decodes_to_a_key_that_sends_it_back);
   RUN_TEST(test_an_unreachable_byte_decodes_to_nothing);
   RUN_TEST(test_a_byte_two_keys_send_decodes_to_the_chart_s_choice);
+  RUN_TEST(test_the_buffer_takes_sixteen_bytes_and_inhibits_the_seventeenth);
+  RUN_TEST(test_the_buffer_drains_at_one_byte_per_character_time);
+  RUN_TEST(test_the_buffer_keeps_its_order_across_the_ring_s_wrap);
+  RUN_TEST(test_the_character_time_is_eleven_bits_at_1200_baud_exactly);
+  RUN_TEST(test_six_keys_are_down_at_once_and_all_six_report);
+  RUN_TEST(test_a_reset_empties_the_transmit_buffer);
   return UNITY_END();
 }

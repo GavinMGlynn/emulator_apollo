@@ -433,6 +433,84 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The keyboard buffers, and the buffer drains at the wire's rate
+## (2026-08-21)
+
+`008778-03` §12.2 gives the Low-Profile Model II "at least 16 bytes" of
+buffering, with "further processing of data inhibited" once all 16 are used, and
+N-key rollover "for a minimum of six simultaneous key depressions". This core
+had neither. Both are now modelled, and both figures are **floors** rather than
+the part's, which decides how each is treated.
+
+### The buffer only means something because it drains slowly
+
+A buffer emptied instantly is not a buffer. The keyboard's link is fixed at 1200
+baud 8E1 — 11 bits on the wire, one start, eight data, one parity, one stop — so
+a character takes 11/1200 s and the part sustains about 109 bytes a second.
+That lands exactly on the time base at 197,472,000,000 units, nothing rounded,
+as the repeat figures do. `ap_kbd_transmit` releases one byte per character
+time, and `ap_board`'s `drain_keyboard` hands them to the DUART.
+
+The effect this makes visible: the DUART's receive FIFO is **three deep**, so
+before this a burst of key data overran on the fourth byte. The real part paces
+the same burst out over 27 ms and the host keeps up. Delivering straight to
+`ap_sio_receive_framed` had made the keyboard a wire with no transmitter.
+
+### Where the character starts is decided at queueing, not at transmit
+
+The first implementation set the next slot from the transmit call's `now`, and
+a coarse advance then delivered **one byte per call** — a board stepped once per
+millisecond lost the rest of every burst, while one stepped per instruction did
+not. From `now` alone the part cannot tell a byte queued long ago from one
+queued this instant, so the stamp has to be taken when the byte enters an idle
+transmitter. This is the same defect `ap_kbd_advance` already avoids for
+repeats, and the suite now holds a coarse-advance case for it.
+
+### The inhibit is checked before the matrix moves
+
+A press that marked the key down and *then* failed to queue would leave the
+matrix holding a key the host never saw pressed — and the matching release would
+be sent for it, which is exactly the desynchronisation `ap_kbd`'s `down[]`
+exists to prevent. So `ap_board_key_press`, `_release`, `_type` and
+`_mouse_move` all test for room first. The keypad's two-byte sequences and the
+mouse's four-byte packet are all-or-nothing for the same reason: a prefix queued
+without its character makes the *next* byte look like a keypad key. The mouse
+path had such a check already, but it was counting room in the **reply** queue
+rather than the one it fills; corrected here.
+
+### Rollover is permissive, and that is the safe direction
+
+"A minimum of six" is a floor, and this matrix has no limit at all — any of the
+128 keys may be down together. The model therefore accepts more than the part
+guarantees, so no byte it produces is one the hardware could not have sent. The
+constant exists so the guarantee is asserted rather than assumed.
+
+### Named, not fixed: one keyboard with two transmitters
+
+`ap_board`'s `kbd_reply` paces the keyboard's answers and the new buffer paces
+its key data, so **both can put a byte on the wire at the same instant**, which
+one transmitter cannot. They also take their rate from different places —
+`kbd_reply` from `ap_sio_character_time`, the port's programmed rate, and the
+key path from the keyboard's own fixed 1200 8E1, which is what `deliver_key`
+argues for in the same file. Both cannot be right.
+
+Deliberately left alone. `kbd_reply`'s pacing is load-bearing for the reference
+boot: its own comment records that the PROM sends `00` and flushes the receiver
+within microseconds, and that delivering the answer's first byte immediately
+changes the alignment of everything after it. Merging the two queues moves boot
+timing on evidence this change has not gathered. `PROVISIONAL`, marked in
+`ap_board.c`, and a named plan item.
+
+*Verification: `kbd_suite` 44 -> 50, `board_suite` 68 -> 71 — the seventeenth
+byte refused while the sixteen already queued survive, order kept across the
+ring's wrap, a coarse advance delivering a whole burst, the character time
+asserted exact on the time base, six keys held at once, and a reset emptying the
+buffer. The three board tests that read the port immediately now clock a
+character out first, which is the change made visible. The identity boot was run
+after the change and gives `79C8F0364AE4A93E`, the recorded reference hash
+unchanged — as predicted, since that run presses no key and the buffer stays
+empty throughout, so the boot confirms neutrality rather than establishing it.*
+
 ## p. 6-13's ASCII chart: transcribed, then used to check rather than kept
 ## (2026-08-21)
 
@@ -8377,7 +8455,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 14 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
-| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none. **The DS5500 now has its own map**, from `019411-A00` Table 2-5 rather than the Series 4000 table it borrowed until that page was read: it places the memory present register at `011400` that no other model has, it does *not* place the task alias at `010300`, and its main memory is four 16 MB banks to `4FFFFFF` where Table 2-8 gives three. One difference in that table is recorded and **not** implemented — Table 2-5 gives the address translation map 4 KB where `[S3K]` §2.5 gives 2 KB, and widening it needs the region size to become a property of the map because `AP_ATMAP_ENTRIES` is what the state hash walks; `PROVISIONAL` | `board_suite`, 68 tests, one of them the Series 2500's own register block -- storage, `PROVISIONAL`, and the only thing standing between that firmware and its second instruction; `atbus_suite`, 11 tests  **Main memory's extent is `1000000`–`2FFFFFF`, 32 MB, corrected from `3FFFFFF` on 2026-08-19**: `008778-03` §1.5.2 gives the DS4000's memory one module at a time — `$17FFFFF` with one 8-MB module, `$1FFFFFF` with two, `$27FFFFF` with three, `$2FFFFFF` with four — and `1000000`–`3FFFFFF` is **48 MB**, not 32. The old value was the oracle's `DN3500_RAM_END`, imported without checking the arithmetic; the same MAME file gives `DN5500_RAM_END 0x2ffffff` for the same 32 MB four lines away, so the oracle contradicts itself and the manual says which is the slip. The cost was exactly what that constant's own comment warns of — sixteen megabytes of unmapped space were being reported to a trace as "main memory". Identity hash unchanged, so the reference boot never reached there  **The DS3000 has one 2681, not two, and its kilobyte is aliased** — corrected 2026-08-19 during the `008778-03` walk. Table 2-6 gives the DS3000 a single `008400`-`0087FF` row named "SIO" where Table 2-8 gives the Series 4000 two 256-byte rows, and §1.5.1 says why: the DS3000 drives "two asynchronous serial lines, SIO0 and SIO1" and the DS4000 four. One 2681 has two channels. The oracle agrees independently — `dn3000_map` sends the whole range to `m_sio` and the DN3000 configuration does `config.device_remove(APOLLO_SIO2_TAG)`. This core had mapped `2 × AP_SIO_RANGE`, putting a second DUART at `008500` and leaving `008600`-`0087FF` unmapped. Now four placements folding onto `AP_SIO1_ADDR`. **Behaviourally invisible to the boot that exists**: both DN3000 revisions run 400,000 instructions to a byte-identical state hash either side, because the PROM never reaches into that kilobyte — so this is a latent error corrected, not a failure explained |
+| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none. **The DS5500 now has its own map**, from `019411-A00` Table 2-5 rather than the Series 4000 table it borrowed until that page was read: it places the memory present register at `011400` that no other model has, it does *not* place the task alias at `010300`, and its main memory is four 16 MB banks to `4FFFFFF` where Table 2-8 gives three. One difference in that table is recorded and **not** implemented — Table 2-5 gives the address translation map 4 KB where `[S3K]` §2.5 gives 2 KB, and widening it needs the region size to become a property of the map because `AP_ATMAP_ENTRIES` is what the state hash walks; `PROVISIONAL` | `board_suite`, 71 tests, one of them the Series 2500's own register block -- storage, `PROVISIONAL`, and the only thing standing between that firmware and its second instruction; `atbus_suite`, 11 tests  **Main memory's extent is `1000000`–`2FFFFFF`, 32 MB, corrected from `3FFFFFF` on 2026-08-19**: `008778-03` §1.5.2 gives the DS4000's memory one module at a time — `$17FFFFF` with one 8-MB module, `$1FFFFFF` with two, `$27FFFFF` with three, `$2FFFFFF` with four — and `1000000`–`3FFFFFF` is **48 MB**, not 32. The old value was the oracle's `DN3500_RAM_END`, imported without checking the arithmetic; the same MAME file gives `DN5500_RAM_END 0x2ffffff` for the same 32 MB four lines away, so the oracle contradicts itself and the manual says which is the slip. The cost was exactly what that constant's own comment warns of — sixteen megabytes of unmapped space were being reported to a trace as "main memory". Identity hash unchanged, so the reference boot never reached there  **The DS3000 has one 2681, not two, and its kilobyte is aliased** — corrected 2026-08-19 during the `008778-03` walk. Table 2-6 gives the DS3000 a single `008400`-`0087FF` row named "SIO" where Table 2-8 gives the Series 4000 two 256-byte rows, and §1.5.1 says why: the DS3000 drives "two asynchronous serial lines, SIO0 and SIO1" and the DS4000 four. One 2681 has two channels. The oracle agrees independently — `dn3000_map` sends the whole range to `m_sio` and the DN3000 configuration does `config.device_remove(APOLLO_SIO2_TAG)`. This core had mapped `2 × AP_SIO_RANGE`, putting a second DUART at `008500` and leaving `008600`-`0087FF` unmapped. Now four placements folding onto `AP_SIO1_ADDR`. **Behaviourally invisible to the boot that exists**: both DN3000 revisions run 400,000 instructions to a byte-identical state hash either side, because the PROM never reaches into that kilobyte — so this is a latent error corrected, not a failure explained |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
 | Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board runs transfers: controller 1's request cascaded onto controller 2's channel 0 and one request reaching the arbiter, the address through the translation map, and the processor stalled while a controller holds the bus. The cascade and the channel assignments are `008778-03` Table 2-4's, so the AT convention this module used to refuse is now cited rather than assumed. **The peripheral side is wired**: the tape drives its own request line and its cartridge reaches memory by DMA, and the disk's two data ports move under an acknowledge | `dma_suite`, 18 tests; `FINDINGS.md` C13 |
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 29 tests, `8237A` 231466 |

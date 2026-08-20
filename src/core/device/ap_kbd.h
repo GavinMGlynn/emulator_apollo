@@ -101,6 +101,19 @@
  * reason the matrix stops there. */
 #define AP_KBD_RELEASE 0x80u
 
+/* `008778-03` §12.2: "The keyboard buffers **at least 16 bytes** of data. When
+ * all 16 positions are used, further processing of data is inhibited until a
+ * new position becomes available."
+ *
+ * 16 is a **floor and not the part's depth** -- "at least" -- so a keyboard
+ * with more is conformant and this models the documented minimum. Choosing the
+ * floor errs in the safe direction: this core inhibits no later than the
+ * hardware does, so it never accepts a keystroke the part would have refused.
+ * `PROVISIONAL` in that the true depth is unknown, not in that the number is
+ * invented. Here rather than with the rest of §12.2 below because the struct
+ * needs it. */
+#define AP_KBD_BUFFER 16u
+
 typedef struct {
   /* Which keys are currently down, so a repeated press or a release of a key
    * that was never pressed sends nothing. The real matrix scan cannot report a
@@ -117,6 +130,16 @@ typedef struct {
    * period thereafter. */
   ap_time_t repeat_at;
   bool repeating; /* past the initial delay, so the period applies */
+
+  /* §12.2's transmit buffer. A ring, because the part drains from the front
+   * while the matrix fills the back, and a shifting array would make the cost
+   * of a byte depend on how many are queued behind it. */
+  uint8_t buffer[AP_KBD_BUFFER];
+  unsigned buffered;
+  unsigned buffer_head;
+  /* When the character now on the wire finishes. Zero before anything has been
+   * sent, which is why the first byte leaves as soon as it is asked for. */
+  ap_time_t tx_at;
 
   /* ## The command channel, which is the half this file used not to have
    *
@@ -530,6 +553,54 @@ typedef enum {
  * time." A keystate repeat that resent the down code would be indistinguishable
  * from the key being struck again. */
 #define AP_KBD_REPEAT_KEYSTATE 0x7Fu
+
+/* ---- The transmit buffer and N-key rollover, `008778-03` §12.2 ------------ */
+
+/* `AP_KBD_BUFFER` is declared above the struct, which holds the ring.
+ *
+ * "All keys exhibit **N-key rollover** for a minimum of six simultaneous key
+ * depressions."
+ *
+ * Also a floor, and this model has no rollover limit at all -- any number of
+ * keys may be down at once. That is **permissive rather than wrong**: the
+ * matrix accepts more than the part guarantees, so no byte it produces is one
+ * the hardware could not have sent. The constant exists so the guarantee is
+ * asserted rather than assumed; the suite holds six keys down and checks that
+ * all six report. */
+#define AP_KBD_ROLLOVER 6u
+
+/* **The buffer drains at the wire's rate, which is what makes it observable.**
+ *
+ * A buffer emptied instantly is not a buffer. The keyboard's link is fixed at
+ * 1200 baud, 8E1 -- measured from the oracle's `device_reset`, which sets
+ * `set_data_frame(1, 8, PARITY_EVEN, STOP_BITS_1)` at 1200 both ways and is the
+ * same citation `ap_board`'s `deliver_key` already carries. 8E1 is 11 bits on
+ * the wire: one start, eight data, one parity, one stop.
+ *
+ * So a character occupies 11/1200 s, and the part can sustain about 109 bytes
+ * per second. Both figures land exactly on the time base -- 197,472,000,000
+ * units, nothing rounded -- as the repeat figures do. This is the rate the
+ * matrix can outrun, and outrunning it is the only way to fill the buffer. */
+#define AP_KBD_TX_BITS 11u
+#define AP_KBD_TX_BAUD 1200u
+#define AP_KBD_TX_CHARACTER \
+  ((ap_time_t)AP_TIME_BASE_HZ * AP_KBD_TX_BITS / AP_KBD_TX_BAUD)
+
+/* Put a byte in the transmit buffer. **False when it is full**, which is
+ * §12.2's "further processing of data is inhibited": the caller's transition
+ * did not happen as far as the host is concerned, and a press refused this way
+ * leaves the matrix unchanged so the matching release cannot be sent either. */
+[[nodiscard]] bool ap_kbd_buffer(ap_kbd_t *kbd, uint8_t code);
+
+/* Take the byte the transmitter has finished sending, if one is due at `now`.
+ *
+ * One byte per `AP_KBD_TX_CHARACTER`, so a caller draining in a loop gets at
+ * most what the wire could really have carried. False when the buffer is empty
+ * or the current character is still going out. */
+[[nodiscard]] bool ap_kbd_transmit(ap_kbd_t *kbd, ap_time_t now, uint8_t *code);
+
+[[nodiscard]] unsigned ap_kbd_buffered(const ap_kbd_t *kbd);
+[[nodiscard]] bool ap_kbd_buffer_full(const ap_kbd_t *kbd);
 
 /* Carry the keyboard to `now`, and report a repeat if one is due.
  *

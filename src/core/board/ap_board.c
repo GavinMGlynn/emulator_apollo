@@ -1072,6 +1072,7 @@ void ap_board_bus_tick(ap_board_t *board) {
  * than from a caller's keystroke -- it is the one key event the board originates
  * itself. */
 static bool deliver_key(ap_board_t *board, uint8_t code);
+static void drain_keyboard(ap_board_t *board, ap_time_t now);
 
 void ap_board_advance_one(ap_board_t *board, uint32_t address, ap_time_t now) {
   switch (ap_board_region(board, address)) {
@@ -1226,6 +1227,11 @@ void ap_board_advance(ap_board_t *board, ap_time_t now) {
                                  ? AP_KBD_REPEAT_KEYSTATE
                                  : (uint8_t)repeat_key);
   }
+
+  /* And carry the buffer out onto the wire. After the repeat rather than
+   * before, so a repeat due at this instant can leave at this instant instead
+   * of waiting for the next advance. */
+  drain_keyboard(board, now);
 
   /* **The keyboard is on the other end of serial 1 channel A**, and it answers.
    * Anything the firmware transmits there reaches it, and what it says back
@@ -2015,14 +2021,70 @@ static bool deliver_key(ap_board_t *board, uint8_t code) {
    *
    * `66` is the clock select for 1200 baud in `[68681]`'s set one, and `MR1` of
    * `03` is eight bits with parity enabled and the type field zero, which is
-   * even. */
-  ap_sio_receive_framed(&board->sio, KBD_UNIT, KBD_CHANNEL, code,
-                        AP_SIO_KEYBOARD_CSR, AP_SIO_KEYBOARD_MR1);
-  return true;
+   * even.
+   *
+   * **The byte goes into the keyboard's own buffer, not onto the wire.**
+   * `008778-03` §12.2 gives the part at least 16 bytes of buffering, and
+   * `drain_keyboard` below hands them to the DUART one character time apart.
+   * Delivering straight to `ap_sio_receive_framed` -- which this did -- made
+   * the part a wire with no transmitter: an arbitrarily fast burst arrived
+   * intact, and the 3-deep receive FIFO overran on the fourth byte of any
+   * burst the real keyboard would have paced out over 27 ms.
+   *
+   * False when the buffer is full, which is §12.2's inhibit and reaches the
+   * caller as a refused key transition. */
+  return ap_kbd_buffer(&board->keyboard, code);
+}
+
+/* **Two queues share one transmitter, and that is a known incompleteness.**
+ *
+ * `kbd_reply` above paces the keyboard's *answers* one character at a time, and
+ * this paces its *key data*. A real keyboard has one transmitter and one
+ * buffer, so a reply and a keystroke cannot go out at once -- here they can,
+ * and a burst of typing during a command exchange would interleave in a way the
+ * part could not produce.
+ *
+ * They also take their rate from different places. `kbd_reply` uses
+ * `ap_sio_character_time`, the *port's* programmed rate; this uses the
+ * keyboard's own fixed 1200 8E1, which is what `deliver_key` argues for
+ * directly above -- "a real keyboard has one fixed framing". Those cannot both
+ * be right.
+ *
+ * Not unified here on purpose. `kbd_reply`'s pacing is load-bearing for the
+ * reference boot -- the comment above it records a real alignment finding about
+ * the PROM flushing the receiver mid-answer -- and merging the two would move
+ * boot timing on evidence this change has not gathered. `PROVISIONAL`, named in
+ * `PROJECT_STATUS.md` and on the plan.
+ *
+ * Move whatever the keyboard has finished transmitting into the DUART.
+ *
+ * A loop and not a single byte: `ap_kbd_transmit` paces itself, so it stops on
+ * its own after one character per `AP_KBD_TX_CHARACTER`. The loop matters when
+ * the board is advanced coarsely -- a step that jumped several character times
+ * must deliver the several bytes the wire really carried, the same reason
+ * `ap_kbd_advance` does not lose repeats. */
+/* How many more bytes the keyboard could accept. §12.2's inhibit is checked
+ * *before* a transition is applied, never discovered half-way: a press that
+ * marked the matrix and then failed to queue would let the matching release be
+ * sent for a press the host never saw, which is precisely the desynchronisation
+ * `ap_kbd`'s `down[]` exists to prevent. */
+static unsigned keyboard_room(const ap_board_t *board) {
+  return AP_KBD_BUFFER - ap_kbd_buffered(&board->keyboard);
+}
+
+static void drain_keyboard(ap_board_t *board, ap_time_t now) {
+  uint8_t code = 0u;
+  while (ap_kbd_transmit(&board->keyboard, now, &code)) {
+    ap_sio_receive_framed(&board->sio, KBD_UNIT, KBD_CHANNEL, code,
+                          AP_SIO_KEYBOARD_CSR, AP_SIO_KEYBOARD_MR1);
+  }
 }
 
 bool ap_board_key_press(ap_board_t *board, unsigned key) {
   uint8_t code = 0;
+  if (keyboard_room(board) < 1u) {
+    return false;
+  }
   if (!ap_kbd_press(&board->keyboard, key, &code)) {
     return false;
   }
@@ -2031,6 +2093,9 @@ bool ap_board_key_press(ap_board_t *board, unsigned key) {
 
 bool ap_board_key_release(ap_board_t *board, unsigned key) {
   uint8_t code = 0;
+  if (keyboard_room(board) < 1u) {
+    return false;
+  }
   if (!ap_kbd_release(&board->keyboard, key, &code)) {
     return false;
   }
@@ -2068,9 +2133,7 @@ bool ap_board_mouse_move(ap_board_t *board, int dx, int dy, bool left,
    * packet cut short by a full queue would make the *next* bytes sent look like
    * movement. Checked before anything is queued rather than discovered
    * half-way. */
-  const unsigned room =
-      (unsigned)(sizeof board->kbd_reply.bytes) - board->kbd_reply.count;
-  if (room < bytes) {
+  if (keyboard_room(board) < bytes) {
     return false;
   }
   for (unsigned i = 0; i < bytes; i++) {
@@ -2087,7 +2150,13 @@ bool ap_board_key_type(ap_board_t *board, char ascii) {
   if (board == NULL || !ap_kbd_encode(ascii, &code, &shifted)) {
     return false;
   }
-  if ((code & AP_KBD_PREFIX) == AP_KBD_PREFIX) {
+  /* The keypad's two bytes go together or not at all: a prefix queued without
+   * its character makes the *next* byte sent look like a keypad key. */
+  const bool prefixed = (code & AP_KBD_PREFIX) == AP_KBD_PREFIX;
+  if (keyboard_room(board) < (prefixed ? 2u : 1u)) {
+    return false;
+  }
+  if (prefixed) {
     if (!deliver_key(board, (uint8_t)(AP_KBD_PREFIX >> 8))) {
       return false;
     }
