@@ -5747,24 +5747,19 @@ same number is what let them diverge once already.
       (a) wins is one guard in `ap_ring_station.c`; `ring_station_suite` and
       `ring_ctl_suite` both have the two-arm tests to extend.*
 
-- [ ] **`doc_claims` checks test counts in table rows only, and the counts in
-      prose are the ones that rot.** `check_docs.py` skips every line that does
-      not start with `| `, so a subsystem row is verified and the
-      `*Verification: `x_suite`, N tests*` line under a status entry is not.
-      Found 2026-08-21 the expensive way: three `model_suite` counts said 21
-      against 22, and the checker flagged the one in the table. The other two sat
-      in prose, as does the *"working, 9 models"* claim that had been wrong for
-      longer.
-      **The naive fix is a no-op and was tried**: the claim regex requires a
-      comma, so widening it to `,?` matches nineteen more claims — and every one
-      is still excluded by the table-row filter, leaving the checked count
-      unchanged at 3141. The filter is the thing, not the regex.
-      **What makes this real work** is that prose legitimately carries *deltas*:
-      "`step_suite` +1", "`step_suite` 4 tests updated", "10 further tests (51
-      total)". A checker that reads prose must tell a total from a delta or it
-      will fail on correct text — which is presumably why the filter exists.
-      *Verification: a stale count in a `*Verification:*` line fails
-      `doc_claims`, and the three delta forms above do not.*
+- [x] **`doc_claims`'s table-row filter is correct, and I was wrong to call it a
+      gap** (2026-08-21). It skips every line not starting with `| ` — so a
+      subsystem row is checked and a `*Verification: `x_suite`, N tests*` line is
+      not — and I recorded that as rot to be fixed. It is not. Scanning the prose
+      finds **85 counts that disagree with the tree**, and they are *right*: each
+      sits in a dated status entry recording what was verified **then**.
+      `machine_suite, 48 tests; ctest 122/122` is a true statement about the day
+      it was written. **The table row is the live claim; the prose is a log.**
+      A checker over prose would fail on 85 accurate records.
+      *Cost of finding out the wrong way*: I "corrected" two of those records
+      from 21 to 22 while fixing a genuinely stale table row, which made them
+      false — one then read `22 tests, two of which now cover eleven models`,
+      mixing today's count with that day's model total. Both reverted.
 
 - [ ] **Transcribe the Low-Profile Model II keyboard charts.** `002398-04`
       p. 6-13 (ASCII mode) and p. 6-14 (keystate mode) are 16x16 tables giving

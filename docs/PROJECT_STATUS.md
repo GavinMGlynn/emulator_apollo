@@ -22362,7 +22362,7 @@ PROM's mask is `04FFFFFF` -- the firmware we hold sizes 16 MB. A model table
 entry describing memory this firmware cannot address would be wrong in the
 direction that hides bugs.
 
-*Verification: `model_suite`, 22 tests. The new one asserts the base, the
+*Verification: `model_suite`, 21 tests. The new one asserts the base, the
 extent, **and that `ram_base | (ram_max_bytes - 1)` reconstructs the PROM's mask
 exactly** -- the relation is what makes the pair meaningful, and a later edit
 that quietly restored the old `01000000` assumption would pass a regenerated
@@ -23927,7 +23927,7 @@ panels to express one field. The DN3550 is a model rather than a DN3500 variant
 for the opposite reason: `[CFG]` sells it as its own machine under its own
 ordering number.
 
-*Verification: `model_suite` 22 tests, two of which now cover eleven models
+*Verification: `model_suite` 21 tests, two of which now cover eleven models
 rather than nine; `golden_model_table` regenerated and byte-identical between
 the debug and release builds, which is the property that makes it portable. A
 `dn3550` boot of `3500_BOOT_12191_7` passes all four Memory Module tests and
