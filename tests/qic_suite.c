@@ -490,6 +490,20 @@ static void test_reading_off_the_end_reports_end_of_media(void) {
  * condition as `10010000`. A dropped leading digit, and the only cell in either
  * column that the rule does not explain.
  *
+ * **And it appears twice.** `002398-04` p. 10-12 prints the same fifteen-row
+ * summary for the DN5xx's tape controller, and its "Marginal block detected"
+ * row carries the identical `00010000`. So this is not a typesetting slip on one
+ * page: it is an error in whatever house table both chapters were set from,
+ * reproduced faithfully. That changes nothing about which reading to follow --
+ * `QIC-02 Rev D` §5.2's summary-bit rule explains every other cell of both
+ * printings -- but it does mean a third copy of the table would be expected to
+ * carry the error too, and finding it there is not corroboration.
+ *
+ * The rest of p. 10-12 agrees with `QIC-02 Rev D` §5.3 cell for cell, including
+ * the three rows this session's `NDT` work rests on: "Read error, no data"
+ * `100X0110`/`10100000`, "and EOM" `100X1110`/`10100000`, "and BOM"
+ * `100X0110`/`101X1XX0`. Four documents, one table.
+ *
  * `X` is don't-care. The rows below are the ones this model can be *put into*;
  * the rest need media errors it cannot produce, and they are listed in the
  * comment at the end so that the omission is a statement rather than a gap.
