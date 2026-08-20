@@ -5769,9 +5769,20 @@ below; everything else it found is implemented and recorded in
       Table 2-8 is the *Series 4000* address space, shared by the models
       `019411-A00` §4.2.1.4 lists as "DS3500, DS4000, DS4500, DS5500", which is
       exactly the set the selector reaches it for. What remains is the model
-      table entry, and it needs Figure 1-2 read as a **page image** for the
-      fields the item does not already quote — display and memory-board sizes —
-      rather than inferred from the Series 4500's.
+      table entry.
+      **Figure 1-2 will not supply the missing fields** — checked 2026-08-20.
+      It is the "DS4000 Functional Block Diagram" on p. 1-4 and it names
+      *parts*, not figures: virtual cache, PMMU MC68851, FPU MC68881, boot PROM,
+      serial ports, timers, graphics controller, Winchester and disk controller,
+      tape controller, network controller. The processor speed, memory range and
+      serial-line count this item quotes come from §1's prose, not the figure.
+      So a row still needs a **display** and **memory-board sizes**, and the
+      places to look are §1.5.3 for the three graphics boards and §1.5.2 with
+      Table 2-11 for the 4-MB and 8-MB ones — none of which is stated per model,
+      which is the actual difficulty. **Do not infer the row from the Series
+      4500's**: `model/` is where every machine difference lives, and a
+      plausible guess there is indistinguishable from a measurement until
+      something exercises it.
 - [ ] **`IO_CH_CK.L` and the AT bus's NMI path.** §2.3.2: an uncorrectable bus
       error "asynchronously sets a flip-flop that causes a **Non-Maskable-
       Interrupt** ... provides an **on-board register bit, which can be read and
