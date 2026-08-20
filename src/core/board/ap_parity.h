@@ -72,6 +72,52 @@
  * assignments. Closing it needs either the architecture handbook's register
  * layout or a program that forces one lane bad -- and no firmware here is that
  * program. Recorded in `docs/PROJECT_STATUS.md` as a named open item.
+ *
+ * ## A sibling machine's register is laid out, and it points the other way
+ *
+ * "Neither manual here lays the register out" was true of *this* register and
+ * not of the family. `002398-04` p. 7-22 gives the DN300/320's Memory Status
+ * Register at `8006`, and it is the same three ideas as this one:
+ *
+ *     15                4   3     2     1     0
+ *     | FAILING PPN     | DMA | LEFT | RIGHT | traps enabled |
+ *
+ * with the Memory Control Register at `8005` mirroring the lane bits -- "1 =>
+ * force **left** byte parity" at bit 2 and "1 => force **right** byte parity" at
+ * bit 1 -- and "writing MSR clears parity error condition", which is the same
+ * write-to-acknowledge rule.
+ *
+ * That is a 16-bit bus, so it has two lanes rather than four, and the lower bit
+ * of the pair is the **right** byte -- the less significant one. Index them and
+ * flag 0 is the least significant byte.
+ *
+ * **And p. 7-23 gives the DN330's, which is a four-lane register.** Memory
+ * Control/Status at `8004`-`8007`: `FAILING A(21:2)` in 31-12, then **"Byte
+ * Parity Error Flags"** in bits 11-8 labelled `3 2 1 0` left to right -- so flag
+ * `n` sits at bit `8 + n` -- annotated **"(0 => error)"**, which is the
+ * active-low sense `AP_BOARDREG_CONTROL_PARITY_LANE_MASK` already carries. Above
+ * them, Write Bad Parity, Parity Interrupt Enable, DMA Access and B Port Access.
+ *
+ * So two sibling registers, one with two lanes and one with four, **both index
+ * upward from the least significant byte**. This file indexes downward from the
+ * most significant: lane 0 is the MSB and takes the field's lowest bit. The two
+ * documents agree with each other and disagree with this core.
+ *
+ * **Still not changed**, and the reason is narrow. Neither page says which byte
+ * flag `0` *is* -- the DN330 labels the flags `3 2 1 0` and stops, and the
+ * DN300/320's "left"/"right" is this reader's inference that right is the less
+ * significant byte on a big-endian bus. That inference is very likely and it is
+ * an inference, and this core does not replace one undocumented convention with
+ * another on the strength of one. What has changed is the state of the question:
+ * it was "four orderings, nothing to choose between them", and it is now "one
+ * ordering has two sibling registers behind it and this core uses the other".
+ * Closing it needs the DN3000's own register laid out, or a machine.
+ *
+ * The DN3xx registers also carry bits this core has no counterpart for -- parity
+ * during a DMA cycle on the DN300/320, and DMA Access and B Port Access on the
+ * DN330. Whether the DN3000's status register has any of them is not
+ * established: `008778-03` §3.3 accounts for the four lane bits and says nothing
+ * about a fifth, so they are named here rather than assumed either way.
  */
 
 #ifndef APOLLO_BOARD_AP_PARITY_H

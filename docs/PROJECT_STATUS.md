@@ -2750,6 +2750,21 @@ DN3000's, both meaning all four -- so the field is only ever all-or-nothing and
 out. The assignment is therefore a convention: lane `n` is the byte counted from
 the most significant of the longword, taking status bit `4 + n`. Nothing in the
 machine can tell it from the other three assignments.
+**Narrowed 2026-08-20, not closed.** "Neither manual lays the register out" was
+true of *this* register and not of the family. `002398-04` gives two siblings:
+p. 7-22's DN300/320 Memory Status Register (`FAILING PPN | DMA | LEFT | RIGHT |
+traps enabled`) and p. 7-23's DN330 Memory Control/Status (`FAILING A(21:2)` then
+**"Byte Parity Error Flags"** in bits 11-8 labelled `3 2 1 0`, annotated "(0 =>
+error)" — the active-low sense this core already carries). **Both index upward
+from the least significant byte**; this core indexes downward from the most, so
+the two documents agree with each other and disagree with us. Not changed:
+neither page says which byte flag `0` *is*, and "right is the less significant
+byte" is this reader's inference rather than the document's word. What changed is
+the state of the question — it was "four orderings, nothing to choose between
+them", and it is now "one ordering has two sibling registers behind it and this
+core uses the other". Closing it needs the DN3000's own register laid out, or a
+machine. The sibling registers also carry bits with no counterpart here — parity
+during a DMA cycle, DMA Access, B Port Access — named rather than assumed away.
 
 **The 68882's microcode version number** (`cpu/m68882/ap_m68882_cir.*`). The
 manual: "the format of this number is defined internally by the FPCP" and it
