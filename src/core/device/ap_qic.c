@@ -8,6 +8,10 @@ void ap_qic_init(ap_qic_t *qic) {
    * them can be called on memory that has never held a drive. */
   memset(qic, 0, sizeof *qic);
   qic->power_on = true;
+  /* `QIC-02 Rev D` §4.2.1: a power-on "initializes operating parameters and
+   * defaults to drive 0 for subsequent commands", so a drive that has just come
+   * up is selected and not waiting to be. See `ap_qic_t::selected`. */
+  qic->selected = true;
   /* The one field the zero is wrong for. `008778-03` Table 8-1's Tape Format
    * jumper ships IN, which is QIC-24; see the header. A `memset` alone would
    * put a first-use drive in QIC-11 and a reset one in QIC-24, which is the
@@ -18,9 +22,9 @@ void ap_qic_init(ap_qic_t *qic) {
 
 void ap_qic_reset(ap_qic_t *qic) {
   /* A reset does not eject the cartridge -- it is a command to the drive, not to
-   * the operator. But it does deselect and unlock: `[SC499]` §1.13.1 has RESET
-   * among the things that unlock, "Execution of the SELECT command or RESET
-   * unlocks the cartridge".
+   * the operator. It does unlock: `[SC499]` §1.13.1 has RESET among the things
+   * that unlock, "Execution of the SELECT command or RESET unlocks the
+   * cartridge". It does **not** deselect; see below.
    *
    * **Every field is written and none is read**, which is not a style choice.
    * This used to save `image`, `loaded` and `cartridge`, `memset` the struct,
@@ -30,7 +34,12 @@ void ap_qic_reset(ap_qic_t *qic) {
    * debug build, where the stack happened to be zero, and failed only at `-O3`
    * in CI. A save-and-restore reset cannot be safe on first use; a reset that
    * assigns everything it does not deliberately keep can be. */
-  qic->selected = false;
+  /* **Not `false`.** §3.5's pin 32 has RESET "cause device initialization to be
+   * performed, **default selection to device 0**", and §4.2.1 repeats it of the
+   * reset pulse terminating. A drive that came out of reset deselected refused
+   * every command until a SELECT arrived; a real one obeys a READ issued
+   * straight afterwards. */
+  qic->selected = true;
   qic->soft_lock = false;
   /* `008778-03` Table 8-1's jumper CC, which is fitted for QIC-24. See the
    * header: this was the zero rather than a documented default. */
@@ -86,7 +95,34 @@ void ap_qic_eject(ap_qic_t *qic) {
   qic->writing = false;
 }
 
+/* Whether an opcode is a SELECT of either kind, mask and all. `QIC-02 Rev D`
+ * §4.2.2 is `0000 DRIVE` and §4.3.1 is `0001 DRIVE`, so the whole of `00` and
+ * `1F` is the SELECT space and the nibble below is the drive. */
+static bool is_select(uint8_t command, bool *lock) {
+  const uint8_t opcode = (uint8_t)(command & AP_QIC_SELECT_OPCODE_MASK);
+  if (opcode != AP_QIC_SELECT_OPCODE && opcode != AP_QIC_SELECT_LOCK_OPCODE) {
+    return false;
+  }
+  *lock = opcode == AP_QIC_SELECT_LOCK_OPCODE;
+  return true;
+}
+
+/* "The select command selects one of up to four drives" -- so exactly one bit,
+ * and §5.2 cause (a) makes "no drives or more than one drive indicated" the
+ * illegal-command condition rather than an unimplemented opcode. */
+static bool one_drive(uint8_t drives) {
+  return drives != 0u && (drives & (uint8_t)(drives - 1u)) == 0u;
+}
+
 bool ap_qic_command_known(uint8_t command) {
+  bool lock = false;
+  if (is_select(command, &lock)) {
+    /* Every value of the nibble is a *recognised* SELECT, including the ones
+     * that are illegal: a drive that answers `ILL` to `0000 0011` has decoded
+     * the command, and one that answers `ILL` to `0101 0101` has not. Only the
+     * first is a command this core models. */
+    return true;
+  }
   switch ((ap_qic_command_t)command) {
   case AP_QIC_CMD_SELECT:
   case AP_QIC_CMD_SELECT_LOCK:
@@ -110,26 +146,55 @@ bool ap_qic_command(ap_qic_t *qic, uint8_t command) {
    * set if any of the following occurs ... **f. Any unimplemented command is
    * issued.** The bit is reset by a Read Status Sequence."
    *
-   * That is the one of the standard's six causes this model can distinguish
-   * from the others without inventing state, and it is the one `002398-04`
-   * p. 12-5's "Illegal command" row reports. The other five, and why each is
-   * out of reach, are set out at `ap_qic_t::illegal_command`. */
+   * That is one of three causes this model can now distinguish -- the other two
+   * are the SELECT rules below, reachable since the drive mask was decoded --
+   * and it is the one `002398-04` p. 12-5's "Illegal command" row reports. The
+   * remaining three, and why each is out of reach, are set out at
+   * `ap_qic_t::illegal_command`. */
   if (!ap_qic_command_known(command)) {
     qic->illegal_command = true;
     return false;
   }
+  {
+    /* The SELECT family, decoded from the nibble rather than matched whole. */
+    bool lock = false;
+    if (is_select(command, &lock)) {
+      const uint8_t drives = (uint8_t)(command & AP_QIC_SELECT_DRIVE_MASK);
+      if (!one_drive(drives)) {
+        /* §5.2 cause (a), "SELECT command issued with no drives or more than one
+         * drive indicated". The selection does not change: the drive rejected
+         * the command rather than acting on half of it. */
+        qic->illegal_command = true;
+        return false;
+      }
+      const bool ours = drives == AP_QIC_THIS_DRIVE;
+      if (qic->selected && !ours && qic->position != 0u) {
+        /* §5.2 cause (e): "a drive is deselected by another SELECT command when
+         * the cartridge in the currently selected drive is not at beginning of
+         * tape, track 0". §5.4 item 12(b) says it the other way round -- "attempt
+         * to change drive selection when tape has been moved away from BOT by a
+         * read or write operation" -- and both describe this. The tape is left
+         * where it is; only the report is added. */
+        qic->illegal_command = true;
+        return false;
+      }
+      qic->selected = ours;
+      if (ours) {
+        /* §4.3.1: "Execution of the SELECT command (0000 drive) or RESET unlocks
+         * the cartridge." The lock is on *this* cartridge, so a SELECT naming
+         * another drive leaves it alone -- the two are not independent switches,
+         * but they are per-drive. */
+        qic->soft_lock = lock;
+      }
+      return true;
+    }
+  }
   switch ((ap_qic_command_t)command) {
   case AP_QIC_CMD_SELECT:
-    /* "The SELECT command selects the tape drive ... Execution of the SELECT
-     * command or RESET unlocks the cartridge." So a plain SELECT clears a lock
-     * the other variant set -- the two are not independent switches. */
-    qic->selected = true;
-    qic->soft_lock = false;
-    return true;
   case AP_QIC_CMD_SELECT_LOCK:
-    qic->selected = true;
-    qic->soft_lock = true;
-    return true;
+    /* Handled above, by the mask decode that covers the whole family. Listed so
+     * the switch stays exhaustive over `ap_qic_command_t`. */
+    return false;
   case AP_QIC_CMD_BOT:
     /* "positions the tape in the cartridge in the selected device to BOT". */
     if (!qic->selected) {
@@ -256,11 +321,25 @@ uint16_t ap_qic_exception_word(const ap_qic_t *qic) {
    * `BNL` used to be on that list and are not any more -- §5.3's summary makes
    * them part of how a no-data read is reported, which is a condition this model
    * genuinely reaches. */
+  if (!qic->selected) {
+    /* **The selected drive is not this one, so it is not there at all.** §5.2
+     * defines `USL` as the selected drive being "not physically connected or
+     * ... not receiving power", and §5.3 row 2 gives the whole byte for it:
+     * "No drive", byte 0 `11110000`. `CNI` and `WRP` are printed as hard ones
+     * rather than don't-cares -- an absent drive answers every condition line
+     * the same way -- so the row is taken as printed rather than assembled from
+     * what *this* drive happens to hold. Row 1, "No cartridge", is the
+     * present-but-empty case and prints `USL` as a hard zero, which is what
+     * keeps the two rows distinguishable.
+     *
+     * Nothing could reach this before: the model came up deselected and had no
+     * way to select a drive other than its own. Both are fixed above. */
+    exs |= AP_QIC_EXS_NO_CARTRIDGE | AP_QIC_EXS_UNSELECTED |
+           AP_QIC_EXS_WRITE_PROTECTED;
+    goto latches;
+  }
   if (!qic->loaded) {
     exs |= AP_QIC_EXS_NO_CARTRIDGE;
-  }
-  if (!qic->selected) {
-    exs |= AP_QIC_EXS_UNSELECTED;
   }
   /* **Defined and never set**, until `002398-04` p. 12-5's summary row for
    * "Write protected" was checked against this function and came back `00`.
@@ -283,6 +362,10 @@ uint16_t ap_qic_exception_word(const ap_qic_t *qic) {
   if (qic->loaded && qic->position >= ap_ct_blocks(&qic->image)) {
     exs |= AP_QIC_EXS_END_OF_MEDIA;
   }
+latches:
+  /* The three controller-level latches, which do not belong to the medium and
+   * so survive an absent drive: §5.3 rows 12 and 13 print byte 0 as `XXXX0000`
+   * beside `ILL` and `POR`, which is the summary saying exactly that. */
   if (qic->power_on) {
     exs |= AP_QIC_EXS_POWER_ON;
   }

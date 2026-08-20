@@ -500,9 +500,57 @@ read" needs file marks; "Marginal block detected" needs a retry count. Each want
 a medium model, which is a statement about the `.ct` format rather than about
 `ap_qic`.
 
-*Verification: `qic_suite` 23 tests, including §5.3 row 9 reproduced bit for bit
-and both counters proved cleared from a nonzero value; `board_state_suite` 36 --
-the new latch is machine state a driver reads, so it hashes.*
+### The command summary: SELECT's low nibble is a **drive mask**
+
+§4.2.2 titles it `SELECT COMMAND (0000 DRIVE)`, and §4.1's summary spells out
+the space: `0000 0001` SELECT DRIVE 1 through `0000 1000` SELECT DRIVE 4, with
+every other nibble -- including `0000 0000` -- marked vendor-unique. `[SC499]`
+gives only drive 1's two codes, so this core had them as whole opcodes and read
+the rest of the nibble as unimplemented commands. Three things were wrong:
+
+- **A drive came out of reset deselected.** §3.5's pin 32 has RESET "cause
+  device initialization to be performed, **default selection to device 0**", and
+  §4.2.1 repeats it. This drive refused every command until a SELECT arrived, so
+  a driver that reset and then read got nothing.
+- **`USL` was unreachable.** §5.2 defines it as the selected drive being "not
+  physically connected or ... not receiving power" -- exactly what a one-drive
+  machine is when the host selects drive 2. The bit was right; nothing could put
+  the model into the state. `002398-04` p. 12-5's "No drive" row is reachable
+  now, and §5.3 row 2 gives the whole byte for it: `11110000`, with `CNI` and
+  `WRP` printed as hard ones beside `USL` because an absent drive answers every
+  condition line the same way. Row 1, "No cartridge", prints `USL` as a hard
+  zero, which is what keeps a present-but-empty drive distinguishable from a
+  missing one.
+- **Two of `ILL`'s six causes were recorded as out of reach and are not.**
+  Cause (a), "SELECT command issued with no drives or more than one drive
+  indicated", needs the mask this file did not know it had. Cause (e), "a drive
+  is deselected by another SELECT command when the cartridge ... is not at
+  beginning of tape", needs another drive to deselect it. The latch is three
+  causes of six now, and the three that remain are **pins** -- ONLINE, and the
+  sequence termination §4.2.7 and §4.2.8 define as deactivating it -- rather
+  than facts this model lacks.
+
+### What the walk confirmed, and the one PROVISIONAL it did not close
+
+`AP_SC499_T_EXCEPTION_TO_READY`'s 10 µs, taken from `[SC499]` Figure 1-8, is
+QIC-02 §3.6.1's T3→T4 as well. `RETENSION` is the standard's INITIALIZATION
+command (§2's definition: "restores normal tension by wind and rewind"), so the
+apparent gap against §4.2.5 was a naming difference. §4.2.7's "a WRITE command
+following cartridge insertion or RESET shall commence recording at BOT" is
+satisfied by load and reset both zeroing the position.
+
+**`AP_SC499_T_RESET_TO_EXCEPTION` stays PROVISIONAL**, and the walk sharpened
+why rather than closing it. §3.6.2 times the drive's reset→EXCEPTION at **< 3
+µs** — but that is the *drive* side of the SC-499, and this constant models the
+*host* side, where `[SC499]` §1.8.1 has the card's power-on confidence test
+report completion "by the assertion of EXC- within five seconds". If the card
+merely passed EXC- through, that five-second ceiling would be meaningless. So
+the standard settles the wrong end of the wire, and what remains unmeasured is
+the card's own self-test — which is a narrower gap than "no document gives it".
+
+*Verification: `qic_suite` 27 tests -- §5.3 row 9 reproduced bit for bit, row 2
+reproduced over a loaded cartridge, both counters proved cleared from a nonzero
+value, and both new `ILL` causes; `board_state_suite` 36.*
 
 ## The boot PROM confirms the `3F6`/`3F7` split, and cannot settle ST3
 ## (2026-08-20)
@@ -665,11 +713,29 @@ is inline. Whether any executes on some *other* path is not settled by this, and
 does not need to be: what the boot shows is that giving them their documented
 effect changes nothing the reference run does.
 
-`717289781987BD4A` is the current reference hash, produced by
+**`79C8F0364AE4A93E` is the current reference hash**, produced by
 `tools/identity-boot.sh` on the release build. It differs from the hashes
-recorded earlier in this document because two commits today added hashed state —
-the display controller's registers and palettes, and the tape drive's latches
-and counters.
+recorded earlier in this document because four commits today added or moved
+hashed state — the display controller's registers and palettes, the tape drive's
+latches and counters, the tape's `no_data` latch, and the tape's default
+selection.
+
+The last two were measured rather than assumed, with three 350 M boots on the
+same media and the same invocation:
+
+```
+717289781987BD4A   before the QIC-02 walk (the hash this section recorded)
+06F5A1DFAB270B5D   + the NDT latch, which adds a byte to the hashed stream
+79C8F0364AE4A93E   + SELECT's drive mask and the reset's default selection
+```
+
+**All three reports are byte-identical** — every counter, register, console line
+and bus-error total, the whole file save its own hash line and the paths of the
+tree it ran from. So the two moves are hashed *state* changing value, not
+behaviour changing: the driver issues its own SELECT before it does anything, so
+whether the drive came up selected was never observable on this path. The hash
+is doing exactly what it exists for, which is to notice a state change that
+nothing else would have.
 
 ## Chapter 12 is finished, delegations included (2026-08-20)
 
@@ -7848,7 +7914,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Node ID PROM (`011200`) | working: the layout measured from the oracle's own PROM — stride 2 with the **odd byte reading zero** (unlike the serial ports at the same stride), the identifier big-endian in registers 0-3, and a checksum in register **15** confirmed arithmetically (`01 + 23 + 45 = 69`) and then by the boot PROM's own self-test, which sums registers 0-14 and compares. The identifier is supplied by the caller, never a constant: a device whose purpose is to be unique per machine must not be the same on every one | `nodeid_suite`, 8 tests; `008778-03` Table 2-8, CPU self-test 8 at `008218` |
 | Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 34 tests, one of them pinning that a character on the **second** 2681 raises the single serial interrupt line -- `002398-04` p. 12-28 gives `IRQ 1` to "sio" unqualified, where `008778-03` Table 2-3 names "2681 SIO Port 1" (`RING.md`-style sibling-manual resolution, `FINDINGS.md` C223-C224); `FINDINGS.md` C14 |
 | MC68681 / SCN2681 DUART (the part) | **programming model complete**: all sixteen register addresses of `[68681]` Table 4-1, both channels' mode registers with their shared pointer, clock-select, command and status registers, the three-deep receive FIFO with overrun, the interrupt status and mask registers, the input and output ports, and the counter/timer with both address-triggered commands. **All eight of §4.2.7.2's miscellaneous commands** — the audit found three falling through a bare `default: break;` (reset break change interrupt, start break, stop break) and, in the same paragraph, three outright errors in the transmitter status bits; see below. **Serial framing is modelled**, and the claim that it was not was stale: `ap_mc68681_resample` reshapes a character arriving at a mismatched baud rate rather than flagging an intact one, `ap_mc68681_character_bits` applies `MR1`'s width, parity is checked on both enable *and* type, `MR2`'s stop-bit field is read, and all four channel modes — normal, auto-echo, local loopback, remote loopback — behave differently. **Wired to the board** through `board/ap_sio.h` | **the receive shift register is modelled**: the part is quadruple-buffered, so a character meeting a full FIFO is held rather than lost and only the next one overruns, and a read that frees a position refills the FIFO from it -- which is why §4.2.9.7 says `FFULL` is not cleared by that read | `mc68681_suite`, 57 tests, `MC68681 DUART Sep85` |
-| QIC-02 tape drive | **the whole command set**, all eleven of `[SC499]` §1.13: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, both format selects, READ, READ STATUS, and WRITE, WRITE FILE MARK, READ FILE MARK and ERASE recognised and refused. **WRITE places a block** on a cartridge loaded writable, the distinction `ap_ct_t` now carries; a read-only one refuses. WRITE FILE MARK and ERASE are still refused, and for a reason that has not changed — a `.ct` is a raw block image with no file marks in it. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. **The two opcodes C25 recorded as lost are recovered**: §1.13's summary table has a previous owner's pen through `H'22'` and `H'26'`, and §1.13.1's numbered descriptions two pages on give the same codes in clean binary, corroborated by the three codes either side of them that this core already had. **READ STATUS now transfers its block**: six bytes, the length `[SC499]` §1.13.1 gives outright, as three 16-bit fields LSB-first — exception flags, data-error count, underrun count — and reading it clears the power-on condition it reports. **The status bits are now the standard's own**, `QIC-02 Rev D` §5.1-§5.4 read whole: `NDT` with the `UDA` and `BNL` that §5.3 row 8 prints beside it, so a read past the last block reports "no recorded data found on tape" rather than a bare failure, and the two counters cleared by the status read as §5.2 requires of each | `qic_suite`, 23 tests; `FINDINGS.md` C25 |
+| QIC-02 tape drive | **the whole command set**, all eleven of `[SC499]` §1.13: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, both format selects, READ, READ STATUS, and WRITE, WRITE FILE MARK, READ FILE MARK and ERASE recognised and refused. **WRITE places a block** on a cartridge loaded writable, the distinction `ap_ct_t` now carries; a read-only one refuses. WRITE FILE MARK and ERASE are still refused, and for a reason that has not changed — a `.ct` is a raw block image with no file marks in it. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. **The two opcodes C25 recorded as lost are recovered**: §1.13's summary table has a previous owner's pen through `H'22'` and `H'26'`, and §1.13.1's numbered descriptions two pages on give the same codes in clean binary, corroborated by the three codes either side of them that this core already had. **READ STATUS now transfers its block**: six bytes, the length `[SC499]` §1.13.1 gives outright, as three 16-bit fields LSB-first — exception flags, data-error count, underrun count — and reading it clears the power-on condition it reports. **The status bits and the SELECT opcode are now the standard's own**, `QIC-02 Rev D` read whole, 29 of 29 pages: SELECT's low nibble is the drive mask §4.2.2 titles it with, so selecting drive 2 is a legal SELECT of an absent drive rather than an unimplemented command, a reset defaults selection to drive 0 as §3.5 pin 32 and §4.2.1 both say, and `USL` and two further `ILL` causes are reachable in consequence; `NDT` with the `UDA` and `BNL` that §5.3 row 8 prints beside it, so a read past the last block reports "no recorded data found on tape" rather than a bare failure, and the two counters cleared by the status read as §5.2 requires of each | `qic_suite`, 27 tests; `FINDINGS.md` C25 |
 | Cartridge tape images (`image/ap_ct.c`) | working: block addressing over a raw `.ct` image, refusing any size that is not a whole number of 512-byte blocks, and boot-record parsing that returns the four header words. Their reading as load address and entry point is now **confirmed by the boot code itself** — its first instruction, a PC-relative `LEA`, computes word 0 exactly when executed at word 1, so the image proves its own layout. `ap_ct_boot_image` therefore *names* load address, entry point and length, and refuses a cartridge that does not announce itself, or whose header describes more than the file holds. Takes memory, never a filename, so `src/core` keeps its zero file I/O and the tests need no gitignored media | `ct_suite`, 12 tests; `FINDINGS.md` C24 |
 | Apollo display controller (`05D800`, `05E800`) | **identification**: both register blocks decode whether or not a screen is fitted, and the device ID at offset 1 reports `C4P=8`, `19I=9`, `C8P=10` or `15I=11` for the fitted family and `FF` for the other. An absent screen reads `FF` and does **not** bus error — "nothing is fitted" and "nothing is there" are different answers, and getting that wrong cost an investigation. **Drawing**: `CR0`'s mode and shift, `CR1`'s bits named per family, `CR2`'s two plane-select encodings, all sixteen raster operations, the word-level data path with its two active-low fields, and the blit that is the plane loop around them. **Lookup table**: *both* of them -- the 8-plane board's Bt458 behind its data and control ports, active-low chip selects and the FIFO that commits a palette on the release of `CPAL_CS`; and the **4-plane board's own**, three write-only registers carrying sixteen entries of four bits a gun, from `002398-04` p. 12-19. **A/D converter**: the diagnostic register at offset `407`, whose channel byte selects a gun's video output and whose result is hundredths of a volt. **Raster**: both dot clocks, the beam as a function of the instant, and the status register's timing bits gated on `CR1`. **Scanout**: the four geometries, each buffer width being the manual's own printed capacity divided out, planes composed with plane 0 as bit 0 and bit 15 as the leftmost pixel. **Registers**: sixteen of them in two groups of eight, the low group aliased across the block, `CR0`-`CR3B`, the 16-bit write enable and the 32-bit raster operation, with `CR3A` as a bit port onto `CR1`. **Corrected 2026-08-11**: this line previously said the status register, the raster operation's low half and the lookup table's two ports were "still unmodelled and reading `FF`". All three are modelled -- the status register answers from the raster (`graphics_status`), the lookup table has its Bt458 with the release-committed FIFO, and the raster operation's low half reads `FF` because it is **write-only in the hardware**, which is a model of the part rather than a gap in it. What genuinely reads `FF` is the low register group on a board that is not 8-plane, and registers that are write-only -- `FF` rather than zero, because zero is a state a real register can report and these cannot report anything | `graphics_suite`, 89 tests; `FINDINGS.md` C31-C32 |
 | Apollo cartridge tape (`050000`) | working, **controller joined to the drive**: a data-register write with the request bit set is a QIC-02 command, reads deliver the cartridge a byte at a time across the drive's block boundary, and a refused command or the end of tape raises Exception. The command handshake's **three entry conditions** are modelled — ready, exception, device-holds-the-bus, one figure each — and now **its timings too**: the device carries a clock, a command deasserts READY at once and reaches its destination only when the figure's interval has passed. Every interval is `PROVISIONAL`, since §1.13.2 publishes bounds rather than values. Four registers at stride 1, the upper four of each eight floating to `FF`, aliased through the range, on IRQ5 through to vector `A5`. The measured reset dump is reproduced over two aliasing periods | `tape_suite`, 19 tests; `FINDINGS.md` C16-C19 |

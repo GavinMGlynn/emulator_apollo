@@ -21,6 +21,24 @@ static void load(ap_qic_t *q) {
   TEST_ASSERT_TRUE(ap_qic_load(q, image, sizeof image, AP_QIC_CARTRIDGE_DC600A, true));
 }
 
+/* Read the status once and throw it away, which is what clears `por`. Every row
+ * of the summary describes a drive that has already been asked once. */
+static void clear_power_on(ap_qic_t *q) {
+  uint8_t block[AP_QIC_STATUS_BYTES];
+  TEST_ASSERT_TRUE(ap_qic_command(q, AP_QIC_CMD_READ_STATUS));
+  TEST_ASSERT_TRUE(ap_qic_read_status(q, block));
+}
+
+static void check_summary(const char *what, uint16_t exs, uint8_t status0,
+                          uint8_t care0, uint8_t status1, uint8_t care1) {
+  const uint8_t got0 = (uint8_t)(exs >> 8);
+  const uint8_t got1 = (uint8_t)(exs & 0xFFu);
+  UNITY_TEST_ASSERT_EQUAL_HEX8((uint8_t)(status0 & care0),
+                               (uint8_t)(got0 & care0), __LINE__, what);
+  UNITY_TEST_ASSERT_EQUAL_HEX8((uint8_t)(status1 & care1),
+                               (uint8_t)(got1 & care1), __LINE__, what);
+}
+
 static void test_the_cartridge_type_must_be_supplied(void) {
   ap_qic_t q;
   ap_qic_init(&q);
@@ -36,15 +54,114 @@ static void test_the_cartridge_type_must_be_supplied(void) {
   TEST_ASSERT_EQUAL_UINT(AP_QIC_CARTRIDGE_DC300XL, q.cartridge);
 }
 
-static void test_a_drive_must_be_selected_before_it_moves(void) {
+/* `QIC-02 Rev D` §4.2.1: a reset "initializes operating parameters and defaults
+ * to drive 0 for subsequent commands", and §3.5's pin 32 says the same of the
+ * RESET line. **This test used to assert the opposite** -- that a fresh drive
+ * refuses BOT until a SELECT arrives -- which is a drive that would ignore the
+ * first command of every driver that resets and reads. */
+static void test_a_freshly_reset_drive_is_already_selected(void) {
+  ap_qic_t q;
+  load(&q);
+  TEST_ASSERT_TRUE(q.selected);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_BOT));
+
+  ap_qic_reset(&q);
+  TEST_ASSERT_TRUE(q.selected);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_BOT));
+}
+
+/* And a drive that is *not* the selected one does nothing: BOT "positions the
+ * tape in the cartridge in the selected device", and drive 2 is not this one. */
+static void test_a_drive_other_than_the_selected_one_does_not_move(void) {
   ap_qic_t q;
   load(&q);
 
-  /* BOT "positions the tape in the cartridge in the selected device", so an
-   * unselected drive does nothing. */
+  /* `0000 0010` -- SELECT DRIVE 2, a legal command naming a drive an SC-499
+   * does not have. Accepted, because the drive decoded it. */
+  TEST_ASSERT_TRUE(ap_qic_command(&q, 0x02u));
+  TEST_ASSERT_FALSE(q.selected);
   TEST_ASSERT_FALSE(ap_qic_command(&q, AP_QIC_CMD_BOT));
+
   TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT));
   TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_BOT));
+}
+
+/* §5.3 row 2, "No drive": byte 0 `11110000`, byte 1 `00000000`. `CNI` and `WRP`
+ * are printed as hard ones beside `USL` -- an absent drive answers every
+ * condition line the same way -- and row 1, "No cartridge", prints `USL` as a
+ * hard zero, which is what keeps a present-but-empty drive distinguishable from
+ * a missing one. Both rows were unreachable until SELECT could name a drive
+ * other than this one. */
+static void test_selecting_an_absent_drive_reports_the_no_drive_row(void) {
+  ap_qic_t q;
+  load(&q);
+  clear_power_on(&q);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, 0x04u)); /* SELECT DRIVE 3 */
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
+  check_summary("no drive", ap_qic_exception_word(&q),
+                0xF0u, 0xFFu, 0x00u, 0xFFu);
+
+  /* Including over a loaded, writable cartridge: the row is what the *bus* sees
+   * from a drive that is not there, not an assembly of what this drive holds. */
+  TEST_ASSERT_TRUE(q.loaded);
+}
+
+/* "The select command selects one of up to four drives" -- §5.2 cause (a) makes
+ * anything else illegal, and §4.1's summary marks every such nibble `V(n)`. */
+static void test_a_select_naming_no_drive_or_two_is_illegal(void) {
+  ap_qic_t q;
+  load(&q);
+  clear_power_on(&q);
+
+  TEST_ASSERT_FALSE(ap_qic_command(&q, 0x00u)); /* no drives */
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
+  check_summary("select, no drives", ap_qic_exception_word(&q),
+                0x00u, 0x0Fu, 0xC0u, 0xF7u);
+  {
+    uint8_t block[AP_QIC_STATUS_BYTES];
+    TEST_ASSERT_TRUE(ap_qic_read_status(&q, block));
+  }
+
+  TEST_ASSERT_FALSE(ap_qic_command(&q, 0x03u)); /* drives 1 and 2 */
+  TEST_ASSERT_TRUE((ap_qic_exception_word(&q) & AP_QIC_EXS_ILLEGAL) != 0u);
+  /* And the selection is unchanged: the drive rejected the command rather than
+   * acting on half of it. */
+  TEST_ASSERT_TRUE(q.selected);
+
+  /* It is a *recognised* command, unlike a code outside the set -- a drive that
+   * answers ILL to `0000 0011` decoded it and one that answers ILL to `0101
+   * 0101` did not. */
+  TEST_ASSERT_TRUE(ap_qic_command_known(0x03u));
+  TEST_ASSERT_FALSE(ap_qic_command_known(0x55u));
+}
+
+/* §5.2 cause (e): "a drive is deselected by another SELECT command when the
+ * cartridge in the currently selected drive is not at beginning of tape, track
+ * 0". §5.4 item 12(b) is the same rule from the other side. */
+static void test_deselecting_a_drive_away_from_bot_is_illegal(void) {
+  ap_qic_t q;
+  uint8_t sector[AP_CT_BLOCK_SIZE];
+  load(&q);
+  clear_power_on(&q);
+
+  /* At BOT, changing selection is fine. */
+  TEST_ASSERT_TRUE(ap_qic_command(&q, 0x02u));
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT));
+  TEST_ASSERT_EQUAL_HEX16(
+      0u, (uint16_t)(ap_qic_exception_word(&q) & AP_QIC_EXS_ILLEGAL));
+
+  /* Move the tape off BOT with a read, then try again. */
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ));
+  TEST_ASSERT_TRUE(ap_qic_read_block(&q, sector));
+  TEST_ASSERT_FALSE(ap_qic_command(&q, 0x02u));
+  TEST_ASSERT_TRUE((ap_qic_exception_word(&q) & AP_QIC_EXS_ILLEGAL) != 0u);
+  /* Still ours, and still where it was. */
+  TEST_ASSERT_TRUE(q.selected);
+  TEST_ASSERT_EQUAL_UINT64(1u, q.position);
+
+  /* Re-selecting the *same* drive is not a change of selection, so it is not
+   * the cause the standard describes. */
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT));
 }
 
 static void test_selection_is_sticky(void) {
@@ -59,8 +176,11 @@ static void test_selection_is_sticky(void) {
   TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_RETENSION));
   TEST_ASSERT_TRUE(q.selected);
 
-  ap_qic_reset(&q);
+  /* A reset changes it too -- back to the default, which is this drive. */
+  TEST_ASSERT_TRUE(ap_qic_command(&q, 0x08u)); /* SELECT DRIVE 4 */
   TEST_ASSERT_FALSE(q.selected);
+  ap_qic_reset(&q);
+  TEST_ASSERT_TRUE(q.selected);
 }
 
 static void test_a_plain_select_clears_the_soft_lock(void) {
@@ -93,16 +213,17 @@ static void test_a_locked_cartridge_cannot_be_ejected(void) {
   TEST_ASSERT_FALSE(q.loaded);
 }
 
-static void test_a_reset_deselects_but_does_not_eject(void) {
+static void test_a_reset_unlocks_but_does_not_eject_or_deselect(void) {
   ap_qic_t q;
   load(&q);
   TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT_LOCK));
 
-  /* RESET is a command to the drive, not to the operator: it unlocks and
-   * deselects, and the cartridge stays in. */
+  /* RESET is a command to the drive, not to the operator: it unlocks, the
+   * cartridge stays in, and the selection goes to the default rather than to
+   * nothing -- §4.2.1's "defaults to drive 0 for subsequent commands". */
   ap_qic_reset(&q);
   TEST_ASSERT_TRUE(q.loaded);
-  TEST_ASSERT_FALSE(q.selected);
+  TEST_ASSERT_TRUE(q.selected);
   TEST_ASSERT_FALSE(q.soft_lock);
 }
 
@@ -373,23 +494,6 @@ static void test_reading_off_the_end_reports_end_of_media(void) {
  * the rest need media errors it cannot produce, and they are listed in the
  * comment at the end so that the omission is a statement rather than a gap.
  */
-/* Read the status once and throw it away, which is what clears `por`. Every row
- * of the summary describes a drive that has already been asked once. */
-static void clear_power_on(ap_qic_t *q) {
-  uint8_t block[AP_QIC_STATUS_BYTES];
-  TEST_ASSERT_TRUE(ap_qic_command(q, AP_QIC_CMD_READ_STATUS));
-  TEST_ASSERT_TRUE(ap_qic_read_status(q, block));
-}
-
-static void check_summary(const char *what, uint16_t exs, uint8_t status0,
-                          uint8_t care0, uint8_t status1, uint8_t care1) {
-  const uint8_t got0 = (uint8_t)(exs >> 8);
-  const uint8_t got1 = (uint8_t)(exs & 0xFFu);
-  UNITY_TEST_ASSERT_EQUAL_HEX8((uint8_t)(status0 & care0),
-                               (uint8_t)(got0 & care0), __LINE__, what);
-  UNITY_TEST_ASSERT_EQUAL_HEX8((uint8_t)(status1 & care1),
-                               (uint8_t)(got1 & care1), __LINE__, what);
-}
 
 static void test_every_reachable_status_summary_row_is_reproduced(void) {
   ap_qic_t q;
@@ -630,11 +734,15 @@ static void test_the_two_status_counters_are_cleared_by_the_status_read(void) {
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_cartridge_type_must_be_supplied);
-  RUN_TEST(test_a_drive_must_be_selected_before_it_moves);
+  RUN_TEST(test_a_freshly_reset_drive_is_already_selected);
+  RUN_TEST(test_a_drive_other_than_the_selected_one_does_not_move);
+  RUN_TEST(test_selecting_an_absent_drive_reports_the_no_drive_row);
+  RUN_TEST(test_a_select_naming_no_drive_or_two_is_illegal);
+  RUN_TEST(test_deselecting_a_drive_away_from_bot_is_illegal);
   RUN_TEST(test_selection_is_sticky);
   RUN_TEST(test_a_plain_select_clears_the_soft_lock);
   RUN_TEST(test_a_locked_cartridge_cannot_be_ejected);
-  RUN_TEST(test_a_reset_deselects_but_does_not_eject);
+  RUN_TEST(test_a_reset_unlocks_but_does_not_eject_or_deselect);
   RUN_TEST(test_reading_returns_blocks_in_order_then_stops);
   RUN_TEST(test_reading_needs_the_command_first);
   RUN_TEST(test_rewinding_returns_to_the_first_block);

@@ -5669,9 +5669,22 @@ END — PDF 279–313, all 35 pages. 35 content pages of 330.**
       reset the SIO lines" — wired at `ap_machine`, which is the layer holding
       both the processor that counts the opcode and the board that owns the
       devices. **Measured first, as this item required**: the identity boot is
-      byte-identical either way, state hash `717289781987BD4A` and the same
-      console, so the reference path does not depend on it. Detail in
-      `PROJECT_STATUS.md`.
+      byte-identical either way, state hash `717289781987BD4A` as it then stood
+      and the same console, so the reference path does not depend on it. Detail
+      in `PROJECT_STATUS.md`.
+
+- [x] **`QIC-02 Rev D` walked whole**, 29 of 29 pages — the standard both Apollo
+      tape documents defer to for the six-byte status block and neither
+      reproduces. Five defects in `ap_qic`: `NDT` defined and never set, `DEC`
+      and `URC` never cleared, `NDT` emitted without the `UDA`/`BNL` §5.3 row 8
+      prints beside it, SELECT's low nibble read as opcode rather than drive
+      mask, and a reset that deselected where §3.5 pin 32 and §4.2.1 both say it
+      defaults to drive 0. `USL` and two further `ILL` causes became reachable in
+      consequence. `AP_SC499_T_RESET_TO_EXCEPTION` stays `PROVISIONAL`: §3.6.2
+      times the *drive* at < 3 µs, and the constant models the *card*.
+      *Verification: `qic_suite` 27; coverage in
+      `docs/references/QIC-02_WALK.md`; three identity boots byte-identical
+      apart from the hash. Detail in `PROJECT_STATUS.md`.*
 
 - [x] **The tape's STATUS SUMMARY table** (`002398-04` p. 12-5). **The column
       convention is established and it cost two defects.** Every row's bits 6-0

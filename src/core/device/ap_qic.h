@@ -58,6 +58,39 @@
 
 #include "image/ap_ct.h"
 
+/* ## SELECT's low nibble is a **drive mask**, not part of the opcode
+ *
+ * `QIC-02 Rev D` §4.2.2 titles the command `SELECT COMMAND (0000 DRIVE)` and
+ * §4.1's summary spells the space out: `0000 0001` SELECT DRIVE 1, `0000 0010`
+ * DRIVE 2, `0000 0100` DRIVE 3, `0000 1000` DRIVE 4, and every other value of
+ * the nibble -- including `0000 0000` -- marked `V(n)`, vendor unique. `0001
+ * DRIVE` is the same four with the cartridge lock. "The select command selects
+ * one of up to four drives."
+ *
+ * `[SC499]` gives only drive 1's two codes, which is why this file had them as
+ * whole opcodes and read the rest of the nibble as unimplemented commands. Three
+ * consequences, all of them wrong:
+ *
+ *   - A host selecting drive 2, 3 or 4 got `ILL` for an *unimplemented command*.
+ *     It is a perfectly legal SELECT of a drive that is not there, and §5.4 item
+ *     2 says the error surfaces later, when a motion command is issued, as "NO
+ *     DRIVE".
+ *   - `USL` was unreachable. §5.2 defines it as the selected drive being "not
+ *     physically connected or ... not receiving power" -- which is precisely
+ *     what a one-drive machine is when the host selects drive 2. The bit was
+ *     right; nothing could put the model into the state.
+ *   - Two of `ILL`'s six causes were recorded as out of reach and are not. See
+ *     `ap_qic_t::illegal_command`.
+ *
+ * `AP_QIC_CMD_SELECT` and `AP_QIC_CMD_SELECT_LOCK` below remain **this drive's**
+ * codes -- the SC-499 carries one QIC drive and it answers to `0000 0001`. */
+#define AP_QIC_SELECT_OPCODE 0x00u      /* `0000 DRIVE` */
+#define AP_QIC_SELECT_LOCK_OPCODE 0x10u /* `0001 DRIVE` */
+#define AP_QIC_SELECT_OPCODE_MASK 0xF0u
+#define AP_QIC_SELECT_DRIVE_MASK 0x0Fu
+/* Bit 0 of the nibble: the one drive an SC-499 has. */
+#define AP_QIC_THIS_DRIVE 0x01u
+
 /* `[SC499]` §1.13.1's numbered descriptions, which give every code in binary.
  * The whole command set: eleven commands, no gaps. */
 typedef enum {
@@ -174,7 +207,20 @@ typedef struct {
   ap_qic_cartridge_t cartridge;
 
   /* "The drive shall remain selected until changed by another SELECT command or
-   * RESET" -- state, not a momentary action. */
+   * RESET" -- state, not a momentary action.
+   *
+   * **True means *this* drive is the selected one**, and false now means a
+   * different one is -- not that none is. `QIC-02 Rev D` §4.2.1: "When the
+   * power-on reset times out or when the reset pulse terminates, the device
+   * initializes operating parameters and **defaults to drive 0 for subsequent
+   * commands**", which §3.5's pin 32 says again of the RESET line itself
+   * ("causes device initialization to be performed, default selection to device
+   * 0"). This model came up deselected and refused every command until a SELECT
+   * arrived; a real drive obeys a READ issued straight after a reset.
+   *
+   * So false is now a state a host can *ask* for -- SELECT drive 2 on a machine
+   * with one drive -- and it is what makes `USL` reachable. See the drive-mask
+   * note above `AP_QIC_CMD_SELECT`. */
   bool selected;
   bool soft_lock;
   /* **QIC-24 out of reset, and that is Apollo's jumper rather than a default.**
@@ -209,11 +255,17 @@ typedef struct {
    * fact this model does not carry:
    *
    *   a. "SELECT command issued with no drives or more than one drive
-   *      indicated" -- this drive's SELECT names no drive mask, so there is no
-   *      count to be wrong.
+   *      indicated" -- **reachable, and now implemented.** This was recorded as
+   *      "this drive's SELECT names no drive mask, so there is no count to be
+   *      wrong", which was wrong: §4.2.2 titles the command `SELECT COMMAND
+   *      (0000 DRIVE)` and the low nibble is a one-hot drive mask. `0000 0000`
+   *      indicates no drives and `0000 0011` indicates two.
    *   b. "ONLINE not asserted when a WRITE, WRITE FILE MARK, READ or READ FILE
    *      MARK command is issued" -- ONLINE is a QIC-02 interface line and this
-   *      model has the command layer, not the pin.
+   *      model has the command layer, not the pin. §3.5 pin 28 confirms it is a
+   *      pin: "host generated control signal which is activated prior to
+   *      transferring a READ or WRITE command and deactivated to terminate that
+   *      READ or WRITE command".
    *   c,d. a command other than the transfer's own issued "during the execution
    *      of a Write/Read Data Sequence" -- `reading` and `writing` do say when a
    *      sequence is live, but the standard's list of what is *permitted*
@@ -221,12 +273,15 @@ typedef struct {
    *      MARK implemented, and both are refused here for want of file marks in
    *      a `.ct`. Modelling the rule with two of its four allowed commands
    *      missing would report as illegal a sequence the real drive accepts.
+   *      And the sequence's *end* is a pin too: §4.2.7 and §4.2.8 both have the
+   *      host terminate the transfer "by deactivating ONLINE".
    *   e. "a drive is deselected by another SELECT command when the cartridge
-   *      ... is not at beginning of tape" -- one drive, so nothing deselects
-   *      another.
+   *      ... is not at beginning of tape" -- **reachable, and now implemented**,
+   *      for the same reason as (a). It was recorded as "one drive, so nothing
+   *      deselects another"; the drive mask is what deselects it.
    *
-   * So the latch is one cause of six, and that is a statement about the
-   * interface this model has rather than an omission. */
+   * So the latch is three causes of six rather than one, and the two that
+   * remain are pins this model does not have rather than facts it lacks. */
   bool illegal_command;
   /* ## `no_data`: the read that found blank tape
    *
