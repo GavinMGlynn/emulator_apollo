@@ -5747,6 +5747,25 @@ same number is what let them diverge once already.
       (a) wins is one guard in `ap_ring_station.c`; `ring_station_suite` and
       `ring_ctl_suite` both have the two-arm tests to extend.*
 
+- [ ] **`doc_claims` checks test counts in table rows only, and the counts in
+      prose are the ones that rot.** `check_docs.py` skips every line that does
+      not start with `| `, so a subsystem row is verified and the
+      `*Verification: `x_suite`, N tests*` line under a status entry is not.
+      Found 2026-08-21 the expensive way: three `model_suite` counts said 21
+      against 22, and the checker flagged the one in the table. The other two sat
+      in prose, as does the *"working, 9 models"* claim that had been wrong for
+      longer.
+      **The naive fix is a no-op and was tried**: the claim regex requires a
+      comma, so widening it to `,?` matches nineteen more claims — and every one
+      is still excluded by the table-row filter, leaving the checked count
+      unchanged at 3141. The filter is the thing, not the regex.
+      **What makes this real work** is that prose legitimately carries *deltas*:
+      "`step_suite` +1", "`step_suite` 4 tests updated", "10 further tests (51
+      total)". A checker that reads prose must tell a total from a delta or it
+      will fail on correct text — which is presumably why the filter exists.
+      *Verification: a stale count in a `*Verification:*` line fails
+      `doc_claims`, and the three delta forms above do not.*
+
 - [ ] **Transcribe the Low-Profile Model II keyboard charts.** `002398-04`
       p. 6-13 (ASCII mode) and p. 6-14 (keystate mode) are 16x16 tables giving
       the whole keyboard both ways: code to key, and ASCII byte to key plus
