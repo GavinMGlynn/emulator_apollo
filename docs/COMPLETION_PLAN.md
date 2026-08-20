@@ -5911,6 +5911,18 @@ below; everything else it found is implemented and recorded in
       relative mode only", and the quadrature mouse is "the standard pointing
       device for the *Domain System*", so the standard configuration never
       reaches Mode 3.
+      **`002398-04` p. 6-20 adds the Mode 0 form and three parameters** (added
+      2026-08-20). The touchpad is the absolute device, and its packet is
+      `E8` followed by Figure 13-7's `B2`, `B3` and `B4` **unchanged** -- so an
+      absolute builder writes the same three coordinate bytes in both modes and
+      differs only in what precedes them, a button byte in Mode 3 and the escape
+      in Mode 0. That is what `AP_KBD_MOUSE_ESCAPE_ABSOLUTE` was defined for and
+      why nothing used it. The page also gives what no figure does: about **30
+      data points per second**, the device shares **SIO port zero with the
+      keyboard at 1200 baud**, and **X and Y range approximately 30 to 1100** --
+      not 0 to 4095, so a frontend scaling a window to the full twelve bits puts
+      the pointer off the pad at both ends. Transcribed in `ap_kbd.h`; no further
+      page render is needed for either mode.
 - [ ] **The keyboard's N-key rollover and its 16-byte buffer.** *(Scoped
       2026-08-20: the buffer is **not** a local change to `ap_kbd`. Its whole
       observable effect is back-pressure, and the thing that would apply it is

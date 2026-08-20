@@ -337,7 +337,45 @@ void ap_kbd_reset(ap_kbd_t *kbd);
  * One erratum, recorded so a later reader does not follow it: Figure 13-6's
  * legend reads "X0 to X7 = **Y** coordinate ... Y0 to Y7 = Y coordinate". The
  * first is X, as Figure 13-4's identical legend prints correctly one page
- * earlier. */
+ * earlier.
+ *
+ * ## And the **Mode 0** absolute packet, which is a different packet
+ *
+ * `AP_KBD_MOUSE_ESCAPE_ABSOLUTE` has been defined here and used by nobody, and
+ * the reason is now clear: the packet it introduces was never transcribed.
+ * Figure 13-7 above is *Mode 3*, where "all transmissions are absolute" so there
+ * is no escape and `B1` carries the buttons. In Mode 0 the escape is what
+ * distinguishes pointing data from key codes, and it takes `B1`'s place.
+ *
+ * `002398-04` p. 6-20 gives that form, for the **touchpad** -- an absolute
+ * device with no buttons, which is why nothing displaces the escape:
+ *
+ *     BYTE 0   escape code E8
+ *     BYTE 1   lo 8 bits of X
+ *     BYTE 2   [7:4] lo bits of Y   [3:0] hi 4 bits of X
+ *     BYTE 3   hi 8 bits of Y
+ *
+ * **Bytes 1-3 are Figure 13-7's `B2`, `B3` and `B4` unchanged** -- X twelve bits
+ * across byte 1 and byte 2's low nibble, Y twelve bits across byte 2's high
+ * nibble and byte 3. Two documents, two modes, one coordinate encoding. So an
+ * absolute builder writes the same three bytes either way and differs only in
+ * what precedes them: `E8` in Mode 0, a button byte in Mode 3.
+ *
+ * The same page gives three things `008778-03` does not, and an implementation
+ * needs all of them:
+ *
+ *   - **"approximately 30 data points per second"** -- the report rate, where
+ *     the relative device is event-driven.
+ *   - **"through the same SIO port (zero) as the keyboard, at a speed of 1200
+ *     baud"** -- so absolute data shares the keyboard's line, which is what
+ *     makes the escape necessary and what a board entry must respect.
+ *   - **"The range of X and Y coordinates is approximately 30 to 1100"** -- not
+ *     0 to 4095. A frontend scaling its window to the full twelve bits would
+ *     put the pointer off the pad at both ends.
+ *
+ * Still not implemented, and the gap is unchanged in shape: this core has no
+ * absolute pointing device. What the page removes is the excuse that the packet
+ * was unknown. */
 [[nodiscard]] unsigned ap_kbd_mouse_packet(const ap_kbd_t *kbd, int dx, int dy,
                                            bool left, bool middle, bool right,
                                            uint8_t *out);
