@@ -8,6 +8,7 @@
 
 #include "device/ap_kbd.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "unity.h"
@@ -749,6 +750,232 @@ static void test_the_keystate_chart_names_its_codes(void) {
   TEST_ASSERT_EQUAL_UINT(106u, named);
 }
 
+
+/* ---- `002398-04` p. 6-13, the ASCII chart -------------------------------- */
+
+/* The page's 256 cells, indexed by the byte the keyboard emits, exactly as
+ * printed -- including its `AB` at `C7`, which is a typo, and its `^D14` and
+ * `^D13`, which disagree with Table 12-1. Read from the page image at the
+ * scan's native 600 ppi. `nullptr` is a blank cell. */
+static const char *const P613[256] = {
+      nullptr,     "^D2",     "^E6",     "^E4",  /* 00 */
+        "^D4",     "^C4",     "^D5",     "^D6",  /* 04 */
+        "^D7",     "^C9",     "^D8",     "^D9",  /* 08 */
+       "^D10",     "^E8",     "^E7",    "^C10",  /* 0C */
+       "^C11",     "^C2",     "^C5",     "^D3",  /* 10 */
+        "^C6",     "^C8",     "^E5",     "^C3",  /* 14 */
+        "^E3",     "^C7",     "^E2",      "B1",  /* 18 */
+         "A0",    "^C13",    "^B14",      "A9",  /* 1C */
+         "F1",     "+B2",   nullptr,     "+B4",  /* 20 */
+        "+B5",     "+B6",     "+B8",     "D12",  /* 24 */
+       "+B10",    "+B11",     "+B9",    "+B13",  /* 28 */
+         "E9",     "B12",     "E10",     "+A9",  /* 2C */
+        "B11",      "B2",      "B3",      "B4",  /* 30 */
+         "B5",      "B6",      "B7",      "B8",  /* 34 */
+         "B9",     "B10",   nullptr,     "D11",  /* 38 */
+        "+E9",     "B13",    "+E10",     "^A9",  /* 3C */
+        "+B3",     "+D2",     "+E6",     "+E4",  /* 40 */
+        "+D4",     "+C4",     "+D5",     "+D6",  /* 44 */
+        "+D7",     "+C9",     "+D8",     "+D9",  /* 48 */
+       "+D10",     "+E8",     "+E7",    "+C10",  /* 4C */
+       "+C11",     "+C2",     "+C5",     "+D3",  /* 50 */
+        "+C6",     "+C8",     "+E5",     "+C3",  /* 54 */
+        "+E3",     "+C7",     "+E2",    "+C12",  /* 58 */
+        "+A0",    "+C13",     "+B7",    "+B12",  /* 5C */
+        "B14",      "D2",      "E6",      "E4",  /* 60 */
+         "D4",      "C4",      "D5",      "D6",  /* 64 */
+         "D7",      "C9",      "D8",      "D9",  /* 68 */
+        "D10",      "E8",      "E7",     "C10",  /* 6C */
+        "C11",      "C2",      "C5",      "D3",  /* 70 */
+         "C6",      "C8",      "E5",      "C3",  /* 74 */
+         "E3",      "C7",      "E2",     "C12",  /* 78 */
+        "^A0",     "C13",    "+B14",     "C14",  /* 7C */
+        "E13",     "LA0",     "LA1",     "LA2",  /* 80 */
+        "LC0",     "LC1",     "LC2",     "LD0",  /* 84 */
+        "LD1",     "LD2",     "LE0",     "LE1",  /* 88 */
+        "LE2",     "LF0",     "LF1",     "LF2",  /* 8C */
+       "+E13",    "+LA0",    "+LA1",    "+LA2",  /* 90 */
+       "+LC0",    "+LC1",    "+LC2",    "+LD0",  /* 94 */
+       "+LD1",    "+LD2",    "+LE0",    "+LE1",  /* 98 */
+       "+LE2",    "+LF0",    "+LF1",    "+LF2",  /* 9C */
+       ":E13",    ":LA0",    ":LA1",    ":LA2",  /* A0 */
+       ":LC0",    ":LC1",    ":LC2",    ":LD0",  /* A4 */
+       ":LD1",    ":LD2",    ":LE0",    ":LE1",  /* A8 */
+       ":LE2",    ":LF0",    ":LF1",    ":LF2",  /* AC */
+        "LB0",     "LB1",     "LB2",     "RA4",  /* B0 */
+       "+LB0",    "+LB1",    "+LB2",    "+RA4",  /* B4 */
+       ":LB0",    ":LB1",    ":LB2",    ":RA4",  /* B8 */
+        ":A0",     ":A9",   nullptr,   nullptr,  /* BC */
+         "A1",      "A2",      "A3",      "A4",  /* C0 */
+         "A5",      "A6",      "A7",      "AB",  /* C4 */
+        "D14",   nullptr,      "C1",     "D13",  /* C8 */
+        "E11",     "RA0",     "RA1",     "RA2",  /* CC */
+        "+A1",     "+A2",     "+A3",     "+A4",  /* D0 */
+        "+A5",     "+A6",     "+A7",     "+A8",  /* D4 */
+      nullptr,   nullptr,     "+C1",   nullptr,  /* D8 */
+       "+E11",   nullptr,     "B15",   nullptr,  /* DC */
+        ":A1",     ":A2",     ":A3",     ":A4",  /* E0 */
+        ":A5",     ":A6",     ":A7",     ":A8",  /* E4 */
+      nullptr,    "+RA0",    "+RA1",    "+RA2",  /* E8 */
+       "+RA3",    ":RA0",    ":RA1",    ":RA2",  /* EC */
+        "^A1",     "^A2",     "^A3",     "^A4",  /* F0 */
+        "^A5",     "^A6",     "^A7",     "^A8",  /* F4 */
+       "^D14",   nullptr,     "^C1",    "^D13",  /* F8 */
+       "^E11",    ":RA3",   nullptr,   nullptr,  /* FC */
+};
+
+/* The chart's own legend: "+ = Shift  ^ = Control  : = Up transition". */
+static ap_kbd_mod_t p613_modifier(const char *cell) {
+  switch (cell[0]) {
+    case '+': return AP_KBD_MOD_SHIFT;
+    case '^': return AP_KBD_MOD_CONTROL;
+    case ':': return AP_KBD_MOD_UP_TRANS;
+    default: return AP_KBD_MOD_NONE;
+  }
+}
+
+static const char *p613_key(const char *cell) {
+  return strchr("+^:", cell[0]) != nullptr ? cell + 1 : cell;
+}
+
+/* The whole page, cell by cell, against the map computed from Table 12-1.
+ * Every named cell agrees except the three the header names, and those three
+ * are asserted to differ in exactly the documented way -- so neither a silent
+ * agreement nor a silent divergence can survive. */
+static void test_the_ascii_chart_agrees_with_table_12_1(void) {
+  unsigned named = 0, agreed = 0;
+  for (unsigned code = 0; code < 256; code++) {
+    const char *cell = P613[code];
+    if (cell == nullptr) {
+      continue;
+    }
+    named++;
+    const ap_kbd_ascii_t *key = nullptr;
+    ap_kbd_mod_t mod = AP_KBD_MOD_NONE;
+    TEST_ASSERT_TRUE(ap_kbd_ascii_decode((uint16_t)code, &key, &mod));
+    if (code == 0xC7u || code == 0xF8u || code == 0xFBu) {
+      continue; /* the three findings, asserted individually below */
+    }
+    TEST_ASSERT_EQUAL_STRING(p613_key(cell), key->key);
+    TEST_ASSERT_EQUAL_UINT(p613_modifier(cell), mod);
+    agreed++;
+  }
+  TEST_ASSERT_EQUAL_UINT(241u, named);
+  TEST_ASSERT_EQUAL_UINT(238u, agreed);
+}
+
+/* `C7` prints `AB`, and no key `AB` exists: p. 6-12's map runs `A0`-`A9`. It is
+ * `A8`, which is also the only value that closes the `A1`-`A8` block at
+ * `C0`-`C7`. */
+static void test_the_chart_s_ab_is_a8_misprinted(void) {
+  TEST_ASSERT_EQUAL_STRING("AB", P613[0xC7]);
+  TEST_ASSERT_NULL(ap_kbd_ascii_find("AB"));
+
+  const ap_kbd_ascii_t *key = nullptr;
+  ap_kbd_mod_t mod = AP_KBD_MOD_SHIFT;
+  TEST_ASSERT_TRUE(ap_kbd_ascii_decode(0xC7u, &key, &mod));
+  TEST_ASSERT_EQUAL_STRING("A8", key->key);
+  TEST_ASSERT_EQUAL_UINT(AP_KBD_MOD_NONE, mod);
+
+  /* The block it completes. */
+  for (unsigned i = 0; i < 8; i++) {
+    char name[4];
+    (void)snprintf(name, sizeof name, "A%u", i + 1);
+    TEST_ASSERT_EQUAL_UINT16((uint16_t)(0xC0u + i),
+                             ap_kbd_ascii_find(name)->unshifted);
+  }
+}
+
+/* The one place the two manuals name different keys for the same byte. The
+ * decode follows Table 12-1; the chart's reading is recorded beside it so the
+ * disagreement is a fact under test rather than a sentence in a comment. */
+static void test_two_control_codes_are_claimed_by_two_different_keys(void) {
+  TEST_ASSERT_EQUAL_STRING("^D14", P613[0xF8]);
+  TEST_ASSERT_EQUAL_STRING("^D13", P613[0xFB]);
+
+  const ap_kbd_ascii_t *key = nullptr;
+  ap_kbd_mod_t mod = AP_KBD_MOD_NONE;
+  TEST_ASSERT_TRUE(ap_kbd_ascii_decode(0xF8u, &key, &mod));
+  TEST_ASSERT_EQUAL_STRING("D12", key->key);
+  TEST_ASSERT_EQUAL_UINT(AP_KBD_MOD_CONTROL, mod);
+  TEST_ASSERT_TRUE(ap_kbd_ascii_decode(0xFBu, &key, &mod));
+  TEST_ASSERT_EQUAL_STRING("D11", key->key);
+  TEST_ASSERT_EQUAL_UINT(AP_KBD_MOD_CONTROL, mod);
+
+  /* Neither key the chart names has a control code of its own in Table 12-1,
+   * which is what leaves the byte free for the other reading. */
+  TEST_ASSERT_EQUAL_UINT16(AP_KBD_NO_CODE, ap_kbd_ascii_find("D13")->control);
+  TEST_ASSERT_EQUAL_UINT16(AP_KBD_NO_CODE, ap_kbd_ascii_find("D14")->control);
+}
+
+/* Five bytes Table 12-1 defines that the page leaves blank -- four of them the
+ * shifted forms of `D11`-`D14`, the fifth `RA3` unshifted. Every defect on the
+ * page is in that one region. */
+static void test_the_chart_omits_five_codes_the_sibling_manual_has(void) {
+  static const struct {
+    uint16_t code;
+    const char *key;
+    ap_kbd_mod_t mod;
+  } OMITTED[] = {
+      {0x22u, "D12", AP_KBD_MOD_SHIFT}, /* the double quote */
+      {0x3Au, "D11", AP_KBD_MOD_SHIFT}, /* the colon */
+      {0xC9u, "D14", AP_KBD_MOD_SHIFT}, {0xDBu, "D13", AP_KBD_MOD_SHIFT},
+      {0xDDu, "RA3", AP_KBD_MOD_NONE},
+  };
+  for (unsigned i = 0; i < sizeof OMITTED / sizeof OMITTED[0]; i++) {
+    TEST_ASSERT_NULL(P613[OMITTED[i].code]);
+    const ap_kbd_ascii_t *key = nullptr;
+    ap_kbd_mod_t mod = AP_KBD_MOD_NONE;
+    TEST_ASSERT_TRUE(ap_kbd_ascii_decode(OMITTED[i].code, &key, &mod));
+    TEST_ASSERT_EQUAL_STRING(OMITTED[i].key, key->key);
+    TEST_ASSERT_EQUAL_UINT(OMITTED[i].mod, mod);
+  }
+}
+
+/* The round trip the chart is for: a byte to key-plus-modifier and back to the
+ * same byte, over every cell the page names. */
+static void test_a_byte_decodes_to_a_key_that_sends_it_back(void) {
+  unsigned round = 0;
+  for (unsigned code = 0; code < 256; code++) {
+    if (P613[code] == nullptr) {
+      continue;
+    }
+    const ap_kbd_ascii_t *key = nullptr;
+    ap_kbd_mod_t mod = AP_KBD_MOD_NONE;
+    TEST_ASSERT_TRUE(ap_kbd_ascii_decode((uint16_t)code, &key, &mod));
+    TEST_ASSERT_EQUAL_UINT16((uint16_t)code, ap_kbd_ascii_code(key, mod));
+    round++;
+  }
+  TEST_ASSERT_EQUAL_UINT(241u, round);
+}
+
+/* A byte no key sends is refused rather than answered with the first row, and
+ * the keypad's two-byte codes decode by their full value. */
+static void test_an_unreachable_byte_decodes_to_nothing(void) {
+  const ap_kbd_ascii_t *key = nullptr;
+  ap_kbd_mod_t mod = AP_KBD_MOD_NONE;
+  TEST_ASSERT_FALSE(ap_kbd_ascii_decode(0x00u, &key, &mod));
+  TEST_ASSERT_FALSE(ap_kbd_ascii_decode(AP_KBD_NO_CODE, &key, &mod));
+
+  TEST_ASSERT_TRUE(ap_kbd_ascii_decode(0xFE37u, &key, &mod));
+  TEST_ASSERT_EQUAL_STRING("RC1", key->key);
+  TEST_ASSERT_EQUAL_UINT(AP_KBD_MOD_NONE, mod);
+}
+
+/* `1B` is `B1` unshifted and `C12` control both. The chart names `B1`, and the
+ * decode's ordering is what reproduces that. */
+static void test_a_byte_two_keys_send_decodes_to_the_chart_s_choice(void) {
+  TEST_ASSERT_EQUAL_UINT16(0x1Bu, ap_kbd_ascii_find("B1")->unshifted);
+  TEST_ASSERT_EQUAL_UINT16(0x1Bu, ap_kbd_ascii_find("C12")->control);
+  TEST_ASSERT_EQUAL_STRING("B1", P613[0x1B]);
+
+  const ap_kbd_ascii_t *key = nullptr;
+  ap_kbd_mod_t mod = AP_KBD_MOD_SHIFT;
+  TEST_ASSERT_TRUE(ap_kbd_ascii_decode(0x1Bu, &key, &mod));
+  TEST_ASSERT_EQUAL_STRING("B1", key->key);
+  TEST_ASSERT_EQUAL_UINT(AP_KBD_MOD_NONE, mod);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_both_pointing_device_escapes_match_their_documents);
@@ -788,5 +1015,12 @@ int main(void) {
   RUN_TEST(test_the_caps_lock_lamp_follows_the_keys_two_transitions);
   RUN_TEST(test_the_caps_lock_codes_fall_out_of_the_ordinary_encoding);
   RUN_TEST(test_a_repeated_press_cannot_desynchronise_the_lamp);
+  RUN_TEST(test_the_ascii_chart_agrees_with_table_12_1);
+  RUN_TEST(test_the_chart_s_ab_is_a8_misprinted);
+  RUN_TEST(test_two_control_codes_are_claimed_by_two_different_keys);
+  RUN_TEST(test_the_chart_omits_five_codes_the_sibling_manual_has);
+  RUN_TEST(test_a_byte_decodes_to_a_key_that_sends_it_back);
+  RUN_TEST(test_an_unreachable_byte_decodes_to_nothing);
+  RUN_TEST(test_a_byte_two_keys_send_decodes_to_the_chart_s_choice);
   return UNITY_END();
 }

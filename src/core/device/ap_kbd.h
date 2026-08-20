@@ -429,6 +429,76 @@ typedef struct {
 [[nodiscard]] const ap_kbd_ascii_t *ap_kbd_ascii_at(unsigned index);
 [[nodiscard]] const ap_kbd_ascii_t *ap_kbd_ascii_find(const char *key);
 
+/* ---- The inverse, and `002398-04` p. 6-13 --------------------------------- */
+
+/* Table 12-1 is key-major: given a key and a modifier it gives the byte. A
+ * frontend synthesising a keystroke has the byte and wants the key, and
+ * `002398-04` p. 6-13 prints exactly that -- the same map transposed, 256 cells
+ * indexed by the emitted byte, each naming a key under an optional `^`
+ * (control), `+` (shift) or `:` (up transition) prefix.
+ *
+ * It is **not** transcribed as a second table. Two tables of one fact drift,
+ * and the drift is silent. The inverse is computed from Table 12-1 by
+ * `ap_kbd_ascii_decode`, and p. 6-13 is spent instead on *checking* it: the
+ * suite walks all 241 named cells of that page against the computed answer.
+ * 238 agree exactly. The three that do not, and the five the page omits, are
+ * findings about the page and are listed below -- each asserted individually,
+ * so this paragraph cannot rot without a test going red.
+ *
+ * **`C7` is a typographical error.** The page prints `AB`. No key `AB` exists:
+ * p. 6-12's own key-number map runs `A0`-`A9`. `A1`-`A8` occupy `C0`-`C7`
+ * unshifted, `D0`-`D7` shifted, `E0`-`E7` up and `F0`-`F7` control, and `C7`
+ * is the one break in that block. Table 12-1 and MAME both read `A8`. Decoded
+ * as `A8`.
+ *
+ * **`F8` and `FB` are attributed to different keys by the two manuals**, and
+ * this is a real disagreement rather than a misreading -- the cells were
+ * re-rendered at the scan's native 600 ppi beside known `D11`/`D12`/`D13`/`D14`
+ * cells and the digits are unambiguous.
+ *
+ *   - `F8`: p. 6-13 says `^D14`, Table 12-1 and MAME say `D12` control.
+ *   - `FB`: p. 6-13 says `^D13`, Table 12-1 and MAME say `D11` control.
+ *
+ * The boot PROM's own table does not settle it and pulls both ways: it maps
+ * `F8` to backslash alongside `C8` and `D8`, which are `D14`'s -- favouring
+ * p. 6-13 -- but maps `FB` to ESC rather than to CR alongside RETURN's `CB`
+ * and `DB`, which argues `FB` is not `D13`'s. `PROVISIONAL`: the decode follows
+ * Table 12-1, being the newer and model-specific document, and the open
+ * question is named in `PROJECT_STATUS.md`. Closing it wants the keyboard's own
+ * specification, which this project does not have.
+ *
+ * **Five bytes Table 12-1 defines are blank on p. 6-13**: `22` (`"`), `3A`
+ * (`:`), `C9`, `DB` and `DD`. Verified blank at 600 ppi -- no faint stroke the
+ * scan's 1-bit JBIG2 coding dropped. Four are the shifted forms of `D11`-`D14`
+ * and the fifth is `RA3` unshifted, so every defect on the page falls in the
+ * `D11`-`D14`/`RA3`/`A8` region and nowhere else. Decoding answers from
+ * Table 12-1, which has them. */
+
+/* Which column of Table 12-1 a byte came from. `caps_lock` is not decodable:
+ * its column duplicates `unshifted` or `shifted` for every key in the table, so
+ * no byte ever names it. */
+typedef enum {
+  AP_KBD_MOD_NONE = 0,
+  AP_KBD_MOD_SHIFT,
+  AP_KBD_MOD_CONTROL,
+  AP_KBD_MOD_UP_TRANS,
+} ap_kbd_mod_t;
+
+/* The code `key` sends under `mod`, or `AP_KBD_NO_CODE` for a dash. */
+[[nodiscard]] uint16_t ap_kbd_ascii_code(const ap_kbd_ascii_t *key,
+                                         ap_kbd_mod_t mod);
+
+/* The key and modifier that send `code`, false when nothing does.
+ *
+ * A byte can be reachable more than one way -- `1B` is `B1` unshifted and also
+ * `C12` control -- so the search is ordered: unshifted, then shifted, then
+ * control, then up transition, taking the table's own order within each. That
+ * rule is not a preference invented here. It is what reproduces p. 6-13's
+ * choice of name in all 238 cells where the two documents agree. */
+[[nodiscard]] bool ap_kbd_ascii_decode(uint16_t code,
+                                       const ap_kbd_ascii_t **key,
+                                       ap_kbd_mod_t *mod);
+
 /* What the boot PROM makes of a code the keyboard sends, per its own table.
  * `AP_KBD_NO_CODE` when the code is not one of the twenty -- which for an
  * ordinary character means it passes through unchanged, since the ASCII set

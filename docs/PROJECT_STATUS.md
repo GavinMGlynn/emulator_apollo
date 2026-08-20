@@ -433,6 +433,87 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## p. 6-13's ASCII chart: transcribed, then used to check rather than kept
+## (2026-08-21)
+
+The second half of the Low-Profile Model II keyboard work. p. 6-13 is Table
+12-1 transposed: 256 cells indexed by the byte the keyboard emits, each naming a
+key under an optional `^` control, `+` shift or `:` up-transition prefix. It is
+what a frontend needs to synthesise a keystroke, which this project had been
+guessing at.
+
+### The blocker was render resolution, and it had been misdiagnosed for days
+
+The chart was deferred repeatedly as "256 cells is more data than a session can
+check". That was wrong. `pdfimages -list` reports the page's own scan as
+**2585x3641 at 600 ppi**; every render made of it had been 200 dpi, including
+the one named `ascii400-129.png`. At 200 the cells are marginal and each reading
+disagreed with the last, which read as the *task* being unreliable rather than
+the *instrument*. Rendered at the scan's native 600 and cut into cell-exact
+bands off the detected grid lines, the transcription was mechanical and took one
+pass. **The measurement to make first is of the instrument, not the subject** —
+the same lesson the keystate half taught at 150 dpi and this half taught again
+at 200.
+
+### It is not stored as a second table, and that is the point
+
+Two tables of one fact drift, and the drift is silent. `008778-03` Table 12-1
+already holds this map key-major, so the inverse is *computed* —
+`ap_kbd_ascii_decode` searches unshifted, then shifted, then control, then up
+transition — and p. 6-13 is spent on checking that computation. The search order
+is not a preference invented here: it is the rule that reproduces the page's own
+choice of name in all 238 cells where the two documents agree, including `1B`,
+which both `B1` unshifted and `C12` control can send.
+
+### What the cross-check found: three defects, all in one region
+
+238 of the 241 named cells agree with a manual typeset separately three years
+apart. The exceptions:
+
+| Byte | p. 6-13 | `008778-03` + MAME | Verdict |
+| --- | --- | --- | --- |
+| `C7` | `AB` | `A8` unshifted | **typo**; decode as `A8` |
+| `F8` | `^D14` | `D12` control | **unsettled**, `PROVISIONAL` |
+| `FB` | `^D13` | `D11` control | **unsettled**, `PROVISIONAL` |
+
+`AB` is a typo and not a disagreement: p. 6-12's key-number map runs `A0`-`A9`,
+so no key `AB` exists, and `A1`-`A8` occupy `C0`-`C7` unshifted with `C7` the
+single break in the block. Two sources and the block's own regularity agree.
+
+`F8` and `FB` are a real disagreement, not a misreading — both cells were
+re-rendered at 600 ppi beside known `D11`/`D12`/`D13`/`D14` cells and the digits
+are unambiguous. **The boot PROM does not settle it and pulls both ways**: its
+translation table maps `F8` to backslash alongside `C8` and `D8`, which are
+`D14`'s, favouring p. 6-13; but maps `FB` to ESC rather than to CR alongside
+RETURN's `CB` and `DB`, which argues `FB` is not `D13`'s. The decode follows
+Table 12-1 as the newer and model-specific document. **Closing this wants the
+keyboard's own specification, which this project does not have** — that is the
+named gap, and it is the whole of it.
+
+A further five bytes Table 12-1 defines are **blank** on p. 6-13 — `22` (`"`),
+`3A` (`:`), `C9`, `DB`, `DD` — verified blank at 600 ppi rather than assumed, so
+this is not the 1-bit JBIG2 coding having dropped a light stroke. Four are the
+shifted forms of `D11`-`D14` and the fifth is `RA3` unshifted. Every defect on
+the page falls in the `D11`-`D14`/`RA3`/`A8` region and nowhere else, which is
+a coherent story about that page rather than eight unrelated errors.
+
+### A structural claim from the previous commit was wrong
+
+That commit recorded "the columns group by modifier", with a per-column list.
+They do not. The modifier on a cell follows from *which ASCII code the cell is*
+— `3C` is `+E9` because `<` is shift-comma — so a column holds a run of one
+modifier only where the ASCII block it covers happens to be uniform. The claim
+held for the top rows it was read from and broke below them. Corrected here;
+nothing was built on it.
+
+*Verification: `kbd_suite` 37 -> 44. All 241 named cells round-trip — byte to
+key-plus-modifier and back to the same byte — the three findings are each
+asserted individually so neither a silent agreement nor a silent divergence can
+survive, and the five omitted codes are asserted blank on the page and present
+in the decode. Independently, the 26 letter keys and the digit row reproduce
+ASCII exactly, which checks the row/column indexing against something outside
+either manual.*
+
 ## The DN4000 (DS4000) row, and where each of its fields comes from
 ## (2026-08-21)
 

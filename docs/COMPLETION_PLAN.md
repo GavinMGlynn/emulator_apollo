@@ -5761,32 +5761,22 @@ same number is what let them diverge once already.
       false — one then read `22 tests, two of which now cover eleven models`,
       mixing today's count with that day's model total. Both reverted.
 
-- [ ] **Transcribe the Low-Profile Model II keyboard charts.** *Half done
-      2026-08-21*: p. 6-14's **keystate chart is transcribed** —
-      `ap_kbd_key_name` names 106 of the 128 codes and refuses the 22 the
-      document leaves blank. Read from a **400 dpi** render in two crops; at the
-      walk's usual 150 the cells are not reliably legible, and that is part of
-      the method rather than a convenience. *Verification: `kbd_suite` 37,
-      spot-checking the corners, the column-major order, `7E` = `LED ON`, that a
-      release answers its key's name, and the count.*
-      *Remaining*: p. 6-13's **ASCII chart**, the inverse map a frontend needs to
-      synthesise a keystroke. Rendered at 400 dpi and read far enough to pin its
-      **structure**, so the transcription itself is now mechanical:
-      - Same layout as the keystate chart — **column is the high nibble, row the
-        low** — but indexed by the byte the *keyboard emits*, not by scan code.
-      - Each cell is a key name under an optional prefix: **`^` control, `+`
-        shift, `:` up transition**, and bare for unmodified.
-      - The columns group by modifier rather than scattering it. Reading down
-        the top rows: `0`-`1` carry `^` forms, `2`/`4`/`5` carry `+` forms,
-        `3`/`6`/`7` are bare, `8` bare, `9` `+`, `A` `:`, `B` bare, `C` bare,
-        `D` `+`, `E` `:`, `F` `^`. So one key appears several times under
-        different modifiers, which is what makes this a *byte to key+modifier*
-        map and not a permutation of the keystate chart.
-      - `00` is blank, as it is on p. 6-14.
-      256 cells with a prefix each is more data than the keystate half; it wants
-      a session with room to check its own work rather than the tail of one.
-      *Verification when it lands: the round trip — ASCII byte to
-      key-plus-modifier and back to the same byte, over every named cell.*
+- [x] **Transcribe the Low-Profile Model II keyboard charts.** Both halves are
+      done. p. 6-14's **keystate chart**: `ap_kbd_key_name` names 106 of the 128
+      codes and refuses the 22 the page leaves blank. p. 6-13's **ASCII chart**:
+      transcribed cell by cell, then spent on *checking* rather than stored — the
+      inverse map a frontend needs is computed from `008778-03` Table 12-1 by
+      `ap_kbd_ascii_decode`, and the page's 241 named cells verify it. 238 agree
+      exactly; the three that do not are a typo (`C7` prints `AB` for a key that
+      does not exist) and a real two-manual disagreement over `F8`/`FB`, left
+      `PROVISIONAL` with the firmware evidence pulling both ways.
+      The unlock was **render resolution**, not effort: the scan is 600 ppi and
+      every earlier render was 200, which is why the cells kept reading as
+      illegible and the work kept being deferred.
+      *Verification: `kbd_suite` 37 -> 44 — the round trip over all 241 named
+      cells, the three findings each asserted individually so neither a silent
+      agreement nor a silent divergence survives, and the five codes the page
+      omits.* Detail in `PROJECT_STATUS.md`.
 
 - [x] **Decode the posted diagnostic codes in `--boot-report`**, for the run the
       firmware is evidenced to post. `ap_boardreg_post_code_name` names `03`-`0C`

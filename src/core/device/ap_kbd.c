@@ -192,6 +192,45 @@ const ap_kbd_ascii_t *ap_kbd_ascii_find(const char *key) {
   return nullptr;
 }
 
+uint16_t ap_kbd_ascii_code(const ap_kbd_ascii_t *key, ap_kbd_mod_t mod) {
+  if (key == nullptr) {
+    return AP_KBD_NO_CODE;
+  }
+  switch (mod) {
+    case AP_KBD_MOD_NONE: return key->unshifted;
+    case AP_KBD_MOD_SHIFT: return key->shifted;
+    case AP_KBD_MOD_CONTROL: return key->control;
+    case AP_KBD_MOD_UP_TRANS: return key->up_trans;
+  }
+  return AP_KBD_NO_CODE;
+}
+
+bool ap_kbd_ascii_decode(uint16_t code, const ap_kbd_ascii_t **key,
+                         ap_kbd_mod_t *mod) {
+  /* Unshifted first, up transition last: `002398-04` p. 6-13's own choice of
+   * name wherever a byte is reachable two ways. */
+  static const ap_kbd_mod_t ORDER[] = {AP_KBD_MOD_NONE, AP_KBD_MOD_SHIFT,
+                                       AP_KBD_MOD_CONTROL,
+                                       AP_KBD_MOD_UP_TRANS};
+  if (code == AP_KBD_NO_CODE) {
+    return false;
+  }
+  for (unsigned m = 0; m < sizeof ORDER / sizeof ORDER[0]; m++) {
+    for (unsigned i = 0; i < ap_kbd_ascii_count(); i++) {
+      if (ap_kbd_ascii_code(&ASCII[i], ORDER[m]) == code) {
+        if (key != nullptr) {
+          *key = &ASCII[i];
+        }
+        if (mod != nullptr) {
+          *mod = ORDER[m];
+        }
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 /* The boot PROM's twenty-entry table, `FINDINGS.md` C109. Firmware behaviour,
  * transcribed here so `ap_kbd_encode` can consult it -- the part itself knows
  * nothing of this.
