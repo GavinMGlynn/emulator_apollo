@@ -733,6 +733,40 @@ static void test_the_transmit_rate_comes_from_the_channels_clock_select(void) {
   TEST_ASSERT_EQUAL_UINT(0u, ap_sio_transmit_baud(&sio, 0u, 2u));
 }
 
+/* ## The baud set is per *part*, and `002398-04` p. 7-32 says what that costs
+ *
+ * "When both SIO lines are being used, it is possible to have incompatible baud
+ * rates due to limitations of the SC2681 chip. One SIO line **can't** have a
+ * baud rate from Group A while the other SIO line is set from Group B" --
+ * Group A being 50 and 7200, Group B being 75, 150, 2000 and 19.2K.
+ *
+ * That is `ACR[7]` seen from the driver writer's side, and it is a constraint a
+ * model can silently lose: a per-channel copy of the set selection would let a
+ * machine reach a configuration the part cannot have, and nothing else in this
+ * suite would notice. The two channels are driven to the *same* code here on
+ * purpose -- what is under test is that one write to `ACR` moves both. */
+static void test_one_baud_set_serves_both_channels_of_a_part(void) {
+  ap_sio_t sio;
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
+
+  /* Code 0 is 50 baud in set one and 75 in set two -- p. 7-32's first entry in
+   * each group, and the pair a driver would most want to mix. */
+  ap_sio_write(&sio, AP_SIO1_ADDR + (1u << 1), 0x00u);  /* CSRA */
+  ap_sio_write(&sio, AP_SIO1_ADDR + (9u << 1), 0x00u);  /* CSRB */
+  ap_sio_write(&sio, AP_SIO1_ADDR + (4u << 1), 0x00u);  /* ACR[7] = 0 */
+  TEST_ASSERT_EQUAL_UINT(50u, ap_sio_transmit_baud(&sio, 0u, 0u));
+  TEST_ASSERT_EQUAL_UINT(50u, ap_sio_transmit_baud(&sio, 0u, 1u));
+
+  /* One write, both channels. There is no way to leave channel A in Group A. */
+  ap_sio_write(&sio, AP_SIO1_ADDR + (4u << 1), 0x80u);
+  TEST_ASSERT_EQUAL_UINT(75u, ap_sio_transmit_baud(&sio, 0u, 0u));
+  TEST_ASSERT_EQUAL_UINT(75u, ap_sio_transmit_baud(&sio, 0u, 1u));
+
+  /* And the other part is genuinely other: its own `ACR` still selects set one,
+   * so the constraint is per-DUART rather than per-machine. */
+  TEST_ASSERT_EQUAL_UINT(50u, ap_sio_transmit_baud(&sio, 1u, 0u));
+}
+
 /* **Both 2681s share one interrupt line, and `008778-03` Table 2-3 assigns that
  * line to *Port 1*.** Read as a page image the table has exactly one 2681 row --
  * `IRQ1 ... 2681 SIO Port 1` -- and its only other serial entries, `IRQ4 SPE
@@ -852,6 +886,7 @@ static void test_a_headless_variant_has_its_workstations_bank_layout(void) {
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_transmit_rate_comes_from_the_channels_clock_select);
+  RUN_TEST(test_one_baud_set_serves_both_channels_of_a_part);
   RUN_TEST(test_op7_can_carry_channel_bs_transmitter_ready);
   RUN_TEST(test_serial_ones_op7_is_the_diagnostic_interrupt);
   RUN_TEST(test_the_second_2681_asks_on_the_first_ones_interrupt_line);

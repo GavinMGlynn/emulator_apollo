@@ -355,7 +355,27 @@ void ap_mc68681_receive_at(ap_mc68681_t *duart, unsigned channel, uint8_t byte,
  *
  * `ACR[7]` picks between the two published sets. They agree on every code this
  * machine's firmware uses, which is why the autobaud below can be reasoned
- * about without settling which set is in force. */
+ * about without settling which set is in force.
+ *
+ * **The set is per *DUART*, not per channel, and `002398-04` p. 7-32 states the
+ * consequence rather than the mechanism**: "When both SIO lines are being used,
+ * it is possible to have incompatible baud rates due to limitations of the
+ * SC2681 chip. One SIO line **can't** have a baud rate from Group A while the
+ * other SIO line is set from Group B" --
+ *
+ *     Group A   50, 7200
+ *     Group B   75, 150, 2000, 19.2K
+ *
+ * That is `ACR[7]` seen from the driver writer's side, and this model gets it
+ * structurally right: `acr` is one field of `ap_mc68681_t` and both channels'
+ * rates are looked up against it. A per-channel copy would let a machine reach
+ * a configuration the part cannot have.
+ *
+ * The two groups are **subsets** of the codes where the tables differ, which
+ * are `0` (50/75), `3` (200/150), `7` (1050/2000), `10` (7200/1800) and `12`
+ * (38400/19200). The page names the rates Apollo's software actually asks for
+ * rather than enumerating the difference, so it confirms the tables below
+ * without being a second copy of them. */
 [[nodiscard]] unsigned ap_mc68681_baud(uint8_t csr_nibble, bool acr_set_two);
 
 /* The byte a receiver running at `receiver_baud` actually sees when a sender
