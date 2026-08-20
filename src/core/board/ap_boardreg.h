@@ -730,6 +730,36 @@ void ap_boardreg_set_normal_mode(ap_boardreg_t *regs, bool normal);
  * values, which is throwing away the one thing the firmware says about what
  * went wrong. The codes are kept now, oldest first, and a boot reports them.
  *
+ * **The firmware has a routine whose whole job is that alternation**, and it is
+ * named. `002398-04` p. 10-23 and p. 11-9 document the boot PROM's service table
+ * at offset `100`; every PROM in `roms/firmware/` carries it, and the DN3500's
+ * eleventh entry, **`led_update`, is `0000254E`**. Disassembled:
+ *
+ *     254E  2F0E             MOVE.L  A6,-(SP)
+ *     2550  6100 E0AC        BSR.W   $05FE
+ *     2554  6104             BSR.S   $255A
+ *     2556  2C5F             MOVE.L  (SP)+,A6
+ *     2558  4E75             RTS
+ *     255A  48E7 E0C0        MOVEM.L D0-D2/A0-A1,-(SP)
+ *     255E  0C2E 00FF 01C9   CMPI.B  #$FF,($1C9,A6)
+ *     2564  67E2             BEQ.S   $2548
+ *     2566  102E 01D5        MOVE.B  ($1D5,A6),D0
+ *     256A  E148             LSL.W   #8,D0
+ *     256C  102E 01D4        MOVE.B  ($1D4,A6),D0
+ *     2570  3D40 01D4        MOVE.W  D0,($1D4,A6)
+ *
+ * The three instructions from `2566` build a word whose high byte is the byte at
+ * `A6+$1D5` and whose low byte is the one at `A6+$1D4`, then store it back over
+ * both -- which on a big-endian bus **swaps the pair**. So the firmware keeps two
+ * display bytes and exchanges them each time `led_update` is called, guarded by
+ * a byte at `A6+$1C9` that suppresses the whole thing when it reads `FF`.
+ *
+ * That is the alternation described above, from the other side: it was inferred
+ * from the *observed write sequence*, and here is the code that produces it. Two
+ * codes, swapped, for ever -- which is why `AP_BOARDREG_POSTED_CODES` keeps
+ * distinct values in order rather than a ring of every write, and why a stuck
+ * machine shows exactly two.
+ *
  * **The byte is recorded exactly as written**, and that is deliberate. The post
  * routine complements what it displays, but the firmware also writes this
  * register *directly* in places -- `005EC8` and `005ED8` do, in the error
