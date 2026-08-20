@@ -77,7 +77,19 @@ static void test_only_the_68020_models_use_an_external_pmmu(void) {
 }
 
 /* A DSP is the same board without the display: that is what makes it the cheap
- * node type to run many of on an emulated ring. */
+ * node type to run many of on an emulated ring.
+ *
+ * **That sentence has a citation now.** `002398-04` p. 11-3 heads a CPU board
+ * drawing "**DN330, DSP90 CPU (APN 005373)**" -- one Apollo part number, two
+ * model names -- and p. 11-2's DSP80 configuration diagram has no display block
+ * in it at all, where every DN diagram in the handbook does. So Apollo really
+ * did build the server as its workstation sibling's board, and the subset
+ * relationship this table encodes is the vendor's own rather than a convenient
+ * simplification.
+ *
+ * The models on that page are an earlier generation than the ones below -- the
+ * DSP80/80A/90 pair with the DN330 -- so it corroborates the *principle* and not
+ * these particular pairings. The principle is what the table rests on. */
 static void test_every_dsp_model_is_headless(void) {
   for (size_t i = 0; i < ap_model_count(); ++i) {
     const ap_model_t *m = ap_model_by_id((ap_model_id_t)i);
