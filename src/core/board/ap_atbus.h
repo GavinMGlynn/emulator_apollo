@@ -109,6 +109,22 @@
  * for the handbook returns only the addendum again. It does not appear to be
  * public.
  *
+ * **What the walk added (2026-08-20): these handbooks are a numbered series.**
+ * `002398-04` p. 10-1 opens chapter 10 with "FOR INFORMATION SPECIFIC TO THE
+ * DN5xx-T NODES, REFER TO THE **DN570-T/DN580-T/DSP500-T HARDWARE ARCHITECTURE
+ * HANDBOOK (009490)**". So Apollo published a hardware architecture handbook
+ * *per family*, each with its own order number, and the Personal Workstations
+ * one is another member of that series rather than a one-off. Bitsavers holds
+ * `009492-00` and `009496-00` and **not** `009490`, so the sibling is missing
+ * too -- which is evidence that the series as a whole was not scanned, not that
+ * this particular volume is unusually rare.
+ *
+ * That turns "search for the handbook" into "search for an order number", which
+ * is a different and better-shaped search. `009490` is the only number of the
+ * series this walk has recovered so far; the Personal Workstations volume's is
+ * still unknown, and any later chapter of this handbook that cites it by number
+ * would close that gap.
+ *
  * The oracle: it does not know either, and says so in its own source.
  * `ext/mame/src/mame/apollo/apollo_m.cpp` instantiates the bus with the comment
  * **`// FIXME: determine ISA bus clock`**. A measurement against it would
