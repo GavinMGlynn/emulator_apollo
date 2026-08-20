@@ -299,12 +299,40 @@ void ap_kbd_reset(ap_kbd_t *kbd);
  * byte, and one builder serves both.
  *
  * **Mode 3 stays unimplemented and is now a named gap rather than a lumped
- * one.** §13.3.3 is absolute cursor control: four bytes, twelve-bit unsigned X
- * and Y split across bytes 3 and 4, and `1 = switch depressed` -- the
- * *opposite* button polarity from every relative format in this chapter. It
- * needs an absolute pointing device, which this core does not model and no
- * frontend offers; a caller has nowhere to get the coordinates from. Named in
- * `docs/COMPLETION_PLAN.md`.
+ * one**, with its packet transcribed here so that implementing it needs no
+ * further page render. §13.3.3, Figure 13-7 -- "all transmissions are absolute
+ * cursor coordinate information packets transmitted as three bytes of data
+ * that are the X and Y coordinate values", after a button byte:
+ *
+ *     BYTE  bit 7   6    5    4    3    2    1    0
+ *     B1        1   M    R    L    0    0    0    0
+ *     B2       X7   X6   X5   X4   X3   X2   X1   X0
+ *     B3       Y3   Y2   Y1   Y0   X11  X10  X9   X8
+ *     B4      Y11  Y10   Y9   Y8   Y7   Y6   Y5   Y4
+ *
+ * "The bits are labelled such that the higher numbers are the more significant
+ * bits." So **X is twelve bits across B2 and B3's low nibble, and Y is twelve
+ * bits across B3's high nibble and B4** -- both spanning B3, which is what an
+ * earlier note here compressed to "split across bytes 3 and 4".
+ *
+ * **The button polarity is `1 = switch depressed`**, and Figure 13-7 does not
+ * say so -- Figure 13-3 does, for absolute data generally, against Figure
+ * 13-2's `0 = switch depressed` for relative. That inversion is why this cannot
+ * share the relative builder's button code, and why the two must not be merged
+ * on the strength of their identical `M R L` bit positions.
+ *
+ * Do not confuse Figure 13-3 with Figure 13-7: 13-3 is §13.2.2's absolute
+ * *format*, five bytes of Bit Pad One packed binary with even parity in bit 7
+ * of each, and 13-7 is this, four bytes and no parity.
+ *
+ * **What is still missing is not the packet.** It needs an absolute pointing
+ * device, which this core does not model and only the SDL frontend could supply
+ * -- it already receives absolute coordinates and throws them away, sending
+ * deltas. A complete implementation is four pieces: `keystate_mode` becomes a
+ * three-valued mode rather than a bool **and it is hashed**, so the change
+ * needs an identity boot; an absolute builder beside this one; a board entry
+ * queuing it as `ap_board_mouse_move` does; and the frontend passing position
+ * instead of delta. Named in `docs/COMPLETION_PLAN.md`.
  *
  * One erratum, recorded so a later reader does not follow it: Figure 13-6's
  * legend reads "X0 to X7 = **Y** coordinate ... Y0 to Y7 = Y coordinate". The
