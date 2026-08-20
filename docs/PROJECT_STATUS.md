@@ -433,6 +433,47 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## `002398-04` is read whole — 330 of 330 pages (2026-08-20)
+
+The *Domain Engineering Handbook* has been derived in full: front matter,
+chapters 1 to 12, both appendices, the index and the reader's response form.
+Coverage page by page, with what each range yielded, is
+`docs/references/002398-04_WALK.md`.
+
+**What it cost and what it returned.** The walk's own ordering put chapters 7 to
+11 last, as "other machine families", and that was half right. Those chapters
+describe hardware this core does not model — a PEB, a VME bus, a microcoded
+CPIO, custom MMUs, Zilog SIOs, PRIAM drives — and almost all of it was
+inapplicable. But they describe the *parts* the families share a **second time**,
+and the second description is where the errors showed:
+
+- the floppy controller's `ST0`, where two bits had no constant and one made
+  every side-1 read report side 0;
+- the 68681's baud table, where code 2 is 134.5 and this core carried 135;
+- the 8237's byte-pointer address, where chapter 12 misprints what chapters 8
+  prints correctly twice;
+- the type field's bit 0, which `[MAC]` calls reserved and Apollo names;
+- and the ring's acknowledge bits, where a page **corrected an inference of mine
+  that was already committed**.
+
+**The method lesson, and it is the one to carry.** Twice I built an argument from
+what a neighbouring register's *existence* implies — `NCOPY` must mean X because
+`WACK` exists; `icopy` must be the late field because `copy` lives there — and
+was wrong both times. A status register can gather bits from more than one
+source, and two bits can differ in a dimension you did not think of. **Wait for
+the page that gives the definition; do not infer it from the layout.** Nothing in
+the core moved on either inference, which is the only reason those were cheap.
+
+**The index was cross-checked and is unreliable in its topical entries.** Its
+`PROM ENTRY POINTS` heading gives three page numbers and all three are wrong,
+where the same index's per-machine entries are right — three for three, on the
+pages that source the PROM service-table finding below. Its *structure* is
+sound: every reference falls in chapters 1 to 12, so contents and index agree,
+unlike `008778-03` where each omitted a chapter the other had.
+
+*Verification: the walk record's coverage table, one row per page range including
+the ranges that yielded nothing.*
+
 ## The boot PROM publishes a service table, and every PROM here has it
 ## (2026-08-20)
 
