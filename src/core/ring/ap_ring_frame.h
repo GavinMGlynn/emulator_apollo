@@ -142,22 +142,36 @@
  * `COPIED` and `INTEND_TO_COPY` together on the copy path, and
  * `ring_station_suite` asserts both.
  *
- * **The WACK case is the open question.** This model sets the late field's
+ * **The WACK case is a live disagreement.** This model sets the late field's
  * intend-to-copy only when the addressed receiver is `receive_enabled`, so a
  * wait-ack carries `WAIT_ACK` without it -- and p. 7-29 has `icopy` set beside
- * `wack`. The two are only in conflict if that register's `icopy` mirrors the
- * **late** field. It may well mirror the **early** one: `AP_RING_EARLY_INTEND_TO_COPY`
- * is set by the addressee before it knows whether the copy will succeed, which
- * is true in both cases and makes `0012` and `0014` differ in exactly the bit
- * that distinguishes them.
+ * `wack`, so `0012` is a status word this core cannot produce.
  *
- * `[MAC]` Figure 2-8 supports this model as it stands -- it glosses the late
- * field's bit as "addressed receiver **set up to copy**, type matched", which a
- * receiver that is not enabled is not. So nothing is changed. What is recorded
- * is that a second document gives two exact status words for the two outcomes,
- * and that reproducing them would settle which acknowledge field the DN3xx
- * controller's `icopy` reflects. That is a different controller generation from
- * the one this core models, which is why it is a question and not a defect. */
+ * The obvious escape is that the register's `icopy` might mirror the **early**
+ * acknowledge rather than the late one, and **p. 7-30 closes it**. The receive
+ * status register on the next page carries the same four bits with glosses that
+ * name the field outright: `icopy` is "somebody **before me** Intended to COPY",
+ * `copy` is "somebody before me did COPY the pkt", `wack` is "somebody before me
+ * WACKed the ptk". Those are three bits of one byte seen going past, and only
+ * the late field has `copied` and `wait ack` in it.
+ *
+ * So the two readings are of `[MAC]` Figure 2-8's own gloss, "addressed receiver
+ * **set up to copy**, type matched":
+ *
+ *   a. *addressed and the type matched* -- the station wanted this packet.
+ *      Compatible with wait-ack, which then means "wanted it, could not take it
+ *      now", and reproduces both `0014` and `0012`.
+ *   b. *addressed and able to copy it* -- mutually exclusive with wait-ack,
+ *      which is what this model implements and what cannot produce `0012`.
+ *
+ * **Not changed on one page of a different controller generation**, and named
+ * instead: `docs/COMPLETION_PLAN.md` carries it with the discriminating
+ * evidence -- `010005-00` or the ring firmware's own handling of a wait-ack, or
+ * a `[MAC]` sentence that says whether a busy receiver still asserts
+ * intend-to-copy. Reading (a) needs one line changed in `ap_ring_station.c`
+ * (the `receive_enabled` guard at the intend-to-copy position drops), so the
+ * cost of being wrong either way is small and the cost of guessing is a wrong
+ * acknowledge on every wait-ack in every ring run. */
 
 /* Both acknowledge fields carry **odd** parity in bit 1: "When it is set, an
  * odd number of Ones appears in the frame's ... acknowledge field." Read

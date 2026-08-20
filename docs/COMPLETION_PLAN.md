@@ -5673,6 +5673,25 @@ END — PDF 279–313, all 35 pages. 35 content pages of 330.**
       and the same console, so the reference path does not depend on it. Detail
       in `PROJECT_STATUS.md`.
 
+- [ ] **Settle whether a WACKing receiver still asserts intend-to-copy.**
+      `002398-04` p. 7-29 prints two worked transmit-status words for the DN3xx
+      ring controller: a successful transmit reads `0014` (`icopy | copy`) and
+      **a WACK reads `0012` (`icopy | wack`)**. This core sets the late
+      acknowledge's intend-to-copy only when the addressed receiver is enabled,
+      so `0012` is a status word it cannot produce. p. 7-30's receive status
+      names the field — `icopy` is "somebody **before me** Intended to COPY",
+      beside `copy` and `wack`, and only the late field has those — so the
+      escape that the bit mirrors the *early* acknowledge is closed.
+      The disagreement is a reading of `[MAC]` Figure 2-8's gloss, "addressed
+      receiver set up to copy, type matched": *wanted this packet* (compatible
+      with wait-ack, reproduces both words) versus *able to copy it* (mutually
+      exclusive with wait-ack, which is what is implemented). Not changed on one
+      page of a different controller generation.
+      *What would settle it: `010005-00`, the ring firmware's own handling of a
+      wait-ack, or a `[MAC]` sentence about a busy receiver. The fix if reading
+      (a) wins is one guard in `ap_ring_station.c`; `ring_station_suite` and
+      `ring_ctl_suite` both have the two-arm tests to extend.*
+
 - [ ] **Transcribe the Low-Profile Model II keyboard charts.** `002398-04`
       p. 6-13 (ASCII mode) and p. 6-14 (keystate mode) are 16x16 tables giving
       the whole keyboard both ways: code to key, and ASCII byte to key plus
