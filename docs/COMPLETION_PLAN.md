@@ -5673,6 +5673,26 @@ END — PDF 279–313, all 35 pages. 35 content pages of 330.**
       and the same console, so the reference path does not depend on it. Detail
       in `PROJECT_STATUS.md`.
 
+- [ ] **Three ring timeout status bits are defined and set by nobody.**
+      `AP_RING_CTL_STATUS_TMO`, `AP_RING_CTL_XMIT_TMO` and `AP_RING_CTL_RCV_PE`
+      (glossed `timeout_rs`) appear in `ap_ring_ctl.h` and in no `.c` file at
+      all, so a driver polling for a hung transfer waits for a bit that can
+      never arrive.
+      **`002398-04` p. 8-39 gives one of them a duration**, for the DN4xx's
+      controller: `TIMOUT` is "the last message received started but didn't
+      finish in **2\*\*12 byte times**". 4096 byte times is exactly
+      `AP_RING_DATA_MAX_BYTES` — the controller waits the longest a legal packet
+      could take and then gives up, which is a derivation rather than a round
+      number. The same page's `EORERR`, `BUSERR`, `OVRUN`, `MSGER`, `ACKPE` and
+      `PKTERR` are the rest of that register, several of which have counterparts
+      here that are also never set.
+      **Not implemented on that page**: it is another controller generation, and
+      what the DS3000's gate array times is not established. The value is worth
+      recording because it is the only published figure for any of them.
+      *What would settle it: `010005-00` or the ring firmware's own timeout
+      handling. Verification would be a receive that stalls mid-packet and a
+      status read that finds `TMO`.*
+
 - [ ] **Does the DN3000's ring controller filter received packets by type?**
       Two chapters of `002398-04` give the earlier controllers a type-mask
       register with consistent semantics: p. 7-31's `TMASK` names its bits
