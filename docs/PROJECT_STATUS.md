@@ -483,7 +483,10 @@ firmware's own crash path and diagnostic display — the two things the
 where `DI` and the boot's record reads go. And the machine-type word is an
 identifier the firmware publishes about itself: `7` for both the DN3500 and the
 DS4500, distinguished by the aux word (`7` against `15`), `8` for the DN3000 and
-`9` for the DN2500, against the handbook's `2` swallow and `5` stingray.
+`9` for the DN2500, against the handbook's `2` swallow (DN3xx), `3` DSP80 and `5` stingray (DN5xx).
+The DSP80's entry is p. 11-9's, and its table is the same eleven the DN5xx has --
+so a *headless* node carries `reload_font` and the display-adjacent entries too,
+which says the table is the PROM's interface rather than the machine's inventory.
 
 Nothing in the core changed. This is a map of the firmware, recorded so the next
 disassembly starts from a table instead of a search.
