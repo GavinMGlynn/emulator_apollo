@@ -5761,22 +5761,19 @@ same number is what let them diverge once already.
       false — one then read `22 tests, two of which now cover eleven models`,
       mixing today's count with that day's model total. Both reverted.
 
-- [ ] **Transcribe the Low-Profile Model II keyboard charts.** `002398-04`
-      p. 6-13 (ASCII mode) and p. 6-14 (keystate mode) are 16x16 tables giving
-      the whole keyboard both ways: code to key, and ASCII byte to key plus
-      modifier (`+` shift, `^` control). The second is the map a frontend needs
-      to synthesise a keystroke, and this project has driven MD from the console
-      without it. Both confirm `AP_KBD_RELEASE 0x80u` — up transitions occupy the
-      high half — so the rule is right and the *table* is missing.
-      Two things the charts say that this core does not model: the key naming is
-      positional (`A0`-`A9`, `B0`-`B15`, `C1`-`C14`, `D1`-`D14`, `E0`-`E13`,
-      `LA0`-`LF2`, `RA0`-`RF3`, plus a `LED ON` code), and **not every code in
-      `00`-`7F` is a key** — the keystate table has blanks where this core will
-      happily emit a code. Transcribe from the page images cell by cell, not from
-      a text layer: these are exactly the tables OCR destroys.
-      *Verification: `kbd_suite` — every cell of both charts as a table, the
-      blanks refused, and a round trip from ASCII byte to key-plus-modifier back
-      to the same byte.*
+- [ ] **Transcribe the Low-Profile Model II keyboard charts.** *Half done
+      2026-08-21*: p. 6-14's **keystate chart is transcribed** —
+      `ap_kbd_key_name` names 106 of the 128 codes and refuses the 22 the
+      document leaves blank. Read from a **400 dpi** render in two crops; at the
+      walk's usual 150 the cells are not reliably legible, and that is part of
+      the method rather than a convenience. *Verification: `kbd_suite` 37,
+      spot-checking the corners, the column-major order, `7E` = `LED ON`, that a
+      release answers its key's name, and the count.*
+      *Remaining*: p. 6-13's **ASCII chart**, which is the inverse map — indexed
+      by the byte the keyboard emits, each cell naming the key and its modifier
+      (`+` shift, `^` control). That is the one a frontend needs to synthesise a
+      keystroke, and its verification is the round trip: ASCII byte to
+      key-plus-modifier and back to the same byte.
 
 - [x] **Decode the posted diagnostic codes in `--boot-report`**, for the run the
       firmware is evidenced to post. `ap_boardreg_post_code_name` names `03`-`0C`

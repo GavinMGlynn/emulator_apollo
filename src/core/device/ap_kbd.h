@@ -388,6 +388,16 @@ void ap_kbd_reset(ap_kbd_t *kbd);
 [[nodiscard]] bool ap_kbd_press(ap_kbd_t *kbd, unsigned key, uint8_t *code);
 [[nodiscard]] bool ap_kbd_release(ap_kbd_t *kbd, unsigned key, uint8_t *code);
 
+/* The key a keystate code names, or nullptr for the 22 codes `002398-04`
+ * p. 6-14 leaves blank. Press and release answer the same name -- the release
+ * bit is masked off -- so this reads a captured byte stream directly.
+ *
+ * Names are that chart's, which are p. 6-12's positional map: `A0`-`A9`,
+ * `B1`-`B15`, `C1`-`C14`, `D2`-`D14`, `E0`-`E13`, `F1` for the space bar,
+ * `LA0`-`LF2` on the left pad and `RA0`-`RF3` on the right. Code `7E` is
+ * `LED ON` rather than a key. */
+[[nodiscard]] const char *ap_kbd_key_name(uint8_t code);
+
 /* ---- The ASCII set, `008778-03` Table 12-1 -------------------------------- */
 
 /* A dash in the table: the key sends nothing under that modifier. Not zero,

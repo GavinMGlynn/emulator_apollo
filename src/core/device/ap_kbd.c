@@ -514,3 +514,67 @@ unsigned ap_kbd_mouse_packet(const ap_kbd_t *kbd, int dx, int dy, bool left,
   out[n++] = (uint8_t)dy;
   return n;
 }
+
+/* ## `002398-04` p. 6-14, the Low-Profile Model II keystate chart
+ *
+ * A 16x16 grid whose **column is the high nibble and row the low**, so the code
+ * at column `6`, row `E` is `6E`. Columns `8`-`F` repeat `0`-`7` under an
+ * up-transition mark, which is `AP_KBD_RELEASE` seen as a table: the down codes
+ * fill `00`-`7F` and every one has an up code `0x80` above it.
+ *
+ * Transcribed from a **400 dpi render**, cropped in two halves. At the walk's
+ * usual 150 dpi the cells are not reliably legible, and a keyboard table that
+ * looks authoritative and mis-maps a key is worse than none -- so the
+ * resolution is part of the method, not a convenience.
+ *
+ * **106 of the 128 codes are keys.** The 22 blanks are blanks in the document,
+ * not gaps in this transcription, and `ap_kbd_key_name` returns nullptr for
+ * them: a code the keyboard cannot send should not acquire a name here.
+ *
+ * The names are p. 6-12's positional map -- `A0`-`A9` and `B1`-`B15` across the
+ * top rows, `C1`-`C14`, `D2`-`D14`, `E0`-`E13`, `F1` the space bar, `LA0`-`LF2`
+ * down the left pad and `RA0`-`RF3` on the right. There is no `RB` row, which a
+ * reader assuming a regular grid would invent. `7E` is not a key at all: it is
+ * `LED ON`. */
+static const char *const kbd_keystate_names[AP_KBD_KEYS] = {
+    nullptr, "LA0", "LA1", "LA2",  /* 00 */
+    "A0", "A1", "A2", "A3",  /* 04 */
+    "A4", "A5", "A6", "A7",  /* 08 */
+    "A8", "A9", "RA0", "RA1",  /* 0C */
+    "RA2", "RA3", "RA4", "LB0",  /* 10 */
+    "LB1", "LB2", nullptr, "B1",  /* 14 */
+    "B2", "B3", "B4", "B5",  /* 18 */
+    "B6", "B7", "B8", "B9",  /* 1C */
+    "B10", "B11", "B12", "B13",  /* 20 */
+    "B14", "B15", nullptr, "LC0",  /* 24 */
+    "LC1", "LC2", nullptr, nullptr,  /* 28 */
+    "C1", "C2", "C3", "C4",  /* 2C */
+    "C5", "C6", "C7", "C8",  /* 30 */
+    "C9", "C10", "C11", "C12",  /* 34 */
+    "C13", nullptr, "C14", nullptr,  /* 38 */
+    "RC1", "RC2", "RC3", "RC4",  /* 3C */
+    "LD0", "LD1", "LD2", "LD3",  /* 40 */
+    nullptr, nullptr, "D2", "D3",  /* 44 */
+    "D4", "D5", "D6", "D7",  /* 48 */
+    "D8", "D9", "D10", "D11",  /* 4C */
+    "D12", nullptr, "D13", "D14",  /* 50 */
+    nullptr, "RD1", "RD2", "RD3",  /* 54 */
+    "RD4", "LE0", "LE1", "LE2",  /* 58 */
+    nullptr, "E0", "E1", nullptr,  /* 5C */
+    "E2", "E3", "E4", "E5",  /* 60 */
+    "E6", "E7", "E8", "E9",  /* 64 */
+    "E10", "E11", "E12", nullptr,  /* 68 */
+    "E13", nullptr, "RE1", "RE2",  /* 6C */
+    "RE3", nullptr, "LF0", "LF1",  /* 70 */
+    "LF2", nullptr, "F1", nullptr,  /* 74 */
+    nullptr, "RF1", nullptr, "RF2",  /* 78 */
+    "RF3", nullptr, "LED ON", nullptr,  /* 7C */
+};
+
+const char *ap_kbd_key_name(uint8_t code) {
+  /* A release carries the same key as its press, so both answer one name --
+   * which is what makes this usable on a captured byte stream without the
+   * caller having to strip the bit first. */
+  const uint8_t down = (uint8_t)(code & (uint8_t)~AP_KBD_RELEASE);
+  return kbd_keystate_names[down];
+}

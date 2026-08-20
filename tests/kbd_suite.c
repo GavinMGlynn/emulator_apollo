@@ -705,9 +705,54 @@ static void test_both_pointing_device_escapes_match_their_documents(void) {
   TEST_ASSERT_TRUE(AP_KBD_MOUSE_ESCAPE_ABSOLUTE >= AP_KBD_RELEASE);
 }
 
+/* ## The keystate chart, spot-checked at its corners and its traps
+ *
+ * `002398-04` p. 6-14 is a 16x16 grid, column the high nibble and row the low,
+ * so the cell at column `6` row `E` is code `6E`. Testing all 106 named codes
+ * would restate the table; these are the cells where a transcription goes wrong.
+ */
+static void test_the_keystate_chart_names_its_codes(void) {
+  /* The four corners of the down half. `00` is blank in the document -- the
+   * grid's first cell is empty -- which a reader filling in from position would
+   * get wrong. */
+  TEST_ASSERT_NULL(ap_kbd_key_name(0x00u));
+  TEST_ASSERT_EQUAL_STRING("LA0", ap_kbd_key_name(0x01u));
+  TEST_ASSERT_EQUAL_STRING("RA2", ap_kbd_key_name(0x10u));
+  TEST_ASSERT_EQUAL_STRING("RA1", ap_kbd_key_name(0x0Fu));
+
+  /* Column-major, not row-major: `10` is the *second column's* first row. A
+   * transposed transcription would answer `LA0` here. */
+  TEST_ASSERT_EQUAL_STRING("B10", ap_kbd_key_name(0x20u));
+
+  /* The space bar, and the one cell that is not a key at all. */
+  TEST_ASSERT_EQUAL_STRING("F1", ap_kbd_key_name(0x76u));
+  TEST_ASSERT_EQUAL_STRING("LED ON", ap_kbd_key_name(0x7Eu));
+
+  /* A release answers the same name: the chart's right half is the left half
+   * with bit 7 set, so one table serves both. */
+  TEST_ASSERT_EQUAL_STRING("F1", ap_kbd_key_name(0x76u | AP_KBD_RELEASE));
+  TEST_ASSERT_EQUAL_STRING("LA0", ap_kbd_key_name(0x81u));
+
+  /* Blanks stay blank. A code the keyboard cannot send must not acquire a name,
+   * which is the difference between a transcription and a guess. */
+  TEST_ASSERT_NULL(ap_kbd_key_name(0x16u));
+  TEST_ASSERT_NULL(ap_kbd_key_name(0x7Fu));
+
+  /* And the count: 106 of 128 codes are keys, 22 are blank. A cell dropped or
+   * invented in transcription moves this. */
+  unsigned named = 0u;
+  for (unsigned c = 0; c < AP_KBD_KEYS; c++) {
+    if (ap_kbd_key_name((uint8_t)c) != nullptr) {
+      named++;
+    }
+  }
+  TEST_ASSERT_EQUAL_UINT(106u, named);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_both_pointing_device_escapes_match_their_documents);
+  RUN_TEST(test_the_keystate_chart_names_its_codes);
   RUN_TEST(test_a_mouse_packet_is_the_escape_and_three_bytes);
   RUN_TEST(test_a_depressed_button_clears_its_bit);
   RUN_TEST(test_a_movement_past_a_signed_byte_clamps);
