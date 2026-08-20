@@ -5766,32 +5766,12 @@ same number is what let them diverge once already.
 
 - [x] **Decode the posted diagnostic codes in `--boot-report`**, for the run the
       firmware is evidenced to post. `ap_boardreg_post_code_name` names `03`-`0C`
-      from `002398-04` p. 4-23 and the report prints them beside the raw bytes;
-      everything outside that run prints nothing rather than a guess. Detail —
-      the PROM service table, the post routine's two entry points, the eighteen
-      call sites and why `0D` and the `8x` band are unnamed — in
-      `PROJECT_STATUS.md`. *Verification: `boardreg_suite` 30, including that
-      `FF` and both sides of the run are refused.*
-      **Verified against a full boot, after a false alarm worth recording.** A
-      4 M-instruction run posts only `FF EF DF FE EE DE CF BF AF 9F 8F` and the
-      decode names none of them — which is correct, and which I first read as the
-      feature being inert. It is not: the **350 M reference boot** posts 32
-      distinct values and **12 of them decode**, to exactly the codes the call
-      sites supply —
-
-          FC = 03 bus error                 F8 = 07 mmu
-          FB = 04 enable instruction cache  F7 = 08 interrupt
-          FA = 05 keyboard sio
-          F9 = 06 parity circuitry
-
-      — first appearing at the thirteenth write, past where 4 M instructions
-      reach. The bound was the proxy, not the test.
-      **The two code spaces are both real**, and that is the useful finding. The
-      early group complements to `00 10 20 01 11 21 30 40 50 60 70`, which are
-      Ext/Int *pairs* and come from a path other than the eighteen call sites;
-      the `03`-`08` group is those sites. Only the second is named.
-      *Tail:* find what posts `00`-`70`; trace `0D` and the `82`-`85` band, whose
-      two call sites take their code from a variable.
+      from `002398-04` p. 4-23; everything else prints nothing rather than a
+      guess. *Verification: `boardreg_suite` 30, and the 350 M reference boot
+      names 12 of its 32 posted values.* Detail in `PROJECT_STATUS.md`.
+      *Tail:* find what posts the `00`-`70` group, which comes from a path other
+      than the eighteen call sites; trace `0D` and the `82`-`85` band, whose two
+      call sites take their code from a variable.
 
 - [ ] **(superseded, kept for its evidence)** `002398-04`
       p. 4-23 gives the DN3000's boot PROM LED table — every power-on test

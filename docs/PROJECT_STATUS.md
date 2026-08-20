@@ -474,6 +474,49 @@ unlike `008778-03` where each omitted a chapter the other had.
 *Verification: the walk record's coverage table, one row per page range including
 the ranges that yielded nothing.*
 
+## Naming the posted diagnostic codes, and two wrong verdicts on the way
+## (2026-08-20)
+
+`--boot-report` printed posted codes as raw hex — the right storage and an
+unreadable report. `ap_boardreg_post_code_name` names `03`-`0C` against
+`002398-04` p. 4-23's DN3000 test table, taking the byte as written and
+complementing it because the post routine ends `NOT.B D0`.
+
+**The DN3500 sharing that numbering is established, not assumed.** The post
+routine's call sites in `3500_BOOT_12191_7` supply `03` through `0B` inline and
+`0C` as an immediate at `000930` — ten consecutive codes against ten consecutive
+table entries. Nothing outside that run is named: `0D` has no site whose code can
+be read, the `82`-`85` band is outside the table, and `FF` is the constant the
+routine pairs every code with.
+
+**Two wrong verdicts, and both were mine.** First I ticked the item on
+`boardreg_suite` alone — a unit test standing in for the output it exists to
+describe. Then I ran a **4 M-instruction** boot, saw it name nothing, and
+un-ticked it as inert. Both were proxies for the real output, in opposite
+directions.
+
+The 350 M reference boot settles it: 32 distinct posted values, **12 named**, and
+they are exactly the call sites' codes —
+
+```
+FC = 03 bus error                 F8 = 07 mmu
+FB = 04 enable instruction cache  F7 = 08 interrupt
+FA = 05 keyboard sio
+F9 = 06 parity circuitry
+```
+
+— first appearing at the thirteenth write, past where 4 M instructions reach.
+The recorded posted-code line from this session's own identity boot answered it
+without running anything further.
+
+**Both code spaces are real.** The early group complements to `00 10 20 01 11 21
+30 40 50 60 70` — Ext/Int *pairs*, from a path other than the eighteen call
+sites — and the `03`-`08` group is those sites. Only the second is named, which
+is the intended behaviour and the reason the report stays trustworthy.
+
+*Verification: `boardreg_suite` 30, including that `FF` and both sides of the run
+are refused; 12 of 32 values named on the reference boot.*
+
 ## The boot PROM publishes a service table, and every PROM here has it
 ## (2026-08-20)
 
