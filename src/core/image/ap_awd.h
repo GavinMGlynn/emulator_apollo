@@ -65,9 +65,35 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* `OMTI_DISK_SECTOR_SIZE`. 1024 of data and 32 beyond it; what the last
- * thirty-two carry is not established here, and no read this core performs
- * depends on it.
+/* `OMTI_DISK_SECTOR_SIZE`. 1024 of data and 32 beyond it.
+ *
+ * **What the last thirty-two carry is established**: `002398-04` p. 2-8's
+ * DISK BLOCK HEADER, `blk_hdr_t` in `base.ins.pas`, which is exactly 32 bytes --
+ *
+ *     +00  UID of the object the block belongs to   (64 bits)
+ *     +08  page number in file                      .page
+ *     +0C  time written, `clock.high32`             .dtm
+ *     +10  BLKTYP | SYSTYP                          .blk_type, .sys_type
+ *     +14  unused
+ *     +18  checksum                                 .chksum
+ *     +1C  disk address                             .daddr
+ *
+ * with `BLKTYP` 0 for a data block and 1, 2 or 3 for a level-1, -2 or -3 index
+ * block in the file map, and `SYSTYP` 0 file, 1 directory, 2 system directory.
+ * So the 32 bytes are the file system's per-block header: every block on an
+ * Apollo volume says which object and which page of it it is, when it was
+ * written, and what it is for.
+ *
+ * That closes a note this file carried since it was written, and it explains
+ * the sector size rather than merely recording it -- 1056 is 1024 of file data
+ * plus a 32-byte header, not a drive's formatting overhead.
+ *
+ * **Nothing here changes.** No read this core performs depends on the header:
+ * `.awd` images are whole sectors and the emulator moves them verbatim, header
+ * and all, exactly as the controller does. What the transcription buys is a
+ * reader of a raw image knowing what the first 32 bytes of every sector are --
+ * and, for the volume-comparison work, that `.uid` and `.daddr` are there to be
+ * checked against the address a block was read from.
  *
  * **Confirmed from Apollo's own requirement**, which was previously only the
  * oracle's constant: `008778-03` §6.2, "The 155-MB and 348-MB drives must be
