@@ -900,6 +900,22 @@ typedef struct {
    * are exact integers rather than a fit. `h_total` is 1344 and `v_total` 842,
    * which is where the oracle's 1346 and 841 were each off by one thing.
    *
+   * **A second table gives the same ten figures, and names the monitor.**
+   * `002398-04` p. 10-19, *MONITOR TIMING (DN570)*, is headed "**15-inch and
+   * 19-inch Panasonic**" and prints `1H` 19.79 us at 50.519 kHz, H front porch
+   * 0.942, sync 1.88, back porch 1.88, blanking 4.71 and display 15.08 us; `1V`
+   * 16.67 ms at 60.0 Hz, V front porch 79.18, sync 79.18, back porch 673.0,
+   * blanking 831.0 us and display 15.839 ms. Every one matches the derivation
+   * above to the digit.
+   *
+   * That is worth more than a duplicate. The derivation here converts
+   * microseconds to pixels and requires two columns to close; a second printing
+   * of the same numbers, for a *different machine* and under the monitor's own
+   * make, says the figures are the **display's** rather than one chapter's, and
+   * that the two families drove the same Panasonic tube. Chapter 8 prints a
+   * third such table for the DN6xx at 800 and 1024 lines, in the same format --
+   * so this is a house table per monitor, and ours is the one this board uses.
+   *
    * **The dot clock stays 68 MHz and that is the `PROVISIONAL` part**, the same
    * trade the monochrome entry already records: the table implies 67.899 MHz
    * (1344 x 50520) and that does not divide `AP_TIME_BASE_HZ`, while 68 MHz
