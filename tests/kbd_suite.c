@@ -669,8 +669,45 @@ static void test_a_repeated_press_cannot_desynchronise_the_lamp(void) {
   TEST_ASSERT_FALSE(ap_kbd_caps_lock_led(&k));
 }
 
+/* ## The two escapes, and why the unused one needs a test more than the used one
+ *
+ * `AP_KBD_MOUSE_ESCAPE_RELATIVE` is exercised by every packet this core builds,
+ * so a wrong value fails somewhere immediately. `AP_KBD_MOUSE_ESCAPE_ABSOLUTE`
+ * is referenced by **nothing** -- no builder, no board entry, no other test --
+ * because Mode 3 and the Mode 0 absolute form are both unimplemented. A typo in
+ * it would sit there until someone implemented the feature and debugged the
+ * wrong byte.
+ *
+ * That is the audit question this project keeps returning to: not "is this
+ * modelled" but "would anything notice if it were wrong". Here nothing would,
+ * which is the whole reason to pin it.
+ *
+ * `DF` is `008778-03` Figure 13-4's escape for relative data. `E8` has two
+ * documents: §13.2's absolute escape, and `002398-04` p. 6-20's touchpad, whose
+ * four-byte packet opens "escape code E8" and whose remaining three bytes are
+ * Figure 13-7's coordinate bytes unchanged. */
+static void test_both_pointing_device_escapes_match_their_documents(void) {
+  TEST_ASSERT_EQUAL_HEX8(0xDFu, AP_KBD_MOUSE_ESCAPE_RELATIVE);
+  TEST_ASSERT_EQUAL_HEX8(0xE8u, AP_KBD_MOUSE_ESCAPE_ABSOLUTE);
+
+  /* They must differ: the escape is what tells a host which kind of packet
+   * follows, and two modes sharing one would be undecodable. */
+  TEST_ASSERT_NOT_EQUAL_UINT8(AP_KBD_MOUSE_ESCAPE_RELATIVE,
+                              AP_KBD_MOUSE_ESCAPE_ABSOLUTE);
+
+  /* And neither may collide with a key code. `AP_KBD_KEYS` is 0x80, so a key
+   * and its release occupy 00-FF via `AP_KBD_RELEASE` -- but the escapes sit
+   * among the *release* codes, which is exactly why Mode 0 needs them: §13.2
+   * has the escape distinguish pointing data from key codes on one line, and
+   * that only works because the firmware knows a packet follows. Pinned as a
+   * property of the encoding rather than asserted away. */
+  TEST_ASSERT_TRUE(AP_KBD_MOUSE_ESCAPE_RELATIVE >= AP_KBD_RELEASE);
+  TEST_ASSERT_TRUE(AP_KBD_MOUSE_ESCAPE_ABSOLUTE >= AP_KBD_RELEASE);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_both_pointing_device_escapes_match_their_documents);
   RUN_TEST(test_a_mouse_packet_is_the_escape_and_three_bytes);
   RUN_TEST(test_a_depressed_button_clears_its_bit);
   RUN_TEST(test_a_movement_past_a_signed_byte_clamps);
