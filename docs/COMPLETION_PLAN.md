@@ -5673,6 +5673,27 @@ END — PDF 279–313, all 35 pages. 35 content pages of 330.**
       and the same console, so the reference path does not depend on it. Detail
       in `PROJECT_STATUS.md`.
 
+- [ ] **Decode the posted diagnostic codes in `--boot-report`.** `002398-04`
+      p. 4-23 gives the DN3000's boot PROM LED table — every power-on test
+      named against its Ext./Int. LED pair — and p. 4-18/4-19 give the steady
+      state, wait, diagnostic, DISK, SYSBOOT and AEGIS CRASH codes. The core
+      records posted bytes raw and reports them undecoded, which is the right
+      storage and an unreadable report.
+      **The evidence, and why it is not yet a decode.** The reference DN3500
+      boot posts `FF EF DF FE EE DE CF BF AF 9F 8F …`; complemented, that is
+      `00 10 20 01 11 21 30 40 50 60 70 …`, and reading the low nibble as Ext
+      and the high as Int makes `00 10 20 30 40 50 60 70` the DN3000 table's
+      Ext-0 column *in order* — Turn off LEDs, Checksum PROM, Refresh
+      circuitry, Bus Error, Enable Instruction Cache, Keyboard SIO, Parity
+      circuitry, MMU. That is a strong correspondence and **not a document**:
+      this handbook is Jan 87 and the DN3500 postdates it, `11` is not in the
+      DN3000 table at all, and the nibble order is inferred from the fit rather
+      than stated. Implement the DN3000's table for the DN3000, and settle the
+      DN3500's numbering from a DN3500 PROM disassembly before decoding its
+      codes as if they were the same. *Verification: a `--boot-report` line
+      naming each posted code for a DN3000 boot, and a test that the DN3500
+      path stays undecoded until its own source exists.*
+
 - [x] **`QIC-02 Rev D` walked whole**, 29 of 29 pages — the standard both Apollo
       tape documents defer to for the six-byte status block and neither
       reproduces. Five defects in `ap_qic`: `NDT` defined and never set, `DEC`
