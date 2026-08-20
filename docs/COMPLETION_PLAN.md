@@ -5673,6 +5673,23 @@ END — PDF 279–313, all 35 pages. 35 content pages of 330.**
       and the same console, so the reference path does not depend on it. Detail
       in `PROJECT_STATUS.md`.
 
+- [ ] **Transcribe the Low-Profile Model II keyboard charts.** `002398-04`
+      p. 6-13 (ASCII mode) and p. 6-14 (keystate mode) are 16x16 tables giving
+      the whole keyboard both ways: code to key, and ASCII byte to key plus
+      modifier (`+` shift, `^` control). The second is the map a frontend needs
+      to synthesise a keystroke, and this project has driven MD from the console
+      without it. Both confirm `AP_KBD_RELEASE 0x80u` — up transitions occupy the
+      high half — so the rule is right and the *table* is missing.
+      Two things the charts say that this core does not model: the key naming is
+      positional (`A0`-`A9`, `B0`-`B15`, `C1`-`C14`, `D1`-`D14`, `E0`-`E13`,
+      `LA0`-`LF2`, `RA0`-`RF3`, plus a `LED ON` code), and **not every code in
+      `00`-`7F` is a key** — the keystate table has blanks where this core will
+      happily emit a code. Transcribe from the page images cell by cell, not from
+      a text layer: these are exactly the tables OCR destroys.
+      *Verification: `kbd_suite` — every cell of both charts as a table, the
+      blanks refused, and a round trip from ASCII byte to key-plus-modifier back
+      to the same byte.*
+
 - [ ] **Decode the posted diagnostic codes in `--boot-report`.** `002398-04`
       p. 4-23 gives the DN3000's boot PROM LED table — every power-on test
       named against its Ext./Int. LED pair — and p. 4-18/4-19 give the steady
