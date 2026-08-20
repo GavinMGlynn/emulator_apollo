@@ -123,6 +123,42 @@
 #define AP_RING_LATE_PARITY (1u << 1)
 #define AP_RING_LATE_MUST_BE_ZERO 0x91u /* bits 7, 4 and 0 */
 
+/* ## A fifth source on these four bits, and the question it leaves
+ *
+ * The ring has no runnable oracle, so every independent description of it is
+ * worth recording. `002398-04` p. 7-29 gives the **DN3xx ring controller's
+ * transmit status register**, and four of its sixteen bits are these:
+ *
+ *     0010  icopy            (somebody Intended to COPY -- was willing to rcv)
+ *     0008  ack byte errbit  (somebody (anybody!) set the "error detected" bit)
+ *     0004  copy             (somebody did COPY the pkt)
+ *     0002  wack
+ *
+ * with two worked values: "a successful transmit will have a transmit status of
+ * **0014**" -- `icopy | copy` -- "and a **WACK** will have a transmit status of
+ * **0012**" -- `icopy | wack`.
+ *
+ * The success case agrees with this model exactly: `ap_ring_station` sets
+ * `COPIED` and `INTEND_TO_COPY` together on the copy path, and
+ * `ring_station_suite` asserts both.
+ *
+ * **The WACK case is the open question.** This model sets the late field's
+ * intend-to-copy only when the addressed receiver is `receive_enabled`, so a
+ * wait-ack carries `WAIT_ACK` without it -- and p. 7-29 has `icopy` set beside
+ * `wack`. The two are only in conflict if that register's `icopy` mirrors the
+ * **late** field. It may well mirror the **early** one: `AP_RING_EARLY_INTEND_TO_COPY`
+ * is set by the addressee before it knows whether the copy will succeed, which
+ * is true in both cases and makes `0012` and `0014` differ in exactly the bit
+ * that distinguishes them.
+ *
+ * `[MAC]` Figure 2-8 supports this model as it stands -- it glosses the late
+ * field's bit as "addressed receiver **set up to copy**, type matched", which a
+ * receiver that is not enabled is not. So nothing is changed. What is recorded
+ * is that a second document gives two exact status words for the two outcomes,
+ * and that reproducing them would settle which acknowledge field the DN3xx
+ * controller's `icopy` reflects. That is a different controller generation from
+ * the one this core models, which is why it is a question and not a defect. */
+
 /* Both acknowledge fields carry **odd** parity in bit 1: "When it is set, an
  * odd number of Ones appears in the frame's ... acknowledge field." Read
  * carefully, that describes the field *including* the parity bit, so the rule
