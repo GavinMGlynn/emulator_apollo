@@ -5807,7 +5807,14 @@ below; everything else it found is implemented and recorded in
       and **not** the `siologin` blocker — on the SR10.4 reference boot `sio2`
       shows seven registers written and register 13 never read — but real, and
       formally untested in the line-2-configured case.
-- [ ] **Mode 3, absolute pointing-device packets.** `008778-03` §13.3.3 and
+- [ ] **Mode 3, absolute pointing-device packets.** *(Scoped 2026-08-20: also
+      an **API** change, not just an encoder. `ap_kbd_mouse_packet` takes signed
+      relative `dx`/`dy` and clamps them to a byte; absolute mode carries 12-bit
+      unsigned X and Y, so the entry point needs a second form and the keyboard
+      needs a third mode state where `keystate_mode` today selects only between
+      Modes 0 and 2. Figures 13-3 and 13-7 must be read as **page images** —
+      `008778-03`'s text layer mangles both packet diagrams, which is exactly
+      the case `CLAUDE.md` warns about.)* `008778-03` §13.3.3 and
       Figure 13-7: four bytes, 12-bit unsigned X and Y split across bytes 3 and
       4, and `1 = switch depressed` -- the opposite polarity from every relative
       format in that chapter. `ap_kbd_mouse_packet` implements Modes 0 and 2 and
@@ -5818,7 +5825,15 @@ below; everything else it found is implemented and recorded in
       relative mode only", and the quadrature mouse is "the standard pointing
       device for the *Domain System*", so the standard configuration never
       reaches Mode 3.
-- [ ] **The keyboard's N-key rollover and its 16-byte buffer.** §12.2: "All keys
+- [ ] **The keyboard's N-key rollover and its 16-byte buffer.** *(Scoped
+      2026-08-20: the buffer is **not** a local change to `ap_kbd`. Its whole
+      observable effect is back-pressure, and the thing that would apply it is
+      `ap_board`'s `deliver_key`, which hands each code straight to
+      `ap_sio_receive_framed` — so today the model behaves as a buffer drained
+      instantly by the UART. Implementing it means the keyboard holding bytes
+      while the SIO declines them, which changes timing on a path the reference
+      boot uses and therefore needs an identity boot either side. Budget it as
+      a measured change, not a struct field.)* §12.2: "All keys
       exhibit **N-key rollover** for a minimum of six simultaneous key
       depressions", and "The keyboard buffers **at least 16 bytes** of data.
       When all 16 positions are used, further processing of data is inhibited
