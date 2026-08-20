@@ -5696,8 +5696,13 @@ END — PDF 279–313, all 35 pages. 35 content pages of 330.**
       Every one has a module in `src/core`, and none of those thirty-five pages
       has been read whole.
 - [ ] **Chapters 1–6, machine-independent. Chapter 1 is READ END TO END** (PDF
-      12–34, 23 pages); **chapter 2 is started** (PDF 35–42); chapters 3–6
-      remain. Resume at PDF 43. The sample yielded no code change — chapter 1 is AEGIS's own
+      12–34, 23 pages); **chapter 2 is started** (PDF 35–43); chapters 3–6
+      remain. Resume at PDF 44.
+      **Carry forward from p. 2-9**: `AP_VOLUME_LABEL_BASE 0x440` is byte 1088,
+      which is block 1 of a 1056-byte-sectored image plus exactly p. 2-8's
+      32-byte block header — so the measured constant may be the **logical**
+      volume label where `ap_volume.h` calls it the physical one. Check the
+      label's fields against p. 2-10 before renaming anything. The sample yielded no code change — chapter 1 is AEGIS's own
       structures rather than hardware — and one lead for chapter 5: p. 1-20's
       **resource lock table** gives twenty-six named locks with their bit
       values, and `CRASH_STATUS 00120020` decodes under it as `flp_$lock +
