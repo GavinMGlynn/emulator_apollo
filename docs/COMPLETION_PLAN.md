@@ -5763,8 +5763,15 @@ below; everything else it found is implemented and recorded in
 - [ ] **The DS4000 is absent from the model table.** Figure 1-2: 25-MHz MC68020,
       MC68851 PMMU, MC68881 FPU, 4–32 MB, four serial lines. `--list-models` has
       `dn3000` (68020 @ 12 MHz) and `dn4500` (68030 @ 33 MHz); the DS4000 is
-      neither, and `DS4000_MAP` in `ap_board.c` is named after it while actually
-      serving the DS3500.
+      neither.
+      **The misnamed map half is done** (2026-08-20): `DS4000_MAP` was named
+      after one machine while serving a group, and is now `SERIES_4000_MAP` —
+      Table 2-8 is the *Series 4000* address space, shared by the models
+      `019411-A00` §4.2.1.4 lists as "DS3500, DS4000, DS4500, DS5500", which is
+      exactly the set the selector reaches it for. What remains is the model
+      table entry, and it needs Figure 1-2 read as a **page image** for the
+      fields the item does not already quote — display and memory-board sizes —
+      rather than inferred from the Series 4500's.
 - [ ] **`IO_CH_CK.L` and the AT bus's NMI path.** §2.3.2: an uncorrectable bus
       error "asynchronously sets a flip-flop that causes a **Non-Maskable-
       Interrupt** ... provides an **on-board register bit, which can be read and

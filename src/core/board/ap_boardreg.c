@@ -138,9 +138,9 @@ bool ap_boardreg_decode(uint32_t address, ap_boardreg_id_t *out) {
   if (in_range(address, AP_BOARDREG_MEMORY_PRESENT_ADDR)) {
     /* Decoded here for every model, and *placed* only by the DS5500 map. The
      * board decides which addresses exist -- `011400` is outside every
-     * placement in `DS4000_PLACEMENT`, so a DN3500 still bus-errors on it and
-     * this arm is unreachable there. Gating it twice would put the model test
-     * in the file that has no model. */
+     * placement in `SERIES_4000_PLACEMENT`, so a DN3500 still bus-errors on it
+     * and this arm is unreachable there. Gating it twice would put the model
+     * test in the file that has no model. */
     *out = AP_BOARDREG_MEMORY_PRESENT;
     return true;
   }

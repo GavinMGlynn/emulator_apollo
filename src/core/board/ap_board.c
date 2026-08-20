@@ -14,7 +14,7 @@ static bool in(uint32_t a, uint32_t base, uint32_t size) {
 /* `008778-03` Table 2-8, the 64 MB space the DS3500 and DS4000 lay out. Each
  * `canonical` equals its `base`, because this is the map every device module in
  * `board/` was written against. */
-static const ap_board_placement_t DS4000_PLACEMENT[] = {
+static const ap_board_placement_t SERIES_4000_PLACEMENT[] = {
     {AP_BOARD_PROM_BASE, AP_BOARD_PROM_SIZE, AP_BOARD_REGION_PROM,
      AP_BOARD_PROM_BASE},
     {AP_BOARDREG_CPU_STATUS_ADDR, 4u * AP_BOARDREG_RANGE,
@@ -107,10 +107,24 @@ static const ap_board_placement_t DS3000_PLACEMENT[] = {
     {AP_TAPE_ADDR, AP_TAPE_RANGE, AP_BOARD_REGION_TAPE, AP_TAPE_ADDR},
 };
 
-static const ap_board_map_t DS4000_MAP = {
-    .name = "DS4000",
-    .placement = DS4000_PLACEMENT,
-    .placements = sizeof DS4000_PLACEMENT / sizeof DS4000_PLACEMENT[0],
+/* ## Named for the architecture group, not for a machine
+ *
+ * This was `DS4000_MAP`, and the name was the one thing about it that was
+ * wrong: the map is `008778-03` Table 2-8's, and Table 2-8 is the **Series
+ * 4000** address space -- shared by every model `019411-A00` §4.2.1.4 puts in
+ * that group, "DS3500, DS4000, DS4500, DS5500". The selector below reaches it
+ * for any model carrying an address translation map, which is exactly that set;
+ * naming it after one member made it read as a machine's map that the wrong
+ * machines were being given.
+ *
+ * The DS5500 has since been split out -- `019411-A00` Table 2-5 replaces the
+ * handbook's page wholesale for that model -- which leaves this serving the
+ * DS3500, the DS4000 and the DS4500. The DS4000 itself is still absent from
+ * `src/core/model/`; see `docs/COMPLETION_PLAN.md`. */
+static const ap_board_map_t SERIES_4000_MAP = {
+    .name = "Series 4000",
+    .placement = SERIES_4000_PLACEMENT,
+    .placements = sizeof SERIES_4000_PLACEMENT / sizeof SERIES_4000_PLACEMENT[0],
     .ram_base = AP_BOARD_RAM_BASE,
     .ram_limit = AP_BOARD_RAM_LIMIT,
     .prom_size = AP_BOARD_PROM_SIZE,
@@ -121,7 +135,7 @@ static const ap_board_map_t DS4000_MAP = {
 
 /* `019411-A00` Table 2-5, "DS5500 256-MB Physical Address Space Allocation",
  * which the addendum gives as a wholesale replacement for the handbook's page
- * 2-7. The DS5500 ran on `DS4000_MAP` until this table was read, and it is a
+ * 2-7. The DS5500 ran on `SERIES_4000_MAP` until this table was read, and it is a
  * near copy -- which is why the differences are worth naming rather than
  * leaving to a diff:
  *
@@ -329,7 +343,7 @@ const ap_board_map_t *ap_board_map_for(ap_model_id_t model) {
   if (entry != NULL && !entry->has_address_translation_map) {
     return &DS3000_MAP;
   }
-  return &DS4000_MAP;
+  return &SERIES_4000_MAP;
 }
 
 /* Where an address falls on this board, and the address the device module that
