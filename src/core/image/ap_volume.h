@@ -125,6 +125,32 @@
  * p. 2-15's UID layout confirming itself: "N..N - Node ID" in the low bits of
  * the second longword.
  *
+ * ## And p. 2-18 prints the label, which agrees offset for offset
+ *
+ * `002398-04` p. 2-18, "VOLUME LABEL -- **LOGICAL**", `lv_label_t` in
+ * `vol.ins.pas`, laid out label-relative:
+ *
+ *     +00  version                    +B0  .label_write_time
+ *     +04  logical volume name        +B4  .last_mounted_node
+ *     +24  UID of the logical volume  +B8  .node_boot_time
+ *     +2C  BAT header                 +BC  .mounted_time
+ *     +4C  VTOC header                +C0  .dismounted_time
+ *                                     +C4  .salvage_node
+ *                                     +C8  .salvage_time
+ *
+ * **All seven of the offsets below are on that list, at those names.** The
+ * differencing measurement and the diagram agree completely, which is what
+ * turns `0x440` from a number that worked into a number that is understood --
+ * and the `+2C` BAT header is p. 2-3's, whose own note says its offsets are
+ * "from start of label", closing that loop too.
+ *
+ * **Two fields on the page this file does not read**, named rather than added
+ * because nothing here needs them yet: `+CC` is `.salvage_mode` over
+ * `.sys_shut_state` -- **the shutdown state**, which is the other half of the
+ * boot refusal this block describes -- and `+D0`-`+D8` are the dump times and
+ * the UID of the item being dumped. `.sys_shut_state` is the one to reach for
+ * if the fourteen-day rule ever needs more than the timestamps.
+ *
  * **Why they are worth modelling.** Domain/OS refuses to boot a volume whose
  * last shutdown is more than fourteen days behind the clock, and a volume that
  * was never cleanly dismounted carries `.dismounted_time` **zero** -- so the
