@@ -183,19 +183,30 @@
  *   b. *addressed and able to copy it* -- mutually exclusive with wait-ack,
  *      which is what this model implements and what cannot produce `0012`.
  *
- * **And p. 8-42 is the first thing that tells the two readings apart.** The
- * DN4xx controller's transmit status has `WACK` at bit 2 and, two bits above it,
- * a *separate* **`NCOPY` -- "No receiver was enabled to copy this message"**. If
- * a wait-ack already meant "nobody was enabled", `NCOPY` would be the same bit
- * twice. That it is a distinct bit says the two are different conditions on that
- * hardware: `WACK` is an addressed receiver that wanted the packet and could not
- * take it now, `NCOPY` is nobody willing at all -- which is reading (a), and
- * exactly what makes `icopy | wack` a coherent pair rather than a contradiction.
+ * **And the escape is not closed after all.** p. 8-43 defines the DN4xx
+ * controller's three outcomes outright, and they turn on the *address* rather
+ * than on wanting-versus-able:
  *
- * That is evidence and not proof: it is a different controller generation, and
- * this core's `ap_ring_ctl` has no `NCOPY` counterpart to check it against. But
- * it is the first page that *distinguishes* the readings instead of restating
- * one of them, and it points away from what is implemented here.
+ *     MSGCPY  the receiver successfully copied the message
+ *     WACK    a receiver observed his node id, but wasn't enabled to copy
+ *     NCOPY   no receiver observed his node address and/or was enabled to copy
+ *
+ * So `WACK` there is "addressed but not enabled" -- Figure 2-8's wording exactly,
+ * and mutually exclusive with "set up to copy". `NCOPY` is the catch-all for
+ * nobody having taken it. **That register has no `icopy` bit at all**, so it does
+ * not bear on the question either way.
+ *
+ * Which leaves p. 7-29's `0012` the only evidence, and the argument that its
+ * `icopy` must mirror the *late* field turns out to be too quick. A controller's
+ * status register can gather bits from both acknowledge fields -- p. 8-42's own
+ * `PKTERR` gathers its causes from the transmitter's side *and* the receiver's.
+ * If the DN3xx's `icopy` is the **early** field's intend-to-copy and its `copy`,
+ * `wack` and `errbit` are the late field's, then `0012` reads as "the addressee
+ * recognised the packet, then could not take it" -- coherent, and consistent
+ * with what this core implements.
+ *
+ * So the two readings are still level, and this file said otherwise for one
+ * commit.
  *
  * **Not changed on pages of a different controller generation**, and named
  * instead: `docs/COMPLETION_PLAN.md` carries it with the discriminating

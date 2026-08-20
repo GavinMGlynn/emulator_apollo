@@ -5725,15 +5725,20 @@ END — PDF 279–313, all 35 pages. 35 content pages of 330.**
       receiver set up to copy, type matched": *wanted this packet* (compatible
       with wait-ack, reproduces both words) versus *able to copy it* (mutually
       exclusive with wait-ack, which is what is implemented).
-      **p. 8-42 leans on the first reading**, and is the first page to tell them
-      apart rather than restate one. The DN4xx controller's transmit status has
-      `WACK` at bit 2 and a *separate* **`NCOPY`** at bit 4 -- "No receiver was
-      enabled to copy this message". If a wait-ack already meant "nobody was
-      enabled", `NCOPY` would be the same bit twice. Two distinct bits means two
-      distinct conditions: `WACK` is an addressed receiver that wanted the packet
-      and could not take it now, `NCOPY` is nobody willing at all. Still another
-      controller generation, and this core's `ap_ring_ctl` has no `NCOPY` to
-      check it against, so it is evidence rather than the answer.
+      **p. 8-43 does not settle it, and the escape it seemed to close is open.**
+      The DN4xx controller defines its three outcomes by *address* rather than by
+      wanting-versus-able: `MSGCPY` copied, `WACK` "a receiver observed his node
+      id, but wasn't enabled to copy", `NCOPY` "no receiver observed his node
+      address and/or was enabled to copy". That `WACK` is Figure 2-8's wording
+      exactly, and the register has **no `icopy` bit at all**, so it bears on the
+      question neither way.
+      Which leaves p. 7-29's `0012` the only evidence — and the argument that its
+      `icopy` must mirror the *late* field is too quick. A status register can
+      gather from both acknowledge fields: p. 8-42's own `PKTERR` gathers its
+      causes from the transmitter's side and the receiver's. If `icopy` is the
+      **early** field's intend-to-copy and `copy`/`wack`/`errbit` are the late
+      field's, `0012` reads as "the addressee recognised the packet, then could
+      not take it" — coherent, and consistent with what is implemented here.
       *What would settle it: `010005-00`, the ring firmware's own handling of a
       wait-ack, or a `[MAC]` sentence about a busy receiver. The fix if reading
       (a) wins is one guard in `ap_ring_station.c`; `ring_station_suite` and
