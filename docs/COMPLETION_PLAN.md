@@ -6002,15 +6002,35 @@ below; everything else it found is implemented and recorded in
       carries a `PROVISIONAL` saying so, because no hardware document states a
       display per model. *Verification: `golden_model_table`.* Detail, including
       why the serial count is recorded and not encoded, in `PROJECT_STATUS.md`.
-- [ ] **`IO_CH_CK.L` and the AT bus's NMI path.** §2.3.2: an uncorrectable bus
-      error "asynchronously sets a flip-flop that causes a **Non-Maskable-
-      Interrupt** ... provides an **on-board register bit, which can be read and
-      reset**". §3.2 narrows it: this is the *same* level-7 autovector interrupt
-      `ap_parity` already implements, with two sources, and the handler "checks
-      the status register" to tell them apart. What is unknown is only **which
-      bit** of `010000`/`008000`. Nothing this core models raises a channel
-      check, so the path is unexercised — which is why it went unnoticed, not a
-      reason to leave it.
+- [ ] **`IO_CH_CK.L` and the AT bus's NMI path — the bit is found; the source
+      is not.** §2.3.2's channel check is §3.2's level-7 NMI, the same one
+      `ap_parity` implements, with the handler reading the status register to
+      tell its two sources apart. This item said "what is unknown is only
+      **which bit**". **It is `pio`, bit 9** — `002398-04` p. 12-26 draws the
+      whole status register and labels it "IO parity error (on i/o bus ref)",
+      which is §2.3.2's "parity (error) information about memory or devices on
+      the I/O bus" in the register's own words. Named as
+      `AP_BOARDREG_STATUS_IO_PARITY` and asserted at bit 9.
+      **What is left is a source.** Nothing this core models can assert a
+      channel check: the bit is named so a firmware read is recognisable, and
+      raised by nothing. Closing it needs an AT-bus device that can fail, which
+      is the same dependency the refresh and `MASTER.L` items wait on.
+      *Also from that page*: eight further status fields this core had never
+      named — `mto`, `uto`, `dto`, `pdm`, `cto`, `ip`, `iot` — now constants
+      with the same "named, raised by nothing" standing. Detail in
+      `PROJECT_STATUS.md`.
+
+- [ ] **Status-register bit 15: the manual and our probe disagree.** Found while
+      mapping the register above. `AP_BOARDREG_STATUS_ALWAYS_SET` says bit 15
+      reads 1 whatever is written, from a probe of the DN3500, and its comment
+      said "no manual here says". One does now: `002398-04` p. 12-26 draws bits
+      15 and 14 of the **DN3000's** register as constant `0`. Not necessarily a
+      contradiction — different model, different page — but the possibilities
+      are narrow: a per-model difference, a documentation simplification of a
+      reserved bit, or a probe that measured the bus rather than the register.
+      **What would settle it**: the DN3500's own status-register page, which is
+      not among the documents held. The observed value is kept, being what this
+      machine does. `PROVISIONAL`, marked in `ap_boardreg.h`.
 - [ ] **Refresh cycles are not inserted on the AT bus.** §2.4.6: the system board
       drives refresh "at **regular intervals (approximately 15 microseconds)**"
       via "a state machine, driven by a timebase". This core models the refresh

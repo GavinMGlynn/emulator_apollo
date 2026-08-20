@@ -741,6 +741,68 @@ static void test_a_posted_code_is_named_for_the_evidenced_run(void) {
   TEST_ASSERT_NULL(ap_boardreg_post_code_name((uint8_t)~0x85u));
 }
 
+
+/* `002398-04` p. 12-26's status-register map, every field at its drawn bit.
+ *
+ * Worked from the figure's own bit numbering rather than from the order the
+ * labels are printed in -- the labels are two-line and a summary of this page
+ * paired them by reading order once, which put `uto` on the i/o bus when it is
+ * the Coprocessor's. */
+static void test_the_status_register_fields_sit_where_the_figure_draws_them(
+    void) {
+  /* Bits 13 down to 8, the six condition bits above the parity field. */
+  TEST_ASSERT_EQUAL_HEX16(1u << 13, AP_BOARDREG_STATUS_IO_MEM_TIMEOUT);
+  TEST_ASSERT_EQUAL_HEX16(1u << 12, AP_BOARDREG_STATUS_COPROC_TIMEOUT);
+  TEST_ASSERT_EQUAL_HEX16(1u << 11, AP_BOARDREG_STATUS_IO_DMA_TIMEOUT);
+  TEST_ASSERT_EQUAL_HEX16(1u << 10, AP_BOARDREG_STATUS_PARITY_DMA);
+  TEST_ASSERT_EQUAL_HEX16(1u << 9, AP_BOARDREG_STATUS_IO_PARITY);
+  TEST_ASSERT_EQUAL_HEX16(1u << 8, AP_BOARDREG_STATUS_BUS_ERROR); /* cto */
+
+  /* The parity field is bits 7-4, which this core already had. */
+  TEST_ASSERT_EQUAL_HEX16(0x00F0u, AP_BOARDREG_STATUS_PARITY_MASK);
+
+  /* And bits 3 to 0. */
+  TEST_ASSERT_EQUAL_HEX16(1u << 3, AP_BOARDREG_STATUS_INT_PENDING);
+  TEST_ASSERT_EQUAL_HEX16(1u << 2, AP_BOARDREG_STATUS_FP_TRAP);
+  TEST_ASSERT_EQUAL_HEX16(1u << 1, AP_BOARDREG_STATUS_IO_CYCLE_TIMEOUT);
+  TEST_ASSERT_EQUAL_HEX16(1u << 0, AP_BOARDREG_STATUS_NORMAL_MODE);
+
+  /* Every one of the sixteen bits is now accounted for: the fourteen named
+   * fields, and bits 15 and 14 which the figure draws as constant zero. No
+   * field overlaps another. */
+  const uint16_t named =
+      (uint16_t)(AP_BOARDREG_STATUS_IO_MEM_TIMEOUT |
+                 AP_BOARDREG_STATUS_COPROC_TIMEOUT |
+                 AP_BOARDREG_STATUS_IO_DMA_TIMEOUT |
+                 AP_BOARDREG_STATUS_PARITY_DMA | AP_BOARDREG_STATUS_IO_PARITY |
+                 AP_BOARDREG_STATUS_BUS_ERROR | AP_BOARDREG_STATUS_PARITY_MASK |
+                 AP_BOARDREG_STATUS_INT_PENDING | AP_BOARDREG_STATUS_FP_TRAP |
+                 AP_BOARDREG_STATUS_IO_CYCLE_TIMEOUT |
+                 AP_BOARDREG_STATUS_NORMAL_MODE);
+  TEST_ASSERT_EQUAL_HEX16(0x3FFFu, named);
+}
+
+/* `IO_CH_CK.L` is `pio`, bit 9 -- the AT bus's channel check, which `008778-03`
+ * §3.2 puts in this register beside the RAM parity circuit as the level-7 NMI's
+ * second source. It is **named and raised by nothing**: this core models no
+ * device that can assert a channel check, so the bit exists to be recognised
+ * rather than to be set. Asserted so that "named" cannot quietly become
+ * "modelled" without a test changing. */
+static void test_the_channel_check_bit_is_named_and_raised_by_nothing(void) {
+  ap_boardreg_t regs;
+  ap_boardreg_init(&regs);
+  const uint16_t status =
+      ap_boardreg_read16(&regs, AP_BOARDREG_CPU_STATUS_ADDR);
+  TEST_ASSERT_EQUAL_HEX16(
+      0u, (uint16_t)(status & AP_BOARDREG_STATUS_IO_PARITY));
+
+  /* It is distinct from the on-board bus error, which *is* raised: the handler
+   * "checks the status register to detect which one of these conditions
+   * exists", so the two must not share a bit. */
+  TEST_ASSERT_NOT_EQUAL_HEX16(AP_BOARDREG_STATUS_IO_PARITY,
+                              AP_BOARDREG_STATUS_BUS_ERROR);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_posted_code_is_named_for_the_evidenced_run);
@@ -773,5 +835,7 @@ int main(void) {
   RUN_TEST(test_the_ds5500_cache_status_register_is_read_only);
   RUN_TEST(test_hsi_present_is_cleared_when_a_graphics_device_is_fitted);
   RUN_TEST(test_mem_time_follows_the_latched_bus_error);
+  RUN_TEST(test_the_status_register_fields_sit_where_the_figure_draws_them);
+  RUN_TEST(test_the_channel_check_bit_is_named_and_raised_by_nothing);
   return UNITY_END();
 }

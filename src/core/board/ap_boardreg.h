@@ -344,9 +344,62 @@ typedef enum {
 /* How many posted diagnostic codes to keep. See `ap_boardreg_post_code`. */
 #define AP_BOARDREG_POSTED_CODES 32u
 
-/* Bit 15 of the status register reads 1 whatever is written, at every sampled
- * point in the boot. Named for what was observed, because what it *is* was not
- * measured and no manual here says. */
+/* ## The status register, bit for bit, from `002398-04` p. 12-26
+ *
+ * The page draws the whole 16-bit map with a label on every field, and this
+ * core had named five of them. Read from the page image; the leader lines were
+ * traced to their `<=1` marks rather than the labels being paired by reading
+ * order, which is what a summary of this page got wrong once already.
+ *
+ *     15  14  13  12  11  10   9   8   7   6   5   4   3   2   1   0
+ *    | 0 | 0 |mto|uto|dto|pdm|pio|cto|pe3|pe2|pe1|pe0| ip| fp|iot| nm|
+ *
+ *   - `mto` **i/o bus mem space timeout**
+ *   - `uto` **Coproc bus timeout** -- the PC Coprocessor's, not the i/o bus's.
+ *     A summary of this page recorded `uto` as "i/o bus"; the words "i/o bus"
+ *     belong to `mto`'s two-line label above it.
+ *   - `dto` i/o bus DMA timeout
+ *   - `pdm` parity during DMA
+ *   - `pio` **IO parity error (on i/o bus ref)** -- this is `008778-03`
+ *     §2.3.2's `IO_CH_CK.L`, the AT bus's channel check. §3.2 gives the level-7
+ *     NMI "two sources ... the RAM parity circuit ... and the devices that
+ *     generate the `IO_CH_CHK.L` signal on the I/O bus", with the handler
+ *     checking the status register to tell them apart. This is that bit, and
+ *     the completion plan's "what is unknown is only which bit" is answered.
+ *   - `cto` on-board CPU timeout, "(ref to non-existent mem)" -- which is what
+ *     `AP_BOARDREG_STATUS_BUS_ERROR` already models.
+ *   - `ip` int pending, `iot` i/o bus i/o cycle timeout.
+ *
+ * **Nine of these are named here and raised by nothing.** Naming them is not
+ * modelling them: each needs a source that sets it -- a coprocessor bus, a DMA
+ * parity path, an i/o bus that can time out -- and this core has none of those.
+ * They are constants so that a firmware read can be recognised and so the gap
+ * is a named one rather than an unnamed hole. On the plan.
+ *
+ * **The page is the DN3000's register** at `[8000 | 03FFB400]`; this core's is
+ * the DN3500's at `010000`. The two are the same register in the same family
+ * and the parity field, the acknowledge rule and byte access all agree, but a
+ * per-model difference cannot be excluded from this page alone -- see bit 15. */
+#define AP_BOARDREG_STATUS_IO_MEM_TIMEOUT 0x2000u   /* mto */
+#define AP_BOARDREG_STATUS_COPROC_TIMEOUT 0x1000u   /* uto */
+#define AP_BOARDREG_STATUS_IO_DMA_TIMEOUT 0x0800u   /* dto */
+#define AP_BOARDREG_STATUS_PARITY_DMA 0x0400u       /* pdm */
+#define AP_BOARDREG_STATUS_IO_PARITY 0x0200u        /* pio, `IO_CH_CK.L` */
+#define AP_BOARDREG_STATUS_INT_PENDING 0x0008u      /* ip */
+#define AP_BOARDREG_STATUS_IO_CYCLE_TIMEOUT 0x0002u /* iot */
+
+/* Bit 15 reads 1 whatever is written, at every sampled point in the boot.
+ *
+ * **A manual now says something, and it disagrees**: `002398-04` p. 12-26 draws
+ * bits 15 and 14 of the DN3000's status register as constant `0`. This constant
+ * came from a probe of the *DN3500*, so the two are not necessarily in
+ * conflict -- but "no manual here says", which this comment used to claim, is
+ * no longer true, and the possibilities are now narrow and worth stating: a
+ * per-model difference, a documentation simplification of a reserved bit, or a
+ * probe that measured the bus rather than the register. **What would settle
+ * it**: the DN3500's own register page, which is not in the documents held.
+ * `PROVISIONAL`; the observed value is kept because it is what this machine
+ * does, and the disagreement is on the plan. */
 #define AP_BOARDREG_STATUS_ALWAYS_SET 0x8000u
 
 /* ## What a write to the status register keeps, and why it is not "nothing"

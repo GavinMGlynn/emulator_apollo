@@ -433,6 +433,73 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The CPU status register, all sixteen bits — and `IO_CH_CK.L` is bit 9
+## (2026-08-21)
+
+`008778-03` §2.3.2's AT-bus channel check has been a named gap since that walk,
+narrowed by §3.2 to "the same level-7 autovector interrupt `ap_parity` already
+implements ... what remains unknown is only **which bit**". It is answered.
+
+### `002398-04` p. 12-26 draws the whole register
+
+```
+ 15  14  13  12  11  10   9   8   7   6   5   4   3   2   1   0
+| 0 | 0 |mto|uto|dto|pdm|pio|cto|pe3|pe2|pe1|pe0| ip| fp|iot| nm|
+```
+
+**`pio`, bit 9, is `IO_CH_CK.L`** — labelled "IO parity error (on i/o bus ref)",
+which is §2.3.2's "parity (error) information about memory or devices on the
+I/O bus" stated in the register's own words. This core had named five of the
+fourteen fields; the other nine are now constants too.
+
+| Bit | Field | |
+| --- | --- | --- |
+| 13 | `mto` | i/o bus mem space timeout |
+| 12 | `uto` | **Coproc bus** timeout |
+| 11 | `dto` | i/o bus DMA timeout |
+| 10 | `pdm` | parity during DMA |
+| **9** | **`pio`** | **IO parity error on i/o bus ref — the channel check** |
+| 8 | `cto` | on-board CPU timeout, "ref to non-existent mem" — already modelled as `BUS_ERROR` |
+| 3 | `ip` | int pending |
+| 1 | `iot` | i/o bus i/o cycle timeout |
+
+### Naming is not modelling, and the difference is stated in the header
+
+**Nine of the fourteen are raised by nothing.** Each needs a source this core
+does not have — a coprocessor bus, a DMA parity path, an i/o bus that can time
+out. They are constants so a firmware read is recognisable and so the gap is a
+named one; the suite asserts the channel-check bit is *not* set, so "named"
+cannot quietly become "modelled" without a test changing.
+
+### A correction to the walk record, and the reason it happened
+
+The walk summarised this page as "`mto` mem space timeout, `uto` i/o bus". `uto`
+is the **Coprocessor** bus timeout; the words "i/o bus" are the first line of
+`mto`'s two-line label. The labels were paired by reading order instead of by
+tracing each leader line down to its `<=1` mark. Corrected in the walk record
+with the reason attached, because the same figure style recurs throughout this
+handbook. It matters beyond tidiness: `uto` being the Coprocessor's ties this
+bit to the PC Coprocessor, the same card the `MASTER.L` item is blocked on.
+
+### Bit 15: a manual now says something, and it disagrees
+
+`AP_BOARDREG_STATUS_ALWAYS_SET` records that bit 15 reads 1 whatever is written,
+from a probe, and its comment said "no manual here says". One does now — this
+page draws bits 15 and 14 as constant `0`.
+
+Not necessarily a contradiction: the page is the **DN3000's** register at
+`[8000 | 03FFB400]` and this core models the **DN3500's** at `010000`. But the
+possibilities are now narrow and worth writing down — a per-model difference, a
+documentation simplification of a reserved bit, or a probe that measured the bus
+rather than the register. The observed value is kept, being what this machine
+does. `PROVISIONAL`, and a named plan item. **What would settle it**: the
+DN3500's own status-register page, which is not among the documents held.
+
+*Verification: `boardreg_suite` 30 -> 32 — every field asserted at the bit the
+figure draws it at, the fourteen named fields covering `3FFF` exactly with no
+overlap, and the channel check asserted distinct from the on-board bus error,
+since the handler must be able to tell the level-7 NMI's two sources apart.*
+
 ## DCD and DTR: the part is complete, the pin assignment is unobtainable
 ## (2026-08-21)
 
@@ -8588,7 +8655,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68040 MMU | not started | — |
 | MC68882 FPU | working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. `FMOVEM` of the data registers runs in both directions with its reversed mask orderings, and so do the system control registers, with the FPIAR tracking under §2.4's two conditions. `FMOVECR` returns all 22 published constants, computed and correctly rounded. **Every general-type instruction executes.** **Every instruction type executes**, the conditionals included. **Every 68882 instruction and every data format executes**, `FSAVE` and `FRESTORE` included. A *busy* state frame is deliberately absent: this core's part never suspends, so nothing can generate one — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 18, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 41, `m68882_decode_suite` 12, `m68882_accuracy_suite` 10, `m68882_transcendental_suite` 36, `m68882_store_suite` 13, plus 51 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
 | MC68040 FPU | timing tables only — §10.6, §10.7.1/§10.7.2 and §10.7.3's pipeline stages are transcribed; no 68040 arithmetic | `m68040_iu_timing_suite` 99, `m68040_fpu_timing_suite` 32, `m68040_fp_pipeline_suite` 18 |
-| Core-board registers (`010000`-`011600`, `016400`) | working for the four that could be measured: CPU status (bit 15 stuck; a write **acknowledges conditions** and keeps the switch input, the FP trap and bit 15), CPU control and latch-page-on-parity (16 bits of storage), cache control (a *byte*, mirrored into both halves of a 16-bit read, one writable bit), each aliased across its 256-byte range. Plus the **selective clear locations**, the one range where the low bits are the decode rather than an alias — five functions, one address each, from `019411-A00`. Width and storage came from measurement; the status register's conditions now have pages behind them. **Task alias and master request are modelled too**, as the byte-wide storage Table 2-8 says exists: the master request register's width is the firmware's own evidence — all 29 write sites across three PROMs are `CLR.B` or `MOVE.B`, and none reads it back — and both read back what was written. What is still *not* invented is the meaning of a bit: `008778-03` §2.4.7 says setting one asserts an external master's DMA request and does not say which, so nothing acts on any of them and `ap_boardreg_master_request` exposes the byte for a model built on evidence later. **The DS5500's memory present register (`011400`) is complete**, and it is the one register in this file whose values were published rather than measured: `019411-A00` §4.2.1.18 gives the bit layout, the slot-to-pair mapping and a table of the register's value for all **35** configurations, and all 35 are asserted. Read-only, eight bits, four slots of two bits, and the two-bit code — recovered from the value table, not from prose, because §4.2.1.18 never states it — is `11` no board, `10` 4 MB, `00` 8 MB, `01` 16 MB, which is deliberately *not* ordered by capacity. Placed by the DS5500 map alone; Table 2-8 has no such row, so a DN3500 still bus-errors on the address. **And the DS5500's `010200` is now its own register**: §4.2.1.14 makes it 8-bit **read-only** with `HSI Present <3>` and `MEM Time <0>`, where Table 2-8's row at that address is the writable cache *control* register this core measured on a DN3500. Both bits are derived rather than stored — `MEM Time` reports the same condition the CPU status register latches, so `016408` "Clear Bus Error Status" clears both by clearing one, and `HSI Present` follows the model's display, which is what makes a DSP5500 differ from a DN5500 in the bit that means "a graphics device is in the HSI connector". **One reading rests on how the document is written rather than what it says** and is flagged as such: bit 0's polarity is unstated, and it is taken as active *high* because the same figure marks `HSI Present` "cleared (0) to indicate" and marks bit 0 nothing. The bits Figure 4-9 calls "not used" read as undriven, all ones, which is `PROVISIONAL` — no DS5500 runs on either this core or the oracle, so one read would settle it | `boardreg_suite`, 30 tests; `008778-03` §3.2 and §3.3, `019411-A00` §4.2.1, §4.2.1.18 and Table 2-5, `FINDINGS.md` C10, `tools/mame-oracle/regprobe.lua` |
+| Core-board registers (`010000`-`011600`, `016400`) | working for the four that could be measured: CPU status (bit 15 stuck; a write **acknowledges conditions** and keeps the switch input, the FP trap and bit 15), CPU control and latch-page-on-parity (16 bits of storage), cache control (a *byte*, mirrored into both halves of a 16-bit read, one writable bit), each aliased across its 256-byte range. Plus the **selective clear locations**, the one range where the low bits are the decode rather than an alias — five functions, one address each, from `019411-A00`. Width and storage came from measurement; the status register's conditions now have pages behind them. **Task alias and master request are modelled too**, as the byte-wide storage Table 2-8 says exists: the master request register's width is the firmware's own evidence — all 29 write sites across three PROMs are `CLR.B` or `MOVE.B`, and none reads it back — and both read back what was written. What is still *not* invented is the meaning of a bit: `008778-03` §2.4.7 says setting one asserts an external master's DMA request and does not say which, so nothing acts on any of them and `ap_boardreg_master_request` exposes the byte for a model built on evidence later. **The DS5500's memory present register (`011400`) is complete**, and it is the one register in this file whose values were published rather than measured: `019411-A00` §4.2.1.18 gives the bit layout, the slot-to-pair mapping and a table of the register's value for all **35** configurations, and all 35 are asserted. Read-only, eight bits, four slots of two bits, and the two-bit code — recovered from the value table, not from prose, because §4.2.1.18 never states it — is `11` no board, `10` 4 MB, `00` 8 MB, `01` 16 MB, which is deliberately *not* ordered by capacity. Placed by the DS5500 map alone; Table 2-8 has no such row, so a DN3500 still bus-errors on the address. **And the DS5500's `010200` is now its own register**: §4.2.1.14 makes it 8-bit **read-only** with `HSI Present <3>` and `MEM Time <0>`, where Table 2-8's row at that address is the writable cache *control* register this core measured on a DN3500. Both bits are derived rather than stored — `MEM Time` reports the same condition the CPU status register latches, so `016408` "Clear Bus Error Status" clears both by clearing one, and `HSI Present` follows the model's display, which is what makes a DSP5500 differ from a DN5500 in the bit that means "a graphics device is in the HSI connector". **One reading rests on how the document is written rather than what it says** and is flagged as such: bit 0's polarity is unstated, and it is taken as active *high* because the same figure marks `HSI Present` "cleared (0) to indicate" and marks bit 0 nothing. The bits Figure 4-9 calls "not used" read as undriven, all ones, which is `PROVISIONAL` — no DS5500 runs on either this core or the oracle, so one read would settle it | `boardreg_suite`, 32 tests; `008778-03` §3.2 and §3.3, `019411-A00` §4.2.1, §4.2.1.18 and Table 2-5, `FINDINGS.md` C10, `tools/mame-oracle/regprobe.lua` |
 | Address translation map (`017000`) | working: the translation itself, both DMA widths, and the register file. Between the AT bus and physical memory, not the CPU's MMU -- a DMA controller has no MMU, and this is what lets it see scattered physical pages as one contiguous run. Present on DN3500/4500/5500 and absent on DN3000, from the model table. The board splits a 16-bit entry into its two byte lanes, big-endian, which it did not until a DMA transfer failed to arrive | `atmap_suite`, 17 tests, `019411-A00` §4.2.1.4, `008778-03` §1.2, §2.5 |
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 14 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
