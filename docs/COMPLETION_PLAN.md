@@ -5955,20 +5955,30 @@ same number is what let them diverge once already.
       front contents omitted its chapter 15 and its back index omitted its
       chapter 16; each aid was missing a chapter the other had. Do not trust one.
 
-- [ ] **ST3's five constant bits** — the walk's remaining `PROVISIONAL`.
-      `[OMTI]` §6.4.4 and the 8640's §5.6.4 give ST3 three live bits and five
-      constants; `002398-04` p. 12-14 gives the generic 765's eight, and
-      `008778-03` §5.4.1.2 names the part an "FDC765". This core follows the
-      part's own manual — see `AP_GRAPHICS_SR_V_SYNC`'s neighbour finding for
-      why that is not automatic.
-      **The firmware route is exhausted and the answer is not in the ROM.** The
-      boot PROM's floppy path was disassembled from `002A86`: `003266`
-      initialises the drive — Digital Output `$1C`, Diskette Control `$00`,
-      Additional Control `$02` — and never issues `SENSE DRIVE STATUS`, so it
-      never reads ST3. The discriminator must be **Domain/OS's** floppy driver,
-      which is on disk rather than in ROM and needs a running system that uses
-      the floppy. A larger experiment than a disassembly, and named as such so
-      the ROM is not searched again.
+- [ ] **ST3's five constant bits** — the walk's remaining `PROVISIONAL`, and
+      **all three resolution tiers are now exhausted**. `[OMTI]` §6.4.4 and the
+      8640's §5.6.4 give ST3 three live bits and five constants, with bit 0
+      "not used - always 1"; `002398-04` p. 12-14 draws the generic 765's eight,
+      each "from drive". This core follows the part's own manual; the reasoning,
+      and the third printing of the same table, are in `ap_omti.h`.
+      - *Reference*: says both things, and the handbook's two printings are the
+        **same table** — chapter 8 for a family with a bare 765, chapter 12 for
+        one behind an OMTI — so it is not an independent claim twice.
+      - *Firmware*: exhausted. The boot PROM's floppy path from `002A86` never
+        issues `SENSE DRIVE STATUS`, so it never reads ST3. Do not search the
+        ROM again.
+      - *Oracle* (checked 2026-08-21): **cannot arbitrate.** MAME's
+        `ISA16_OMTI8621_APOLLO` instantiates a **stock `UPD765A`** inside and
+        exposes it through `fdc_map`, modelling no OMTI tie-off at all. Its
+        `get_st3` takes unit and head from `command[1] & 7`, so it disagrees
+        with this core on **bit 0** as well — for unit 0 it returns 0 where this
+        returns 1. A modelling choice, not a measurement. It does corroborate
+        the *structure*: the 8621 genuinely contains a 765 as a discrete part,
+        so "the silicon has the bits, the board ties five" is a real
+        arrangement and not a convenient story.
+      **What is left is Domain/OS's floppy driver** — on disk, not in ROM, and
+      needing a running system that uses the floppy. A driver branching on bit 5
+      or on bit 0 settles it either way.
 
 ## The `008778-03` whole-document walk
 

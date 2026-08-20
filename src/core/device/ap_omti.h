@@ -337,6 +337,29 @@ typedef enum {
  * measured here reaches the floppy, so nothing has yet distinguished them. Named
  * in `docs/PROJECT_STATUS.md` rather than decided by preference.
  *
+ * **The oracle was asked on 2026-08-21, and it cannot arbitrate.** MAME gives
+ * the Apollo an `ISA16_OMTI8621_APOLLO` -- a board-specific device, which looks
+ * promising -- but inside it that device instantiates a **stock `UPD765A`** and
+ * exposes its registers straight through `fdc_map`. So MAME implements the
+ * *generic* reading throughout: its `get_st3` starts `st3 = command[1] & 7`,
+ * taking unit **and** head from the command byte, then adds `RY`, `WP`, `T0`
+ * and `TS` from the drive. It models no OMTI tie-off anywhere.
+ *
+ * That disagrees with this core on **bit 0 as well as the five**: this core
+ * always sets it, per `[OMTI]` §6.4.4's "not used - always 1", where MAME
+ * returns the selected unit's low bit -- so for unit 0, the usual one, MAME
+ * gives 0 where this gives 1. It is not evidence *against* the OMTI reading,
+ * because MAME made a modelling choice and not a measurement: wrapping a stock
+ * 765A is what one writes having not consulted the OMTI manual's ST3 table.
+ * What it does add is **structural corroboration** of the explanation above --
+ * the 8621 really does contain a 765 as a discrete part, so "the silicon has
+ * the bits, the board ties five of them" describes a real arrangement rather
+ * than a convenient story.
+ *
+ * The discriminator is unchanged and the tier list is now complete: the
+ * references say both things, the firmware never issues `SENSE DRIVE STATUS`,
+ * and the oracle wraps a generic part. Only Domain/OS's floppy driver is left.
+ *
  * Bit 4's description in *both* OMTI manuals contradicts its own name: "Track 0
  * (TO) - Status of the 'ready' signal from the diskette drive". The name is
  * modelled and the sentence is not, because bit 4 is Track 0 on every
