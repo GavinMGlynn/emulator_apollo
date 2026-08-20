@@ -69,6 +69,16 @@ typedef struct {
    * ring of fewer than nine stations is shorter than its own nine-bit token,
    * which is not a limit any physical ring has.
    *
+   * **The hardware agrees that a short ring is a real case, and gives the
+   * controller a switch for it.** `002398-04` p. 8-41 documents a `DELAY` bit in
+   * the transmit command register: "Enable an additional **7 bit delay** into
+   * the length of the network. This may be required to support the recirculation
+   * of the token, **which is 9 bits**." So the token's length is confirmed from
+   * a second source, and the remedy this field models by hand -- lengthening the
+   * ring until the token fits -- is one a real controller could apply in a
+   * single bit. That controller is the DN4xx's; whether the DS3000's gate array
+   * has the same switch is not established here.
+   *
    * Zero by default, so a ring that does not care about cable length behaves
    * exactly as it did before this existed. */
   unsigned cable_bits;

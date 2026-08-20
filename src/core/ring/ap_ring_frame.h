@@ -183,7 +183,21 @@
  *   b. *addressed and able to copy it* -- mutually exclusive with wait-ack,
  *      which is what this model implements and what cannot produce `0012`.
  *
- * **Not changed on one page of a different controller generation**, and named
+ * **And p. 8-42 is the first thing that tells the two readings apart.** The
+ * DN4xx controller's transmit status has `WACK` at bit 2 and, two bits above it,
+ * a *separate* **`NCOPY` -- "No receiver was enabled to copy this message"**. If
+ * a wait-ack already meant "nobody was enabled", `NCOPY` would be the same bit
+ * twice. That it is a distinct bit says the two are different conditions on that
+ * hardware: `WACK` is an addressed receiver that wanted the packet and could not
+ * take it now, `NCOPY` is nobody willing at all -- which is reading (a), and
+ * exactly what makes `icopy | wack` a coherent pair rather than a contradiction.
+ *
+ * That is evidence and not proof: it is a different controller generation, and
+ * this core's `ap_ring_ctl` has no `NCOPY` counterpart to check it against. But
+ * it is the first page that *distinguishes* the readings instead of restating
+ * one of them, and it points away from what is implemented here.
+ *
+ * **Not changed on pages of a different controller generation**, and named
  * instead: `docs/COMPLETION_PLAN.md` carries it with the discriminating
  * evidence -- `010005-00` or the ring firmware's own handling of a wait-ack, or
  * a `[MAC]` sentence that says whether a busy receiver still asserts
