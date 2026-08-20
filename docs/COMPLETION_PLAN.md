@@ -5781,9 +5781,19 @@ same number is what let them diverge once already.
       DN3000 table at all, and the nibble order is inferred from the fit rather
       than stated. Implement the DN3000's table for the DN3000, and settle the
       DN3500's numbering from a DN3500 PROM disassembly before decoding its
-      codes as if they were the same. *Verification: a `--boot-report` line
-      naming each posted code for a DN3000 boot, and a test that the DN3500
-      path stays undecoded until its own source exists.*
+      codes as if they were the same.
+      **A route to that disassembly opened 2026-08-20.** The PROM service table
+      the walk found gives `led_update` at `0000254E` in `3500_BOOT_12191_7`,
+      and it is disassembled in `ap_boardreg.h`: it swaps two display bytes at
+      `A6+$1D4` and `A6+$1D5`, suppressed when `A6+$1C9` reads `FF`. That
+      confirms the **alternation** this core already models and not the
+      **numbering**. The numbering needs the *callers* of the post routine at
+      `00251A`, which is bounded work rather than open-ended: each caller
+      supplies its code inline, so the set of codes and their sites can be
+      recovered by searching for the call rather than by running anything.
+      *Verification: a `--boot-report` line naming each posted code for a DN3000
+      boot, and a test that the DN3500 path stays undecoded until its own source
+      exists.*
 
 - [x] **`QIC-02 Rev D` walked whole**, 29 of 29 pages — the standard both Apollo
       tape documents defer to for the six-byte status block and neither
