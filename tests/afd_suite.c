@@ -258,7 +258,14 @@ static void test_read_data_returns_the_sector_its_chr_names(void) {
   }
   /* The last data byte hands over to the result phase by itself. */
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_fdc_phase(&omti));
-  TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST0_IC_NORMAL, take()); /* ST0 */
+  /* **`ST0` carries the head**, and this asserted that it did not. `002398-04`
+   * p. 8-13 gives `ST0[2]` as "Head Address" -- the state of the head at the
+   * end of the execution phase -- and this command names side 1, so the bit is
+   * set. The `H` byte three positions along has always been right, which is why
+   * a wrong `ST0` went unnoticed: a driver reading `ST0` rather than `H` was
+   * told the wrong side of every diskette. */
+  TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST0_IC_NORMAL | AP_OMTI_ST0_HEAD,
+                          take());                        /* ST0 */
   TEST_ASSERT_EQUAL_UINT8(0u, take());                    /* ST1 */
   TEST_ASSERT_EQUAL_UINT8(0u, take());                    /* ST2 */
   TEST_ASSERT_EQUAL_UINT8(1u, take());                    /* C */
@@ -288,7 +295,13 @@ static void test_a_read_past_the_last_cylinder_reports_no_data(void) {
 
 /* An empty drive is not a blank one. Nothing is attached, so the sector cannot
  * be found *and* the address mark is missing -- which is what distinguishes it
- * from a disk whose track 77 does not exist. */
+ * from a disk whose track 77 does not exist.
+ *
+ * **And `ST0` says the drive is not ready**, which this asserted it did not.
+ * p. 8-13 gives `ST0[3]` as "Set if FDD Not Ready", and an empty drive is
+ * exactly that. Reporting the condition in `ST1` alone made an absent drive
+ * look like a seek into unformatted media -- the same two bits either way, and
+ * a driver cannot tell "put a diskette in" from "this one is blank". */
 static void test_a_read_with_no_diskette_reports_a_missing_address_mark(void) {
   ap_omti_reset(&omti);
   ap_omti_attach_floppy(&omti, nullptr);
@@ -296,9 +309,37 @@ static void test_a_read_with_no_diskette_reports_a_missing_address_mark(void) {
   const uint8_t command[] = {AP_OMTI_FDC_READ_DATA, 0u, 0u, 0u, 1u,
                              3u,                    8u, 0x1Bu, 0xFFu};
   send(command, sizeof command);
-  TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST0_IC_ABRUPT, take());
+  TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST0_IC_ABRUPT | AP_OMTI_ST0_NOT_READY,
+                          take());
   TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST1_NO_DATA | AP_OMTI_ST1_MISSING_MARK,
                           take());
+
+  /* The interrupt code stays `01` and does not become `11`: p. 8-13 reserves
+   * `11` for "FDD went not ready **during** command execution", which is a
+   * drive that was ready when the command started. This one never was. */
+  TEST_ASSERT_NOT_EQUAL_UINT8(
+      AP_OMTI_ST0_IC_NOT_READY,
+      (uint8_t)(AP_OMTI_ST0_IC_ABRUPT | AP_OMTI_ST0_NOT_READY) &
+          AP_OMTI_ST0_IC_MASK);
+}
+
+/* A loaded drive is ready, so the bit stays clear -- which is what makes it
+ * evidence rather than a constant. */
+static void test_a_loaded_drive_does_not_report_not_ready(void) {
+  build_floppy(true);
+  build_controller();
+  const uint8_t command[] = {AP_OMTI_FDC_READ_DATA, 0u, 0u, 0u, 1u,
+                             3u,                    8u, 0x1Bu, 0xFFu};
+  send(command, sizeof command);
+  /* Straight through the data phase to the result. */
+  for (unsigned i = 0; i < AP_AFD_SECTOR_BYTES; i++) {
+    (void)take();
+  }
+  const uint8_t st0 = take();
+  TEST_ASSERT_EQUAL_HEX8(0u, st0 & AP_OMTI_ST0_NOT_READY);
+  /* And side 0 leaves the head bit clear, the other arm of the head test. */
+  TEST_ASSERT_EQUAL_HEX8(0u, st0 & AP_OMTI_ST0_HEAD);
+  release_floppy();
 }
 
 /* §6.3.10 and §6.3.7 are a pair: SEEK reports nothing, and the driver learns
@@ -822,6 +863,7 @@ int main(void) {
   RUN_TEST(test_read_data_returns_the_sector_its_chr_names);
   RUN_TEST(test_a_read_past_the_last_cylinder_reports_no_data);
   RUN_TEST(test_a_read_with_no_diskette_reports_a_missing_address_mark);
+  RUN_TEST(test_a_loaded_drive_does_not_report_not_ready);
   RUN_TEST(test_a_seek_reports_nothing_until_sense_interrupt_status_asks);
   RUN_TEST(test_sense_interrupt_status_with_no_seek_pending_is_invalid);
   RUN_TEST(test_recalibrate_puts_the_head_on_track_zero);

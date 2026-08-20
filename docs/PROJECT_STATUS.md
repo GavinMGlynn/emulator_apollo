@@ -433,6 +433,36 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## `ST0` had two bits nobody had named, and one of them lied
+## (2026-08-20)
+
+`002398-04` p. 8-13 lays the floppy controller's Main Status Register and Status
+Register 0 out bit by bit. Six of `ST0`'s eight fields were already in
+`ap_omti.h` and match exactly -- the four interrupt codes in order, seek-end,
+equipment check with its "no track 0 after 77 step pulses" gloss, and the unit
+field. **The other two had no constant and were never set.**
+
+**`ST0[2]`, Head Address.** "The state of the head at the end of the execution
+phase" -- so a read from side 1 must come back with the bit set, and this core
+came back with it clear on every command. The result bytes carry `H` separately
+and have always been right, which is why nothing noticed: a driver that reads
+`ST0` rather than the `H` byte was told the wrong side of every diskette. The
+suite encoded the wrong value, and the test that caught it is the one that reads
+from side 1 and asserted `ST0` was plain `IC_NORMAL`.
+
+**`ST0[3]`, Not Ready.** An empty drive was reported in `ST1` alone -- no-data
+plus missing-address-mark -- which is what a seek into *unformatted media* looks
+like. Two bits either way, and a driver cannot tell "put a diskette in" from
+"this one is blank". The interrupt code stays `01` rather than becoming `11`,
+because p. 8-13 reserves `11` for "FDD went not ready **during** command
+execution", which is a drive that was ready when the command started.
+
+This is the register-table walk finding what a header sweep cannot: neither bit
+was marked "not modelled" anywhere, because nobody had ever written them down.
+
+*Verification: `afd_suite` 36 -- the head bit asserted on both sides, `NR` on an
+empty drive and clear on a loaded one, and the interrupt code pinned to `01`.*
+
 ## Two documents on one drive: one disagreement kept, one dissolved
 ## (2026-08-20)
 
@@ -8037,7 +8067,7 @@ to the controller's buffer ... does not transfer the data to the host", paired
 with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both derived from the STATUS register as §4.2 and §4.3 give them: the interrupt from `IREQ` and the MASK byte's interrupt enable, the DMA request from `DREQ`, which the MASK byte's DMA enable gates. IRQ6 and DRQ2 are placed and not yet driven: the floppy side's completion is the FDC's result phase, not this one | `omti_suite`, 15 tests; `awd_suite`, 49; `afd_suite`, 34; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |
 | OMTI 8621 placement (the DN3500's disk) | measured, both halves. Placement characterised at `04D000`: the range is the card's (all `FF` without it, control verified by device enumeration), aliased on an eight-byte period, with offsets 1-3 driven. Offsets 0 and 4-7 read `FF`, which a read sweep cannot distinguish from undriven | `FINDINGS.md` C20 |
 | WD7000 ESDI/SCSI (DN4500) | not started | — |
-| Floppy (`device/ap_omti.c`'s second half, `image/ap_afd.c`), QIC cartridge tape (`device/ap_qic.c`, `board/ap_tape.c`) | **modelled, and the floppy is now reachable.** §6.3's ten commands with their ST0-ST3 result bytes, the motor, MFM, multitrack and skip-deleted flags, over a 77x2x8x1024 `.afd`. The row said "not started", which was stale by a whole subsystem | `afd_suite`, 35 tests; `qic_suite`; `tape_suite`; `--diskette` fits one |
+| Floppy (`device/ap_omti.c`'s second half, `image/ap_afd.c`), QIC cartridge tape (`device/ap_qic.c`, `board/ap_tape.c`) | **modelled, and the floppy is now reachable.** §6.3's ten commands with their ST0-ST3 result bytes, the motor, MFM, multitrack and skip-deleted flags, over a 77x2x8x1024 `.afd`. The row said "not started", which was stale by a whole subsystem | `afd_suite`, 36 tests; `qic_suite`; `tape_suite`; `--diskette` fits one |
 | Mono and colour graphics controllers (`board/ap_graphics.*`) | **working**: the register block with its scrambled byte lanes, the blitter wired to the memory cycle, the LUT ports and the four screen geometries. Audited line by line against `[S3K]` ch. 10 and ch. 11 on 2026-08-16 — **no structural defect**, and §10.3.1's eleven-item change list checks out entry by entry. One real finding: the colour raster is printed in full in Table 11-4 and had been taken from the oracle, which was off by one in each direction (`h_total` 1346→1344, `v_total` 841→842). `GRAPHICS.md` finding 19; the dot clock stays `PROVISIONAL` at 68 MHz | `graphics_suite`; `./tools/identity-boot.sh --screen c8p` hashes `6140F8E43F3BCC1C` with 2.17 M controller reads |
 | 3c505 802.3 Ethernet (`device/ap_3c505.*`) | **working end to end, host command path included.** The four flag registers from `[HIS]` §3-2/§3-3/§3-5/§3-6 with the sides the right way round, the §3.1.2/§3.1.3 mailbox in both directions, the command set, DMA on DRQ6 and the interrupt on IRQ10. The audit's finding: §3.1.2's *host→adapter* half had never been wired — assembler, dispatcher and responder all existed and were unit-tested, nothing called them, and a host command was answered never. `ETHERNET.md` finding 19; the pacing approximation is 19a. The line-by-line pass then found four more: §3.1.1's accept/reject flags were never signalled at all (20), `02H`'s receive mode was stored and never consulted so every frame on the wire was this station's (21), `3AH`'s length is `10H` not the `0CH` printed -- `[HIS]` App. F, the packet counters became double words in Rev 2.0 (22) -- and `0FH` self-test is now answered while `0CH`/`0DH`/`0EH`/`11H` stay refused because every field of their responses is unmodelled (23), and §1.12's adapter reset both cleared the Host Control Register it must not touch and released the adapter while the host still held `ATTN`+`FLSH` (25) | `etherlink_suite`, 50 tests, of which `test_a_command_written_by_the_host_is_answered_by_the_adapter` crosses the real registers with no test-side wiring |
 | MAME oracle harness | working and used throughout. Beyond the dumper there are now four probe tools — `regprobe.lua` drives every bit of a register in both directions, `writetrace.lua` taps writes to watch firmware program a device, `steptime.lua` single-steps for instruction timing, `mdcapture.lua` traces the serial registers byte-exact — and findings C10 through C14 are all measurements taken with them | `oracle_driver` (19 checks, stub MAME) and `oracle_dump_format` (19 checks, mock machine); `./apollo -listfull` lists all eleven apollo machines |

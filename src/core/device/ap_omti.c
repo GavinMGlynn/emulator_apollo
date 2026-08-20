@@ -1976,7 +1976,12 @@ static void fdc_result(ap_omti_t *omti) {
  * position *after* the operation, which is what a driver chains from. */
 static void fdc_data_result(ap_omti_t *omti, uint8_t st0, uint8_t st1,
                             uint8_t st2) {
-  omti->fdc_result[0] = (uint8_t)(st0 | (uint8_t)fdc_unit(omti));
+  /* `ST0[2]`, the head address: "the state of the head at the end of the
+   * execution phase", which for these commands is the side the command named.
+   * See the header -- this was absent, so every result said side 0. */
+  const uint8_t head =
+      (omti->fdc_command[3] & 1u) ? AP_OMTI_ST0_HEAD : (uint8_t)0u;
+  omti->fdc_result[0] = (uint8_t)(st0 | head | (uint8_t)fdc_unit(omti));
   omti->fdc_result[1] = st1;
   omti->fdc_result[2] = st2;
   omti->fdc_result[3] = omti->fdc_command[2]; /* C */
@@ -1986,12 +1991,22 @@ static void fdc_data_result(ap_omti_t *omti, uint8_t st0, uint8_t st1,
   omti->fdc_result_length = 7u;
 }
 
+/* `ST0[3]`, `NR`: p. 8-13's "Set if FDD Not Ready". A drive with no diskette in
+ * it is not ready, and that is a property of the drive rather than of the
+ * sector a command happened to name. */
+static uint8_t fdc_not_ready(const ap_omti_t *omti) {
+  return omti->floppy == nullptr ? AP_OMTI_ST0_NOT_READY : (uint8_t)0u;
+}
+
 /* Read the sector the command's C/H/R name into the buffer. */
 static bool fdc_load_sector(ap_omti_t *omti, uint8_t *st1) {
   uint32_t lba = 0u;
   *st1 = 0u;
   if (omti->floppy == nullptr) {
-    /* An empty drive: the sector is not there to be found. */
+    /* An empty drive: the sector is not there to be found, and the *drive* is
+     * what is wrong rather than the sector. The caller adds `ST0`'s `NR` --
+     * p. 8-13's "Set if FDD Not Ready" -- which this reported in `ST1` alone,
+     * so an absent drive looked exactly like a seek into unformatted media. */
     *st1 = AP_OMTI_ST1_NO_DATA | AP_OMTI_ST1_MISSING_MARK;
     return false;
   }
@@ -2018,7 +2033,8 @@ static void fdc_execute(ap_omti_t *omti) {
   switch (opcode) {
   case AP_OMTI_FDC_READ_DATA:
     if (!fdc_load_sector(omti, &st1)) {
-      fdc_data_result(omti, AP_OMTI_ST0_IC_ABRUPT, st1, 0u);
+      fdc_data_result(omti, (uint8_t)(AP_OMTI_ST0_IC_ABRUPT | fdc_not_ready(omti)),
+                      st1, 0u);
       fdc_result(omti);
       return;
     }
@@ -2034,7 +2050,12 @@ static void fdc_execute(ap_omti_t *omti) {
      * write-protect bit that says so -- ST1's Not Writeable is documented for
      * exactly this command. */
     if (omti->floppy == nullptr || !omti->floppy->writable) {
-      fdc_data_result(omti, AP_OMTI_ST0_IC_ABRUPT,
+      /* Write-protect says why a *loaded* diskette refuses; `NR` says the drive
+       * is empty. A format into an empty drive is both, and reporting only the
+       * first would tell a driver to swap the write-protect tab on a diskette
+       * that is not there. */
+      fdc_data_result(omti,
+                      (uint8_t)(AP_OMTI_ST0_IC_ABRUPT | fdc_not_ready(omti)),
                       AP_OMTI_ST1_NOT_WRITEABLE, 0u);
       fdc_result(omti);
       return;
@@ -2070,7 +2091,8 @@ static void fdc_execute(ap_omti_t *omti) {
      * phase runs the other way: the controller takes the comparison data and
      * ST2 reports the verdict. */
     if (!fdc_load_sector(omti, &st1)) {
-      fdc_data_result(omti, AP_OMTI_ST0_IC_ABRUPT, st1, 0u);
+      fdc_data_result(omti, (uint8_t)(AP_OMTI_ST0_IC_ABRUPT | fdc_not_ready(omti)),
+                      st1, 0u);
       fdc_result(omti);
       return;
     }

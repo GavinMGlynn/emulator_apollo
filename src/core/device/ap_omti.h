@@ -252,6 +252,27 @@ typedef enum {
 #define AP_OMTI_ST0_IC_NOT_READY 0xC0u /* 'ready' changed state mid-command */
 #define AP_OMTI_ST0_SEEK_END 0x20u
 #define AP_OMTI_ST0_EQUIPMENT 0x10u /* fault, or no track 0 after 77 steps */
+/* ## `ST0[3]` and `ST0[2]`, which this file named nowhere
+ *
+ * `002398-04` p. 8-13 lays the register out bit by bit and gives both:
+ * "**D3 - Set if FDD Not Ready**" and "**D2 - Head Address**". Neither had a
+ * constant here and neither was ever set, so `ST0` came back with the interrupt
+ * code, the seek-end and equipment bits, and the unit -- and nothing else.
+ *
+ * The head bit is the one that misleads: it is "the state of the head at the end
+ * of the execution phase", so a read from side 1 returned an `ST0` saying side
+ * 0. The result bytes carry `H` separately and correctly, which is why nothing
+ * noticed; a driver that checks `ST0` rather than the `H` byte would have been
+ * told the wrong side of every diskette.
+ *
+ * `NR` is the empty drive's. This model reported that case in `ST1` alone --
+ * no-data plus missing-address-mark, which is what a *seek* into nothing looks
+ * like rather than what an absent drive looks like. The interrupt code stays
+ * `01` and does not become `11`: p. 8-13 reserves `11` for "FDD went not ready
+ * **during** command execution", which is a drive that was ready when the
+ * command started. */
+#define AP_OMTI_ST0_NOT_READY 0x08u
+#define AP_OMTI_ST0_HEAD 0x04u
 #define AP_OMTI_ST0_UNIT_MASK 0x03u
 
 /* ST1. */
