@@ -5768,21 +5768,9 @@ same number is what let them diverge once already.
       firmware is evidenced to post. `ap_boardreg_post_code_name` names `03`-`0C`
       from `002398-04` p. 4-23; everything else prints nothing rather than a
       guess. *Verification: `boardreg_suite` 30, and the 350 M reference boot
-      names 12 of its 32 posted values.* Detail in `PROJECT_STATUS.md`.
-      *Tail closed 2026-08-20*: the `00`-`70` group is not codes. `13FC 00xx
-      0001 0100` writes immediates straight to the register at `00653E`,
-      `006560`, `0065C8`, `00660E`, `006648` — `EF DF FE EE DE`, uncomplemented —
-      so they are **lamp patterns**, not post-routine codes, and the decode is
-      right to refuse them.
-      *And `0D` is not statically recoverable.* The site at `0025AC` is a fault
-      handler — `2D5F 00E6` pops the return address into `A6+$E6`, `2D4F 003E`
-      saves `A7`, then `3017` takes the word **on the stack** as the code. Its
-      value depends on the exception frame at run time, so no scan of the ROM can
-      enumerate what it posts. The other computed site, `002648`, has `D0` set
-      before entry. So the code set is knowable for sixteen of eighteen sites and
-      *not* for two, which closes this item's tail as far as static analysis
-      reaches: `0D` may well come from the fault handler, and proving it needs a
-      run that faults rather than a disassembly.
+      names 12 of its 32 posted values.* Detail, including the register's three
+      kinds of writer and why `0D` is not statically recoverable, in
+      `PROJECT_STATUS.md`.
 
 - [ ] **(superseded, kept for its evidence)** `002398-04`
       p. 4-23 gives the DN3000's boot PROM LED table — every power-on test

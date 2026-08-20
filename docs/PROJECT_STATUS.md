@@ -530,6 +530,26 @@ writer and only one complements — arriving in practice rather than in theory.
 The `03`-`08` group is the eighteen call sites, through the post routine, and is
 what the report names.
 
+**`0D` is not statically recoverable, and that is the honest end of this.** Two
+of the eighteen sites take their code from a variable, and one is understood:
+
+```
+2596  6100 E08E   BSR.W   $000626
+259A  2D5F 00E6   MOVE.L  (A7)+,($E6,A6)     ; the return address
+259E  2D4F 003E   MOVE.L  A7,($3E,A6)        ; the stack pointer
+25A6  3017        MOVE.W  (A7),D0            ; the word on the stack
+25AC  6100 FF7C   BSR.W   $252A
+```
+
+It is a fault handler: it saves the return address and stack pointer, then posts
+the word left on the stack. That value depends on the exception frame at run
+time, so no scan of the ROM can enumerate it. The other computed site, `002648`,
+has `D0` set before entry. Sixteen of eighteen sites are knowable and two are
+not — so `0D` may well come from this handler, and proving it needs a run that
+faults rather than a disassembly. Recorded that way rather than as open work,
+because "trace the last two sites" reads as a task someone could finish and it
+is not one.
+
 *Verification: `boardreg_suite` 30, including that `FF` and both sides of the run
 are refused; 12 of 32 values named on the reference boot.*
 
