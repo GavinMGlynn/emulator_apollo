@@ -433,6 +433,43 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The DN4000 (DS4000) row, and where each of its fields comes from
+## (2026-08-21)
+
+The model table's DS4000 gap has been open since it was written, blocked on one
+thing: **no hardware document states a display or a memory size per model.**
+`008778-03` §1.5.3 describes three graphics boards without saying which machine
+takes which; §1.5.2 and Table 2-11 do the same for the memory boards;
+`019411-A00` names the DS4000 only in its address-map section; and a web search
+for the model returns nothing.
+
+**Datapro's *Apollo Domain Systems* report of March 1988** (`M09-060-10_8803`,
+on bitsavers) tabulates the line by model, and its DN4000 column gives `MC68020`,
+`25MHz`, memory `4M` to `32M`, display `1,280 x 1,024` colour, and three RS-232-C
+ports.
+
+**Two of those are fields `002398-04` already states**, and that is what makes
+the rest usable rather than a guess: §1's prose gives the DS4000 a 25-MHz 68020
+and 4–32 MB, and the report agrees on both. The row is `dn4000` because this
+table uses `dn` throughout — `019411-A00` calls the same machine DS4000 and the
+DS3500 is `dn3500` here — and the description carries both names.
+
+**The fields are not equal in strength, and the row says so.** `cpu`, `mmu` and
+`fpu` are Figure 1-2's named parts. `cpu_hz` and `ram_max_bytes` have two
+independent sources agreeing. **`display` is Datapro alone** and is marked
+`PROVISIONAL` in the table itself: a market report is weaker than a manual and
+its purpose was selling machines. It is the first field to revisit if anything
+ever disagrees.
+
+One thing is recorded and not encoded: Datapro's "3 serial RS-232-C standard"
+against Figure 1-2's four lines. Those reconcile as three user ports plus the
+keyboard's — two 2681s carry four with line 0 the keyboard — but that is a
+reading, and the table has no serial-count field to put it in.
+
+*Verification: `golden_model_table`, which now carries the row; `model_suite`
+unchanged and green — the new model is a `dn`, so its headless check requires a
+display and it has one.*
+
 ## `002398-04` is read whole — 330 of 330 pages (2026-08-20)
 
 The *Domain Engineering Handbook* has been derived in full: front matter,

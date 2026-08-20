@@ -1,15 +1,17 @@
-model     cpu     clock     mmu              display         oracle  ram
-dn2500    68030   20 MHz    68030 on-chip    mono 1024x800   paper   16 MB @ 0x04000000  PROVISIONAL
-dn3000    68020   12 MHz    68851 external   mono 1024x800   mame    8 MB @ 0x00100000
-dn3500    68030   25 MHz    68030 on-chip    mono 1024x800   mame    32 MB @ 0x01000000
-dn3550    68030   25 MHz    68030 on-chip    mono 1280x1024  paper   32 MB @ 0x01000000
-dn4500    68030   33 MHz    68030 on-chip    mono 1280x1024  paper   32 MB @ 0x01000000
-dn5500    68040   25 MHz    68040 on-chip    mono 1024x800   mame    32 MB @ 0x01000000
-dsp3000   68020   12 MHz    68851 external   headless        mame    8 MB @ 0x00100000
-dsp3500   68030   25 MHz    68030 on-chip    headless        mame    32 MB @ 0x01000000
-dsp3550   68030   25 MHz    68030 on-chip    headless        paper   32 MB @ 0x01000000
-dsp4500   68030   33 MHz    68030 on-chip    headless        paper   32 MB @ 0x01000000
-dsp5500   68040   25 MHz    68040 on-chip    headless        mame    32 MB @ 0x01000000
+model     cpu     clock     mmu              display          oracle  ram
+dn2500    68030   20 MHz    68030 on-chip    mono 1024x800    paper   16 MB @ 0x04000000  PROVISIONAL
+dn3000    68020   12 MHz    68851 external   mono 1024x800    mame    8 MB @ 0x00100000
+dn3500    68030   25 MHz    68030 on-chip    mono 1024x800    mame    32 MB @ 0x01000000
+dn3550    68030   25 MHz    68030 on-chip    mono 1280x1024   paper   32 MB @ 0x01000000
+dn4000    68020   25 MHz    68851 external   color 1280x1024  paper   32 MB @ 0x01000000  PROVISIONAL
+dn4500    68030   33 MHz    68030 on-chip    mono 1280x1024   paper   32 MB @ 0x01000000
+dn5500    68040   25 MHz    68040 on-chip    mono 1024x800    mame    32 MB @ 0x01000000
+dsp3000   68020   12 MHz    68851 external   headless         mame    8 MB @ 0x00100000
+dsp3500   68030   25 MHz    68030 on-chip    headless         mame    32 MB @ 0x01000000
+dsp3550   68030   25 MHz    68030 on-chip    headless         paper   32 MB @ 0x01000000
+dsp4500   68030   33 MHz    68030 on-chip    headless         paper   32 MB @ 0x01000000
+dsp5500   68040   25 MHz    68040 on-chip    headless         mame    32 MB @ 0x01000000
 
 time base: 21542400000000 Hz
 PROVISIONAL dn2500: has_active_low_parity_lanes: true, on the oracle's split alone. Both DN3000 PROMs write F8 to force bad parity and the three Series 4000 PROMs write 08, so the two families are settled from firmware; 2500_BOOT_16182_8 makes no such write anywhere, so nothing here tests it. ram_base and ram_max_bytes are no longer provisional: the Series 2500 boot PROM sizes its own memory and both constants are in that code. 2500_BOOT_16182_8 resets to PC 0001F040, and its address-line walk ORs the base into each address it probes -- OR.L #$04000000,D1 at 1F49A -- then masks the walking pattern with ANDI.L #$04FFFFFF,D1 at 1F4CE and again at 1F4FA. A base of 04000000 with a 00FFFFFF offset mask is a 16 MB region at 04000000, which is what the table holds and what [CFG] p. A-11's 4-16 MB says independently. The reset SSP 040007D0 agrees a third time. No Series 2500 allocation table exists on disk or on the web, and the oracle has no 2500 driver, so the firmware is the primary source here rather than a fallback
+PROVISIONAL dn4000: display resolution is a 1988 market report's, not a manual's -- no hardware document states one per model

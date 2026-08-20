@@ -41,6 +41,7 @@ const char *ap_display_name(ap_display_t display) {
     case AP_DISPLAY_NONE:           return "headless";
     case AP_DISPLAY_MONO_1024X800:  return "mono 1024x800";
     case AP_DISPLAY_MONO_1280X1024: return "mono 1280x1024";
+    case AP_DISPLAY_COLOR_1280X1024: return "color 1280x1024";
     case AP_DISPLAY_COLOR_1024X800: return "color 1024x800";
   }
   return "unknown";
@@ -55,7 +56,7 @@ const char *ap_oracle_name(ap_oracle_t oracle) {
 }
 
 void ap_print_model_table(FILE *out) {
-  fprintf(out, "%-8s  %-6s  %-8s  %-15s  %-14s  %-6s  %s\n", "model", "cpu",
+  fprintf(out, "%-8s  %-6s  %-8s  %-15s  %-15s  %-6s  %s\n", "model", "cpu",
           "clock", "mmu", "display", "oracle", "ram");
   for (size_t i = 0; i < ap_model_count(); ++i) {
     const ap_model_t *m = ap_model_by_id((ap_model_id_t)i);
@@ -63,7 +64,7 @@ void ap_print_model_table(FILE *out) {
     /* A model whose clock the time base cannot represent exactly would drift
      * against the ring. Surface it here rather than let it pass silently. */
     bool exact = ap_clock_init(&clk, m->cpu_hz);
-    fprintf(out, "%-8s  %-6s  %2u MHz%s  %-15s  %-14s  %-6s  %u MB @ %#010x%s\n",
+    fprintf(out, "%-8s  %-6s  %2u MHz%s  %-15s  %-15s  %-6s  %u MB @ %#010x%s\n",
             m->name, ap_cpu_name(m->cpu), m->cpu_hz / 1000000u,
             exact ? "  " : " !", ap_mmu_name(m->mmu), ap_display_name(m->display),
             ap_oracle_name(m->oracle), m->ram_max_bytes / (1024u * 1024u),

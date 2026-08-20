@@ -164,6 +164,61 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .has_active_low_parity_lanes = true,
         .provisional = nullptr,
     },
+    [AP_MODEL_DN4000] = {
+        .id = AP_MODEL_DN4000,
+        .board_of = AP_MODEL_DN4000,
+        .name = "dn4000",
+        .description = "DN4000 (DS4000) workstation, 25 MHz 68020 with 68851",
+        /* ## Two names, and the sources use different ones
+         *
+         * `002398-04` Figure 1-2 is headed "**DS4000** Functional Block Diagram"
+         * and `019411-A00` §4.2.1.4 groups "DS3500, DS4000, DS4500, DS5500";
+         * Datapro's 1988 report calls the same machine the "**DN4000** Personal
+         * Super Workstation". This table uses `dn` throughout -- the DS3500 is
+         * `dn3500` here -- so the row is `dn4000` and the description carries
+         * both.
+         *
+         * ## Where each field comes from, because they are not all equal
+         *
+         * `cpu`, `mmu` and `fpu` are `002398-04` **Figure 1-2**, which names the
+         * parts: MC68020, MC68851 PMMU, MC68881 FPU. That figure names parts and
+         * not figures, so it supplies nothing numeric.
+         *
+         * `cpu_hz` and `ram_max_bytes` have **two independent sources that
+         * agree**: §1's prose gives the DS4000 a 25-MHz 68020 and 4-32 MB, and
+         * Datapro's per-model table gives the DN4000 `25MHz` and `4M`/`32M`. It
+         * is that agreement, on fields both documents state, that makes the
+         * third field below usable at all.
+         *
+         * `display` is **Datapro alone** -- 1,280 x 1,024, colour, "16.7
+         * million/256" -- and is the weakest thing in this row. No hardware
+         * manual states a display per model: `008778-03` §1.5.3 describes three
+         * graphics boards without saying which machine takes which, which is
+         * why this row was blocked rather than merely unwritten. A market report
+         * is weaker evidence than a manual and its purpose was selling machines,
+         * so this is the field to revisit first if a probe or a manual ever
+         * disagrees.
+         *
+         * **Not modelled, and deliberately**: Datapro gives "3 serial RS-232-C
+         * standard" where Figure 1-2 shows four lines. Those reconcile as three
+         * user ports plus the keyboard's -- this core's two 2681s carry four
+         * with line 0 the keyboard -- but the reconciliation is a reading and
+         * the table has no serial-count field to put it in. Recorded here
+         * instead of encoded. */
+        .cpu = AP_CPU_M68020,
+        .cpu_hz = 25000000u,
+        .mmu = AP_MMU_M68851,
+        .fpu = AP_FPU_M68881,
+        .display = AP_DISPLAY_COLOR_1280X1024,
+        .oracle = AP_ORACLE_PAPER_ONLY,
+        .ram_base = 0x1000000u,
+        .ram_max_bytes = 0x2000000u, /* 4-32 MB, Figure 1-2 and Datapro agree */
+        .has_ring = true,
+        .has_address_translation_map = true,
+        .has_active_low_parity_lanes = true,
+        .provisional = "display resolution is a 1988 market report's, not a "
+                       "manual's -- no hardware document states one per model",
+    },
     [AP_MODEL_DN5500] = {
         .id = AP_MODEL_DN5500,
         .board_of = AP_MODEL_DN5500,

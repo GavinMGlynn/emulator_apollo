@@ -23,6 +23,7 @@ typedef enum {
   AP_MODEL_DN3000,
   AP_MODEL_DN3500,
   AP_MODEL_DN3550,
+  AP_MODEL_DN4000,
   AP_MODEL_DN4500,
   AP_MODEL_DN5500,
   AP_MODEL_DSP3000,
@@ -64,7 +65,8 @@ typedef enum {
   AP_DISPLAY_NONE,
   AP_DISPLAY_MONO_1024X800,
   AP_DISPLAY_MONO_1280X1024,
-  AP_DISPLAY_COLOR_1024X800
+  AP_DISPLAY_COLOR_1024X800,
+  AP_DISPLAY_COLOR_1280X1024
 } ap_display_t;
 
 /* How well this model's behaviour can be checked. Recorded in the table so the

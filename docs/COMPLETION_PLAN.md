@@ -5981,45 +5981,13 @@ below; everything else it found is implemented and recorded in
       CODE RAM, so firmware can read and write the cache's data *and* its
       condition-code RAM, and a diagnostic almost certainly does. Open question
       the walk has not settled: whether a DS3500 carries the structure at all.
-- [ ] **The DS4000 is absent from the model table.** Figure 1-2: 25-MHz MC68020,
-      MC68851 PMMU, MC68881 FPU, 4–32 MB, four serial lines. `--list-models` has
-      `dn3000` (68020 @ 12 MHz) and `dn4500` (68030 @ 33 MHz); the DS4000 is
-      neither.
-      **The misnamed map half is done** (2026-08-20): `DS4000_MAP` was named
-      after one machine while serving a group, and is now `SERIES_4000_MAP` —
-      Table 2-8 is the *Series 4000* address space, shared by the models
-      `019411-A00` §4.2.1.4 lists as "DS3500, DS4000, DS4500, DS5500", which is
-      exactly the set the selector reaches it for. What remains is the model
-      table entry.
-      **Figure 1-2 will not supply the missing fields** — checked 2026-08-20.
-      It is the "DS4000 Functional Block Diagram" on p. 1-4 and it names
-      *parts*, not figures: virtual cache, PMMU MC68851, FPU MC68881, boot PROM,
-      serial ports, timers, graphics controller, Winchester and disk controller,
-      tape controller, network controller. The processor speed, memory range and
-      serial-line count this item quotes come from §1's prose, not the figure.
-      So a row still needs a **display** and **memory-board sizes**, and the
-      places to look are §1.5.3 for the three graphics boards and §1.5.2 with
-      Table 2-11 for the 4-MB and 8-MB ones — none of which is stated per model,
-      which is the actual difficulty.
-      **A per-model source found 2026-08-21, and it is not a hardware manual.**
-      Datapro's *Apollo Domain Systems* report of March 1988
-      (`M09-060-10_8803`, on bitsavers) tabulates the line by model, and its
-      **DN4000 Personal Super Workstation** column reads `MC68020`, **`25MHz`**,
-      memory **`4M` minimum and `32M` maximum**, display **1,280 x 1,024**,
-      colour, `16.7 million/256`, and "3 serial RS-232-C standard".
-      Two of those are the fields Figure 1-2 already gives the *DS4000* — 25-MHz
-      68020, 4–32 MB — so the two names are the same machine, or near enough that
-      the handbook's own figure and this table describe one set of hardware. That
-      is what makes the third field usable: the display was the gap, and it is
-      **1280x1024 colour**. The serial count differs, `3` against Figure 1-2's
-      four, and reconciles as three user ports plus the keyboard's — this core's
-      two 2681s carry four lines with line 0 the keyboard.
-      *Not yet written into `model/`*: a market report is weaker than a manual,
-      and the row should land with that caveat stated in its comment and a test
-      that pins what each field's source is. **Do not infer the row from the Series
-      4500's**: `model/` is where every machine difference lives, and a
-      plausible guess there is indistinguishable from a measurement until
-      something exercises it.
+- [x] **The DS4000 is in the model table**, as `dn4000` — this table uses `dn`
+      throughout and `019411-A00`'s DS3500 is `dn3500` here. 25-MHz 68020, 68851,
+      68881, 4–32 MB from `002398-04` Figure 1-2 and §1; the **display is
+      Datapro's 1988 per-model table alone** (1280x1024 colour) and the row
+      carries a `PROVISIONAL` saying so, because no hardware document states a
+      display per model. *Verification: `golden_model_table`.* Detail, including
+      why the serial count is recorded and not encoded, in `PROJECT_STATUS.md`.
 - [ ] **`IO_CH_CK.L` and the AT bus's NMI path.** §2.3.2: an uncorrectable bus
       error "asynchronously sets a flip-flop that causes a **Non-Maskable-
       Interrupt** ... provides an **on-board register bit, which can be read and
