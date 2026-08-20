@@ -1424,6 +1424,36 @@ static void test_the_ethernet_card_answers_exactly_sixteen_locations(void) {
                         ap_board_region(&board, AP_BOARD_ETHERNET_ADDR - 1u));
 }
 
+/* ## `002398-04` p. 6-1's AT bus table, which pins the mapping from two cards
+ *
+ * *AT BUS DEVICES (SERIES 3000 MACHINES)* prints the physical range beside the
+ * I/O range for each card, so the board's `physical = 0x040000 + (ISA << 7)` is
+ * checkable against a document rather than against one device and an oracle
+ * tap. Two rows, at opposite ends of the I/O space:
+ *
+ *     Ethernet Contr.   ...   058000-058800   300-310
+ *     SPE Controller    ...   05FC00-05FF80   3F8-3FF
+ *
+ * The same row is what resolved the IRQ disagreement this core carried — see
+ * `AP_BOARD_ETHERNET_IRQ`. Testing the arithmetic rather than describing it is
+ * what would catch a transposed constant. */
+static uint32_t isa_to_physical(uint32_t io) {
+  return 0x040000u + (io << 7);
+}
+
+static void test_the_at_bus_mapping_reproduces_both_printed_ranges(void) {
+  /* The ethernet card, whose base this core already names. */
+  TEST_ASSERT_EQUAL_HEX32(0x058000u, isa_to_physical(0x300u));
+  TEST_ASSERT_EQUAL_HEX32(0x058000u, AP_BOARD_ETHERNET_ADDR);
+  TEST_ASSERT_EQUAL_HEX32(0x058800u, isa_to_physical(0x310u));
+
+  /* And the SPE controller, which this core does not model — the point of the
+   * row is that a *second* card at the far end of the I/O space lands where the
+   * same formula says it does. */
+  TEST_ASSERT_EQUAL_HEX32(0x05FC00u, isa_to_physical(0x3F8u));
+  TEST_ASSERT_EQUAL_HEX32(0x05FF80u, isa_to_physical(0x3FFu));
+}
+
 /* The card reached through the board is the same card the device tests drive:
  * the probe bytes `ETHERNET.md` finding 10a measured on the oracle must come
  * back through a bus read, not just through `ap_3c505_read` directly. */
@@ -2398,6 +2428,7 @@ int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_ethernet_card_is_absent_until_it_is_fitted);
   RUN_TEST(test_the_ethernet_card_answers_exactly_sixteen_locations);
+  RUN_TEST(test_the_at_bus_mapping_reproduces_both_printed_ranges);
   RUN_TEST(test_the_probe_bytes_come_back_through_the_bus);
   RUN_TEST(test_the_ethernet_interrupt_reaches_irq10_only_when_fitted);
   RUN_TEST(test_the_ethernet_dma_request_reaches_channel_six);

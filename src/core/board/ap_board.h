@@ -203,9 +203,29 @@ typedef enum {
  * the disk controller's mask register and misaddress its own DMA byte-pointer
  * register.
  *
- * Recorded rather than resolved away: the disagreement is real, it is about the
- * modelled card, and what would settle it is the DN3000's own ethernet driver
- * or a jumper photograph. */
+ * ## RESOLVED, by the handbook contradicting itself
+ *
+ * That paragraph asked for "the DN3000's own ethernet driver or a jumper
+ * photograph". What settled it was **chapter 6 of the disagreeing document**.
+ * `002398-04` p. 6-1, *AT BUS DEVICES (SERIES 3000 MACHINES)*, is a five-column
+ * table and its first row reads:
+ *
+ *     Ethernet Contr.   IRQ10 (IRQ9)   DRQ6 (DRQ3)   058000-058800   300-310
+ *
+ * Primary line and DMA channel, with the alternate in parentheses — which is
+ * `008778-03` §14.1's sentence in tabular form, from the *same handbook* whose
+ * chapter 12 says the opposite. So the count is four sources for IRQ10/DRQ6 on
+ * the card at ISA `300` (§14.1's prose, Figure 14-3's straps, Table 2-3, and
+ * this) against two summary tables in a chapter that also transposes the disk
+ * controller's mask register and misaddresses its own DMA byte-pointer
+ * register. Chapter 12's rows are the erratum.
+ *
+ * **And the same row confirms the address mapping twice over.** `058000-058800`
+ * is exactly `0x040000 + (ISA << 7)` for ISA `300` through `310`, and the row
+ * below it — the SPE controller, ISA `3F8-3FF`, physical `05FC00-05FF80` —
+ * reproduces the formula for a *different* card at the other end of the I/O
+ * space. The mapping had one device and an oracle tap behind it; it now has a
+ * second device's printed physical range in a second document. */
 #define AP_BOARD_ETHERNET_IRQ 10u
 
 /* **The ring is on master IRQ 2, and it is documented** -- `RING.md` 107.
