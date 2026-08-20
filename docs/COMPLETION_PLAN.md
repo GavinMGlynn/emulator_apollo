@@ -5769,11 +5769,24 @@ same number is what let them diverge once already.
       the method rather than a convenience. *Verification: `kbd_suite` 37,
       spot-checking the corners, the column-major order, `7E` = `LED ON`, that a
       release answers its key's name, and the count.*
-      *Remaining*: p. 6-13's **ASCII chart**, which is the inverse map — indexed
-      by the byte the keyboard emits, each cell naming the key and its modifier
-      (`+` shift, `^` control). That is the one a frontend needs to synthesise a
-      keystroke, and its verification is the round trip: ASCII byte to
-      key-plus-modifier and back to the same byte.
+      *Remaining*: p. 6-13's **ASCII chart**, the inverse map a frontend needs to
+      synthesise a keystroke. Rendered at 400 dpi and read far enough to pin its
+      **structure**, so the transcription itself is now mechanical:
+      - Same layout as the keystate chart — **column is the high nibble, row the
+        low** — but indexed by the byte the *keyboard emits*, not by scan code.
+      - Each cell is a key name under an optional prefix: **`^` control, `+`
+        shift, `:` up transition**, and bare for unmodified.
+      - The columns group by modifier rather than scattering it. Reading down
+        the top rows: `0`-`1` carry `^` forms, `2`/`4`/`5` carry `+` forms,
+        `3`/`6`/`7` are bare, `8` bare, `9` `+`, `A` `:`, `B` bare, `C` bare,
+        `D` `+`, `E` `:`, `F` `^`. So one key appears several times under
+        different modifiers, which is what makes this a *byte to key+modifier*
+        map and not a permutation of the keystate chart.
+      - `00` is blank, as it is on p. 6-14.
+      256 cells with a prefix each is more data than the keystate half; it wants
+      a session with room to check its own work rather than the tail of one.
+      *Verification when it lands: the round trip — ASCII byte to
+      key-plus-modifier and back to the same byte, over every named cell.*
 
 - [x] **Decode the posted diagnostic codes in `--boot-report`**, for the run the
       firmware is evidenced to post. `ap_boardreg_post_code_name` names `03`-`0C`
