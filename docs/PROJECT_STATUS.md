@@ -1185,6 +1185,18 @@ exclusivity nothing states outright.
 `[900D]`", which is the part's **master clear**; the byte-pointer flip-flop is
 offset `C`. A driver following that line would reset the controller before
 loading every address. The other five addresses on the page are right.
+**Settled 2026-08-20 by the handbook's own chapter 8.** p. 8-33 maps the DN4xx
+ring/disk board's DMA registers and prints `00BC58 DMA clear byte pointer` and
+`00BC5A DMA master clear` — at that block's stride of two, offsets **`C`** and
+**`D`**, in the part's order. So this is not the 8237's manual against the
+handbook; it is one page of the handbook against another, and the one that
+agrees with the part is the one that lists both registers side by side. The rest
+of p. 8-33 is the 8237's write map entire — command, request, single mask, mode,
+clear byte pointer, master clear, all masks, with the clear-mask offset shown
+unused on that board — which is `ap_i8237_reg_t` position for position. **And
+p. 8-34 prints the pair again** for that board's second 8237, at the same two
+offsets: the handbook gets it right twice on consecutive pages and wrong once,
+ten chapters away.
 
 ### Chapter 12 delegates two sections to chapter 7
 

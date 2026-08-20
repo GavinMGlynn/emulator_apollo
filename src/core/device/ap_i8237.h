@@ -48,6 +48,16 @@ typedef enum {
   AP_I8237_REG_REQUEST = 9u,         /* write only */
   AP_I8237_REG_MASK_SINGLE = 10u,    /* write only */
   AP_I8237_REG_MODE = 11u,           /* write only */
+  /* `C` and `D`, and the handbook contradicts itself about them. `002398-04`
+   * p. 12-24 prints "Clear Byte Pointer `[900D]`", which is this part's master
+   * clear -- a driver following it would reset the controller before loading
+   * every address. **p. 8-33 settles it from inside the same document**: the
+   * DN4xx ring/disk board's DMA map lists `DMA clear byte pointer` and `DMA
+   * master clear` at consecutive addresses, offsets `C` then `D`, in the part's
+   * order -- and **p. 8-34 prints the same pair again** for that board's second
+   * 8237, the receive-side one, at the same two offsets. So the handbook gets it
+   * right twice on consecutive pages and wrong once, ten chapters away, and the
+   * two that are right are the ones that list both registers side by side. */
   AP_I8237_REG_CLEAR_FLIPFLOP = 12u, /* write only */
   AP_I8237_REG_TEMP_MASTERCLEAR = 13u, /* read temporary, write master clear */
   AP_I8237_REG_CLEAR_MASK = 14u,     /* write only */
