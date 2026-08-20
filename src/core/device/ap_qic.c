@@ -205,7 +205,15 @@ bool ap_qic_command(ap_qic_t *qic, uint8_t command) {
     return true;
   case AP_QIC_CMD_RETENSION:
     /* Runs the tape end to end and returns it to the beginning. Nothing about
-     * the image changes; the position does. */
+     * the image changes; the position does.
+     *
+     * **This is `QIC-02 Rev D` §4.2.5's `INITIALIZATION` command under
+     * `[SC499]`'s name**, which §2's definition settles -- "cartridge
+     * initialization - an operation which restores normal tension by wind and
+     * rewind of the cartridge" -- and which **Apollo says in its own
+     * parenthesis**: `002398-04` p. 10-9 lists the DN5xx tape controller's
+     * command `17` as "**Initialize (retension) tape**". Two vendors, three
+     * documents, one operation. */
     if (!qic->selected) {
       return false;
     }
