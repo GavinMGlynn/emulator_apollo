@@ -433,6 +433,61 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The boot PROM publishes a service table, and every PROM here has it
+## (2026-08-20)
+
+This project has disassembled boot PROMs three times — to settle the `rsa`
+pulse, the colour status register's A/D bit and the `3F6`/`3F7` split — and each
+time by hunting for a register address in the image and reading outward. There
+was no map. There is one, and the firmware has been carrying it all along.
+
+`002398-04` p. 7-28 gives the DN3xx's PROM entry points as a jump table at `100`
+with seven entries; **p. 10-23 gives the DN5xx's with eleven**, and opens it
+`100: dc.w 5,0` annotated "**5 => stingray**" where the DN3xx's reads `dc.w 2,0`,
+"2 => swallow". So the word at offset `100` is a **machine-type code** and the
+words after it are a service table of longword addresses.
+
+**Every boot PROM in `roms/firmware/` has it**, thirteen entries rather than
+eleven, zero-terminated:
+
+```
+        DN3000    DN3500    DS4500    DN2500
+type       8         7         7         9      at 100
+aux        3         7        15        23      at 102
+getc    00208C    002184    002146    000560    at 104
+putc    00204A    002142    002104    000574
+init_dsk 0027C8   002966    002986    00047C
+read_dsk 0028D2   002AA0    002AC0    000490
+reload_font 3E50  004780    0047A0    0004A4
+pollc   0020A4    00219C    00215E    000588
+quiet_ret 0005D8  0005D8    0005D8    00059C
+write_disk 0028E2 002AB0    002AD0    0004B8
+log_error 0024A2  002576    002538    0004CC
+crash   0024BE    002592    002554    0004E0
+led_update 00247A 00254E    002510    0004F4
+(unnamed) 0019D0  001B44    001AC4    000508    at 130
+(unnamed) 0005CC  0005CC    0005CC    0005B0    at 134
+                                                   138 = 0
+```
+
+Every address falls inside its own image. **Two of them are identical across
+three different PROMs** — `quiet_ret` at `0005D8` and the unnamed `134` entry at
+`0005CC` on the DN3000, DN3500 and DS4500 — which is what a shared low-memory
+stub looks like and is strong evidence the table is being read correctly rather
+than pattern-matched onto coincidence.
+
+**What this is worth.** `crash` and `led_update` are named entries into the
+firmware's own crash path and diagnostic display — the two things the
+`00120020` investigation and the LED-decode plan item each need a way into.
+`init_dsk`, `read_dsk` and `write_disk` are the PROM's disk service, which is
+where `DI` and the boot's record reads go. And the machine-type word is an
+identifier the firmware publishes about itself: `7` for both the DN3500 and the
+DS4500, distinguished by the aux word (`7` against `15`), `8` for the DN3000 and
+`9` for the DN2500, against the handbook's `2` swallow and `5` stingray.
+
+Nothing in the core changed. This is a map of the firmware, recorded so the next
+disassembly starts from a table instead of a search.
+
 ## `ST0` had two bits nobody had named, and one of them lied
 ## (2026-08-20)
 
