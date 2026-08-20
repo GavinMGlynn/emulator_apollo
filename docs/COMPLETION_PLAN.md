@@ -5808,8 +5808,24 @@ same number is what let them diverge once already.
       site this scan found, `0F` is outside the table's range entirely, and the
       reference boot posts 32 distinct values where these account for twelve —
       the rest coming from the direct writes at `005EC8`/`005ED8` this file
-      already documents, or from call forms the scan does not cover. Finishing
-      this means accounting for `0C`, `0D` and the direct writers.
+      already documents, or from call forms the scan does not cover.
+      **The direct writers are accounted for now, and they post no new codes.**
+      `005EBC`-`005EE0` is one loop:
+
+          5EC0  122D 0092              MOVE.B  ($92,A5),D1
+          5EC4  C23C 000F              AND.B   #$0F,D1
+          5EC8  13C1 0001 0100         MOVE.B  D1,($00010100).L
+          5ECE  203C 0007 A120         MOVE.L  #$0007A120,D0
+          5ED4  6100 02FE              BSR.W   $61D4
+          5ED8  13ED 0092 0001 0100    MOVE.B  ($92,A5),($00010100).L
+          5EE0  60D4                   BRA.S   $5EB6
+
+      It writes one code byte, held at `A5+$92`, to the control register twice —
+      **once masked to its low nibble and once whole** — with `$7A120`, half a
+      million, counted down between them by the delay at `61D4`. So a stuck
+      machine's two alternating values are **one code shown two ways**, not two
+      codes, and the pair identifies a single failure. Finishing now means only
+      accounting for `0C` and `0D`.
       *Verification: a `--boot-report` line naming each posted code for a DN3000
       boot, and a test that the DN3500 path stays undecoded until its own source
       exists.*
