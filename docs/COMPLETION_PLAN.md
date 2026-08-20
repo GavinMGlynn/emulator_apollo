@@ -5696,28 +5696,16 @@ END — PDF 279–313, all 35 pages. 35 content pages of 330.**
       Every one has a module in `src/core`, and none of those thirty-five pages
       has been read whole.
 - [ ] **Chapters 1–6, machine-independent. Chapter 1 is READ END TO END** (PDF
-      12–34, 23 pages); **chapter 2 is started** (PDF 35–48); chapters 3–6
-      remain. Resume at PDF 49.
-      **Carry forward from p. 2-9**: `AP_VOLUME_LABEL_BASE 0x440` is byte 1088,
-      which is block 1 of a 1056-byte-sectored image plus exactly p. 2-8's
-      32-byte block header — so the measured constant may be the **logical**
-      volume label where `ap_volume.h` calls it the physical one. Check the
-      label's fields against p. 2-10 before renaming anything. The sample yielded no code change — chapter 1 is AEGIS's own
-      structures rather than hardware — and one lead for chapter 5: p. 1-20's
-      **resource lock table** gives twenty-six named locks with their bit
-      values, and `CRASH_STATUS 00120020` decodes under it as `flp_$lock +
-      ast_$lock + file_$lock_lock`. Suggestive, not settled; whether the crash
-      word's low half is the lock set is chapter 5's question. p. 1-6 confirmed
-      the 6840's timer-3 prescaler from a third document and named what each of
-      the three clocks is for — real-time clock, process timer, real-time
-      intervals. AEGIS structures including the
-      **ring packet format** and trap codes; the file system including the
-      **logical and physical volume labels** and the VTOC, which is what
-      `image/ap_volume.h` and the volume-label work are about; programming
-      information; **boot PROM diagnostic error codes per machine family** and
-      the MD and sysboot codes; **crash analysis**; peripheral I/O including the
-      **Low-Profile II keyboard charts in ASCII and keystate mode**, which is a
-      second source for `008778-03` Tables 12-1 and 12-2.
+      12–34, 23 pages); **chapter 2 is started** (PDF 35–50); chapters 3–6
+      remain. Resume at PDF 51.
+      **Closed 2026-08-20**: `AP_VOLUME_LABEL_BASE 0x440` **is** the logical
+      volume label, not the physical one. p. 2-16's canned UIDs plus p. 2-8's
+      block header make a block say which label it is, and the reference image
+      answers — block 0 carries `pv_label_$uid`, block 1 carries
+      `lv_label_$uid`, and `0x440` is block 1 past its 32-byte header.
+      `image/ap_volume.h`'s description is corrected; the constant keeps its
+      name because every offset built on it is right.
+
 - [ ] **Chapters 7–11 and the appendices.** Other families, out of the modelled
       scope but inside the rule — a chapter describing a DN400's ring registers
       may still be the only place a shared structure is written down.

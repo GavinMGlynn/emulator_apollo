@@ -91,6 +91,40 @@
  * measurement; the diagram is a scan whose hex OCRs badly, and `CLAUDE.md` says
  * so about exactly this kind of table.
  *
+ * ## And it is the **logical** volume label, not the physical one
+ *
+ * This block said "physical-volume-label diagram" above, and the measurement
+ * could not tell which label it had landed on. Three pages of `002398-04`
+ * chapter 2 and four bytes of the image settle it:
+ *
+ *   - p. 2-9's layout: **block 00 of the physical volume is the physical volume
+ *     label**, and **block 00 of the logical volume is the logical volume
+ *     label**, one block further on.
+ *   - p. 2-8: every block on the volume carries a **32-byte header** whose
+ *     first field is the UID of the object the block belongs to.
+ *   - p. 2-16: the canned UIDs -- `pv_label_$uid` is `00000200,0` and
+ *     `lv_label_$uid` is `00000201,0`.
+ *
+ * So the label a block holds is readable from its own header, and
+ * `media/dn3500-sr10.4-installed.awd` answers:
+ *
+ *     block 0 @ 0x0000  header UID 00 00 02 00 00 00 00 00   pv_label_$uid
+ *     block 1 @ 0x0420  header UID 00 00 02 01 00 00 00 00   lv_label_$uid
+ *
+ * `0x440` is `0x420 + 0x20` -- block **1**, past its block header. The mount
+ * history this file reads is therefore the **logical** volume label's, and the
+ * physical volume label is the block *before* it, at `0x20`.
+ *
+ * The constant keeps its name: every offset built on it is right, nothing reads
+ * the physical label, and renaming it would churn callers to fix a comment. What
+ * was wrong was the description, and a reader who went looking for these fields
+ * in the physical label would not have found them.
+ *
+ * Block 2's header UID on the same image is `a4 5a a7 cd 30 01 23 45`, which is
+ * a real object's -- and its low bytes are `01 23 45`, the node ID, which is
+ * p. 2-15's UID layout confirming itself: "N..N - Node ID" in the low bits of
+ * the second longword.
+ *
  * **Why they are worth modelling.** Domain/OS refuses to boot a volume whose
  * last shutdown is more than fourteen days behind the clock, and a volume that
  * was never cleanly dismounted carries `.dismounted_time` **zero** -- so the
