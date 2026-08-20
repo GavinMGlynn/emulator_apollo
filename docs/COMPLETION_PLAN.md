@@ -5697,7 +5697,8 @@ END — PDF 279–313, all 35 pages. 35 content pages of 330.**
       has been read whole.
 - [ ] **Chapters 1–6, machine-independent. Chapter 1 is READ END TO END** (PDF
       12–34, 23 pages); **chapter 2 is READ END TO END** (PDF 35–58,
-      24 pages); chapters 3–6 remain. Resume at PDF 59.
+      24 pages); **chapter 3 is started** (PDF 59–60); chapters 4–6 remain.
+      Resume at PDF 61.
       **Closed 2026-08-20**: `AP_VOLUME_LABEL_BASE 0x440` **is** the logical
       volume label, not the physical one. p. 2-16's canned UIDs plus p. 2-8's
       block header make a block say which label it is, and the reference image
