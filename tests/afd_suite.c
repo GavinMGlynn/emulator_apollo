@@ -702,6 +702,45 @@ static void test_the_step_and_settle_model_gives_table_7_7s_average_of_94_ms(
   TEST_ASSERT_EQUAL_UINT64(94u, mean_ms);
 }
 
+/* ## `002398-04` p. 6-3's floppy row, which publishes the *unsettled* seek
+ *
+ * The test above checks the composition against the aggregate it was built
+ * from, which is a consistency check on one document. A second document gives
+ * the two ends of the same mechanism *without* the settle folded in, and that
+ * is a check the model could fail independently. Its floppy row reads
+ * `T-to-T 3, AVG 77, MAX 231`, and both figures are arithmetic on the step
+ * time over the **format's** 77 cylinders rather than the drive's 80:
+ *
+ *   - `MAX 231` is 77 x 3 ms exactly -- a full stroke, no settle.
+ *   - `AVG 77` is one third of that, the uniformly-random mean of a
+ *     step-per-cylinder seek, again with no settle.
+ *
+ * So the step time this core uses is the one that produces both, and the 15 ms
+ * settle is the difference between this page's convention and Table 7-7's. */
+static void test_the_step_time_reproduces_p_6_3s_unsettled_seek_figures(void) {
+  const uint64_t millisecond = AP_TIME_BASE_HZ / 1000u;
+
+  /* MAX: a full stroke across the format's cylinders, settle excluded. */
+  const uint64_t full_stroke =
+      (uint64_t)AP_AFD_CYLINDERS * AP_OMTI_FDC_TRACK_TO_TRACK;
+  TEST_ASSERT_EQUAL_UINT64(231u, full_stroke / millisecond);
+
+  /* AVG: one third of the stroke, which is what a uniformly-random seek
+   * travels. Printed as a whole number of milliseconds, so compare there. */
+  TEST_ASSERT_EQUAL_UINT64(77u, full_stroke / 3u / millisecond);
+
+  /* And the page's own AVG READ of 176.0 ms is that seek plus Table 7-1's
+   * latency plus one 1024-byte sector at 500 Kbit/s -- the footnote's formula,
+   * "Average read = Avg. Seek time + Avg. Latency + Sector Time". Reproducing
+   * it is what shows the row describes this drive and this format. */
+  const uint64_t sector_time = (uint64_t)AP_AFD_SECTOR_BYTES *
+                               AP_TIME_BASE_HZ /
+                               AP_OMTI_FDC_TRANSFER_BYTES_PER_SEC;
+  const uint64_t average_read =
+      full_stroke / 3u + AP_OMTI_FDC_AVERAGE_LATENCY + sector_time;
+  TEST_ASSERT_EQUAL_UINT64(176u, average_read / millisecond);
+}
+
 /* Table 7-1: "Average Latency Time 83.3 msec" and "Data Transfer Rate 500K"
  * bits a second. A read waits for the sector to come round and then for its
  * bytes to cross the head; it does *not* pay a seek, because the 765 does not
@@ -801,6 +840,7 @@ int main(void) {
   RUN_TEST(test_the_status_register_shows_a_drive_in_the_seek_mode);
   RUN_TEST(test_the_two_drives_seek_independently);
   RUN_TEST(test_the_step_and_settle_model_gives_table_7_7s_average_of_94_ms);
+  RUN_TEST(test_the_step_time_reproduces_p_6_3s_unsettled_seek_figures);
   RUN_TEST(test_a_read_costs_half_a_revolution_and_the_sectors_transfer);
   RUN_TEST(test_a_command_that_touches_no_surface_costs_nothing);
   RUN_TEST(test_a_reset_abandons_an_outstanding_seek);

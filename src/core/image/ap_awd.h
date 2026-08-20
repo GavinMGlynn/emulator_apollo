@@ -45,6 +45,52 @@
  * `008778-03` walk that the oracle has out-accurated the manual; twice before
  * it went the other way. Recorded in `docs/references/008778-03_WALK.md`.
  *
+ * ## A third source, disagreeing by exactly one cylinder each
+ *
+ * `002398-04` p. 6-2's DISK PARAMETERS table gives both drives again, under
+ * *Winchester Dtype Class 600 -- 5 1/4" ESDI Interface*:
+ *
+ *     604  Maxtor 380     1224  15  18  330480 (50AF0)
+ *     607  Microp. 170    1024   8  18  147456 (24000)
+ *
+ * **One more cylinder than this module uses, in both rows** -- and the next page
+ * shows the two documents are counting different things rather than
+ * disagreeing. p. 6-4 tabulates each drive's reserved cylinders:
+ *
+ *     604  Max 380   BAD-SPOT 508D4/1222   DIAGNOSTIC 506B8/1220   CYLS USED 1220
+ *     607  Mic 170   BAD-SPOT 23EE0/1022   DIAGNOSTIC 23DC0/1020   CYLS USED 1020
+ *
+ * with the note: "**For the 6XX dtypes four cylinders are reserved** - the last
+ * for manufacturer encoded badspots, two diagnostic cylinders, and Apollo's
+ * badspot cylinder."
+ *
+ * 1220 used plus 4 reserved is **1224**, and 1020 plus 4 is **1024**. So the
+ * handbook's figure is the cylinder *count* and the oracle's is the highest
+ * cylinder *number* -- 0 through 1223 is 1224 cylinders -- and both describe the
+ * same drive. The badspot cylinder at 1222 and the diagnostic pair at 1220-1221
+ * only exist if 1223 does.
+ *
+ * `008778-03` Table 6-5's "Formatted sectors 147,312" is 1023 x 8 x 18, the
+ * same convention as the oracle's; p. 6-2's 147,456 is 1024 x 8 x 18. Neither is
+ * wrong.
+ *
+ * **This module keeps `cylinders` as a count and so should carry 1224 and 1024
+ * to be exact**; it carries 1223 and 1023, which makes the *last* cylinder
+ * unreachable and nothing else. The cost is bounded and known: the LBA mapping
+ * below is `(cylinder * heads + head) * sectors + sector`, which does not use
+ * the cylinder count at all -- only `heads` and `sectors` -- so an off-by-one
+ * count can never misplace a block, and the cylinder it hides is inside the four
+ * Apollo reserves. Domain/OS uses 1220 of 1224. Left as it is rather than
+ * changed, because the value is the oracle's and a differential against the
+ * oracle is worth more here than a cylinder no filesystem addresses.
+ *
+ * **The Class 500 block on the same page is an erratum and is not used.** Its
+ * three rows print `73458` in the TOTAL BLOCKS column for three different
+ * geometries -- 1224x7x18, 1224x15x18 and 1024x8x18, which are 154,224, 330,480
+ * and 147,456 -- and Class 600 prints each of those three correctly for the same
+ * three shapes one block down. A column repeated down three rows is what a
+ * copy-paste looks like.
+ *
  * A caller names the type; there is nothing to detect. An image whose size does
  * not reach the geometry's last sector is accepted and short -- a read past the
  * end fails rather than returning whatever follows in memory, which is the same

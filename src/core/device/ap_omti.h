@@ -381,7 +381,40 @@ typedef enum {
  * disk has no modelled head position, so every seek costs the average. The
  * floppy *does* -- see `AP_OMTI_FDC_AVERAGE_SEEK` below, where the same
  * document's figures compose into a distance model that reproduces its own
- * published average. */
+ * published average.
+ *
+ * ## A second Apollo document, 10% apart on the same drive
+ *
+ * `002398-04` p. 6-3 tabulates seek times for every approved drive, and its row
+ * for `604 Max 380` -- the 348 Mbyte Maxtor this core's image is -- reads
+ * `T-to-T 4, AVG 27, MAX 52, RPM 3600, AVG LATENCY 8.33, TRANSFER RATE 1.25,
+ * AVG READ 35.3`.
+ *
+ * Track-to-track, rpm, latency and transfer rate all agree with Table 6-5 to the
+ * digit. The two seek figures do not: **27 against 30, and 52 against 58**. That
+ * is a uniform ~10% -- 27/30 is 0.900 and 52/58 is 0.897 -- with the
+ * single-cylinder figure identical, which is the shape of a different drive
+ * revision or measurement condition rather than a slip in a cell.
+ *
+ * **Neither number is a typo, and the page proves its own.** The footnote gives
+ * the composition -- "Average read = Avg. Seek time + Avg. Latency + Sector
+ * Time" -- and 27 + 8.33 is 35.33, the printed `35.3`. The same holds down the
+ * column: the Micropolis's two rows print 28 and 23 against `36.3` and `31.3`.
+ * So `002398-04`'s AVG column is the number its own AVG READ column was computed
+ * from.
+ *
+ * **30 ms is kept**, on the rule this project already runs on rather than on a
+ * count of documents. `008778-03` Table 6-5 is the *part's* approval table,
+ * naming the exact Maxtor EXT-4380 and giving its four timings; `002398-04`
+ * p. 6-3 is a summary across nineteen drives, in a chapter whose disk table one
+ * page earlier repeats a single TOTAL BLOCKS value down three rows of different
+ * geometries. Where the handbook disagrees with a part's own manual it has been
+ * wrong before -- the disk mask register, the floppy reset polarity, the DMA
+ * byte-pointer address -- and this is the same kind of table.
+ *
+ * The disagreement is 3 ms on a 38 ms access, and it is recorded rather than
+ * split: a figure this core reports must come from one source that can be named,
+ * not from an average of two. */
 #define AP_OMTI_DRIVE_RPM 3600u
 /* Table 6-5 "Nominal rpm 3600", and Table 6-7 "Rotational speed 3600 rpm
  * (+/- 0.5%), Index period 16.67 msec (+/- 0.5%)". Half a revolution is the
@@ -439,6 +472,30 @@ typedef enum {
  * double-sided, double-density** flexible disk drive in data storage capacity
  * and data transfer rate". The medium is formatted to 8-inch equivalence on an
  * 80-cylinder mechanism, so 77 of 80 is the format and 80 is the drive.
+ *
+ * ## `002398-04` p. 6-3 confirms the composition from the outside
+ *
+ * Where the same page disagrees with `008778-03` about the *fixed* disk, its
+ * floppy row corroborates this block in a way no single figure could. It reads
+ * `T-to-T 3, AVG 77, MAX 231, RPM 360, AVG LATENCY 83.3, TRANSFER RATE .0625,
+ * AVG READ 176.0`, and three of those are arithmetic on the numbers above:
+ *
+ *   - **MAX 231 is exactly 77 x 3 ms** -- a full-stroke seek over the *format's*
+ *     77 cylinders at Table 7-7's track-to-track time, with no settle added.
+ *   - **AVG 77 is exactly one third of that**, the uniformly-random mean of a
+ *     step-per-cylinder seek, again without settling.
+ *   - Adding Table 7-7's 15 ms settle gives 92 ms against its own published
+ *     "average track access time 94 msec (including settling)" for 80
+ *     cylinders. Two documents, two conventions, one mechanism.
+ *
+ * So the step-plus-settle model here is not merely consistent with the aggregate
+ * it was built from -- a second document publishes the *unsettled* seek and it
+ * is the step time times the cylinder count, which is what the model computes.
+ *
+ * `AVG READ 176.0` closes the loop on the sector size too: 77 + 83.3 leaves 15.7
+ * ms of "Sector Time", and 1024 bytes at .0625 Mbyte/s is 16.4 ms. A 512-byte
+ * sector would leave half that. `image/ap_afd.h`'s 77 x 2 x 8 x **1024** is the
+ * geometry the page's own arithmetic requires.
  *
  * **Documented and deliberately not modelled**, each with its reason:
  *   - Head load time, Table 7-1's 35 msec. §7.7.5: "The *Domain System* does

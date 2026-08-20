@@ -433,6 +433,66 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## Two documents on one drive: one disagreement kept, one dissolved
+## (2026-08-20)
+
+`002398-04` chapter 6 tabulates every approved disk by part number, and the two
+this core models are on it. Three results, and they are not all the same shape.
+
+### The floppy's seek model is confirmed from outside
+
+`ap_omti` composes the floppy's seek as step-per-cylinder plus a settle, from
+`008778-03` Table 7-7's track-to-track (3 ms), settling (15 ms) and published
+average (94 ms for 80 cylinders). That composition was checked against the
+aggregate it was built from — a consistency check on one document.
+
+p. 6-3's floppy row is the same mechanism measured the other way: `T-to-T 3,
+AVG 77, MAX 231, AVG READ 176.0`. **`MAX 231` is exactly 77 x 3 ms** — a full
+stroke over the *format's* cylinders with no settle — and **`AVG 77` is exactly
+one third of it**, which is what a uniformly-random seek travels. Adding Table
+7-7's 15 ms settle gives 92 against its published 94. And the page's own
+footnote formula, "Average read = Avg. Seek time + Avg. Latency + Sector Time",
+reproduces `176.0` from 77 + 83.3 + a 1024-byte sector at .0625 Mbyte/s —
+which incidentally requires `ap_afd`'s 1024-byte sector and would leave 8 ms
+unexplained at 512.
+
+A model can be consistent with the aggregate it was fitted to by construction.
+It cannot be arithmetic on a second document's independent figures by accident.
+
+### The Winchester's average seek: a real 10% disagreement, kept
+
+p. 6-3's `604 Max 380` row gives `AVG 27` and `MAX 52` where `008778-03` Table
+6-5 gives 30 and 58, with track-to-track, rpm, latency and transfer rate
+identical to the digit. The ratios are 0.900 and 0.897 — a uniform 10%, not a
+slip in a cell — and neither number is a typo: 27 + 8.33 is the printed `35.3`,
+and the Micropolis's two rows check the same way against 28 and 23.
+
+**30 ms is kept**, on the rule this project already runs on. Table 6-5 is the
+*part's* approval table, naming the exact Maxtor EXT-4380; p. 6-3 is a summary
+across nineteen drives, in a chapter whose disk table one page earlier repeats a
+single TOTAL BLOCKS value down three rows of different geometries, and whose
+sibling chapter transposes the disk mask register. The disagreement is 3 ms on a
+38 ms access and it is recorded rather than split — a reported figure has to
+come from one nameable source, not from an average of two.
+
+### The cylinder counts were never a disagreement
+
+p. 6-2 gives the two drives 1224 and 1024 cylinders where this core carries 1223
+and 1023. p. 6-4 dissolves it: `604` reserves its badspot cylinder at **1222**
+and its diagnostic pair at **1220**-1221, using 1220, under the note "for the
+6XX dtypes **four cylinders are reserved**". 1220 + 4 is 1224. The handbook
+counts cylinders; the oracle numbers them; a badspot cylinder at 1222 only
+exists if 1223 does. **Both are right**, and `008778-03`'s "Formatted sectors
+147,312" (1023 x 8 x 18) is simply the other convention.
+
+The value is left at the oracle's, and the cost is stated rather than assumed:
+`ap_awd`'s LBA mapping uses `heads` and `sectors` and never the cylinder count,
+so an off-by-one can only make the last cylinder unreachable — and that cylinder
+is inside the four Apollo reserves. Domain/OS uses 1220 of 1224.
+
+*Verification: `afd_suite` 35 — the new test asserts all three of p. 6-3's
+floppy figures against this core's constants.*
+
 ## The Ethernet IRQ disagreement is closed by the disagreeing document
 ## (2026-08-20)
 
@@ -7962,7 +8022,7 @@ to the controller's buffer ... does not transfer the data to the host", paired
 with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both derived from the STATUS register as §4.2 and §4.3 give them: the interrupt from `IREQ` and the MASK byte's interrupt enable, the DMA request from `DREQ`, which the MASK byte's DMA enable gates. IRQ6 and DRQ2 are placed and not yet driven: the floppy side's completion is the FDC's result phase, not this one | `omti_suite`, 15 tests; `awd_suite`, 49; `afd_suite`, 34; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |
 | OMTI 8621 placement (the DN3500's disk) | measured, both halves. Placement characterised at `04D000`: the range is the card's (all `FF` without it, control verified by device enumeration), aliased on an eight-byte period, with offsets 1-3 driven. Offsets 0 and 4-7 read `FF`, which a read sweep cannot distinguish from undriven | `FINDINGS.md` C20 |
 | WD7000 ESDI/SCSI (DN4500) | not started | — |
-| Floppy (`device/ap_omti.c`'s second half, `image/ap_afd.c`), QIC cartridge tape (`device/ap_qic.c`, `board/ap_tape.c`) | **modelled, and the floppy is now reachable.** §6.3's ten commands with their ST0-ST3 result bytes, the motor, MFM, multitrack and skip-deleted flags, over a 77x2x8x1024 `.afd`. The row said "not started", which was stale by a whole subsystem | `afd_suite`, 34 tests; `qic_suite`; `tape_suite`; `--diskette` fits one |
+| Floppy (`device/ap_omti.c`'s second half, `image/ap_afd.c`), QIC cartridge tape (`device/ap_qic.c`, `board/ap_tape.c`) | **modelled, and the floppy is now reachable.** §6.3's ten commands with their ST0-ST3 result bytes, the motor, MFM, multitrack and skip-deleted flags, over a 77x2x8x1024 `.afd`. The row said "not started", which was stale by a whole subsystem | `afd_suite`, 35 tests; `qic_suite`; `tape_suite`; `--diskette` fits one |
 | Mono and colour graphics controllers (`board/ap_graphics.*`) | **working**: the register block with its scrambled byte lanes, the blitter wired to the memory cycle, the LUT ports and the four screen geometries. Audited line by line against `[S3K]` ch. 10 and ch. 11 on 2026-08-16 — **no structural defect**, and §10.3.1's eleven-item change list checks out entry by entry. One real finding: the colour raster is printed in full in Table 11-4 and had been taken from the oracle, which was off by one in each direction (`h_total` 1346→1344, `v_total` 841→842). `GRAPHICS.md` finding 19; the dot clock stays `PROVISIONAL` at 68 MHz | `graphics_suite`; `./tools/identity-boot.sh --screen c8p` hashes `6140F8E43F3BCC1C` with 2.17 M controller reads |
 | 3c505 802.3 Ethernet (`device/ap_3c505.*`) | **working end to end, host command path included.** The four flag registers from `[HIS]` §3-2/§3-3/§3-5/§3-6 with the sides the right way round, the §3.1.2/§3.1.3 mailbox in both directions, the command set, DMA on DRQ6 and the interrupt on IRQ10. The audit's finding: §3.1.2's *host→adapter* half had never been wired — assembler, dispatcher and responder all existed and were unit-tested, nothing called them, and a host command was answered never. `ETHERNET.md` finding 19; the pacing approximation is 19a. The line-by-line pass then found four more: §3.1.1's accept/reject flags were never signalled at all (20), `02H`'s receive mode was stored and never consulted so every frame on the wire was this station's (21), `3AH`'s length is `10H` not the `0CH` printed -- `[HIS]` App. F, the packet counters became double words in Rev 2.0 (22) -- and `0FH` self-test is now answered while `0CH`/`0DH`/`0EH`/`11H` stay refused because every field of their responses is unmodelled (23), and §1.12's adapter reset both cleared the Host Control Register it must not touch and released the adapter while the host still held `ATTN`+`FLSH` (25) | `etherlink_suite`, 50 tests, of which `test_a_command_written_by_the_host_is_answered_by_the_adapter` crosses the real registers with no test-side wiring |
 | MAME oracle harness | working and used throughout. Beyond the dumper there are now four probe tools — `regprobe.lua` drives every bit of a register in both directions, `writetrace.lua` taps writes to watch firmware program a device, `steptime.lua` single-steps for instruction timing, `mdcapture.lua` traces the serial registers byte-exact — and findings C10 through C14 are all measurements taken with them | `oracle_driver` (19 checks, stub MAME) and `oracle_dump_format` (19 checks, mock machine); `./apollo -listfull` lists all eleven apollo machines |
