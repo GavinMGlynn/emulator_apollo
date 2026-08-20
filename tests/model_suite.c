@@ -103,6 +103,44 @@ static void test_every_dsp_model_is_headless(void) {
 
 /* Each DSP must match its DN sibling's CPU, clock, MMU and memory exactly --
  * that is the whole claim being made by modelling it as a subset. */
+/* ## The DN4000's fields, pinned to the source each one rests on
+ *
+ * This row is the only one in the table assembled from **two documents of
+ * different weight**, and the point of pinning it is that the difference stays
+ * visible. `002398-04` Figure 1-2 and §1 give the parts, the clock and the
+ * memory range; Datapro's March 1988 report gives those *same* two numbers
+ * again -- which is what earns it the one field no hardware document states.
+ *
+ * So a change to `cpu_hz` or `ram_max_bytes` contradicts two independent
+ * sources, and a change to `display` contradicts one market report. Those are
+ * not the same act, and a bare table cannot say so. This test can.
+ *
+ * The `PROVISIONAL` string is asserted **non-null on purpose**: it is the row's
+ * own admission that its display came from a document whose job was selling
+ * machines, and a later edit that fills the display in from a manual should
+ * have to delete that admission deliberately. */
+static void test_the_dn4000s_fields_are_pinned_to_their_sources(void) {
+  const ap_model_t *m = ap_model_by_id(AP_MODEL_DN4000);
+  TEST_ASSERT_NOT_NULL(m);
+
+  /* Figure 1-2 names the parts. */
+  TEST_ASSERT_EQUAL_INT(AP_CPU_M68020, (int)m->cpu);
+  TEST_ASSERT_EQUAL_INT(AP_MMU_M68851, (int)m->mmu);
+  TEST_ASSERT_EQUAL_INT(AP_FPU_M68881, (int)m->fpu);
+
+  /* Two independent sources agree on these two, which is what makes the third
+   * usable at all: `002398-04` §1 and Datapro both say 25 MHz and 4-32 MB. */
+  TEST_ASSERT_EQUAL_UINT32(25000000u, m->cpu_hz);
+  TEST_ASSERT_EQUAL_UINT32(0x2000000u, m->ram_max_bytes);
+
+  /* Datapro alone. Marked, and the marking is part of the row. */
+  TEST_ASSERT_EQUAL_INT(AP_DISPLAY_COLOR_1280X1024, (int)m->display);
+  TEST_ASSERT_NOT_NULL(m->provisional);
+
+  /* Paper only: no oracle models this machine, so nothing here was measured. */
+  TEST_ASSERT_EQUAL_INT(AP_ORACLE_PAPER_ONLY, (int)m->oracle);
+}
+
 static void test_each_dsp_matches_its_dn_sibling(void) {
   static const struct {
     ap_model_id_t dsp;
@@ -323,6 +361,7 @@ int main(void) {
   RUN_TEST(test_only_the_68020_models_use_an_external_pmmu);
   RUN_TEST(test_every_dsp_model_is_headless);
   RUN_TEST(test_each_dsp_matches_its_dn_sibling);
+  RUN_TEST(test_the_dn4000s_fields_are_pinned_to_their_sources);
   RUN_TEST(test_every_model_supports_the_apollo_token_ring);
   RUN_TEST(test_the_reference_superset_has_a_runnable_oracle);
   RUN_TEST(test_no_model_with_a_runnable_oracle_is_provisional);

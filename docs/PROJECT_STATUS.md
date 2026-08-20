@@ -466,9 +466,13 @@ against Figure 1-2's four lines. Those reconcile as three user ports plus the
 keyboard's — two 2681s carry four with line 0 the keyboard — but that is a
 reading, and the table has no serial-count field to put it in.
 
-*Verification: `golden_model_table`, which now carries the row; `model_suite`
-unchanged and green — the new model is a `dn`, so its headless check requires a
-display and it has one.*
+*Verification: `golden_model_table`, which now carries the row, and
+`model_suite` — a test pins **each field to the source it rests on**, so that
+changing `cpu_hz` or `ram_max_bytes` visibly contradicts two independent
+documents while changing `display` contradicts one market report. Those are not
+the same act and a bare table cannot say so. The `PROVISIONAL` string is
+asserted non-null on purpose: a later edit that fills the display in from a
+manual should have to delete that admission deliberately.*
 
 ## `002398-04` is read whole — 330 of 330 pages (2026-08-20)
 
@@ -8222,7 +8226,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Subsystem | Status | Verification |
 | --- | --- | --- |
 | Build system, presets, CI | working | 4-platform matrix green on first run, plus the `-O0` vs `-O3` output-identity job |
-| Model table (`model/`) | working, 9 models | `model_suite`, 21 tests |
+| Model table (`model/`) | working, 12 models | `model_suite`, 22 tests |
 | Time base (`time/`) | working | `time_suite`, 17 tests |
 | State hash (`state/`) | primitive working | `hash_suite`, 13 tests, incl. published FNV-1a 64 vectors |
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 36 tests sweeping every device field by field |
@@ -22358,7 +22362,7 @@ PROM's mask is `04FFFFFF` -- the firmware we hold sizes 16 MB. A model table
 entry describing memory this firmware cannot address would be wrong in the
 direction that hides bugs.
 
-*Verification: `model_suite`, 21 tests. The new one asserts the base, the
+*Verification: `model_suite`, 22 tests. The new one asserts the base, the
 extent, **and that `ram_base | (ram_max_bytes - 1)` reconstructs the PROM's mask
 exactly** -- the relation is what makes the pair meaningful, and a later edit
 that quietly restored the old `01000000` assumption would pass a regenerated
@@ -23923,7 +23927,7 @@ panels to express one field. The DN3550 is a model rather than a DN3500 variant
 for the opposite reason: `[CFG]` sells it as its own machine under its own
 ordering number.
 
-*Verification: `model_suite` 21 tests, two of which now cover eleven models
+*Verification: `model_suite` 22 tests, two of which now cover eleven models
 rather than nine; `golden_model_table` regenerated and byte-identical between
 the debug and release builds, which is the property that makes it portable. A
 `dn3550` boot of `3500_BOOT_12191_7` passes all four Memory Module tests and

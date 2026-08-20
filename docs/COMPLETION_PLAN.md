@@ -4445,7 +4445,7 @@ discipline throughout.
       PROM's own memory sizing code — the second of the two routes this item
       named, and in the end the only one available: no Series 2500 allocation
       table exists on disk or on the web, and the oracle has no 2500 driver.
-      *Verification: `model_suite`, 19 tests, one pinning `04000000` and 16 MB
+      *Verification: `model_suite`, 22 tests, one pinning `04000000` and 16 MB
       against the PROM's own `OR.L #$04000000,D1` and `ANDI.L #$04FFFFFF,D1`;
       `tests/goldens/model_table.txt` regenerated. Detail in
       `PROJECT_STATUS.md`.*
