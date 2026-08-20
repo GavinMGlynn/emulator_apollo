@@ -449,7 +449,26 @@ void ap_ring_ctl_attach_ring(ap_ring_ctl_t *ctl, ap_ring_station_t *station,
 
 /* The just-reset register state, shared by power-on and by `BOARD_RESET`.
  * Identity and attachment are *not* touched: a board reset does not change the
- * node's address, unsolder its ID PROM or unplug it from the cable. */
+ * node's address, unsolder its ID PROM or unplug it from the cable.
+ *
+ * **One document says a gate-array board's ID does not survive**, and it is
+ * recorded rather than acted on. `002398-04` p. 10-24 annotates the DN5xx ring
+ * board's `RING ID` read register "(*) **gate_array only. must be written after
+ * a reset**" -- so on that controller the identity is a register software
+ * reloads, not a PROM the board reads. This core's is a gate-array controller
+ * too (it has `tmi`, the gate-array timeout interrupt).
+ *
+ * Nothing changes on that, for two reasons. The page is the DN5xx's board at a
+ * different address, and this machine's node ID does not come from the ring
+ * controller at all -- it is in battery RAM and the `011200` ROM window, which
+ * is a separate question this project has already had to settle once. And the
+ * difference is unobservable here either way: a driver that must rewrite the ID
+ * after a reset rewrites it, and finds the same value. It would matter only to
+ * something that read the register *expecting* a reset to have cleared it, and
+ * no firmware here does.
+ *
+ * Flagged so that whoever next touches ring identity knows the two conventions
+ * exist and which one this file assumes. */
 static void ring_ctl_reset_registers(ap_ring_ctl_t *ctl) {
   ap_i8254_reset(&ctl->a1.timer_a);
   ap_i8254_reset(&ctl->a1.timer_b);
