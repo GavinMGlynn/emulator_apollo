@@ -786,8 +786,24 @@ void ap_boardreg_set_normal_mode(ap_boardreg_t *regs, bool normal);
  * word *after* the call and steps the return address over it; `252A` skips that
  * and takes the code already in `D0`, for callers that compute one. A scan of
  * this ROM finds fourteen sites on the first and four on the second, so a
- * computed code cannot be recovered from its call site at all. The LED-decode
- * item in `docs/COMPLETION_PLAN.md` carries the rest.
+ * computed code cannot be recovered from its call site at all.
+ *
+ * **And the register has a third kind of writer, which is why the complement
+ * must never be applied blindly.** Searching this ROM for the absolute address
+ * `00010100` finds 33 references, among them a run of
+ * `13FC 00xx 0001 0100` -- `MOVE.B #imm,($00010100).L`. At `00653E`, `006560`,
+ * `0065C8`, `00660E` and `006648` the immediates are `EF`, `DF`, `FE`, `EE` and
+ * `DE`, which are the *first bytes a boot posts* and are written
+ * **uncomplemented**. Under p. 12-8's "1 => led off" they are lamp patterns --
+ * all dark, then one, two and three lamps lit -- a power-on progress display
+ * rather than test codes.
+ *
+ * So a posted byte can come from the post routine (complemented), the error
+ * loop at `005EC8` (raw, one code shown whole and as its low nibble), or these
+ * immediates (raw lamp patterns). `ap_boardreg_post_code_name` names only
+ * complements that land in `03`-`0C`, which is why it stays silent on all of the
+ * third kind -- `EF` complements to `10` and is refused. The LED-decode item in
+ * `docs/COMPLETION_PLAN.md` carries the rest.
  *
  * Only the distinct ones in order: an error loop posts the same pair for ever
  * and a ring of every write would hold nothing but the last two. */

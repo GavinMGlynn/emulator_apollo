@@ -5769,9 +5769,12 @@ same number is what let them diverge once already.
       from `002398-04` p. 4-23; everything else prints nothing rather than a
       guess. *Verification: `boardreg_suite` 30, and the 350 M reference boot
       names 12 of its 32 posted values.* Detail in `PROJECT_STATUS.md`.
-      *Tail:* find what posts the `00`-`70` group, which comes from a path other
-      than the eighteen call sites; trace `0D` and the `82`-`85` band, whose two
-      call sites take their code from a variable.
+      *Tail closed 2026-08-20*: the `00`-`70` group is not codes. `13FC 00xx
+      0001 0100` writes immediates straight to the register at `00653E`,
+      `006560`, `0065C8`, `00660E`, `006648` — `EF DF FE EE DE`, uncomplemented —
+      so they are **lamp patterns**, not post-routine codes, and the decode is
+      right to refuse them. *Remaining:* trace `0D` and the `82`-`85` band, whose
+      two call sites take their code from a variable.
 
 - [ ] **(superseded, kept for its evidence)** `002398-04`
       p. 4-23 gives the DN3000's boot PROM LED table — every power-on test

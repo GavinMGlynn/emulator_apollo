@@ -509,10 +509,26 @@ F9 = 06 parity circuitry
 The recorded posted-code line from this session's own identity boot answered it
 without running anything further.
 
-**Both code spaces are real.** The early group complements to `00 10 20 01 11 21
-30 40 50 60 70` — Ext/Int *pairs*, from a path other than the eighteen call
-sites — and the `03`-`08` group is those sites. Only the second is named, which
-is the intended behaviour and the reason the report stays trustworthy.
+**Both code spaces are real, and the second one is not codes at all.** Searching
+the ROM for the control register's absolute address finds **33 references**, and
+among them a run of `13FC 00xx 0001 0100` — `MOVE.B #imm,($00010100).L`, an
+immediate written **straight to the register**. At `00653E`, `006560`, `0065C8`,
+`00660E` and `006648` those immediates are `EF`, `DF`, `FE`, `EE` and `DE`:
+exactly the boot's early posted bytes, written **uncomplemented**.
+
+So the early group never passed through the post routine. Complementing it to
+`00 10 20 01 11 21 30 40 50 60 70` and reading those as p. 4-23 codes was *my*
+inference and not the firmware's. Under p. 12-8's "1 => led off" they are lamp
+patterns — `FF` all dark, then one, two and three lamps lit — which is what a
+power-on progress display does and why the sequence looks like a counter.
+
+`ap_boardreg_post_code_name` is unaffected and was right to refuse them: `EF`
+complements to `10`, outside the evidenced `03`-`0C` run, so it names nothing
+there. That is the trap the header documents — the register has *two* kinds of
+writer and only one complements — arriving in practice rather than in theory.
+
+The `03`-`08` group is the eighteen call sites, through the post routine, and is
+what the report names.
 
 *Verification: `boardreg_suite` 30, including that `FF` and both sides of the run
 are refused; 12 of 32 values named on the reference boot.*
