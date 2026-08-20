@@ -5590,8 +5590,12 @@ interrupt request line assignments that settled the ring's IRQ2, and the
 The record is `docs/references/002398-04_WALK.md`, in the same shape as the
 finished `008778-03_WALK.md`.
 
-**Started 2026-08-20. Front matter read (PDF 5–11). CHAPTER 12 IS READ END TO
-END — PDF 279–313, all 35 pages. 35 content pages of 330.**
+**Started 2026-08-20. Coverage lives in the record, not here** — that file's
+"Resume here" block is the authority and this line has drifted from it once
+already. As of the latest commit: front matter and **chapters 1–9 read end to
+end** (PDF 5–241), **chapter 12 read end to end** with its delegations (PDF
+279–313), and **chapter 10 in progress, resume at PDF 265**. Chapters 11 and 13
+onward, the appendices and the index are outstanding.
 
 - [x] **Chapter 12's three delegated sections, read.** FAULT FRAME and
       FLOATING-POINT REGISTERS in chapter 7 (PDF 153–155, 157–158) and SIO in
