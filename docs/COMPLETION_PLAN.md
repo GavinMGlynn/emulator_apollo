@@ -5699,9 +5699,11 @@ END — PDF 279–313, all 35 pages. 35 content pages of 330.**
       12–34, 23 pages); **chapter 2 is READ END TO END** (PDF 35–58,
       24 pages); **chapter 3 is READ END TO END** (PDF 59–68);
       chapters 4–6 remain. Resume at PDF 69.
-      **Take into chapter 4**: p. 3-10's status word splits a code into
-      subsystem, module and module-specific error, which decomposes this
-      project's `E0007` as module `0E` error `0007` — chapter 4 names them.
+      **Chapter 4 is started** (PDF 69, 71, 73 read out of order; 70, 72 and
+      74–93 owed) and it answered the question p. 3-10 handed over:
+      `(000E0007) name not found` is printed in Apollo's table, module `0E`
+      being the **name server**. This project had that reading from measurement
+      alone; it is now documented too.
       **Closed 2026-08-20**: `AP_VOLUME_LABEL_BASE 0x440` **is** the logical
       volume label, not the physical one. p. 2-16's canned UIDs plus p. 2-8's
       block header make a block say which label it is, and the reference image
