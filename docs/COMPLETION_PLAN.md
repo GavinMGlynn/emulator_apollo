@@ -5673,6 +5673,25 @@ END — PDF 279–313, all 35 pages. 35 content pages of 330.**
       and the same console, so the reference path does not depend on it. Detail
       in `PROJECT_STATUS.md`.
 
+- [ ] **Does the DN3000's ring controller filter received packets by type?**
+      Two chapters of `002398-04` give the earlier controllers a type-mask
+      register with consistent semantics: p. 7-31's `TMASK` names its bits
+      (`80 broadcast` down to `01 xtype3`) and **p. 8-37 gives the matching
+      rule** — "Type mask, accept message if **any** bits in type field of
+      message are set in corresponding bit of type mask", with a separate
+      `BRDCST` bit for broadcast.
+      This core has no type filter anywhere. `ap_ring_station` accepts on
+      broadcast-or-destination-match alone, and `ap_ring_ctl` has no such
+      register among its ID, status and timer banks. So a driver that programs a
+      mask to take only paging packets would receive everything.
+      **Not implemented on those two pages**, because both describe *other*
+      controller generations at other addresses, and whether the DS3000's has
+      the register is not established by anything read so far. `[MAC]` documents
+      the type *field* and says nothing about a mask.
+      *What would settle it: `010005-00`, `008778-03`'s ring chapter, or the ring
+      firmware programming such a register. If it is there, the filter belongs at
+      the controller and not in `ap_ring_station`, whose job is the wire.*
+
 - [ ] **Settle whether a WACKing receiver still asserts intend-to-copy.**
       `002398-04` p. 7-29 prints two worked transmit-status words for the DN3xx
       ring controller: a successful transmit reads `0014` (`icopy | copy`) and
