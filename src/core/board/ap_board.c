@@ -2144,6 +2144,35 @@ bool ap_board_mouse_move(ap_board_t *board, int dx, int dy, bool left,
   return true;
 }
 
+/* The absolute counterpart of `ap_board_mouse_move`. Same all-or-nothing rule:
+ * whichever leading byte the mode calls for frames the three coordinate bytes
+ * after it, so a packet cut short by a full buffer would make the next bytes
+ * sent look like a coordinate.
+ *
+ * Nothing in this core calls it. No frontend offers an absolute pointing
+ * device, and §13's preamble says the standard configuration never has one --
+ * "a quadrature mouse transmits data in relative mode only". The part's side is
+ * complete; the device is what is missing. */
+bool ap_board_mouse_move_absolute(ap_board_t *board, unsigned x, unsigned y,
+                                  bool left, bool middle, bool right) {
+  if (board == NULL) {
+    return false;
+  }
+  uint8_t packet[AP_KBD_MOUSE_PACKET];
+  const unsigned bytes = ap_kbd_mouse_packet_absolute(&board->keyboard, x, y,
+                                                      left, middle, right,
+                                                      packet);
+  if (bytes == 0u || keyboard_room(board) < bytes) {
+    return false;
+  }
+  for (unsigned i = 0; i < bytes; i++) {
+    if (!deliver_key(board, packet[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool ap_board_key_type(ap_board_t *board, char ascii) {
   uint16_t code = 0u;
   bool shifted = false;

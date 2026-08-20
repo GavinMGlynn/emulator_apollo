@@ -597,7 +597,27 @@ void ap_board_hash_keyboard(ap_hash_t *st, const ap_kbd_t *keyboard) {
   hash_bool(st, keyboard->loopback);
   ap_hash_u32(st, keyboard->rx_message);
   hash_bool(st, keyboard->keystate_mode);
+  /* Which pointing device is attached: it selects the relative or the
+   * absolute packet in either mode, so two machines differing in it do not
+   * have the same state. Adding it moves the reference hash without moving
+   * any behaviour; the re-baseline is recorded in `PROJECT_STATUS.md`. */
+  hash_bool(st, keyboard->pointing_absolute);
   hash_bool(st, keyboard->caps_lock_led);
+  /* **§12.2's transmit buffer, which landed unhashed.** A keyboard holding five
+   * bytes and one holding none are different machines -- the first will deliver
+   * five more keystrokes -- and without these the harness could not tell them
+   * apart. Found by asking what the hasher covers rather than whether it runs.
+   *
+   * The *live* bytes in order, not the array: the ring's head is an
+   * implementation detail, and two keyboards holding the same bytes in the same
+   * order are in the same state whatever offset they start at. Hashing the raw
+   * array would make a rotation look like a divergence. */
+  ap_hash_u32(st, (uint32_t)keyboard->buffered);
+  for (unsigned i = 0; i < keyboard->buffered; i++) {
+    ap_hash_u8(st,
+               keyboard->buffer[(keyboard->buffer_head + i) % AP_KBD_BUFFER]);
+  }
+  ap_hash_time(st, keyboard->tx_at);
   ap_hash_u32(st, (uint32_t)keyboard->held);
   hash_bool(st, keyboard->repeating);
   ap_hash_time(st, keyboard->repeat_at);

@@ -6044,55 +6044,21 @@ below; everything else it found is implemented and recorded in
       and **not** the `siologin` blocker — on the SR10.4 reference boot `sio2`
       shows seven registers written and register 13 never read — but real, and
       formally untested in the line-2-configured case.
-- [ ] **Mode 3, absolute pointing-device packets.** *(Scoped 2026-08-20: also
-      an **API** change, not just an encoder. `ap_kbd_mouse_packet` takes signed
-      relative `dx`/`dy` and clamps them to a byte; absolute mode carries 12-bit
-      unsigned X and Y, so the entry point needs a second form and the keyboard
-      needs a third mode state where `keystate_mode` today selects only between
-      Modes 0 and 2.
-      **Figure 13-7 is now transcribed from the page image**, so no render is
-      needed to implement it — four bytes, higher-numbered bits more
-      significant:
-
-          BIT      7    6    5    4    3    2    1    0
-          B1       1    M    R    L    0    0    0    0
-          B2       X7   X6   X5   X4   X3   X2   X1   X0
-          B3       Y3   Y2   Y1   Y0   X11  X10  X9   X8
-          B4       Y11  Y10  Y9   Y8   Y7   Y6   Y5   Y4
-
-      So X is 12 bits across B2 and B3's low nibble, Y is 12 bits across B3's
-      high nibble and B4, and B1 carries the buttons as `M R L` in bits 6-4
-      under a fixed 1. **The polarity is `1 = switch depressed`**, which
-      Figure 13-7 does not state and Figure 13-3 does — the opposite of
-      Figure 13-2's relative packets, and the reason this cannot share the
-      relative builder's button code.
-      **Do not confuse Figure 13-3 with Figure 13-7.** 13-3 is §13.2.2's
-      absolute *format* — the five-byte Bit Pad One packed-binary encoding with
-      even parity in bit 7 of every byte — and 13-7 is §13.3.3's Mode 3
-      *packet*, four bytes and no parity. They describe different things and
-      only the second is this item.)* `008778-03` §13.3.3 and
-      Figure 13-7: four bytes, 12-bit unsigned X and Y split across bytes 3 and
-      4, and `1 = switch depressed` -- the opposite polarity from every relative
-      format in that chapter. `ap_kbd_mouse_packet` implements Modes 0 and 2 and
-      not this. **What it waits on is not the packet**, which is fully
-      specified, but an absolute pointing device: this core models none and no
-      frontend offers one, so a caller has nowhere to get coordinates from.
-      §13's preamble bounds the cost -- "A quadrature mouse transmits data in
-      relative mode only", and the quadrature mouse is "the standard pointing
-      device for the *Domain System*", so the standard configuration never
-      reaches Mode 3.
-      **`002398-04` p. 6-20 adds the Mode 0 form and three parameters** (added
-      2026-08-20). The touchpad is the absolute device, and its packet is
-      `E8` followed by Figure 13-7's `B2`, `B3` and `B4` **unchanged** -- so an
-      absolute builder writes the same three coordinate bytes in both modes and
-      differs only in what precedes them, a button byte in Mode 3 and the escape
-      in Mode 0. That is what `AP_KBD_MOUSE_ESCAPE_ABSOLUTE` was defined for and
-      why nothing used it. The page also gives what no figure does: about **30
-      data points per second**, the device shares **SIO port zero with the
-      keyboard at 1200 baud**, and **X and Y range approximately 30 to 1100** --
-      not 0 to 4095, so a frontend scaling a window to the full twelve bits puts
-      the pointer off the pad at both ends. Transcribed in `ap_kbd.h`; no further
-      page render is needed for either mode.
+- [x] **Mode 3, absolute pointing-device packets.** Both absolute forms are
+      built, and this item's own scoping was **wrong**: p. 149 gives the
+      keyboard "one of **two** modes", with "Mode 2 for relative and Mode 3 for
+      absolute" being *packet types* that no command selects — the **device on
+      the cable** does. So `keystate_mode` stays a bool and gains
+      `pointing_absolute`, a two-by-two, and the planned three-valued mode does
+      not exist. Figures 13-5 and 13-7 read from the page images: their three
+      coordinate bytes are identical, so one builder serves both.
+      **The Mode 3 button polarity is `PROVISIONAL`** — Figure 13-7 prints no
+      legend and both readings are inferences. Nothing calls the builder: no
+      frontend supplies coordinates, which is a dependency order and not a gap
+      in the part. *Verification: `kbd_suite` 50 -> 56 — the figure's packing
+      worked by hand, both modes' tails identical, clamping, the inverted button
+      sense, the device type surviving a mode command.* Detail, including what
+      would settle the polarity, in `PROJECT_STATUS.md`.
 - [x] **The keyboard's N-key rollover and its 16-byte buffer.** §12.2 gives the
       part "at least 16 bytes" of buffering with "further processing of data
       inhibited" when full, and N-key rollover "for a minimum of six".

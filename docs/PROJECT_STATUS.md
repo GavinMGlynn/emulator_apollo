@@ -433,6 +433,88 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## Mode 3 is not a keyboard mode, and two absolute packets now exist
+## (2026-08-21)
+
+`008778-03` §13.3.3's absolute pointing-device packet was the last named gap in
+chapter 13. It is built now — and the plan item describing it had the model
+wrong, which is the more useful half of this entry.
+
+### What p. 149 actually says
+
+Read from the page image rather than the walk's summary of it:
+
+> As stated in Chapter 12, the keyboard is capable of transmitting key scan
+> codes to the host in one of **two** modes, Mode 0 (compatibility mode), and
+> Mode 1 (keystate mode). In Mode 0, pointing device data is "escaped" by a
+> special code, DF for relative and E8 for absolute data. In Mode 1, no such
+> escape codes exist. Rather, there are distinct modes which are used for
+> pointing device data, **Mode 2 for relative and Mode 3 for absolute** data.
+
+So **Modes 2 and 3 are packet types, not keyboard modes.** Nothing commands
+them: `FF00` and `FF01` select Mode 0 and Mode 1, and which packet goes out is
+decided by *what is plugged in*. The plan had this as "`keystate_mode` becomes a
+three-valued mode ... **and it is hashed**, so the change needs an identity
+boot". That mode does not exist. The correct shape is a two-by-two — two
+keyboard modes against two device types:
+
+| | relative device | absolute device |
+| --- | --- | --- |
+| **Mode 0** | `DF` + Figure 13-4 | `E8` + Figure 13-5 |
+| **Mode 1** | Figure 13-6 (Mode 2) | Figure 13-7 (Mode 3) |
+
+`keystate_mode` therefore stays a bool and gains `pointing_absolute` beside it.
+Figures 13-5 and 13-7 were rendered and read directly: their three coordinate
+bytes are **identical** — X's low eight, then Y's low nibble over X's high
+nibble, then Y's high eight — so one builder serves both absolute forms exactly
+as one already served both relative ones. Only the leading byte differs, the
+escape in Mode 0 and the button byte in Mode 3.
+
+### The Mode 3 button polarity is `PROVISIONAL`, and both readings are guesses
+
+Figure 13-7 prints `1 M R L 0 0 0 0` and gives **no legend** — its only note is
+that higher-numbered bits are the more significant. The two candidate readings
+are therefore both inferences, and they disagree:
+
+- **`1 = depressed`**, from Figure 13-3. That is §13.2.2's absolute format, and
+  absolute does flip the sense relative uses. But 13-3 describes the
+  **device-to-keyboard** link, one interface below this one.
+- **`0 = depressed`**, from §13.3.1's "SWM, SWR, and SWL are Zero if the switch
+  is depressed" — a sentence in **this** section, about keyboard-to-CPU packets,
+  and Figure 13-7's `B1` is bit-for-bit Figure 13-4's layout in its top nibble.
+
+The first is what the walk recorded and is what is implemented, on the principle
+that a recorded reading should not be flipped on an argument alone. The second
+is the same-interface one and may well be right. **What would settle it**: a
+pointing-device driver's source, or a serial absolute device to observe. Neither
+is held here. Marked in `ap_kbd.h` and asserted by name in the suite, so
+flipping it later is a deliberate edit rather than a drift.
+
+### The transmit buffer landed unhashed, one commit earlier
+
+Found by asking what the hasher *covers* rather than whether it runs — the same
+check that has paid before. `AP_KBD_BUFFER`'s ring, `buffered` and `tx_at` went
+in with no entry in `ap_board_state.c`, so a keyboard holding five bytes and one
+holding none hashed identically, though the first will deliver five more
+keystrokes. Now hashed, with the **live bytes in order** rather than the raw
+array: the ring's head is an implementation detail, and hashing the array would
+report a rotation as a divergence. Both properties are asserted — the contents
+move the hash, the rotation does not.
+
+### The reference hash re-baselines, and no behaviour moved
+
+`pointing_absolute`, `buffered`, the queued bytes and `tx_at` all join the hash,
+so the identity harness's reference value changes without any behaviour
+changing. That is a deliberate re-baseline and not a divergence: the fields are
+new state, and the boot exercises none of them — it attaches no pointing device
+and presses no key, so every one of them holds its reset value throughout.
+
+*Verification: `kbd_suite` 50 -> 56, `board_state_suite` 36 -> 38. The figure's
+packing is worked by hand in the test so a transposed nibble cannot pass, both
+modes' coordinate tails are compared directly, coordinates clamp rather than
+wrap, the absolute button sense is asserted **against** the relative one so the
+two cannot quietly converge, and the device type survives a mode command.*
+
 ## The keyboard buffers, and the buffer drains at the wire's rate
 ## (2026-08-21)
 
@@ -1238,12 +1320,12 @@ is inline. Whether any executes on some *other* path is not settled by this, and
 does not need to be: what the boot shows is that giving them their documented
 effect changes nothing the reference run does.
 
-**`79C8F0364AE4A93E` is the current reference hash**, produced by
+**`4EAC44B176697CE7` is the current reference hash**, produced by
 `tools/identity-boot.sh` on the release build. It differs from the hashes
-recorded earlier in this document because four commits today added or moved
+recorded earlier in this document because several commits have added or moved
 hashed state — the display controller's registers and palettes, the tape drive's
-latches and counters, the tape's `no_data` latch, and the tape's default
-selection.
+latches and counters, the tape's `no_data` latch, the tape's default selection,
+and most recently the keyboard's transmit buffer and pointing-device type.
 
 The last two were measured rather than assumed, with three 350 M boots on the
 same media and the same invocation:
@@ -1252,7 +1334,15 @@ same media and the same invocation:
 717289781987BD4A   before the QIC-02 walk (the hash this section recorded)
 06F5A1DFAB270B5D   + the NDT latch, which adds a byte to the hashed stream
 79C8F0364AE4A93E   + SELECT's drive mask and the reset's default selection
+4EAC44B176697CE7   + the keyboard's transmit buffer and pointing-device type
 ```
+
+The fourth row is a **re-baseline and not a divergence**, and the reason is
+stated rather than assumed: §12.2's buffer and §13.3's device type are new
+hashed state, and the reference run exercises neither — it attaches no pointing
+device and presses no key, so every one of those fields holds its reset value
+from the first instruction to the last. What moved is the length of the hashed
+stream, not any value in it.
 
 **All three reports are byte-identical** — every counter, register, console line
 and bus-error total, the whole file save its own hash line and the paths of the
@@ -8396,7 +8486,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Model table (`model/`) | working, 12 models | `model_suite`, 22 tests |
 | Time base (`time/`) | working | `time_suite`, 17 tests |
 | State hash (`state/`) | primitive working | `hash_suite`, 13 tests, incl. published FNV-1a 64 vectors |
-| Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 36 tests sweeping every device field by field |
+| Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 38 tests sweeping every device field by field |
 | Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 56 tests, incl. the same workload run twice on two boards agreeing at every step |
 | Ring protocol stack (`ring/ap_ring_{mac,frame,framer,phy,medium,station}.*`) | **JOINED TO THE CONTROLLER, and two boards on one segment exchange a frame; not yet reachable from a *booting* machine.** `ap_ring_ctl_attach_ring` is the wire `RING.md` 85e opened and 104 closed: a transmit command assembles the frame in the board's buffer and hands it to the station, MISC_CMD's `nct` drives §3.5's bypass relay and RCV_CMD's `rcv` the receiver, and the board's node ID becomes the station's ring address. The medium now has a home: `ap_board_t` owns the **station** (the card) and `ap_board_join_ring` lends it a **shared segment** (the cable), because a board that owned a medium would make every ring single-node by construction. `board_suite` drives two boards through their register interfaces and the header arrives in the other's buffer. `--ring` now owns a **segment** and joins the card to it, `ap_board_advance` polls the ring when the card has a cable, and the card's **interrupt line is wired** — master IRQ 2, documented at last (`RING.md` 107). **A frame now crosses under `ap_board_advance`** — the ring's 12 Mbit/s bit clock is driven from board time, with only the segment's lowest attached slot stepping the shared cable, and `board_suite` advances two boards' *clocks* and requires the frame to arrive. **And `ap_ring_sched` is wired**: `ap_board_join_ring_sched` registers a board as a ring participant at the medium's own bit rate, so nodes of different models can share one segment against `AP_TIME_BASE_HZ` — `board_suite` runs a real exchange through it and asserts the scheduler's phase hash is identical across two runs. **And a segment now crosses process boundaries**: `frontend/common/ap_ring_link.*` carries the cable's cells between two emulator instances in strict lock-step, batched a cable-length at a time — which `[MAC]` §3.4 makes free, since a bit cannot reach the next node for 64 bit times anyway. **The DMA question is answered and it was the wrong question**: `002398-04` p. 12-23 enumerates the DN3000's DMA Channel Usage in full — SDLC, floppy, cascade, the rest available — and the ring is not among them, so there is no host channel to model. The host reaches the buffer through `RAM_ADDR`/`RAM_DATA`, which is what this core does; finding 79's "loop xmit DMA to rcv DMA" is the gate array's own internal DMA. **And `--ring-two-node [N]` runs two whole machines on one segment** — two boards with distinct node IDs on one `ap_ring_sched`, each machine run a slice at a time with the ring advanced only to the time *both* have reached, reporting each node's PC and the ring's phase hash, reproducibly and without needing firmware. **Domain/OS now accepts the card** (`RING.md` 119): with a sealed configuration table, the device bits set from what is fitted, register `2B` = 2 and a ring option ROM, the SR10.4 diagnostic runs `network driver search` and an Apollo Token Ring test — and fails on `Expected= 0000FC03, Actual= 0000FC00, Address= 00059800`, which is SUBTEST 32's number reached by a second, independent path. **What is still missing**: that one count, and 80c's loopback residual. *The clause that used to follow -- "so the plan's `lcnode` check needs a booted Domain/OS per node, a disk question rather than a ring one" -- was answered on 2026-08-19*: both nodes now boot Domain/OS from their own installed volumes on one segment, each reaching `Domain/OS kernel(7)` with `Apollo Token Ring test passed.` and its driver loaded. `lcnode` itself moved to the multi-node workloads item, because it needs a *shell*, which needs `siologin`, which is a separate open thread (`FINDINGS.md` C222); this item's verification was rewritten to the ring property it is actually about -- two booted nodes exchanging frames, which the runner now reports as it happens. What else is done, and audited line by line against `[MAC]` chapters 1-3 and Appendix A (findings 85-94): bit stuffing and the four out-of-band characters, the three separators, all five framing sequences and the CRC, the bi-phase physical layer with both clock domains, §3.5's bypass relay in both halves, per-hop cable delay, and the station's §2.1 transmit sequence, §2.2.2.2 destination and broadcast matching, and both acknowledge fields modified in flight. **The buffer defect was NOT what held `claims_made` at zero, and that is now measured.** The first two-node run with both buffers lent (`fr4`, 2026-08-19, `--ring-two-node 1200000000`) took **both** nodes to `Domain/OS kernel(7) revision 10.4`, `Apollo Token Ring test passed.`, `SPM system init complete.` and `siomonit` started, with distinct node IDs — `Node ID = 12345` and `Node ID = 22222` — on one segment. **And `ring claims` stayed at zero for both — confirmed at the end of the run, not merely mid-run.** The full budget completed: `node 0 pc 3C43F5A8 ran 1200000000 executed (op 60FA) ring claims 0 frames seen 0 copied 0` and the identical line for node 1, with `ring hash 3BC182783938C47C`. Both nodes ended at the **same PC executing the same branch**, which is what two idle booted nodes in the same wait loop look like, and the last console line was `MBX_HELPER not running. Starting one.` — ordinary Domain/OS startup, not a hang. That is `FINDINGS.md` C229's pre-registered **reading 1, "nothing asked"**: the operating system never armed a transmit, so no frame was ever offered to the station. It is not reading 2 (a ring defect) and not reading 3 (success). The honest conclusion about the buffer fix is that it repaired a real and separate defect — transmit was *impossible* before it — and repairing it changed nothing here, which **locates the remaining problem above the station entirely**. C222 predicted exactly this: two booted nodes sitting idle exchange no frames at all, because "responded" is the language of a request and a reply. The item's verification needs *traffic*, which needs `lcnode`, which needs a shell. **And the station's two buffers are now lent by the board, which nothing was doing.** `ap_ring_station` allocates nothing, so both the transmit bit stream and the received frame live in caller storage — and `ap_ring_station_attach_tx` was called by **tests only** while `ap_ring_station_attach_rx` was called by **nothing at all**. On a running machine `ap_ring_station_queue_frame` therefore returned false on its first line (`tx_bits == NULL`), so a booting node could never transmit, and every received byte was discarded without even setting the overrun flag, which needs a non-NULL buffer to report against. Every ring suite passed throughout, because each one attached its own buffer — the failure mode where the test supplies the wiring the board does not. Found by sweeping `src/core`'s exported functions for ones nothing calls. The board owns the storage now, sized from `[EH]` p. 12-29's 1 KB header plus 1 KB data, and the three board tests that used to attach their own no longer do — so they exercise the machine's wiring rather than their own. **And a transmit now completes when the ring has carried it, not when the command was written.** `RING.md` 73b parked the completion *duration* "until `ap_ring_station` drives it" — and the station could not drive anything while nothing lent it a transmit buffer, so that blocker was the one above. A frame that genuinely goes onto a cable now finishes the operation when it has been driven, and the duration is **emergent** from the frame's own length at 12 Mbit/s: nothing here chooses a number, which is what 73a's refusal to pick a value inside its 8–85 µs bracket required. **The change is confined to the path where a frame is really on a wire**, which is `RING.md` 108a's rule expressed in code rather than as a blanket approximation — the deferral needs a queued frame, an attached medium, and digital loopback off. So the ring firmware's own self-test, which loops transmit DMA to receive DMA with no medium at all, keeps finding 66's immediate completion, and is **byte-identical** across the change: 7,263,778 steps, same registers, same elapsed, same 1,321,914 reads and 927,828 writes, checked by running it either side. Findings 66, 69 and 73's self-test bracket are therefore untouched and still open; what closed is 73b's blocker, not 69. The row said "not started", which was stale by six modules | `ring_mac_suite`, 11 tests; `ring_frame_suite`, 9 tests; `ring_framer_suite`, 12 tests; `ring_phy_suite`, 9 tests; `ring_medium_suite`, 12 tests, including a three-station ring circulating a token; `ring_station_suite`, 20 tests, including a frame delivered to its addressee with a bystander required *not* to accept it, and a **transmitter reading back the acknowledge its own frame returned with** -- `[MAC]` §2.2.2.5, the only way a sender ever learns whether anybody took its packet (`RING.md` 137); `ring_sched_suite`, 7 tests |
 | Ring controller (`device/ap_ring_ctl.*`) | **register interface working**, wired into the AT decode: a unit's two windows, the ID register, the presence gate and its two Intel 8254 timers, all from the firmware disassembly that is this board's only specification. Fitted only on request -- an empty slot reads `FF`, which `RING.md` finding 40 makes the successful outcome of the firmware's probe. The dual-ported RAM buffer is **64 KB reached through the `+406` data port**, not a memory window -- findings 46, 46a and 47, which correct finding 42. **Nothing is blocked on a source any more**: `+400` MISC_STAT, `+402` XMIT_STAT and `+404` RCV_STAT are named bit for bit from `002398-04` pp. 12-30/12-31, and `ring8a.drvr` corroborates them from the board's own driver (`RING.md` 93, 97). The row said the meanings were blocked, which was stale by two findings | `ring_ctl_suite`, 24 tests, one of which is the firmware's own 64 KB memory test, one of which decomposes all three idle words into their named bits, one of which walks the first window's eight write-only registers, one of which reads that window as the node ID PROM it is -- four ID lanes, eleven unused slots and a checksum (`RING.md` 136) -- and one of which resets the board through `BOARD_RESET` at `59000`; the three receive counters are clocked individually since `[EH]` pp. 12-30/12-31 show header and data are separate phases on this board (`RING.md` 95a-95c); `i8254_suite`, 7 tests; `board_suite` 38 -> 40 |

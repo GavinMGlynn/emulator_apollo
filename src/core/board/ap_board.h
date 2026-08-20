@@ -1248,6 +1248,19 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
 [[nodiscard]] bool ap_board_mouse_move(ap_board_t *board, int dx, int dy,
                                        bool left, bool middle, bool right);
 
+/* The absolute form, for a device that reports position rather than movement.
+ * `x` and `y` are 12-bit unsigned; the packet is `E8` and three coordinate
+ * bytes in Mode 0, or Figure 13-7's button byte and the same three in Mode 3.
+ * Which of the two goes out follows `ap_kbd_set_pointing_absolute`, since it is
+ * the *device* that decides and not a command.
+ *
+ * Called by nothing today: no frontend offers an absolute pointing device, and
+ * the standard Domain configuration is a quadrature mouse, which is relative
+ * only. The part's side is complete. */
+[[nodiscard]] bool ap_board_mouse_move_absolute(ap_board_t *board, unsigned x,
+                                                unsigned y, bool left,
+                                                bool middle, bool right);
+
 /* Take a byte a transmitter has shifted out, if any. The console's own output,
  * available whatever run mode the caller is in -- see `tx` above for why that
  * was not always true. */

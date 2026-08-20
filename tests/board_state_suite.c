@@ -485,6 +485,46 @@ static void test_every_other_keyboard_field_moves_the_hash(void) {
   MOVES_THE_HASH(scratch.keyboard.repeating = true);
   MOVES_THE_HASH(scratch.keyboard.repeat_at = 12345u);
   MOVES_THE_HASH(scratch.keyboard.beeper_until = 67890u);
+  /* Which pointing device is attached: it decides the relative or the absolute
+   * packet, so two machines differing in it are not the same machine. */
+  MOVES_THE_HASH(scratch.keyboard.pointing_absolute = true);
+  /* §12.2's transmit buffer. It landed unhashed one commit earlier, so a
+   * keyboard holding bytes and one holding none looked identical to the
+   * harness -- and the first will deliver keystrokes the second will not. */
+  MOVES_THE_HASH(scratch.keyboard.buffered = 1u);
+  MOVES_THE_HASH(scratch.keyboard.tx_at = 4242u);
+}
+
+/* The buffer's *contents* and not merely its depth: two keyboards each holding
+ * one byte, but different bytes, will deliver different keystrokes. */
+static void test_the_queued_keyboard_bytes_move_the_hash(void) {
+  MOVES_THE_HASH(scratch.keyboard.buffered = 1u;
+                 scratch.keyboard.buffer[0] = 0x41u);
+}
+
+/* And the ring's rotation does **not** move it. Two keyboards holding the same
+ * bytes in the same order are in the same state whatever offset they start at,
+ * so the hasher walks the live bytes rather than the array -- hashing the raw
+ * array would report a rotation as a divergence. */
+static void test_the_ring_s_rotation_does_not_move_the_hash(void) {
+  make_board(&scratch);
+  make_board(&other);
+
+  scratch.keyboard.buffer_head = 0u;
+  scratch.keyboard.buffered = 3u;
+  scratch.keyboard.buffer[0] = 0x11u;
+  scratch.keyboard.buffer[1] = 0x22u;
+  scratch.keyboard.buffer[2] = 0x33u;
+
+  /* The same three bytes, started near the end of the ring so they wrap. */
+  other.keyboard.buffer_head = AP_KBD_BUFFER - 2u;
+  other.keyboard.buffered = 3u;
+  other.keyboard.buffer[AP_KBD_BUFFER - 2u] = 0x11u;
+  other.keyboard.buffer[AP_KBD_BUFFER - 1u] = 0x22u;
+  other.keyboard.buffer[0] = 0x33u;
+
+  TEST_ASSERT_EQUAL_HEX64(ap_board_state_hash(&scratch),
+                          ap_board_state_hash(&other));
 }
 
 /* Which firmware is running is the largest single fact about a boot. */
@@ -871,6 +911,8 @@ int main(void) {
   RUN_TEST(test_the_screen_kind_moves_the_hash);
   RUN_TEST(test_the_keyboard_matrix_moves_the_hash);
   RUN_TEST(test_every_other_keyboard_field_moves_the_hash);
+  RUN_TEST(test_the_queued_keyboard_bytes_move_the_hash);
+  RUN_TEST(test_the_ring_s_rotation_does_not_move_the_hash);
   RUN_TEST(test_the_prom_contents_move_the_hash);
   RUN_TEST(test_no_prom_and_a_blank_prom_hash_differently);
   RUN_TEST(test_the_memory_extent_counts_and_its_contents_are_hashed_elsewhere);

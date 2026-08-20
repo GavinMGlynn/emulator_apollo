@@ -1112,6 +1112,169 @@ static void test_a_reset_empties_the_transmit_buffer(void) {
   TEST_ASSERT_FALSE(ap_kbd_transmit(&kbd, AP_KBD_TX_CHARACTER * 4u, &code));
 }
 
+
+/* ---- §13.3's absolute packets, Figures 13-5 and 13-7 ---------------------- */
+
+/* The three coordinate bytes are **identical** in Figure 13-5 and Figure 13-7,
+ * which is why one builder serves both absolute forms -- the same argument that
+ * lets one builder serve Modes 0 and 2 for relative. Asserted directly by
+ * running one position through both modes and comparing the tails. */
+static void test_both_absolute_modes_pack_the_coordinates_the_same_way(void) {
+  ap_kbd_t kbd;
+  uint8_t mode0[AP_KBD_MOUSE_PACKET];
+  uint8_t mode3[AP_KBD_MOUSE_PACKET];
+  ap_kbd_reset(&kbd);
+
+  kbd.keystate_mode = false;
+  TEST_ASSERT_EQUAL_UINT(
+      4u, ap_kbd_mouse_packet_absolute(&kbd, 0x123u, 0x456u, false, false,
+                                       false, mode0));
+  kbd.keystate_mode = true;
+  TEST_ASSERT_EQUAL_UINT(
+      4u, ap_kbd_mouse_packet_absolute(&kbd, 0x123u, 0x456u, false, false,
+                                       false, mode3));
+
+  /* Only the leading byte differs. */
+  TEST_ASSERT_EQUAL_HEX8(AP_KBD_MOUSE_ESCAPE_ABSOLUTE, mode0[0]);
+  TEST_ASSERT_EQUAL_HEX8(AP_KBD_MOUSE_B1_FIXED, mode3[0]);
+  TEST_ASSERT_EQUAL_HEX8_ARRAY(mode0 + 1, mode3 + 1, 3);
+}
+
+/* Figure 13-5/13-7's packing, bit for bit: X's low eight, then Y's low nibble
+ * over X's high nibble, then Y's high eight. Worked by hand from the figure so
+ * a transposed nibble cannot pass. */
+static void test_the_absolute_coordinates_pack_as_the_figure_draws_them(void) {
+  ap_kbd_t kbd;
+  uint8_t out[AP_KBD_MOUSE_PACKET];
+  ap_kbd_reset(&kbd);
+  kbd.keystate_mode = false;
+
+  /* X = 0x123, Y = 0x456.
+   *   B1 = X[7:0]            = 0x23
+   *   B2 = Y[3:0] | X[11:8]  = 0x6 << 4 | 0x1 = 0x61
+   *   B3 = Y[11:4]           = 0x45 */
+  TEST_ASSERT_EQUAL_UINT(4u, ap_kbd_mouse_packet_absolute(
+                                 &kbd, 0x123u, 0x456u, false, false, false,
+                                 out));
+  TEST_ASSERT_EQUAL_HEX8(0xE8u, out[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x23u, out[1]);
+  TEST_ASSERT_EQUAL_HEX8(0x61u, out[2]);
+  TEST_ASSERT_EQUAL_HEX8(0x45u, out[3]);
+
+  /* The extremes, so a sign or width slip shows. */
+  TEST_ASSERT_EQUAL_UINT(
+      4u, ap_kbd_mouse_packet_absolute(&kbd, 0u, 0u, false, false, false, out));
+  TEST_ASSERT_EQUAL_HEX8(0x00u, out[1]);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, out[2]);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, out[3]);
+
+  TEST_ASSERT_EQUAL_UINT(4u, ap_kbd_mouse_packet_absolute(
+                                 &kbd, AP_KBD_MOUSE_ABSOLUTE_MAX,
+                                 AP_KBD_MOUSE_ABSOLUTE_MAX, false, false, false,
+                                 out));
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, out[1]);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, out[2]);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, out[3]);
+}
+
+/* Past the edge of the format, a coordinate stops rather than wrapping. A wrap
+ * would put the pointer at the opposite edge, which is the absolute analogue of
+ * the relative builder's fast-drag-right-becomes-jump-left. */
+static void test_an_absolute_coordinate_clamps_rather_than_wrapping(void) {
+  ap_kbd_t kbd;
+  uint8_t out[AP_KBD_MOUSE_PACKET];
+  ap_kbd_reset(&kbd);
+  kbd.keystate_mode = false;
+
+  TEST_ASSERT_EQUAL_UINT(4u, ap_kbd_mouse_packet_absolute(
+                                 &kbd, 0x1000u, 0x2000u, false, false, false,
+                                 out));
+  /* Both clamped to 0xFFF, not truncated to 0x000. */
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, out[1]);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, out[2]);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, out[3]);
+}
+
+/* Mode 3's B1 is `1 M R L 0 0 0 0`: the buttons in the top nibble and the low
+ * nibble fixed zero, the relative packet's invalid indicators having no
+ * counterpart when a coordinate is absolute.
+ *
+ * The polarity here is `PROVISIONAL` -- Figure 13-7 prints no legend, and the
+ * two candidate readings are named in the header. This asserts the one the walk
+ * recorded, so that flipping it is a deliberate edit and not a drift. */
+static void test_mode_3_puts_the_buttons_in_b1_s_top_nibble(void) {
+  ap_kbd_t kbd;
+  uint8_t out[AP_KBD_MOUSE_PACKET];
+  ap_kbd_reset(&kbd);
+  kbd.keystate_mode = true;
+
+  /* Nothing pressed. */
+  TEST_ASSERT_EQUAL_UINT(4u, ap_kbd_mouse_packet_absolute(
+                                 &kbd, 0u, 0u, false, false, false, out));
+  TEST_ASSERT_EQUAL_HEX8(AP_KBD_MOUSE_B1_FIXED, out[0]);
+
+  /* Each button alone, at its documented bit. */
+  TEST_ASSERT_EQUAL_UINT(4u, ap_kbd_mouse_packet_absolute(
+                                 &kbd, 0u, 0u, true, false, false, out));
+  TEST_ASSERT_EQUAL_HEX8(AP_KBD_MOUSE_B1_FIXED | AP_KBD_MOUSE_B1_LEFT, out[0]);
+  TEST_ASSERT_EQUAL_UINT(4u, ap_kbd_mouse_packet_absolute(
+                                 &kbd, 0u, 0u, false, true, false, out));
+  TEST_ASSERT_EQUAL_HEX8(AP_KBD_MOUSE_B1_FIXED | AP_KBD_MOUSE_B1_MIDDLE,
+                         out[0]);
+  TEST_ASSERT_EQUAL_UINT(4u, ap_kbd_mouse_packet_absolute(
+                                 &kbd, 0u, 0u, false, false, true, out));
+  TEST_ASSERT_EQUAL_HEX8(AP_KBD_MOUSE_B1_FIXED | AP_KBD_MOUSE_B1_RIGHT, out[0]);
+
+  /* The low nibble stays clear whatever the buttons do. */
+  TEST_ASSERT_EQUAL_UINT(4u, ap_kbd_mouse_packet_absolute(
+                                 &kbd, 0u, 0u, true, true, true, out));
+  TEST_ASSERT_EQUAL_HEX8(0x00u, out[0] & 0x0Fu);
+}
+
+/* The button polarity is the opposite of the relative packets', which is the
+ * whole reason this cannot share the relative builder's button code. Asserted
+ * as a contrast so the two cannot quietly converge. */
+static void test_the_absolute_buttons_invert_the_relative_convention(void) {
+  ap_kbd_t kbd;
+  uint8_t rel[AP_KBD_MOUSE_PACKET];
+  uint8_t abs_[AP_KBD_MOUSE_PACKET];
+  ap_kbd_reset(&kbd);
+  kbd.keystate_mode = true;
+
+  /* Left down. Relative clears the bit (zero = depressed); absolute sets it. */
+  TEST_ASSERT_EQUAL_UINT(
+      3u, ap_kbd_mouse_packet(&kbd, 0, 0, true, false, false, rel));
+  TEST_ASSERT_EQUAL_HEX8(0u, rel[0] & AP_KBD_MOUSE_B1_LEFT);
+  TEST_ASSERT_EQUAL_UINT(4u, ap_kbd_mouse_packet_absolute(
+                                 &kbd, 0u, 0u, true, false, false, abs_));
+  TEST_ASSERT_EQUAL_HEX8(AP_KBD_MOUSE_B1_LEFT,
+                         abs_[0] & AP_KBD_MOUSE_B1_LEFT);
+}
+
+/* Which packet goes out is the *device's* property, not a commanded mode: p.
+ * 149 gives the keyboard two modes and says Modes 2 and 3 are packet types. So
+ * the flag is settable, survives a mode command, and is cleared by reset. */
+static void test_the_pointing_device_type_is_not_a_keyboard_mode(void) {
+  ap_kbd_t kbd;
+  ap_kbd_reset(&kbd);
+  /* The standard configuration is a quadrature mouse: relative only. */
+  TEST_ASSERT_FALSE(ap_kbd_pointing_absolute(&kbd));
+
+  ap_kbd_set_pointing_absolute(&kbd, true);
+  TEST_ASSERT_TRUE(ap_kbd_pointing_absolute(&kbd));
+
+  /* `FF01` selects Mode 1 and says nothing about the device. */
+  uint8_t reply[8];
+  kbd.loopback = false;
+  (void)ap_kbd_receive(&kbd, 0xFFu, reply, sizeof reply);
+  (void)ap_kbd_receive(&kbd, 0x01u, reply, sizeof reply);
+  TEST_ASSERT_TRUE(kbd.keystate_mode);
+  TEST_ASSERT_TRUE(ap_kbd_pointing_absolute(&kbd));
+
+  ap_kbd_reset(&kbd);
+  TEST_ASSERT_FALSE(ap_kbd_pointing_absolute(&kbd));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_both_pointing_device_escapes_match_their_documents);
@@ -1164,5 +1327,11 @@ int main(void) {
   RUN_TEST(test_the_character_time_is_eleven_bits_at_1200_baud_exactly);
   RUN_TEST(test_six_keys_are_down_at_once_and_all_six_report);
   RUN_TEST(test_a_reset_empties_the_transmit_buffer);
+  RUN_TEST(test_both_absolute_modes_pack_the_coordinates_the_same_way);
+  RUN_TEST(test_the_absolute_coordinates_pack_as_the_figure_draws_them);
+  RUN_TEST(test_an_absolute_coordinate_clamps_rather_than_wrapping);
+  RUN_TEST(test_mode_3_puts_the_buttons_in_b1_s_top_nibble);
+  RUN_TEST(test_the_absolute_buttons_invert_the_relative_convention);
+  RUN_TEST(test_the_pointing_device_type_is_not_a_keyboard_mode);
   return UNITY_END();
 }

@@ -159,8 +159,14 @@ typedef struct {
   bool loopback;
   uint32_t rx_message;
   /* Which of the two code sets is live. `008778-03` Chapter 12's two sets, and
-   * the commands that select them. */
+   * the commands that select them. Two, not three: §13.3's Modes 2 and 3 are
+   * packet types rather than keyboard modes, and no command selects them. */
   bool keystate_mode;
+
+  /* What is plugged into the pointing-device port. Not commanded and not
+   * reported -- it is which device is on the cable, and it is what decides
+   * between the relative and absolute packet in either mode. */
+  bool pointing_absolute;
 
   /* ## The beeper, which stopped being a decline when the handbook turned up
    *
@@ -396,9 +402,83 @@ void ap_kbd_reset(ap_kbd_t *kbd);
  *     0 to 4095. A frontend scaling its window to the full twelve bits would
  *     put the pointer off the pad at both ends.
  *
- * Still not implemented, and the gap is unchanged in shape: this core has no
- * absolute pointing device. What the page removes is the excuse that the packet
- * was unknown. */
+ * ## Both absolute forms are now built, and what selects them is the *device*
+ *
+ * Re-read from p. 149's own words, which correct how this was scoped: "the
+ * keyboard is capable of transmitting key scan codes to the host in one of
+ * **two** modes, Mode 0 (compatibility mode), and Mode 1 (keystate mode). In
+ * Mode 0, pointing device data is escaped by a special code, DF for relative
+ * and E8 for absolute data. In Mode 1, no such escape codes exist. Rather,
+ * there are distinct modes which are used for pointing device data, **Mode 2
+ * for relative and Mode 3 for absolute**."
+ *
+ * So Modes 2 and 3 are **packet types, not keyboard modes**, and nothing
+ * commands them: `FF00` and `FF01` select Mode 0 and Mode 1, and which packet
+ * goes out is decided by what is *plugged in*. `keystate_mode` therefore stays
+ * a bool and gains a companion, `pointing_absolute`, giving a two-by-two:
+ *
+ *     Mode 0 + relative   `DF` + Figure 13-4's B1/B2/B3      4 bytes
+ *     Mode 0 + absolute   `E8` + Figure 13-5's B1/B2/B3      4 bytes
+ *     Mode 1 + relative   Figure 13-6, Mode 2                3 bytes
+ *     Mode 1 + absolute   Figure 13-7, Mode 3                4 bytes
+ *
+ * The plan had this as a three-valued mode needing a hashed widening. It is not;
+ * the manual says two modes and a device type. Figures 13-5 and 13-7 were read
+ * from the page images to confirm it, and their three coordinate bytes are
+ * identical, so one builder serves both absolute forms exactly as one serves
+ * both relative ones.
+ *
+ * **The button polarity in Mode 3 is `PROVISIONAL`, and the two readings are
+ * both inferences.** Figure 13-7 prints `1 M R L 0 0 0 0` and gives **no
+ * legend** -- its only note is that higher-numbered bits are more significant.
+ * So:
+ *
+ *   - `1 = depressed`, from Figure 13-3. That is §13.2.2's *absolute* format,
+ *     and absolute flips the sense relative does. But 13-3 is the
+ *     **device-to-keyboard** link, one interface below this one.
+ *   - `0 = depressed`, from §13.3.1's "SWM, SWR, and SWL are Zero if the switch
+ *     is depressed". That sentence is in **this** section, about
+ *     keyboard-to-CPU packets, and Figure 13-7's `B1` is bit-for-bit Figure
+ *     13-4's layout in its top nibble.
+ *
+ * Neither is stated for Figure 13-7. This keeps the first, which is what the
+ * walk recorded, rather than flipping a recorded reading on an argument alone --
+ * but the second is the same-interface one and may well be right. **What would
+ * settle it**: a pointing-device driver's source, or a serial absolute device to
+ * observe. Named in `docs/COMPLETION_PLAN.md`.
+ *
+ * What is still absent is only the **device**: no frontend offers absolute
+ * coordinates, so nothing in this core calls the absolute builder. That is a
+ * dependency order, not a gap in the part. */
+
+/* Whether an absolute pointing device is attached. False is the standard
+ * configuration -- §13's preamble: "A quadrature mouse transmits data in
+ * relative mode only", and the quadrature mouse is "the standard pointing device
+ * for the *Domain System*" -- which is why Mode 3 costs nothing on the machine
+ * this core models. */
+[[nodiscard]] bool ap_kbd_pointing_absolute(const ap_kbd_t *kbd);
+void ap_kbd_set_pointing_absolute(ap_kbd_t *kbd, bool absolute);
+
+/* Figure 13-5's `B1`/`B2`/`B3` and Figure 13-7's `B2`/`B3`/`B4` -- the same
+ * three bytes -- under whichever leading byte the mode calls for: `E8` in
+ * Mode 0, the button byte in Mode 3.
+ *
+ * `x` and `y` are 12-bit unsigned and are clamped, not wrapped: a coordinate
+ * past the edge of the pad should stop at the edge, and wrapping would put the
+ * pointer at the opposite one. Note the real device's range is "approximately
+ * 30 to 1100" and not 0 to 4095, so clamping to twelve bits is the format's
+ * bound rather than the pad's. */
+[[nodiscard]] unsigned ap_kbd_mouse_packet_absolute(const ap_kbd_t *kbd,
+                                                    unsigned x, unsigned y,
+                                                    bool left, bool middle,
+                                                    bool right, uint8_t *out);
+
+/* The format's bound on a coordinate: twelve bits. */
+#define AP_KBD_MOUSE_ABSOLUTE_MAX 0x0FFFu
+
+/* `1 = switch depressed` in Mode 3's `B1`, the opposite of the relative
+ * packets' `AP_KBD_MOUSE_B1_*` sense. `PROVISIONAL` -- see above. */
+#define AP_KBD_MOUSE_B1_ABSOLUTE_DEPRESSED true
 [[nodiscard]] unsigned ap_kbd_mouse_packet(const ap_kbd_t *kbd, int dx, int dy,
                                            bool left, bool middle, bool right,
                                            uint8_t *out);

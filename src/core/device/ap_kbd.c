@@ -560,6 +560,61 @@ unsigned ap_kbd_receive(ap_kbd_t *kbd, uint8_t byte, uint8_t *reply,
 
 /* §13.3.1 and Figure 13-4. See `ap_kbd.h` for the packet and the two traps in
  * it: a zero button bit means *depressed*, and positive Y is up. */
+bool ap_kbd_pointing_absolute(const ap_kbd_t *kbd) {
+  return kbd->pointing_absolute;
+}
+
+void ap_kbd_set_pointing_absolute(ap_kbd_t *kbd, bool absolute) {
+  kbd->pointing_absolute = absolute;
+}
+
+unsigned ap_kbd_mouse_packet_absolute(const ap_kbd_t *kbd, unsigned x,
+                                      unsigned y, bool left, bool middle,
+                                      bool right, uint8_t *out) {
+  if (kbd == NULL || out == NULL) {
+    return 0u;
+  }
+  /* Twelve bits, clamped rather than wrapped: past the edge of the pad should
+   * stop at the edge, where a wrap puts the pointer at the opposite one. */
+  if (x > AP_KBD_MOUSE_ABSOLUTE_MAX) {
+    x = AP_KBD_MOUSE_ABSOLUTE_MAX;
+  }
+  if (y > AP_KBD_MOUSE_ABSOLUTE_MAX) {
+    y = AP_KBD_MOUSE_ABSOLUTE_MAX;
+  }
+
+  unsigned n = 0u;
+  if (!kbd->keystate_mode) {
+    /* Mode 0: the escape takes the button byte's place. The absolute device
+     * `002398-04` p. 6-20 describes is a touchpad, which has no buttons, so
+     * nothing is displaced. */
+    out[n++] = AP_KBD_MOUSE_ESCAPE_ABSOLUTE;
+  } else {
+    /* Mode 3's `B1`: `1 M R L 0 0 0 0`. The low nibble is fixed zero -- the
+     * relative packet's X and Y invalid indicators have no counterpart here,
+     * an absolute coordinate being either sent or not. */
+    uint8_t b1 = AP_KBD_MOUSE_B1_FIXED;
+    if (middle == AP_KBD_MOUSE_B1_ABSOLUTE_DEPRESSED) {
+      b1 |= AP_KBD_MOUSE_B1_MIDDLE;
+    }
+    if (right == AP_KBD_MOUSE_B1_ABSOLUTE_DEPRESSED) {
+      b1 |= AP_KBD_MOUSE_B1_RIGHT;
+    }
+    if (left == AP_KBD_MOUSE_B1_ABSOLUTE_DEPRESSED) {
+      b1 |= AP_KBD_MOUSE_B1_LEFT;
+    }
+    out[n++] = b1;
+  }
+
+  /* The three coordinate bytes, identical in Figure 13-5 and Figure 13-7:
+   * X's low eight, then Y's low nibble over X's high nibble, then Y's high
+   * eight. */
+  out[n++] = (uint8_t)(x & 0xFFu);
+  out[n++] = (uint8_t)(((y & 0x0Fu) << 4) | ((x >> 8) & 0x0Fu));
+  out[n++] = (uint8_t)((y >> 4) & 0xFFu);
+  return n;
+}
+
 unsigned ap_kbd_mouse_packet(const ap_kbd_t *kbd, int dx, int dy, bool left,
                              bool middle, bool right, uint8_t *out) {
   if (kbd == NULL || out == NULL) {
