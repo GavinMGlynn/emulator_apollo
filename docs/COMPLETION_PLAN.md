@@ -5764,26 +5764,34 @@ same number is what let them diverge once already.
       blanks refused, and a round trip from ASCII byte to key-plus-modifier back
       to the same byte.*
 
-- [ ] **Decode the posted diagnostic codes in `--boot-report`.** *Partly done*:
-      the naming exists and is safe, and it names nothing on the reference boot. `ap_boardreg_post_code_name` names `03`-`0C`
+- [x] **Decode the posted diagnostic codes in `--boot-report`**, for the run the
+      firmware is evidenced to post. `ap_boardreg_post_code_name` names `03`-`0C`
       from `002398-04` p. 4-23 and the report prints them beside the raw bytes;
       everything outside that run prints nothing rather than a guess. Detail —
       the PROM service table, the post routine's two entry points, the eighteen
       call sites and why `0D` and the `8x` band are unnamed — in
       `PROJECT_STATUS.md`. *Verification: `boardreg_suite` 30, including that
       `FF` and both sides of the run are refused.*
-      **And a negative result from running it, which changes what this item
-      claims.** A 4 M-instruction boot posts `FF EF DF FE EE DE CF BF AF 9F 8F`
-      — complementing to `00 10 20 01 11 21 30 40 50 60 70` — and **the decode
-      names none of them**, correctly, because none is in `03`-`0C`. So the
-      boot's early codes and the eighteen call sites' codes are **different
-      sets**: the sites post single-digit values and the boot posts Ext/Int
-      pairs. The ten-for-ten correspondence against p. 4-23 is real *about the
-      call sites* and does not describe what the reference boot displays.
-      *Tail, and it is larger than it looked:* find what posts `00`-`70` — a
-      different routine, or these sites reached later than 4 M — before claiming
-      the report decodes a boot. `0D` and the `82`-`85` band still want their own
-      tracing; two call sites take their code from a variable.
+      **Verified against a full boot, after a false alarm worth recording.** A
+      4 M-instruction run posts only `FF EF DF FE EE DE CF BF AF 9F 8F` and the
+      decode names none of them — which is correct, and which I first read as the
+      feature being inert. It is not: the **350 M reference boot** posts 32
+      distinct values and **12 of them decode**, to exactly the codes the call
+      sites supply —
+
+          FC = 03 bus error                 F8 = 07 mmu
+          FB = 04 enable instruction cache  F7 = 08 interrupt
+          FA = 05 keyboard sio
+          F9 = 06 parity circuitry
+
+      — first appearing at the thirteenth write, past where 4 M instructions
+      reach. The bound was the proxy, not the test.
+      **The two code spaces are both real**, and that is the useful finding. The
+      early group complements to `00 10 20 01 11 21 30 40 50 60 70`, which are
+      Ext/Int *pairs* and come from a path other than the eighteen call sites;
+      the `03`-`08` group is those sites. Only the second is named.
+      *Tail:* find what posts `00`-`70`; trace `0D` and the `82`-`85` band, whose
+      two call sites take their code from a variable.
 
 - [ ] **(superseded, kept for its evidence)** `002398-04`
       p. 4-23 gives the DN3000's boot PROM LED table — every power-on test
