@@ -5812,9 +5812,28 @@ below; everything else it found is implemented and recorded in
       relative `dx`/`dy` and clamps them to a byte; absolute mode carries 12-bit
       unsigned X and Y, so the entry point needs a second form and the keyboard
       needs a third mode state where `keystate_mode` today selects only between
-      Modes 0 and 2. Figures 13-3 and 13-7 must be read as **page images** —
-      `008778-03`'s text layer mangles both packet diagrams, which is exactly
-      the case `CLAUDE.md` warns about.)* `008778-03` §13.3.3 and
+      Modes 0 and 2.
+      **Figure 13-7 is now transcribed from the page image**, so no render is
+      needed to implement it — four bytes, higher-numbered bits more
+      significant:
+
+          BIT      7    6    5    4    3    2    1    0
+          B1       1    M    R    L    0    0    0    0
+          B2       X7   X6   X5   X4   X3   X2   X1   X0
+          B3       Y3   Y2   Y1   Y0   X11  X10  X9   X8
+          B4       Y11  Y10  Y9   Y8   Y7   Y6   Y5   Y4
+
+      So X is 12 bits across B2 and B3's low nibble, Y is 12 bits across B3's
+      high nibble and B4, and B1 carries the buttons as `M R L` in bits 6-4
+      under a fixed 1. **The polarity is `1 = switch depressed`**, which
+      Figure 13-7 does not state and Figure 13-3 does — the opposite of
+      Figure 13-2's relative packets, and the reason this cannot share the
+      relative builder's button code.
+      **Do not confuse Figure 13-3 with Figure 13-7.** 13-3 is §13.2.2's
+      absolute *format* — the five-byte Bit Pad One packed-binary encoding with
+      even parity in bit 7 of every byte — and 13-7 is §13.3.3's Mode 3
+      *packet*, four bytes and no parity. They describe different things and
+      only the second is this item.)* `008778-03` §13.3.3 and
       Figure 13-7: four bytes, 12-bit unsigned X and Y split across bytes 3 and
       4, and `1 = switch depressed` -- the opposite polarity from every relative
       format in that chapter. `ap_kbd_mouse_packet` implements Modes 0 and 2 and
