@@ -883,6 +883,61 @@ static void test_a_headless_variant_has_its_workstations_bank_layout(void) {
   }
 }
 
+
+/* **The mechanism a carrier-detect line would ride on, on the second DUART.**
+ *
+ * `008778-03` §3.9 lists DCD and DTR among the six RS-232 signals the DS4000's
+ * SIO1/2/3 carry, and this core names neither -- because no source held here
+ * says *which* pin carries them. `002398-04` p. 12-35 states only that the
+ * `dtr_b` bit "has moved" from the DN460's definition, and no page in the
+ * 12 -> 9 -> 7 chain decomposes the output port register at all.
+ *
+ * What can be settled is the part underneath: an input-port transition on the
+ * second DUART records in its `IPCR` and raises `ISR[7]` only when `ACR[3:0]`
+ * enables that pin's delta. That is exactly what a modem-control input does,
+ * and the plan recorded it as "formally untested in the line-2-configured
+ * case". It is tested now, so what remains open is only the pin assignment. */
+static void test_an_input_transition_on_the_second_duart_gates_on_its_enable(
+    void) {
+  ap_sio_t sio;
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
+
+  /* IP2, which is neither channel's CTS -- a general-purpose input, which is
+   * the kind of pin a board wires a carrier detect to. */
+  static const uint8_t IP2 = 0x04u;
+
+  /* Enable is clear: the change is recorded but raises nothing. §4.2.13.3
+   * gates the *interrupt*, not the register. */
+  ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_IPCR_ACR * 2u), 0x00u);
+  ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_ISR_IMR * 2u),
+               AP_MC68681_ISR_INPUT);
+  ap_mc68681_set_input(&sio.port[1], IP2);
+  TEST_ASSERT_FALSE(ap_sio_irq(&sio));
+
+  /* The delta is in the IPCR's high nibble all the same, and the pin's current
+   * level in the low one. Reading it clears the deltas. */
+  const uint8_t ipcr =
+      ap_sio_read(&sio, AP_SIO2_ADDR + (AP_MC68681_IPCR_ACR * 2u));
+  TEST_ASSERT_EQUAL_HEX8((uint8_t)(IP2 << 4), (uint8_t)(ipcr & 0xF0u));
+  TEST_ASSERT_EQUAL_HEX8(IP2, (uint8_t)(ipcr & 0x0Fu));
+
+  /* Now enable that pin's delta and drive it back low: the same transition
+   * raises the interrupt. */
+  ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_IPCR_ACR * 2u), IP2);
+  ap_mc68681_set_input(&sio.port[1], 0x00u);
+  TEST_ASSERT_TRUE(ap_sio_irq(&sio));
+
+  /* And a *different* pin's change still raises nothing, so the gate is
+   * per-pin rather than global -- the difference between a board that
+   * interrupts on one wire and one that interrupts on all four. */
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
+  ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_IPCR_ACR * 2u), IP2);
+  ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_ISR_IMR * 2u),
+               AP_MC68681_ISR_INPUT);
+  ap_mc68681_set_input(&sio.port[1], 0x08u); /* IP3, not enabled */
+  TEST_ASSERT_FALSE(ap_sio_irq(&sio));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_transmit_rate_comes_from_the_channels_clock_select);
@@ -920,5 +975,6 @@ int main(void) {
   RUN_TEST(test_the_bank_layout_is_the_firmwares_and_not_an_even_split);
   RUN_TEST(test_a_size_with_no_row_has_no_bank_layout);
   RUN_TEST(test_a_headless_variant_has_its_workstations_bank_layout);
+  RUN_TEST(test_an_input_transition_on_the_second_duart_gates_on_its_enable);
   return UNITY_END();
 }

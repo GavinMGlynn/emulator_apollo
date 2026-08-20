@@ -6038,12 +6038,27 @@ below; everything else it found is implemented and recorded in
       families **120 ns RAS / 60 ns CAS**, a 4 ms refresh period over 256 row
       addresses (DS3000) or 1000 (DS4000). §2.3.2 caps `IO_CH_RDY` low at 2.5 µs.
       None is modelled or enforced.
-- [ ] **The 2681's modem-control signals.** §3.9 and Figures 3-4/3-5: RS-232
-      DTR, DCD, RTS and CTS per line, pinned out for SIO1/2/3. `[MC68681]`'s CTS
-      and RTS are fully modelled; **DCD and DTR have no model at all**. Measured
-      and **not** the `siologin` blocker — on the SR10.4 reference boot `sio2`
-      shows seven registers written and register 13 never read — but real, and
-      formally untested in the line-2-configured case.
+- [ ] **The 2681's modem-control signals — blocked on a pin assignment, and
+      the gap is narrower than this item claimed.** §3.9 and Figures 3-4/3-5
+      list DTR and DCD among the six RS-232 signals SIO1/2/3 carry, with their
+      P2 connector pins. This said "DCD and DTR have **no model at all**", and
+      that conflates two things. The **part** is complete: the DUART's input
+      pins, the `IPCR`'s deltas, `ACR[3:0]` gating `ISR[7]` per pin, the `OPR`
+      and both Set/Clear Output Port registers are all modelled and exercised —
+      which is the whole mechanism a carrier detect or a DTR line rides on.
+      What is missing is only the **board-level naming**: which input pin is
+      DCD and which `OPR` bit is DTR.
+      **That is exhausted at all three tiers** (checked 2026-08-21). Reference:
+      `002398-04` p. 12-35 says only that the `dtr_b` bit "has moved" from the
+      DN460's definition, and no page in the 12 -> 9 -> 7 chain decomposes the
+      output port register — already recorded as a documentary dead end. Web:
+      nothing beyond the connector pinout. Oracle: MAME's Apollo driver wires
+      the 2681's TX and RX callbacks only and contains no `dtr` at all, so it
+      cannot arbitrate. **What would unblock it**: a DN3000 schematic, a
+      Domain/OS serial driver's source, or a board to probe.
+      *No longer untested*: `sio_suite` now drives an input transition on the
+      **second** DUART and asserts it records in `IPCR` and raises `ISR[7]`
+      only when that pin's enable is set — the line-2 case this item named.
 - [x] **Mode 3, absolute pointing-device packets.** Both absolute forms are
       built, and this item's own scoping was **wrong**: p. 149 gives the
       keyboard "one of **two** modes", with "Mode 2 for relative and Mode 3 for
