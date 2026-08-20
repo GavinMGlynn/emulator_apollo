@@ -6000,7 +6000,23 @@ below; everything else it found is implemented and recorded in
       So a row still needs a **display** and **memory-board sizes**, and the
       places to look are §1.5.3 for the three graphics boards and §1.5.2 with
       Table 2-11 for the 4-MB and 8-MB ones — none of which is stated per model,
-      which is the actual difficulty. **Do not infer the row from the Series
+      which is the actual difficulty.
+      **A per-model source found 2026-08-21, and it is not a hardware manual.**
+      Datapro's *Apollo Domain Systems* report of March 1988
+      (`M09-060-10_8803`, on bitsavers) tabulates the line by model, and its
+      **DN4000 Personal Super Workstation** column reads `MC68020`, **`25MHz`**,
+      memory **`4M` minimum and `32M` maximum**, display **1,280 x 1,024**,
+      colour, `16.7 million/256`, and "3 serial RS-232-C standard".
+      Two of those are the fields Figure 1-2 already gives the *DS4000* — 25-MHz
+      68020, 4–32 MB — so the two names are the same machine, or near enough that
+      the handbook's own figure and this table describe one set of hardware. That
+      is what makes the third field usable: the display was the gap, and it is
+      **1280x1024 colour**. The serial count differs, `3` against Figure 1-2's
+      four, and reconciles as three user ports plus the keyboard's — this core's
+      two 2681s carry four lines with line 0 the keyboard.
+      *Not yet written into `model/`*: a market report is weaker than a manual,
+      and the row should land with that caveat stated in its comment and a test
+      that pins what each field's source is. **Do not infer the row from the Series
       4500's**: `model/` is where every machine difference lives, and a
       plausible guess there is indistinguishable from a measurement until
       something exercises it.
