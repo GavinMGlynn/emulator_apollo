@@ -5764,7 +5764,19 @@ same number is what let them diverge once already.
       blanks refused, and a round trip from ASCII byte to key-plus-modifier back
       to the same byte.*
 
-- [ ] **Decode the posted diagnostic codes in `--boot-report`.** `002398-04`
+- [x] **Decode the posted diagnostic codes in `--boot-report`**, for the run
+      the firmware is known to post. `ap_boardreg_post_code_name` names `03`-`0C`
+      from `002398-04` p. 4-23 and the report prints them beside the raw bytes;
+      everything outside that run prints nothing rather than a guess. Detail —
+      the PROM service table, the post routine's two entry points, the eighteen
+      call sites and why `0D` and the `8x` band are unnamed — in
+      `PROJECT_STATUS.md`. *Verification: `boardreg_suite` 30, including that
+      `FF` and both sides of the run are refused.*
+      *Tail:* `0D` (Calendar and configuration) and the `82`-`85` band want their
+      own tracing — two call sites take their code from a variable — before
+      either is named.
+
+- [ ] **(superseded, kept for its evidence)** `002398-04`
       p. 4-23 gives the DN3000's boot PROM LED table — every power-on test
       named against its Ext./Int. LED pair — and p. 4-18/4-19 give the steady
       state, wait, diagnostic, DISK, SYSBOOT and AEGIS CRASH codes. The core

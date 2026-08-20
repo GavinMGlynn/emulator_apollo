@@ -460,3 +460,26 @@ void ap_boardreg_set_normal_mode(ap_boardreg_t *regs, bool normal) {
 void ap_boardreg_latch_status(ap_boardreg_t *regs, uint16_t mask) {
   regs->cpu_status |= mask;
 }
+
+const char *ap_boardreg_post_code_name(uint8_t written) {
+  /* p. 4-23's Ext-0 column, `03` to `0C`. The table's rows above and below this
+   * run are real; what is missing is evidence that *this* PROM posts them, so
+   * they are not named. See the header. */
+  static const char *const names[] = {
+      "bus error",           /* 03 */
+      "enable instruction cache", /* 04 */
+      "keyboard sio",        /* 05 */
+      "parity circuitry",    /* 06 */
+      "mmu",                 /* 07 */
+      "interrupt",           /* 08 */
+      "timers",              /* 09 */
+      "dma page register",   /* 0A */
+      "dma controller 1",    /* 0B */
+      "dma controller 2",    /* 0C */
+  };
+  const uint8_t code = (uint8_t)~written;
+  if (code < 0x03u || code > 0x0Cu) {
+    return nullptr;
+  }
+  return names[code - 0x03u];
+}

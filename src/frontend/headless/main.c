@@ -4917,6 +4917,24 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     }
     printf("  (%u write(s), distinct in order, as written)\n",
            board->registers.posted_total);
+    /* And what the evidenced ones mean. Only `03`-`0C` are named -- see
+     * `ap_boardreg_post_code_name` -- so a code with no name prints nothing
+     * rather than a guess, and the raw line above stays the record. */
+    bool any_named = false;
+    for (unsigned i = 0; i < board->registers.posted_count; i++) {
+      const char *name =
+          ap_boardreg_post_code_name(board->registers.posted[i]);
+      if (name == nullptr) {
+        continue;
+      }
+      printf("%s%02X = %02X %s", any_named ? ", " : "               ",
+             board->registers.posted[i],
+             (uint8_t)~board->registers.posted[i], name);
+      any_named = true;
+    }
+    if (any_named) {
+      printf("\n");
+    }
   }
   /* What the machine told its firmware about its own memory. Printed even when
    * known, because a wrong configuration byte is a machine that sizes memory it

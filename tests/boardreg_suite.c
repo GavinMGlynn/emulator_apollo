@@ -708,8 +708,42 @@ static void test_mem_time_follows_the_latched_bus_error(void) {
               AP_BOARDREG_CACHE_STATUS_MEM_TIME);
 }
 
+
+/* ## p. 4-23's names, for the run this PROM is known to post
+ *
+ * `002398-04` p. 4-23 tabulates the DN3000's power-on tests against their LED
+ * codes, and the DN3500 uses the same numbering -- established from the post
+ * routine's call sites in `3500_BOOT_12191_7`, which supply `03` through `0B`
+ * inline and `0C` as an immediate at `000930`. Ten consecutive codes against ten
+ * consecutive table entries.
+ *
+ * The argument is the byte **as written**, complemented, because the post
+ * routine ends `NOT.B D0`. */
+static void test_a_posted_code_is_named_for_the_evidenced_run(void) {
+  /* The two ends of the run, and one in the middle. */
+  TEST_ASSERT_EQUAL_STRING("bus error",
+                           ap_boardreg_post_code_name((uint8_t)~0x03u));
+  TEST_ASSERT_EQUAL_STRING("mmu", ap_boardreg_post_code_name((uint8_t)~0x07u));
+  TEST_ASSERT_EQUAL_STRING("dma controller 2",
+                           ap_boardreg_post_code_name((uint8_t)~0x0Cu));
+
+  /* The reference boot's first posted byte is `FF`, which complements to `00` --
+   * "turn off LEDs" in the table, and outside the evidenced run. It must not be
+   * named, because nothing shows this PROM posts it through the post routine. */
+  TEST_ASSERT_NULL(ap_boardreg_post_code_name(0xFFu));
+
+  /* Either side of the run, and the `8x` band the same ROM posts. Naming any of
+   * these would be inventing a decode for the part that is not evidenced. */
+  TEST_ASSERT_NULL(ap_boardreg_post_code_name((uint8_t)~0x02u));
+  TEST_ASSERT_NULL(ap_boardreg_post_code_name((uint8_t)~0x0Du));
+  TEST_ASSERT_NULL(ap_boardreg_post_code_name((uint8_t)~0x0Fu));
+  TEST_ASSERT_NULL(ap_boardreg_post_code_name((uint8_t)~0x82u));
+  TEST_ASSERT_NULL(ap_boardreg_post_code_name((uint8_t)~0x85u));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_posted_code_is_named_for_the_evidenced_run);
   RUN_TEST(test_bit_fifteen_of_the_status_register_always_reads_set);
   RUN_TEST(test_writing_the_status_register_clears_what_was_latched);
   RUN_TEST(test_no_written_bit_survives_in_the_status_register);

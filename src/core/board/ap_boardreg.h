@@ -816,4 +816,30 @@ void ap_boardreg_set_normal_mode(ap_boardreg_t *regs, bool normal);
  * four on the CPU board and four on the front panel labelled A B C D. */
 void ap_boardreg_post_code(ap_boardreg_t *regs, uint8_t written);
 
+/* ## Naming a posted code, for `03`-`0C` only
+ *
+ * `002398-04` p. 4-23 tabulates the DN3000's power-on tests against their LED
+ * codes, and **the DN3500 uses the same numbering**. That is established, not
+ * assumed: the post routine's call sites in `3500_BOOT_12191_7` supply `03`
+ * through `0B` inline and `0C` as an immediate at `000930`, which is ten
+ * consecutive codes against the table's ten consecutive entries. The plan item
+ * carries the sites.
+ *
+ * **Only that run is named.** `0D` (Calendar and configuration) has no site
+ * whose code could be read -- two callers take theirs from a variable -- and the
+ * `82`-`85` band the same ROM posts is outside the table entirely. Naming those
+ * would be inventing a decode for the third of the range that is *not*
+ * evidenced, in a report whose whole value is that a reader can trust it.
+ *
+ * **The argument is the byte as written, and it is complemented here.** The post
+ * routine ends `NOT.B D0` before storing, so a posted `03` reaches the register
+ * as `FC`. Beware that this cannot be applied blindly to every byte in the
+ * posted list: the error loop at `005EC8` writes its code *uncomplemented*, and
+ * a raw `03` from that path would decode as `FC`'s name if it were fed here. The
+ * caller decides which bytes are post-routine writes; this function only names
+ * one once that is decided.
+ *
+ * Returns nullptr for anything outside the evidenced run. */
+[[nodiscard]] const char *ap_boardreg_post_code_name(uint8_t written);
+
 #endif /* APOLLO_BOARD_AP_BOARDREG_H */
