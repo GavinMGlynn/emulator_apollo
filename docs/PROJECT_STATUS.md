@@ -506,6 +506,14 @@ modifier only where the ASCII block it covers happens to be uniform. The claim
 held for the top rows it was read from and broke below them. Corrected here;
 nothing was built on it.
 
+**Nothing in the core calls it yet, and that is the honest state.**
+`ap_kbd_ascii_decode`, `ap_kbd_ascii_code`, `ap_kbd_ascii_find` and
+`ap_kbd_key_name` have test callers only. They are reference data for the
+interactive frontend, which `CLAUDE.md` keeps deliberately un-stubbed, so the
+consumer does not exist yet — this is a table that is correct and unused, not a
+path that is wired and unexercised. The distinction matters because the second
+would be a defect and the first is a dependency order.
+
 *Verification: `kbd_suite` 37 -> 44. All 241 named cells round-trip — byte to
 key-plus-modifier and back to the same byte — the three findings are each
 asserted individually so neither a silent agreement nor a silent divergence can
