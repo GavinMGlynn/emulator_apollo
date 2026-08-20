@@ -79,7 +79,26 @@
 /* ## Type field, `[MAC]` Figure 2-6 p. 2-7
  *
  * A 16-bit word: bits 15:8 reserved, bits 7:1 the type field proper, bit 0
- * reserved. So the named bits are 7 down to 1 and *bit 0 is not a type bit*. */
+ * reserved. So the named bits are 7 down to 1 and *bit 0 is not a type bit*.
+ *
+ * **Confirmed bit for bit by a second document, with one correction to the
+ * gloss.** `002398-04` p. 7-31 gives the DN3xx ring controller's `TMASK`
+ * register -- the receiver's type filter -- as `80 broadcast, 40 hardware
+ * diagnostic, 20 thank you, 10 please, 08 paging, 04 user, 02 software
+ * diagnostic`, which is exactly the seven below in exactly these positions.
+ *
+ * It also names **bit 0**, which `[MAC]` calls reserved: `01 xtype3`. And it
+ * adds the sentence that explains the whole field: "**Except for BROADCAST,
+ * these bits are software defined.**" Only broadcast has a hardware meaning --
+ * §2.2.2.2's "receivers ignore destination" -- and the rest are Domain/OS
+ * conventions the controller merely masks against. So the glosses below are
+ * software's, `xtype3` is a reserved bit that software later claimed, and a
+ * frame arriving with bit 0 set is unusual rather than malformed.
+ *
+ * Nothing here rejects a frame on `AP_RING_TYPE_RESERVED_MASK` -- it exists so
+ * that `ring_frame_suite` can assert the named bits and the reserved ones
+ * partition the word -- so no behaviour depends on the distinction. The comment
+ * did, and it was overstated. */
 #define AP_RING_TYPE_BROADCAST (1u << 7)      /* receivers ignore destination */
 #define AP_RING_TYPE_HW_DIAGNOSTICS (1u << 6) /* diagnostics only */
 #define AP_RING_TYPE_THANK_YOU (1u << 5)      /* the packet is a reply */
