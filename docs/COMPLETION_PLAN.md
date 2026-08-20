@@ -5782,15 +5782,34 @@ same number is what let them diverge once already.
       than stated. Implement the DN3000's table for the DN3000, and settle the
       DN3500's numbering from a DN3500 PROM disassembly before decoding its
       codes as if they were the same.
-      **A route to that disassembly opened 2026-08-20.** The PROM service table
-      the walk found gives `led_update` at `0000254E` in `3500_BOOT_12191_7`,
-      and it is disassembled in `ap_boardreg.h`: it swaps two display bytes at
-      `A6+$1D4` and `A6+$1D5`, suppressed when `A6+$1C9` reads `FF`. That
-      confirms the **alternation** this core already models and not the
-      **numbering**. The numbering needs the *callers* of the post routine at
-      `00251A`, which is bounded work rather than open-ended: each caller
-      supplies its code inline, so the set of codes and their sites can be
-      recovered by searching for the call rather than by running anything.
+      **Evidence for the shared numbering, 2026-08-20, and it is short of
+      proof.** The PROM service table the walk found gives `led_update` at
+      `0000254E`; it is disassembled in `ap_boardreg.h` and swaps two display
+      bytes, which confirms the *alternation* this core models and not the
+      numbering. So the call sites of the post routine at `00251A` were scanned
+      in `3500_BOOT_12191_7` — `BSR.W`, `BSR.S` and `JSR.L` — and there are
+      **fourteen**, each followed by its code inline:
+
+          0006B8 03    002412 04    002B9E 82
+          00074C 08    00245C 05    00329E 82
+          0007B0 0B    002466 06    00334E 82
+          0007E6 0A    002476 07    003EC0 83
+          00080E 09
+          0008EC 0F
+
+      **Ten of the twelve distinct codes are `03`-`0B` plus `0F`**, and p. 4-23's
+      DN3000 table numbers its Ext-0 column `03` Bus Error, `04` Enable
+      Instruction Cache, `05` Keyboard SIO, `06` Parity circuitry, `07` MMU, `08`
+      Interrupt, `09` Timers, `0A` DMA page register, `0B` DMA controller 1. A
+      DN3500 PROM posting exactly that run is strong evidence the two families
+      share the numbering.
+      **Not proof, and the gaps are stated rather than glossed**: the table's
+      `0C` (DMA controller 2) and `0D` (Calendar and configuration) have no call
+      site this scan found, `0F` is outside the table's range entirely, and the
+      reference boot posts 32 distinct values where these account for twelve —
+      the rest coming from the direct writes at `005EC8`/`005ED8` this file
+      already documents, or from call forms the scan does not cover. Finishing
+      this means accounting for `0C`, `0D` and the direct writers.
       *Verification: a `--boot-report` line naming each posted code for a DN3000
       boot, and a test that the DN3500 path stays undecoded until its own source
       exists.*
