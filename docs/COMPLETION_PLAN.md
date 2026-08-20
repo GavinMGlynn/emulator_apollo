@@ -5824,8 +5824,38 @@ same number is what let them diverge once already.
       **once masked to its low nibble and once whole** — with `$7A120`, half a
       million, counted down between them by the delay at `61D4`. So a stuck
       machine's two alternating values are **one code shown two ways**, not two
-      codes, and the pair identifies a single failure. Finishing now means only
-      accounting for `0C` and `0D`.
+      codes, and the pair identifies a single failure.
+      **And `0C`/`0D` are not missing — the scan could not have found them.**
+      The post routine has *two* entry points:
+
+          251A  48E7 E0C0        MOVEM.L D0-D2/A0-A1,-(SP)
+          251E  206F 0014        MOVEA.L ($14,SP),A0     ; the return address
+          2522  3010             MOVE.W  (A0),D0         ; fetch the inline code
+          2524  54AF 0014        ADDQ.L  #2,($14,SP)     ; and step over it
+          2528  6004             BRA.S   $252E
+          252A  48E7 E0C0        MOVEM.L D0-D2/A0-A1,-(SP)   ; code already in D0
+          252E  0C2E 00FF 01C9   CMPI.B  #$FF,($1C9,A6)
+          2534  6712             BEQ.S   $2548
+          2536  4600             NOT.B   D0              ; complemented, as documented
+          2538  1D40 01D5        MOVE.B  D0,($1D5,A6)
+          253C  1D7C 00FF 01D4   MOVE.B  #$FF,($1D4,A6)
+          2542  226E 015A        MOVEA.L ($15A,A6),A1
+          2546  1280             MOVE.B  D0,(A1)
+
+      `252A` skips the inline fetch, for callers that **compute** their code, and
+      it has **four** more sites: `000934`, `0025AC`, `002648`, `003F0C`. So the
+      complete picture is eighteen call sites over two entries, and a computed
+      code cannot be read from the call site at all — which is why `0C` and `0D`
+      never appeared and why no scan of this kind could close the set.
+      Three further facts fall out and are worth more than the codes: the
+      complement is **`NOT.B D0` at `2536`**, confirming from the code what
+      `ap_boardreg.h` inferred from the writes; the routine stores the code at
+      `A6+$1D5` and a constant **`FF`** at `A6+$1D4`, which is why the boot's
+      posted sequence alternates every code with `FF` and what `led_update`
+      swaps; and the control register's address is held at `A6+$15A` rather than
+      being immediate.
+      *Remaining*: the four computed sites need their code traced back through
+      `D0`, which is per-site work and the only thing between here and a decode.
       *Verification: a `--boot-report` line naming each posted code for a DN3000
       boot, and a test that the DN3500 path stays undecoded until its own source
       exists.*
