@@ -767,6 +767,28 @@ void ap_boardreg_set_normal_mode(ap_boardreg_t *regs, bool normal);
  * right for one caller and wrong for the other, so the raw byte is kept and the
  * reader is told which is which rather than the model guessing.
  *
+ * **Both halves of that are now read out of the ROM rather than inferred.** The
+ * post routine at `00251A` ends:
+ *
+ *     2536  4600             NOT.B   D0
+ *     2538  1D40 01D5        MOVE.B  D0,($1D5,A6)
+ *     253C  1D7C 00FF 01D4   MOVE.B  #$FF,($1D4,A6)
+ *     2542  226E 015A        MOVEA.L ($15A,A6),A1
+ *     2546  1280             MOVE.B  D0,(A1)
+ *
+ * -- so the complement is a literal `NOT.B`, the register's address is held at
+ * `A6+$15A` rather than being immediate, and **the code is paired with a
+ * constant `FF`** at `A6+$1D4`. That last is why a boot's posted sequence
+ * alternates every code with `FF`: it is the pair `led_update` swaps, and it is
+ * one code displayed, not two.
+ *
+ * The routine also has **two entry points**. `251A` fetches its code from the
+ * word *after* the call and steps the return address over it; `252A` skips that
+ * and takes the code already in `D0`, for callers that compute one. A scan of
+ * this ROM finds fourteen sites on the first and four on the second, so a
+ * computed code cannot be recovered from its call site at all. The LED-decode
+ * item in `docs/COMPLETION_PLAN.md` carries the rest.
+ *
  * Only the distinct ones in order: an error loop posts the same pair for ever
  * and a ring of every write would hold nothing but the last two. */
 
