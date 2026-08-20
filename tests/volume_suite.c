@@ -26,11 +26,20 @@ static void put_be32(unsigned offset, uint32_t value) {
   label[offset + 3u] = (uint8_t)value;
 }
 
-/* A volume as the images have it: the magic in block 1, a space-padded name,
- * and a creator UID whose low twenty bits are the node. */
+/* A volume as the images have it: the magic in block 1, the `APOLLO` signature
+ * ahead of a space-padded name, and a creator UID whose low twenty bits are the
+ * node.
+ *
+ * **The signature is written separately now, and that is the point.** These
+ * tests used to build the name as `"APOLLODN3500"` at an offset that was the
+ * signature's, so they asserted the six-character prefix this parser used to
+ * glue on. `002398-04` p. 2-20 puts `.apollo` at label `+02` and `.name` at
+ * `+08`, and the reference image agrees byte for byte -- so a fixture that does
+ * not separate them cannot tell a corrected parser from the old one. */
 static void build(const char *name, uint32_t uid_high, uint32_t uid_low) {
   memset(label, 0, sizeof label);
   put_be32(AP_VOLUME_MAGIC_OFFSET, AP_VOLUME_MAGIC);
+  memcpy(&label[AP_VOLUME_APOLLO_OFFSET], "APOLLO", AP_VOLUME_APOLLO_BYTES);
   memset(&label[AP_VOLUME_NAME_OFFSET], ' ', AP_VOLUME_NAME_BYTES);
   memcpy(&label[AP_VOLUME_NAME_OFFSET], name, strlen(name));
   put_be32(AP_VOLUME_CREATOR_UID_OFFSET, uid_high);
@@ -39,11 +48,11 @@ static void build(const char *name, uint32_t uid_high, uint32_t uid_low) {
 
 /* The reading, on the exact bytes eleven images carry. */
 static void test_the_measured_label_reads_back_as_measured(void) {
-  build("APOLLODN3500", 0xA45AA673u, 0x10012345u);
+  build("DN3500", 0xA45AA673u, 0x10012345u);
 
   ap_volume_label_t out;
   TEST_ASSERT_TRUE(ap_volume_read_label(label, sizeof label, &out));
-  TEST_ASSERT_EQUAL_STRING("APOLLODN3500", out.name);
+  TEST_ASSERT_EQUAL_STRING("DN3500", out.name);
   TEST_ASSERT_EQUAL_HEX32(0xA45AA673u, out.creator.high);
   TEST_ASSERT_EQUAL_HEX32(0x10012345u, out.creator.low);
   /* Twenty bits, which is what the node ID PROM holds -- and `012345` is what
@@ -98,7 +107,7 @@ static void test_the_name_is_trimmed_of_its_padding(void) {
  * its file system then created would carry it -- a corruption that outlives the
  * run and cannot be traced back to the moment it was chosen. */
 static void test_something_that_is_not_a_volume_is_refused(void) {
-  build("APOLLODN3500", 0xA45AA673u, 0x10012345u);
+  build("DN3500", 0xA45AA673u, 0x10012345u);
   put_be32(AP_VOLUME_MAGIC_OFFSET, 0xDEADBEEFu);
 
   ap_volume_label_t out;
@@ -106,7 +115,7 @@ static void test_something_that_is_not_a_volume_is_refused(void) {
 
   /* And a file too short to hold a label, which is the other way a caller
    * arrives here with something that is not one. */
-  build("APOLLODN3500", 0xA45AA673u, 0x10012345u);
+  build("DN3500", 0xA45AA673u, 0x10012345u);
   TEST_ASSERT_FALSE(
       ap_volume_read_label(label, AP_VOLUME_LABEL_BYTES - 1u, &out));
   TEST_ASSERT_FALSE(ap_volume_read_label(nullptr, sizeof label, &out));
@@ -120,7 +129,7 @@ static void test_something_that_is_not_a_volume_is_refused(void) {
  * that a **zero** dismount time is reported as never-dismounted rather than as
  * a date -- which is the whole point of keeping the ticks raw. */
 static void test_the_mount_history_reads_back_from_the_labels_own_base(void) {
-  build("APOLLODN3500", 0xA45AA673u, 0x10012345u);
+  build("DN3500", 0xA45AA673u, 0x10012345u);
   put_be32(AP_VOLUME_LABEL_WRITE_TIME_OFFSET, 0xA45E5C0Cu);
   put_be32(AP_VOLUME_LAST_MOUNTED_NODE_OFFSET, 0x00012345u);
   put_be32(AP_VOLUME_NODE_BOOT_TIME_OFFSET, 0xA45DF69Bu);
@@ -151,7 +160,7 @@ static void test_the_mount_history_reads_back_from_the_labels_own_base(void) {
  * possible power-on date -- three were tried against a real one before its label
  * was read. */
 static void test_a_zero_dismount_time_is_never_dismounted_at_any_clock(void) {
-  build("APOLLODN3500", 0xA45AA673u, 0x10012345u);
+  build("DN3500", 0xA45AA673u, 0x10012345u);
   put_be32(AP_VOLUME_MOUNTED_TIME_OFFSET, 0xFFF808EEu);
   put_be32(AP_VOLUME_DISMOUNTED_TIME_OFFSET, 0x00000000u);
 

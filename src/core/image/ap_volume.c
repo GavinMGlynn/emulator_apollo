@@ -30,8 +30,16 @@ bool ap_volume_read_label(const uint8_t *blocks, size_t bytes,
    * padding because the name is compared and printed, and a trailing run of
    * spaces makes both of those wrong in ways nobody looks for. */
   unsigned length = AP_VOLUME_NAME_BYTES;
-  while (length > 0u &&
-         blocks[AP_VOLUME_NAME_OFFSET + length - 1u] == (uint8_t)' ') {
+  while (length > 0u) {
+    /* **Both padding characters, not just the space.** p. 2-20's `.name` is a
+     * 32-byte field and the reference image fills it as six characters, then
+     * spaces, then a **NUL** in the last byte -- so a trim that stopped at the
+     * first non-space stopped on that NUL and kept every space in front of it.
+     * The volume is called `DN3500`, not `DN3500` and twenty-five blanks. */
+    const uint8_t last = blocks[AP_VOLUME_NAME_OFFSET + length - 1u];
+    if (last != (uint8_t)' ' && last != 0u) {
+      break;
+    }
     length--;
   }
   for (unsigned i = 0; i < length; i++) {

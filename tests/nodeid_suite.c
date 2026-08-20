@@ -143,7 +143,9 @@ static void test_a_volumes_node_reaches_the_proms_registers(void) {
   blocks[AP_VOLUME_MAGIC_OFFSET + 2u] = (uint8_t)(magic >> 8);
   blocks[AP_VOLUME_MAGIC_OFFSET + 3u] = (uint8_t)magic;
   memset(&blocks[AP_VOLUME_NAME_OFFSET], ' ', AP_VOLUME_NAME_BYTES);
-  memcpy(&blocks[AP_VOLUME_NAME_OFFSET], "APOLLODN3500", 12u);
+  memcpy(&blocks[AP_VOLUME_APOLLO_OFFSET], "APOLLO",
+         AP_VOLUME_APOLLO_BYTES);
+  memcpy(&blocks[AP_VOLUME_NAME_OFFSET], "DN3500", 6u);
   const uint8_t uid[8] = {0xA4u, 0x5Au, 0xA6u, 0x73u,
                           0x10u, 0x01u, 0x23u, 0x45u};
   memcpy(&blocks[AP_VOLUME_CREATOR_UID_OFFSET], uid, sizeof uid);

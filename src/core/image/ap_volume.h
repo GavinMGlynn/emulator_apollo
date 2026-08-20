@@ -72,9 +72,37 @@
 #define AP_VOLUME_MAGIC 0xFEDCA986u
 #define AP_VOLUME_MAGIC_OFFSET 0x418u
 
-/* The label's fields, at the offsets the images agree on. */
-#define AP_VOLUME_NAME_OFFSET 0x22u
-#define AP_VOLUME_NAME_BYTES 30u
+/* ## The physical label's fields, and the six characters that were part of the
+ * name
+ *
+ * `002398-04` p. 2-20, "VOLUME LABEL -- **PHYSICAL**", `pv_label_t`, and "the
+ * PV label is the first block (cylinder 0, track 0, block 0) of a physical
+ * volume" -- so its payload begins at image offset `0x20`, past p. 2-8's
+ * 32-byte block header. Label-relative:
+ *
+ *     +00  .version        +28  .id, the volume's UID
+ *     +02  .apollo         +30  .dtype
+ *     +08  .name           +34  .blocks_per_pvol
+ *
+ * `.apollo` is a **six-character signature**, and the reference image has it:
+ *
+ *     0x20  00 01 A P O L L O D N 3 5 0 0 ...
+ *           \ver/ \ signature / \ name
+ *
+ * **The name offset was `0x22` and that is the signature**, so this file
+ * reported `"APOLLODN3500"` where the volume is called `DN3500` -- six
+ * characters of a constant prefix on every name it has ever read, which reads
+ * as plausible right up until it is compared with anything. `0x28` is
+ * `label + 08`, which is where p. 2-20 puts `.name`, and the field is 32 bytes
+ * rather than 30.
+ *
+ * The signature is kept as its own constant rather than dropped: a block whose
+ * label does not begin `APOLLO` is not a Domain physical volume, and that is a
+ * check this file can now make instead of a prefix it used to report. */
+#define AP_VOLUME_APOLLO_OFFSET 0x22u
+#define AP_VOLUME_APOLLO_BYTES 6u
+#define AP_VOLUME_NAME_OFFSET 0x28u
+#define AP_VOLUME_NAME_BYTES 32u
 #define AP_VOLUME_CREATOR_UID_OFFSET 0x48u
 
 /* The *mount history*, and it decides whether a volume can be booted at all.
