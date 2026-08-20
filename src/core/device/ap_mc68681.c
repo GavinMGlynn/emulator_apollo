@@ -175,15 +175,28 @@ void ap_mc68681_receive_framed(ap_mc68681_t *duart, unsigned channel,
  * function returns whole baud. The rounding is 0.4% and is used for comparing
  * two ends of a link rather than for timing anything, but it is an
  * approximation and is named as one. */
-unsigned ap_mc68681_baud(uint8_t csr_nibble, bool acr_set_two) {
-  static const unsigned set_one[16] = {50,   110,  135,  200,  300,  600,
-                                       1200, 1050, 2400, 4800, 7200, 9600,
-                                       38400, 0,   0,    0};
-  static const unsigned set_two[16] = {75,   110,  135,  150,  300,  600,
-                                       1200, 2000, 2400, 4800, 1800, 9600,
-                                       19200, 0,   0,    0};
+unsigned ap_mc68681_baud_tenths(uint8_t csr_nibble, bool acr_set_two) {
+  /* **Tenths of a baud**, because one of the sixteen codes is not a whole
+   * number. See the header: code 2 is 134.5 baud in both sets, which a table of
+   * integers cannot hold and which this file used to carry as `135`. */
+  static const unsigned set_one[16] = {500,   1100,  1345,  2000,
+                                       3000,  6000,  12000, 10500,
+                                       24000, 48000, 72000, 96000,
+                                       384000, 0,    0,     0};
+  static const unsigned set_two[16] = {750,   1100,  1345,  1500,
+                                       3000,  6000,  12000, 20000,
+                                       24000, 48000, 18000, 96000,
+                                       192000, 0,    0,     0};
   const unsigned code = csr_nibble & 0x0Fu;
   return acr_set_two ? set_two[code] : set_one[code];
+}
+
+unsigned ap_mc68681_baud(uint8_t csr_nibble, bool acr_set_two) {
+  /* Rounded to the nearest whole baud for reporting. 134.5 becomes 135, which
+   * is what this accessor has always answered and what a report should print;
+   * what changed is that the *timing* no longer goes through the rounding. */
+  const unsigned tenths = ap_mc68681_baud_tenths(csr_nibble, acr_set_two);
+  return (tenths + 5u) / 10u;
 }
 
 uint8_t ap_mc68681_resample(uint8_t byte, unsigned bits, unsigned sender_baud,
@@ -428,13 +441,16 @@ bool ap_mc68681_transmit(ap_mc68681_t *duart, unsigned channel,
  * nobody. */
 static bool clock_pin_level(const ap_mc68681_t *duart, uint8_t csr_nibble,
                             unsigned multiplier, ap_time_t now) {
-  const unsigned baud =
-      ap_mc68681_baud(csr_nibble, (duart->acr & 0x80u) != 0u);
-  if (baud == 0u || multiplier == 0u) {
+  /* Tenths, so code 2's 134.5 baud is an exact divisor rather than a rounded
+   * 135. This is the one clock this file derives itself, so it costs one line
+   * to be exact; see the header. */
+  const unsigned tenths =
+      ap_mc68681_baud_tenths(csr_nibble, (duart->acr & 0x80u) != 0u);
+  if (tenths == 0u || multiplier == 0u) {
     return false;
   }
   const uint64_t ticks_per_half =
-      (uint64_t)(AP_TIME_BASE_HZ / 2u) / ((uint64_t)baud * multiplier);
+      ((uint64_t)AP_TIME_BASE_HZ * 5u) / ((uint64_t)tenths * multiplier);
   if (ticks_per_half == 0u) {
     return false;
   }
@@ -993,4 +1009,22 @@ ap_time_t ap_mc68681_character_time(uint8_t mr1, uint8_t mr2, unsigned baud) {
   sixteenths += ap_mc68681_stop_sixteenths(mr1, mr2);
 
   return ((ap_time_t)AP_TIME_BASE_HZ * sixteenths) / (16u * (ap_time_t)baud);
+}
+
+ap_time_t ap_mc68681_character_time_tenths(uint8_t mr1, uint8_t mr2,
+                                           unsigned baud_tenths) {
+  if (baud_tenths == 0u) {
+    return 0u;
+  }
+  unsigned sixteenths = 16u;
+  sixteenths += 16u * ap_mc68681_character_bits(mr1);
+  if (ap_mc68681_parity_enabled(mr1)) {
+    sixteenths += 16u;
+  }
+  sixteenths += ap_mc68681_stop_sixteenths(mr1, mr2);
+
+  /* The same division with the rate in tenths, so 134.5 baud is exact. The
+   * numerator is at most `2.15e13 * 176 * 10`, comfortably inside 64 bits. */
+  return ((ap_time_t)AP_TIME_BASE_HZ * sixteenths * 10u) /
+         (16u * (ap_time_t)baud_tenths);
 }

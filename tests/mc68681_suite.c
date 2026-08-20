@@ -164,6 +164,53 @@ static void test_the_second_baud_set_is_not_a_copy_of_the_first(void) {
   }
 }
 
+/* ## Code 2 is **134.5** baud, and a table of integers cannot say so
+ *
+ * `002398-04` p. 7-34 prints both sets in full, and code `2` is `134.5` in
+ * each. This file carried `135`, which reads as the datasheet's figure and is
+ * 0.37% fast. The table is in tenths now: `ap_mc68681_baud` rounds for
+ * reporting -- so nothing a run prints has changed -- and the timing divides by
+ * the tenths directly.
+ *
+ * Nothing this machine's firmware programs uses code 2, so the rounding never
+ * paced a real link wrongly. It was still a wrong number in a table, which is
+ * the whole of the reason to fix it. */
+static void test_code_two_is_one_hundred_and_thirty_four_and_a_half_baud(void) {
+  TEST_ASSERT_EQUAL_UINT(1345u, ap_mc68681_baud_tenths(0x2u, false));
+  TEST_ASSERT_EQUAL_UINT(1345u, ap_mc68681_baud_tenths(0x2u, true));
+
+  /* Rounded for reporting, and unchanged from what this accessor has always
+   * answered. */
+  TEST_ASSERT_EQUAL_UINT(135u, ap_mc68681_baud(0x2u, false));
+
+  /* Every other code is a whole number, so tenths is exactly ten times the
+   * reported rate -- which is what makes the rounding above the only one. */
+  for (uint8_t code = 0u; code <= 0xFu; code++) {
+    if (code == 0x2u) {
+      continue;
+    }
+    for (unsigned set = 0u; set < 2u; set++) {
+      const bool two = set != 0u;
+      TEST_ASSERT_EQUAL_UINT(10u * ap_mc68681_baud(code, two),
+                             ap_mc68681_baud_tenths(code, two));
+    }
+  }
+
+  /* And the character time is computed from the tenths, so a 134.5-baud
+   * character is not 0.37% short. Eight bits, no parity, one stop bit is 10 bit
+   * times; at 134.5 baud that is exactly 10 * 10 / 1345 of a second. */
+  const uint8_t mr1 = 0x13u; /* 8 bits, no parity */
+  const uint8_t mr2 = AP_MC68681_MR2_STOP_ONE;
+  const ap_time_t exact =
+      ap_mc68681_character_time_tenths(mr1, mr2, 1345u);
+  TEST_ASSERT_EQUAL_UINT64((ap_time_t)AP_TIME_BASE_HZ * 10u * 10u / 1345u,
+                           exact);
+  /* The rounded form is measurably different, which is what makes the exact
+   * one worth having rather than a distinction without a difference. */
+  TEST_ASSERT_NOT_EQUAL_UINT64(exact,
+                               ap_mc68681_character_time(mr1, mr2, 135u));
+}
+
 static void test_the_input_port_reads_bit_seven_as_one(void) {
   ap_mc68681_t d;
   ap_mc68681_reset(&d);
@@ -1410,6 +1457,7 @@ int main(void) {
   RUN_TEST(test_the_transmitter_commands_move_the_ready_bits_as_documented);
   RUN_TEST(test_every_opcr_select_reaches_its_output_pin);
   RUN_TEST(test_the_second_baud_set_is_not_a_copy_of_the_first);
+  RUN_TEST(test_code_two_is_one_hundred_and_thirty_four_and_a_half_baud);
   RUN_TEST(test_the_input_port_reads_bit_seven_as_one);
   RUN_TEST(test_cts_gates_the_transmitter_when_mr2_selects_it);
   RUN_TEST(test_character_error_mode_reports_the_top_of_the_fifo);

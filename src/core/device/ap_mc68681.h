@@ -378,6 +378,25 @@ void ap_mc68681_receive_at(ap_mc68681_t *duart, unsigned channel, uint8_t byte,
  * without being a second copy of them. */
 [[nodiscard]] unsigned ap_mc68681_baud(uint8_t csr_nibble, bool acr_set_two);
 
+/* ## The same rate in **tenths of a baud**, and why one is needed
+ *
+ * `002398-04` p. 7-34 prints the whole table, both sets, sixteen codes each --
+ * and code `2` is **134.5** baud in both. That is the historic 134.5 rate, and a
+ * table of integers cannot hold it: this file carried `135`, which reads as the
+ * datasheet's figure and is 0.37% fast.
+ *
+ * Nothing this machine's firmware programs uses code 2, so the rounding has
+ * never paced a real link wrongly. It was still a wrong number in a table, and
+ * the fix is small: the table below is in tenths, `ap_mc68681_baud` rounds it
+ * for reporting, and `ap_mc68681_character_time_tenths` divides by it directly
+ * so no timing goes through the rounding.
+ *
+ * The same page flags one of its own entries -- code `A` in set two prints
+ * `1800(??)`, with the document's own query. This core carries 1800 and the
+ * uncertainty is the source's rather than ours. */
+[[nodiscard]] unsigned ap_mc68681_baud_tenths(uint8_t csr_nibble,
+                                              bool acr_set_two);
+
 /* The byte a receiver running at `receiver_baud` actually sees when a sender
  * transmits `byte` at `sender_baud`.
  *
@@ -450,6 +469,13 @@ void ap_mc68681_receive_at(ap_mc68681_t *duart, unsigned channel, uint8_t byte,
  * a refusal rather than a division by zero. */
 [[nodiscard]] ap_time_t ap_mc68681_character_time(uint8_t mr1, uint8_t mr2,
                                                   unsigned baud);
+
+/* The same, with the rate in tenths of a baud -- exact for code 2's 134.5 where
+ * the whole-baud form is 0.37% fast. Prefer this wherever the rate came from
+ * `ap_mc68681_baud_tenths`. */
+[[nodiscard]] ap_time_t ap_mc68681_character_time_tenths(uint8_t mr1,
+                                                         uint8_t mr2,
+                                                         unsigned baud_tenths);
 
 /* `MR2[7:6]`, the channel mode. Normal is a wire to the outside; the other
  * three connect the channel to itself in different places, and a self-test uses
