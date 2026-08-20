@@ -433,6 +433,77 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The tape drive's status bits, from the standard both its manuals defer to
+## (2026-08-20)
+
+`002398-04` p. 4-14 is a list of Domain/OS error codes, and module `28` on it is
+the cartridge tape manager -- `ap_qic` and `ap_sc499` seen from the operating
+system's end. Reading it against this core asked a question the walk had not:
+**the driver decodes seven exception bits the drive can never set.**
+
+### The document that answered it, and why it is now a whole-document walk
+
+Both Apollo tape documents defer to `QIC-02 Rev D` and neither reproduces its
+status section -- `08845` §12.1.10 and `[SC499]` §1.13.1 each say only that the
+device "transfers the standard six bytes". The standard itself is 29 pages and
+was not on disk. It is now, and §5.1-§5.4 alone yielded two defects, which under
+the whole-document rule makes it a document to be derived in full rather than
+queried. Coverage is recorded in `docs/references/QIC-02_WALK.md`.
+
+### `NDT`: the read that found blank tape and said nothing
+
+§5.2 byte 1 bit 5: "**NDT** - No Data Detected bit is set when an unrecoverable
+data error occurs due to lack of recorded data." §5.4 item 8 puts it plainly --
+"READ ERROR, NO DATA - No recorded data found on tape." That is exactly and only
+what a read past the last block of a `.ct` is, so unlike `MBD` and `FIL` it needs
+no medium model. `ap_qic_read_block` returned false and reported nothing, so a
+driver reading to end of data got a failure with no reason for it.
+
+**It travels with two byte-0 bits.** §5.3's exception summary row 8 gives "Read
+error, no data" as byte 0 `100X0110` and byte 1 `10100000`: `UDA` because NDT is
+a species of unrecoverable data error, and `BNL` -- "Block in error Not Located"
+-- because there was no block to locate. Setting NDT alone would emit a pair the
+standard's table does not contain. Rows 9 and 10 add `EOM` and `BOM`, which this
+model already derives from the position, so **one latch produces all three rows**
+-- and Domain/OS spends one status code on each: `(00280017)` "read no data",
+`(00280018)` "and end of tape", `(00280019)` "and load point". A driver that
+spends three codes on a bit is a driver that expects the bit.
+
+### The counters were never cleared, and §5.2 says so twice
+
+Of `DEC`, "These bytes shall be cleared by a Read Status Sequence"; of `URC`, the
+same sentence again. `ap_qic_read_status` cleared `power_on` and
+`illegal_command` and left both counters standing, so a driver asking about the
+last operation would have been told every error since power-on. It cost nothing
+to observe because both are always zero in this core -- which is the point: it
+would have become a defect the moment either moved, and "always zero" is now a
+property of the model rather than of nothing having written it.
+
+### What the walk also corrected, and what it confirmed
+
+A test was reaching p. 12-5's "End of media" row by reading until a read
+*failed*. That is a different row -- §5.3 row 9, "Read error, no data & EOM" --
+and §5.4 item 4 has plain `EOM` detected "during WRITE command" rather than by
+running out of blocks. The overshoot was invisible until `NDT` existed to make
+byte 1 read `A0` where the row prints `00`.
+
+Confirmed unchanged: every bit position and name in §5.1's summary, the three
+16-bit fields LSB-first, `EOM` explicitly *not* reset by a status read, `BOM` as
+a position condition rather than a latch, and the `ST0`/`ST1` summary rule this
+core was corrected to earlier in the day. Bits 2 and 1 of byte 1 are `RES -
+Reserved` in the standard -- never set by any drive -- which is a stronger
+statement than the "faults nothing here can produce" the code used to make.
+
+Still out of reach, and now for sharper reasons: "Read or write abort" and "Read
+error, bad block xfer" need a block that is present and unreadable; "Filemark
+read" needs file marks; "Marginal block detected" needs a retry count. Each wants
+a medium model, which is a statement about the `.ct` format rather than about
+`ap_qic`.
+
+*Verification: `qic_suite` 23 tests, including §5.3 row 9 reproduced bit for bit
+and both counters proved cleared from a nonzero value; `board_state_suite` 36 --
+the new latch is machine state a driver reads, so it hashes.*
+
 ## The boot PROM confirms the `3F6`/`3F7` split, and cannot settle ST3
 ## (2026-08-20)
 
@@ -7777,7 +7848,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Node ID PROM (`011200`) | working: the layout measured from the oracle's own PROM — stride 2 with the **odd byte reading zero** (unlike the serial ports at the same stride), the identifier big-endian in registers 0-3, and a checksum in register **15** confirmed arithmetically (`01 + 23 + 45 = 69`) and then by the boot PROM's own self-test, which sums registers 0-14 and compares. The identifier is supplied by the caller, never a constant: a device whose purpose is to be unique per machine must not be the same on every one | `nodeid_suite`, 8 tests; `008778-03` Table 2-8, CPU self-test 8 at `008218` |
 | Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 34 tests, one of them pinning that a character on the **second** 2681 raises the single serial interrupt line -- `002398-04` p. 12-28 gives `IRQ 1` to "sio" unqualified, where `008778-03` Table 2-3 names "2681 SIO Port 1" (`RING.md`-style sibling-manual resolution, `FINDINGS.md` C223-C224); `FINDINGS.md` C14 |
 | MC68681 / SCN2681 DUART (the part) | **programming model complete**: all sixteen register addresses of `[68681]` Table 4-1, both channels' mode registers with their shared pointer, clock-select, command and status registers, the three-deep receive FIFO with overrun, the interrupt status and mask registers, the input and output ports, and the counter/timer with both address-triggered commands. **All eight of §4.2.7.2's miscellaneous commands** — the audit found three falling through a bare `default: break;` (reset break change interrupt, start break, stop break) and, in the same paragraph, three outright errors in the transmitter status bits; see below. **Serial framing is modelled**, and the claim that it was not was stale: `ap_mc68681_resample` reshapes a character arriving at a mismatched baud rate rather than flagging an intact one, `ap_mc68681_character_bits` applies `MR1`'s width, parity is checked on both enable *and* type, `MR2`'s stop-bit field is read, and all four channel modes — normal, auto-echo, local loopback, remote loopback — behave differently. **Wired to the board** through `board/ap_sio.h` | **the receive shift register is modelled**: the part is quadruple-buffered, so a character meeting a full FIFO is held rather than lost and only the next one overruns, and a read that frees a position refills the FIFO from it -- which is why §4.2.9.7 says `FFULL` is not cleared by that read | `mc68681_suite`, 57 tests, `MC68681 DUART Sep85` |
-| QIC-02 tape drive | **the whole command set**, all eleven of `[SC499]` §1.13: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, both format selects, READ, READ STATUS, and WRITE, WRITE FILE MARK, READ FILE MARK and ERASE recognised and refused. **WRITE places a block** on a cartridge loaded writable, the distinction `ap_ct_t` now carries; a read-only one refuses. WRITE FILE MARK and ERASE are still refused, and for a reason that has not changed — a `.ct` is a raw block image with no file marks in it. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. **The two opcodes C25 recorded as lost are recovered**: §1.13's summary table has a previous owner's pen through `H'22'` and `H'26'`, and §1.13.1's numbered descriptions two pages on give the same codes in clean binary, corroborated by the three codes either side of them that this core already had. **READ STATUS now transfers its block**: six bytes, the length `[SC499]` §1.13.1 gives outright, as three 16-bit fields LSB-first — exception flags, data-error count, underrun count — and reading it clears the power-on condition it reports | `qic_suite`, 20 tests; `FINDINGS.md` C25 |
+| QIC-02 tape drive | **the whole command set**, all eleven of `[SC499]` §1.13: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, both format selects, READ, READ STATUS, and WRITE, WRITE FILE MARK, READ FILE MARK and ERASE recognised and refused. **WRITE places a block** on a cartridge loaded writable, the distinction `ap_ct_t` now carries; a read-only one refuses. WRITE FILE MARK and ERASE are still refused, and for a reason that has not changed — a `.ct` is a raw block image with no file marks in it. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. **The two opcodes C25 recorded as lost are recovered**: §1.13's summary table has a previous owner's pen through `H'22'` and `H'26'`, and §1.13.1's numbered descriptions two pages on give the same codes in clean binary, corroborated by the three codes either side of them that this core already had. **READ STATUS now transfers its block**: six bytes, the length `[SC499]` §1.13.1 gives outright, as three 16-bit fields LSB-first — exception flags, data-error count, underrun count — and reading it clears the power-on condition it reports. **The status bits are now the standard's own**, `QIC-02 Rev D` §5.1-§5.4 read whole: `NDT` with the `UDA` and `BNL` that §5.3 row 8 prints beside it, so a read past the last block reports "no recorded data found on tape" rather than a bare failure, and the two counters cleared by the status read as §5.2 requires of each | `qic_suite`, 23 tests; `FINDINGS.md` C25 |
 | Cartridge tape images (`image/ap_ct.c`) | working: block addressing over a raw `.ct` image, refusing any size that is not a whole number of 512-byte blocks, and boot-record parsing that returns the four header words. Their reading as load address and entry point is now **confirmed by the boot code itself** — its first instruction, a PC-relative `LEA`, computes word 0 exactly when executed at word 1, so the image proves its own layout. `ap_ct_boot_image` therefore *names* load address, entry point and length, and refuses a cartridge that does not announce itself, or whose header describes more than the file holds. Takes memory, never a filename, so `src/core` keeps its zero file I/O and the tests need no gitignored media | `ct_suite`, 12 tests; `FINDINGS.md` C24 |
 | Apollo display controller (`05D800`, `05E800`) | **identification**: both register blocks decode whether or not a screen is fitted, and the device ID at offset 1 reports `C4P=8`, `19I=9`, `C8P=10` or `15I=11` for the fitted family and `FF` for the other. An absent screen reads `FF` and does **not** bus error — "nothing is fitted" and "nothing is there" are different answers, and getting that wrong cost an investigation. **Drawing**: `CR0`'s mode and shift, `CR1`'s bits named per family, `CR2`'s two plane-select encodings, all sixteen raster operations, the word-level data path with its two active-low fields, and the blit that is the plane loop around them. **Lookup table**: *both* of them -- the 8-plane board's Bt458 behind its data and control ports, active-low chip selects and the FIFO that commits a palette on the release of `CPAL_CS`; and the **4-plane board's own**, three write-only registers carrying sixteen entries of four bits a gun, from `002398-04` p. 12-19. **A/D converter**: the diagnostic register at offset `407`, whose channel byte selects a gun's video output and whose result is hundredths of a volt. **Raster**: both dot clocks, the beam as a function of the instant, and the status register's timing bits gated on `CR1`. **Scanout**: the four geometries, each buffer width being the manual's own printed capacity divided out, planes composed with plane 0 as bit 0 and bit 15 as the leftmost pixel. **Registers**: sixteen of them in two groups of eight, the low group aliased across the block, `CR0`-`CR3B`, the 16-bit write enable and the 32-bit raster operation, with `CR3A` as a bit port onto `CR1`. **Corrected 2026-08-11**: this line previously said the status register, the raster operation's low half and the lookup table's two ports were "still unmodelled and reading `FF`". All three are modelled -- the status register answers from the raster (`graphics_status`), the lookup table has its Bt458 with the release-committed FIFO, and the raster operation's low half reads `FF` because it is **write-only in the hardware**, which is a model of the part rather than a gap in it. What genuinely reads `FF` is the low register group on a board that is not 8-plane, and registers that are write-only -- `FF` rather than zero, because zero is a state a real register can report and these cannot report anything | `graphics_suite`, 89 tests; `FINDINGS.md` C31-C32 |
 | Apollo cartridge tape (`050000`) | working, **controller joined to the drive**: a data-register write with the request bit set is a QIC-02 command, reads deliver the cartridge a byte at a time across the drive's block boundary, and a refused command or the end of tape raises Exception. The command handshake's **three entry conditions** are modelled — ready, exception, device-holds-the-bus, one figure each — and now **its timings too**: the device carries a clock, a command deasserts READY at once and reaches its destination only when the figure's interval has passed. Every interval is `PROVISIONAL`, since §1.13.2 publishes bounds rather than values. Four registers at stride 1, the upper four of each eight floating to `FF`, aliased through the range, on IRQ5 through to vector `A5`. The measured reset dump is reproduced over two aliasing periods | `tape_suite`, 19 tests; `FINDINGS.md` C16-C19 |

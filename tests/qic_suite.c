@@ -430,14 +430,22 @@ static void test_every_reachable_status_summary_row_is_reproduced(void) {
                 0x90u, 0xF0u, 0x00u, 0x77u);
 
   /* Row "End of media": Status 0 `10001000`, Status 1 `00000000`. Read the
-   * cartridge out and the drive is past its last block. */
+   * cartridge out and the drive is at its last block.
+   *
+   * **Stopping on the last block matters, and it did not used to.** This loop
+   * read until a read *failed*, which is a different row: `QIC-02 Rev D` §5.3
+   * row 9 is "Read error, no data & EOM", and §5.4 item 4 has plain EOM as a
+   * condition detected "during WRITE command" rather than by running out of
+   * blocks. Once `NDT` was implemented the overshoot showed up as byte 1 `A0`
+   * where the row prints `00`. The row is reachable; it just is not reached by
+   * reading one block too many. */
   load(&q);
   TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT));
   TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ));
   {
     uint8_t block[AP_CT_BLOCK_SIZE];
-    while (ap_qic_read_block(&q, block)) {
-      /* to the end */
+    for (unsigned i = 0; i < 3u; i++) {
+      TEST_ASSERT_TRUE(ap_qic_read_block(&q, block));
     }
   }
   clear_power_on(&q);
@@ -494,21 +502,130 @@ static void test_an_unimplemented_command_latches_illegal_until_read(void) {
       0u, (uint16_t)(ap_qic_exception_word(&q) & AP_QIC_EXS_ILLEGAL));
 }
 
-/* The rows this model cannot be put into, named so the omission above is a
- * statement rather than a gap. Nine of the fifteen describe media faults --
- * read abort, write abort, the four read errors, filemark read, marginal block
- * -- and a `.ct` image is block data with no medium under it, so no read can
- * fail and no block can be marginal. "Drive not ready" and "No drive" are
- * controller-generated conditions for hardware that is absent rather than
- * empty, which this model expresses as an unselected drive. "Illegal command"
- * is reachable at the *controller* -- `ap_tape` raises Exception for a command
- * the drive refuses -- but `ap_qic` does not latch `ill`, which is the one row
- * here that is a real gap rather than an inapplicable one.
+/* ## `QIC-02 Rev D` §5.3 rows 8-10, the reads that find blank tape
  *
- * That gap is deliberate and bounded: latching `ill` means deciding which of
- * QIC-02 §5.2's six causes this model can distinguish, and it refuses commands
- * for reasons the standard does not list (no cartridge, unselected). Named in
- * `docs/PROJECT_STATUS.md` rather than half-implemented. */
+ * The standard's exception summary spends three rows on one condition: row 8
+ * "Read error, no data" is byte 0 `100X0110` and byte 1 `10100000`, and rows 9
+ * and 10 are the same pair with `EOM` or `BOM` added. Domain/OS spends three
+ * status codes on the same three -- `002398-04` p. 4-14's `(00280017)` "read no
+ * data", `(00280018)` "and end of tape", `(00280019)` "and load point" -- so
+ * this is a bit the machine's own software is written to decode.
+ *
+ * A forward read off the end of a `.ct` lands on row 9: the tape is out of data
+ * *and* out of media. That the byte pair is a printed row of the standard is the
+ * point of testing it -- `NDT` alone would be a pair the table does not
+ * contain. */
+static void test_a_read_past_the_last_block_reports_no_data_and_end_of_media(void) {
+  ap_qic_t q;
+  uint8_t sector[AP_CT_BLOCK_SIZE];
+  load(&q);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT));
+  clear_power_on(&q);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ));
+  for (unsigned i = 0; i < 3u; i++) {
+    TEST_ASSERT_TRUE(ap_qic_read_block(&q, sector));
+  }
+  /* Nothing there. Before this the drive returned false and reported nothing at
+   * all, so a driver reading to end of data got a failure with no reason. */
+  TEST_ASSERT_FALSE(ap_qic_read_block(&q, sector));
+
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
+  check_summary("read error, no data & EOM", ap_qic_exception_word(&q),
+                0x8Eu, 0xEFu, 0xA0u, 0xFFu);
+}
+
+/* "This bit is reset by a Read Status Sequence" -- §5.2 bit 5, the same sentence
+ * `ILL` and `POR` carry. A no-data latch that outlived its own report would have
+ * a driver treating every later read as blank tape. */
+static void test_the_no_data_latch_is_reset_by_the_status_read(void) {
+  ap_qic_t q;
+  uint8_t sector[AP_CT_BLOCK_SIZE];
+  uint8_t block[AP_QIC_STATUS_BYTES];
+  load(&q);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT));
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ));
+  for (unsigned i = 0; i < 3u; i++) {
+    TEST_ASSERT_TRUE(ap_qic_read_block(&q, sector));
+  }
+  TEST_ASSERT_FALSE(ap_qic_read_block(&q, sector));
+
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
+  TEST_ASSERT_TRUE(ap_qic_read_status(&q, block));
+  /* Byte 1 of the six-byte block is exception status byte 0, and byte 0 is
+   * byte 1 -- three 16-bit fields, least significant byte first. */
+  TEST_ASSERT_TRUE((block[0] & (uint8_t)AP_QIC_EXS_NO_DATA) != 0u);
+  TEST_ASSERT_TRUE((block[1] & (uint8_t)(AP_QIC_EXS_DATA_ERROR >> 8)) != 0u);
+  TEST_ASSERT_TRUE((block[1] & (uint8_t)(AP_QIC_EXS_NO_BLOCK >> 8)) != 0u);
+
+  const uint16_t after = ap_qic_exception_word(&q);
+  TEST_ASSERT_EQUAL_HEX16(0u, (uint16_t)(after & AP_QIC_EXS_NO_DATA));
+  TEST_ASSERT_EQUAL_HEX16(0u, (uint16_t)(after & AP_QIC_EXS_DATA_ERROR));
+  TEST_ASSERT_EQUAL_HEX16(0u, (uint16_t)(after & AP_QIC_EXS_NO_BLOCK));
+  /* `EOM` is not in that sentence and must not go with them: §5.2 byte 0 bit 3
+   * says outright "The EOM bit will not be reset by a Read Status Sequence", and
+   * the tape is still where it was. */
+  TEST_ASSERT_TRUE((after & AP_QIC_EXS_END_OF_MEDIA) != 0u);
+
+  /* And a reset clears the latch too -- there is no failed read to report on a
+   * drive that has just been reinitialised. */
+  ap_qic_reset(&q);
+  TEST_ASSERT_EQUAL_HEX16(
+      0u, (uint16_t)(ap_qic_exception_word(&q) & AP_QIC_EXS_NO_DATA));
+}
+
+/* §5.2 says it once of each counter and in the same words: of `DEC`, "These
+ * bytes shall be cleared by a Read Status Sequence", and of `URC` again. Both
+ * read zero in this core, so the clearing is invisible in the block -- what the
+ * test pins is that the field is *assigned*, which is what keeps "always zero"
+ * a property of the model rather than of nothing ever having written it. */
+static void test_the_two_status_counters_are_cleared_by_the_status_read(void) {
+  ap_qic_t q;
+  uint8_t block[AP_QIC_STATUS_BYTES];
+  load(&q);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT));
+
+  /* Put both counters somewhere they cannot have got by themselves. */
+  q.data_errors = 0x1234u;
+  q.underruns = 0x5678u;
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
+  TEST_ASSERT_TRUE(ap_qic_read_status(&q, block));
+  /* Reported first, least significant byte first, as the standard's three
+   * 16-bit fields. */
+  TEST_ASSERT_EQUAL_HEX8(0x34u, block[2]);
+  TEST_ASSERT_EQUAL_HEX8(0x12u, block[3]);
+  TEST_ASSERT_EQUAL_HEX8(0x78u, block[4]);
+  TEST_ASSERT_EQUAL_HEX8(0x56u, block[5]);
+
+  /* Then cleared, so the next read reports the interval and not the lifetime. */
+  TEST_ASSERT_EQUAL_HEX16(0u, q.data_errors);
+  TEST_ASSERT_EQUAL_HEX16(0u, q.underruns);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
+  TEST_ASSERT_TRUE(ap_qic_read_status(&q, block));
+  TEST_ASSERT_EQUAL_HEX8(0u, block[2]);
+  TEST_ASSERT_EQUAL_HEX8(0u, block[3]);
+  TEST_ASSERT_EQUAL_HEX8(0u, block[4]);
+  TEST_ASSERT_EQUAL_HEX8(0u, block[5]);
+}
+
+/* The rows this model cannot be put into, named so the omission above is a
+ * statement rather than a gap. **The list is shorter than it was**, and the two
+ * that left it left for different reasons.
+ *
+ * `ill` is latched now, so "Illegal command" is a tested row above rather than
+ * the real gap this comment used to record. And three of the four read-error
+ * rows are reachable: `QIC-02 Rev D` §5.4 item 8 defines "READ ERROR, NO DATA"
+ * as "No recorded data found on tape", which is precisely a read past the last
+ * block of a `.ct` and needs no medium under it. Rows 8, 9 and 10 differ only in
+ * `EOM` and `BOM`, which come from the position.
+ *
+ * What remains genuinely out of reach is smaller and sharper: "Read or write
+ * abort" and "Read error, bad block xfer" need a block that is *there* and
+ * unreadable; "Filemark read" needs file marks, which a raw block image has
+ * none of; "Marginal block detected" needs a retry count. "Drive not ready" and
+ * "No drive" are controller-generated conditions for hardware that is absent
+ * rather than empty, which this model expresses as an unselected drive. Each
+ * needs a medium model rather than a status bit, and that is a statement about
+ * the `.ct` format, not about `ap_qic`. */
 
 int main(void) {
   UNITY_BEGIN();
@@ -532,5 +649,8 @@ int main(void) {
   RUN_TEST(test_reading_off_the_end_reports_end_of_media);
   RUN_TEST(test_every_reachable_status_summary_row_is_reproduced);
   RUN_TEST(test_an_unimplemented_command_latches_illegal_until_read);
+  RUN_TEST(test_a_read_past_the_last_block_reports_no_data_and_end_of_media);
+  RUN_TEST(test_the_no_data_latch_is_reset_by_the_status_read);
+  RUN_TEST(test_the_two_status_counters_are_cleared_by_the_status_read);
   return UNITY_END();
 }

@@ -152,6 +152,11 @@ typedef enum {
 #define AP_QIC_EXS_NO_DATA 0x0020u
 #define AP_QIC_EXS_MARGINAL 0x0010u
 #define AP_QIC_EXS_BEGINNING_OF_MEDIA 0x0008u
+/* Bits 2 and 1 are **`RES - Reserved`**, and that is the whole of what §5.2 says
+ * about them. §5.1's summary gives their intent -- "reserved for bus parity
+ * error" and "reserved for end of recorded media" -- but reserved is what they
+ * are, so no QIC-02 drive sets either and neither does this one. They are named
+ * here because a bit position without a name reads as a hole. */
 #define AP_QIC_EXS_PARITY 0x0004u
 #define AP_QIC_EXS_END_RECORDED 0x0002u
 #define AP_QIC_EXS_POWER_ON 0x0001u /* "power on/reset occurred" */
@@ -223,9 +228,50 @@ typedef struct {
    * So the latch is one cause of six, and that is a statement about the
    * interface this model has rather than an omission. */
   bool illegal_command;
+  /* ## `no_data`: the read that found blank tape
+   *
+   * `QIC-02 Rev D` §5.2, status byte 1 bit 5: "**NDT** - No Data Detected bit is
+   * set when an unrecoverable data error occurs due to lack of recorded data.
+   * Absence of recorded data is the failure to detect a data block within a
+   * controller time-out. This bit is reset by a Read Status Sequence." §5.4
+   * item 8 puts it in one line: "READ ERROR, NO DATA - No recorded data found
+   * on tape. CONTINUABLE."
+   *
+   * That is exactly and only what a read past the last block of a `.ct` is, so
+   * unlike `MBD` and `FIL` it needs no fault this model cannot have. It was
+   * **defined and never set**: `ap_qic_read_block` returned false and the drive
+   * then reported nothing, so a driver reading to end of data was told the
+   * transfer failed and given no reason for it.
+   *
+   * `002398-04` p. 4-14 is what exposed it, and it is the other half of the same
+   * fact: Domain/OS module `28`, the cartridge tape manager, spends **three
+   * distinct status codes** on this bit -- `(00280017) read no data`,
+   * `(00280018) read no data and end of tape`, `(00280019) read no data and load
+   * point`. The driver decodes NDT together with `EOM` and `BOM`, which is
+   * §5.3's exception summary rows 8, 9 and 10 read from the software side. A
+   * driver that spends three codes on a bit is a driver that expects the bit.
+   *
+   * **It travels with two byte-0 bits, and the summary table is why.** §5.3
+   * row 8 gives "Read error, no data" as byte 0 `100X0110` and byte 1
+   * `10100000`: `ST0`, `UDA` and `BNL` in the high byte, `ST1` and `NDT` in the
+   * low one. §5.2's own wording agrees -- NDT is a kind of *unrecoverable data
+   * error* (so `UDA`), and the controller cannot confirm which block was in
+   * error because there was none (so `BNL`, "Block in error Not Located").
+   * Setting NDT alone would produce a byte pair the standard's table does not
+   * contain. Rows 9 and 10 then differ only in `EOM` and `BOM`, which this model
+   * already derives from the position, so the three Apollo codes come out of one
+   * latch. */
+  bool no_data;
   /* Counts the block reader maintains, reported in the status block. Both are
    * genuinely zero here rather than unmodelled: this core rewrites no block and
-   * never interrupts streaming, so a nonzero count would be an invention. */
+   * never interrupts streaming, so a nonzero count would be an invention.
+   *
+   * **They are cleared by a status read, and were not.** §5.2 says it of each in
+   * turn -- of `DEC`, "These bytes shall be cleared by a Read Status Sequence",
+   * and of `URC` the same sentence again. A counter that accumulated across
+   * reads would report every error since power-on to a driver asking about the
+   * last operation. It cost nothing to observe here because both are always
+   * zero; it would have been a defect the moment either moved. */
   uint16_t data_errors;
   uint16_t underruns;
 } ap_qic_t;

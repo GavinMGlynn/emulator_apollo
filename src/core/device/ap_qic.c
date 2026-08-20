@@ -46,6 +46,9 @@ void ap_qic_reset(ap_qic_t *qic) {
    * latch that outlived one would report a command the drive no longer
    * remembers being given. */
   qic->illegal_command = false;
+  /* Same rule, same reason: `NDT` reports the read that has just failed, and a
+   * reset means there is no such read to report. */
+  qic->no_data = false;
 
   /* `SC499_ST1_POR`, "power on/reset occurred". Set by the reset and cleared
    * only by the status read that reports it. */
@@ -215,7 +218,13 @@ bool ap_qic_read_block(ap_qic_t *qic, uint8_t *out) {
   }
   if (!ap_ct_read_block(&qic->image, qic->position, out)) {
     /* Past the end of the tape. The position does not advance, so a driver that
-     * keeps reading keeps failing rather than wrapping to the beginning. */
+     * keeps reading keeps failing rather than wrapping to the beginning.
+     *
+     * And the drive now **says why**. `QIC-02 Rev D` §5.4 item 8: "READ ERROR,
+     * NO DATA - No recorded data found on tape." See `ap_qic_t::no_data` for
+     * why this is the one read fault the model can report without inventing
+     * one, and for the three Domain/OS status codes that decode it. */
+    qic->no_data = true;
     return false;
   }
   qic->position++;
@@ -240,10 +249,13 @@ bool ap_qic_write_block(ap_qic_t *qic, const uint8_t *in) {
 uint16_t ap_qic_exception_word(const ap_qic_t *qic) {
   uint16_t exs = 0u;
 
-  /* Only conditions this core can genuinely be in. Every other flag in the two
-   * status bytes describes a fault -- a marginal block, a parity error, an
-   * unrecoverable data error -- that nothing here can produce, and setting one
-   * would be reporting damage to a driver that would then act on it. */
+  /* Only conditions this core can genuinely be in. What is left out is now a
+   * short list rather than "every other flag": `MBD` needs a marginal-block
+   * model and `FIL` needs file marks, which a raw `.ct` has neither of, and bits
+   * 2 and 1 of byte 1 are reserved in the standard and set by nobody. `UDA` and
+   * `BNL` used to be on that list and are not any more -- §5.3's summary makes
+   * them part of how a no-data read is reported, which is a condition this model
+   * genuinely reaches. */
   if (!qic->loaded) {
     exs |= AP_QIC_EXS_NO_CARTRIDGE;
   }
@@ -276,6 +288,14 @@ uint16_t ap_qic_exception_word(const ap_qic_t *qic) {
   }
   if (qic->illegal_command) {
     exs |= AP_QIC_EXS_ILLEGAL;
+  }
+  if (qic->no_data) {
+    /* §5.3 row 8, "Read error, no data": byte 0 `100X0110`, byte 1 `10100000`.
+     * `NDT` never travels alone -- it is a species of unrecoverable data error,
+     * and the block in error cannot be located because there was no block. Rows
+     * 9 and 10 add `EOM` and `BOM`, which the position above has already
+     * supplied. */
+    exs |= AP_QIC_EXS_NO_DATA | AP_QIC_EXS_DATA_ERROR | AP_QIC_EXS_NO_BLOCK;
   }
 
   /* The two summary bits, and they follow **one** rule rather than two.
@@ -311,8 +331,16 @@ bool ap_qic_read_status(ap_qic_t *qic, uint8_t out[AP_QIC_STATUS_BYTES]) {
    * been acknowledged, forever. */
   qic->power_on = false;
   /* §5.2 again: `ILL` "is reset by a Read Status Sequence", like every byte-1
-   * bit except `BOM`. */
+   * bit except `BOM`. `NDT` is in that same sentence, and the byte-0 bits it
+   * brings with it -- `UDA` and `BNL` -- are each reset by a status read too. */
   qic->illegal_command = false;
+  qic->no_data = false;
+  /* And so are the two counters. §5.2 says it once for each: of `DEC`, "These
+   * bytes shall be cleared by a Read Status Sequence", and of `URC` the same
+   * sentence again. They read as zero here either way; clearing them is what
+   * keeps that a fact about the model rather than an accident. */
+  qic->data_errors = 0u;
+  qic->underruns = 0u;
   qic->status_pending = false;
   return true;
 }

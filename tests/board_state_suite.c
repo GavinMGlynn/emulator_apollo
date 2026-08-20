@@ -335,6 +335,7 @@ static void test_every_tape_field_moves_the_hash(void) {
   MOVES_THE_HASH(scratch.tape.drive.power_on = !scratch.tape.drive.power_on);
   MOVES_THE_HASH(scratch.tape.drive.illegal_command =
                      !scratch.tape.drive.illegal_command);
+  MOVES_THE_HASH(scratch.tape.drive.no_data = !scratch.tape.drive.no_data);
   MOVES_THE_HASH(scratch.tape.drive.data_errors += 1u);
   MOVES_THE_HASH(scratch.tape.drive.underruns += 1u);
 

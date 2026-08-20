@@ -406,6 +406,10 @@ void ap_board_hash_tape(ap_hash_t *st, const ap_tape_t *tape) {
   hash_bool(st, drive->status_pending);
   hash_bool(st, drive->power_on);
   hash_bool(st, drive->illegal_command);
+  /* And `no_data`, added by the same reasoning the paragraph above records: it
+   * is a latch a driver reads out of the status block, so two drives differing
+   * only in whether their last read found tape are two different machines. */
+  hash_bool(st, drive->no_data);
   ap_hash_u16(st, drive->data_errors);
   ap_hash_u16(st, drive->underruns);
 
