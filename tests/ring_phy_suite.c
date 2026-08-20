@@ -2,6 +2,8 @@
  * carry the weight, as in the other two ring suites. */
 
 #include "ring/ap_ring_phy.h"
+
+#include "ring/ap_ring_frame.h"
 #include "time/ap_time.h"
 #include "unity.h"
 
@@ -163,6 +165,33 @@ static void test_bypass_removes_the_node_and_loops_it_back_together(void) {
   TEST_ASSERT_TRUE(ap_ring_node_loopback(out));
 }
 
+
+/* `[MAC]` §2.1 step 7's strip timeout: "10.9 msec (2^14 byte)".
+ *
+ * The arithmetic is the reading's own check. A text extraction of that page
+ * renders the superscript as "214 byte", which looks like a number and is wrong
+ * by three orders of magnitude -- 2^14 byte times at 12 Mbit/s is 10.9227 ms,
+ * the manual's figure, where 214 byte times would be 143 us. */
+static void test_the_strip_timeout_is_the_manual_s_10_9_milliseconds(void) {
+  /* A byte is eight bit cells, and lands on the base exactly. */
+  TEST_ASSERT_EQUAL_UINT64(AP_RING_BIT_CELL_TICKS * 8u, AP_RING_BYTE_TICKS);
+  TEST_ASSERT_EQUAL_UINT64(0u, (ap_time_t)AP_TIME_BASE_HZ * 8u %
+                                   (ap_time_t)AP_RING_DATA_HZ);
+
+  TEST_ASSERT_EQUAL_UINT64(16384u, AP_RING_STRIP_TIMEOUT_BYTES);
+  TEST_ASSERT_EQUAL_UINT64((ap_time_t)235300454400u, AP_RING_STRIP_TIMEOUT);
+
+  /* 10.9 ms to the manual's precision: within half of its last digit. */
+  const ap_time_t tenth_ms = (ap_time_t)AP_TIME_BASE_HZ / 10000u;
+  TEST_ASSERT_EQUAL_UINT64(109u, AP_RING_STRIP_TIMEOUT / tenth_ms);
+
+  /* And it is not the receive timeout: `002398-04` p. 8-39 gives that 2^12
+   * byte times, a factor of four less. Asserted so the two published figures
+   * cannot be conflated later. */
+  TEST_ASSERT_EQUAL_UINT64(4u, AP_RING_STRIP_TIMEOUT_BYTES /
+                                   (ap_time_t)AP_RING_DATA_MAX_BYTES);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_both_ring_clocks_divide_the_time_base_exactly);
@@ -174,5 +203,6 @@ int main(void) {
   RUN_TEST(test_the_phase_offset_is_linear_between_the_stated_endpoints);
   RUN_TEST(test_the_deviation_limits_are_where_the_buffer_fails);
   RUN_TEST(test_bypass_removes_the_node_and_loops_it_back_together);
+  RUN_TEST(test_the_strip_timeout_is_the_manual_s_10_9_milliseconds);
   return UNITY_END();
 }

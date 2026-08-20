@@ -64,6 +64,37 @@
  * a rounded period would drift against every other clock in the machine. */
 #define AP_RING_BIT_CELL_TICKS (AP_TIME_BASE_HZ / AP_RING_DATA_HZ)
 
+/* One byte on the wire, and the strip timeout measured in them.
+ *
+ * `[MAC]` §2.1 step 7, read from the page image: "The transmitting node
+ * continues to strip all data from the ring until it finishes receiving its own
+ * frame, or until a **10.9 msec (2^14 byte) timeout** occurs. This timeout
+ * prevents a node from stripping bits forever (for example, if its frame has
+ * gotten lost on the ring)."
+ *
+ * **Read the page, not the text layer**: extraction renders the superscript as
+ * "214 byte", which is a plausible-looking number and wrong by three orders of
+ * magnitude. The arithmetic is what confirms the reading -- 2^14 byte times at
+ * 12 Mbit/s is 10.9227 ms, which is the manual's "10.9 msec" exactly, where
+ * 214 byte times would be 143 us.
+ *
+ * Both land on the time base with nothing left over: a byte time is 14,361,600
+ * units and the timeout is 235,300,454,400. That is the property `AP_TIME_BASE`
+ * exists to give, and it is checked in `ring_phy_suite` rather than assumed.
+ *
+ * **This is the first published duration for any of the controller's three
+ * timeout bits**, and it is the *transmit* side -- a node that never sees its
+ * own frame come back. `002398-04` p. 8-39 gives the receive side 2^12 byte
+ * times for the DN4xx's controller. Neither is yet wired to
+ * `AP_RING_CTL_XMIT_TMO` or `AP_RING_CTL_STATUS_TMO`: what the DS3000's gate
+ * array times is still not established, and naming a bit from a protocol-layer
+ * figure would be inferring the register from the wire. Recorded so the figure
+ * is not lost, and named on the plan. */
+#define AP_RING_BYTE_TICKS (AP_TIME_BASE_HZ * 8u / AP_RING_DATA_HZ)
+#define AP_RING_STRIP_TIMEOUT_BYTES 16384u
+#define AP_RING_STRIP_TIMEOUT \
+  ((ap_time_t)AP_RING_BYTE_TICKS * AP_RING_STRIP_TIMEOUT_BYTES)
+
 /* And one window, which is half a cell. */
 #define AP_RING_WINDOW_TICKS (AP_TIME_BASE_HZ / AP_RING_LINE_HZ)
 

@@ -5678,23 +5678,34 @@ same number is what let them diverge once already.
 
 - [ ] **Three ring timeout status bits are defined and set by nobody.**
       `AP_RING_CTL_STATUS_TMO`, `AP_RING_CTL_XMIT_TMO` and `AP_RING_CTL_RCV_PE`
-      (glossed `timeout_rs`) appear in `ap_ring_ctl.h` and in no `.c` file at
-      all, so a driver polling for a hung transfer waits for a bit that can
-      never arrive.
-      **`002398-04` p. 8-39 gives one of them a duration**, for the DN4xx's
-      controller: `TIMOUT` is "the last message received started but didn't
-      finish in **2\*\*12 byte times**". 4096 byte times is exactly
-      `AP_RING_DATA_MAX_BYTES` — the controller waits the longest a legal packet
-      could take and then gives up, which is a derivation rather than a round
-      number. The same page's `EORERR`, `BUSERR`, `OVRUN`, `MSGER`, `ACKPE` and
-      `PKTERR` are the rest of that register, several of which have counterparts
-      here that are also never set.
-      **Not implemented on that page**: it is another controller generation, and
-      what the DS3000's gate array times is not established. The value is worth
-      recording because it is the only published figure for any of them.
-      *What would settle it: `010005-00` or the ring firmware's own timeout
-      handling. Verification would be a receive that stalls mid-packet and a
-      status read that finds `TMO`.*
+      (glossed `timeout_rs`) appear in `ap_ring_ctl.h` and in no `.c` file, so a
+      driver polling for a hung transfer waits for a bit that can never arrive.
+      **Two published durations are now in hand, one per direction.**
+      - *Receive*: `002398-04` p. 8-39, for the DN4xx's controller — `TIMOUT` is
+        "the last message received started but didn't finish in **2\*\*12 byte
+        times**". 4096 is exactly `AP_RING_DATA_MAX_BYTES`: the longest a legal
+        packet could take, which is a derivation and not a round number.
+      - *Transmit*: `[MAC]` §2.1 step 7 — "until a **10.9 msec (2\*\*14 byte)
+        timeout** occurs", the transmitting node giving up on stripping a frame
+        that never came back. `AP_RING_STRIP_TIMEOUT`, finding 139 in
+        `RING.md`, asserted in `ring_phy_suite`. This item previously said no
+        published figure existed for the transmit side; `010005-00` is on disk
+        and had not been asked.
+      **Still not wired to a bit**, and deliberately: what the DS3000's gate
+      array times is not established, and naming `XMIT_TMO` from a
+      protocol-layer figure would be inferring the register from the wire.
+      *What would settle it: the ring firmware's own timeout handling — the
+      ROMs are on disk. Verification would be a receive that stalls mid-packet
+      and a status read that finds `TMO`.*
+
+- [ ] **`010005-00` must be walked whole — 29 pages.** `CLAUDE.md`: a document
+      that yields one fact this core does not have stops being a reference to
+      query and becomes a document to derive in full. `[MAC]` has now done that
+      (finding 139, the strip timeout), and it has been *consulted* many times
+      without ever being *walked*. There is no `010005-00_WALK.md` beside the
+      other three coverage records. 29 pages is the smallest of the four walks
+      and the one covering the subsystem with no runnable oracle, so it is the
+      document where a missed fact is least likely to be caught later.
 
 - [ ] **Does the DN3000's ring controller filter received packets by type?**
       Two chapters of `002398-04` give the earlier controllers a type-mask
