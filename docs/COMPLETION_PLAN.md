@@ -5696,7 +5696,8 @@ END — PDF 279–313, all 35 pages. 35 content pages of 330.**
       Every one has a module in `src/core`, and none of those thirty-five pages
       has been read whole.
 - [ ] **Chapters 1–6, machine-independent. Chapter 1 is READ END TO END** (PDF
-      12–34, 23 pages); chapters 2–6 remain, resume at PDF 35. The sample yielded no code change — chapter 1 is AEGIS's own
+      12–34, 23 pages); **chapter 2 is started** (PDF 35–37); chapters 3–6
+      remain. Resume at PDF 38. The sample yielded no code change — chapter 1 is AEGIS's own
       structures rather than hardware — and one lead for chapter 5: p. 1-20's
       **resource lock table** gives twenty-six named locks with their bit
       values, and `CRASH_STATUS 00120020` decodes under it as `flp_$lock +
