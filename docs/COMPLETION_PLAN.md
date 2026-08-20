@@ -5764,17 +5764,26 @@ same number is what let them diverge once already.
       blanks refused, and a round trip from ASCII byte to key-plus-modifier back
       to the same byte.*
 
-- [x] **Decode the posted diagnostic codes in `--boot-report`**, for the run
-      the firmware is known to post. `ap_boardreg_post_code_name` names `03`-`0C`
+- [ ] **Decode the posted diagnostic codes in `--boot-report`.** *Partly done*:
+      the naming exists and is safe, and it names nothing on the reference boot. `ap_boardreg_post_code_name` names `03`-`0C`
       from `002398-04` p. 4-23 and the report prints them beside the raw bytes;
       everything outside that run prints nothing rather than a guess. Detail —
       the PROM service table, the post routine's two entry points, the eighteen
       call sites and why `0D` and the `8x` band are unnamed — in
       `PROJECT_STATUS.md`. *Verification: `boardreg_suite` 30, including that
       `FF` and both sides of the run are refused.*
-      *Tail:* `0D` (Calendar and configuration) and the `82`-`85` band want their
-      own tracing — two call sites take their code from a variable — before
-      either is named.
+      **And a negative result from running it, which changes what this item
+      claims.** A 4 M-instruction boot posts `FF EF DF FE EE DE CF BF AF 9F 8F`
+      — complementing to `00 10 20 01 11 21 30 40 50 60 70` — and **the decode
+      names none of them**, correctly, because none is in `03`-`0C`. So the
+      boot's early codes and the eighteen call sites' codes are **different
+      sets**: the sites post single-digit values and the boot posts Ext/Int
+      pairs. The ten-for-ten correspondence against p. 4-23 is real *about the
+      call sites* and does not describe what the reference boot displays.
+      *Tail, and it is larger than it looked:* find what posts `00`-`70` — a
+      different routine, or these sites reached later than 4 M — before claiming
+      the report decodes a boot. `0D` and the `82`-`85` band still want their own
+      tracing; two call sites take their code from a variable.
 
 - [ ] **(superseded, kept for its evidence)** `002398-04`
       p. 4-23 gives the DN3000's boot PROM LED table — every power-on test
