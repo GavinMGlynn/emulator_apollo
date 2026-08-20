@@ -798,6 +798,19 @@ the identity hash is unmoved — confirmed rather than assumed.
 applies to it: what would settle it is a driver that branches on bit 5, and the
 place to look is the firmware before the oracle.
 
+*Refined 2026-08-20 by the walk, and not decided.* `002398-04` prints the
+all-eight-bits table a **third** time, at p. 8-14 — in chapter 8, for the
+DN400/420/600, whose address space has "Floppy Status", "Floppy I/O" and "Floppy
+DMA" at `8C00` and **no OMTI board in it at all**. A bare 765 wired to the drive
+is a machine where all eight bits genuinely come from the drive and the table is
+simply correct. So the handbook is not asserting something about the DN3000's
+board twice: it is printing the *part's* register, right for the family that has
+the part bare and again for the family that has it behind a controller. That is
+the shape `[OMTI]` §6.4.4 describes — the silicon has the bits, the board ties
+five — and it makes the two documents complementary rather than contradictory.
+It is an explanation, not a measurement, so the item stays open on the same
+discriminator.
+
 ## `RESET` drives the board's reset line, measured before it was wired
 ## (2026-08-20)
 

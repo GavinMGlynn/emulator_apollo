@@ -315,7 +315,23 @@ typedef enum {
  * of a handbook whose adjacent pages transpose this controller's mask register
  * bits and print its floppy reset polarity backwards.
  *
- * **What it would take to settle it**: a driver that branches on bit 5. If the
+ * **The same table appears a third time, and where it appears is the point.**
+ * `002398-04` p. 8-14 prints all eight bits again -- `FT`, `WP`, `RDY`, `TR0`,
+ * `TS`, `HD`, `UN1`, `UN0` -- in chapter 8, for the **DN400/420/600**. That
+ * machine's address space has "Floppy Status", "Floppy I/O" and "Floppy DMA" at
+ * `8C00` with **no OMTI board anywhere in it**: a bare 765 wired straight to the
+ * drive, where all eight bits genuinely do come from the drive and the table is
+ * simply right.
+ *
+ * So the handbook is not making an independent claim about the DN3000's board
+ * twice. It is printing the **part's** register, correctly for the family that
+ * has the part bare, and again in chapter 12 for a family that has it behind an
+ * OMTI controller. That is exactly the shape `[OMTI]` §6.4.4 describes -- the
+ * silicon has the bits, the board ties five of them -- and it makes the two
+ * documents complementary rather than contradictory.
+ *
+ * **Still not decided by that**, because it is an explanation and not a
+ * measurement. **What would settle it**: a driver that branches on bit 5. If the
  * DN3000's floppy driver polls ST3 for `RDY` before using the drive, the
  * handbook's reading is the machine's and this model would hang instead; no boot
  * measured here reaches the floppy, so nothing has yet distinguished them. Named
