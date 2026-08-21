@@ -6289,10 +6289,13 @@ same number is what let them diverge once already.
       uses works without an accumulator. *It is not the AT bus clock, which is
       what this item assumed before the figure was read; deriving from 125 ns
       would have made a transfer 500 ns and mispriced it by half.*
-      **Still an inference in one step** — the figure does not label the 4 MHz
-      row as the DMA controller's — but the part's own rating excludes the other
-      two, and Table B-1's numbered rows 58–71 and 81–84 would confirm it in
-      nanoseconds if a stronger citation is wanted before implementing.
+      **Still an inference in one step, and no stronger citation exists** — the
+      figure does not label the 4 MHz row as the DMA controller's, and the
+      part's rating excluding the other two is the whole of the evidence. Table
+      A-1's rows 58–71 were expected to confirm it and **do not**: read on PDF
+      167 they are all propagation delays relative to CLK, and a table of
+      maximum delays cannot give a state count. What would settle it is counting
+      Figure B-9's gridlines against its own three clock traces.
       **Expect it to move the boot**, unlike the refresh cycles: the arbiter
       already makes the processor wait while the DMA holds the bus, so
       lengthening a transfer lengthens a real stall rather than adding an

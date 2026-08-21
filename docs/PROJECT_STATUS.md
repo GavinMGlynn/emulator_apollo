@@ -479,8 +479,22 @@ board.
 
 **One inference remains**, and it is named: the figure does not label the 4 MHz
 row as the DMA controller's clock. The part's own 5 MHz rating excludes the
-other two, which is strong, and Table B-1's numbered rows 58–71 and 81–84 would
-confirm it in nanoseconds if a stronger citation is wanted before implementing.
+other two, and **that is the whole of the evidence** — the confirmation this
+paragraph originally promised turned out not to exist.
+
+Table A-1's rows 58–71 were supposed to "confirm it in nanoseconds". Read, they
+are every one a **propagation delay relative to CLK** — "ClK low to DACK High
+− 170", "ClK High to READ or WRITE High − 190", "DRO to ClK low Setup Time" —
+and a table of maximum delays cannot say how many states a transfer takes. Being
+in the right table, about the right signals, numbered in the same series as the
+rows that settled `MASTER.L`, is not the same as answering the question asked of
+them.
+
+*What would settle it* is Figure B-9's own gridlines counted against its three
+clock traces at a resolution where an 8 MHz cycle can be told from a 4 MHz one.
+The answer is in the image, not in a table, and the Intel datasheet cannot help:
+its AC characteristics give the cycle in *clock periods*, which is the half
+already known.
 
 And unlike the refresh, **this will move the boot**. The arbiter already makes
 the processor wait while the DMA controller holds the bus, so lengthening a
