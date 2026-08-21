@@ -6155,7 +6155,14 @@ same number is what let them diverge once already.
       "correctly inert" from "forgotten"; and the datasheet contradicts itself
       once, putting AEOI in ICW1 in one paragraph and ICW4 in the next, which is
       recorded so a later reader does not take the first for a fact.
-      **`[8237]` is 2 of 19 and p. 7 found the walk's first real defect**:
+      **`[8237]` is 5 of 19** — and p. 8's Command Register box *saved* a wrong
+      fix: the prose says channel 0 may hold its address "for all transfers",
+      which reads as a defect here, while the box marks the bit "X If bit 0 = 0"
+      — a don't-care unless memory-to-memory is on, which is exactly where this
+      core consults it. Prose against figure, and the figure won. Two of our
+      citations were wrong in the same place (the bit layouts are unnumbered,
+      not "Figure 5") and so are the datasheet's.
+      **p. 7 found the walk's first real defect**:
       "In order to make a software request, the channel must be in Block Mode"
       was not implemented, so a software request was serviced in any mode — the
       permissive direction. Fixed, with the rule factored into one place because

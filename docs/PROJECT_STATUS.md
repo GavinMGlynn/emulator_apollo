@@ -433,6 +433,67 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The 8237A's figure said the prose was wrong, and saved a wrong fix
+## (2026-08-22)
+
+Continuing the `[8237]` walk after p. 7's defect — which `CLAUDE.md` requires,
+since a document that yields one unimplemented fact is one to derive in full
+rather than query again.
+
+**The near-miss is the finding.** p. 6's prose reads:
+
+> "Channel 0 may be programmed to retain the same address for **all
+> transfers**. This allows a single word to be written to a block of memory."
+
+`ap_i8237.c` consults `CH0_ADDRESS_HOLD` in the **memory-to-memory path only**,
+and the normal transfer path advances the address unconditionally. Read against
+that sentence, this core has a defect and the fix is obvious.
+
+p. 8's Command Register box says otherwise, in one column nobody transcribes:
+
+> bit 1 — Channel 0 address hold disable / enable / **X If bit 0 = 0**
+
+Bit 0 is memory-to-memory. So the hold bit is a **don't-care unless
+memory-to-memory is enabled**, which is exactly where the code consults it. The
+code was right and the prose is loose, and acting on the prose would have put a
+check on every channel-0 transfer that the part does not have.
+
+*Recorded because a near-miss leaves no trace otherwise.* The rule that caught
+it is the one about reading page images rather than extractions — except the
+distinction here was not OCR, it was **prose against figure**, and the figure
+won. Two more conditions came out of the same box: compressed timing is a
+don't-care when memory-to-memory is on, extended write when compressed timing
+is. Both are stored and inert here, and now say so.
+
+### Two citations of ours were wrong, and the datasheet's are too
+
+`ap_i8237.h` cited "Figure 5" for the Command and Mode register bit layouts.
+**Figure 5 is "Definition of Register Codes"** — the `CS`/`IOR`/`IOW`/`A3`–`A0`
+table — and Figure 6 is "Software Command Codes"; the bit layouts carry **no
+figure number at all**. Both now cite the page and the box by name, which is the
+only way to point at unnumbered artwork.
+
+The datasheet mis-cross-references itself in the same place: its Command
+Register paragraph says "See Figure 6 for address coding" where the coding is in
+Figure 5. That is the **fourth** self-contradicting document this session, after
+the OMTI's `ST3`, the 8259A's AEOI, and `008778-03`'s DS4000 refresh — and the
+fourth time recording it has been cheaper than rediscovering it.
+
+### What else pages 5–8 confirmed
+
+The four transfer modes as stated; **a cascade channel outputting no address or
+control at all**, which `ap_i8237_transfer` honours by returning before it reads
+anything; and **Verify transfers** leaving "the memory and I/O control lines all
+inactive", modelled as a case that advances address and count and moves no byte
+rather than as an early return — the difference being that address generation
+still happens, which is what the datasheet says. Also "the mask bit is not
+altered when the channel is in Autoinitialize", and channel 1's word count being
+the one whose terminal count ends a memory-to-memory service.
+
+*Verification: documentary, plus `ctest` 139/139. No behaviour changed on this
+pass, which is the result — the one thing that looked like a defect was the
+manual disagreeing with itself.*
+
 ## A software DMA request needs Block mode, and this core serviced it in any
 ## (2026-08-22)
 

@@ -64,7 +64,29 @@ typedef enum {
   AP_I8237_REG_MASK_ALL = 15u,       /* write only */
 } ap_i8237_reg_t;
 
-/* Command register, `[8237]` Figure 5. */
+/* Command register, `[8237]` p. 8's **unnumbered "Command Register" box**.
+ *
+ * *Not Figure 5*, which this said until 2026-08-22: Figure 5 is "Definition of
+ * Register Codes", the `CS`/`IOR`/`IOW`/`A3`-`A0` table, and Figure 6 is
+ * "Software Command Codes". The bit layouts on that page carry no figure
+ * number at all. The datasheet mis-cross-references them too -- the Command
+ * Register text says "See Figure 6 for address coding" where the coding is in
+ * Figure 5 -- so citing by name rather than by number is the only way to point
+ * at the right artwork.
+ *
+ * **Three bits are conditional on another**, which the box states and the prose
+ * does not:
+ *   - bit 1, channel 0 address hold: "**X If bit 0 = 0**" -- meaningless unless
+ *     memory-to-memory is enabled, which is why `ap_i8237.c` consults it in the
+ *     memory-to-memory path alone. The prose reads "Channel 0 may be programmed
+ *     to retain the same address for **all transfers**", and taking that at face
+ *     value would have put the check on every channel-0 transfer. The figure is
+ *     the precise statement and the prose is the loose one.
+ *   - bit 3, compressed timing: "X If bit 0 = 1".
+ *   - bit 5, extended write: "X If bit 3 = 1".
+ * The last two are timing selections this core does not model, so they are
+ * stored and inert; recorded here so a later reader implementing either knows
+ * it is a don't-care under the stated condition rather than a setting. */
 #define AP_I8237_CMD_MEM_TO_MEM 0x01u
 #define AP_I8237_CMD_CH0_ADDRESS_HOLD 0x02u
 #define AP_I8237_CMD_CONTROLLER_DISABLE 0x04u
@@ -74,8 +96,14 @@ typedef enum {
 #define AP_I8237_CMD_DREQ_ACTIVE_LOW 0x40u
 #define AP_I8237_CMD_DACK_ACTIVE_HIGH 0x80u
 
-/* Mode register, `[8237]` Figure 5. Bits 1-0 select the channel and are not
- * stored in the channel's own mode byte. */
+/* Mode register, `[8237]` p. 8's **unnumbered "Mode Register" box** -- see the
+ * command register above on why not "Figure 5". Bits 1-0 select the channel and
+ * are not stored in the channel's own mode byte.
+ *
+ * The transfer-type field carries its own condition: "**XX If bits 6 and 7 =
+ * 11**", so in Cascade mode the type is a don't-care. `ap_i8237_transfer`
+ * returns for a cascade channel *before* it reads the type, which honours that
+ * without a special case. */
 #define AP_I8237_MODE_TRANSFER 0x0Cu   /* bits 3-2 */
 #define AP_I8237_MODE_AUTOINIT 0x10u
 #define AP_I8237_MODE_DECREMENT 0x20u
