@@ -6274,6 +6274,12 @@ same number is what let them diverge once already.
       which is §2.3.2's "parity (error) information about memory or devices on
       the I/O bus" in the register's own words. Named as
       `AP_BOARDREG_STATUS_IO_PARITY` and asserted at bit 9.
+      **A place to look, from the `[OMTI]` walk 2026-08-22**: §3.2's 62-pin
+      connector table carries **`A1 -I/O CH CK`**, so the disk controller — the
+      AT-bus device this machine actually has — is wired to the signal. Whether
+      it ever *drives* it would be in §3's signal descriptions, which are not
+      read; the pin table's direction column alone does not say. That is the
+      next thing to check for this item.
       **What is left is a source.** Nothing this core models can assert a
       channel check: the bit is named so a firmware read is recognisable, and
       raised by nothing. Closing it needs an AT-bus device that can fail, which

@@ -834,3 +834,30 @@ this manual have proved not to be censuses — §5.1.2 omitting `1A START/STOP`,
 A-2 omitting `07 Multiple Drives Selected` — and the natural next move was to
 distrust this one too. It holds, and the way to tell was comparing it against a
 model derived from the *descriptions* rather than against the summary alone.
+
+
+## §3.1-§3.2, HOST ELECTRICAL INTERFACE — what the chapter is, and its one lead
+
+PDF 33, doc 3-1. §3 is **not** a register chapter: "The OMTI 8000 Series Data
+Controllers are electrically and mechanically compatible with the bus or
+Input/Output channel used in the IBM AT computer", followed by pin assignments
+for the two card-edge connectors. §3.4, the one part of this chapter already
+derived, is the concurrency sentence and sits among electrical material.
+
+**So the yield here is low by nature**, and that is worth recording before
+anyone budgets the remaining pages by count: §1 and §2 are introduction and
+installation, §3 is connectors and signals. The register interface is §4, the
+commands §5 and §6, and both are done.
+
+**The one lead is that two pins on this connector are open plan items.** The
+62-pin component side carries **`A1 -I/O CH CK`** and **`A10 I/O CH RDY`** —
+which are exactly `AP_BOARDREG_STATUS_IO_PARITY`'s missing source and
+`AP_ATBUS_IO_CH_RDY_MAX`'s unenforced ceiling. The `IO_CH_CK.L` item says
+"closing it needs an AT-bus device that can fail", and the disk controller is
+the AT-bus device this machine actually has.
+
+*Not read far enough to answer it.* The pin table's Input/Output column marks
+both `I`, but a direction column on a connector table does not by itself say
+whether this controller ever **drives** a channel check — that would be in §3's
+signal descriptions, which are not read. Flagged as the next thing to look at
+for that item rather than reported as an answer.
