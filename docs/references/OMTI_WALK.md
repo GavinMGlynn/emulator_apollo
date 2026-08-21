@@ -617,8 +617,18 @@ checksum (`31`).
 table: `04` is `00` drive, `17`–`1C` are `01` data, `20`–`23` are `10` command.
 Nothing computes the type field and nothing has to.
 
-Two gaps in the table worth noting so a later reader does not think they were
-missed: type 0 defines no `05` or `07`, and type 1 no `1B`.
+Two gaps in the table — **and one of them is the table's mistake, not the
+part's.** A-2 lists no `05` and no `07`; **A-3's descriptions define
+`07 Multiple Drives Selected`**, "the controller detected multiple DRIVE
+SELECTED signals when it attempted to select the specified Logical Unit
+Number". So the summary table omits a code the same appendix documents two
+pages later, exactly as §5.1.2's command summary omits `1A START/STOP`.
+
+*Recorded as a correction of this record*: the entry above said "type 0 defines
+no `05` or `07`" after A-2 alone. Only `05` is genuinely undefined, and `1B` in
+type 1 remains to be checked against A-4's descriptions, which do not list it
+either. **A summary table in this manual is not a census** — that is now the
+second instance and the safer assumption.
 
 **Page A-4, the type 1 descriptions, walked too** — and it names two CDB
 *fields* rather than only outcomes, which is where the LUN omission came from
@@ -645,3 +655,33 @@ correctly, `04` as a drive error and `20`/`21` as command errors, because they
 were taken from the code list. A **SENSE DATA WORD FORMAT** is given beside the
 byte one; this core presents the byte form, which is what the 8-bit data port
 carries.
+
+
+## Appendix A page A-3 — and a documented behaviour this core does not have
+
+Type 0's descriptions, plus type 1's `10`. Everything confirms except the first
+line of the page, which is a **GAP**:
+
+> `00` **No error or no sense information**. "... If a REQUEST SENSE command is
+> issued when there is no error, the Sense information reported specifies **the
+> last Sector Address processed**."
+
+`finish()` writes `sense[0] = error ? sense : 0` and zeroes bytes 1-3, so a
+REQUEST SENSE after a successful command reports an all-zero address where the
+part reports the last one it handled. A driver using that to confirm where a
+command landed would be told sector 0 of cylinder 0.
+
+**Not implemented here, and the reason is a choice the page does not make**: it
+says the *sense information* specifies the last address and does not say whether
+`AV` is set with it, and `AV`'s own definition — "the error code in byte 0
+applies to the sector address" — reads oddly when byte 0 is `00 no error`.
+Modelling it means choosing, and this project's rule is to name the gap instead.
+The state it needs is small: the CHS of the last command that touched a surface,
+which `refuse()` already computes for its own path.
+
+*Also confirmed on the page*: `04`'s two causes — no DRIVE SELECTED **or** no
+DRIVE READY, which is why this core reports it for an unfitted LUN; `06`'s
+recalibration bound of "5 steps more than the total number of cylinders", which
+is `ap_omti.h`'s equipment-check argument from §6.4.1's 77 step pulses seen from
+the other side; and `09 Cartridge Changed`, "may only occur on Removable type
+drives".

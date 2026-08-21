@@ -6466,6 +6466,26 @@ same number is what let them diverge once already.
       hashed at all, which moving it fixed.
       *Verification: `kbd_suite` 56 -> 60, `board_state_suite` 38, `ctest`
       139/139 both presets, two identity boots.* Detail in `PROJECT_STATUS.md`.
+- [ ] **`REQUEST SENSE` after a successful command should report the last
+      sector address, and this core reports zeros.** Found 2026-08-22 walking
+      `[OMTI]` Appendix A page A-3, whose very first line says it: "`00` No
+      error or no sense information ... If a REQUEST SENSE command is issued
+      when there is no error, the Sense information reported specifies **the
+      last Sector Address processed**."
+      `finish()` writes `sense[0] = error ? sense : 0` and zeroes bytes 1-3, so
+      a driver reading the sense address to confirm where a command landed is
+      told sector 0 of cylinder 0.
+      **What stops it being a one-line fix**: the page does not say whether `AV`
+      is set alongside, and `AV`'s own definition — "the error code in byte 0
+      applies to the sector address" — reads oddly when byte 0 is *no error*.
+      Modelling it means choosing, so it is named rather than guessed. The state
+      needed is small: the CHS of the last command that touched a surface, which
+      `refuse()` already computes for its own path.
+      *Also worth having from the same walk*: A-2's summary table **omits
+      `07 Multiple Drives Selected`**, which A-3 defines — the second time an
+      OMTI summary table has proved not to be a census, after §5.1.2 omitting
+      `1A START/STOP`.
+
 - [ ] **The keyboard's self-diagnostics.** Chapter 12's opening sentence has the
       part "performs power-up and operator requested self-diagnostics". No
       command in `ap_kbd_receive`'s set runs one and no result is defined
