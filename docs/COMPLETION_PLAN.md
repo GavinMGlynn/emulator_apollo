@@ -5754,6 +5754,26 @@ same number is what let them diverge once already.
       receiver set up to copy, type matched": *wanted this packet* (compatible
       with wait-ack, reproduces both words) versus *able to copy it* (mutually
       exclusive with wait-ack, which is what is implemented).
+      **The ring firmware does not settle it either, and that was the last named
+      route** (searched 2026-08-21, all three ROM listings in `tools/ring-rom`).
+      The item said "the ring firmware's own wait-ack handling" would decide it.
+      **There is no such handling.** `XMIT_STAT`'s `WAK` is bit 13 of `+402`
+      and `ICP` is bit 12, and **no path in `r3500`, `r4500` or `r3000` tests
+      either**: there is no `btst #$c` anywhere, and the single `btst #$d` is on
+      the `+400` status register, not on `XMIT_STAT`. The transmit self-test
+      reads `+402` and branches on **bit 15 `pe` only** — set is a transmit
+      error — and then on **bit 14 `cpd`, copied**, as success. It never asks
+      whether the packet was wait-acknowledged.
+      *What the search did settle*: that branch pair **corroborates the
+      two-layout reading of `XMIT_STAT`** from `002398-04` p. 12-31, which was
+      read from a page image with no other source. `pe` set is the error layout;
+      `pe` clear with `cpd` set is a successful copy. Firmware confirmation of a
+      register layout that had none.
+      **Both named routes are now spent**, so this item no longer has a
+      discriminator on the shelf. The remaining candidate is **Domain/OS's own
+      ring driver** — on disk, not in ROM, needing a running system that
+      transmits to a busy receiver. That is the same shape as the `ST3` item's
+      blocker and should be budgeted the same way.
       **`[MAC]` p. 2-9 is now walked, and it does not settle it either.** This
       item named the discriminator as "a `[MAC]` sentence that says whether a
       busy receiver still asserts intend-to-copy". Figure 2-8 is the only page
