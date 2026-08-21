@@ -483,8 +483,39 @@ walked." I had edited the same file twice and missed it; the check did not.
 stripped before matching — the same exemption the completeness check already
 makes for subsystem rows, and without it every honest retraction would fire.
 
-*Verification: `check_docs.py` 3,288 → 3,294 claims checked, the new check
-included; `ctest` 139/139.*
+### And a second check, for the other half of the same claim
+
+"Read whole — 330 of 330 pages" has two halves and the second is checkable: the
+document either has 330 pages or it does not. A record that walks a 209-page
+manual and calls it 190 claims a completeness it has not reached; one that calls
+it 250 claims pages that do not exist. Both read as diligence.
+
+`check_walk_page_counts` verifies every such claim against `pdfinfo`. **All
+eleven currently hold** — the three OMTI manuals, both Intel datasheets,
+`002398-04`, `008778-03`, `010005-00`, `019411-A00`, `QIC-02` and `007196-01`.
+So this one is a guard rather than a repair, which is the right time to write it.
+
+*It can only run where the PDFs are.* `docs/references/**/*.pdf` is gitignored
+for the reason `roms/` is, so CI never sees them and the check skips there. That
+is not a weakness: a record is **written** on a machine that has the document,
+which is exactly when the number would be got wrong.
+
+**Two false positives were designed out**, both from the same cause — a record
+legitimately mentioning numbers that are not its own. `002398-04_WALK.md`
+cross-references the `008778-03` walk as "finished at 209 of 209 pages" in its
+opening prose, and a whole-file search took that for its own count, reporting 209
+against a 330-page document. A record's claim about *itself* is its status
+heading, so only headings are matched. The coverage check has the mirror of it:
+a record correcting itself quotes the claim it retracts, so quoted spans are
+stripped.
+
+*Both were found by running the checks before trusting them, and the
+page-count one was then proved on a deliberately perturbed claim rather than on
+the fact that it stayed quiet.*
+
+*Verification: `check_docs.py` 3,288 → 3,304 claims checked, both new checks
+included; a perturbed page count caught and the record restored; `ctest`
+139/139.*
 
 ## The DS3500's AT bus clock: four tiers checked, and the oracle admits the gap
 ## (2026-08-22)

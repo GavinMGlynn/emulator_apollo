@@ -528,6 +528,102 @@ def check_walk_coverage(problems: list[str]) -> int:
     return checked
 
 
+# A walk record's coverage table row: | `[TAG]` | `dir/file.pdf` | 219 | ...
+# "READ WHOLE -- 330 of 330 pages", or "4 of 722".
+PROSE_PAGES = re.compile(r"([0-9]+) of ([0-9]+)(?: PDF)? pages?")
+WALK_FILE = re.compile(
+    r"^\|\s*`?\[?([A-Za-z0-9-]+)\]?`?\s*\|\s*`([^`]+\.pdf)`\s*\|\s*([0-9]+)\s*\|")
+
+
+def check_walk_page_counts(problems: list[str]) -> int:
+    """The page count a walk record claims, against the PDF it names.
+
+    "Read whole -- 330 of 330 pages" is a claim with two halves, and the second
+    is checkable: the document either has 330 pages or it does not. A record
+    that walks a 209-page manual and calls it 190 is claiming completeness it
+    has not reached, and one that calls it 250 is claiming pages that do not
+    exist -- both of which read as diligence.
+
+    **This can only run where the PDFs are.** `docs/references/**/*.pdf` is
+    gitignored for the same reason `roms/` is -- the documents are not ours to
+    redistribute -- so CI never sees them and this check skips there. That is
+    not a weakness: the record is *written* on a machine that has the document,
+    which is exactly when the number would be got wrong, and a check that runs
+    then is worth more than one that runs in CI a day later.
+
+    Skips silently when the file is absent or `pdfinfo` is not installed,
+    because a missing artefact is not a false claim.
+    """
+    checked = 0
+    references = REPO / "docs" / "references"
+    if not references.is_dir():
+        return 0
+    for record in sorted(references.glob("*_WALK.md")):
+        for line in record.read_text().splitlines():
+            match = WALK_FILE.match(line)
+            if match is None:
+                continue
+            tag, relative, claimed = match.groups()
+            document = references / relative
+            if not document.is_file():
+                continue
+            try:
+                out = subprocess.run(["pdfinfo", str(document)],
+                                     capture_output=True, text=True,
+                                     check=False, timeout=30).stdout
+            except (OSError, subprocess.SubprocessError):
+                return checked
+            pages = [word.split()[1] for word in out.splitlines()
+                     if word.startswith("Pages:")]
+            if not pages:
+                continue
+            checked += 1
+            if pages[0] != claimed:
+                problems.append(
+                    f"{record.name}: `[{tag}]` is claimed at {claimed} pages "
+                    f"and {relative} has {pages[0]}")
+
+        # **The finished records state it in prose, not in a table.** "READ
+        # WHOLE -- 29 of 29 pages" names no file, so the document is found the
+        # only other way it can be: a record is named for the order number it
+        # walks, and the PDF carries the same prefix. That covers every
+        # whole-document walk this project has, which is the half of the corpus
+        # where a wrong page count would read as completeness.
+        order = record.name.removesuffix("_WALK.md")
+        document = next(
+            (path for path in sorted(references.rglob(f"{order}*.pdf"))), None)
+        if document is None:
+            continue
+        # **Headings only, and a false positive is why.** `002398-04_WALK.md`
+        # cross-references the `008778-03` walk as "finished at 209 of 209
+        # pages" in its opening prose, and a search of the whole file takes
+        # that for the record's own count -- 209 against a 330-page document.
+        # A record's claim about *itself* is its status heading; a number in
+        # its body may belong to any manual it mentions.
+        prose = next(
+            (found for found in
+             (PROSE_PAGES.search(line) for line in record.read_text().splitlines()
+              if line.startswith("#")) if found), None)
+        if prose is None:
+            continue
+        try:
+            out = subprocess.run(["pdfinfo", str(document)],
+                                 capture_output=True, text=True, check=False,
+                                 timeout=30).stdout
+        except (OSError, subprocess.SubprocessError):
+            return checked
+        pages = [word.split()[1] for word in out.splitlines()
+                 if word.startswith("Pages:")]
+        if not pages:
+            continue
+        checked += 1
+        if pages[0] != prose.group(1):
+            problems.append(
+                f"{record.name}: claims {prose.group(1)} pages and "
+                f"{document.name} has {pages[0]}")
+    return checked
+
+
 def main() -> int:
     if not STATUS.is_file():
         sys.stderr.write("check_doc_counts: no PROJECT_STATUS.md\n")
@@ -572,6 +668,7 @@ def main() -> int:
     checked += check_parent_subject(problems)
     checked += check_completeness_claims(problems)
     checked += check_walk_coverage(problems)
+    checked += check_walk_page_counts(problems)
 
     for problem in sorted(set(problems)):
         print(problem)
