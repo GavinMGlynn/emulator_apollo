@@ -2502,6 +2502,20 @@ static void report_state(ap_machine_t *machine) {
   }
   printf(" %08X\n", ap_m68030_read_a7(&machine->cpu.regs));
   printf("  clocks       %llu\n", (unsigned long long)state.clocks);
+  /* §2.4.6's refresh cycles, and what the processor actually paid for them.
+   *
+   * Two numbers because they are not the same number, and the gap is the
+   * honest measure of an approximation this core has: the board steals a bus
+   * cycle every `refresh_interval_ticks`, but `ap_m68030_step` runs a whole
+   * instruction, so the processor only notices a steal that lands at an
+   * instruction boundary. Printing the count beside the clocks lets a reader
+   * see the shortfall rather than take the model's word for it. */
+  if (machine->board != NULL &&
+      machine->board->refresh_interval_ticks != 0u) {
+    printf("  refresh      %u cycle(s) stolen, one every %u bus tick(s)\n",
+           machine->board->refresh_cycles,
+           machine->board->refresh_interval_ticks);
+  }
   /* In AP_TIME_BASE_HZ units, never CPU cycles: several nodes of different
    * models share one ring, so no CPU's cycle is a legal unit of account. A
    * machine whose clock rate was never set has produced no time at all, which

@@ -638,6 +638,43 @@ typedef struct ap_board {
   /* How often the bus tick ran at all. Zero here and zero requests are very
    * different faults and they report identically without this. */
   unsigned bus_ticks;
+
+  /* ## The refresh cycles §2.4.6 inserts, and why they are stolen and not won
+   *
+   * "The system board provides refresh cycles to the bus at regular intervals
+   * (approximately 15 microseconds) ... **A state machine, driven by a
+   * timebase, provides this capability, inserting refresh cycles on the
+   * AT-compatible bus.**" It *inserts* -- the memory controller takes a cycle,
+   * it does not request the bus and wait for a grant. Routing it through
+   * `ap_arbiter` would model the wrong thing and cost the whole BR/BG/BGACK
+   * handshake per refresh, where the hardware costs one cycle.
+   *
+   * So the processor simply cannot run on that cycle. That is the same shape as
+   * losing an arbitration -- no delay is computed and no penalty added -- and it
+   * is what makes a refresh visible to a core whose claim is emergent timing.
+   *
+   * **Counted in bus ticks, not timed, and that is what makes it exact.** A bus
+   * tick here is a processor clock (`ap_machine` charges the instruction's
+   * clocks to the board), and §3.3 sources the interval from the 2681's
+   * counter/timer at 15 us -- so the interval is `cpu_hz * 15 / 1000000`
+   * clocks, which is **375** on a 25 MHz machine and a whole number on every
+   * model in the table. Timing it instead would need `ap_board_bus_tick` to
+   * carry an instant, and the batch in `ap_board_bus_ticks` could then skip
+   * past a refresh without noticing; a counter cannot, because the batch is
+   * bounded by it.
+   *
+   * *`AP_ATBUS_DRAM_ROW_INTERVAL` is 15.625 us and this is 15 us, and the
+   * difference is not an error*: the source runs slightly faster than the
+   * memory requires, which is the margin a designer leaves. The DRAM constant
+   * says what the parts need; this says what the board supplies. */
+  uint32_t refresh_interval_ticks;
+  uint32_t refresh_ticks_left;
+  /* True for exactly the tick being stolen, so `ap_board_processor_may_run`
+   * can answer with it and nothing else has to know. */
+  bool refresh_holding;
+  /* How many have been stolen, for the run report -- a figure a reader can
+   * divide into the clock total to see what refresh cost this boot. */
+  unsigned refresh_cycles;
   /* The physical addresses the last DMA cycle actually used, after translation.
    * A transfer that runs and lands in the wrong place is indistinguishable from
    * one that does not run, from any count. */

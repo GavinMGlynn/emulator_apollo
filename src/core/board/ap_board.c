@@ -910,8 +910,27 @@ void ap_board_bus_ticks(ap_board_t *board, uint64_t n) {
   if (n == 0u) {
     return;
   }
+  /* **The batch may not step over a refresh.** `ap_arbiter_idle` proves the
+   * ticks are identical to one *as far as arbitration goes*, and §2.4.6's
+   * refresh is not arbitration -- it is a cycle the memory controller inserts
+   * on its own count. So the equivalence holds only while the counter does not
+   * reach zero inside the batch, and the bound is the counter itself.
+   *
+   * This is the reason the interval is kept in **ticks** rather than in time: a
+   * batch can be bounded by a count it shares units with, and could only be
+   * bounded by an instant if this function carried one. */
+  if (board->refresh_interval_ticks != 0u &&
+      n >= (uint64_t)board->refresh_ticks_left) {
+    for (uint64_t i = 0; i < n; i++) {
+      ap_board_bus_tick(board);
+    }
+    return;
+  }
   if (!board->dma_possible && ap_arbiter_idle(&board->arbiter)) {
     board->bus_ticks += (unsigned)n;
+    if (board->refresh_interval_ticks != 0u) {
+      board->refresh_ticks_left -= (uint32_t)n;
+    }
     /* Once, not none: the tick still lowers the processor's request line, and
      * doing it once is the whole of what doing it `n` times would do. */
     ap_arbiter_tick(&board->arbiter);
@@ -927,6 +946,23 @@ void ap_board_bus_ticks(ap_board_t *board, uint64_t n) {
 
 void ap_board_bus_tick(ap_board_t *board) {
   board->bus_ticks++;
+
+  /* §2.4.6's refresh, counted down in the same units the bus is charged in.
+   *
+   * The cycle is stolen *on the tick the counter reaches zero* and given back
+   * on the next one, so exactly one bus cycle in every
+   * `refresh_interval_ticks` is unavailable to the processor -- which is what
+   * "inserting refresh cycles on the AT-compatible bus" costs. The flag is
+   * cleared first so a refresh never lasts two ticks however this is called. */
+  board->refresh_holding = false;
+  if (board->refresh_interval_ticks != 0u) {
+    board->refresh_ticks_left--;
+    if (board->refresh_ticks_left == 0u) {
+      board->refresh_holding = true;
+      board->refresh_cycles++;
+      board->refresh_ticks_left = board->refresh_interval_ticks;
+    }
+  }
 
   /* Nothing can be asking, so there is nothing to ask. See `dma_possible` in
    * the header: the three request sources are all software-started, and the
@@ -1346,7 +1382,13 @@ bool ap_board_cache_inhibited(const ap_board_t *board, uint32_t address) {
 }
 
 bool ap_board_processor_may_run(const ap_board_t *board) {
-  return ap_arbiter_processor_may_run(&board->arbiter);
+  /* Two ways to lose the bus, and they are different things. Losing an
+   * arbitration is a device having asked and won (`ap_arbiter`); a refresh
+   * cycle is the memory controller **inserting** one, which §2.4.6 describes
+   * and which nobody arbitrates for. Both end with the processor not running,
+   * which is why they answer through one predicate. */
+  return !board->refresh_holding &&
+         ap_arbiter_processor_may_run(&board->arbiter);
 }
 
 const char *ap_board_region_name(ap_board_region_t region) {
@@ -1409,6 +1451,19 @@ bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
     ap_boardreg_set_hsi_graphics(&board->registers,
                                  entry != NULL &&
                                      entry->display != AP_DISPLAY_NONE);
+    /* §2.4.6's refresh cycles, in processor clocks. See `ap_board.h`: the
+     * interval is §3.3's 15 us from the 2681's counter/timer, and a bus tick
+     * here is a processor clock, so the count is `cpu_hz * 15 / 1000000` --
+     * 375 on a 25 MHz machine, and a whole number on every model in the table.
+     *
+     * Out of the one table, like every other machine difference. A model with
+     * no clock recorded gets no refresh rather than a guessed one: zero here
+     * means the counter never fires, which is the honest behaviour for a board
+     * this core cannot say the clock of. */
+    board->refresh_interval_ticks =
+        entry == NULL ? 0u : (uint32_t)((uint64_t)entry->cpu_hz * 15u / 1000000u);
+    board->refresh_ticks_left = board->refresh_interval_ticks;
+    board->refresh_holding = false;
   }
   {
     /* What `011400` reports, on the model that has it: which slots hold boards

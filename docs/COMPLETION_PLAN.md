@@ -6250,39 +6250,22 @@ same number is what let them diverge once already.
       **What would settle it**: the DN3500's own status-register page, which is
       not among the documents held. The observed value is kept, being what this
       machine does. `PROVISIONAL`, marked in `ap_boardreg.h`.
-- [ ] **Refresh cycles are not inserted on the AT bus.** §2.4.6: the system board
-      drives refresh "at **regular intervals (approximately 15 microseconds)**"
-      via "a state machine, driven by a timebase". This core models the refresh
-      *source* — §3.9's 15 µs square wave on the 2681's `OP3` — and not the
-      *cycles*: nothing consumes bus time for it. For a core whose claim is
-      emergent contention, a cycle stolen every 15 µs is not cosmetic, and the
-      same interval explains `MASTER.L`'s documented 15 µs ceiling.
-      **The interval is sourced for both families, 2026-08-21.** §3.3's 4 ms
-      over 256 rows gives **15.625 µs** a row, which is §2.4.6's "approximately
-      15 microseconds" and the modelled `OP3` source. **The DS4000 objection is
-      withdrawn**: it rested on that 4 ms applying to its 1000 rows, which would
-      demand 4 µs a row, and Micron TN-04-30 shows the **rate** is what a part
-      guarantees — 15.6 µs for a standard-refresh device, a 4 Meg × 1 being
-      16 ms / 1,024 cycles — so the period follows the row count and §3.3
-      carried the DS3000's across a clause. Both families refresh a row every
-      15.625 µs, so **one source is right for both** and this can be implemented
-      for either: steal a cycle every `AP_ATBUS_DRAM_ROW_INTERVAL`.
-      **The shape it should take**, since the interval is now determinate:
-      refresh is a **master that asks**, not a penalty anyone adds —
-      `ap_arbiter.h`'s whole argument is that contention is emergent because
-      "masters ask, one wins, and the losers ... simply cannot run a cycle".
-      The state machine is on the system board rather than on a DRQ line, so it
-      ranks above DRQ0. A deadline in `ap_board_bus_tick` asserts it, it holds
-      for one cycle, it releases.
-      **Two things to expect, neither of them a reason not to do it.** It
-      defeats the `dma_possible` fast path — nothing can be asking becomes
-      false every 15.625 µs — so the whole boot takes the long path and gets
-      slower; that is the reference core being right rather than fast, which is
-      this project's stated trade. And it **will move boot timing and may move
-      the console**, unlike every hash re-baseline so far, because a cycle
-      stolen from the processor 64,000 times a second is not cosmetic. Budget a
-      before/after identity boot *and* a diagnosis if the boot changes what it
-      prints.
+- [x] **Refresh cycles are inserted on the AT bus — landed 2026-08-22.**
+      §2.4.6's state machine *inserts* a cycle, so it is stolen rather than
+      arbitrated for: `ap_board_processor_may_run` answers with it directly,
+      and routing it through `ap_arbiter` would have modelled the wrong
+      mechanism at the cost of a BR/BG handshake per refresh.
+      **Counted in bus ticks, not timed**, which keeps it exact: the interval
+      is `cpu_hz × 15 / 1000000` = **375** on a DN3500, and a count can bound
+      `ap_board_bus_ticks`'s batch where an instant could not.
+      **The shortfall is measured, not hidden**: 3,757,058 cycles stolen over
+      350 M instructions and the processor paid for **25.3%** of them, because
+      `ap_m68030_step` runs a whole instruction and only a steal at a boundary
+      is observed. That is the per-cycle-processor item below, now with a number
+      attached. Console byte-identical; hash `E5807E17...` → `E577E1BC...`. The
+      counter is hashed and the tally is not, both asserted.
+      *Verification: `board_suite` 71 → 75 and `board_state_suite` 38 → 40.*
+      Detail in `PROJECT_STATUS.md`.
 - [ ] **Three `MASTER.L` timings — the figures are now in hand, the clock is
       not.** §2.3.2 gives them in prose and **Appendix A's Table A-1 numbers all
       three** for the 6-MHz bus: #75 "Bus Driven from MASTER.L Asserted" 166 ns

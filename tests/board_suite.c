@@ -2525,6 +2525,101 @@ static void test_a_coarse_advance_delivers_the_whole_burst(void) {
   TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_buffered(&b.keyboard));
 }
 
+/* ## §2.4.6's refresh cycles, which the processor pays for
+ *
+ * "The system board provides refresh cycles to the bus at regular intervals
+ * (approximately 15 microseconds) ... A state machine, driven by a timebase,
+ * provides this capability, **inserting refresh cycles on the AT-compatible
+ * bus**."
+ *
+ * This core modelled the refresh *source* -- §3.9's square wave on the 2681's
+ * OP3 -- and not the cycles, so nothing consumed bus time for it. On a core
+ * whose claim is that contention is emergent, a cycle stolen 64,000 times a
+ * second is not cosmetic. */
+static void test_the_refresh_interval_comes_from_the_models_own_clock(void) {
+  ap_board_t b;
+  init(&b);
+
+  /* §3.3 sources the interval from the 2681's counter/timer at 15 us, and a bus
+   * tick here is a processor clock -- so on a 25 MHz DN3500 the interval is
+   * 375 clocks. Derived from the model table rather than written down, which is
+   * what makes it right on a 20 MHz DN3000 too. */
+  TEST_ASSERT_EQUAL_UINT32(375u, b.refresh_interval_ticks);
+
+  /* And it is a whole number of clocks, which is why it can be counted rather
+   * than timed: 15 us at 25 MHz divides exactly, and a fraction here would mean
+   * the count drifted against the square wave it stands for. */
+  TEST_ASSERT_EQUAL_UINT64(0u, (uint64_t)25000000u * 15u % 1000000u);
+}
+
+static void test_the_processor_loses_one_cycle_to_every_refresh(void) {
+  ap_board_t b;
+  init(&b);
+  const uint32_t interval = b.refresh_interval_ticks;
+  TEST_ASSERT_TRUE(interval > 1u);
+
+  /* Every tick up to the interval's leaves the bus with the processor. */
+  for (uint32_t i = 1; i < interval; i++) {
+    ap_board_bus_tick(&b);
+    TEST_ASSERT_TRUE(ap_board_processor_may_run(&b));
+  }
+  TEST_ASSERT_EQUAL_UINT(0u, b.refresh_cycles);
+
+  /* The interval's own tick is the one taken, and the processor cannot run --
+   * not because a penalty was added, but because the bus is busy. */
+  ap_board_bus_tick(&b);
+  TEST_ASSERT_FALSE(ap_board_processor_may_run(&b));
+  TEST_ASSERT_EQUAL_UINT(1u, b.refresh_cycles);
+
+  /* Exactly one, and it is given straight back. A refresh that lasted two ticks
+   * would double the cost of every one of them. */
+  ap_board_bus_tick(&b);
+  TEST_ASSERT_TRUE(ap_board_processor_may_run(&b));
+  TEST_ASSERT_EQUAL_UINT(1u, b.refresh_cycles);
+}
+
+/* The batch in `ap_board_bus_ticks` exists because an idle arbiter makes N
+ * ticks identical to one. A refresh is **not** arbitration -- nothing asks for
+ * it -- so that equivalence stops holding the moment the counter would reach
+ * zero inside the batch, and the batch has to be bounded by it. */
+static void test_a_batch_of_ticks_cannot_step_over_a_refresh(void) {
+  ap_board_t b;
+  init(&b);
+  const uint32_t interval = b.refresh_interval_ticks;
+
+  /* Four whole intervals in one call, which the old batch would have collapsed
+   * into a single tick and lost every refresh inside. */
+  ap_board_bus_ticks(&b, (uint64_t)interval * 4u);
+  TEST_ASSERT_EQUAL_UINT(4u, b.refresh_cycles);
+
+  /* And a batch that stops short of the next one still costs nothing extra, so
+   * the bound is on the refresh and not on batching itself. */
+  const unsigned before = b.refresh_cycles;
+  ap_board_bus_ticks(&b, interval - 2u);
+  TEST_ASSERT_EQUAL_UINT(before, b.refresh_cycles);
+}
+
+/* A batched run and a stepped one must steal the same number of cycles, or the
+ * optimisation is changing the machine rather than skipping work that does
+ * nothing. This is the identity the batch bound exists to preserve. */
+static void test_batched_and_stepped_ticks_steal_the_same_cycles(void) {
+  ap_board_t batched;
+  ap_board_t stepped;
+  init(&batched);
+  init(&stepped);
+
+  const uint64_t ticks = (uint64_t)batched.refresh_interval_ticks * 7u + 13u;
+  ap_board_bus_ticks(&batched, ticks);
+  for (uint64_t i = 0; i < ticks; i++) {
+    ap_board_bus_tick(&stepped);
+  }
+
+  TEST_ASSERT_EQUAL_UINT(stepped.refresh_cycles, batched.refresh_cycles);
+  TEST_ASSERT_EQUAL_UINT32(stepped.refresh_ticks_left,
+                           batched.refresh_ticks_left);
+  TEST_ASSERT_EQUAL_UINT(stepped.bus_ticks, batched.bus_ticks);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_ethernet_card_is_absent_until_it_is_fitted);
@@ -2599,5 +2694,9 @@ int main(void) {
   RUN_TEST(test_a_burst_faster_than_the_wire_is_inhibited_at_sixteen);
   RUN_TEST(test_the_buffered_burst_reaches_the_port_in_order);
   RUN_TEST(test_a_coarse_advance_delivers_the_whole_burst);
+  RUN_TEST(test_the_refresh_interval_comes_from_the_models_own_clock);
+  RUN_TEST(test_the_processor_loses_one_cycle_to_every_refresh);
+  RUN_TEST(test_a_batch_of_ticks_cannot_step_over_a_refresh);
+  RUN_TEST(test_batched_and_stepped_ticks_steal_the_same_cycles);
   return UNITY_END();
 }

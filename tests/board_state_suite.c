@@ -751,6 +751,28 @@ static void test_every_arbiter_field_moves_the_hash(void) {
                      !scratch.arbiter.cpu.three_state);
 }
 
+/* §2.4.6's refresh counter is machine state, not a diagnostic. Two boards
+ * identical but for how many ticks remain before the next stolen cycle diverge
+ * on the next instruction that runs long enough, and an identity harness that
+ * could not see that would call them the same machine. */
+static void test_every_refresh_field_moves_the_hash(void) {
+  MOVES_THE_HASH(scratch.refresh_ticks_left ^= 1u);
+  MOVES_THE_HASH(scratch.refresh_holding = !scratch.refresh_holding);
+  MOVES_THE_HASH(scratch.refresh_interval_ticks ^= 1u);
+}
+
+/* And the tally beside them is **not** hashed, like every other counter here: a
+ * board that has refreshed more times is not in a different state, it has been
+ * running longer. Asserted rather than left to be assumed, because the two
+ * fields sit next to each other and the difference is the whole rule. */
+static void test_the_refresh_tally_does_not_move_the_hash(void) {
+  make_board(&scratch);
+  make_board(&other);
+  scratch.refresh_cycles += 4242u;
+  TEST_ASSERT_EQUAL_HEX64(ap_board_state_hash(&scratch),
+                          ap_board_state_hash(&other));
+}
+
 static void test_every_external_master_field_moves_the_hash(void) {
   MOVES_THE_HASH(scratch.master.unit ^= 1u);
   MOVES_THE_HASH(scratch.master.channel ^= 1u);
@@ -935,6 +957,8 @@ int main(void) {
   RUN_TEST(test_every_parity_bit_moves_the_hash);
   RUN_TEST(test_every_dma_page_register_moves_the_hash);
   RUN_TEST(test_every_arbiter_field_moves_the_hash);
+  RUN_TEST(test_every_refresh_field_moves_the_hash);
+  RUN_TEST(test_the_refresh_tally_does_not_move_the_hash);
   RUN_TEST(test_every_external_master_field_moves_the_hash);
   RUN_TEST(test_every_matrox_field_moves_the_hash);
   RUN_TEST(test_every_ethernet_card_field_moves_the_hash);

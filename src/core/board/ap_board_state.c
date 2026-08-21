@@ -941,6 +941,19 @@ void ap_board_hash(ap_hash_t *st, const ap_board_t *board) {
    * must catch. */
   ap_hash_u8(st, (uint8_t)board->at_bus_series);
 
+  /* **Where the refresh counter stands**, which is machine state and not a
+   * diagnostic: two boards identical but for how many ticks remain before
+   * §2.4.6's next stolen cycle will diverge on the very next instruction that
+   * runs long enough. `refresh_cycles` beside it is a tally and stays out, like
+   * every other counter here.
+   *
+   * The interval itself goes in too, for the reason `at_bus_series` does: it
+   * comes from the model's clock, and two boards refreshing at different rates
+   * are not the same board however alike their registers look. */
+  ap_hash_u32(st, board->refresh_interval_ticks);
+  ap_hash_u32(st, board->refresh_ticks_left);
+  hash_bool(st, board->refresh_holding);
+
   /* The boot PROM in full: which firmware is running is the largest single fact
    * about a boot, and the region is 64 Kbyte at most. Its absence is fed as a
    * marker rather than as nothing, because a machine with no PROM is a real
