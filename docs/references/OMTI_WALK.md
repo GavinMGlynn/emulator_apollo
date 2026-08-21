@@ -10,7 +10,7 @@ Three manuals, and the DN3500's controller is an **8621**.
 
 **220 pages total. None is walked.**
 
-## STATUS: 8 pages read plus **a footer map for PDF 30–45**. The 8621 is named in neither manual; two navigational traps and one unmodelled timing figure are recorded below.
+## STATUS: 9 pages read plus **a footer map for PDF 30–45**. The 8621 is not *listed* but the body text addresses **`862X`**; two navigational traps and one unmodelled timing figure are recorded below.
 
 Record opened 2026-08-21 with the method established and the reading order
 revised by what those three pages said.
@@ -88,13 +88,29 @@ combination of Winchester disk and floppy disk controllers" — so `[OMTI]` call
 not overlap**. `[8000]` documents 8100/8200/8500/8600, `[OMTI]` documents
 8620/8627/8120/8127. Neither documents the **8621**.
 
-**What this costs.** `ap_omti.h` says `[OMTI]` covers "the DN3500's 8621"
-because it is "the same family" — an inference. **Walking these manuals cannot
-turn that into a citation**, because the part is not in them. The inference may
-well be sound (the 8620 is the ESDI+floppy 4-drive part, which is what the
-DN3500 needs) but it stays an inference, and any `ST3` reading taken from
-`[OMTI]` §6.4.4 inherits that status. **That is a real limit on what the
-remaining 213 pages can deliver**, and it is better known now than at page 200.
+**What this costs — and this paragraph is a CORRECTION of itself.** It first
+read: "walking these manuals cannot turn that into a citation, because the part
+is not in them." **That was too strong, and §4.1 shows why.** Its opening
+sentence is "From the perspective of software execution on the host, the **OMTI
+862X** controller looks like two independent controllers", and p. 4-1 uses
+`862X` and "OMTI 8000 series" as the subject throughout. **The body text
+addresses the family by wildcard where Table 1-1 lists individual SKUs**, and
+an 8621 is a 862X.
+
+So the position is narrower than "not covered" and weaker than "cited":
+
+- **Table 1-1 does not list the 8621**, so there is no SKU-level statement of
+  what an 8621 is or how it differs from an 8620.
+- **§4's normative text is written for `862X`**, so the software interface it
+  describes is stated to apply to the whole family — which is exactly the level
+  `ap_omti.h` relies on.
+
+The honest reading is that `ap_omti.h`'s family inference is **well supported
+for the software interface** and **unsupported for anything SKU-specific**.
+Where a section says `862X`, quote it; where it says `8620`, do not silently
+extend it. Any `ST3` reading from §6.4.4 needs that section checked for which
+form it uses — a question with a definite answer, unlike the one recorded here
+before.
 
 Two facts worth keeping from the same page: "Support for high capacity
 (**1.6 Megabyte**) floppies on the 8620 & 8627", and "**Concurrent** data
@@ -196,8 +212,8 @@ they are not evidence any page was walked.
 1. ~~`[8000]` front matter~~ — **done.** It covers 8100/8200/8500/8600, not the
    862x. Dropped to last; see above. The `ap_omti.h` family inference is
    untouched by it.
-2. ~~`[OMTI]` §1.2~~ — **done.** Models are 8620/8627/8120/8127; **no 8621**.
-   The inference cannot become a citation from these manuals.
+2. ~~`[OMTI]` §1.2~~ — **done**, and **§4.1 amended it**: Table 1-1 lists no
+   8621, but the body text says `862X`. See the corrected paragraph above.
 3. **`[OMTI]` §4**, doc pages 4-1 to 4-8 — Table 4-1's four ports and Table 4-3,
    which `ap_omti.h` cites most heavily and which the boot exercises. **Find it
    by walking footers forward from PDF 29 (= 2-19)**, not by arithmetic: §2 runs
