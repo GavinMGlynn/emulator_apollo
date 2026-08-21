@@ -5698,7 +5698,7 @@ same number is what let them diverge once already.
       ROMs are on disk. Verification would be a receive that stalls mid-packet
       and a status read that finds `TMO`.*
 
-- [ ] **`010005-00` must be walked whole — 29 pages, 14 done.** *Started
+- [ ] **`010005-00` must be walked whole — 29 pages, 15 done.** *Started
       2026-08-21; the coverage record is `docs/references/010005-00_WALK.md` and
       its "Resume here" block is the authority, not this item.* `CLAUDE.md`: a document
       that yields one fact this core does not have stops being a reference to
@@ -5720,6 +5720,17 @@ same number is what let them diverge once already.
       broadcast-or-destination-match alone, and `ap_ring_ctl` has no such
       register among its ID, status and timer banks. So a driver that programs a
       mask to take only paging packets would receive everything.
+      **`[MAC]` p. 2-7 settles the architectural half** (walked 2026-08-21):
+      "The type field determines whether a node receives or ignores a message
+      ... Such software control enables nodes to selectively discard or ignore
+      messages **at the hardware level**, effectively enhancing ring
+      performance." That is the ring's own protocol spec, not a per-generation
+      page, so **hardware type filtering is a property of the Apollo ring** and
+      a DS3000 controller without it could not implement the protocol. What
+      p. 2-7 does **not** give is the DS3000's *register* — its address, its bit
+      order, or whether the mask is a single register as on the earlier
+      controllers. So the item narrows from "does it filter at all" to "where is
+      the mask", which is a controller-register question and not a protocol one.
       **Not implemented on those two pages**, because both describe *other*
       controller generations at other addresses, and whether the DS3000's has
       the register is not established by anything read so far. `[MAC]` documents
