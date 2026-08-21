@@ -28,6 +28,25 @@ finished document from a sampled one — occurring in the record itself.* It cos
 nothing this time only because the citations were checked before the re-reading
 started.
 
+**The audit is wider than §5, and so is the correction.** Grepping every `§`
+the OMTI model cites and attributing each to its manual gives, for `[OMTI]`:
+
+| section | evidence | status |
+| --- | --- | --- |
+| §3.4 | quoted verbatim in `ap_omti.h`'s opening — "This allows full concurrent operations between these two sections" — and cited three more times for the two halves running at once | **derived** |
+| §4.1–§4.5 | §4.5 explicitly, "describes the floppy protocol as command phase, busy, result phase"; §4.1–§4.4 already recorded here | **derived** (record said §4.1–§4.4) |
+| §5.1–§5.4 | 37 distinct subsections, §5.4.3 through §5.4.29 | **derived** (record said "owed") |
+| §6.3 | the floppy command set — §6.3.2's N/SC/GPL track fill, §6.3.6's step to track 0, §6.3.7's ST0-and-cylinder, §6.3.10's NCN, §6.3.11's INVALID, and more | **derived** (record said "owed") |
+| §6.4 | already recorded | walked |
+| §1, §2, most of §3, §6.1–§6.2, §7 onward | no citations | **genuinely unread** |
+
+*The claim is bounded deliberately.* A verbatim quote in a comment is strong
+evidence the page was read and the behaviour taken from it; it is **not** proof
+the section was walked field by field, which is this project's standard for
+"walked". So these are marked **derived** rather than walked, and the difference
+is that a field-by-field pass over them could still find something — as §6.4's
+did for `ST3`.
+
 **§5.1.2's COMMAND SET SUMMARY is confirmed against the model, PDF 48 (doc
 5-2)**: all twenty-four commands common to all models, the ST506/412's
 `0C INITIALIZE DRIVE CHARACTERISTICS`, and all three ESDI commands — `10 CHECK

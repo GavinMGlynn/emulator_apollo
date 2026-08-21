@@ -6193,8 +6193,13 @@ same number is what let them diverge once already.
       command chapter is derived into the model**, which an audit of the code's
       citations shows and this item did not — `ap_omti_cdb.h`, `ap_omti.h` and
       `ap_omti.c` cite **37 distinct §5 subsections**, the whole §5.4.3–§5.4.29
-      command run among them. §4.1–§4.4 and §6.4 are walked and recorded. What
-      is genuinely unread is §1–§3, §6.1–§6.3 and §7 onward.
+      command run among them. **§3.4, §4.5 and §6.3's floppy command set are
+      derived too**, on the same evidence — verbatim quotes in the model. §4.1–
+      §4.4 and §6.4 are walked and recorded. What is **genuinely unread** is §1,
+      §2, most of §3, §6.1–§6.2 and §7 onward, plus `[8640]` and `[8000]`.
+      *Derived is not walked*: a verbatim quote shows the page was read, not
+      that the section was covered field by field, and §6.4's pass found `ST3`
+      only by doing the latter.
       **They have NO TEXT LAYER.** The 8621 is the DN3500's disk and floppy controller,
       so the boot path runs through it, and `CLAUDE.md`'s rule that a module is
       presumed incomplete until its register tables are walked applies directly.
