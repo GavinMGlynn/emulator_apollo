@@ -6116,6 +6116,15 @@ below; everything else it found is implemented and recorded in
       *cycles*: nothing consumes bus time for it. For a core whose claim is
       emergent contention, a cycle stolen every 15 µs is not cosmetic, and the
       same interval explains `MASTER.L`'s documented 15 µs ceiling.
+      **The interval is now sourced for the DS3000 and open for the DS4000**
+      (from the DRAM item below, 2026-08-21). §3.3's 4 ms refresh period over
+      256 rows gives **15.625 µs** a row, which is where §2.4.6's "approximately
+      15 microseconds" comes from — so implementing this for a DS3000 should
+      steal a cycle every `AP_ATBUS_DRAM_REFRESH_PERIOD /
+      AP_ATBUS_DRAM_ROWS_DS3000`, not every 15 µs flat, and the two differ by
+      4%. **The DS4000's 1000 rows demand 4 µs**, which the modelled `OP3`
+      source cannot supply; that must be settled before this is implemented for
+      that family, or the refresh load will be wrong by 3.9×.
 - [ ] **Three `MASTER.L` timings — the figures are now in hand, the clock is
       not.** §2.3.2 gives them in prose and **Appendix A's Table A-1 numbers all
       three** for the 6-MHz bus: #75 "Bus Driven from MASTER.L Asserted" 166 ns
