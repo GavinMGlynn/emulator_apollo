@@ -188,7 +188,12 @@ static const ap_board_placement_t DS5500_PLACEMENT[] = {
     {AP_INTR_MASTER_ADDR, 2u * AP_INTR_RANGE, AP_BOARD_REGION_INTERRUPT,
      AP_INTR_MASTER_ADDR},
     {AP_NODEID_ADDR, AP_NODEID_RANGE, AP_BOARD_REGION_NODE_ID, AP_NODEID_ADDR},
-    {AP_ATMAP_BASE, AP_ATMAP_LIMIT - AP_ATMAP_BASE + 1u,
+    /* **4 KB, not the Series 3000/4000's 2 KB** -- `019411-A00` Table 2-5,
+     * `017000`-`017FFF`. Placing the wider region was only safe once the
+     * entry count became a property of the map: with 1024 entries the upper
+     * half would alias onto the lower, which is the exact fault `ap_atmap.h`
+     * records the loaded diagnostic catching. */
+    {AP_ATMAP_BASE, AP_ATMAP_LIMIT_DS5500 - AP_ATMAP_BASE + 1u,
      AP_BOARD_REGION_TRANSLATION_MAP, AP_ATMAP_BASE},
     {AP_DISK_FIXED_ADDR, AP_DISK_FIXED_SIZE, AP_BOARD_REGION_DISK,
      AP_DISK_FIXED_ADDR},
@@ -212,6 +217,7 @@ static const ap_board_map_t DS5500_MAP = {
     .ram_limit = AP_BOARD_RAM_LIMIT_DS5500,
     .prom_size = AP_BOARD_PROM_SIZE,
     .has_translation_map = true,
+    .translation_map_entries = AP_ATMAP_ENTRIES_DS5500,
     .address_mask = 0xFFFFFFFFu,
 };
 
@@ -1498,7 +1504,11 @@ bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
     }
   }
   ap_parity_init(&board->parity);
-  ap_atmap_init(&board->translation_map);
+  /* Sized from the map, so a model's own table decides it. */
+  ap_atmap_init_entries(&board->translation_map,
+                        board->map->translation_map_entries != 0u
+                            ? board->map->translation_map_entries
+                            : AP_ATMAP_ENTRIES);
   ap_intr_reset(&board->interrupts);
   if (!ap_timer_reset(&board->timer)) {
     return false;
@@ -1648,7 +1658,7 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
   case AP_BOARD_REGION_DMA_PAGE:
     return ap_dmapage_read(&board->dma_page, address);
   case AP_BOARD_REGION_TRANSLATION_MAP: {
-    if (!ap_atmap_decodes_to_entry(address)) {
+    if (!ap_atmap_decodes_to_entry(&board->translation_map, address)) {
       if (board->atmap_undescribed_reads == 0u) {
         board->first_atmap_undescribed_read = address;
       }
@@ -1870,7 +1880,7 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
     ap_dmapage_write(&board->dma_page, address, value);
     return;
   case AP_BOARD_REGION_TRANSLATION_MAP: {
-    if (!ap_atmap_decodes_to_entry(address)) {
+    if (!ap_atmap_decodes_to_entry(&board->translation_map, address)) {
       if (board->atmap_undescribed_writes == 0u) {
         board->first_atmap_undescribed_write = address;
       }

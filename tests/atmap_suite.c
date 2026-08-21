@@ -194,12 +194,14 @@ static void test_the_map_decodes_at_the_documented_region(void) {
  * its own address. That passes only if all 1024 are distinct.
  */
 static void test_every_word_of_the_region_is_its_own_entry(void) {
+  ap_atmap_t map;
+  ap_atmap_init(&map);
   TEST_ASSERT_EQUAL_UINT(2048u, AP_ATMAP_LIMIT - AP_ATMAP_BASE + 1u);
   TEST_ASSERT_EQUAL_UINT(2048u, AP_ATMAP_ENTRIES * 2u);
 
-  TEST_ASSERT_TRUE(ap_atmap_decodes_to_entry(AP_ATMAP_BASE));
-  TEST_ASSERT_TRUE(ap_atmap_decodes_to_entry(AP_ATMAP_LIMIT - 1u));
-  TEST_ASSERT_FALSE(ap_atmap_decodes_to_entry(AP_ATMAP_LIMIT + 1u));
+  TEST_ASSERT_TRUE(ap_atmap_decodes_to_entry(&map, AP_ATMAP_BASE));
+  TEST_ASSERT_TRUE(ap_atmap_decodes_to_entry(&map, AP_ATMAP_LIMIT - 1u));
+  TEST_ASSERT_FALSE(ap_atmap_decodes_to_entry(&map, AP_ATMAP_LIMIT + 1u));
 }
 
 /* The diagnostic's own walk, which is the thing that failed on the machine:
@@ -334,6 +336,62 @@ static void test_an_entry_written_as_two_bytes_keeps_both_halves(void) {
                                              AP_ATMAP_TRANSFER_8BIT));
 }
 
+/* ## Two machines, two map sizes -- `019411-A00` Table 2-5 against `[S3K]` §2.5
+ *
+ * The DS5500's map is `017000`-`017FFF`, 4 KB; every other model's is
+ * `017000`-`0177FF`, 2 KB. The plan asked for the firmware evidence to be
+ * checked before changing anything, and it is consistent: the probe at
+ * `01002BF6` walks `017000` to `0177FE` and runs on a DN3500, so the two
+ * machines differ rather than one machine contradicting a manual. */
+static void test_the_ds5500s_map_is_twice_every_other_models(void) {
+  TEST_ASSERT_EQUAL_UINT(2048u, AP_ATMAP_LIMIT - AP_ATMAP_BASE + 1u);
+  TEST_ASSERT_EQUAL_UINT(4096u, AP_ATMAP_LIMIT_DS5500 - AP_ATMAP_BASE + 1u);
+  TEST_ASSERT_EQUAL_UINT(AP_ATMAP_ENTRIES * 2u,
+                         AP_ATMAP_LIMIT - AP_ATMAP_BASE + 1u);
+  TEST_ASSERT_EQUAL_UINT(AP_ATMAP_ENTRIES_DS5500 * 2u,
+                         AP_ATMAP_LIMIT_DS5500 - AP_ATMAP_BASE + 1u);
+}
+
+/* The upper half of a 4 KB map is **storage of its own**, not an alias of the
+ * lower. That aliasing is the fault `ap_atmap.h` records the loaded diagnostic
+ * catching on a 2 KB map, and it is what placing the wider region without a
+ * per-machine entry count would have reintroduced. */
+static void test_the_wider_maps_upper_half_is_not_an_alias(void) {
+  ap_atmap_t map;
+  ap_atmap_init_entries(&map, AP_ATMAP_ENTRIES_DS5500);
+  TEST_ASSERT_EQUAL_UINT(AP_ATMAP_ENTRIES_DS5500, map.entries);
+
+  /* The two addresses one 2 KB map apart, which on the narrow map are one
+   * entry -- the diagnostic's own failing pair, generalised. */
+  const uint32_t low = AP_ATMAP_BASE;
+  const uint32_t high = AP_ATMAP_BASE + (AP_ATMAP_ENTRIES * 2u);
+  ap_atmap_write(&map, low, 0x1111u);
+  ap_atmap_write(&map, high, 0x2222u);
+  TEST_ASSERT_EQUAL_HEX16(0x1111u, ap_atmap_read(&map, low));
+  TEST_ASSERT_EQUAL_HEX16(0x2222u, ap_atmap_read(&map, high));
+
+  /* And the whole 4 KB decodes to entries, where the narrow map stops halfway. */
+  TEST_ASSERT_TRUE(ap_atmap_decodes_to_entry(&map, AP_ATMAP_LIMIT_DS5500 - 1u));
+
+  ap_atmap_t narrow;
+  ap_atmap_init(&narrow);
+  TEST_ASSERT_FALSE(
+      ap_atmap_decodes_to_entry(&narrow, AP_ATMAP_LIMIT_DS5500 - 1u));
+  /* On the narrow map the same pair really is one entry, which is what makes
+   * the assertion above a difference between machines and not a tautology. */
+  ap_atmap_write(&narrow, low, 0x1111u);
+  ap_atmap_write(&narrow, high, 0x2222u);
+  TEST_ASSERT_EQUAL_HEX16(0x2222u, ap_atmap_read(&narrow, low));
+}
+
+/* A caller asking for more than the storage is clamped rather than trusted:
+ * accepting it would make an overrun the map's fault instead of the caller's. */
+static void test_a_map_larger_than_the_storage_is_clamped(void) {
+  ap_atmap_t map;
+  ap_atmap_init_entries(&map, AP_ATMAP_ENTRIES_MAX * 4u);
+  TEST_ASSERT_EQUAL_UINT(AP_ATMAP_ENTRIES_MAX, map.entries);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_an_entry_written_as_two_bytes_keeps_both_halves);
@@ -348,6 +406,9 @@ int main(void) {
   RUN_TEST(test_every_dma_address_translates_within_the_physical_space);
   RUN_TEST(test_the_map_decodes_at_the_documented_region);
   RUN_TEST(test_every_word_of_the_region_is_its_own_entry);
+  RUN_TEST(test_the_ds5500s_map_is_twice_every_other_models);
+  RUN_TEST(test_the_wider_maps_upper_half_is_not_an_alias);
+  RUN_TEST(test_a_map_larger_than_the_storage_is_clamped);
   RUN_TEST(test_the_diagnostics_walk_finds_every_word_distinct);
   RUN_TEST(test_an_entry_reads_back_as_written);
   RUN_TEST(test_a_fresh_map_translates_everything_to_page_zero);

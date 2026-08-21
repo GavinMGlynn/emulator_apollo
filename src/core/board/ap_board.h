@@ -355,6 +355,11 @@ typedef struct {
    * address translation map in its architecture", so a DS3000's DMA reaches
    * physical memory directly and the map's window is not decoded at all. */
   bool has_translation_map;
+  /* How many entries that map has. `019411-A00` Table 2-5 gives the DS5500 4 KB
+   * at `017000`; `[S3K]` §2.5 gives every other model 2 KB. A property of the
+   * board because that is where the two documents disagree -- the part is the
+   * same part. Zero means the Series 3000/4000 count. */
+  unsigned translation_map_entries;
 
   /* Address bits this board's decode keeps. `008778-03` §1.3: "In the Series
    * 3000, the virtual address appears to 'wrap' at 26 bits, the five high-order

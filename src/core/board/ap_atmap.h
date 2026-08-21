@@ -104,6 +104,27 @@
  * questions and conflating them is what this was. */
 #define AP_ATMAP_ENTRIES 1024u
 
+/* **And the DS5500's map is twice that.** `019411-A00` Table 2-5 gives it
+ * `017000`-`017FFF`, 4 KB, where `[S3K]` §2.5 gives the Series 3000/4000
+ * `017000`-`0177FF`, 2 KB. Read from the page image, not a summary.
+ *
+ * So the size is a property of the **machine** and not of the part, and this is
+ * why it could not simply be doubled: `AP_ATMAP_ENTRIES` is what
+ * `ap_board_hash_translation_map` walked, so growing it globally would have
+ * moved every model's state hash -- the reference boot's and every golden --
+ * for a change that concerns one model. The count now lives in the map, the
+ * storage is sized for the larger, and a board says which it has.
+ *
+ * The firmware evidence the plan asked to check first is consistent with this:
+ * the probe at `01002BF6` walks `017000` to `0177FE`, which is the 2 KB map,
+ * and it runs on a DN3500. Two machines differing, exactly as the item
+ * suspected -- not one machine contradicting a manual. */
+#define AP_ATMAP_ENTRIES_DS5500 2048u
+
+/* Storage is sized for the largest any model has, so one structure serves every
+ * board and `entries` says how much of it is real. */
+#define AP_ATMAP_ENTRIES_MAX AP_ATMAP_ENTRIES_DS5500
+
 /* Where a DMA cycle's index starts. `019411-A00` §4.2.1.4 says how many entries
  * a transfer reaches and which bits select them, and not where in the map those
  * entries begin. A DMA address is an offset within the AT bus memory window at
@@ -115,9 +136,11 @@
 #define AP_ATMAP_PAGE_SHIFT 10u
 #define AP_ATMAP_PAGE_SIZE (1u << AP_ATMAP_PAGE_SHIFT)
 
-/* `[S3K]` §2.5: `017000` - `0177FF`. */
+/* `[S3K]` §2.5: `017000` - `0177FF`. The DS5500's own limit is
+ * `AP_ATMAP_LIMIT_DS5500`; `019411-A00` Table 2-5. */
 #define AP_ATMAP_BASE 0x017000u
 #define AP_ATMAP_LIMIT 0x0177FFu
+#define AP_ATMAP_LIMIT_DS5500 0x017FFFu
 
 /* The width of the transfer being translated, which decides how many address
  * bits index the map and where the page offset comes from. An enum rather than
@@ -132,10 +155,22 @@ typedef enum {
 typedef struct {
   /* "The 16-bit Address Translation Map entry (a physical page number, bits
    * <25:10>)". Stored as written by software; the translation shifts it. */
-  uint16_t entry[AP_ATMAP_ENTRIES];
+  uint16_t entry[AP_ATMAP_ENTRIES_MAX];
+  /* How many of them this machine has. A property of the board, not the part --
+   * see `AP_ATMAP_ENTRIES_DS5500`. Everything that indexes or walks the map
+   * uses this, so a model with the smaller map hashes exactly as it did before
+   * the larger one existed. */
+  unsigned entries;
 } ap_atmap_t;
 
+/* The Series 3000/4000 map, 1024 entries. */
 void ap_atmap_init(ap_atmap_t *map);
+
+/* A map of a stated size, for a board whose own table gives one. Clamped to
+ * `AP_ATMAP_ENTRIES_MAX` rather than trusted: a caller asking for more than the
+ * storage would otherwise index past it, and silently accepting the request
+ * would make the overrun the *map's* fault instead of the caller's. */
+void ap_atmap_init_entries(ap_atmap_t *map, unsigned entries);
 
 /* How many entries a transfer of this width can index: 64 for 8-bit, 128 for
  * 16-bit. Exposed because it is the difference between the two cases that a
@@ -174,7 +209,8 @@ void ap_atmap_init(ap_atmap_t *map);
  * reason to stop asking -- a region that grew, or a model with a smaller map,
  * would need the distinction back. */
 [[nodiscard]] bool ap_atmap_in_range(uint32_t address);
-[[nodiscard]] bool ap_atmap_decodes_to_entry(uint32_t address);
+[[nodiscard]] bool ap_atmap_decodes_to_entry(const ap_atmap_t *map,
+                                             uint32_t address);
 [[nodiscard]] uint16_t ap_atmap_read(const ap_atmap_t *map, uint32_t address);
 void ap_atmap_write(ap_atmap_t *map, uint32_t address, uint16_t value);
 

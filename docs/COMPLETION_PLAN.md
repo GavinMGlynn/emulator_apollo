@@ -4573,23 +4573,18 @@ discipline throughout.
       table — a supported model with an unmodelled bus is the kind of gap that
       reads as working until something uses it.
 
-- [ ] **The DS5500's address translation map is 4 KB, and ours is 2 KB.**
-      *Confirmed from the page image 2026-08-21*: `019411-A00` Table 2-5 gives
-      `017000`-`017FFF`, which is 4 KB, against `[S3K]` §2.5's `017000`-`0177FF`.
-      Walk record `docs/references/019411-A00_WALK.md`. **Check before changing
-      `AP_ATMAP_ENTRIES`**: the firmware evidence at `01002BF6` walks `017000`
-      to `0177FE`, and if that probe is a DS3500's then the two machines differ
-      and the constant must become per-model rather than simply doubling.
-      `PROVISIONAL`. Table 2-5 gives `017000`-`017FFF` where `[S3K]` §2.5 gives
-      `017000`-`0177FF`, and `AP_ATMAP_LIMIT` follows the latter. Placing the
-      wider region as things stand would alias its upper half onto its lower —
-      the exact fault `ap_atmap.h` records the loaded diagnostic catching — so
-      the DS5500 map keeps 2 KB and this is named rather than approximated.
-      What would close it: the region size becoming a property of
-      `ap_board_map_t` rather than the constant `AP_ATMAP_ENTRIES`, which is
-      what `ap_board_hash_translation_map` walks. Growing that constant globally
-      would change **every** model's state hash, so the widening has to be
-      per-map or the reference hash and every golden go with it.
+- [x] **The DS5500's address translation map is 4 KB — implemented 2026-08-22.**
+      `019411-A00` Table 2-5 gives `017000`-`017FFF` against `[S3K]` §2.5's
+      `017000`-`0177FF`. **The firmware evidence checked first, as this item
+      asked**: the probe at `01002BF6` walks `017000` to `0177FE` and runs on a
+      DN3500, so the two machines differ rather than one contradicting a manual.
+      The count is now a property of `ap_atmap_t`, the hasher walks it instead of
+      `AP_ATMAP_ENTRIES`, and only the DS5500 map is widened — so **no other
+      model's state hash moved**, which is what growing the constant globally
+      would have done. `PROVISIONAL` lifted.
+      *Verification: `atmap_suite` 17 → 20 — the two limits against their entry
+      counts, the wider map's upper half proved **not** an alias with the narrow
+      map shown to alias the same pair, and an oversized request clamped.*
 - [x] **The DS5500's `010200` is a cache *status* register**, and is now one:
       `019411-A00` §4.2.1.14, 8-bit read-only, `HSI Present <3>` and
       `MEM Time <0>`, where Table 2-8's row at that address is the writable

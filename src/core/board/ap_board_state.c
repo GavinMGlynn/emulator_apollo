@@ -59,7 +59,13 @@ void ap_board_hash_translation_map(ap_hash_t *st, const ap_atmap_t *map) {
    * before storage and reach were separated in `ap_atmap.h`. The loop was
    * right; the sentence was describing a map that no longer existed. */
   ap_hash_group_begin(st, "entries");
-  for (unsigned i = 0; i < AP_ATMAP_ENTRIES; i++) {
+  /* **The machine's own count, not the constant.** A DS5500's map is 4 KB and
+   * every other model's is 2 KB (`019411-A00` Table 2-5 against `[S3K]` §2.5),
+   * and walking a fixed `AP_ATMAP_ENTRIES` would either miss half of the
+   * larger map or hash storage the smaller one does not have -- which is why
+   * the constant could not simply be doubled: it would have moved every
+   * model's reference hash for a change that concerns one. */
+  for (unsigned i = 0; i < map->entries; i++) {
     ap_hash_u16(st, map->entry[i]);
   }
   ap_hash_group_end(st);
