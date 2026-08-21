@@ -1295,3 +1295,48 @@ endpoints, and this one's lower endpoint was never checked — it was written fr
 what the code happened to cite, and the code cited §5.4.3 first because REQUEST
 SENSE is what a driver reaches for. *Sections the model never needed are exactly
 the sections a citation-derived coverage claim cannot see.*
+
+
+## §3, HOST ELECTRICAL INTERFACE — generic ISA, and one sentence that matters
+
+PDF 33-40, doc 3-1 to 3-7. Walked. Most of it is the IBM AT I/O channel
+reproduced: §3.1 introduction, §3.2's four pin tables (62-pin component and
+solder sides, 36-pin component and solder sides — `IRQ14` at `D7`, `DRQ5`/`6`/`7`
+at `D11`/`D13`/`D15`, the standard AT assignment), and §3.3's signal
+descriptions. It is the host's bus, not the controller's behaviour, and this
+core models the register interface rather than the edge connector.
+
+**Two things in it are worth having.**
+
+*The 167 ns is confirmed as generic.* §3.3's `CLK`: "This is the **6-MHz** system
+clock ... a cycle time of **167 nanoseconds**." That is the IBM AT's number
+reproduced in a third-party manual, not a measurement of anything Apollo built,
+and this record already reasoned so from `008778-03` §2.3.2. It is now confirmed
+from the OMTI's own side, and it does **not** unblock the DMA-transfer-duration
+item, which needs the DS3500's bus clock and not the AT's. §3.3 also gives `OSC`
+as 14.31818 MHz with a 70 ns period, and §3.1's electrical rule — "a maximum of
+two low-power Shottky (LS) loads per line".
+
+*§3.4's first sentence, which this project had never quoted and which changes
+how its own model reads.* The header of `ap_omti.h` quoted "This allows full
+concurrent operations between these two sections"; the sentence before it is:
+"The OMTI 8000 series is partitioned into **three** distinct sections - the
+floppy disk logic and the Winchester disk logic and the **QIC 36 section**. **The
+first two sections share the same physical PCB board** but are otherwise
+independent."
+
+So "these two sections" is two of three, and the qualifier "the first two ...
+share the same physical PCB board" is precisely what licenses this core's
+two-half model — quoting only the second sentence removed the justification and
+left the conclusion. The third section is absent from this board rather than
+unmodelled: §2's connectors are `J1` floppy, `J2` Winchester control, `J3`/`J4`
+Winchester data, and Figure 2.2 draws the same four with no tape connector. The
+distinction matters because "absent from the part" needs no `PROVISIONAL` and
+"unimplemented" does.
+
+*And the tape is a different interface anyway*: QIC-**36** is a drive interface,
+QIC-**02** is a host interface, and Apollo's tape is the latter on its own part.
+
+**Coverage note.** §3.5 onward, if any, has not been reached; doc 3-7 ends with
+§3.4's three sentences and the page is otherwise blank, which usually means a
+section boundary. §3.1-§3.4 are walked.

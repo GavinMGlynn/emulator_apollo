@@ -19,6 +19,25 @@
  * controller with a mode bit. They are even placed 74 KB apart in Apollo's
  * address space -- measured, `FINDINGS.md` C22.
  *
+ * ### "These two sections" is two of **three**, and the missing one is not a gap
+ *
+ * §3.4's quoted sentence is its second. Its first: "The OMTI 8000 series is
+ * partitioned into **three** distinct sections - the floppy disk logic and the
+ * Winchester disk logic and the **QIC 36 section**. **The first two sections
+ * share the same physical PCB board** but are otherwise independent."
+ *
+ * That qualifier is what licenses this two-half model, and quoting only the
+ * second sentence hid it. The third section is a tape interface that is not on
+ * this board -- §2's connector list is `J1` floppy, `J2` Winchester control,
+ * `J3` and `J4` Winchester data, with no tape connector, and Figure 2.2's board
+ * diagram shows the same four. So the QIC-36 logic belongs to other members of
+ * the 8000 series and is **absent from the 862X**, which is a different claim
+ * from unimplemented and is why no `PROVISIONAL` is raised for it.
+ *
+ * This machine's tape is a separate part on a different interface: QIC-**02**
+ * is a host interface where QIC-36 is a drive interface, and Apollo's is the
+ * former. See `board/ap_tape.h`.
+ *
  * ## What is modelled and what is not
  *
  * The two register sets and their documented read/write asymmetries. **Not** the
