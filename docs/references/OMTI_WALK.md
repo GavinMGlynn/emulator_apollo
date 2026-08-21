@@ -10,7 +10,10 @@ Three manuals, and the DN3500's controller is an **8621**.
 
 **220 pages total. None is walked.**
 
-## STATUS: NOT STARTED. Record opened 2026-08-21 with the method established.
+## STATUS: 3 of 220 pages read — `[8000]`'s cover and title page only.
+
+Record opened 2026-08-21 with the method established and the reading order
+revised by what those three pages said.
 
 ## **These PDFs have NO TEXT LAYER. Read this before planning any work on them.**
 
@@ -44,19 +47,30 @@ through it. `CLAUDE.md`'s rule that a misbehaving module is presumed incomplete
 until its register tables are walked applies to it directly, and the register
 walks done elsewhere in this project have averaged a defect every few tables.
 
-**`[8000]` is the most interesting of the three and the least consulted.**
-`[OMTI]`'s title page lists only the **8620 and 8627**; `ap_omti.h` records that
-it is "the same family, so it covers the DN3500's 8621" — an inference, not a
-statement. A manual titled *8000 Series* may name the 8621 outright and may
-differ from `[OMTI]` where the parts differ. **Whether it names the 8621 is
-currently unknown**, and the search that appeared to answer it did not.
+**`[8000]` covers a different product line — checked 2026-08-21, and this
+corrects an earlier guess in this same record.** Its title page (PDF 3,
+Publication No. 3001241) lists **Models: OMTI 8100, 8200, 8500 and 8600**. None
+of those is an 862x. I had written here that `[8000]` was "the most interesting
+of the three" on the assumption that a manual titled *8000 Series* would cover
+the whole series; it does not.
+
+**What that does and does not settle.** It does not name the 8620, 8621 or 8627,
+so it is not a second source for the Apollo's part and should drop to last in
+the reading order — 71 pages off the critical path. It does **not** establish
+that "8600" and "8620" are unrelated: whether `8600` denotes a family that
+includes the 862x parts is not stated on the title page, and only §1 would say.
+Recorded as unresolved rather than assumed either way, because the cost of
+being wrong is reading the wrong manual for a week.
+
+`[OMTI]` therefore remains the primary and its title page still lists only the
+**8620 and 8627**, so `ap_omti.h`'s "same family, so it covers the DN3500's
+8621" stays an **inference**. Nothing found so far turns it into a citation.
 
 ## Suggested order when this is picked up
 
-1. **`[8000]`, front matter and contents** — reading only enough to learn
-   whether it covers the 8621 and how it is organised. That answers whether
-   `ap_omti.h`'s family inference is safe, which bears on every constant in the
-   file. **Cheapest high-value question in the set.**
+1. ~~`[8000]` front matter~~ — **done.** It covers 8100/8200/8500/8600, not the
+   862x. Dropped to last; see above. The `ap_omti.h` family inference is
+   untouched by it.
 2. **`[OMTI]` §4** — Table 4-1's four ports and Table 4-3, which `ap_omti.h`
    cites most heavily and which the boot exercises.
 3. **`[OMTI]` §5 and §6** — the fixed-disk and floppy command sets, walked
@@ -70,5 +84,10 @@ three live bits and five constants with bit 0 "not used - always 1";
 `002398-04` p. 12-14 draws the generic 765's eight, each "from drive". All three
 resolution tiers are recorded as exhausted for that item — but **the firmware
 tier and the oracle tier were checked, and the reference tier was checked only
-at the two sections named**. If `[8000]` covers the 8621 and states ST3
-differently, that is a fourth reading nobody has looked for.
+at the two sections named**.
+
+The hope that `[8000]` might hold a fourth reading is **gone**: it covers a
+different product line. What remains is that `[OMTI]` and `[8640]` have only
+ever been *queried* at §6.4.4 and §5.6.4. Walking them whole is the only
+reference-tier move left, and it may well confirm rather than change the
+reading.

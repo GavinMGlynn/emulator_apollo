@@ -6048,11 +6048,15 @@ same number is what let them diverge once already.
       8621" and actually means "cannot be searched". Any existing claim of the
       form "the OMTI manuals do not mention X" needs checking against what it
       rests on. Budget several sessions, not one.
-      **Cheapest high-value first step**: `[8000]`'s front matter and contents.
-      `[OMTI]`'s title page lists only the **8620 and 8627**, and `ap_omti.h`
-      records covering the 8621 as a *family inference*. If `[8000]` names the
-      8621 outright, that inference becomes a citation — and if it states `ST3`
-      differently, it is a fourth reading nobody has looked for.
+      **First step taken, and it shrank the job**: `[8000]`'s title page lists
+      **Models: OMTI 8100, 8200, 8500, 8600** — no 862x. It covers a different
+      product line, is not a second source for the Apollo's 8621, and drops to
+      last: **71 of the 220 pages leave the critical path**. It does *not*
+      establish that `8600` and `8620` are unrelated — only §1 would — so that
+      is recorded as unresolved rather than assumed.
+      `[OMTI]` remains primary, its title page still lists only the **8620 and
+      8627**, and `ap_omti.h`'s "same family, so it covers the 8621" is still an
+      **inference** with nothing yet turning it into a citation.
 
 - [ ] **ST3's five constant bits** — the walk's remaining `PROVISIONAL`, and
       **all three resolution tiers are now exhausted**. `[OMTI]` §6.4.4 and the
