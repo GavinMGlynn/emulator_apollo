@@ -335,6 +335,61 @@ static void test_an_at_device_read_costs_a_machine_more_than_memory(void) {
   TEST_ASSERT_TRUE(r.clocks < device_clocks);
 }
 
+
+/* `008778-03` §3.3's DRAM figures and §2.3.2's `IO_CH_RDY` ceiling, each exact
+ * on the time base. A rounded constant here would drift against every other
+ * clock in the machine, which is the property `AP_TIME_BASE_HZ` exists to give
+ * and the reason it is asserted rather than assumed. */
+static void test_the_dram_figures_land_exactly_on_the_time_base(void) {
+  TEST_ASSERT_EQUAL_UINT64((ap_time_t)2585088u, AP_ATBUS_DRAM_RAS_TICKS);
+  TEST_ASSERT_EQUAL_UINT64((ap_time_t)1292544u, AP_ATBUS_DRAM_CAS_TICKS);
+  TEST_ASSERT_EQUAL_UINT64((ap_time_t)86169600000u,
+                           AP_ATBUS_DRAM_REFRESH_PERIOD);
+  TEST_ASSERT_EQUAL_UINT64((ap_time_t)53856000u, AP_ATBUS_IO_CH_RDY_MAX);
+
+  /* Exact, not merely close: the base divides by each figure's denominator. */
+  TEST_ASSERT_EQUAL_UINT64(0u, (ap_time_t)AP_TIME_BASE_HZ * 120u % 1000000000u);
+  TEST_ASSERT_EQUAL_UINT64(0u, (ap_time_t)AP_TIME_BASE_HZ * 60u % 1000000000u);
+  TEST_ASSERT_EQUAL_UINT64(0u, (ap_time_t)AP_TIME_BASE_HZ * 4u % 1000u);
+  TEST_ASSERT_EQUAL_UINT64(0u, (ap_time_t)AP_TIME_BASE_HZ * 25u % 10000000u);
+
+  /* RAS is twice CAS, which is the one relation between them the figures
+   * state implicitly and a transposed pair would break. */
+  TEST_ASSERT_EQUAL_UINT64(AP_ATBUS_DRAM_CAS_TICKS * 2u,
+                           AP_ATBUS_DRAM_RAS_TICKS);
+}
+
+/* The per-row refresh interval each family's figures imply.
+ *
+ * The DS3000's comes out at 15.625 us, which is §2.4.6's "approximately 15
+ * microseconds" and the fixed 15 us square wave this core models on the 2681's
+ * OP3 — so the refresh source, which was modelled from §3.9 alone, is
+ * confirmed to be the right interval for the memory behind it.
+ *
+ * The DS4000's comes out at 4 us, four times faster, which that source cannot
+ * supply. Asserted so the discrepancy is a fact under test rather than a
+ * sentence in a comment: it is `PROVISIONAL` and named on the plan. */
+static void test_the_two_families_imply_different_refresh_intervals(void) {
+  /* In nanoseconds, to keep the arithmetic readable. */
+  const ap_time_t ns = (ap_time_t)AP_TIME_BASE_HZ / 1000000000u;
+
+  const ap_time_t ds3000 =
+      AP_ATBUS_DRAM_REFRESH_PERIOD / AP_ATBUS_DRAM_ROWS_DS3000 / ns;
+  const ap_time_t ds4000 =
+      AP_ATBUS_DRAM_REFRESH_PERIOD / AP_ATBUS_DRAM_ROWS_DS4000 / ns;
+
+  TEST_ASSERT_EQUAL_UINT64(15625u, ds3000); /* 15.625 us */
+  TEST_ASSERT_EQUAL_UINT64(4000u, ds4000);  /* 4.000 us */
+
+  /* The DS3000 sits within a few percent of the modelled 15 us source. The
+   * DS4000 is out by the row ratio, 1000/256 = 3.906 -- near four but not
+   * four, so it is asserted as the ratio rather than rounded. */
+  TEST_ASSERT_TRUE(ds3000 > 15000u && ds3000 < 16000u);
+  TEST_ASSERT_EQUAL_UINT64(AP_ATBUS_DRAM_ROWS_DS4000 * ds4000,
+                           AP_ATBUS_DRAM_ROWS_DS3000 * ds3000);
+  TEST_ASSERT_TRUE(ds3000 * 1000u / ds4000 == 3906u);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_each_appendix_runs_its_bus_at_half_its_clock);
@@ -348,5 +403,7 @@ int main(void) {
   RUN_TEST(test_an_at_memory_read_costs_more_than_a_write);
   RUN_TEST(test_a_faster_processor_waits_more_clocks_for_the_same_card);
   RUN_TEST(test_an_at_device_read_costs_a_machine_more_than_memory);
+  RUN_TEST(test_the_dram_figures_land_exactly_on_the_time_base);
+  RUN_TEST(test_the_two_families_imply_different_refresh_intervals);
   return UNITY_END();
 }

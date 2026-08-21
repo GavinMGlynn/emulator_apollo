@@ -207,4 +207,47 @@ typedef struct {
 [[nodiscard]] unsigned ap_atbus_centiclocks(const ap_atbus_timing_t *timing,
                                             ap_atbus_cycle_t cycle, bool read);
 
+/* ---- DRAM access times and `IO_CH_RDY`'s ceiling, `008778-03` ------------ */
+
+/* §3.3 gives both families the same DRAM figures -- **120 ns RAS** and
+ * **60 ns CAS** -- and a **4 ms refresh period** over **256 row addresses** on
+ * the DS3000 or **1000** on the DS4000. §2.3.2 caps `IO_CH_RDY` held low at
+ * **2.5 us**.
+ *
+ * All four land on the time base with nothing left over: 2,585,088 units for
+ * RAS, 1,292,544 for CAS, 53,856,000 for the `IO_CH_RDY` ceiling and
+ * 86,169,600,000 for the refresh period. Asserted in `atbus_suite` rather than
+ * trusted, on the same principle as the ring's byte time.
+ *
+ * **Named, and enforced by nothing.** No access here consumes RAS or CAS time,
+ * no bus cycle is stolen for refresh, and a device holding `IO_CH_RDY` low
+ * forever is not detected. These are constants so a later reader has the
+ * figures with their citation, not a claim that memory timing is modelled --
+ * `ap_atbus_access_time` above models the *bus* cycle, which is a different
+ * thing from the DRAM behind it.
+ *
+ * ## The per-row interval, and a question the two figures raise
+ *
+ * A 4 ms period over 256 rows is **15.625 us** a row, which is §2.4.6's
+ * refresh "at regular intervals (approximately 15 microseconds)" and the fixed
+ * 15 us square wave this core already models on the 2681's `OP3`. Those agree,
+ * and the agreement is worth having: the refresh *source* was modelled from
+ * §3.9 without anything confirming the interval was right for the memory.
+ *
+ * **The DS4000 does not fit.** 4 ms over 1000 rows is **4 us** a row, which is
+ * 1000/256 = **3.906 times** faster than the source this core models and than
+ * §2.4.6 describes -- near four, and asserted as the row ratio rather than
+ * rounded to it, because a test that rounded said 4 and the arithmetic says 3. One
+ * of three things is true and no page held here says which: the DS4000 has a
+ * different refresh source, or it refreshes several rows per cycle, or the
+ * 1000-row figure counts something other than what must be walked in 4 ms.
+ * `PROVISIONAL`, and on the plan. It matters because the DS4000 is a modelled
+ * family, so a refresh interval that is wrong by four is wrong for it. */
+#define AP_ATBUS_DRAM_RAS_TICKS ((ap_time_t)AP_TIME_BASE_HZ * 120u / 1000000000u)
+#define AP_ATBUS_DRAM_CAS_TICKS ((ap_time_t)AP_TIME_BASE_HZ * 60u / 1000000000u)
+#define AP_ATBUS_DRAM_REFRESH_PERIOD ((ap_time_t)AP_TIME_BASE_HZ * 4u / 1000u)
+#define AP_ATBUS_DRAM_ROWS_DS3000 256u
+#define AP_ATBUS_DRAM_ROWS_DS4000 1000u
+#define AP_ATBUS_IO_CH_RDY_MAX ((ap_time_t)AP_TIME_BASE_HZ * 25u / 10000000u)
+
 #endif /* APOLLO_BOARD_AP_ATBUS_H */

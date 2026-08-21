@@ -6132,10 +6132,26 @@ below; everything else it found is implemented and recorded in
       neither of its two addresses. A timestamp would add unexercised state to
       the identity hash for no behaviour. Closes when a PC Coprocessor is
       modelled, not before.
-- [ ] **DRAM access times, and `IO_CH_RDY`'s 2.5 µs ceiling.** §3.3 gives both
-      families **120 ns RAS / 60 ns CAS**, a 4 ms refresh period over 256 row
-      addresses (DS3000) or 1000 (DS4000). §2.3.2 caps `IO_CH_RDY` low at 2.5 µs.
-      None is modelled or enforced.
+- [ ] **DRAM access times, and `IO_CH_RDY`'s 2.5 µs ceiling — the figures are
+      recorded, the enforcement is not.** §3.3 gives both families **120 ns RAS
+      / 60 ns CAS** and a **4 ms refresh period** over **256 row addresses**
+      (DS3000) or **1000** (DS4000); §2.3.2 caps `IO_CH_RDY` low at **2.5 µs**.
+      All four are now constants in `board/ap_atbus.h` with their citations, and
+      all four land on the time base exactly — asserted, not assumed.
+      **Still enforced by nothing**: no access consumes RAS or CAS time, no
+      cycle is stolen for refresh, and a device holding `IO_CH_RDY` low for ever
+      is not detected. Naming is not modelling and the header says so.
+      *What the figures did settle*: 4 ms over 256 rows is **15.625 µs** a row,
+      which is §2.4.6's "approximately 15 microseconds" and the fixed 15 µs
+      square wave already modelled on the 2681's `OP3`. That source was taken
+      from §3.9 alone; it is now confirmed to be the right interval for the
+      memory behind it.
+      **And one they opened**: the DS4000's 4 ms over 1000 rows is **4 µs** a
+      row, 1000/256 = **3.906×** faster than that source. Either the DS4000 has
+      a different refresh source, or it refreshes several rows per cycle, or the
+      1000 counts something other than what must be walked in 4 ms. No page held
+      here says which. `PROVISIONAL`, and it matters because the DS4000 is a
+      modelled family. *Verification: `atbus_suite` 11 -> 13.*
 - [ ] **The 2681's modem-control signals — blocked on a pin assignment, and
       the gap is narrower than this item claimed.** §3.9 and Figures 3-4/3-5
       list DTR and DCD among the six RS-232 signals SIO1/2/3 carry, with their
