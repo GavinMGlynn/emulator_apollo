@@ -356,9 +356,26 @@ typedef enum {
  * the bits, the board ties five of them" describes a real arrangement rather
  * than a convenient story.
  *
- * The discriminator is unchanged and the tier list is now complete: the
+ * **SETTLED 2026-08-21 by walking `[OMTI]` §6.4 in order, and by none of the
+ * three tiers.** §6.4.4 gives `ST3` verbatim: bit 6 write protect, bit 4 track 0
+ * "status of the **'ready'** signal", bit 2 head address "status of the
+ * 'side-select' signal", bits 7/5/3/1 always zero and **bit 0 always 1**. That
+ * is this table exactly, the name-versus-description contradiction included.
+ *
+ * **What settled it was the neighbouring register.** §6.4.1 says `ST0` bits 3
+ * and 2 are "Not Used - Always zero", and those are precisely the generic 765's
+ * `NR` and `HD` -- which §6.4.4 shows reappearing in `ST3` at bits 4 and 2. So
+ * the OMTI **moves** the drive signals out of `ST0` and into `ST3`; it does not
+ * lose them. That makes `002398-04`'s tables an account of **different
+ * silicon**, the bare 765 of chapter 8's family, rather than a rival account of
+ * this board -- which is what the argument above supposed and could not
+ * demonstrate. The five constants stand and the `PROVISIONAL` is lifted.
+ *
+ * The tier list is kept for the record and is no longer load-bearing: the
  * references say both things, the firmware never issues `SENSE DRIVE STATUS`,
- * and the oracle wraps a generic part. Only Domain/OS's floppy driver is left.
+ * and the oracle wraps a generic part. None was needed in the end. Reading the
+ * part's own manual **in order** was, and the answer was one page from a
+ * section this project had queried twice without walking.
  *
  * Bit 4's description in *both* OMTI manuals contradicts its own name: "Track 0
  * (TO) - Status of the 'ready' signal from the diskette drive". The name is

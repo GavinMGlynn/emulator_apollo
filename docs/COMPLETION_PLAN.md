@@ -6099,45 +6099,22 @@ same number is what let them diverge once already.
       §6.4.4 inherits that status. Known at page 7 rather than page 200, which
       is the point of reading §1.2 first.
 
-- [ ] **ST3's five constant bits** — the walk's remaining `PROVISIONAL`, and
-      **all three resolution tiers are now exhausted**. `[OMTI]` §6.4.4 and the
-      8640's §5.6.4 give ST3 three live bits and five constants, with bit 0
-      "not used - always 1"; `002398-04` p. 12-14 draws the generic 765's eight,
-      each "from drive". This core follows the part's own manual; the reasoning,
-      and the third printing of the same table, are in `ap_omti.h`.
-      - *Reference*: says both things, and the handbook's two printings are the
-        **same table** — chapter 8 for a family with a bare 765, chapter 12 for
-        one behind an OMTI — so it is not an independent claim twice.
-      - *Firmware*: exhausted. The boot PROM's floppy path from `002A86` never
-        issues `SENSE DRIVE STATUS`, so it never reads ST3. Do not search the
-        ROM again.
-      - *Oracle* (checked 2026-08-21): **cannot arbitrate.** MAME's
-        `ISA16_OMTI8621_APOLLO` instantiates a **stock `UPD765A`** inside and
-        exposes it through `fdc_map`, modelling no OMTI tie-off at all. Its
-        `get_st3` takes unit and head from `command[1] & 7`, so it disagrees
-        with this core on **bit 0** as well — for unit 0 it returns 0 where this
-        returns 1. A modelling choice, not a measurement. It does corroborate
-        the *structure*: the 8621 genuinely contains a 765 as a discrete part,
-        so "the silicon has the bits, the board ties five" is a real
-        arrangement and not a convenient story.
-      **What is left is Domain/OS's floppy driver** — on disk, not in ROM, and
-      needing a running system that uses the floppy. A driver branching on bit 5
-      or on bit 0 settles it either way.
-
-## The `008778-03` whole-document walk
-
-`CLAUDE.md`: a document that yields one unimplemented fact is read **whole**.
-`008778-03` triggered it on 2026-08-19 (Table 2-3's IRQ1). The coverage record —
-one row per page range, including the ones that yield nothing — is
-`docs/references/008778-03_WALK.md`, which is where the reasoning lives; this
-section is only the list of **gaps the walk has opened and not yet closed**, so
-that they are findable from the plan rather than from a reference file.
-
-**FINISHED: 209 of 209 pages.** Chapters 1–16, both appendices, the index and
-the back matter. Nothing owed. The gaps it opened and left open are the items
-below; everything else it found is implemented and recorded in
-`PROJECT_STATUS.md`. **Next under the same rule: `002398-04`, 330 pages.**
-
+- [x] **ST3's five constant bits — settled 2026-08-21**, by walking `[OMTI]`
+      §6.4 in order rather than by any of the three resolution tiers, all of
+      which this item had correctly recorded as exhausted.
+      §6.4.4 gives `ST3` verbatim and it is `ap_omti.h`'s table exactly, bit 4's
+      name-versus-description contradiction included. **What settled it was the
+      neighbouring register**: §6.4.1 calls `ST0` bits 3 and 2 "Not Used -
+      Always zero", and those are the generic 765's `NR` and `HD` — which
+      §6.4.4 shows reappearing in `ST3` at bits 4 and 2. The OMTI **moves** the
+      drive signals rather than losing them, which makes `002398-04`'s tables a
+      description of **different silicon** (chapter 8's bare-765 family) rather
+      than a rival account of this board. That is what the header's argument
+      supposed and could not demonstrate; it can now.
+      The five constants stand, and the `PROVISIONAL` is lifted.
+      *Verification: `ap_omti.h`'s `ST3` block against p. 6-7, and `afd_suite`
+      36 after the matching `ST0` correction.* Detail in
+      `docs/references/OMTI_WALK.md`.
 - [ ] **The Series 4000 virtual cache and write buffer, and their 16 KB of
       board-visible RAM.** §1.3.1: "an **8-KB, direct-mapped** cache ... 2048
       4-byte instruction and/or data entries ... **write-through with
