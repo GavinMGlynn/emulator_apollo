@@ -6035,7 +6035,7 @@ same number is what let them diverge once already.
       `PROJECT_STATUS.md`. *Verification: the walk record's coverage table, and
       `doc_claims` over the documents that cite it.*
 
-- [ ] **`ST0` and `ST3` resolve the same question two opposite ways.** Found by
+- [ ] **`ST0` sets two bits `[OMTI]` §6.4.1 calls unused — the OMTI moves them to `ST3`.** Found by
       the `[OMTI]` §6.4 walk, 2026-08-21, and it is a self-correction: the `ST0`
       half was added **earlier the same day**.
       The question is identical for both registers — the **part's own manual
@@ -6053,15 +6053,29 @@ same number is what let them diverge once already.
       describing a machine with a bare 765 and no OMTI. So one register follows
       the OMTI manual because chapter 8 is the wrong family, and the register
       two along follows chapter 8.
-      **Do not simply revert.** The `ST0` change fixed something real: the head
-      bit is "the state of the head at the end of the execution phase", so a read
-      from side 1 was returning an `ST0` saying side 0. The question is whether
-      an **8621 behind an OMTI** drives those two bits at all, and that is the
-      `ST3` question again. *What would settle both*: Domain/OS's floppy driver,
-      or an 8640 cross-check of §5.6.1 against §5.6.4.
-      *Minimum action if nothing settles it*: make the two registers **consistent
-      and say which manual won and why**, in one place, rather than leaving
-      adjacent registers citing opposite authorities.
+      **SETTLED by §6.4.4, read in the same walk one page later.** `[OMTI]`'s
+      `ST3` is: bit 6 **Write Protect**, bit 4 **Track 0** — "status of the
+      **'ready'** signal from the diskette drive" — bit 2 **Head Address**,
+      "status of the 'side-select' signal", and bits 7/5/3/1 always zero with
+      **bit 0 always 1**. That is `ap_omti.h`'s `ST3` exactly, including bit 4's
+      name-versus-description contradiction, which the header already records.
+      **So the OMTI does not drop `ready` and `head` — it moves them.** They are
+      in `ST3` (bits 4 and 2) where the generic 765 puts them in `ST0` (bits 3
+      and 2), and §6.4.1 marks `ST0`'s two "Not Used - Always zero" precisely
+      because they live elsewhere on this board. The two manuals are describing
+      **different silicon**, not disagreeing about the same silicon, and the
+      `ST3` argument in `ap_omti.h` was right about which one governs.
+      **The fix, therefore**: `AP_OMTI_ST0_NOT_READY` and `AP_OMTI_ST0_HEAD`
+      should **not be set** on this board — §6.4.1 is explicit — and the
+      information a driver needs is already correct in `ST3`, which the model
+      has. The head-side defect the `ST0` change was written to fix is real and
+      **is already fixed by `ST3` bit 2**; setting `ST0` bit 2 as well reports it
+      in a place the part does not.
+      *Care needed*: the constants should stay, documented as the generic 765's
+      positions and named as not-driven-here, exactly as `ST3`'s five constants
+      are. And `ST0`'s interrupt code `11` handling was argued separately and is
+      unaffected. `afd_suite` asserts the current behaviour, so the tests move
+      with it.
 
 - [ ] **The OMTI has no RESET phase, so the 100 µs post-reset wait has nowhere
       to live.** Found by the `[OMTI]` §4 walk, 2026-08-21. §4.3 states it

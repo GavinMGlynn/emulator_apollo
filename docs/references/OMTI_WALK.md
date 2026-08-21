@@ -10,7 +10,7 @@ Three manuals, and the DN3500's controller is an **8621**.
 
 **220 pages total. None is walked.**
 
-## STATUS: 13 pages read plus **a footer map for PDF 30–45**. **§4.1 to §4.4 walked** — both register sets, fixed disk and floppy. Registers confirm the model; the manual's DMA-channel contradiction is resolved below on physical grounds; one defect found (see the plan). The 8621 is not *listed* but the body text addresses **`862X`**; two navigational traps and one unmodelled timing figure are recorded below.
+## STATUS: 15 pages read plus footer maps for PDF 30–45 and 60–80. **§6.4's status registers are walked and they settle `ST3`.** **§4.1 to §4.4 walked** — both register sets, fixed disk and floppy. Registers confirm the model; the manual's DMA-channel contradiction is resolved below on physical grounds; one defect found (see the plan). The 8621 is not *listed* but the body text addresses **`862X`**; two navigational traps and one unmodelled timing figure are recorded below.
 
 Record opened 2026-08-21 with the method established and the reading order
 revised by what those three pages said.
@@ -416,6 +416,35 @@ they are not evidence any page was walked.
    command by command against `ap_omti.c`. §6.4 carries `ST3`.
 5. **`[8640]`** — the sibling.
 6. **`[8000]`** — last; different product line.
+
+## §6.4 walked — `ST3` is settled, and it explains `ST0`
+
+Queried ahead of the in-order walk because `ST3` is a named open item; §5 and
+§6.1–6.3 are still owed. Footer map: **PDF 72 = 5-26, 75 = 6-2, 79 = 6-6,
+80 = 6-7** — and §5 runs to at least 5-26, far past what the contents implies.
+
+**§6.4.4's `ST3`**, verbatim: bit 7 not used always zero; **bit 6 Write Protect**;
+bit 5 not used; **bit 4 Track 0 — "Status of the 'ready' signal"**; bit 3 not
+used; **bit 2 Head Address — "Status of the 'side-select' signal"**; bit 1 not
+used; **bit 0 not used - always 1**. `ap_omti.h` matches exactly, including
+bit 4's name contradicting its own description, which the header already flags.
+**The `ST3` `PROVISIONAL` is confirmed from the primary source.**
+
+**And it resolves the `ST0` question one page earlier.** §6.4.1 calls `ST0`
+bits 3 and 2 "Not Used - Always zero"; §6.4.4 puts **ready at `ST3` bit 4** and
+**head at `ST3` bit 2**. The OMTI does not *drop* those two signals — it **moves
+them**. The generic 765 reports them in `ST0`; this board reports them in `ST3`.
+So the two manuals describe different silicon rather than disagreeing about the
+same silicon, and `ap_omti.h`'s long argument for following the part's own
+manual was right. See the plan item for what that means for
+`AP_OMTI_ST0_NOT_READY` and `AP_OMTI_ST0_HEAD`.
+
+Also captured: **§6.4.1 `ST0`** (interrupt code 00/01/10/11, seek end, equipment
+check "if the 'track-0' signal fails to occur after **77 step pulses**", unit
+select), **§6.4.2 `ST1`** (end of cylinder, data error, overrun, no data, not
+writeable, missing address mark) and **§6.4.3 `ST2`** (control mark, data error
+in data field, wrong cylinder, scan equal hit, scan not satisfied, bad cylinder,
+missing address mark in data field).
 
 ## The open question these manuals might settle
 
