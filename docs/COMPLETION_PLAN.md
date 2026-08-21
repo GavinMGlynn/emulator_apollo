@@ -4555,6 +4555,12 @@ discipline throughout.
       unchanged — 16 MB is `4-4-4-4` either way, which is why this was invisible
       for as long as it was.*
 - [ ] **The DS5500's address translation map is 4 KB, and ours is 2 KB.**
+      *Confirmed from the page image 2026-08-21*: `019411-A00` Table 2-5 gives
+      `017000`-`017FFF`, which is 4 KB, against `[S3K]` §2.5's `017000`-`0177FF`.
+      Walk record `docs/references/019411-A00_WALK.md`. **Check before changing
+      `AP_ATMAP_ENTRIES`**: the firmware evidence at `01002BF6` walks `017000`
+      to `0177FE`, and if that probe is a DS3500's then the two machines differ
+      and the constant must become per-model rather than simply doubling.
       `PROVISIONAL`. Table 2-5 gives `017000`-`017FFF` where `[S3K]` §2.5 gives
       `017000`-`0177FF`, and `AP_ATMAP_LIMIT` follows the latter. Placing the
       wider region as things stand would alias its upper half onto its lower —
