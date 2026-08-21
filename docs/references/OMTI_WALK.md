@@ -10,7 +10,7 @@ Three manuals, and the DN3500's controller is an **8621**.
 
 **220 pages total. None is walked.**
 
-## STATUS: 11 pages read plus **a footer map for PDF 30–45**. §4.1 to §4.3 walked; every register **confirms the model**, including one reading that was contested between two manuals. The 8621 is not *listed* but the body text addresses **`862X`**; two navigational traps and one unmodelled timing figure are recorded below.
+## STATUS: 12 pages read plus **a footer map for PDF 30–45**. §4.1 to §4.3 walked. Registers confirm the model; **the manual contradicts itself on the DMA channel** — see below. The 8621 is not *listed* but the body text addresses **`862X`**; two navigational traps and one unmodelled timing figure are recorded below.
 
 Record opened 2026-08-21 with the method established and the reading order
 revised by what those three pages said.
@@ -220,6 +220,59 @@ Two things to carry forward:
   board wiring rather than part behaviour — check where `ap_board` places them,
   and note `002398-04` gives the DN3000 an OMTI interrupt of its own, which may
   or may not be 14.
+
+## **`[OMTI]` contradicts itself on the DMA channel: DRQ3 or DRQ7**
+
+Found by walking §4 in order. Three statements, two of them disagreeing with the
+third:
+
+| Page | Text |
+| --- | --- |
+| 4-2, Table 4-2 bit 4 DREQ | "this bit is set along with **DRQ3** on the System Bus" |
+| 4-3, MASK bit 0 DMA ENABLE | "DREQ is gated onto system bus on **DRQ3** and DREQ set in STATUS register" |
+| **4-4, DATA STATE** | "it will set the **DRQ7** bit on the system bus, requesting a DMA cycle ... **DACK7** from the system will clear DRQ7" |
+
+**This core uses DRQ7** — `ap_omti.h`'s DMA-request accessor and `ap_board.c`'s
+"the Winchester on DRQ7, from the controller's own `DREQ`". That agrees with
+p. 4-4 and disagrees with pp. 4-2 and 4-3.
+
+**A citation in `PROJECT_STATUS.md` is wrong and should be narrowed.** Its OMTI
+row says "IRQ14 and DRQ7 wired, both derived from the STATUS register **as §4.2
+and §4.3 give them**". §4.2 does not give DRQ7; it gives DRQ3. Only §4.3's DATA
+STATE paragraph gives DRQ7. IRQ14 is unaffected — p. 4-2 and p. 4-4 agree on it.
+
+**Do not "fix" the core from this page.** Which channel the *Apollo* wires is a
+board question, not a part question, and `008778-03` Table 2-4 is the source
+this project already uses for DN3000 channel assignments. The part manual being
+self-contradictory is a reason to cite the board, not to flip a constant.
+**What to do**: narrow the `PROJECT_STATUS` citation to §4.3's DATA STATE, and
+check Table 2-4 for what the DN3500 actually gives the Winchester.
+
+## §4.3's protocol, in full — six states, and the model's representation unchecked
+
+p. 4-4 walks the sequence, and it is worth having in one place because the boot
+drives it:
+
+- **IDLE** — "the only time the controller will respond to a select request".
+  Writing SELECT (port 322) enters selection.
+- **SELECTION** — the controller asserts **BSY** (bit 3) in STATUS, then enters
+  command state.
+- **COMMAND** — **C/D** (bit 2) is set, then **REQ** (bit 0), asking for the
+  first command byte to be written to DATA OUT (port 320) **in BYTE mode**.
+  Writing it de-asserts REQ and moves the byte to the buffer; repeated for every
+  command byte; C/D is then de-asserted and DATA entered.
+- **DATA** — "if no data is required, the status state is entered". Programmed
+  I/O handshakes like the command transfer, REQ per word, direction by the
+  **I/O** bit. DMA mode uses DRQ7/DACK7 (see the contradiction above).
+- **STATUS** — the controller places the status byte in DATA IN bits 0-7, sets
+  **C/D** and **I/O**, and if interrupts are enabled sets **REQ** along with
+  **IRQ14**. Reading the byte clears IREQ and IRQ14, clears C/D, I/O and BSY,
+  and returns to idle.
+
+**Still unchecked**: whether `ap_omti.h` represents these six states explicitly.
+The grep for an enumeration found none. The protocol is what the boot drives, so
+this is the next thing to establish — and a state machine that is implicit is
+not necessarily wrong, only unverified.
 
 ## One gap already visible, and two facts confirmed
 
