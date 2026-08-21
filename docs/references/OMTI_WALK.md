@@ -499,19 +499,27 @@ they are not evidence any page was walked.
    untouched by it.
 2. ~~`[OMTI]` §1.2~~ — **done**, and **§4.1 amended it**: Table 1-1 lists no
    8621, but the body text says `862X`. See the corrected paragraph above.
-3. **`[OMTI]` §4**, doc pages 4-1 to 4-8 — Table 4-1's four ports and Table 4-3,
-   which `ap_omti.h` cites most heavily and which the boot exercises. **Find it
-   by walking footers forward from PDF 29 (= 2-19)**, not by arithmetic: §2 runs
-   well past the 2-12 the contents implies, so §4 starts later than PDF 29 + 8.
-4. **`[OMTI]` §5 and §6** — the fixed-disk and floppy command sets, walked
-   command by command against `ap_omti.c`. §6.4 carries `ST3`.
-5. **`[8640]`** — the sibling.
+3. ~~**`[OMTI]` §4**~~ — **done**, §4.1 to §4.5.
+4. ~~**`[OMTI]` §5 and §6**~~ — **derived, not walked** (2026-08-22 citation
+   audit): §5.1–§5.4 and §6.3 are in the model with verbatim quotes, §6.4 is
+   walked. A command-by-command pass against `ap_omti.c` would still be worth
+   doing — that is what turned up `ST3` — but it is a re-check rather than a
+   first reading.
+5. **`[8640]`** — the sibling, **and partly used already**: §5.6.4 was read to
+   settle whether `ST3` bit 4's name-versus-description contradiction was one
+   manual's slip or the vendor's. It is the vendor's; both manuals carry the
+   identical sentence.
 6. **`[8000]`** — last; different product line.
+7. **`[OMTI]` §1, §2, most of §3, §6.1–§6.2, §7 onward** — the genuinely unread
+   remainder, and the honest first target now.
 
 ## §6.4 walked — `ST3` is settled, and it explains `ST0`
 
-Queried ahead of the in-order walk because `ST3` is a named open item; §5 and
-§6.1–6.3 are still owed. Footer map: **PDF 72 = 5-26, 75 = 6-2, 79 = 6-6,
+Queried ahead of the in-order walk because `ST3` was a named open item.
+*(This sentence continued "; §5 and §6.1–6.3 are still owed" until 2026-08-22,
+when the citation audit showed both derived. It sat in body prose, where the new
+`check_walk_coverage` deliberately does not look — per-page rows have to be able
+to say a section is unread — so a summary check cannot be the only guard.)* Footer map: **PDF 72 = 5-26, 75 = 6-2, 79 = 6-6,
 80 = 6-7** — and §5 runs to at least 5-26, far past what the contents implies.
 
 **§6.4.4's `ST3`**, verbatim: bit 7 not used always zero; **bit 6 Write Protect**;

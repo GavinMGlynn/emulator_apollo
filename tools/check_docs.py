@@ -492,6 +492,15 @@ def check_walk_coverage(problems: list[str]) -> int:
     Bounded deliberately: only a record that says both things is flagged. A
     record honestly listing which sections remain is the normal case and must
     stay quiet.
+
+    **And bounded to summary lines, which is a real limit.** Per-page rows have
+    to be able to say a section is unread -- that is what a coverage table is --
+    so only headings and bold lines are scanned. A stale claim in body prose
+    survives, and one did: the OMTI record carried "§5 and §6.1-6.3 are still
+    owed" in a parenthetical two hundred lines below its status, and this check
+    walked past it twice. It was found by reading the record, not by running the
+    tool. *A check that catches the headline is worth having and is not a
+    substitute for reading the file.*
     """
     checked = 0
     references = REPO / "docs" / "references"
