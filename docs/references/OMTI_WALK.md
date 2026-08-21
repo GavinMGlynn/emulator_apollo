@@ -805,3 +805,32 @@ say what `SRT` the firmware writes.
 *Also recorded*: `HLT` is moot on this machine whatever its encoding, because
 `008778-03` §7.7.5 says "The *Domain System* does not require a head load
 solenoid" — already the reason head load time is documented-and-not-modelled.
+
+
+## §6.1, the floppy command summary — and the one summary here that *is* a census
+
+PDF 74, doc 6-1. **FLOPPY DISK FUNCTIONS**, and §6.1's list of "commands that
+may be issued to the Floppy section", headed **(8620/8627 only)** — which agrees
+with Table 1-1 giving the 8120/8127 no flexible disks.
+
+Eleven items: READ DATA, FORMAT A TRACK, SCAN EQUAL, SCAN LOW OR EQUAL, SCAN
+HIGH OR EQUAL, RECALIBRATE, SENSE INTERRUPT STATUS, SPECIFY, SENSE DRIVE STATUS,
+SEEK, INVALID.
+
+**`ap_omti.h` has exactly those** — `SPECIFY 03`, `SENSE_DRIVE 04`, `READ_DATA
+06`, `RECALIBRATE 07`, `SENSE_INTERRUPT 08`, `FORMAT_TRACK 0D`, `SEEK 0F`,
+`SCAN_EQUAL 11`, `SCAN_LOW_EQUAL 19`, `SCAN_HIGH_EQUAL 1D`, and INVALID as the
+default arm. Ten plus the invalid case, matching item for item.
+
+**Including the surprise: there is no WRITE DATA.** A floppy section that can
+FORMAT A TRACK and READ DATA documents no write command, and the generic 765's
+`05` is absent from both the manual's list and this model. That is not an
+omission in the summary — §6.3's command descriptions, which the model is
+derived from, do not describe one either. A driver issuing `05` gets §6.3.11's
+INVALID here, which is what the manual's own command set implies.
+
+*Recorded because it inverts this record's own warning.* Two summary tables in
+this manual have proved not to be censuses — §5.1.2 omitting `1A START/STOP`,
+A-2 omitting `07 Multiple Drives Selected` — and the natural next move was to
+distrust this one too. It holds, and the way to tell was comparing it against a
+model derived from the *descriptions* rather than against the summary alone.
