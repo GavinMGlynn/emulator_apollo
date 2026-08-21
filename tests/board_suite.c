@@ -2620,6 +2620,59 @@ static void test_batched_and_stepped_ticks_steal_the_same_cycles(void) {
   TEST_ASSERT_EQUAL_UINT(stepped.bus_ticks, batched.bus_ticks);
 }
 
+/* `019411-A00` Table 2-5's **DESKTOP VISUALIZATION SPACE**, `F8000000`-
+ * `FDFFFFFF`, 96 MB, on the DS5500 alone.
+ *
+ * Named and not modelled, and the two halves are asserted separately because
+ * the distinction is the whole of what this row buys. No document held here
+ * says what answers in there -- Table 2-5 gives the range a title and no
+ * register -- so it declines like any unmapped address, and what changes is
+ * that a trace can say *which* hole the firmware reached for. */
+static void test_the_desktop_visualization_space_is_named_on_the_ds5500(void) {
+  ap_board_t b;
+  static uint8_t ds5500_ram[4096];
+  TEST_ASSERT_TRUE(ap_board_init_model(&b, ds5500_ram, sizeof ds5500_ram,
+                                       &START, 0x012345u, AP_MODEL_DN5500));
+
+  TEST_ASSERT_EQUAL_INT(AP_BOARD_REGION_DESKTOP_VISUALIZATION,
+                        ap_board_region(&b, AP_BOARD_DESKTOP_VIS_BASE));
+  TEST_ASSERT_EQUAL_INT(AP_BOARD_REGION_DESKTOP_VISUALIZATION,
+                        ap_board_region(&b, AP_BOARD_DESKTOP_VIS_LIMIT));
+  TEST_ASSERT_EQUAL_STRING(
+      "desktop visualization",
+      ap_board_region_name(AP_BOARD_REGION_DESKTOP_VISUALIZATION));
+
+  /* One past each end is not it, so the row's extent is the table's and not a
+   * range that happens to contain the addresses tested. */
+  TEST_ASSERT_NOT_EQUAL_INT(AP_BOARD_REGION_DESKTOP_VISUALIZATION,
+                            ap_board_region(&b, AP_BOARD_DESKTOP_VIS_BASE - 1u));
+  TEST_ASSERT_NOT_EQUAL_INT(
+      AP_BOARD_REGION_DESKTOP_VISUALIZATION,
+      ap_board_region(&b, AP_BOARD_DESKTOP_VIS_LIMIT + 1u));
+
+  /* And it still refuses, because naming is not modelling. */
+  bool ok = true;
+  (void)ap_board_read(&b, AP_BOARD_DESKTOP_VIS_BASE, &ok);
+  TEST_ASSERT_FALSE(ok);
+  ok = true;
+  ap_board_write(&b, AP_BOARD_DESKTOP_VIS_BASE, 0x5Au, &ok);
+  TEST_ASSERT_FALSE(ok);
+
+  /* Counted under its own name rather than swelling the unmapped tally, which
+   * is the reader-facing half of the change. */
+  TEST_ASSERT_TRUE(b.region_reads[AP_BOARD_REGION_DESKTOP_VISUALIZATION] > 0u);
+  TEST_ASSERT_TRUE(b.region_writes[AP_BOARD_REGION_DESKTOP_VISUALIZATION] > 0u);
+}
+
+/* Table 2-5 is the **DS5500's** map. A DN3500 has no such range, and placing it
+ * everywhere would invent a region for machines the document does not describe. */
+static void test_no_other_model_has_a_desktop_visualization_space(void) {
+  ap_board_t b;
+  init(&b);
+  TEST_ASSERT_NOT_EQUAL_INT(AP_BOARD_REGION_DESKTOP_VISUALIZATION,
+                            ap_board_region(&b, AP_BOARD_DESKTOP_VIS_BASE));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_ethernet_card_is_absent_until_it_is_fitted);
@@ -2698,5 +2751,7 @@ int main(void) {
   RUN_TEST(test_the_processor_loses_one_cycle_to_every_refresh);
   RUN_TEST(test_a_batch_of_ticks_cannot_step_over_a_refresh);
   RUN_TEST(test_batched_and_stepped_ticks_steal_the_same_cycles);
+  RUN_TEST(test_the_desktop_visualization_space_is_named_on_the_ds5500);
+  RUN_TEST(test_no_other_model_has_a_desktop_visualization_space);
   return UNITY_END();
 }

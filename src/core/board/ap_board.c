@@ -195,6 +195,12 @@ static const ap_board_placement_t DS5500_PLACEMENT[] = {
     {AP_DISK_FLOPPY_ADDR, AP_DISK_FLOPPY_SIZE, AP_BOARD_REGION_DISK,
      AP_DISK_FLOPPY_ADDR},
     {AP_TAPE_ADDR, AP_TAPE_RANGE, AP_BOARD_REGION_TAPE, AP_TAPE_ADDR},
+    /* Table 2-5's DESKTOP VISUALIZATION SPACE. Placed so a trace can name it;
+     * nothing answers there. See the region's declaration for why naming an
+     * unimplemented range is worth a row. */
+    {AP_BOARD_DESKTOP_VIS_BASE,
+     AP_BOARD_DESKTOP_VIS_LIMIT - AP_BOARD_DESKTOP_VIS_BASE + 1u,
+     AP_BOARD_REGION_DESKTOP_VISUALIZATION, AP_BOARD_DESKTOP_VIS_BASE},
 };
 
 static const ap_board_map_t DS5500_MAP = {
@@ -1115,6 +1121,7 @@ void ap_board_advance_one(ap_board_t *board, uint32_t address, ap_time_t now) {
   case AP_BOARD_REGION_RAM:
   case AP_BOARD_REGION_PROM:
   case AP_BOARD_REGION_S2500_CONTROL:
+  case AP_BOARD_REGION_DESKTOP_VISUALIZATION:
     /* Nothing to observe: none of them keeps time. The Series 2500 block is
      * storage with no modelled behaviour at all (see its declaration). */
     return;
@@ -1361,6 +1368,7 @@ bool ap_board_cache_inhibited(const ap_board_t *board, uint32_t address) {
   case AP_BOARD_REGION_UNMAPPED:
   case AP_BOARD_REGION_CORE_REGISTER:
   case AP_BOARD_REGION_S2500_CONTROL:
+  case AP_BOARD_REGION_DESKTOP_VISUALIZATION:
   case AP_BOARD_REGION_SIO:
   case AP_BOARD_REGION_TIMER:
   case AP_BOARD_REGION_CALENDAR:
@@ -1395,6 +1403,8 @@ const char *ap_board_region_name(ap_board_region_t region) {
   switch (region) {
   case AP_BOARD_REGION_ETHERNET: return "EtherLink Plus";
   case AP_BOARD_REGION_UNMAPPED: return "unmapped";
+  case AP_BOARD_REGION_DESKTOP_VISUALIZATION:
+    return "desktop visualization";
   case AP_BOARD_REGION_PROM: return "boot PROM";
   case AP_BOARD_REGION_CORE_REGISTER: return "core register";
   case AP_BOARD_REGION_SIO: return "serial";
@@ -1738,6 +1748,12 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     return board->prom[offset];
   }
   case AP_BOARD_REGION_UNMAPPED:
+  case AP_BOARD_REGION_DESKTOP_VISUALIZATION:
+    /* **Named, and still unanswered.** Table 2-5 gives the range a title and
+     * not a register, and no DS5500 graphics document is held -- so this falls
+     * through to the same refusal an unmapped address gets. The region exists
+     * to make a trace say *which* hole was reached; inventing a value would be
+     * the opposite of that. */
     break;
   }
   *ok = false;
@@ -1977,6 +1993,7 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
     *ok = true;
     return;
   case AP_BOARD_REGION_UNMAPPED:
+  case AP_BOARD_REGION_DESKTOP_VISUALIZATION:
     break;
   }
   *ok = false;

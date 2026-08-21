@@ -4554,13 +4554,17 @@ discipline throughout.
       and `4-4-4-0`'s empty slot. Identity harness re-run: `03EE415450926A89`,
       unchanged — 16 MB is `4-4-4-4` either way, which is why this was invisible
       for as long as it was.*
-- [ ] **`F8000000`-`FDFFFFFF`, DESKTOP VISUALIZATION SPACE, is unmodelled.**
-      From the `019411-A00` walk, Table 2-5. 96 MB with **zero hits in `src/`** —
-      nothing in this core knows the region exists, so it reports as ordinary
-      unmapped space. That is not *wrong*, but it is unnamed, and this core's
-      whole argument for reporting unmapped rather than zero is that a trace can
-      then say **what** the firmware reached for. Decide: place it as a named
-      region, or record it as a deliberate gap. Cheap either way.
+- [x] **`F8000000`-`FDFFFFFF`, DESKTOP VISUALIZATION SPACE — named 2026-08-22.**
+      `019411-A00` Table 2-5, DS5500 only, 96 MB. Placed as its own region and
+      **not modelled**: the table gives the range a title and no register, and
+      no DS5500 graphics document is held, so an access still declines exactly
+      as an unmapped one does. What changes is that it is counted and reported
+      under its own name, which is the whole of what this core's
+      unmapped-rather-than-zero argument exists for — a firmware reaching there
+      used to be indistinguishable from one reaching any other hole in 256 MB.
+      *Verification: `board_suite` 75 → 77 — the extent from the table with one
+      past each end excluded, the refusal still a refusal, the access counted
+      under its own name, and no other model given the range.*
 
 - [ ] **The DS5500 has a SCSI bus and this core models no SCSI.** From the
       `019411-A00` walk, Figure 1-5: a "Disk or SCSI/Disk Controller" drives a

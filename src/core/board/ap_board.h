@@ -296,8 +296,28 @@ typedef enum {
    * spins on for ever otherwise. Cost to close: a Series 2500 register
    * document, or a 2500 driver to instrument. */
   AP_BOARD_REGION_S2500_CONTROL,
+  /* **DESKTOP VISUALIZATION SPACE, `F8000000`-`FDFFFFFF`, the DS5500's alone.**
+   * `019411-A00` Table 2-5, read as a page image. 96 MB, and nothing in this
+   * core does anything with it.
+   *
+   * **Named rather than modelled, and the distinction is the point.** No
+   * document held here says what answers in there -- Table 2-5 gives the range
+   * a title and no register, and there is no DS5500 graphics document. So this
+   * places the region and nothing else: an access is counted and reported under
+   * its own name, and still declines like any unmapped address.
+   *
+   * Naming it costs one row and buys the thing this core's unmapped-rather-
+   * than-zero argument exists for. A firmware reaching `F8000000` used to be
+   * indistinguishable from one reaching any other hole in 256 MB; now a trace
+   * says which, and the day a DS5500 firmware touches it that is the difference
+   * between a lead and a shrug. */
+  AP_BOARD_REGION_DESKTOP_VISUALIZATION,
   AP_BOARD_REGION_RAM,
 } ap_board_region_t;
+
+/* Table 2-5's range, inclusive. Only the DS5500 has it. */
+#define AP_BOARD_DESKTOP_VIS_BASE 0xF8000000u
+#define AP_BOARD_DESKTOP_VIS_LIMIT 0xFDFFFFFFu
 
 /* One past the last region, for sizing a per-region array. Kept beside the
  * enum so a region added without extending the counters is a compile error in
