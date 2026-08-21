@@ -10,7 +10,7 @@ Three manuals, and the DN3500's controller is an **8621**.
 
 **220 pages total. None is walked.**
 
-## STATUS: 3 of 220 pages read — `[8000]`'s cover and title page only.
+## STATUS: 6 of 220 pages read — `[8000]`'s title page, and `[OMTI]`'s front matter and contents.
 
 Record opened 2026-08-21 with the method established and the reading order
 revised by what those three pages said.
@@ -66,16 +66,46 @@ being wrong is reading the wrong manual for a week.
 **8620 and 8627**, so `ap_omti.h`'s "same family, so it covers the DN3500's
 8621" stays an **inference**. Nothing found so far turns it into a citation.
 
+## `[OMTI]`'s section map — read off the contents, since nothing can search it
+
+Document **3001483, Revision C, 20 January 1987**. Its own note: **"Vertical
+bars in the left margin indicate changes from the previous revision"**, so Rev C's
+changes are markable — in the contents the bar sits against **§2.5 and §2.6**,
+which are therefore new since Rev B.
+
+| § | Title | Doc page |
+| --- | --- | --- |
+| 1 | Introduction — 1.1 Product Description, **1.2 Number and Type of Drives supported**, 1.3 Specification | 1-1 |
+| 2 | Configuration and Installation — jumper allocation 2-3, install 2-7, **2.5 1701 Error Code** 2-11, **2.6 DOS 3.1/3.2 patch** 2-12 | 2-1 |
+| 3 | Host Electrical Interface — pin assignment 3-1, signal description 3-4, **3.4 Controller Hardware Architecture** 3-7 | 3-1 |
+| **4** | **Host/Controller Software Interface** — 4.1 overview, **4.2 Fixed Disk Registers** 4-1, 4.3 fixed disk protocol 4-3, **4.4 Floppy Disk Registers** 4-5, 4.5 floppy protocol 4-7 | 4-1 |
+| **5** | **Fixed Disk Functions** — 5.1 CDB 5-1, 5.2 Control Byte 5-3, **5.3 Status Register** 5-4, 5.4 Fixed Disk Commands 5-5 | 5-1 |
+| **6** | **Floppy Disk Functions** — 6.1 command summary, 6.2 symbols, 6.3 Floppy Commands 6-3, **6.4 Command Status Registers 6-6** | 6-1 |
+| A | Sense Code Summary and Description | — |
+| B | Interleave Scheme | — |
+
+**§6.4 at page 6-6 is where `ST3` lives** (§6.4.4). **§1.2 is where the covered
+models are named**, which is the outstanding question about whether `ap_omti.h`'s
+8621 family inference is a citation or a guess — one page, and it should be read
+first.
+
+**Prior renders exist** in `apollo-scratch/c151/omti/` for pages 28–51 and 74–85,
+left by earlier sessions. They indicate which parts were previously *consulted*;
+they are not evidence any page was walked.
+
 ## Suggested order when this is picked up
 
 1. ~~`[8000]` front matter~~ — **done.** It covers 8100/8200/8500/8600, not the
    862x. Dropped to last; see above. The `ap_omti.h` family inference is
    untouched by it.
-2. **`[OMTI]` §4** — Table 4-1's four ports and Table 4-3, which `ap_omti.h`
-   cites most heavily and which the boot exercises.
-3. **`[OMTI]` §5 and §6** — the fixed-disk and floppy command sets, walked
-   command by command against `ap_omti.c`.
-4. **`[8640]`** — the sibling, last, since it is cited only to corroborate.
+2. **`[OMTI]` §1.2, one page** — which models this manual covers. Settles
+   whether the 8621 inference is a citation. Cheapest question left.
+3. **`[OMTI]` §4**, doc pages 4-1 to 4-8 — Table 4-1's four ports and Table 4-3,
+   which `ap_omti.h` cites most heavily and which the boot exercises.
+4. **`[OMTI]` §5 and §6** — the fixed-disk and floppy command sets, walked
+   command by command against `ap_omti.c`. §6.4 carries `ST3`.
+5. **`[8640]`** — the sibling.
+6. **`[8000]`** — last; different product line.
 
 ## The open question these manuals might settle
 
