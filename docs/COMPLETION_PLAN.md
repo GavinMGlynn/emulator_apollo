@@ -4633,8 +4633,22 @@ discipline throughout.
       `007861` Rev 02 *Domain Series 3000/Series 4000 Hardware Architecture
       Handbook* and `007861-A01` *Domain Personal Workstations and Servers
       Hardware Architecture Handbook*, so it exists and is simply not scanned.
+      **A third form, and this one from a document already on disk** (2026-08-22):
+      `002685-07` *Technical Publications Overview* Jun87 lists "Domain Series
+      3000 Hardware Architecture Handbook, Order No. **007861**, Revision
+      **01**" under its Series 3000 group. So the lineage is Rev 01 (Series
+      3000) → Rev 02 (Series 3000/Series 4000) → A01 (Personal Workstations and
+      Servers), and the addendum this project holds is an addendum to the last
+      of those.
+      **And `008778-03` itself points at it**: §3.5 Direct Memory Access reads
+      "For programming information, see the *Domain Series 3000/Series 4000
+      Hardware Architecture Handbook* (007861)" — so the technical reference
+      defers register-level programming to exactly this book, which is why its
+      absence bounds more than one item.
       Reference, web and the addendum itself are exhausted; only a copy turning
-      up would move this.
+      up would move this. *Re-searched 2026-08-22 by title rather than by
+      number, in case the catalogued name indexed better than the order code: it
+      does not.*
 ## Phase 8 — Verified fast mode
 
 Only after the reference core is proven, and only under an identity harness.
