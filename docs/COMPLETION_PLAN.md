@@ -6071,6 +6071,32 @@ same number is what let them diverge once already.
       *And note*: `EXECUTING`'s comment says its position is hashed, so adding a
       phase needs the enum extended at the end and an identity boot.
 
+- [ ] **PHASE A's gate is `siologin`, and `siologin`'s gate may be measurable
+      rather than documentary.** Scoped 2026-08-21; this is the item seven
+      others wait behind.
+      **The chain, established today**: seven items need Domain/OS to exercise a
+      subsystem the boot does not → that needs a shell → a shell needs
+      `siologin` → `siologin` "needs a modem-control signal this core does not
+      model (C220)" → that is **DCD**, whose *board pin assignment* is
+      unobtainable at all three tiers (checked today: `002398-04` p. 12-35 only
+      says the `dtr_b` bit "has moved", the web has nothing, MAME wires no
+      modem control at all).
+      **The gap in the chain**: the part-level mechanism is complete — input
+      pins, `IPCR` deltas, `ACR` gating, `OPR` — so what is missing is only
+      *which pin*. That is a question the machine can answer even though the
+      documents cannot. **The reference boot's own counters make it concrete**:
+      `sio1` reg 4 (`IPCR`) is **read 179 times** while **`sio2` is never read
+      at all** — 28 writes, zero reads — so the serial line is configured and
+      then never polled, which is `siologin` not reaching carrier detect.
+      **The experiment**: boot past `SPM system init complete.` with `siologin`
+      configured and watch for the first read of `sio2` reg 4 or 13. If one
+      appears, the bit the driver tests names the DCD pin **empirically**, and
+      a documentary dead end becomes a measurement. If none appears at any
+      length, `siologin` is blocked before carrier detect and the chain needs
+      re-scoping from there.
+      *Either outcome is worth having, and neither needs a manual this project
+      does not hold.*
+
 - [ ] **Walk the Intel 8237A and 8259A datasheets — 43 pages, both with text
       layers.** Record: `docs/references/INTEL_WALK.md`. Chosen over the
       remaining OMTI pages because **Phase A measured the reference boot as
