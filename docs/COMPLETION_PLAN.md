@@ -6035,6 +6035,34 @@ same number is what let them diverge once already.
       `PROJECT_STATUS.md`. *Verification: the walk record's coverage table, and
       `doc_claims` over the documents that cite it.*
 
+- [ ] **`ST0` and `ST3` resolve the same question two opposite ways.** Found by
+      the `[OMTI]` §6.4 walk, 2026-08-21, and it is a self-correction: the `ST0`
+      half was added **earlier the same day**.
+      The question is identical for both registers — the **part's own manual
+      calls bits constant** where **`002398-04` draws the generic 765's live
+      bits**:
+      - **`ST3`**: `[OMTI]` §6.4.4 gives five constants; `002398-04` p. 12-14
+        gives eight live. `ap_omti.h` **follows `[OMTI]`**, with a long argument
+        for why the part's own manual wins and why p. 8-14's third printing is
+        the *bare-765* family (DN400/420/600, no OMTI board at all).
+      - **`ST0`**: `[OMTI]` §6.4.1 says "**Bit 3 and 2 Not Used - Always zero**";
+        `002398-04` **p. 8-13** gives "D3 Set if FDD Not Ready" and "D2 Head
+        Address". `ap_omti.h` **follows `002398-04`** —
+        `AP_OMTI_ST0_NOT_READY 0x08` and `AP_OMTI_ST0_HEAD 0x04`, both now set.
+      **p. 8-13 is the same chapter 8 that the `ST3` argument dismisses** as
+      describing a machine with a bare 765 and no OMTI. So one register follows
+      the OMTI manual because chapter 8 is the wrong family, and the register
+      two along follows chapter 8.
+      **Do not simply revert.** The `ST0` change fixed something real: the head
+      bit is "the state of the head at the end of the execution phase", so a read
+      from side 1 was returning an `ST0` saying side 0. The question is whether
+      an **8621 behind an OMTI** drives those two bits at all, and that is the
+      `ST3` question again. *What would settle both*: Domain/OS's floppy driver,
+      or an 8640 cross-check of §5.6.1 against §5.6.4.
+      *Minimum action if nothing settles it*: make the two registers **consistent
+      and say which manual won and why**, in one place, rather than leaving
+      adjacent registers citing opposite authorities.
+
 - [ ] **The OMTI has no RESET phase, so the 100 µs post-reset wait has nowhere
       to live.** Found by the `[OMTI]` §4 walk, 2026-08-21. §4.3 states it
       **twice** on one page: "**The host must wait 100 usec after a -RESET
