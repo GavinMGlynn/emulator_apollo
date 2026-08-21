@@ -206,6 +206,12 @@ static void build_controller(void) {
   build_drive();
   ap_omti_reset(&omti);
   ap_omti_attach(&omti, &drive);
+  /* §4.3: "The host must wait 100 usec after a -RESET before issuing a
+   * SELECT." A freshly reset controller is in the reset state, not idle, and
+   * "the IDLE STATE is the only time the controller will respond to a select
+   * request" -- so a suite about what commands *do* has to get the host's half
+   * of the protocol right before it can issue one. */
+  ap_omti_advance(&omti, AP_OMTI_RESET_TIME);
 }
 
 /* A six-byte descriptor block, written a byte at a time to the data port as
@@ -827,6 +833,7 @@ static void test_a_write_to_a_read_only_image_reports_write_protected(void) {
   TEST_ASSERT_TRUE(ap_awd_open(&drive, backing, sizeof backing, SMALL, false));
   ap_omti_reset(&omti);
   ap_omti_attach(&omti, &drive);
+  ap_omti_advance(&omti, AP_OMTI_RESET_TIME); /* §4.3's 100 µs */
 
   /* Every command that puts something on the surface, and the address each is
    * given is *valid* -- which is the point. A model that checked the address
@@ -936,6 +943,7 @@ static void test_a_long_write_records_its_ecc_for_a_long_read(void) {
 static void test_a_controller_with_no_drive_says_so(void) {
   ap_omti_reset(&omti);
   ap_omti_attach(&omti, NULL);
+  ap_omti_advance(&omti, AP_OMTI_RESET_TIME); /* §4.3's 100 µs */
 
   issue(AP_OMTI_CMD_TEST_DRIVE_READY, 0u, 0u, 0u, 0u);
   TEST_ASSERT_TRUE((take_status() & 0x02u) != 0u);
@@ -1232,9 +1240,11 @@ static void test_the_diagnostics_report_what_they_can_see(void) {
   /* With no drive attached the controller's own tests still pass and the
    * drive's does not, which is the distinction the three exist to draw. */
   ap_omti_reset(&omti);
+  ap_omti_advance(&omti, AP_OMTI_RESET_TIME); /* §4.3's 100 µs */
   issue(AP_OMTI_CMD_RAM_DIAGNOSTICS, 0u, 0u, 0u, 0u);
   TEST_ASSERT_EQUAL_HEX8(0x00u, take_status());
   ap_omti_reset(&omti);
+  ap_omti_advance(&omti, AP_OMTI_RESET_TIME);
   issue(AP_OMTI_CMD_DRIVE_DIAGNOSTIC, 0u, 0u, 0u, 0u);
   TEST_ASSERT_NOT_EQUAL_HEX8(0x00u, take_status());
 }
@@ -1329,7 +1339,10 @@ static void test_the_access_time_is_a_seek_a_half_turn_and_the_transfer(void) {
       AP_OMTI_AVERAGE_SEEK + AP_OMTI_AVERAGE_LATENCY +
       (ap_time_t)((uint64_t)AP_TIME_BASE_HZ * AP_AWD_SECTOR_BYTES /
                   AP_OMTI_TRANSFER_BYTES_PER_SEC);
-  TEST_ASSERT_EQUAL_UINT64(one_sector, omti.completion_at);
+  /* The **duration**, not the deadline. Once §4.3's reset state exists the
+   * controller is no longer issued its first command at time zero, and a test
+   * about the drive's figures must not depend on when the harness started. */
+  TEST_ASSERT_EQUAL_UINT64(one_sector, omti.completion_at - omti.now);
 
   /* Two sectors cost one more transfer and no more positioning: the heads are
    * already there and the second sector follows the first. */
@@ -1338,7 +1351,7 @@ static void test_the_access_time_is_a_seek_a_half_turn_and_the_transfer(void) {
   const ap_time_t two_sectors =
       one_sector + (ap_time_t)((uint64_t)AP_TIME_BASE_HZ * AP_AWD_SECTOR_BYTES /
                                AP_OMTI_TRANSFER_BYTES_PER_SEC);
-  TEST_ASSERT_EQUAL_UINT64(two_sectors, omti.completion_at);
+  TEST_ASSERT_EQUAL_UINT64(two_sectors, omti.completion_at - omti.now);
 }
 
 /* The division is physical: a command answered out of the controller's own

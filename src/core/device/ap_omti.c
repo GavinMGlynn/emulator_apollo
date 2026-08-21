@@ -22,15 +22,20 @@ void ap_omti_disk_reset(ap_omti_t *omti) {
    * Caught by `omti_suite`'s byte-for-byte comparison of a reset controller
    * against a fresh one -- the strongest form of that assertion, and the reason
    * it is written that way rather than field by field. */
-  omti->phase = AP_OMTI_PHASE_IDLE;
+  /* "It will then enter the idle state" -- but not yet, and that *yet* is the
+   * whole of §4.3's warning. The controller spends `AP_OMTI_RESET_TIME` in the
+   * reset state first, and `ap_omti_advance` is what puts it in idle. Until
+   * then a SELECT finds a controller that is not idle and is ignored, which is
+   * the existing guard doing the manual's work without a special case. */
+  omti->phase = AP_OMTI_PHASE_RESET;
   omti->command_index = 0u;
   omti->command_length = 0u;
   omti->buffer_index = 0u;
-  /* A reset abandons whatever the drive was working towards. Cleared rather
-   * than left standing because the deadline is hashed: two idle controllers
-   * that reached idle by different routes are the same machine and must hash
-   * alike. */
-  omti->completion_at = 0u;
+  /* The reset state's own deadline, sharing the field with a command's because
+   * `phase` already says which one it is. Two controllers reset at the same
+   * instant hash alike; two reset at different instants are genuinely different
+   * machines, which is what a state with a length means. */
+  omti->completion_at = omti->now + AP_OMTI_RESET_TIME;
 
   /* And the identification block, because §5.4.13's "after a RESET is done
    * (before any other command)" is a statement about the *buffer*: the reset
@@ -76,7 +81,9 @@ ap_time_t ap_omti_interrupt_next_change(const ap_omti_t *omti) {
    * independent of each other: the soonest of them is when anything here can
    * next change. */
   ap_time_t next = AP_TIME_NEVER;
-  if (omti->phase == AP_OMTI_PHASE_EXECUTING && omti->completion_at < next) {
+  if ((omti->phase == AP_OMTI_PHASE_EXECUTING ||
+       omti->phase == AP_OMTI_PHASE_RESET) &&
+      omti->completion_at < next) {
     next = omti->completion_at;
   }
   if (omti->fdc_phase == AP_OMTI_PHASE_EXECUTING &&
@@ -467,6 +474,18 @@ void ap_omti_advance(ap_omti_t *omti, ap_time_t now) {
   if (omti->fdc_phase == AP_OMTI_PHASE_EXECUTING &&
       now >= omti->fdc_completion_at) {
     fdc_complete(omti);
+  }
+
+  /* The reset state ending is not a command completing: nothing is reported,
+   * no interrupt is raised and no status bit moves -- `ap_omti_disk_reset` has
+   * already cleared them all. "It will then enter the idle state" is the whole
+   * of it, and the only observable difference is that a SELECT now works. */
+  if (omti->phase == AP_OMTI_PHASE_RESET) {
+    if (now >= omti->completion_at) {
+      omti->phase = AP_OMTI_PHASE_IDLE;
+      omti->completion_at = 0u;
+    }
+    return;
   }
 
   if (omti->phase != AP_OMTI_PHASE_EXECUTING) {
@@ -1513,9 +1532,11 @@ static void take_byte(ap_omti_t *omti, uint8_t value) {
   case AP_OMTI_PHASE_DATA_IN:
   case AP_OMTI_PHASE_STATUS:
   case AP_OMTI_PHASE_EXECUTING:
-    /* A write while the controller is talking, or while the drive is still
-     * positioning. Ignored rather than merged into the stream: the bus is the
-     * controller's in these phases. */
+  case AP_OMTI_PHASE_RESET:
+    /* A write while the controller is talking, while the drive is still
+     * positioning, or before the reset state has run its 100 µs. Ignored rather
+     * than merged into the stream: the bus is the controller's in these
+     * phases. */
     return;
   }
 }
@@ -1579,10 +1600,12 @@ static uint8_t give_byte(ap_omti_t *omti) {
   case AP_OMTI_PHASE_COMMAND:
   case AP_OMTI_PHASE_DATA_OUT:
   case AP_OMTI_PHASE_EXECUTING:
+  case AP_OMTI_PHASE_RESET:
     /* Nothing to give: in `EXECUTING` the drive has not reached the sector yet,
      * and `REQ` is down to say so. A driver polling the data register here gets
      * the last value the register held, which is what a bus with no new byte on
-     * it presents. */
+     * it presents. `RESET` is the same case for a different reason -- the
+     * controller is initialising itself and every status bit is already clear. */
     break;
   }
   return (uint8_t)(omti->data & 0xFFu);

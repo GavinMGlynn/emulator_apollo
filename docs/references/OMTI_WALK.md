@@ -316,6 +316,43 @@ a duration, so the missing state and the missing wait are **one gap, not two**:
 implementing the wait means giving RESET a phase with a length, and that is the
 shape the fix should take.
 
+### CLOSED 2026-08-21 — and the page image added a third entry path
+
+Both pages re-read as images at 300 ppi before implementing, which is what the
+resolution order asks for and which paid: the RESET STATE has **three** entries,
+not the one the register table implies —
+
+> "The RESET STATE is entered by applying power to the controller
+> (power - on -reset), by the reset signal on the system bus, or by writing the
+> RESET Register (port 321). During this phase, the controller will initialize
+> itself, will set default parameters (ST412) to the LUNs, will de-assert all
+> control functions and clear all bits in the STATUS register. It will then
+> enter the idle state."
+
+So a **power-on** controller is in the reset state before any register is
+touched, which is the case a model built around the register write would have
+missed entirely. `AP_OMTI_PHASE_RESET` is appended to the enum (the values are
+hashed) with `AP_OMTI_RESET_TIME`, `ap_omti_disk_reset` enters it from all three
+paths because all three run through that one function, and `ap_omti_advance`
+retires it to idle. The refusal needs no new code: the SELECT guard already
+required `PHASE_IDLE`.
+
+**p. 4-4 also settles the DRQ contradiction from the other side.** Its DATA
+STATE reads "it will set the **DRQ7** bit on the system bus", in the same
+paragraph as DACK7 — against p. 4-3's MASK bit 0, "DREQ is gated onto system
+bus on **DRQ3**". Two sections of one manual, and only §4.3 can be cited for
+the constant this core uses. `PROJECT_STATUS`'s OMTI row said "§4.2 and §4.3"
+and now says which.
+
+*Verification: `omti_suite` 27 → 31 — the reset state outlasting one time unit
+short of the deadline, a SELECT inside the window refused and the same write
+honoured after it, the register write restarting the window from itself rather
+than from power-on, and the deadline being offered to the scheduler. Three
+suites had to learn the host's half of the protocol: `awd_suite` and
+`afd_suite`'s builders now wait out the window, and four assertions that read a
+**deadline** were rewritten to read a **duration**, since the controller is no
+longer handed its first command at time zero.*
+
 ## §4.4, the floppy register set — confirms, and one address set is absent
 
 p. 4-5. **Table 4-3** gives five 8-bit registers, each at a **primary or

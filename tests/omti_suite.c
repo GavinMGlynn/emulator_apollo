@@ -11,6 +11,20 @@
 void setUp(void) {}
 void tearDown(void) {}
 
+/* The host's half of §4.3's warning: "The host must wait 100 usec after a
+ * -RESET before issuing a SELECT."
+ *
+ * Every test that drives a command has to do this, because a freshly reset
+ * controller is in the reset state and not idle -- and "the IDLE STATE is the
+ * only time the controller will respond to a select request". Written as a
+ * helper rather than repeated so that the wait is one statement of one rule;
+ * before the reset state existed, this suite selected immediately and the
+ * model let it, which is the permissive direction the item was about. */
+static void wait_out_reset(ap_omti_t *o) {
+  ap_omti_advance(o, AP_OMTI_RESET_TIME);
+}
+
+
 static void test_the_measured_fixed_disk_ports_are_reproduced(void) {
   ap_omti_t o;
   ap_omti_reset(&o);
@@ -29,6 +43,7 @@ static void test_the_measured_fixed_disk_ports_are_reproduced(void) {
 static void test_the_status_bits_seven_and_six_cannot_be_cleared(void) {
   ap_omti_t o;
   ap_omti_reset(&o);
+  wait_out_reset(&o);
 
   /* Table 4-2 gives them as constants, not state. Re-asserted on every read so
    * that nothing -- not a reset, not a select -- can put the register in a state
@@ -42,6 +57,7 @@ static void test_the_status_bits_seven_and_six_cannot_be_cleared(void) {
 static void test_selecting_the_controller_makes_it_busy(void) {
   ap_omti_t o;
   ap_omti_reset(&o);
+  wait_out_reset(&o);
 
   /* Table 4-1's write side of port 2 is "SELECT (Function)", and Table 4-2's
    * BSY bit is "1 = Controller Selected". So the function has an observable
@@ -143,6 +159,7 @@ static void test_the_two_halves_share_nothing(void) {
   ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0x00);
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_COMMAND, ap_omti_fdc_phase(&o));
 
+  wait_out_reset(&o);
   ap_omti_disk_write(&o, AP_OMTI_DISK_CONFIG, 0x00);
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_COMMAND, ap_omti_fdc_phase(&o));
   TEST_ASSERT_FALSE(ap_omti_fdc_in_reset(&o));
@@ -162,7 +179,15 @@ static void test_the_two_halves_share_nothing(void) {
    * the part answers "never started", which is the documented reply to a sense
    * with no seek outstanding. */
   ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0x11);
-  ap_omti_advance(&o, ap_omti_interrupt_next_change(&o));
+  /* **Two deadlines are outstanding here, and that is new.** The disk RESET
+   * above starts §4.3's 100 µs reset state, so `ap_omti_interrupt_next_change`
+   * -- which returns the soonest instant *anything* on this board can move --
+   * no longer necessarily returns the seek. Drain them in order rather than
+   * advancing once and assuming which one was reached. */
+  for (ap_time_t at = ap_omti_interrupt_next_change(&o); at != AP_TIME_NEVER;
+       at = ap_omti_interrupt_next_change(&o)) {
+    ap_omti_advance(&o, at);
+  }
   ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SENSE_INTERRUPT);
   (void)ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA);
   TEST_ASSERT_EQUAL_HEX8(0x11, ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA));
@@ -171,6 +196,7 @@ static void test_the_two_halves_share_nothing(void) {
 /* Issue a six-byte CDB the way §4.3's command state does: select, then a byte
  * at a time, checking the controller asks for each one. */
 static void issue(ap_omti_t *o, const uint8_t cdb[6]) {
+  wait_out_reset(o);
   ap_omti_disk_write(o, AP_OMTI_DISK_CONFIG, 0x00); /* SELECT */
   for (unsigned i = 0; i < 6u; i++) {
     /* The command phase: C/D set, travelling from the host, and requested --
@@ -179,6 +205,89 @@ static void issue(ap_omti_t *o, const uint8_t cdb[6]) {
     TEST_ASSERT_EQUAL_HEX8(0xCD, ap_omti_disk_read(o, AP_OMTI_DISK_STATUS));
     ap_omti_disk_write(o, AP_OMTI_DISK_DATA, cdb[i]);
   }
+}
+
+/* ## §4.3's reset state, and the 100 µs the model had nowhere to put
+ *
+ * p. 4-3 prints the warning **twice on one page** -- once under the RESET
+ * register and once under the protocol -- which is a document insisting. The
+ * model had five of the manual's six logical states and was missing this one,
+ * so there was no state with a length to hang the duration on, and a host that
+ * selected immediately got a working command where the hardware gives
+ * undefined behaviour. That is the permissive direction, and it is how an
+ * intermittent failure hides from a deterministic core. */
+static void test_a_reset_controller_is_not_idle_for_one_hundred_microseconds(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+
+  /* "The RESET STATE is entered by applying power to the controller
+   * (power - on -reset)" -- so this is true of a machine that has only just
+   * been switched on, before any register has been touched. */
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_RESET, ap_omti_disk_phase(&o));
+
+  /* One unit short of the deadline is still the reset state: the wait is a
+   * duration and not a formality. */
+  ap_omti_advance(&o, AP_OMTI_RESET_TIME - 1u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_RESET, ap_omti_disk_phase(&o));
+
+  /* "It will then enter the idle state." */
+  ap_omti_advance(&o, AP_OMTI_RESET_TIME);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_IDLE, ap_omti_disk_phase(&o));
+}
+
+static void test_a_select_inside_the_reset_window_is_refused(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+
+  /* "The IDLE STATE is the only time the controller will respond to a select
+   * request", and during the reset state it is not idle. The refusal is the
+   * existing guard rather than a new special case, which is the point of
+   * giving RESET a phase instead of a flag. */
+  ap_omti_disk_write(&o, AP_OMTI_DISK_CONFIG, 0x00); /* SELECT, too early */
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_RESET, ap_omti_disk_phase(&o));
+  TEST_ASSERT_EQUAL_HEX8(0, ap_omti_disk_read(&o, AP_OMTI_DISK_STATUS) &
+                                AP_OMTI_ST_BSY);
+
+  /* And the same write, after the wait, is honoured -- so the refusal is about
+   * the window and not about the write. */
+  ap_omti_advance(&o, AP_OMTI_RESET_TIME);
+  ap_omti_disk_write(&o, AP_OMTI_DISK_CONFIG, 0x00);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_COMMAND, ap_omti_disk_phase(&o));
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_ST_BSY,
+                         ap_omti_disk_read(&o, AP_OMTI_DISK_STATUS) &
+                             AP_OMTI_ST_BSY);
+}
+
+/* The register write is one of the three documented entries to the reset
+ * state, and it must start the window as surely as power-on does -- otherwise
+ * a driver that resets a running controller could select immediately, which is
+ * exactly the sequence the warning is printed for. */
+static void test_writing_the_reset_register_restarts_the_hundred_microseconds(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+  ap_omti_advance(&o, AP_OMTI_RESET_TIME);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_IDLE, ap_omti_disk_phase(&o));
+
+  ap_omti_disk_write(&o, AP_OMTI_DISK_STATUS, 0x00); /* RESET (Function) */
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_RESET, ap_omti_disk_phase(&o));
+
+  /* Measured from the write, not from power-on: the controller is a state
+   * machine and not a stopwatch started once. */
+  ap_omti_advance(&o, AP_OMTI_RESET_TIME);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_RESET, ap_omti_disk_phase(&o));
+  ap_omti_advance(&o, AP_OMTI_RESET_TIME * 2u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_IDLE, ap_omti_disk_phase(&o));
+}
+
+/* A scheduler that does not know about the window would run past it, and this
+ * core's whole claim is that nothing is special-cased outside the part. */
+static void test_the_reset_window_is_offered_to_the_scheduler(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+  TEST_ASSERT_EQUAL_UINT64(AP_OMTI_RESET_TIME,
+                           ap_omti_interrupt_next_change(&o));
+  ap_omti_advance(&o, AP_OMTI_RESET_TIME);
+  TEST_ASSERT_EQUAL_UINT64(AP_TIME_NEVER, ap_omti_interrupt_next_change(&o));
 }
 
 /* ## `0E READ DATA FROM SECTOR BUFFER`, and the block a reset leaves behind
@@ -364,6 +473,11 @@ static void drain(ap_omti_t *o) {
        * suite that has to know commands take any. */
       ap_omti_advance(o, o->completion_at);
       break;
+    case AP_OMTI_PHASE_RESET:
+      /* §4.3's 100 µs. A test that is not about the reset window says so by
+       * advancing straight through it, exactly as it does for a seek. */
+      ap_omti_advance(o, o->completion_at);
+      break;
     case AP_OMTI_PHASE_IDLE:
     case AP_OMTI_PHASE_COMMAND:
     case AP_OMTI_PHASE_STATUS:
@@ -401,6 +515,7 @@ static void test_every_command_the_esdi_set_accepts_reaches_an_implementation(vo
     uint8_t cdb[AP_OMTI_CDB_LONG] = {0};
     cdb[0] = (uint8_t)command;
     cdb[4] = 1u;
+    wait_out_reset(&o);
     ap_omti_disk_write(&o, AP_OMTI_DISK_CONFIG, 0x00); /* SELECT */
     for (unsigned i = 0; i < ap_omti_cdb_length((uint8_t)command); i++) {
       ap_omti_disk_write(&o, AP_OMTI_DISK_DATA, cdb[i]);
@@ -847,6 +962,10 @@ int main(void) {
   RUN_TEST(test_the_measured_fixed_disk_ports_are_reproduced);
   RUN_TEST(test_the_status_bits_seven_and_six_cannot_be_cleared);
   RUN_TEST(test_selecting_the_controller_makes_it_busy);
+  RUN_TEST(test_a_reset_controller_is_not_idle_for_one_hundred_microseconds);
+  RUN_TEST(test_a_select_inside_the_reset_window_is_refused);
+  RUN_TEST(test_writing_the_reset_register_restarts_the_hundred_microseconds);
+  RUN_TEST(test_the_reset_window_is_offered_to_the_scheduler);
   RUN_TEST(test_the_reset_port_is_a_function_not_a_store);
   RUN_TEST(test_the_data_register_changes_width_with_the_command_bit);
   RUN_TEST(test_the_measured_floppy_block_is_reproduced);

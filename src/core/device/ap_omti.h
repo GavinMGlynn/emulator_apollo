@@ -412,7 +412,34 @@ typedef enum {
   /* The drive is positioning and transferring. Added last so the values above
    * keep their numbers, which are hashed. */
   AP_OMTI_PHASE_EXECUTING,
+  /* §4.3's own first state, and the one this enum was missing. "The RESET STATE
+   * is entered by applying power to the controller (power - on -reset), by the
+   * reset signal on the system bus, or by writing the RESET Register (port
+   * 321). During this phase, the controller will initialize itself ... It will
+   * then enter the idle state."
+   *
+   * It is a state with a *length*, which is why collapsing it into the write
+   * that causes it was wrong: p. 4-3 prints "The host must wait 100 usec after
+   * a -RESET before issuing a SELECT" **twice on one page**, once under the
+   * RESET register and once under the protocol, and a model with nowhere to
+   * hang a duration cannot express it. See `AP_OMTI_RESET_TIME`.
+   *
+   * Appended after `EXECUTING` for the same reason `EXECUTING` was appended
+   * after `STATUS`: these values are hashed. */
+  AP_OMTI_PHASE_RESET,
 } ap_omti_phase_t;
+
+/* §4.3's warning, in time-base units.
+ *
+ * **The permissive direction is the dangerous one here.** A host that selects
+ * inside this window gets undefined behaviour on the real controller and used
+ * to get a working command from this model, so a driver bug -- ours or
+ * Domain/OS's -- could not show. It is now what the manual says it is: the
+ * IDLE state "is the only time the controller will respond to a select
+ * request", and during these 100 µs the controller is not idle.
+ *
+ * Exact on the time base: 21,542,400,000,000 / 1,000,000 is an integer. */
+#define AP_OMTI_RESET_TIME (AP_TIME_BASE_HZ / 1000000u * 100u)
 
 /* ## The drive's own figures, which is where an access time has to come from
  *

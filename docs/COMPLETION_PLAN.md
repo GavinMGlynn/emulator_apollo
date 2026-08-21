@@ -6048,28 +6048,20 @@ same number is what let them diverge once already.
       rewritten from a claim that had become vacuous into one that pins
       §6.4.1's "always zero" in both drive states.* Detail in
       `docs/references/OMTI_WALK.md`.
-- [ ] **The OMTI has no RESET phase, so the 100 µs post-reset wait has nowhere
-      to live.** Found by the `[OMTI]` §4 walk, 2026-08-21. §4.3 states it
-      **twice** on one page: "**The host must wait 100 usec after a -RESET
-      before issuing a SELECT**", once under the RESET register and again under
-      the protocol. `ap_omti.h`/`.c` contain no such wait — grepped, zero hits.
-      **It is one defect and not two.** §4.3's six logical states are RESET,
-      IDLE, SELECTION, COMMAND, DATA, STATUS; `ap_omti_phase_t` has IDLE,
-      COMMAND, DATA_IN, DATA_OUT, STATUS and EXECUTING. Splitting DATA is finer
-      than the manual and harmless, and EXECUTING is a documented addition — but
-      **RESET and SELECTION are absent**, and a model with no RESET phase has
-      nowhere to hang a duration. So the fix is one change: give RESET a phase
-      with a length, and refuse or defer a SELECT that arrives inside it.
-      *Why it matters*: the controller is on the boot path, and this is the
-      permissive direction — a driver that selects too early gets undefined
-      behaviour on hardware and works here, which is how an intermittent boot
-      failure hides from a deterministic core.
-      *Also owed, and cheaper*: `PROJECT_STATUS`'s OMTI row credits "§4.2 and
-      §4.3" for DRQ7 where §4.2 says **DRQ3**. Narrow it to §4.3's DATA STATE
-      plus `008778-03` Table 2-4, which is what actually justifies the constant —
-      DRQ7 is 16-bit and the transfer is word mode, so DRQ3 is excluded by width.
-      *And note*: `EXECUTING`'s comment says its position is hashed, so adding a
-      phase needs the enum extended at the end and an identity boot.
+- [x] **The OMTI's RESET phase and its 100 µs -- landed 2026-08-21.**
+      `[OMTI]` §4.3 states the wait twice on p. 4-3 and the model had five of
+      the manual's six logical states; `AP_OMTI_PHASE_RESET` is appended to the
+      enum (the values are hashed) with `AP_OMTI_RESET_TIME`, and the refusal
+      needed no new code because the SELECT guard already required
+      `PHASE_IDLE`. **The page image added a third entry path** the register
+      table implies nothing about: power-on, so a freshly built controller is in
+      the reset state before any register is touched.
+      *Also done*: the DRQ7 citation narrowed to §4.3's DATA STATE, read off
+      p. 4-4 -- §4.2's MASK bit says DRQ3, so only one section can be cited.
+      *Verification: `omti_suite` 27 -> 31, and two 350 M identity boots
+      **byte-identical**, hash `4EAC44B176697CE7` either side.* Detail, and what
+      three suites had to learn about the host's half of the protocol, in
+      `PROJECT_STATUS.md` and `docs/references/OMTI_WALK.md`.
 
 - [x] **PHASE A's gate is `siologin`, and it was measurable — reading 1,
       settled 2026-08-21.** `siologin` **does** reach carrier detect: with a

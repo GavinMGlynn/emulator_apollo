@@ -45,6 +45,12 @@ static void build_controller(void) {
   ap_omti_reset(&omti);
   ap_omti_attach_floppy(&omti, &floppy);
   ap_omti_fdc_write(&omti, AP_OMTI_FDC_DOR, AP_OMTI_DOR_NOT_RESET);
+  /* Run out the **fixed disk** half's §4.3 reset state, which a power-on
+   * reset starts on both halves of this board. This suite is about the floppy,
+   * and a disk deadline left pending would show up in
+   * `ap_omti_interrupt_next_change` -- which reports the soonest instant
+   * *anything* here can move, not the soonest thing the floppy can do. */
+  ap_omti_advance(&omti, AP_OMTI_RESET_TIME);
 }
 
 /* Let whatever the last command set in motion arrive.
@@ -644,9 +650,12 @@ static void test_a_seek_costs_one_step_a_cylinder_and_a_single_settle(void) {
   build_floppy(true);
   build_controller();
   seek_to(10u);
+  /* The **cost**, not the arrival instant. Since §4.3's reset state exists the
+   * controller is not handed its first command at time zero, and what this
+   * test is about is the drive's stepping rate. */
   TEST_ASSERT_EQUAL_UINT64(10u * AP_OMTI_FDC_TRACK_TO_TRACK +
                                AP_OMTI_FDC_SETTLING,
-                           omti.fdc_seek_at[0]);
+                           omti.fdc_seek_at[0] - omti.now);
 
   /* And it is the *distance* that is paid for, not the destination: the same
    * drive going ten further costs the same again. */
@@ -819,7 +828,7 @@ static void test_a_read_costs_half_a_revolution_and_the_sectors_transfer(void) {
       AP_OMTI_FDC_AVERAGE_LATENCY +
           (ap_time_t)((uint64_t)AP_TIME_BASE_HZ * AP_AFD_SECTOR_BYTES /
                       AP_OMTI_FDC_TRANSFER_BYTES_PER_SEC),
-      omti.fdc_completion_at);
+      omti.fdc_completion_at - omti.now);
 
   settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_fdc_phase(&omti));

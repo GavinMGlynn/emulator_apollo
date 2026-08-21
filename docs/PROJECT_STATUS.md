@@ -433,6 +433,68 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The OMTI had no RESET state, so its 100 µs had nowhere to live
+## (2026-08-21)
+
+`[OMTI]` §4.3 gives the fixed-disk half **six** logical states and this core had
+five. RESET was the missing one, and it is the one with a *duration*: p. 4-3
+prints "The host must wait 100 usec after a -RESET before issuing a SELECT"
+**twice on the same page**, once under the RESET register and once under the
+protocol. A model that collapsed the state into the write that causes it had
+nowhere to hang the figure, so it did not have it.
+
+**Why that direction is the dangerous one.** A host that selected inside the
+window got a working command here and gets undefined behaviour on the real
+controller. Nothing fails, nothing is logged, and a driver bug -- ours or
+Domain/OS's -- cannot show. That is how an intermittent boot failure hides from
+a deterministic core, which is the opposite of what this core is for.
+
+**Reading the page image found a third entry path.** The register table implies
+one -- write port 321 -- and §4.3 gives three: "applying power to the controller
+(power - on -reset), by the reset signal on the system bus, or by writing the
+RESET Register (port 321)". So a **freshly built controller is in the reset
+state before any register is touched**, which a model built around the register
+write would have missed entirely. All three run through `ap_omti_disk_reset`,
+so all three now enter the phase.
+
+`AP_OMTI_PHASE_RESET` is appended after `EXECUTING` because these values are
+hashed; `ap_omti_advance` retires it to idle; `ap_omti_interrupt_next_change`
+offers the deadline to the scheduler, so nothing outside the part special-cases
+it. **The refusal needed no new code at all** -- the SELECT path already
+required `PHASE_IDLE`, and "the IDLE STATE is the only time the controller will
+respond to a select request" is the same sentence that guard was written from.
+
+### What it cost the suites, which is the informative part
+
+Three suites had been playing the host's part incorrectly and nothing could
+tell them so. `omti_suite`, `awd_suite` and `afd_suite` all selected in the
+instant after a reset; their builders now wait the window out, in one helper
+each so the rule is stated once. And **four assertions read a deadline where
+they meant a duration** -- `completion_at` compared against a drive's figures
+outright, which was only ever right because the controller happened to be
+handed its first command at time zero. They now subtract `now`, which is what
+they were always about.
+
+*That is a test-quality finding rather than a modelling one, and it is the
+second time in this project that giving a part a documented delay has exposed
+tests written against an instant.*
+
+### The DRQ contradiction, settled from the other side
+
+The same walk owed a citation fix. This document credited "§4.2 and §4.3" for
+DRQ7; §4.2's MASK bit 0 on p. 4-3 says **DRQ3**. Read as an image, p. 4-4's DATA
+STATE says "it will set the **DRQ7** bit on the system bus" in the same
+paragraph as DACK7. Two sections of one manual disagree, so only §4.3 can be
+cited -- and DRQ3 is excluded on physical grounds regardless, being the 8-bit
+channel where the transfer is word mode.
+
+*Verification: `omti_suite` 27 -> 31 -- the state outlasting one time unit short
+of its deadline, a SELECT refused inside the window and the identical write
+honoured after it, the register write restarting the window from itself rather
+than from power-on, and the deadline reaching the scheduler. Two 350 M identity
+boots, before and after, **byte-identical in console, report and every counter**,
+hash `4EAC44B176697CE7` either side. `ctest` 139/139.*
+
 ## Domain/OS reaches a `login:` prompt, and `E0007` was the calendar
 ## (2026-08-21)
 
@@ -1643,7 +1705,17 @@ same media and the same invocation:
 06F5A1DFAB270B5D   + the NDT latch, which adds a byte to the hashed stream
 79C8F0364AE4A93E   + SELECT's drive mask and the reset's default selection
 4EAC44B176697CE7   + the keyboard's transmit buffer and pointing-device type
+4EAC44B176697CE7   + the OMTI's RESET phase and its 100 µs -- **unmoved**
 ```
+
+The fifth row is the interesting one, because that change *does* touch a hashed
+field on the boot path: `ap_omti_phase_t` gains a value and `completion_at`
+holds a deadline it did not hold before. It moves nothing, and the reason is
+physical rather than lucky -- 100 µs is over by the reference run's first
+thousandth of a second, so by instruction 350,000,000 the controller is in the
+same idle state with the same zeroed deadline it always was. **The two runs are
+byte-identical**, console and report and every counter, which is what makes
+that an observation and not an argument.
 
 The fourth row is a **re-baseline and not a divergence**, and the reason is
 stated rather than assumed: §12.2's buffer and §13.3's device type are new
@@ -8873,7 +8945,7 @@ failure that cost a bit position in the 68020's module entry word.
 | OMTI command descriptor blocks | working: the 6-byte CDB decoded with the **cylinder reassembled from three bytes** (C10 in byte 1, C09/C08 in byte 2, low eight in byte 3), the command byte exposed both whole and split into class and opcode, and acceptance checked against the ESDI command set — which **refuses** `0C INITIALIZE DRIVE CHARACTERISTICS`, an ST506-only command that would make ESDI geometry look settable | `omti_cdb_suite`, 7 tests; `FINDINGS.md` C27 |
 | OMTI 862X ESDI/floppy controller (the part) | **register model complete for both halves**: the fixed disk's four ports with their read/write asymmetries and the status register's fixed bits, and the floppy's five at the standard PC layout. Modelled as two independent register sets sharing nothing, as `[OMTI]` §4.1 and §3.4 describe. Both measured dumps reproduced as tests. **Both command sets now modelled**: §5's fixed disk over `.awd`, and §6's floppy over `.afd` — ten commands and INVALID, with ST0–ST3 result bytes, and **no `WRITE DATA`**, which neither our §6 nor the sibling 8640's §5.3 lists. **`1E READ DATA TO BUFFER` implemented** -- §5.4.19's "reads data from the disk
 to the controller's buffer ... does not transfer the data to the host", paired
-with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both derived from the STATUS register as §4.2 and §4.3 give them: the interrupt from `IREQ` and the MASK byte's interrupt enable, the DMA request from `DREQ`, which the MASK byte's DMA enable gates. IRQ6 and DRQ2 are placed and not yet driven: the floppy side's completion is the FDC's result phase, not this one | `omti_suite`, 15 tests; `awd_suite`, 49; `afd_suite`, 34; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |
+with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both derived from the STATUS register. The DRQ7 citation is **§4.3's DATA STATE alone** -- "it will set the DRQ7 bit on the system bus", read off p. 4-4 as an image -- plus `008778-03` Table 2-4. **Not "§4.2 and §4.3"**, which this row used to say: §4.2's MASK bit 0 gives **DRQ3** on p. 4-3, so the two sections of one manual contradict each other and only one of them can be cited. DRQ3 is excluded on physical grounds anyway -- DRQ7 is the 16-bit channel and the transfer is word mode. The rest is as §4.2 and §4.3 give it: the interrupt from `IREQ` and the MASK byte's interrupt enable, the DMA request from `DREQ`, which the MASK byte's DMA enable gates. IRQ6 and DRQ2 are placed and not yet driven: the floppy side's completion is the FDC's result phase, not this one | `omti_suite`, 15 tests; `awd_suite`, 49; `afd_suite`, 34; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |
 | OMTI 8621 placement (the DN3500's disk) | measured, both halves. Placement characterised at `04D000`: the range is the card's (all `FF` without it, control verified by device enumeration), aliased on an eight-byte period, with offsets 1-3 driven. Offsets 0 and 4-7 read `FF`, which a read sweep cannot distinguish from undriven | `FINDINGS.md` C20 |
 | WD7000 ESDI/SCSI (DN4500) | not started | — |
 | Floppy (`device/ap_omti.c`'s second half, `image/ap_afd.c`), QIC cartridge tape (`device/ap_qic.c`, `board/ap_tape.c`) | **modelled, and the floppy is now reachable.** §6.3's ten commands with their ST0-ST3 result bytes, the motor, MFM, multitrack and skip-deleted flags, over a 77x2x8x1024 `.afd`. The row said "not started", which was stale by a whole subsystem | `afd_suite`, 36 tests; `qic_suite`; `tape_suite`; `--diskette` fits one |
