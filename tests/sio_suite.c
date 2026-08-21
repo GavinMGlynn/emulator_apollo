@@ -897,6 +897,69 @@ static void test_a_headless_variant_has_its_workstations_bank_layout(void) {
  * enables that pin's delta. That is exactly what a modem-control input does,
  * and the plan recorded it as "formally untested in the line-2-configured
  * case". It is tested now, so what remains open is only the pin assignment. */
+/* ## The instrument that can name a pin, and why a count cannot
+ *
+ * What is unknown about this board's modem control is not the part -- input
+ * pins, `IPCR` deltas, `ACR` gating and the `OPR` are all modelled and
+ * exercised above -- but the **board-level assignment**: which input pin is
+ * DCD and which `OPR` bit is DTR. `002398-04` p. 12-35 says only that the
+ * `dtr_b` bit "has moved", the web has nothing past the connector pinout, and
+ * MAME models no modem control at all. All three tiers are exhausted.
+ *
+ * The machine is not, because every one of these three values is supplied by
+ * the *host*. So the accumulators are asserted here to be exactly what a boot
+ * report will later be read as evidence -- an instrument nobody has checked is
+ * not evidence. */
+static void test_the_port_accumulators_name_which_bits_the_host_touched(void) {
+  /* **Zeroed here, and `ap_sio_reset` is not what does it.** The per-register
+   * tallies beside these accumulators are not cleared by a reset either, and
+   * that is deliberate: they measure a *run*, and a machine that resets its
+   * DUART mid-boot has not stopped being the run being measured. The board
+   * zeroes the whole structure when it builds one. A test that leaves it on the
+   * stack and calls `ap_sio_reset` is reading whatever the stack held. */
+  ap_sio_t sio = {0};
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
+
+  /* Nothing written, nothing claimed. A zero here has to mean "the host never
+   * programmed it", which is the reading the whole experiment rests on. */
+  TEST_ASSERT_EQUAL_HEX8(0x00u, sio.opr_bits_set[1]);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, sio.opr_bits_cleared[1]);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, sio.acr_bits_written[1]);
+
+  /* `SOPR` and `COPR` are separate registers and a bit may appear in both --
+   * `007196-01` has `SIO_$HUP_CLOSE` drop DTR and raise it again -- so they
+   * accumulate apart rather than into one mask. */
+  ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_START_OPR_SET * 2u), 0x02u);
+  ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_START_OPR_SET * 2u), 0x10u);
+  ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_STOP_OPR_CLEAR * 2u), 0x02u);
+  TEST_ASSERT_EQUAL_HEX8(0x12u, sio.opr_bits_set[1]);
+  TEST_ASSERT_EQUAL_HEX8(0x02u, sio.opr_bits_cleared[1]);
+
+  /* The union across writes, not the last one: a driver that arms one pin and
+   * later a second has touched both, and the last value alone would lose the
+   * first. */
+  ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_IPCR_ACR * 2u), 0x04u);
+  ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_IPCR_ACR * 2u), 0x80u);
+  TEST_ASSERT_EQUAL_HEX8(0x84u, sio.acr_bits_written[1]);
+
+  /* Per part. A board with a login on line 2 and a console on line 1 must not
+   * have the two attributed to each other, which is exactly the mistake this
+   * instrument exists to avoid. */
+  TEST_ASSERT_EQUAL_HEX8(0x00u, sio.opr_bits_set[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, sio.acr_bits_written[0]);
+
+  /* And they **survive `ap_sio_reset`**, which is the same rule the tallies
+   * follow and is worth pinning rather than leaving to be discovered. A boot
+   * whose driver resets the DUART part-way through has still asserted whatever
+   * it asserted before, and an accumulator that forgot it would answer a
+   * different question from the one being asked. */
+  ap_sio_write(&sio, AP_SIO1_ADDR + (AP_MC68681_START_OPR_SET * 2u), 0x08u);
+  TEST_ASSERT_EQUAL_HEX8(0x08u, sio.opr_bits_set[0]);
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
+  TEST_ASSERT_EQUAL_HEX8(0x08u, sio.opr_bits_set[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x12u, sio.opr_bits_set[1]);
+}
+
 static void test_an_input_transition_on_the_second_duart_gates_on_its_enable(
     void) {
   ap_sio_t sio;
@@ -976,5 +1039,6 @@ int main(void) {
   RUN_TEST(test_a_size_with_no_row_has_no_bank_layout);
   RUN_TEST(test_a_headless_variant_has_its_workstations_bank_layout);
   RUN_TEST(test_an_input_transition_on_the_second_duart_gates_on_its_enable);
+  RUN_TEST(test_the_port_accumulators_name_which_bits_the_host_touched);
   return UNITY_END();
 }

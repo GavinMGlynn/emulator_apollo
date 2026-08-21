@@ -148,6 +148,37 @@ typedef struct {
    * register 15 stops it, so a read count is the only way to see a timer being
    * driven -- a write count cannot show it at all. */
   unsigned register_reads[2][AP_MC68681_REGISTERS];
+
+  /* ## The *values* written to the three modem-control registers
+   *
+   * A count says the output port was programmed; it cannot say **which bit**,
+   * and which bit is the entire remaining question about this board's DCD and
+   * DTR. `002398-04` p. 12-35 says only that the `dtr_b` bit "has moved", the
+   * web has nothing beyond the connector pinout, and MAME wires no modem
+   * control at all -- so the documents are exhausted and the machine is not.
+   *
+   * Three registers carry the answer between them, and each is a *host-supplied*
+   * value rather than one this core invents:
+   *
+   *   14  `SOPR`  writing a 1 **sets** that `OPR` bit -- so an accumulated OR
+   *               over every write names every output bit the operating system
+   *               ever asserted, and `SIO_$DTR`'s "default is TRUE (on)" says
+   *               DTR is among them at line open (`007196-01`).
+   *   15  `COPR`  the same, clearing. `SIO_$HUP_CLOSE` "drops DTR for 3/4
+   *               second", so DTR appears here too.
+   *   4   `ACR`   bits 3:0 gate `ISR[7]` **per input pin**, so a driver told
+   *               `-dcd_enable` must set the bit belonging to DCD's pin. That
+   *               names the input side, which a read count never can: the read
+   *               returns a value this core chose, and what the driver tests it
+   *               against is invisible from the device.
+   *
+   * Accumulated as ORs rather than logged per write because the question is
+   * "which bits were ever touched", the boot writes each register two or three
+   * times, and an OR costs no storage that has to be bounded. Instrumentation,
+   * so **excluded from the state hash** exactly as the tallies above are. */
+  uint8_t opr_bits_set[2];
+  uint8_t opr_bits_cleared[2];
+  uint8_t acr_bits_written[2];
 } ap_sio_t;
 
 [[nodiscard]] bool ap_sio_reset(ap_sio_t *sio);

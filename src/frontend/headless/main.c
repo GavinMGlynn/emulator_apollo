@@ -5244,6 +5244,23 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     printf("    sio%u armed  imr %02X  isr %02X  (A sr %02X, B sr %02X)\n",
            unit + 1u, part->imr, part->isr, part->channel[0].sr,
            part->channel[1].sr);
+    /* **Which bits, not how many times.** The counts above cannot name a pin,
+     * and a pin is the only thing still unknown about this board's DCD and DTR
+     * -- the part is complete, and `002398-04`, the web and MAME are each
+     * exhausted on the board-level assignment. These three are host-supplied
+     * values, so they are the machine answering a question the documents do
+     * not: `opr set`/`opr cleared` name every output bit Domain/OS ever
+     * asserted or dropped, and `acr` names the input pins it armed for
+     * change-of-state, which `ACR[3:0]` gates one pin at a time.
+     *
+     * `opr` is the live register beside them, because a bit set and later
+     * cleared leaves both accumulators marked and only this says where it
+     * ended. */
+    printf("    sio%u ports  opr %02X  set %02X  cleared %02X  acr %02X  "
+           "ip %02X\n",
+           unit + 1u, part->opr, board->sio.opr_bits_set[unit],
+           board->sio.opr_bits_cleared[unit],
+           board->sio.acr_bits_written[unit], part->input);
   }
 
   /* Characters the ports threw away, by *which* of the two ways. A run that

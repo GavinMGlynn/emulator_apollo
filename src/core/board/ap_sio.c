@@ -42,6 +42,24 @@ void ap_sio_write(ap_sio_t *sio, uint32_t address, uint8_t value) {
     return;
   }
   sio->register_writes[unit][reg]++;
+  /* The value, for the three registers where the value is the question. See the
+   * header: a count says the output port was programmed and cannot say which
+   * bit, and which bit is the whole of what is unknown about this board's DCD
+   * and DTR. Recorded here rather than inside the part because it is a
+   * *diagnostic* about the host's programming, not state the DUART holds. */
+  switch (reg) {
+  case AP_MC68681_IPCR_ACR:
+    sio->acr_bits_written[unit] |= value;
+    break;
+  case AP_MC68681_START_OPR_SET:
+    sio->opr_bits_set[unit] |= value;
+    break;
+  case AP_MC68681_STOP_OPR_CLEAR:
+    sio->opr_bits_cleared[unit] |= value;
+    break;
+  default:
+    break;
+  }
   ap_mc68681_write(&sio->port[unit], reg, value);
 }
 
