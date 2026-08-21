@@ -10,7 +10,7 @@ Three manuals, and the DN3500's controller is an **8621**.
 
 **220 pages total. None is walked.**
 
-## STATUS: 12 pages read plus **a footer map for PDF 30–45**. §4.1 to §4.3 walked. Registers confirm the model; **the manual contradicts itself on the DMA channel** — see below. The 8621 is not *listed* but the body text addresses **`862X`**; two navigational traps and one unmodelled timing figure are recorded below.
+## STATUS: 12 pages read plus **a footer map for PDF 30–45**. §4.1 to §4.3 walked. Registers confirm the model; **the manual contradicts itself on the DMA channel**, resolved below on physical grounds. The 8621 is not *listed* but the body text addresses **`862X`**; two navigational traps and one unmodelled timing figure are recorded below.
 
 Record opened 2026-08-21 with the method established and the reading order
 revised by what those three pages said.
@@ -241,12 +241,24 @@ row says "IRQ14 and DRQ7 wired, both derived from the STATUS register **as §4.2
 and §4.3 give them**". §4.2 does not give DRQ7; it gives DRQ3. Only §4.3's DATA
 STATE paragraph gives DRQ7. IRQ14 is unaffected — p. 4-2 and p. 4-4 agree on it.
 
-**Do not "fix" the core from this page.** Which channel the *Apollo* wires is a
-board question, not a part question, and `008778-03` Table 2-4 is the source
-this project already uses for DN3000 channel assignments. The part manual being
-self-contradictory is a reason to cite the board, not to flip a constant.
-**What to do**: narrow the `PROJECT_STATUS` citation to §4.3's DATA STATE, and
-check Table 2-4 for what the DN3500 actually gives the Winchester.
+**RESOLVED for this machine, and not by preferring a page.** Table 2-4 was
+checked as the record said to: `ap_dma.h` carries
+`AP_DMA_WINCHESTER_UNIT 1u /* DRQ7, and 16-bit */`, and the walk record for
+`008778-03` p. 34 has the arrangement — **`DRQ0`-`DRQ3` are 8-bit on controller
+1; `DRQ5`-`DRQ7` are 16-bit on controller 2**.
+
+**That makes DRQ7 the only possible answer, on physical grounds.** §4.3's DATA
+STATE describes the fixed-disk transfer as "**DMA word mode**" and says the
+controller requests a cycle "when the controller requires a **word** to be
+transferred". A word transfer cannot run on an 8-bit channel, so **`DRQ3` is
+excluded by the transfer width**, whatever pp. 4-2 and 4-3 say. The core's DRQ7
+is right, and now for a stated reason rather than a coin toss between two pages
+of one manual.
+
+**The `PROJECT_STATUS` citation still needs narrowing**: its OMTI row credits
+"§4.2 and §4.3" for DRQ7, and §4.2 says DRQ3. The right citation is §4.3's DATA
+STATE **plus** `008778-03` Table 2-4 for the channel's width — which is the
+sentence that actually justifies the constant.
 
 ## §4.3's protocol, in full — six states, and the model's representation unchecked
 
