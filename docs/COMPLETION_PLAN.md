@@ -6112,8 +6112,28 @@ same number is what let them diverge once already.
       `--boot-limit`.** That is the whole fix, and it is the third instance in
       one session of the lesson in
       `memory/a-bound-is-part-of-the-experiment.md`.
-      *The gate did its job*: it caught runs 2 and 3 before either was written
-      up as a result. Only run 1, before the gate existed, was misreported.
+      **RUN 4 ALSO FAILED, and it diagnosed the real problem.** `e0007-boot.sh`
+      copied verbatim with only `--boot-limit 4000000000` produced **zero OS
+      console text on stdout** — no "Domain/OS", no "Self test", no "kernel",
+      where the hand-built runs produced all three — and did not reach its own
+      documented `E0007` either.
+      **Because `--screen c8p` sends the console to the display, not stdout.**
+      So the gate, which greps stdout, cannot work for that invocation.
+      **The two harnesses each have half of what this experiment needs:**
+      - `identity-boot.sh`'s shape gives **console on stdout** but starts the OS
+        with `--boot-script`, which never gets there.
+      - `e0007-boot.sh`'s shape **starts the OS** with `--boot-type-after-pc
+        2670`, but `--screen c8p` takes the console away from stdout.
+      **The invocation this experiment needs is neither**: the
+      `--boot-type-after-pc` OS-start mechanism **without** `--screen`, or with
+      the screen's text captured. Establish that first, on a short run, by
+      checking that `Domain/OS kernel` *and* the boot-type both appear — **do
+      not spend another long run until a short one proves the console is
+      visible.**
+      *The gate did its job three times*: it caught runs 2, 3 and 4 before any
+      was written up as a result. Only run 1, before the gate existed, was
+      misreported. **The gate itself needs widening** — "reached SPM" must be
+      checked on whichever channel that invocation actually writes to.
 
 - [ ] **Walk the Intel 8237A and 8259A datasheets — 43 pages, both with text
       layers.** Record: `docs/references/INTEL_WALK.md`. Chosen over the
