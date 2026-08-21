@@ -4612,7 +4612,15 @@ discipline throughout.
       in the handbook this project does not have. A row's name and meaning
       without the table it belongs to says a DS4500 has a physical-cache
       control and does not say which register or bit carries it. What would
-      close it is `007861` itself; bitsavers does not hold it.
+      close it is `007861` itself. **Checked properly on 2026-08-21, not just
+      asserted**: the bitsavers `pdf/apollo/` index was fetched and lists **no
+      file beginning `007861`** — the only match for "Hardware_Architecture" is
+      this addendum. A web search finds the handbook catalogued in two forms,
+      `007861` Rev 02 *Domain Series 3000/Series 4000 Hardware Architecture
+      Handbook* and `007861-A01` *Domain Personal Workstations and Servers
+      Hardware Architecture Handbook*, so it exists and is simply not scanned.
+      Reference, web and the addendum itself are exhausted; only a copy turning
+      up would move this.
 ## Phase 8 — Verified fast mode
 
 Only after the reference core is proven, and only under an identity harness.
