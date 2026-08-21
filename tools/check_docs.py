@@ -462,6 +462,72 @@ def check_completeness_claims(problems: list[str]) -> int:
     return checked
 
 
+# A walk record's tag, as its own coverage table declares it: `| `[OMTI]` | ...`.
+WALK_TAG = re.compile(r"^\|\s*`\[([A-Za-z0-9-]+)\]`\s*\|")
+# The phrases a record uses to say a document has not been read.
+UNWALKED = re.compile(r"none (?:is |are )?walked|not walked|still owed|"
+                      r"unwalked", re.IGNORECASE)
+
+
+def check_walk_coverage(problems: list[str]) -> int:
+    """A walk record that calls a document unread while the code derives it.
+
+    **This is the one class of claim nothing here could check, and it drifted.**
+    Test counts, cited paths and cited symbols are all verifiable against the
+    tree, and the checks above have kept them honest for months. *Document
+    coverage* was not: `OMTI_WALK.md` said "§5 and §6.1-6.3 are still owed" and
+    the plan item said "220 pages, none walked", while `ap_omti_cdb.h`,
+    `ap_omti.h` and `ap_omti.c` cited **37 distinct §5 subsections** between
+    them, the whole §5.4.3-§5.4.29 command run included. A reader following
+    either document would have re-read a chapter already in the model, and the
+    only reason one did not is that the citations were checked first.
+
+    So the check is the cheapest thing that would have caught it: a record whose
+    table declares a tag, whose own prose calls that document unread, and whose
+    tag the tree cites anyway. It cannot tell *derived* from *walked* -- nothing
+    can, that is a judgement about field-by-field coverage -- but it can tell
+    "unread" from "cited forty times", which is the error that actually
+    happened.
+
+    Bounded deliberately: only a record that says both things is flagged. A
+    record honestly listing which sections remain is the normal case and must
+    stay quiet.
+    """
+    checked = 0
+    references = REPO / "docs" / "references"
+    if not references.is_dir():
+        return 0
+    sources = " ".join(
+        path.read_text(errors="ignore")
+        for path in sorted((REPO / "src").rglob("*.[ch]")))
+    for record in sorted(references.glob("*_WALK.md")):
+        text = record.read_text()
+        tags = {match.group(1) for match in
+                (WALK_TAG.match(line) for line in text.splitlines()) if match}
+        for tag in sorted(tags):
+            checked += 1
+            cites = sources.count(f"[{tag}]")
+            if cites < 10:
+                continue
+            # Only the record's own summary lines, not its per-page rows: a row
+            # saying one section is unread is exactly what a record is for.
+            summary = "\n".join(line for line in text.splitlines()
+                                if line.startswith("#") or line.startswith("**"))
+            # **A record correcting itself quotes the claim it is retracting**,
+            # and that must not read as the claim. The same exemption
+            # `QUOTES_THE_OLD_CLAIM` makes for subsystem rows, made here by
+            # dropping quoted spans before matching -- a retraction names the
+            # old words in quotes, a live claim states them plainly.
+            summary = re.sub(r'"[^"]*"', "", summary)
+            summary = re.sub(r"\u201c[^\u201d]*\u201d", "", summary)
+            if UNWALKED.search(summary):
+                problems.append(
+                    f"{record.name}: calls `[{tag}]` unread in its summary "
+                    f"while the tree cites it {cites} times -- audit the "
+                    "citations before believing the coverage")
+    return checked
+
+
 def main() -> int:
     if not STATUS.is_file():
         sys.stderr.write("check_doc_counts: no PROJECT_STATUS.md\n")
@@ -505,6 +571,7 @@ def main() -> int:
     checked += check_parent_residue(problems)
     checked += check_parent_subject(problems)
     checked += check_completeness_claims(problems)
+    checked += check_walk_coverage(problems)
 
     for problem in sorted(set(problems)):
         print(problem)

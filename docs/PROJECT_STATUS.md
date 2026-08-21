@@ -433,6 +433,59 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The one claim nothing checked was the one that drifted
+## (2026-08-22)
+
+Setting out to walk the OMTI's §5 found it **already derived**. `OMTI_WALK.md`
+said "§5 and §6.1–6.3 are still owed"; the plan item's title said "220 pages,
+none walked"; the record's own header said "None is walked". Meanwhile
+`ap_omti_cdb.h`, `ap_omti.h` and `ap_omti.c` cite **37 distinct §5
+subsections** between them, the whole §5.4.3–§5.4.29 command run included, with
+verbatim quotes.
+
+Auditing every `§` the OMTI model cites and attributing each to its manual
+widens it: **§3.4, §4.5 and §6.3's floppy command set are derived too**.
+Genuinely unread is §1, §2, most of §3, §6.1–§6.2 and §7 onward.
+
+*Derived is not walked, and the record now says which is which.* A verbatim
+quote shows the page was read and the behaviour taken from it; it does not show
+the section was covered field by field, which is this project's standard — and
+§6.4's field-by-field pass is exactly what found `ST3`.
+
+### Why this class of claim drifted when the others did not
+
+`check_docs.py` verifies test counts, cited paths and cited symbols, and those
+have stayed honest for months because a script re-derives them from the tree.
+**Document coverage is the one claim it could not check**, and it is the one
+that rotted — into the largest documentary item in the plan, where the cost of
+believing it was re-reading twenty-six pages already in the model.
+
+The asymmetry is worth stating: the plan's *"not modelled"* claims were audited
+the same day and **all five held** — the ring's three timeout bits set by
+nobody, no SCSI, no ring type filter, no virtual cache, no `IO_CH_CK` source.
+Claims about absence in code are greppable and survived. Claims about coverage
+of documents were not checkable by any tool, and did not.
+
+### So there is a check now
+
+`check_walk_coverage` takes each `*_WALK.md`, reads the tag its own table
+declares, counts how often the tree cites that tag, and flags a record whose
+**summary** calls the document unread while the code cites it more than ten
+times. It cannot tell derived from walked — nothing can, that is a judgement —
+but it can tell "unread" from "cited thirty-eight times", which is the error
+that actually happened.
+
+**It found one on its first run.** After two rounds of correcting the OMTI
+record's status section, its *header* still read "220 pages total. None is
+walked." I had edited the same file twice and missed it; the check did not.
+
+*A record correcting itself quotes the claim it retracts*, so quoted spans are
+stripped before matching — the same exemption the completeness check already
+makes for subsystem rows, and without it every honest retraction would fire.
+
+*Verification: `check_docs.py` 3,288 → 3,294 claims checked, the new check
+included; `ctest` 139/139.*
+
 ## The DS3500's AT bus clock: four tiers checked, and the oracle admits the gap
 ## (2026-08-22)
 

@@ -8,7 +8,12 @@ Three manuals, and the DN3500's controller is an **8621**.
 | `[8640]` | `omti/OMTI_8640_Technical_Reference_Manual_Jun89.pdf` | 61 | 600 ppi | as the sibling, several places |
 | `[8000]` | `omti/OMTI_8000_Series_AT_Reference_Jun86.pdf` | 71 | 400 ppi | **once** — effectively unconsulted |
 
-**220 pages total. None is walked.**
+**220 pages total.** `[OMTI]`'s §3.4, §4.1–§4.5, §5.1–§5.4 and §6.3 are
+**derived into the model** and §6.4 is walked; §1, §2, most of §3, §6.1–§6.2 and
+§7 onward are unread, as are `[8640]` and `[8000]` entirely. *This line said
+"None is walked" until 2026-08-22, when a citation audit showed otherwise — and
+it survived two corrections to the status section below before
+`check_docs.py`'s new coverage check found it.*
 
 ## STATUS: **§5's command chapter is DERIVED, and this record said it was owed**
 
