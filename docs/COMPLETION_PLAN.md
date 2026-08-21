@@ -6035,6 +6035,29 @@ same number is what let them diverge once already.
       `PROJECT_STATUS.md`. *Verification: the walk record's coverage table, and
       `doc_claims` over the documents that cite it.*
 
+- [ ] **The OMTI has no RESET phase, so the 100 µs post-reset wait has nowhere
+      to live.** Found by the `[OMTI]` §4 walk, 2026-08-21. §4.3 states it
+      **twice** on one page: "**The host must wait 100 usec after a -RESET
+      before issuing a SELECT**", once under the RESET register and again under
+      the protocol. `ap_omti.h`/`.c` contain no such wait — grepped, zero hits.
+      **It is one defect and not two.** §4.3's six logical states are RESET,
+      IDLE, SELECTION, COMMAND, DATA, STATUS; `ap_omti_phase_t` has IDLE,
+      COMMAND, DATA_IN, DATA_OUT, STATUS and EXECUTING. Splitting DATA is finer
+      than the manual and harmless, and EXECUTING is a documented addition — but
+      **RESET and SELECTION are absent**, and a model with no RESET phase has
+      nowhere to hang a duration. So the fix is one change: give RESET a phase
+      with a length, and refuse or defer a SELECT that arrives inside it.
+      *Why it matters*: the controller is on the boot path, and this is the
+      permissive direction — a driver that selects too early gets undefined
+      behaviour on hardware and works here, which is how an intermittent boot
+      failure hides from a deterministic core.
+      *Also owed, and cheaper*: `PROJECT_STATUS`'s OMTI row credits "§4.2 and
+      §4.3" for DRQ7 where §4.2 says **DRQ3**. Narrow it to §4.3's DATA STATE
+      plus `008778-03` Table 2-4, which is what actually justifies the constant —
+      DRQ7 is 16-bit and the transfer is word mode, so DRQ3 is excluded by width.
+      *And note*: `EXECUTING`'s comment says its position is hashed, so adding a
+      phase needs the enum extended at the end and an identity boot.
+
 - [ ] **Walk the OMTI controller manuals — 220 pages, none walked, and they
       have NO TEXT LAYER.** The 8621 is the DN3500's disk and floppy controller,
       so the boot path runs through it, and `CLAUDE.md`'s rule that a module is
