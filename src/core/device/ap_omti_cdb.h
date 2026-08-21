@@ -136,7 +136,15 @@
 /* §5.1.2, "COMMANDS SPECIFIC to the ST506/412 drives". Named so it can be
  * *rejected* on an ESDI controller rather than quietly accepted: the two lists
  * sit adjacent on the page, and merging them would make drive geometry look
- * settable where an ESDI drive reports it with READ CAPACITY. */
+ * settable where an ESDI drive reports it with READ CAPACITY.
+ *
+ * §2.3's four jumper tables corroborate the split from the other end. Each of
+ * the 8620, 8120, 8627 and 8127 tables gives two configuration bits per LUN and
+ * four drive types, and **every jumperable type carries a `#CYL` and `#HEADS`
+ * except the ESDI row, which is blank in both columns** -- on the two ESDI
+ * controllers, and on the two ST506 ones that encoding is `RESERVED` and there
+ * is no ESDI row at all. Geometry is strapped for ST506 and interrogated for
+ * ESDI, which is the same boundary this define sits on. */
 #define AP_OMTI_CMD_INITIALIZE_DRIVE_CHARACTERISTICS 0x0Cu
 
 typedef struct {

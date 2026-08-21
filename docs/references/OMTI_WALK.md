@@ -989,3 +989,46 @@ layout is what says so.
 rather than merely noted* — and it took a mechanical figure in the installation
 chapter to do it, which is the second time §2 has paid after being triaged as
 low-yield.
+
+
+## §2.3's other three tables — and the low nibble names the controller family
+
+PDF 15-17, doc 2-5 to 2-7. §2.3 is **four** tables, not the one this record
+walked: **8620** (2-4), **8120** (2-5), **8627** (2-6), **8127** (2-7), across
+two BIOS revisions — **AT3, #1002579** for the 8620/8120 and **AT4, #1002580**
+for the 8627/8127.
+
+| controller | LUN 0 / LUN 1 jumpers | `1 1` | `0 1` / `1 0` / `0 0` |
+| --- | --- | --- | --- |
+| 8620 (AT3) | `W20 W21` / `W22 W23` | **ESDI DRIVES** | Vertex/Priam V170, Maxtor XT1140, MiniScribe 3425 |
+| 8120 (AT3) | `W1 W2` / `W3 W4` | **RESERVED** | the same three |
+| 8627 (AT4) | `W20 W21` / `W22 W23` | **ESDI DRIVES** | Seagate ST277R, ST4144R, ST238 |
+| 8127 (AT4) | `W1 W2` / `W3 W4` | **RESERVED** | the same three Seagates |
+
+**Two findings, and the first is a property of the byte this core answers with.**
+
+*The low nibble identifies the controller family.* The 86xx pair strap `W20`-`W23`
+and the 81xx pair strap `W1`-`W4`, but both are the same four bits in the same
+register, and `1 1` means **ESDI DRIVES** on one family and **RESERVED** on the
+other. So `FC` — `W20 W21 = 1 1` — is not merely "LUN 0 is ESDI": it is an
+encoding that *only an 862X can legally report*. A host reading `FC` off an
+812X would be reading a reserved configuration. The byte does double duty, and
+`ap_omti.h`'s note that this register is the 8620/8627 straps is the reason it
+can be read at all.
+
+*And every jumperable drive type carries a geometry except ESDI.* All four
+tables print `#CYL`, `#HEADS` and `WRITE PRECOMP` per row, filled in for the six
+named ST506 mechanisms and **blank on both ESDI rows**. That is the documentary
+form of a split `ap_omti_cdb.h` already implements: `INITIALIZE DRIVE
+CHARACTERISTICS` (`0C`) is listed under §5.1.2's "COMMANDS SPECIFIC to the
+ST506/412 drives" and is rejected here, because an ESDI drive reports its
+geometry to `READ CAPACITY` rather than being told it. The tables corroborate
+that from the installation end: on an ST506 controller the geometry is *strapped
+into the board*, on an ESDI one there is nowhere to strap it.
+
+The AT3/AT4 drive lists differ entirely — the same two bits select a MiniScribe
+3425 under one BIOS and a Seagate ST238 under the other — which is a third
+reason the configuration byte is not a geometry source under any reading.
+
+*Nothing here changes behaviour.* It converts one implementation decision and one
+measured byte into cited facts. Coverage: §2.3 is now whole, 2-4 through 2-7.
