@@ -132,6 +132,19 @@
  * Coprocessor does not have to find them again, and the plan item says exactly
  * that rather than claiming the timings are modelled.
  */
+/* **All three confirmed from a second manual, 2026-08-22.** `[OMTI]` §3.3's
+ * `-MASTER` description says the same things `008778-03` §2.3.2 does, in its
+ * own words: "After `-MASTER` is low, the Input/Output microprocessor must wait
+ * **one system clock period** before driving the address and data lines, and
+ * **two clock periods** before issuing a Read or Write command. If this signal
+ * is held low for **more than 15 microseconds**, system memory may be lost
+ * because of a lack of refresh."
+ *
+ * One clock and two clocks are the 166 and 333 below at the AT's 167 ns, and
+ * the 15 µs is the refresh interval. Two independent documents, one of them a
+ * third-party controller manual describing the same bus, and they agree
+ * exactly -- which is worth more than either alone for figures this core cannot
+ * yet enforce. */
 #define AP_MASTER_T_BUS_DRIVEN_NS 166u
 #define AP_MASTER_T_COMMAND_NS 333u
 /* §2.4.6's interval, above which §2.3.2 says memory is lost. Kept beside the

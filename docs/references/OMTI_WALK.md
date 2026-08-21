@@ -896,3 +896,39 @@ Also on the page and already modelled: the IRQ priority order and the rule that
 "an interrupt request is generated when an IRQ line is raised from low to high.
 The line must be held high until the microprocessor acknowledges" — the same
 sentence `008778-03` §2.3.2 gives and `ap_intr` implements.
+
+
+## §3.3-§3.4's remaining signals — a negative answer and a second source
+
+PDF 36 and 38, doc 3-4 and 3-6.
+
+**The negative first, because it was the reason for reading these pages.**
+`-I/O CH CK` sits at pin `A1` in §3.2's table and has **no entry in §3.3's
+signal descriptions**. The list runs SA, LA, CLK, RESET DRV, SD, BALE, I/O CH
+RDY, IRQ, IOR, IOW, MEMR, MEMW, DRQ, DACK, AEN, REFRESH, T/C, SBHE, MASTER, MEM
+CS16 — and skips it. So this manual **cannot** say whether the OMTI drives a
+channel check, and the `IO_CH_CK.L` item stays blocked with one more source
+explicitly checked and recorded as silent rather than merely untried.
+
+*That is a fourth list in this manual that is not a census*, and the first where
+the omission cost a question rather than hid a feature.
+
+**`-MASTER` confirms all three of `ap_master.h`'s figures**, in its own words:
+"After `-MASTER` is low, the Input/Output microprocessor must wait **one system
+clock period** before driving the address and data lines, and **two clock
+periods** before issuing a Read or Write command. If this signal is held low for
+**more than 15 microseconds**, system memory may be lost because of a lack of
+refresh." One and two clocks at 167 ns are Table A-1's #75 and #76; the 15 µs is
+§2.3.2's threshold. A third-party controller manual and Apollo's own reference
+agreeing exactly is worth having for figures this core cannot yet enforce.
+
+**`CLK` is the generic AT's**: "the **6-MHz** system clock ... cycle time of 167
+nanoseconds ... **not intended for uses requiring a fixed frequency**." Which
+settles that the 167 ns on the previous page is the standard AT and not a
+DS3500 figure — the open bus-clock question is untouched by this manual.
+
+Also confirmed and already modelled: `T/C` "provides a pulse when the terminal
+count for any DMA channel is reached"; `-SBHE`/`SA0`'s encodings, `00` word and
+`01`/`10` byte on the two halves; and SD's "16-bit microprocessor transfers to
+8-bit devices will be converted to two 8-bit transfers", which is
+`atbus_suite`'s wide-to-narrow test.
