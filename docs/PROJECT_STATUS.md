@@ -433,6 +433,81 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## `siologin` is not blocked at carrier detect, and the pin is still unnamed
+## (2026-08-21)
+
+The instrument that could name the pin was built, run against a booted machine
+with a login configured on `/dev/sio2`, and it answers a different question from
+the one it was built for -- which is the more useful outcome.
+
+`ap_sio` now accumulates the **values** the host writes to the three registers
+that carry modem control: `SOPR` (14) sets `OPR` bits, `COPR` (15) clears them,
+and `ACR` (4) bits 3:0 gate `ISR[7]` **per input pin**. All three are
+host-supplied, so they are the machine answering where `002398-04`, the web and
+MAME are each exhausted. Reported beside `sio armed`, outside the state hash as
+the per-register tallies are.
+
+### What a booted machine wrote
+
+Run gated on `SPM system init complete.` and the `siomonit` CPS line before any
+counter was read:
+
+```
+sio1 ports  opr 8F  set CF  cleared F0  acr EA  ip 61
+sio2 ports  opr 89  set 8F  cleared 7F  acr 8F  ip 00
+```
+
+**`ACR` does not discriminate DCD.** `sio2`'s low nibble is `F`: the driver arms
+**all four** input pins for change-of-state, so "which pin did it enable" has the
+answer "all of them". The instrument is not at fault and the reading is not
+negative -- `sio1`, the console line, arms only `IP1` and `IP3` (`acr EA`), so
+the two lines *are* programmed differently and the accumulator sees it. It names
+a line, not a pin.
+
+**The output side is real.** `sio2` asserted bits `8F` and dropped `7F`, ending
+at `89`, which is the DTR handshake `007196-01` documents -- `SIO_$DTR` "default
+is TRUE (on)" at open, `SIO_$HUP_CLOSE` dropping it.
+
+### The finding, which re-scopes a chain this project has carried since C220
+
+**Carrier already reads asserted, and no `login:` appears anyway.** Reg 13
+returns `input | 0x80` and nothing in this core drives `sio2`'s inputs, so every
+pin with an external connection reads **0 -- asserted, since asserted is low**.
+Whichever pin is DCD, `siologin` is being told the carrier is present. It reads
+the port twice, arms all four pins, sets and clears output bits, and then offers
+no prompt.
+
+So *"`siologin` needs a modem-control signal this core does not model"* is **not
+supported**. The signal is readable, it reads asserted, and the prompt still does
+not come. Seven items were scoped behind that sentence and none of them should
+be.
+
+**This closes a qualification the `008778-03` walk left standing.** Its p. 54 row
+refuted the CTS reading and then measured the input port on the **default**
+configuration, recording honestly that it "leaves the siologin-configured case
+formally untested". That case is now tested, on a volume whose `siomonit_file`
+names `/dev/sio2`, and the register *is* read -- twice -- where the default
+configuration never read it at all. The walk's instrument was working and its
+scope was the limit, exactly as it said.
+
+*What the all-zero input port is not*: evidence about hardware. An unconnected
+RS-232 input reading asserted is this model's zero default, which the walk
+already records as the permissive direction. It means the run cannot show a
+driver *waiting* for carrier -- it was given carrier -- and that is why the
+reading above is "not blocked here" rather than "carrier is irrelevant".
+
+### What would name the pin now
+
+Not `ACR`, and not a read count. A **per-pin behavioural experiment**: drive one
+of `sio2`'s inputs negated at a time and find which one changes what `siologin`
+does. `ap_mc68681_set_input` already exists and `sio_suite` drives it; what is
+missing is a frontend flag to reach it during a boot. That is a measurement this
+machine can make, and it is the only route left with all three documentary tiers
+exhausted.
+
+*Verification: `sio_suite` 36 -> 37 pinning the accumulators as evidence; one
+1.5 G boot on a scratch copy, gated on SPM before its report was read.*
+
 ## The OMTI had no RESET state, so its 100 µs had nowhere to live
 ## (2026-08-21)
 

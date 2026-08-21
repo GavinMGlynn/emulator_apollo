@@ -6080,21 +6080,48 @@ same number is what let them diverge once already.
       complete.` before any counter was read.* Detail, including the `E0007`
       retraction the same run produced, in `PROJECT_STATUS.md`.
 
-- [ ] **Name the DCD pin and the DTR bit from the values, not the counts.**
-      Opened 2026-08-21 by the item above, which turned this from a documentary
-      dead end into a measurement: the machine performs the handshake, so the
-      only thing missing is *which* bit each access touches.
-      **What is needed**: the value written to `sio2`'s `SOPR`/`COPR` and the
-      mask the driver applies after reading the input port. The counters cannot
-      carry values, so this needs an instrument — an accumulator of which `OPR`
-      bits were ever set and cleared per unit, printed beside `sio2 armed`, is
-      the cheapest and matches how the per-register counters are already
-      reported. A `--boot-watch-write` on one address will **not** do it:
-      `ap_sio_decode` masks the register index, so sixteen registers at stride
-      two alias eight times across the part's 256-byte range.
-      *Why it is worth it*: this closes the open item below, which has been
-      blocked at all three tiers since it was scoped, and it is the fourth tier
-      the resolution order never names — the machine itself.
+- [x] **Name the DCD pin and the DTR bit from the values -- instrument landed,
+      and it re-scoped the question, 2026-08-21.** `ap_sio` accumulates the
+      values written to `ACR`, `SOPR` and `COPR`, reported beside `sio armed`
+      and outside the hash. On a booted machine with a login on `/dev/sio2`:
+      `acr 8F` -- the driver arms **all four** input pins, so change-of-state
+      enabling names a line and not a pin -- and `set 8F cleared 7F`, the DTR
+      handshake `007196-01` describes.
+      **The pin is still unnamed, and the reason the chain existed is gone**:
+      `sio2`'s input port reads all-asserted and `siologin` offers no prompt
+      anyway, so "blocked at carrier detect" is not supported. It also closes
+      the `008778-03` p. 54 qualification, which measured the *default*
+      configuration and said so.
+      *Verification: `sio_suite` 36 -> 37; one 1.5 G boot gated on SPM.* Detail
+      in `PROJECT_STATUS.md`.
+
+- [ ] **Drive `sio2`'s input pins from the frontend, and name DCD by which one
+      moves `siologin`.** Opened 2026-08-21 by the item above, which exhausted
+      what a passive instrument can see. All three documentary tiers are
+      exhausted for the pin assignment and `ACR` turned out not to discriminate,
+      so the only route left is behavioural: negate one input at a time and find
+      which one changes what the driver does.
+      **Most of it exists** -- `ap_mc68681_set_input` is modelled and
+      `sio_suite` drives it; what is missing is a flag that reaches it during a
+      boot, and a run per pin. **Four pins, so four bounded runs**, each gated
+      on `SPM system init complete.` as every reading here now is.
+      *Note what it is not*: an experiment about whether carrier blocks the
+      login. That is answered -- it does not, with carrier asserted. This one
+      asks only which pin the driver is *looking* at, which is still worth
+      having because it is the last unnamed thing in a part that is otherwise
+      complete.
+
+- [ ] **Re-scope the seven items that waited behind "`siologin` needs a
+      modem-control signal".** Opened 2026-08-21. C220's sentence is refuted by
+      measurement: the signal is readable, reads asserted, and no `login:`
+      appears. Every item that named it as its blocker needs its real blocker
+      found instead -- and the ones that wanted a *shell* may not need
+      `siologin` at all, since `PROJECT_STATUS` records `sh` at the `)` prompt
+      giving a `login:` on the display route.
+      **Start from what the run shows**: `siologin` runs, inquires the port,
+      programs the line, and stays silent. The next question is what it does
+      after that, which is a matter for a trace rather than another register
+      count.
 
 - [ ] **Walk `007196-01` *Domain System Call Reference*, 722 pages.** Opened
       2026-08-21 under the whole-document rule: its SIO chapter yielded four
