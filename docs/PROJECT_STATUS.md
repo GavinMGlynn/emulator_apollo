@@ -433,6 +433,49 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The `PROVISIONAL` cross-reference holds, and cannot be checked by script
+## (2026-08-22)
+
+`CLAUDE.md` requires a deliberate approximation to be marked "`PROVISIONAL` in
+code *and* in `docs/PROJECT_STATUS.md`, and make it a named plan item" — three
+places, and nothing verifies the three agree. Audited after the walk-coverage
+drift, since it is the same shape of claim: a rule stated in prose and enforced
+by nobody.
+
+**It holds.** 73 mentions across 37 source files, 94 in this document, 43 in the
+plan, and every one sampled traces to its counterpart.
+
+**The first proxy was wrong, and recording why saves the next attempt.** Asking
+whether each `PROVISIONAL`-carrying file is *named* in this document flagged
+thirteen. All thirteen are false:
+
+- `ap_model.h`'s mention is a **statement of the rule**, not an approximation —
+  "every field is either confirmed against a cited source or marked PROVISIONAL".
+- `ap_ring_station.c`'s says "the timeout is PROVISIONAL — **see the header**",
+  and the header is documented.
+- `ap_parity.h`'s "which lane bit is which byte" is here twice, at two different
+  places, under its own words rather than its filename.
+- The CPU headers' point at "`docs/PROJECT_STATUS.md`'s PROVISIONAL table".
+
+**Because the mechanism is the subsystem table, not the file name.** Fourteen
+rows carry a `PROVISIONAL` and describe it, and a row names a *module* — "68030
+ATC replacement", "68030 published timings" — where the marker sits in a header
+two directories down. A filename check has no way to connect them.
+
+*So this class is not mechanically checkable under the current convention, and
+that is the useful result.* Keying each `PROVISIONAL` — a short tag in the
+comment and the same tag in the row — would make it checkable, and is a change
+worth weighing against the churn of retrofitting seventy-three of them. Named
+here rather than done, because a convention change is the user's call and not a
+side effect of an audit.
+
+*What can be said without a script*: three classes have now been audited — walk
+coverage **drifted**, page counts **held** and are now checked, the plan's "not
+modelled" claims **held** and are greppable, and this one **holds** and is not.
+Two of the four are machine-checked where none was before.
+
+*Verification: documentary; no code changed; `ctest` 139/139.*
+
 ## The one claim nothing checked was the one that drifted
 ## (2026-08-22)
 
