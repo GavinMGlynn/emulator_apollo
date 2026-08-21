@@ -775,7 +775,30 @@ typedef enum {
 #define AP_OMTI_ID_ROM_CHECKSUM 0x0Eu
 #define AP_OMTI_ID_ERROR_FLAGS 0x10u
 #define AP_OMTI_ID_BUFFER_SIZE 0x14u
-/* Bits 7 and 6 set: 32K, per the table above. */
+/* Bits 7 and 6 set. **The encoding is the table's; the choice of 32K is not.**
+ *
+ * This said "32K, per the table above", which reads as a citation and is not
+ * one: the table gives the *encoding* -- `0-0` 2K, `0-1` 8K, `1-0` 16K, `1-1`
+ * 32K -- and says nothing about which an 8621 reports. Corrected 2026-08-22
+ * while walking Appendix A.
+ *
+ * **What the documents actually say.** Appendix A's `30 RAM error` describes
+ * "the controller detected a data error with its internal RAM buffer of **8K
+ * bytes**" -- a *generic* figure in an error description, for a manual whose
+ * models are the 8620/8627/8120/8127, and not a statement about the 8621.
+ * Nothing held here gives the Apollo part's buffer size.
+ *
+ * **The oracle agrees with 32K and cites nothing either**:
+ * `omti8621.cpp` writes `m_sector_buffer[0x14] = 0xc0; // 32K buffer size`,
+ * the same value with the same bare comment. Two implementations agreeing is
+ * not evidence when both may have read the same table the same way.
+ *
+ * So this is `PROVISIONAL`: 32K is what this core and the oracle report, the
+ * only published figure for the family is 8K, and the field is one the
+ * *controller* is supposed to answer for itself. **What would settle it**: an
+ * 8621 identification block read off real hardware, or an Apollo document
+ * naming the buffer. The boot does not discriminate -- the PROM's Winchester
+ * test reads the error bytes at `10`-`13` and never looks at `14`. */
 #define AP_OMTI_ID_BUFFER_32K 0xC0u
 
 /* The longest floppy command and result phases in §6.3. READ DATA and the three

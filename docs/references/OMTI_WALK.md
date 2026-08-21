@@ -685,3 +685,35 @@ recalibration bound of "5 steps more than the total number of cylinders", which
 is `ap_omti.h`'s equipment-check argument from §6.4.1's 77 step pulses seen from
 the other side; and `09 Cartridge Changed`, "may only occur on Removable type
 drives".
+
+
+## Appendix A page A-5 — the appendix finished, and a number that had no source
+
+Type 1's tail (`1F`), all of type 2 and all of type 3. **Every description
+confirms** what this core produces: `20`'s "decoded a command code that it does
+not support", `21`'s "Sector Address beyond the capacity of the drive", `22`'s
+"a Change Cartridge command (HEX 1B) ... issued to a LUN assigned as a Fixed
+drive type" — which `awd_suite` already quotes — and `23`'s "after the
+commencement of a multiblock command".
+
+**The finding is in `30 RAM error`**: "the controller detected a data error with
+its internal RAM buffer of **8K bytes**". `ap_omti.h` reports **32K** in the
+identification block's byte `14`, and the comment justifying it read "32K, per
+the table above" — which is not a citation. The table gives the *encoding*
+(`0-0` 2K, `0-1` 8K, `1-0` 16K, `1-1` 32K) and says nothing about which an 8621
+reports.
+
+The oracle writes the same value with the same bare comment —
+`m_sector_buffer[0x14] = 0xc0; // 32K buffer size` — so two implementations
+agree and neither cites anything, which is not evidence when both may have read
+one table the same way. Now `PROVISIONAL`, with what would settle it: an 8621
+identification block read off hardware, or an Apollo document naming the buffer.
+The boot cannot discriminate — the PROM's Winchester test reads the error bytes
+at `10`-`13` and never looks at `14`.
+
+*A fourth name difference inside this manual*: A-2's table calls `31` "Z8
+firmware checksum" and A-5 calls it "EPROM Checksum". After `ST3` bit 4, `EC`,
+and `14` sector-versus-record, this stops being remarkable and becomes a
+property of the document.
+
+**Appendix A is now walked: A-1 through A-5, which is all of it.**
