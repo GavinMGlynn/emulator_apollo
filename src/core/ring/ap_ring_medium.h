@@ -50,9 +50,23 @@
 #define AP_RING_MAX_NODES 64u
 
 /* Longest cable a link may model, in bit times. `[MAC]` §3.4 puts the maximum
- * between nodes at 1 km, which is about 60 bit times at 12 Mbit/s once
- * propagation is counted, so 64 covers the documented maximum with room and
- * keeps the delay lines small enough to sit in the struct. */
+ * between nodes at 1 km.
+ *
+ * **That is 51 bit times at 12 Mbit/s, not the 60 this said** (corrected
+ * 2026-08-21 from Table A-1, which nothing here had read). The cable's own
+ * specification gives **velocity of propagation 78%** and **delay 1.3 nsec/ft
+ * maximum**, and those agree with each other -- 78% implies 1.30 ns/ft. A
+ * kilometre is then 4.27 us, which is 51.2 bit times at 83.33 ns each.
+ *
+ * The old figure came from assuming a *typical* coaxial velocity factor rather
+ * than looking one up: 60 bit times needs 0.667c, which is ordinary RG-59 and
+ * not what Apollo specifies. The lesson is the cheap one -- the number was in
+ * Appendix A of a manual this project cites constantly, and was estimated
+ * instead.
+ *
+ * 64 still covers the documented maximum, and with more margin than the
+ * comment used to claim: 51 rather than 60 against a bound of 64. No behaviour
+ * changes; the constant was already large enough. */
 #define AP_RING_MAX_CABLE_BITS 64u
 
 typedef struct {
