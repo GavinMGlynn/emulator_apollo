@@ -6071,69 +6071,57 @@ same number is what let them diverge once already.
       *And note*: `EXECUTING`'s comment says its position is hashed, so adding a
       phase needs the enum extended at the end and an identity boot.
 
-- [ ] **PHASE A's gate is `siologin`, and `siologin`'s gate may be measurable
-      rather than documentary.** Scoped 2026-08-21; this is the item seven
-      others wait behind.
-      **The chain, established today**: seven items need Domain/OS to exercise a
-      subsystem the boot does not → that needs a shell → a shell needs
-      `siologin` → `siologin` "needs a modem-control signal this core does not
-      model (C220)" → that is **DCD**, whose *board pin assignment* is
-      unobtainable at all three tiers (checked today: `002398-04` p. 12-35 only
-      says the `dtr_b` bit "has moved", the web has nothing, MAME wires no
-      modem control at all).
-      **The gap in the chain**: the part-level mechanism is complete — input
-      pins, `IPCR` deltas, `ACR` gating, `OPR` — so what is missing is only
-      *which pin*. That is a question the machine can answer even though the
-      documents cannot. **The reference boot's own counters make it concrete**:
-      `sio1` reg 4 (`IPCR`) is **read 179 times** while **`sio2` is never read
-      at all** — 28 writes, zero reads — so the serial line is configured and
-      then never polled, which is `siologin` not reaching carrier detect.
-      **The experiment**: boot past `SPM system init complete.` with `siologin`
-      configured and watch for the first read of `sio2` reg 4 or 13. If one
-      appears, the bit the driver tests names the DCD pin **empirically**, and
-      a documentary dead end becomes a measurement. If none appears at any
-      length, `siologin` is blocked before carrier detect and the chain needs
-      re-scoping from there.
-      *Either outcome is worth having, and neither needs a manual this project
-      does not hold.*
-      **THREE ATTEMPTS FAILED THE GATE, 2026-08-21, and the cause was the
-      invocation.** 1.6 G without `--clock`, 1.6 G with it, and 4 G with it all
-      ran to `stopped EXECUTED` and **none reached `SPM system init complete.`**
-      — zero hits for `SPM`, `siologin`, `siomonit`, `MBX`. The second run's
-      console was **byte-identical** to the first, which ruled out the calendar,
-      and the third ruled out the bound.
-      **What was wrong**: the invocation was hand-built from
-      `tools/identity-boot.sh`, whose job is a 350 M state hash and which uses
-      `--boot-script boot-domainos.script`. **`tools/e0007-boot.sh` is the one
-      that demonstrably reaches Domain/OS**, and it starts the OS a different
-      way — **`--boot-type-after-pc 2670` with `--boot-type`**, typing the
-      command at the MD prompt, plus `--screen c8p`.
-      **Do not hand-build the invocation. Copy `e0007-boot.sh` and change only
-      `--boot-limit`.** That is the whole fix, and it is the third instance in
-      one session of the lesson in
-      `memory/a-bound-is-part-of-the-experiment.md`.
-      **RUN 4 ALSO FAILED, and it diagnosed the real problem.** `e0007-boot.sh`
-      copied verbatim with only `--boot-limit 4000000000` produced **zero OS
-      console text on stdout** — no "Domain/OS", no "Self test", no "kernel",
-      where the hand-built runs produced all three — and did not reach its own
-      documented `E0007` either.
-      **Because `--screen c8p` sends the console to the display, not stdout.**
-      So the gate, which greps stdout, cannot work for that invocation.
-      **The two harnesses each have half of what this experiment needs:**
-      - `identity-boot.sh`'s shape gives **console on stdout** but starts the OS
-        with `--boot-script`, which never gets there.
-      - `e0007-boot.sh`'s shape **starts the OS** with `--boot-type-after-pc
-        2670`, but `--screen c8p` takes the console away from stdout.
-      **The invocation this experiment needs is neither**: the
-      `--boot-type-after-pc` OS-start mechanism **without** `--screen`, or with
-      the screen's text captured. Establish that first, on a short run, by
-      checking that `Domain/OS kernel` *and* the boot-type both appear — **do
-      not spend another long run until a short one proves the console is
-      visible.**
-      *The gate did its job three times*: it caught runs 2, 3 and 4 before any
-      was written up as a result. Only run 1, before the gate existed, was
-      misreported. **The gate itself needs widening** — "reached SPM" must be
-      checked on whichever channel that invocation actually writes to.
+- [x] **PHASE A's gate is `siologin`, and it was measurable — reading 1,
+      settled 2026-08-21.** `siologin` **does** reach carrier detect: with a
+      login configured on `/dev/sio2` the driver reads `sio2` reg **13** (the
+      input port pins) twice and issues one extra `SOPR` and one extra `COPR`
+      write, against zero and none on four control runs — including node B's own
+      volume with `siologin` on **sio1**, which isolates the port rather than the
+      lineage. `007196-01` *System Call Reference*, never consulted here before,
+      documents the same handshake and explains why `IPCR` is never read:
+      `SIO_$DCD_ENABLE` defaults **off**, so the driver inquires the level
+      instead of arming change-of-state.
+      **The four failed runs failed on one flag** — `--clock 2026-08-09`, 24
+      years past every volume's 2002 stamp. `tools/spm-boot.sh` records the
+      invocation that works.
+      *Verification: five bounded runs, each gated on `SPM system init
+      complete.` before any counter was read.* Detail, including the `E0007`
+      retraction the same run produced, in `PROJECT_STATUS.md`.
+
+- [ ] **Name the DCD pin and the DTR bit from the values, not the counts.**
+      Opened 2026-08-21 by the item above, which turned this from a documentary
+      dead end into a measurement: the machine performs the handshake, so the
+      only thing missing is *which* bit each access touches.
+      **What is needed**: the value written to `sio2`'s `SOPR`/`COPR` and the
+      mask the driver applies after reading the input port. The counters cannot
+      carry values, so this needs an instrument — an accumulator of which `OPR`
+      bits were ever set and cleared per unit, printed beside `sio2 armed`, is
+      the cheapest and matches how the per-register counters are already
+      reported. A `--boot-watch-write` on one address will **not** do it:
+      `ap_sio_decode` masks the register index, so sixteen registers at stride
+      two alias eight times across the part's 256-byte range.
+      *Why it is worth it*: this closes the open item below, which has been
+      blocked at all three tiers since it was scoped, and it is the fourth tier
+      the resolution order never names — the machine itself.
+
+- [ ] **Walk `007196-01` *Domain System Call Reference*, 722 pages.** Opened
+      2026-08-21 under the whole-document rule: its SIO chapter yielded four
+      facts this core did not have, so the document must be derived rather than
+      queried. Record: `docs/references/007196-01_WALK.md`.
+      **Coverage so far is honest and small**: the SIO chapter is pages
+      **521-540**, and pages 521-524 are read as images — the chapter opening,
+      the fifteen baud constants (50 … 19200), `SIO_$MAX_LINE`, the four
+      `ERR_ENABLES` values and the whole `SIO_$OPT_T` option list. **Nothing
+      else in the 722 pages has been read.**
+      **Two findings already, both needing follow-up**: `SIO_$LINE_T` is "0
+      through `SIO_$MAX_LINE` (3)", i.e. **four** SIO lines where `008778-03`
+      §3.9 names three RS-232 ports — so what line 0 is has to be settled. And
+      the manual's own `SIO_$DCD` entry reads "**Read DTR bit** (inquire only)",
+      which is a typo in the document, confirmed against the same page's
+      `SIO_$DTR` and `SIO_$CTS` entries; recorded so a later reader does not
+      take it for a fact.
+      **The text layer is not usable for this document** — it renders DCD as
+      "DOD", Check as "Oheck", IOS as "lOS". Page images only.
 
 - [ ] **Walk the Intel 8237A and 8259A datasheets — 43 pages, both with text
       layers.** Record: `docs/references/INTEL_WALK.md`. Chosen over the

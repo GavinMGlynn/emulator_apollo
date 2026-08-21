@@ -433,6 +433,116 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## Domain/OS reaches a `login:` prompt, and `E0007` was the calendar
+## (2026-08-21)
+
+**This core boots Domain/OS SR10.4 to a login prompt.** Not the PROM, not a
+salvage, not "further than before": the Display Manager's `login:` with its
+window bar, screenshotted off a fitted `c8p`. And on the serial route, without a
+display, the whole startup arrives on stdout and ends at `SPM system init
+complete.`, `Node ID`, `siomonit` and `MBX_HELPER`.
+
+**One flag was the difference, and it had been wrong in a committed script for
+nine days.** `tools/e0007-boot.sh` hardcodes `--clock 2026-08-09` and explains
+it with "the volume was installed 2026-08-02". The volume says otherwise —
+`apollo-headless --volume` reads the label, and **every image this project owns
+is stamped 2002-11-27/28**:
+
+| image | dismounted |
+| --- | --- |
+| `dn3500-sr10.4-installed.awd` | `2002-11-27 21:45:12` |
+| `dn3500-nodeA-siologin.awd` | `2002-11-27 23:30:15` |
+| `dn3500-nodeB-line2.awd` | `2002-11-28 00:52:54` |
+
+The comment had confused the *host file's* mtime with the volume's recorded
+stamp. Domain/OS compares the calendar against that stamp, so a 2026 clock is
+twenty-four years past it.
+
+### The retraction, with its discriminating run
+
+`E0007` has been read three ways here — the clock, then **RETRACTED** to "a live
+defect again", then investigated as a naming-server fault against an oracle that
+reached `login:` on the same image. The fourth reading is measured:
+
+| run | invocation | outcome |
+| --- | --- | --- |
+| G | `e0007-boot.sh` verbatim, `--clock 2002-11-28` | **`login:` on the display**, 2,000,000,000 instructions, `stopped EXECUTED`, no `E0007`, no `CRASH_STATUS` |
+| — | `e0007-boot.sh` as committed, `--clock 2026-08-09` | `Unable to resolve "/sys/node_data" -- E0007` |
+
+Only the clock differs, and the run header prints `power-on
+2002-11-28T00:00:00` so the override is confirmed from the run rather than
+assumed. **`E0007` is not a defect in this core.**
+
+**Why the 2026-08-12 retraction looked sound and was not.** It showed that once
+the keyboard could answer the calendar question, the question *was* answered and
+`E0007` happened anyway — and concluded the calendar was therefore not the
+variable. But answering "run DOMAIN_OS with the current calendar?" with `Y`
+**keeps the wrong calendar**; it only stops the machine waiting. The variable was
+never "is the question answered", it was "is the calendar right", and no run had
+ever set it right. `E0007`'s own neighbours in module `0E` include **"name
+server helpers clocks are skewed"**, so a naming failure under a 24-year skew is
+the documented shape of the fault rather than a surprise — though the mechanism
+stays an inference, since what is measured is that the failure does not occur at
+the correct clock.
+
+*The serial route and the display route disagree about nothing here: the same
+image reaches `SPM system init complete.` on one and `login:` on the other.*
+
+### `tools/spm-boot.sh`
+
+The invocation that reaches a running Domain/OS, recorded because rebuilding it
+cost four long runs (~90 minutes) that all stopped at
+`The calendar is more than a minute slow. / Switch to service mode, press reset
+and run CALENDAR.` and were read as "did not reach SPM". It is
+`identity-boot.sh`'s shape — serial console, `--boot-input $'\r'` on port 1
+channel B, `--boot-script` — with the clock corrected. **SPM lands at about
+1.05 G instructions**, not the 2.6 G recorded here previously, so the 1.6 G and
+4 G runs had always been long enough and the bound was never the problem.
+
+### `siologin` reaches carrier detect: Phase A's pre-registered reading
+
+The experiment was "boot past `SPM system init complete.` with `siologin`
+configured and watch for the first read of `sio2` reg 4 or 13". It reads reg
+**13**, and the gate passed on every run below — SPM, `Node ID` and `siomonit`
+all on the console before any counter was read.
+
+| run | `siologin` on | reg 13 read (input port) | reg 14 `SOPR` w | reg 15 `COPR` w | reg 2 `CRA` w |
+| --- | --- | --- | --- | --- | --- |
+| A `nodeB-line2` | **sio2** | **2** | 3 | 3 | 22 |
+| B `nodeB-nodcd` | **sio2** | **2** | 3 | 3 | 18 |
+| E `nodeB-ready` | sio1 | 0 | 2 | 2 | 14 |
+| F `nodeB-sr10.4` | none | 0 | 2 | 2 | 14 |
+| C `sr10.4-installed` | none | 0 | 2 | 2 | 14 |
+
+E is the control that matters: **node B's own lineage with `siologin` on sio1**,
+and its `sio2` counters are identical to both volumes that have no `siologin` at
+all. So the reads are attributable to `siologin` on `/dev/sio2` specifically —
+not to lineage, not to node ID, not to `siologin` in general.
+
+`ap_mc68681.h` names the registers: reg 13 read is the **input port pins**, reg
+14 write **sets** `OPR` bits and reg 15 **clears** them. So the signature is
+assert an output bit, inquire the pins, clear it.
+
+**`007196-01` *Domain System Call Reference* documents exactly that**, and it had
+never been consulted for this question: `SIO_$DTR` "sets the state of the
+outgoing DTR line … the default is **TRUE (on)**"; `SIO_$HUP_CLOSE` performs a
+hangup by "**dropping DTR for 3/4 second**"; `SIO_$DCD` reads the DCD bit
+"**inquire only**"; and `SIO_$DCD_ENABLE`, "enable fault on DCD loss", defaults
+to **FALSE (off)**. That last one explains the shape of the measurement: with
+DCD-enable off the driver never arms change-of-state, which is why `IPCR`
+(reg 4) is read zero times while the input port is read directly. The manual and
+the machine agree without either being fitted to the other.
+
+*What this does **not** settle is the pin assignment.* Counters carry no values,
+so "an output bit was set and the pins were read" is as far as they go; naming
+*which* `OPR` bit is DTR and which `IP` pin is DCD needs the written and tested
+values, which is the next step and is now a measurement rather than a
+documentary dead end.
+
+*Verification: five bounded runs on scratch copies, each gated on
+`SPM system init complete.` before its counters were read; the G screenshot;
+`check_docs.py` 3218 claims and `check_frontend_flags.py` clean.*
+
 ## `010005-00` is walked whole, and the appendix nobody opened held the best of it
 ## (2026-08-21)
 

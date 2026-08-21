@@ -10,18 +10,27 @@
 #
 # What matters, and why:
 #
-#   --clock 2026-08-09   **This is the whole trick.** The volume was installed
-#                        2026-08-02, so a calendar within fourteen days of it
-#                        does not make Domain/OS ask "More than 14 days have
-#                        elapsed ... run DOMAIN_OS with the current calendar?".
-#                        A later clock provokes that question, the machine waits
-#                        at it forever, and the run *looks* like a boot that has
-#                        stopped crashing. It has not: it has stopped arriving.
-#                        Answering the question from the keyboard does not work
-#                        -- the second `--boot-type` phase arms and types at
-#                        every quiet threshold from 10,000 to 200,000
-#                        instructions and the character is still discarded
-#                        unread. Not provoking it is cheaper than answering it.
+#   --clock 2026-08-09   **This is what makes the failure happen, and the
+#                        reasoning that used to be here was wrong.** It said
+#                        "the volume was installed 2026-08-02, so a calendar
+#                        within fourteen days of it" avoids the kernel's
+#                        question. That confused the *host file's* mtime with
+#                        the volume's own recorded stamp: `apollo-headless
+#                        --volume` reads the label and this image says
+#                        `dismounted 2002-11-27 21:45:12`, as does every image
+#                        this project owns. A 2026 calendar is twenty-four years
+#                        past it.
+#                        **Corrected 2026-08-21, and it cost four long runs.**
+#                        The same invocation with `--clock 2002-11-28` reaches a
+#                        `login:` prompt on the display after 2 G instructions
+#                        with no `E0007` and no `CRASH_STATUS` at all, so this
+#                        script does not reproduce an emulator defect -- it
+#                        reproduces Domain/OS run on a calendar it will not
+#                        accept. Keep it for that, and see
+#                        `PROJECT_STATUS.md`, *Domain/OS reaches a `login:`
+#                        prompt*, for the retraction and its evidence.
+#                        **For a boot that actually arrives, use
+#                        `tools/spm-boot.sh`.**
 #   --screen c8p         Domain/OS talks to the display, not the serial line.
 #                        Without a display fitted the boot takes a different
 #                        path and prints nothing anywhere.
