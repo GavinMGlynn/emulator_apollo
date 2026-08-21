@@ -963,3 +963,29 @@ fitted there.
 That is the strongest confirmation available for a strap this project cannot
 probe, and it came from the installation chapter — the one this record had
 written off as low-yield two commits ago.
+
+
+## §2.2's PCB diagram — mechanical, but it resolves a naming conflict
+
+PDF 13, doc 2-3. **Figure 2.2, OMTI 812X PCB Diagram and Connector, Jumper
+locations** — board dimensions, connector positions J1-J4, and jumper locations
+W1-W13, W20, W27, W28, W29, W30-31. Physical, and **for the 812X**, not the
+862X this machine has, so the positions are not ours.
+
+*The yield is the parts list drawn on it*: **OMTI 5050**, **OMTI 5060**, **OMTI
+5015**, **OMTI 5090**, a **Z8**, a **FIRMWARE** device and a separate **BIOS**,
+and an "OMTI SDM ENC/DEC/VCO".
+
+**That resolves the fourth name conflict this record logged.** Appendix A-2's
+table calls sense code `31` "Z8 firmware checksum/internal diagnostic error" and
+A-5's description calls it "EPROM Checksum/Internal Diagnostic error", which
+looked like the same in-document inconsistency as `ST3` bit 4 and `14`
+sector-versus-record. It is not: the figure shows a **Z8** microcontroller and a
+**FIRMWARE** part beside it, so the Z8's firmware lives in an EPROM and both
+names describe one checksum over one device. Two names, one thing, and the board
+layout is what says so.
+
+*So of the four name conflicts recorded in this manual, one is now explained
+rather than merely noted* — and it took a mechanical figure in the installation
+chapter to do it, which is the second time §2 has paid after being triaged as
+low-yield.
