@@ -99,14 +99,25 @@ typedef enum {
 /* `[OMTI]` Table 4-3, the floppy half: five registers within an eight-address
  * block based at AT `3F0`, so the offsets are 2 and 4 through 7.
  *
- * **`3F0` is the primary base, and it is a strap.** Table 4-3 also gives a
- * secondary set at `372`-`377`, and §2.4.3 names what selects between them:
- * where a second controller already owns the floppy, "the OMTI controller must
- * be strapped for the **secondary** floppy base I/O address (**W14** on)". So
- * the board can sit at either, this machine's is at `3F0` -- `002398-04` places
- * the DN3000 floppy there -- and only the primary block is modelled. That is a
- * scope decision about *this* board, not an unmodelled register: `W14` has no
- * software path, and nothing in a DN3500 can move it. */
+ * **`3F0` is the primary base, and it is a strap.** Doc 2-8's COMMON SYSTEM
+ * JUMPER SETTINGS gives it in one row -- "**`W14`** Floppy disk I/O port base
+ * address, `0` = **`03F0h`** (as shipped), `1` = **`0370h`**" -- and §2.4.3
+ * says when to move it: where a second controller already owns the floppy, "the
+ * OMTI controller must be strapped for the **secondary** floppy base I/O
+ * address (`W14` on)". Table 4-3's secondary register set `372`-`377` is that
+ * `0370h` base plus the same offsets 2 and 4 through 7, so the two statements
+ * are one fact.
+ *
+ * This machine's board is at `03F0h` -- `002398-04` places the DN3000 floppy
+ * there -- and only the primary block is modelled. That is a scope decision
+ * about *this* board, not an unmodelled register: `W14` has no software path,
+ * and nothing in a DN3500 can move it.
+ *
+ * The same page places the *other* half of this card. `W19 W18 W17` select the
+ * Winchester base from eight values, and `0 0 1` is **`01A0h`** -- which is
+ * exactly where `board/ap_disk.h` measured it, at Apollo `04D000`. The board is
+ * strapped away from the as-shipped `0320h`, and the address this project found
+ * by scanning the whole AT I/O window is one of the eight rows of a table. */
 #define AP_OMTI_FLOPPY_REGISTERS 8u
 typedef enum {
   AP_OMTI_FDC_DOR = 2u,      /* write Digital Output; read N/A */

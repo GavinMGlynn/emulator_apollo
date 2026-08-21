@@ -1097,6 +1097,22 @@ procedure. A reader who had walked the jumper chapter and stopped would have
 concluded the manual was silent — which is the whole-document rule's case,
 arriving from the direction that makes it least visible.
 
+> **WRONG, and the correction is worse than the claim.** Doc **2-8**, COMMON
+> SYSTEM JUMPER SETTINGS for 8620 and 8627, gives `W14` its own row *with both
+> values* — `0` = `03F0h` as shipped, `1` = `0370h`. The strap is in the jumper
+> tables after all, one page before the installation procedure, and §2.4.3 only
+> says when to move it.
+>
+> *And this project had already cited that exact page.* `ap_omti_cdb.h` quotes
+> "the jumper table under COMMON SYSTEM JUMPER SETTINGS on page 2-8" for the
+> `W10 W11` sectors-per-track rows, and has done for as long as the address
+> conversion has been modelled. The page was read for one row and not for the
+> rest of the table — which is `read-the-whole-document`'s failure in miniature,
+> committed by the walk that exists to prevent it, on the same day it wrote the
+> rule down. The real lesson is narrower and sharper than the one above: **a page
+> already cited is not a page already read**, and a citation to a specific row is
+> evidence of the opposite.
+
 **§2.4.4** is AT-specific and inapplicable here: IBM's `SETUP` must report
 **zero** hard disks for drives on the OMTI, because the controller's own ROM
 BIOS owns them. **§2.4.5** names the BIOS revisions again — AT3 `#1002579`, AT4
@@ -1182,3 +1198,37 @@ ever selected LUN 1.
 **`DRIVE # (0 OR 1)?`** confirms two units, and the defect-entry loop
 (`CYLINDER:` / `HEAD:` repeated until a bare `<RET>`) is the host side of the
 `ASSIGN ALTERNATE TRACK` path `ap_omti.c` already implements.
+
+
+## Doc 2-8 and 2-9, COMMON SYSTEM JUMPER SETTINGS — the whole table, both families
+
+PDF 18 and 19. Two tables of the same shape, **2-8 for the 8620 and 8627** and
+**2-9 for the 8120 and 8127**, differing only in the jumper numbers. `*` marks
+as-shipped.
+
+| function | 862X | 812X | values |
+| --- | --- | --- | --- |
+| Winchester I/O port base | `W19 W18 W17` | `W5 W6 W7` | `0320h*`, `0324h`, `0328h`, `032Ch` with the third jumper out; `01A0h`, `01A4h`, `01A8h`, `01ACh` with it in |
+| BIOS control | `W16` | `W8` | `0*` Enable BIOS, `1` Disable BIOS |
+| BIOS base address | `W15` | `W9` | `0*` `C8000h`, `1` `CA000h` |
+| Floppy I/O port base | `W14` | — | `0*` `03F0h`, `1` `0370h` |
+| ESDI per connector | `W13`, `W12` | — | "See section 2.4.1" |
+| Bytes/sector and sectors/track | `W10 W11` | — | `0*0` 512/17, `0 1` 512/18, `1 0` 1024/9, `1 1` 1056/9, the sector count "ST506/412 MFM drives only" |
+
+**This board's strapping is now readable off the table, and it is not the
+as-shipped one.** `board/ap_disk.h` measured the fixed disk at Apollo `04D000`,
+which its own `Apollo = 0x040000 + AT × 0x80` rule puts at AT **`01A0h`** — the
+`W19 W18 W17 = 0 0 1` row, the first of the second bank. The floppy is at
+`03F0h`, `W14` out. And `W10 W11 = 0 1` is the 512-byte, 18-sector row that
+`ap_omti_cdb.h` had already established from the two Apollo drive geometries.
+
+*So an address this project found by scanning the entire AT I/O window with the
+card fitted and with `isa1` emptied is one of eight rows in a jumper table.* The
+scan was not wasted — it is what proves which row — but the table is what makes
+the result a configuration rather than a coincidence, and it was on disk the
+whole time.
+
+**The 812X table has no floppy row, no `W12`/`W13` and no `W10`/`W11`.** That is
+the fourth independent statement of the family split: the ST506 boards have no
+floppy support (§2.4.2 says so directly, "8620 and 8627 only"), no ESDI
+connector straps because they have no ESDI, and no sector-size jumpers.
