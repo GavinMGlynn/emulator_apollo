@@ -42,6 +42,24 @@
  * wave, not 18. Recorded because a later reader will find the same arithmetic
  * and should not have to wonder whether it was a transcription error here. It
  * is in the manual.
+ *
+ * **Resolved by Appendix A, which nothing here had consulted** (walked
+ * 2026-08-21). §A.1 restates the power as "approximately **+18 dBm** into 75
+ * ohms" and prints **Figure A-1, a typical voltage waveform**, whose peaks sit
+ * at roughly **plus and minus 2.5 V** — that is 2.5 V *peak*, five volts
+ * peak-to-peak. The arithmetic then closes: +/-2.5 V as a square wave is
+ * 83 mW, 19.2 dBm, which is the stated "approximately 18". Read as §3.4 writes
+ * it, 2.5 V peak-to-peak is +/-1.25 V and 13.2 dBm, which is not.
+ *
+ * So **§3.4's parenthetical is a slip for "2.5 V peak"**, and the dBm figure is
+ * the reliable one. Still `PROVISIONAL` in one respect: the peak is read off a
+ * plotted curve rather than stated in text, so it is "about 2.5 V" and the
+ * reconciliation is to within the manual's own "approximately". No code
+ * changes -- these are cable figures, modelled by nothing here -- but the
+ * discrepancy no longer needs re-deriving by whoever finds it next.
+ *
+ * §A.1 also names the part §3.4 only describes: the driver's pre-equalizer is
+ * a **fourth-order Bessel low-pass filter**, cutoff approximately 18 MHz.
  */
 
 #ifndef APOLLO_RING_AP_RING_PHY_H
