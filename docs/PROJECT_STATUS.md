@@ -433,6 +433,57 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## A DMA transfer costs no bus time, and the part says it costs four states
+## (2026-08-22)
+
+The `[8237]` walk's second real gap, from *DMA OPERATION*:
+
+> "The 8237A can assume **seven separate states, each composed of one full clock
+> period**."
+
+A transfer is four of them, S1 through S4. Compressed timing drops S3 — "a
+transfer consists only of state S2 to change the address and state S4 to perform
+the read/write" — with S1 still occurring when `A8`–`A15` need updating.
+
+**This core charges none of it.** `ap_board_bus_tick` runs one
+`ap_i8237_transfer` per tick, and the transfer's memory callbacks go through
+`ap_board_read`/`ap_board_write`, which consume no bus time. So a DMA transfer
+is instantaneous in bus terms — on a core whose central claim is that contention
+is emergent, and in a boot that performs millions of them.
+
+It is the same shape as the refresh gap closed earlier today and worth more,
+because a refresh steals one cycle in 375 while a transfer under-charges by
+three or four every time.
+
+### Why it is named rather than implemented
+
+**The unit is the trap, and it is the one the refresh work already solved.**
+Four *8237A* clock periods are not four *processor* clocks: the part runs at the
+AT bus clock, which `ap_atbus.h` already carries per family — 125 ns on a Series
+4000, 166 ns on a Series 3000 — while a bus tick here is a 25 MHz CPU clock.
+Implementing "four ticks" would misprice every transfer by about three.
+
+And unlike the refresh, **this will move the boot**. The arbiter already makes
+the processor wait while the DMA controller holds the bus, so lengthening a
+transfer lengthens a stall that is already real rather than adding an invisible
+one. That needs a before/after identity boot and a console diff, which is a
+measurement to plan rather than to tack onto the end of a walk.
+
+*Naming it with its unit trap and its expected blast radius is worth more than a
+hasty implementation of it — which is the same judgement the refresh item's own
+"shape it should take" note recorded before that one was built.*
+
+### What else pages 4–5 confirmed
+
+DREQ sampled every clock in the Idle cycle; "when `CS` is low **and `HLDA` is
+low**, the 8237A enters the Program Condition"; and the first/last flip-flop
+reset by Master Clear, by Reset, **or** by its own software command — all three
+of which this core does.
+
+*Verification: documentary. `[8237]` is 12 of 19; what remains is AC/DC
+characteristics, waveforms and packaging — electrical and mechanical pages with
+no behaviour this core can hold, named rather than skipped silently.*
+
 ## The 8237A's pin table, and a contradiction that was my truncation
 ## (2026-08-22)
 

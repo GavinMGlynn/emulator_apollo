@@ -6155,7 +6155,7 @@ same number is what let them diverge once already.
       "correctly inert" from "forgotten"; and the datasheet contradicts itself
       once, putting AEOI in ICW1 in one paragraph and ICW4 in the next, which is
       recorded so a later reader does not take the first for a fact.
-      **`[8237]` is 10 of 19 — the whole programmable interface and the pin table** — and p. 8's Command Register box *saved* a wrong
+      **`[8237]` is 12 of 19 — the whole programmable interface, the pin table and the state machine**, and p. 4 found a second gap (the DMA transfer's four states, its own item above). p. 8's Command Register box *saved* a wrong
       fix: the prose says channel 0 may hold its address "for all transfers",
       which reads as a defect here, while the box marks the bit "X If bit 0 = 0"
       — a don't-care unless memory-to-memory is on, which is exactly where this
@@ -6265,6 +6265,30 @@ same number is what let them diverge once already.
       **What would settle it**: the DN3500's own status-register page, which is
       not among the documents held. The observed value is kept, being what this
       machine does. `PROVISIONAL`, marked in `ap_boardreg.h`.
+- [ ] **A DMA transfer costs no bus time, and the part says it costs four
+      states.** Found by the `[8237]` walk, 2026-08-22.
+      `[8237]`, *DMA OPERATION*: "The 8237A can assume **seven separate states,
+      each composed of one full clock period**", and *Memory-to-Memory* has the
+      device "using **four state transfers** in Block Transfer mode". Compressed
+      timing drops S3, making it three — "a transfer consists only of state S2
+      to change the address and state S4 to perform the read/write" — with S1
+      still occurring when `A8`–`A15` need updating.
+      **This core runs one `ap_i8237_transfer` per bus tick** and its memory
+      callbacks go through `ap_board_read`/`ap_board_write`, which charge
+      nothing. So a transfer is instantaneous in bus terms, on a core whose
+      claim is emergent contention — the same shape as the refresh gap above,
+      and worth more, because the reference boot performs millions of them.
+      **The unit is the trap, and it is the one the refresh item already
+      solved.** Four *8237A* clock periods are not four *processor* clocks: this
+      part runs at the AT bus clock, which `ap_atbus.h` already carries per
+      family (125 ns Series 4000, 166 ns Series 3000), while a bus tick here is
+      a 25 MHz CPU clock. Getting that wrong would misprice every transfer by
+      about three.
+      **Expect it to move the boot**, unlike the refresh cycles: the arbiter
+      already makes the processor wait while the DMA holds the bus, so
+      lengthening a transfer lengthens a real stall rather than adding an
+      invisible one. Budget a before/after identity boot and a console diff.
+
 - [x] **Refresh cycles are inserted on the AT bus — landed 2026-08-22.**
       §2.4.6's state machine *inserts* a cycle, so it is stolen rather than
       arbitrated for: `ap_board_processor_may_run` answers with it directly,
