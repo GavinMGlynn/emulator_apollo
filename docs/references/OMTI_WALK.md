@@ -8,12 +8,27 @@ Three manuals, and the DN3500's controller is an **8621**.
 | `[8640]` | `omti/OMTI_8640_Technical_Reference_Manual_Jun89.pdf` | 61 | 600 ppi | as the sibling, several places |
 | `[8000]` | `omti/OMTI_8000_Series_AT_Reference_Jun86.pdf` | 71 | 400 ppi | **once** — effectively unconsulted |
 
-**220 pages total.** `[OMTI]`'s §3.4, §4.1–§4.5, §5.1–§5.4 and §6.3 are
-**derived into the model** and §6.4 is walked; §1, §2, most of §3, §6.1–§6.2 and
-§7 onward are unread, as are `[8640]` and `[8000]` entirely. *This line said
-"None is walked" until 2026-08-22, when a citation audit showed otherwise — and
-it survived two corrections to the status section below before
-`check_docs.py`'s new coverage check found it.*
+**220 pages total.** Coverage of `[OMTI]`, restated 2026-08-22 after the day's
+reading — the entries below are the evidence for each row:
+
+| section | pages | state |
+| --- | --- | --- |
+| §2, Configuration and Installation | 2-3 to 2-19 (PDF 12-29) | **walked** — jumper allocation's four tables, both COMMON SYSTEM JUMPER SETTINGS tables, the installation procedures, the format flowchart, the 1701 codes, the DOS patch |
+| §3, Host Electrical Interface | 3-1 to 3-7 (PDF 33-40) | **walked** — §3.1-§3.4 |
+| §4.1–§4.5 | | **derived into the model** |
+| §5.1–§5.4 | | **derived**, and §5.4.1, §5.4.2 and §5.4.4 read as images 2026-08-22 after the coverage row's lower endpoint proved wrong |
+| §6.3 | | **derived** |
+| §6.4 | | **walked** |
+| §1, §2-1/2-2, §6.1–§6.2, §7 onward | | **unread** |
+| `[8640]`, `[8000]` | 132 pages | **unread entirely** |
+
+*This line said "None is walked" until 2026-08-22, when a citation audit showed
+otherwise — and it survived two corrections to the status section below before
+`check_docs.py`'s new coverage check found it. It then said "§2, most of §3 ...
+unread" for the rest of that day, while five commits were walking exactly those
+sections. A coverage header is the part of a walk record that rots first,
+because every entry appended below it is a reason to change it and none of them
+is a prompt to.*
 
 ## STATUS: **§5's command chapter is DERIVED, and this record said it was owed**
 
