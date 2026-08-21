@@ -6054,9 +6054,14 @@ same number is what let them diverge once already.
       last: **71 of the 220 pages leave the critical path**. It does *not*
       establish that `8600` and `8620` are unrelated — only §1 would — so that
       is recorded as unresolved rather than assumed.
-      `[OMTI]` remains primary, its title page still lists only the **8620 and
-      8627**, and `ap_omti.h`'s "same family, so it covers the 8621" is still an
-      **inference** with nothing yet turning it into a citation.
+      **And `[OMTI]` does not name the 8621 either** — §1.2's Table 1-1 lists
+      exactly **8620, 8627, 8120, 8127**, and §1.1 opens "The OMTI 8000 Series",
+      so both manuals share the brand while their model sets do not overlap.
+      **The 8621 is documented in neither.** So `ap_omti.h`'s "same family, so
+      it covers the DN3500's 8621" **cannot become a citation by walking these
+      manuals**; it stays an inference, and any `ST3` reading from `[OMTI]`
+      §6.4.4 inherits that status. Known at page 7 rather than page 200, which
+      is the point of reading §1.2 first.
 
 - [ ] **ST3's five constant bits** — the walk's remaining `PROVISIONAL`, and
       **all three resolution tiers are now exhausted**. `[OMTI]` §6.4.4 and the
