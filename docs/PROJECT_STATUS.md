@@ -433,6 +433,51 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The 8237A's pin table, and a contradiction that was my truncation
+## (2026-08-22)
+
+`[8237]` Table 1 walked — every pin. It confirms, and the two things worth
+keeping are both about how the reading went wrong before it went right.
+
+**A contradiction that was not there.** The `EOP` pin reads: "The mask bit and
+TC bit in the status word will be set for the currently active channel by EOP
+**unless the channel is programmed for Autoinitialize**." p. 7's Status Register
+text reads: "Bits 0–3 are set **every time** a TC is reached by that channel or
+an external EOP is applied." This core follows p. 7 and sets the TC bit
+unconditionally, so on that reading it had a defect.
+
+The next sentence settles it: **"In that case, the mask bit remains
+unchanged."** The exception is the mask bit's alone. The code is right, and it
+looked wrong only because an eighteen-line extraction window cut the sentence
+off mid-paragraph.
+
+*That is the second near-miss in two passes where the document was right and the
+reading was wrong* — the first being the Command Register's prose against its
+own figure. Both are recorded, because a near-miss leaves no trace otherwise and
+the failure mode is identical to the one this project already tracks for narrow
+greps: **an extract that stops early looks exactly like a document that stops
+there.**
+
+**The sibling printing, consulted before the oracle.** The 1983 Intel handbook
+carries the same paragraph and was checked as the second tier rather than
+skipping to MAME. It agrees, with one wording difference: "the mask bit remains
+**clear**" against the 1988 datasheet's "remains **unchanged**". The 1988
+phrasing is the careful one — a mask bit already set stays set — and neither
+changes anything here.
+
+### What the pin table confirmed
+
+`RESET`'s list matches p. 9's Master Clear exactly. `EOP` is bidirectional and
+an external low terminating a service is modelled. And **"Polarity of DREQ is
+programmable. Reset initializes these lines to active high"** is modelled *in
+the right place*: `ap_i8237_dreq_level` and `ap_i8237_dack_level` report the
+level a board would measure, while the arbitration takes a logical request and
+is polarity-independent by construction. Nothing in `src/` calls either — they
+describe pins this board does not wire — but `dma_suite` exercises both, and the
+header already states that standing rather than leaving it to be discovered.
+
+*Verification: documentary. No code changed, which is again the result.*
+
 ## The 8237A's figure said the prose was wrong, and saved a wrong fix
 ## (2026-08-22)
 

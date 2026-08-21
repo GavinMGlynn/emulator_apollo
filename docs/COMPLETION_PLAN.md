@@ -6155,7 +6155,7 @@ same number is what let them diverge once already.
       "correctly inert" from "forgotten"; and the datasheet contradicts itself
       once, putting AEOI in ICW1 in one paragraph and ICW4 in the next, which is
       recorded so a later reader does not take the first for a fact.
-      **`[8237]` is 7 of 19 — the whole programmable interface** — and p. 8's Command Register box *saved* a wrong
+      **`[8237]` is 10 of 19 — the whole programmable interface and the pin table** — and p. 8's Command Register box *saved* a wrong
       fix: the prose says channel 0 may hold its address "for all transfers",
       which reads as a defect here, while the box marks the bit "X If bit 0 = 0"
       — a don't-care unless memory-to-memory is on, which is exactly where this
