@@ -155,8 +155,68 @@ static void test_a_software_request_is_not_masked(void) {
   ap_i8237_set_request_pin(&dma, 1, true);
   TEST_ASSERT_EQUAL_INT(-1, ap_i8237_service_pending(&dma));
 
-  ap_i8237_write(&dma, 9, (uint8_t)(1u | 0x04u)); /* set channel 1's request */
+  /* **Block mode first**, because the same paragraph requires it: "In order to
+   * make a software request, the channel must be in Block Mode." Putting it
+   * there is what makes this a test of *masking* rather than of two rules at
+   * once -- before that clause was implemented, this test passed with the
+   * channel in the Demand mode reset leaves. */
+  ap_i8237_write(&dma, 11, (uint8_t)(1u | (2u << 6))); /* channel 1, Block */
+  ap_i8237_write(&dma, 9, (uint8_t)(1u | 0x04u));      /* set its request */
   TEST_ASSERT_EQUAL_INT(1, ap_i8237_service_pending(&dma));
+}
+
+/* `[8237]`, *Request Register*: "In order to make a software request, **the
+ * channel must be in Block Mode**."
+ *
+ * The sentence is phrased as a rule for the programmer and does not say what
+ * the part does when it is broken, so the document runs out and the oracle was
+ * consulted in order: `am9517a.cpp:205` gates the request bit on
+ * `(m_mode & 0xc0) == MODE_BLOCK`, which is the only reading under which the
+ * sentence constrains hardware at all.
+ *
+ * The permissive direction is what this core had -- it serviced a software
+ * request in any mode -- so a driver bug would have run a transfer the part
+ * would have ignored. */
+static void test_a_software_request_needs_block_mode(void) {
+  ap_i8237_t dma;
+  ap_i8237_reset(&dma);
+  ap_i8237_write(&dma, 14, 0x00); /* clear the mask, so only mode is in play */
+
+  /* Reset leaves every channel in Demand mode, where the request is ignored. */
+  ap_i8237_write(&dma, 9, (uint8_t)(2u | 0x04u));
+  TEST_ASSERT_EQUAL_INT(-1, ap_i8237_service_pending(&dma));
+
+  /* Single and Cascade are ignored too, so it is Block that is required rather
+   * than Demand that is excluded. */
+  ap_i8237_write(&dma, 11, (uint8_t)(2u | (1u << 6))); /* Single */
+  TEST_ASSERT_EQUAL_INT(-1, ap_i8237_service_pending(&dma));
+  ap_i8237_write(&dma, 11, (uint8_t)(2u | (3u << 6))); /* Cascade */
+  TEST_ASSERT_EQUAL_INT(-1, ap_i8237_service_pending(&dma));
+
+  ap_i8237_write(&dma, 11, (uint8_t)(2u | (2u << 6))); /* Block */
+  TEST_ASSERT_EQUAL_INT(2, ap_i8237_service_pending(&dma));
+
+  /* And the *pin* is unaffected: a DREQ on a Demand-mode channel is still a
+   * request, because the clause is about software requests alone. */
+  ap_i8237_reset(&dma);
+  ap_i8237_write(&dma, 14, 0x00);
+  ap_i8237_set_request_pin(&dma, 3, true);
+  TEST_ASSERT_EQUAL_INT(3, ap_i8237_service_pending(&dma));
+}
+
+/* The status register's live half reports what the encoder sees, so it has to
+ * follow the same rule -- otherwise a driver polling status would be told a
+ * channel is requesting service that the part will never grant. */
+static void test_the_status_request_half_follows_the_block_mode_rule(void) {
+  ap_i8237_t dma;
+  ap_i8237_reset(&dma);
+  ap_i8237_write(&dma, 14, 0x00);
+
+  ap_i8237_write(&dma, 9, (uint8_t)(1u | 0x04u)); /* Demand mode: ignored */
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_i8237_read(&dma, 8) & 0xF0u);
+
+  ap_i8237_write(&dma, 11, (uint8_t)(1u | (2u << 6))); /* Block */
+  TEST_ASSERT_EQUAL_HEX8(0x20u, ap_i8237_read(&dma, 8) & 0xF0u);
 }
 
 static void test_disabling_the_controller_silences_every_channel(void) {
@@ -615,6 +675,8 @@ int main(void) {
   RUN_TEST(test_all_four_mask_bits_can_be_written_at_once);
   RUN_TEST(test_the_lowest_numbered_channel_wins);
   RUN_TEST(test_a_software_request_is_not_masked);
+  RUN_TEST(test_a_software_request_needs_block_mode);
+  RUN_TEST(test_the_status_request_half_follows_the_block_mode_rule);
   RUN_TEST(test_disabling_the_controller_silences_every_channel);
   RUN_TEST(test_the_status_register_reports_requests_live);
   RUN_TEST(test_reading_the_status_register_clears_terminal_counts);

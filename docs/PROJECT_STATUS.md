@@ -433,6 +433,69 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## A software DMA request needs Block mode, and this core serviced it in any
+## (2026-08-22)
+
+The first **defect** the Intel walk has produced, from `[8237]`'s *Request
+Register* paragraph:
+
+> "In order to make a software request, **the channel must be in Block Mode**."
+
+`ap_i8237_service_pending` OR'd the request register into the encoder's input
+regardless of the channel's mode, so a software request was serviced in Demand,
+Single or Cascade mode where the part would ignore it. The **permissive**
+direction again: a driver bug — ours or a firmware's — would have run a transfer
+the hardware never would, and nothing would have said so.
+
+### Why the oracle was consulted, and why that was in order
+
+The sentence is phrased as a rule *for the programmer*. It does not say what the
+part does when the rule is broken, so the document genuinely runs out — which is
+the condition `CLAUDE.md` sets for reaching tier four rather than an excuse for
+skipping to it. `am9517a.cpp:205` answers it:
+
+```
+return BIT(m_request, channel) && ((m_channel[channel].m_mode & 0xc0) == MODE_BLOCK);
+```
+
+That is the only reading under which the sentence constrains hardware at all,
+and the oracle and the datasheet agree. Reference → web → oracle, run in order
+and ending where the document stopped.
+
+### Three call sites, one rule
+
+`dreq & ~mask | request` appeared three times — the encoder, the memory-to-memory
+path and the status register's live half — each combining the two halves by
+hand. The rule now lives in one `asking_channels`, because three copies is three
+chances for it to drift, and the status register in particular has to follow it:
+a driver polling status would otherwise be told a channel is requesting service
+that the part will never grant.
+
+**The mask still applies to the pin and not to the register** — "These are
+non-maskable and subject to prioritization by the Priority Encoder network" —
+so the two clauses are kept apart rather than merged into one condition.
+
+### What the existing test was really testing
+
+`test_a_software_request_is_not_masked` passed before this change *because* the
+channel was in the Demand mode reset leaves. It asserted a software request
+reaches the encoder while masked, which is true, but the channel was in a mode
+where the part would have ignored it — so the test proved less than it read as.
+It now puts the channel in Block mode first, which makes it a test of masking
+alone.
+
+*That is the same shape as three other findings this session: a test that
+encoded the code's own misreading and passed for the wrong reason.*
+
+**The reference boot is unmoved** — hash `623DEE0C41686430` either side — because
+it never makes a software request outside Block mode. A latent defect corrected,
+not a failure explained.
+
+*Verification: `i8237_suite` 29 → 31 — Demand, Single and Cascade each ignored
+so that Block is shown to be *required* rather than Demand merely excluded, the
+DREQ pin proved unaffected, and the status register's live half following the
+same rule.*
+
 ## The 8259A walked to 11 of 24, and the clause that mattered was a negative
 ## (2026-08-22)
 
@@ -9353,7 +9416,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none. **The DS5500 now has its own map**, from `019411-A00` Table 2-5 rather than the Series 4000 table it borrowed until that page was read: it places the memory present register at `011400` that no other model has, it does *not* place the task alias at `010300`, and its main memory is four 16 MB banks to `4FFFFFF` where Table 2-8 gives three. Table 2-5's 4 KB address translation map is **implemented as of 2026-08-22**: the entry count is a property of the map, the hasher walks it rather than `AP_ATMAP_ENTRIES`, and only the DS5500 gets the wider region — so no other model's state hash moved. The `PROVISIONAL` is lifted | `board_suite`, 77 tests, one of them the Series 2500's own register block -- storage, `PROVISIONAL`, and the only thing standing between that firmware and its second instruction; `atbus_suite`, 14 tests  **Main memory's extent is `1000000`–`2FFFFFF`, 32 MB, corrected from `3FFFFFF` on 2026-08-19**: `008778-03` §1.5.2 gives the DS4000's memory one module at a time — `$17FFFFF` with one 8-MB module, `$1FFFFFF` with two, `$27FFFFF` with three, `$2FFFFFF` with four — and `1000000`–`3FFFFFF` is **48 MB**, not 32. The old value was the oracle's `DN3500_RAM_END`, imported without checking the arithmetic; the same MAME file gives `DN5500_RAM_END 0x2ffffff` for the same 32 MB four lines away, so the oracle contradicts itself and the manual says which is the slip. The cost was exactly what that constant's own comment warns of — sixteen megabytes of unmapped space were being reported to a trace as "main memory". Identity hash unchanged, so the reference boot never reached there  **The DS3000 has one 2681, not two, and its kilobyte is aliased** — corrected 2026-08-19 during the `008778-03` walk. Table 2-6 gives the DS3000 a single `008400`-`0087FF` row named "SIO" where Table 2-8 gives the Series 4000 two 256-byte rows, and §1.5.1 says why: the DS3000 drives "two asynchronous serial lines, SIO0 and SIO1" and the DS4000 four. One 2681 has two channels. The oracle agrees independently — `dn3000_map` sends the whole range to `m_sio` and the DN3000 configuration does `config.device_remove(APOLLO_SIO2_TAG)`. This core had mapped `2 × AP_SIO_RANGE`, putting a second DUART at `008500` and leaving `008600`-`0087FF` unmapped. Now four placements folding onto `AP_SIO1_ADDR`. **Behaviourally invisible to the boot that exists**: both DN3000 revisions run 400,000 instructions to a byte-identical state hash either side, because the PROM never reaches into that kilobyte — so this is a latent error corrected, not a failure explained |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
 | Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board runs transfers: controller 1's request cascaded onto controller 2's channel 0 and one request reaching the arbiter, the address through the translation map, and the processor stalled while a controller holds the bus. The cascade and the channel assignments are `008778-03` Table 2-4's, so the AT convention this module used to refuse is now cited rather than assumed. **The peripheral side is wired**: the tape drives its own request line and its cartridge reaches memory by DMA, and the disk's two data ports move under an acknowledge | `dma_suite`, 18 tests; `FINDINGS.md` C13 |
-| Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 29 tests, `8237A` 231466 |
+| Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 31 tests, `8237A` 231466 |
 | Apollo interval timer (`010800`) | working: the part at **odd addresses, stride 2** (measured — the region reads `00 00 00 00 00 FF ...`, the `FFFF` latch default showing through), the three §3.8 input rates as exact time-base clock domains, and the IRQ0 route. Advancing is by whole pulses, so the rate cannot become a function of how often it is polled | `timer_suite`, 8 tests; `FINDINGS.md` C12 |
 | MC6840 interval timer (the part) | working for **both counting modes** — continuous and single shot, each in sixteen-bit and dual eight-bit operation — plus both control register aliases, the write/read byte buffering, the status register, the prescaler, the gate, **both clock inputs** — the `Cx` pin and the enable clock, each counting only for a timer that selected it, and `008778-03` §3.8's three rates are the *external* pins the board drives — and all five of `[6840]` §3.11's ways of clearing an interrupt. **All four modes** are now modelled, the two **measurement modes** included: §3.9's period measurement between falling edges and §3.10's pulse-width measurement of the down time, each with bit 5 choosing whether the interrupt asks for the shorter or the longer of signal and Time Out, the four-part Counter Enable that stops a measurement at its own interrupt, §3.9's footnoted rule that a trailing edge does not reinitialise a running measurement, and the output that starts low and toggles at each Time Out. They were declined for want of a *board* that drives the gates, which is a fact about the DN3500 and not about the part | `mc6840_suite`, 34 tests, `MC6840UM` (a scan with no text layer; read from page images) |
 | Apollo calendar (`010900`) | working: **stride 1, byte consecutive** (measured — and not the timer's odd-address stride 2, so neither placement could be inferred from the other), sixty-four registers aliased through the 256-byte range, and the IRQ8 route through to vector `A8`. The battery RAM's **configuration table** is laid out from `002398-04` p. 12-3 — checksum, valid pattern, memory array, node ID, device bits and the three type bytes — and left blank. The pattern's **value** is not in the manual and came from the boot PROM instead — `cmpi.l #$1234ABCD,$4(a0)` at `00178A`, with `a0` based at the handbook's checksum offset. The fifty bytes are a **battery**: `--calendar-ram FILE` carries them across a run, and deliberately not the clock, since a starting instant taken from the last run's ending one is a wall clock arriving through the back door | `calendar_suite`, 14 tests; `FINDINGS.md` C12  **The MEM BOARD ARRAY is written per slot, from the firmware's own bank layout.** It had taken a total and divided it by the four fitted slots, which agrees with the boot PROM's decode chain on 16 MB (`4-4-4-4`) and 32 MB (`8-8-8-8`) — the only two sizes it was ever run at — and disagrees on every other row: **20 MB is `8-4-4-4`**, not four boards of five, and 12 MB is `4-4-4-0`, three boards and an *empty slot*, which an even split cannot produce at all. The DN5500 disagrees even at a size that divides, its chain making 16 MB `8-8-0-0`. The layouts had been comments beside the strap bytes since they were read out of two boot PROMs; they are now data, behind `ap_sio_ram_bank_layout`, and both this table and the DS5500's memory present register read it — which is what makes SELF_TEST's "in configuration table" against "sized" a comparison of one fact with itself |
@@ -18791,7 +18854,7 @@ itself needed a deliberate probe.
 
 #### The 8237A's programming model, entire: all sixteen register addresses
 
-`i8237_suite`, 29 tests.
+`i8237_suite`, 31 tests.
 
 #### The MC146818A itself: clock bytes, registers, RAM, the update cycle
 

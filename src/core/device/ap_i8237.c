@@ -43,17 +43,44 @@ bool ap_i8237_dack_level(const ap_i8237_t *dma, unsigned channel) {
   return (dma->command & AP_I8237_CMD_DACK_ACTIVE_HIGH) != 0u ? acknowledging
                                                               : !acknowledging;
 }
+/* Which channels are asking, pin and software request together.
+ *
+ * **A software request needs Block mode**, which is the clause this returned
+ * without until 2026-08-22: `[8237]`, *Request Register*, "In order to make a
+ * software request, **the channel must be in Block Mode**." Three call sites
+ * combined the two halves by hand and each would have had to carry the rule,
+ * so it lives here once.
+ *
+ * *Why the oracle was consulted for this one, legitimately.* The sentence is
+ * phrased as a rule for the programmer and does not say what the part does when
+ * it is broken, so the document genuinely runs out. `am9517a.cpp:205` answers
+ * it -- `BIT(m_request, channel) && ((m_mode & 0xc0) == MODE_BLOCK)` -- and
+ * agrees with the only reading under which the sentence constrains hardware at
+ * all. That is tier four reached in order, not instead of the document.
+ *
+ * The mask still applies to the pin and not to the request register: "These are
+ * non-maskable and subject to prioritization by the Priority Encoder network."
+ */
+static uint8_t asking_channels(const ap_i8237_t *dma) {
+  uint8_t software = 0u;
+  for (unsigned channel = 0; channel < AP_I8237_CHANNELS; channel++) {
+    const uint8_t bit = (uint8_t)(1u << channel);
+    if ((dma->request & bit) == 0u) {
+      continue;
+    }
+    if (((dma->channel[channel].mode & AP_I8237_MODE_SELECT) >> 6) ==
+        (unsigned)AP_I8237_MODE_BLOCK) {
+      software |= bit;
+    }
+  }
+  return (uint8_t)(((dma->dreq & (uint8_t)~dma->mask) | software) & 0x0Fu);
+}
+
 int ap_i8237_service_pending(const ap_i8237_t *dma) {
   if ((dma->command & AP_I8237_CMD_CONTROLLER_DISABLE) != 0u) {
     return -1;
   }
-  /* "Each channel has associated with it a mask bit which can be set to disable
-   * the incoming DREQ." A software request goes through the same encoder --
-   * "These are non-maskable and subject to prioritization by the Priority
-   * Encoder network" -- so the mask applies to the pin and not to the request
-   * register. */
-  uint8_t asking = (uint8_t)((dma->dreq & (uint8_t)~dma->mask) | dma->request);
-  asking &= 0x0Fu;
+  uint8_t asking = asking_channels(dma);
   if (asking == 0u) {
     return -1;
   }
@@ -125,8 +152,7 @@ static ap_i8237_cycle_t memory_to_memory(ap_i8237_t *dma,
   if ((dma->command & AP_I8237_CMD_CONTROLLER_DISABLE) != 0u) {
     return out;
   }
-  const uint8_t asking =
-      (uint8_t)((dma->dreq & (uint8_t)~dma->mask) | dma->request);
+  const uint8_t asking = asking_channels(dma);
   if ((asking & 0x01u) == 0u) {
     return out;
   }
@@ -322,10 +348,8 @@ uint8_t ap_i8237_read(ap_i8237_t *dma, unsigned reg) {
   case AP_I8237_REG_STATUS_COMMAND: {
     /* "Bits 4-7 are set whenever their corresponding channel is requesting
      * service", so the request half is live rather than latched. */
-    uint8_t asking = (uint8_t)((dma->dreq & (uint8_t)~dma->mask) |
-                               dma->request);
-    uint8_t value = (uint8_t)((dma->status & 0x0Fu) |
-                              (uint8_t)((asking & 0x0Fu) << 4));
+    uint8_t asking = asking_channels(dma);
+    uint8_t value = (uint8_t)((dma->status & 0x0Fu) | (uint8_t)(asking << 4));
     /* "These bits are cleared upon Reset and on each Status Read." */
     dma->status = 0u;
     return value;

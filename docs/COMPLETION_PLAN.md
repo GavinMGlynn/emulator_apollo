@@ -6155,9 +6155,17 @@ same number is what let them diverge once already.
       "correctly inert" from "forgotten"; and the datasheet contradicts itself
       once, putting AEOI in ICW1 in one paragraph and ICW4 in the next, which is
       recorded so a later reader does not take the first for a fact.
-      **`[8237]` remains 1 of 19.** What is left of `[8259]` is pin
-      descriptions and AC/DC characteristics — wires and voltages this core has
-      no model for — named rather than skipped silently.
+      **`[8237]` is 2 of 19 and p. 7 found the walk's first real defect**:
+      "In order to make a software request, the channel must be in Block Mode"
+      was not implemented, so a software request was serviced in any mode — the
+      permissive direction. Fixed, with the rule factored into one place because
+      three sites combined `dreq` and `request` by hand. The document does not
+      say what the part does when the rule is broken, so the oracle was
+      consulted **in order** and agrees (`am9517a.cpp:205`). Reference boot
+      unmoved, so it is a latent defect corrected.
+      What is left of `[8259]` is pin descriptions and AC/DC characteristics —
+      wires and voltages this core has no model for — named rather than skipped
+      silently.
 
 - [ ] **Walk the OMTI controller manuals — 220 pages, none walked, and they
       have NO TEXT LAYER.** The 8621 is the DN3500's disk and floppy controller,
