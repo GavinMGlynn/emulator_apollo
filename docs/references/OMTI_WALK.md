@@ -620,6 +620,23 @@ Nothing computes the type field and nothing has to.
 Two gaps in the table worth noting so a later reader does not think they were
 missed: type 0 defines no `05` or `07`, and type 1 no `1B`.
 
+**Page A-4, the type 1 descriptions, walked too** — and it names two CDB
+*fields* rather than only outcomes, which is where the LUN omission came from
+one page earlier. Both are already modelled: `18 Correctable ECC` turns on "a
+READ command ... issued with the **DISABLE ECC bit SET**", which
+`ap_omti_cdb.h` carries as bit 6 of byte 5 with the note that the same bit means
+something else on other commands; and `1A Illegal Interleave Factor` turns on a
+FORMAT's **interleave factor**, which is byte 4 doubling as the block count and
+is documented as doing so. So this page confirms.
+
+*One naming difference inside the appendix*: A-2's table calls `14` "Sector not
+found" and A-4's description calls it "Record Not Found". Same code, two names,
+in one document — recorded because this project has been caught by that pattern
+three times now (`ST3` bit 4, `EC` READ CAPACITY/CONFIGURATION, and this).
+
+**Pages read in this appendix: A-1, A-2, A-4.** A-3 and A-5 onward are not read,
+and the type 0, 2 and 3 descriptions live among them.
+
 Also confirmed on the page and already modelled: **AV**, "if set, indicates that
 the error code in byte 0 applies to the sector address in bytes 1,2,3"; and
 **SENSE TYPE** in bits 5-4 of byte 0 — `00` drive, `01` data, `10` command, `11`
