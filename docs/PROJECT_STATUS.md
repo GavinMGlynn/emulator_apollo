@@ -505,9 +505,36 @@ exactly, but not every model's: Table A-1's Series 3000 column gives a 12 MHz
 internal clock and a 166 ns bus clock, making that family's DMA clock 3 MHz and
 four states 1.333 µs — 26.67 clocks against a 20 MHz DN3000. So the
 implementation needs either an accumulator or the duration held in time-base
-units and converted per model. Named now rather than discovered halfway
-through, which is the whole reason this item is being specified before it is
-built.
+units and converted per model.
+
+### And then the implementation stopped, on a dependency it had missed
+
+Starting to build it surfaced the thing all of the above walked past: **Figure
+B-9 is the Series 4000 appendix.** Its page footer says so. So 4 MHz is settled
+for a DS4000 and **not** for the **DS3500**, which is this project's reference
+machine and the one the identity hash is taken on.
+
+`ap_board.h`'s `at_bus_series` has been `PROVISIONAL` for exactly this reason,
+and its comment is unusually explicit: it *retracts the justification* for
+calling a DS3500 a Series 3000 board — `ap_boardreg.h` puts the DS3500 in the
+**Series 4000 architecture group** on two independent grounds — while keeping
+the choice, "because nothing in hand settles it: neither manual states a DS3500's
+AT bus clock".
+
+A DMA transfer duration inherits that question whole. Series 3000 gives 1.333 µs,
+Series 4000 gives 1 µs — a **33% difference on the reference boot's most
+frequent bus event**. Implementing it would put a `PROVISIONAL` number into the
+identity hash, which is the one place this project must not guess.
+
+*So the work was stopped and the struct fields backed out rather than left
+unused.* The item is now a named dependency of the DS3500 bus-clock item rather
+than an independent piece of work, and the Series 4000 models could be done
+today except that a timing change nothing exercises is a change nobody can
+check.
+
+**Three passes established the unit and the fourth found it did not apply to the
+machine that matters.** That is the honest shape of it, and it is worth more
+recorded than a number would have been.
 
 And unlike the refresh, **this will move the boot**. The arbiter already makes
 the processor wait while the DMA controller holds the bus, so lengthening a

@@ -6294,10 +6294,27 @@ same number is what let them diverge once already.
       *is* a 4 MHz period and the gridlines are the state boundaries; a transfer
       spans four. (Table A-1's rows 58–71 were expected to confirm it and do
       not: they are propagation delays, not durations.)
-      **The remaining caveat is arithmetic, not evidence**: 1 µs is 25 clocks
-      exactly on a 25 MHz DN3500, but the Series 3000's 3 MHz DMA clock gives
-      1.333 µs = 26.67 clocks on a 20 MHz DN3000. So the duration wants holding
-      in time-base units and converting per model, or an accumulator.
+      **The arithmetic caveat**: 1 µs is 25 clocks exactly on a 25 MHz DN3500,
+      but a 3 MHz DMA clock gives 1.333 µs = 26.67 clocks on a 20 MHz DN3000.
+      The duration wants holding in time-base units and converting per model, or
+      an accumulator.
+      **BLOCKED, and on an item already open — found 2026-08-22 when the
+      implementation was started and stopped.** Figure B-9 is the **Series
+      4000** appendix, so 4 MHz is settled for a DS4000 and **not** for the
+      DS3500, which is this project's reference machine. `ap_board.h`'s
+      `at_bus_series` is `PROVISIONAL` for exactly that reason: its own comment
+      retracts the justification for calling a DS3500 a Series 3000 board while
+      keeping the choice, because "neither manual states a DS3500's AT bus
+      clock". A DMA transfer duration inherits that question whole — Series 3000
+      would make it 1.333 µs and Series 4000 1 µs, a 33% difference on the
+      reference boot's most frequent bus event.
+      **So this cannot be implemented for the reference machine without putting
+      a `PROVISIONAL` number into the identity hash**, which is the one place
+      this project must not guess. It closes when the DS3500 bus-clock item
+      does, and is now a named dependency of it rather than an independent
+      piece of work.
+      *The Series 4000 models could be done today* — `dn4000`, `dn4500` — but a
+      timing change nothing exercises is a change nobody can check.
       **Expect it to move the boot**, unlike the refresh cycles: the arbiter
       already makes the processor wait while the DMA holds the bus, so
       lengthening a transfer lengthens a real stall rather than adding an
