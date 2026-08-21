@@ -1171,6 +1171,22 @@ void ap_omti_fdc_write(ap_omti_t *omti, unsigned reg, uint8_t value);
 /* Whether the fixed-disk side is asking for a DMA cycle -- `DRQ7` on this
  * board, Table 2-4's 16-bit Winchester line.
  *
+ * ## `DRQ7` against `DRQ3`, settled by the manual's own signal descriptions
+ *
+ * `[OMTI]` contradicts itself about which line this is: §4.2's MASK register
+ * on p. 4-3 says "DREQ is gated onto system bus on **DRQ3**", and §4.3's DATA
+ * STATE on p. 4-4 says "it will set the **DRQ7** bit on the system bus". This
+ * project resolved it on physical grounds -- the transfer is word mode, DRQ3 is
+ * 8-bit -- which was an inference from `008778-03` Table 2-4 rather than from
+ * this manual.
+ *
+ * **§3.5 states it outright** (read 2026-08-22): "`DRQ0` through `DRQ3` will
+ * perform **8-bit** DMA transfers; `DRQ5` through `DRQ7` will perform **16-bit**
+ * transfers. `DRQ4` is used on the system board and is not available on the
+ * Input/Output channel." So the same document that contradicts itself in §4
+ * settles it in §3, and the width argument is now a citation rather than a
+ * derivation. §4.2's DRQ3 is the error.
+ *
  * The same derivation as the interrupt, from the same register: §4.3 gates
  * `DREQ` on the MASK byte's DMA ENABLE -- "If the DMA ENABLE bit in the MASK
  * byte has been previously set, data will be transferred in DMA mode ... it

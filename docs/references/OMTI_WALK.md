@@ -861,3 +861,38 @@ both `I`, but a direction column on a connector table does not by itself say
 whether this controller ever **drives** a channel check — that would be in §3's
 signal descriptions, which are not read. Flagged as the next thing to look at
 for that item rather than reported as an answer.
+
+
+## §3.5's signal descriptions — and they settle §4's contradiction with itself
+
+PDF 37, doc 3-5. Signal descriptions for the AT channel, and two of them matter.
+
+**`DRQ0`-`DRQ3` and `DRQ5`-`DRQ7`**: "`DRQ0` through `DRQ3` will perform
+**8-bit** DMA transfers; `DRQ5` through `DRQ7` will perform **16-bit**
+transfers. `DRQ4` is used on the system board and is not available on the
+Input/Output channel."
+
+**That closes the DRQ3-versus-DRQ7 question from inside this manual.** §4.2's
+MASK register says `DRQ3` and §4.3's DATA STATE says `DRQ7`; this project chose
+`DRQ7` on the physical grounds that the transfer is word mode and `DRQ3` is
+8-bit — an inference from `008778-03` Table 2-4, because `[OMTI]` was thought to
+say nothing more. It says exactly this, three sections earlier. **§4.2 is the
+error**, and the width argument is now a citation.
+
+*The pattern is the one this walk keeps meeting*: a document that contradicts
+itself in one chapter resolves it in another, and the resolution was always
+there to be read. `ST3` took the sibling manual; this took the same manual's
+own §3.
+
+**`Input/Output CH RDY`**: "pulled low (not ready) by a memory or Input/Output
+device to lengthen Input/Output memory cycles ... Machine cycles are extended by
+an integral number of clock cycles (**167 nanoseconds**). This signal should be
+held low for **no more than 2.5 microseconds**." That 2.5 µs is
+`AP_ATBUS_IO_CH_RDY_MAX` exactly, now confirmed from a second document —
+`008778-03` §2.3.2 was the first. *The 167 ns is the generic AT's 6 MHz and says
+nothing about a DS3500*, which is the open bus-clock question and stays open.
+
+Also on the page and already modelled: the IRQ priority order and the rule that
+"an interrupt request is generated when an IRQ line is raised from low to high.
+The line must be held high until the microprocessor acknowledges" — the same
+sentence `008778-03` §2.3.2 gives and `ap_intr` implements.
