@@ -5698,7 +5698,7 @@ same number is what let them diverge once already.
       ROMs are on disk. Verification would be a receive that stalls mid-packet
       and a status read that finds `TMO`.*
 
-- [ ] **`010005-00` must be walked whole — 29 pages, 16 done.** *Started
+- [ ] **`010005-00` must be walked whole — 29 pages, 17 done; chapter 2 complete.** *Started
       2026-08-21; the coverage record is `docs/references/010005-00_WALK.md` and
       its "Resume here" block is the authority, not this item.* `CLAUDE.md`: a document
       that yields one fact this core does not have stops being a reference to
@@ -5752,6 +5752,21 @@ same number is what let them diverge once already.
       receiver set up to copy, type matched": *wanted this packet* (compatible
       with wait-ack, reproduces both words) versus *able to copy it* (mutually
       exclusive with wait-ack, which is what is implemented).
+      **`[MAC]` p. 2-9 is now walked, and it does not settle it either.** This
+      item named the discriminator as "a `[MAC]` sentence that says whether a
+      busy receiver still asserts intend-to-copy". Figure 2-8 is the only page
+      that could carry one, and its two descriptions use **different words for
+      the condition**: wait ack is set by "an addressed receiver that **wasn't
+      enabled to copy** the packet", intend-to-copy by "an addressed receiver
+      that **is set up to copy** the packet (and whose type field matches)".
+      Whether "enabled to" and "set up to" denote the same condition **is the
+      question**, so restating it in the spec's words does not answer it.
+      **`010005-00` is therefore spent as a source for this item** — walked, not
+      merely queried, so it will not be proposed again. What remains is the ring
+      firmware's own wait-ack handling, and those ROMs are on disk.
+      *One side-effect*: intend-to-copy requires "whose type field matches", so
+      type matching is in the wire protocol's own field definition — independent
+      support for the `TMASK` item's architectural half.
       **p. 8-43 does not settle it, and the escape it seemed to close is open.**
       The DN4xx controller defines its three outcomes by *address* rather than by
       wanting-versus-able: `MSGCPY` copied, `WACK` "a receiver observed his node
