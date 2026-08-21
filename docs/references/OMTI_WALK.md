@@ -770,3 +770,38 @@ in an image-backed model.
 `[OMTI]` is **§1, §2, most of §3, and §6.1-§6.2** — the introduction, the
 installation and jumper chapters, and the floppy chapter's opening. The two
 sibling manuals remain, `[8640]` partly used and `[8000]` untouched.
+
+
+## §6.2, the floppy chapter's symbol glossary — one encoding this core lacked
+
+PDF 75, doc 6-2. A glossary of the FDC's field names, and most of it names
+things the model already carries under the same names: `N`, `SC`, `R`, `NCN`,
+`PCN`, `MT`, `MF`, `SK`, `ND`, `ST0`-`ST3`, `US0`-`US1` "encoded the same as
+bits 0 and 1 of the digital output register (DOR)".
+
+**The yield is `SRT`.** `ap_omti.c` cited §6.3.8 for "step rate, head load and
+head unload times" and said "nothing in this core is timed off them yet" —
+which was true and gave a later reader nothing to work from. §6.2 gives the
+encoding:
+
+    1.2 MB drive    1111 = 1 ms   1110 = 2 ms   1101 = 3 ms
+    320 KB drive    1111 = 2 ms   1110 = 4 ms   1101 = 6 ms
+
+with `HUT` in 16 ms increments and `HLT` in 2 ms on the 1.2 MB drive.
+
+**And the encoding predicts what this machine should program.** `008778-03`
+Table 7-7 gives the drive **3 ms track-to-track minimum**, which is `SRT = 1101`
+exactly — the slowest of the three and the only one the mechanism can meet.
+`AP_OMTI_FDC_TRACK_TO_TRACK` is that same 3 ms, so a model honouring `SRT` would
+agree with the fixed figure for any correctly-programmed driver and diverge only
+for a wrong one. That is the permissive direction, which is what makes it a gap
+worth naming rather than a harmless simplification.
+
+*Not implemented, and the reason is a measurement this project cannot make*:
+Phase A established that the reference boot **never touches the floppy
+controller** — not one register access in 350 M instructions — so no run here can
+say what `SRT` the firmware writes.
+
+*Also recorded*: `HLT` is moot on this machine whatever its encoding, because
+`008778-03` §7.7.5 says "The *Domain System* does not require a head load
+solenoid" — already the reason head load time is documented-and-not-modelled.

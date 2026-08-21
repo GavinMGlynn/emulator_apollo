@@ -2222,7 +2222,29 @@ static void fdc_execute(ap_omti_t *omti) {
   case AP_OMTI_FDC_SPECIFY:
     /* §6.3.8's step rate, head load and head unload times. They pace a real
      * drive's mechanics; nothing in this core is timed off them yet, so the
-     * bytes are accepted and kept and the command has no result phase. */
+     * bytes are accepted and the command has no result phase.
+     *
+     * **§6.2 gives the encoding, which this used to lack** (read 2026-08-22).
+     * `SRT` is four bits and the milliseconds depend on the drive:
+     *
+     *     1.2 MB drive    1111 = 1 ms   1110 = 2 ms   1101 = 3 ms
+     *     320 KB drive    1111 = 2 ms   1110 = 4 ms   1101 = 6 ms
+     *
+     * So the step rate a driver programs is knowable, and `HUT` and `HLT` are
+     * likewise 16 ms and 2 ms increments on the 1.2 MB drive.
+     *
+     * *And the encoding predicts what this machine should program.*
+     * `008778-03` Table 7-7 gives the drive **3 ms track-to-track minimum**,
+     * which is `SRT = 1101` exactly -- the slowest of the three and the only
+     * one the mechanism can meet. `AP_OMTI_FDC_TRACK_TO_TRACK` is that 3 ms,
+     * so a model that honoured `SRT` would agree with the fixed figure for any
+     * correctly-programmed driver and diverge only for a wrong one. That is
+     * the permissive direction, and it is why this is a named gap rather than
+     * a harmless simplification.
+     *
+     * Not implemented because nothing measures it: Phase A established that
+     * the reference boot never touches the floppy controller, so no run this
+     * project has can say what `SRT` the firmware writes. */
     fdc_result(omti);
     return;
 
