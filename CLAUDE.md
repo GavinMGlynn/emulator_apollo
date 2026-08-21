@@ -114,6 +114,13 @@ reference core to chase speed** — that is the classic mistake.
   `docs/COMPLETION_PLAN.md` (tick the item, add any tails discovered while
   implementing it). Re-read both in full at every phase boundary — status docs
   rot fast.
+  **And the walk record, if one names the gap.** `docs/references/*_WALK.md`
+  rows say things like "zero hits in `src/`" and mark a section `GAP`, which are
+  claims about the *code* and go stale the moment the code changes. Five did in
+  one session, four of them invalidated by that session's own commits, because
+  the two living documents were updated and the record naming the same gap was
+  not. Correct the row and **keep its original text beneath the correction**:
+  the gap as it stood is what explains why the code looks the way it does.
 - **A completed plan item is a summary; the balance moves to
   `PROJECT_STATUS.md`.** One line of what was done, its verification, and
   "Detail in `PROJECT_STATUS.md`" — the reasoning, traps, measurements and

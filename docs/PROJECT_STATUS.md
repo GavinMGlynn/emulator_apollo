@@ -474,6 +474,26 @@ coverage **drifted**, page counts **held** and are now checked, the plan's "not
 modelled" claims **held** and are greppable, and this one **holds** and is not.
 Two of the four are machine-checked where none was before.
 
+### A fifth class, and a different cause: records stale because the *code* moved
+
+The OMTI record took three passes to become consistent with itself, each finding
+the next stale claim by a different means — a citation audit, the new check, and
+plain reading. Reading the other records the same way found five more, and their
+cause is not stale reading at all: **closing an item updated `PROJECT_STATUS.md`
+and `COMPLETION_PLAN.md` and left the walk record naming the same gap
+untouched.** Four of the five were invalidated by this session's own commits.
+
+`CLAUDE.md` requires both living documents to move with the code. The walk
+records are not on that list, and this is what that costs. Each correction keeps
+the original text beneath it, because *the gap as it stood* is what explains why
+the code looks the way it does.
+
+**The sweep is finished and the remainder is clean**: `002398-04`'s three named
+gaps are genuinely open — the eight status fields that are named and raised by
+nothing, which is the `IO_CH_CK` item — `010005-00`'s single `GAP` row describes
+what the walk found rather than the code's state and its strip timeout is
+implemented, and `QIC-02` has none. Recorded so the sweep is not repeated.
+
 *Verification: documentary; no code changed; `ctest` 139/139.*
 
 ## The one claim nothing checked was the one that drifted
