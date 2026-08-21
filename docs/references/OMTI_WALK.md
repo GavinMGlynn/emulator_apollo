@@ -746,3 +746,27 @@ the rule and the sense code both in hand.
 
 *The `0` normalisation is not a gap*: "zero will be set to one" only matters to
 a model that places sectors, and this one does not.
+
+
+## Appendix B-2 and B-3, and the tail is finished
+
+The abbreviations and mnemonics list, ending the manual at PDF 88. No facts a
+model can hold — but two entries are worth having been read, because they name
+fields rather than describe hardware:
+
+**`D LUN` Destination Logical Unit Number** and **`S LUN` Source Logical Unit
+Number**. Those belong to `COPY`'s ten-byte descriptor, and after the sense
+byte's LUN turned out to be unset it was worth checking they were not the same
+omission. They are not: `ap_omti.c` decodes the destination address by handing
+bytes 5-7 to the same CDB decoder the source uses, so the destination LUN is
+extracted with it, and §5.4.21's "Source and Destination LUN's may be the same"
+plus one attached drive is why nothing acts on it. Reasoned, not missed.
+
+`WSI`, "equivalent to: Reduced Write Current", is a drive signal with no place
+in an image-backed model.
+
+**PDF 81-88 — Appendix A entire and Appendix B entire — are now walked.** With
+§3.4, §4.1-§4.5, §5.1-§5.4, §6.3 derived and §6.4 walked, what remains unread in
+`[OMTI]` is **§1, §2, most of §3, and §6.1-§6.2** — the introduction, the
+installation and jumper chapters, and the floppy chapter's opening. The two
+sibling manuals remain, `[8640]` partly used and `[8000]` untouched.

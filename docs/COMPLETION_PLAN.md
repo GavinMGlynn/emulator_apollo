@@ -6195,8 +6195,12 @@ same number is what let them diverge once already.
       `ap_omti.c` cite **37 distinct §5 subsections**, the whole §5.4.3–§5.4.29
       command run among them. **§3.4, §4.5 and §6.3's floppy command set are
       derived too**, on the same evidence — verbatim quotes in the model. §4.1–
-      §4.4 and §6.4 are walked and recorded. What is **genuinely unread** is §1,
-      §2, most of §3, §6.1–§6.2 and §7 onward, plus `[8640]` and `[8000]`.
+      §4.4 and §6.4 are walked and recorded, and **Appendices A and B are walked
+      entire** (PDF 81–88, 2026-08-22), which found the sense LUN defect, marked
+      the 32K buffer `PROVISIONAL` and opened two named gaps. What is
+      **genuinely unread** is §1, §2, most of §3 and §6.1–§6.2 — the
+      introduction, installation and jumper chapters and the floppy chapter's
+      opening — plus `[8640]` (partly used) and `[8000]`.
       *Derived is not walked*: a verbatim quote shows the page was read, not
       that the section was covered field by field, and §6.4's pass found `ST3`
       only by doing the latter.
