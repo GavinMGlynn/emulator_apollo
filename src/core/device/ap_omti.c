@@ -329,7 +329,11 @@ static void refuse(ap_omti_t *omti, uint16_t cylinder, uint8_t head,
 
   finish(omti, true, sense);
   omti->sense[0] = (uint8_t)(sense | AP_OMTI_SENSE_ADDRESS_VALID);
+  /* Appendix A: byte 1 is `C10 | 0 | LUN | HEAD NUMBER`. All three fields, and
+   * the LUN is the one this built without until the appendix was read. */
   omti->sense[1] = (uint8_t)((head & 0x1Fu) |
+                             (omti->command_lun != 0u ? AP_OMTI_SENSE_LUN
+                                                      : 0u) |
                              ((cylinder & 0x0400u) != 0u ? 0x80u : 0x00u));
   omti->sense[2] = (uint8_t)((sector & 0x3Fu) |
                              (uint8_t)(((cylinder >> 8) & 0x03u) << 6));

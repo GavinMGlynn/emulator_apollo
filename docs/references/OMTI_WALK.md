@@ -43,6 +43,7 @@ the OMTI model cites and attributing each to its manual gives, for `[OMTI]`:
 | §5.1–§5.4 | 37 distinct subsections, §5.4.3 through §5.4.29 | **derived** (record said "owed") |
 | §6.3 | the floppy command set — §6.3.2's N/SC/GPL track fill, §6.3.6's step to track 0, §6.3.7's ST0-and-cylinder, §6.3.10's NCN, §6.3.11's INVALID, and more | **derived** (record said "owed") |
 | §6.4 | already recorded | walked |
+| **Appendix A** | its **code list** is cited in `ap_omti.c` and eight `awd_suite` comments; its **SENSE DATA BYTE FORMAT** was not | **partly derived — and the unwalked half held a defect** |
 | §1, §2, most of §3, §6.1–§6.2, §7 onward | no citations | **genuinely unread** |
 
 *The claim is bounded deliberately.* A verbatim quote in a comment is strong
@@ -559,3 +560,41 @@ different product line. What remains is that `[OMTI]` and `[8640]` have only
 ever been *queried* at §6.4.4 and §5.6.4. Walking them whole is the only
 reference-tier move left, and it may well confirm rather than change the
 reading.
+
+
+## Appendix A's format table, walked 2026-08-22 — and the half nobody read
+
+PDF 81, doc A-1. **SENSE CODE SUMMARY AND DESCRIPTION.**
+
+This appendix is the sharpest example yet of *consulted is not walked*. Its code
+list has been cited for years — `ap_omti.c` names it for the sense bytes, and
+eight `awd_suite` comments quote `17 Write Protected`, `19 Bad Track
+Encountered`, `21 Illegal Disk Address`, `22` and `23 Volume Overflow` verbatim.
+Three lines above those codes sits the **byte format table**, and it had never
+been read.
+
+    byte 0   AV | 0 | TYPE | SENSE CODE
+    byte 1   C10 | 0 | LUN | HEAD NUMBER
+    byte 2   C09 | C08 | SECTOR NUMBER
+    byte 3   CYLINDER LOW (C00-C07)
+
+Everything in it was modelled **except bit 5 of byte 1**: the refusal path built
+the byte from the head and `C10` and left the LUN clear, so every refusal
+reported LUN 0 whatever unit the command addressed. Fixed.
+
+*And it is currently unreachable*, which the fix's test says rather than hides:
+the only refusal carrying an address is one against a drive, and
+`ap_omti_attach` fits a single drive at LUN 0. A command to LUN 1 is refused
+`04 DRIVE NOT READY` with no address at all. So the field is right per the
+manual and exercised by nothing — the standing `AP_OMTI_ST3_READY` has — and the
+test pins the reachable half so that a second drive turns it into a real test
+rather than finding a field nobody had thought about.
+
+Also confirmed on the page and already modelled: **AV**, "if set, indicates that
+the error code in byte 0 applies to the sector address in bytes 1,2,3"; and
+**SENSE TYPE** in bits 5-4 of byte 0 — `00` drive, `01` data, `10` command, `11`
+diagnostic — which every sense constant in `ap_omti_cdb.h` already encodes
+correctly, `04` as a drive error and `20`/`21` as command errors, because they
+were taken from the code list. A **SENSE DATA WORD FORMAT** is given beside the
+byte one; this core presents the byte form, which is what the 8-bit data port
+carries.

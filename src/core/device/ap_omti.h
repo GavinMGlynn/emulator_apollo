@@ -717,6 +717,27 @@ typedef enum {
  * answer it has. */
 #define AP_OMTI_SENSE_ADDRESS_VALID 0x80u
 
+/* Sense byte 1 bit 5, from `[OMTI]` **Appendix A**'s SENSE DATA BYTE FORMAT:
+ * byte 1 is `C10 | 0 | LUN | HEAD NUMBER`, so the logical unit the failing
+ * command addressed rides beside the head number.
+ *
+ * **Added 2026-08-22, and the appendix was not unread** -- its *code list* has
+ * been cited for years, in `ap_omti.c` and in eight `awd_suite` comments naming
+ * `17`, `19`, `21`, `22` and `23`. What had never been walked is its **byte
+ * format table**, three lines above those codes, and bit 5 lives there.
+ *
+ * So the refusal path built byte 1 from the head and `C10` and left the LUN
+ * clear, and every refusal reported LUN 0 whatever unit had been addressed. A
+ * driver reading the sense address to decide *which drive* failed would have
+ * been told the wrong one -- and the completion byte three lines away has
+ * carried its own LUN bit all along, which is what makes this an omission
+ * rather than a decision.
+ *
+ * *The lesson is the one the `ST3` pass taught*: a section consulted for the
+ * thing someone needed is not a section walked. The codes were needed and read;
+ * the format around them was not. */
+#define AP_OMTI_SENSE_LUN 0x20u
+
 /* ## The identification block, which is what a reset leaves in the buffer
  *
  * §5.4.13 again: "The READ BUFFER Command can also be used to model and status

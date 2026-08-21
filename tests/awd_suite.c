@@ -499,14 +499,56 @@ static void test_a_bad_address_fails_and_the_sense_says_so(void) {
    * report, and told the driver the answer was unavailable. */
   TEST_ASSERT_EQUAL_HEX8(0xA1u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
 
-  /* And the address itself, in the layout a descriptor block's bytes 1-3 use:
-   * head with C10 above it, sector with C09 and C08 above it, cylinder low.
-   * Cylinder 7 on a two-cylinder drive, head 0, sector 0. */
+  /* And the address itself, in **Appendix A's** SENSE DATA BYTE FORMAT: byte 1
+   * is `C10 | 0 | LUN | HEAD NUMBER`, byte 2 `C09 | C08 | SECTOR NUMBER`, byte
+   * 3 cylinder low. Cylinder 7 on a two-cylinder drive, head 0, sector 0, and
+   * **LUN 0** -- which is byte 1 bit 5 and was clear here for a different
+   * reason until 2026-08-22, namely that nothing set it at all. */
   TEST_ASSERT_EQUAL_HEX8(0x00u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
   TEST_ASSERT_EQUAL_HEX8(0x00u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
   TEST_ASSERT_EQUAL_HEX8(0x07u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
   settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+}
+
+/* Appendix A's byte 1 is `C10 | 0 | LUN | HEAD NUMBER`, and **bit 5 is not
+ * reachable on this machine** -- which is worth pinning rather than leaving as
+ * a silence.
+ *
+ * The appendix's *code list* has been cited here for years -- `17`, `19`, `21`,
+ * `22`, `23` all name it -- while the byte format three lines above those codes
+ * had never been walked, so nothing set the LUN at all. It is set now. But the
+ * only refusal that carries an address is one against a drive, and
+ * `ap_omti_attach` fits a single drive at LUN 0: a command to LUN 1 is refused
+ * `04 DRIVE NOT READY` **without** an address, where bytes 1-3 are zero and bit
+ * 7 says so.
+ *
+ * So the field is right per the manual and exercised by nothing, which is the
+ * same standing `AP_OMTI_ST3_READY` has. Asserted here as the reachable half --
+ * LUN 0 reports LUN 0 -- so that a second drive arriving turns this into a real
+ * test rather than finding a field nobody had thought about. */
+static void test_the_sense_address_reports_lun_zero_and_bit_five_is_unreachable(
+    void) {
+  build_controller();
+  issue(AP_OMTI_CMD_READ, 7u, 0u, 0u, 1u); /* cylinder 7: past the drive */
+  settle();
+  TEST_ASSERT_TRUE((take_status() & 0x02u) != 0u);
+
+  issue(AP_OMTI_CMD_REQUEST_SENSE, 0u, 0u, 0u, 0u);
+  const uint8_t byte0 = ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA);
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_SENSE_ADDRESS_VALID,
+                         byte0 & AP_OMTI_SENSE_ADDRESS_VALID);
+
+  /* The address is valid, so byte 1's LUN field means something -- and it is
+   * zero, because the drive that failed is the only one there is. */
+  const uint8_t byte1 = ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA);
+  TEST_ASSERT_EQUAL_HEX8(0u, byte1 & AP_OMTI_SENSE_LUN);
+
+  /* And the bit sits where Appendix A puts it, clear of the head field below
+   * and `C10` above -- the three do not overlap. */
+  TEST_ASSERT_EQUAL_HEX8(0x20u, AP_OMTI_SENSE_LUN);
+  TEST_ASSERT_EQUAL_HEX8(0u, AP_OMTI_SENSE_LUN & 0x1Fu);
+  TEST_ASSERT_EQUAL_HEX8(0u, AP_OMTI_SENSE_LUN & AP_OMTI_SENSE_ADDRESS_VALID);
 }
 
 /* ## `21` and `23` divide the same failure by when it happens
@@ -1427,6 +1469,8 @@ int main(void) {
   RUN_TEST(test_a_block_count_of_zero_means_two_hundred_and_fifty_six);
   RUN_TEST(test_a_multi_sector_read_walks_forward);
   RUN_TEST(test_a_bad_address_fails_and_the_sense_says_so);
+  RUN_TEST(
+      test_the_sense_address_reports_lun_zero_and_bit_five_is_unreachable);
   RUN_TEST(test_a_multiblock_read_off_the_end_is_a_volume_overflow);
   RUN_TEST(test_a_multiblock_write_off_the_end_is_a_volume_overflow);
   RUN_TEST(test_the_refused_address_carries_the_whole_cylinder);
