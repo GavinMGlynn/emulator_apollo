@@ -6141,22 +6141,23 @@ same number is what let them diverge once already.
       **The text layer is not usable for this document** — it renders DCD as
       "DOD", Check as "Oheck", IOS as "lOS". Page images only.
 
-- [ ] **Walk the Intel 8237A and 8259A datasheets — 43 pages, both with text
-      layers.** Record: `docs/references/INTEL_WALK.md`. Chosen over the
-      remaining OMTI pages because **Phase A measured the reference boot as
-      never touching the floppy controller** — not one register access in 350 M
-      instructions — while it issues **401 disk commands** and 14.2 M disk
-      register reads, every one of which moves through DMA and interrupts.
-      These parts are on the path the machine exercises; the floppy is not.
-      `[8237]` p. 9 is walked and **confirms**: `ap_i8237.c` quotes that page
-      sentence by sentence — the status read clearing bits 0-3, the live request
-      half, Master Clear calling reset, reset setting the mask. That is the
-      signature of a part derived from its own manual rather than queried, so
-      expect provenance rather than defects and **say so and move on** if pages
-      6-8 and 10-11's register layouts keep confirming.
-      **`[8259]` is the more promising of the two**: `ap_intr.h` cites it for the
-      cascade and the slave-vector rule, and the parts nobody has quoted are
-      where a defect would be.
+- [ ] **Walk the Intel 8237A and 8259A datasheets — 43 pages.** Record:
+      `docs/references/INTEL_WALK.md`. Chosen because Phase A measured the boot
+      as **never touching the floppy controller** while it issues 401 disk
+      commands through DMA and interrupts.
+      **`[8259]` is 11 of 24 as of 2026-08-22 — the whole programming model, and
+      no defect.** ICW1's six automatic effects are lettered a–f in the code,
+      every ICW4 bit position matches, the poll byte and the **default IR7**
+      that sets no ISR bit are both implemented with their sentences quoted.
+      Two method findings: the one clause that could have hidden a defect was a
+      **negative** — "If BUF = 0, M/S has no function" — settled by sweeping the
+      field's *readers* and finding none, since no register sweep can tell
+      "correctly inert" from "forgotten"; and the datasheet contradicts itself
+      once, putting AEOI in ICW1 in one paragraph and ICW4 in the next, which is
+      recorded so a later reader does not take the first for a fact.
+      **`[8237]` remains 1 of 19.** What is left of `[8259]` is pin
+      descriptions and AC/DC characteristics — wires and voltages this core has
+      no model for — named rather than skipped silently.
 
 - [ ] **Walk the OMTI controller manuals — 220 pages, none walked, and they
       have NO TEXT LAYER.** The 8621 is the DN3500's disk and floppy controller,

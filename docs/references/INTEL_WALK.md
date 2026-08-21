@@ -9,7 +9,7 @@ The two parts the boot leans on hardest. Unlike the OMTI manuals these are
 | `[8259]` | `intel/8259A_231468-003_Dec1988.pdf` | 24 | 301 ppi | **yes** |
 | — | `intel/1983_Intel_Microprocessors_and_Peripherals_Handbook.pdf` | 1031 | 600 ppi | yes — a fallback, likely contains both parts |
 
-## STATUS: `[8237]` 1 of 19, `[8259]` 1 of 24. **Both confirm sentence by sentence — see the conclusion below.**
+## STATUS: `[8237]` 1 of 19, `[8259]` **11 of 24 — the whole programming model**. Both confirm sentence by sentence; see the conclusion below.
 
 Started 2026-08-21.
 
@@ -36,7 +36,14 @@ are on the path the machine actually exercises. Neither had a coverage record.
 | p. | Section | Yield | What it contained |
 | --- | --- | --- | --- |
 | 15 | **OCW3** (ESMM/SMM), **Fully Nested Mode**, **End of Interrupt**, **AEOI**, **Automatic Rotation** | `confirms` **— including the page's subtlest sentence** | `ESMM`=1 with `SMM`=1 enters Special Mask Mode, `ESMM`=0 makes `SMM` "don't care": `ap_i8259.c` has `OCW3_SMM 0x20` and `OCW3_ESMM 0x40`. Fully nested: IR0 highest, IS set on acknowledge, "all further interrupts of the same or lower priority are inhibited" — the model walks levels from `highest_priority` and rotates. **Non-specific EOI "will automatically reset the highest IS bit of those that are set"** — quoted at `ap_i8259.c:223`. And the sentence this page turns on: **"an IS bit that is masked by an IMR bit will not be cleared by a non-specific EOI if the 8259A is in the Special Mask Mode"** — quoted at `ap_i8259.c:231`. That is the interaction a hand-written PIC gets wrong, and it is modelled. Also on the page and worth having: an EOI "must be issued **twice** if in the Cascade mode, once for the master and once for the corresponding slave"; AEOI is master-only on pre-1985 parts |
-| others | *(not yet read)* | | |
+| 9 | **ICW1**'s six automatic effects (a–f), ICW2, **ICW3** | `confirms` **— all six, quoted a–f** | "The edge sense circuit is reset"; "The Interrupt Mask Register is cleared"; "IR7 input is assigned priority 7"; "The slave mode address is set to 7"; "Special Mask Mode is cleared and Status Read is set to IRR"; and IC4 = 0 zeroing every ICW4 function. `begin_initialization` implements **all six with the letters a–f as its own comments**, including the subtle one — the edge-sense reset is modelled by dropping `irr`, because "a line already high has no edge left to give". ICW3's two roles, master bitmap and slave ID, and the note "Slave ID is equal to the corresponding master IR input" |
+| 10–11 | **ICW4** bit definitions, LTIM, ADI, SNGL, IC4 | `confirms` **— every bit position** | `SFNM` 4, `BUF` 3, `M/S` 2, `AEOI` 1, `µPM` 0 against `ap_i8259.c`'s `ICW4_SFNM 0x10`, `ICW4_BUF 0x08`, `ICW4_MS 0x04`, `ICW4_AEOI 0x02`, `ICW4_UPM 0x01` — exact. **And the clause a sweep would miss**: "If BUF = 0, M/S has no function." `master` is written and read by **nothing**, and `ap_i8259.h` already says "meaningful only when buffered" — so the bit reads back as a register bit must while acting on nothing, which is what the sentence requires. Checked rather than assumed, by sweeping the field's readers |
+| 13–14 | **Figure 8**, OCW1/OCW2/OCW3 formats and definitions | `confirms` | OCW1's `M7`–`M0`, "M = 1 indicates the channel is masked"; OCW2's `R`/`SL`/`EOI` and `L2`–`L0`; OCW3's `ESMM`/`SMM`/`P`/`RR`/`RIS`. The A0 column matters and matches: OCW1 at A0 = 1, OCW2 and OCW3 at A0 = 0 |
+| 16 | **Poll Command** | `confirms` **— and the model quotes it** | "The 8259A treats the next RD pulse ... as an interrupt acknowledge, **sets the appropriate IS bit if there is a request**, and reads the priority level", with the returned byte `I` plus `W2`–`W0`. `ap_i8259.c`'s read path does exactly that and quotes both sentences; `I = 0` with nothing to report returns zero |
+| 17 | Interrupt Masks, Special Mask Mode, Reading the 8259A Status | `confirms` | Per-channel masking, "Masking an IR channel does not affect the other channels operation", and the ISR read needing `RR = 1, RIS = 1` before the RD |
+| 17–18 | **Edge and Level Triggered Modes**, and the default IR7 | `confirms` **— including the sentence that distinguishes them** | "If LTIM = 0, an interrupt request will be recognized by a low to high transition ... The IR input can remain high without generating another interrupt", against LTIM = 1's level recognition — both modelled, and the header argues why edge mode must *not* re-latch from the pin. Then the passage this part turns on: an IR that goes low before the first INTA gives **"a DEFAULT IR7"**, and **"A normal IR7 interrupt will set the corresponding ISR bit, a default IR7 won't."** `ap_i8259_acknowledge_first` sets no ISR bit for the spurious level and says so in a comment that goes on to name the consequence — software EOIing a spurious interrupt corrupts a real one's nesting |
+| 18–19 | **The Special Fully Nest Mode** (a and b), **Buffered Mode** | `confirms` | (a) a slave in service "is not locked out from the master's priority logic", which `resolve`'s cascade handling implements and comments; (b) the software protocol for exiting, which is the driver's and not the part's. Buffered mode's `SP/EN` is a pin this core has no wire for, and the two ICW4 bits that select it are stored |
+| 1–8, 12, 15, 20–24 | *(not read: pin descriptions, timing/AC characteristics, packaging)* | | |
 
 ## Conclusion after one page of each: these parts were derived, not queried
 
@@ -85,3 +92,32 @@ Then pages 1-5 and 12-19, then `[8259]` whole.
 for the cascade and for "as a master, the vector is the slave's". The parts of
 that manual nobody has quoted are where a defect would be, and the boot's
 interrupt path is exercised on every one of those 401 disk commands.
+
+
+## Conclusion for `[8259]`, after eleven pages
+
+**No defect.** Every register, every bit position and every stated behaviour
+checked so far is implemented, and in most cases the model quotes the datasheet
+sentence it comes from — ICW1's effects are literally lettered a–f in the code.
+That is the signature of a part **derived from its own manual** rather than
+queried, which is what the plan predicted for `[8237]` and expected to be less
+true here.
+
+The two findings are about *method*, not about the part:
+
+1. **The one clause that could have hidden a defect was a negative.** "If
+   BUF = 0, M/S has no function" is a statement that a bit must do nothing, and
+   nothing in a register sweep or a green suite can distinguish "correctly
+   inert" from "forgotten". It was settled by sweeping the field's **readers**
+   and finding none — the same question that found the ring's unattached
+   buffers, asked of a datasheet clause.
+2. **The datasheet contradicts itself once**, and harmlessly: the EOI section
+   says the IS bit resets automatically "when AEOI bit in **ICW1** is set", and
+   the next section says "If AEOI = 1 in **ICW4**". ICW4 is correct — it is
+   where Figure 7 puts the bit — and this core reads it there. Recorded so a
+   later reader who meets the ICW1 sentence does not take it for a fact, which
+   is the same service the OMTI `ST3` note performs.
+
+*Remaining for a complete walk*: the pin descriptions and the AC/DC
+characteristics, which describe wires and voltages this core has no model for,
+and the packaging pages. Named rather than skipped silently.

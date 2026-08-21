@@ -433,6 +433,55 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The 8259A walked to 11 of 24, and the clause that mattered was a negative
+## (2026-08-22)
+
+The interrupt controller is on the path the boot actually exercises — 401 disk
+commands, every one of them moving through DMA and interrupts — and its
+datasheet had one page walked. Eleven now, covering the whole programming
+model, and **no defect**.
+
+Every register, bit position and stated behaviour checked is implemented, and
+in most cases the model quotes the sentence it comes from. ICW1's six automatic
+effects are lettered **a–f in the code**. ICW4's five bits sit at exactly the
+positions Figure 7 gives. The poll byte's `I` and `W2`–`W0` are built from the
+two sentences that define them.
+
+The sharpest confirmation is the **default IR7**. An IR that goes low before the
+first INTA gives a spurious level 7, and p. 18 adds the detail that makes it
+observable: *"A normal IR7 interrupt will set the corresponding ISR bit, a
+default IR7 won't."* `ap_i8259_acknowledge_first` sets no ISR bit there and its
+comment goes on to name the consequence — software that EOIs a spurious
+interrupt anyway corrupts the nesting of a real one, which modelling it as a
+normal acknowledgement would have hidden.
+
+### The two findings are about method
+
+**A negative clause cannot be checked by a register sweep.** "If BUF = 0, M/S
+has no function" is a statement that a bit must *do nothing*, and neither a
+walk of the bit layouts nor a green suite can distinguish "correctly inert"
+from "forgotten to implement". It was settled by sweeping the field's
+**readers** and finding none — the same question that found the ring station's
+unattached buffers, asked of a datasheet clause rather than of a codebase.
+
+*That is worth carrying: the completeness rule says walk every field of every
+register, and a field whose documented behaviour is "nothing" needs the
+opposite check.*
+
+**The datasheet contradicts itself once**, harmlessly. The EOI section says the
+IS bit resets automatically "when AEOI bit in **ICW1** is set"; the very next
+section says "If AEOI = 1 in **ICW4**". Figure 7 puts the bit in ICW4 and this
+core reads it there. Recorded so a later reader who meets the first sentence
+does not take it for a fact — the same service the OMTI `ST3` note performs, and
+the second self-contradicting datasheet this session has found.
+
+*What is left of `[8259]`*: pin descriptions and the AC/DC characteristics,
+which describe wires and voltages this core has no model for, and packaging.
+Named rather than skipped silently. `[8237]` remains at 1 of 19.
+
+*Verification: documentary — `docs/references/INTEL_WALK.md` records what each
+page yielded. No code changed, which is the result.*
+
 ## The floppy spindle is timed, and the sibling manual sharpened what is left
 ## (2026-08-22)
 
