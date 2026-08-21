@@ -563,7 +563,29 @@ typedef struct ap_board {
    * memory read" -- since §3.4's published cycles landed, every AT I/O access
    * scales with the bus clock too. Closing it needs a DS3500 bus figure or a
    * measurement; until then this is a `PROVISIONAL` with an honest reason
-   * rather than a wrong one. */
+   * rather than a wrong one.
+   *
+   * **All four tiers are now checked, 2026-08-22, and none has it.**
+   * *Reference*: `008778-03` covers the DS3000 and DS4000 only, and
+   * `019411-A00` -- the addendum that does cover a DS3500 -- publishes no bus
+   * cycle times, established by its whole-document walk rather than a grep.
+   * *Web*: product overviews, no bus figure. *Oracle*: **it has the same gap
+   * and admits it in a comment** -- `apollo_m.cpp:1164` reads
+   * `ISA16_SLOT(config, "isa1", ...); // FIXME: determine ISA bus clock`, and
+   * `ISA16(config, m_isa)` is instantiated with no clock at all. So MAME cannot
+   * arbitrate this one, and the usual expectation that the oracle settles what
+   * the documents cannot fails here for a *stated* reason rather than an
+   * assumed one.
+   *
+   * **What would unblock it**: a DS3500 schematic or service manual, or a
+   * measurement on real hardware. Not a fourth reading of the two manuals.
+   *
+   * *And it now blocks more than itself.* The `[8237]` walk established that a
+   * DMA transfer takes four states of the controller's clock, and `008778-03`
+   * Figure B-9 settles that clock at 4 MHz **for a Series 4000 board**. A
+   * DS3500's transfer duration is therefore 1 us or 1.333 us depending on this
+   * field -- a 33% difference on the reference boot's most frequent bus event,
+   * which is why that item is a named dependency of this one. */
   ap_atbus_series_t at_bus_series;
 
   /* The boot PROM, caller-owned. NULL until one is loaded, and the region then

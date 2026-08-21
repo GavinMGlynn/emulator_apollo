@@ -433,6 +433,53 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The DS3500's AT bus clock: four tiers checked, and the oracle admits the gap
+## (2026-08-22)
+
+The DMA transfer duration turned out to depend on a `PROVISIONAL` that has sat
+in `ap_board.h` for a while — which AT bus timing set a DS3500 keeps — so that
+question was run through the resolution order properly rather than inherited.
+
+**Reference.** `008778-03` covers the DS3000 and DS4000; a DS3500 is neither.
+`019411-A00`, the addendum that *does* cover it, publishes no bus cycle times —
+and that is worth trusting here because it comes from the document's
+whole-document walk, not from a grep of a text layer that turns out to be 8,640
+characters with no occurrence of "MHz" at all.
+
+**Web.** Product overviews and museum pages. Nothing states the bus clock.
+
+**Oracle — and this is the finding.** MAME has *the same gap* and says so in its
+own source:
+
+```
+ISA16_SLOT(config, "isa1", 0, m_isa, apollo_isa_cards, "wdc", false); // FIXME: determine ISA bus clock
+```
+
+`ISA16(config, m_isa)` is instantiated with no clock at all. So the tier this
+project reaches for when the documents run out **cannot arbitrate this one**, and
+it fails for a stated reason rather than an assumed one.
+
+*That is a better outcome than a silent absence.* This project's standing
+expectation is that the oracle answers what the manuals do not, and the honest
+version of "blocked" needs to say which tiers were tried and what each returned.
+All four are now recorded in the field's own comment, with what would unblock it:
+a DS3500 schematic or service manual, or a measurement on real hardware — not a
+fourth reading of the two manuals already walked.
+
+### Why it matters more than it did last week
+
+It used to bound one thing: how long an AT I/O access takes. It now bounds two,
+because the `[8237]` walk established that a DMA transfer is four states of the
+controller's clock and Figure B-9 settles that clock at 4 MHz **for a Series
+4000 board**. A DS3500's transfer is 1 µs or 1.333 µs depending on this field —
+**33% on the reference boot's most frequent bus event**.
+
+*So a `PROVISIONAL` that was cheap while it governed a bracket has become the
+blocker for a timing change, which is the usual way these turn from documentation
+into work.*
+
+*Verification: documentary; `ctest` 139/139. No behaviour changed.*
+
 ## A DMA transfer costs no bus time, and the part says it costs four states
 ## (2026-08-22)
 
