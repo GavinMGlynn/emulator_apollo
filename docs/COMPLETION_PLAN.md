@@ -6035,6 +6035,25 @@ same number is what let them diverge once already.
       `PROJECT_STATUS.md`. *Verification: the walk record's coverage table, and
       `doc_claims` over the documents that cite it.*
 
+- [ ] **Walk the OMTI controller manuals — 220 pages, none walked, and they
+      have NO TEXT LAYER.** The 8621 is the DN3500's disk and floppy controller,
+      so the boot path runs through it, and `CLAUDE.md`'s rule that a module is
+      presumed incomplete until its register tables are walked applies directly.
+      Record: `docs/references/OMTI_WALK.md`.
+      **The blocking operational fact**: `pdftotext` returns **zero characters**
+      from `[OMTI]` and `[8000]` — verified. Every page must be read as an
+      image, the footer map included, and **a search that returns nothing means
+      nothing**. That already nearly produced a wrong conclusion here: scanning
+      `[8000]` for "862x" found no hits, which reads as "does not cover the
+      8621" and actually means "cannot be searched". Any existing claim of the
+      form "the OMTI manuals do not mention X" needs checking against what it
+      rests on. Budget several sessions, not one.
+      **Cheapest high-value first step**: `[8000]`'s front matter and contents.
+      `[OMTI]`'s title page lists only the **8620 and 8627**, and `ap_omti.h`
+      records covering the 8621 as a *family inference*. If `[8000]` names the
+      8621 outright, that inference becomes a citation — and if it states `ST3`
+      differently, it is a fourth reading nobody has looked for.
+
 - [ ] **ST3's five constant bits** — the walk's remaining `PROVISIONAL`, and
       **all three resolution tiers are now exhausted**. `[OMTI]` §6.4.4 and the
       8640's §5.6.4 give ST3 three live bits and five constants, with bit 0
