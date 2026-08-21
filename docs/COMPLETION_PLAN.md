@@ -5989,39 +5989,22 @@ same number is what let them diverge once already.
       fixed, and the four rows this model can be put into are now asserted
       against the table. Detail in `PROJECT_STATUS.md`.
 
-- [ ] **Chapter 12, DN3000 — first, and the reason is scope.** Chapters 7–11 are
-      other machine families (DN300/320/330, DN400/420/600, DN460/660/DSP160,
-      DN5xx, DSP80/90); only chapter 12 is the family `src/core/model/` is built
-      around. Its contents name, at register level: address space by physical
-      address, beeper, calendar, **cartridge tape with six named registers**,
-      configuration, **CPU control/status register**, **disk (floppy/Winchester)
-      controller**, colour and monochrome display, fault frames and types, fault
-      vectors, floating-point registers, **parity error register**,
-      **programmable interrupt controller**, **ring**, **SIO** and **timers**.
-      Every one has a module in `src/core`, and none of those thirty-five pages
-      has been read whole.
-- [ ] **Chapters 1–6, machine-independent. Chapter 1 is READ END TO END** (PDF
-      12–34, 23 pages); **chapter 2 is READ END TO END** (PDF 35–58,
-      24 pages); **chapter 3 is READ END TO END** (PDF 59–68);
-      chapters 4–6 remain. Resume at PDF 69.
-      **Chapter 4 is started** (PDF 69–73 contiguous; 74–93 owed) and it answered the question p. 3-10 handed over:
-      `(000E0007) name not found` is printed in Apollo's table, module `0E`
-      being the **name server**. This project had that reading from measurement
-      alone; it is now documented too.
-      **Closed 2026-08-20**: `AP_VOLUME_LABEL_BASE 0x440` **is** the logical
-      volume label, not the physical one. p. 2-16's canned UIDs plus p. 2-8's
-      block header make a block say which label it is, and the reference image
-      answers — block 0 carries `pv_label_$uid`, block 1 carries
-      `lv_label_$uid`, and `0x440` is block 1 past its 32-byte header.
-      `image/ap_volume.h`'s description is corrected; the constant keeps its
-      name because every offset built on it is right.
-
-- [ ] **Chapters 7–11 and the appendices.** Other families, out of the modelled
-      scope but inside the rule — a chapter describing a DN400's ring registers
-      may still be the only place a shared structure is written down.
-- [ ] **Read the index and cross-check it against the contents.** `008778-03`'s
-      front contents omitted its chapter 15 and its back index omitted its
-      chapter 16; each aid was missing a chapter the other had. Do not trust one.
+- [x] **`002398-04` walked whole — the four items that planned it are closed.**
+      This section carried the *reading plan*: chapter 12 first, then 1–6, then
+      7–11 and the appendices, then the index. All four were still open and had
+      gone stale — one said "none of those thirty-five pages has been read
+      whole" and another "chapters 4–6 remain. Resume at PDF 69", both false
+      since 2026-08-20. **The walk is finished: 330 of 330 pages**, front matter
+      through both appendices, the index and the back matter, with 217 rows in
+      `docs/references/002398-04_WALK.md`, which is the authority. The index
+      *was* cross-checked, and doing so caught it: its `PROM ENTRY POINTS`
+      topical entries give three page numbers and all three are wrong where the
+      same index's per-machine entries are right.
+      Two findings these items carried are recorded elsewhere and keep their
+      homes: `(000E0007) name not found` with module `0E` the name server, and
+      `AP_VOLUME_LABEL_BASE 0x440` being the **logical** volume label — both in
+      `PROJECT_STATUS.md`. *Verification: the walk record's coverage table, and
+      `doc_claims` over the documents that cite it.*
 
 - [ ] **ST3's five constant bits** — the walk's remaining `PROVISIONAL`, and
       **all three resolution tiers are now exhausted**. `[OMTI]` §6.4.4 and the
