@@ -281,10 +281,40 @@ drives it:
   **IRQ14**. Reading the byte clears IREQ and IRQ14, clears C/D, I/O and BSY,
   and returns to idle.
 
-**Still unchecked**: whether `ap_omti.h` represents these six states explicitly.
-The grep for an enumeration found none. The protocol is what the boot drives, so
-this is the next thing to establish — and a state machine that is implicit is
-not necessarily wrong, only unverified.
+**Checked, and the answer is more interesting than yes or no.** `ap_omti.h` has
+`ap_omti_phase_t` and `ap_omti.c` quotes this very section verbatim ("The IDLE
+STATE is the only time the controller will respond to a select request"). My
+earlier grep found nothing because it looked for `_STATE`, and the enum is
+`AP_OMTI_PHASE_*` — **the third false negative from a narrow grep in this
+session**, and the reason none of them was recorded as a finding.
+
+But **the two sixes are not the same six**:
+
+| §4.3 | model |
+| --- | --- |
+| RESET | **absent** |
+| IDLE | `PHASE_IDLE` |
+| SELECTION | **absent** |
+| COMMAND | `PHASE_COMMAND` |
+| DATA | split — `PHASE_DATA_IN`, `PHASE_DATA_OUT` |
+| STATUS | `PHASE_STATUS` |
+| — | `PHASE_EXECUTING`, added for drive access time |
+
+Splitting DATA is finer than the manual and harmless — the `I/O` bit
+distinguishes the directions anyway — and `EXECUTING` is a documented modelling
+addition. **RESET and SELECTION being absent is defensible too**: the manual has
+both fall through immediately ("The controller then enters the command state";
+"It will then enter the idle state"), so a transient state can reasonably be
+collapsed into the write that causes it. **What is missing is the argument.**
+The enum's comments explain where `EXECUTING` sits and why, and say nothing
+about the two states that were dropped.
+
+**And this joins up with the other gap.** §4.3's RESET state is exactly where
+the **100 µs wait** lives — "the host must wait 100 usec after a -RESET before
+issuing a SELECT", stated twice. A model with no RESET phase has nowhere to put
+a duration, so the missing state and the missing wait are **one gap, not two**:
+implementing the wait means giving RESET a phase with a length, and that is the
+shape the fix should take.
 
 ## One gap already visible, and two facts confirmed
 
