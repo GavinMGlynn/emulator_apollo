@@ -10,7 +10,7 @@ Three manuals, and the DN3500's controller is an **8621**.
 
 **220 pages total. None is walked.**
 
-## STATUS: 10 pages read plus **a footer map for PDF 30–45**. §4.1 and §4.2's register tables are walked and **confirm the model**. The 8621 is not *listed* but the body text addresses **`862X`**; two navigational traps and one unmodelled timing figure are recorded below.
+## STATUS: 11 pages read plus **a footer map for PDF 30–45**. §4.1 to §4.3 walked; every register **confirms the model**, including one reading that was contested between two manuals. The 8621 is not *listed* but the body text addresses **`862X`**; two navigational traps and one unmodelled timing figure are recorded below.
 
 Record opened 2026-08-21 with the method established and the reading order
 revised by what those three pages said.
@@ -179,6 +179,36 @@ address where the code holds an offset — exactly why it was recorded as
 **Table 4-2's STATUS register** matches bit for bit: bit 5 **IREQ** = `ST_IREQ
 0x20`, bit 4 **DREQ** = `ST_DREQ 0x10`, bit 3 **BSY** = `ST_BSY 0x08`, bit 2
 **C/D** = `ST_CD 0x04`. Bits 7 and 6 are "Not Used (Set to 1)".
+
+**p. 4-3 completes the register set, and settles both things carried forward.**
+
+- **Status bits 1 and 0 are documented after all**, on the next page: **bit 1
+  I/O** ("1 = Direction of transfer is from the controller to the Host") and
+  **bit 0 REQ** ("1 = Request transfer of one byte or Word"). `ap_omti.h` has
+  `ST_IO 0x02` and `ST_REQ 0x01` with those senses. Not concluding they were
+  undocumented was correct.
+- **RESET**: "Writing any value to this register will cause the controller to be
+  reset", with the 100 µs warning repeated — it appears **twice** on this page,
+  under RESET and again under §4.3.
+- **CONFIGURATION**: the drive-configuration jumpers, bits 7-4 unused (set to 1),
+  and bits 3-0 the straps — **`W20`-`W23` on an 8620/8627**, `W1`-`W4` on an
+  8120/8127. `ap_omti.h` already carries the 862x form.
+- **SELECT**: "Writing any value ... will cause the controller to begin a
+  Selection Sequence and request a command transfer."
+- **MASK**, and this is the valuable one: **bit 1 INTERRUPT ENABLE, bit 0 DMA
+  ENABLE**. `ap_omti.h` records that `002398-04` p. 12-9 draws the same register
+  **the other way round** — `dma` at 1, `int` at 0 — and that this project
+  followed the part's own manual with the oracle agreeing. **This page is that
+  manual's own statement of it**, so a decision taken between two disagreeing
+  sources is now verified from the primary. Bit 0's text even names the
+  consequence: "DREQ is gated onto system bus on DRQ3 and DREQ set in STATUS
+  register."
+
+**§4.3's six logical states** — RESET, IDLE, SELECTION, COMMAND, DATA, STATUS —
+are named as the sequence a host steps through. A grep for a matching state
+enumeration in `ap_omti.h` found none; **whether the model represents these
+explicitly or implicitly is not yet checked** and should be, since the protocol
+is what the boot drives.
 
 Two things to carry forward:
 
