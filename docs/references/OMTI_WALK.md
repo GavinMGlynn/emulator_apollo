@@ -10,7 +10,37 @@ Three manuals, and the DN3500's controller is an **8621**.
 
 **220 pages total. None is walked.**
 
-## STATUS: 15 pages read plus footer maps for PDF 30–45 and 60–80. **§6.4's status registers are walked and they settle `ST3`.** **§4.1 to §4.4 walked** — both register sets, fixed disk and floppy. Registers confirm the model; the manual's DMA-channel contradiction is resolved below on physical grounds; one defect found (see the plan). The 8621 is not *listed* but the body text addresses **`862X`**; two navigational traps and one unmodelled timing figure are recorded below.
+## STATUS: **§5's command chapter is DERIVED, and this record said it was owed**
+
+**Corrected 2026-08-22, and the correction is the finding.** This record's status
+line said "§5 and §6.1–6.3 are still owed", and the plan's item says the manuals
+are unwalked. Both would send a reader to re-read §5. **The code already carries
+it**: `ap_omti_cdb.h`, `ap_omti.h` and `ap_omti.c` cite **37 distinct §5
+subsections** between them — §5.1.1 through §5.1.4, §5.2, §5.3, §5.3.4.2, and
+the whole command run **§5.4.3 to §5.4.29** — and they are derivations rather
+than references: §5.4.29's ten-byte reply with its three "(-1)" fields,
+§5.4.17's START/STOP "valid for ESDI drives only", §5.4.13's identification
+block. The chapter was read before this coverage record existed and the record
+was opened without auditing what the code already cited.
+
+*That is the failure mode `CLAUDE.md` wants a walk record to prevent — telling a
+finished document from a sampled one — occurring in the record itself.* It cost
+nothing this time only because the citations were checked before the re-reading
+started.
+
+**§5.1.2's COMMAND SET SUMMARY is confirmed against the model, PDF 48 (doc
+5-2)**: all twenty-four commands common to all models, the ST506/412's
+`0C INITIALIZE DRIVE CHARACTERISTICS`, and all three ESDI commands — `10 CHECK
+TRACK FORMAT`, `37 READ ESDI DEFECT LIST`, `EC READ CAPACITY` — every code and
+every command/data length matching `ap_omti_cdb.h`, including `COPY`'s
+**ten**-byte descriptor against everything else's six.
+
+**And the summary is not exhaustive**, which is worth knowing before trusting
+it: it omits `1A START/STOP`, which **§5.4.17 of the same manual** documents and
+this core implements. A reader checking the model against §5.1.2 alone would
+find a command it does not list and conclude the model had invented one.
+
+## Earlier status: 15 pages read plus footer maps for PDF 30–45 and 60–80. **§6.4's status registers are walked and they settle `ST3`.** **§4.1 to §4.4 walked** — both register sets, fixed disk and floppy. Registers confirm the model; the manual's DMA-channel contradiction is resolved below on physical grounds; one defect found (see the plan). The 8621 is not *listed* but the body text addresses **`862X`**; two navigational traps and one unmodelled timing figure are recorded below.
 
 Record opened 2026-08-21 with the method established and the reading order
 revised by what those three pages said.

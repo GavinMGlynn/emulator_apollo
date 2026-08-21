@@ -6188,8 +6188,14 @@ same number is what let them diverge once already.
       wires and voltages this core has no model for — named rather than skipped
       silently.
 
-- [ ] **Walk the OMTI controller manuals — 220 pages, none walked, and they
-      have NO TEXT LAYER.** The 8621 is the DN3500's disk and floppy controller,
+- [ ] **Walk the OMTI controller manuals — 220 pages, and the "none walked" in
+      this item's own title was wrong.** Corrected 2026-08-22: `[OMTI]`'s **§5
+      command chapter is derived into the model**, which an audit of the code's
+      citations shows and this item did not — `ap_omti_cdb.h`, `ap_omti.h` and
+      `ap_omti.c` cite **37 distinct §5 subsections**, the whole §5.4.3–§5.4.29
+      command run among them. §4.1–§4.4 and §6.4 are walked and recorded. What
+      is genuinely unread is §1–§3, §6.1–§6.3 and §7 onward.
+      **They have NO TEXT LAYER.** The 8621 is the DN3500's disk and floppy controller,
       so the boot path runs through it, and `CLAUDE.md`'s rule that a module is
       presumed incomplete until its register tables are walked applies directly.
       Record: `docs/references/OMTI_WALK.md`.
