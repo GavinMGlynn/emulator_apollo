@@ -5733,6 +5733,13 @@ same number is what let them diverge once already.
       order, or whether the mask is a single register as on the earlier
       controllers. So the item narrows from "does it filter at all" to "where is
       the mask", which is a controller-register question and not a protocol one.
+      **And its own ROM cannot supply it** (searched 2026-08-21). `[ROM3500]`
+      hardcodes `lea.l $51000.l` and `lea.l $59000.l`, which is how `RING.md`
+      finding 11 recovered that placement from firmware. `[ROM3000]` has **no
+      absolute controller address anywhere**: it takes a table of base pointers
+      in `a1`, loads blocks from `+0`/`+4`/`+10`/`+14`/`+18`/`+1c`, and accesses
+      each at `+0`-`+6`. The caller supplies the addresses, so the image is
+      silent about them. Finding 143; that ROM is spent as a source here.
       **Not implemented on those two pages**, because both describe *other*
       controller generations at other addresses, and whether the DS3000's has
       the register is not established by anything read so far. `[MAC]` documents
