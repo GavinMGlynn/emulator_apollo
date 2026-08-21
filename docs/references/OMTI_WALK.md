@@ -1053,6 +1053,22 @@ drive is connected on **J4** ... **`W13`** shall be cut", "on **J3** ...
 **`W12`**". So the board carries a per-connector ESDI/ST412 strap distinct from
 §2.3's per-LUN drive-type bits, and the two are cut rather than fitted.
 
+> **CORRECTED on the next page.** "Two Winchester connectors, `J3` and `J4`, one
+> drive each" is true of the **data** cable only, and reads as if it were the
+> whole drive interface. §2.4.6 step 4 gives the cabling: "Install the **34-pin
+> winchester drive interface cable to the `J2` connector**. Install the **20-pin
+> data cable to either the `J3` or `J4`** connector. Install the 34-pin floppy
+> drive cable to the `J1` connector" — and §2.4.6 step 1 sizes them, `J1`/`J2`
+> 34-pin, `J3`/`J4` 20-pin. It is the standard ST506/ESDI split: **one shared
+> control cable on `J2`**, daisy-chained, plus **one radial data cable per drive
+> on `J3` or `J4`**. §2.4.7 confirms it from the other side by calling the
+> 34-pin cable a "daisy chain" and the 20-pin one "straight through".
+>
+> *The original text is kept above because the error is instructive*: §2.4.1 is
+> titled "drive configuration" and names only `J3` and `J4`, so a reader who
+> stops at the section that appears to be about connectors gets a wrong picture
+> of the cabling. The correction is one page later, in a procedure.
+
 **§2.4.2, Floppy Support (8620 and 8627 only).** "The OMTI 8000 controller
 provides floppy disk support which is fully AT bus and hardware compatible.
 Therefore, you may remove the AT Winchester/floppy controller (if installed) and
@@ -1086,3 +1102,47 @@ arriving from the direction that makes it least visible.
 BIOS owns them. **§2.4.5** names the BIOS revisions again — AT3 `#1002579`, AT4
 `#1002580`, "the latest BIOSES available" — and requires `OMTIDISK` V3.0 or
 later for auto-configuration, defect handling and low-level formatting.
+
+
+## §2.4.6-2.4.7 — the cabling, and the family split stated rather than inferred
+
+PDF 22-23, doc 2-12 and 2-13. Two installation procedures, one drive and two.
+
+**The cabling, which corrects §2.4.1 above.** `J1` and `J2` are 34-pin (AMP
+88373-3), `J3` and `J4` are 20-pin (AMP 86904-1). `J2` takes the shared 34-pin
+Winchester control cable — "daisy chain" in the two-drive case — `J3` and `J4`
+take one 20-pin radial data cable each, and `J1` takes the floppy. Drives are
+distinguished on the daisy chain by drive select: one drive is `DS0`/`DS1`, two
+drives are "**`DS1` (or `DS0`) on drive `C:`**" and "**`DS2` (or `DS1`) on drive
+`D:`**", with the terminating resistor left only on the drive at the end of the
+chain and removed from the one in the middle.
+
+**§2.4.7 step 3 states the family split this record inferred yesterday.**
+"install jumpers **`W20` to `W23` for the 8620 and 8627**, install jumpers
+**`W1` to `W4` for the 8120 and 8127**, according to BIOS drive table." The
+§2.3 entry above derived exactly that by comparing four tables and noticing the
+jumper names changed with the controller; here it is in one sentence of prose.
+*Both routes were needed*: the tables give what each encoding **means** — and
+that `1 1` is ESDI on one family and `RESERVED` on the other, which is what
+makes the configuration byte family-identifying — and this sentence gives the
+rule. Neither page carries both halves.
+
+**And a limit on the drive table.** The jumpers are to be set "if **both drives
+are the same** and the drive is listed in the drive table"; if the drives differ,
+or either is unlisted, the step is skipped and the low-level format routine's
+`"Use defaults (Y/N)?"` prompt is answered `N`. So although the four bits are two
+per LUN and could encode two different types, the supported path does not use
+them that way.
+
+*Not applicable to this machine, recorded for completeness*: the BIOS low-level
+format is entered from DOS `DEBUG` with `g=c800:6`, placing the option ROM at
+segment `C800` offset 6; partitioning is `FDISK` and `FORMAT C:/S`. A DN3500 has
+no x86 and none of this runs, but it is what §2.4.5's "Rom-resident BIOS
+initialization routine" refers to.
+
+**A table-of-contents defect.** §2.4.6 step 5 says "Read section **2.9** entitled
+IBM DOS 3.1/3.2 PATCH INSTALLATION NOTE", where the contents page lists that note
+as **§2.6**. The body's cross-references and the contents page disagree about §2's
+own numbering, so §2 runs further than the contents page suggests and the
+remaining subsections must be found by reading rather than by index — the same
+trap `002398-04` set with its topical page numbers.
