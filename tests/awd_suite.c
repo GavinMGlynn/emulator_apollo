@@ -790,10 +790,12 @@ static void test_a_drive_format_runs_to_the_end_of_the_unit(void) {
   }
 }
 
-/* Appendix A-4, `1A Illegal Interleave Factor`: "a FORMAT/CHECK TRACK FORMAT
- * command was issued with an INTERLEAVE FACTOR **greater than the number of
- * sectors on the track**". This drive's tracks hold four sectors, so four is
- * the largest legal factor and five is the smallest illegal one.
+/* §5.4.4: "Interleave factors **greater than or equal to** the number of sectors
+ * per track are illegal", and the descriptor table puts the factor in byte 4's
+ * **low nibble** with `TRACK SKEWING` above it. This drive's tracks hold four
+ * sectors, so three is the largest legal factor and four is the smallest
+ * illegal one -- the boundary Appendix A-4's looser "greater than" would have
+ * put one higher.
  *
  * **Both halves are asserted deliberately.** A refusal test alone would pass
  * just as well against a controller that refused every FORMAT, which is the
@@ -802,7 +804,7 @@ static void test_a_drive_format_runs_to_the_end_of_the_unit(void) {
 static void test_a_format_with_a_legal_interleave_factor_still_formats(void) {
   build_controller();
 
-  issue(AP_OMTI_CMD_FORMAT_TRACK, 0u, 1u, 0u, SMALL.sectors);
+  issue(AP_OMTI_CMD_FORMAT_TRACK, 0u, 1u, 0u, (uint8_t)(SMALL.sectors - 1u));
   settle();
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
   TEST_ASSERT_EQUAL_HEX8(0u, take_status());
@@ -811,14 +813,43 @@ static void test_a_format_with_a_legal_interleave_factor_still_formats(void) {
   }
 }
 
-/* And a factor of zero is accepted, because A-4's rule is "greater than" and
- * this project does not invent the refusals a document does not state. Doc
- * 2-14's format-utility flowchart prompts `INTERLEAVE (1-15)` and so never
- * offers zero, but a utility's prompt range is not the controller's rule. */
+/* And a factor of zero is accepted, because §5.4.4 says what it means rather
+ * than leaving it to a comparison: "An interleave factor of zero is set equal
+ * to one and is the fastest." Doc 2-14's format utility prompts `INTERLEAVE
+ * (1-15)` and never offers zero, but the controller accepts it. */
 static void test_an_interleave_factor_of_zero_is_not_the_illegal_case(void) {
   build_controller();
 
   issue(AP_OMTI_CMD_FORMAT_TRACK, 0u, 1u, 0u, 0u);
+  settle();
+  TEST_ASSERT_EQUAL_HEX8(0u, take_status());
+  TEST_ASSERT_EQUAL_HEX8(0x6Cu, backing[4u * AP_AWD_SECTOR_BYTES]);
+}
+
+/* The boundary itself, which is the whole of what the two sections disagree
+ * about: a factor **equal** to the sector count. §5.4.4 makes it illegal and
+ * A-4's wording would not, and this test is what records which was taken. */
+static void test_an_interleave_factor_equal_to_the_sector_count_is_illegal(void) {
+  build_controller();
+
+  issue(AP_OMTI_CMD_FORMAT_TRACK, 0u, 1u, 0u, SMALL.sectors);
+  settle();
+  TEST_ASSERT_TRUE((take_status() & 0x02u) != 0u);
+
+  issue(AP_OMTI_CMD_REQUEST_SENSE, 0u, 0u, 0u, 0u);
+  TEST_ASSERT_EQUAL_HEX8(0x1Au, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  settle();
+}
+
+/* Byte 4's top nibble is `TRACK SKEWING` and must not be read as part of the
+ * factor. A skew of 15 with a legal interleave makes the byte `0xF1`, which
+ * against a four-sector track is illegal if the whole byte is compared and
+ * legal if the nibble is. This is the test that tells the two decodes apart. */
+static void test_the_track_skew_nibble_is_not_part_of_the_interleave_factor(
+    void) {
+  build_controller();
+
+  issue(AP_OMTI_CMD_FORMAT_TRACK, 0u, 1u, 0u, 0xF1u);
   settle();
   TEST_ASSERT_EQUAL_HEX8(0u, take_status());
   TEST_ASSERT_EQUAL_HEX8(0x6Cu, backing[4u * AP_AWD_SECTOR_BYTES]);
@@ -1529,6 +1560,8 @@ int main(void) {
   RUN_TEST(test_a_drive_format_runs_to_the_end_of_the_unit);
   RUN_TEST(test_a_format_with_a_legal_interleave_factor_still_formats);
   RUN_TEST(test_an_interleave_factor_of_zero_is_not_the_illegal_case);
+  RUN_TEST(test_an_interleave_factor_equal_to_the_sector_count_is_illegal);
+  RUN_TEST(test_the_track_skew_nibble_is_not_part_of_the_interleave_factor);
   RUN_TEST(test_a_format_past_the_sectors_on_the_track_is_an_illegal_interleave);
   RUN_TEST(test_every_command_that_takes_an_interleave_factor_checks_it);
   RUN_TEST(test_assigning_an_alternate_formats_the_track_the_host_names);

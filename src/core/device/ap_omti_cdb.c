@@ -18,6 +18,12 @@ void ap_omti_cdb_decode(const uint8_t *bytes, ap_omti_cdb_t *out) {
 
   out->sector = (uint8_t)(bytes[2] & 0x3Fu);
   out->block_count = bytes[4];
+  /* The same byte as two fields, for the FORMAT commands: §5.4.4's descriptor
+   * table gives bits 7-4 `TRACK SKEWING` and bits 3-0 `INTERLEAVE FACTOR`.
+   * Decoded unconditionally because a decode is not an interpretation; which
+   * commands may read them is the caller's business. */
+  out->track_skew = (uint8_t)((bytes[4] >> 4) & 0x0Fu);
+  out->interleave = (uint8_t)(bytes[4] & 0x0Fu);
   /* The whole byte: §5.2 defines bits 2-0 as the STEP option, which the
    * three-bit shift this used to do discarded. See the header. */
   out->control = bytes[5];

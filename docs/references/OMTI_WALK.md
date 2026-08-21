@@ -40,7 +40,7 @@ the OMTI model cites and attributing each to its manual gives, for `[OMTI]`:
 | --- | --- | --- |
 | §3.4 | quoted verbatim in `ap_omti.h`'s opening — "This allows full concurrent operations between these two sections" — and cited three more times for the two halves running at once | **derived** |
 | §4.1–§4.5 | §4.5 explicitly, "describes the floppy protocol as command phase, busy, result phase"; §4.1–§4.4 already recorded here | **derived** (record said §4.1–§4.4) |
-| §5.1–§5.4 | 37 distinct subsections, §5.4.3 through §5.4.29 | **derived** (record said "owed") |
+| §5.1–§5.4 | 37 distinct subsections, §5.4.3 through §5.4.29 — **and note where that range starts: §5.4.1 and §5.4.2 were outside it, and §5.4.1 held a 50-second timeout this core did not have. Both walked 2026-08-22** | **derived** |
 | §6.3 | the floppy command set — §6.3.2's N/SC/GPL track fill, §6.3.6's step to track 0, §6.3.7's ST0-and-cylinder, §6.3.10's NCN, §6.3.11's INVALID, and more | **derived** (record said "owed") |
 | §6.4 | already recorded | walked |
 | **Appendix A** | its **code list** is cited in `ap_omti.c` and eight `awd_suite` comments; its **SENSE DATA BYTE FORMAT** was not | **partly derived — and the unwalked half held a defect** |
@@ -1232,3 +1232,66 @@ whole time.
 the fourth independent statement of the family split: the ST506 boards have no
 floppy support (§2.4.2 says so directly, "8620 and 8627 only"), no ESDI
 connector straps because they have no ESDI, and no sector-size jumpers.
+
+
+## §5.4.1, §5.4.2 and §5.4.4 — the two subsections the coverage row excluded
+
+PDF 51-54, doc 5-5 to 5-8. This record's audit row for §5 said "37 distinct
+subsections, **§5.4.3 through §5.4.29**", which was accurate and, read as a
+coverage claim, silently excluded the first two. Both were unread. One held a
+number.
+
+**§5.4.1, TEST DRIVE READY (`00h`).** "This command selects the LUN specified
+and returns a zero status in the Status Register to indicate that the unit is
+selected, ready and seek (ST drives) or seek/command (ESDI drives) is complete.
+In the case of a unit with a removable disk, zero status also indicates that a
+cartridge is installed. **The controller will wait up to 50 seconds for the
+drive to come ready.**" Implemented — see `PROJECT_STATUS.md`, *TEST DRIVE READY
+answered in zero time*. §2.5's `1701-C` prints the sentence a second time, and
+finding it there is what sent this walk back to §5.4.1 to check.
+
+**§5.4.2, RECALIBRATE (`01h`).** Two definitions, by drive type. *ST drives*:
+stepped toward the outside cylinder until "1. Track Zero signal is detected or
+2. **More steps have been issued than available cylinders for the device
+type**", the controller "issues one step pulse, waits for seek complete, and
+tests the Track 000 signal"; for a removable LUN it issues "step pulses equal to
+the number of cylinders specified for this drive **plus 5** at the buffered rate
+and then waiting for the Track 000 signal". *ESDI drives*, the whole of it:
+"This command selects the LUN specified and issues a recalibrate to cylinder
+zero." **This machine is ESDI, so the one-sentence definition is the applicable
+one**, and it is what `ap_omti.c` does. The ST paragraph is recorded because it
+names a *failure* — a drive whose Track Zero never arrives — that the ESDI text
+does not have, and because the step-count rule is the only place the manual says
+what terminates an unsuccessful recalibrate.
+
+**§5.4.4's Interleave Factor and Track Skewing**, which corrected an item landed
+hours earlier — the fifth self-disagreement in this manual, and the first that
+had already been coded the wrong way. "An interleave factor of zero is set equal
+to one and is the fastest. **Interleave factors greater than or equal to the
+number of sectors per track are illegal.**" Appendix A-4 says "greater than".
+And §5.4.4's descriptor table splits byte 4 into `TRACK SKEWING` (bits 7-4) and
+`INTERLEAVE FACTOR` (bits 3-0), which the check had compared whole. Detail in
+`PROJECT_STATUS.md`.
+
+*Track skewing is defined here and nowhere else*: "a scheme implemented to
+improve access time when switching heads while transferring multiple blocks ...
+avoids loosing a disk revolution when switching heads. With a track skewing of
+zero, the first sector after index is always sector zero. With a track skewing
+different than zero, only on head zero is the first sector after index the
+sector zero. The physical location of the sector zero on the subsequents heads
+is offset by the skew value from the previous head." A worked example follows
+for skew 1, interleave 3, over three heads. Decoded and inert in this model, for
+the one reason that also makes the interleave value inert: there is no rotation.
+
+**A gap this page opens.** §5.4.3's `SENSE DATA WORD FORMAT` gives a 16-bit view
+of the four sense bytes — word 0 is `C10 | 0 | LUN | HEAD | SENSE CODE`, word 1
+is `CYLINDER LOW | C09 C08 | SECTOR` — beside the byte format this core builds.
+Whether the word view is a different *packing* or the same bytes read as words
+is not stated on the page, and the two are not the same: the byte order within
+each word decides it. Named as an open question rather than guessed.
+
+**The method note.** A coverage row that names a *range* is a claim about its
+endpoints, and this one's lower endpoint was never checked — it was written from
+what the code happened to cite, and the code cited §5.4.3 first because REQUEST
+SENSE is what a driver reaches for. *Sections the model never needed are exactly
+the sections a citation-derived coverage claim cannot see.*

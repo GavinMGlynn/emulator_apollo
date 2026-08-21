@@ -1365,6 +1365,69 @@ the controller's rule, and refusing zero would have been a refusal this manual
 does not state. There is a test asserting zero is accepted, so that the decision
 is recorded rather than merely current.
 
+> **Corrected the same day, by reading §5.4.4 instead of only the appendix.**
+> The check above was written from Appendix A-4 alone and was wrong twice.
+>
+> *The boundary.* §5.4.4 defines the command: "Interleave factors **greater than
+> or equal to** the number of sectors per track are illegal", where A-4's gloss
+> on the sense code says "greater than". They differ on a factor exactly equal
+> to the sector count. §5.4.4 is taken — it is the command's own definition, it
+> carries the worked example and the field width, and it is the stricter of the
+> two, so the boundary case is refused under either text rather than only one.
+> This is the fifth place `[OMTI]` disagrees with itself.
+>
+> *The field.* §5.4.4's descriptor table splits byte 4 into `TRACK SKEWING`
+> (bits 7-4) and `INTERLEAVE FACTOR` (bits 3-0). The check compared the whole
+> byte, so a legal factor under a non-zero skew — `0xF1`, skew 15 interleave 1 —
+> was refused. `ap_omti_cdb_t` now decodes both nibbles and a test uses exactly
+> that byte to tell the two decodes apart.
+>
+> *And zero is legal for a stated reason, not by escaping a comparison*: "An
+> interleave factor of zero is set equal to one and is the fastest."
+>
+> **A consequence that has to be said plainly: on this machine the refusal is
+> unreachable.** A four-bit field holds at most 15 and both Apollo drives have
+> 18 sectors per track, so no descriptor a DN3500 can build is illegal by this
+> rule. The check is exercised on the suite's small geometry and is dormant on
+> the real one. It is correct and it is not load-bearing, and the earlier
+> paragraphs here read as though it were.
+
+## TEST DRIVE READY answered in zero time what hardware takes 50 seconds over
+## (2026-08-22)
+
+§5.4.1: "The controller will wait up to **50 seconds** for the drive to come
+ready." §2.5's `1701-C` prints it again — this manual's habit with the numbers
+that matter, the same as §4.3's 100 µs, and the second printing is what makes it
+a specification rather than an aside.
+
+This core completed `TEST DRIVE READY` in the instant it was issued whether or
+not there was a drive, so an interface with nothing on it reported `04 Drive Not
+Ready` immediately. `command_duration` now returns `AP_OMTI_READY_TIMEOUT` for
+that command when no drive is selected.
+
+**Only the timeout is modelled, and the distinction is the point.** A drive that
+spins up and *then* becomes ready is a drive behaviour, and no document this
+project holds gives a spin-up time for either Apollo mechanism — modelling that
+would mean inventing a number. What the manual gives is what the controller does
+when readiness never arrives. So the modelled case is the absent drive, where
+the outcome is certain and only its timing was wrong.
+
+Fifty emulated seconds is over a billion cycles in a cycle-stepped core, and
+hours of wall clock. It is reachable only with no image attached, which no boot
+this project runs does; the alternative was a cheaper wrong number.
+
+Three `omti_suite` tests began failing on this, all of them fixtures with no
+drive that used `TEST DRIVE READY` as a convenient any-command while asserting
+the completion byte, the LUN bits and the interrupt. None was a timing claim, so
+they gained a `settle()` rather than losing the wait.
+
+*Verification: `omti_suite` 31 -> 33, asserting the deadline from both sides and
+the constant separately — a test that only checks completion by the deadline
+passes against a controller that never waited; `awd_suite` 56 -> 58; ctest
+139/139.*
+
+
+
 *The factor's value is still ignored, and that stays.* Appendix B is a sector
 *placement* table; this model has no rotation to place sectors on, so every
 sector of a track is available the instant the track is addressed. Validating

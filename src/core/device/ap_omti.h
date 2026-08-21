@@ -461,6 +461,35 @@ typedef enum {
  * Exact on the time base: 21,542,400,000,000 / 1,000,000 is an integer. */
 #define AP_OMTI_RESET_TIME (AP_TIME_BASE_HZ / 1000000u * 100u)
 
+/* ## How long TEST DRIVE READY waits for a drive that is not ready
+ *
+ * §5.4.1, the command's own description: "The controller will wait up to **50
+ * seconds** for the drive to come ready." §2.5's `1701-C` prints it a second
+ * time -- "For fixed drives, the controller will wait up to 50 seconds for the
+ * drive to come ready" -- which is this manual's habit with the numbers that
+ * matter, the same as the 100 µs above.
+ *
+ * **Only the timeout is modelled, because only the timeout is a controller
+ * property.** A drive that is spinning up and then becomes ready is a *drive*
+ * behaviour, and no document this project holds gives a spin-up time for either
+ * Apollo mechanism; inventing one would put a number in the emulator that
+ * nothing supports. What the manual does give is what the controller does when
+ * readiness never arrives, and that is what this is.
+ *
+ * So the state this reaches is the absent drive: `omti->selected == NULL`, an
+ * interface that will never assert ready, where the controller waits its full
+ * timeout and then reports `04 Drive Not Ready`. This core used to report that
+ * instantly, which is a controller that knew in zero time what the hardware
+ * takes the better part of a minute to conclude.
+ *
+ * *Fifty emulated seconds is a real cost in a cycle-stepped core* -- upwards of
+ * a billion cycles, and hours of wall clock. It is only reachable with no image
+ * attached, which no boot this project runs does, and the alternative is a
+ * wrong number rather than a cheaper one.
+ *
+ * Exact on the time base: an integer number of seconds always is. */
+#define AP_OMTI_READY_TIMEOUT (AP_TIME_BASE_HZ * 50u)
+
 /* ## The drive's own figures, which is where an access time has to come from
  *
  * The controller does not determine access time -- the drive does -- and none

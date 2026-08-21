@@ -254,20 +254,42 @@ bool ap_omti_fdc_in_reset(const ap_omti_t *omti) {
  * somewhere to live. */
 #define SENSE_BAD_TRACK 0x19u
 #define SENSE_ALTERNATE_DIRECT 0x1Cu
-/* Appendix A-4, `1A Illegal Interleave Factor`: "a FORMAT/CHECK TRACK FORMAT
- * command was issued with an INTERLEAVE FACTOR **greater than the number of
- * sectors on the track**". */
+/* `1A Illegal Interleave Factor`. */
 #define SENSE_ILLEGAL_INTERLEAVE 0x1Au
 
 /* Whether the descriptor's interleave factor is one this track can hold.
  *
- * **Only the documented rule is applied.** A-4 names one condition, "greater
- * than the number of sectors on the track", and that is the whole test. A
- * factor of **zero** is not greater than anything and so is accepted here: the
- * low-level format utility's flowchart on doc 2-14 prompts `INTERLEAVE (1-15)`
- * and so never offers it, but a utility's prompt range is not the controller's
- * rule, and inventing a second refusal from the gap between them would be
- * exactly the guess this project does not make.
+ * ## Two sections of this manual state the rule differently, and §5.4.4 wins
+ *
+ * Appendix A-4, describing the sense code: an interleave factor "**greater
+ * than** the number of sectors on the track". §5.4.4, defining the FORMAT
+ * command itself: "Interleave factors **greater than or equal to** the number
+ * of sectors per track are illegal." They differ on the boundary case, a factor
+ * exactly equal to the sector count, and this check was first written from A-4
+ * alone and so accepted it.
+ *
+ * §5.4.4 is taken, for three reasons rather than a preference. It is the
+ * command's own definition rather than an error-code gloss; it comes with the
+ * worked example and the field's width; and it is the stricter reading, so a
+ * factor at the boundary is refused here and refused on hardware under either
+ * text, where the loose reading would be wrong under one of them. This is the
+ * fifth place `[OMTI]` disagrees with itself -- see `docs/references/OMTI_WALK.md`.
+ *
+ * ## Zero is legal, and the manual says why rather than leaving it to inference
+ *
+ * §5.4.4: "An interleave factor of **zero is set equal to one** and is the
+ * fastest." So zero is not a value that squeaks past a "greater than" test; it
+ * is a documented alias for one.
+ *
+ * ## It is the low nibble, not the byte
+ *
+ * §5.4.4's descriptor table splits byte 4 into `TRACK SKEWING` (bits 7-4) and
+ * `INTERLEAVE FACTOR` (bits 3-0), so the factor is at most 15 and the whole
+ * byte is not it. **A consequence worth stating: on this machine's drives the
+ * refusal is unreachable.** Both Apollo drives have 18 sectors per track and
+ * the field cannot express a value that large, so no descriptor a DN3500 can
+ * build is illegal by this rule. The check is exercised on the suite's small
+ * geometry and is dormant on the real one -- correct, and not load-bearing.
  *
  * **The factor's *value* is still ignored**, and that stays. Appendix B is a
  * sector-placement table, and this model has no rotation to place sectors on --
@@ -275,7 +297,7 @@ bool ap_omti_fdc_in_reset(const ap_omti_t *omti) {
  * addressed. Validating the factor and acting on it are separable, and only the
  * first is answerable here. */
 static bool interleave_ok(const ap_omti_t *omti, const ap_omti_cdb_t *cdb) {
-  return (uint16_t)cdb->block_count <= omti->selected->geometry.sectors;
+  return (uint16_t)cdb->interleave < omti->selected->geometry.sectors;
 }
 
 void ap_omti_attach(ap_omti_t *omti, ap_awd_t *drive) { omti->drive = drive; }
@@ -409,8 +431,17 @@ static void chs_of(ap_awd_geometry_t g, uint32_t lba, uint16_t *cylinder,
  * otherwise would be inventing time. Non-zero for the commands that position
  * the heads, and built from the drive's published figures as separate
  * components so that changing the drive changes numbers rather than structure.
- * See the header for the `PROVISIONAL` marking on which drive this is. */
+ * See the header for the `PROVISIONAL` marking on which drive this is.
+ *
+ * One command is timed without touching a surface, and it is the exception that
+ * makes the rule readable: TEST DRIVE READY costs nothing when the drive
+ * answers and costs §5.4.1's whole 50-second timeout when there is no drive to
+ * answer. The time is spent *waiting for* the surface rather than crossing it,
+ * which is why `ap_omti_cdb_touches_surface` is still right to exclude it. */
 static ap_time_t command_duration(const ap_omti_t *omti) {
+  if (omti->command[0] == AP_OMTI_CMD_TEST_DRIVE_READY) {
+    return omti->selected == NULL ? AP_OMTI_READY_TIMEOUT : 0u;
+  }
   if (!ap_omti_cdb_touches_surface(omti->command[0])) {
     return 0u;
   }

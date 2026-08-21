@@ -24,6 +24,22 @@ static void wait_out_reset(ap_omti_t *o) {
   ap_omti_advance(o, AP_OMTI_RESET_TIME);
 }
 
+/* Run out whatever the controller is executing, however long it is.
+ *
+ * §5.4.1's TEST DRIVE READY "will wait up to 50 seconds for the drive to come
+ * ready", so on a controller with **no drive attached** -- which most of this
+ * suite's fixtures are, because they are testing the register interface rather
+ * than a surface -- that command no longer completes in the instant it is
+ * issued. The tests below are about the completion byte, the LUN bits and the
+ * interrupt, none of which is a timing claim, so they wait rather than assert
+ * the old instantaneous arrival. Advancing to `completion_at` keeps them exact
+ * without naming the duration in each one. */
+static void settle(ap_omti_t *o) {
+  if (ap_omti_disk_phase(o) == AP_OMTI_PHASE_EXECUTING) {
+    ap_omti_advance(o, o->completion_at);
+  }
+}
+
 
 static void test_the_measured_fixed_disk_ports_are_reproduced(void) {
   ap_omti_t o;
@@ -685,6 +701,7 @@ static void test_a_completed_command_asks_for_an_interrupt_when_enabled(void) {
    * `if (m_mask_port & OMTI_MASK_INTE)` and nowhere else. */
   static const uint8_t cdb[6] = {0x00, 0, 0, 0, 0, 0}; /* TEST DRIVE READY */
   issue(&o, cdb);
+  settle(&o);
   TEST_ASSERT_EQUAL_HEX8(0u, ap_omti_disk_read(&o, AP_OMTI_DISK_STATUS) &
                                  AP_OMTI_ST_IREQ);
   TEST_ASSERT_EQUAL_HEX8(0xCFu, ap_omti_disk_read(&o, AP_OMTI_DISK_STATUS));
@@ -696,6 +713,7 @@ static void test_a_completed_command_asks_for_an_interrupt_when_enabled(void) {
   ap_omti_disk_write(&enabled, AP_OMTI_DISK_MASK,
                      AP_OMTI_MASK_INTERRUPT_ENABLE);
   issue(&enabled, cdb);
+  settle(&enabled);
   TEST_ASSERT_EQUAL_HEX8(AP_OMTI_ST_IREQ,
                          ap_omti_disk_read(&enabled, AP_OMTI_DISK_STATUS) &
                              AP_OMTI_ST_IREQ);
@@ -721,6 +739,7 @@ static void test_a_completed_command_asks_for_an_interrupt_when_enabled(void) {
   ap_omti_disk_write(&collected, AP_OMTI_DISK_MASK,
                      AP_OMTI_MASK_INTERRUPT_ENABLE);
   issue(&collected, cdb);
+  settle(&collected);
   TEST_ASSERT_TRUE(ap_omti_disk_irq(&collected));
   (void)ap_omti_disk_read(&collected, AP_OMTI_DISK_DATA);
   TEST_ASSERT_FALSE(ap_omti_disk_irq(&collected));
@@ -773,6 +792,42 @@ static void test_two_controllers_reset_alike_hold_identical_state(void) {
   TEST_ASSERT_EQUAL_MEMORY(&a, &b, sizeof a);
 }
 
+/* §5.4.1: "The controller will wait up to 50 seconds for the drive to come
+ * ready", printed again as §2.5's `1701-C`. An interface with nothing on it
+ * never asserts ready, so the controller spends the whole timeout before
+ * reporting `04 Drive Not Ready` -- where this core used to report it in the
+ * instant the command was issued.
+ *
+ * The duration is asserted from both sides, because a test that only checks it
+ * has finished by the deadline passes against a controller that never waited. */
+static void test_a_drive_that_is_never_ready_costs_the_whole_timeout(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+
+  static const uint8_t cdb[6] = {0x00, 0x00, 0, 0, 0, 0}; /* TEST DRIVE READY */
+  issue(&o, cdb);
+  const ap_time_t issued = o.now;
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_EXECUTING, ap_omti_disk_phase(&o));
+
+  ap_omti_advance(&o, issued + AP_OMTI_READY_TIMEOUT - 1u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_EXECUTING, ap_omti_disk_phase(&o));
+
+  ap_omti_advance(&o, issued + AP_OMTI_READY_TIMEOUT);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&o));
+  TEST_ASSERT_EQUAL_HEX8(0x02u,
+                         ap_omti_disk_read(&o, AP_OMTI_DISK_DATA) & 0x02u);
+}
+
+/* Fifty seconds exactly, in the one unit this machine counts in. Written as a
+ * separate assertion because the test above would pass just as well if the
+ * constant were fifty milliseconds -- it checks the model honours the constant,
+ * not that the constant is the manual's number. */
+static void test_the_ready_timeout_is_fifty_seconds(void) {
+  TEST_ASSERT_EQUAL_UINT64(AP_TIME_BASE_HZ * 50u, AP_OMTI_READY_TIMEOUT);
+  TEST_ASSERT_EQUAL_UINT64(0u, AP_OMTI_READY_TIMEOUT % AP_TIME_BASE_HZ);
+  TEST_ASSERT_EQUAL_UINT64(50u, AP_OMTI_READY_TIMEOUT / AP_TIME_BASE_HZ);
+}
+
 /* §5.1.1, byte 1: "Bit 5 identifies the Logical Unit Number (LUN)." One drive
  * is attached here, so LUN 1 names a unit that is not fitted and the controller
  * must say so. This model served every command from the attached drive whatever
@@ -787,6 +842,7 @@ static void test_test_drive_ready_fails_for_a_lun_with_no_drive(void) {
    * invert it. */
   static const uint8_t lun0[6] = {0x00, 0x00, 0, 0, 0, 0};
   issue(&o, lun0);
+  settle(&o);
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&o));
   /* §5.3's completion byte, bit 1: an error. A fresh controller for the second
    * command, since the status phase has to be read out before another CDB is
@@ -798,6 +854,7 @@ static void test_test_drive_ready_fails_for_a_lun_with_no_drive(void) {
   /* Byte 1 bit 5 set: LUN 1. */
   static const uint8_t lun1[6] = {0x00, 0x20, 0, 0, 0, 0};
   issue(&o, lun1);
+  settle(&o);
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&o));
   TEST_ASSERT_EQUAL_HEX8(0x02u,
                          ap_omti_disk_read(&o, AP_OMTI_DISK_DATA) & 0x02u);
@@ -813,11 +870,13 @@ static void test_the_completion_byte_carries_the_commands_lun(void) {
 
   static const uint8_t lun0[6] = {0x00, 0x00, 0, 0, 0, 0};
   issue(&o, lun0);
+  settle(&o);
   TEST_ASSERT_EQUAL_HEX8(0x00u, ap_omti_disk_read(&o, AP_OMTI_DISK_DATA) & 0x20u);
 
   ap_omti_reset(&o);
   static const uint8_t lun1[6] = {0x00, 0x20, 0, 0, 0, 0};
   issue(&o, lun1);
+  settle(&o);
   TEST_ASSERT_EQUAL_HEX8(0x20u, ap_omti_disk_read(&o, AP_OMTI_DISK_DATA) & 0x20u);
 }
 
@@ -957,6 +1016,8 @@ int main(void) {
   RUN_TEST(test_the_boot_proms_floppy_initialisation_needs_two_registers);
   RUN_TEST(test_sense_drive_status_does_not_report_the_unit);
   RUN_TEST(test_sector_address_conversion_uses_sixteen_heads);
+  RUN_TEST(test_a_drive_that_is_never_ready_costs_the_whole_timeout);
+  RUN_TEST(test_the_ready_timeout_is_fifty_seconds);
   RUN_TEST(test_test_drive_ready_fails_for_a_lun_with_no_drive);
   RUN_TEST(test_the_completion_byte_carries_the_commands_lun);
   RUN_TEST(test_the_measured_fixed_disk_ports_are_reproduced);

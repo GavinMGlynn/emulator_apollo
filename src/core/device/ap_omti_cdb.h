@@ -155,7 +155,18 @@ typedef struct {
   uint8_t head;          /* byte 1 bits 4-0 */
   uint16_t cylinder;     /* C10..C00, reassembled from bytes 1, 2 and 3 */
   uint8_t sector;        /* byte 2 bits 5-0 */
-  uint8_t block_count;   /* byte 4; the interleave factor for FORMAT */
+  uint8_t block_count;   /* byte 4 whole, where it is a block count */
+  /* Byte 4 is **two nibbles** on the FORMAT commands, and §5.4.4's descriptor
+   * table draws them: bits 7-4 `TRACK SKEWING`, bits 3-0 `INTERLEAVE FACTOR`.
+   * `block_count` keeps the whole byte because on READ, WRITE and READ VERIFY
+   * that is what it is; these two are the same byte read the other way, and
+   * only the FORMAT commands may use them.
+   *
+   * *The width settles a range this walk had seen without recognising.* Doc
+   * 2-14's format utility prompts `INTERLEAVE (1-15)`, which is a four-bit
+   * field with zero excluded -- not a limit the utility chose. */
+  uint8_t track_skew;    /* byte 4 bits 7-4, FORMAT commands */
+  uint8_t interleave;    /* byte 4 bits 3-0, FORMAT commands */
   uint8_t control;       /* byte 5 whole; see the masks below */
 } ap_omti_cdb_t;
 
@@ -256,7 +267,22 @@ typedef struct {
  *   the command that issues them -- the same reason `MSR_SEEK_A`/`_B` are
  *   documented as never set -- so no step rate is observable. It becomes real
  *   when seeks take time, and the field is decoded now so that the day it does,
- *   the value is already there. */
+ *   the value is already there.
+ *
+ * ## And byte 4's two nibbles on a FORMAT, which are inert for one reason
+ *
+ * `TRACK SKEWING` (bits 7-4) is decoded and not acted on. §5.4.4: "a scheme
+ * implemented to improve access time when switching heads ... Track skewing
+ * avoids loosing a disk revolution when switching heads. With a track skewing
+ * of zero, the first sector after index is always sector zero. With a track
+ * skewing different than zero, only on head zero is the first sector after
+ * index the sector zero." It is a *rotational* offset between heads, and this
+ * model has no rotation -- the same reason the interleave factor's value is
+ * ignored, and the same reason the access time is one average rather than a
+ * function of where the sector is. Both become real together, if ever.
+ *
+ * `INTERLEAVE FACTOR` (bits 3-0) is decoded, its value ignored for that reason,
+ * and **validated**, which is separable -- see `interleave_ok` in `ap_omti.c`. */
 
 void ap_omti_cdb_decode(const uint8_t *bytes, ap_omti_cdb_t *out);
 

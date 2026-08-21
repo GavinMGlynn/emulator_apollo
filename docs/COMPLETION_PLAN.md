@@ -6503,12 +6503,27 @@ same number is what let them diverge once already.
       Done 2026-08-22. `interleave_ok()` gates the four commands carrying the
       factor in descriptor byte 4 — `FORMAT DRIVE`, `FORMAT TRACK`, `FORMAT BAD
       TRACK`, `CHECK TRACK FORMAT` — against Appendix A-4's rule, "greater than
-      the number of sectors on the track", and nothing beyond it: a factor of
-      zero is accepted, because A-4 says "greater than". The factor's value
-      stays ignored, which Appendix B confirms is right. *Verification:
-      `awd_suite` 52 -> 56, including that the legal case still formats and
-      that a refused track is left unwritten; the refusal tests were confirmed
-      to fail with the check disabled.* Detail in `PROJECT_STATUS.md`.
+      the number of sectors per track", **§5.4.4's rule rather than Appendix
+      A-4's looser one**, against byte 4's low nibble — the two sections
+      disagree and the descriptor table splits the byte. Corrected the same day
+      it landed, from A-4 alone. Unreachable on this machine's 18-sector drives,
+      since the field is four bits. *Verification: `awd_suite` 52 -> 58.* Detail
+      in `PROJECT_STATUS.md`.
+
+- [ ] **What `SENSE DATA WORD FORMAT` packs.** Found 2026-08-22 walking
+      `[OMTI]` §5.4.3 (doc 5-6). The page prints the four sense bytes twice: the
+      `SENSE DATA FORMAT` this core builds, and a `SENSE DATA WORD FORMAT` where
+      word 0 is `C10 | 0 | LUN | HEAD NUMBER | SENSE CODE` and word 1 is
+      `CYLINDER LOW C07-C00 | C09 | C08 | SECTOR NUMBER`. Read as byte pairs
+      that is bytes 1,0 then 3,2 — the byte order within each word is the whole
+      question, and the page does not state it. The data register is already
+      8 or 16 bits by `C/D` (§4.2, and `ap_omti_data_is_byte` models it), so a
+      host reading sense as words is a reachable path this core has never been
+      asked for. **Not guessed**: the two readings differ in every byte
+      position, so picking one without evidence has a 50% chance of being a
+      defect that only appears under word-mode sense.
+      *Route*: §4.2's byte/word rule may settle it, or the oracle's
+      `omti8621.cpp` will — it is the same register either way.
 
 - [ ] **The keyboard's self-diagnostics.** Chapter 12's opening sentence has the
       part "performs power-up and operator requested self-diagnostics". No
