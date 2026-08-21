@@ -6267,6 +6267,22 @@ same number is what let them diverge once already.
       carried the DS3000's across a clause. Both families refresh a row every
       15.625 µs, so **one source is right for both** and this can be implemented
       for either: steal a cycle every `AP_ATBUS_DRAM_ROW_INTERVAL`.
+      **The shape it should take**, since the interval is now determinate:
+      refresh is a **master that asks**, not a penalty anyone adds —
+      `ap_arbiter.h`'s whole argument is that contention is emergent because
+      "masters ask, one wins, and the losers ... simply cannot run a cycle".
+      The state machine is on the system board rather than on a DRQ line, so it
+      ranks above DRQ0. A deadline in `ap_board_bus_tick` asserts it, it holds
+      for one cycle, it releases.
+      **Two things to expect, neither of them a reason not to do it.** It
+      defeats the `dma_possible` fast path — nothing can be asking becomes
+      false every 15.625 µs — so the whole boot takes the long path and gets
+      slower; that is the reference core being right rather than fast, which is
+      this project's stated trade. And it **will move boot timing and may move
+      the console**, unlike every hash re-baseline so far, because a cycle
+      stolen from the processor 64,000 times a second is not cosmetic. Budget a
+      before/after identity boot *and* a diagnosis if the boot changes what it
+      prints.
 - [ ] **Three `MASTER.L` timings — the figures are now in hand, the clock is
       not.** §2.3.2 gives them in prose and **Appendix A's Table A-1 numbers all
       three** for the 6-MHz bus: #75 "Bus Driven from MASTER.L Asserted" 166 ns
