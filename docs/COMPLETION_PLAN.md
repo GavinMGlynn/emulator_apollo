@@ -4554,6 +4554,21 @@ discipline throughout.
       and `4-4-4-0`'s empty slot. Identity harness re-run: `03EE415450926A89`,
       unchanged — 16 MB is `4-4-4-4` either way, which is why this was invisible
       for as long as it was.*
+- [ ] **`F8000000`-`FDFFFFFF`, DESKTOP VISUALIZATION SPACE, is unmodelled.**
+      From the `019411-A00` walk, Table 2-5. 96 MB with **zero hits in `src/`** —
+      nothing in this core knows the region exists, so it reports as ordinary
+      unmapped space. That is not *wrong*, but it is unnamed, and this core's
+      whole argument for reporting unmapped rather than zero is that a trace can
+      then say **what** the firmware reached for. Decide: place it as a named
+      region, or record it as a deliberate gap. Cheap either way.
+
+- [ ] **The DS5500 has a SCSI bus and this core models no SCSI.** From the
+      `019411-A00` walk, Figure 1-5: a "Disk or SCSI/Disk Controller" drives a
+      SCSI bus to magtape and a second cartridge tape. Subsystem-sized, and
+      named here rather than left implicit because the DS5500 is in the model
+      table — a supported model with an unmodelled bus is the kind of gap that
+      reads as working until something uses it.
+
 - [ ] **The DS5500's address translation map is 4 KB, and ours is 2 KB.**
       *Confirmed from the page image 2026-08-21*: `019411-A00` Table 2-5 gives
       `017000`-`017FFF`, which is 4 KB, against `[S3K]` §2.5's `017000`-`0177FF`.
