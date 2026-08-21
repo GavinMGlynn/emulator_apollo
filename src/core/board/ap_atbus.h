@@ -226,28 +226,67 @@ typedef struct {
  * `ap_atbus_access_time` above models the *bus* cycle, which is a different
  * thing from the DRAM behind it.
  *
- * ## The per-row interval, and a question the two figures raise
+ * ## The per-row interval, and the question the two figures raised -- settled
  *
- * A 4 ms period over 256 rows is **15.625 us** a row, which is §2.4.6's
- * refresh "at regular intervals (approximately 15 microseconds)" and the fixed
- * 15 us square wave this core already models on the 2681's `OP3`. Those agree,
- * and the agreement is worth having: the refresh *source* was modelled from
- * §3.9 without anything confirming the interval was right for the memory.
+ * A 4 ms period over 256 rows is **15.625 us** a row, which is §2.4.6's refresh
+ * "at regular intervals (approximately 15 microseconds)" and the fixed 15 us
+ * square wave this core already models on the 2681's `OP3`. Those agree, and
+ * the agreement is worth having: the refresh *source* was modelled from §3.9
+ * without anything confirming the interval was right for the memory behind it.
  *
- * **The DS4000 does not fit.** 4 ms over 1000 rows is **4 us** a row, which is
- * 1000/256 = **3.906 times** faster than the source this core models and than
- * §2.4.6 describes -- near four, and asserted as the row ratio rather than
- * rounded to it, because a test that rounded said 4 and the arithmetic says 3. One
- * of three things is true and no page held here says which: the DS4000 has a
- * different refresh source, or it refreshes several rows per cycle, or the
- * 1000-row figure counts something other than what must be walked in 4 ms.
- * `PROVISIONAL`, and on the plan. It matters because the DS4000 is a modelled
- * family, so a refresh interval that is wrong by four is wrong for it. */
+ * **The DS4000 appeared not to fit, and the manual is what is wrong.** §3.3
+ * reads "The refresh interval of DRAMs is 4 milliseconds. This means that all
+ * 256 row addresses of DS3000 RAM or all 1000 row addresses of DS4000 RAM must
+ * be refreshed in that time" -- 4 ms over 1000 rows is 4 us a row, 3.906 times
+ * faster than the one 15 us source the *same section* gives for both families.
+ * The sentence carries the DS3000's period across into the DS4000's clause.
+ *
+ * **What settles it is the part, not the board** (2026-08-21, after the page
+ * image and the sibling manuals, which are silent). Micron TN-04-30, *Various
+ * Methods of DRAM Refresh*, Table 1 and its rule: "Dividing the specified
+ * refresh time by the number of cycles required will determine if the DRAM is
+ * a standard refresh or an extended refresh device. **If the result is 15.6us,
+ * it is a standard refresh device**", with a **4 Meg x 1 listed as 16 ms /
+ * 1,024 cycles / 15.6us**, and "virtually all DRAMs support CBR REFRESH and
+ * the 15.6us refresh rate".
+ *
+ * So **the rate is the invariant and the period follows the row count**, which
+ * is the opposite of how §3.3 states it. 256 rows is a 4 ms part; 1024 rows is
+ * a **16 ms** part; both are standard-refresh devices at 15.625 us a row, and
+ * one 15 us source serves both families exactly as §3.3's other sentence says.
+ * That is why the constants below are written as a **row interval** with the
+ * periods derived, rather than as one period with two row counts: a period is
+ * a consequence of how many rows a part has, and writing it the other way is
+ * what let a transcription slip look like a hardware puzzle.
+ *
+ * *`1000` is kept as the row figure rather than corrected to 1024.* The manual
+ * says 1000 and the part is a 1M x 1, whose array is 1024 x 1024; the 24-row
+ * difference changes the derived period by 2.4% and nothing this core does.
+ * Recorded rather than silently rounded, because "the manual says 1000" and
+ * "the part has 1024 rows" are two facts and only one of them is cited here.
+ *
+ * **Still enforced by nothing.** No access consumes RAS or CAS time, no bus
+ * cycle is stolen for refresh, and a device holding `IO_CH_RDY` low forever is
+ * not detected. These are constants so a later reader has the figures with
+ * their citation, not a claim that memory timing is modelled. What has changed
+ * is that the figures no longer contradict each other, so the item that
+ * implements them has one interval to implement rather than a choice to make.
+ */
 #define AP_ATBUS_DRAM_RAS_TICKS ((ap_time_t)AP_TIME_BASE_HZ * 120u / 1000000000u)
 #define AP_ATBUS_DRAM_CAS_TICKS ((ap_time_t)AP_TIME_BASE_HZ * 60u / 1000000000u)
-#define AP_ATBUS_DRAM_REFRESH_PERIOD ((ap_time_t)AP_TIME_BASE_HZ * 4u / 1000u)
+/* The standard-refresh row interval: 15.625 us, exact on the time base. This is
+ * the figure the parts guarantee and the one both families share. */
+#define AP_ATBUS_DRAM_ROW_INTERVAL \
+  ((ap_time_t)AP_TIME_BASE_HZ * 15625u / 1000000000u)
 #define AP_ATBUS_DRAM_ROWS_DS3000 256u
 #define AP_ATBUS_DRAM_ROWS_DS4000 1000u
+/* Derived, because a refresh period is a consequence of a row count. The
+ * DS3000's is §3.3's 4 ms exactly; the DS4000's is **not** §3.3's 4 ms, and the
+ * comment above is why. */
+#define AP_ATBUS_DRAM_REFRESH_PERIOD_DS3000 \
+  (AP_ATBUS_DRAM_ROW_INTERVAL * AP_ATBUS_DRAM_ROWS_DS3000)
+#define AP_ATBUS_DRAM_REFRESH_PERIOD_DS4000 \
+  (AP_ATBUS_DRAM_ROW_INTERVAL * AP_ATBUS_DRAM_ROWS_DS4000)
 #define AP_ATBUS_IO_CH_RDY_MAX ((ap_time_t)AP_TIME_BASE_HZ * 25u / 10000000u)
 
 #endif /* APOLLO_BOARD_AP_ATBUS_H */

@@ -6257,15 +6257,16 @@ same number is what let them diverge once already.
       *cycles*: nothing consumes bus time for it. For a core whose claim is
       emergent contention, a cycle stolen every 15 µs is not cosmetic, and the
       same interval explains `MASTER.L`'s documented 15 µs ceiling.
-      **The interval is now sourced for the DS3000 and open for the DS4000**
-      (from the DRAM item below, 2026-08-21). §3.3's 4 ms refresh period over
-      256 rows gives **15.625 µs** a row, which is where §2.4.6's "approximately
-      15 microseconds" comes from — so implementing this for a DS3000 should
-      steal a cycle every `AP_ATBUS_DRAM_REFRESH_PERIOD /
-      AP_ATBUS_DRAM_ROWS_DS3000`, not every 15 µs flat, and the two differ by
-      4%. **The DS4000's 1000 rows demand 4 µs**, which the modelled `OP3`
-      source cannot supply; that must be settled before this is implemented for
-      that family, or the refresh load will be wrong by 3.9×.
+      **The interval is sourced for both families, 2026-08-21.** §3.3's 4 ms
+      over 256 rows gives **15.625 µs** a row, which is §2.4.6's "approximately
+      15 microseconds" and the modelled `OP3` source. **The DS4000 objection is
+      withdrawn**: it rested on that 4 ms applying to its 1000 rows, which would
+      demand 4 µs a row, and Micron TN-04-30 shows the **rate** is what a part
+      guarantees — 15.6 µs for a standard-refresh device, a 4 Meg × 1 being
+      16 ms / 1,024 cycles — so the period follows the row count and §3.3
+      carried the DS3000's across a clause. Both families refresh a row every
+      15.625 µs, so **one source is right for both** and this can be implemented
+      for either: steal a cycle every `AP_ATBUS_DRAM_ROW_INTERVAL`.
 - [ ] **Three `MASTER.L` timings — the figures are now in hand, the clock is
       not.** §2.3.2 gives them in prose and **Appendix A's Table A-1 numbers all
       three** for the 6-MHz bus: #75 "Bus Driven from MASTER.L Asserted" 166 ns
@@ -6296,12 +6297,15 @@ same number is what let them diverge once already.
       square wave already modelled on the 2681's `OP3`. That source was taken
       from §3.9 alone; it is now confirmed to be the right interval for the
       memory behind it.
-      **And one they opened**: the DS4000's 4 ms over 1000 rows is **4 µs** a
-      row, 1000/256 = **3.906×** faster than that source. Either the DS4000 has
-      a different refresh source, or it refreshes several rows per cycle, or the
-      1000 counts something other than what must be walked in 4 ms. No page held
-      here says which. `PROVISIONAL`, and it matters because the DS4000 is a
-      modelled family. *Verification: `atbus_suite` 11 -> 13.*
+      **And one they opened, now closed** (2026-08-21). §3.3's 4 ms over the
+      DS4000's 1000 rows is 4 µs a row, 3.906× faster than the 15 µs source the
+      same section gives both families — so the section contradicts itself.
+      Micron TN-04-30 says which half is wrong: refresh time over cycles is
+      **15.6 µs for a standard-refresh device** and a **4 Meg × 1 is 16 ms /
+      1,024 cycles**, so the *rate* is the invariant and the *period* follows
+      the row count. §3.3 carried the DS3000's period into the DS4000's clause.
+      `ap_atbus.h` states the interval and derives both periods; `PROVISIONAL`
+      lifted. *Verification: `atbus_suite` 11 -> 14.*
 - [ ] **The 2681's modem-control signals — blocked on a pin assignment, and
       the gap is narrower than this item claimed.** §3.9 and Figures 3-4/3-5
       list DTR and DCD among the six RS-232 signals SIO1/2/3 carry, with their

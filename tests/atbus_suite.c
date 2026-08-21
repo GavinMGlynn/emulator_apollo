@@ -343,14 +343,20 @@ static void test_an_at_device_read_costs_a_machine_more_than_memory(void) {
 static void test_the_dram_figures_land_exactly_on_the_time_base(void) {
   TEST_ASSERT_EQUAL_UINT64((ap_time_t)2585088u, AP_ATBUS_DRAM_RAS_TICKS);
   TEST_ASSERT_EQUAL_UINT64((ap_time_t)1292544u, AP_ATBUS_DRAM_CAS_TICKS);
-  TEST_ASSERT_EQUAL_UINT64((ap_time_t)86169600000u,
-                           AP_ATBUS_DRAM_REFRESH_PERIOD);
+  TEST_ASSERT_EQUAL_UINT64((ap_time_t)336600000u,
+                           AP_ATBUS_DRAM_ROW_INTERVAL);
+  /* And §3.3's own 4 ms falls out of the DS3000's row count rather than being
+   * written down, which is the direction the two figures actually run in. */
+  TEST_ASSERT_EQUAL_UINT64((ap_time_t)AP_TIME_BASE_HZ * 4u / 1000u,
+                           AP_ATBUS_DRAM_REFRESH_PERIOD_DS3000);
   TEST_ASSERT_EQUAL_UINT64((ap_time_t)53856000u, AP_ATBUS_IO_CH_RDY_MAX);
 
   /* Exact, not merely close: the base divides by each figure's denominator. */
   TEST_ASSERT_EQUAL_UINT64(0u, (ap_time_t)AP_TIME_BASE_HZ * 120u % 1000000000u);
   TEST_ASSERT_EQUAL_UINT64(0u, (ap_time_t)AP_TIME_BASE_HZ * 60u % 1000000000u);
   TEST_ASSERT_EQUAL_UINT64(0u, (ap_time_t)AP_TIME_BASE_HZ * 4u % 1000u);
+  TEST_ASSERT_EQUAL_UINT64(
+      0u, (ap_time_t)AP_TIME_BASE_HZ * 15625u % 1000000000u);
   TEST_ASSERT_EQUAL_UINT64(0u, (ap_time_t)AP_TIME_BASE_HZ * 25u % 10000000u);
 
   /* RAS is twice CAS, which is the one relation between them the figures
@@ -359,35 +365,53 @@ static void test_the_dram_figures_land_exactly_on_the_time_base(void) {
                            AP_ATBUS_DRAM_RAS_TICKS);
 }
 
-/* The per-row refresh interval each family's figures imply.
+/* ## One rate, two periods -- which is the way round the parts work
  *
- * The DS3000's comes out at 15.625 us, which is §2.4.6's "approximately 15
- * microseconds" and the fixed 15 us square wave this core models on the 2681's
- * OP3 — so the refresh source, which was modelled from §3.9 alone, is
- * confirmed to be the right interval for the memory behind it.
+ * `008778-03` §3.3 states it the other way: one 4 ms interval, over 256 rows on
+ * a DS3000 or 1000 on a DS4000. Taken literally that demands 4 us a row on the
+ * DS4000, 3.906 times faster than the one 15 us source the same section gives
+ * for **both** families -- so the section contradicts itself, and this suite
+ * used to assert the contradiction as a `PROVISIONAL`.
  *
- * The DS4000's comes out at 4 us, four times faster, which that source cannot
- * supply. Asserted so the discrepancy is a fact under test rather than a
- * sentence in a comment: it is `PROVISIONAL` and named on the plan. */
-static void test_the_two_families_imply_different_refresh_intervals(void) {
+ * Micron TN-04-30 settles which half is wrong, and it is the period. Its rule:
+ * refresh time divided by cycles gives 15.6 us for a *standard refresh* device,
+ * and it lists a 4 Meg x 1 as **16 ms / 1,024 cycles / 15.6 us**. The rate is
+ * what a part guarantees; the period is a consequence of how many rows it has.
+ * A 256-row part is a 4 ms part and a 1024-row part is a 16 ms part, and both
+ * refresh a row every 15.625 us.
+ *
+ * So the assertion inverts: the two families share an interval and differ in
+ * period, and the modelled 15 us source is right for both. */
+static void test_both_families_refresh_a_row_every_fifteen_microseconds(void) {
   /* In nanoseconds, to keep the arithmetic readable. */
   const ap_time_t ns = (ap_time_t)AP_TIME_BASE_HZ / 1000000000u;
 
   const ap_time_t ds3000 =
-      AP_ATBUS_DRAM_REFRESH_PERIOD / AP_ATBUS_DRAM_ROWS_DS3000 / ns;
+      AP_ATBUS_DRAM_REFRESH_PERIOD_DS3000 / AP_ATBUS_DRAM_ROWS_DS3000 / ns;
   const ap_time_t ds4000 =
-      AP_ATBUS_DRAM_REFRESH_PERIOD / AP_ATBUS_DRAM_ROWS_DS4000 / ns;
+      AP_ATBUS_DRAM_REFRESH_PERIOD_DS4000 / AP_ATBUS_DRAM_ROWS_DS4000 / ns;
 
-  TEST_ASSERT_EQUAL_UINT64(15625u, ds3000); /* 15.625 us */
-  TEST_ASSERT_EQUAL_UINT64(4000u, ds4000);  /* 4.000 us */
+  TEST_ASSERT_EQUAL_UINT64(15625u, ds3000);
+  TEST_ASSERT_EQUAL_UINT64(15625u, ds4000);
+  TEST_ASSERT_EQUAL_UINT64(ds3000, ds4000);
 
-  /* The DS3000 sits within a few percent of the modelled 15 us source. The
-   * DS4000 is out by the row ratio, 1000/256 = 3.906 -- near four but not
-   * four, so it is asserted as the ratio rather than rounded. */
+  /* Both within a few percent of the 15 us square wave on the 2681's OP3, which
+   * is what makes one source correct for a machine of either family. */
   TEST_ASSERT_TRUE(ds3000 > 15000u && ds3000 < 16000u);
-  TEST_ASSERT_EQUAL_UINT64(AP_ATBUS_DRAM_ROWS_DS4000 * ds4000,
-                           AP_ATBUS_DRAM_ROWS_DS3000 * ds3000);
-  TEST_ASSERT_TRUE(ds3000 * 1000u / ds4000 == 3906u);
+  TEST_ASSERT_TRUE(ds4000 > 15000u && ds4000 < 16000u);
+}
+
+/* And the periods differ, which is the half of §3.3 that is right about the
+ * DS3000 and wrong about the DS4000. 1000 rows at the standard rate is 15.6 ms
+ * -- the manual's 4 ms is its DS3000 figure carried across a clause. */
+static void test_the_ds4000s_refresh_period_is_not_the_manuals_four_ms(void) {
+  const ap_time_t four_ms = (ap_time_t)AP_TIME_BASE_HZ * 4u / 1000u;
+  TEST_ASSERT_EQUAL_UINT64(four_ms, AP_ATBUS_DRAM_REFRESH_PERIOD_DS3000);
+  TEST_ASSERT_TRUE(AP_ATBUS_DRAM_REFRESH_PERIOD_DS4000 > four_ms);
+  /* Exactly the row ratio apart, since the rate is shared. */
+  TEST_ASSERT_EQUAL_UINT64(
+      AP_ATBUS_DRAM_REFRESH_PERIOD_DS4000 * AP_ATBUS_DRAM_ROWS_DS3000,
+      AP_ATBUS_DRAM_REFRESH_PERIOD_DS3000 * AP_ATBUS_DRAM_ROWS_DS4000);
 }
 
 int main(void) {
@@ -404,6 +428,7 @@ int main(void) {
   RUN_TEST(test_a_faster_processor_waits_more_clocks_for_the_same_card);
   RUN_TEST(test_an_at_device_read_costs_a_machine_more_than_memory);
   RUN_TEST(test_the_dram_figures_land_exactly_on_the_time_base);
-  RUN_TEST(test_the_two_families_imply_different_refresh_intervals);
+  RUN_TEST(test_both_families_refresh_a_row_every_fifteen_microseconds);
+  RUN_TEST(test_the_ds4000s_refresh_period_is_not_the_manuals_four_ms);
   return UNITY_END();
 }
