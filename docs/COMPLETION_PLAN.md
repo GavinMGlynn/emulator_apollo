@@ -6096,6 +6096,24 @@ same number is what let them diverge once already.
       re-scoping from there.
       *Either outcome is worth having, and neither needs a manual this project
       does not hold.*
+      **THREE ATTEMPTS FAILED THE GATE, 2026-08-21, and the cause was the
+      invocation.** 1.6 G without `--clock`, 1.6 G with it, and 4 G with it all
+      ran to `stopped EXECUTED` and **none reached `SPM system init complete.`**
+      — zero hits for `SPM`, `siologin`, `siomonit`, `MBX`. The second run's
+      console was **byte-identical** to the first, which ruled out the calendar,
+      and the third ruled out the bound.
+      **What was wrong**: the invocation was hand-built from
+      `tools/identity-boot.sh`, whose job is a 350 M state hash and which uses
+      `--boot-script boot-domainos.script`. **`tools/e0007-boot.sh` is the one
+      that demonstrably reaches Domain/OS**, and it starts the OS a different
+      way — **`--boot-type-after-pc 2670` with `--boot-type`**, typing the
+      command at the MD prompt, plus `--screen c8p`.
+      **Do not hand-build the invocation. Copy `e0007-boot.sh` and change only
+      `--boot-limit`.** That is the whole fix, and it is the third instance in
+      one session of the lesson in
+      `memory/a-bound-is-part-of-the-experiment.md`.
+      *The gate did its job*: it caught runs 2 and 3 before either was written
+      up as a result. Only run 1, before the gate existed, was misreported.
 
 - [ ] **Walk the Intel 8237A and 8259A datasheets — 43 pages, both with text
       layers.** Record: `docs/references/INTEL_WALK.md`. Chosen over the
