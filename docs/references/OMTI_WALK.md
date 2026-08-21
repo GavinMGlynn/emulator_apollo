@@ -10,7 +10,7 @@ Three manuals, and the DN3500's controller is an **8621**.
 
 **220 pages total. None is walked.**
 
-## STATUS: 7 of 220 pages read. **The 8621 is named in neither manual** — see below.
+## STATUS: 8 of 220 pages read. **The 8621 is named in neither manual**, and two navigational traps are recorded below.
 
 Record opened 2026-08-21 with the method established and the reading order
 revised by what those three pages said.
@@ -105,6 +105,27 @@ and against the whole of Table 1-1 — so the model list itself was **changed in
 Revision C**. A Rev B copy would list a different set, which is worth knowing if
 one ever turns up.
 
+## Two navigational traps, both found the expensive way
+
+**1. The leftover renders are ~110 dpi and must not be used.** The PNGs in
+`apollo-scratch/c151/omti/` left by earlier sessions measure **605 x 935** for a
+5.5 x 8.5 inch page — about **110 ppi against a native 800**. That is far below
+the resolution at which this project has twice found table cells unreliable
+(the `002398-04` keyboard charts at 150, and again at 200). **Anything ever read
+off those files should be treated as unverified**, including claims now in
+`ap_omti.h`, and they should be deleted rather than reused. Render at 800 and
+downscale a *reading copy* by an integer factor; the full page is 4400 x 6800.
+
+**2. The contents cannot be used to compute PDF offsets.** PDF 29 is document
+page **2-19** — established by reading its footer, not by arithmetic. The
+contents lists §2.6 as starting at **2-12** and gives no end, and that section
+(the DOS 3.1/3.2 patch note) runs to at least 2-19. So **a section's listed
+start says nothing about its extent**, and with no text layer there is no way to
+search for the next heading. The footer map has to be built by reading footers,
+page by page, and the record should carry it as it grows.
+
+**Footer map so far**: PDF 7 = 1-1 · PDF 29 = 2-19.
+
 ## `[OMTI]`'s section map — read off the contents, since nothing can search it
 
 Document **3001483, Revision C, 20 January 1987**. Its own note: **"Vertical
@@ -140,7 +161,9 @@ they are not evidence any page was walked.
 2. ~~`[OMTI]` §1.2~~ — **done.** Models are 8620/8627/8120/8127; **no 8621**.
    The inference cannot become a citation from these manuals.
 3. **`[OMTI]` §4**, doc pages 4-1 to 4-8 — Table 4-1's four ports and Table 4-3,
-   which `ap_omti.h` cites most heavily and which the boot exercises.
+   which `ap_omti.h` cites most heavily and which the boot exercises. **Find it
+   by walking footers forward from PDF 29 (= 2-19)**, not by arithmetic: §2 runs
+   well past the 2-12 the contents implies, so §4 starts later than PDF 29 + 8.
 4. **`[OMTI]` §5 and §6** — the fixed-disk and floppy command sets, walked
    command by command against `ap_omti.c`. §6.4 carries `ST3`.
 5. **`[8640]`** — the sibling.
