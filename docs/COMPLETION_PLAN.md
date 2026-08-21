@@ -5698,16 +5698,18 @@ same number is what let them diverge once already.
       ROMs are on disk. Verification would be a receive that stalls mid-packet
       and a status read that finds `TMO`.*
 
-- [ ] **`010005-00` must be walked whole — 29 pages, 25 done; body text walked and all 14 exhibits verified, back matter remains.** *Started
-      2026-08-21; the coverage record is `docs/references/010005-00_WALK.md` and
-      its "Resume here" block is the authority, not this item.* `CLAUDE.md`: a document
-      that yields one fact this core does not have stops being a reference to
-      query and becomes a document to derive in full. `[MAC]` has now done that
-      (finding 139, the strip timeout), and it has been *consulted* many times
-      without ever being *walked*. There is no `010005-00_WALK.md` beside the
-      other three coverage records. 29 pages is the smallest of the four walks
-      and the one covering the subsystem with no runnable oracle, so it is the
-      document where a missed fact is least likely to be caught later.
+- [x] **`010005-00` walked whole — 29 of 29 pages, finished 2026-08-21.** The
+      coverage record is `docs/references/010005-00_WALK.md`; every numbered
+      figure and table is verified against the document's own lists. Three new
+      facts (`RING.md` findings 139–141): the **strip timeout**, `2^14` byte
+      times = 10.9 ms; §3.4's "2.5 V peak-to-peak" shown to be a **slip for
+      2.5 V peak** by Figure A-1, resolving an inconsistency `ap_ring_phy.h`
+      carried as unexplained; and the cable's **78% velocity**, which makes 1 km
+      **51 bit times, not the 60** `ap_ring_medium.h` had assumed. Two open
+      items moved: `TMASK`'s architectural half is **settled**, and this
+      document is **eliminated** as a source for the WACK question. **The two
+      best findings came from Appendix A, which this project had never opened.**
+      Detail in `PROJECT_STATUS.md`.
 
 - [ ] **Does the DN3000's ring controller filter received packets by type?**
       Two chapters of `002398-04` give the earlier controllers a type-mask

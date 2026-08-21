@@ -433,6 +433,89 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## `010005-00` is walked whole, and the appendix nobody opened held the best of it
+## (2026-08-21)
+
+29 of 29 pages. The ring's own MAC and physical layer specification had been
+*consulted* for years — `RING.md` cites it throughout — and never walked. It
+triggered `CLAUDE.md`'s whole-document rule by yielding one fact this core did
+not have, and the walk record is `docs/references/010005-00_WALK.md`.
+
+### The shape of the result, which was not what I expected
+
+**Chapters 1 to 3 were almost entirely confirmations.** The frame layout, all
+four out-of-band characters, both acknowledge fields, the CRC polynomial, the
+bi-phase error rule, the elastic-store bounds and the PLL figures were already
+modelled and already cited correctly. That is a legitimate outcome for a
+document this project had mined hard, and it is only knowable by walking.
+
+**The two best findings came from Appendix A, which nothing here had opened** —
+and both were reachable the whole time from a pointer inside §3.4, a section
+this core already cited. That is the argument for the whole-document rule in one
+document: the parts you have a question about get read, and the parts that
+answer questions you did not know you had do not.
+
+### Three new facts
+
+| | |
+| --- | --- |
+| **139** | The **strip timeout**, `2^14` byte times = 10.9 ms (§2.1 step 7) — the first published duration for the transmit side of the controller's timeout bits, where the plan item had recorded that none existed. `AP_RING_STRIP_TIMEOUT` |
+| **140** | §3.4's "2.5 V peak-to-peak" is a **slip for 2.5 V *peak***. Figure A-1 peaks at ±2.5 V, which as a square wave is 19.2 dBm and matches §A.1's "approximately +18 dBm"; 2.5 V p-p would be 13.2 dBm. Resolves an inconsistency `ap_ring_phy.h` carried as unexplained |
+| **141** | The cable's **velocity of propagation 78%** and **1.3 nsec/ft**, making §3.4's 1 km maximum **51 bit times, not 60**. `ap_ring_medium.h` had assumed an ordinary RG-59 velocity factor rather than looking this one up |
+
+### Two open items moved, one of them by being eliminated
+
+**`TMASK`'s architectural half is settled.** p. 2-7: the type field "determines
+whether a node receives or ignores a message" and lets nodes "selectively
+discard or ignore messages **at the hardware level**". p. 2-9 adds that
+intend-to-copy is set only by a receiver "**whose type field matches**". So
+hardware type filtering is a property of the Apollo ring, not of one controller
+generation; what remains is the DS3000's *register*, which is a different
+question from whether the capability exists.
+
+**The WACK item lost a source, which is progress of a kind.** It named its
+discriminator as "a `[MAC]` sentence that says whether a busy receiver still
+asserts intend-to-copy". Figure 2-8 is the only candidate, and its two
+descriptions restate the ambiguity in different words — wait ack is set by a
+receiver that "wasn't **enabled** to copy", intend-to-copy by one that "is **set
+up** to copy". Whether those denote the same condition *is* the question. It
+would have been easy to read them as a negation pair and declare the item
+closed. `010005-00` is spent, and spent by walking rather than querying, so it
+will not be proposed again; the ring firmware remains.
+
+A third lead closed negatively: §2.2.1.1's "after a specified timeout" for token
+claiming gives **no duration**, so it is not a third published figure. A text
+search had made it look like one.
+
+### What the walk caught about its own citations, and about me
+
+- Finding 139 was first cited to p. 2-3. The **footer mapping**, built from the
+  printed page numbers, caught it at **2-2**.
+- `ap_ring_frame.c`'s "§2.2.2.2 p. 2-8" looked wrong against the contents and is
+  **correct**: that section's field descriptions run onto 2-8. Had I corrected
+  it by inference — which is what I would have done without the page — I would
+  have broken a sound citation.
+- **A false claim of mine, withdrawn.** The record said §3.3's phase-lock loops
+  and elastic-store buffer were "neither modelled in `ap_ring_phy`", and a
+  commit message repeated it. Both are fully modelled. The claim came from
+  searching the *document* for topics and annotating the hits with assertions
+  about the *code* I had never grepped. **A search of a reference cannot tell
+  you what the core implements.**
+- One page was **read out of order** and is recorded as such rather than
+  smoothed into the sequence.
+
+### Coverage is checkable, not asserted
+
+p. vi lists every numbered figure and table — twelve and two — and each falls on
+a page the walk read. Nothing is numbered beyond them, so no exhibit was missed,
+and the listed page numbers independently corroborate the footer mapping.
+
+*Verification: `ring_phy_suite` 9 -> 10 — the byte time exact on the time base,
+the strip timeout's value, 10.9 ms to the manual's own precision, and the two
+published timeout figures asserted a factor of four apart so they cannot be
+conflated. `ap_ring_medium.h`'s constant is unchanged at 64 and now covers the
+documented maximum with more margin than its comment used to claim.*
+
 ## The CPU status register, all sixteen bits — and `IO_CH_CK.L` is bit 9
 ## (2026-08-21)
 
