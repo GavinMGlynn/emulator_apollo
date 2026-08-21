@@ -6071,6 +6071,23 @@ same number is what let them diverge once already.
       *And note*: `EXECUTING`'s comment says its position is hashed, so adding a
       phase needs the enum extended at the end and an identity boot.
 
+- [ ] **Walk the Intel 8237A and 8259A datasheets — 43 pages, both with text
+      layers.** Record: `docs/references/INTEL_WALK.md`. Chosen over the
+      remaining OMTI pages because **Phase A measured the reference boot as
+      never touching the floppy controller** — not one register access in 350 M
+      instructions — while it issues **401 disk commands** and 14.2 M disk
+      register reads, every one of which moves through DMA and interrupts.
+      These parts are on the path the machine exercises; the floppy is not.
+      `[8237]` p. 9 is walked and **confirms**: `ap_i8237.c` quotes that page
+      sentence by sentence — the status read clearing bits 0-3, the live request
+      half, Master Clear calling reset, reset setting the mask. That is the
+      signature of a part derived from its own manual rather than queried, so
+      expect provenance rather than defects and **say so and move on** if pages
+      6-8 and 10-11's register layouts keep confirming.
+      **`[8259]` is the more promising of the two**: `ap_intr.h` cites it for the
+      cascade and the slave-vector rule, and the parts nobody has quoted are
+      where a defect would be.
+
 - [ ] **Walk the OMTI controller manuals — 220 pages, none walked, and they
       have NO TEXT LAYER.** The 8621 is the DN3500's disk and floppy controller,
       so the boot path runs through it, and `CLAUDE.md`'s rule that a module is
