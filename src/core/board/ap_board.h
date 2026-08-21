@@ -569,7 +569,12 @@ typedef struct ap_board {
    * *Reference*: `008778-03` covers the DS3000 and DS4000 only, and
    * `019411-A00` -- the addendum that does cover a DS3500 -- publishes no bus
    * cycle times, established by its whole-document walk rather than a grep.
-   * *Web*: product overviews, no bus figure. *Oracle*: **it has the same gap
+   * *Web*: product overviews, no bus figure. *Marketing literature on disk,
+   * checked separately because it is a different kind of source*:
+   * `HP-Apollo_Products_Configuration_Guide_Dec89` gives the DN3500 as "32-bit
+   * MC68030 25 MHz CPU" with a "**7 slot IBM PC AT/XT compatible bus (6 AT, 1
+   * XT)**" -- a slot count and a CPU rate, and no bus clock for this or any
+   * other model. *Oracle*: **it has the same gap
    * and admits it in a comment** -- `apollo_m.cpp:1164` reads
    * `ISA16_SLOT(config, "isa1", ...); // FIXME: determine ISA bus clock`, and
    * `ISA16(config, m_isa)` is instantiated with no clock at all. So MAME cannot
