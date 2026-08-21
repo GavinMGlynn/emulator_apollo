@@ -123,7 +123,33 @@
  * driver loads -- but the one the derivation above is checked against. */
 #define AP_SIO_MEASURED_REFRESH_PRELOAD 27u
 
-/* §3.9: "SIO_O is used for the keyboard". Channel A of the first part. */
+/* §3.9: "SIO_O is used for the keyboard". Channel A of the first part.
+ *
+ * ## Domain's line numbers, and how they map onto these two parts
+ *
+ * Settled 2026-08-22 from `007196-01` and §3.9 together, because the operating
+ * system counts *lines* where this file counts *parts and channels*, and the
+ * two numberings look alike enough to be confused.
+ *
+ * `007196-01`'s `SIO_$LINE_T` is "0 through `SIO_$MAX_LINE` (**3**)" -- four
+ * lines. §3.9 gives the DS4000 "**four** full-duplex serial ports" and assigns
+ * the first to the keyboard. So a line is a **channel**, taken across both
+ * DUARTs in order:
+ *
+ *     line 0   unit 0 channel A   the keyboard  <- these two constants
+ *     line 1   unit 0 channel B
+ *     line 2   unit 1 channel A   Domain's `/dev/sio2`
+ *     line 3   unit 1 channel B
+ *
+ * **Only three of the four reach an RS-232 connector**, which is why §3.9's
+ * pinouts name SIO1, SIO2 and SIO3 and stop: the keyboard's line is not RS-232
+ * and has no P2 pins. Four lines against three connectors is not a
+ * contradiction, and reading it as one is what left the question open.
+ *
+ * *The mapping is confirmed by a boot, not just by arithmetic*: a volume whose
+ * `siomonit_file` names **`/dev/sio2`** produced its login traffic on **`sio2`
+ * channel A** -- unit 1, channel A -- which is line 2. See `PROJECT_STATUS.md`,
+ * *`siologin` is not blocked at carrier detect*. */
 #define AP_SIO_KEYBOARD_PORT 0u
 #define AP_SIO_KEYBOARD_CHANNEL 0u
 
