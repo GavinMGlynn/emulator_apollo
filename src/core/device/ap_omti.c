@@ -10,6 +10,32 @@ void ap_omti_disk_reset(ap_omti_t *omti) {
    * `FINDINGS.md` C21. */
   omti->data = 0xFFFFu;
   omti->status = AP_OMTI_ST_FIXED;
+  /* **`FC` is measured, and as of 2026-08-22 it is also explained.**
+   *
+   * §4.2's CONFIGURATION register reports the drive-configuration jumpers:
+   * bits 7-4 "not used (Set to 1)", then bit 3 `W20`, bit 2 `W21`, bit 1 `W22`,
+   * bit 0 `W23` on an 8620/8627. `FC` is `1111 1100`, so `W20 W21 = 1 1` and
+   * `W22 W23 = 0 0`.
+   *
+   * §2.3's **8620 DRIVE CONFIGURATION TABLE** says what those mean -- "0 = No
+   * jumper installed, 1 = Jumper installed" -- with `W20 W21` selecting LUN 0's
+   * drive and `W22 W23` LUN 1's:
+   *
+   *     1 1   **** ESDI DRIVES ****
+   *     0 1   VERTEX/PRIAM V170    987 cyl,  7 heads
+   *     1 0   MAXTOR XT1140        918 cyl, 15 heads
+   *     0 0   MINISCRIBE 3425      612 cyl,  4 heads
+   *
+   * So the Apollo controller is strapped **`ESDI` on LUN 0**, which is the
+   * configuration every other part of this model already assumes --
+   * `ap_omti_cdb_accepted_by_esdi`, the ESDI-only commands, and `008778-03`
+   * §6.3's ESDI drive list. LUN 1's `0 0` is the un-jumpered state and names a
+   * MINISCRIBE only in the sense that no jumper reads as that row; no drive is
+   * fitted there.
+   *
+   * A byte read off the oracle now agrees with a jumper table read off the
+   * manual, which is the strongest form of confirmation this project gets for a
+   * strap it cannot probe. */
   omti->configuration = 0xFCu;
   omti->mask = 0u;
   /* "It will then enter the idle state" -- §4.3, and that is the whole phase,

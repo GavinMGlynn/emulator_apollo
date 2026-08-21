@@ -932,3 +932,34 @@ count for any DMA channel is reached"; `-SBHE`/`SA0`'s encodings, `00` word and
 `01`/`10` byte on the two halves; and SD's "16-bit microprocessor transfers to
 8-bit devices will be converted to two 8-bit transfers", which is
 `atbus_suite`'s wide-to-narrow test.
+
+
+## §2.3, JUMPER ALLOCATION — and it explains a byte this project had only measured
+
+PDF 14, doc 2-4. The **8620 DRIVE CONFIGURATION TABLE**, with "0 = No jumper
+installed, 1 = Jumper installed":
+
+| `W20 W21` (LUN 0) / `W22 W23` (LUN 1) | drive |
+| --- | --- |
+| `1 1` | **ESDI DRIVES** |
+| `0 1` | VERTEX/PRIAM V170, 987 cyl, 7 heads |
+| `1 0` | MAXTOR XT1140, 918 cyl, 15 heads |
+| `0 0` | MINISCRIBE 3425, 612 cyl, 4 heads |
+
+**This explains `ap_omti_disk_reset`'s `configuration = 0xFC`.** That byte was
+measured off the oracle years ago as part of the idle-controller reading
+`FF C0 FC 00` and has been carried as a measurement ever since. §4.2 gives the
+register's layout — bits 7-4 "not used (Set to 1)", bit 3 `W20`, bit 2 `W21`,
+bit 1 `W22`, bit 0 `W23` — so `FC` is `1111 1100`, which is `W20 W21 = 1 1` and
+`W22 W23 = 0 0`.
+
+`1 1` is **ESDI**. So the Apollo controller is strapped for an ESDI drive on
+LUN 0, which is exactly what every other part of this model already assumes:
+`ap_omti_cdb_accepted_by_esdi`, the three ESDI-only commands, and `008778-03`
+§6.3's ESDI drive list. LUN 1's `0 0` is the un-jumpered state, and no drive is
+fitted there.
+
+*A byte read off the oracle now agrees with a jumper table read off the manual.*
+That is the strongest confirmation available for a strap this project cannot
+probe, and it came from the installation chapter — the one this record had
+written off as low-yield two commits ago.
