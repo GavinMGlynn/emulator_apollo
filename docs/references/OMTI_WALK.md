@@ -10,7 +10,7 @@ Three manuals, and the DN3500's controller is an **8621**.
 
 **220 pages total. None is walked.**
 
-## STATUS: 8 of 220 pages read. **The 8621 is named in neither manual**, and two navigational traps are recorded below.
+## STATUS: 8 pages read plus **a footer map for PDF 30–45**. The 8621 is named in neither manual; two navigational traps and one unmodelled timing figure are recorded below.
 
 Record opened 2026-08-21 with the method established and the reading order
 revised by what those three pages said.
@@ -124,7 +124,45 @@ start says nothing about its extent**, and with no text layer there is no way to
 search for the next heading. The footer map has to be built by reading footers,
 page by page, and the record should carry it as it grows.
 
-**Footer map so far**: PDF 7 = 1-1 · PDF 29 = 2-19.
+**Footer map.** Built cheaply by rendering a page range at 150 dpi, cropping the
+footer band, collapsing blank rows and stacking the strips into **one image** —
+sixteen footers in a single read instead of sixteen. Worth reusing: it is the
+only affordable way to map a manual with no text layer.
+
+| PDF | 7 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| doc | 1-1 | 2-19 | 2-20 | 2-21 | 2-22 | **3-1** | 3-2 | 3-3 | 3-4 | 3-5 |
+
+| PDF | 38 | 39 | **40** | 41 | 42 | 43 | 44 | 45 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| doc | 3-6 | 3-7 | **4-1** | 4-2 | 4-3 | 4-4 | 4-5 | 4-6 |
+
+**§3 is PDF 33–39. §4 begins at PDF 40** and runs to 4-8, so PDF 40–47.
+
+## One gap already visible, and two facts confirmed
+
+The footer strips carry enough body text to see three things without a full read.
+
+**GAP — the 100 µs post-reset wait is not modelled.** p. 4-3: "The RESET STATE
+is entered by applying power to the controller (power-on-reset), by the reset
+signal on the system bus, or by writing the RESET Register (**port 321**).
+During this phase, the controller will initialize itself, will set default
+parameters (ST412) to the LUNs, will de-assert all control functions and clear
+all bits in the STATUS register. It will then enter the idle state. **WARNING:
+The host must wait 100 usec after a -RESET before issuing a SELECT.**" Grepping
+`ap_omti.h` and `ap_omti.c` for that wait returns **nothing**. A driver that
+selects too early gets undefined behaviour on hardware and works here.
+*Also to check when §4 is walked*: whether the **RESET Register at port 321** is
+decoded at all — a narrow grep found no `0x321`, but that is not a careful check
+and should not be recorded as a finding until §4.2 is read properly.
+
+**Confirmed** — the `C/D` bit's word/byte semantics ("when C/D is 1 then only
+bits 0-7 are used ... when C/D is 0 then all 16 bits are valid, byte 0 in bits
+8-15 and byte 1 in bits 0-7") are already quoted in `ap_omti.h` twice, at its
+header and at §4.2's data port. And p. 4-5's floppy **Digital Input** register —
+"Bit 7 ... received from pin 34 of the floppy disk control cable and is normally
+used for diskette change status. Bits 0 through 6 are Reserved" — is the kind of
+register the walk exists to check.
 
 ## `[OMTI]`'s section map — read off the contents, since nothing can search it
 
