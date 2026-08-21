@@ -6035,48 +6035,19 @@ same number is what let them diverge once already.
       `PROJECT_STATUS.md`. *Verification: the walk record's coverage table, and
       `doc_claims` over the documents that cite it.*
 
-- [ ] **`ST0` sets two bits `[OMTI]` §6.4.1 calls unused — the OMTI moves them to `ST3`.** Found by
-      the `[OMTI]` §6.4 walk, 2026-08-21, and it is a self-correction: the `ST0`
-      half was added **earlier the same day**.
-      The question is identical for both registers — the **part's own manual
-      calls bits constant** where **`002398-04` draws the generic 765's live
-      bits**:
-      - **`ST3`**: `[OMTI]` §6.4.4 gives five constants; `002398-04` p. 12-14
-        gives eight live. `ap_omti.h` **follows `[OMTI]`**, with a long argument
-        for why the part's own manual wins and why p. 8-14's third printing is
-        the *bare-765* family (DN400/420/600, no OMTI board at all).
-      - **`ST0`**: `[OMTI]` §6.4.1 says "**Bit 3 and 2 Not Used - Always zero**";
-        `002398-04` **p. 8-13** gives "D3 Set if FDD Not Ready" and "D2 Head
-        Address". `ap_omti.h` **follows `002398-04`** —
-        `AP_OMTI_ST0_NOT_READY 0x08` and `AP_OMTI_ST0_HEAD 0x04`, both now set.
-      **p. 8-13 is the same chapter 8 that the `ST3` argument dismisses** as
-      describing a machine with a bare 765 and no OMTI. So one register follows
-      the OMTI manual because chapter 8 is the wrong family, and the register
-      two along follows chapter 8.
-      **SETTLED by §6.4.4, read in the same walk one page later.** `[OMTI]`'s
-      `ST3` is: bit 6 **Write Protect**, bit 4 **Track 0** — "status of the
-      **'ready'** signal from the diskette drive" — bit 2 **Head Address**,
-      "status of the 'side-select' signal", and bits 7/5/3/1 always zero with
-      **bit 0 always 1**. That is `ap_omti.h`'s `ST3` exactly, including bit 4's
-      name-versus-description contradiction, which the header already records.
-      **So the OMTI does not drop `ready` and `head` — it moves them.** They are
-      in `ST3` (bits 4 and 2) where the generic 765 puts them in `ST0` (bits 3
-      and 2), and §6.4.1 marks `ST0`'s two "Not Used - Always zero" precisely
-      because they live elsewhere on this board. The two manuals are describing
-      **different silicon**, not disagreeing about the same silicon, and the
-      `ST3` argument in `ap_omti.h` was right about which one governs.
-      **The fix, therefore**: `AP_OMTI_ST0_NOT_READY` and `AP_OMTI_ST0_HEAD`
-      should **not be set** on this board — §6.4.1 is explicit — and the
-      information a driver needs is already correct in `ST3`, which the model
-      has. The head-side defect the `ST0` change was written to fix is real and
-      **is already fixed by `ST3` bit 2**; setting `ST0` bit 2 as well reports it
-      in a place the part does not.
-      *Care needed*: the constants should stay, documented as the generic 765's
-      positions and named as not-driven-here, exactly as `ST3`'s five constants
-      are. And `ST0`'s interrupt code `11` handling was argued separately and is
-      unaffected. `afd_suite` asserts the current behaviour, so the tests move
-      with it.
-
+- [x] **`ST0` set two bits `[OMTI]` §6.4.1 calls unused; the OMTI moves them to
+      `ST3`.** Found and fixed by the `[OMTI]` §6.4 walk, 2026-08-21 — and the
+      `ST0` half had been *added* the same day from `002398-04` p. 8-13, which
+      is chapter 8's **bare-765** family, not this board. §6.4.1 calls `ST0`
+      bits 3 and 2 "Not Used - Always zero"; §6.4.4 puts **ready in `ST3` bit 4**
+      and **head in `ST3` bit 2**. The board moves the signals rather than
+      dropping them, so the two manuals describe different silicon and
+      `ap_omti.h`'s argument for the part's own manual was right. Both constants
+      stay, documented as the generic 765's positions and not driven here.
+      *Verification: `afd_suite` 36 — two assertions inverted and a third
+      rewritten from a claim that had become vacuous into one that pins
+      §6.4.1's "always zero" in both drive states.* Detail in
+      `docs/references/OMTI_WALK.md`.
 - [ ] **The OMTI has no RESET phase, so the 100 µs post-reset wait has nowhere
       to live.** Found by the `[OMTI]` §4 walk, 2026-08-21. §4.3 states it
       **twice** on one page: "**The host must wait 100 usec after a -RESET

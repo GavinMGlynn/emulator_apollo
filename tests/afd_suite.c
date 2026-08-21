@@ -259,13 +259,16 @@ static void test_read_data_returns_the_sector_its_chr_names(void) {
   /* The last data byte hands over to the result phase by itself. */
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_fdc_phase(&omti));
   /* **`ST0` carries the head**, and this asserted that it did not. `002398-04`
-   * p. 8-13 gives `ST0[2]` as "Head Address" -- the state of the head at the
-   * end of the execution phase -- and this command names side 1, so the bit is
-   * set. The `H` byte three positions along has always been right, which is why
-   * a wrong `ST0` went unnoticed: a driver reading `ST0` rather than `H` was
-   * told the wrong side of every diskette. */
-  TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST0_IC_NORMAL | AP_OMTI_ST0_HEAD,
-                          take());                        /* ST0 */
+   * **`ST0[2]` is not the head address on this board.** `002398-04` p. 8-13
+   * gives it as "Head Address", and that page describes the DN400/420/600's
+   * bare 765. `[OMTI]` §6.4.1, the manual for the board this core models, says
+   * `ST0` bits 3 and 2 are "Not Used - Always zero", and §6.4.4 puts the head
+   * address in **`ST3` bit 2** instead. This assertion required the bit for one
+   * day and now requires its absence.
+   *
+   * The side is still reported, twice and correctly: the `H` byte three
+   * positions along, and `AP_OMTI_ST3_HEAD` for a driver that asks `ST3`. */
+  TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST0_IC_NORMAL, take()); /* ST0 */
   TEST_ASSERT_EQUAL_UINT8(0u, take());                    /* ST1 */
   TEST_ASSERT_EQUAL_UINT8(0u, take());                    /* ST2 */
   TEST_ASSERT_EQUAL_UINT8(1u, take());                    /* C */
@@ -309,8 +312,10 @@ static void test_a_read_with_no_diskette_reports_a_missing_address_mark(void) {
   const uint8_t command[] = {AP_OMTI_FDC_READ_DATA, 0u, 0u, 0u, 1u,
                              3u,                    8u, 0x1Bu, 0xFFu};
   send(command, sizeof command);
-  TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST0_IC_ABRUPT | AP_OMTI_ST0_NOT_READY,
-                          take());
+  /* `ST0[3]` is not `NR` here either -- §6.4.1 calls it unused and §6.4.4 puts
+   * the ready signal in `ST3` bit 4. The absent drive is still reported, by the
+   * abrupt interrupt code and by `ST1`'s two bits below. */
+  TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST0_IC_ABRUPT, take());
   TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST1_NO_DATA | AP_OMTI_ST1_MISSING_MARK,
                           take());
 
@@ -323,9 +328,15 @@ static void test_a_read_with_no_diskette_reports_a_missing_address_mark(void) {
           AP_OMTI_ST0_IC_MASK);
 }
 
-/* A loaded drive is ready, so the bit stays clear -- which is what makes it
- * evidence rather than a constant. */
-static void test_a_loaded_drive_does_not_report_not_ready(void) {
+/* **`[OMTI]` §6.4.1: `ST0` bits 3 and 2 are "Not Used - Always zero".**
+ *
+ * This test used to say "a loaded drive is ready, so the bit stays clear --
+ * which is what makes it evidence rather than a constant". On this board it
+ * *is* a constant, and the test now pins that: neither bit is ever set, loaded
+ * or empty. The two signals they carry on a bare 765 are reported in `ST3`
+ * instead -- ready at bit 4, head at bit 2, §6.4.4 -- so a test that let them
+ * appear in `ST0` would be licensing a byte the part does not send. */
+static void test_st0_never_reports_ready_or_head_on_this_board(void) {
   build_floppy(true);
   build_controller();
   const uint8_t command[] = {AP_OMTI_FDC_READ_DATA, 0u, 0u, 0u, 1u,
@@ -337,8 +348,10 @@ static void test_a_loaded_drive_does_not_report_not_ready(void) {
   }
   const uint8_t st0 = take();
   TEST_ASSERT_EQUAL_HEX8(0u, st0 & AP_OMTI_ST0_NOT_READY);
-  /* And side 0 leaves the head bit clear, the other arm of the head test. */
   TEST_ASSERT_EQUAL_HEX8(0u, st0 & AP_OMTI_ST0_HEAD);
+  /* Both, together, are §6.4.1's "bits 3 and 2 ... always zero". */
+  TEST_ASSERT_EQUAL_HEX8(
+      0u, (uint8_t)(st0 & (AP_OMTI_ST0_NOT_READY | AP_OMTI_ST0_HEAD)));
   release_floppy();
 }
 
@@ -863,7 +876,7 @@ int main(void) {
   RUN_TEST(test_read_data_returns_the_sector_its_chr_names);
   RUN_TEST(test_a_read_past_the_last_cylinder_reports_no_data);
   RUN_TEST(test_a_read_with_no_diskette_reports_a_missing_address_mark);
-  RUN_TEST(test_a_loaded_drive_does_not_report_not_ready);
+  RUN_TEST(test_st0_never_reports_ready_or_head_on_this_board);
   RUN_TEST(test_a_seek_reports_nothing_until_sense_interrupt_status_asks);
   RUN_TEST(test_sense_interrupt_status_with_no_seek_pending_is_invalid);
   RUN_TEST(test_recalibrate_puts_the_head_on_track_zero);

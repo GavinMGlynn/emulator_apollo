@@ -1976,12 +1976,25 @@ static void fdc_result(ap_omti_t *omti) {
  * position *after* the operation, which is what a driver chains from. */
 static void fdc_data_result(ap_omti_t *omti, uint8_t st0, uint8_t st1,
                             uint8_t st2) {
-  /* `ST0[2]`, the head address: "the state of the head at the end of the
-   * execution phase", which for these commands is the side the command named.
-   * See the header -- this was absent, so every result said side 0. */
-  const uint8_t head =
-      (omti->fdc_command[3] & 1u) ? AP_OMTI_ST0_HEAD : (uint8_t)0u;
-  omti->fdc_result[0] = (uint8_t)(st0 | head | (uint8_t)fdc_unit(omti));
+  /* **`ST0[2]` is NOT the head address on this board**, and this used to set it.
+   *
+   * `002398-04` p. 8-13 gives `ST0` a head-address bit at 2, and that page is
+   * right -- for the machine it describes. It is chapter 8, the DN400/420/600,
+   * which has a **bare 765** wired straight to the drive and no OMTI at all.
+   * `[OMTI]` §6.4.1, the manual for the board this core models, says `ST0`
+   * "Bit 3 and 2 Not Used - Always zero".
+   *
+   * §6.4.4 says where they went: this board reports **head address in `ST3`
+   * bit 2** ("status of the 'side-select' signal") and **ready in `ST3` bit 4**.
+   * The OMTI does not drop the two signals, it **moves** them, so the two
+   * manuals describe different silicon rather than disagreeing about the same
+   * silicon -- the same conclusion `AP_OMTI_ST3_*` reaches at length.
+   *
+   * The defect that motivated setting it was real: a read from side 1 must not
+   * report side 0. It is fixed **correctly** by `AP_OMTI_ST3_HEAD`, which this
+   * model already drives, and the result bytes carry `H` besides. Setting
+   * `ST0[2]` as well reported it somewhere the part does not. */
+  omti->fdc_result[0] = (uint8_t)(st0 | (uint8_t)fdc_unit(omti));
   omti->fdc_result[1] = st1;
   omti->fdc_result[2] = st2;
   omti->fdc_result[3] = omti->fdc_command[2]; /* C */
@@ -1991,11 +2004,17 @@ static void fdc_data_result(ap_omti_t *omti, uint8_t st0, uint8_t st1,
   omti->fdc_result_length = 7u;
 }
 
-/* `ST0[3]`, `NR`: p. 8-13's "Set if FDD Not Ready". A drive with no diskette in
- * it is not ready, and that is a property of the drive rather than of the
- * sector a command happened to name. */
+/* **`ST0[3]` is not `NR` on this board either**, for the reason above:
+ * `[OMTI]` §6.4.1 calls it "Not Used - Always zero" and §6.4.4 puts the ready
+ * signal in `ST3` bit 4 -- confusingly named `T0`, its description contradicting
+ * its own name, which `AP_OMTI_ST3_TRACK_0` records.
+ *
+ * An absent drive is still reported: the interrupt code is `01`, abrupt
+ * termination, and `ST1`/`ST2` carry no-data and missing-address-mark. What is
+ * no longer claimed is a bit the part documents as constant. */
 static uint8_t fdc_not_ready(const ap_omti_t *omti) {
-  return omti->floppy == nullptr ? AP_OMTI_ST0_NOT_READY : (uint8_t)0u;
+  (void)omti;
+  return 0u;
 }
 
 /* Read the sector the command's C/H/R name into the buffer. */
