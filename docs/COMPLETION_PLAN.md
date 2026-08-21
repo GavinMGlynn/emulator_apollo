@@ -6354,20 +6354,20 @@ same number is what let them diverge once already.
       advance delivering the whole burst, six keys down at once, and the
       identity boot byte-identical.* Detail in `PROJECT_STATUS.md`.
 
-- [ ] **One keyboard, two transmitters.** Found while landing the buffer above.
-      `ap_board`'s `kbd_reply` paces the keyboard's *answers* and the new
-      buffer paces its *key data*, so both can put a byte on the wire at the
-      same instant — which one transmitter cannot. They also disagree on rate:
-      `kbd_reply` uses `ap_sio_character_time`, the **port's** programmed rate,
-      while the key path uses the keyboard's own fixed 1200 8E1, which is what
-      `deliver_key` argues for in the same file. Both cannot be right.
-      Deliberately not unified when the buffer landed: `kbd_reply`'s pacing is
-      load-bearing for the reference boot — its comment records a real finding
-      about the PROM flushing the receiver mid-answer — so merging them moves
-      boot timing on evidence not yet gathered. **What would close it**: one
-      queue and one rate in `ap_kbd`, with an identity boot either side to say
-      what the merge costs, and a decision on which rate is the part's.
-      `PROVISIONAL`, marked in `ap_board.c` and `PROJECT_STATUS.md`.
+- [x] **One keyboard, two transmitters -- merged 2026-08-21.** `ap_kbd` now
+      holds one ring for its answers and its key data, drained in **arrival
+      order** at the part's own fixed 1200 8E1, so the two cannot be on the wire
+      at once. The rate question is settled the way `deliver_key` already argued
+      it: the keyboard's framing, not the port's.
+      **One ring rather than two stores with a priority**, because a priority
+      would have been invented -- the first attempt drained answers first and
+      `kbd_suite` caught a reply overtaking a keystroke on the wire. The two
+      *admission* limits stay separate, being documented.
+      **The merge cost one clock**: console byte-identical across 350 M, hash
+      re-baselined `4EAC44B1...` -> `E5807E17...`. And `kbd_reply` had never been
+      hashed at all, which moving it fixed.
+      *Verification: `kbd_suite` 56 -> 60, `board_state_suite` 38, `ctest`
+      139/139 both presets, two identity boots.* Detail in `PROJECT_STATUS.md`.
 - [ ] **The keyboard's self-diagnostics.** Chapter 12's opening sentence has the
       part "performs power-up and operator requested self-diagnostics". No
       command in `ap_kbd_receive`'s set runs one and no result is defined

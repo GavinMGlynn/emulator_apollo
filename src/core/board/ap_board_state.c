@@ -615,7 +615,23 @@ void ap_board_hash_keyboard(ap_hash_t *st, const ap_kbd_t *keyboard) {
   ap_hash_u32(st, (uint32_t)keyboard->buffered);
   for (unsigned i = 0; i < keyboard->buffered; i++) {
     ap_hash_u8(st,
-               keyboard->buffer[(keyboard->buffer_head + i) % AP_KBD_BUFFER]);
+               keyboard->buffer[(keyboard->buffer_head + i) % AP_KBD_TX_QUEUE]);
+  }
+  /* **The answer queue, which was never hashed at all.** It lived on the board
+   * as `kbd_reply` and no hasher touched it, so a machine part-way through
+   * sending its identification and one that had finished were the same state
+   * to the identity harness -- the exact class of gap that asking "what does
+   * the instrument cover" exists to find. Moving it into the part fixes the
+   * coverage as a side effect of fixing the transmitter.
+   *
+   * Live bytes in order, not the array, for the same reason as the key buffer:
+   * a rotated ring is not a divergence. */
+  ap_hash_u32(st, (uint32_t)keyboard->reply_buffered);
+  ap_hash_u32(st, (uint32_t)keyboard->key_buffered);
+  for (unsigned i = 0; i < keyboard->buffered; i++) {
+    hash_bool(st,
+              keyboard->from_reply[(keyboard->buffer_head + i) %
+                                   AP_KBD_TX_QUEUE]);
   }
   ap_hash_time(st, keyboard->tx_at);
   ap_hash_u32(st, (uint32_t)keyboard->held);

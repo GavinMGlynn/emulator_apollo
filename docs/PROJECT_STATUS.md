@@ -433,6 +433,89 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## One keyboard, one transmitter -- and the merge cost one clock
+## (2026-08-21)
+
+A keyboard has one UART and one cable, so an answer and a keystroke cannot be
+on the wire at the same instant. Here they could. The part's *key data* was
+paced by `ap_kbd`'s buffer and its *answers* by a second queue on the board,
+each with its own clock, and the two disagreed about how wide a character is --
+the board's took the **port's** programmed framing, the part's its own fixed
+1200 8E1. Both cannot be true of one cable.
+
+### The rate is the part's, and that was already argued in the file
+
+`deliver_key`'s comment made the case and the other queue did not follow it:
+"a real keyboard has one fixed framing and a driver that mis-programs the port
+sees a framing or parity error". Measured from the oracle's
+`apollo_kbd_device::device_reset` -- `set_data_frame(1, 8, PARITY_EVEN,
+STOP_BITS_1)` at 1200 both ways. Eleven bits on the wire, exact on the time
+base. The hardware does not change how fast the keyboard talks because the host
+changed its mind about how to listen.
+
+### One ring, because two stores needed a rule nobody has
+
+The first attempt kept two stores and drained answers first, on the reasoning
+that the host is blocked on an answer. `kbd_suite` caught it immediately: a
+reply queued *after* a keystroke already on the wire came out in front of it,
+which one transmitter cannot do. The priority was an invention -- no source held
+here describes the keyboard firmware's transmit routine -- and inventing it
+produced a wrong machine within one test.
+
+So there is one ring, drained in **arrival order**, which needs no rule at all.
+A queue has no arbitration to get wrong. The bytes carry their own kind
+alongside, kept explicitly rather than inferred from the counts, because reply /
+key / reply is a real state -- a command answered while someone is typing -- and
+any positional rule would be an invariant to defend.
+
+**The two admission limits stay separate, and those are documented.** §12.2's
+sixteen positions gate key data alone: a reply going out is not data the matrix
+produced, and inhibiting keystrokes because the part was answering a command
+would be a failure mode no page describes. The reply allowance is its own.
+
+*Why they could not be one store*: §12.2's floor is 16 and the part's own
+`AP_KBD_IDENTIFICATION` is **20 bytes**. A keyboard with a single 16-byte store
+could not transmit its own name. That is the manual's two statements settling
+the structure between them, rather than a preference.
+
+### What the merge cost, measured
+
+Two 350 M identity boots, before and after:
+
+```
+before  4EAC44B176697CE7   final PC 00002EE4   clocks 1407948042
+after   E5807E174455F171   final PC 00002EE8   clocks 1407948043
+```
+
+`E5807E174455F171` is **the same on the `-O0` debug build**, checked by running
+the other build type through the same script. A re-baselined hash that has only
+been seen on one build type is not yet a portable reference, which is what the
+`APOLLO_HEADLESS_BIN` override in `identity-boot.sh` exists for.
+
+**The console is byte-identical** -- all 48 lines, self test and
+`Self tests passed.` included -- so nothing the machine *does* changed. What
+moved is one clock, four bytes of PC within the same PROM loop, six fewer
+serial register reads and two more interval-timer reads. That is the reference
+boot ending a fraction differently paced, which is what changing a rate on a
+device the boot exercises should look like, and it is why the item required the
+measurement rather than the argument.
+
+### And the queue that moved was never hashed
+
+`kbd_reply` lived on the board and no hasher touched it, so a machine part-way
+through sending its identification and one that had finished were the same state
+to the identity harness. Moving it into the part fixed that as a side effect --
+the same class of gap that asking *what does the instrument cover* is for, and
+the second time that question has found one in this file.
+
+*Verification: `kbd_suite` 56 -> 60 -- one byte per character time with three
+queued, a reply refusing to overtake a keystroke on the wire, the twenty-byte
+identification the key buffer could not hold, and the eleven-bit rate; plus the
+key path proven not inhibited by a full reply queue. `board_state_suite` 38,
+sweeping the moved fields and a byte's kind. `board_suite`'s reply test
+retargeted from the line's rate to the keyboard's and renamed to say so.
+`ctest` 139/139 on both presets.*
+
 ## `siologin` is not blocked at carrier detect, and the pin is still unnamed
 ## (2026-08-21)
 
@@ -1781,6 +1864,7 @@ same media and the same invocation:
 79C8F0364AE4A93E   + SELECT's drive mask and the reset's default selection
 4EAC44B176697CE7   + the keyboard's transmit buffer and pointing-device type
 4EAC44B176697CE7   + the OMTI's RESET phase and its 100 µs -- **unmoved**
+E5807E174455F171   + one keyboard transmitter instead of two
 ```
 
 The fifth row is the interesting one, because that change *does* touch a hashed

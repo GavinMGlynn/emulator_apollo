@@ -785,7 +785,7 @@ static void test_a_held_key_repeats_after_the_delay(void) {
   TEST_ASSERT_FALSE(b.keyboard.repeating);
 }
 
-static void test_the_keyboards_reply_arrives_at_the_lines_rate(void) {
+static void test_the_keyboards_reply_arrives_at_the_keyboards_own_rate(void) {
   ap_board_t b;
   bool ok = false;
   init(&b);
@@ -797,8 +797,15 @@ static void test_the_keyboards_reply_arrives_at_the_lines_rate(void) {
    * so the answer can land. */
   ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x05u, &ok);
 
-  const ap_time_t character = ap_sio_character_time(
-      &b.sio, 0u, 0u, AP_SIO_KEYBOARD_BAUD);
+  /* **The keyboard's rate, not the port's, and that is the change.** This used
+   * to be `ap_sio_character_time` -- the width of a character as the *DUART* is
+   * programmed -- while the key path used the keyboard's own fixed 1200 8E1.
+   * Both cannot be right for one cable, and the part's is the one with a
+   * citation: the oracle's `device_reset` sets 8E1 at 1200 both ways. A
+   * mis-programmed port is exactly the case where the two differ, and the
+   * hardware does not change how fast the keyboard talks because the host
+   * changed its mind about how to listen. */
+  const ap_time_t character = AP_KBD_TX_CHARACTER;
   TEST_ASSERT_TRUE(character > 0u);
 
   /* `FF 11 16` -- the identification exchange, whose answer is more than one
@@ -831,7 +838,7 @@ static void test_the_keyboards_reply_arrives_at_the_lines_rate(void) {
     ap_board_write(&fresh, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), 0x00u,
                    &ok);
     ap_board_advance(&fresh, 1u);
-    TEST_ASSERT_TRUE(fresh.kbd_reply.count > 0u);
+    TEST_ASSERT_TRUE(ap_kbd_reply_pending(&fresh.keyboard) > 0u);
     /* Queued, and *nothing* has reached the receiver yet. */
     TEST_ASSERT_EQUAL_HEX8(0u,
                            ap_board_read(&fresh, AP_SIO1_ADDR +
@@ -855,12 +862,13 @@ static void test_the_keyboards_reply_arrives_at_the_lines_rate(void) {
                                                    (AP_MC68681_SR_CSR_A * 2u),
                                            &ok) &
                                  AP_MC68681_SR_OVERRUN);
-  TEST_ASSERT_TRUE(b.kbd_reply.count > 0u);
+  TEST_ASSERT_TRUE(ap_kbd_reply_pending(&b.keyboard) > 0u);
 
   /* And it does arrive: draining the FIFO as a reader would, the rest of the
    * answer follows as the line delivers it. */
   unsigned drained = 0u;
-  for (unsigned step = 0; step < 64u && b.kbd_reply.count > 0u; step++) {
+  for (unsigned step = 0; step < 64u && ap_kbd_reply_pending(&b.keyboard) > 0u;
+       step++) {
     while ((ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u), &ok) &
             AP_MC68681_SR_RXRDY) != 0u) {
       (void)ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok);
@@ -869,7 +877,7 @@ static void test_the_keyboards_reply_arrives_at_the_lines_rate(void) {
     now += character;
     ap_board_advance(&b, now);
   }
-  TEST_ASSERT_EQUAL_UINT(0u, b.kbd_reply.count);
+  TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_reply_pending(&b.keyboard));
   TEST_ASSERT_TRUE(drained > 0u);
   TEST_ASSERT_EQUAL_HEX8(0u, ap_board_read(&b, AP_SIO1_ADDR +
                                                    (AP_MC68681_SR_CSR_A * 2u),
@@ -2564,7 +2572,7 @@ int main(void) {
   RUN_TEST(test_the_fpa_trial_access_faults_rather_than_answering);
   RUN_TEST(test_every_core_board_register_is_reachable_through_the_map);
   RUN_TEST(test_a_key_press_reaches_serial_one_channel_a);
-  RUN_TEST(test_the_keyboards_reply_arrives_at_the_lines_rate);
+  RUN_TEST(test_the_keyboards_reply_arrives_at_the_keyboards_own_rate);
   RUN_TEST(test_typing_sends_the_character_not_a_matrix_index);
   RUN_TEST(test_a_typed_command_arrives_character_for_character);
   RUN_TEST(test_a_key_press_into_a_mismatched_port_is_damaged);

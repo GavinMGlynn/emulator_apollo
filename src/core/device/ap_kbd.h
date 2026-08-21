@@ -114,6 +114,37 @@
  * needs it. */
 #define AP_KBD_BUFFER 16u
 
+/* The longest reply the keyboard sends, which is the identification string.
+ *
+ * Above the struct because the transmit queue is a field of it. **§12.2's
+ * sixteen could not serve on their own**: `AP_KBD_IDENTIFICATION` is 20 bytes,
+ * so a part whose whole transmit store was 16 could not send its own name. The
+ * manual's two statements size the queue between them -- key positions plus a
+ * reply -- rather than either one being stretched to cover the other. */
+#define AP_KBD_REPLY_MAX 32u
+
+/* And the transmitter's queue holds **two** replies as well as §12.2's sixteen
+ * key positions.
+ *
+ * The `* 2` is not headroom: a command can be sent while the previous answer is
+ * still on the wire, so a second reply can be produced before the first has
+ * gone out. The board's own queue, which this replaced, was sized that way for
+ * that reason and it is kept rather than rediscovered.
+ *
+ * **One ring for both, and that is what "one transmitter" means.** Bytes leave
+ * in the order the part produced them, which needs no rule about which source
+ * wins -- and no source held here describes the keyboard firmware's transmit
+ * routine, so any such rule would have been invented. An earlier attempt at
+ * this drained answers ahead of key data and let a reply overtake a keystroke
+ * already on the wire, which one UART cannot do; `kbd_suite` now asserts it
+ * cannot.
+ *
+ * The two *admission* limits stay separate, because those are documented: key
+ * data is inhibited at §12.2's sixteen outstanding positions, and a reply is
+ * refused when the reply allowance is gone. */
+#define AP_KBD_REPLY_QUEUE (AP_KBD_REPLY_MAX * 2u)
+#define AP_KBD_TX_QUEUE (AP_KBD_BUFFER + AP_KBD_REPLY_QUEUE)
+
 typedef struct {
   /* Which keys are currently down, so a repeated press or a release of a key
    * that was never pressed sends nothing. The real matrix scan cannot report a
@@ -131,15 +162,38 @@ typedef struct {
   ap_time_t repeat_at;
   bool repeating; /* past the initial delay, so the period applies */
 
-  /* §12.2's transmit buffer. A ring, because the part drains from the front
-   * while the matrix fills the back, and a shifting array would make the cost
-   * of a byte depend on how many are queued behind it. */
-  uint8_t buffer[AP_KBD_BUFFER];
+  /* The transmit queue: §12.2's buffer and the answer queue in one ring,
+   * because the part has one UART. A ring, because it drains from the front
+   * while the matrix and the command channel fill the back, and a shifting
+   * array would make the cost of a byte depend on how many are behind it. */
+  uint8_t buffer[AP_KBD_TX_QUEUE];
   unsigned buffered;
   unsigned buffer_head;
+  /* How many of `buffered` are key data, which is what §12.2's inhibit counts.
+   * A reply occupying the wire does not make the matrix stop scanning. */
+  unsigned key_buffered;
+  /* Which producer each queued byte came from, in step with `buffer`.
+   *
+   * Kept explicitly rather than inferred from the two counts, because the two
+   * producers append independently and a queue holding reply, key, reply is a
+   * real state -- a command answered while someone is typing. Any rule that
+   * worked out the kind from position alone would be an invariant to defend,
+   * and this is one array. */
+  bool from_reply[AP_KBD_TX_QUEUE];
   /* When the character now on the wire finishes. Zero before anything has been
-   * sent, which is why the first byte leaves as soon as it is asked for. */
+   * sent, which is why the first byte leaves as soon as it is asked for.
+   *
+   * **One `tx_at` for the whole part, and that is the point.** A keyboard has
+   * one UART and one cable, so a reply and a keystroke cannot be on the wire at
+   * the same instant. This used to be two clocks in two places -- this one, and
+   * a second queue in `ap_board` -- which could put two bytes on the line
+   * together and disagreed about how wide a character is. */
   ap_time_t tx_at;
+
+  /* How many reply bytes are outstanding, for the reply allowance and so a
+   * report can say what kind of traffic is on the wire. The bytes themselves
+   * are in `buffer` with everything else. */
+  unsigned reply_buffered;
 
   /* ## The command channel, which is the half this file used not to have
    *
@@ -238,9 +292,6 @@ typedef struct {
  * than the number -- `time/ap_time.h`'s rule, and the one six written-down
  * periods broke before it was enforced. */
 #define AP_KBD_BEEPER_DURATION ((ap_time_t)AP_TIME_BASE_HZ * 300u / 1000u)
-
-/* The longest reply the keyboard sends, which is the identification string. */
-#define AP_KBD_REPLY_MAX 32u
 
 /* Feed the keyboard a byte the host sent it, and collect what it says back.
  *
@@ -672,6 +723,20 @@ typedef enum {
  * leaves the matrix unchanged so the matching release cannot be sent either. */
 [[nodiscard]] bool ap_kbd_buffer(ap_kbd_t *kbd, uint8_t code);
 
+/* Queue a reply the part is sending, and return how many bytes were taken.
+ *
+ * Short of `n` when the answer queue is full, which is the same refusal
+ * `ap_kbd_buffer` makes for key data: a keyboard talking faster than its line
+ * can carry drops what will not fit rather than overwriting bytes still
+ * waiting.
+ *
+ * **Shares `tx_at` with the key buffer**, so a reply queued while a keystroke
+ * is on the wire waits for it. One UART, one cable. */
+unsigned ap_kbd_queue_reply(ap_kbd_t *kbd, const uint8_t *bytes, unsigned n);
+
+/* How many reply bytes are still to go. */
+[[nodiscard]] unsigned ap_kbd_reply_pending(const ap_kbd_t *kbd);
+
 /* Take the byte the transmitter has finished sending, if one is due at `now`.
  *
  * One byte per `AP_KBD_TX_CHARACTER`, so a caller draining in a loop gets at
@@ -679,6 +744,9 @@ typedef enum {
  * or the current character is still going out. */
 [[nodiscard]] bool ap_kbd_transmit(ap_kbd_t *kbd, ap_time_t now, uint8_t *code);
 
+/* How many **key** bytes are waiting -- §12.2's buffer occupancy, and the
+ * number its inhibit counts. Not the transmit queue's depth: replies share the
+ * ring and are reported by `ap_kbd_reply_pending`. */
 [[nodiscard]] unsigned ap_kbd_buffered(const ap_kbd_t *kbd);
 [[nodiscard]] bool ap_kbd_buffer_full(const ap_kbd_t *kbd);
 

@@ -1100,6 +1100,122 @@ static void test_six_keys_are_down_at_once_and_all_six_report(void) {
 
 /* A reset empties the buffer. A keyboard that came up holding bytes from before
  * the reset would send them into a machine that had just started. */
+/* ## One keyboard, one transmitter
+ *
+ * The part has one UART and one cable, so an answer and a keystroke cannot be
+ * on the wire at the same instant. Until 2026-08-21 they could: the answers
+ * were paced by a second queue on the board with its own clock, and the key
+ * data by this one. The two also disagreed about how wide a character is --
+ * the board's took the *port's* programmed framing, this one the keyboard's
+ * own fixed 1200 8E1 -- and both cannot be true of one cable.
+ *
+ * What is settled and what is not: the shared transmitter and the rate are
+ * documented, the **order** is not, and these tests say which is which. */
+static void test_a_reply_and_a_keystroke_share_one_transmitter(void) {
+  ap_kbd_t kbd;
+  ap_kbd_reset(&kbd);
+
+  static const uint8_t answer[2] = {0xAAu, 0xBBu};
+  TEST_ASSERT_EQUAL_UINT(2u, ap_kbd_queue_reply(&kbd, answer, 2u));
+  TEST_ASSERT_TRUE(ap_kbd_buffer(&kbd, 0x41u));
+
+  /* Three bytes are waiting and **one** character time has passed, so exactly
+   * one has gone. A part with two transmitters would have put two on the wire
+   * at this instant, which is what this asserts against. */
+  uint8_t code = 0u;
+  unsigned sent = 0u;
+  while (ap_kbd_transmit(&kbd, AP_KBD_TX_CHARACTER, &code)) {
+    sent++;
+  }
+  TEST_ASSERT_EQUAL_UINT(1u, sent);
+
+  /* And the rest follow one character apart, never two at once. */
+  TEST_ASSERT_TRUE(ap_kbd_transmit(&kbd, AP_KBD_TX_CHARACTER * 2u, &code));
+  TEST_ASSERT_FALSE(ap_kbd_transmit(&kbd, AP_KBD_TX_CHARACTER * 2u, &code));
+  TEST_ASSERT_TRUE(ap_kbd_transmit(&kbd, AP_KBD_TX_CHARACTER * 3u, &code));
+  TEST_ASSERT_EQUAL_HEX8(0x41u, code); /* the keystroke, last of the three */
+}
+
+/* A reply queued while a keystroke is already going out must not restart the
+ * clock -- if it did it would overtake the byte in front of it, which one
+ * transmitter cannot do. */
+static void test_a_reply_queued_behind_a_keystroke_does_not_overtake_it(void) {
+  ap_kbd_t kbd;
+  ap_kbd_reset(&kbd);
+
+  TEST_ASSERT_TRUE(ap_kbd_buffer(&kbd, 0x41u));
+  static const uint8_t answer[1] = {0xAAu};
+  TEST_ASSERT_EQUAL_UINT(1u, ap_kbd_queue_reply(&kbd, answer, 1u));
+
+  /* The keystroke was queued first and is on the wire, so it goes first even
+   * though replies are drained ahead of key data when both are merely
+   * waiting. */
+  uint8_t code = 0u;
+  TEST_ASSERT_TRUE(ap_kbd_transmit(&kbd, AP_KBD_TX_CHARACTER, &code));
+  TEST_ASSERT_EQUAL_HEX8(0x41u, code);
+  TEST_ASSERT_TRUE(ap_kbd_transmit(&kbd, AP_KBD_TX_CHARACTER * 2u, &code));
+  TEST_ASSERT_EQUAL_HEX8(0xAAu, code);
+}
+
+/* The answer queue is **not** the key buffer, and the manual's own two
+ * statements are why: §12.2's buffer is "at least 16 bytes" and this core
+ * models that floor, while `AP_KBD_IDENTIFICATION` is twenty bytes. A part with
+ * one 16-byte store could not transmit its own name. */
+static void test_the_answer_queue_holds_a_reply_the_key_buffer_could_not(void) {
+  ap_kbd_t kbd;
+  ap_kbd_reset(&kbd);
+
+  static const char id[] = AP_KBD_IDENTIFICATION;
+  const unsigned len = (unsigned)(sizeof id - 1u);
+  TEST_ASSERT_TRUE(len > AP_KBD_BUFFER);
+  TEST_ASSERT_EQUAL_UINT(
+      len, ap_kbd_queue_reply(&kbd, (const uint8_t *)id, len));
+  TEST_ASSERT_EQUAL_UINT(len, ap_kbd_reply_pending(&kbd));
+
+  /* Two replies fit, because a command can be sent while the previous answer
+   * is still going out. */
+  TEST_ASSERT_EQUAL_UINT(
+      len, ap_kbd_queue_reply(&kbd, (const uint8_t *)id, len));
+
+  /* A third still fits whole -- 64 allows three twenty-byte replies -- and a
+   * fourth is **truncated rather than allowed to overwrite** bytes still
+   * waiting, which is a keyboard talking faster than its line can carry
+   * dropping what will not fit. */
+  TEST_ASSERT_EQUAL_UINT(len,
+                         ap_kbd_queue_reply(&kbd, (const uint8_t *)id, len));
+  const unsigned room = AP_KBD_REPLY_QUEUE - (3u * len);
+  TEST_ASSERT_EQUAL_UINT(room,
+                         ap_kbd_queue_reply(&kbd, (const uint8_t *)id, len));
+  TEST_ASSERT_EQUAL_UINT(AP_KBD_REPLY_QUEUE, ap_kbd_reply_pending(&kbd));
+
+  /* And the key path is **not** inhibited by any of that: §12.2's sixteen
+   * positions count key data, and a reply on the wire is not key data. This is
+   * also the assertion that would have caught `keyboard_room`'s underflow --
+   * `AP_KBD_BUFFER` minus the *whole* queue goes negative here, and unsigned. */
+  TEST_ASSERT_TRUE(ap_kbd_buffer(&kbd, 0x41u));
+  TEST_ASSERT_EQUAL_UINT(1u, ap_kbd_buffered(&kbd));
+  TEST_ASSERT_TRUE(AP_KBD_BUFFER > ap_kbd_buffered(&kbd));
+}
+
+/* The rate is the keyboard's own and nothing else's. 8E1 at 1200 is eleven
+ * bits, and the part does not talk faster because a host programmed its DUART
+ * differently -- which is what the board's second queue used to imply. */
+static void test_the_transmitter_runs_at_the_keyboards_own_eleven_bits(void) {
+  ap_kbd_t kbd;
+  ap_kbd_reset(&kbd);
+
+  static const uint8_t answer[1] = {0x5Au};
+  TEST_ASSERT_EQUAL_UINT(1u, ap_kbd_queue_reply(&kbd, answer, 1u));
+
+  uint8_t code = 0u;
+  /* One unit short is one unit too early: a character is a duration. */
+  TEST_ASSERT_FALSE(ap_kbd_transmit(&kbd, AP_KBD_TX_CHARACTER - 1u, &code));
+  TEST_ASSERT_TRUE(ap_kbd_transmit(&kbd, AP_KBD_TX_CHARACTER, &code));
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, code);
+  TEST_ASSERT_EQUAL_UINT64((ap_time_t)AP_TIME_BASE_HZ * 11u / 1200u,
+                           AP_KBD_TX_CHARACTER);
+}
+
 static void test_a_reset_empties_the_transmit_buffer(void) {
   ap_kbd_t kbd;
   uint8_t code = 0u;
@@ -1333,5 +1449,9 @@ int main(void) {
   RUN_TEST(test_mode_3_puts_the_buttons_in_b1_s_top_nibble);
   RUN_TEST(test_the_absolute_buttons_invert_the_relative_convention);
   RUN_TEST(test_the_pointing_device_type_is_not_a_keyboard_mode);
+  RUN_TEST(test_a_reply_and_a_keystroke_share_one_transmitter);
+  RUN_TEST(test_a_reply_queued_behind_a_keystroke_does_not_overtake_it);
+  RUN_TEST(test_the_answer_queue_holds_a_reply_the_key_buffer_could_not);
+  RUN_TEST(test_the_transmitter_runs_at_the_keyboards_own_eleven_bits);
   return UNITY_END();
 }

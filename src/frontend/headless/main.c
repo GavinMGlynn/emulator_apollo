@@ -3360,10 +3360,15 @@ static void report_input_path(ap_board_t *board, unsigned unit,
          board->interrupts.master.irr, board->interrupts.master.imr,
          ap_intr_pending(&board->interrupts) ? "pending" : "nothing pending");
   if (unit == 0u && channel == 0u) {
-    printf("  keyboard     %s, %s set, %u byte(s) still on the wire\n",
+    /* Both queues, because the part has one transmitter and two sources: an
+     * answer still going out and a burst of typing waiting behind it are
+     * different situations, and one total cannot tell them apart. */
+    printf("  keyboard     %s, %s set, %u reply + %u key byte(s) still on the "
+           "wire\n",
            board->keyboard.loopback ? "in loopback" : "out of loopback",
            board->keyboard.keystate_mode ? "keystate" : "compatibility",
-           board->kbd_reply.count);
+           ap_kbd_reply_pending(&board->keyboard),
+           ap_kbd_buffered(&board->keyboard));
   }
   printf("  traffic      data register %u write(s) %u read(s), "
          "command register %u write(s)\n",

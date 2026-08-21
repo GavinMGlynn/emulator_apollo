@@ -482,16 +482,13 @@ typedef struct ap_board {
    * one character time apart, framed by the channel's own mode registers.
    * `AP_KBD_REPLY_MAX` is one reply; two fit, because a command can be sent
    * while the previous answer is still on the wire. */
-  struct {
-    uint8_t bytes[AP_KBD_REPLY_MAX * 2u];
-    unsigned head;
-    unsigned count;
-    /* When the byte at `head` reaches the receiver. Zero means "as soon as the
-     * next advance runs", which is what a queue that has just been filled
-     * wants -- the first character is one character time away and the advance
-     * that queued it is the one that starts the clock. */
-    ap_time_t next_at;
-  } kbd_reply;
+  /* **This queue moved into `ap_kbd` on 2026-08-21 and is deliberately gone.**
+   * A keyboard has one UART, so its answers and its key data cannot both be on
+   * the wire at once -- and while this existed they could, with two clocks that
+   * disagreed about how wide a character is. `ap_kbd`'s `reply` queue and the
+   * single `tx_at` carry the direction now, at the keyboard's own fixed 1200
+   * 8E1. The pacing property this comment argued for is unchanged and is
+   * restated in `ap_kbd_queue_reply`. */
 
   /* ## The transmitters empty on their own, into here
    *
@@ -507,11 +504,11 @@ typedef struct ap_board {
    * A caller collects at leisure; one that never does loses the oldest, which
    * is what a byte shifted into an unplugged cable does.
    *
-   * **Serial 1 channel A is not here.** The keyboard is on it and
-   * `kbd_reply` above already carries that direction with its own clock,
-   * verified against two boots; routing it through a second queue would change
-   * timing that is currently correct, and this session has already paid once
-   * for a plausible timing change. */
+   * **Serial 1 channel A is not here.** The keyboard is on it, and the part
+   * itself carries that direction -- `ap_kbd`'s answer queue and key buffer
+   * share one `tx_at` at the keyboard's own rate, which is what one UART on one
+   * cable means. Routing it through a second queue here is exactly the defect
+   * that was removed. */
   struct {
     uint8_t bytes[64];
     unsigned head;

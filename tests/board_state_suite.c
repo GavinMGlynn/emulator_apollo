@@ -493,6 +493,12 @@ static void test_every_other_keyboard_field_moves_the_hash(void) {
    * harness -- and the first will deliver keystrokes the second will not. */
   MOVES_THE_HASH(scratch.keyboard.buffered = 1u);
   MOVES_THE_HASH(scratch.keyboard.tx_at = 4242u);
+  /* The answer queue, which moved here from the board on 2026-08-21 and had
+   * **never been hashed anywhere** -- a machine part-way through sending its
+   * identification and one that had finished were the same state. Its contents
+   * are swept with the key buffer's below. */
+  MOVES_THE_HASH(scratch.keyboard.reply_buffered = 1u);
+  MOVES_THE_HASH(scratch.keyboard.key_buffered = 1u);
 }
 
 /* The buffer's *contents* and not merely its depth: two keyboards each holding
@@ -500,6 +506,13 @@ static void test_every_other_keyboard_field_moves_the_hash(void) {
 static void test_the_queued_keyboard_bytes_move_the_hash(void) {
   MOVES_THE_HASH(scratch.keyboard.buffered = 1u;
                  scratch.keyboard.buffer[0] = 0x41u);
+  /* And a byte's **kind**, with everything else equal: one keyboard about to
+   * send a reply and one about to send the same value as a keystroke are not
+   * the same machine, because the first owes the host an answer. */
+  MOVES_THE_HASH(scratch.keyboard.buffered = 1u;
+                 scratch.keyboard.reply_buffered = 1u;
+                 scratch.keyboard.buffer[0] = 0x3Bu;
+                 scratch.keyboard.from_reply[0] = true);
 }
 
 /* And the ring's rotation does **not** move it. Two keyboards holding the same
@@ -517,10 +530,10 @@ static void test_the_ring_s_rotation_does_not_move_the_hash(void) {
   scratch.keyboard.buffer[2] = 0x33u;
 
   /* The same three bytes, started near the end of the ring so they wrap. */
-  other.keyboard.buffer_head = AP_KBD_BUFFER - 2u;
+  other.keyboard.buffer_head = AP_KBD_TX_QUEUE - 2u;
   other.keyboard.buffered = 3u;
-  other.keyboard.buffer[AP_KBD_BUFFER - 2u] = 0x11u;
-  other.keyboard.buffer[AP_KBD_BUFFER - 1u] = 0x22u;
+  other.keyboard.buffer[AP_KBD_TX_QUEUE - 2u] = 0x11u;
+  other.keyboard.buffer[AP_KBD_TX_QUEUE - 1u] = 0x22u;
   other.keyboard.buffer[0] = 0x33u;
 
   TEST_ASSERT_EQUAL_HEX64(ap_board_state_hash(&scratch),

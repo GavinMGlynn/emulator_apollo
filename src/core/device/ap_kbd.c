@@ -317,10 +317,25 @@ bool ap_kbd_auto_repeats(const ap_kbd_ascii_t *key) {
 
 /* ---- §12.2's transmit buffer ---------------------------------------------- */
 
-unsigned ap_kbd_buffered(const ap_kbd_t *kbd) { return kbd->buffered; }
+unsigned ap_kbd_buffered(const ap_kbd_t *kbd) {
+  /* **Key bytes, which is what §12.2's buffer means and what every caller
+   * wants.** The ring also carries replies now, and returning the total broke
+   * `ap_board`'s `keyboard_room` -- `AP_KBD_BUFFER - total` underflows the
+   * moment an answer longer than sixteen bytes is queued, and the part's own
+   * identification is twenty. Caught by reading the callers rather than by a
+   * test, which none of them would have failed until a keypress arrived during
+   * an identify exchange. */
+  return kbd->key_buffered;
+}
 
 bool ap_kbd_buffer_full(const ap_kbd_t *kbd) {
-  return kbd->buffered >= AP_KBD_BUFFER;
+  /* **Key positions, not queue positions.** §12.2's sixteen are a statement
+   * about the data the matrix produces -- "further processing of data is
+   * inhibited" -- and a reply on the wire is not that. Counting the shared
+   * queue instead would make the part refuse keystrokes because it happened to
+   * be answering a command, which no page says and which would be a new failure
+   * mode invented by an implementation detail. */
+  return kbd->key_buffered >= AP_KBD_BUFFER;
 }
 
 bool ap_kbd_buffer(ap_kbd_t *kbd, uint8_t code) {
@@ -347,10 +362,36 @@ bool ap_kbd_buffer(ap_kbd_t *kbd, uint8_t code) {
   if (kbd->buffered == 0u) {
     kbd->tx_at = kbd->now + AP_KBD_TX_CHARACTER;
   }
-  kbd->buffer[(kbd->buffer_head + kbd->buffered) % AP_KBD_BUFFER] = code;
+  kbd->from_reply[(kbd->buffer_head + kbd->buffered) % AP_KBD_TX_QUEUE] = false;
+  kbd->buffer[(kbd->buffer_head + kbd->buffered) % AP_KBD_TX_QUEUE] = code;
   kbd->buffered++;
+  kbd->key_buffered++;
   return true;
 }
+
+unsigned ap_kbd_queue_reply(ap_kbd_t *kbd, const uint8_t *bytes, unsigned n) {
+  const unsigned room = AP_KBD_REPLY_QUEUE - kbd->reply_buffered;
+  const unsigned take = n < room ? n : room;
+  /* The same rule `ap_kbd_buffer` states, for the same reason: an idle
+   * transmitter begins this byte the instant it is queued and finishes one
+   * character time later. **Idle means the whole queue empty**, because there
+   * is one queue -- a reply appended behind a keystroke inherits the run in
+   * progress, and restarting the clock here would let it overtake a byte
+   * already on the wire. */
+  if (take > 0u && kbd->buffered == 0u) {
+    kbd->tx_at = kbd->now + AP_KBD_TX_CHARACTER;
+  }
+  for (unsigned i = 0; i < take; i++) {
+    const unsigned at = (kbd->buffer_head + kbd->buffered + i) % AP_KBD_TX_QUEUE;
+    kbd->from_reply[at] = true;
+    kbd->buffer[at] = bytes[i];
+  }
+  kbd->buffered += take;
+  kbd->reply_buffered += take;
+  return take;
+}
+
+unsigned ap_kbd_reply_pending(const ap_kbd_t *kbd) { return kbd->reply_buffered; }
 
 bool ap_kbd_transmit(ap_kbd_t *kbd, ap_time_t now, uint8_t *code) {
   if (kbd->buffered == 0u || now < kbd->tx_at) {
@@ -359,7 +400,16 @@ bool ap_kbd_transmit(ap_kbd_t *kbd, ap_time_t now, uint8_t *code) {
   if (code != nullptr) {
     *code = kbd->buffer[kbd->buffer_head];
   }
-  kbd->buffer_head = (kbd->buffer_head + 1u) % AP_KBD_BUFFER;
+  /* **Arrival order, and no rule about which source wins.** One UART means one
+   * queue, and a queue has no arbitration to get wrong -- which is the whole
+   * reason the answers moved in here rather than being given a priority. The
+   * byte's own kind says which admission allowance it returns. */
+  if (kbd->from_reply[kbd->buffer_head]) {
+    kbd->reply_buffered--;
+  } else {
+    kbd->key_buffered--;
+  }
+  kbd->buffer_head = (kbd->buffer_head + 1u) % AP_KBD_TX_QUEUE;
   kbd->buffered--;
   /* A character on from the last one and **not** from `now`, so the rate is a
    * property of the wire rather than of how often this is called. `ap_kbd_buffer`

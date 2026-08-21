@@ -1247,70 +1247,35 @@ void ap_board_advance(ap_board_t *board, ap_time_t now) {
     uint8_t reply[AP_KBD_REPLY_MAX];
     const unsigned n =
         ap_kbd_receive(&board->keyboard, out, reply, AP_KBD_REPLY_MAX);
-    /* Queued, not delivered. See `ap_board.h`: the wire has a length, and a
-     * reply that arrives all at once overruns a three-deep FIFO. A queue that
-     * is already full drops the excess rather than wrapping over bytes still
-     * waiting -- which is what a keyboard talking faster than the line can
-     * carry would really do. */
-    const unsigned room =
-        (unsigned)(sizeof board->kbd_reply.bytes) - board->kbd_reply.count;
-    const unsigned take = n < room ? n : room;
-    for (unsigned i = 0; i < take; i++) {
-      const unsigned at = (board->kbd_reply.head + board->kbd_reply.count + i) %
-                          (unsigned)(sizeof board->kbd_reply.bytes);
-      board->kbd_reply.bytes[at] = reply[i];
-    }
-    if (take > 0u && board->kbd_reply.count == 0u) {
-      /* **A reply cannot begin before a character time has passed**, and the
-       * queue used to let the first byte of a burst go on the very next
-       * advance -- so an answer started arriving microseconds after the command
-       * that provoked it, and only the bytes *after* the first were paced.
-       *
-       * That is not a detail. The boot PROM sends `00` and then, within
-       * microseconds, resets the receiver (`CRA = 25`, whose miscellaneous
-       * command flushes the FIFO) before starting the next exchange. On real
-       * hardware the keyboard's answer is still on the wire at that moment and
-       * the flush discards nothing; with the first byte delivered immediately,
-       * it lands *before* the flush and the alignment of everything after it
-       * differs.
-       *
-       * So the clock starts when the burst is queued, not when the first byte
-       * goes. */
-      board->kbd_reply.next_at =
-          now + ap_sio_character_time(&board->sio, KBD_UNIT, KBD_CHANNEL,
-                                      AP_SIO_KEYBOARD_BAUD);
-    }
-    board->kbd_reply.count += take;
+    /* Queued in the keyboard, not delivered, and **not in a second queue on the
+     * board**. See `ap_kbd.h`: the part has one UART, so its answers and its key
+     * data share one transmitter and one rate. This used to keep its own queue
+     * here with its own clock and its own idea of how wide a character is, and
+     * the two could put a byte on the wire at the same instant.
+     *
+     * The pacing property that queue existed for is `ap_kbd_queue_reply`'s
+     * now, unchanged and for the same reason: **a reply cannot begin before a
+     * character time has passed.** The boot PROM sends `00` and then, within
+     * microseconds, resets the receiver (`CRA = 25`, whose miscellaneous
+     * command flushes the FIFO). On real hardware the keyboard's answer is
+     * still on the wire and the flush discards nothing; with the first byte
+     * delivered immediately it lands *before* the flush, and everything after
+     * it is aligned differently. So the clock starts when the burst is queued,
+     * not when the first byte goes.
+     *
+     * Short of `n` when the answer queue is full, which is a keyboard talking
+     * faster than its line can carry dropping what will not fit. */
+    (void)ap_kbd_queue_reply(&board->keyboard, reply, n);
   }
 
-  /* And the wire itself, one character at a time. The rate is the channel's
-   * own: `ap_sio_character_time` builds it from the receiver's mode registers
-   * and the keyboard's clock select, so a firmware that reprograms the line
-   * changes how fast its keyboard answers, which is what a shared wire does.
-   *
-   * A rate the part cannot name gives zero, and then the byte goes over at
-   * once -- the old behaviour, kept for the case where nothing has programmed
-   * the channel yet, because a character time of zero is not a reason to hold
-   * traffic for ever. */
-  while (board->kbd_reply.count > 0u && now >= board->kbd_reply.next_at) {
-    ap_sio_receive_framed(&board->sio, KBD_UNIT, KBD_CHANNEL,
-                          board->kbd_reply.bytes[board->kbd_reply.head],
-                          AP_SIO_KEYBOARD_CSR, AP_SIO_KEYBOARD_MR1);
-    board->kbd_reply.head = (board->kbd_reply.head + 1u) %
-                            (unsigned)(sizeof board->kbd_reply.bytes);
-    board->kbd_reply.count--;
-    const ap_time_t character = ap_sio_character_time(
-        &board->sio, KBD_UNIT, KBD_CHANNEL, AP_SIO_KEYBOARD_BAUD);
-    if (character == 0u) {
-      board->kbd_reply.next_at = now;
-      break;
-    }
-    board->kbd_reply.next_at = now + character;
-  }
+  /* And the wire, once, at the keyboard's own rate -- `drain_keyboard` below.
+   * Called again after the replies because a byte queued just now may be due
+   * at this same instant, and the earlier call could not have seen it. */
+  drain_keyboard(board, now);
 
   /* The transmitters, emptied by the board rather than by whoever happens to be
    * watching. One character time apart, from the channel's own framing, and the
-   * keyboard's channel excluded because `kbd_reply` already carries it. */
+   * keyboard's channel excluded because the keyboard itself carries it. */
   for (unsigned unit = 0; unit < 2u; unit++) {
     for (unsigned channel = 0; channel < 2u; channel++) {
       if (unit == KBD_UNIT && channel == KBD_CHANNEL) {
@@ -1511,9 +1476,6 @@ bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
   /* The wire is empty, and explicitly so rather than by the `memset` above: a
    * reset that left a reply half-delivered would put a byte from the previous
    * machine into the next one's first exchange. */
-  board->kbd_reply.head = 0u;
-  board->kbd_reply.count = 0u;
-  board->kbd_reply.next_at = 0u;
   memset(board->tx, 0, sizeof board->tx);
   /* `PROVISIONAL`, and the field's comment says why. Set explicitly rather than
    * left to the `memset` above being zero: the value is a claim about this
@@ -2036,25 +1998,19 @@ static bool deliver_key(ap_board_t *board, uint8_t code) {
   return ap_kbd_buffer(&board->keyboard, code);
 }
 
-/* **Two queues share one transmitter, and that is a known incompleteness.**
+/* **One transmitter, and the two queues that used to share nothing are gone.**
  *
- * `kbd_reply` above paces the keyboard's *answers* one character at a time, and
- * this paces its *key data*. A real keyboard has one transmitter and one
- * buffer, so a reply and a keystroke cannot go out at once -- here they can,
- * and a burst of typing during a command exchange would interleave in a way the
- * part could not produce.
+ * This function is now the keyboard's only exit. `ap_kbd` holds one ring for
+ * both its answers and its key data, drained in arrival order at the part's own
+ * fixed 1200 8E1 -- so a reply and a keystroke cannot be on the wire at the
+ * same instant, which is what one UART on one cable means. It used to be two
+ * queues with two clocks that disagreed about how wide a character is, the
+ * board's taking the *port's* programmed framing and the part's its own.
  *
- * They also take their rate from different places. `kbd_reply` uses
- * `ap_sio_character_time`, the *port's* programmed rate; this uses the
- * keyboard's own fixed 1200 8E1, which is what `deliver_key` argues for
- * directly above -- "a real keyboard has one fixed framing". Those cannot both
- * be right.
- *
- * Not unified here on purpose. `kbd_reply`'s pacing is load-bearing for the
- * reference boot -- the comment above it records a real alignment finding about
- * the PROM flushing the receiver mid-answer -- and merging the two would move
- * boot timing on evidence this change has not gathered. `PROVISIONAL`, named in
- * `PROJECT_STATUS.md` and on the plan.
+ * `008778-03` §12.2's sixteen positions still gate key data alone: a reply
+ * going out is not "data" the matrix produced, and inhibiting keystrokes
+ * because the part happened to be answering a command would be a failure mode
+ * no page describes.
  *
  * Move whatever the keyboard has finished transmitting into the DUART.
  *
