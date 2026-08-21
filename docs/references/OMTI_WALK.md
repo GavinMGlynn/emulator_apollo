@@ -436,6 +436,13 @@ only primary is correct *for this machine*. What is unverified is whether the
 Apollo could be strapped to secondary at all — a jumper question, §2.3, and one
 for the walk to answer when it reaches that section rather than to guess now.
 
+> **ANSWERED 2026-08-22, from §2.4.3 rather than §2.3.** The strap is **`W14`**,
+> and the board can indeed sit at either base. Detail below under §2.4. The
+> guess held; what was wrong was the section — the jumper that selects the
+> floppy base is documented in the *installation procedure*, not in the jumper
+> allocation table, which is why a reader who had walked §2.3 alone would still
+> not have found it.
+
 **Another family wildcard**: §4.4's heading is "(not applicable for 812x)" and
 its text says "the floppy disk portions of the **OMTI 8x2x** controller" — the
 same generic form as §4.1's `862X`, and further support for reading this
@@ -1032,3 +1039,50 @@ reason the configuration byte is not a geometry source under any reading.
 
 *Nothing here changes behaviour.* It converts one implementation decision and one
 measured byte into cited facts. Coverage: §2.3 is now whole, 2-4 through 2-7.
+
+
+## §2.4, INSTALLATION PROCEDURE — the strap this walk owed, and the two connectors
+
+PDF 21, doc 2-11. Five subsections, and two of them are hardware facts.
+
+**§2.4.1, Winchester drive configuration (8620 & 8627 only).** Two Winchester
+connectors, **`J3`** and **`J4`**, one drive each: "up to two (2) ESDI
+Winchester drives **or** up to two (2) ST412". Mixing is allowed but requires
+cutting a trace jumper, and the pairing is stated per connector — "if an ESDI
+drive is connected on **J4** ... **`W13`** shall be cut", "on **J3** ...
+**`W12`**". So the board carries a per-connector ESDI/ST412 strap distinct from
+§2.3's per-LUN drive-type bits, and the two are cut rather than fitted.
+
+**§2.4.2, Floppy Support (8620 and 8627 only).** "The OMTI 8000 controller
+provides floppy disk support which is fully AT bus and hardware compatible.
+Therefore, you may remove the AT Winchester/floppy controller (if installed) and
+connect the floppy cable to connector **`J1`**." *That is this project's combined
+controller stated as a product feature* — one card serving both surfaces, which
+is the arrangement `ap_omti` models and the reason a single part has Table 4-1
+and Table 4-3.
+
+**§2.4.3 closes an open question this record has carried since the §4 walk.**
+Where an AT controller is left in place to serve an existing non-ESDI Winchester,
+"only one of the two controllers should control the floppy drive. To avoid
+conflicts ... the OMTI controller must be strapped for the **secondary** floppy
+base I/O address (**`W14`** on)."
+
+So Table 4-3's `372`-`377` is reachable, by a strap, and the question of whether
+this board could sit at the secondary base is answered yes. It changes nothing:
+a DN3500 has no second floppy controller to conflict with, `002398-04` places
+its floppy at `3F0`, and `W14` has no software path — nothing the emulated
+machine executes can move it. `ap_omti.h` now records the base as a strap with
+its citation instead of as an unexplained constant.
+
+*The method note is the section it was found in.* This walk expected the answer
+in §2.3, JUMPER ALLOCATION, and logged it as owed there. §2.3 turned out to
+document only the drive-type bits; the base-address strap is in the installation
+procedure. A reader who had walked the jumper chapter and stopped would have
+concluded the manual was silent — which is the whole-document rule's case,
+arriving from the direction that makes it least visible.
+
+**§2.4.4** is AT-specific and inapplicable here: IBM's `SETUP` must report
+**zero** hard disks for drives on the OMTI, because the controller's own ROM
+BIOS owns them. **§2.4.5** names the BIOS revisions again — AT3 `#1002579`, AT4
+`#1002580`, "the latest BIOSES available" — and requires `OMTIDISK` V3.0 or
+later for auto-configuration, defect handling and low-level formatting.

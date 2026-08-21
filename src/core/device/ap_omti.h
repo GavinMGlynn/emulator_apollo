@@ -97,7 +97,16 @@ typedef enum {
 #define AP_OMTI_ST_REQ 0x01u   /* 1 = transfer one byte or word */
 
 /* `[OMTI]` Table 4-3, the floppy half: five registers within an eight-address
- * block based at AT `3F0`, so the offsets are 2 and 4 through 7. */
+ * block based at AT `3F0`, so the offsets are 2 and 4 through 7.
+ *
+ * **`3F0` is the primary base, and it is a strap.** Table 4-3 also gives a
+ * secondary set at `372`-`377`, and §2.4.3 names what selects between them:
+ * where a second controller already owns the floppy, "the OMTI controller must
+ * be strapped for the **secondary** floppy base I/O address (**W14** on)". So
+ * the board can sit at either, this machine's is at `3F0` -- `002398-04` places
+ * the DN3000 floppy there -- and only the primary block is modelled. That is a
+ * scope decision about *this* board, not an unmodelled register: `W14` has no
+ * software path, and nothing in a DN3500 can move it. */
 #define AP_OMTI_FLOPPY_REGISTERS 8u
 typedef enum {
   AP_OMTI_FDC_DOR = 2u,      /* write Digital Output; read N/A */
