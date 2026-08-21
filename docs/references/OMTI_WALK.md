@@ -10,7 +10,7 @@ Three manuals, and the DN3500's controller is an **8621**.
 
 **220 pages total. None is walked.**
 
-## STATUS: 12 pages read plus **a footer map for PDF 30–45**. §4.1 to §4.3 walked. Registers confirm the model; **the manual contradicts itself on the DMA channel**, resolved below on physical grounds. The 8621 is not *listed* but the body text addresses **`862X`**; two navigational traps and one unmodelled timing figure are recorded below.
+## STATUS: 13 pages read plus **a footer map for PDF 30–45**. **§4.1 to §4.4 walked** — both register sets, fixed disk and floppy. Registers confirm the model; the manual's DMA-channel contradiction is resolved below on physical grounds; one defect found (see the plan). The 8621 is not *listed* but the body text addresses **`862X`**; two navigational traps and one unmodelled timing figure are recorded below.
 
 Record opened 2026-08-21 with the method established and the reading order
 revised by what those three pages said.
@@ -315,6 +315,39 @@ issuing a SELECT", stated twice. A model with no RESET phase has nowhere to put
 a duration, so the missing state and the missing wait are **one gap, not two**:
 implementing the wait means giving RESET a phase with a length, and that is the
 shape the fix should take.
+
+## §4.4, the floppy register set — confirms, and one address set is absent
+
+p. 4-5. **Table 4-3** gives five 8-bit registers, each at a **primary or
+secondary** address "selectable (re: Section 3)":
+
+| Primary | Secondary | Read | Write |
+| --- | --- | --- | --- |
+| `3F2H` | `372H` | N/A | Digital Output |
+| `3F4H` | `374H` | Main Status | N/A |
+| `3F5H` | `375H` | Data | Data |
+| `3F6H` | `376H` | N/A | Additional Control |
+| `3F7H` | `377H` | Digital Input | Diskette Control |
+
+`ap_omti.h` has the primary set with the `3F6`/`3F7` split explicit — and
+records that Table 4-3 is what *found* that split, writes to `3F7` having
+previously shared `3F6`'s byte. The **Digital Output** bits match one for one
+(5 Drive B motor, 4 Drive A motor, 3 interrupts and DMA, 2 reset-when-zero,
+0 select-drive, 7/6/1 reserved), the "**All bits are cleared when a channel
+reset occurs**" sentence is quoted, and **Digital Input**'s bit 7 from "pin 34
+of the floppy disk control cable" with bits 0-6 reserved is there too.
+
+**The secondary set `372H`-`377H` has no hits in `src/`.** Recorded as an
+observation and **not** as a defect: the DN3000's floppy is placed at ISA `3F0`
+by `002398-04`, so this board is presumably strapped to primary and modelling
+only primary is correct *for this machine*. What is unverified is whether the
+Apollo could be strapped to secondary at all — a jumper question, §2.3, and one
+for the walk to answer when it reaches that section rather than to guess now.
+
+**Another family wildcard**: §4.4's heading is "(not applicable for 812x)" and
+its text says "the floppy disk portions of the **OMTI 8x2x** controller" — the
+same generic form as §4.1's `862X`, and further support for reading this
+manual's normative text as family-wide.
 
 ## One gap already visible, and two facts confirmed
 
