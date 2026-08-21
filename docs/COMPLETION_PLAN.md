@@ -6375,15 +6375,25 @@ same number is what let them diverge once already.
       command in `ap_kbd_receive`'s set runs one and no result is defined
       anywhere in the chapter, so this is named rather than modelled —
       inventing a diagnostic result would be inventing a failure mode.
-- [ ] **The floppy spindle's 500 ms start time.** `PROVISIONAL`, marked in
-      `ap_omti.h` and `PROJECT_STATUS.md`. `008778-03` Table 7-1 and Table 7-4
-      both give it; this core does not time the motor from the Digital Output
-      Register, so a command issued into a stopped spindle completes as though
-      the disk were at speed. **What would close it**: a motor-on timestamp, and
-      a documented answer to what a too-early command *does*. No manual held here
-      says whether that is an error or a wait, and inventing a failure mode is
-      worse than the gap.
-
+- [ ] **What a command issued into a stopped spindle does.** Narrowed
+      2026-08-22 from "the floppy spindle's 500 ms start time", whose timing
+      half is now **done**: `AP_OMTI_FDC_SPINDLE_START` runs from the Digital
+      Output Register's motor bits and `ap_omti_fdc_at_speed` says whether a
+      drive has reached 360 rpm. Table 7-1 and Table 7-4 both print the figure.
+      **What remains is one question**, and the sibling manual sharpened it
+      rather than settling it. The drive's `ready` line is the reporting
+      channel, and `[OMTI]` §6.4.4 and `[8640]` §5.6.4 carry the *identical*
+      sentence — "Track 0 (T0) - Status of the 'ready' signal from the diskette
+      drive" at `ST3` **bit 4** — with both calling bit 5 "not used", where the
+      generic 765 puts ready. So the name-versus-description contradiction is
+      **the vendor's, repeated across two products**, not a slip in one
+      transcription. That is what reading the sibling established and what one
+      manual could not.
+      Driving a bit whose own name denies its description would be choosing one
+      half of a contradiction, so nothing is driven from the timer yet.
+      **What would close it**: a third OMTI manual, a driver that tests the bit,
+      or a machine to probe. *Verification of the half that is done:
+      `afd_suite` 36 → 40.*
 ## Deferred tails
 
 Nothing is deferred silently. Current list:

@@ -65,6 +65,11 @@ void ap_omti_reset(ap_omti_t *omti) {
    * machine has already passed. */
   omti->fdc_seek_at[0] = AP_TIME_NEVER;
   omti->fdc_seek_at[1] = AP_TIME_NEVER;
+  /* "All bits are cleared when a channel reset occurs" -- Table 4-3, of the
+   * Digital Output Register, and the motor bits are among them. A reset stops
+   * the motors, so no spindle is at speed and none is spinning up. */
+  omti->fdc_spindle_at[0] = AP_TIME_NEVER;
+  omti->fdc_spindle_at[1] = AP_TIME_NEVER;
 }
 
 bool ap_omti_disk_dma_request(const ap_omti_t *omti) {
@@ -105,6 +110,16 @@ bool ap_omti_disk_irq(const ap_omti_t *omti) {
 
 bool ap_omti_data_is_byte(const ap_omti_t *omti) {
   return (omti->status & AP_OMTI_ST_CD) != 0u;
+}
+
+bool ap_omti_fdc_at_speed(const ap_omti_t *omti, unsigned unit) {
+  if (unit >= 2u || omti->fdc_spindle_at[unit] == AP_TIME_NEVER) {
+    return false;
+  }
+  /* `>=` and not `>`, for the reason `ap_omti_advance` gives: a deadline is the
+   * instant the state is visible, and a drive advanced exactly onto it has
+   * reached speed. */
+  return omti->now >= omti->fdc_spindle_at[unit];
 }
 
 bool ap_omti_fdc_in_reset(const ap_omti_t *omti) {
@@ -2344,7 +2359,31 @@ void ap_omti_fdc_write(ap_omti_t *omti, unsigned reg, uint8_t value) {
   switch (reg & (AP_OMTI_FLOPPY_REGISTERS - 1u)) {
   case AP_OMTI_FDC_DOR: {
     const bool was_reset = ap_omti_fdc_in_reset(omti);
+    const uint8_t was_motors =
+        (uint8_t)(omti->dor &
+                  (AP_OMTI_DOR_DRIVE_A_MOTOR | AP_OMTI_DOR_DRIVE_B_MOTOR));
     omti->dor = value;
+
+    /* **The spindles, timed from this register.** Table 7-1 and Table 7-4 both
+     * give the drive a start time under 500 msec, and the motor bits are what
+     * starts it -- so the instant a drive reaches 360 rpm is decided here and
+     * nowhere else.
+     *
+     * Rising takes the stamp; falling clears it. A bit written again while the
+     * motor is already running is *not* a restart: the spindle does not slow
+     * down because the host wrote the same value twice, and treating every
+     * write as a fresh start would let a driver that polls the register keep
+     * its own disk permanently spinning up. */
+    for (unsigned unit = 0; unit < 2u; unit++) {
+      const uint8_t bit = unit == 0u ? AP_OMTI_DOR_DRIVE_A_MOTOR
+                                     : AP_OMTI_DOR_DRIVE_B_MOTOR;
+      const bool running = (omti->dor & bit) != 0u;
+      if (running && (was_motors & bit) == 0u) {
+        omti->fdc_spindle_at[unit] = omti->now + AP_OMTI_FDC_SPINDLE_START;
+      } else if (!running) {
+        omti->fdc_spindle_at[unit] = AP_TIME_NEVER;
+      }
+    }
     /* Bit 2 rising takes the floppy side out of reset. Coming out is what
      * arms the command phase: before it, the data register is inert. */
     if (was_reset && !ap_omti_fdc_in_reset(omti)) {

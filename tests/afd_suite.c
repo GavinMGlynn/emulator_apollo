@@ -870,6 +870,113 @@ static void test_a_reset_abandons_an_outstanding_seek(void) {
   release_floppy();
 }
 
+/* ## The spindle, timed from the Digital Output Register
+ *
+ * `008778-03` Table 7-1 and Table 7-4 both give the drive a start time under
+ * **500 msec** to 360 rpm, and §7.6.5's direct dc brushless motor is what they
+ * describe. The motor bits are what starts it, so the instant a drive reaches
+ * speed is decided by the host's write and nothing else.
+ *
+ * **Nothing consults this yet**, and that is the point of testing it directly:
+ * what a command issued into a stopped spindle *does* is still open -- the
+ * drive's `ready` line is the reporting channel and both OMTI manuals put it at
+ * `ST3` bit 4 under the name `Track 0`, a contradiction that is the vendor's
+ * rather than a transcription slip. Driving a bit whose name denies its own
+ * description would be choosing one half of it. */
+static void test_a_spindle_reaches_speed_five_hundred_ms_after_its_motor(void) {
+  build_floppy(true);
+  build_controller();
+
+  /* `build_controller` takes the floppy side out of reset and does not start a
+   * motor, so nothing is turning. */
+  TEST_ASSERT_FALSE(ap_omti_fdc_at_speed(&omti, 0u));
+
+  const ap_time_t started = omti.now;
+  ap_omti_fdc_write(&omti, AP_OMTI_FDC_DOR,
+                    (uint8_t)(AP_OMTI_DOR_NOT_RESET |
+                              AP_OMTI_DOR_DRIVE_A_MOTOR));
+  TEST_ASSERT_FALSE(ap_omti_fdc_at_speed(&omti, 0u));
+
+  /* One unit short is still spinning up: a start time is a duration. */
+  ap_omti_advance(&omti, started + AP_OMTI_FDC_SPINDLE_START - 1u);
+  TEST_ASSERT_FALSE(ap_omti_fdc_at_speed(&omti, 0u));
+
+  ap_omti_advance(&omti, started + AP_OMTI_FDC_SPINDLE_START);
+  TEST_ASSERT_TRUE(ap_omti_fdc_at_speed(&omti, 0u));
+
+  /* The other drive's motor was never started, so it is not turning however
+   * long the first has been. Per drive, like the seek. */
+  TEST_ASSERT_FALSE(ap_omti_fdc_at_speed(&omti, 1u));
+
+  release_floppy();
+}
+
+/* Writing the register again while a motor is already running is not a
+ * restart -- a spindle does not slow down because the host wrote the same value
+ * twice, and treating every write as a fresh start would let a driver that
+ * polls the register keep its own disk permanently spinning up. */
+static void test_rewriting_a_running_motor_bit_does_not_restart_the_spindle(
+    void) {
+  build_floppy(true);
+  build_controller();
+
+  const ap_time_t started = omti.now;
+  const uint8_t running =
+      (uint8_t)(AP_OMTI_DOR_NOT_RESET | AP_OMTI_DOR_DRIVE_A_MOTOR);
+  ap_omti_fdc_write(&omti, AP_OMTI_FDC_DOR, running);
+  ap_omti_advance(&omti, started + AP_OMTI_FDC_SPINDLE_START);
+  TEST_ASSERT_TRUE(ap_omti_fdc_at_speed(&omti, 0u));
+
+  ap_omti_fdc_write(&omti, AP_OMTI_FDC_DOR, running);
+  TEST_ASSERT_TRUE(ap_omti_fdc_at_speed(&omti, 0u));
+
+  /* Stopping it does stop it, and starting again pays the full 500 msec --
+   * so the "not a restart" rule is about the *bit not changing*, not about the
+   * spindle never spinning down. */
+  ap_omti_fdc_write(&omti, AP_OMTI_FDC_DOR, AP_OMTI_DOR_NOT_RESET);
+  TEST_ASSERT_FALSE(ap_omti_fdc_at_speed(&omti, 0u));
+
+  const ap_time_t restarted = omti.now;
+  ap_omti_fdc_write(&omti, AP_OMTI_FDC_DOR, running);
+  ap_omti_advance(&omti, restarted + AP_OMTI_FDC_SPINDLE_START - 1u);
+  TEST_ASSERT_FALSE(ap_omti_fdc_at_speed(&omti, 0u));
+  ap_omti_advance(&omti, restarted + AP_OMTI_FDC_SPINDLE_START);
+  TEST_ASSERT_TRUE(ap_omti_fdc_at_speed(&omti, 0u));
+
+  release_floppy();
+}
+
+/* Table 4-3: "All bits are cleared when a channel reset occurs", and the motor
+ * bits are among them -- so a reset stops the motors and no spindle is at
+ * speed or spinning up. */
+static void test_a_reset_stops_every_spindle(void) {
+  build_floppy(true);
+  build_controller();
+
+  const ap_time_t started = omti.now;
+  ap_omti_fdc_write(&omti, AP_OMTI_FDC_DOR,
+                    (uint8_t)(AP_OMTI_DOR_NOT_RESET |
+                              AP_OMTI_DOR_DRIVE_A_MOTOR |
+                              AP_OMTI_DOR_DRIVE_B_MOTOR));
+  ap_omti_advance(&omti, started + AP_OMTI_FDC_SPINDLE_START);
+  TEST_ASSERT_TRUE(ap_omti_fdc_at_speed(&omti, 0u));
+  TEST_ASSERT_TRUE(ap_omti_fdc_at_speed(&omti, 1u));
+
+  ap_omti_fdc_write(&omti, AP_OMTI_FDC_DOR, 0u);
+  TEST_ASSERT_FALSE(ap_omti_fdc_at_speed(&omti, 0u));
+  TEST_ASSERT_FALSE(ap_omti_fdc_at_speed(&omti, 1u));
+
+  release_floppy();
+}
+
+/* Exact on the time base, like every other period here: a figure that rounded
+ * would drift against the machine's other clocks. */
+static void test_the_spindle_start_time_lands_on_the_time_base(void) {
+  TEST_ASSERT_EQUAL_UINT64(0u, (ap_time_t)AP_TIME_BASE_HZ * 500u % 1000u);
+  TEST_ASSERT_EQUAL_UINT64((ap_time_t)AP_TIME_BASE_HZ / 2u,
+                           AP_OMTI_FDC_SPINDLE_START);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_an_afd_image_is_exactly_one_floppy_or_it_is_refused);
@@ -908,5 +1015,9 @@ int main(void) {
   RUN_TEST(test_a_read_costs_half_a_revolution_and_the_sectors_transfer);
   RUN_TEST(test_a_command_that_touches_no_surface_costs_nothing);
   RUN_TEST(test_a_reset_abandons_an_outstanding_seek);
+  RUN_TEST(test_a_spindle_reaches_speed_five_hundred_ms_after_its_motor);
+  RUN_TEST(test_rewriting_a_running_motor_bit_does_not_restart_the_spindle);
+  RUN_TEST(test_a_reset_stops_every_spindle);
+  RUN_TEST(test_the_spindle_start_time_lands_on_the_time_base);
   return UNITY_END();
 }

@@ -433,6 +433,63 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+## The floppy spindle is timed, and the sibling manual sharpened what is left
+## (2026-08-22)
+
+`008778-03` Table 7-1 and Table 7-4 both give the drive a start time **under
+500 msec** to 360 rpm, and §7.6.5's direct dc brushless motor is what they
+describe. This core did not time it: a command issued into a stopped spindle
+completed as though the disk were at speed.
+
+**The timing half is done.** `AP_OMTI_FDC_SPINDLE_START` runs from the Digital
+Output Register's motor bits — rising takes the stamp, falling clears it — and
+`ap_omti_fdc_at_speed` says whether a drive has reached 360 rpm. Per drive, like
+the seek, because two spindles started a second apart are not in the same state.
+Writing the register again while a motor already runs is **not** a restart: a
+spindle does not slow down because the host wrote the same value twice, and
+treating every write as a fresh start would let a driver that polls the register
+keep its own disk permanently spinning up.
+
+### What is left, and why the sibling manual mattered
+
+The item asked for "a documented answer to what a too-early command *does*". The
+drive's `ready` line is the reporting channel, and this is where two manuals say
+the same strange thing:
+
+> `[OMTI]` §6.4.4 — "**Track 0 (T0) - Status of the 'ready' signal** from the
+> diskette drive", `ST3` **bit 4**; bit 5 "not used - always zero".
+>
+> `[8640]` §5.6.4 — the **identical sentence**, at the same bit, with the same
+> bit 5.
+
+The generic 765 puts **ready at bit 5 and track 0 at bit 4**. So the OMTI's own
+text gives bit 4 a name from one signal and a description from the other — and
+because *two* products carry it word for word, the contradiction is **the
+vendor's**, not a slip in one transcription. That is a fact only the sibling
+manual could establish, and it is the step `CLAUDE.md` says is most often
+skipped.
+
+Driving a bit whose own name denies its description would be choosing one half
+of a contradiction, so nothing is driven from the timer yet. The `PROVISIONAL`
+is **narrowed to exactly that question** rather than closed, and what would
+settle it is named: a third OMTI manual, a driver that tests the bit, or a
+machine to probe.
+
+*The timer exists to be measured and asserted, and nothing in `src/` consults
+it. Naming a state the machine really has while being honest that nothing acts
+on it is the same restraint the `ST3` constants are kept under.*
+
+**The hash moved and no behaviour did.** The two spindle deadlines join the
+hashed stream — two controllers whose motors started at different instants are
+different machines, exactly as the seek's deadline says — and since nothing
+reads the predicate, the console is unchanged by construction rather than by
+luck.
+
+*Verification: `afd_suite` 36 → 40 — 500 msec exactly, one unit short still
+spinning up, per-drive independence, a rewrite that is not a restart against a
+stop-and-start that is, a reset stopping every spindle, and the period exact on
+the time base.*
+
 ## Refresh cycles are stolen now, and the processor pays for a quarter of them
 ## (2026-08-22)
 
@@ -2022,6 +2079,7 @@ same media and the same invocation:
 4EAC44B176697CE7   + the OMTI's RESET phase and its 100 µs -- **unmoved**
 E5807E174455F171   + one keyboard transmitter instead of two
 E577E1BC3A1071F8   + §2.4.6's refresh cycles, stolen from the processor
+623DEE0C41686430   + the floppy spindles' start deadlines
 ```
 
 The fifth row is the interesting one, because that change *does* touch a hashed
@@ -2693,12 +2751,14 @@ machines differing only in where a floppy head stood hashed alike. Invisible
 while nothing could differ, and fatal to an identity harness the moment the
 drive got a clock. Now hashed, buffers excepted as the fixed disk's is.
 
-**`PROVISIONAL`, named rather than guessed**: Table 7-1's 500 ms spindle start
-time is not modelled. This core does not time the motor from the Digital Output
-Register, so a command issued into a stopped spindle completes as though the
-disk were at speed. Closing it needs a motor-on timestamp *and* a decision about
-what a too-early command does — and no manual here says whether that is an error
-or a wait, so modelling it now would mean inventing a failure mode. Table 7-1's
+**`PROVISIONAL`, named rather than guessed — and half of it closed on
+2026-08-22.** Table 7-1's 500 ms spindle start time **is** modelled now: the
+motor is timed from the Digital Output Register and `ap_omti_fdc_at_speed`
+answers per drive. What remains is only what a too-early command *does*, and the
+sibling manual narrowed rather than settled it — see *The floppy spindle is
+timed* above. This paragraph used to say "no manual here says whether that is an
+error or a wait"; the manuals do name the reporting channel, and they contradict
+themselves about which bit it is, identically, in two products. Table 7-1's
 35 ms head load time is deliberately *not* a gap: §7.7.5 says "The *Domain
 System* does not require a head load solenoid".
 
@@ -9264,7 +9324,7 @@ to the controller's buffer ... does not transfer the data to the host", paired
 with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both derived from the STATUS register. The DRQ7 citation is **§4.3's DATA STATE alone** -- "it will set the DRQ7 bit on the system bus", read off p. 4-4 as an image -- plus `008778-03` Table 2-4. **Not "§4.2 and §4.3"**, which this row used to say: §4.2's MASK bit 0 gives **DRQ3** on p. 4-3, so the two sections of one manual contradict each other and only one of them can be cited. DRQ3 is excluded on physical grounds anyway -- DRQ7 is the 16-bit channel and the transfer is word mode. The rest is as §4.2 and §4.3 give it: the interrupt from `IREQ` and the MASK byte's interrupt enable, the DMA request from `DREQ`, which the MASK byte's DMA enable gates. IRQ6 and DRQ2 are placed and not yet driven: the floppy side's completion is the FDC's result phase, not this one | `omti_suite`, 15 tests; `awd_suite`, 49; `afd_suite`, 34; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |
 | OMTI 8621 placement (the DN3500's disk) | measured, both halves. Placement characterised at `04D000`: the range is the card's (all `FF` without it, control verified by device enumeration), aliased on an eight-byte period, with offsets 1-3 driven. Offsets 0 and 4-7 read `FF`, which a read sweep cannot distinguish from undriven | `FINDINGS.md` C20 |
 | WD7000 ESDI/SCSI (DN4500) | not started | — |
-| Floppy (`device/ap_omti.c`'s second half, `image/ap_afd.c`), QIC cartridge tape (`device/ap_qic.c`, `board/ap_tape.c`) | **modelled, and the floppy is now reachable.** §6.3's ten commands with their ST0-ST3 result bytes, the motor, MFM, multitrack and skip-deleted flags, over a 77x2x8x1024 `.afd`. The row said "not started", which was stale by a whole subsystem | `afd_suite`, 36 tests; `qic_suite`; `tape_suite`; `--diskette` fits one |
+| Floppy (`device/ap_omti.c`'s second half, `image/ap_afd.c`), QIC cartridge tape (`device/ap_qic.c`, `board/ap_tape.c`) | **modelled, and the floppy is now reachable.** §6.3's ten commands with their ST0-ST3 result bytes, the motor, MFM, multitrack and skip-deleted flags, over a 77x2x8x1024 `.afd`. The row said "not started", which was stale by a whole subsystem | `afd_suite`, 40 tests; `qic_suite`; `tape_suite`; `--diskette` fits one |
 | Mono and colour graphics controllers (`board/ap_graphics.*`) | **working**: the register block with its scrambled byte lanes, the blitter wired to the memory cycle, the LUT ports and the four screen geometries. Audited line by line against `[S3K]` ch. 10 and ch. 11 on 2026-08-16 — **no structural defect**, and §10.3.1's eleven-item change list checks out entry by entry. One real finding: the colour raster is printed in full in Table 11-4 and had been taken from the oracle, which was off by one in each direction (`h_total` 1346→1344, `v_total` 841→842). `GRAPHICS.md` finding 19; the dot clock stays `PROVISIONAL` at 68 MHz | `graphics_suite`; `./tools/identity-boot.sh --screen c8p` hashes `6140F8E43F3BCC1C` with 2.17 M controller reads |
 | 3c505 802.3 Ethernet (`device/ap_3c505.*`) | **working end to end, host command path included.** The four flag registers from `[HIS]` §3-2/§3-3/§3-5/§3-6 with the sides the right way round, the §3.1.2/§3.1.3 mailbox in both directions, the command set, DMA on DRQ6 and the interrupt on IRQ10. The audit's finding: §3.1.2's *host→adapter* half had never been wired — assembler, dispatcher and responder all existed and were unit-tested, nothing called them, and a host command was answered never. `ETHERNET.md` finding 19; the pacing approximation is 19a. The line-by-line pass then found four more: §3.1.1's accept/reject flags were never signalled at all (20), `02H`'s receive mode was stored and never consulted so every frame on the wire was this station's (21), `3AH`'s length is `10H` not the `0CH` printed -- `[HIS]` App. F, the packet counters became double words in Rev 2.0 (22) -- and `0FH` self-test is now answered while `0CH`/`0DH`/`0EH`/`11H` stay refused because every field of their responses is unmodelled (23), and §1.12's adapter reset both cleared the Host Control Register it must not touch and released the adapter while the host still held `ATTN`+`FLSH` (25) | `etherlink_suite`, 50 tests, of which `test_a_command_written_by_the_host_is_answered_by_the_adapter` crosses the real registers with no test-side wiring |
 | MAME oracle harness | working and used throughout. Beyond the dumper there are now four probe tools — `regprobe.lua` drives every bit of a register in both directions, `writetrace.lua` taps writes to watch firmware program a device, `steptime.lua` single-steps for instruction timing, `mdcapture.lua` traces the serial registers byte-exact — and findings C10 through C14 are all measurements taken with them | `oracle_driver` (19 checks, stub MAME) and `oracle_dump_format` (19 checks, mock machine); `./apollo -listfull` lists all eleven apollo machines |

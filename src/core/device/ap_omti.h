@@ -606,15 +606,31 @@ typedef enum {
  *     not require a head load solenoid." A drive without one loads no head, and
  *     charging for a mechanism the system specification excludes would be
  *     inventing time.
- *   - Start time, Table 7-1's 500 msec maximum to speed. `PROVISIONAL`: this
- *     core does not time the spindle from the Digital Output Register's motor
- *     bits, so a command issued into a stopped spindle completes as though the
- *     disk were at speed. What it would take to close it is a motor-on
- *     timestamp and a decision about what a too-early command *does* -- and
- *     since no manual here says whether that is an error or a wait, modelling
- *     it now would mean inventing a failure mode. Named in
+ *   - Start time, Table 7-1's 500 msec maximum to speed. **The spindle is
+ *     timed now** (2026-08-22): `AP_OMTI_FDC_SPINDLE_START` runs from the
+ *     Digital Output Register's motor bits, and `ap_omti_fdc_at_speed` says
+ *     whether a drive has reached 360 rpm. Table 7-4 prints the same figure a
+ *     second time -- "start time < 500 msec" -- and §7.6.5's direct dc
+ *     brushless motor is what it describes, so this is the drive's published
+ *     specification and not a chosen number.
+ *     **What a command issued before that instant *does* is still open**, and
+ *     deliberately: the drive's `ready` line is the reporting channel and both
+ *     OMTI manuals put it at `ST3` **bit 4**, under the name `Track 0` --
+ *     `[OMTI]` §6.4.4 and `[8640]` §5.6.4 carry the identical sentence, "Track
+ *     0 (T0) - Status of the 'ready' signal from the diskette drive", and both
+ *     call bit 5 "not used - always zero" where the generic 765 puts ready.
+ *     So the name/description contradiction is **the vendor's**, repeated
+ *     across two products, rather than a slip in one transcription -- which is
+ *     what reading the sibling manual established and what a single manual
+ *     could not. Driving a bit whose own name denies its description would be
+ *     choosing one half of a contradiction, so nothing is driven from the
+ *     timer yet. `PROVISIONAL`, narrowed to exactly that question, and named in
  *     `docs/PROJECT_STATUS.md`.
  */
+
+/* Table 7-1 and Table 7-4, twice each: "start time < 500 msec" from rest to
+ * 360 rpm. Exact on the time base. */
+#define AP_OMTI_FDC_SPINDLE_START ((ap_time_t)AP_TIME_BASE_HZ * 500u / 1000u)
 #define AP_OMTI_FDC_DRIVE_RPM 360u
 #define AP_OMTI_FDC_ROTATION_TIME \
   (AP_TIME_BASE_HZ * 60u / AP_OMTI_FDC_DRIVE_RPM)
@@ -896,6 +912,15 @@ typedef struct {
    * two must not be confusable. */
   ap_time_t fdc_completion_at;
   ap_time_t fdc_seek_at[2];
+  /* When each spindle reaches 360 rpm, or `AP_TIME_NEVER` while its motor is
+   * off. Per drive for the same reason the seek is: two drives spin
+   * independently, and one motor started while the other has been running for
+   * a second are not in the same state.
+   *
+   * Set from the Digital Output Register's motor bits -- rising takes the
+   * stamp, falling clears it -- so the timing is the *host's* doing, which is
+   * what a motor-on bit means. See `AP_OMTI_FDC_SPINDLE_START`. */
+  ap_time_t fdc_spindle_at[2];
 
   /* The floppy drive, caller-owned and optional, as the Winchester is. */
   ap_afd_t *floppy;
@@ -1126,6 +1151,16 @@ void ap_omti_attach_floppy(ap_omti_t *omti, ap_afd_t *floppy);
  * its own: a test should assert the sequence, not re-derive it from the status
  * bits that are supposed to report it. */
 [[nodiscard]] ap_omti_phase_t ap_omti_fdc_phase(const ap_omti_t *omti);
+
+/* Whether a drive's spindle has reached 360 rpm.
+ *
+ * False while the motor is off and while it is still spinning up. **Nothing in
+ * this core consults it yet** -- what a command issued into a stopped spindle
+ * does is the open half of the item, see `AP_OMTI_FDC_SPINDLE_START` -- so this
+ * exists to be measured and asserted rather than to gate anything. Naming a
+ * state the machine really has, and being honest that nothing acts on it, is
+ * the same restraint the ST3 constants are kept under. */
+[[nodiscard]] bool ap_omti_fdc_at_speed(const ap_omti_t *omti, unsigned unit);
 
 /* The three modifiers in the top bits of a floppy command's first byte -- §6.3
  * gives `MT` multitrack, `MF` MFM-rather-than-FM and `SK` skip-deleted-data.

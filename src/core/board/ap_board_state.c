@@ -341,6 +341,12 @@ void ap_board_hash_disk(ap_hash_t *st, const ap_disk_t *disk) {
   ap_hash_u64(st, omti->fdc_completion_at);
   ap_hash_u64(st, omti->fdc_seek_at[0]);
   ap_hash_u64(st, omti->fdc_seek_at[1]);
+  /* And when each spindle reaches speed. Two controllers whose motors were
+   * started at different instants are different machines -- one will be at
+   * 360 rpm before the other -- and the deadline is the only thing that says
+   * so, exactly as the seek's is. */
+  ap_hash_u64(st, omti->fdc_spindle_at[0]);
+  ap_hash_u64(st, omti->fdc_spindle_at[1]);
   ap_hash_u8(st, omti->fdc_cylinder[0]);
   ap_hash_u8(st, omti->fdc_cylinder[1]);
   hash_bool(st, omti->fdc_seek_done);
