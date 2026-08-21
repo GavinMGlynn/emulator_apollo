@@ -6524,6 +6524,11 @@ same number is what let them diverge once already.
       defect that only appears under word-mode sense.
       *Route*: §4.2's byte/word rule may settle it, or the oracle's
       `omti8621.cpp` will — it is the same register either way.
+      **Bounded, not blocking**: `ap_omti_data_is_byte` has no caller outside
+      the part and its own test, and `board/ap_disk.h` decodes the four fixed-
+      disk registers as consecutive *bytes*, so nothing this machine executes
+      can reach a word-mode transfer. The width is modelled because §4.2
+      defines it; the packing is unanswered because nothing has asked.
 
 - [ ] **The keyboard's self-diagnostics.** Chapter 12's opening sentence has the
       part "performs power-up and operator requested self-diagnostics". No
