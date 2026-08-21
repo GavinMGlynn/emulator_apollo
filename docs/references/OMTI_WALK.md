@@ -717,3 +717,32 @@ and `14` sector-versus-record, this stops being remarkable and becomes a
 property of the document.
 
 **Appendix A is now walked: A-1 through A-5, which is all of it.**
+
+
+## Appendix B, INTERLEAVE SCHEME — walked, and it separates two things
+
+PDF 86, doc B-1. The physical-to-logical sector map for interleave factors
+`0/1` through `8` on 512-byte sectors (17 a track) and `0/1` through `4` on
+1024-byte sectors (9 a track), with two rules under it:
+
+> "Interleave factor of zero will be set to one."
+>
+> "Interleave factors greater than one half the total number of sectors per
+> track are not recommended."
+
+**`ap_omti.c` is right to ignore the placement** and says so with an argument
+this page confirms: interleave is "a placement of sectors around a rotating
+surface, and this model has no rotation to place them on". Appendix B is exactly
+that placement — a permutation table — and a core with no rotational position
+has nothing to apply it to.
+
+**But validating the factor is a different thing from using it**, and that half
+is missing. A-4's `1A Illegal Interleave Factor` fires when "a FORMAT/CHECK
+TRACK FORMAT command was issued with an INTERLEAVE FACTOR **greater than the
+number of sectors on the track**", and this core accepts any value. The
+permissive direction: a driver with a bad factor gets a formatted track here and
+a refusal on hardware. Named as a plan item rather than fixed in passing, with
+the rule and the sense code both in hand.
+
+*The `0` normalisation is not a gap*: "zero will be set to one" only matters to
+a model that places sectors, and this one does not.
