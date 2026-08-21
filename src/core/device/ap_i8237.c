@@ -3,6 +3,19 @@
 #include <string.h>
 
 void ap_i8237_reset(ap_i8237_t *dma) {
+  /* Master Clear "has the same effect as the hardware Reset. The **Command,
+   * Status, Request, Temporary, and Internal First/Last Flip-Flop** registers
+   * are cleared and the Mask register is set. The 8237A will enter the Idle
+   * cycle." All five, plus the mask below.
+   *
+   * **This clears more than that list**, and the difference is a deliberate
+   * choice rather than an oversight: the **Mode** registers are not among the
+   * five, so the datasheet does not say what a reset leaves in them. A
+   * `memset` makes them Demand mode, Verify transfer, increment — which is
+   * *inert*, since Verify moves no byte — and, more to the point, makes the
+   * part deterministic, which a state hash requires and "undefined" cannot
+   * give. A firmware that relied on a mode surviving a Master Clear would
+   * differ here, and no manual held says whether one may. */
   memset(dma, 0, sizeof *dma);
   /* "The entire register is also set by a Reset. This disables all DMA requests
    * until a clear Mask register instruction allows them to occur." Four bits,
@@ -225,7 +238,9 @@ ap_i8237_cycle_t ap_i8237_transfer(ap_i8237_t *dma,
 
   const ap_i8237_transfer_t direction = ap_i8237_transfer_of(dma, channel);
   if (direction == AP_I8237_TRANSFER_ILLEGAL) {
-    /* `[8237]` Figure 5 marks `11` "Illegal". Refused for the same reason the
+    /* `[8237]` p. 8's Mode Register box marks `11` "Illegal" -- **not**
+     * Figure 5, which is the register-codes table; the bit layouts on that
+     * page are unnumbered. Refused for the same reason the
      * all-mask register's read returns nothing invented: the datasheet defines
      * no behaviour, and this core does not supply one. */
     return out;
@@ -397,7 +412,8 @@ void ap_i8237_write(ap_i8237_t *dma, unsigned reg, uint8_t value) {
     dma->command = value;
     return;
   case AP_I8237_REG_REQUEST: {
-    /* Figure 5: bits 1-0 select the channel, bit 2 sets or resets its bit. */
+    /* p. 8's Request Register box: bits 1-0 select the channel, bit 2 sets or
+     * resets its bit. (Unnumbered; Figure 5 is the register-codes table.) */
     uint8_t bit = (uint8_t)(1u << (value & 3u));
     if ((value & 0x04u) != 0u) {
       dma->request |= bit;
@@ -436,7 +452,8 @@ void ap_i8237_write(ap_i8237_t *dma, unsigned reg, uint8_t value) {
     dma->mask = 0u;
     return;
   case AP_I8237_REG_MASK_ALL:
-    /* Figure 5's second mask form: one bit per channel, in place. */
+    /* The second mask form on p. 8, one bit per channel in place: "All four
+     * bits of the Mask register may also be written with a single command." */
     dma->mask = (uint8_t)(value & 0x0Fu);
     return;
   }
