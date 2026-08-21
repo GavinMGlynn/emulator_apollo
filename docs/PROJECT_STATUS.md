@@ -477,10 +477,20 @@ into this document before the figure was opened, and it is exactly the kind of
 plausible unit that survives review because it names a real clock on the right
 board.
 
-**One inference remains**, and it is named: the figure does not label the 4 MHz
-row as the DMA controller's clock. The part's own 5 MHz rating excludes the
-other two, and **that is the whole of the evidence** — the confirmation this
-paragraph originally promised turned out not to exist.
+**The inference is now a reading, settled by counting the figure.** Rendered at
+500 dpi and cropped to the clock traces, one gridline interval contains **four**
+`* 16Mhz` cycles, **two** `CLK (8Mhz)` cycles and **one** `* 4Mhz` cycle — so a
+gridline interval *is* a 4 MHz period, and the gridlines are the state
+boundaries. A transfer spans four of them: DACK and the first command at the
+second gridline, the address changing and the second command at the sixth.
+
+Four states at 250 ns is **1 µs**, which is exactly **25 processor clocks** on a
+25 MHz DN3500. The part's rating had excluded the other two clocks; the count
+makes this a reading of the document rather than an argument about the part.
+
+*This is what the previous paragraph said would settle it, and it did* — after
+the table that was supposed to settle it turned out to hold propagation delays
+instead.
 
 Table A-1's rows 58–71 were supposed to "confirm it in nanoseconds". Read, they
 are every one a **propagation delay relative to CLK** — "ClK low to DACK High
@@ -490,11 +500,14 @@ in the right table, about the right signals, numbered in the same series as the
 rows that settled `MASTER.L`, is not the same as answering the question asked of
 them.
 
-*What would settle it* is Figure B-9's own gridlines counted against its three
-clock traces at a resolution where an 8 MHz cycle can be told from a 4 MHz one.
-The answer is in the image, not in a table, and the Intel datasheet cannot help:
-its AC characteristics give the cycle in *clock periods*, which is the half
-already known.
+**And one caveat the arithmetic raises.** 1 µs divides the DN3500's clock
+exactly, but not every model's: Table A-1's Series 3000 column gives a 12 MHz
+internal clock and a 166 ns bus clock, making that family's DMA clock 3 MHz and
+four states 1.333 µs — 26.67 clocks against a 20 MHz DN3000. So the
+implementation needs either an accumulator or the duration held in time-base
+units and converted per model. Named now rather than discovered halfway
+through, which is the whole reason this item is being specified before it is
+built.
 
 And unlike the refresh, **this will move the boot**. The arbiter already makes
 the processor wait while the DMA controller holds the bus, so lengthening a

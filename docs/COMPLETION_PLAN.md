@@ -6289,13 +6289,15 @@ same number is what let them diverge once already.
       uses works without an accumulator. *It is not the AT bus clock, which is
       what this item assumed before the figure was read; deriving from 125 ns
       would have made a transfer 500 ns and mispriced it by half.*
-      **Still an inference in one step, and no stronger citation exists** — the
-      figure does not label the 4 MHz row as the DMA controller's, and the
-      part's rating excluding the other two is the whole of the evidence. Table
-      A-1's rows 58–71 were expected to confirm it and **do not**: read on PDF
-      167 they are all propagation delays relative to CLK, and a table of
-      maximum delays cannot give a state count. What would settle it is counting
-      Figure B-9's gridlines against its own three clock traces.
+      **Settled by counting the figure.** At 500 dpi a gridline interval holds
+      four `* 16Mhz` cycles, two `CLK (8Mhz)` and one `* 4Mhz` — so the interval
+      *is* a 4 MHz period and the gridlines are the state boundaries; a transfer
+      spans four. (Table A-1's rows 58–71 were expected to confirm it and do
+      not: they are propagation delays, not durations.)
+      **The remaining caveat is arithmetic, not evidence**: 1 µs is 25 clocks
+      exactly on a 25 MHz DN3500, but the Series 3000's 3 MHz DMA clock gives
+      1.333 µs = 26.67 clocks on a 20 MHz DN3000. So the duration wants holding
+      in time-base units and converting per model, or an accumulator.
       **Expect it to move the boot**, unlike the refresh cycles: the arbiter
       already makes the processor wait while the DMA holds the bus, so
       lengthening a transfer lengthens a real stall rather than adding an
