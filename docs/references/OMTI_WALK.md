@@ -590,6 +590,36 @@ manual and exercised by nothing — the standing `AP_OMTI_ST3_READY` has — and
 test pins the reachable half so that a second drive turns it into a real test
 rather than finding a field nobody had thought about.
 
+## Appendix A page A-2, the sense code table, walked code by code
+
+Twenty-nine codes in four type groups, and the eight this core can produce match
+the table **exactly**, type bits included:
+
+| code | table | produced by |
+| --- | --- | --- |
+| `04` | Drive not selected/not ready | no drive at the LUN |
+| `17` | Write protected | a write to a read-only image |
+| `19` | Bad track encountered | the bad-track list |
+| `1C` | Unable to read Alternate Track data / Illegal access to an alternate track | a direct access to an alternate |
+| `20` | Invalid Command | an opcode outside the ESDI set |
+| `21` | Illegal Disk Address | an address past the drive |
+| `22` | Illegal Function for Drive Type | a floppy-only function on the fixed disk |
+| `23` | Volume Overflow | the end of volume *after* a multiblock command started |
+
+**The other twenty-one are deliberately never set**, which `ap_omti.c` states as
+a rule rather than an omission: "Only the codes this core can genuinely produce
+are ever set; everything else would be inventing a failure mode." They are the
+failures of a *mechanism* this core does not have — no index pulse (`01`), no
+ECC (`10`, `11`, `18`), no seek (`02`, `15`), no sequencer (`16`), no firmware
+checksum (`31`).
+
+*The type bits are right for free*, because every constant was taken from this
+table: `04` is `00` drive, `17`–`1C` are `01` data, `20`–`23` are `10` command.
+Nothing computes the type field and nothing has to.
+
+Two gaps in the table worth noting so a later reader does not think they were
+missed: type 0 defines no `05` or `07`, and type 1 no `1B`.
+
 Also confirmed on the page and already modelled: **AV**, "if set, indicates that
 the error code in byte 0 applies to the sector address in bytes 1,2,3"; and
 **SENSE TYPE** in bits 5-4 of byte 0 — `00` drive, `01` data, `10` command, `11`
