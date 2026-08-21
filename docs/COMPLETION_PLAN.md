@@ -6499,20 +6499,16 @@ same number is what let them diverge once already.
       OMTI summary table has proved not to be a census, after §5.1.2 omitting
       `1A START/STOP`.
 
-- [ ] **A FORMAT with an out-of-range interleave factor should report `1A`.**
-      Found 2026-08-22 walking `[OMTI]` Appendix B. A-4: "`1A` **Illegal
-      Interleave Factor** ... a FORMAT/CHECK TRACK FORMAT command was issued
-      with an INTERLEAVE FACTOR **greater than the number of sectors on the
-      track**". This core accepts any value, so a driver with a bad factor gets
-      a formatted track here and a refusal on hardware — the permissive
-      direction, the same shape as the 8237's Block-mode rule.
-      **Ignoring the factor itself is correct and stays**: Appendix B is a
-      sector *placement* table, and `ap_omti.c`'s argument that "this model has
-      no rotation to place them on" is confirmed by seeing what the appendix
-      actually contains. Validation is the separable half.
-      *Small*: the sense code exists, the factor is byte 4 of the descriptor,
-      and the geometry is already in hand at format time. Wants a test that a
-      valid factor still formats, or it will read as a refusal of everything.
+- [x] **A FORMAT with an out-of-range interleave factor should report `1A`.**
+      Done 2026-08-22. `interleave_ok()` gates the four commands carrying the
+      factor in descriptor byte 4 — `FORMAT DRIVE`, `FORMAT TRACK`, `FORMAT BAD
+      TRACK`, `CHECK TRACK FORMAT` — against Appendix A-4's rule, "greater than
+      the number of sectors on the track", and nothing beyond it: a factor of
+      zero is accepted, because A-4 says "greater than". The factor's value
+      stays ignored, which Appendix B confirms is right. *Verification:
+      `awd_suite` 52 -> 56, including that the legal case still formats and
+      that a refused track is left unwritten; the refusal tests were confirmed
+      to fail with the check disabled.* Detail in `PROJECT_STATUS.md`.
 
 - [ ] **The keyboard's self-diagnostics.** Chapter 12's opening sentence has the
       part "performs power-up and operator requested self-diagnostics". No

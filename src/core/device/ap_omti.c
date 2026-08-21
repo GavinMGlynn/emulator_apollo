@@ -254,6 +254,29 @@ bool ap_omti_fdc_in_reset(const ap_omti_t *omti) {
  * somewhere to live. */
 #define SENSE_BAD_TRACK 0x19u
 #define SENSE_ALTERNATE_DIRECT 0x1Cu
+/* Appendix A-4, `1A Illegal Interleave Factor`: "a FORMAT/CHECK TRACK FORMAT
+ * command was issued with an INTERLEAVE FACTOR **greater than the number of
+ * sectors on the track**". */
+#define SENSE_ILLEGAL_INTERLEAVE 0x1Au
+
+/* Whether the descriptor's interleave factor is one this track can hold.
+ *
+ * **Only the documented rule is applied.** A-4 names one condition, "greater
+ * than the number of sectors on the track", and that is the whole test. A
+ * factor of **zero** is not greater than anything and so is accepted here: the
+ * low-level format utility's flowchart on doc 2-14 prompts `INTERLEAVE (1-15)`
+ * and so never offers it, but a utility's prompt range is not the controller's
+ * rule, and inventing a second refusal from the gap between them would be
+ * exactly the guess this project does not make.
+ *
+ * **The factor's *value* is still ignored**, and that stays. Appendix B is a
+ * sector-placement table, and this model has no rotation to place sectors on --
+ * every sector of a track is equally available the instant the track is
+ * addressed. Validating the factor and acting on it are separable, and only the
+ * first is answerable here. */
+static bool interleave_ok(const ap_omti_t *omti, const ap_omti_cdb_t *cdb) {
+  return (uint16_t)cdb->block_count <= omti->selected->geometry.sectors;
+}
 
 void ap_omti_attach(ap_omti_t *omti, ap_awd_t *drive) { omti->drive = drive; }
 
@@ -1099,6 +1122,10 @@ static void execute(ap_omti_t *omti) {
     if (!writable(omti) || !addressed(omti, &cdb, &lba)) {
       return;
     }
+    if (!interleave_ok(omti, &cdb)) {
+      finish(omti, true, SENSE_ILLEGAL_INTERLEAVE);
+      return;
+    }
     for (uint16_t c = cdb.cylinder; c < omti->selected->geometry.cylinders; c++) {
       /* The first cylinder starts at the addressed head; every later one starts
        * at head 0, because the format is a sweep of the unit and not of one
@@ -1125,6 +1152,10 @@ static void execute(ap_omti_t *omti) {
      * one arm here because in this model they genuinely do the same thing, and
      * splitting them would suggest a distinction that is not being made. */
     if (!writable(omti) || !addressed(omti, &cdb, &lba)) {
+      return;
+    }
+    if (!interleave_ok(omti, &cdb)) {
+      finish(omti, true, SENSE_ILLEGAL_INTERLEAVE);
       return;
     }
     if (!format_track(omti, cdb.cylinder, cdb.head, cdb.control,
@@ -1337,6 +1368,10 @@ static void execute(ap_omti_t *omti) {
      * track's integrity. §5.4.4 names it as one of the two ways to verify a
      * format, which is what a caller is asking. */
     if (!addressed(omti, &cdb, &lba)) {
+      return;
+    }
+    if (!interleave_ok(omti, &cdb)) {
+      finish(omti, true, SENSE_ILLEGAL_INTERLEAVE);
       return;
     }
     for (uint16_t s = 0; s < omti->selected->geometry.sectors; s++) {

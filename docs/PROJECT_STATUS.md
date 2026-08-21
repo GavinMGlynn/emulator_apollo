@@ -1340,6 +1340,48 @@ exhausted.
 *Verification: `sio_suite` 36 -> 37 pinning the accumulators as evidence; one
 1.5 G boot on a scratch copy, gated on SPM before its report was read.*
 
+## A FORMAT could name an interleave factor no track could hold
+## (2026-08-22)
+
+Appendix A-4 defines `1A Illegal Interleave Factor`: "a FORMAT/CHECK TRACK
+FORMAT command was issued with an INTERLEAVE FACTOR **greater than the number of
+sectors on the track**". This core accepted every value. A driver with a bad
+factor got a formatted track here and a refusal on hardware — the permissive
+direction, and the same shape as the 8237's Block-mode rule.
+
+`interleave_ok()` in `ap_omti.c` now gates all four commands that carry the
+factor in descriptor byte 4: `FORMAT DRIVE`, `FORMAT TRACK`, `FORMAT BAD TRACK`
+and `CHECK TRACK FORMAT`. A-4 names FORMAT and CHECK TRACK FORMAT explicitly;
+§5.4.4 makes FORMAT DRIVE a format, and FORMAT BAD TRACK is §5.4.7's "identical
+to the FORMAT TRACK command except that the defective track flag is set".
+
+**Three decisions worth stating, because each is a place a guess would have
+fitted.**
+
+*Only A-4's rule is applied.* A factor of **zero** is not greater than the
+sector count and so is accepted. Doc 2-14's low-level format flowchart prompts
+`INTERLEAVE (1-15)` and never offers zero, but a utility's prompt range is not
+the controller's rule, and refusing zero would have been a refusal this manual
+does not state. There is a test asserting zero is accepted, so that the decision
+is recorded rather than merely current.
+
+*The factor's value is still ignored, and that stays.* Appendix B is a sector
+*placement* table; this model has no rotation to place sectors on, so every
+sector of a track is available the instant the track is addressed. Validating
+the factor and acting on it are separable and only the first is answerable here.
+
+*The refusal happens before the surface is touched.* A controller that reported
+the error after writing `6C` across the track would have destroyed the data it
+declined to reformat, so a test asserts the track is unchanged after a refusal.
+
+The suite asserts the legal case still formats as well as the illegal case
+failing. A refusal test alone would pass against a controller that refused every
+FORMAT — which is the failure mode a validation check invites, and it was
+checked by disabling `interleave_ok` and confirming exactly the two refusal
+tests fail and the two acceptance tests do not.
+
+*Verification: `awd_suite` 52 -> 56; ctest 139/139.*
+
 ## The OMTI had no RESET state, so its 100 µs had nowhere to live
 ## (2026-08-21)
 

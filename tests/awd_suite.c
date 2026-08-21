@@ -790,6 +790,83 @@ static void test_a_drive_format_runs_to_the_end_of_the_unit(void) {
   }
 }
 
+/* Appendix A-4, `1A Illegal Interleave Factor`: "a FORMAT/CHECK TRACK FORMAT
+ * command was issued with an INTERLEAVE FACTOR **greater than the number of
+ * sectors on the track**". This drive's tracks hold four sectors, so four is
+ * the largest legal factor and five is the smallest illegal one.
+ *
+ * **Both halves are asserted deliberately.** A refusal test alone would pass
+ * just as well against a controller that refused every FORMAT, which is the
+ * failure mode a validation check invites: the surface must still be formatted
+ * when the factor is legal. */
+static void test_a_format_with_a_legal_interleave_factor_still_formats(void) {
+  build_controller();
+
+  issue(AP_OMTI_CMD_FORMAT_TRACK, 0u, 1u, 0u, SMALL.sectors);
+  settle();
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_EQUAL_HEX8(0u, take_status());
+  for (unsigned s = 4u; s < 8u; s++) {
+    TEST_ASSERT_EQUAL_HEX8(0x6Cu, backing[s * AP_AWD_SECTOR_BYTES]);
+  }
+}
+
+/* And a factor of zero is accepted, because A-4's rule is "greater than" and
+ * this project does not invent the refusals a document does not state. Doc
+ * 2-14's format-utility flowchart prompts `INTERLEAVE (1-15)` and so never
+ * offers zero, but a utility's prompt range is not the controller's rule. */
+static void test_an_interleave_factor_of_zero_is_not_the_illegal_case(void) {
+  build_controller();
+
+  issue(AP_OMTI_CMD_FORMAT_TRACK, 0u, 1u, 0u, 0u);
+  settle();
+  TEST_ASSERT_EQUAL_HEX8(0u, take_status());
+  TEST_ASSERT_EQUAL_HEX8(0x6Cu, backing[4u * AP_AWD_SECTOR_BYTES]);
+}
+
+static void test_a_format_past_the_sectors_on_the_track_is_an_illegal_interleave(
+    void) {
+  build_controller();
+
+  issue(AP_OMTI_CMD_FORMAT_TRACK, 0u, 1u, 0u, (uint8_t)(SMALL.sectors + 1u));
+  settle();
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+  TEST_ASSERT_TRUE((take_status() & 0x02u) != 0u);
+
+  issue(AP_OMTI_CMD_REQUEST_SENSE, 0u, 0u, 0u, 0u);
+  TEST_ASSERT_EQUAL_HEX8(0x1Au, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  settle();
+
+  /* And the track was left alone. A controller that reported the error after
+   * writing `6C` over the surface would have destroyed the data it refused to
+   * reformat. */
+  TEST_ASSERT_EQUAL_HEX8(4u, backing[4u * AP_AWD_SECTOR_BYTES]);
+}
+
+/* A-4 names FORMAT and CHECK TRACK FORMAT together, and §5.4.4 names FORMAT
+ * DRIVE as a format. All three carry the factor in byte 4 and all three refuse
+ * it -- checking only the one command a test happened to reach is how the LUN
+ * bit came to be set nowhere. */
+static void test_every_command_that_takes_an_interleave_factor_checks_it(void) {
+  const uint8_t formats[] = {
+      AP_OMTI_CMD_FORMAT_DRIVE,
+      AP_OMTI_CMD_FORMAT_TRACK,
+      AP_OMTI_CMD_FORMAT_BAD_TRACK,
+      AP_OMTI_CMD_CHECK_TRACK_FORMAT,
+  };
+  for (unsigned i = 0; i < sizeof formats / sizeof formats[0]; i++) {
+    build_controller();
+    issue(formats[i], 0u, 0u, 0u, (uint8_t)(SMALL.sectors + 1u));
+    settle();
+    TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&omti));
+    TEST_ASSERT_TRUE((take_status() & 0x02u) != 0u);
+
+    issue(AP_OMTI_CMD_REQUEST_SENSE, 0u, 0u, 0u, 0u);
+    TEST_ASSERT_EQUAL_HEX8(0x1Au, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+    settle();
+  }
+}
+
 /* §5.4.16's four-byte descriptor arrives in a data-out phase, and the alternate
  * track "is then formatted" -- so the command is not complete until the bytes
  * have been handed over, and the effect lands on the track they name. */
@@ -1450,6 +1527,10 @@ int main(void) {
   RUN_TEST(test_the_defect_list_is_a_header_and_a_terminator);
   RUN_TEST(test_a_track_format_writes_six_c_over_that_track_alone);
   RUN_TEST(test_a_drive_format_runs_to_the_end_of_the_unit);
+  RUN_TEST(test_a_format_with_a_legal_interleave_factor_still_formats);
+  RUN_TEST(test_an_interleave_factor_of_zero_is_not_the_illegal_case);
+  RUN_TEST(test_a_format_past_the_sectors_on_the_track_is_an_illegal_interleave);
+  RUN_TEST(test_every_command_that_takes_an_interleave_factor_checks_it);
   RUN_TEST(test_assigning_an_alternate_formats_the_track_the_host_names);
   RUN_TEST(test_a_copy_moves_blocks_between_two_addresses);
   RUN_TEST(test_change_cartridge_on_a_fixed_drive_is_an_illegal_function);

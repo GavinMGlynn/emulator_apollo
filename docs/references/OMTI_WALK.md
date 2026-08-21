@@ -1146,3 +1146,39 @@ as **§2.6**. The body's cross-references and the contents page disagree about �
 own numbering, so §2 runs further than the contents page suggests and the
 remaining subsections must be found by reading rather than by index — the same
 trap `002398-04` set with its topical page numbers.
+
+
+## Doc 2-14's format flowchart — a third printing of the step table, and a range
+
+PDF 24. **LOW-LEVEL FORMAT ROUTINE INSTRUCTIONS**, a flowchart of the BIOS
+routine entered from DOS `DEBUG` with `g=c800:6`. Four things in it.
+
+**`CONTROL BYTE STEP OPTIONS`, printed in full**: `0` = 3 ms per step, `1` = 10
+µs buffered, `2` = 25 µs buffered, `3` = 50 µs buffered, `4` = 200 µs buffered,
+`5` = 70 µs buffered, `6` and `7` = 3 ms per step. That is the **third**
+independent printing of this table — §5.2's p. 5-4 and `002398-04` p. 12-10 are
+the other two — and it agrees with both, value for value, including the two
+duplicate 3 ms rows at the top and bottom of the encoding.
+`ap_omti_cdb.h` already carries all eight with `002398-04`'s cross-check and
+its one Apollo-specific difference (`001` marked N/A). Nothing to change; the
+value of a third source is that a table this project reads off page images is
+now confirmed by three typesettings.
+
+**`INTERLEAVE (1-15)`** — the utility's prompt range. It is *not* the
+controller's rule, which Appendix A-4 gives as "greater than the number of
+sectors on the track", and the difference is why `interleave_ok()` accepts a
+factor of zero: the utility never offers it, the controller never refuses it,
+and only the second is a fact about the part. The gap between a tool's range and
+a device's rule is a standing invitation to invent a refusal.
+
+**`LOGICAL PARTITIONING DESIRED (Y/N)?` → `TOTAL CYLS IN 1ST LOGICAL UNIT`.**
+One *physical* drive can be formatted as two logical units. So a second LUN does
+not imply a second spindle, and the LUN field is not simply a drive-select. This
+core attaches one drive at LUN 0 and has no partitioning path; recorded as a
+capability of the part that this machine does not use, not as a gap — Domain/OS
+addresses its volume through the descriptor block, and nothing in the boot has
+ever selected LUN 1.
+
+**`DRIVE # (0 OR 1)?`** confirms two units, and the defect-entry loop
+(`CYLINDER:` / `HEAD:` repeated until a bare `<RET>`) is the host side of the
+`ASSIGN ALTERNATE TRACK` path `ap_omti.c` already implements.
