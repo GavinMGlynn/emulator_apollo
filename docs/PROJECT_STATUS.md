@@ -457,11 +457,30 @@ three or four every time.
 
 ### Why it is named rather than implemented
 
-**The unit is the trap, and it is the one the refresh work already solved.**
-Four *8237A* clock periods are not four *processor* clocks: the part runs at the
-AT bus clock, which `ap_atbus.h` already carries per family — 125 ns on a Series
-4000, 166 ns on a Series 3000 — while a bus tick here is a 25 MHz CPU clock.
-Implementing "four ticks" would misprice every transfer by about three.
+**The unit was the trap, and the reference settled it — including against my
+own first answer.** I wrote here that the part "runs at the AT bus clock", 125 ns
+on a Series 4000. `008778-03` **Figure B-9, Bus DMA Cycles** says otherwise. It
+draws three clocks against the DMA waveform — `* 16MHz`, `CLK (8MHz)` and
+`* 4MHz`, the starred two marked "Internal signal on the CPU/Motherboard. Not
+available on the Bus" — and §2.4.5 names the part an **8237A-5**, whose maximum
+clock is **5 MHz**. Of the three, only the 4 MHz row is one this controller can
+take.
+
+So a transfer is four periods of 4 MHz — **1 µs** — which on a 25 MHz DN3500 is
+exactly **25 CPU clocks**. A whole number, so the tick-counted approach the
+refresh cycles use works here without an accumulator, which the 125 ns reading
+would have needed (four AT clocks is 500 ns, or 12.5 CPU clocks, and it is also
+wrong by half).
+
+*Recorded as a correction rather than quietly fixed*: the assumption was written
+into this document before the figure was opened, and it is exactly the kind of
+plausible unit that survives review because it names a real clock on the right
+board.
+
+**One inference remains**, and it is named: the figure does not label the 4 MHz
+row as the DMA controller's clock. The part's own 5 MHz rating excludes the
+other two, which is strong, and Table B-1's numbered rows 58–71 and 81–84 would
+confirm it in nanoseconds if a stronger citation is wanted before implementing.
 
 And unlike the refresh, **this will move the boot**. The arbiter already makes
 the processor wait while the DMA controller holds the bus, so lengthening a

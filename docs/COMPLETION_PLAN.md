@@ -6278,12 +6278,21 @@ same number is what let them diverge once already.
       nothing. So a transfer is instantaneous in bus terms, on a core whose
       claim is emergent contention — the same shape as the refresh gap above,
       and worth more, because the reference boot performs millions of them.
-      **The unit is the trap, and it is the one the refresh item already
-      solved.** Four *8237A* clock periods are not four *processor* clocks: this
-      part runs at the AT bus clock, which `ap_atbus.h` already carries per
-      family (125 ns Series 4000, 166 ns Series 3000), while a bus tick here is
-      a 25 MHz CPU clock. Getting that wrong would misprice every transfer by
-      about three.
+      **The unit was the trap and the reference has settled it, 2026-08-22.**
+      `008778-03` **Figure B-9, Bus DMA Cycles**, draws three clocks against the
+      DMA waveform: `* 16MHz`, `CLK (8MHz)` and `* 4MHz`, the starred two marked
+      "Internal signal on the CPU/Motherboard. Not available on the Bus". §2.4.5
+      names the part **8237A-5**, whose maximum clock is **5 MHz**, so of the
+      three only the 4 MHz row is one this controller can take.
+      So four states is **1 µs**, which on a 25 MHz DN3500 is exactly **25 CPU
+      clocks** — a whole number, so the same tick-counted approach the refresh
+      uses works without an accumulator. *It is not the AT bus clock, which is
+      what this item assumed before the figure was read; deriving from 125 ns
+      would have made a transfer 500 ns and mispriced it by half.*
+      **Still an inference in one step** — the figure does not label the 4 MHz
+      row as the DMA controller's — but the part's own rating excludes the other
+      two, and Table B-1's numbered rows 58–71 and 81–84 would confirm it in
+      nanoseconds if a stronger citation is wanted before implementing.
       **Expect it to move the boot**, unlike the refresh cycles: the arbiter
       already makes the processor wait while the DMA holds the bus, so
       lengthening a transfer lengthens a real stall rather than adding an
