@@ -10,7 +10,7 @@ Three manuals, and the DN3500's controller is an **8621**.
 
 **220 pages total. None is walked.**
 
-## STATUS: 9 pages read plus **a footer map for PDF 30–45**. The 8621 is not *listed* but the body text addresses **`862X`**; two navigational traps and one unmodelled timing figure are recorded below.
+## STATUS: 10 pages read plus **a footer map for PDF 30–45**. §4.1 and §4.2's register tables are walked and **confirm the model**. The 8621 is not *listed* but the body text addresses **`862X`**; two navigational traps and one unmodelled timing figure are recorded below.
 
 Record opened 2026-08-21 with the method established and the reading order
 revised by what those three pages said.
@@ -154,6 +154,42 @@ only affordable way to map a manual with no text layer.
 | doc | 3-6 | 3-7 | **4-1** | 4-2 | 4-3 | 4-4 | 4-5 | 4-6 |
 
 **§3 is PDF 33–39. §4 begins at PDF 40** and runs to 4-8, so PDF 40–47.
+
+## §4.2's register tables, walked — Tables 4-1 and 4-2 confirm the model
+
+Read from PDF 41 (doc 4-2) at native 800 ppi.
+
+**Table 4-1, I/O Port Addresses** — and it **answers the question left open last
+commit**: port `321H` on *write* is the RESET function.
+
+| Port | Read | Write |
+| --- | --- | --- |
+| `320H` | DATA IN | DATA OUT |
+| `321H` | STATUS | **RESET (Function)** |
+| `322H` | CONFIGURATION | SELECT (Function) |
+| `323H` | N/A | MASK |
+
+`ap_omti.h` has all four with the read/write asymmetry stated — `DISK_STATUS = 1u,
+/* read STATUS, write RESET (a function) */`, `DISK_CONFIG = 2u`,
+`DISK_MASK = 3u, /* read N/A, write MASK */`. **So the RESET register is decoded**,
+and the narrow `0x321` grep that found nothing was looking for an absolute
+address where the code holds an offset — exactly why it was recorded as
+"to check" rather than as a finding.
+
+**Table 4-2's STATUS register** matches bit for bit: bit 5 **IREQ** = `ST_IREQ
+0x20`, bit 4 **DREQ** = `ST_DREQ 0x10`, bit 3 **BSY** = `ST_BSY 0x08`, bit 2
+**C/D** = `ST_CD 0x04`. Bits 7 and 6 are "Not Used (Set to 1)".
+
+Two things to carry forward:
+
+- **Bits 1 and 0 are not described on this page.** The definition stops at
+  bit 2's note. Either they are covered later or they are undocumented; do not
+  conclude either until §4.3 is read.
+- The page names the **system-bus lines**: IREQ "is set with **IRQ14** on the
+  System", and DREQ is set "along with **DRQ3** on the System Bus". Those are
+  board wiring rather than part behaviour — check where `ap_board` places them,
+  and note `002398-04` gives the DN3000 an OMTI interrupt of its own, which may
+  or may not be 14.
 
 ## One gap already visible, and two facts confirmed
 
