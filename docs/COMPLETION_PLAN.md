@@ -5698,7 +5698,7 @@ same number is what let them diverge once already.
       ROMs are on disk. Verification would be a receive that stalls mid-packet
       and a status read that finds `TMO`.*
 
-- [ ] **`010005-00` must be walked whole — 29 pages, 21 done; chapters 2 and 3 all but complete.** *Started
+- [ ] **`010005-00` must be walked whole — 29 pages, 22 done; all three chapters complete, Appendix A and back matter remain.** *Started
       2026-08-21; the coverage record is `docs/references/010005-00_WALK.md` and
       its "Resume here" block is the authority, not this item.* `CLAUDE.md`: a document
       that yields one fact this core does not have stops being a reference to
