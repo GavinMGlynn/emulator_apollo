@@ -705,25 +705,42 @@ typedef enum {
 /* Half a revolution, which comes out at 83.33 ms -- Table 7-1's "Average
  * latency time 83.3 msec" to the digit, as the Winchester's did. */
 #define AP_OMTI_FDC_AVERAGE_LATENCY (AP_OMTI_FDC_ROTATION_TIME / 2u)
-/* **`PROVISIONAL`: the step rate is the drive's, and the controller's is
- * programmable.**
+/* `008778-03` Table 7-7's "Track-to-track time 3 msec **minimum**" -- a property
+ * of the *mechanism*, and so a floor rather than the rate.
  *
- * This is `008778-03` Table 7-7's "Track-to-track time 3 msec **minimum**", a
- * property of the mechanism, and the composition below reproduces that table's
- * own published 94 ms average to 0.9% -- so it is right for this machine as
- * Domain/OS actually drives it. What is *not* modelled is that the rate is set
- * by software. `[OMTI]` §6.2 gives `SPECIFY`'s `SRT` as "a 4 bit byte
- * indicat[ing] the stepping rate for the diskette drive", tabulated per drive
- * type -- `1111`/`1110`/`1101` are 1/2/3 ms on a 1.2 Mbyte drive and 2/4/6 ms
- * on a 320 Kbyte one -- and `ap_omti_fdc_command_bytes` accepts SPECIFY's three
- * bytes and stores none of them.
+ * ## The rate itself is programmed, and this is what it costs
  *
- * So a driver that reprogrammed the step rate would be followed on hardware and
- * ignored here. Two things are missing before it can be modelled, and neither is
- * guessable: the manual prints **three** of sixteen `SRT` rows, and it does not
- * say which of its two drive types this board's floppy is -- and that choice
- * doubles or halves every seek. Named in `docs/COMPLETION_PLAN.md`. */
+ * `[OMTI]` §6.2 gives `SPECIFY`'s `SRT` as "a 4 bit byte indicat[ing] the
+ * stepping rate for the diskette drive", and tabulates it **per drive type**:
+ *
+ *     1.2 MByte drive   1111 = 1 ms   1110 = 2 ms   1101 = 3 ms
+ *     320 KByte drive   1111 = 2 ms   1110 = 4 ms   1101 = 6 ms
+ *
+ * **Which drive this board has was the blocker, and it was answered in this
+ * file.** Table 7-1 gives 360 rpm, 96 TPI, two sides and 500 Kbit/s, and the
+ * text above already records the oracle's `apollo_dsk.cpp` calling it
+ * "`FF_525`, **`DSHD`**, MFM, 1200 (1 us, 360 rpm)". Double-sided high density
+ * at 360 rpm *is* the 1.2 Mbyte drive; a 320 Kbyte one is 40 cylinders at 300
+ * rpm. So the first table applies, and the question closed by re-reading a
+ * header this project wrote rather than by finding a new document.
+ *
+ * **The thirteen unprinted rows are arithmetic, not invention.** Three
+ * consecutive values map to 1, 2 and 3 ms, so the rule is `(16 - SRT)`
+ * milliseconds, and no other rule passes through three equally spaced points.
+ * It is also the NEC 765's published encoding at 500 Kbit/s, which is the part
+ * this section describes. `[8640]` §5 prints the same three rows and no more;
+ * the sibling was checked before the arithmetic was relied on.
+ *
+ * **And the floor is what makes it safe.** The effective step time is the
+ * slower of what the host programmed and what Table 7-7 says the drive can do,
+ * so a driver asking for 1 ms gets the mechanism's 3 ms -- which is what
+ * happens on the bench. This constant is therefore still the number every
+ * existing seek test measures, and the previous fixed-rate model is exactly the
+ * case where nothing has programmed anything. */
 #define AP_OMTI_FDC_TRACK_TO_TRACK (AP_TIME_BASE_HZ / 1000u * 3u)
+/* §6.2's rule for the 1.2 Mbyte drive, in milliseconds, for `SRT` 0 to 15. The
+ * field is four bits, so the slowest is 16 ms and the fastest 1 ms. */
+#define AP_OMTI_FDC_SRT_MS(srt) (16u - ((unsigned)(srt) & 0x0Fu))
 #define AP_OMTI_FDC_SETTLING (AP_TIME_BASE_HZ / 1000u * 15u)
 /* 500 Kbit/s is 62,500 bytes a second. */
 #define AP_OMTI_FDC_TRANSFER_BYTES_PER_SEC 62500u
@@ -958,6 +975,25 @@ typedef struct {
    * and SEEK and RECALIBRATE move. Two drives, per the Digital Output
    * register's A/B select. */
   uint8_t fdc_cylinder[2];
+
+  /* §6.3.8's `SPECIFY` parameters, and whether it has ever been issued.
+   *
+   * The flag is not bookkeeping. `[8640]` §5's command descriptions say "if
+   * this command is issued **prior to initialization of a step rate** the
+   * default value will be used" -- so the controller distinguishes programmed
+   * from unprogrammed, and names a default without ever printing it. Keeping
+   * the flag is how this model avoids inventing that value: unprogrammed means
+   * the drive's own minimum, which is the one rate no mechanism can beat.
+   *
+   * `fdc_hut` and `fdc_hlt` are stored and unused. This core models no head
+   * load or unload state for them to pace, and storing them is what makes that
+   * visible rather than making the bytes vanish -- §6.2 defines them in full
+   * (2 to 256 ms in 2 ms steps for `HLT`, 0 to 240 ms in 16 ms for `HUT`, on
+   * the 1.2 Mbyte drive this board has). */
+  uint8_t fdc_srt;      /* `SPECIFY` byte 1 bits 7-4 */
+  uint8_t fdc_hut;      /* `SPECIFY` byte 1 bits 3-0 */
+  uint8_t fdc_hlt;      /* `SPECIFY` byte 2 bits 7-1 */
+  bool fdc_step_rate_set;
 
   /* The address a data command was refused for, and how many were.
    *

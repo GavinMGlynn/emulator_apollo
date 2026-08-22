@@ -792,6 +792,59 @@ static void test_two_controllers_reset_alike_hold_identical_state(void) {
   TEST_ASSERT_EQUAL_MEMORY(&a, &b, sizeof a);
 }
 
+/* §6.2's SRT, and Table 7-7's floor under it.
+ *
+ * The step rate is programmed by SPECIFY and the drive cannot beat its own
+ * "3 msec minimum", so the effective rate is the slower of the two. Three
+ * cases, and the middle one is the reason the constant did not have to change:
+ * a driver programming `1101` -- §6.2's 3 ms -- lands exactly on the figure
+ * this core already verified against Table 7-7's published 94 ms average. */
+static void specify(ap_omti_t *o, uint8_t srt) {
+  ap_omti_fdc_write(o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SPECIFY);
+  ap_omti_fdc_write(o, AP_OMTI_FDC_DATA, (uint8_t)(srt << 4));
+  ap_omti_fdc_write(o, AP_OMTI_FDC_DATA, 0x00u);
+}
+
+/* Seek from cylinder 0 to 1: one step plus the settle, so the step time is the
+ * whole of the difference between these cases. */
+static ap_time_t one_step_seek(uint8_t srt, bool program) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DOR, AP_OMTI_DOR_NOT_RESET);
+  if (program) {
+    specify(&o, srt);
+  }
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SEEK);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0x00u);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0x01u);
+  return o.fdc_seek_at[0] - o.now;
+}
+
+static void test_a_programmed_step_rate_paces_the_seek(void) {
+  /* `1101` is §6.2's 3 ms on the 1.2 Mbyte drive, and Table 7-7's floor is the
+   * same 3 ms, so this is the case where the two agree. */
+  TEST_ASSERT_EQUAL_UINT64(AP_OMTI_FDC_TRACK_TO_TRACK + AP_OMTI_FDC_SETTLING,
+                           one_step_seek(0x0Du, true));
+
+  /* `1000` is 8 ms, slower than the drive's minimum, so the host's rate wins. */
+  TEST_ASSERT_EQUAL_UINT64(AP_TIME_BASE_HZ / 1000u * 8u + AP_OMTI_FDC_SETTLING,
+                           one_step_seek(0x08u, true));
+
+  /* `1111` is 1 ms, faster than the mechanism can move, so the floor wins. A
+   * model without the floor would report a seek this drive cannot perform. */
+  TEST_ASSERT_EQUAL_UINT64(AP_OMTI_FDC_TRACK_TO_TRACK + AP_OMTI_FDC_SETTLING,
+                           one_step_seek(0x0Fu, true));
+}
+
+/* And with no SPECIFY at all the drive minimum is used, which is what every
+ * seek test written before the rate was programmable measured. `[8640]` §5
+ * names a default without printing it, so this core uses the one rate that
+ * cannot claim a speed the mechanism does not have rather than inventing it. */
+static void test_an_unprogrammed_controller_steps_at_the_drive_minimum(void) {
+  TEST_ASSERT_EQUAL_UINT64(AP_OMTI_FDC_TRACK_TO_TRACK + AP_OMTI_FDC_SETTLING,
+                           one_step_seek(0x00u, false));
+}
+
 /* §5.4.1: "The controller will wait up to 50 seconds for the drive to come
  * ready", printed again as §2.5's `1701-C`. An interface with nothing on it
  * never asserts ready, so the controller spends the whole timeout before
@@ -1016,6 +1069,8 @@ int main(void) {
   RUN_TEST(test_the_boot_proms_floppy_initialisation_needs_two_registers);
   RUN_TEST(test_sense_drive_status_does_not_report_the_unit);
   RUN_TEST(test_sector_address_conversion_uses_sixteen_heads);
+  RUN_TEST(test_a_programmed_step_rate_paces_the_seek);
+  RUN_TEST(test_an_unprogrammed_controller_steps_at_the_drive_minimum);
   RUN_TEST(test_a_drive_that_is_never_ready_costs_the_whole_timeout);
   RUN_TEST(test_the_ready_timeout_is_fifty_seconds);
   RUN_TEST(test_test_drive_ready_fails_for_a_lun_with_no_drive);

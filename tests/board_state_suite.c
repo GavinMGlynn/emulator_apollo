@@ -300,6 +300,16 @@ static void test_every_disk_controller_field_moves_the_hash(void) {
   MOVES_THE_HASH(scratch.disk.controller.fdc_rate ^= 0x03u);
   MOVES_THE_HASH(scratch.disk.controller.disk_change =
                      !scratch.disk.controller.disk_change);
+  /* §6.3.8's SPECIFY parameters. `fdc_srt` paces the seek; the other three are
+   * hashed without being acted on, which is exactly the case this test exists
+   * for -- a field nothing reads is a field nothing would notice missing from
+   * the hash, and a differential run would then be blind to a controller that
+   * had been programmed differently. */
+  MOVES_THE_HASH(scratch.disk.controller.fdc_srt ^= 0x0Fu);
+  MOVES_THE_HASH(scratch.disk.controller.fdc_hut ^= 0x0Fu);
+  MOVES_THE_HASH(scratch.disk.controller.fdc_hlt ^= 0x7Fu);
+  MOVES_THE_HASH(scratch.disk.controller.fdc_step_rate_set =
+                     !scratch.disk.controller.fdc_step_rate_set);
 }
 
 static void test_every_tape_field_moves_the_hash(void) {

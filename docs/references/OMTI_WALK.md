@@ -1392,6 +1392,21 @@ and opened as a plan item, blocked on two facts §6.2 does not supply: it prints
 three of sixteen `SRT` rows, and it does not say which of its two drive types
 this board's floppy is — a choice that doubles or halves every seek.
 
+> **CLOSED the same day, and both blockers were self-inflicted.** The drive type
+> was already recorded in `ap_omti.h`'s own floppy section — 360 rpm, 96 TPI,
+> and the oracle's `DSHD`, which is the 1.2 Mbyte drive — so the file that
+> raised the blocker contained its answer. The thirteen unprinted `SRT` rows
+> follow by arithmetic from the three printed ones, `(16 - SRT)` ms, and
+> `[8640]` §5 was read first and prints the same three and no more. Implemented
+> with Table 7-7's 3 ms as a floor; detail in `PROJECT_STATUS.md`.
+>
+> *Fourth time in one day.* A question was opened by reading a new document and
+> closed by re-reading something this project had already written — after the
+> SIO line-0 question, the OMTI coverage row, and doc 2-8's jumper table. The
+> pattern is specific enough to state as a rule: **before recording a blocker,
+> grep this core's own headers for the fact.** A blocker is a claim about what
+> is not known anywhere, and it is cheapest to falsify at home.
+
 `STP`, the scan test parameter, is the fourth thing here: "If STP is 1, the data
 in contiguous sectors is compared with the data sent by the processor during a
 scan operation. If STP is 2, then alternate sectors are read and compared."

@@ -1996,14 +1996,38 @@ static void fdc_idle(ap_omti_t *omti) {
  *
  * See the header for the check that this composition reproduces Table 7-7's own
  * published 94 ms average. */
-static ap_time_t fdc_seek_duration(uint8_t from, uint8_t to) {
+/* One step, at the slower of what the host programmed and what the drive can
+ * do.
+ *
+ * §6.2's `SRT` sets the controller's stepping rate; Table 7-7's 3 ms is the
+ * mechanism's "track-to-track time **minimum**". A controller told to step
+ * faster than the drive can move does not make the drive move faster, so the
+ * effective rate is the slower of the two -- and a driver programming §6.2's
+ * `1101`, which *is* 3 ms, lands on the same number either way. That is why
+ * every seek figure this core already verified against Table 7-7's published
+ * 94 ms average is unchanged. */
+static ap_time_t fdc_step_time(const ap_omti_t *omti) {
+  if (!omti->fdc_step_rate_set) {
+    /* `[8640]` §5: "if this command is issued prior to initialization of a step
+     * rate the default value will be used", and neither manual prints that
+     * value. The drive's own minimum is used instead of a guess -- it is the
+     * one rate that cannot claim a speed the mechanism does not have. */
+    return AP_OMTI_FDC_TRACK_TO_TRACK;
+  }
+  const ap_time_t programmed =
+      AP_TIME_BASE_HZ / 1000u * AP_OMTI_FDC_SRT_MS(omti->fdc_srt);
+  return programmed > AP_OMTI_FDC_TRACK_TO_TRACK ? programmed
+                                                 : AP_OMTI_FDC_TRACK_TO_TRACK;
+}
+
+static ap_time_t fdc_seek_duration(const ap_omti_t *omti, uint8_t from,
+                                   uint8_t to) {
   const unsigned distance = from > to ? (unsigned)(from - to)
                                       : (unsigned)(to - from);
   if (distance == 0u) {
     return 0u;
   }
-  return (ap_time_t)distance * AP_OMTI_FDC_TRACK_TO_TRACK +
-         AP_OMTI_FDC_SETTLING;
+  return (ap_time_t)distance * fdc_step_time(omti) + AP_OMTI_FDC_SETTLING;
 }
 
 /* Start a drive moving, and let the Main Status Register say so.
@@ -2015,7 +2039,8 @@ static ap_time_t fdc_seek_duration(uint8_t from, uint8_t to) {
  * `SENSE INTERRUPT STATUS` finds it done, which is what the hardware does with
  * a head already on the requested cylinder. */
 static void fdc_begin_seek(ap_omti_t *omti, unsigned unit, uint8_t to) {
-  const ap_time_t duration = fdc_seek_duration(omti->fdc_cylinder[unit], to);
+  const ap_time_t duration =
+      fdc_seek_duration(omti, omti->fdc_cylinder[unit], to);
   omti->fdc_cylinder[unit] = to;
   if (duration == 0u) {
     omti->fdc_seek_done = true;
@@ -2334,9 +2359,19 @@ static void fdc_execute(ap_omti_t *omti) {
      * the permissive direction, and it is why this is a named gap rather than
      * a harmless simplification.
      *
-     * Not implemented because nothing measures it: Phase A established that
-     * the reference boot never touches the floppy controller, so no run this
-     * project has can say what `SRT` the firmware writes. */
+     * **Implemented 2026-08-22.** The blocker was which of §6.2's two drive
+     * types this board has, and `ap_omti.h` already answered it: Table 7-1's
+     * 360 rpm, 96 TPI and 500 Kbit/s, and the oracle's `DSHD`, are the 1.2
+     * Mbyte drive. The thirteen `SRT` rows neither manual prints follow from
+     * the three that they do -- `(16 - SRT)` ms -- and `fdc_step_time` floors
+     * the result at Table 7-7's drive minimum, so nothing this core already
+     * measured moves. See `AP_OMTI_FDC_TRACK_TO_TRACK`.
+     *
+     * §6.3.8's byte layout: byte 1 is `(SRT)(HUT)`, byte 2 is `(HLT)ND`. */
+    omti->fdc_srt = (uint8_t)((omti->fdc_command[1] >> 4) & 0x0Fu);
+    omti->fdc_hut = (uint8_t)(omti->fdc_command[1] & 0x0Fu);
+    omti->fdc_hlt = (uint8_t)((omti->fdc_command[2] >> 1) & 0x7Fu);
+    omti->fdc_step_rate_set = true;
     fdc_result(omti);
     return;
 

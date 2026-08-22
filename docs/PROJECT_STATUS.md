@@ -1445,8 +1445,57 @@ tests fail and the two acceptance tests do not.
 
 *Verification: `awd_suite` 52 -> 56; ctest 139/139.*
 
-## PROVISIONAL: the floppy step rate is programmable and modelled as a constant
+## The floppy step rate is programmed by SPECIFY, and now paces the seek
 ## (2026-08-22)
+
+**Closed the same day it was opened, and the interesting part is why it was
+opened at all.** The entry below marked this `PROVISIONAL` and named two
+blockers. Neither survived being looked at, and both were already answered by
+this project's own files:
+
+*Which of §6.2's two drive types this board has.* `ap_omti.h`'s floppy section
+already recorded Table 7-1's 360 rpm, 96 TPI, two sides and 500 Kbit/s, and the
+oracle's `apollo_dsk.cpp` calling the drive "`FF_525`, **`DSHD`**, MFM, 1200
+(1 us, 360 rpm)". Double-sided high density at 360 rpm is the 1.2 Mbyte drive; a
+320 Kbyte drive is 40 cylinders at 300 rpm. *The blocker was named in the same
+file that answered it* — the fourth time in one day a question was closed by
+re-reading something this project had written rather than by finding a document.
+
+*The thirteen `SRT` rows neither manual prints.* Three consecutive values map to
+1, 2 and 3 ms, so the rule is `(16 - SRT)` milliseconds and no other rule passes
+through three equally spaced points; it is also the NEC 765's published encoding
+at 500 Kbit/s. `[8640]` §5 was checked first and prints the same three rows and
+no more, so the sibling route was exhausted before the arithmetic was used.
+
+**What it does.** `fdc_step_time` returns the slower of the programmed rate and
+Table 7-7's 3 ms drive minimum. The floor is not a safety margin — it is the
+mechanism's published "track-to-track time **minimum**", so a controller told to
+step at 1 ms still moves the heads at 3 ms, and a model without it would report
+seeks this drive cannot perform.
+
+**Nothing this core already measured moved.** §6.2's `1101` *is* 3 ms, so a
+correctly-programmed driver lands on the figure the existing seek tests verify
+against Table 7-7's published 94 ms average, and an unprogrammed controller uses
+the minimum — which is exactly the old fixed-rate model. `[8640]` §5 says "if
+this command is issued prior to initialization of a step rate the default value
+will be used" and never prints that value, so the unprogrammed case uses the
+drive minimum instead of a guess: the one rate that cannot claim a speed the
+mechanism does not have.
+
+`HUT` and `HLT` are stored, hashed and unused. This core models no head load or
+unload state for them to pace, and keeping them is what makes that gap visible
+rather than making the bytes vanish. All four fields are hashed, with
+`board_state_suite` assertions that each moves the hash — a field nothing reads
+is a field nothing would notice missing, and a differential run would then be
+blind to a controller programmed differently.
+
+*Verification: `omti_suite` 33 -> 35, covering a rate slower than the floor, one
+faster, one equal, and the unprogrammed case; four new `board_state_suite`
+hash-coverage assertions; ctest 139/139.*
+
+### The entry as first written, kept because the blockers were mine
+
+
 
 `[OMTI]` §6.2 defines `SPECIFY`'s `SRT` as "a 4 bit byte indicat[ing] the
 stepping rate for the diskette drive", alongside `HLT` (head load) and `HUT`
