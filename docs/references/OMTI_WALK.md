@@ -2434,3 +2434,73 @@ with `ST0` IC = `01`, and INVALID terminating with IC = `10` — which is
 unimplemented facts is one `CLAUDE.md` requires read whole. 20 pages, with a text
 layer, though every register and timing table must still be read as an image.
 Named as a plan item; nothing from it is implemented yet.
+
+
+## `[765]` WALKED WHOLE — 20 of 20 pages, 2026-08-22
+
+Publication `SP765-12-78-4K-GN`, NEC Microcomputers, December 1978. Text layer
+present, but every register, command and timing table read as a 200 dpi image.
+`[8272A]` Table 4 read alongside for the command opcodes.
+
+| pages | content | yield |
+| --- | --- | --- |
+| 1 | Description, features, pin configuration | **"There are 15 separate commands"**, listed; 128/256/512/1024 bytes/sector; parallel seek on up to four drives; single-phase 8 MHz clock |
+| 2 | Block diagram, absolute maximum ratings, DC characteristics | INPUT PORT takes exactly four FDD lines — READY, WRITE PROTECT/TWO SIDE, INDEX, FAULT/TRACK 0. Electrical figures: analogue, not modelled |
+| 3 | **PIN IDENTIFICATION**, all 40 | The multiplexing that explains `[OMTI]`'s `ST3` — see below. Pin 35 `RDY` is a *dedicated* input; 33 and 34 are shared pairs |
+| 4 | AC characteristics, capacitance | `TMCY` DRQ cycle 13 µs min; **note 3**: "STEP Cycle Time ... 1 ms to 16 ms at 8 MHz Clock Period, and 2 to 32 ms at 4 MHz" — the clock scaling, numerically |
+| 5 | Timing waveforms | Processor read/write, DMA, FDD read; the PRESHIFT 0/1 table — Normal/Late/Early/**Invalid** — which is what the OMTI Additional Control Register's `WP2`-`WP0` drive |
+| 6 | Timing waveforms (cont.), **INTERNAL REGISTERS** | The `A0`/`RD`/`WR` function table, including its **three illegal combinations**; two host-visible registers only |
+| 7 | **Main Status Register**, package outline, command sequence | `D0B`-`D3B` **four** seek-busy bits, `CB`, `NDM`, `DIO`, `RQM`; the three phases named |
+| 8-9 | **INSTRUCTION SET**, all fifteen | Every opcode and every phase — the table `[OMTI]` §6.3 is a five-row-shorter copy of |
+| 10 | Command symbol description (cont.), system configuration | `SRT` "must be defined for each of the four drives"; `STP` = 1 contiguous, 2 alternate |
+| 11 | **PROCESSOR INTERFACE** | `RQM`/`DIO` handshake required in Command and Result phases and **not** Execution; all result bytes must be read or no new command is accepted; "no foreshortening"; TC truncation |
+| 12 | **READ DATA**, Table 1 Transfer Capacity | Index hole twice → `ND`; CRC → `DE`/`DD`; deleted mark → `CM` under `SK`; service every 27 µs FM / 13 µs MFM; `DTL` semantics when `N` = 0 |
+| 13 | **Table 2**, WRITE DATA, WRITE DELETED DATA, READ DELETED DATA | The result-phase `C`/`H`/`R`/`N` rule for every `MT`/`EOT` case; TC mid-field fills the remainder with **00**; write service 31 µs FM / 15 µs MFM |
+| 14 | **READ A TRACK**, READ ID, FORMAT A TRACK, Table 3 | Read-a-track forbids `MT` and `SK`; four data requests per sector during format, `R` incremented so the result carries `R+1`; Table 3's `N`/`SC`/`GPL` per sector size |
+| 15 | SCAN commands, Table 4, SEEK | Ones-complement comparison; `R + STP → R`; `SH`/`SN` per condition; seek is NON BUSY during execution, which is what the per-drive busy bits are for |
+| 16 | RECALIBRATE, **SENSE INTERRUPT STATUS**, SPECIFY, SENSE DRIVE STATUS, INVALID | 77 step pulses; **four interrupt causes and Table 5**; the SPECIFY timers and their 8/4 MHz scaling; invalid ⇒ `IC` = `10`, and the forced-invalid rule |
+| 17 | **`ST0` and `ST1`**, bit by bit | `ST0` `D3` = `NR` and `D2` = `HD` are **live** |
+| 18 | **`ST1` (cont.), `ST2`, `ST3`** | `ST3`'s eight bits, all "from the FDD" — see below |
+| 19-20 | NOTES (blank), back cover | — |
+
+### `ST3` is settled, and the answer is not "the datasheet overrides `[OMTI]`"
+
+The datasheet gives `ST3` as `FT`(7) `WP`(6) `RY`(5) `T0`(4) `TS`(3) `HD`(2)
+`US1`(1) `US0`(0), all eight from the drive — which is exactly `002398-04`
+p. 12-14's table, printed a fourth time. `[OMTI]` §6.4.4 gives three live bits
+and five constants. **Page 3's pin table reconciles them**, and this is the part
+no OMTI manual could supply:
+
+- Pin 33 is **`FLT/TR0`**, one pin carrying *fault in Read/Write mode and Track 0
+  in Seek mode*; pin 34 is **`WP/TS`**, *write protect in Read/Write mode and
+  two-side in Seek mode*. So `ST3` bits 7 and 4 are the same wire in two modes,
+  as are bits 6 and 3. Only one of each pair can be live at a time, which is
+  precisely why `[OMTI]` marks 7 and 3 "not used" and keeps 6 and 4.
+- Pin 35 `RDY` is dedicated — but the PC/AT 34-pin floppy interface carries **no
+  READY line**, so on an AT board it is tied. `[OMTI]`'s "bit 5 not used" is
+  honest for this card.
+
+**So `[OMTI]`'s table is right about the board and the datasheet is right about
+the part, and they were never in conflict — except in one place.** Bit 4's entry
+reads "Track 0 (T0) - **Status of the 'ready' signal** from the diskette drive".
+The datasheet has bit 4 = Track 0 and bit 5 = Ready. `[OMTI]` kept bit 4's *name*
+and attached **bit 5's description** to it — a one-row slip, which then
+propagated verbatim into `[8640]` §5.6.4 and `[8000]` §6.4.4 because the three
+are one source text. That is why three manuals across three years and two product
+families carried an identical self-contradiction: **it was copied, not
+re-derived.**
+
+*This is the discriminator this record twice declared did not exist.* The entry
+above concludes "The documentary route is closed. What is left: a driver that
+reads the bit, or a machine to probe." It was closed only across the three
+manuals that share a source; the part's own datasheet was never opened.
+
+**What follows for the open spindle item, and it re-poses the question.** The
+item asked what a command issued into a stopped spindle does, on the assumption
+that the drive's ready line is the reporting channel and lives in `ST3`. On this
+board it does not: bit 5 is tied and bit 4 is Track 0. The datasheet names the
+real channel — **`ST0` bit 3, `NR`**: "When the FDD is in the not-ready state and
+a read or write command is issued, this flag is set", with the command
+terminating at `IC` = `01`. `AP_OMTI_ST0_NOT_READY` already exists and
+`ap_omti_fdc_at_speed` already computes the condition; nothing joins them. That
+is now an implementable item rather than a documentary dead end.

@@ -6668,21 +6668,17 @@ same number is what let them diverge once already.
       INVALID path for those five is now a **known defect** rather than
       documented behaviour. Carried to the two items below.
 
-- [ ] **Walk `[765]`, the µPD765 datasheet, whole — 20 pages, and it is
-      mandatory.** Opened 2026-08-22. The document has already yielded four
-      facts this core does not have before any walk began (the five commands
-      above, the seek-completion interrupt, the forced-invalid state after a
-      Seek/Recalibrate interrupt, and the SPECIFY timers' clock scaling), which
-      is exactly the trigger `CLAUDE.md` makes non-discretionary. It has a text
-      layer, but every register and timing table is read as a page image.
-      **Read `[8272A]` beside it**, not after: Intel's is a licensed
-      implementation with its own typesetting, so where the two agree that is a
-      genuine second witness — unlike the three OMTI manuals, which are one
-      source text. `[765A]`/`[765B]` are later revisions of the same part and
-      are the place to check anything the original leaves ambiguous.
-      *Verification: a coverage record in `OMTI_WALK.md`, page by page, saying
-      what each yielded — and every fact either implemented with a test or named
-      as a `PROVISIONAL` gap.*
+- [x] **Walk `[765]`, the µPD765 datasheet, whole — done 2026-08-22, 20/20.**
+      Every register, command and timing table read as a page image, with
+      `[8272A]` alongside for the opcodes. **It settled `ST3`**, which three OMTI
+      manuals could not: page 3's pin table shows `FLT/TR0` and `WP/TS` are
+      *multiplexed pins*, so `[OMTI]`'s "not used" bits are honest about the
+      board while the datasheet is right about the part — and bit 4's entry
+      carries **bit 5's description**, a one-row slip copied into all three
+      manuals. Four further facts for the block below.
+      *Verification: page-by-page coverage table in `OMTI_WALK.md`; no behaviour
+      changed in this pass, which is why it lands separately from the work it
+      authorises.* Detail in `PROJECT_STATUS.md`.
 
 - [ ] **Implement the five floppy commands this core rejects**: `02` READ A
       TRACK, `05` WRITE DATA, `09` WRITE DELETED DATA, `0A` READ ID, `0C` READ
@@ -6699,6 +6695,20 @@ same number is what let them diverge once already.
       *Verification: `afd_suite` and `omti_suite`, one test per command stating
       the hardware fact — including a WRITE DATA that a subsequent READ DATA
       reads back, and a READ ID returning the addressed sector's C/H/R/N.*
+      **The walk is done, so the semantics are in hand**: Table 2's result-phase
+      `C`/`H`/`R`/`N` per `MT`/`EOT` case, the deleted-address-mark/`SK`/`CM`
+      interaction, READ A TRACK forbidding `MT` and `SK` and terminating on the
+      second index hole, and TC filling a part-written data field with zeros.
+      Three more from `[765]` belong in the same block, because they are the
+      same module and the same manual:
+      - **`ST0` bit 3 `NR` on a command into a not-ready drive**, which closes
+        the spindle item below — `ap_omti_fdc_at_speed` computes the condition
+        and nothing reads it.
+      - **The seek-completion interrupt.** `ap_omti.h` states no manual on this
+        shelf describes one; `[765]` p. 16 lists four causes, #3 being "End of
+        Seek or Recalibrate Command", with Table 5's `ST0` encoding.
+      - **The forced-invalid state**: a Seek or Recalibrate interrupt not
+        followed by SENSE INTERRUPT STATUS makes the *next* command invalid.
 
 - [ ] **The keyboard's self-diagnostics.** Chapter 12's opening sentence has the
       part "performs power-up and operator requested self-diagnostics". No
@@ -6721,7 +6731,23 @@ same number is what let them diverge once already.
       manual could not.
       Driving a bit whose own name denies its description would be choosing one
       half of a contradiction, so nothing is driven from the timer yet.
-      **The third manual has now been read, and it does not discriminate.**
+      **SETTLED 2026-08-22 by `[765]`, the part's own datasheet — and the
+      question was mis-posed.** Its page 3 pin table shows `FLT/TR0` (33) and
+      `WP/TS` (34) are *multiplexed* pins, so `[OMTI]`'s "not used" bits are
+      honest about this board while the datasheet's eight live bits are right
+      about the part; the two never conflicted. The real defect is that bit 4's
+      row keeps its own name and carries **bit 5's description** — the datasheet
+      has bit 4 Track 0 and bit 5 Ready — a one-row slip copied into all three
+      manuals, which is why three documents agreed on a contradiction.
+      *So the ready line is not the reporting channel here*: pin 35 `RDY` is
+      dedicated, but the AT 34-pin interface carries no READY line and bit 5 is
+      tied. **`ST0` bit 3 `NR` is the channel** — "when the FDD is in the
+      not-ready state and a read or write command is issued, this flag is set",
+      terminating at `IC` = `01`. `AP_OMTI_ST0_NOT_READY` exists and
+      `ap_omti_fdc_at_speed` computes the condition; **nothing joins them**, and
+      joining them is the remaining work. Moved into the FDC completion block
+      above. Nothing is driven from `ST3` bit 4 by the spindle, correctly.
+      **The third manual had been read, and it does not discriminate.**
       `[8000]` §6.4.4 (doc 6-7, June 1986) carries the identical eight lines as
       `[OMTI]` §6.4.4 of January 1987 and `[8640]` §5.6.4 of June 1989 — three
       documents, three years, two product families, one wording. That weakens
