@@ -1955,7 +1955,15 @@ unsigned ap_omti_fdc_command_bytes(uint8_t opcode) {
   case AP_OMTI_FDC_SCAN_EQUAL:
   case AP_OMTI_FDC_SCAN_LOW_EQUAL:
   case AP_OMTI_FDC_SCAN_HIGH_EQUAL:
+  /* `[765]` pp. 8-9: the four addressed commands OMTI omits take the same
+   * nine bytes as READ DATA -- opcode, HD/US, C, H, R, N, EOT, GPL, DTL. */
+  case AP_OMTI_FDC_READ_TRACK:
+  case AP_OMTI_FDC_WRITE_DATA:
+  case AP_OMTI_FDC_WRITE_DELETED:
+  case AP_OMTI_FDC_READ_DELETED:
     return 9u;
+  case AP_OMTI_FDC_READ_ID:
+    return 2u; /* `[765]` p. 14: opcode, HD/US -- it addresses no sector */
   case AP_OMTI_FDC_FORMAT_TRACK:
     return 6u; /* opcode, HD/US, N, SC, GPL, D */
   case AP_OMTI_FDC_SPECIFY:
@@ -1983,6 +1991,14 @@ unsigned ap_omti_fdc_result_bytes(uint8_t opcode) {
   case AP_OMTI_FDC_SCAN_EQUAL:
   case AP_OMTI_FDC_SCAN_LOW_EQUAL:
   case AP_OMTI_FDC_SCAN_HIGH_EQUAL:
+  /* All five of `[765]`'s additions end in the same seven-byte result phase,
+   * READ ID included -- p. 14 has it "stores the values from the first ID
+   * Field it is able to read" into exactly C, H, R and N. */
+  case AP_OMTI_FDC_READ_TRACK:
+  case AP_OMTI_FDC_WRITE_DATA:
+  case AP_OMTI_FDC_WRITE_DELETED:
+  case AP_OMTI_FDC_READ_ID:
+  case AP_OMTI_FDC_READ_DELETED:
     return 7u; /* ST0 ST1 ST2 C H R N */
   case AP_OMTI_FDC_SENSE_INTERRUPT:
     return 2u; /* ST0, PCN */
@@ -2312,6 +2328,139 @@ static void fdc_execute(ap_omti_t *omti) {
     omti->fdc_status = AP_OMTI_MSR_RQM | AP_OMTI_MSR_DIO | AP_OMTI_MSR_BUSY;
     return;
 
+  case AP_OMTI_FDC_READ_DELETED:
+    /* `[765]` p. 13. Identical to READ DATA except in what an address mark
+     * means, and on this medium every mark is normal -- see `ap_omti.h`.
+     *
+     * `SK`=0: "read all the data in the sector and set the `CM` flag in `ST2`
+     * to a 1, and then terminate". `SK`=1: skip the sector and read the next,
+     * which on an image with no deleted marks skips every sector to `EOT` and
+     * finds nothing. */
+    if (fdc_modifier(omti, AP_OMTI_FDC_SK)) {
+      fdc_data_result(omti, AP_OMTI_ST0_IC_ABRUPT, AP_OMTI_ST1_NO_DATA, 0u);
+      fdc_result(omti);
+      return;
+    }
+    if (!fdc_load_sector(omti, &st1)) {
+      fdc_data_result(omti,
+                      (uint8_t)(AP_OMTI_ST0_IC_ABRUPT | fdc_not_ready(omti)),
+                      st1, 0u);
+      fdc_result(omti);
+      return;
+    }
+    omti->fdc_phase = AP_OMTI_PHASE_DATA_IN;
+    omti->fdc_status = AP_OMTI_MSR_RQM | AP_OMTI_MSR_DIO | AP_OMTI_MSR_BUSY;
+    /* Carried to the result phase by `fdc_give_byte`'s completion, which reads
+     * `fdc_result[2]` the same way the scans' verdict does. */
+    omti->fdc_result[2] = AP_OMTI_ST2_CONTROL_MARK;
+    return;
+
+  case AP_OMTI_FDC_READ_TRACK:
+    /* `[765]` p. 14: "reads all of the data fields from the track beginning at
+     * the index hole" -- so the sector it starts on is **1**, not the `R` the
+     * command names. It still compares each ID against the command's, and
+     * "if there is not a comparison, then the `ND` flag ... is set to a 1", but
+     * it does not stop: the data comes back regardless. That distinction is
+     * the whole of what separates this command from READ DATA here.
+     *
+     * "Multi-track or skip operations are **not allowed** with this command",
+     * so `MT` and `SK` are refused rather than ignored -- a driver that sets
+     * one has asked for something the part does not do. */
+    if (fdc_modifier(omti, AP_OMTI_FDC_MT) ||
+        fdc_modifier(omti, AP_OMTI_FDC_SK)) {
+      omti->fdc_result[0] = AP_OMTI_ST0_IC_INVALID;
+      omti->fdc_result_length = 1u;
+      fdc_result(omti);
+      return;
+    }
+    {
+      /* Start at the index hole. `fdc_load_sector` reads `fdc_command[4]`, so
+       * the `R` it is given is 1 and the command's own `R` is what the ID
+       * comparison is against. */
+      const uint8_t asked = omti->fdc_command[4];
+      omti->fdc_command[4] = 1u;
+      if (!fdc_load_sector(omti, &st1)) {
+        omti->fdc_command[4] = asked;
+        fdc_data_result(omti,
+                        (uint8_t)(AP_OMTI_ST0_IC_ABRUPT | fdc_not_ready(omti)),
+                        st1, 0u);
+        fdc_result(omti);
+        return;
+      }
+      omti->fdc_command[4] = asked;
+      omti->fdc_phase = AP_OMTI_PHASE_DATA_IN;
+      omti->fdc_status = AP_OMTI_MSR_RQM | AP_OMTI_MSR_DIO | AP_OMTI_MSR_BUSY;
+      /* The ID comparison, which reports and does not terminate. */
+      omti->fdc_track_read_nd = asked != 1u;
+      return;
+    }
+
+  case AP_OMTI_FDC_READ_ID:
+    /* `[765]` p. 14: "The FDC stores the values from the first ID Field it is
+     * able to read", which on a formatted image is sector 1 of wherever the
+     * head is. The command carries no C/H/R/N of its own -- it is two bytes --
+     * so the result is built from the drive's position rather than from the
+     * command, which is the one place `fdc_data_result` cannot be used. */
+    if (omti->floppy == nullptr) {
+      omti->fdc_result[0] =
+          (uint8_t)(AP_OMTI_ST0_IC_ABRUPT | (uint8_t)fdc_unit(omti));
+      omti->fdc_result[1] = AP_OMTI_ST1_MISSING_MARK | AP_OMTI_ST1_NO_DATA;
+      omti->fdc_result[2] = 0u;
+      omti->fdc_result[3] = omti->fdc_cylinder[unit];
+      omti->fdc_result[4] = (uint8_t)((omti->fdc_command[1] >> 2) & 1u);
+      omti->fdc_result[5] = 0u;
+      omti->fdc_result[6] = 0u;
+      omti->fdc_result_length = 7u;
+      fdc_result(omti);
+      return;
+    }
+    omti->fdc_result[0] =
+        (uint8_t)(AP_OMTI_ST0_IC_NORMAL | (uint8_t)fdc_unit(omti));
+    omti->fdc_result[1] = 0u;
+    omti->fdc_result[2] = 0u;
+    omti->fdc_result[3] = omti->fdc_cylinder[unit];
+    omti->fdc_result[4] = (uint8_t)((omti->fdc_command[1] >> 2) & 1u);
+    omti->fdc_result[5] = 1u; /* the first ID field on the track */
+    omti->fdc_result[6] = AP_OMTI_FDC_N_1024;
+    omti->fdc_result_length = 7u;
+    fdc_result(omti);
+    return;
+
+  case AP_OMTI_FDC_WRITE_DATA:
+  case AP_OMTI_FDC_WRITE_DELETED:
+    /* `[765]` p. 13. The data phase runs host to controller, and the sector is
+     * written when the last byte of it has arrived -- not as the bytes come in,
+     * because a transfer cut short must not leave half a sector on the medium
+     * under this model's all-or-nothing image write.
+     *
+     * `09` differs from `05` only in laying down a Deleted Data Address Mark,
+     * which an `.afd` cannot record; see `ap_omti.h`. The data written is
+     * identical, so the two share this arm rather than pretending otherwise. */
+    if (omti->floppy == nullptr || !omti->floppy->writable) {
+      /* The same pairing FORMAT uses: write-protect says why a loaded diskette
+       * refuses, `NR` says the drive is empty, and an empty drive is both. */
+      fdc_data_result(omti,
+                      (uint8_t)(AP_OMTI_ST0_IC_ABRUPT | fdc_not_ready(omti)),
+                      AP_OMTI_ST1_NOT_WRITEABLE, 0u);
+      fdc_result(omti);
+      return;
+    }
+    {
+      uint32_t lba = 0u;
+      if (!ap_afd_lba(omti->fdc_command[2], omti->fdc_command[3],
+                      omti->fdc_command[4], &lba)) {
+        fdc_data_result(omti, AP_OMTI_ST0_IC_ABRUPT, AP_OMTI_ST1_NO_DATA, 0u);
+        fdc_result(omti);
+        return;
+      }
+      omti->fdc_write_lba = lba;
+      omti->fdc_buffer_index = 0u;
+      omti->fdc_buffer_length = AP_AFD_SECTOR_BYTES;
+      omti->fdc_phase = AP_OMTI_PHASE_DATA_OUT;
+      omti->fdc_status = AP_OMTI_MSR_RQM | AP_OMTI_MSR_BUSY;
+      return;
+    }
+
   case AP_OMTI_FDC_FORMAT_TRACK:
     /* §6.3.2 takes N, SC, GPL and a fill byte D, and writes a whole track of
      * sectors carrying it. With no media, or on a read-only image, it is the
@@ -2477,9 +2626,32 @@ static void fdc_execute(ap_omti_t *omti) {
 /* A byte arriving at the data register. */
 static void fdc_take_byte(ap_omti_t *omti, uint8_t value) {
   if (omti->fdc_phase == AP_OMTI_PHASE_DATA_OUT) {
-    /* A scan's comparison byte. Each one can only clear the hit. */
+    /* Two commands run this phase in opposite directions: a scan *compares*
+     * each byte against the medium, and a write *replaces* it. The opcode is
+     * what tells them apart, and it did not have to before `05` existed. */
     const uint8_t opcode =
         (uint8_t)(omti->fdc_command[0] & AP_OMTI_FDC_OPCODE_MASK);
+    if (opcode == AP_OMTI_FDC_WRITE_DATA ||
+        opcode == AP_OMTI_FDC_WRITE_DELETED) {
+      omti->fdc_buffer[omti->fdc_buffer_index] = value;
+      ++omti->fdc_buffer_index;
+      if (omti->fdc_buffer_index < omti->fdc_buffer_length) {
+        return;
+      }
+      /* The whole sector has arrived; commit it. The image write is the only
+       * thing that can still fail here, and it fails as a data error rather
+       * than as a missing sector -- the address was resolved before the phase
+       * began. */
+      if (!ap_afd_write(omti->floppy, omti->fdc_write_lba, omti->fdc_buffer)) {
+        fdc_data_result(omti, AP_OMTI_ST0_IC_ABRUPT, AP_OMTI_ST1_DATA_ERROR,
+                        0u);
+      } else {
+        fdc_data_result(omti, AP_OMTI_ST0_IC_NORMAL, 0u, 0u);
+      }
+      fdc_result(omti);
+      return;
+    }
+    /* A scan's comparison byte. Each one can only clear the hit. */
     const uint8_t media = omti->fdc_buffer[omti->fdc_buffer_index];
     bool matched = false;
     switch (opcode) {
@@ -2531,7 +2703,16 @@ static uint8_t fdc_give_byte(ap_omti_t *omti) {
     const uint8_t value = omti->fdc_buffer[omti->fdc_buffer_index];
     ++omti->fdc_buffer_index;
     if (omti->fdc_buffer_index >= omti->fdc_buffer_length) {
-      fdc_data_result(omti, AP_OMTI_ST0_IC_NORMAL, 0u, 0u);
+      /* Two of `[765]`'s commands finish a *successful* read with a flag set:
+       * READ DELETED DATA always reports `CM` on this medium, and READ A TRACK
+       * reports `ND` when the ID it found is not the one asked for. Both are
+       * staged when the command was accepted, because neither ends the
+       * transfer -- which is exactly what distinguishes them from an error. */
+      const uint8_t st2 = omti->fdc_result[2];
+      const uint8_t st1 =
+          omti->fdc_track_read_nd ? (uint8_t)AP_OMTI_ST1_NO_DATA : 0u;
+      omti->fdc_track_read_nd = false;
+      fdc_data_result(omti, AP_OMTI_ST0_IC_NORMAL, st1, st2);
       fdc_result(omti);
     }
     return value;

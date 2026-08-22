@@ -332,6 +332,7 @@ typedef enum {
  * which is now a **known defect** rather than the documented behaviour it was
  * believed to be. */
 typedef enum {
+  /* The ten `[OMTI]` §6.3 documents. */
   AP_OMTI_FDC_SPECIFY = 0x03u,
   AP_OMTI_FDC_SENSE_DRIVE = 0x04u,
   AP_OMTI_FDC_READ_DATA = 0x06u,
@@ -342,7 +343,46 @@ typedef enum {
   AP_OMTI_FDC_SCAN_EQUAL = 0x11u,
   AP_OMTI_FDC_SCAN_LOW_EQUAL = 0x19u,
   AP_OMTI_FDC_SCAN_HIGH_EQUAL = 0x1Du,
+  /* The five `[765]` documents and OMTI's manuals omit -- landed 2026-08-22.
+   * Opcodes from `[765]` pp. 8-9's INSTRUCTION SET table, each confirmed
+   * against `[8272A]` Table 4. None collides with the ten above. */
+  AP_OMTI_FDC_READ_TRACK = 0x02u,
+  AP_OMTI_FDC_WRITE_DATA = 0x05u,
+  AP_OMTI_FDC_WRITE_DELETED = 0x09u,
+  AP_OMTI_FDC_READ_ID = 0x0Au,
+  AP_OMTI_FDC_READ_DELETED = 0x0Cu,
 } ap_omti_fdc_command_t;
+
+/* ## What the `.afd` image cannot carry, and what follows for two commands
+ *
+ * An `.afd` is a raw sector image -- 77 x 2 x 8 x 1024 and nothing else. It has
+ * no per-sector sidecar (the `.awd` has one; this format does not), so **there
+ * is nowhere to record a Deleted Data Address Mark**. Every sector in every
+ * image this core can open therefore carries a *normal* mark.
+ *
+ * That is a limitation of the format, and it makes both deleted-data commands
+ * *more* determined rather than less:
+ *
+ *   - `09 WRITE DELETED DATA` writes the data exactly as `05` does, and the
+ *     mark it would additionally lay down is not representable. Named here
+ *     rather than silently ignored.
+ *   - `0C READ DELETED DATA` is defined by `[765]` p. 13 in terms of what it
+ *     finds: on a **normal** Data Address Mark with `SK`=0 it "will read all
+ *     the data in the sector and set the `CM` flag in `ST2` to a 1, and then
+ *     terminate". Since every mark here is normal, that arm is not an
+ *     approximation -- it is the documented behaviour on this medium, always.
+ *     With `SK`=1 the part "skips the sector ... and reads the next sector",
+ *     and on an image with no deleted marks every sector is skipped to `EOT`,
+ *     so the command finds nothing and terminates with `ND`.
+ *
+ * **Cost to close**: a sidecar record format for `.afd` carrying the address
+ * mark per sector, as `AWD_META.md` does for the fixed disk's ID flags. Nothing
+ * on this machine writes a deleted mark, so no workload can currently tell. */
+
+/* `[765]` Table 1's sector-size code: `N` = 3 is 1024 bytes, which is the only
+ * size an `.afd` has. READ ID reports it, having no command byte to copy it
+ * from. */
+#define AP_OMTI_FDC_N_1024 3u
 
 /* The opcode field, and the three modifiers above it. */
 #define AP_OMTI_FDC_OPCODE_MASK 0x1Fu
@@ -1080,6 +1120,13 @@ typedef struct {
   uint8_t fdc_buffer[AP_AFD_SECTOR_BYTES];
   unsigned fdc_buffer_index;
   unsigned fdc_buffer_length;
+  /* Where a WRITE DATA / WRITE DELETED DATA data phase will land, resolved
+   * when the command was accepted so a refused address never reaches a write. */
+  uint32_t fdc_write_lba;
+  /* READ A TRACK's ID comparison, which `[765]` p. 14 has *reporting* rather
+   * than terminating -- so it is carried from the command to the result phase
+   * instead of ending the transfer. */
+  bool fdc_track_read_nd;
 
   /* The head position per drive, which SENSE INTERRUPT STATUS reports as PCN
    * and SEEK and RECALIBRATE move. Two drives, per the Digital Output

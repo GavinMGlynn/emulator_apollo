@@ -433,17 +433,135 @@ static void test_a_read_only_diskette_reads_as_write_protected(void) {
   release_floppy();
 }
 
-/* §6.3.11: "the issued command was never started". `05` is WRITE DATA on a
- * generic 765 and is *not* in this controller's set, so it takes this path --
- * the case that would be silently wrong if the command had been invented from
- * general 765 knowledge. */
-static void test_an_unlisted_command_including_write_data_is_invalid(void) {
+/* §6.3.11: "the issued command was never started". **This test used to assert
+ * that `05` WRITE DATA took that path**, on the reasoning that the three OMTI
+ * manuals list ten commands and none of them is a write. `[765]` -- the part's
+ * own datasheet, which nobody on this project had opened -- says "there are 15
+ * separate commands which the uPD765 will execute", and `05` is one of them.
+ * The test encoded the same misreading as the code, which is why a green suite
+ * is not evidence of completeness.
+ *
+ * An opcode that really is outside the fifteen still takes the invalid path,
+ * and `1F` is one: it is not in `[765]` pp. 8-9's table under any modifier. */
+static void test_an_opcode_outside_the_fifteen_is_invalid(void) {
   build_floppy(true);
   build_controller();
-  ap_omti_fdc_write(&omti, AP_OMTI_FDC_DATA, 0x05u);
+  ap_omti_fdc_write(&omti, AP_OMTI_FDC_DATA, 0x1Fu);
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_fdc_phase(&omti));
   TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST0_IC_INVALID, take());
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_IDLE, ap_omti_fdc_phase(&omti));
+  release_floppy();
+}
+
+/* `[765]` p. 13: the data phase runs host to controller and the sector lands on
+ * the medium. A floppy that cannot be written is not a floppy. */
+static void test_write_data_puts_the_hosts_bytes_on_the_medium(void) {
+  build_floppy(true);
+  build_controller();
+  const uint8_t command[] = {AP_OMTI_FDC_WRITE_DATA, 0u, 0u,    0u, 1u,
+                             3u,                     8u, 0x1Bu, 0xFFu};
+  send(command, sizeof command);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_OUT, ap_omti_fdc_phase(&omti));
+  for (unsigned i = 0; i < AP_AFD_SECTOR_BYTES; ++i) {
+    ap_omti_fdc_write(&omti, AP_OMTI_FDC_DATA, (uint8_t)(i & 0xFFu));
+  }
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_fdc_phase(&omti));
+  TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST0_IC_NORMAL, take());
+
+  /* Read it back through the command set rather than out of the buffer: the
+   * claim is that it reached the medium. */
+  build_controller();
+  const uint8_t read[] = {AP_OMTI_FDC_READ_DATA, 0u, 0u,    0u, 1u,
+                          3u,                    8u, 0x1Bu, 0xFFu};
+  send(read, sizeof read);
+  for (unsigned i = 0; i < AP_AFD_SECTOR_BYTES; ++i) {
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)(i & 0xFFu), take());
+  }
+  release_floppy();
+}
+
+/* The write-protect pairing FORMAT already uses: a loaded but read-only
+ * diskette refuses with Not Writeable and never reaches the data phase. */
+static void test_write_data_into_a_write_protected_diskette_refuses(void) {
+  build_floppy(false);
+  build_controller();
+  const uint8_t command[] = {AP_OMTI_FDC_WRITE_DATA, 0u, 0u,    0u, 1u,
+                             3u,                     8u, 0x1Bu, 0xFFu};
+  send(command, sizeof command);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_fdc_phase(&omti));
+  TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST0_IC_ABRUPT, take());
+  TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST1_NOT_WRITEABLE, take());
+  release_floppy();
+}
+
+/* `[765]` p. 14: READ ID "stores the values from the first ID Field it is able
+ * to read", so the reply describes where the head *is* -- the command carries
+ * no address of its own and is two bytes long. */
+static void test_read_id_reports_the_first_id_field_on_the_track(void) {
+  build_floppy(true);
+  build_controller();
+  const uint8_t command[] = {AP_OMTI_FDC_READ_ID, 0u};
+  send(command, sizeof command);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_fdc_phase(&omti));
+  TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST0_IC_NORMAL, take()); /* ST0 */
+  TEST_ASSERT_EQUAL_UINT8(0u, take());                    /* ST1 */
+  TEST_ASSERT_EQUAL_UINT8(0u, take());                    /* ST2 */
+  TEST_ASSERT_EQUAL_UINT8(0u, take());                    /* C */
+  TEST_ASSERT_EQUAL_UINT8(0u, take());                    /* H */
+  TEST_ASSERT_EQUAL_UINT8(1u, take());                    /* R, the first */
+  TEST_ASSERT_EQUAL_UINT8(AP_OMTI_FDC_N_1024, take());    /* N */
+  release_floppy();
+}
+
+/* `[765]` p. 13: on a **normal** address mark with `SK` = 0, READ DELETED DATA
+ * reads the sector and sets `CM`. Every mark on an `.afd` is normal, so `CM` is
+ * not an approximation here -- it is what this medium always produces. */
+static void test_read_deleted_data_sets_the_control_mark_on_normal_media(void) {
+  build_floppy(true);
+  build_controller();
+  const uint8_t command[] = {AP_OMTI_FDC_READ_DELETED, 0u, 0u,    0u, 1u,
+                             3u,                       8u, 0x1Bu, 0xFFu};
+  send(command, sizeof command);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_fdc_phase(&omti));
+  for (unsigned i = 0; i < AP_AFD_SECTOR_BYTES; ++i) {
+    (void)take();
+  }
+  TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST0_IC_NORMAL, take()); /* ST0 */
+  TEST_ASSERT_EQUAL_UINT8(0u, take());                    /* ST1 */
+  TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST2_CONTROL_MARK, take());
+  release_floppy();
+}
+
+/* `[765]` p. 14: READ A TRACK begins at the **index hole**, not at the `R` the
+ * command names, and an ID that does not compare sets `ND` *without* ending the
+ * transfer. Asking for sector 4 therefore still returns sector 1's data, with
+ * `ND` set -- which is the whole of what separates it from READ DATA here. */
+static void test_read_a_track_starts_at_the_index_hole_and_reports_nd(void) {
+  build_floppy(true);
+  build_controller();
+  const uint8_t command[] = {AP_OMTI_FDC_READ_TRACK, 0u, 0u,    0u, 4u,
+                             3u,                     8u, 0x1Bu, 0xFFu};
+  send(command, sizeof command);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_fdc_phase(&omti));
+  for (unsigned i = 0; i < AP_AFD_SECTOR_BYTES; ++i) {
+    (void)take();
+  }
+  TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST0_IC_NORMAL, take());  /* ST0 */
+  TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST1_NO_DATA, take());    /* ST1: ND */
+  release_floppy();
+}
+
+/* "Multi-track or skip operations are not allowed with this command", so the
+ * two modifiers are refused rather than quietly ignored. */
+static void test_read_a_track_refuses_multitrack_and_skip(void) {
+  build_floppy(true);
+  build_controller();
+  const uint8_t command[] = {
+      (uint8_t)(AP_OMTI_FDC_READ_TRACK | AP_OMTI_FDC_MT),
+      0u, 0u, 0u, 1u, 3u, 8u, 0x1Bu, 0xFFu};
+  send(command, sizeof command);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_fdc_phase(&omti));
+  TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST0_IC_INVALID, take());
   release_floppy();
 }
 
@@ -997,7 +1115,13 @@ int main(void) {
   RUN_TEST(test_sense_interrupt_status_with_no_seek_pending_is_invalid);
   RUN_TEST(test_recalibrate_puts_the_head_on_track_zero);
   RUN_TEST(test_a_read_only_diskette_reads_as_write_protected);
-  RUN_TEST(test_an_unlisted_command_including_write_data_is_invalid);
+  RUN_TEST(test_an_opcode_outside_the_fifteen_is_invalid);
+  RUN_TEST(test_write_data_puts_the_hosts_bytes_on_the_medium);
+  RUN_TEST(test_write_data_into_a_write_protected_diskette_refuses);
+  RUN_TEST(test_read_id_reports_the_first_id_field_on_the_track);
+  RUN_TEST(test_read_deleted_data_sets_the_control_mark_on_normal_media);
+  RUN_TEST(test_read_a_track_starts_at_the_index_hole_and_reports_nd);
+  RUN_TEST(test_read_a_track_refuses_multitrack_and_skip);
   RUN_TEST(test_scan_equal_reports_a_hit_when_every_byte_matches);
   RUN_TEST(test_a_single_mismatched_byte_leaves_the_scan_not_satisfied);
   RUN_TEST(test_the_low_and_high_scans_compare_the_media_against_the_host);
