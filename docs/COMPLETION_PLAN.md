@@ -6531,11 +6531,15 @@ same number is what let them diverge once already.
       §4.3 (doc 4-2, 4-3); §4.4/§4.5's floppy registers and the write
       precompensation table (doc 4-5, 4-6); §5.1.2's command summary (doc 5-2);
       §6.4.3/§6.4.4 (doc 6-7); Appendix A-1 and A-2.
+      Also read: Appendix B-2 (a glossary, **not** the "Interleave Scheme" the
+      contents page names) and B-4 (blank), and Appendix C-1.
       *Owed*: §1.1-§1.2, §2.1-§2.2, §3 entire, §4.1, §4.5's protocol tail,
-      §5.1.1-§5.4, §6.1-§6.3, Appendix A-3 onward, **Appendix B** and
-      **Appendix C** (the BIOS installation procedure, which `[OMTI]` lacks).
+      §5.1.1-§5.4, §6.1-§6.3, Appendix A-3 onward, B-1 and B-3, C-2 onward.
       Page offsets: doc `1-N` is PDF `N+5`, `2-N` is `N+8`, `4-N` is `N+19`,
-      `5-N` is `N+26`, `6-N` is `N+52`, `A-N` is `N+59`.
+      `5-N` is `N+26`, `6-N` is `N+52`, `A-N` is `N+59`, `B-N` is `N+64`,
+      `C-N` is `N+68`. **The contents page's section-to-appendix mapping is
+      unreliable** — it calls B the Interleave Scheme and B-2 is a glossary — so
+      offsets come from footers read off the page images, not from the index.
       **Read it expecting confirmation, not corroboration.** Today established
       that `[8000]`, `[OMTI]` and `[8640]` are one source text — the same `ST3`
       contradiction verbatim in all three, the same `DRQ3` error, the same

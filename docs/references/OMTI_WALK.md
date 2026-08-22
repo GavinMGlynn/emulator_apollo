@@ -1791,3 +1791,46 @@ code for successfully finding an address mark is not an error. Recorded as a
 probable defect in this printing rather than corrected silently. And `14` is
 "**Sector** not found" here, which is one side of the sector-versus-record
 wording this record logged as an inconsistency in `[OMTI]`.
+
+
+## `[8000]` Appendices B and C — and the contents page is wrong about B
+
+PDF 65-71; doc `B-N` is PDF `N+64`, `C-N` is PDF `N+68`.
+
+**Appendix B is not what the contents page says it is.** That page lists
+"APPENDIX B  Interleave Scheme"; **doc B-2 is an ABBREVIATIONS/MNEMONICS
+glossary**, and **doc B-4 is blank apart from its footer**. This is the same
+class of defect as `[OMTI]`'s §2.4.6 cross-referencing "section 2.9" for what
+its contents page calls §2.6 — the body and the index of these manuals disagree
+about their own structure, which is a second reason page numbers must come from
+reading rather than from the index. *B-1 and B-3 are not yet read, so whether an
+interleave table survives somewhere in B is open.*
+
+**Two glossary entries worth having, and one is a self-inconsistency.**
+
+`C/D` is expanded "**Control** Data" — where Table 4-2 of *this same manual*
+writes "Bit 2 C/D (**Command/Data**)" and `[OMTI]` Table 4-2 gives "1 = byte is
+a command or status byte", which is `ap_omti.h`'s `AP_OMTI_ST_CD`. The register
+description is the one that says what the bit does and is taken; the glossary is
+recorded as the outlier. That makes **six** places `[OMTI]`-family text
+disagrees with itself.
+
+`FDC` is "**Flexible** Disk Controller", not Floppy — a period spelling worth
+knowing when searching these scans. `D LUN` is "Destination Logical Unit
+Number", which is `COPY`'s second LUN and something `ap_omti.c` already decodes
+from bytes 5-7 of the ten-byte descriptor.
+
+**Appendix C, BIOS INSTALLATION PROCEDURE — host-side, and inapplicable here.**
+The 8000 series ships an optional pair of EPROMs, labelled "EVEN ADDRESSES" and
+"ODD ADDRESSES", that go into empty sockets **on the PC motherboard** — `U17`
+and `U37` on an IBM AT, `U60` and `U58` on a Tandy 3000. A DN3500 has no such
+sockets and no x86 BIOS.
+
+*It does corroborate the floppy strap from a third angle.* "The 8200 and 8600
+controllers provide floppy disk support ... connect the floppy cable to
+connector **J7**", and for the two-controller case "one of the two controllers
+must be strapped for the secondary floppy base I/O address and the other for the
+primary" — `W7` **installed** is the primary base, `W7` **removed** is the
+secondary. That matches Table 2-1's `W7 = 1*` → `03F0H`. The page also says "to
+enable floppy support, jumper `W7` must be installed", which conflates enabling
+with selecting; Table 2-1 is the precise statement and is the one taken.
