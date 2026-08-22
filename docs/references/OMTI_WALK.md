@@ -1098,6 +1098,13 @@ drive is connected on **J4** ... **`W13`** shall be cut", "on **J3** ...
 > titled "drive configuration" and names only `J3` and `J4`, so a reader who
 > stops at the section that appears to be about connectors gets a wrong picture
 > of the cabling. The correction is one page later, in a procedure.
+>
+> **And which of `J3`/`J4` is which LUN — left open here — is answered by
+> `[8000]` Table 2-2**: "`J2` FIXED DISK (34 pin), `J3` FIXED DISK - **LUN 0**
+> (20 pin), `J4` FIXED DISK - **LUN 1** (20 pin), `J7` FLOPPY DISK (34 pin)".
+> One shared 34-pin control connector and one radial 20-pin data connector per
+> LUN, named by LUN. (The floppy is `J7` on the 8000 series where the 812X/862X
+> put it on `J1` — a family difference, like the jumper numbers.)
 
 **§2.4.2, Floppy Support (8620 and 8627 only).** "The OMTI 8000 controller
 provides floppy disk support which is fully AT bus and hardware compatible.
@@ -1653,3 +1660,47 @@ as-shipped choice, opposite sense — so a jumper number and a polarity read off
 one manual must not be carried to the other. That is the family split showing up
 in a place where the *values* agree and only the encoding does not, which is the
 easiest kind to get wrong.
+
+
+## `[8000]` doc 2-4 — the page that explains a word taken from the oracle
+
+PDF 12. Four things, and the first is the best result this manual has given.
+
+**The drive configuration is three orthogonal straps per LUN**, not `[OMTI]`
+§2.3's four-row drive table:
+
+|  | LUN 0 | LUN 1 | `0*` | `1` |
+| --- | --- | --- | --- | --- |
+| Sector type | `W10` | `W13` | Soft sectored | Hard sectored |
+| Drive class | `W11` | `W14` | ST412 compatible | **ESDI compatible** |
+| Drive type | `W12` | `W15` | Fixed | Removeable |
+
+*This explains `READ CAPACITY`'s drive configuration word.* `ap_omti_cdb.h`
+returns `02 44` for it, and `0x44` is **ESDI FIXED MEDIA** and **ESDI SOFT
+SECTORED** — which is exactly *drive class ESDI, drive type fixed, sector type
+soft*, the three straps read back. **That word was taken from `omti8621.cpp`
+because no document this project held defined it for this drive.** It now has a
+documentary account of every set bit, and the oracle and the manual agree
+without either having been fitted to the other.
+
+**Table 2-2 settles the connector-to-LUN mapping** this record left open this
+morning: `J2` FIXED DISK (34 pin), `J3` FIXED DISK - **LUN 0** (20 pin), `J4`
+FIXED DISK - **LUN 1** (20 pin), `J7` FLOPPY DISK (34 pin). One shared control
+cable, one radial data cable per LUN, named by LUN. Correction inserted above at
+the §2.4.1 entry.
+
+**`W9 W8` gives bytes per sector** — 512 (17 sectors/track), 512 (18), 1024 (9),
+1056 (9) — the same four rows as `[OMTI]`'s `W10 W11`, under different jumper
+numbers and **without** the "ST506/412 MFM drives only" qualifier that manual
+puts on the sector count. `W21`, `W23`, `W24`, `W25` are reserved here, where
+the 862X uses `W20`-`W23` for drive configuration: the jumper numbering is
+per-family throughout and nothing may be carried across.
+
+**LED Meaning**: "Self test diagnostics are run when the unit is powered on. If
+the LED goes out the diagnostics have passed. If the self test detects a failure
+the LED will remain on." So the controller runs a power-on self-test. **No
+duration is given anywhere in this manual**, and this core's only power-on
+timing is §4.3's 100 µs reset window. Recorded as a named behaviour without a
+number rather than modelled — inventing a self-test duration would put a figure
+in the emulator that nothing supports, and there is no LED for a driver to read
+in any case.

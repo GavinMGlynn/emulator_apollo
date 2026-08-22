@@ -111,6 +111,26 @@
  * 5-27 defines it bit by bit, and the two now agree: `0x02` in byte 4 is bit 1,
  * "TRANSFER RATE T = 10 MHZ, Supported", which is an ESDI drive's rate.
  *
+ * **And `[8000]` doc 2-4 says where the three bits come from.** Its jumper
+ * table configures each LUN with *three orthogonal straps* rather than
+ * `[OMTI]` §2.3's four-row drive table:
+ *
+ *     W10 / W13   Sector type   0* Soft sectored     1  Hard sectored
+ *     W11 / W14   Drive class   0* ST412 compatible  1  ESDI compatible
+ *     W12 / W15   Drive type    0* Fixed             1  Removeable
+ *
+ * `0x44` is ESDI FIXED MEDIA and ESDI SOFT SECTORED, which is exactly **drive
+ * class ESDI, drive type fixed, sector type soft** — the three straps read
+ * back. A word this project took from `omti8621.cpp` because no document it
+ * held defined it now has a documentary account of every set bit, and the
+ * oracle and the manual agree without either having been fitted to the other.
+ *
+ * *That does not make the byte derived rather than measured*, and the
+ * `PROVISIONAL` framing elsewhere stands: these are the 8000 series' jumper
+ * numbers, and §2.3's own table is a BIOS convention (see `ap_omti.c`'s note on
+ * the CONFIGURATION register). What changed is that the value is no longer
+ * unexplained.
+ *
  * Bytes 6 to 9 -- the inter-sector gaps and the PLO sync fields -- are zero.
  * They are physical formatting parameters a raw sector image has no way to
  * carry, and the oracle writes zeros for them too. A stated gap, not a value. */
