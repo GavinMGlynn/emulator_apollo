@@ -776,13 +776,77 @@ static void test_a_seek_costs_one_step_a_cylinder_and_a_single_settle(void) {
                            omti.fdc_seek_at[0] - omti.now);
 
   /* And it is the *distance* that is paid for, not the destination: the same
-   * drive going ten further costs the same again. */
+   * drive going ten further costs the same again.
+   *
+   * The SENSE INTERRUPT STATUS between the two seeks is **mandatory**, not
+   * tidiness: `[765]` p. 16 has the part treat the next command as invalid
+   * until a finished seek is collected, so a second seek issued without it
+   * never moves the head. This test used to omit it and passed, because the
+   * rule was not modelled until 2026-08-22. */
   settle();
+  const uint8_t sense[] = {AP_OMTI_FDC_SENSE_INTERRUPT};
+  send(sense, sizeof sense);
+  (void)take(); /* ST0 */
+  (void)take(); /* PCN */
   const ap_time_t at_ten = omti.now;
   seek_to(20u);
   TEST_ASSERT_EQUAL_UINT64(at_ten + 10u * AP_OMTI_FDC_TRACK_TO_TRACK +
                                AP_OMTI_FDC_SETTLING,
                            omti.fdc_seek_at[0]);
+  release_floppy();
+}
+
+/* `[765]` p. 16: "A Sense Interrupt Status Command must be sent after a Seek or
+ * Recalibrate Interrupt, otherwise the FDC will consider the next command to be
+ * an Invalid Command." So a finished seek does not merely wait to be read -- it
+ * blocks the command stream until it is. */
+static void test_a_command_after_an_uncollected_seek_is_invalid(void) {
+  build_floppy(true);
+  build_controller();
+  seek_to(10u);
+  settle();
+
+  /* A READ DATA issued without collecting the seek takes the invalid path and
+   * never reaches the medium. */
+  const uint8_t read[] = {AP_OMTI_FDC_READ_DATA, 0u, 0u,    0u, 1u,
+                          3u,                    8u, 0x1Bu, 0xFFu};
+  send(read, sizeof read);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_fdc_phase(&omti));
+  TEST_ASSERT_EQUAL_UINT8(AP_OMTI_ST0_IC_INVALID, take());
+
+  /* Collect it, and the same command works. */
+  const uint8_t sense[] = {AP_OMTI_FDC_SENSE_INTERRUPT};
+  send(sense, sizeof sense);
+  (void)take();
+  (void)take();
+  send(read, sizeof read);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_fdc_phase(&omti));
+  release_floppy();
+}
+
+/* `[765]` p. 16 lists four reasons the part interrupts, and the third is "End of
+ * Seek or Recalibrate Command". Those two have no result phase -- which is
+ * exactly *why* the line is needed, since it is what tells a driver when to
+ * issue the SENSE INTERRUPT STATUS the same page calls mandatory. */
+static void test_a_finished_seek_raises_the_interrupt_line(void) {
+  build_floppy(true);
+  build_controller();
+  /* Enable the line, as an AT driver must: Table 4-3 bit 3 gates it. */
+  ap_omti_fdc_write(&omti, AP_OMTI_FDC_DOR,
+                    AP_OMTI_DOR_NOT_RESET | AP_OMTI_DOR_INT_DMA |
+                        AP_OMTI_DOR_DRIVE_A_MOTOR);
+  seek_to(10u);
+  /* In flight: nothing to report yet. */
+  TEST_ASSERT_FALSE(ap_omti_fdc_irq(&omti));
+  settle();
+  TEST_ASSERT_TRUE(ap_omti_fdc_irq(&omti));
+
+  /* And collecting it drops the line -- the same flag serves both. */
+  const uint8_t sense[] = {AP_OMTI_FDC_SENSE_INTERRUPT};
+  send(sense, sizeof sense);
+  (void)take();
+  (void)take();
+  TEST_ASSERT_FALSE(ap_omti_fdc_irq(&omti));
   release_floppy();
 }
 
@@ -1131,6 +1195,8 @@ int main(void) {
   RUN_TEST(test_a_command_written_before_the_result_phase_is_drained_is_lost);
   RUN_TEST(test_a_floppy_command_does_not_disturb_the_fixed_disk_phase);
   RUN_TEST(test_a_seek_costs_one_step_a_cylinder_and_a_single_settle);
+  RUN_TEST(test_a_command_after_an_uncollected_seek_is_invalid);
+  RUN_TEST(test_a_finished_seek_raises_the_interrupt_line);
   RUN_TEST(test_a_seek_to_the_cylinder_the_head_is_on_arrives_at_once);
   RUN_TEST(test_the_status_register_shows_a_drive_in_the_seek_mode);
   RUN_TEST(test_the_two_drives_seek_independently);

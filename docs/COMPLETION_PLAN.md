@@ -6697,10 +6697,11 @@ same number is what let them diverge once already.
       starting at the index hole and reporting `ND` without terminating, and
       `MT`/`SK` refused.* Detail in `PROJECT_STATUS.md`.
 
-- [ ] **Three more FDC behaviours from `[765]`, same module and same manual.**
-      Opened 2026-08-22 alongside the five commands; kept separate because each
-      changes interrupt or phase behaviour rather than adding a command.
-      - **`ST0` bit 3 `NR` — do NOT wire this to the spindle, and here is why.**
+- [x] **Three more FDC behaviours from `[765]` — done 2026-08-22.** Two
+      implemented and one resolved as *must not be implemented*, which is the
+      interesting one. *Verification: `afd_suite` 46 → 48.* Detail in
+      `PROJECT_STATUS.md`.
+      - [x] **`ST0` bit 3 `NR` — resolved as "do not wire this", no code.**
         The obvious move is `ap_omti_fdc_at_speed` → `AP_OMTI_ST0_NOT_READY`,
         and it would be wrong. `[765]` p. 17 defines `NR` by **the FDD's
         not-ready state**, which the part learns from its dedicated `RDY` pin
@@ -6716,12 +6717,28 @@ same number is what let them diverge once already.
         that never spins yields no index pulses and no address marks, and no
         document on this shelf says what the part does then. Recorded on the
         spindle item below; nothing is implemented on this.
-      - **The seek-completion interrupt.** `ap_omti.h` states no manual on this
-        shelf describes one; `[765]` p. 16 lists four causes, #3 being "End of
-        Seek or Recalibrate Command", with Table 5's `ST0` encoding per cause.
-      - **The forced-invalid state**: a Seek or Recalibrate interrupt not
-        followed by SENSE INTERRUPT STATUS makes the *next* command invalid.
-      *Verification: `afd_suite`, one test per behaviour.*
+      - [x] **The seek-completion interrupt — done 2026-08-22.**
+        `ap_omti_fdc_irq` raised only on the result phase, with a comment
+        arguing that SEEK and RECALIBRATE "raise nothing, which is correct".
+        Both halves of that were true and the conclusion did not follow:
+        `[765]` p. 16 lists four causes and the third is "End of Seek or
+        Recalibrate Command", while the same page explains that those two have
+        no result phase and so *require* a SENSE INTERRUPT STATUS — which the
+        interrupt is what prompts. Driven from `fdc_seek_done`, the flag the
+        line and the sense command already share.
+      - [x] **The forced-invalid state — done 2026-08-22.** `[765]` p. 16: a
+        Seek or Recalibrate interrupt not collected makes the **next command
+        invalid**. So a finished seek blocks the command stream rather than
+        merely waiting. **A test encoded the old behaviour and had to be
+        fixed**: `test_a_seek_costs_one_step_a_cylinder_and_a_single_settle`
+        issued a second SEEK without collecting the first, which now never
+        moves the head — the second such test this session.
+      *Verification: `afd_suite` 46 → 48.* Detail in `PROJECT_STATUS.md`.
+      **Not measured against the identity boot, and the reasoning is stated
+      rather than hidden**: both paths require a floppy *command*, and the boot
+      PROM's floppy path writes three registers and issues none (`003266`), so
+      neither can execute on that workload. No golden covers the board hash, so
+      there is nothing to re-baseline.
 
 - [x] **Walk `[2681]`, the Signetics SCN2681 datasheet, whole — done 2026-08-22,
       19/19.** Opened because `ap_mc68681.h` builds the DN3500's DUART from

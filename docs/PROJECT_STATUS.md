@@ -10400,7 +10400,7 @@ to the controller's buffer ... does not transfer the data to the host", paired
 with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both derived from the STATUS register. The DRQ7 citation is **§4.3's DATA STATE alone** -- "it will set the DRQ7 bit on the system bus", read off p. 4-4 as an image -- plus `008778-03` Table 2-4. **Not "§4.2 and §4.3"**, which this row used to say: §4.2's MASK bit 0 gives **DRQ3** on p. 4-3, so the two sections of one manual contradict each other and only one of them can be cited. DRQ3 is excluded on physical grounds anyway -- DRQ7 is the 16-bit channel and the transfer is word mode. The rest is as §4.2 and §4.3 give it: the interrupt from `IREQ` and the MASK byte's interrupt enable, the DMA request from `DREQ`, which the MASK byte's DMA enable gates. IRQ6 and DRQ2 are placed and not yet driven: the floppy side's completion is the FDC's result phase, not this one | `omti_suite`, 15 tests; `awd_suite`, 49; `afd_suite`, 34; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |
 | OMTI 8621 placement (the DN3500's disk) | measured, both halves. Placement characterised at `04D000`: the range is the card's (all `FF` without it, control verified by device enumeration), aliased on an eight-byte period, with offsets 1-3 driven. Offsets 0 and 4-7 read `FF`, which a read sweep cannot distinguish from undriven | `FINDINGS.md` C20 |
 | WD7000 ESDI/SCSI (DN4500) | not started | — |
-| Floppy (`device/ap_omti.c`'s second half, `image/ap_afd.c`), QIC cartridge tape (`device/ap_qic.c`, `board/ap_tape.c`) | **modelled, and the floppy is now reachable.** §6.3's ten commands with their ST0-ST3 result bytes, the motor, MFM, multitrack and skip-deleted flags, over a 77x2x8x1024 `.afd`. The row said "not started", which was stale by a whole subsystem | `afd_suite`, 46 tests; `qic_suite`; `tape_suite`; `--diskette` fits one |
+| Floppy (`device/ap_omti.c`'s second half, `image/ap_afd.c`), QIC cartridge tape (`device/ap_qic.c`, `board/ap_tape.c`) | **modelled, and the floppy is now reachable.** §6.3's ten commands with their ST0-ST3 result bytes, the motor, MFM, multitrack and skip-deleted flags, over a 77x2x8x1024 `.afd`. The row said "not started", which was stale by a whole subsystem | `afd_suite`, 48 tests; `qic_suite`; `tape_suite`; `--diskette` fits one |
 | Mono and colour graphics controllers (`board/ap_graphics.*`) | **working**: the register block with its scrambled byte lanes, the blitter wired to the memory cycle, the LUT ports and the four screen geometries. Audited line by line against `[S3K]` ch. 10 and ch. 11 on 2026-08-16 — **no structural defect**, and §10.3.1's eleven-item change list checks out entry by entry. One real finding: the colour raster is printed in full in Table 11-4 and had been taken from the oracle, which was off by one in each direction (`h_total` 1346→1344, `v_total` 841→842). `GRAPHICS.md` finding 19; the dot clock stays `PROVISIONAL` at 68 MHz | `graphics_suite`; `./tools/identity-boot.sh --screen c8p` hashes `6140F8E43F3BCC1C` with 2.17 M controller reads |
 | 3c505 802.3 Ethernet (`device/ap_3c505.*`) | **working end to end, host command path included.** The four flag registers from `[HIS]` §3-2/§3-3/§3-5/§3-6 with the sides the right way round, the §3.1.2/§3.1.3 mailbox in both directions, the command set, DMA on DRQ6 and the interrupt on IRQ10. The audit's finding: §3.1.2's *host→adapter* half had never been wired — assembler, dispatcher and responder all existed and were unit-tested, nothing called them, and a host command was answered never. `ETHERNET.md` finding 19; the pacing approximation is 19a. The line-by-line pass then found four more: §3.1.1's accept/reject flags were never signalled at all (20), `02H`'s receive mode was stored and never consulted so every frame on the wire was this station's (21), `3AH`'s length is `10H` not the `0CH` printed -- `[HIS]` App. F, the packet counters became double words in Rev 2.0 (22) -- and `0FH` self-test is now answered while `0CH`/`0DH`/`0EH`/`11H` stay refused because every field of their responses is unmodelled (23), and §1.12's adapter reset both cleared the Host Control Register it must not touch and released the adapter while the host still held `ATTN`+`FLSH` (25) | `etherlink_suite`, 50 tests, of which `test_a_command_written_by_the_host_is_answered_by_the_adapter` crosses the real registers with no test-side wiring |
 | MAME oracle harness | working and used throughout. Beyond the dumper there are now four probe tools — `regprobe.lua` drives every bit of a register in both directions, `writetrace.lua` taps writes to watch firmware program a device, `steptime.lua` single-steps for instruction timing, `mdcapture.lua` traces the serial registers byte-exact — and findings C10 through C14 are all measurements taken with them | `oracle_driver` (19 checks, stub MAME) and `oracle_dump_format` (19 checks, mock machine); `./apollo -listfull` lists all eleven apollo machines |
@@ -40083,3 +40083,53 @@ supplies the vector, so nothing depended on it either way.
 in this same census the moment it ran. The instrument to detect it is already
 in place and already reported, which is the cheapest possible state for an open
 question to be left in.
+
+
+## Two more `[765]` behaviours: the seek interrupt and the forced-invalid state
+## (moved from COMPLETION_PLAN.md on completion, 2026-08-22)
+
+**The seek-completion interrupt.** `ap_omti_fdc_irq` raised the line on the
+result phase only, and said why: "Commands with no result phase raise nothing,
+which is correct — SEEK and RECALIBRATE report through SENSE INTERRUPT STATUS
+instead." Both clauses are true and the conclusion does not follow from them.
+
+`[765]` p. 16 lists **four** reasons the part interrupts, the third being "End
+of Seek or Recalibrate Command", and the same page says why the missing result
+phase is the reason for the line rather than an argument against it: "Neither
+the Seek or Recalibrate Command have a Result Phase. **Therefore it is mandatory
+to use the Sense Interrupt Status Command** after these commands." The interrupt
+is what tells a driver when to issue it. A driver that waits rather than polls
+had nothing to wait on.
+
+Driven from `fdc_seek_done` — the flag SENSE INTERRUPT STATUS already clears —
+so there is no second notion of "a seek finished" to keep consistent, and the
+line falls exactly when the driver collects the answer.
+
+**The forced-invalid state.** Same page: "A Sense Interrupt Status Command must
+be sent after a Seek or Recalibrate Interrupt, **otherwise the FDC will consider
+the next command to be an Invalid Command**." So an outstanding seek completion
+does not merely wait to be read — it blocks the command stream. Modelled at the
+top of `fdc_execute` from the same flag, with SENSE INTERRUPT STATUS itself the
+one exception, since refusing that would deadlock the part.
+
+### A second test that encoded the old behaviour
+
+`test_a_seek_costs_one_step_a_cylinder_and_a_single_settle` issued `seek_to(10)`,
+settled, then `seek_to(20)` — with no SENSE INTERRUPT STATUS between them — and
+asserted the second seek's arrival time. Under the rule the part actually has,
+that second seek is refused and the head never moves. The test now issues the
+sense between the two, which is what a real driver must do, and says so.
+
+That is the second test this session found asserting a behaviour the part's own
+datasheet contradicts, after the WRITE DATA one. Both were written carefully;
+both encoded the same gap the code had, which is the whole reason `CLAUDE.md`
+says a green suite is not evidence of completeness.
+
+### Why no re-baseline was needed, stated rather than assumed
+
+Both paths require a floppy **command**. The boot PROM's floppy path writes the
+Digital Output, Diskette Control and Additional Control registers and issues no
+command at all (`003266`, disassembled above), so neither `fdc_execute`'s new
+guard nor the new interrupt condition can execute on the reference workload.
+`ctest` 139/139 on both presets; no golden covers the board hash, so there is
+nothing there to move either.

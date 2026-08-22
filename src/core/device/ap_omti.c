@@ -1927,10 +1927,30 @@ bool ap_omti_fdc_irq(const ap_omti_t *omti) {
     return false;
   }
   /* The result phase is the FDC's completion: its bytes are waiting to be
-   * read. Commands with no result phase raise nothing, which is correct --
-   * SEEK and RECALIBRATE report through SENSE INTERRUPT STATUS instead. */
-  return omti->fdc_phase == AP_OMTI_PHASE_STATUS &&
-         omti->fdc_result_index < omti->fdc_result_length;
+   * read. */
+  if (omti->fdc_phase == AP_OMTI_PHASE_STATUS &&
+      omti->fdc_result_index < omti->fdc_result_length) {
+    return true;
+  }
+  /* **A finished seek raises the line too**, and this used to say it did not:
+   * "Commands with no result phase raise nothing, which is correct -- SEEK and
+   * RECALIBRATE report through SENSE INTERRUPT STATUS instead."
+   *
+   * The two halves of that sentence are both true and the conclusion does not
+   * follow. `[765]` p. 16 lists **four** reasons the part interrupts, and the
+   * third is "**End of Seek or Recalibrate Command**"; the same page explains
+   * why they still have no result phase -- "neither the Seek or Recalibrate
+   * Command have a Result Phase. Therefore it is mandatory to use the Sense
+   * Interrupt Status Command after these commands." The interrupt is what tells
+   * a driver *when* to issue it. Having no result phase is precisely why the
+   * line is needed, not a reason it is absent.
+   *
+   * `fdc_seek_done` is exactly the outstanding-completion condition, and it is
+   * cleared by SENSE INTERRUPT STATUS, so the line falls when the driver has
+   * collected the answer. Corrected 2026-08-22 from the part's own datasheet;
+   * no OMTI manual describes this, which is what `ap_omti.h` said and why it
+   * was believed. */
+  return omti->fdc_seek_done;
 }
 
 bool ap_omti_fdc_dma_request(const ap_omti_t *omti) {
@@ -2313,6 +2333,25 @@ static void fdc_execute(ap_omti_t *omti) {
   uint8_t st1 = 0u;
 
   omti->fdc_result_length = ap_omti_fdc_result_bytes(opcode);
+
+  /* `[765]` p. 16: "A Sense Interrupt Status Command **must** be sent after a
+   * Seek or Recalibrate Interrupt, otherwise the FDC will consider the **next
+   * command to be an Invalid Command**."
+   *
+   * So an outstanding seek completion is not merely information waiting to be
+   * collected -- it *blocks* the command stream until it is. Modelled from
+   * `fdc_seek_done`, the same flag the interrupt line and SENSE INTERRUPT
+   * STATUS already share, so there is no second notion of "a seek finished"
+   * to keep consistent.
+   *
+   * SENSE INTERRUPT STATUS is the exception by definition: it is the command
+   * that clears the condition, and refusing it would deadlock the part. */
+  if (omti->fdc_seek_done && opcode != AP_OMTI_FDC_SENSE_INTERRUPT) {
+    omti->fdc_result[0] = AP_OMTI_ST0_IC_INVALID;
+    omti->fdc_result_length = 1u;
+    fdc_result(omti);
+    return;
+  }
 
   switch (opcode) {
   case AP_OMTI_FDC_READ_DATA:
