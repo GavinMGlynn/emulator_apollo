@@ -6846,11 +6846,16 @@ same number is what let them diverge once already.
             2-6), with §3.11's two-step interrupt clear implemented sentence by
             sentence. **Chapter 3 is derived**, not unread — the third time a
             plan item has made this mistake, after `[OMTI]` §5 and §6.3.
-            *Done*: the datasheet's pp. 1, 5-8 — `RESET`'s five effects, `CR20`
-            as an addressing bit, Tables 1-3, the RS-RT rule and both timeout
-            formulas, all four checked against the model and confirming.
-            *Owed*: datasheet pp. 2-4 and 9-14, and `[6840UM]`'s chapters 1, 2
-            and 5 onward — 56 image-only pages, a session of its own.
+            ***The datasheet is now walked whole, 14/14.*** Its nine remaining
+            pages gave Counter Initialization's definition, the four-Enable
+            recognition latency on external clocks and gates, `CRX7`'s
+            output-low rule, Tables 4-8 and the wave-measurement modes — and
+            **two "special time-out conditions" that need no special case here**,
+            `L`=0 degenerating to `M+1` and `M`=`L`=0 timing out every clock,
+            both falling out of the nested countdown and now pinned by tests
+            (`mc6840_suite` 34 → 36) rather than left to look like an omission.
+            *Owed*: `[6840UM]`'s chapters 1, 2 and 5 onward — 56 image-only
+            pages, a session of its own.
             Record: `docs/references/MC6840_WALK.md`.
       - [x] **`[Bt458]` — walked whole 2026-08-22, 24/24.** Extracted from the
             1991 databook (PDF 393-416) onto the shelf; picked out of the batch

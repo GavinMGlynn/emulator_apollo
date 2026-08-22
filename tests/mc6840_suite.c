@@ -460,6 +460,34 @@ static void test_dual_eight_bit_multiplies_the_two_halves(void) {
   TEST_ASSERT_EQUAL_UINT(20u, clocks_to_interrupt(&ptm, 0, 128));
 }
 
+/* `[6840]` datasheet p. 10 calls this "a special time-out condition ... for the
+ * dual 8-bit mode (CRX2=1) if L=0": "the counter will revert to a mode similar
+ * to the single 16-bit mode, except Time Out occurs after **M+1** clock
+ * pulses."
+ *
+ * **It needs no special case here, and that is the claim.** With `L` = 0 the
+ * LSB counter is already zero on every tick, so each clock falls through to the
+ * MSB branch and the nested countdown degenerates to M+1 on its own. A model
+ * that special-cased it would be describing the same arithmetic twice. */
+static void test_a_zero_lsb_latch_times_out_after_msb_plus_one(void) {
+  ap_mc6840_t ptm;
+  program_continuous(&ptm, 0x0500,
+                     0x10u | AP_MC6840_CR_DUAL_8BIT | AP_MC6840_CR_IRQ_ENABLE);
+  /* M = 5, L = 0. The general rule (L+1)(M+1) gives 6, and the datasheet's
+   * special rule M+1 gives 6 -- they agree, which is why it is emergent. */
+  TEST_ASSERT_EQUAL_UINT(6u, clocks_to_interrupt(&ptm, 0, 64));
+}
+
+/* Same page, the other half: "If M=L=0, the internal counters do not change,
+ * but the output toggles at 1/2 the clock frequency." A time out on **every**
+ * clock is what produces that, and it too falls out of the structure. */
+static void test_both_halves_zero_times_out_on_every_clock(void) {
+  ap_mc6840_t ptm;
+  program_continuous(&ptm, 0x0000,
+                     0x10u | AP_MC6840_CR_DUAL_8BIT | AP_MC6840_CR_IRQ_ENABLE);
+  TEST_ASSERT_EQUAL_UINT(1u, clocks_to_interrupt(&ptm, 0, 8));
+}
+
 static void test_dual_eight_bit_repeats_at_the_same_interval(void) {
   ap_mc6840_t ptm;
   program_continuous(&ptm, 0x0203,
@@ -683,6 +711,8 @@ int main(void) {
   RUN_TEST(test_a_latch_write_reinitialises_only_when_bit_four_is_clear);
   RUN_TEST(test_dual_eight_bit_multiplies_the_two_halves);
   RUN_TEST(test_dual_eight_bit_repeats_at_the_same_interval);
+  RUN_TEST(test_a_zero_lsb_latch_times_out_after_msb_plus_one);
+  RUN_TEST(test_both_halves_zero_times_out_on_every_clock);
   RUN_TEST(test_single_shot_interrupts_repeatedly_but_pulses_once);
   RUN_TEST(test_reinitialising_a_single_shot_arms_it_again);
   RUN_TEST(test_a_period_shorter_than_the_time_out_interrupts);
