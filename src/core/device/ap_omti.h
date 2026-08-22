@@ -1333,6 +1333,15 @@ void ap_omti_fdc_write(ap_omti_t *omti, unsigned reg, uint8_t value);
  * settles it in §3, and the width argument is now a citation rather than a
  * derivation. §4.2's DRQ3 is the error.
  *
+ * **And it is an inherited error.** `[8000]` Table 4-2 (doc 4-2, June 1986)
+ * carries the same sentence for the same register -- "this bit is set along
+ * with **DRQ3** on the System Bus" -- so the `DRQ3` claim is a year older than
+ * `[OMTI]` and was copied forward rather than checked. Two manuals saying it is
+ * not two witnesses; see `docs/references/OMTI_WALK.md` on how much of this
+ * vendor's text is shared. The resolution is unchanged and rests where it
+ * should, on §3.5's width rule and `008778-03` Table 2-4, which are independent
+ * of each other and of the copied sentence.
+ *
  * The same derivation as the interrupt, from the same register: §4.3 gates
  * `DREQ` on the MASK byte's DMA ENABLE -- "If the DMA ENABLE bit in the MASK
  * byte has been previously set, data will be transferred in DMA mode ... it

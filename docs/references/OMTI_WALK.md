@@ -1500,3 +1500,68 @@ machine to probe — and Domain/OS never issues `SENSE DRIVE STATUS`.
 field* — `CM`, `DD`, `WC`, `SH`, `SN`, `BC`, `MD`, bit 7 not used — including
 the two Scan-command bits, which is a confirmation that this core's `ST2`
 constants are the OMTI's rather than the generic 765's.
+
+
+## `[8000]` §4 and §5.1.2 — and the finding that changes how to read all three
+
+PDF 21 and 28, doc 4-2 and 5-2. Doc `4-N` is PDF `N+19`, doc `5-N` is PDF
+`N+26`, doc `6-N` is PDF `N+52`.
+
+**Table 4-1** gives the four ports at `320H`-`323H` with the same read/write
+asymmetry `ap_omti.h` models — DATA IN/DATA OUT, STATUS/RESET, CONFIGURATION/
+SELECT, N/A/MASK. `320H` is §2's as-shipped base, so the table is written for
+the unjumpered board.
+
+**Table 4-2 confirms the sense-word packing from a second passage.** Data In:
+"When C/D is 0 all 16 bits are valid with **bits 8-15 containing byte 1 and bits
+0-7 containing byte 0**", and Data Out says the same. That is Appendix A-1's
+bit-numbered layout independently restated, so the packing recorded in
+`ap_omti_cdb.h` now rests on two passages rather than one.
+
+*And a third passage on the same page contradicts both.* The NOTE under Status
+bit 2: "When C/D is 0 then all 16 bits ... are valid. In this case **byte 0 is
+in bits 8-15 and byte 1 is in bits 0-7**." Exactly inverted. Two against one,
+with the two including the only bit-numbered table, so the majority reading is
+taken and the outlier is recorded rather than reconciled.
+
+**Two sentences worth keeping.** Data In "is used to read data a word at a time,
+or status (**not SENSE data**) a byte at a time" — so sense travels as *data*,
+in words, not as status bytes; unreachable here, since Apollo decodes the
+registers as bytes, but it is the behaviour behind the word format existing at
+all. And the Status description names the system lines: `IREQ` "is set with
+**IRQ14** on the System", which `board/ap_disk.h` had only from `008778-03`
+Table 2-3, so the controller's own manual now agrees with Apollo's.
+
+**§5.1.2's COMMAND SET SUMMARY confirms the command set** — twenty-four common
+commands, `0C INITIALIZE DRIVE CHARACTERISTICS` alone under ST506/412, and
+`10`/`37`/`EC` under ESDI, with every code and length matching `ap_omti_cdb.h`,
+including `READ ESDI DEFECT LIST`'s **256 bytes** and `READ CAPACITY`'s ten. It
+**also omits `1A START/STOP`**, exactly as `[OMTI]` §5.1.2 does — the same
+summary missing the same command in two manuals a year apart.
+
+## The finding: these three manuals are one source text, so agreement is cheap
+
+Three things line up today and they say the same thing.
+
+1. `ST3` bit 4's name-versus-description contradiction appears **verbatim** in
+   `[8000]` (1986), `[OMTI]` (1987) and `[8640]` (1989).
+2. `[8000]` Table 4-2 says the controller asserts **`DRQ3`**, which is exactly
+   `[OMTI]` §4.2's statement — the one `[OMTI]` §4.3 contradicts and §3.5's
+   8-bit/16-bit width rule overrules. A year older, and copied forward.
+3. Both `[8000]` and `[OMTI]` omit `1A START/STOP` from the same summary table.
+4. `[8640]` §5.4's `SRT` table is word for word `[OMTI]` §6.2's, three rows of
+   sixteen in both.
+
+*So when the resolution order says "the sibling manuals already on disk", this
+vendor's siblings are a weaker step than that rule assumes.* They resolve
+**typesetting** questions — a table that is illegible in one scan is legible in
+another — and they do **not** independently corroborate a claim, because the
+claim is the same sentence set twice. Where two OMTI manuals agree, that is one
+witness.
+
+The practical rule: **prefer a different passage in the same manual over the
+same passage in a sibling.** `DRQ7` is settled by §3.5's width rule and
+`008778-03`'s Table 2-4, which are independent of each other and of the copied
+sentence; the sibling's agreement with the error added nothing. And it is why
+the `ST3` route is closed rather than merely unexhausted: a fourth OMTI manual
+would print the fifth copy of the same eight lines.

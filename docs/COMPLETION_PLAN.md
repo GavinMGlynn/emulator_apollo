@@ -6526,7 +6526,16 @@ same number is what let them diverge once already.
       contents page shows the same six-section shape plus three appendices.
       **No text layer** (71 bytes for 71 pages), and the scan is faded, so it
       must be read as images at 200 dpi or better.
-      *Read so far*: the contents page and Appendix A-1. Everything else owed.
+      *Read so far*: contents (PDF 5), Table 4-1/4-2 (doc 4-2), §5.1.2's command
+      summary (doc 5-2), §6.4.3/§6.4.4 (doc 6-7), Appendix A-1 (doc A-1).
+      Offsets for the rest: doc `4-N` is PDF `N+19`, `5-N` is `N+26`, `6-N` is
+      `N+52`. Everything else owed — §1, §2, §3, §4.3-§4.5, most of §5, §6.1-§6.3,
+      Appendices B and C.
+      **Read it expecting confirmation, not corroboration.** Today established
+      that `[8000]`, `[OMTI]` and `[8640]` are one source text — the same `ST3`
+      contradiction verbatim in all three, the same `DRQ3` error, the same
+      omission of `1A` from the same table, the same three `SRT` rows. Where two
+      agree, that is one witness. Detail in `OMTI_WALK.md`.
 
 - [ ] **The keyboard's self-diagnostics.** Chapter 12's opening sentence has the
       part "performs power-up and operator requested self-diagnostics". No
