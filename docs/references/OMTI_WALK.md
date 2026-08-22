@@ -1971,3 +1971,19 @@ stronger statement — the architecture this core models **is** the 1986 8000
 series as originally described, two sections on one board, with the third a
 later member of the family. Two manuals differing is rare enough here to be
 worth the entry on its own.
+
+
+## `[8000]` §5.4.1 and §5.4.2 — identical, so the 50 seconds is not a scan artefact
+
+PDF 31, doc 5-5. Word for word `[OMTI]` §5.4.1 and §5.4.2, including "The
+controller will wait up to **50 seconds** for the drive to come ready", the
+ESDI recalibrate's one-sentence definition, and the ST paragraph's step-count
+termination rule. The descriptor tables match bit for bit.
+
+**What that is worth, stated precisely.** By this record's own shared-text
+finding it is *one* witness, not two — so it does not corroborate the timeout.
+What it does do is rule out the failure mode that a faded scan of a single
+manual invites: the number is not an OCR or rendering artefact, because two
+independently typeset printings carry the same digits. `AP_OMTI_READY_TIMEOUT`
+is implemented from `[OMTI]` §5.4.1 with §2.5's `1701-C` as the second printing
+*within* that manual; this is a third printing, and all three agree.
