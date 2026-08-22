@@ -1412,3 +1412,45 @@ in contiguous sectors is compared with the data sent by the processor during a
 scan operation. If STP is 2, then alternate sectors are read and compared."
 
 *§6 is now walked whole*: §6.1 and §6.2 here, §6.3 derived, §6.4 walked.
+
+
+## `[8640]` — a sibling for the floppy only, and its Winchester chapter is a trap
+
+Surveyed 2026-08-22. **It has a text layer**, which makes it far cheaper to work
+than `[OMTI]`, and that is a reason to be careful with it rather than a reason to
+trust it.
+
+**Its Winchester interface is not this controller's.** §4's registers and
+commands are the **AT task file** — "Sector Count Register IF2 (172)", `20H`
+Read Sector, `30H` Write Sector, `50H` Format Track, `40H` Read Verify, `90H`
+Diagnostic, `91H` Set Parameters — where the 862X takes six-byte Command
+Descriptor Blocks through a single data port. Two different host interfaces to
+similar drives. *So §4 must never be used to settle an 862X question*, and
+anything this record or the model cites from `[8640]` has to come from its floppy
+chapter or its drive-side material. Recorded because the text layer makes §4 the
+easiest thing in either manual to grep, and a grep does not say which controller
+it landed in.
+
+**Its §5 is the sibling, and it confirms three things without adding any.**
+
+- §5.4's `SRT` table is **word for word** `[OMTI]` §6.2's, three rows of sixteen
+  and no more. Checked before the `(16 - SRT)` arithmetic was relied on; the
+  sibling route is exhausted, not skipped.
+- §5.6.1's `ST0` gives "Bit 3 and 2 Not Used - Always zero", which is the
+  reading `ap_omti.h` argues at length against `002398-04` p. 8-13's
+  head-address bit — and this is a third document agreeing with `[OMTI]` §6.4.1.
+- §5.6.1 bit 4, Equipment Check: "Set if a 'fault' signal is received from the
+  diskette drive, or if the 'track-0' signal fails to occur after **77 step
+  pulses**". `AP_OMTI_ST0_EQUIPMENT`'s comment already carries that number.
+
+**And one sentence from §2.4** (Winchester Track and Sector Format, soft-sectored
+ESDI): "The number of sectors per track on most ESDI drives **varies by
+vendor**." A fourth statement that ESDI geometry is interrogated rather than
+configured — after §2.3's blank `#CYL`/`#HEADS` on the ESDI rows, §5.1.2's
+placing of `INITIALIZE DRIVE CHARACTERISTICS` under the ST506 commands, and
+§5.4.29's `READ CAPACITY`.
+
+*So `[8640]` has yielded no unimplemented fact, and the whole-document rule is
+not triggered by it.* That is a claim about what a survey found, not a guarantee;
+it is recorded with what was read — §2.4, §4's section list, §5.3-§5.6 — so a
+later reader can see the shape of the search rather than only its result.
