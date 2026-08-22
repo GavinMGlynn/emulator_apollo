@@ -705,6 +705,24 @@ typedef enum {
 /* Half a revolution, which comes out at 83.33 ms -- Table 7-1's "Average
  * latency time 83.3 msec" to the digit, as the Winchester's did. */
 #define AP_OMTI_FDC_AVERAGE_LATENCY (AP_OMTI_FDC_ROTATION_TIME / 2u)
+/* **`PROVISIONAL`: the step rate is the drive's, and the controller's is
+ * programmable.**
+ *
+ * This is `008778-03` Table 7-7's "Track-to-track time 3 msec **minimum**", a
+ * property of the mechanism, and the composition below reproduces that table's
+ * own published 94 ms average to 0.9% -- so it is right for this machine as
+ * Domain/OS actually drives it. What is *not* modelled is that the rate is set
+ * by software. `[OMTI]` §6.2 gives `SPECIFY`'s `SRT` as "a 4 bit byte
+ * indicat[ing] the stepping rate for the diskette drive", tabulated per drive
+ * type -- `1111`/`1110`/`1101` are 1/2/3 ms on a 1.2 Mbyte drive and 2/4/6 ms
+ * on a 320 Kbyte one -- and `ap_omti_fdc_command_bytes` accepts SPECIFY's three
+ * bytes and stores none of them.
+ *
+ * So a driver that reprogrammed the step rate would be followed on hardware and
+ * ignored here. Two things are missing before it can be modelled, and neither is
+ * guessable: the manual prints **three** of sixteen `SRT` rows, and it does not
+ * say which of its two drive types this board's floppy is -- and that choice
+ * doubles or halves every seek. Named in `docs/COMPLETION_PLAN.md`. */
 #define AP_OMTI_FDC_TRACK_TO_TRACK (AP_TIME_BASE_HZ / 1000u * 3u)
 #define AP_OMTI_FDC_SETTLING (AP_TIME_BASE_HZ / 1000u * 15u)
 /* 500 Kbit/s is 62,500 bytes a second. */

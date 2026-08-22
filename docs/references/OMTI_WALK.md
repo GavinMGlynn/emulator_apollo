@@ -1355,3 +1355,45 @@ QIC-**02** is a host interface, and Apollo's tape is the latter on its own part.
 **Coverage note.** §3.5 onward, if any, has not been reached; doc 3-7 ends with
 §3.4's three sentences and the page is otherwise blank, which usually means a
 section boundary. §3.1-§3.4 are walked.
+
+
+## §6.1 and §6.2 — the command list confirms, and the symbol list opens a gap
+
+PDF 74-75, doc 6-1 and 6-2. §6 is FLOPPY DISK FUNCTIONS and these two are its
+front matter; §6.3 was already derived and §6.4 walked.
+
+**§6.1, FLOPPY DISK COMMAND SUMMARY (8620/8627 only) — a clean confirmation.**
+Eleven entries: READ DATA, FORMAT A TRACK, SCAN EQUAL, SCAN LOW OR EQUAL, SCAN
+HIGH OR EQUAL, RECALIBRATE, SENSE INTERRUPT STATUS, SPECIFY, SENSE DRIVE STATUS,
+SEEK, INVALID. `ap_omti_fdc_command_t` has exactly the ten and the INVALID path,
+and — the part worth checking — **the list has no WRITE DATA**, which is the
+reading `ap_omti.h` already argued for from §6.3 and the 8640's §5.3 against the
+general 765 command set. A third statement of it, and this one is a summary
+written to be complete.
+
+**§6.2, DESCRIPTION OF SYMBOLS — and `SRT` is a gap.** Most of it defines terms
+the model already uses (`C`, `D`, `DTL`, `EOT`, `GPL` as "the length of gap 3
+(spacing between sectors excluding the VCO synchronous field)", `H`, `HD`, `MF`,
+`MT`, `N`, `NCN`, `ND`, `PCN`, `R`, `SC`, `SK`, `ST0-ST3`, `US0-US1` "encoded the
+same as bits 0 and 1 of the digital output register"). Three do not.
+
+`SRT` — "This 4 bit byte indicates the stepping rate for the diskette drive" —
+with two tables, `1111`/`1110`/`1101` mapping to 1/2/3 ms on a **1.2M-byte**
+drive and 2/4/6 ms on a **320K-byte** one. `HLT`, head load time, 2 to 256 ms in
+2 ms increments (1.2M) or 4 to 512 ms in 4 ms (320K). `HUT`, head unload, 0 to
+240 ms in 16 ms or 0 to 480 ms in 32 ms.
+
+*So the floppy step rate is software-programmable and this core treats it as a
+constant.* `AP_OMTI_FDC_TRACK_TO_TRACK` is `008778-03` Table 7-7's 3 ms drive
+minimum — right for this machine, since the composition reproduces that table's
+own 94 ms average to 0.9%, which is evidence Domain/OS programs the rate that
+gives 3 ms. The mechanism is what is missing. Marked `PROVISIONAL` in the header
+and opened as a plan item, blocked on two facts §6.2 does not supply: it prints
+three of sixteen `SRT` rows, and it does not say which of its two drive types
+this board's floppy is — a choice that doubles or halves every seek.
+
+`STP`, the scan test parameter, is the fourth thing here: "If STP is 1, the data
+in contiguous sectors is compared with the data sent by the processor during a
+scan operation. If STP is 2, then alternate sectors are read and compared."
+
+*§6 is now walked whole*: §6.1 and §6.2 here, §6.3 derived, §6.4 walked.

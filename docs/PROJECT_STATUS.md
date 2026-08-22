@@ -1445,6 +1445,33 @@ tests fail and the two acceptance tests do not.
 
 *Verification: `awd_suite` 52 -> 56; ctest 139/139.*
 
+## PROVISIONAL: the floppy step rate is programmable and modelled as a constant
+## (2026-08-22)
+
+`[OMTI]` §6.2 defines `SPECIFY`'s `SRT` as "a 4 bit byte indicat[ing] the
+stepping rate for the diskette drive", alongside `HLT` (head load) and `HUT`
+(head unload). `ap_omti_fdc_command_bytes` accepts SPECIFY's three bytes and
+stores none of them; `AP_OMTI_FDC_TRACK_TO_TRACK` is `008778-03` Table 7-7's
+3 ms *drive* minimum instead.
+
+**Right for this machine, wrong in mechanism.** The seek composition reproduces
+Table 7-7's own published 94 ms average to 0.9%, which is evidence that
+Domain/OS programs the rate producing 3 ms steps — so no boot this project runs
+is mistimed by it. A driver that reprogrammed the rate would be followed on
+hardware and ignored here.
+
+**Blocked on two facts, and this is why neither is filled in.** §6.2 prints
+**three** of sixteen `SRT` rows, and it gives two different mappings — 1/2/3 ms
+for a 1.2 Mbyte drive against 2/4/6 ms for a 320 Kbyte one — without saying which
+this board's floppy is. Extrapolating the missing thirteen rows is arithmetic;
+choosing between the two drive types is not, and getting it wrong doubles or
+halves every floppy seek. Marked `PROVISIONAL` at the constant and named in
+`COMPLETION_PLAN.md` with its route: `[8640]` §5 first, as the unread sibling
+most likely to print the table whole.
+
+*Verification: none — this records a gap, and the existing seek tests are
+unchanged.*
+
 ## The OMTI had no RESET state, so its 100 µs had nowhere to live
 ## (2026-08-21)
 

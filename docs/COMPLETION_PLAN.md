@@ -6530,6 +6530,31 @@ same number is what let them diverge once already.
       can reach a word-mode transfer. The width is modelled because §4.2
       defines it; the packing is unanswered because nothing has asked.
 
+- [ ] **`SPECIFY`'s `SRT`, `HLT` and `HUT` are accepted and discarded.**
+      Found 2026-08-22 walking `[OMTI]` §6.2 (doc 6-2). The floppy step rate is
+      *programmable*: `SRT` is "a 4 bit byte indicat[ing] the stepping rate for
+      the diskette drive", `HLT` is head load time and `HUT` head unload time,
+      all three carried in `SPECIFY`'s three bytes — which
+      `ap_omti_fdc_command_bytes` accepts and `ap_omti.c` stores none of.
+      `AP_OMTI_FDC_TRACK_TO_TRACK` is instead `008778-03` Table 7-7's 3 ms
+      *drive* minimum, now marked `PROVISIONAL`.
+      **Right for this machine, wrong in mechanism**: the composition
+      reproduces Table 7-7's published 94 ms average to 0.9%, so Domain/OS is
+      evidently programming the rate that gives 3 ms; a driver that changed it
+      would be followed on hardware and ignored here.
+      **Blocked on two facts, and neither is guessable.** §6.2 prints **three**
+      of sixteen `SRT` rows (`1111`/`1110`/`1101`), and it gives *two* mappings
+      — 1/2/3 ms for a 1.2 Mbyte drive, 2/4/6 ms for a 320 Kbyte one — without
+      saying which this board's floppy is. That choice doubles or halves every
+      seek, so picking one is not an approximation but a coin toss.
+      *Route, in order*: `[8640]` §5 is the sibling on disk and unread — the
+      same table is the kind a sibling prints in full; then `002398-04`, which
+      is walked but whose floppy chapter can be re-queried for the drive's
+      capacity and TPI; then the oracle.
+      Same shape as `HLT`/`HUT`, which have full increment ranges printed
+      (2-256 ms and 0-240 ms for the 1.2M) and no modelled effect at all, since
+      this core does not model head load or unload as states.
+
 - [ ] **The keyboard's self-diagnostics.** Chapter 12's opening sentence has the
       part "performs power-up and operator requested self-diagnostics". No
       command in `ap_kbd_receive`'s set runs one and no result is defined
