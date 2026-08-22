@@ -1743,3 +1743,51 @@ density, 250/300/500 Kbit/s "including **dual rotational speed floppies**",
 which is what the Additional Control Register's `PN2` is for.
 
 *§1.3.2 is physical*: 3.9 × 13.25 × 0.75 inches.
+
+
+## `[8000]` Appendix A-2 — the sense codes grouped by type, and every one of ours confirmed
+
+PDF 61. Where `[OMTI]`'s Appendix A prints a flat code list, this manual groups
+the same codes under the four **types** A-1 defines, with the six-bit value
+spelled out as `5 4 | 3 2 1 0`. That makes the type field structural rather than
+something inferred from the numbers.
+
+**TYPE 0 — drive errors** (`00`): `00` No error, `01` No Index, `02` No
+seek/command complete, `03` Write/Drive Fault, **`04` Drive not selected/not
+ready**, `06` No track or cylinder zero found, `08` Seek/command in progress,
+`09` Cartridge changed. *`05` and `07` are absent here too* — the same gap
+`[OMTI]` A-2 has and A-3 fills with `07 Multiple Drives Selected`, so that
+observation survives into a second manual and is one more shared-text alignment.
+
+**TYPE 1 — data errors** (`01`): `10` ID CRC error (ESDI)/ID ECC error (ST412),
+`11` Uncorrectable Data Error, `12` ID address Mark not found, `13` Data address
+mark found, **`14` Sector not found**, `15` Seek error, `16` Sequencer/DMA
+failure, **`17` Write protected**, `18` Correctable Data Error, **`19` Bad track
+encountered**, **`1A` Illegal Interleave Factor**, **`1C`** Unable to read
+Alternate Track data / Illegal access to an alternate track, `1D` Alternate or
+Bad Track Already Assigned, `1E` No Alternate Track Found, `1F` Alternate
+Assigned To Itself. `1B` is unassigned.
+
+**TYPE 2 — command errors** (`10`): **`20` Invalid Command, `21` Illegal Disk
+Address, `22` Illegal Function for Drive Type, `23` Volume Overflow** — all four,
+and only those four.
+
+**TYPE 3 — diagnostic errors** (`11`): `30` RAM error, **`31` Z8 firmware
+checksum/internal diagnostic error**.
+
+**Every code this core emits appears, under the type the new `omti_cdb_suite`
+test asserts.** That test was written from A-1's type *definitions* and the
+values this project had chosen from flat code lists; this table confirms it row
+by row, which is a stronger result than the test could give on its own.
+
+*And `31`'s name here is the `Z8` form*, which independently supports the
+reading taken from `[OMTI]` Figure 2.2's board diagram — that A-2's "Z8 firmware
+checksum" and A-5's "EPROM Checksum" name one checksum over the Z8's firmware
+EPROM.
+
+**Two wordings to flag.** `13` reads "Data address mark **found**", which is
+almost certainly "not found" — it is the `MD` condition of `ST2`, and a sense
+code for successfully finding an address mark is not an error. Recorded as a
+probable defect in this printing rather than corrected silently. And `14` is
+"**Sector** not found" here, which is one side of the sector-versus-record
+wording this record logged as an inconsistency in `[OMTI]`.
