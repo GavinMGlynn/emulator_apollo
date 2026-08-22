@@ -6151,8 +6151,22 @@ same number is what let them diverge once already.
       node A. Four boots spent on two configurations that cannot answer the
       question, none of them producing a wrong conclusion, because the
       instrument reports what it read rather than what it was pointed at.
-      **What is owed is the pair on `dn3500-nodeB-line2.awd`**, gated as every
-      reading here is.
+      **Third attempt, `dn3500-nodeB-line2.awd`, and it ran.** Both boots
+      gated, `sio2 reg 13` read **twice** in each — the recorded signature the
+      two earlier volumes lacked. **Result: raising all four armed pins changes
+      nothing.** Console byte-identical, no `login:`, and every `sio2` figure
+      the same: `opr 89`, `set 8F`, `cleared 7F`, `acr 8F`. The value *is*
+      consulted — the pins-high run took 16 more main-memory reads — but the
+      branch reconverges.
+      **So this experimental design cannot name the pin**, and bisecting the
+      four is pointless: none of them changes behaviour, so there is no signal
+      to bisect. Detail in `PROJECT_STATUS.md`.
+      **What is left**, and it is a different experiment: `SIO_$DCD_ENABLE`
+      defaults off, so nothing arms a change interrupt and a pin transition
+      cannot raise a fault. A volume configured with `-dcd_enable` would let the
+      driver *fault* on the pin, which is the behaviour that could name it.
+      Failing that, trace the 16-read divergence to the instruction that consumed
+      the value — the value is read, so the consumer exists and is findable.
       *Invocation*: `tools/spm-boot.sh` with `--sio-input 1:01`, `1:02`, `1:04`,
       `1:08` — one candidate pin **high** per run. `ACR[3:0]` gates change
       detection on `IP0`-`IP3`, which is what makes those four the candidates.

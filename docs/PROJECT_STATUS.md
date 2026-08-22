@@ -1555,6 +1555,51 @@ over-cautious.
 *Verification: the archive diff, recorded in `COMPLETION_PLAN.md` under the
 bit-15 item. No code changed.*
 
+## Raising all four armed input pins does not change what `siologin` does
+## (2026-08-22)
+
+The DCD-pin experiment ran. Two boots of `dn3500-nodeB-line2.awd` — the volume
+`PROJECT_STATUS`'s own table names as producing `sio2 reg 13` reads — one
+baseline and one with `--sio-input 1:0F`, raising `IP0` through `IP3`, the four
+pins `ACR[3:0]` arms. Both reached the gate `SPM system init complete.`
+
+**The configuration is confirmed from the run's output**: `sio2 reg 13   0
+write(s)   2 read(s)` in both, which is the recorded signature of `siologin` on
+`/dev/sio2` and the thing two earlier volumes did not have.
+
+**Result: no behavioural difference.** The whole console output is
+**byte-identical**, and every `sio2` figure matches — `opr 89`, `set 8F`,
+`cleared 7F`, `acr 8F`, `imr A2`, and the same eleven register write counts. No
+`login:` appears in either. `sio1` is untouched, `ip 61` in both, which is the
+flag's own control: it wrote unit 1 and left the RAM straps alone.
+
+**One difference says the value is genuinely consulted.** The pins-high run took
+**16 more main-memory reads** and **6 fewer clocks**. So the driver does not read
+the input port and discard it — it branches on the value and the branch
+reconverges without changing any register it writes.
+
+**What this settles and what it does not.**
+
+*Settled*: none of the four pins `ACR` arms, moved together, changes what
+`siologin` does. The experiment was designed to name DCD by finding the pin that
+changes behaviour; **no candidate pin changes behaviour**, so the design cannot
+name it, and bisecting the four is pointless. That is a negative result about the
+method, not evidence about which pin is DCD.
+
+*Corroborated*: Phase A's finding that the modem-signal gap is not what blocks
+`siologin`. Carrier asserted produced no prompt; carrier and three neighbours
+raised produces no prompt and no different programming either.
+
+*Still open*: which pin is DCD. The documents are exhausted, and now so is the
+behavioural route in this form. What is left is a driver that *faults* on the
+pin — `SIO_$DCD_ENABLE` defaults off, so nothing arms a change interrupt — which
+would need a volume configured with `-dcd_enable`, or the 16-read divergence
+traced to the instruction that consumed the value.
+
+*Verification: two 1.5 G boots on hashed-identical copies, both gated on `SPM
+system init complete.`, diffed whole — 28 lines differ and every one is the
+filename, the hash, the clock counts or `ip` itself.*
+
 ## The floppy step rate is programmed by SPECIFY, and now paces the seek
 ## (2026-08-22)
 
