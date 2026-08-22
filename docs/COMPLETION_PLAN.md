@@ -6526,11 +6526,16 @@ same number is what let them diverge once already.
       contents page shows the same six-section shape plus three appendices.
       **No text layer** (71 bytes for 71 pages), and the scan is faded, so it
       must be read as images at 200 dpi or better.
-      *Read so far*: contents (PDF 5), Table 4-1/4-2 (doc 4-2), §5.1.2's command
-      summary (doc 5-2), §6.4.3/§6.4.4 (doc 6-7), Appendix A-1 (doc A-1).
-      Offsets for the rest: doc `4-N` is PDF `N+19`, `5-N` is `N+26`, `6-N` is
-      `N+52`. Everything else owed — §1, §2, §3, §4.3-§4.5, most of §5, §6.1-§6.3,
-      Appendices B and C.
+      *Read*: contents (PDF 5); §1.3 (doc 1-2); §2's Table 2-1 jumpers, Table
+      2-2 connectors and LED Meaning (doc 2-3, 2-4); §4.2's Table 4-1/4-2 and
+      §4.3 (doc 4-2, 4-3); §4.4/§4.5's floppy registers and the write
+      precompensation table (doc 4-5, 4-6); §5.1.2's command summary (doc 5-2);
+      §6.4.3/§6.4.4 (doc 6-7); Appendix A-1 and A-2.
+      *Owed*: §1.1-§1.2, §2.1-§2.2, §3 entire, §4.1, §4.5's protocol tail,
+      §5.1.1-§5.4, §6.1-§6.3, Appendix A-3 onward, **Appendix B** and
+      **Appendix C** (the BIOS installation procedure, which `[OMTI]` lacks).
+      Page offsets: doc `1-N` is PDF `N+5`, `2-N` is `N+8`, `4-N` is `N+19`,
+      `5-N` is `N+26`, `6-N` is `N+52`, `A-N` is `N+59`.
       **Read it expecting confirmation, not corroboration.** Today established
       that `[8000]`, `[OMTI]` and `[8640]` are one source text — the same `ST3`
       contradiction verbatim in all three, the same `DRQ3` error, the same
