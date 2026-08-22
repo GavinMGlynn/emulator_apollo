@@ -35,7 +35,30 @@ void ap_omti_disk_reset(ap_omti_t *omti) {
    *
    * A byte read off the oracle now agrees with a jumper table read off the
    * manual, which is the strongest form of confirmation this project gets for a
-   * strap it cannot probe. */
+   * strap it cannot probe.
+   *
+   * ## How far that goes, which is less far than the paragraph above implies
+   *
+   * `[8000]` doc 2-3's jumper table lists the same four bits and gives their
+   * meaning as "**(Host assigns jumper value)**", and §4.2 there says the
+   * register is "**typically** ... used by a **BIOS** to specify the type of
+   * drive(s) attached". §2.3's own table is headed `BIOS #1002579 / BIOS AT3` --
+   * it is one BIOS's convention, printed under that BIOS's number.
+   *
+   * So the byte decomposes into four jumpers with certainty: two fitted, two
+   * not. **What they *mean* is a convention between the strap and whatever
+   * firmware reads it**, and the firmware here is Apollo's boot PROM, not
+   * OMTI's AT3 BIOS. "LUN 0 is ESDI" is what OMTI's BIOS would conclude from
+   * this byte; it agrees with everything else this model knows about the drive
+   * -- `ap_omti_cdb_accepted_by_esdi`, `008778-03` §6.3's ESDI drive list -- and
+   * that agreement is why it is worth stating, but it is corroboration and not
+   * a reading of Apollo's own convention.
+   *
+   * Nothing here depends on the interpretation. The value is measured, this
+   * core returns it, and a driver that decodes it differently gets the same
+   * byte. The distinction matters only for a reader who might later *derive*
+   * something from "ESDI on LUN 0" as though the manual had said it of this
+   * machine. It did not. */
   omti->configuration = 0xFCu;
   omti->mask = 0u;
   /* "It will then enter the idle state" -- §4.3, and that is the whole phase,

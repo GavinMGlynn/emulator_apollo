@@ -982,6 +982,21 @@ LUN 0, which is exactly what every other part of this model already assumes:
 fitted there.
 
 *A byte read off the oracle now agrees with a jumper table read off the manual.*
+
+> **BOUNDED 2026-08-22, from `[8000]` doc 2-3.** Its jumper table gives the same
+> four bits' meaning as "**(Host assigns jumper value)**", and its §4.2 says the
+> register is "typically ... used by a **BIOS** to specify the type of drive(s)
+> attached". §2.3's own table is headed `BIOS #1002579 / BIOS AT3` — one BIOS's
+> convention, printed under that BIOS's number.
+>
+> The **decomposition** is certain: four jumpers, two fitted, two not. The
+> **meaning** is a convention between the strap and whatever firmware reads it,
+> and here that firmware is Apollo's boot PROM rather than OMTI's AT3 BIOS. So
+> "LUN 0 is ESDI" is what OMTI's BIOS would conclude, it agrees with everything
+> else this model knows about the drive, and that agreement is corroboration —
+> not a statement the manual makes about *this* machine. Nothing depends on it;
+> the value is measured either way. The correction is here so a later reader
+> does not derive something new from "the manual says ESDI on LUN 0".
 That is the strongest confirmation available for a strap this project cannot
 probe, and it came from the installation chapter — the one this record had
 written off as low-yield two commits ago.
@@ -1609,3 +1624,32 @@ are identical, so six values occupy eight codes), and each rate column is the
 `11` reserved — but that is one witness twice: `ap_omti.h` took them from
 `[8640]` §5.1 and this is the same text. `002398-04` p. 12-14 is the independent
 check.
+
+
+## `[8000]` §2 — the same eight addresses under different jumper numbers
+
+PDF 11, doc 2-3, Table 2-1 **Jumper Assignments**. `*` marks as shipped.
+
+| function | jumpers | values |
+| --- | --- | --- |
+| Drive configuration | `W4 W3 W2 W1` | `0 0 0 0` as shipped, meaning "**(Host assigns jumper value)**" |
+| Winchester I/O base | `W6 W5 **W22**` | `0*0 1` `0320H`, then `0324H`, `0328H`, `032CH`; with `W22 = 0`, `01A0H`, `01A4H`, `01A8H`, `01ACH` |
+| Floppy I/O base | `W7` | `0` = `0370H`, `1*` = `03F0H` |
+
+**Three notes, and the first is the one that matters.**
+
+*The drive-configuration bits are host-assigned here*, where `[OMTI]` §2.3 prints
+a fixed drive table — under a specific BIOS's part number. That bounds this
+record's own explanation of `FC`; see the correction inserted above.
+
+*The Winchester selection is three jumpers, and the third picks the bank.*
+`W22 = 1` gives the `032x` group and `W22 = 0` the `01Ax` group, with `W6 W5`
+choosing within it. This board is `01A0H`, so `W6 W5 W22 = 0 0 0`. `[OMTI]`'s
+862X table spells the same eight values with `W19 W18 W17`.
+
+*The floppy jumper's polarity is inverted between the families.* `W7 = 1` is
+`03F0H` here; `[OMTI]`'s `W14 = 0` is `03F0H`. Same two addresses, same
+as-shipped choice, opposite sense — so a jumper number and a polarity read off
+one manual must not be carried to the other. That is the family split showing up
+in a place where the *values* agree and only the encoding does not, which is the
+easiest kind to get wrong.
