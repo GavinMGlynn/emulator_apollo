@@ -1987,3 +1987,24 @@ manual invites: the number is not an OCR or rendering artefact, because two
 independently typeset printings carry the same digits. `AP_OMTI_READY_TIMEOUT`
 is implemented from `[OMTI]` §5.4.1 with §2.5's `1701-C` as the second printing
 *within* that manual; this is a third printing, and all three agree.
+
+
+## `[8000]` §5.4.3 — the `AV` sentence and the word layout, a second printing
+
+PDF 32, doc 5-6. Identical to `[OMTI]` §5.4.3, including the sentence that
+settled the `REQUEST SENSE`-after-success question: "the sector address (defined
+by bytes 1, 2 and 3) is **only valid if the previous command terminated in
+error**. Bit 7 set to 1 indicates the validity of the sector address." Shared
+text, so one witness — but it rules out a scan artefact in the passage this
+core's `finish()` now depends on.
+
+Its `SENSE DATA WORD FORMAT` matches Appendix A-1's bit-numbered table: word 0
+is `C10 | 0 | LUN | HEAD NUMBER` over `SENSE CODE`. Third statement of the
+packing recorded in `ap_omti_cdb.h`, and the only one of the three that is *not*
+in an appendix.
+
+*One presentational difference within this manual*, noted so it is not read as a
+contradiction: §5.4.3's `SENSE DATA FORMAT` labels byte 0 simply "SENSE CODE"
+across all eight bits, where Appendix A-1 decomposes the same byte into `AV`,
+bits 5-4 `SENSE TYPE` and bits 3-0 the code. The appendix is the finer view of
+the same byte, not a rival layout.
