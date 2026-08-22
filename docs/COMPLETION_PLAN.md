@@ -6314,6 +6314,15 @@ same number is what let them diverge once already.
       oracle or a probe, and the oracle here is the same MAME that the archives
       themselves cite. The observed value is kept, being what this machine does.
       `PROVISIONAL`, marked in `ap_boardreg.h`.
+      **Two order numbers were recovered on the way and are the search keys any
+      future attempt should use**, since a title search finds only the addendum:
+      **`007861-A01`** *Domain Personal Workstations and Servers Hardware
+      Architecture Handbook* — the volume `019411-A00` addends, and the same
+      order number the Jun89 catalog lists as `DOC-7861` under the earlier
+      "Series 3000/4000 Hardware Architecture" title, so one document retitled —
+      and **`013632-A00`** *Upgrading the Series 30XX to a Series 3500*, the only
+      DN3500-specific hardware document found named anywhere. Neither is scanned.
+      Detail in `docs/references/008778-03_WALK.md`.
 - [ ] **A DMA transfer costs no bus time, and the part says it costs four
       states.** Found by the `[8237]` walk, 2026-08-22.
       `[8237]`, *DMA OPERATION*: "The 8237A can assume **seven separate states,
