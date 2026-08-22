@@ -423,6 +423,64 @@ static void test_reading_the_flag_register_clears_it(void) {
   TEST_ASSERT_EQUAL_HEX8(0, ap_mc146818_read(&rtc, AP_MC146818_REGISTER_C));
 }
 
+static void test_setting_the_set_bit_disarms_the_update_ended_interrupt(void) {
+  /* `[146818]` p. 15, `UIE`: "The RESET pin going low **or the SET bit going
+   * high** clears the UIE bit." Found by the whole-document walk 2026-08-22;
+   * before it, Register B was stored verbatim and `UIE` survived. */
+  ap_mc146818_t rtc;
+  init(&rtc);
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_B,
+                    AP_MC146818_B_24HOUR | AP_MC146818_B_UIE);
+
+  /* Armed: a second's advance raises the pin. */
+  ap_mc146818_advance(&rtc, seconds(1u));
+  TEST_ASSERT_TRUE(ap_mc146818_irq(&rtc));
+  (void)ap_mc146818_read(&rtc, AP_MC146818_REGISTER_C);
+
+  /* Now stop the clock to set the time. `SET` going high disarms `UIE`. */
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_B,
+                    AP_MC146818_B_24HOUR | AP_MC146818_B_UIE |
+                        AP_MC146818_B_SET);
+  TEST_ASSERT_EQUAL_HEX8(0, ap_mc146818_read(&rtc, AP_MC146818_REGISTER_B) &
+                                AP_MC146818_B_UIE);
+}
+
+static void test_a_write_that_leaves_set_already_high_does_not_disarm_uie(void) {
+  /* The datasheet says the SET bit "going high", which is a transition. A level
+   * test would make it impossible to re-arm `UIE` while the clock is held --
+   * and a program initialising the calendar has every reason to do exactly
+   * that before it clears `SET`. */
+  ap_mc146818_t rtc;
+  init(&rtc);
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_B,
+                    AP_MC146818_B_24HOUR | AP_MC146818_B_SET);
+
+  /* `SET` was already high, so this write's `UIE` survives. */
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_B,
+                    AP_MC146818_B_24HOUR | AP_MC146818_B_SET |
+                        AP_MC146818_B_UIE);
+  TEST_ASSERT_EQUAL_HEX8(AP_MC146818_B_UIE,
+                         ap_mc146818_read(&rtc, AP_MC146818_REGISTER_B) &
+                             AP_MC146818_B_UIE);
+}
+
+static void test_the_set_bit_leaves_every_other_register_b_bit_alone(void) {
+  /* p. 15 gives `PIE`, `AIE` and `SQWE` as cleared by `RESET` alone, and `DM`,
+   * `24/12` and `DSE` as "not modified by any internal functions". `SET` is
+   * the only bit in this register with a side effect on another. */
+  ap_mc146818_t rtc;
+  init(&rtc);
+  const uint8_t armed = (uint8_t)(AP_MC146818_B_24HOUR | AP_MC146818_B_DM |
+                                  AP_MC146818_B_DSE | AP_MC146818_B_PIE |
+                                  AP_MC146818_B_AIE | AP_MC146818_B_SQWE);
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_B, armed);
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_B,
+                    (uint8_t)(armed | AP_MC146818_B_SET));
+
+  TEST_ASSERT_EQUAL_HEX8((uint8_t)(armed | AP_MC146818_B_SET),
+                         ap_mc146818_read(&rtc, AP_MC146818_REGISTER_B));
+}
+
 static void test_an_enabled_update_flag_drives_the_interrupt(void) {
   ap_mc146818_t rtc;
   init(&rtc);
@@ -802,5 +860,8 @@ int main(void) {
   RUN_TEST(test_the_periodic_flag_drives_the_interrupt_when_enabled);
   RUN_TEST(test_the_periodic_interrupt_keeps_running_while_the_clock_is_held);
   RUN_TEST(test_selecting_a_rate_late_delivers_no_backlog);
+  RUN_TEST(test_setting_the_set_bit_disarms_the_update_ended_interrupt);
+  RUN_TEST(test_a_write_that_leaves_set_already_high_does_not_disarm_uie);
+  RUN_TEST(test_the_set_bit_leaves_every_other_register_b_bit_alone);
   return UNITY_END();
 }

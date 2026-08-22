@@ -6769,8 +6769,22 @@ same number is what let them diverge once already.
       - [ ] **`[8237]`'s remaining pages.** Its record names pages 1 and 11-19
             unread as "electrical and mechanical". Read them and say so from
             having looked, which is what makes a record trustworthy.
-      - [ ] **`[146818]` MC146818A**, the calendar. On the shelf, no walk record,
-            and the calendar has cost this project several sessions.
+      - [x] **`[146818]` MC146818A — done 2026-08-22, 21/21.** One defect
+            (`UIE` must clear when `SET` goes high, and this core stored
+            Register B verbatim), two typos in the datasheet itself (the `RESET`
+            list duplicates `AIE` and omits `UIE`; the 32.768 kHz update time is
+            printed as both 1948 and 1984 µs), and a confirmation that matters —
+            "the `RESET` pin does not affect the clock, calendar, or RAM
+            functions", which is why `ap_board_reset_devices` excludes it.
+            *Verification: `mc146818_suite` 32 → 35.* Record:
+            `docs/references/MC146818A_WALK.md`.
+      - [ ] **`UIP` and its 244 µs lead — the named blocker is gone.**
+            `ap_mc146818.c` never sets `UIP` and says modelling it "would need
+            the rate tables"; `[146818]` Table 6 and Figure 15 are those tables
+            — `tUC` 248 µs or 1984 µs by time base, `tBUC` 244 µs of lead. What
+            remains is a judgement rather than a gap: a driver polling `UIP` to
+            dodge the update never sees it set and reads valid data every time,
+            which is permissive rather than wrong. Decide and record.
       - [ ] **`[6840]` MC6840 PTM**, the timer. Two printings on the shelf, no
             record.
       - [ ] **`[Bt458]`**, the RAMDAC, from the 1991 Brooktree databook.

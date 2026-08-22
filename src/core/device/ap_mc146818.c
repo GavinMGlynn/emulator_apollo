@@ -480,6 +480,26 @@ void ap_mc146818_write(ap_mc146818_t *rtc, uint8_t address, uint8_t value) {
     /* "Read/Write Register except UIP". */
     rtc->ram[AP_MC146818_REGISTER_A] = (uint8_t)(value & ~AP_MC146818_A_UIP);
     return;
+  case AP_MC146818_REGISTER_B:
+    /* `[146818]` p. 15, `UIE`: "The RESET pin going low **or the SET bit going
+     * high** clears the UIE bit." Found by the 2026-08-22 walk; this register
+     * used to fall through to the plain store below, so a program that stopped
+     * the clock while an update-ended interrupt was armed kept it armed.
+     *
+     * It is the *transition* that clears, not the level -- the datasheet says
+     * "going high" -- so a write that leaves `SET` already set does nothing
+     * here, and a program may legitimately re-arm `UIE` while `SET` stays high.
+     * A level test would make that impossible.
+     *
+     * `SET` is the only bit in this register with a side effect on another:
+     * p. 15 gives `PIE`, `AIE` and `SQWE` as cleared by `RESET` alone, and
+     * `DM`, `24/12` and `DSE` as "not modified by any internal functions". */
+    if ((value & AP_MC146818_B_SET) != 0u &&
+        (rtc->ram[AP_MC146818_REGISTER_B] & AP_MC146818_B_SET) == 0u) {
+      value = (uint8_t)(value & ~AP_MC146818_B_UIE);
+    }
+    rtc->ram[AP_MC146818_REGISTER_B] = value;
+    return;
   case AP_MC146818_REGISTER_C:
   case AP_MC146818_REGISTER_D:
     /* Both are read-only. */
