@@ -1001,8 +1001,67 @@ static void test_an_input_transition_on_the_second_duart_gates_on_its_enable(
   TEST_ASSERT_FALSE(ap_sio_irq(&sio));
 }
 
+/* `ap_sio_set_input` exists so a frontend can move the modem-control pins
+ * during a boot, which is the only route left to naming which one is DCD: all
+ * three documentary tiers are exhausted and a passive instrument cannot see
+ * what the driver tests the level against.
+ *
+ * The part of that this suite can check is the mechanism -- that a write
+ * reaches the addressed unit, records the change where §4.2.14 says, and leaves
+ * the other unit alone. */
+static void test_driving_a_units_input_pins_reaches_that_unit_alone(void) {
+  ap_sio_t sio;
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
+
+  const uint8_t before = sio.port[1].input;
+  ap_sio_set_input(&sio, 1u, 0x7Eu);
+  TEST_ASSERT_EQUAL_HEX8(0x7Eu, sio.port[1].input);
+
+  /* §4.2.14: the change is recorded in `IPCR`'s high nibble. `IP0` moved, so
+   * bit 4 is set -- which is what makes this a *pin* and not a stored byte. */
+  if ((before & 0x01u) != 0u) {
+    TEST_ASSERT_EQUAL_HEX8(0x10u, sio.port[1].ipcr & 0x10u);
+  }
+
+  /* And unit 0 is untouched. The two DUARTs are separate parts; a setter that
+   * wrote both would silently overwrite the RAM configuration straps that
+   * `ap_sio_set_ram_config` puts on unit 0. */
+  TEST_ASSERT_EQUAL_HEX8(0x00u, sio.port[0].ipcr & 0xF0u);
+}
+
+/* Bit 7 is not a pin this part has -- seven inputs, `IP0` to `IP6` -- so it is
+ * masked rather than stored, the same rule `ap_sio_set_ram_config` follows. */
+static void test_the_eighth_input_bit_is_not_a_pin(void) {
+  ap_sio_t sio;
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
+
+  ap_sio_set_input(&sio, 1u, 0xFFu);
+  TEST_ASSERT_EQUAL_HEX8(0x7Fu, sio.port[1].input);
+}
+
+/* A unit index past the two the board has is refused rather than writing off
+ * the end of the array. Asserted on the two units' observable state rather than
+ * by comparing the whole struct, which carries padding that `memcmp` reads and
+ * `ap_sio_reset` does not set. */
+static void test_an_out_of_range_unit_is_ignored(void) {
+  ap_sio_t sio;
+  TEST_ASSERT_TRUE(ap_sio_reset(&sio));
+  const uint8_t input0 = sio.port[0].input;
+  const uint8_t input1 = sio.port[1].input;
+
+  ap_sio_set_input(&sio, 2u, 0x00u);
+
+  TEST_ASSERT_EQUAL_HEX8(input0, sio.port[0].input);
+  TEST_ASSERT_EQUAL_HEX8(input1, sio.port[1].input);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, sio.port[0].ipcr & 0xF0u);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, sio.port[1].ipcr & 0xF0u);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_driving_a_units_input_pins_reaches_that_unit_alone);
+  RUN_TEST(test_the_eighth_input_bit_is_not_a_pin);
+  RUN_TEST(test_an_out_of_range_unit_is_ignored);
   RUN_TEST(test_the_transmit_rate_comes_from_the_channels_clock_select);
   RUN_TEST(test_one_baud_set_serves_both_channels_of_a_part);
   RUN_TEST(test_op7_can_carry_channel_bs_transmitter_ready);

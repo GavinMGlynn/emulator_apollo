@@ -6114,10 +6114,19 @@ same number is what let them diverge once already.
       exhausted for the pin assignment and `ACR` turned out not to discriminate,
       so the only route left is behavioural: negate one input at a time and find
       which one changes what the driver does.
-      **Most of it exists** -- `ap_mc68681_set_input` is modelled and
-      `sio_suite` drives it; what is missing is a flag that reaches it during a
-      boot, and a run per pin. **Four pins, so four bounded runs**, each gated
-      on `SPM system init complete.` as every reading here now is.
+      **The mechanism is now complete; only the runs are owed.** `ap_sio_set_
+      input(sio, unit, value)` drives a unit's seven input pins, and the headless
+      frontend takes **`--sio-input UNIT:HEX`** (`IP0` in bit 0), applied once
+      after the board is built and before the boot runs. Unit 1 is `sio2`; unit
+      0's pins are the RAM configuration straps and writing them overrides the
+      board, which the flag's help says. *Verification: `sio_suite` 37 -> 40 —
+      the write reaches the addressed unit, records the change in `IPCR`'s high
+      nibble where §4.2.14 says, leaves the other unit alone, masks the eighth
+      bit that is not a pin, and ignores an out-of-range unit.*
+      **What is owed is measurement: four pins, so four bounded runs**, each
+      gated on `SPM system init complete.` as every reading here now is.
+      *Invocation*: `tools/spm-boot.sh` with `--sio-input 1:7E`, `1:7D`, `1:7B`,
+      `1:77` — one pin low per run against a `7F` baseline.
       *Note what it is not*: an experiment about whether carrier blocks the
       login. That is answered -- it does not, with carrier asserted. This one
       asks only which pin the driver is *looking* at, which is still worth

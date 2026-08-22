@@ -452,6 +452,13 @@ bool ap_sio_ram_bank_layout(ap_model_id_t model, uint32_t ram_bytes,
   return false;
 }
 
+void ap_sio_set_input(ap_sio_t *sio, unsigned unit, uint8_t value) {
+  if (unit >= 2u) {
+    return;
+  }
+  ap_mc68681_set_input(&sio->port[unit], (uint8_t)(value & 0x7Fu));
+}
+
 void ap_sio_set_ram_config(ap_sio_t *sio, uint8_t config) {
   /* Seven pins, `IP0`-`IP6`; bit 7 is not an input the part has. */
   ap_mc68681_set_input(&sio->port[AP_SIO_RAM_CONFIG_UNIT],

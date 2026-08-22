@@ -255,6 +255,12 @@ static void print_usage(const char *program_name) {
    * string literal, and this list passed it. No flag is grouped by meaning
    * across the break. */
   fprintf(stdout,
+          "  --sio-input UNIT:HEX  drive a DUART unit's input pins, IP0 in bit 0,\n"
+          "                        before the boot runs. Unit 1 is sio2; unit 0's\n"
+          "                        pins are the RAM configuration straps\n"
+          "");
+  /* And split again, for the same 4095-character reason. */
+  fprintf(stdout,
           "  --matrox              fit the DN4500 Matrox graphics board\n"
           "  --matrox-screenshot FILE  scan its frame out to a PNG. The\n"
           "                        geometry is a hypothesis; see GRAPHICS.md\n"
@@ -2374,6 +2380,19 @@ static const char *g_disk_writeback = NULL;
  * A header that cannot distinguish a machine that boots from one that does not
  * is not a record of the run, so these are now part of it. */
 static bool g_boot_console = false;
+/* `--sio-input UNIT:VALUE`, per DUART unit, applied once before the boot runs.
+ *
+ * The experiment it exists for: which input pin carries **DCD** on this board.
+ * All three documentary tiers are exhausted -- `002398-04` p. 12-35 says only
+ * that the `dtr_b` bit "has moved", the web has the connector pinout and no
+ * more, and the oracle wires no modem control at all -- so the route left is to
+ * negate one pin at a time and see which one changes what `siologin` does.
+ *
+ * Set here rather than passed down because `boot_from_prom` already takes
+ * thirty-odd parameters and this is a run-shaping option like the console flags
+ * beside it. */
+static uint8_t g_sio_input[2] = {0u, 0u};
+static bool g_sio_input_set[2] = {false, false};
 static const char *g_boot_script_path = NULL;
 static const char *g_boot_input_text = NULL;
 static unsigned g_boot_input_unit = 0u;
@@ -3501,6 +3520,16 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * Found because selecting a quirk left the state hash byte-identical, which
    * it cannot do when the set is hashed. */
   ap_board_set_quirks(board, g_quirks);
+  /* The input-port levels, if `--sio-input` named any. After
+   * `ap_board_init_model` so the board's own `ap_sio_set_ram_config` has
+   * already run: on unit 0 this deliberately overwrites the RAM configuration
+   * straps, which is why the flag warns about unit 0 and the experiment this
+   * exists for uses unit 1. */
+  for (unsigned u = 0; u < 2u; u++) {
+    if (g_sio_input_set[u]) {
+      ap_sio_set_input(&board->sio, u, g_sio_input[u]);
+    }
+  }
   if (g_fit_ring) {
     ap_board_attach_ring(board, true);
     /* Fitting a card and giving it a cable are separate steps (106c), and the
@@ -6222,6 +6251,22 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--boot-report") == 0) {
       boot_report = true;
       i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--sio-input") == 0 && i + 1 < argc) {
+      /* `UNIT:VALUE`, the value in hex. */
+      unsigned unit = 0;
+      unsigned value = 0;
+      if (sscanf(argv[i + 1], "%u:%x", &unit, &value) != 2 || unit > 1u ||
+          value > 0xFFu) {
+        fprintf(stderr,
+                "%s: --sio-input wants UNIT:HEX, unit 0 or 1 (unit 1 is sio2)\n",
+                program_name);
+        return 2;
+      }
+      g_sio_input[unit] = (uint8_t)value;
+      g_sio_input_set[unit] = true;
+      i += 2;
       continue;
     }
     if (strcmp(argv[i], "--clock") == 0 && i + 1 < argc) {

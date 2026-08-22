@@ -479,4 +479,31 @@ void ap_sio_receive_framed(ap_sio_t *sio, unsigned unit, unsigned channel,
 /* Strap the configuration onto serial 1's input port. */
 void ap_sio_set_ram_config(ap_sio_t *sio, uint8_t config);
 
+/* Drive a unit's input port pins directly.
+ *
+ * ## Why this exists, and why it is a frontend-driven experiment
+ *
+ * Which input pin carries **DCD** on this board is the last unnamed thing in an
+ * otherwise complete part. `002398-04` p. 12-35 says only that the `dtr_b` bit
+ * "has moved", the web has nothing past the connector pinout, and MAME wires no
+ * modem control at all -- so all three documentary tiers are exhausted and the
+ * remaining route is behavioural: negate one pin at a time and see which one
+ * changes what `siologin` does.
+ *
+ * A passive instrument cannot answer it. `ACR[3:0]` names the pin a driver
+ * *armed*, but Phase A measured no `IPCR` read at all, because `-dcd_enable`
+ * defaults off -- so the driver reads the pin's level and never arms its
+ * change. What it tests that level against is invisible from inside the device.
+ * Only moving the pin and watching the driver can say.
+ *
+ * **Unit 0's input port is not yours.** `ap_sio_set_ram_config` drives it from
+ * the board's RAM configuration straps, and writing here would overwrite them.
+ * The experiment is about `sio2`, which is unit 1. Nothing enforces that --
+ * a caller may have a reason -- but a unit-0 write is almost certainly a
+ * mistake.
+ *
+ * `value` is the pin levels, `IP0` in bit 0. Bit 7 is not a pin this part has
+ * and is masked off, as `ap_sio_set_ram_config` does. */
+void ap_sio_set_input(ap_sio_t *sio, unsigned unit, uint8_t value);
+
 #endif /* APOLLO_BOARD_AP_SIO_H */
