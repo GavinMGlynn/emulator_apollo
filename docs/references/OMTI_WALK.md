@@ -2050,3 +2050,22 @@ the same prompt would have run to 31.
 §3.4's two sections versus three, the presence of §3.5's DMA width rule, and now
 byte 4's layout. All three are the 1987 manual having *more* than the 1986 one,
 which is consistent with one evolving source rather than two independent works.
+
+
+## `[8000]` §4.1 — the ancestor of the sentence `ap_omti.h` opens with
+
+PDF 20, doc 4-1. "From the perspective of software executing on the host the
+OMTI 8000 Series look like **two independent controllers** - one controller for
+the floppy disk and one controller for the fixed disk. The host communicates
+with the OMTI 8000 Series through **two independent sets of registers**."
+
+`ap_omti.h` quotes `[OMTI]` §4.1's version of this — "the OMTI **862X**
+controller looks like two independent controllers ... through two independent
+sets of registers" — so the header's opening citation has a 1986 ancestor
+differing only in the product name. Shared text, one witness, and no change to
+anything.
+
+§4.1 also gives the four-step command protocol: build a CDB in memory, send it a
+byte at a time to the I/O register, move data by programmed I/O or DMA, read
+status from the register set. That is what `ap_omti.c`'s phase machine does, and
+it is the same four steps §4.3's six logical states expand.
