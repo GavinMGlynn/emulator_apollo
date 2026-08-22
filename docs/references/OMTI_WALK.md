@@ -1873,3 +1873,40 @@ conversion "is useful when there is a different number of sectors per track
 (ESDI) than **the DOS is using (17)**". Seventeen is the as-shipped `W10 W11`
 row; this board is jumpered to 18, and `AP_OMTI_CONVERSION_SECTORS` is the
 jumper's value rather than DOS's default. The two agree on 16 heads per cylinder.
+
+
+## `[8000]` §5.3 — the completion byte, confirmed field for field
+
+PDF 30, doc 5-4. The register `ap_omti.c` calls the *completion byte*:
+
+    Bit: | 7 | 6 |  5  | 4 | 3 | 2 | 1 | 0
+         | 0 | 0 | LUN | 0 | S | S | e | 0
+
+Bit 1 `e` is command status, "a value of zero indicates a successfully completed
+command"; bit 5 "indicates the LUN address of the device associated with this
+command"; bits 7, 6, 4 and 0 are set to zero. All three are what
+`COMPLETION_ERROR`, `COMPLETION_LUN` and the zero bits already are.
+
+Bits 3-2 are **Error Recovery Status**, "valid only for commands which read data
+from the disk" — `00` no error recovery, `01` one retry accomplished
+successfully, `10` more than one retry, `11` error correction done successfully.
+`COMPLETION_ERROR_RECOVERY_MASK` and `_NONE`/`_CORRECTED` match.
+
+*A rule this core cannot exercise and should still record*: "On multiple sector
+transfers, these bits will reflect the **worst** ECC Retry Count/Correction ...
+If ECC was applied on any sector regardless of the Retry count, bits 3, 2 = 1 1."
+This model has no medium that fails, so the field is always `00` — which is the
+same reason `DISABLE RETRY` and `DISABLE ECC` are decoded and inert. It becomes
+reachable together with them, if media errors are ever injectable.
+
+**The STEP table is printed here for the fourth time**, all eight rows, agreeing
+with `[OMTI]` §5.2 p. 5-4, `002398-04` p. 12-10 and doc 2-14's format flowchart.
+Four printings, one of them from Apollo rather than OMTI, so this is genuinely
+two independent witnesses rather than four.
+
+*One warning, inapplicable here*: "The INITIALIZE DRIVE CHARACTERISTICS command
+(`0CH`) must include the **true** number of heads value of the drive (not 16 as
+used for the conversion)." `0C` is the ST506-only command this core rejects, so
+there is no path on which the distinction arises — but it is the sharpest
+statement either manual makes that the conversion's sixteen heads are a *host*
+geometry and not the drive's.
