@@ -4264,12 +4264,25 @@ discipline throughout.
          template the volume ships, and `008778-03` Figure 3-5 carries
          `SI01_DCD`/`SI02_DCD`/`SI03_DCD` with §3.9 listing Data Carrier Detect
          and Data Terminal Ready among the six signals each line supports.
-         **This core models one of the six**: `ap_mc68681.h` has CTS and RTS,
-         nothing has DCD or DTR, serial 1's `IP0` is §3.9's refresh loopback,
-         and serial 2's input port is never driven. Sources for it are on disk
-         -- §3.9 and Figure 3-5 for the board, `[MC68681]` §4.2.11 for the
-         part's ports -- and the oracle's `apollo_m.cpp` cross-checks the pin
-         assignment, which Figure 3-5 does not give.
+         **This core modelled one of the six** when this was written:
+         `ap_mc68681.h` has CTS and RTS, serial 1's `IP0` is §3.9's refresh
+         loopback, and serial 2's input port was driven by nothing.
+         **Two thirds of that is now out of date (2026-08-22).** Serial 2's
+         input port *can* be driven — `ap_sio_set_input` and the headless
+         `--sio-input UNIT:HEX` — and **DCD's pin is named**: `IP2`, measured by
+         six gated boots that bisect the four `ACR`-armed pins, with three
+         reproducing the baseline exactly and `IP2` alone reproducing the
+         all-four result. `AP_SIO_DCD_PIN` records it; detail in
+         `PROJECT_STATUS.md`.
+         **What is still true**: no *semantics* are attached to DCD or DTR —
+         the pin is nameable and drivable, and nothing faults on its loss.
+         **And this step names the experiment that would test that**, which is
+         worth more than the correction: the line here is configured `tctl -line
+         2 ... -dcd_enable ...` by the template the volume ships. Every boot so
+         far sets the pins *before* the driver programs `ACR`, so no transition
+         ever occurs after arming and the fault path is never entered. A
+         **timed** pin change — after `siologin` has configured the line — is
+         the untried experiment, and it needs `--sio-input` to grow a "when".
       5. Run the two nodes with a script that waits for
          `SPM system init complete.`, knocks, logs in as `user`, and runs
          **`/com/lcnode`** by absolute path -- now with `--boot-script-line`
@@ -6136,6 +6149,22 @@ same number is what let them diverge once already.
       programs the line, and stays silent. The next question is what it does
       after that, which is a matter for a trace rather than another register
       count.
+      **Progressed 2026-08-22, and the re-scoping is now cheaper than it was.**
+      Two of the three things this chain waited on are settled: the input port
+      is drivable (`--sio-input`), and **DCD's pin is named — `IP2`**, by
+      measurement. So an item that said "blocked on modem control" must now say
+      which of three different things it means:
+      1. *The pin is unnamed* — **no longer true.**
+      2. *The pin cannot be moved* — **no longer true.**
+      3. *No semantics attach to it*: nothing faults on carrier loss, because
+         `SIO_$DCD_ENABLE` arms a change interrupt and every boot so far sets
+         the pins **before** the driver programs `ACR`, so no transition occurs
+         after arming. **This is the one still standing**, and it is a
+         `--sio-input` that grows a "when" rather than a modelling gap.
+      *The ring item at line 4051 needs none of it* — its own text already moved
+      to the frame check and says `lcnode` is the weaker measurement — and the
+      shell items should be re-read against `PROJECT_STATUS`'s `sh` at the `)`
+      prompt before anyone assumes they need `siologin` at all.
 
 - [ ] **Walk `007196-01` *Domain System Call Reference*, 722 pages.** Opened
       2026-08-21 under the whole-document rule: its SIO chapter yielded four
