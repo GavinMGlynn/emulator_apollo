@@ -1565,3 +1565,47 @@ same passage in a sibling.** `DRQ7` is settled by §3.5's width rule and
 sentence; the sibling's agreement with the error added nothing. And it is why
 the `ST3` route is closed rather than merely unexhausted: a fourth OMTI manual
 would print the fifth copy of the same eight lines.
+
+
+## `[8000]` §4.3 to §4.5 — one table captured, everything else confirmed
+
+PDF 22, 24 and 25; doc 4-3, 4-5 and 4-6.
+
+**Doc 4-3, §4.2's tail and §4.3.** The `CONFIGURATION` register's bits are
+`W4`/`W3`/`W2`/`W1` here, where `[OMTI]` gives `W20`-`W23` for the 862X and
+`002398-04` calls them `j1`-`j4` — the same four bits under a third naming, and
+consistent with §2.3's family split. `MASK` is bits 7-2 unused, bit 1 INTERRUPT
+ENABLE, bit 0 DMA ENABLE, matching `ap_omti.h`. §4.3 lists the **six** logical
+states — RESET, IDLE, SELECTION, COMMAND, DATA, STATUS — which is the set this
+core models, and prints the 100 µs warning **twice on the page**, once under the
+RESET register and once under the protocol, exactly as `[OMTI]` p. 4-3 does.
+
+*One sentence not modelled and not applicable*: on reset the controller "will
+set **default parameters (ST412)** to the LUNs". This is an ESDI board whose
+`INITIALIZE DRIVE CHARACTERISTICS` is rejected and whose geometry comes from the
+image, so there is no parameter set for a default to occupy. Recorded as
+inapplicable rather than as a gap.
+
+**Doc 4-5, Table 4-3, the floppy registers.** Five registers at primary `3F2`,
+`3F4`, `3F5`, `3F6`, `3F7` and secondary `372`, `374`, `375`, `376`, `377` —
+offsets 2 and 4 through 7 from base `3F0` or `370`, which is exactly
+`ap_omti_fdc_reg_t`. **This settles the secondary-base question completely**:
+the secondary set is base `0370h` plus the same offsets, so `W14`'s two values
+and Table 4-3's two columns are one fact stated twice. Digital Output's eight
+bits and Digital Input's bit 7 "from pin 34 of the floppy disk control cable"
+match field for field, including "All bits are cleared when a channel reset
+occurs".
+
+**Doc 4-6 has the one thing this core did not hold: the FLOPPY WRITE
+PRECOMPENSATION TABLE.** Eight codes against three data rates, in nanoseconds.
+`ap_omti.h` named the three `WP` bits and stated why their effect is not
+modelled — an `.afd` image has no bit cells whose timing could shift — but did
+not carry the values. It does now, with two features that would otherwise look
+like scan damage: the encoding is **not injective** (`100`/`101` and `110`/`111`
+are identical, so six values occupy eight codes), and each rate column is the
+500 KBPI column scaled by the bit period.
+
+*The Diskette Control data rates confirm* — `00` 500 Kbit/s, `01` 300, `10` 250,
+`11` reserved — but that is one witness twice: `ap_omti.h` took them from
+`[8640]` §5.1 and this is the same text. `002398-04` p. 12-14 is the independent
+check.

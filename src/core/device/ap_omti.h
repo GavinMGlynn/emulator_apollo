@@ -173,8 +173,9 @@ typedef enum {
 #define AP_OMTI_DIR_DISK_CHANGE 0x80u
 
 /* The Additional Control Register at AT `3F6`, which `[OMTI]` Table 4-3 lists by
- * name and does not decompose. `002398-04` p. 12-14 is the only document on this
- * shelf that gives its fields:
+ * name and does not decompose. `002398-04` p. 12-14 **was** the only document on
+ * this shelf that gave its fields -- `[8000]` doc 4-6 gives them too, and adds
+ * the values, see below. The layout:
  *
  *     7-6  reserve
  *     5    PN6   interface pin 6
@@ -195,6 +196,39 @@ typedef enum {
  *
  * They are named so that a driver's writes can be *read* -- `ap_omti_fdc_...`
  * exposes the byte -- rather than disappearing into a field nobody can decode.
+ *
+ * ## And what the three precompensation bits actually select
+ *
+ * `[8000]` doc 4-6's FLOPPY WRITE PRECOMPENSATION TABLE, in nanoseconds, keyed
+ * on the Diskette Control Register's data rate. Captured because a walk records
+ * every row of a table it reads, and because "not modelled" is a claim that is
+ * only checkable against the values it declines to model:
+ *
+ *     WP2 WP1 WP0 | 500 KBPI | 300 KBPI | 250 KBPI
+ *      0   0   0  |     0 ns |     0 ns |     0 ns
+ *      0   0   1  |  62.5    |  104.2   |  125
+ *      0   1   0  | 125      |  208.3   |  250
+ *      0   1   1  | 187.5    |  312.5   |  375
+ *      1   0   0  | 250      |  416.7   |  500
+ *      1   0   1  | 250      |  416.7   |  500
+ *      1   1   0  | 312.5    |  520.8   |  625
+ *      1   1   1  | 312.5    |  520.8   |  625
+ *
+ * Two features of it are worth stating, because both would look like scan
+ * damage otherwise. The encoding is **not injective** -- `100`/`101` and
+ * `110`/`111` are pairs with identical delays, so six distinct values are
+ * spread over eight codes. And each column is the 500 KBPI column scaled by the
+ * ratio of the bit periods, which is why `62.5` becomes `104.2` and `125`.
+ *
+ * None of it is acted on for the reason above: an `.afd` image has no bit cells
+ * whose timing could shift. The table is here so that the day a flux-level
+ * image format exists, the numbers are not looked up again.
+ *
+ * *And a caution on the source.* `002398-04` and `[8000]` agreeing on the field
+ * layout is two witnesses -- one Apollo, one OMTI. The **data rates** below
+ * came from `[8640]` §5.1 and are repeated in `[8000]` doc 4-6, which is *one*
+ * witness twice over: see `docs/references/OMTI_WALK.md` on the shared source
+ * text. `002398-04` p. 12-14 is the independent check on those.
  */
 #define AP_OMTI_FDC_CONTROL_PRECOMP_MASK 0x07u
 #define AP_OMTI_FDC_CONTROL_PIN2 0x08u /* density and speed control */
