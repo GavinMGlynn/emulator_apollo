@@ -6610,7 +6610,8 @@ same number is what let them diverge once already.
       (NEC765 or equivalent)**."
       `ap_omti.h` reasons at length that there is no WRITE DATA command —
       `[OMTI]` §6.3, `[8640]` §5.3 and `[8000]` §6.1 all list the same ten plus
-      INVALID, and §6.3.11 defines the INVALID path — and deliberately does not
+      INVALID (the third of those was cited here before it had been read, and
+      was **verified 2026-08-22**: doc 6-1, eleven entries, no `WRITE DATA`), and §6.3.11 defines the INVALID path — and deliberately does not
       invent one "from general 765 knowledge". That reasoning is sound about the
       *documents*. This sentence is evidence about the *silicon*, and the two
       point opposite ways: a host with direct access to a real 765 can issue

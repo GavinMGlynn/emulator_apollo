@@ -1910,3 +1910,27 @@ used for the conversion)." `0C` is the ST506-only command this core rejects, so
 there is no path on which the distinction arises — but it is the sharpest
 statement either manual makes that the conversion's sixteen heads are a *host*
 geometry and not the drive's.
+
+
+## `[8000]` §6.1 and §6.2 — verified, after being cited unread
+
+PDF 53, doc 6-1. **Read because a claim had been made about it without reading
+it.** The `WRITE DATA` plan item, opened earlier the same day, says "`[OMTI]`
+§6.3, `[8640]` §5.3 and `[8000]` §6.1 all list the same ten plus INVALID" — and
+at that moment this record had `[8000]` §6.1 marked *owed*. The claim was made
+from the pattern of the other two.
+
+**It holds.** §6.1 lists exactly eleven entries: READ DATA, FORMAT A TRACK, SCAN
+EQUAL, SCAN LOW OR EQUAL, SCAN HIGH OR EQUAL, RECALIBRATE, SENSE INTERRUPT
+STATUS, SPECIFY, SENSE DRIVE STATUS, SEEK, INVALID. **No `WRITE DATA`**, in a
+third manual, which is what the item asserted.
+
+*Recorded anyway, because being right is not the same as having checked.* This
+is the same failure as citing a page for one row and calling it read — and it
+landed in a plan item, where a later reader would take it for a verified
+citation. The item's reasoning is unchanged and its evidence is now real.
+
+§6.2's symbol list is `[OMTI]` §6.2's word for word, down to `GPL`'s "spacing
+between sectors excluding the VCO synchronous field" — one more shared-text
+alignment, and the reason the `SRT` table's three-of-sixteen rows are three in
+every manual.
