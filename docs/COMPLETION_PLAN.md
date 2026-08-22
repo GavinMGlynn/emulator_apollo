@@ -6123,8 +6123,24 @@ same number is what let them diverge once already.
       the write reaches the addressed unit, records the change in `IPCR`'s high
       nibble where §4.2.14 says, leaves the other unit alone, masks the eighth
       bit that is not a pin, and ignores an out-of-range unit.*
-      **What is owed is measurement: four pins, so four bounded runs**, each
-      gated on `SPM system init complete.` as every reading here now is.
+      **First measurement attempt, 2026-08-22 — a valid negative control and a
+      volume-selection error caught by the run's own output.** Two boots of
+      `dn3500-nodeA-siologin2.awd`, baseline and `--sio-input 1:0F`, both
+      reaching the gate `SPM system init complete.` The reports differ in
+      **exactly one field**: `sio2 ports ... ip 00` against `ip 0F`. Every other
+      number is identical — all ten `sio2` register write counts, `opr 80`,
+      `set 86`, `cleared 7F`, `acr 8F`, `imr A2`, `isr 11`.
+      *That confirms the instrument and answers nothing.* On this volume `sio2
+      reg 13` is read **zero** times, so nothing consults the pins and moving
+      them cannot change anything downstream. The recorded measurement that
+      shows `reg 13` read twice is on `dn3500-nodeA-siologin.awd`; the volume
+      used was `...siologin**2**.awd`, chosen because the name looked like "the
+      sio2 one". It is not — it is a second siologin volume.
+      **Caught from the run's output rather than from the file name**, which is
+      the standing rule, and the cost was two boots rather than a wrong
+      conclusion.
+      **What is owed is measurement on `dn3500-nodeA-siologin.awd`**, gated on
+      `SPM system init complete.` as every reading here now is.
       *Invocation*: `tools/spm-boot.sh` with `--sio-input 1:01`, `1:02`, `1:04`,
       `1:08` — one candidate pin **high** per run. `ACR[3:0]` gates change
       detection on `IP0`-`IP3`, which is what makes those four the candidates.
