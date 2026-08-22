@@ -6798,7 +6798,32 @@ same number is what let them diverge once already.
             *Owed*: datasheet pp. 2-4 and 9-14, and `[6840UM]`'s chapters 1, 2
             and 5 onward — 56 image-only pages, a session of its own.
             Record: `docs/references/MC6840_WALK.md`.
-      - [ ] **`[Bt458]`**, the RAMDAC, from the 1991 Brooktree databook.
+      - [ ] **`[Bt458]`**, the RAMDAC — **in progress.** Extracted from the
+            1991 databook (PDF 393-416) onto the shelf. A citation audit across
+            the batch put `[3c505]` at 22 derived sections, `[QIC]` at 16 and
+            `[SC-499]` at 9, and this at **one** — so it was the genuine gap.
+            *Done*: the Command Register page. Table 1, the `ADDRa,b`
+            modulo-three counter and both address-advance rules were already
+            derived; **the command register is not** — see the item below.
+            *Owed*: PDF 1-6 and 8-24. Record: `docs/references/BT458_WALK.md`.
+            **A method note the audit earned**: `ap_bt458.h` cites the databook
+            by "Table 1" and by quotation, not by `§`, so the `§`-shaped grep
+            saw nothing. Counting sections is a first pass, not a verdict.
+
+- [ ] **The Bt458's command register is stored and never decoded.** Found
+      2026-08-22. `ap_bt458_t` keeps `command`, `blink_mask` and `test` as plain
+      bytes and **nothing reads them** — `ap_graphics.c` refers to none. So
+      `CR6` ("whether to use the color palette RAM **or overlay color 0**"),
+      `CR1`/`CR0`'s overlay display enables and `CR5`-`CR2`'s blink rate and
+      enables change no rendered pixel.
+      **The discriminator is cheap and already exists**: the graphics
+      register-write log says whether Domain/OS writes the command register at
+      all. Run that before implementing — a blink engine driven by nothing would
+      be cost without a claim.
+      *Also to decide rather than inherit*: the databook says the command
+      register "is **not initialized**", and `ap_bt458_reset` zeroes it. Zero is
+      right for a deterministic core, since a golden cannot pin an undefined
+      value, but it is a choice and is now recorded as one.
       - [ ] **`[82586]`**, the LAN coprocessor behind the 3c505 — **not on the
             shelf**; fetch first.
       - [ ] **`[3c505]`**, both documents on the shelf, no record.
