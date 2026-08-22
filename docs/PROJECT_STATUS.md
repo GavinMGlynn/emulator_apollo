@@ -4375,7 +4375,7 @@ checksum ...` per node, because a configuration table is an input that leaves no
 other trace and that is why the defect survived. `dev bits` `00000010` →
 `0000000F`, and `0000001F` with `--ring-rom`.
 
-*Verification: `ctest` 139/139 on both presets, `check_frontend_flags` 19 → 21
+*Verification: `ctest` 139/139 on both presets, `check_frontend_flags` 19 → 25
 with a check that needs no boot PROM, identity boot `03EE415450926A89`
 unchanged. `FINDINGS.md` C186.*
 
@@ -4443,7 +4443,7 @@ the machine's own identity, because nothing in the report named it.
 
 Fixed, with the `disk` line now naming the node it gives the machine: an input
 that leaves no trace in the report is one that can be wrong for four sessions.
-*Verification: `ctest` 139/139, `check_frontend_flags` 19 → 21 with a
+*Verification: `ctest` 139/139, `check_frontend_flags` 19 → 25 with a
 synthesised label so it needs no media, identity boot `03EE415450926A89`
 unchanged. `FINDINGS.md` C199.*
 
