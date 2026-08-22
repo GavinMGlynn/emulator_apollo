@@ -1600,6 +1600,53 @@ traced to the instruction that consumed the value.
 system init complete.`, diffed whole — 28 lines differ and every one is the
 filename, the hash, the clock counts or `ip` itself.*
 
+### And bisecting on the divergence names the pin: it is `IP2`
+
+The register traffic does not move, but the **execution counters** do, and that
+is a per-pin signal the first design missed. Four more boots, one pin each:
+
+| pins raised | main memory reads | clocks |
+| --- | --- | --- |
+| none (baseline) | 462,660,450 | 5,579,109,442 |
+| `IP0` | 462,660,450 | 5,579,109,442 |
+| `IP1` | 462,660,450 | 5,579,109,442 |
+| **`IP2`** | **462,660,466** | **5,579,109,436** |
+| `IP3` | 462,660,450 | 5,579,109,442 |
+| `IP0`-`IP3` | 462,660,466 | 5,579,109,436 |
+
+**`IP2` alone reproduces the all-four result exactly, on both counters.** The
+`IP2`-only run is byte-identical to the all-four run apart from the input value
+and the state hash that contains it; the `IP0`-only run is byte-identical to the
+baseline. So `IP2` is the one pin of the four whose level this driver's execution
+depends on.
+
+**The caveat recorded before the results still holds and is now moot.** Because
+`--boot-limit` is an instruction count, the *magnitude* of the divergence was
+never meaningful — two diverged machines simply stop at different points in the
+same idle loop. The result does not rest on the magnitude: it rests on three
+pins reproducing the baseline **exactly**, on two independent counters, and one
+not.
+
+**Measured versus inferred, kept apart.** *Measured*: the driver branches on
+`IP2` and on none of `IP0`, `IP1`, `IP3`. *Inferred*: that `IP2` is therefore
+**DCD** — which rests on this document's earlier attribution of these reads to
+`siologin` inquiring carrier, from the `SOPR` → input-port read → `COPR`
+signature matching `007196-01`'s `SIO_$DTR` (default TRUE), `SIO_$DCD` ("inquire
+only") and `SIO_$HUP_CLOSE` (drops DTR). A strong chain, and a chain.
+
+*`ACR` reads `8F` in every run* — the driver arms change detection on all four
+pins and branches on one. Arming was never the discriminator, which is precisely
+why the passive instrument built for this question could not answer it.
+
+`AP_SIO_DCD_PIN` records it. **No behaviour changes**: nothing reads carrier
+differently for having a name. What it buys is that the next person to wire a
+modem-control signal does not spend six boots finding where it goes.
+
+*Verification: six 1.5 G boots on hashed-identical copies of
+`dn3500-nodeB-line2.awd`, every one gated on `SPM system init complete.` and
+confirmed by `sio2 reg 13   0 write(s)   2 read(s)` in its own report.*
+
+
 ## The floppy step rate is programmed by SPECIFY, and now paces the seek
 ## (2026-08-22)
 

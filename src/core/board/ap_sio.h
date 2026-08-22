@@ -479,6 +479,50 @@ void ap_sio_receive_framed(ap_sio_t *sio, unsigned unit, unsigned channel,
 /* Strap the configuration onto serial 1's input port. */
 void ap_sio_set_ram_config(ap_sio_t *sio, uint8_t config);
 
+/* ## `sio2`'s carrier-detect pin is `IP2`, measured 2026-08-22
+ *
+ * The last unnamed thing in this part, and it was named by experiment after all
+ * three documentary tiers ran out: `002398-04` p. 12-35 says only that the
+ * `dtr_b` bit "has moved", the web has the connector pinout and no more, and
+ * the oracle wires no modem control at all.
+ *
+ * **Six boots of `dn3500-nodeB-line2.awd`**, the volume whose `siologin` runs
+ * on `/dev/sio2` and whose boot report shows `sio2 reg 13` read twice. One
+ * baseline with every input pin low, one with `IP0`-`IP3` all raised, and one
+ * per pin. Every run gated on `SPM system init complete.`
+ *
+ *     pins raised   main memory reads   clocks
+ *     none           462,660,450        5,579,109,442
+ *     IP0            462,660,450        5,579,109,442   -- baseline exactly
+ *     IP1            462,660,450        5,579,109,442   -- baseline exactly
+ *     **IP2**        462,660,466        5,579,109,436   -- diverges
+ *     IP3            462,660,450        5,579,109,442   -- baseline exactly
+ *     IP0-IP3        462,660,466        5,579,109,436   -- **IP2 alone, exactly**
+ *
+ * The `IP2`-only run is byte-identical to the all-four run apart from the input
+ * value and the state hash that includes it, and the `IP0`-only run is
+ * byte-identical to the baseline. So **`IP2` is the one pin of the four whose
+ * level this driver's execution depends on**, and the other three are inert to
+ * it.
+ *
+ * **What is measured and what is inferred**, kept apart deliberately. Measured:
+ * the driver branches on `IP2` and on none of `IP0`, `IP1`, `IP3`. Inferred:
+ * that this makes `IP2` **DCD** -- which rests on `PROJECT_STATUS.md`'s prior
+ * attribution of these reads to `siologin` inquiring carrier, from the register
+ * signature `SOPR` then input-port read then `COPR` matching `007196-01`'s
+ * `SIO_$DTR` default TRUE, `SIO_$DCD` "inquire only" and `SIO_$HUP_CLOSE`
+ * dropping DTR. The chain is strong and it is a chain.
+ *
+ * *`ACR` is `8F` in every run* -- the driver arms change detection on all four
+ * pins and branches on one, so arming is not the discriminator and never could
+ * have been. That is why a passive instrument could not answer this.
+ *
+ * **It changes no behaviour and no boot.** Nothing in the machine reads carrier
+ * differently for having a name; what the constant buys is that the next person
+ * to wire a modem-control signal does not have to run six boots to find out
+ * where it goes. */
+#define AP_SIO_DCD_PIN 0x04u /* `IP2` on unit 1, measured */
+
 /* Drive a unit's input port pins directly.
  *
  * ## Why this exists, and why it is a frontend-driven experiment

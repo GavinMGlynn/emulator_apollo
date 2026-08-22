@@ -6108,107 +6108,22 @@ same number is what let them diverge once already.
       *Verification: `sio_suite` 36 -> 37; one 1.5 G boot gated on SPM.* Detail
       in `PROJECT_STATUS.md`.
 
-- [ ] **Drive `sio2`'s input pins from the frontend, and name DCD by which one
-      moves `siologin`.** Opened 2026-08-21 by the item above, which exhausted
-      what a passive instrument can see. All three documentary tiers are
-      exhausted for the pin assignment and `ACR` turned out not to discriminate,
-      so the only route left is behavioural: negate one input at a time and find
-      which one changes what the driver does.
-      **The mechanism is now complete; only the runs are owed.** `ap_sio_set_
-      input(sio, unit, value)` drives a unit's seven input pins, and the headless
-      frontend takes **`--sio-input UNIT:HEX`** (`IP0` in bit 0), applied once
-      after the board is built and before the boot runs. Unit 1 is `sio2`; unit
-      0's pins are the RAM configuration straps and writing them overrides the
-      board, which the flag's help says. *Verification: `sio_suite` 37 -> 40 —
-      the write reaches the addressed unit, records the change in `IPCR`'s high
-      nibble where §4.2.14 says, leaves the other unit alone, masks the eighth
-      bit that is not a pin, and ignores an out-of-range unit.*
-      **First measurement attempt, 2026-08-22 — a valid negative control and a
-      volume-selection error caught by the run's own output.** Two boots of
-      `dn3500-nodeA-siologin2.awd`, baseline and `--sio-input 1:0F`, both
-      reaching the gate `SPM system init complete.` The reports differ in
-      **exactly one field**: `sio2 ports ... ip 00` against `ip 0F`. Every other
-      number is identical — all ten `sio2` register write counts, `opr 80`,
-      `set 86`, `cleared 7F`, `acr 8F`, `imr A2`, `isr 11`.
-      *That confirms the instrument and answers nothing.* On this volume `sio2
-      reg 13` is read **zero** times, so nothing consults the pins and moving
-      them cannot change anything downstream. The recorded measurement that
-      shows `reg 13` read twice is on `dn3500-nodeA-siologin.awd`; the volume
-      used was `...siologin**2**.awd`, chosen because the name looked like "the
-      sio2 one". It is not — it is a second siologin volume.
-      **Caught from the run's output rather than from the file name**, which is
-      the standing rule, and the cost was two boots rather than a wrong
-      conclusion.
-      **Second attempt, same day: `dn3500-nodeA-siologin.awd`, and wrong
-      again.** Both boots gated on `SPM system init complete.`, `sio2` A and B
-      both programmed and listening at 9600 baud — and `sio2 reg 13` read
-      **zero** times, so the same negative control as before, and the reports
-      again differ only in `ip 00` versus `ip 0F`.
-      **The volume was chosen by name for the second time, and the run's output
-      caught it for the second time.** `PROJECT_STATUS.md`'s table names the
-      volumes that produce the reads: **`nodeB-line2`** and **`nodeB-nodcd`**,
-      with `nodeB-ready` as the control — *node B*, where both attempts used
-      node A. Four boots spent on two configurations that cannot answer the
-      question, none of them producing a wrong conclusion, because the
-      instrument reports what it read rather than what it was pointed at.
-      **Third attempt, `dn3500-nodeB-line2.awd`, and it ran.** Both boots
-      gated, `sio2 reg 13` read **twice** in each — the recorded signature the
-      two earlier volumes lacked. **Result: raising all four armed pins changes
-      nothing.** Console byte-identical, no `login:`, and every `sio2` figure
-      the same: `opr 89`, `set 8F`, `cleared 7F`, `acr 8F`. The value *is*
-      consulted — the pins-high run took 16 more main-memory reads — but the
-      branch reconverges.
-      **So this experimental design cannot name the pin**, and bisecting the
-      four is pointless: none of them changes behaviour, so there is no signal
-      to bisect. Detail in `PROJECT_STATUS.md`.
-      **What is left**, and it is a different experiment: `SIO_$DCD_ENABLE`
-      defaults off, so nothing arms a change interrupt and a pin transition
-      cannot raise a fault. A volume configured with `-dcd_enable` would let the
-      driver *fault* on the pin, which is the behaviour that could name it.
-      Failing that, trace the 16-read divergence to the instruction that consumed
-      the value — the value is read, so the consumer exists and is findable.
-      **Fourth attempt, in flight: bisect on the divergence rather than on the
-      behaviour.** The register traffic does not move, but the *execution
-      counters* do, and that is a per-pin signal: four runs, `--sio-input 1:01`,
-      `1:02`, `1:04`, `1:08`, against the `ip 00` baseline's 462,660,450 main
-      memory reads and 5,579,109,442 clocks. A pin whose run reproduces the
-      baseline exactly is **not consulted**; a pin that diverges **is**.
-      **Caveat recorded before the results, so it cannot be rationalised
-      after.** `--boot-limit` is an *instruction* count and both runs hit it, so
-      two diverged machines stop at different points in the same post-SPM idle
-      loop. That makes the **fact** of divergence meaningful and its
-      **magnitude** not: 16 reads is "these two runs ended in different places",
-      not "the branch cost 16 reads". Read the per-pin results as a boolean.
-      *Invocation*: `tools/spm-boot.sh` with `--sio-input 1:01`, `1:02`, `1:04`,
-      `1:08` — one candidate pin **high** per run. `ACR[3:0]` gates change
-      detection on `IP0`-`IP3`, which is what makes those four the candidates.
-      **Do the cheap discriminator first**: `1:0F` raises all four at once, so a
-      run that changes nothing has ruled out all four for the cost of one boot,
-      and a run that changes something is worth bisecting.
-      **The baseline follows from the part's documented polarity, and the
-      concern that it did not was mine.** `ap_mc68681_reset` is a `memset`, so
-      every input pin starts low and register 13 reads `80`. That is not an
-      arbitrary default: `ap_mc68681.h` records `[MC68681]` §4.2.7's "**asserted
-      is low**, so an input port reading zero on that pin means clear to send",
-      and `008778-03_WALK.md` row 54 draws the same conclusion for the whole
-      port — "an undriven input port reads all zeros, which is **clear to
-      send**". So all-zeros is **every modem input asserted**, the permissive
-      direction, and it is what Phase A measured as "carrier reads asserted".
-      *This item briefly recorded that as an unexamined choice. It is examined,
-      in this project's own header, and that was the fourth time in one session
-      a concern was raised against something already written down here.*
-      **What is genuinely open is narrower**: on the real board the pin is
-      *driven* by an RS-232 receiver rather than floating, and a receiver with
-      nothing plugged into the connector would output the negated level. So the
-      model may be asserting carrier where hardware with an empty socket would
-      negate it. That is the permissive direction again, it has already been
-      shown not to produce a `login:`, and settling it needs the board's
-      receiver wiring — which §3.9's pinout does not give.
-      *Note what it is not*: an experiment about whether carrier blocks the
-      login. That is answered -- it does not, with carrier asserted. This one
-      asks only which pin the driver is *looking* at, which is still worth
-      having because it is the last unnamed thing in a part that is otherwise
-      complete.
+- [x] **Drive `sio2`'s input pins from the frontend, and name DCD by which one
+      moves `siologin`.** Done 2026-08-22. **It is `IP2`.** `ap_sio_set_input`
+      and the headless `--sio-input UNIT:HEX` drive the pins; six gated boots of
+      `dn3500-nodeB-line2.awd` — baseline, all four raised, and one per pin —
+      show `IP0`, `IP1` and `IP3` reproducing the baseline **exactly** on both
+      main-memory reads and clocks, and `IP2` alone reproducing the all-four
+      result exactly. The `IP2`-only run is byte-identical to the all-four run
+      but for the input value and its hash.
+      *Measured*: the driver branches on `IP2` and on none of the other three.
+      *Inferred*: that this is DCD, from the prior attribution of these reads to
+      `siologin`'s carrier inquiry. `ACR` is `8F` throughout — all four armed,
+      one branched on — which is why the passive instrument could not answer it.
+      `AP_SIO_DCD_PIN` records it; no behaviour changes. *Verification:
+      `sio_suite` 37 → 40 for the mechanism; six boots each gated on `SPM system
+      init complete.` and confirmed by `sio2 reg 13  2 read(s)` in its own
+      report.* Detail in `PROJECT_STATUS.md`.
 
 - [ ] **Re-scope the seven items that waited behind "`siologin` needs a
       modem-control signal".** Opened 2026-08-21. C220's sentence is refuted by
