@@ -305,6 +305,9 @@ static void test_every_disk_controller_field_moves_the_hash(void) {
    * for -- a field nothing reads is a field nothing would notice missing from
    * the hash, and a differential run would then be blind to a controller that
    * had been programmed differently. */
+  MOVES_THE_HASH(scratch.disk.controller.last_processed_lba ^= 0x0Fu);
+  MOVES_THE_HASH(scratch.disk.controller.last_processed_valid =
+                     !scratch.disk.controller.last_processed_valid);
   MOVES_THE_HASH(scratch.disk.controller.fdc_srt ^= 0x0Fu);
   MOVES_THE_HASH(scratch.disk.controller.fdc_hut ^= 0x0Fu);
   MOVES_THE_HASH(scratch.disk.controller.fdc_hlt ^= 0x7Fu);

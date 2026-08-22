@@ -354,6 +354,8 @@ void ap_board_hash_disk(ap_hash_t *st, const ap_disk_t *disk) {
    * were programmed differently are different machines whether or not this
    * model has yet found a use for the difference, and a value left out of the
    * hash is one a differential run cannot see drift. */
+  ap_hash_u32(st, omti->last_processed_lba);
+  hash_bool(st, omti->last_processed_valid);
   ap_hash_u8(st, omti->fdc_srt);
   ap_hash_u8(st, omti->fdc_hut);
   ap_hash_u8(st, omti->fdc_hlt);

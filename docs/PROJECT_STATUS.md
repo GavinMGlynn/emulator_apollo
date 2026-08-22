@@ -1445,6 +1445,41 @@ tests fail and the two acceptance tests do not.
 
 *Verification: `awd_suite` 52 -> 56; ctest 139/139.*
 
+## REQUEST SENSE after a success reported sector 0 of cylinder 0
+## (2026-08-22)
+
+Appendix A-3's first line: "`00` No error or no sense information ... If a
+REQUEST SENSE command is issued when there is no error, the Sense information
+reported specifies **the last Sector Address processed**." `finish()` wrote four
+zeros, so a driver confirming where a command landed was told cylinder 0, head 0,
+sector 0 — and that is a real address, which is a worse answer than none.
+
+`note_read` already sat on every surface access, which is exactly what "the last
+Sector Address **processed**" means, so it is the one place that can record it
+without each command remembering separately. `finish` converts it with `chs_of`
+and fills sense bytes 1-3 on a successful completion. The error path is
+untouched: `refuse()` overwrites all four immediately after calling `finish`.
+
+**The blocker was `AV`, and it was answered by the command's own description.**
+This item was opened saying A-3 does not state whether the address-valid bit
+accompanies the address, and that setting it reads oddly when byte 0 is *no
+error*. §5.4.3: "the sector address (defined by bytes 1, 2 and 3) is **only
+valid if the previous command terminated in error**. Bit 7 set to 1 indicates
+the validity of the sector address."
+
+So the two passages are about different bits and agree overall — the bytes carry
+the last address processed, and `AV` says that address is not an error's. A
+controller setting `AV` here would be claiming byte 0's `00` applied to that
+sector. *That is the fifth time in one day an appendix left something open that
+the section defining the command had already settled*, which is worth stating as
+a rule: an appendix glosses, a command description defines, and the gloss is
+what gets grepped.
+
+*Verification: `awd_suite` 58 -> 60. The second test is the one that earns its
+place — a multi-sector read must report where it **ended**, which a model
+recording the address at command start would fail while passing the first. Two
+`board_state_suite` hash-coverage assertions; ctest 139/139.*
+
 ## The floppy step rate is programmed by SPECIFY, and now paces the seek
 ## (2026-08-22)
 

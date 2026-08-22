@@ -1024,6 +1024,15 @@ typedef struct {
    * came from further back, and the whole sequence is what shows where a walk
    * stopped being sequential. A boot reads about fifteen hundred, so this holds
    * all of them. */
+  /* The last sector address a command actually reached, for the sense block of
+   * a *successful* REQUEST SENSE. Appendix A-3's first line: "If a REQUEST
+   * SENSE command is issued when there is no error, the Sense information
+   * reported specifies **the last Sector Address processed**." Real controller
+   * state, so hashed -- two controllers that have processed different addresses
+   * answer REQUEST SENSE differently. */
+  uint32_t last_processed_lba;
+  bool last_processed_valid;
+
   uint32_t recent_reads[2048];
   unsigned recent_read_count;
 

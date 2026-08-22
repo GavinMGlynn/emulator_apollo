@@ -898,6 +898,63 @@ static void test_every_command_that_takes_an_interleave_factor_checks_it(void) {
   }
 }
 
+/* Appendix A-3: "If a REQUEST SENSE command is issued when there is no error,
+ * the Sense information reported specifies the last Sector Address processed."
+ * This core reported four zeros, and cylinder 0 head 0 sector 0 is a real
+ * address -- a driver confirming where a command landed was told the wrong
+ * place rather than told nothing.
+ *
+ * The drive is two cylinders, two heads, four sectors, so LBA 6 is cylinder 0,
+ * head 1, sector 2. */
+static void test_a_successful_command_leaves_the_last_address_in_the_sense(void) {
+  build_controller();
+
+  issue(AP_OMTI_CMD_READ, 0u, 1u, 2u, 1u);
+  for (unsigned i = 0; i < AP_AWD_SECTOR_BYTES; i++) {
+    (void)ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA);
+  }
+  settle();
+  TEST_ASSERT_EQUAL_HEX8(0u, take_status());
+
+  issue(AP_OMTI_CMD_REQUEST_SENSE, 0u, 0u, 0u, 0u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_disk_phase(&omti));
+
+  /* Byte 0 is `00`, no error -- and **without** `AV`. §5.4.3: "the sector
+   * address ... is only valid if the previous command terminated in error."
+   * The bytes carry the address; the bit says it is not an error's. */
+  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  /* Byte 1: C10 | 0 | LUN | head. Head 1, cylinder 0, LUN 0. */
+  TEST_ASSERT_EQUAL_HEX8(0x01u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  /* Byte 2: C09 | C08 | sector. Sector 2. */
+  TEST_ASSERT_EQUAL_HEX8(0x02u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  settle();
+}
+
+/* A multi-sector read reports where it *ended*, not where it began -- "the last
+ * Sector Address processed". Reading three sectors from LBA 0 ends at LBA 2,
+ * which is cylinder 0, head 0, sector 2. A model recording the address at
+ * command start would answer 0 here and pass the test above. */
+static void test_the_reported_address_is_where_the_command_ended(void) {
+  build_controller();
+
+  issue(AP_OMTI_CMD_READ, 0u, 0u, 0u, 3u);
+  for (unsigned s = 0; s < 3u; s++) {
+    for (unsigned i = 0; i < AP_AWD_SECTOR_BYTES; i++) {
+      (void)ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA);
+    }
+  }
+  settle();
+  TEST_ASSERT_EQUAL_HEX8(0u, take_status());
+
+  issue(AP_OMTI_CMD_REQUEST_SENSE, 0u, 0u, 0u, 0u);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  TEST_ASSERT_EQUAL_HEX8(0x02u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_omti_disk_read(&omti, AP_OMTI_DISK_DATA));
+  settle();
+}
+
 /* §5.4.16's four-byte descriptor arrives in a data-out phase, and the alternate
  * track "is then formatted" -- so the command is not complete until the bytes
  * have been handed over, and the effect lands on the track they name. */
@@ -1558,6 +1615,8 @@ int main(void) {
   RUN_TEST(test_the_defect_list_is_a_header_and_a_terminator);
   RUN_TEST(test_a_track_format_writes_six_c_over_that_track_alone);
   RUN_TEST(test_a_drive_format_runs_to_the_end_of_the_unit);
+  RUN_TEST(test_a_successful_command_leaves_the_last_address_in_the_sense);
+  RUN_TEST(test_the_reported_address_is_where_the_command_ended);
   RUN_TEST(test_a_format_with_a_legal_interleave_factor_still_formats);
   RUN_TEST(test_an_interleave_factor_of_zero_is_not_the_illegal_case);
   RUN_TEST(test_an_interleave_factor_equal_to_the_sector_count_is_illegal);

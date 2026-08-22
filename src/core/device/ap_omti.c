@@ -530,6 +530,42 @@ static void finish(ap_omti_t *omti, bool error, uint8_t sense) {
   omti->sense[1] = 0u;
   omti->sense[2] = 0u;
   omti->sense[3] = 0u;
+  /* ## The successful case, which reported zeros until Appendix A-3 was read
+   *
+   * A-3's first line: "`00` No error or no sense information ... If a REQUEST
+   * SENSE command is issued when there is no error, the Sense information
+   * reported specifies **the last Sector Address processed**." This wrote four
+   * zeros, so a driver confirming where a command landed was told cylinder 0,
+   * head 0, sector 0 -- and sector 0 of cylinder 0 is a real address, which is
+   * the worst kind of wrong answer.
+   *
+   * **`AV` stays clear, and that was the part this was blocked on.** A-3 does
+   * not say whether the address-valid bit accompanies the address, and setting
+   * it reads oddly when byte 0 is *no error*. §5.4.3 -- the command's own
+   * description -- settles it: "the sector address (defined by bytes 1, 2 and
+   * 3) is **only valid if the previous command terminated in error**. Bit 7 set
+   * to 1 indicates the validity of the sector address."
+   *
+   * So the two say different things about different bits and agree overall: the
+   * bytes carry the last address processed, and `AV` says that address is not
+   * an error's. A controller that set `AV` here would be claiming byte 0's `00`
+   * applied to that sector.
+   *
+   * `refuse()` overwrites all four immediately after calling this, so the error
+   * path is untouched -- see this function's own note on why the result bytes
+   * are not written at completion. */
+  if (!error && omti->last_processed_valid && omti->selected != NULL) {
+    uint16_t c = 0;
+    uint8_t h = 0;
+    uint8_t s = 0;
+    chs_of(omti->selected->geometry, omti->last_processed_lba, &c, &h, &s);
+    omti->sense[1] = (uint8_t)((h & 0x1Fu) |
+                               (omti->command_lun != 0u ? AP_OMTI_SENSE_LUN
+                                                        : 0u) |
+                               ((c & 0x0400u) != 0u ? 0x80u : 0x00u));
+    omti->sense[2] = (uint8_t)((s & 0x3Fu) | (uint8_t)(((c >> 8) & 0x03u) << 6));
+    omti->sense[3] = (uint8_t)(c & 0xFFu);
+  }
 
   const ap_time_t duration = command_duration(omti);
   if (duration == 0u) {
@@ -693,6 +729,12 @@ static bool addressed(ap_omti_t *omti, const ap_omti_cdb_t *cdb,
  * whole command missing from it is worse than none, because it reads as
  * evidence of absence. */
 static void note_read(ap_omti_t *omti, uint32_t lba) {
+  /* Every surface access passes through here, which is what "the last Sector
+   * Address **processed**" means -- so this is the one place that can record it
+   * without each command remembering separately. The ring below is
+   * instrumentation and outside the hash; these two are state and inside it. */
+  omti->last_processed_lba = lba;
+  omti->last_processed_valid = true;
   const unsigned kept =
       sizeof omti->recent_reads / sizeof omti->recent_reads[0];
   omti->recent_reads[omti->recent_read_count % kept] = lba;
