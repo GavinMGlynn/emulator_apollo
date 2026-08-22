@@ -1517,6 +1517,44 @@ place — a multi-sector read must report where it **ended**, which a model
 recording the address at command start would fail while passing the first. Two
 `board_state_suite` hash-coverage assertions; ctest 139/139.*
 
+## For DN3500-specific facts the oracle is not an independent check
+## (2026-08-22)
+
+Established while trying to settle the status register's bit 15, and it bears on
+more than that item.
+
+**The documentary universe for this machine is now measured.** All 57 PDFs in
+bitsavers' `pdf/apollo/` are held locally — verified by diffing the directory
+index against `docs/references/bitsavers/`, which came back empty. The *Domain
+Personal Workstations and Servers Hardware Architecture Handbook*, the base
+document `019411-A00` is an addendum **to**, is not in that directory and does
+not surface in search. `008778-03` covers the Series 3000/4000, not the 3500.
+
+**And the community archive names its source.** `retro.co.za`'s Apollo
+collection — the other place DN3500 material lives — carries only `008778-03`
+and two ROM images, and states that its DN3500 memory map "comes from the MAME
+sources ... `apollo.cpp`".
+
+**So for anything specific to the DN3500 rather than the Series 3000, the
+resolution order collapses.** Reference and sibling are exhausted, the web is
+exhausted, and the oracle is MAME — which is also where the third-party
+documentation got its DN3500 facts. `CLAUDE.md` says this project expects to
+out-accurate the oracle and to "instrument the oracle to prove which side is
+wrong". That works where an independent document exists. **Where one does not,
+agreement with MAME is not corroboration — it is the same claim twice**, and the
+only genuinely independent evidence left is this machine's own behaviour: what
+the boot PROM and Domain/OS accept, and what a probe of real hardware would show
+if one were available.
+
+*This is a caveat on interpretation, not a defect.* Nothing changes in the model.
+What changes is what an agreement is worth: a DN3500-specific value matching
+`apollo.cpp` should be recorded as "matches the oracle", never as "confirmed",
+and the existing `PROVISIONAL` markers on such values are correct rather than
+over-cautious.
+
+*Verification: the archive diff, recorded in `COMPLETION_PLAN.md` under the
+bit-15 item. No code changed.*
+
 ## The floppy step rate is programmed by SPECIFY, and now paces the seek
 ## (2026-08-22)
 
