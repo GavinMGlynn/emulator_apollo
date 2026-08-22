@@ -1462,7 +1462,32 @@ static void execute(ap_omti_t *omti) {
      * command -- so the check runs over the whole track, and reading every
      * sector of it is the strongest statement this model can make about that
      * track's integrity. §5.4.4 names it as one of the two ways to verify a
-     * format, which is what a caller is asking. */
+     * format, which is what a caller is asking.
+     *
+     * ## `1A` has a second arm here, and this model has nothing to compare
+     *
+     * Appendix A-4 gives `1A Illegal Interleave Factor` two causes, and only
+     * the first is a range check: "a FORMAT/CHECK TRACK FORMAT command was
+     * issued with an INTERLEAVE FACTOR greater than the number of sectors on
+     * the track, **or during a CHECK TRACK FORMAT command, the recorded
+     * interleave factor did not match the INTERLEAVE FACTOR specified in the
+     * CDB**." Read in `[8000]` A-4 2026-08-22 and identical in `[OMTI]` A-4;
+     * the range half is `interleave_ok` below, the mismatch half is not
+     * modelled.
+     *
+     * **Named rather than implemented, because there is no recorded factor to
+     * read.** On real hardware the comparison is against what is on the
+     * surface -- the ID fields the FORMAT wrote. An `.awd` is decoded sector
+     * data with an optional per-sector ID-flag sidecar (`ap_awd_flags`), and
+     * that sidecar records defect flags only; no track carries the interleave
+     * it was formatted with. Keeping the last FORMAT's factor in controller
+     * state would be the wrong shape and not merely incomplete: the real datum
+     * survives a reset and a power cycle because it is on the platter, and a
+     * copy in the controller would not.
+     * **Cost to close**: a sidecar record format carrying per-track format
+     * parameters, and `AWD_META.md` revised with it. Unreachable meanwhile on
+     * this machine's drives for the same reason the range check is -- 18
+     * sectors per track against a four-bit field. */
     if (!addressed(omti, &cdb, &lba)) {
       return;
     }

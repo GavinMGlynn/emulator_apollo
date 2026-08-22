@@ -6578,48 +6578,39 @@ same number is what let them diverge once already.
       field, which this core had only ever treated as an opaque code; every value
       it emits already agrees. *Verification: `omti_cdb_suite` 7 -> 8.*
 
-- [ ] **Walk `[8000]` *OMTI 8000 Series AT Reference*, 71 pages, whole.**
-      Opened 2026-08-22 and **mandatory**: the record called this manual
-      "cited once — effectively unconsulted", and the first page opened in it
-      answered a question `[OMTI]` had left unanswerable and gave a register
-      field this core did not have. `CLAUDE.md`'s rule then applies with no
-      discretion.
-      Document 3001241 Revision D, 20 June 1986 — a *different manual* from
-      `[OMTI]`'s 3001483 of January 1987, not an earlier printing of it, and its
-      contents page shows the same six-section shape plus three appendices.
-      **No text layer** (71 bytes for 71 pages), and the scan is faded, so it
-      must be read as images at 200 dpi or better.
-      *Read*: contents (PDF 5); §1.3 (doc 1-2); §2's Table 2-1 jumpers, Table
-      2-2 connectors and LED Meaning (doc 2-3, 2-4); §4.2's Table 4-1/4-2 and
-      §4.3 (doc 4-2, 4-3); §4.4/§4.5's floppy registers and the write
-      precompensation table (doc 4-5, 4-6); §5.1.2's command summary (doc 5-2);
-      §6.4.3/§6.4.4 (doc 6-7); Appendix A-1 and A-2.
-      Also read: §3.3's signal tail and §3.4 (doc 3-6, 3-7 — **§3 ends at §3.4**,
-      so `[OMTI]`'s §3.5 width rule is unique to that manual, and §3.4 here says
-      **two** sections where `[OMTI]` says three); §5.2's control byte and §5.3's
-      status register (doc 5-3, 5-4); §5.4.1 and §5.4.2 (doc 5-5, word for word
-      `[OMTI]`'s, 50-second timeout included); §6.1's floppy command summary and
-      §6.2's symbols (doc 6-1 — eleven entries, **no `WRITE DATA`**, verifying a
-      citation a plan item had made unread); Appendix B-2 (a glossary, **not**
-      the "Interleave Scheme" the contents page names) and B-4 (blank); and
-      Appendix C-1.
-      *Running total: **twenty-three** of 71 pages.* Yield so far — two values this
-      core had taken from the oracle now explained, one claim of this project's
-      bounded, one plan item opened, one judgement call turned into a proof, and
-      the rest confirmation.
-      *Owed*: §1.1-§1.2, §2.1-§2.2, §3.1-§3.2's pin tables, §4.1, §4.5's
-      protocol tail, §5.1.1, §5.4.3 onward, §6.3's command definitions, Appendix
-      A-3 onward, B-1 and B-3, C-2 onward.
-      Page offsets: doc `1-N` is PDF `N+5`, `2-N` is `N+8`, `4-N` is `N+19`,
-      `5-N` is `N+26`, `6-N` is `N+52`, `A-N` is `N+59`, `B-N` is `N+64`,
-      `C-N` is `N+68`. **The contents page's section-to-appendix mapping is
-      unreliable** — it calls B the Interleave Scheme and B-2 is a glossary — so
-      offsets come from footers read off the page images, not from the index.
-      **Read it expecting confirmation, not corroboration.** Today established
-      that `[8000]`, `[OMTI]` and `[8640]` are one source text — the same `ST3`
-      contradiction verbatim in all three, the same `DRQ3` error, the same
-      omission of `1A` from the same table, the same three `SRT` rows. Where two
-      agree, that is one witness. Detail in `OMTI_WALK.md`.
+- [x] **Walk `[8000]` *OMTI 8000 Series AT Reference*, 71 pages, whole —
+      finished 2026-08-22, 71/71.** Document 3001241 Revision D, June 1986; a
+      different manual from `[OMTI]`'s 3001483 of January 1987, with no text
+      layer, read as page images at 200 dpi.
+      Yield: the `WRITE DATA` item below advanced on **two figures** rather than
+      prose; **an error in `OMTI_WALK.md` itself** found and withdrawn — there is
+      no §3.5 in either manual, a doc page number having been recorded as a
+      section number, which had made a rule present in both manuals look unique
+      to one; two further genuine differences between the manuals, one of them
+      (the identification block's buffer-size encoding) landing on a
+      `PROVISIONAL` this core carries; the record's open question about Appendix
+      B closed; one tail opened, below. The rest confirms — every §5.4 command
+      descriptor field by field, and two typos in this manual's own headings.
+      *Verification: `omti_cdb_suite`, `awd_suite` and `afd_suite` unchanged and
+      green — no behaviour moved, which is the finding.* Detail in
+      `docs/references/OMTI_WALK.md` and `PROJECT_STATUS.md`.
+
+- [ ] **`CHECK TRACK FORMAT` should also refuse `1A` when the recorded
+      interleave factor differs from the CDB's, and this model has no recorded
+      factor.** Found 2026-08-22 walking `[8000]` Appendix A-4, which gives `1A`
+      **two** causes where this core implements one: the range check
+      (`interleave_ok`) and "during a CHECK TRACK FORMAT command, the recorded
+      interleave factor did not match the INTERLEAVE FACTOR specified in the
+      CDB". Identical in `[OMTI]` A-4.
+      **Named rather than implemented**: on hardware the comparison is against
+      the ID fields on the surface, and an `.awd` is decoded sector data whose
+      optional sidecar records defect flags only. Holding the last FORMAT's
+      factor in controller state would be the wrong *shape*, not merely
+      incomplete — the real datum survives a reset because it is on the platter.
+      **What would close it**: a sidecar record format carrying per-track format
+      parameters, with `AWD_META.md` revised. Unreachable meanwhile on this
+      machine's 18-sector drives, as the range check already is — the field is
+      four bits. Marked at `ap_omti.c`'s CHECK TRACK FORMAT case.
 
 - [ ] **The floppy half may accept more commands than three manuals list, and
       the missing one is `WRITE DATA`.** Found 2026-08-22 walking `[8000]`
@@ -6640,12 +6631,74 @@ same number is what let them diverge once already.
       phrase that stops a datasheet's command set being transferable, and
       inventing a command is the error this project has already avoided here
       once.
-      *The discriminator is cheap and this core can run it*: instrument
-      `fdc_execute`'s default arm to log any opcode reaching INVALID
-      during a boot that touches the floppy. An unlisted opcode arriving is the
-      answer; none arriving over a real floppy workload is evidence the
-      documented set is the whole set. Phase A established the reference boot
-      never touches the floppy controller, so this needs a workload that does.
+      **Advanced 2026-08-22 by finishing `[8000]`, and on figures rather than
+      prose.** Figure 1.1 (doc 1-3) draws the host data path reaching the
+      **`FDC 765` through `I/O Decode Logic & Buffers` and nothing else** — the
+      Z8, the EPROM and the five OMTI VLSI parts are all on the Winchester
+      branch — and Figure 2.1 (doc 2-2) shows the 765 as a **discrete package on
+      the board**. §4.1's "two independent controllers ... two independent sets
+      of registers" and §4.5's MSR-bit-6-and-7 handshake say the same from the
+      register side: the floppy half's protocol *is* the 765's own.
+      *So no firmware interprets floppy command bytes, and §6.3's ten commands
+      are what OMTI **documented**, not what the silicon **decodes**.* The
+      INVALID arm stays — but it is no longer justified by "the documented set
+      is the whole set", which is now known to be the wrong justification.
+      **SETTLED 2026-08-22, and it is not a floppy-workload question after
+      all.** An hour before this was written the item recorded a blocker — "no
+      document on this shelf gives the command set of the part on this board" —
+      and named, as what would unblock it, "a µPD765/8272A datasheet". Nobody
+      searched for one. The user did, and it took a search engine and a chip
+      name. **The datasheet is step 1 of `CLAUDE.md`'s resolution order — "the
+      part's own manual" — and this project had been reading the *card's*
+      manual and calling it that.**
+      `[765]`, the µPD765 datasheet, now on the local shelf beside the others and
+      gitignored with them (`OMTI_WALK.md` names the files):
+      "**There are 15 separate commands which the µPD765 will execute.**" Its
+      INSTRUCTION SET table (pp. 8-9) gives all fifteen, and `[8272A]`, Intel's
+      licensed second source, Table 4 — independently typeset — agrees bit for
+      bit.
+      **Five are missing from this core**, none colliding with the ten: `02`
+      READ A TRACK, `05` WRITE DATA, `09` WRITE DELETED DATA, `0A` READ ID, `0C`
+      READ DELETED DATA. So the three OMTI manuals print the datasheet's table
+      **with five rows deleted and nothing renumbered** — a vendor documenting
+      its supported subset, not a smaller part. And the four that `ST1`/`ST2`
+      name are four of those five, so the prose `ap_omti.h` dismissed as
+      "inherited" was inherited *and accurate*.
+      *`ap_omti.h`'s "There is no WRITE DATA command" is corrected*, and the
+      INVALID path for those five is now a **known defect** rather than
+      documented behaviour. Carried to the two items below.
+
+- [ ] **Walk `[765]`, the µPD765 datasheet, whole — 20 pages, and it is
+      mandatory.** Opened 2026-08-22. The document has already yielded four
+      facts this core does not have before any walk began (the five commands
+      above, the seek-completion interrupt, the forced-invalid state after a
+      Seek/Recalibrate interrupt, and the SPECIFY timers' clock scaling), which
+      is exactly the trigger `CLAUDE.md` makes non-discretionary. It has a text
+      layer, but every register and timing table is read as a page image.
+      **Read `[8272A]` beside it**, not after: Intel's is a licensed
+      implementation with its own typesetting, so where the two agree that is a
+      genuine second witness — unlike the three OMTI manuals, which are one
+      source text. `[765A]`/`[765B]` are later revisions of the same part and
+      are the place to check anything the original leaves ambiguous.
+      *Verification: a coverage record in `OMTI_WALK.md`, page by page, saying
+      what each yielded — and every fact either implemented with a test or named
+      as a `PROVISIONAL` gap.*
+
+- [ ] **Implement the five floppy commands this core rejects**: `02` READ A
+      TRACK, `05` WRITE DATA, `09` WRITE DELETED DATA, `0A` READ ID, `0C` READ
+      DELETED DATA. Opened 2026-08-22 once `[765]` established they exist; the
+      reasoning that had refused them is corrected in `ap_omti.h`. **Until they
+      land, `fdc_execute`'s INVALID arm is a known defect** for those five
+      opcodes, not the documented behaviour it was recorded as.
+      Sequence it *after* the `[765]` walk rather than before: the walk decides
+      the result-phase bytes, the `ST0`/`ST1`/`ST2` each sets, the deleted-data
+      address-mark semantics that `SK` and `ST2`'s control mark turn on, and
+      whether READ A TRACK's index-hole-to-EOT behaviour is expressible over an
+      `.afd`. Implementing from the opcode table alone would repeat this item's
+      own mistake one level down.
+      *Verification: `afd_suite` and `omti_suite`, one test per command stating
+      the hardware fact — including a WRITE DATA that a subsequent READ DATA
+      reads back, and a READ ID returning the addressed sector's C/H/R/N.*
 
 - [ ] **The keyboard's self-diagnostics.** Chapter 12's opening sentence has the
       part "performs power-up and operator requested self-diagnostics". No

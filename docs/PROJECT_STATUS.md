@@ -39713,3 +39713,241 @@ the initial character, the two the selection needs and the `$158(a6)`
 bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
+
+## The `[8000]` manual, walked whole — 71/71, and it corrected this project twice
+## (moved from COMPLETION_PLAN.md on completion, 2026-08-22)
+
+`OMTI_8000_Series_AT_Reference_Jun86.pdf`, document 3001241 Revision D — a
+different manual from `[OMTI]`'s 3001483 of January 1987, covering the OMTI
+8100/8200/8500/8600 rather than the DN3500's 8621. Opened because one page of it
+answered a question `[OMTI]` had left unanswerable, which under `CLAUDE.md`
+obliges reading the whole thing; 24 pages were read then, and the remaining 47 on
+2026-08-22. **No text layer** — 71 bytes for 71 pages — so every page was read as
+a 200 dpi image. Coverage, page by page, is in `docs/references/OMTI_WALK.md`.
+
+**No behaviour changed, and that is the result.** Every §5.4 command descriptor
+was walked field by field against `ap_omti_cdb.h` and `ap_omti.c` and all
+twenty-four agree, as do §5.4.11's 2048-cylinder and 16-head ceilings, §5.4.22's
+50-defects-per-head defect list, §5.4.24's READ ID flag byte, §5.4.27/28's
+4-versus-6 ECC bytes and §5.4.29's drive configuration word. What the walk
+produced instead is four corrections to the *record*, and one to a `PROVISIONAL`.
+
+### There is no §3.5, and a page number had been recorded as a section number
+
+`OMTI_WALK.md` carried an entry headed "§3.5's signal descriptions", from which
+`ap_omti.h` cited "§3.5's width rule" for resolving `[OMTI]`'s internal
+`DRQ3`-versus-`DRQ7` contradiction. Reading `[8000]` doc 3-5 found the same DMA
+width paragraph there — in a manual this record had already concluded "ends at
+§3.4". Checking both page images settled it: **§3.3 INPUT/OUTPUT CHANNEL SIGNAL
+DESCRIPTION** opens on doc 3-4 in both manuals and runs to doc 3-6; doc 3-5
+carries no heading at all. The section number came from the page footer.
+
+Two things follow. The citation in `ap_omti.h` is now §3.3. And the width rule is
+**shared text**, so the record's claim that it was "unique to `[OMTI]`, and
+therefore an independent statement rather than a copied one" is withdrawn.
+
+*`DRQ7` is unaffected, and the reason matters more than the conclusion.* What
+makes the width rule independent of the copied `DRQ3` sentence is not that it
+appears once — it is that it is a **different statement, in a different chapter,
+about a different thing**: the AT channel's DMA lines generically, rather than
+this register's bit. `008778-03` Table 2-4 remains a separate second source. The
+withdrawn sentence was reasoning from scarcity where the real argument is from
+subject matter, and scarcity is exactly what a shared-source finding destroys.
+
+*The tell was available and missed*: the entry concluded that a section did not
+exist in a manual whose §3 it had read two of seven pages of.
+
+### The buffer-size encoding differs between the manuals, and lands on a `PROVISIONAL`
+
+`AP_OMTI_ID_BUFFER_32K` is `0xC0` — bits 7 and 6 of identification-block byte
+`14` — and was already marked `PROVISIONAL` because no document gives the 8621's
+buffer size. The walk made it ambiguous in a second way:
+
+    [OMTI] doc 5-14, Jan 1987      [8000] doc 5-13, Jun 1986
+    0-0   2K                       0-0    8K
+    0-1   8K                       0-1   16K
+    1-0  16K                       1-0   32K
+    1-1  32K                       1-1   64K
+
+So `0xC0` names **32K in one manual and 64K in the other**, and Appendix A's
+generic "internal RAM buffer of 8K bytes" is encoding `0-1` in one and `0-0` in
+the other. `[8000]` §1.1's feature list — "8Kbyte buffer minimum" — is consistent
+with its own table starting at 8K. `[OMTI]`'s table is followed, because the part
+is an 8621 and `[OMTI]` is the 862X manual; the difference is recorded in
+`ap_omti.h` because the single word "32K" concealed it.
+
+The same page carries a second, harmless difference that confirms a reading:
+`[8000]`'s model template is `8x00`, keyed "x = 1 for 8100, 2 for 8200, 5 for
+8500, 6 for 8600", against `[OMTI]`'s `8x2x` — which is the 862X family, and is
+what makes `ap_omti.h`'s resolution of that template to `8621` right.
+
+**Running count of genuine differences: four**, against a great deal of shared
+text — §3.4's two sections versus three, §5.4.4's byte 4, the buffer-size
+encoding and the model template. The "1987 has more" pattern holds for the first
+two and not for the encoding, which is the same four rows shifted.
+
+### Appendix B: the contents page was right and this record was wrong
+
+`OMTI_WALK.md` had "Appendix B is not what the contents page says it is", from
+reading B-2 (a glossary) and B-4 (blank) and not B-1. **B-1 is INTERLEAVE
+SCHEME**: logical-sector tables for 512 bytes/17 sectors and 1024 bytes/9
+sectors, with "an interleave factor of zero will be set to one" and "interleave
+factors greater than one half the total number of sectors per track are not
+recommended". The appendix starts with what its title names and then carries
+more, which is a different thing from a wrong title. *Neither manual prints a
+1056-byte table*, which is this machine's geometry — consistent with
+`interleave_ok` validating the factor and not acting on it.
+
+### The `WRITE DATA` risk moved, on figures rather than prose
+
+The open item rests on `[8000]` §1.3.1, "Host has direct access to floppy disk
+controller chip (NEC765 or equivalent)", and was deliberately not acted on: "or
+equivalent" is the phrase that stops a datasheet's command set transferring, and
+`ap_omti.h` refuses to invent a command from general 765 knowledge.
+
+**Two figures now state the architecture without prose.** Figure 1.1 (doc 1-3)
+draws the host data path reaching the `FDC 765` through `I/O Decode Logic &
+Buffers` and nothing else, with the Z8 microprocessor, the EPROM and the five
+OMTI VLSI parts all on the Winchester branch; Figure 2.1 (doc 2-2) shows the 765
+as a discrete package on the board. §4.1's "two independent controllers ... two
+independent sets of registers" and §4.5's MSR-bit-6-and-7 handshake are the same
+architecture seen from the register side — the floppy half's protocol *is* the
+765's own, not an OMTI invention over it.
+
+So no firmware interprets floppy command bytes, and §6.3's ten commands are what
+OMTI **documented** rather than what the silicon **decodes**. The INVALID arm is
+unchanged, but its justification is not: "the documented set is the whole set" is
+now known to be the wrong reason to hold it.
+
+**What the blocker actually is, after checking.** `002398-04` draws this 765's
+`ST0`-`ST3`, Digital Output, Main Status, Additional Control and Digital Input
+registers across pp. 8-13/8-14 and 12-13/12-14 and **lists no commands** — its
+330-row walk record has no such row — and `008778-03` §5.4.1.2 names the part
+"FDC765" and stops. So Apollo's own documents give the registers and not the
+commands, and *no document on this shelf gives the command set of the part on
+this board*. That is narrower and more actionable than "the documents disagree
+with a sentence".
+
+*One thing that looks like new evidence and is not.* `[8000]` §6.4.2's `ST1` bit
+2 names "Read Data, **Write Deleted Data**, or Scan", "a **Read ID** command" and
+"a **Read Cylinder** command" — three commands §6.1 and §6.3 do not list. But
+`[OMTI]` doc 6-6 carries the identical five lines, so it is the same single
+witness `ap_omti.h` already discounts as inherited 765 prose. Checking that
+before reporting it is the shared-source finding doing its job.
+
+### One tail opened: `1A` has two arms and this model has one
+
+Appendix A-4 gives `1A Illegal Interleave Factor` two causes — the range check
+`interleave_ok` implements, and "during a CHECK TRACK FORMAT command, the
+recorded interleave factor did not match the INTERLEAVE FACTOR specified in the
+CDB". The second is **named rather than implemented**, and the reason is about
+shape rather than effort: on hardware the comparison is against the ID fields on
+the surface, and an `.awd` is decoded sector data whose optional sidecar records
+defect flags only. Keeping the last FORMAT's factor in controller state would
+model something the hardware does not have — the real datum survives a reset
+because it is on the platter. Cost to close: a sidecar record format carrying
+per-track format parameters. Unreachable meanwhile on 18-sector drives, as the
+range check already is, the field being four bits.
+
+### Two typos in the manual, and two more tables that are not censuses
+
+§5.4.15 is headed "CHECK TRACK FORMAT Command (`0F_H`)" while its own opcode row
+reads `0 0 0 1 0 0 0 0` = `10`, which is what `[OMTI]` §5.1.2 lists and what this
+core implements; §5.4.16 numbers its four descriptor bytes `1, 2, 2, 3`. Both
+were caught by reading bit tables rather than headings.
+
+And §5.4.14's block-count cap table carries a 256-byte sector row that §5.4.13's
+and §5.4.19's — the same table printed twice more in the same manual — omit.
+That makes six OMTI summary tables found not to enumerate what they appear to,
+after §5.1.2 omitting `1A`, Appendix A-2 omitting `07` and §3.3 omitting
+`-I/O CH CK`. *The `-I/O CH CK` omission is now confirmed in both manuals, so the
+`IO_CH_CK.L` item stays blocked with a second source explicitly read and recorded
+as silent rather than merely untried.*
+
+## The µPD765 datasheet, and how this project missed it for two sessions
+## (2026-08-22)
+
+The `[8000]` walk above ended by restating the `WRITE DATA` blocker as "no
+document on this shelf gives the command set of the part on this board", and
+named what would unblock it: "a µPD765/8272A datasheet naming the exact device".
+**Nobody searched for one.** The user did, with a chip name and a search engine,
+and it came back immediately.
+
+### The failure is in the resolution order, not in the reading
+
+`CLAUDE.md`'s order is *reference → web → oracle*, and step 1 is "**the part's
+own manual**". This project read that as the *controller card's* manual — the
+three OMTI manuals — and stopped there, then spent two sessions reading them
+against each other. But the part underneath was named three times over in
+documents already held: `[8000]` §1.3.1 "NEC765 or equivalent", `008778-03`
+§5.4.1.2 "FDC765", and `002398-04` pp. 8-13 and 12-13 drawing the µPD765 register
+set field by field. A card manual is not a part manual, and a part that is named
+has a datasheet.
+
+*The shared-source finding compounded it.* Establishing that `[OMTI]`, `[8640]`
+and `[8000]` are one source text is correct and useful, and it silently reframed
+the open question as "what do these three manuals say?" — when the question was
+"what is the part?". Three manuals agreeing that a list has ten entries says
+nothing whatever about a list that was never theirs to begin with.
+
+*And "not on this shelf" was treated as "blocked".* The shelf is step 1; the web
+is step 3, and it was never tried. The finding that bitsavers' Apollo set is
+exhausted is true of **Apollo** documents and does not extend to a third-party
+chip — over-generalising it is what made a thirty-second search look closed.
+
+### What the datasheet says
+
+`[765]` p. 2: "**There are 15 separate commands which the µPD765 will execute.**"
+Its INSTRUCTION SET table (pp. 8-9) prints all fifteen in the same layout
+`[OMTI]` §6.3 uses, because §6.3 is that table with **five rows deleted and
+nothing renumbered**: `02` READ A TRACK, `05` WRITE DATA, `09` WRITE DELETED
+DATA, `0A` READ ID and `0C` READ DELETED DATA. None collides with the ten OMTI
+documents. `[8272A]` Table 4 — Intel's licensed implementation, independently
+typeset — gives the same opcodes bit for bit, which is a real second witness
+rather than the same text reset for a different product.
+
+**So `ap_omti.h`'s "There is no WRITE DATA command" was wrong, and is corrected.**
+The header had the counter-evidence and argued it away: `ST1` bit 2 names Write
+Deleted Data, Read ID and Read Cylinder, and `ST2` names Write Data — four of the
+five — and all of it was dismissed as "the NEC 765 status prose those registers
+inherit, not evidence of a command this controller accepts". The prose is
+inherited **and accurate**. The general principle was sound; it was applied
+against `[8000]`'s own Figure 1.1, which draws the host data path reaching a
+discrete `FDC 765` through buffered logic with no microprocessor in it.
+
+Until the five land, `fdc_execute`'s INVALID arm is a **known defect** for those
+opcodes rather than the documented behaviour it was recorded as. Both the walk
+and the implementation are named plan items, in that order — implementing from
+the opcode table alone would repeat this item's own mistake one level down.
+
+### Three further things it settles before the walk has begun
+
+**A seek-completion interrupt exists.** `ap_omti.h` states "No seek-completion
+interrupt is modelled, because no manual on this shelf describes one". `[765]`
+p. 16 lists four interrupt causes, #3 being "End of Seek or Recalibrate Command",
+with Table 5 encoding each in `ST0`: SE=0/IC=`11` ready line changed,
+SE=1/IC=`00` normal termination, SE=1/IC=`10` abnormal. The same page confirms
+the half that *is* modelled — "Neither the Seek or Recalibrate Command have a
+Result Phase. Therefore it is mandatory to use the Sense Interrupt Status
+Command after these commands."
+
+**A forced-invalid state.** "A Sense Interrupt Status Command must be sent after
+a Seek or Recalibrate Interrupt, otherwise the FDC will consider the next command
+to be an Invalid Command." Not modelled.
+
+**The SPECIFY timers scale with the clock**, which explains a table this project
+transcribed twice without understanding: "Times indicated above are for an 8 MHz
+clock; if the clock was reduced to 4 MHz (mini-floppy application) then all time
+intervals are increased by a factor of 2." `[OMTI]` §6.2's "1.2 Mbyte drive" and
+"320K-byte drive" SRT/HLT/HUT columns are **one table at two clock rates**.
+
+### What it does not do: explain any boot
+
+Stated explicitly, because a finding this size invites the assumption. The boot
+runs off the Winchester/ESDI half, a separate register set. The boot PROM's
+floppy path is disassembled at `003266` above: it writes the Digital Output,
+Diskette Control and Additional Control registers and **issues no floppy command
+at all** — the negative result that also blocked the `ST3` discriminator. So none
+of the five missing commands is reachable on the boot path, and nothing currently
+failing is explained by them. This closes a correctness gap that would bite the
+first time anything reads or writes a diskette; it is not a boot fix.

@@ -289,13 +289,48 @@ typedef enum {
  * scan; the 8640 manual's §5.3 lists the same eleven commands in text and is
  * the independent check on the list.
  *
- * **There is no WRITE DATA command.** Not in our §6.3, and not in the 8640's
- * §5.3 summary either -- both list exactly these ten and INVALID. The ST1 and
- * ST2 bit descriptions *do* mention Write Data and Write Deleted Data, but that
- * is the NEC 765 status prose those registers inherit, not evidence of a
- * command this controller accepts. Nothing here invents one from general 765
- * knowledge: a driver issuing `05` gets the INVALID path, which is what the
- * documented controller does. */
+ * ## The ten below are OMTI's documented set. The **part** executes fifteen.
+ *
+ * **This block used to say "There is no WRITE DATA command", and that was
+ * wrong** -- corrected 2026-08-22 against the part's own datasheet, which is
+ * the document the resolution order wanted first and which nobody on this
+ * project had gone and found. `[765]`, the part's own datasheet -- on the local
+ * shelf beside the other manuals and gitignored with them, filenames in
+ * `docs/references/OMTI_WALK.md`:
+ * "There are **15 separate commands** which the µPD765 will execute." Its
+ * INSTRUCTION SET table, p. 8-9, gives all fifteen opcode by opcode, and
+ * `[8272A]`, Intel's licensed second source, Table 4 -- independently typeset
+ * -- agrees bit for bit.
+ *
+ * **Five are missing here**, and none of them collides with the ten:
+ *
+ *     02  READ A TRACK          0 MF SK 0 0 0 1 0
+ *     05  WRITE DATA            MT MF 0  0 0 1 0 1
+ *     09  WRITE DELETED DATA    MT MF 0  0 1 0 0 1
+ *     0A  READ ID               0 MF 0  0 1 0 1 0
+ *     0C  READ DELETED DATA     MT MF SK 0 1 1 0 0
+ *
+ * So `[OMTI]` §6.3, `[8640]` §5.3 and `[8000]` §6.1 are the datasheet's table
+ * **with five rows deleted and nothing renumbered** -- a vendor documenting the
+ * subset it supports, not a part with a smaller command set.
+ *
+ * *The old reasoning had the evidence and drew the opposite conclusion.* It
+ * noticed that the `ST1` and `ST2` descriptions mention Write Data, Write
+ * Deleted Data, Read ID and Read Cylinder, and dismissed them as "the NEC 765
+ * status prose those registers inherit, not evidence of a command this
+ * controller accepts". The prose is inherited **and accurate**: those are four
+ * of the five, named by the very registers OMTI copied. Inheriting a status
+ * register from a part is not evidence about its command set -- but it was
+ * never the only evidence, and `[8000]` Figure 1.1 draws the host data path
+ * reaching a discrete `FDC 765` through buffered logic with no microprocessor
+ * in it. A host writing into a real 765's data register gets the 765's
+ * behaviour.
+ *
+ * **Still unimplemented, and named rather than quietly added.** The five are a
+ * `COMPLETION_PLAN.md` item with the whole-document walk `[765]` now obliges,
+ * and until they land a driver issuing `05` still takes the INVALID path --
+ * which is now a **known defect** rather than the documented behaviour it was
+ * believed to be. */
 typedef enum {
   AP_OMTI_FDC_SPECIFY = 0x03u,
   AP_OMTI_FDC_SENSE_DRIVE = 0x04u,
@@ -946,6 +981,26 @@ typedef enum {
  * models are the 8620/8627/8120/8127, and not a statement about the 8621.
  * Nothing held here gives the Apollo part's buffer size.
  *
+ * **And the encoding itself is not shared between the manuals** -- found
+ * 2026-08-22 by the `[8000]` walk, and it is the one place a documentary
+ * difference lands on a `PROVISIONAL` this core carries. `[8000]` §5.4.13 (doc
+ * 5-13, June 1986) gives the same four rows one step up:
+ *
+ *     [OMTI] doc 5-14, Jan 1987    [8000] doc 5-13, Jun 1986
+ *     0-0   2K                     0-0    8K
+ *     0-1   8K                     0-1   16K
+ *     1-0  16K                     1-0   32K
+ *     1-1  32K                     1-1   64K
+ *
+ * So `0xC0` is **32K** under the 862X manual and **64K** under the 8000-series
+ * one, and Appendix A's generic 8K is encoding `0-1` in one and `0-0` in the
+ * other. `[8000]` §1.1's feature list -- "**8Kbyte buffer minimum**" -- is
+ * consistent with its own table starting at 8K.
+ * `[OMTI]`'s table is the one followed, because the DN3500's part is an 8621
+ * and `[OMTI]` is the 862X manual. Recorded because the difference makes the
+ * value ambiguous *between documents* as well as unsourced, which the single
+ * word "32K" concealed.
+ *
  * **The oracle agrees with 32K and cites nothing either**:
  * `omti8621.cpp` writes `m_sector_buffer[0x14] = 0xc0; // 32K buffer size`,
  * the same value with the same bare comment. Two implementations agreeing is
@@ -1366,21 +1421,32 @@ void ap_omti_fdc_write(ap_omti_t *omti, unsigned reg, uint8_t value);
  * 8-bit -- which was an inference from `008778-03` Table 2-4 rather than from
  * this manual.
  *
- * **§3.5 states it outright** (read 2026-08-22): "`DRQ0` through `DRQ3` will
+ * **§3.3 states it outright** (read 2026-08-22): "`DRQ0` through `DRQ3` will
  * perform **8-bit** DMA transfers; `DRQ5` through `DRQ7` will perform **16-bit**
  * transfers. `DRQ4` is used on the system board and is not available on the
  * Input/Output channel." So the same document that contradicts itself in §4
  * settles it in §3, and the width argument is now a citation rather than a
  * derivation. §4.2's DRQ3 is the error.
  *
+ * *This said **§3.5** until 2026-08-22, and there is no §3.5.* The passage sits
+ * on doc page 3-5, and the page number was written down as a section number;
+ * §3.3 INPUT/OUTPUT CHANNEL SIGNAL DESCRIPTION runs from doc 3-4 to doc 3-6 in
+ * both manuals and the DRQ paragraph is inside it. The quotation is unchanged.
+ *
  * **And it is an inherited error.** `[8000]` Table 4-2 (doc 4-2, June 1986)
  * carries the same sentence for the same register -- "this bit is set along
  * with **DRQ3** on the System Bus" -- so the `DRQ3` claim is a year older than
  * `[OMTI]` and was copied forward rather than checked. Two manuals saying it is
  * not two witnesses; see `docs/references/OMTI_WALK.md` on how much of this
- * vendor's text is shared. The resolution is unchanged and rests where it
- * should, on §3.5's width rule and `008778-03` Table 2-4, which are independent
- * of each other and of the copied sentence.
+ * vendor's text is shared.
+ *
+ * **The width rule is shared text too**, which the mis-numbering had hidden:
+ * `[8000]` §3.3 (doc 3-5) carries it word for word, so it is one witness rather
+ * than a statement `[OMTI]` added later. The resolution is unchanged, because
+ * what makes the rule independent of the copied sentence is not that it appears
+ * once -- it is that it is a *different* statement, in a different chapter,
+ * about the AT channel's lines rather than about this register's bit. And
+ * `008778-03` Table 2-4 remains a genuinely separate second source.
  *
  * The same derivation as the interrupt, from the same register: §4.3 gates
  * `DREQ` on the MASK byte's DMA ENABLE -- "If the DMA ENABLE bit in the MASK
