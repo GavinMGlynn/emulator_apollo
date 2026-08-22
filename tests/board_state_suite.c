@@ -313,6 +313,15 @@ static void test_every_disk_controller_field_moves_the_hash(void) {
   MOVES_THE_HASH(scratch.disk.controller.fdc_hlt ^= 0x7Fu);
   MOVES_THE_HASH(scratch.disk.controller.fdc_step_rate_set =
                      !scratch.disk.controller.fdc_step_rate_set);
+
+  /* The two fields `[765]`'s five commands added, 2026-08-22. Both are real
+   * machine state a data phase in progress depends on, and both were
+   * unhashed when they landed -- two machines writing to *different* sectors
+   * would have compared equal. Found by checking the hasher rather than by a
+   * failing test, which is the only way this class of hole is ever found. */
+  MOVES_THE_HASH(scratch.disk.controller.fdc_write_lba += 1u);
+  MOVES_THE_HASH(scratch.disk.controller.fdc_track_read_nd =
+                     !scratch.disk.controller.fdc_track_read_nd);
 }
 
 static void test_every_tape_field_moves_the_hash(void) {

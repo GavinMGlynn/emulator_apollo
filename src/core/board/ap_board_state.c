@@ -374,6 +374,13 @@ void ap_board_hash_disk(ap_hash_t *st, const ap_disk_t *disk) {
   ap_hash_u32(st, (uint32_t)omti->fdc_result_index);
   ap_hash_u32(st, (uint32_t)omti->fdc_buffer_index);
   ap_hash_u32(st, (uint32_t)omti->fdc_buffer_length);
+  /* Both arrived with `[765]`'s five commands, 2026-08-22, and both are real
+   * machine state: `fdc_write_lba` is where a WRITE DATA data phase in progress
+   * will land, and `fdc_track_read_nd` is the ID comparison READ A TRACK
+   * carries to its result phase. Two machines mid-write to *different* sectors
+   * would otherwise hash equal. */
+  ap_hash_u32(st, omti->fdc_write_lba);
+  hash_bool(st, omti->fdc_track_read_nd);
 }
 
 void ap_board_hash_tape(ap_hash_t *st, const ap_tape_t *tape) {

@@ -3111,7 +3111,9 @@ is inline. Whether any executes on some *other* path is not settled by this, and
 does not need to be: what the boot shows is that giving them their documented
 effect changes nothing the reference run does.
 
-**`4EAC44B176697CE7` is the current reference hash**, produced by
+**`42B14372F3677EE8` is the current reference hash** (2026-08-22; the table
+below is the lineage, and this line named `4EAC44B176697CE7` while four rows
+were appended beneath it). Produced by
 `tools/identity-boot.sh` on the release build. It differs from the hashes
 recorded earlier in this document because several commits have added or moved
 hashed state — the display controller's registers and palettes, the tape drive's
@@ -3130,7 +3132,31 @@ same media and the same invocation:
 E5807E174455F171   + one keyboard transmitter instead of two
 E577E1BC3A1071F8   + §2.4.6's refresh cycles, stolen from the processor
 623DEE0C41686430   + the floppy spindles' start deadlines
+35F7FB3C4306D175   + the MC146818's `UIE`-cleared-by-`SET` fix
+42B14372F3677EE8   + `fdc_write_lba` and `fdc_track_read_nd` in the hash
 ```
+
+**The last two were measured on 2026-08-22 and the pair is a controlled one.**
+Both runs report `clocks 1408663613` and `final PC 0000269E`, so the second
+change moved the hash **and nothing else** — which is what a state field added
+to the stream should do, and the only way to tell that from a behavioural
+regression is to run both.
+
+*The first of the two is an inference, and is worth stating as one.* This
+session's other commits were documentation, and the five floppy commands cannot
+reach this workload — the boot PROM's floppy path writes three registers and
+issues no command (`003266`, disassembled above). That leaves the `UIE` fix as
+the only behavioural change in the delta, which means **Domain/OS really does
+raise `SET` while an update-ended interrupt is armed**: the defect was reachable
+on the reference boot rather than merely documented. Not bisected, because the
+attribution is forced by what the other commits touch.
+
+*A trap this re-baselining walked into and out of, recorded because it costs a
+whole run:* `tools/identity-boot.sh` uses the **release** build. Editing a
+source file and rebuilding only `linux-debug` leaves the harness measuring the
+previous binary, and it reports no configuration difference of any kind — two
+runs "before and after" a change that was never compiled in. Confirm the release
+build was rebuilt, not the one the tests happened to use.
 
 The fifth row is the interesting one, because that change *does* touch a hashed
 field on the boot path: `ap_omti_phase_t` gains a value and `completion_at`
