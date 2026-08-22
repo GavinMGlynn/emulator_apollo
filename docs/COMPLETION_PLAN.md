@@ -6766,9 +6766,20 @@ same number is what let them diverge once already.
             fast, and a filter fitted to no observation would be invention.
             `PROVISIONAL`, and what would close it is a device that pulses an IRQ
             shorter than 100 ns.
-      - [ ] **`[8237]`'s remaining pages.** Its record names pages 1 and 11-19
-            unread as "electrical and mechanical". Read them and say so from
-            having looked, which is what makes a record trustworthy.
+      - [x] **`[8237]` to 19/19 — done 2026-08-22, and the premise was wrong
+            twice over.** The record called pages 1 and 11-19 "electrical and
+            mechanical"; **p. 11 is a PROGRAMMING section and p. 19 is DESIGN
+            CONSIDERATIONS**. p. 11 answers a question this record had recorded
+            as unanswered — the Mode registers are *undefined* after reset and
+            "an invalid mode may force all control signals to go active at the
+            same time", so this core's zeroing is the inert choice rather than
+            an inference. p. 19's first rule, "cascading from channel zero", is
+            exactly the AT arrangement `008778-03` §3.5 describes. Also the
+            400 ns host recovery time, and confirmation that only the 5 MHz
+            `8237A-5` remained, so `TCY` = 200 ns is this part's.
+            **Second time in one session** a "nothing but electrical" range hid
+            behaviour, after `[8259]`'s `TJLJH`: *a page range cannot be
+            characterised without opening it.*
       - [x] **`[146818]` MC146818A — done 2026-08-22, 21/21.** One defect
             (`UIE` must clear when `SET` goes high, and this core stored
             Register B verbatim), two typos in the datasheet itself (the `RESET`
