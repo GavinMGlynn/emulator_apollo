@@ -6300,9 +6300,20 @@ same number is what let them diverge once already.
       contradiction — different model, different page — but the possibilities
       are narrow: a per-model difference, a documentation simplification of a
       reserved bit, or a probe that measured the bus rather than the register.
-      **What would settle it**: the DN3500's own status-register page, which is
-      not among the documents held. The observed value is kept, being what this
-      machine does. `PROVISIONAL`, marked in `ap_boardreg.h`.
+      **What would settle it**: the DN3500's own status-register page.
+      **Searched 2026-08-22 and it does not exist publicly.** The whole of
+      bitsavers' `pdf/apollo/` — 57 documents — is held locally, verified by
+      diffing the directory index against `docs/references/bitsavers/`; the
+      *Hardware Architecture Handbook* that `019411-A00` is an addendum **to**
+      is not in it, and searches for it and for DN3500/DN4500 service material
+      return nothing. `retro.co.za`'s Apollo collection carries only
+      `008778-03` and two ROM images, and states outright that its DN3500 memory
+      map "comes from the MAME sources ... `apollo.cpp`" rather than from Apollo
+      documentation.
+      *So the documentary route is closed, not untried*: what remains is the
+      oracle or a probe, and the oracle here is the same MAME that the archives
+      themselves cite. The observed value is kept, being what this machine does.
+      `PROVISIONAL`, marked in `ap_boardreg.h`.
 - [ ] **A DMA transfer costs no bus time, and the part says it costs four
       states.** Found by the `[8237]` walk, 2026-08-22.
       `[8237]`, *DMA OPERATION*: "The 8237A can assume **seven separate states,
