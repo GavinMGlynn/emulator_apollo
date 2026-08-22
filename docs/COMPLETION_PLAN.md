@@ -6505,39 +6505,28 @@ same number is what let them diverge once already.
       since the field is four bits. *Verification: `awd_suite` 52 -> 58.* Detail
       in `PROJECT_STATUS.md`.
 
-- [ ] **What `SENSE DATA WORD FORMAT` packs.** Found 2026-08-22 walking
-      `[OMTI]` §5.4.3 (doc 5-6). The page prints the four sense bytes twice: the
-      `SENSE DATA FORMAT` this core builds, and a `SENSE DATA WORD FORMAT` where
-      word 0 is `C10 | 0 | LUN | HEAD NUMBER | SENSE CODE` and word 1 is
-      `CYLINDER LOW C07-C00 | C09 | C08 | SECTOR NUMBER`. Read as byte pairs
-      that is bytes 1,0 then 3,2 — the byte order within each word is the whole
-      question, and the page does not state it. The data register is already
-      8 or 16 bits by `C/D` (§4.2, and `ap_omti_data_is_byte` models it), so a
-      host reading sense as words is a reachable path this core has never been
-      asked for. **Not guessed**: the two readings differ in every byte
-      position, so picking one without evidence has a 50% chance of being a
-      defect that only appears under word-mode sense.
-      *Route*: §4.2's byte/word rule may settle it, or the oracle's
-      `omti8621.cpp` will — it is the same register either way.
-      **Bounded, not blocking**: `ap_omti_data_is_byte` has no caller outside
-      the part and its own test, and `board/ap_disk.h` decodes the four fixed-
-      disk registers as consecutive *bytes*, so nothing this machine executes
-      can reach a word-mode transfer. The width is modelled because §4.2
-      defines it; the packing is unanswered because nothing has asked.
+- [x] **What `SENSE DATA WORD FORMAT` packs.** Opened and closed 2026-08-22.
+      `[8000]` Appendix A-1 draws the same table **with its bit numbers**: word 0
+      is `C10|0|LUN|HEAD` over `AV|0|TYPE|CODE`, so bits 15-8 are byte 1 and bits
+      7-0 are byte 0 — a word is `(odd << 8) | even`, the earlier byte in the low
+      half, which is *not* what "first byte first" would give. Recorded in
+      `ap_omti_cdb.h` rather than implemented, because nothing on this machine
+      can reach a word-mode transfer. The same page gave byte 0's `SENSE TYPE`
+      field, which this core had only ever treated as an opaque code; every value
+      it emits already agrees. *Verification: `omti_cdb_suite` 7 -> 8.*
 
-- [x] **`SPECIFY`'s `SRT`, `HLT` and `HUT` are accepted and discarded.**
-      Opened and closed 2026-08-22. The floppy step rate is programmed, not
-      fixed: `fdc_step_time` now takes the slower of §6.2's `(16 - SRT)` ms and
-      `008778-03` Table 7-7's 3 ms drive minimum, so a driver cannot be reported
-      stepping faster than the mechanism moves. Both blockers dissolved on
-      inspection — the drive type was already in `ap_omti.h` (360 rpm, 96 TPI,
-      `DSHD` = the 1.2 Mbyte drive) and the thirteen unprinted `SRT` rows follow
-      by arithmetic from the three that are, confirmed against `[8640]` §5.
-      `HUT` and `HLT` are stored, hashed and unused, which is what makes their
-      absence from the model visible. *Verification: `omti_suite` 33 -> 35 over
-      three rates and the unprogrammed case; `board_state_suite` gains four
-      hash-coverage assertions; no existing seek figure moved.* Detail in
-      `PROJECT_STATUS.md`.
+- [ ] **Walk `[8000]` *OMTI 8000 Series AT Reference*, 71 pages, whole.**
+      Opened 2026-08-22 and **mandatory**: the record called this manual
+      "cited once — effectively unconsulted", and the first page opened in it
+      answered a question `[OMTI]` had left unanswerable and gave a register
+      field this core did not have. `CLAUDE.md`'s rule then applies with no
+      discretion.
+      Document 3001241 Revision D, 20 June 1986 — a *different manual* from
+      `[OMTI]`'s 3001483 of January 1987, not an earlier printing of it, and its
+      contents page shows the same six-section shape plus three appendices.
+      **No text layer** (71 bytes for 71 pages), and the scan is faded, so it
+      must be read as images at 200 dpi or better.
+      *Read so far*: the contents page and Appendix A-1. Everything else owed.
 
 - [ ] **The keyboard's self-diagnostics.** Chapter 12's opening sentence has the
       part "performs power-up and operator requested self-diagnostics". No

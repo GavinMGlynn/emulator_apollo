@@ -1445,6 +1445,43 @@ tests fail and the two acceptance tests do not.
 
 *Verification: `awd_suite` 52 -> 56; ctest 139/139.*
 
+## The third OMTI manual answered a question the other two could not
+## (2026-08-22)
+
+`[8000]`, *OMTI 8000 Series AT Reference*, was recorded in the walk register as
+"cited **once** — effectively unconsulted". It was opened to settle a different
+question and its Appendix A-1 answered one this project had opened and closed as
+unanswerable the same morning.
+
+**The `SENSE DATA WORD FORMAT` packing.** `[OMTI]` §5.4.3 prints the four sense
+bytes twice, as bytes and as words, without saying which byte occupies which
+half — and the two readings differ in every position, so there was nothing to
+infer. `[8000]` A-1 draws the word table **with bits 15 through 0 numbered
+across the top**: word 0 is `C10|0|LUN|HEAD NO.` over `AV|0|TYPE|CODE`, so bits
+15-8 are byte 1 and bits 7-0 are byte 0. A word is `(odd << 8) | even` — the
+earlier byte in the *low* half, which is the opposite of what "first byte first"
+would produce.
+
+Recorded in `ap_omti_cdb.h` and deliberately not implemented: `ap_omti_data_is_byte`
+has no caller outside the part and its own test, and `board/ap_disk.h` decodes
+the fixed-disk registers as consecutive bytes, so no word-mode transfer exists
+on this machine. The answer is kept where it will be found rather than guessed at.
+
+**And byte 0 is two fields.** A-1 gives bit 7 `AV`, bits 5-4 `SENSE TYPE` and
+bits 3-0 the code, with the types `00` drive, `01` data, `10` command, `11`
+diagnostic. This core had only ever treated the byte as an opaque number chosen
+from a code list. *Every value it emits already agrees* — `04` is a drive error,
+`21`, `22` and `23` are command errors, `17`, `19` and `1A` are data errors —
+which makes the new test a check on the values rather than a restatement of
+them.
+
+**The consequence is a 71-page obligation.** One unimplemented fact from a
+document means the whole document, and this one produced two from its first page.
+Named in `COMPLETION_PLAN.md`. It has no text layer and a faded scan, so it is
+image work at 200 dpi — the expensive kind, and the rule does not care.
+
+*Verification: `omti_cdb_suite` 7 -> 8; ctest 139/139.*
+
 ## REQUEST SENSE after a success reported sector 0 of cylinder 0
 ## (2026-08-22)
 
@@ -10070,7 +10107,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Apollo cartridge tape (`050000`) | working, **controller joined to the drive**: a data-register write with the request bit set is a QIC-02 command, reads deliver the cartridge a byte at a time across the drive's block boundary, and a refused command or the end of tape raises Exception. The command handshake's **three entry conditions** are modelled — ready, exception, device-holds-the-bus, one figure each — and now **its timings too**: the device carries a clock, a command deasserts READY at once and reaches its destination only when the figure's interval has passed. Every interval is `PROVISIONAL`, since §1.13.2 publishes bounds rather than values. Four registers at stride 1, the upper four of each eight floating to `FF`, aliased through the range, on IRQ5 through to vector `A5`. The measured reset dump is reproduced over two aliasing periods | `tape_suite`, 19 tests; `FINDINGS.md` C16-C19 |
 | Archive SC-499 cartridge tape controller (the part) | **register model complete**: all four addresses of `[SC499]` §1.9 — data/command, control-on-write and status-on-read, and the two write-triggered DMA commands — plus the derived interrupt flag, the tri-stated IRQ line, and RSTDMA's documented identity with power-on reset. **The status register's polarity is corrected**: RDY and EXC are asserted *low*, and the interrupt flag is a disjunction rather than a conjunction — see the section below. The QIC-02 command set itself, tape motion and the drive behind it are not modelled. Not yet wired to the board at `050000` | **§1.12's reset protocol is complete**: the 25 us minimum hold is enforced (a narrower pulse resets nothing), it survives a rewrite of the control byte with the bit still up, and RSTDMA is the second documented release path | `sc499_suite`, 27 tests, `Archive SC-499 Information Guide` | **Oracle note:** MAME's own SC-499 models no media change at all, so a cartridge swapped while Domain/OS holds the drive crashes it; `ext/mame` carries a local edit treating insertion as a QIC-02 RESET, per `FINDINGS.md` C56.
 | Apollo disk and floppy (`04D000`, `05F800`) | working: both halves of the one card, placed **74 KB apart** by measurement, each aliased through 1 KB on its own period — four registers for the fixed disk, an eight-address block for the floppy. Interrupts on IRQ14 and IRQ6, separate lines eight apart. The gap is pinned as arithmetic, not constants: the AT window maps `Apollo = 0x040000 + AT × 0x80` | `disk_suite`, 6 tests; `FINDINGS.md` C20, C22, C23 |
-| OMTI command descriptor blocks | working: the 6-byte CDB decoded with the **cylinder reassembled from three bytes** (C10 in byte 1, C09/C08 in byte 2, low eight in byte 3), the command byte exposed both whole and split into class and opcode, and acceptance checked against the ESDI command set — which **refuses** `0C INITIALIZE DRIVE CHARACTERISTICS`, an ST506-only command that would make ESDI geometry look settable | `omti_cdb_suite`, 7 tests; `FINDINGS.md` C27 |
+| OMTI command descriptor blocks | working: the 6-byte CDB decoded with the **cylinder reassembled from three bytes** (C10 in byte 1, C09/C08 in byte 2, low eight in byte 3), the command byte exposed both whole and split into class and opcode, and acceptance checked against the ESDI command set — which **refuses** `0C INITIALIZE DRIVE CHARACTERISTICS`, an ST506-only command that would make ESDI geometry look settable | `omti_cdb_suite`, 8 tests; `FINDINGS.md` C27 |
 | OMTI 862X ESDI/floppy controller (the part) | **register model complete for both halves**: the fixed disk's four ports with their read/write asymmetries and the status register's fixed bits, and the floppy's five at the standard PC layout. Modelled as two independent register sets sharing nothing, as `[OMTI]` §4.1 and §3.4 describe. Both measured dumps reproduced as tests. **Both command sets now modelled**: §5's fixed disk over `.awd`, and §6's floppy over `.afd` — ten commands and INVALID, with ST0–ST3 result bytes, and **no `WRITE DATA`**, which neither our §6 nor the sibling 8640's §5.3 lists. **`1E READ DATA TO BUFFER` implemented** -- §5.4.19's "reads data from the disk
 to the controller's buffer ... does not transfer the data to the host", paired
 with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both derived from the STATUS register. The DRQ7 citation is **§4.3's DATA STATE alone** -- "it will set the DRQ7 bit on the system bus", read off p. 4-4 as an image -- plus `008778-03` Table 2-4. **Not "§4.2 and §4.3"**, which this row used to say: §4.2's MASK bit 0 gives **DRQ3** on p. 4-3, so the two sections of one manual contradict each other and only one of them can be cited. DRQ3 is excluded on physical grounds anyway -- DRQ7 is the 16-bit channel and the transfer is word mode. The rest is as §4.2 and §4.3 give it: the interrupt from `IREQ` and the MASK byte's interrupt enable, the DMA request from `DREQ`, which the MASK byte's DMA enable gates. IRQ6 and DRQ2 are placed and not yet driven: the floppy side's completion is the FDC's result phase, not this one | `omti_suite`, 15 tests; `awd_suite`, 49; `afd_suite`, 34; `OMTI AT Controller Series Jan87` §6, `OMTI 8640 Jun89` §5 |

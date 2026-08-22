@@ -116,6 +116,41 @@
  * carry, and the oracle writes zeros for them too. A stated gap, not a value. */
 #define AP_OMTI_CONFIGURATION_BYTES 10u
 
+/* ## The sense block read as words, and how the bytes pack into them
+ *
+ * §5.4.3 prints the four sense bytes twice -- a `SENSE DATA FORMAT` and a
+ * `SENSE DATA WORD FORMAT` -- without saying which byte lands in which half of
+ * a word, and the two possible readings differ in every position. `[8000]`
+ * Appendix A-1 draws the word table **with its bit numbers**, which settles it:
+ *
+ *     Word 0 | C10 | 0 | LUN | HEAD NO. || AV | 0 | TYPE | CODE |
+ *     Word 1 |   CYLINDER LOW C07-C00   || C09 | C08 | SECTOR NUMBER |
+ *              <------ bits 15-8 ------>   <------ bits 7-0 ------->
+ *
+ * Bits 15-8 of word 0 are byte **1** and bits 7-0 are byte **0**; word 1 is
+ * byte 3 over byte 2. So a word is `(odd << 8) | even` -- the earlier byte in
+ * the low half, which is the little-endian pairing and *not* the order a reader
+ * assuming "first byte first" would write.
+ *
+ * **Recorded rather than implemented, because nothing can reach it.**
+ * `ap_omti_data_is_byte` has no caller outside the part and its own test, and
+ * `board/ap_disk.h` decodes the four fixed-disk registers as consecutive bytes,
+ * so no word-mode transfer exists on this machine. The answer is kept here so
+ * that the day one does, it is not guessed at then.
+ *
+ * *And byte 0 is itself two fields*, which this core has only ever treated as
+ * an opaque code: `[8000]` A-1 gives bit 7 `AV`, bits 5-4 `SENSE TYPE` and bits
+ * 3-0 the code -- `00` drive errors, `01` data errors, `10` command errors,
+ * `11` diagnostic errors. Every value this core emits already agrees: `04`
+ * Drive Not Ready is type `00`, `21` Illegal Disk Address and `22` Illegal
+ * Function are type `10`, `17`, `19` and `1A` are type `01`. The numbers were
+ * right; the structure behind them was not written down. */
+#define AP_OMTI_SENSE_TYPE_MASK 0x30u
+#define AP_OMTI_SENSE_TYPE_DRIVE 0x00u
+#define AP_OMTI_SENSE_TYPE_DATA 0x10u
+#define AP_OMTI_SENSE_TYPE_COMMAND 0x20u
+#define AP_OMTI_SENSE_TYPE_DIAGNOSTIC 0x30u
+
 /* §5.4.24's READ ID reply: four bytes, two words.
  *
  *     0  zero  zero  zero  zero  zero  C10  C09  C08

@@ -118,8 +118,41 @@ static void test_copy_is_the_only_long_descriptor(void) {
                          ap_omti_cdb_length(AP_OMTI_CMD_READ_CAPACITY));
 }
 
+/* `[8000]` Appendix A-1's SENSE TYPE, bits 5 and 4 of byte 0: `00` drive
+ * errors, `01` data errors, `10` command errors, `11` diagnostic errors. This
+ * core chose its sense values from the code lists and never from the type
+ * field, so agreeing with it is a check on the values rather than a
+ * restatement of them. */
+static void test_every_sense_code_this_core_emits_carries_its_documented_type(
+    void) {
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_SENSE_TYPE_DRIVE,
+                         0x04u & AP_OMTI_SENSE_TYPE_MASK); /* Not Ready */
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_SENSE_TYPE_DATA,
+                         0x17u & AP_OMTI_SENSE_TYPE_MASK); /* Write Protected */
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_SENSE_TYPE_DATA,
+                         0x19u & AP_OMTI_SENSE_TYPE_MASK); /* Bad Track */
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_SENSE_TYPE_DATA,
+                         0x1Au & AP_OMTI_SENSE_TYPE_MASK); /* Interleave */
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_SENSE_TYPE_DATA,
+                         0x1Cu & AP_OMTI_SENSE_TYPE_MASK); /* Alternate */
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_SENSE_TYPE_COMMAND,
+                         0x20u & AP_OMTI_SENSE_TYPE_MASK); /* Invalid Command */
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_SENSE_TYPE_COMMAND,
+                         0x21u & AP_OMTI_SENSE_TYPE_MASK); /* Illegal Address */
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_SENSE_TYPE_COMMAND,
+                         0x22u & AP_OMTI_SENSE_TYPE_MASK); /* Illegal Function */
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_SENSE_TYPE_COMMAND,
+                         0x23u & AP_OMTI_SENSE_TYPE_MASK); /* Volume Overflow */
+
+  /* And the type field is not the address-valid bit, which sits above it. A
+   * sense byte with `AV` set must report the same type as one without. */
+  TEST_ASSERT_EQUAL_HEX8(0x21u & AP_OMTI_SENSE_TYPE_MASK,
+                         0xA1u & AP_OMTI_SENSE_TYPE_MASK);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_every_sense_code_this_core_emits_carries_its_documented_type);
   RUN_TEST(test_the_cylinder_is_reassembled_from_three_bytes);
   RUN_TEST(test_the_cylinder_bits_do_not_leak_into_head_or_sector);
   RUN_TEST(test_the_command_byte_is_both_whole_and_split);
