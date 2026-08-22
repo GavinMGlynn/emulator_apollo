@@ -6854,8 +6854,19 @@ same number is what let them diverge once already.
             `L`=0 degenerating to `M+1` and `M`=`L`=0 timing out every clock,
             both falling out of the nested countdown and now pinned by tests
             (`mc6840_suite` 34 → 36) rather than left to look like an omission.
-            *Owed*: `[6840UM]`'s chapters 1, 2 and 5 onward — 56 image-only
-            pages, a session of its own.
+            ***`[6840UM]` chapters 1 and 3 walked 2026-08-23*** — the whole of
+            the part-behaviour content. Chapter 3 confirms the model throughout,
+            including the finer point the datasheet only hints at: a **hardware**
+            reset sets the latches to `$FFFF` while a **software** reset (`CR10`)
+            leaves them and every other control bit alone, which this core
+            already distinguishes. Chapter 1 supplies the vocabulary note that
+            "Period Measurement" and "Frequency Comparison" are the same mode
+            renamed, so the two documents' tables do not describe six modes.
+            *Owed*: chapters 2, 4, 5 and both appendices — PDF 9-20 and 31-56,
+            26 pages. The contents page calls them MPU interfacing, a sample
+            6800 routine and applications; **that is not a claim about what is
+            on them**, after `[8259]` and `[8237]` each hid a rule in a range
+            dismissed as electrical.
             Record: `docs/references/MC6840_WALK.md`.
       - [x] **`[Bt458]` — walked whole 2026-08-22, 24/24.** Extracted from the
             1991 databook (PDF 393-416) onto the shelf; picked out of the batch

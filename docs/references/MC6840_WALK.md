@@ -5,7 +5,7 @@ The DN3500's three system timers. `008778-03` §3.6 and `002398-04` p. 12-20.
 | Tag | File | Pages | Text layer | State |
 | --- | --- | --- | --- | --- |
 | `[6840]` | `motorola/MC6840_PTM_Motorola.pdf` (datasheet) | 14 | **no** | **walked whole, 14/14, 2026-08-22** |
-| `[6840UM]` | `motorola/MC6840UM_ProgrammableTimerModule.pdf` (user manual) | 56 | **no** | **chapter 3 derived**; see the audit |
+| `[6840UM]` | `motorola/MC6840UM_ProgrammableTimerModule.pdf` (user manual) | 56 | **no** | **chapters 1 and 3 walked** 2026-08-23; 2, 4, 5 and appendices owed |
 
 Neither has a text layer — 14 characters for 14 pages and 56 for 56, which is
 one page number each. Everything must be read as images.
@@ -81,10 +81,47 @@ tests pin exactly that (`mc6840_suite` 34 → 36), because "the datasheet calls
 this special and our code does not mention it" is the shape of an accidental
 omission as often as of an elegant one — and the only way to tell is to run it.
 
-## Owed
+## `[6840UM]` chapters 1 and 3 WALKED — 2026-08-23
 
-- `[6840UM]`'s **chapters 1, 2 and 5 onward**, and the parts of chapters 3-4 not
-  among the sixteen cited sections. 56 image-only pages.
-Budget `[6840UM]` as a session of its own. The yield to expect is the `[146818]` shape —
-chapter 3 confirming, and something small and real in a corner nobody had a
-reason to query.
+PDF 1-6 is front matter; `1-N` is PDF `N+6` and `3-N` is PDF `N+20`.
+
+**Chapter 1 (1-1, 1-2)** — the four modes described from the user's end, and one
+piece of vocabulary that matters when reading these two documents together:
+"Earlier MC6840 data sheets referred to the **Period Measurement Mode as the
+Frequency Comparison Mode**, and the **Pulse Width Measurement Mode as the Pulse
+Width Comparison Mode**. The electrical function of these modes has not been
+altered." So `[6840]`'s Table 4 names and `[6840UM]`'s differ for the same two
+modes, and `ap_mc6840.h`'s `AP_MC6840_MODE_PULSE_WIDTH_MEASUREMENT` uses the
+later one. Nothing is wrong; a reader meeting both should not go looking for a
+fifth and sixth mode.
+
+**Chapter 3 (3-1 to 3-10), field by field.** This is the chapter the citation
+audit found *derived*, and walking it confirms throughout. Captured:
+
+| §  | Content | Against the model |
+| --- | --- | --- |
+| 3.1 | **Hardware vs software reset, itemised** | Hardware: clocks stopped, flags cleared, **latches set to `$FFFF`**, all CR bits cleared except `CR10` set. Software (`CR10`=1): clocks stopped, flags cleared, **latches retain what was last written**, remaining CR bits **unchanged**. `ap_mc6840_reset` does the first, the `CR10` path the second — the distinction is correctly modelled, and it is finer than the datasheet's p. 7 hint at it |
+| 3.2-3.4 | Counter Initialization, Counter Enable, Latch Initialization | Initialization writes latch → counter *and clears that timer's interrupt*; "to operate a timer must be Initialized AND Enabled" |
+| 3.5 | Table 3-2 as memory locations, latch write and counter read | "The contents of the MSB Buffer and LSB Buffer are changed only by **being written over OR a hardware Reset**" — so a *software* reset leaves them, which is what this model does |
+| 3.6 | Every control-register bit | `CR30` prescaler, `CR20` register select defaulting to zero on power-up and hardware reset, `CR10` all-timers-preset, bit 1 clock source, bit 6 interrupt enable, bit 7 output enable "if the output is masked it will always be electrically low" |
+| 3.7 | Continuous, 16-bit and dual 8-bit | `A` = latch + 1 clocks; `B` = (LSB+1)(MSB+1); the two Counter Initialization sets differing by `CRX4` — `Reset OR Gate low` against `Reset OR Gate low OR Write to Counter Latches` |
+| 3.8 | Single shot | "Bit 7, the output enable bit **must be high** in the Single Shot Mode"; "internally, the count recycling is continuous as if in the Continuous Mode. Only one pulse is evident on the output pin for each Counter Initialization" — which is `single_shot_fired` |
+| 3.9-3.10 | Period and pulse-width measurement | Both Counter Enable sets in full, both `CRX5` senses, and the footnote "this prevents initialization on the trailing edge of a previous period measurement" |
+| 3.11 | Status register | The five ways an interrupt clears, including the **RS-then-RT** sequence with its between-reads exception — implemented with the sentence attached |
+
+**Nothing in chapter 3 contradicts the model**, and the reset distinction in
+§3.1 is the one place a reader might have expected it to.
+
+## Owed — and deliberately not characterised
+
+`[6840UM]` **chapters 2, 4 and 5, and appendices A and B** — PDF 9-20, 31-56.
+The contents page names them *Interfacing the PTM to the MPU*, *Sample Software
+Initialization Routine* and *Applications* (a thermometer and an engine
+analyzer), plus electrical/mechanical data and the MC6800 instruction set.
+
+**That is what the contents page says, not what the pages say**, and this record
+does not claim they are irrelevant. Twice in the previous session a range
+dismissed as "electrical and mechanical" turned out to contain rules — `[8259]`'s
+`TJLJH` and `[8237]`'s PROGRAMMING and DESIGN CONSIDERATIONS pages. The honest
+state is: 26 pages unread, expected to be host-side, unverified.
+
