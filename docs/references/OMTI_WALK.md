@@ -1834,3 +1834,42 @@ primary" — `W7` **installed** is the primary base, `W7` **removed** is the
 secondary. That matches Table 2-1's `W7 = 1*` → `03F0H`. The page also says "to
 enable floppy support, jumper `W7` must be installed", which conflates enabling
 with selecting; Table 2-1 is the precise statement and is the one taken.
+
+
+## `[8000]` §5.2 — the shared-source finding turns a judgement call into a proof
+
+PDF 29, doc 5-3. The CONTROL BYTE, and it confirms `ap_omti_cdb.h` field for
+field: `R | E/B | C | x | x | S | S | S`, with bits 4 and 3 don't-care and bits
+2-0 the STEP option. That is the layout `[OMTI]` §5.2 gives, and it is a second
+statement that §5.1.1's "bits 4,3,2,1,0 are not used" is the loose summary.
+
+`DISABLE RETRY`: "the controller will perform **up to 8 retries** ... The retry
+algorithm is **4 retries, 1 recalibration, 4 retries**" — the phrase this core
+already quotes, now with the total. `DISABLE ECC` and `ENABLE FORMAT BUFFER`
+share bit 6 by command, as modelled.
+
+**And `ENABLE SECTOR ADDRESS CONVERSION` settles a question this record has
+carried as a judgement call.** `ap_omti_cdb.h` records that `[OMTI]` disagrees
+with itself about which jumpers set sectors per track — §5.2's prose says "`W10`
+and `W9`", its page 2-8 table says "`W10` and `W11`" — and takes the table
+because the table carries values. Reasonable, and not proven.
+
+`[8000]` §5.2 says "**`W10` and `W9`**" as well. *The same two names in the same
+sentence, a year earlier* — while **its own** table, doc 2-4, calls them **`W9`
+and `W8`**. So:
+
+| | prose | that manual's own table |
+| --- | --- | --- |
+| `[8000]`, 1986 | `W10` and `W9` | `W9` and `W8` |
+| `[OMTI]`, 1987 | `W10` and `W9` | `W10` and `W11` |
+
+**The prose is identical across products and disagrees with each product's own
+table.** That is exactly what copied body text plus re-typeset tables looks like,
+and it makes the table authoritative rather than merely better-evidenced. The
+choice `ap_omti_cdb.h` made now has a reason.
+
+*It also gives the conversion's purpose*, which `[OMTI]` §5.2 does not: the
+conversion "is useful when there is a different number of sectors per track
+(ESDI) than **the DOS is using (17)**". Seventeen is the as-shipped `W10 W11`
+row; this board is jumpered to 18, and `AP_OMTI_CONVERSION_SECTORS` is the
+jumper's value rather than DOS's default. The two agree on 16 heads per cylinder.

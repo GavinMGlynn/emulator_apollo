@@ -285,7 +285,26 @@ typedef struct {
  *   **The jumper count is settled, and the manual disagrees with itself about
  *   which jumpers they are.** §5.2 says "W10 and W9"; the jumper table under
  *   COMMON SYSTEM JUMPER SETTINGS on page 2-8 says **W10 and W11** and is the
- *   one that carries values:
+ *   one that carries values.
+ *
+ *   *`[8000]` makes that choice decisive rather than merely reasonable.* Its
+ *   §5.2 says "**W10 and W9**" too -- the same two names in the same sentence,
+ *   a year earlier -- while **its own** jumper table, doc 2-4, calls them
+ *   **`W9` and `W8`**. So the body text is copied forward across products
+ *   unchanged and the tables are re-typeset per product. Two manuals whose
+ *   prose agrees with each other and disagrees with each of their own tables:
+ *   the prose is the inherited stale reference and the table is authoritative,
+ *   which is what this file already assumed and now has a reason for. See
+ *   `docs/references/OMTI_WALK.md` on the shared source text.
+ *
+ *   *And `[8000]` §5.2 gives the conversion's purpose*, which neither manual's
+ *   §5.2 states in `[OMTI]`: it "is useful when there is a different number of
+ *   sectors per track (ESDI) than the DOS is using (**17**)". The host geometry
+ *   being converted *from* is DOS's seventeen -- which is the as-shipped
+ *   `W10 W11 = 0 0` row below -- and the conversion exists to reconcile it with
+ *   whatever the drive really has. This board is jumpered to 18, so the
+ *   conversion here uses 18, and `AP_OMTI_CONVERSION_SECTORS` is that jumper's
+ *   value rather than DOS's default. The values:
  *
  *       W10 W11   bytes/sector   sectors/track (ST506/412 MFM)
  *        0*  0        512             17
