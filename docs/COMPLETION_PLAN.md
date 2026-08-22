@@ -6537,6 +6537,31 @@ same number is what let them diverge once already.
       omission of `1A` from the same table, the same three `SRT` rows. Where two
       agree, that is one witness. Detail in `OMTI_WALK.md`.
 
+- [ ] **The floppy half may accept more commands than three manuals list, and
+      the missing one is `WRITE DATA`.** Found 2026-08-22 walking `[8000]`
+      §1.3.1, doc 1-2: "**Host has direct access to floppy disk controller chip
+      (NEC765 or equivalent)**."
+      `ap_omti.h` reasons at length that there is no WRITE DATA command —
+      `[OMTI]` §6.3, `[8640]` §5.3 and `[8000]` §6.1 all list the same ten plus
+      INVALID, and §6.3.11 defines the INVALID path — and deliberately does not
+      invent one "from general 765 knowledge". That reasoning is sound about the
+      *documents*. This sentence is evidence about the *silicon*, and the two
+      point opposite ways: a host with direct access to a real 765 can issue
+      `05 WRITE DATA` and have it work.
+      **Why it matters more than the other unlisted commands**: a floppy that
+      cannot be written is not a floppy. If Domain/OS ever formats or writes one
+      through this controller, our INVALID path fails it.
+      **Not changed on this evidence**, because "or equivalent" is exactly the
+      phrase that stops a datasheet's command set being transferable, and
+      inventing a command is the error this project has already avoided here
+      once.
+      *The discriminator is cheap and this core can run it*: instrument
+      `fdc_execute`'s default arm to log any opcode reaching INVALID
+      during a boot that touches the floppy. An unlisted opcode arriving is the
+      answer; none arriving over a real floppy workload is evidence the
+      documented set is the whole set. Phase A established the reference boot
+      never touches the floppy controller, so this needs a workload that does.
+
 - [ ] **The keyboard's self-diagnostics.** Chapter 12's opening sentence has the
       part "performs power-up and operator requested self-diagnostics". No
       command in `ap_kbd_receive`'s set runs one and no result is defined

@@ -1704,3 +1704,42 @@ timing is §4.3's 100 µs reset window. Recorded as a named behaviour without a
 number rather than modelled — inventing a self-test duration would put a figure
 in the emulator that nothing supports, and there is no LED for a driver to read
 in any case.
+
+
+## `[8000]` §1.3 — a confirmation of the address fields, and two tensions
+
+PDF 7, doc 1-2. §1.3.1's feature lists.
+
+**Winchester, confirming three things this core derived elsewhere.**
+"**Addresses up to 2048 tracks and 16 heads**" — 2048 is exactly the eleven-bit
+cylinder `ap_omti_cdb.c` reassembles from bytes 1, 2 and 3, and 16 heads is
+`AP_OMTI_CONVERSION_HEADS`. "ESDI drives may transfer data at a rate of up to
+**10 Mbit/sec**", which is `AP_OMTI_TRANSFER_BYTES_PER_SEC`'s 1.25 MB/s. "Word
+(16 bits) width data transfer on AT bus" and "Supports both programmed I/O and
+DMA data transfers". And "**programmable sector interleave including a 1:1
+interleave**", which agrees with §5.4.4's "an interleave factor of zero is set
+equal to one".
+
+**Tension one, and it is small.** "Supports **256**, 512, 1024 or 1056
+bytes/sector" — but doc 2-4's `W9 W8` jumper offers only 512 (17 sectors), 512
+(18), 1024 and 1056. There is no strap for 256. Either the feature list is
+aspirational or 256 is reachable another way; nothing here needs it, since this
+board's images are 512, and it is recorded rather than resolved.
+
+**Tension two, and it is a named plan item.** "**Host has direct access to
+floppy disk controller chip (NEC765 or equivalent)**." `ap_omti.h` argues from
+three command summaries — `[OMTI]` §6.3, `[8640]` §5.3, `[8000]` §6.1, all ten
+commands plus INVALID — that **there is no `WRITE DATA` command**, and
+deliberately declines to invent one from general 765 knowledge. That reasoning
+is about the *documents*; this sentence is about the *silicon*, and a host with
+direct access to a real 765 can issue `05` and have it work. A floppy that
+cannot be written is not a floppy, so this is the unlisted command that matters.
+Not changed on this evidence — "or equivalent" is the phrase that stops a
+datasheet's command set being transferable — and opened as an item with a
+discriminator this core can run.
+
+**Floppy, otherwise confirming**: one or two drives, 48 and 96 TPI plus high
+density, 250/300/500 Kbit/s "including **dual rotational speed floppies**",
+which is what the Additional Control Register's `PN2` is for.
+
+*§1.3.2 is physical*: 3.9 × 13.25 × 0.75 inches.
