@@ -6138,51 +6138,18 @@ same number is what let them diverge once already.
       init complete.` and confirmed by `sio2 reg 13  2 read(s)` in its own
       report.* Detail in `PROJECT_STATUS.md`.
 
-- [ ] **A DCD transition during a run stops the console, and nothing reads
-      `IPCR`.** Opened 2026-08-22, the first time this path has been reachable.
-      `--sio-input-at 1200000000:1:04` raises `IP2` after `siologin` has armed
-      `ACR`. `sio2`'s `ISR` goes `11` → `91` — §4.2.15's Input Port Change bit,
-      unmasked by `IMR A2` — **`IPCR` is never read in either run**, so the
-      condition is never cleared, and the machine prints neither the
-      `SERVER_PROCESS_MANAGER` banner nor `MBX_HELPER` that the baseline does.
-      `sio1`'s `IMR` also moves `A2` → `B2` with its line left asserted.
-      **Discriminated the same day from the reports already in hand, no extra
-      run.** The per-vector exception census is identical across the two runs
-      except that **vector 161 is entered 291 times fewer** in the transition
-      run, matching its 291 fewer interrupt-controller accesses — and **no new
-      vector appears at all**. A machine wedged on a permanently asserted
-      interrupt takes *more* exceptions, so the storm reading is dead; a fault
-      taken and handled would also show, so the clean-fault reading is not yet
-      alive. What the census describes is a **stall**: fewer interrupts on the
-      same instruction budget is a tight loop.
-      **Narrowed again by reading the code, at no run cost, to a contradiction
-      inside this core.** `ap_mc68681_irq` is `(isr & imr) != 0`, and `sio2`'s
-      `91 & A2` is `80` — **true**, where the baseline's `11 & A2` is `00`. So
-      the DUART asserts, `ap_sio_irq` ORs it, `ap_board.c` drives `AP_SIO_IRQ`,
-      and vector 161 is `A0 + 1`, the SIO interrupt. **Yet both runs end with
-      `IRQ1 unmasked, master IRR 00 IMR F4, nothing pending`.**
-      **Leading hypothesis, explaining every observation from one cause**: the
-      request reaches the 8259 as an *edge*. The transition latches one
-      interrupt, the handler never reads `IPCR`, `ISR[7]` stays set, the shared
-      line never returns low, and no further edge can be presented — and
-      `ap_sio.h` says `ap_sio_irq` ORs **both** DUARTs into this one line, so a
-      stuck `sio2` silences `sio1`, **whose channel B is the console**.
-      **Half discriminated, again without a boot.** `ap_i8259_set_request`
-      models *both* modes with `[8259]` cited — "with LTIM = 1 ... Edge detect
-      logic on the interrupt inputs will be disabled" — and picks between them
-      from `ICW1`'s `LTIM` bit, which the **firmware programs**. So the part is
-      faithful and the question is not "is `ap_intr` wrong" but "which mode does
-      this boot select".
-      **If edge — the AT convention — the observed stall is correct behaviour,
-      not a defect**: a real 8259 with a DUART holding its line asserted loses
-      every later interrupt on that line, and `ap_sio_irq` ORs both DUARTs onto
-      it. That would move the whole question from this core to Domain/OS's
-      handler, which never reads `IPCR`.
-      **Instrument gap, and it is the next thing to close**: the boot report
-      prints `IRQ1 unmasked, master IRR 00 IMR F4` and **not** the trigger mode,
-      so a run cannot currently say which mode it programmed. One line in the
-      report answers a question that otherwise costs a trace.
-      Detail in `PROJECT_STATUS.md`.
+- [x] **A DCD transition during a run stops the console, and nothing reads
+      `IPCR`.** Opened and closed 2026-08-22. **Faithful behaviour, not a
+      defect.** The report now prints the trigger mode and this boot programs
+      `master edge, slave edge`: the transition latches one interrupt, the
+      handler never reads `IPCR`, `ISR[7]` stays set, the line never falls, and
+      with no further rising edge IRQ1 delivers nothing more — silencing `sio1`
+      too, since `ap_sio_irq` ORs both DUARTs onto it and the console is `sio1`
+      channel B. One cause for the stall, the 291 missing vector-161 entries and
+      the `nothing pending` beside an asserted line. What remains is Domain/OS's
+      business: why it arms `ACR[3:0] = F` and `IMR[7]` on a line it never
+      services. *Verification: three gated 1.5 G boots.* Detail in
+      `PROJECT_STATUS.md`.
 
 - [ ] **Re-scope the seven items that waited behind "`siologin` needs a
       modem-control signal".** Opened 2026-08-21. C220's sentence is refuted by

@@ -1647,8 +1647,41 @@ modem-control signal does not spend six boots finding where it goes.
 confirmed by `sio2 reg 13   0 write(s)   2 read(s)` in its own report.*
 
 
-## Moving DCD *during* a run stops the console, and this path had never been run
-## (2026-08-22, OPEN — evidence, not a conclusion)
+## Moving DCD during a run stops the console, and it is faithful behaviour
+## (2026-08-22, RESOLVED)
+
+**The trigger mode settled it: `trigger      master edge, slave edge (ICW1
+LTIM)`.** Both 8259s are edge-triggered, as this machine's firmware programs
+them, so the chain below is not a defect in this core but what the hardware
+does:
+
+1. Raising `IP2` after `ACR` is armed sets `sio2`'s `ISR[7]`, and `IMR A2`
+   leaves it unmasked, so `ap_mc68681_irq` — `(isr & imr) != 0`, here
+   `91 & A2 = 80` — asserts.
+2. The edge latches **one** interrupt at the 8259.
+3. Domain/OS's handler never reads `IPCR`, so `ISR[7]` stays set and the line
+   **never returns low**.
+4. With no falling edge there can be no further rising edge, so IRQ1 delivers
+   nothing more — and `ap_sio_irq` ORs **both** DUARTs onto that one line.
+5. `sio1` is therefore silenced too, and **the console is `sio1` channel B**.
+
+That is the stall, the 291 missing vector-161 entries, the `nothing pending`
+beside an asserted line, and the absent console output — one cause, and a real
+AT would do the same.
+
+**So the question leaves this core.** What remains is why Domain/OS arms
+`ACR[3:0] = F` and `IMR[7]` on a line it then never services. Both are its
+choices, not ours; this core reproduces the consequence correctly. The
+practical note for anyone driving these pins: **a modem-control transition on
+`sio2` costs the machine its serial interrupts**, and that is hardware, not the
+emulator.
+
+*Verification: three 1.5 G boots on copies of `dn3500-nodeB-line2.awd`, all
+gated on `SPM system init complete.` — baseline, transition, and transition with
+the trigger mode reported.*
+
+### The evidence, as it was gathered
+
 
 With `IP2` named, `--sio-input-at` was added so the pin could move **after**
 `siologin` programs `ACR` — every earlier run set the pins before the boot, so
