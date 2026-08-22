@@ -344,7 +344,35 @@ typedef struct {
  * of `[52, 70)` is 0.52 V to 0.70 V, and the levels this core returns are volts
  * rather than an arbitrary index -- 70 for green in the blanking interval is
  * 0.70 V, which is the sync level a composite-sync-on-green monitor expects.
- */
+ *
+ * ## The last sentence is not supported by the part's datasheet
+ *
+ * Flagged 2026-08-22 by the `[Bt458]` whole-document walk, which put the RAMDAC's
+ * own output levels on the shelf for the first time. Figure 3 and the DC
+ * characteristics give, for RS-343A into a doubly terminated 75 ohm load:
+ *
+ *     green   sync 0.000 V   blank 0.286 V   black 0.340 V   white 1.000 V
+ *     red,blue               blank 0.000 V   black 0.054 V   white 0.714 V
+ *
+ * **0.70 V is none of green's levels**, so "the sync level" is the wrong name
+ * for it -- green's sync level is zero and its blank level is 0.286 V. Nor is
+ * this a scaling artefact: the FS ADJUST entry states that "the IRE
+ * relationships in Figure 3 are maintained, regardless of the full-scale output
+ * current", so changing `RSET` moves all four levels together and 0.70 V stays
+ * 70% of full scale where blank is 28.6%.
+ *
+ * **What is *not* being claimed.** The values this core returns are unchanged
+ * and are not asserted to be wrong: they came from the oracle, they satisfy the
+ * firmware's own `[52, 70)` range check, and the A/D measures the board's video
+ * output at the beam rather than a DAC pin, which need not be at RS-343A levels
+ * on any particular board. What the walk establishes is narrower and worth
+ * having: **the explanation attached to the number cites a level the part does
+ * not produce**, and an explanation that survives because nobody had the
+ * datasheet is exactly what a walk is for.
+ * **What would settle it**: the DN3500's colour board schematic, or a probe of
+ * the real machine's video output. Until then the numbers stand on the oracle
+ * and the firmware's check, which is where they always stood -- with one fewer
+ * borrowed justification. */
 #define AP_GRAPHICS_REG_DIAGNOSTIC 0x407u
 #define AP_GRAPHICS_ADC_VIDEO 0x04u /* bit 2: measure video output */
 #define AP_GRAPHICS_ADC_CHANNEL_MASK 0x03u

@@ -6852,17 +6852,37 @@ same number is what let them diverge once already.
             *Owed*: datasheet pp. 2-4 and 9-14, and `[6840UM]`'s chapters 1, 2
             and 5 onward — 56 image-only pages, a session of its own.
             Record: `docs/references/MC6840_WALK.md`.
-      - [ ] **`[Bt458]`**, the RAMDAC — **in progress.** Extracted from the
-            1991 databook (PDF 393-416) onto the shelf. A citation audit across
-            the batch put `[3c505]` at 22 derived sections, `[QIC]` at 16 and
-            `[SC-499]` at 9, and this at **one** — so it was the genuine gap.
-            *Done*: the Command Register page. Table 1, the `ADDRa,b`
-            modulo-three counter and both address-advance rules were already
-            derived; **the command register is not** — see the item below.
-            *Owed*: PDF 1-6 and 8-24. Record: `docs/references/BT458_WALK.md`.
+      - [x] **`[Bt458]` — walked whole 2026-08-22, 24/24.** Extracted from the
+            1991 databook (PDF 393-416) onto the shelf; picked out of the batch
+            by a citation audit that put it at **one** cited section against
+            `[3c505]`'s 22 and `[QIC]`'s 16. Table 1, the `ADDRa,b` counter and
+            both address-advance rules were already derived; the control
+            registers were not, and measuring them (below) showed decoding would
+            change no pixel. The rest confirms, with three corrections to *our*
+            comments: doc 4-113 states outright that the address does not
+            advance on control-register access, where `ap_bt458.c` had inferred
+            it; doc 4-128 shows the firmware's blink configuration is
+            Brooktree's own recommendation; and doc 4-116's output levels
+            contradict a justification in `ap_graphics.h`, opened as its own
+            item below. Record: `docs/references/BT458_WALK.md`.
             **A method note the audit earned**: `ap_bt458.h` cites the databook
             by "Table 1" and by quotation, not by `§`, so the `§`-shaped grep
             saw nothing. Counting sections is a first pass, not a verdict.
+
+- [ ] **The video A/D's scale is justified by a level the Bt458 does not
+      produce.** Found 2026-08-22 by the `[Bt458]` walk. `ap_graphics.h` ends its
+      explanation of the A/D units with "70 for green in the blanking interval is
+      0.70 V, which is **the sync level** a composite-sync-on-green monitor
+      expects". Figure 3 and the DC characteristics give green's sync level as
+      **0.000 V** and its blank level as **0.286 V**; 0.70 V is neither, and FS
+      ADJUST's "the IRE relationships are maintained regardless of the full-scale
+      output current" rules out a scaling explanation.
+      **The values are not claimed wrong** and are unchanged: they came from the
+      oracle, satisfy the firmware's `[52, 70)` check, and the A/D measures the
+      board's video output at the beam rather than a DAC pin. What is wrong is
+      the *reason written beside them*, now corrected in place.
+      **What would settle the numbers themselves**: the DN3500 colour board's
+      schematic, or a probe of real hardware.
 
 - [x] **The Bt458's command register is stored and never decoded — measured
       2026-08-22, and decoding it would change no pixel.** The discriminator was
