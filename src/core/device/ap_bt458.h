@@ -97,7 +97,59 @@ typedef struct {
   uint8_t blink_mask;
   uint8_t command;
   uint8_t test;
+
+  /* ## Instrumentation, not state -- and it exists to answer one question
+   *
+   * The four control registers are *stored* and none is *decoded*: `CR6`
+   * chooses palette RAM against overlay colour 0 for the whole screen,
+   * `CR1`/`CR0` enable the overlays and `CR5`-`CR2` are blink rate and enables,
+   * and none of them changes a rendered pixel here. Implementing a blink engine
+   * driven by nothing would be cost without a claim, so the question to settle
+   * first is whether any software on this machine writes them at all.
+   *
+   * This counts writes that *reach* a control register -- `C1`/`C0` = 10 with
+   * the address register at `$04`-`$07` -- indexed by that address. The
+   * reference boot fits no display and so cannot answer; a run with `--screen`
+   * can, and the answer is a report line rather than an experiment.
+   *
+   * **Counted and not hashed**, as `bus_errors` and `lut_ad_accesses` are: two
+   * machines that behaved identically must not compare unequal because one was
+   * watched more closely. `board_state_suite` asserts exactly that.
+   *
+   * ## Measured 2026-08-22, and the answer is that decoding would change nothing
+   *
+   * A `--screen c8p` boot writes each of three control registers four times and
+   * the test register never, settling at:
+   *
+   *     read mask   FF    every plane addresses the palette -- no masking
+   *     blink mask  00    no plane blinks
+   *     command     40    CR6 = 1 only
+   *
+   * Taken field by field against the databook, `40` is: `CR7` = 0 (4:1
+   * multiplexing, a pipeline property with no pixel consequence here), **`CR6`
+   * = 1, "use color palette RAM"** -- which is what this core does
+   * unconditionally -- `CR5`/`CR4` a blink rate that nothing uses because
+   * `CR3`/`CR2` are both 0, and `CR1`/`CR0` = 0, which "forces the OL1/OL0
+   * inputs to a logical zero prior to selecting the palettes" on a model that
+   * has no overlay input pins to force.
+   *
+   * So **the firmware programs the part into exactly the configuration this
+   * core implements implicitly**, and the two registers the databook calls
+   * "not initialized" are written to their identity values -- `FF` masking
+   * nothing and `00` blinking nothing. Decoding any of it would produce the
+   * same pixels.
+   *
+   * That makes this a documented approximation rather than an open gap, and
+   * the counter stays because it is what would catch the assumption breaking:
+   * a run whose `command` is not `40`, or whose masks are not `FF`/`00`, is
+   * asking for behaviour this core does not have. */
+  unsigned control_writes[AP_BT458_OVERLAY_ENTRIES];
 } ap_bt458_t;
+
+/* How many writes have reached one of the four control registers, by its
+ * address `$04`-`$07`. Out of range answers zero. */
+[[nodiscard]] unsigned ap_bt458_control_writes(const ap_bt458_t *lut,
+                                               uint8_t address);
 
 void ap_bt458_reset(ap_bt458_t *lut);
 

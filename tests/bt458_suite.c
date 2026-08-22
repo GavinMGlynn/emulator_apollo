@@ -204,6 +204,35 @@ static void test_reading_a_colour_cycles_and_advances_as_writing_does(void) {
   TEST_ASSERT_EQUAL_HEX8(0x81u, ap_bt458_read(&lut, AP_BT458_ADDRESS));
 }
 
+/* The control-register tally exists to answer one question -- does any software
+ * on this machine write registers this core stores and never decodes? -- so it
+ * must count writes that *reach* a register and nothing else. */
+static void test_the_control_write_tally_counts_only_real_registers(void) {
+  ap_bt458_reset(&lut);
+
+  /* Two writes to the command register at $06. */
+  ap_bt458_write(&lut, AP_BT458_ADDRESS, AP_BT458_COMMAND);
+  ap_bt458_write(&lut, AP_BT458_CONTROL, 0x40u);
+  ap_bt458_write(&lut, AP_BT458_CONTROL, 0xC0u);
+  TEST_ASSERT_EQUAL_UINT(2u, ap_bt458_control_writes(&lut, AP_BT458_COMMAND));
+  TEST_ASSERT_EQUAL_UINT(0u, ap_bt458_control_writes(&lut, AP_BT458_TEST));
+
+  /* An address outside $04-$07 with this selector reaches no register, so it
+   * is not counted -- a tally that included it would answer a different
+   * question from the one asked. */
+  ap_bt458_write(&lut, AP_BT458_ADDRESS, 0x00u);
+  ap_bt458_write(&lut, AP_BT458_CONTROL, 0xFFu);
+  TEST_ASSERT_EQUAL_UINT(0u, ap_bt458_control_writes(&lut, 0x00u));
+  TEST_ASSERT_EQUAL_UINT(2u, ap_bt458_control_writes(&lut, AP_BT458_COMMAND));
+
+  /* And a palette write is not a control write, however many bytes it takes. */
+  ap_bt458_write(&lut, AP_BT458_ADDRESS, 0x10u);
+  ap_bt458_write(&lut, AP_BT458_PALETTE, 1u);
+  ap_bt458_write(&lut, AP_BT458_PALETTE, 2u);
+  ap_bt458_write(&lut, AP_BT458_PALETTE, 3u);
+  TEST_ASSERT_EQUAL_UINT(2u, ap_bt458_control_writes(&lut, AP_BT458_COMMAND));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_selector_is_c1_above_c0);
@@ -215,5 +244,6 @@ int main(void) {
   RUN_TEST(test_the_overlays_run_off_their_end_into_the_read_mask);
   RUN_TEST(test_the_control_registers_are_bytes_not_colours);
   RUN_TEST(test_reading_a_colour_cycles_and_advances_as_writing_does);
+  RUN_TEST(test_the_control_write_tally_counts_only_real_registers);
   return UNITY_END();
 }

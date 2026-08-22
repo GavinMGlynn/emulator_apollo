@@ -644,6 +644,12 @@ static void test_the_diagnostic_counters_do_not_move_the_hash(void) {
       scratch.sio.register_writes[unit][reg] = reg + 2u;
     }
   }
+  /* The Bt458's control-register tally, added 2026-08-22 to settle whether
+   * anything writes registers this core stores and does not decode. It is an
+   * instrument, so it belongs here rather than in the hasher. */
+  for (unsigned i = 0; i < AP_BT458_OVERLAY_ENTRIES; i++) {
+    scratch.graphics.lut.control_writes[i] = i + 1u;
+  }
 
   TEST_ASSERT_EQUAL_HEX64(before, ap_board_state_hash(&scratch));
 }

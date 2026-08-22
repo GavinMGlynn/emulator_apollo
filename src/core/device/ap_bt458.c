@@ -83,6 +83,13 @@ void ap_bt458_write(ap_bt458_t *lut, ap_bt458_select_t select, uint8_t value) {
     /* Single bytes, selected by the address register rather than cycled: a
      * mask has no red, green and blue. The address does not advance, and
      * nothing in Table 1 says it should. */
+    /* Counted before the switch so an address outside `$04`-`$07` is *not*
+     * counted -- it reaches no register, and a counter that included it would
+     * answer a different question from the one asked. */
+    if (lut->address >= AP_BT458_READ_MASK &&
+        lut->address <= AP_BT458_TEST) {
+      lut->control_writes[lut->address - AP_BT458_READ_MASK]++;
+    }
     switch (lut->address) {
     case AP_BT458_READ_MASK:
       lut->read_mask = value;
@@ -127,4 +134,12 @@ uint8_t ap_bt458_read(ap_bt458_t *lut, ap_bt458_select_t select) {
     }
   }
   return 0u;
+}
+
+unsigned ap_bt458_control_writes(const ap_bt458_t *lut, uint8_t address) {
+  if (lut == nullptr || address < AP_BT458_READ_MASK ||
+      address > AP_BT458_TEST) {
+    return 0u;
+  }
+  return lut->control_writes[address - AP_BT458_READ_MASK];
 }

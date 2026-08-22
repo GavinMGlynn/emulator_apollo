@@ -40133,3 +40133,74 @@ command at all (`003266`, disassembled above), so neither `fdc_execute`'s new
 guard nor the new interrupt condition can execute on the reference workload.
 `ctest` 139/139 on both presets; no golden covers the board hash, so there is
 nothing there to move either.
+
+## The Bt458's control registers: measured before building, and nothing to build
+## (moved from COMPLETION_PLAN.md on completion, 2026-08-22)
+
+The `[Bt458]` walk found the four control registers **stored and never
+decoded**: `CR6` chooses palette RAM against overlay colour 0 for the whole
+screen, `CR1`/`CR0` enable the overlays, `CR5`-`CR2` are blink rate and enables,
+and `ap_graphics.c` refers to none of them. The obvious response is to decode
+them. The item instead named a discriminator, and running it first was right.
+
+### The instrument, and why it is permanent
+
+`ap_bt458_t` gains `control_writes[4]`, counting writes that *reach* a control
+register — `C1`/`C0` = 10 with the address register in `$04`-`$07`, and an
+address outside that range deliberately not counted, since it reaches no
+register and counting it would answer a different question. The headless report
+prints each non-zero tally with the register's **final value**, because "it is
+written" and "it is written *this*" are different findings and only the second
+decides anything.
+
+Counted and **not hashed**, like `bus_errors` and `lut_ad_accesses`:
+`board_state_suite`'s counter test now perturbs it and requires the hash to hold
+still.
+
+The reference boot fits no display and so cannot answer; `--screen c8p` can.
+
+### What a real boot writes
+
+    read mask   4 writes, final FF
+    blink mask  4 writes, final 00
+    command     4 writes, final 40
+    test        never written
+
+Field by field against the databook (doc 4-117 and 4-118, both read as page
+images):
+
+- `CR7` = 0 — 4:1 multiplexing. A pipeline property with no pixel consequence
+  in a framebuffer model.
+- **`CR6` = 1 — "use color palette RAM"**, which is what this core does
+  unconditionally. The one bit that could have changed every pixel on screen is
+  set to the behaviour already implemented.
+- `CR5`/`CR4` = 00 — a blink rate of 16 on, 48 off, which drives nothing
+  because `CR3` and `CR2` are both 0 and the blink mask is `00`. The databook is
+  explicit that a plane blinks only if its blink-mask bit is set *and* its
+  read-mask bit is set; neither condition is met for any plane.
+- `CR1`/`CR0` = 00 — each "forces the OL1/OL0 inputs to a logical zero prior to
+  selecting the palettes". This model has no overlay input pins to force, and
+  the firmware is disabling them anyway.
+- Read mask `FF` — "enable (logical one) or disable (logical zero) a bit plane
+  from addressing the color palette RAM", so `FF` masks nothing. This core
+  applies no mask, which is identical.
+
+**So the firmware programs the part into exactly the configuration this core
+implements implicitly.** The two registers the databook calls "not initialized"
+are written to their identity values — `FF` masking nothing, `00` blinking
+nothing — which is a driver establishing defaults rather than requesting
+behaviour.
+
+### Why this is a better outcome than implementing it
+
+Decoding all four registers would have been a day's work producing byte-identical
+output, and the only way to know that in advance was to look. The counter stays
+precisely because it is what catches the assumption breaking: a run whose
+`command` is not `40`, or whose masks are not `FF`/`00`, is software asking for
+behaviour this core does not have, and the report will say so on the line where
+someone is already looking.
+
+*This is the third time in one session that the instrument already in the tree
+answered a question before any code was written* — after the SIO's per-register
+census settled the `0x0C` divergence and the boot PROM's disassembly settled
+whether the floppy commands were on the boot path.

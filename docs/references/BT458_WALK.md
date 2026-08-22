@@ -57,6 +57,17 @@ needs a check of whether Domain/OS's colour driver writes the command register
 at all, which the graphics register-write log can answer. Named as a plan item
 with that discriminator rather than implemented on the strength of the table.
 
+> **ANSWERED 2026-08-22, and the answer is that decoding would change no pixel.**
+> A `--screen c8p` boot writes three of the four four times each and the test
+> register never, settling at **read mask `FF`, blink mask `00`, command `40`**.
+> `CR6` = 1 is "use color palette RAM", which this core does unconditionally;
+> `CR3`/`CR2` = 0 and the blink mask `00` mean nothing blinks whatever the rate
+> in `CR5`/`CR4`; `CR1`/`CR0` = 0 force overlay inputs this model has no pins
+> for; `FF` masks no plane. The firmware programs the part into exactly the
+> configuration already implemented, and the two registers the databook calls
+> "not initialized" are set to their identity values.
+> A documented approximation with proof. Detail in `PROJECT_STATUS.md`.
+
 **And one initialisation fact to decide rather than inherit**: "The command
 register may be written to or read by the MPU at any time, and **is not
 initialized**." `ap_bt458_reset` zeroes the whole struct, so this core answers

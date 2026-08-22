@@ -5180,6 +5180,49 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     printf("  lut a/d      %u access(es) (channel selects and conversions)\n",
            board->graphics.lut_ad_accesses);
   }
+  /* The Bt458's four control registers are stored and none is decoded -- `CR6`
+   * would choose palette RAM against overlay colour 0 for the whole screen,
+   * `CR1`/`CR0` enable the overlays, `CR5`-`CR2` are blink. Reported so a run
+   * says whether anything on this machine writes them, which is the question
+   * that decides whether decoding them is worth building. Silent when zero, so
+   * a boot that never touches them costs no line. */
+  {
+    static const struct {
+      uint8_t address;
+      const char *name;
+    } lut_control[] = {{AP_BT458_READ_MASK, "read mask"},
+                       {AP_BT458_BLINK_MASK, "blink mask"},
+                       {AP_BT458_COMMAND, "command"},
+                       {AP_BT458_TEST, "test"}};
+    for (unsigned i = 0; i < sizeof lut_control / sizeof lut_control[0]; i++) {
+      const unsigned n =
+          ap_bt458_control_writes(&board->graphics.lut, lut_control[i].address);
+      if (n > 0u) {
+        /* The **value** matters as much as the count: a command register
+         * written four times to the same byte, with `CR6` set throughout, is a
+         * firmware that never asks for behaviour this core lacks. Printing the
+         * final byte is what turns "it is written" into "it is written *this*",
+         * which is the question decoding it would have to answer. */
+        uint8_t final = 0u;
+        switch (lut_control[i].address) {
+        case AP_BT458_READ_MASK:
+          final = board->graphics.lut.read_mask;
+          break;
+        case AP_BT458_BLINK_MASK:
+          final = board->graphics.lut.blink_mask;
+          break;
+        case AP_BT458_COMMAND:
+          final = board->graphics.lut.command;
+          break;
+        default:
+          final = board->graphics.lut.test;
+          break;
+        }
+        printf("  lut %-10s %u write(s), final %02X, stored and not decoded\n",
+               lut_control[i].name, n, final);
+      }
+    }
+  }
   /* The diagnostic memory-refresh trigger, on every board but the 8-plane.
    * What a refresh does is not modelled -- this core's graphics memory does not
    * decay -- so the request is reported instead of being silently dropped. */
