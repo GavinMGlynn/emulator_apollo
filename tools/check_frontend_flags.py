@@ -308,6 +308,27 @@ def main() -> int:
                      "or is one of the %d already recorded as not"
                      % len(recorded), True)
 
+        # ---- the SIO input-pin flags ----
+        #
+        # Their *parsing* needs no firmware: a bad unit is refused before a
+        # machine is built. Their *effect* does, and is named in the skip list
+        # below rather than left out. Added when the flags were, because this
+        # file's summary line says "all reachable flags exercised" and it is a
+        # hand-kept list -- a flag in neither list makes that sentence false
+        # without failing anything.
+        check("--sio-input refuses a unit the board does not have",
+              ["--sio-input", "5:00"], r"--sio-input wants UNIT:HEX",
+              want_ok=False)
+        check("--sio-input refuses a value that is not a byte",
+              ["--sio-input", "1:1FF"], r"--sio-input wants UNIT:HEX",
+              want_ok=False)
+        check("--sio-input-at refuses a unit the board does not have",
+              ["--sio-input-at", "5:9:04"], r"--sio-input-at wants N:UNIT:HEX",
+              want_ok=False)
+        check("--sio-input-at refuses a spec that is not N:UNIT:HEX",
+              ["--sio-input-at", "1:04"], r"--sio-input-at wants N:UNIT:HEX",
+              want_ok=False)
+
         # ---- what needs firmware, named rather than omitted ----
         for flag in ("--boot-prom", "--boot-limit", "--boot-trace",
                      "--boot-watch", "--boot-console", "--boot-input",
@@ -316,7 +337,11 @@ def main() -> int:
                      "--disk-meta", "--diskette", "--cartridge",
                      "--option-rom-entry", "--option-rom-text",
                      "--boot-trace-last", "--boot-stop-pc", "--dump-mem",
-                     "--boot-script (a dialogue, as opposed to its parsing)"):
+                     "--boot-script (a dialogue, as opposed to its parsing)",
+                     "--sio-input (the pins reaching the DUART, as opposed to "
+                     "its parsing)",
+                     "--sio-input-at (the timed change, as opposed to its "
+                     "parsing)"):
             skip(flag, "needs a boot PROM; roms/ is gitignored and CI has none")
 
     for name, why in skipped:
