@@ -258,6 +258,8 @@ static void print_usage(const char *program_name) {
           "  --sio-input UNIT:HEX  drive a DUART unit's input pins, IP0 in bit 0,\n"
           "                        before the boot runs. Unit 1 is sio2; unit 0's\n"
           "                        pins are the RAM configuration straps\n"
+          "  --sio-input-at N:UNIT:HEX  the same, N instructions in, so the level\n"
+          "                        moves while the driver is watching it\n"
           "");
   /* And split again, for the same 4095-character reason. */
   fprintf(stdout,
@@ -2393,6 +2395,22 @@ static bool g_boot_console = false;
  * beside it. */
 static uint8_t g_sio_input[2] = {0u, 0u};
 static bool g_sio_input_set[2] = {false, false};
+/* `--sio-input-at N:UNIT:HEX`, the same write **N instructions in**.
+ *
+ * The reason it has to exist: `SIO_$DCD_ENABLE` arms a change interrupt, and
+ * `--sio-input` applies before the boot runs -- so the pins are already at
+ * their final level when the driver programs `ACR`, no transition ever occurs
+ * after arming, and the fault path is never entered. Testing what a carrier
+ * *loss* does needs the level to move while the machine is watching.
+ *
+ * An instruction count rather than a PC or a register event because it is the
+ * one trigger that is exactly reproducible across runs of a deterministic core
+ * and needs no knowledge of the driver. `SPM system init complete.` lands near
+ * 1.05 G on this machine, so a count comfortably past it puts the transition
+ * after `siologin` has configured its line. */
+static uint8_t g_sio_input_at[2] = {0u, 0u};
+static unsigned g_sio_input_at_when[2] = {0u, 0u};
+static bool g_sio_input_at_set[2] = {false, false};
 static const char *g_boot_script_path = NULL;
 static const char *g_boot_input_text = NULL;
 static unsigned g_boot_input_unit = 0u;
@@ -4210,6 +4228,14 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
              watch != 0u ? " watched" : "");
     }
     for (unsigned i = 0; i < limit; i++) {
+      /* The timed input-pin change, if `--sio-input-at` asked for one. Before
+       * the step, so the instruction numbered `N` is the first to run with the
+       * new level -- `i` is the count of instructions already executed. */
+      for (unsigned u = 0; u < 2u; u++) {
+        if (g_sio_input_at_set[u] && i == g_sio_input_at_when[u]) {
+          ap_sio_set_input(&board->sio, u, g_sio_input_at[u]);
+        }
+      }
       /* ## The network, if one is attached
        *
        * Polled on a fixed instruction period rather than every step, because
@@ -6251,6 +6277,24 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--boot-report") == 0) {
       boot_report = true;
       i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--sio-input-at") == 0 && i + 1 < argc) {
+      /* `N:UNIT:VALUE`, the value in hex. */
+      unsigned when = 0;
+      unsigned unit = 0;
+      unsigned value = 0;
+      if (sscanf(argv[i + 1], "%u:%u:%x", &when, &unit, &value) != 3 ||
+          unit > 1u || value > 0xFFu) {
+        fprintf(stderr,
+                "%s: --sio-input-at wants N:UNIT:HEX, unit 0 or 1\n",
+                program_name);
+        return 2;
+      }
+      g_sio_input_at_when[unit] = when;
+      g_sio_input_at[unit] = (uint8_t)value;
+      g_sio_input_at_set[unit] = true;
+      i += 2;
       continue;
     }
     if (strcmp(argv[i], "--sio-input") == 0 && i + 1 < argc) {
