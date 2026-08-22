@@ -6125,8 +6125,23 @@ same number is what let them diverge once already.
       bit that is not a pin, and ignores an out-of-range unit.*
       **What is owed is measurement: four pins, so four bounded runs**, each
       gated on `SPM system init complete.` as every reading here now is.
-      *Invocation*: `tools/spm-boot.sh` with `--sio-input 1:7E`, `1:7D`, `1:7B`,
-      `1:77` — one pin low per run against a `7F` baseline.
+      *Invocation*: `tools/spm-boot.sh` with `--sio-input 1:01`, `1:02`, `1:04`,
+      `1:08` — one candidate pin **high** per run. `ACR[3:0]` gates change
+      detection on `IP0`-`IP3`, which is what makes those four the candidates.
+      **Do the cheap discriminator first**: `1:0F` raises all four at once, so a
+      run that changes nothing has ruled out all four for the cost of one boot,
+      and a run that changes something is worth bisecting.
+      **And the baseline is itself a choice nobody has examined.**
+      `ap_mc68681_reset` is a `memset`, so every input pin starts **low**, and
+      register 13 reads `80` — the seven pins zero and the unused bit 7 set.
+      Whether an unconnected MC68681 input on this board really floats low is
+      not established anywhere: real inputs are usually pulled up, and the
+      RS-232 receiver between the connector and the pin inverts. So "carrier
+      reads asserted", recorded from Phase A, rests on the model's own default
+      rather than on a measurement — *which is a second, cheaper question than
+      the pin assignment, and one this item should answer first*: if the pins
+      should idle high, the baseline run itself has been testing the wrong
+      level all along.
       *Note what it is not*: an experiment about whether carrier blocks the
       login. That is answered -- it does not, with carrier asserted. This one
       asks only which pin the driver is *looking* at, which is still worth
