@@ -3410,6 +3410,16 @@ static void report_input_path(ap_board_t *board, unsigned unit,
                                                              : "unmasked",
          board->interrupts.master.irr, board->interrupts.master.imr,
          ap_intr_pending(&board->interrupts) ? "pending" : "nothing pending");
+  /* The trigger mode, because without it this block cannot explain itself.
+   *
+   * A DUART holding its line asserted and a controller reporting nothing
+   * pending look like a contradiction until you know which mode is programmed:
+   * in edge mode that is exactly right, and every later interrupt on the shared
+   * line is lost -- and `ap_sio_irq` ORs *both* DUARTs onto it. The mode comes
+   * from `ICW1`'s `LTIM`, which the firmware chooses, so only a run can say. */
+  printf("  trigger      master %s, slave %s (ICW1 LTIM)\n",
+         board->interrupts.master.level_triggered ? "level" : "edge",
+         board->interrupts.slave.level_triggered ? "level" : "edge");
   if (unit == 0u && channel == 0u) {
     /* Both queues, because the part has one transmitter and two sources: an
      * answer still going out and a burst of typing waiting behind it are
