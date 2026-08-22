@@ -6549,8 +6549,16 @@ same number is what let them diverge once already.
       manual could not.
       Driving a bit whose own name denies its description would be choosing one
       half of a contradiction, so nothing is driven from the timer yet.
-      **What would close it**: a third OMTI manual, a driver that tests the bit,
-      or a machine to probe. *Verification of the half that is done:
+      **The third manual has now been read, and it does not discriminate.**
+      `[8000]` §6.4.4 (doc 6-7, June 1986) carries the identical eight lines as
+      `[OMTI]` §6.4.4 of January 1987 and `[8640]` §5.6.4 of June 1989 — three
+      documents, three years, two product families, one wording. That weakens
+      "a typesetting slip", which would not survive being reset for a different
+      product twice, and equally kills the hope that a *fourth* OMTI manual
+      helps: they are one source text. **The documentary route is closed.**
+      **What is left**: a driver that reads the bit, or a machine to probe.
+      Domain/OS never issues `SENSE DRIVE STATUS`, so the first would have to be
+      some other operating system's. *Verification of the half that is done:
       `afd_suite` 36 → 40.*
 ## Deferred tails
 

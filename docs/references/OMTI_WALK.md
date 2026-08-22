@@ -1454,3 +1454,49 @@ placing of `INITIALIZE DRIVE CHARACTERISTICS` under the ST506 commands, and
 not triggered by it.* That is a claim about what a survey found, not a guarantee;
 it is recorded with what was read — §2.4, §4's section list, §5.3-§5.6 — so a
 later reader can see the shape of the search rather than only its result.
+
+
+## `[8000]` — the walk is open, and its first two pages have already paid
+
+Opened 2026-08-22, **mandatory** under the whole-document rule: this manual was
+recorded as "cited once — effectively unconsulted", and the first page read in
+it settled a question `[OMTI]` had left unanswerable.
+
+**What it is.** Document **3001241, Revision D, 20 June 1986** — a *different
+manual* from `[OMTI]`'s 3001483 of January 1987, not an earlier printing of it.
+Its revision note reads "List of changes from previous revision: - Addition of
+the READ ESDI DEFECT LIST command". Contents show the same six-section shape —
+Introduction, Configuration and Installation, Host Electrical Interface,
+Host/Controller Software Interface, Fixed Disk Functions, Floppy Disk Functions
+— plus Appendices A (Sense Code Summary), B (Interleave Scheme) and C (**BIOS
+installation procedure**, which `[OMTI]` does not have).
+
+**No text layer**: 71 bytes for 71 pages. The scan is faded and needs 200 dpi.
+Doc `A-1` is PDF 60, so the appendices sit at the end as usual; §6.4 is doc 6-7
+at PDF 59.
+
+| page | section | yield |
+| --- | --- | --- |
+| PDF 5 | contents | structure, and Appendix C is unique to this manual |
+| PDF 59, doc 6-7 | §6.4.3 `ST2`, §6.4.4 `ST3` | **closes a route** — see below |
+| PDF 60, doc A-1 | Appendix A, sense byte and **word** formats, `SENSE TYPE` | **two findings**, detail in `PROJECT_STATUS.md` |
+| everything else | | *owed* |
+
+**§6.4.4 closes the documentary route on `ST3` bit 4.** The stopped-spindle plan
+item named "a third OMTI manual" as one of three things that could settle
+whether bit 4 is Track 0 (its name) or drive-ready (its description). This is
+that manual, and it carries the identical eight lines — bit 5 "Not used - always
+zero", bit 4 "Track 0 (TO) - Status of the 'ready' signal from the diskette
+drive", bit 0 "Not used - always 1". *Three documents, three years, two product
+families, one wording.*
+
+That cuts both ways and is recorded as such. It weakens the "typesetting slip"
+reading, which would not survive being reset for a different product twice; and
+it equally kills the hope that a fourth OMTI manual would help, because they are
+evidently one source text. What is left is a driver that reads the bit or a
+machine to probe — and Domain/OS never issues `SENSE DRIVE STATUS`.
+
+*§6.4.3's `ST2` was read on the same page and matches `[OMTI]` §6.4.3 field for
+field* — `CM`, `DD`, `WC`, `SH`, `SN`, `BC`, `MD`, bit 7 not used — including
+the two Scan-command bits, which is a confirmation that this core's `ST2`
+constants are the OMTI's rather than the generic 765's.

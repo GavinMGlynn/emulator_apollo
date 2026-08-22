@@ -416,13 +416,28 @@ typedef enum {
  * part's own manual **in order** was, and the answer was one page from a
  * section this project had queried twice without walking.
  *
- * Bit 4's description in *both* OMTI manuals contradicts its own name: "Track 0
- * (TO) - Status of the 'ready' signal from the diskette drive". The name is
- * modelled and the sentence is not, because bit 4 is Track 0 on every
+ * Bit 4's description in **all three** OMTI manuals contradicts its own name:
+ * "Track 0 (TO) - Status of the 'ready' signal from the diskette drive". The
+ * name is modelled and the sentence is not, because bit 4 is Track 0 on every
  * 765-family part and a drive-ready bit that moves when the head reaches
  * cylinder 0 would be reported to a driver as readiness it never gained. The
  * handbook explains the sentence rather than the name: `RDY` is the bit above,
- * and its description slid one row down OMTI's table. */
+ * and its description slid one row down OMTI's table.
+ *
+ * **The third manual was the named discriminator and it does not
+ * discriminate.** `[8000]` §6.4.4 (doc 6-7, June 1986) carries the identical
+ * eight lines -- bit 5 "Not used - always zero", bit 4 "Track 0 (TO) - Status
+ * of the 'ready' signal", bit 0 "Not used - always 1" -- as `[OMTI]` §6.4.4 of
+ * January 1987 and `[8640]` §5.6.4 of June 1989. Three documents, three years,
+ * two product families, one wording.
+ *
+ * That cuts both ways and is recorded as such. It weakens "a typesetting slip"
+ * -- a slip does not survive being reset for a different product three years
+ * later -- and it equally weakens any hope that a fourth OMTI manual settles
+ * it, because they are evidently one source text. **The documentary route is
+ * closed**: what remains is a driver that reads the bit, or a machine to probe.
+ * The modelling choice is unchanged and is the safe half of the contradiction,
+ * since a wrong readiness report is the failure that propagates. */
 #define AP_OMTI_ST3_WRITE_PROTECT 0x40u
 #define AP_OMTI_ST3_TRACK_0 0x10u
 #define AP_OMTI_ST3_HEAD 0x04u
