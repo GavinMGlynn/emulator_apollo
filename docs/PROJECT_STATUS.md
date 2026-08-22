@@ -1647,6 +1647,57 @@ modem-control signal does not spend six boots finding where it goes.
 confirmed by `sio2 reg 13   0 write(s)   2 read(s)` in its own report.*
 
 
+## Moving DCD *during* a run stops the console, and this path had never been run
+## (2026-08-22, OPEN — evidence, not a conclusion)
+
+With `IP2` named, `--sio-input-at` was added so the pin could move **after**
+`siologin` programs `ACR` — every earlier run set the pins before the boot, so
+no transition ever occurred after arming and the change-interrupt path had never
+been entered. One gated boot of `dn3500-nodeB-line2.awd` with
+`--sio-input-at 1200000000:1:04`, raising `IP2` at 1.2 G instructions, well past
+SPM at ~1.05 G.
+
+**What is measured**, against the baseline:
+
+- `sio2` `ISR` goes `11` → **`91`**. Bit 7 is §4.2.15's Input Port Change
+  Status, so the transition is seen by the part exactly as the datasheet says.
+- **`IPCR` is never read** — `sio2 reg 4` shows 2 writes and **0 reads** in
+  *both* runs, so nothing clears the change, and `ISR[7]` is still set when the
+  run ends. `IMR` is `A2`, whose bit 7 is set, so the condition is unmasked.
+- **The console stops.** The baseline goes on to print the
+  `SERVER_PROCESS_MANAGER` banner and `MBX_HELPER not running. Starting one.`;
+  the transition run prints neither. Both executed the same 1,500,000,000
+  instructions.
+- `sio1`'s `IMR` changes `A2` → **`B2`** and its interrupt line ends
+  **asserted**, where the baseline's is not.
+- Every `sio2` register *count* is identical, and both runs end four bytes apart
+  in the same code region.
+
+**Two readings, and this entry does not choose between them.**
+
+1. *Our model wedges the machine*: `ISR[7]` set with `IMR[7]` unmasked and
+   nothing reading `IPCR` is a permanently asserted interrupt, and the machine
+   spends its last 300 M instructions servicing or blocked on it.
+2. *Domain/OS is faulting the line as configured*: the volume's template sets
+   `tctl -line 2 ... -dcd_enable`, which is "enable fault on DCD loss", so a
+   carrier drop **should** produce a fault, and the run may simply have ended
+   before it resolved.
+
+**What discriminates**: whether the CPU actually takes the interrupt. If the
+vector is entered, reading 2 is live and the handler's failure to read `IPCR` is
+the thing to explain; if it is never entered, reading 1 is live and the question
+is why an unmasked, asserted condition does not reach the processor. `--boot-
+trace` around 1.2 G answers it directly, and the two runs are cheap to repeat.
+
+**Why it is worth recording before it is resolved**: this is the first time a
+modem-control pin has been moved on a running machine in this project. The path
+was unreachable until today, so whatever is happening here has never been
+observed — and an unexercised path that turns out to stop the console is a
+finding whether the cause is ours or the operating system's.
+
+*Verification: one 1.5 G boot on a copy, gated on `SPM system init complete.`
+and confirmed by `sio2 reg 13  2 read(s)`, diffed against the recorded baseline.*
+
 ## The floppy step rate is programmed by SPECIFY, and now paces the seek
 ## (2026-08-22)
 

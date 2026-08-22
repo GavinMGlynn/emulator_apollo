@@ -6138,6 +6138,20 @@ same number is what let them diverge once already.
       init complete.` and confirmed by `sio2 reg 13  2 read(s)` in its own
       report.* Detail in `PROJECT_STATUS.md`.
 
+- [ ] **A DCD transition during a run stops the console, and nothing reads
+      `IPCR`.** Opened 2026-08-22, the first time this path has been reachable.
+      `--sio-input-at 1200000000:1:04` raises `IP2` after `siologin` has armed
+      `ACR`. `sio2`'s `ISR` goes `11` → `91` — §4.2.15's Input Port Change bit,
+      unmasked by `IMR A2` — **`IPCR` is never read in either run**, so the
+      condition is never cleared, and the machine prints neither the
+      `SERVER_PROCESS_MANAGER` banner nor `MBX_HELPER` that the baseline does.
+      `sio1`'s `IMR` also moves `A2` → `B2` with its line left asserted.
+      **Two readings and no choice made**: our model wedging the machine on a
+      permanently asserted interrupt, or Domain/OS faulting the line exactly as
+      `tctl -line 2 ... -dcd_enable` asks. *What discriminates*: whether the CPU
+      enters the vector — `--boot-trace` around 1.2 G says directly, and the
+      runs are cheap. Detail in `PROJECT_STATUS.md`.
+
 - [ ] **Re-scope the seven items that waited behind "`siologin` needs a
       modem-control signal".** Opened 2026-08-21. C220's sentence is refuted by
       measurement: the signal is readable, reads asserted, and no `login:`
