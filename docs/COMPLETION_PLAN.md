@@ -6710,6 +6710,68 @@ same number is what let them diverge once already.
       - **The forced-invalid state**: a Seek or Recalibrate interrupt not
         followed by SENSE INTERRUPT STATUS makes the *next* command invalid.
 
+- [x] **Walk `[2681]`, the Signetics SCN2681 datasheet, whole — done 2026-08-22,
+      19/19.** Opened because `ap_mc68681.h` builds the DN3500's DUART from
+      *Motorola's* manual on the strength of one sentence — "functionally
+      equivalent to the MC68681 **with some minor differences**" — whose
+      differences this project had never named. `008778-03` §3.9 says the part is
+      a Signetics 2681. Two found, both on the live SIO thread; items below.
+      *Verification: page-by-page record in `docs/references/SCN2681_WALK.md`.*
+
+- [ ] **`0x0C` is an interrupt vector register on the MC68681 and `*Reserved*` on
+      the SCN2681.** Found 2026-08-22. `AP_MC68681_IVR = 12u` is modelled R/W and
+      reset to `0F₁₆` from `[68681]` §2.4; `[2681]` Table 1 has the address
+      reserved on read *and* write, and **no package of the SCN2681 has an
+      `IACK` pin**. The DN3500 vectors this interrupt through the 8259
+      (`008778-03` Table 2-3), so nothing depends on the vector itself — what
+      differs is a driver that touches `0x0C`.
+      **The discriminator already exists and needs no new experiment**:
+      `ap_sio.h` keeps `register_reads[2][AP_MC68681_REGISTERS]` and
+      `register_writes`. Report register 12's counts over a boot; if both are
+      zero the divergence is unreachable and gets recorded as such, and if not,
+      the Signetics behaviour is the one to follow.
+
+- [ ] **The input-port change detector has a 25-50 µs filter and this core has
+      none.** Found 2026-08-22, `[2681]` doc 2-193: a transition must last
+      "**longer than 25-50 µs**" to set an `IPCR` bit, because detection samples
+      at 38.4 kHz and **requires two successive samples at the new level**.
+      `ap_mc68681_set_input` sets the delta bits immediately, so this core
+      reports transitions the part would ignore and reports the rest up to 50 µs
+      early. **This bears on the open `siologin`/DCD item**, whose remaining
+      sub-question is precisely the *ordering* of a DCD transition against the
+      driver's `ACR` write. *Verification: `sio_suite` — a sub-25 µs pulse
+      leaving `IPCR` clear, and a qualifying one recorded no earlier than 25 µs
+      after the edge.*
+
+- [ ] **Walk the remaining part datasheets whole — the batch.** Opened
+      2026-08-22 after `[765]` and `[2681]` each turned a "minor difference" or a
+      vendor summary into a real defect. Every part below is modelled by this
+      core and none has a whole-document walk. Same method each time: page
+      images for every register and timing table, a coverage record naming what
+      each page yielded, and every fact either implemented with a test or named
+      as a `PROVISIONAL` gap.
+      - [ ] **`[8259]` to 24/24.** `INTEL_WALK.md` records 11 of 24 — "the whole
+            programming model", which is the standard this project rejects
+            everywhere else. 13 pages owed.
+      - [ ] **`[8237]`'s remaining pages.** Its record names pages 1 and 11-19
+            unread as "electrical and mechanical". Read them and say so from
+            having looked, which is what makes a record trustworthy.
+      - [ ] **`[146818]` MC146818A**, the calendar. On the shelf, no walk record,
+            and the calendar has cost this project several sessions.
+      - [ ] **`[6840]` MC6840 PTM**, the timer. Two printings on the shelf, no
+            record.
+      - [ ] **`[Bt458]`**, the RAMDAC, from the 1991 Brooktree databook.
+      - [ ] **`[82586]`**, the LAN coprocessor behind the 3c505 — **not on the
+            shelf**; fetch first.
+      - [ ] **`[3c505]`**, both documents on the shelf, no record.
+      - [ ] **`[SC-499]` and `[QIC-36]`**, the tape pair. `QIC-02` is walked
+            whole; these two are not.
+      - [ ] **`[8640]`**, the OMTI sibling — used for the floppy chapters only,
+            and its Winchester chapter is recorded as a trap.
+      *Order: by how much of the machine depends on the part and how cheap the
+      document is — `[8259]`, `[146818]`, `[6840]`, `[8237]` tail, `[Bt458]`,
+      `[3c505]`, `[82586]`, the tape pair, `[8640]`.*
+
 - [ ] **The keyboard's self-diagnostics.** Chapter 12's opening sentence has the
       part "performs power-up and operator requested self-diagnostics". No
       command in `ap_kbd_receive`'s set runs one and no result is defined
