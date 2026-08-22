@@ -6879,10 +6879,23 @@ same number is what let them diverge once already.
       right for a deterministic core, since a golden cannot pin an undefined
       value, but it is a choice and is now recorded as one.
       - [ ] **`[82586]`**, the LAN coprocessor behind the 3c505 — **not on the
-            shelf**; fetch first.
+            shelf, and lower value than it looks.** Checked 2026-08-22 against
+            the `[765]`/`[2681]` pattern and it does *not* fit: that pattern
+            needs the host's own bus cycles to reach the part, and `ap_3c505.h`
+            says plainly "**the host never touches the 82586**" — the card is an
+            80186 running firmware, and the mailbox is the contract. So the
+            82586's datasheet describes a part no host cycle can address and
+            cannot correct anything host-visible. Worth reading if the adapter's
+            firmware is ever emulated rather than replaced; not before.
+            *The discriminator, since it will recur*: is there a processor
+            between the host and the chip? If yes, the board protocol governs.
       - [ ] **`[3c505]`**, both documents on the shelf, no record.
       - [ ] **`[SC-499]` and `[QIC-36]`**, the tape pair. `QIC-02` is walked
-            whole; these two are not.
+            whole; these two are not. *Same check, same answer*: `[SC499]` is
+            the controller's **own** guide and the host addresses its four
+            registers directly, so there is no part underneath whose datasheet
+            outranks it — the drive behind is QIC-02/QIC-36 and QIC-02 is done.
+            These are ordinary whole-document walks, not the `[765]` shape.
       - [ ] **`[8640]`**, the OMTI sibling — used for the floppy chapters only,
             and its Winchester chapter is recorded as a trap.
       *Order: by how much of the machine depends on the part and how cheap the
