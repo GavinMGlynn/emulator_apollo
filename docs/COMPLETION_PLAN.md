@@ -6167,10 +6167,22 @@ same number is what let them diverge once already.
       line never returns low, and no further edge can be presented — and
       `ap_sio.h` says `ap_sio_irq` ORs **both** DUARTs into this one line, so a
       stuck `sio2` silences `sio1`, **whose channel B is the console**.
-      *What discriminates, still without a boot*: whether `ap_intr` latches
-      `AP_SIO_IRQ` on a transition or re-presents it while high, and which this
-      board's `IRQ1` really is — `[8259]` distinguishes the two modes and the
-      walk record has it. Detail in `PROJECT_STATUS.md`.
+      **Half discriminated, again without a boot.** `ap_i8259_set_request`
+      models *both* modes with `[8259]` cited — "with LTIM = 1 ... Edge detect
+      logic on the interrupt inputs will be disabled" — and picks between them
+      from `ICW1`'s `LTIM` bit, which the **firmware programs**. So the part is
+      faithful and the question is not "is `ap_intr` wrong" but "which mode does
+      this boot select".
+      **If edge — the AT convention — the observed stall is correct behaviour,
+      not a defect**: a real 8259 with a DUART holding its line asserted loses
+      every later interrupt on that line, and `ap_sio_irq` ORs both DUARTs onto
+      it. That would move the whole question from this core to Domain/OS's
+      handler, which never reads `IPCR`.
+      **Instrument gap, and it is the next thing to close**: the boot report
+      prints `IRQ1 unmasked, master IRR 00 IMR F4` and **not** the trigger mode,
+      so a run cannot currently say which mode it programmed. One line in the
+      report answers a question that otherwise costs a trace.
+      Detail in `PROJECT_STATUS.md`.
 
 - [ ] **Re-scope the seven items that waited behind "`siologin` needs a
       modem-control signal".** Opened 2026-08-21. C220's sentence is refuted by
