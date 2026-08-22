@@ -5,7 +5,7 @@ The DN3500's three system timers. `008778-03` §3.6 and `002398-04` p. 12-20.
 | Tag | File | Pages | Text layer | State |
 | --- | --- | --- | --- | --- |
 | `[6840]` | `motorola/MC6840_PTM_Motorola.pdf` (datasheet) | 14 | **no** | **walked whole, 14/14, 2026-08-22** |
-| `[6840UM]` | `motorola/MC6840UM_ProgrammableTimerModule.pdf` (user manual) | 56 | **no** | **chapters 1 and 3 walked** 2026-08-23; 2, 4, 5 and appendices owed |
+| `[6840UM]` | `motorola/MC6840UM_ProgrammableTimerModule.pdf` (user manual) | 56 | **no** | **walked whole, 56/56, 2026-08-23** |
 
 Neither has a text layer — 14 characters for 14 pages and 56 for 56, which is
 one page number each. Everything must be read as images.
@@ -112,16 +112,30 @@ audit found *derived*, and walking it confirms throughout. Captured:
 **Nothing in chapter 3 contradicts the model**, and the reset distinction in
 §3.1 is the one place a reader might have expected it to.
 
-## Owed — and deliberately not characterised
+## `[6840UM]` FINISHED — 56 of 56, 2026-08-23
 
-`[6840UM]` **chapters 2, 4 and 5, and appendices A and B** — PDF 9-20, 31-56.
-The contents page names them *Interfacing the PTM to the MPU*, *Sample Software
-Initialization Routine* and *Applications* (a thermometer and an engine
-analyzer), plus electrical/mechanical data and the MC6800 instruction set.
+The remaining 26 pages read. They are host-side, as the contents page implied —
+but that was checked rather than assumed, and the check found two things.
 
-**That is what the contents page says, not what the pages say**, and this record
-does not claim they are irrelevant. Twice in the previous session a range
-dismissed as "electrical and mechanical" turned out to contain rules — `[8259]`'s
-`TJLJH` and `[8237]`'s PROGRAMMING and DESIGN CONSIDERATIONS pages. The honest
-state is: 26 pages unread, expected to be host-side, unverified.
+| pages | Content | Yield |
+| --- | --- | --- |
+| 2-1 to 2-12 | Interfacing to the MC6800/6802, the MEK6800D2 kit, the **8085** and the **8080** | Entirely host-side: address decoding, `E` generation by NANDing `WR` and `RD`, Table 2-1's 8085 address map, Table 2-2's pseudo-instructions, `IRQ` as an **open drain**. Confirms "eight write and seven read addresses". One statement worth knowing for a 6800 system and not for this one: because `E` may be the timer clock and `E` varies in frequency on those machines, "**precise real-time period measurements cannot be made using the internal clock**" |
+| 4-1 to 4-3 | Sample initialization routine, **Figure 4-3** | The documented order — latches, then CR3, CR2, CR1 — which `mc6840_suite`'s helper already follows, and "if the latches are not written, they default to `$FFFF`". **Figure 4-3 is the whole control-register map on one page**, every bit pattern against its meaning, with the note "RESET IS HARDWARE OR SOFTWARE RESET (`RESET` = 0 OR `CR10` = 1)" |
+| 5-1 to 5-21 | Four-mode demo program, PTM thermometer, time-of-day clock, engine analyzer | Applications. The demo program's own comment states the continuous-mode output period as `(COUNT + 1)(PERIOD CLOCK) × 2` — the ×2 being the toggle-per-Time-Out that makes a 50% square — and its interrupt routine demonstrates the **RS-RT** clear in real code, reading the status register then each timer counter "so as not to miss any interrupts". The thermometer gives 65.536 ms as the longest pulse measurable on a 1 MHz clock |
+
+### Two things the contents page was wrong about
+
+**Appendices A and B do not exist in this scan.** The contents page promises
+"APPENDIX A ELECTRICAL AND MECHANICAL DATA" and "APPENDIX B MC6800/02
+MICROPROCESSOR INSTRUCTION SET"; the document runs to 5-21 and then the Motorola
+back cover. So the 56 pages are front matter plus chapters 1-5, and nothing is
+missing from *this walk* — but a reader sent to "Appendix A" by the index will
+not find it. **Third time in this project a contents page has misdescribed its
+own book**, after `[8000]`'s Appendix B and `[OMTI]` §2.4.6's cross-reference.
+
+**And the manual mis-states its own constant, twice.** §3.1.1 gives the reset
+latch value as "hexadecimal FFFF (65,536)" and §5.9.3 as "`$FFFF` (decimal
+65,536)". `$FFFF` is 65,535. The hex is what matters and is what this core uses;
+the decimal gloss is wrong in both places, which is worth recording so nobody
+"corrects" `0xFFFFu` to 65536 on the strength of it.
 

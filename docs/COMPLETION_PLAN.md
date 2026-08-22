@@ -6839,35 +6839,15 @@ same number is what let them diverge once already.
             remains is a judgement rather than a gap: a driver polling `UIP` to
             dodge the update never sees it set and reads valid data every time,
             which is permissive rather than wrong. Decide and record.
-      - [ ] **`[6840]` MC6840 PTM**, the timer — **in progress, and the item's
-            own premise was wrong.** This said "no record", which reads as
-            unread; a citation audit 2026-08-22 found the model deriving
-            **sixteen distinct `[6840UM]` sections** (§3.5 to §4.1, plus Figure
-            2-6), with §3.11's two-step interrupt clear implemented sentence by
-            sentence. **Chapter 3 is derived**, not unread — the third time a
-            plan item has made this mistake, after `[OMTI]` §5 and §6.3.
-            ***The datasheet is now walked whole, 14/14.*** Its nine remaining
-            pages gave Counter Initialization's definition, the four-Enable
-            recognition latency on external clocks and gates, `CRX7`'s
-            output-low rule, Tables 4-8 and the wave-measurement modes — and
-            **two "special time-out conditions" that need no special case here**,
-            `L`=0 degenerating to `M+1` and `M`=`L`=0 timing out every clock,
-            both falling out of the nested countdown and now pinned by tests
-            (`mc6840_suite` 34 → 36) rather than left to look like an omission.
-            ***`[6840UM]` chapters 1 and 3 walked 2026-08-23*** — the whole of
-            the part-behaviour content. Chapter 3 confirms the model throughout,
-            including the finer point the datasheet only hints at: a **hardware**
-            reset sets the latches to `$FFFF` while a **software** reset (`CR10`)
-            leaves them and every other control bit alone, which this core
-            already distinguishes. Chapter 1 supplies the vocabulary note that
-            "Period Measurement" and "Frequency Comparison" are the same mode
-            renamed, so the two documents' tables do not describe six modes.
-            *Owed*: chapters 2, 4, 5 and both appendices — PDF 9-20 and 31-56,
-            26 pages. The contents page calls them MPU interfacing, a sample
-            6800 routine and applications; **that is not a claim about what is
-            on them**, after `[8259]` and `[8237]` each hid a rule in a range
-            dismissed as electrical.
-            Record: `docs/references/MC6840_WALK.md`.
+      - [x] **`[6840]` MC6840 PTM — both documents walked whole, 2026-08-23**:
+            datasheet 14/14, user manual 56/56. The item's premise ("no record")
+            was wrong — a citation audit found sixteen `[6840UM]` sections
+            already derived. Yield: two "special time-out conditions" shown
+            emergent and pinned by tests; the hardware/software reset
+            distinction confirmed; and three documentary errors recorded — the
+            contents page promises two appendices the scan does not contain, and
+            `$FFFF` is glossed as "65,536" twice. *Verification: `mc6840_suite`
+            34 → 36.* Record: `docs/references/MC6840_WALK.md`.
       - [x] **`[Bt458]` — walked whole 2026-08-22, 24/24.** Extracted from the
             1991 databook (PDF 393-416) onto the shelf; picked out of the batch
             by a citation audit that put it at **one** cited section against
