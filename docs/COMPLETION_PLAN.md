@@ -6700,12 +6700,22 @@ same number is what let them diverge once already.
 - [ ] **Three more FDC behaviours from `[765]`, same module and same manual.**
       Opened 2026-08-22 alongside the five commands; kept separate because each
       changes interrupt or phase behaviour rather than adding a command.
-      - **`ST0` bit 3 `NR` on a command into a not-ready drive.** `[765]` p. 17:
-        "when the FDD is in the not-ready state and a read or write command is
-        issued, this flag is set", terminating at `IC` = `01`.
-        `AP_OMTI_ST0_NOT_READY` exists and `ap_omti_fdc_at_speed` computes the
-        condition; **nothing joins them**. This is what closes the spindle item
-        below, whose question was mis-posed at `ST3`.
+      - **`ST0` bit 3 `NR` — do NOT wire this to the spindle, and here is why.**
+        The obvious move is `ap_omti_fdc_at_speed` → `AP_OMTI_ST0_NOT_READY`,
+        and it would be wrong. `[765]` p. 17 defines `NR` by **the FDD's
+        not-ready state**, which the part learns from its dedicated `RDY` pin
+        (p. 3, pin 35) — *not* from whether a motor happens to be turning. And
+        the same pin-multiplexing argument that settled `ST3` applies here: the
+        PC/AT 34-pin interface carries no READY line, so `RDY` is tied on this
+        board and `[OMTI]` §6.4.1's "`ST0` bit 3 not used - always zero" is
+        **honest about this card** exactly as its `ST3` bits were.
+        So neither `ST3` bit 5 nor `ST0` bit 3 can report a stopped spindle
+        here, and `fdc_not_ready()` returning zero is right. Driving it from
+        the spindle timer would report a condition the cabling cannot produce.
+        *What is left of the question is physical and undocumented* — a motor
+        that never spins yields no index pulses and no address marks, and no
+        document on this shelf says what the part does then. Recorded on the
+        spindle item below; nothing is implemented on this.
       - **The seek-completion interrupt.** `ap_omti.h` states no manual on this
         shelf describes one; `[765]` p. 16 lists four causes, #3 being "End of
         Seek or Recalibrate Command", with Table 5's `ST0` encoding per cause.
@@ -6893,6 +6903,18 @@ same number is what let them diverge once already.
       product twice, and equally kills the hope that a *fourth* OMTI manual
       helps: they are one source text. **The documentary route is closed.**
       **What is left**: a driver that reads the bit, or a machine to probe.
+      **Narrowed again 2026-08-22 by `[765]`, and the answer is that this board
+      cannot report it at all.** `ST3` bit 4 is Track 0 (settled above) and this
+      core already drives it from the cylinder, which the datasheet retroactively
+      justifies — the code followed the bit's *name* and the name was right.
+      `ST3` bit 5 is Ready, tied on AT cabling. `ST0` bit 3 `NR` reflects the
+      same tied `RDY` pin, so it cannot report a stopped spindle either — see
+      the FDC block above for why wiring it would be a mistake.
+      *So the reporting channel does not exist on this card*, and what remains is
+      purely physical: no motor means no index pulses and no address marks, and
+      **no document on this shelf says what the part does with a medium that
+      never moves**. That is a narrower and more honest blocker than the one this
+      item opened with, and it is now fully mapped rather than merely open.
       Domain/OS never issues `SENSE DRIVE STATUS`, so the first would have to be
       some other operating system's. *Verification of the half that is done:
       `afd_suite` 36 → 40.*
