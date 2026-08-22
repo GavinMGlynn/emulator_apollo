@@ -6146,11 +6146,22 @@ same number is what let them diverge once already.
       condition is never cleared, and the machine prints neither the
       `SERVER_PROCESS_MANAGER` banner nor `MBX_HELPER` that the baseline does.
       `sio1`'s `IMR` also moves `A2` → `B2` with its line left asserted.
-      **Two readings and no choice made**: our model wedging the machine on a
-      permanently asserted interrupt, or Domain/OS faulting the line exactly as
-      `tctl -line 2 ... -dcd_enable` asks. *What discriminates*: whether the CPU
-      enters the vector — `--boot-trace` around 1.2 G says directly, and the
-      runs are cheap. Detail in `PROJECT_STATUS.md`.
+      **Discriminated the same day from the reports already in hand, no extra
+      run.** The per-vector exception census is identical across the two runs
+      except that **vector 161 is entered 291 times fewer** in the transition
+      run, matching its 291 fewer interrupt-controller accesses — and **no new
+      vector appears at all**. A machine wedged on a permanently asserted
+      interrupt takes *more* exceptions, so the storm reading is dead; a fault
+      taken and handled would also show, so the clean-fault reading is not yet
+      alive. What the census describes is a **stall**: fewer interrupts on the
+      same instruction budget is a tight loop.
+      **The question is now narrower**: why does an `ISR[7]` that is set and
+      unmasked in the DUART's own `IMR` produce *no* CPU exception? That is
+      answerable in this core without a boot — `ap_mc68681`'s interrupt output
+      and the board's routing of `sio2`'s line are a few functions, and the
+      report prints `line asserted` for `sio1` while `sio2`'s summary has no
+      such field, which may be an instrument gap rather than a down line.
+      Detail in `PROJECT_STATUS.md`.
 
 - [ ] **Re-scope the seven items that waited behind "`siologin` needs a
       modem-control signal".** Opened 2026-08-21. C220's sentence is refuted by

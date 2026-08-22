@@ -1683,11 +1683,35 @@ SPM at ~1.05 G.
    carrier drop **should** produce a fault, and the run may simply have ended
    before it resolved.
 
-**What discriminates**: whether the CPU actually takes the interrupt. If the
-vector is entered, reading 2 is live and the handler's failure to read `IPCR` is
-the thing to explain; if it is never entered, reading 1 is live and the question
-is why an unmasked, asserted condition does not reach the processor. `--boot-
-trace` around 1.2 G answers it directly, and the two runs are cheap to repeat.
+**What discriminates**: whether the CPU actually takes the interrupt — **and
+the answer was already in the reports, at the cost of no further run.** The
+boot report prints a per-vector exception census, and across the two runs every
+count is identical but one:
+
+    baseline    ... 6373 x vector 160  **1564 x vector 161**  1 x vector 173 ...
+    transition  ... 6373 x vector 160  **1273 x vector 161**  1 x vector 173 ...
+
+**No new vector appears, and vector 161 is entered 291 times *fewer*.** That
+matches the 291 fewer interrupt-controller accesses exactly.
+
+*So reading 1 is dead.* A machine wedged servicing a permanently asserted
+interrupt takes **more** exceptions, not fewer, and would show a vector the
+baseline does not. The `ISR[7]` condition is set and unmasked in the DUART's own
+`IMR`, and **it never becomes a CPU exception at all**.
+
+*And reading 2 is not yet alive either*, because a fault taken and handled would
+also show as exceptions. What the census actually describes is a **stall**: the
+machine executes its remaining instructions while taking *fewer* of the
+interrupts it was already taking, and prints nothing more. Fewer interrupts on
+the same instruction budget is the signature of a tight loop.
+
+**So the finding sharpens rather than resolves.** The open question is no longer
+"storm or fault" but **why an unmasked `ISR[7]` produces no exception**, and
+separately what the machine is spinning on. The first half is answerable in this
+core without a boot: `ap_mc68681`'s interrupt output and the board's routing of
+`sio2`'s line are a few functions, and `sio1`'s report line says
+`line asserted` where `sio2`'s summary does not print that field at all — which
+may mean the instrument does not show it rather than that the line is down.
 
 **Why it is worth recording before it is resolved**: this is the first time a
 modem-control pin has been moved on a running machine in this project. The path
