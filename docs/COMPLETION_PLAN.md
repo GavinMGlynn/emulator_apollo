@@ -6155,13 +6155,22 @@ same number is what let them diverge once already.
       taken and handled would also show, so the clean-fault reading is not yet
       alive. What the census describes is a **stall**: fewer interrupts on the
       same instruction budget is a tight loop.
-      **The question is now narrower**: why does an `ISR[7]` that is set and
-      unmasked in the DUART's own `IMR` produce *no* CPU exception? That is
-      answerable in this core without a boot — `ap_mc68681`'s interrupt output
-      and the board's routing of `sio2`'s line are a few functions, and the
-      report prints `line asserted` for `sio1` while `sio2`'s summary has no
-      such field, which may be an instrument gap rather than a down line.
-      Detail in `PROJECT_STATUS.md`.
+      **Narrowed again by reading the code, at no run cost, to a contradiction
+      inside this core.** `ap_mc68681_irq` is `(isr & imr) != 0`, and `sio2`'s
+      `91 & A2` is `80` — **true**, where the baseline's `11 & A2` is `00`. So
+      the DUART asserts, `ap_sio_irq` ORs it, `ap_board.c` drives `AP_SIO_IRQ`,
+      and vector 161 is `A0 + 1`, the SIO interrupt. **Yet both runs end with
+      `IRQ1 unmasked, master IRR 00 IMR F4, nothing pending`.**
+      **Leading hypothesis, explaining every observation from one cause**: the
+      request reaches the 8259 as an *edge*. The transition latches one
+      interrupt, the handler never reads `IPCR`, `ISR[7]` stays set, the shared
+      line never returns low, and no further edge can be presented — and
+      `ap_sio.h` says `ap_sio_irq` ORs **both** DUARTs into this one line, so a
+      stuck `sio2` silences `sio1`, **whose channel B is the console**.
+      *What discriminates, still without a boot*: whether `ap_intr` latches
+      `AP_SIO_IRQ` on a transition or re-presents it while high, and which this
+      board's `IRQ1` really is — `[8259]` distinguishes the two modes and the
+      walk record has it. Detail in `PROJECT_STATUS.md`.
 
 - [ ] **Re-scope the seven items that waited behind "`siologin` needs a
       modem-control signal".** Opened 2026-08-21. C220's sentence is refuted by

@@ -1705,13 +1705,36 @@ machine executes its remaining instructions while taking *fewer* of the
 interrupts it was already taking, and prints nothing more. Fewer interrupts on
 the same instruction budget is the signature of a tight loop.
 
-**So the finding sharpens rather than resolves.** The open question is no longer
-"storm or fault" but **why an unmasked `ISR[7]` produces no exception**, and
-separately what the machine is spinning on. The first half is answerable in this
-core without a boot: `ap_mc68681`'s interrupt output and the board's routing of
-`sio2`'s line are a few functions, and `sio1`'s report line says
-`line asserted` where `sio2`'s summary does not print that field at all — which
-may mean the instrument does not show it rather than that the line is down.
+**So the finding sharpens rather than resolves** — and reading the code, which
+cost nothing, sharpens it to a leading hypothesis with a contradiction at its
+centre.
+
+`ap_mc68681_irq` is `(isr & imr) != 0`. For `sio2` in the transition run that is
+`91 & A2 = 80`, **true** — where the baseline's `11 & A2` is `00`, false. So the
+model *does* assert the DUART's line, `ap_sio_irq` ORs it, and `ap_board.c`
+drives `AP_SIO_IRQ` from it. Vector **161** is `A0 + 1`, the SIO interrupt.
+
+**And yet both runs end with `controller IRQ1 unmasked, master IRR 00 IMR F4,
+nothing pending`.** The DUART says it is asserting and the controller says
+nothing is pending. That is a contradiction inside this core, not between this
+core and a document.
+
+**The hypothesis it points to, and it explains every observation.** If the
+request reaches the 8259 as an **edge** rather than a level, the transition
+latches one interrupt, the handler runs, it does not read `IPCR`, `ISR[7]` stays
+set — and the shared line **never returns low**, so no further edge can ever be
+presented. `ap_sio.h` says it outright: "`ap_sio_irq` ORs **both** DUARTs into
+this one line". A stuck `sio2` therefore silences `sio1` as well, and **the
+console is on `sio1` channel B**. That is the stall, the 291 missing vector-161
+entries, and the absent console output, from one cause.
+
+**What discriminates, and it needs no boot**: whether `ap_intr` latches
+`AP_SIO_IRQ` on a transition or re-presents it while high, and which of the two
+this board's `IRQ1` really is. `[8259]` distinguishes edge- and level-triggered
+mode and the walk record has it; the DN3500's own wiring is the harder half.
+**Recorded as a hypothesis with its evidence**, because it is one code reading
+away from being either a defect in `ap_intr` or a faithful reproduction of a
+real machine's behaviour, and those want opposite work.
 
 **Why it is worth recording before it is resolved**: this is the first time a
 modem-control pin has been moved on a running machine in this project. The path
