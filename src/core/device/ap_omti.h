@@ -27,7 +27,13 @@
  * share the same physical PCB board** but are otherwise independent."
  *
  * That qualifier is what licenses this two-half model, and quoting only the
- * second sentence hid it. The third section is a tape interface that is not on
+ * second sentence hid it. **`[8000]` §3.4 makes it stronger still**: the same
+ * sentence in the June 1986 manual reads "partitioned into **two** distinct
+ * sections - the floppy disk logic and the Winchester disk logic. **These two**
+ * sections share the same physical PCB board". So the QIC-36 section was added
+ * to the series *between* the two manuals, and the architecture modelled here
+ * is the 8000 series as originally described rather than a subset of a
+ * three-section part. The third section is a tape interface that is not on
  * this board -- §2's connector list is `J1` floppy, `J2` Winchester control,
  * `J3` and `J4` Winchester data, with no tape connector, and Figure 2.2's board
  * diagram shows the same four. So the QIC-36 logic belongs to other members of

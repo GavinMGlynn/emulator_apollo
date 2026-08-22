@@ -1934,3 +1934,40 @@ citation. The item's reasoning is unchanged and its evidence is now real.
 between sectors excluding the VCO synchronous field" — one more shared-text
 alignment, and the reason the `SRT` table's three-of-sixteen rows are three in
 every manual.
+
+
+## `[8000]` §3 — where the two manuals genuinely differ, and it matters twice
+
+PDF 18-19, doc 3-6 and 3-7. §3.3's signal descriptions are `[OMTI]` §3.3's word
+for word — `CS16`, `OSC` at 14.31818 MHz and a 70 ns period, `-OWS` — and then
+the chapter **ends at §3.4**. Doc 3-7 has blank space below it, and the contents
+page lists §3.1 to §3.4 and no more.
+
+**So `[OMTI]` §3.5 does not exist here, and that is good news for DRQ7.**
+`ap_omti.h` resolves `[OMTI]`'s internal `DRQ3`-versus-`DRQ7` contradiction on
+§3.5's width rule — "`DRQ0` through `DRQ3` will perform **8-bit** DMA transfers;
+`DRQ5` through `DRQ7` will perform **16-bit**". This record established earlier
+today that these manuals are largely one source text, which would have made a
+§3.5 in both worth little. It is in **one**: added between June 1986 and January
+1987, and therefore an *independent* statement rather than a copied one. The
+conclusion that rested on it rests on firmer ground than the shared-text finding
+first suggested.
+
+*(The `DRQ3` error, by contrast, **is** shared — `[8000]` Table 4-2 carries it a
+year early. So the contradiction is inherited and its resolution is not, which
+is the best arrangement available.)*
+
+**And §3.4 says two sections here, where `[OMTI]` says three.** In full: "The
+OMTI 8000 Series are partitioned into **two** distinct sections - the floppy
+disk logic and the Winchester disk logic. **These two sections share the same
+physical PCB board** but are otherwise independent." `[OMTI]` §3.4 has the same
+sentence with "**three**", "and the QIC 36 section", and "**The first two**
+sections share the same physical PCB board".
+
+*So the QIC-36 section was added to the series between the two manuals.*
+`ap_omti.h` records the third section as absent from this board and cites
+`[OMTI]`'s "first two" qualifier for it; that stands, and this page makes the
+stronger statement — the architecture this core models **is** the 1986 8000
+series as originally described, two sections on one board, with the third a
+later member of the family. Two manuals differing is rare enough here to be
+worth the entry on its own.
