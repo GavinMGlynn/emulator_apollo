@@ -40050,3 +40050,36 @@ on the medium under an all-or-nothing image write.
 The boot PROM's floppy path writes three registers and issues no command
 (`003266`, disassembled above), so nothing here is on the boot path and no
 golden moved. `ctest` 139/139 on both presets, unchanged.
+
+
+## The SCN2681's `0x0C` divergence is unreachable, and an existing counter said so
+## (2026-08-22)
+
+`[2681]` Table 1 has address `1100` **`*Reserved*`** on read and write, where
+`[68681]` puts the Interrupt Vector Register — the "minor difference" Motorola's
+equivalence sentence was covering, and the one place this core's DUART model,
+built from Motorola's manual, could diverge from the Signetics part `008778-03`
+§3.9 says Apollo used. No package of the SCN2681 has an `IACK` pin.
+
+**It needed no experiment.** `ap_sio.h` has kept `register_reads[2][…]` and
+`register_writes` all along, and the identity boot prints them. Over 350 M
+instructions — the PROM's self-tests, the Winchester tests and Domain/OS —
+**register 12 is read zero times and written zero times on both DUARTs**:
+
+    sio1   registers 0-11 and 13, 14, 15 touched
+    sio2   registers 0, 1, 2, 6, 8, 9, 10 touched
+
+The gap is *exactly* 12 on `sio1`, with 11 and 13 either side of it, so this is
+a real absence rather than a census that happens to list only some registers.
+
+**So no software on this machine can distinguish an interrupt vector register
+from a reserved location here**, and the divergence is recorded rather than
+modelled — `AP_MC68681_IVR` stays, because removing it would be modelling the
+Signetics part's silence on no evidence that anything asks. The DUART's
+interrupt reaches the CPU through the 8259 (`008778-03` Table 2-3), which
+supplies the vector, so nothing depended on it either way.
+
+*What would make it matter*: a driver that touches `0x0C` — which would appear
+in this same census the moment it ran. The instrument to detect it is already
+in place and already reported, which is the cheapest possible state for an open
+question to be left in.

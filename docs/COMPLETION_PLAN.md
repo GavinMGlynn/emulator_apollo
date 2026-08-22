@@ -6713,6 +6713,141 @@ same number is what let them diverge once already.
         followed by SENSE INTERRUPT STATUS makes the *next* command invalid.
       *Verification: `afd_suite`, one test per behaviour.*
 
+- [x] **Walk `[2681]`, the Signetics SCN2681 datasheet, whole — done 2026-08-22,
+      19/19.** Opened because `ap_mc68681.h` builds the DN3500's DUART from
+      *Motorola's* manual on the strength of one sentence — "functionally
+      equivalent to the MC68681 **with some minor differences**" — whose
+      differences this project had never named. `008778-03` §3.9 says the part is
+      a Signetics 2681. Two found, both on the live SIO thread; items below.
+      *Verification: page-by-page record in `docs/references/SCN2681_WALK.md`.*
+
+- [x] **`0x0C` is an IVR on the MC68681 and `*Reserved*` on the SCN2681 —
+      measured 2026-08-22, and it is unreachable.** `[2681]` Table 1 reserves
+      the address on read *and* write, and no package of the part has an `IACK`
+      pin. The discriminator needed no new experiment: the identity boot's own
+      per-register census reports **zero reads and zero writes at register 12 on
+      both DUARTs** over 350 M instructions. `sio1` touches 0-11 and 13-15, so
+      the gap is exactly 12 — a real absence, not a partial listing. Nothing on
+      this machine can tell an IVR from a reserved location, so the divergence
+      is recorded rather than modelled and `AP_MC68681_IVR` stays. *What would
+      change it*: a driver touching `0x0C`, which the same census would show.
+      Detail in `PROJECT_STATUS.md`.
+
+- [ ] **The input-port change detector has a 25-50 µs filter and this core has
+      none.** Found 2026-08-22, `[2681]` doc 2-193: a transition must last
+      "**longer than 25-50 µs**" to set an `IPCR` bit, because detection samples
+      at 38.4 kHz and **requires two successive samples at the new level**.
+      `ap_mc68681_set_input` sets the delta bits immediately, so this core
+      reports transitions the part would ignore and reports the rest up to 50 µs
+      early. **This bears on the open `siologin`/DCD item**, whose remaining
+      sub-question is precisely the *ordering* of a DCD transition against the
+      driver's `ACR` write. *Verification: `sio_suite` — a sub-25 µs pulse
+      leaving `IPCR` clear, and a qualifying one recorded no earlier than 25 µs
+      after the edge.*
+
+- [ ] **Walk the remaining part datasheets whole — the batch.** Opened
+      2026-08-22 after `[765]` and `[2681]` each turned a "minor difference" or a
+      vendor summary into a real defect. Every part below is modelled by this
+      core and none has a whole-document walk. Same method each time: page
+      images for every register and timing table, a coverage record naming what
+      each page yielded, and every fact either implemented with a test or named
+      as a `PROVISIONAL` gap.
+      - [x] **`[8259]` to 24/24 — done 2026-08-22.** Yield: the edge/level rule
+            stated a second way from the pin table; `INTA` independent of `CS`;
+            the default-IR7 rule restated; the cascade slave-ID note; **an
+            indeterminacy the part declines to specify** (INT's inactive time
+            between INTA pulses when a higher-priority request arrives, and the
+            revision review dates that paragraph to this printing); and
+            **`TJLJH`, a 100 ns minimum IR low time to re-arm the edge latch**,
+            which this core does not enforce — named below. The coverage row
+            also called page 15 unread while the table above it recorded page 15
+            walked; corrected in place.
+      - [ ] **`TJLJH`: an IR line must be low 100 ns to present a fresh edge.**
+            `[8259]` p. 21 Note 1. `ap_i8259` re-arms on any observed low with no
+            minimum. Not implemented: nothing on this machine toggles an IRQ that
+            fast, and a filter fitted to no observation would be invention.
+            `PROVISIONAL`, and what would close it is a device that pulses an IRQ
+            shorter than 100 ns.
+      - [x] **`[8237]` to 19/19 — done 2026-08-22, and the premise was wrong
+            twice over.** The record called pages 1 and 11-19 "electrical and
+            mechanical"; **p. 11 is a PROGRAMMING section and p. 19 is DESIGN
+            CONSIDERATIONS**. p. 11 answers a question this record had recorded
+            as unanswered — the Mode registers are *undefined* after reset and
+            "an invalid mode may force all control signals to go active at the
+            same time", so this core's zeroing is the inert choice rather than
+            an inference. p. 19's first rule, "cascading from channel zero", is
+            exactly the AT arrangement `008778-03` §3.5 describes. Also the
+            400 ns host recovery time, and confirmation that only the 5 MHz
+            `8237A-5` remained, so `TCY` = 200 ns is this part's.
+            **Second time in one session** a "nothing but electrical" range hid
+            behaviour, after `[8259]`'s `TJLJH`: *a page range cannot be
+            characterised without opening it.*
+      - [x] **`[146818]` MC146818A — done 2026-08-22, 21/21.** One defect
+            (`UIE` must clear when `SET` goes high, and this core stored
+            Register B verbatim), two typos in the datasheet itself (the `RESET`
+            list duplicates `AIE` and omits `UIE`; the 32.768 kHz update time is
+            printed as both 1948 and 1984 µs), and a confirmation that matters —
+            "the `RESET` pin does not affect the clock, calendar, or RAM
+            functions", which is why `ap_board_reset_devices` excludes it.
+            *Verification: `mc146818_suite` 32 → 35.* Record:
+            `docs/references/MC146818A_WALK.md`.
+      - [ ] **`UIP` and its 244 µs lead — the named blocker is gone.**
+            `ap_mc146818.c` never sets `UIP` and says modelling it "would need
+            the rate tables"; `[146818]` Table 6 and Figure 15 are those tables
+            — `tUC` 248 µs or 1984 µs by time base, `tBUC` 244 µs of lead. What
+            remains is a judgement rather than a gap: a driver polling `UIP` to
+            dodge the update never sees it set and reads valid data every time,
+            which is permissive rather than wrong. Decide and record.
+      - [ ] **`[6840]` MC6840 PTM**, the timer — **in progress, and the item's
+            own premise was wrong.** This said "no record", which reads as
+            unread; a citation audit 2026-08-22 found the model deriving
+            **sixteen distinct `[6840UM]` sections** (§3.5 to §4.1, plus Figure
+            2-6), with §3.11's two-step interrupt clear implemented sentence by
+            sentence. **Chapter 3 is derived**, not unread — the third time a
+            plan item has made this mistake, after `[OMTI]` §5 and §6.3.
+            *Done*: the datasheet's pp. 1, 5-8 — `RESET`'s five effects, `CR20`
+            as an addressing bit, Tables 1-3, the RS-RT rule and both timeout
+            formulas, all four checked against the model and confirming.
+            *Owed*: datasheet pp. 2-4 and 9-14, and `[6840UM]`'s chapters 1, 2
+            and 5 onward — 56 image-only pages, a session of its own.
+            Record: `docs/references/MC6840_WALK.md`.
+      - [ ] **`[Bt458]`**, the RAMDAC — **in progress.** Extracted from the
+            1991 databook (PDF 393-416) onto the shelf. A citation audit across
+            the batch put `[3c505]` at 22 derived sections, `[QIC]` at 16 and
+            `[SC-499]` at 9, and this at **one** — so it was the genuine gap.
+            *Done*: the Command Register page. Table 1, the `ADDRa,b`
+            modulo-three counter and both address-advance rules were already
+            derived; **the command register is not** — see the item below.
+            *Owed*: PDF 1-6 and 8-24. Record: `docs/references/BT458_WALK.md`.
+            **A method note the audit earned**: `ap_bt458.h` cites the databook
+            by "Table 1" and by quotation, not by `§`, so the `§`-shaped grep
+            saw nothing. Counting sections is a first pass, not a verdict.
+
+- [ ] **The Bt458's command register is stored and never decoded.** Found
+      2026-08-22. `ap_bt458_t` keeps `command`, `blink_mask` and `test` as plain
+      bytes and **nothing reads them** — `ap_graphics.c` refers to none. So
+      `CR6` ("whether to use the color palette RAM **or overlay color 0**"),
+      `CR1`/`CR0`'s overlay display enables and `CR5`-`CR2`'s blink rate and
+      enables change no rendered pixel.
+      **The discriminator is cheap and already exists**: the graphics
+      register-write log says whether Domain/OS writes the command register at
+      all. Run that before implementing — a blink engine driven by nothing would
+      be cost without a claim.
+      *Also to decide rather than inherit*: the databook says the command
+      register "is **not initialized**", and `ap_bt458_reset` zeroes it. Zero is
+      right for a deterministic core, since a golden cannot pin an undefined
+      value, but it is a choice and is now recorded as one.
+      - [ ] **`[82586]`**, the LAN coprocessor behind the 3c505 — **not on the
+            shelf**; fetch first.
+      - [ ] **`[3c505]`**, both documents on the shelf, no record.
+      - [ ] **`[SC-499]` and `[QIC-36]`**, the tape pair. `QIC-02` is walked
+            whole; these two are not.
+      - [ ] **`[8640]`**, the OMTI sibling — used for the floppy chapters only,
+            and its Winchester chapter is recorded as a trap.
+      *Order: by how much of the machine depends on the part and how cheap the
+      document is — `[8259]`, `[146818]`, `[6840]`, `[8237]` tail, `[Bt458]`,
+      `[3c505]`, `[82586]`, the tape pair, `[8640]`.*
+
 - [ ] **The keyboard's self-diagnostics.** Chapter 12's opening sentence has the
       part "performs power-up and operator requested self-diagnostics". No
       command in `ap_kbd_receive`'s set runs one and no result is defined
