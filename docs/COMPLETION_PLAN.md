@@ -6131,17 +6131,25 @@ same number is what let them diverge once already.
       **Do the cheap discriminator first**: `1:0F` raises all four at once, so a
       run that changes nothing has ruled out all four for the cost of one boot,
       and a run that changes something is worth bisecting.
-      **And the baseline is itself a choice nobody has examined.**
-      `ap_mc68681_reset` is a `memset`, so every input pin starts **low**, and
-      register 13 reads `80` — the seven pins zero and the unused bit 7 set.
-      Whether an unconnected MC68681 input on this board really floats low is
-      not established anywhere: real inputs are usually pulled up, and the
-      RS-232 receiver between the connector and the pin inverts. So "carrier
-      reads asserted", recorded from Phase A, rests on the model's own default
-      rather than on a measurement — *which is a second, cheaper question than
-      the pin assignment, and one this item should answer first*: if the pins
-      should idle high, the baseline run itself has been testing the wrong
-      level all along.
+      **The baseline follows from the part's documented polarity, and the
+      concern that it did not was mine.** `ap_mc68681_reset` is a `memset`, so
+      every input pin starts low and register 13 reads `80`. That is not an
+      arbitrary default: `ap_mc68681.h` records `[MC68681]` §4.2.7's "**asserted
+      is low**, so an input port reading zero on that pin means clear to send",
+      and `008778-03_WALK.md` row 54 draws the same conclusion for the whole
+      port — "an undriven input port reads all zeros, which is **clear to
+      send**". So all-zeros is **every modem input asserted**, the permissive
+      direction, and it is what Phase A measured as "carrier reads asserted".
+      *This item briefly recorded that as an unexamined choice. It is examined,
+      in this project's own header, and that was the fourth time in one session
+      a concern was raised against something already written down here.*
+      **What is genuinely open is narrower**: on the real board the pin is
+      *driven* by an RS-232 receiver rather than floating, and a receiver with
+      nothing plugged into the connector would output the negated level. So the
+      model may be asserting carrier where hardware with an empty socket would
+      negate it. That is the permissive direction again, it has already been
+      shown not to produce a `login:`, and settling it needs the board's
+      receiver wiring — which §3.9's pinout does not give.
       *Note what it is not*: an experiment about whether carrier blocks the
       login. That is answered -- it does not, with carrier asserted. This one
       asks only which pin the driver is *looking* at, which is still worth
