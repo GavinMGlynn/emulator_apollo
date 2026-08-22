@@ -6785,8 +6785,19 @@ same number is what let them diverge once already.
             remains is a judgement rather than a gap: a driver polling `UIP` to
             dodge the update never sees it set and reads valid data every time,
             which is permissive rather than wrong. Decide and record.
-      - [ ] **`[6840]` MC6840 PTM**, the timer. Two printings on the shelf, no
-            record.
+      - [ ] **`[6840]` MC6840 PTM**, the timer — **in progress, and the item's
+            own premise was wrong.** This said "no record", which reads as
+            unread; a citation audit 2026-08-22 found the model deriving
+            **sixteen distinct `[6840UM]` sections** (§3.5 to §4.1, plus Figure
+            2-6), with §3.11's two-step interrupt clear implemented sentence by
+            sentence. **Chapter 3 is derived**, not unread — the third time a
+            plan item has made this mistake, after `[OMTI]` §5 and §6.3.
+            *Done*: the datasheet's pp. 1, 5-8 — `RESET`'s five effects, `CR20`
+            as an addressing bit, Tables 1-3, the RS-RT rule and both timeout
+            formulas, all four checked against the model and confirming.
+            *Owed*: datasheet pp. 2-4 and 9-14, and `[6840UM]`'s chapters 1, 2
+            and 5 onward — 56 image-only pages, a session of its own.
+            Record: `docs/references/MC6840_WALK.md`.
       - [ ] **`[Bt458]`**, the RAMDAC, from the 1991 Brooktree databook.
       - [ ] **`[82586]`**, the LAN coprocessor behind the 3c505 — **not on the
             shelf**; fetch first.
