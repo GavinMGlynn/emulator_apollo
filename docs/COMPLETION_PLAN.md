@@ -6167,6 +6167,18 @@ same number is what let them diverge once already.
       driver *fault* on the pin, which is the behaviour that could name it.
       Failing that, trace the 16-read divergence to the instruction that consumed
       the value — the value is read, so the consumer exists and is findable.
+      **Fourth attempt, in flight: bisect on the divergence rather than on the
+      behaviour.** The register traffic does not move, but the *execution
+      counters* do, and that is a per-pin signal: four runs, `--sio-input 1:01`,
+      `1:02`, `1:04`, `1:08`, against the `ip 00` baseline's 462,660,450 main
+      memory reads and 5,579,109,442 clocks. A pin whose run reproduces the
+      baseline exactly is **not consulted**; a pin that diverges **is**.
+      **Caveat recorded before the results, so it cannot be rationalised
+      after.** `--boot-limit` is an *instruction* count and both runs hit it, so
+      two diverged machines stop at different points in the same post-SPM idle
+      loop. That makes the **fact** of divergence meaningful and its
+      **magnitude** not: 16 reads is "these two runs ended in different places",
+      not "the branch cost 16 reads". Read the per-pin results as a boolean.
       *Invocation*: `tools/spm-boot.sh` with `--sio-input 1:01`, `1:02`, `1:04`,
       `1:08` — one candidate pin **high** per run. `ACR[3:0]` gates change
       detection on `IP0`-`IP3`, which is what makes those four the candidates.
