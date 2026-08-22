@@ -6750,9 +6750,22 @@ same number is what let them diverge once already.
       images for every register and timing table, a coverage record naming what
       each page yielded, and every fact either implemented with a test or named
       as a `PROVISIONAL` gap.
-      - [ ] **`[8259]` to 24/24.** `INTEL_WALK.md` records 11 of 24 — "the whole
-            programming model", which is the standard this project rejects
-            everywhere else. 13 pages owed.
+      - [x] **`[8259]` to 24/24 — done 2026-08-22.** Yield: the edge/level rule
+            stated a second way from the pin table; `INTA` independent of `CS`;
+            the default-IR7 rule restated; the cascade slave-ID note; **an
+            indeterminacy the part declines to specify** (INT's inactive time
+            between INTA pulses when a higher-priority request arrives, and the
+            revision review dates that paragraph to this printing); and
+            **`TJLJH`, a 100 ns minimum IR low time to re-arm the edge latch**,
+            which this core does not enforce — named below. The coverage row
+            also called page 15 unread while the table above it recorded page 15
+            walked; corrected in place.
+      - [ ] **`TJLJH`: an IR line must be low 100 ns to present a fresh edge.**
+            `[8259]` p. 21 Note 1. `ap_i8259` re-arms on any observed low with no
+            minimum. Not implemented: nothing on this machine toggles an IRQ that
+            fast, and a filter fitted to no observation would be invention.
+            `PROVISIONAL`, and what would close it is a device that pulses an IRQ
+            shorter than 100 ns.
       - [ ] **`[8237]`'s remaining pages.** Its record names pages 1 and 11-19
             unread as "electrical and mechanical". Read them and say so from
             having looked, which is what makes a record trustworthy.
