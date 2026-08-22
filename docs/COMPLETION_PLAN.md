@@ -6760,8 +6760,22 @@ same number is what let them diverge once already.
       change it*: a driver touching `0x0C`, which the same census would show.
       Detail in `PROJECT_STATUS.md`.
 
-- [ ] **The input-port change detector has a 25-50 µs filter and this core has
-      none.** Found 2026-08-22, `[2681]` doc 2-193: a transition must last
+- [ ] **PROVISIONAL: the input-port change detector has a 25-50 µs filter and
+      this core has none.** Assessed 2026-08-22 and deliberately *not* built;
+      the reasoning is in `ap_mc68681.c` above `ap_mc68681_set_input`.
+      **Why not**: qualifying a transition needs the part to know the time, and
+      `ap_mc68681_t` deliberately keeps no `now` — a stored one must be
+      refreshed on every advance whether or not anything moved, which is the
+      blocker the exact-skip item names. Undoing that for a part the boot
+      exercises on every character needs a reason, and there is not one yet:
+      the only driver of these pins is `--sio-input` at script timescales, and
+      the DCD thread's own finding is that every boot sets the pins *before*
+      `ACR` is programmed, so no transition occurs after arming.
+      **Cost to close**: a `now` parameter plus a pending-transition latch, or a
+      38.4 kHz sampling tick from the board (closer to the silicon, dearer).
+      **What would make it matter**: anything moving an input pin faster than
+      25 µs, or a driver arming `ACR` before the pins settle.
+      *Original finding:* Found 2026-08-22, `[2681]` doc 2-193: a transition must last
       "**longer than 25-50 µs**" to set an `IPCR` bit, because detection samples
       at 38.4 kHz and **requires two successive samples at the new level**.
       `ap_mc68681_set_input` sets the delta bits immediately, so this core

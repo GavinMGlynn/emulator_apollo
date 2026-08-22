@@ -530,6 +530,44 @@ bool ap_mc68681_output_pin(const ap_mc68681_t *duart, unsigned pin,
   }
 }
 
+/* ## The 25-50 microsecond qualification, named and not modelled
+ *
+ * `[2681]` doc 2-193 -- the *Signetics* datasheet, which this project did not
+ * open until 2026-08-22 -- qualifies every change on this port:
+ *
+ *   "A high-to-low or low-to-high transition of these inputs, **lasting longer
+ *    than 25-50 microseconds**, will set the corresponding bit in the input
+ *    port change register."
+ *
+ * and gives the mechanism, which is what makes the range rather than a single
+ * figure: the detector samples at **38.4 kHz** off a baud-rate tap and
+ * "requires **two successive samples** at the new logic level be observed", so
+ * a transition qualifies after 25 us if it lands on a sample and after 50 us if
+ * it just misses one.
+ *
+ * **This function records a change immediately.** So this core reports
+ * transitions the part would ignore -- anything under 25 us -- and reports the
+ * rest up to 50 us early.
+ *
+ * **Not implemented, and the reason is a design tension rather than effort.**
+ * Qualifying a transition needs the part to know the time, and this struct
+ * deliberately keeps no `now` (see `ap_mc68681_t`'s closing comment: a stored
+ * `now` must be refreshed on every advance whether or not anything moved, which
+ * is the blocker the exact-skip item names). Adding it back for this would undo
+ * a decision made for a stated reason, on a part the boot exercises on every
+ * character.
+ *
+ * **And nothing on this machine can currently tell.** The only driver of these
+ * pins is `--sio-input`, which moves them at script timescales, and the DCD
+ * thread's own finding is that every boot so far sets the pins *before* the
+ * driver programs `ACR` -- so no transition occurs after arming, and a 25 us
+ * qualification cannot reorder events that do not happen.
+ *
+ * **Cost to close**: either an `ap_mc68681_set_input(..., ap_time_t now)` with
+ * a pending-transition latch, or a 38.4 kHz sampling tick driven from the
+ * board -- the second being closer to the silicon and the more expensive.
+ * **What would make it matter**: a frontend or a test that moves an input pin
+ * faster than 25 us, or a driver that arms `ACR` before the pins settle. */
 void ap_mc68681_set_input(ap_mc68681_t *duart, uint8_t value) {
   uint8_t changed = (uint8_t)(duart->input ^ value);
   duart->input = value;
