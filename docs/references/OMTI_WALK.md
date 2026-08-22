@@ -2008,3 +2008,45 @@ contradiction: §5.4.3's `SENSE DATA FORMAT` labels byte 0 simply "SENSE CODE"
 across all eight bits, where Appendix A-1 decomposes the same byte into `AV`,
 bits 5-4 `SENSE TYPE` and bits 3-0 the code. The appendix is the finer view of
 the same byte, not a rival layout.
+
+
+## `[8000]` §5.4.4 — the third place the manuals genuinely differ, and it is byte 4
+
+PDF 33, doc 5-7. **Not shared text**, and the difference is in a byte this core
+decodes.
+
+| | `[8000]` §5.4.4, 1986 | `[OMTI]` §5.4.4, 1987 |
+| --- | --- | --- |
+| byte 4 | `0 0 0` (7-5), **`INTERLEAVE VALUE`** (4-0) | **`TRACK SKEWING`** (7-4), `INTERLEAVE FACTOR` (3-0) |
+| field width | **five bits**, 0-31 | **four bits**, 0-15 |
+| track skewing | *absent* — no field, no paragraph | defined, with a worked example |
+| "greater than or equal to ... are illegal" | *absent* | present |
+| "interleave factor of Zero is set equal to one" | present | present |
+
+**So track skewing is an 862X addition**, like the QIC-36 section §3.4 revealed,
+and it took the top nibble from what had been a five-bit interleave. The
+8000-series field is wider and has no skew beside it.
+
+**Two consequences for this core, and both are reassuring.**
+
+*The implementation is right, and now demonstrably about the right product.*
+`ap_omti_cdb.h` decodes byte 4 as skew-nibble plus four-bit interleave and
+`interleave_ok` applies the "greater than or equal" rule — both taken from
+`[OMTI]`, which is the 862X manual, which is this machine's controller. Had they
+been taken from `[8000]` they would have been wrong by a nibble and by a
+boundary.
+
+*And these are genuine 862X facts rather than inherited text.* This record's
+shared-source finding means agreement between manuals is cheap; **disagreement
+is informative**, and here the 1987 manual states things the 1986 one does not.
+The `>=` rule, the skew field and the four-bit width are all new in `[OMTI]`,
+which is what a real product change looks like — not a typesetting drift.
+
+*It also refines a note made earlier today*: doc 2-14's format utility prompting
+`INTERLEAVE (1-15)` is a four-bit field **on the 862X**. On an 8000-series board
+the same prompt would have run to 31.
+
+**Running tally of genuine differences**, against a great deal of shared text:
+§3.4's two sections versus three, the presence of §3.5's DMA width rule, and now
+byte 4's layout. All three are the 1987 manual having *more* than the 1986 one,
+which is consistent with one evolving source rather than two independent works.

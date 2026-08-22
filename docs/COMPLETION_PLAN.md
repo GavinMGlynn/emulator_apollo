@@ -6139,8 +6139,20 @@ same number is what let them diverge once already.
       **Caught from the run's output rather than from the file name**, which is
       the standing rule, and the cost was two boots rather than a wrong
       conclusion.
-      **What is owed is measurement on `dn3500-nodeA-siologin.awd`**, gated on
-      `SPM system init complete.` as every reading here now is.
+      **Second attempt, same day: `dn3500-nodeA-siologin.awd`, and wrong
+      again.** Both boots gated on `SPM system init complete.`, `sio2` A and B
+      both programmed and listening at 9600 baud — and `sio2 reg 13` read
+      **zero** times, so the same negative control as before, and the reports
+      again differ only in `ip 00` versus `ip 0F`.
+      **The volume was chosen by name for the second time, and the run's output
+      caught it for the second time.** `PROJECT_STATUS.md`'s table names the
+      volumes that produce the reads: **`nodeB-line2`** and **`nodeB-nodcd`**,
+      with `nodeB-ready` as the control — *node B*, where both attempts used
+      node A. Four boots spent on two configurations that cannot answer the
+      question, none of them producing a wrong conclusion, because the
+      instrument reports what it read rather than what it was pointed at.
+      **What is owed is the pair on `dn3500-nodeB-line2.awd`**, gated as every
+      reading here is.
       *Invocation*: `tools/spm-boot.sh` with `--sio-input 1:01`, `1:02`, `1:04`,
       `1:08` — one candidate pin **high** per run. `ACR[3:0]` gates change
       detection on `IP0`-`IP3`, which is what makes those four the candidates.
