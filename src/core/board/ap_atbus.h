@@ -125,6 +125,35 @@
  * still unknown, and any later chapter of this handbook that cites it by number
  * would close that gap.
  *
+ * **The number is `007861`, recovered 2026-08-22 — and the search it reshapes
+ * still comes back empty.**
+ *
+ * Two documentation catalogs already on disk answer it. `Apollo_Documentation_
+ * and_Software_Replacement_Media_Catalog_Jun89` lists `DOC-7861` "DOMAIN SERIES
+ * 3000/4000 HARDWARE ARCHITECTURE" beside `DOC-9490` "DN5XX-T WORKSTATION &
+ * SERVER HDW ARCHITECTURE HANDBOOK" -- and `009490` is the number `002398-04`
+ * p. 10-1 cites, which validates the `DOC-NNNN` to order-number mapping rather
+ * than assuming it. `HP_Apollo_Documentation_Catalog_Feb91` repeats it as
+ * `D-7861-0`, in a list where `D-8778-0` is `008778`, this shelf's Series
+ * 3000/4000 Technical Reference.
+ *
+ * And the revision is the confirmation that this is the right book: the Apollo
+ * manual index at `web-docs.gsi.de/~kraemer/...` lists **`007861-A01`, "Domain
+ * Personal Workstations and Servers Hardware Architecture Handbook"** -- the
+ * same order number under the later title, which is exactly the volume
+ * `019411-A00` is an addendum *to*. One document, retitled between revisions,
+ * and now identifiable by number instead of by name.
+ *
+ * *It is still not scanned.* Searches on the order number return citations and
+ * no copy. So the route the comment above proposed has been run to its end: the
+ * handbook is identified, and it is not public.
+ *
+ * **One further target, from the same index**: `013632-A00`, *Upgrading the
+ * Series 30XX to a Series 3500* -- the only DN3500-specific hardware document
+ * this project has ever found named. An upgrade manual is precisely where a
+ * board-level difference such as a bus clock would be stated. Also not on
+ * bitsavers, and worth the next search this question gets.
+ *
  * The oracle: it does not know either, and says so in its own source.
  * `ext/mame/src/mame/apollo/apollo_m.cpp` instantiates the bus with the comment
  * **`// FIXME: determine ISA bus clock`**. A measurement against it would
