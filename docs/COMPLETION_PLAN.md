@@ -6887,11 +6887,31 @@ same number is what let them diverge once already.
             the adapter's firmware is ever emulated rather than replaced.
             *The discriminator, since it will recur*: is there a processor
             between the host and the chip? If yes, the board protocol governs.
-      - [ ] **`[SC-499]` and `[QIC-36]`**, the tape pair (42 + 44 pages).
-            `QIC-02` is walked whole; these two are not. *Same check, same
-            answer*: `[SC499]` is the controller's **own** guide and the host
-            addresses its four registers directly, so there is no part
-            underneath whose datasheet outranks it. Ordinary walks.
+      - [x] **`[SC-499]` and `[QIC-36]` — both walked whole 2026-08-25**,
+            42/42 and 44/44. `[08845]` is the more interesting: it is *Apollo's*
+            specification of the vendor's board, so it states what a vendor
+            guide cannot — the Apollo jumper configuration (base `0200`, DMA 1,
+            **IRQ 5**), §11.6's three interrupt causes, and §6.3's performance
+            figures. Its §12.3 timeouts were already derived.
+            **One tension found and deliberately not acted on** — see the item
+            below. Record: `docs/references/TAPE_WALK.md`.
+
+- [ ] **`RDY` raises `IRQF` here, and Apollo's own spec straps that off.**
+      Found 2026-08-25 walking `[08845]`. `ap_sc499.c`'s `interrupt_flag` sets
+      the flag when `ready` is set, from `[SC499]`'s "IRQF — ORing of RDY AND
+      EXC, and DONE if DNIEN" — the vendor default, which is jumper `RR` **OUT**.
+      `[08845]` Table 2.0 names that jumper **READY INTERRUPT DISABLE** (where
+      `[SC499]` calls it "no description, for Archive use only") and marks
+      Apollo's configuration **IN**.
+      **Not changed, because of which machine the document describes**:
+      `[08845]` is a **DN3000** specification — §5.2 and §13.2 both say so — and
+      its base address is `0200`, where `008778-03` Table 2-9 puts the DN3500's
+      tape at `218`-`21F`. A different strap on `A3`-`A9` means a differently
+      jumpered board, so the `RR` column cannot be carried across, and acting on
+      it would model a board this machine does not have.
+      **What would settle it**: a DN3500-era Apollo tape specification, or a boot
+      where the tape signals ready with `IEN` set and nothing else pending, which
+      the existing interrupt counters would show.
 
 - [ ] **The video A/D's scale is justified by a level the Bt458 does not
       produce.** Found 2026-08-22 by the `[Bt458]` walk. `ap_graphics.h` ends its
