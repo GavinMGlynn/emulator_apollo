@@ -6,7 +6,7 @@ host-side mailbox and deliberately not the adapter's firmware.
 | Tag | File | Pages | State |
 | --- | --- | --- | --- |
 | `[DEV]` | `3com/3c505_Etherlink_Plus_Developers_Guide_May86.pdf` | 77 | **walked whole, 77/77, 2026-08-25** |
-| `[HIS]` | `3com/1569-03_EtherLink_Plus_Technical_Reference_Jan89.pdf` | 84 | **owed** |
+| `[HIS]` | `3com/1569-03_EtherLink_Plus_Technical_Reference_Jan89.pdf` | 84 | **32/84 read 2026-08-25**; the rest is `[DEV]` reorganised |
 
 `[DEV]` is Revision 3.0, 3Com document 1569-02, 27 May 1986. Read as 150 dpi
 page images, four to a sheet. The book's content ends at page 73.
@@ -69,11 +69,66 @@ statement: **the model implements a Rev 2.0-or-later command set**, and the two
 revision axes are independent. Named as a plan item so a later reader meeting
 `[HIS]`'s Rev 2/Rev 3 hardware note does not assume it settles the firmware too.
 
-## Owed
+## `[HIS]` — 32 of 84 pages read 2026-08-25, and it completes the revision picture
 
-`[HIS]`, the 1989 *EtherLink Plus Technical Reference*, 84 pages — the sibling
-`ap_3c505.h` already cites for §2-3 and §3-1's register map and for the
-write-only-on-Rev-2 footnote. It is the later and more authoritative of the two
-and has **not** been walked; the register-map defect recorded in `ap_3c505.h`
-("found by the sibling-manual step, on a document that had been on disk for a
-day") came from querying it, not from reading it through.
+3Com part 1569-03, published January 1989, © 1988. It is `[DEV]`'s content
+**reorganised and revised**: five chapters instead of three, with the register
+descriptions promoted into their own Chapter 3, a new Chapter 5 (*Programming*),
+and a new **Appendix H, the firmware idle loop listing**.
+
+*Read*: PDF 1-8 (title, contents, figures and tables, Chapter 1), 21-32
+(§2-9 to §2-13 and the whole of Chapter 3), 57-64 (§5-3 to §5-5 with Figure 5-1,
+Appendix A and B, Appendix C's opening), and 81-84 (Appendix G's tail and all of
+Appendix H). *Owed*: Chapter 2's opening (§2-1 to §2-8), Chapter 4, and
+Appendices C-G's bodies — which are `[DEV]`'s chapters 1 and 3 and appendices
+C-G, walked whole there.
+
+### It answers the hardware-revision question `ap_3c505.h` leaves open
+
+The header records one consequence of the Rev 2 / Rev 3 hardware split, from
+`[HIS]` §3-1's footnote: the Host Control Register is write-only on Rev 2 and
+readable on Rev 3. **There are at least two more, and they are in this manual:**
+
+- **§3-4, the Host Aux DMA Register**: "This register is cleared upon power-up.
+  **It doesn't exist on older Rev 2 hardware boards.**" `ap_3c505.h` maps `+2`
+  on write to exactly this register.
+- **Appendix A now prints two sets of `dma0` initialisation values**, one
+  labelled "(Rev 3 ROM)" and one "(these values for Rev 2)" — where `[DEV]`'s
+  Appendix A had a single set, which matches the Rev 2 column.
+
+So the model implements a register absent from Rev 2 hardware, just as it
+implements a PCB command new in Rev 2.0 firmware. **Both axes point the same
+way**: this core is a Rev 3 board running Rev 2.0-or-later firmware. Neither was
+decided; both follow from what was modelled. Recorded in the plan.
+
+### Two passages worth having that `[DEV]` states less fully
+
+**§2-12's soft reset**, which `[DEV]` mentions only in passing: "By setting only
+the ATTN bit of the Host Control Register, the host can initiate a soft reset of
+the adapter. This reset causes the adapter firmware to clear the Command
+Register and any commands that are queued on the adapter, **flush all packet
+buffers and queues, and stop any DMA transfers**. The soft reset does not
+perform configuration or self-test functions, so does not incur the several
+second delay of a hard reset." `ap_3c505.h` models `ATTN`+`FLSH` as the hard
+reset; this is the fuller statement of `ATTN` alone.
+
+**§2-12's edge-triggered-PIC hazard**, which is this project's own recent
+subject from the other side: "PC and AT type machines used edge triggering mode
+on the Intel 8259 PIC. In this mode the Interrupt Request signal must go
+inactive sometime after the EOI is issued or **the channel will not be
+re-armed**. If both adapter interrupts are enabled it is possible to have a case
+where while handling one interrupt type, the other interrupt type occurs and
+holds the Adapter's Interrupt Request signal active. The ISR must check for this
+and in some way cause the request to go inactive after the EOI is issued **or
+interrupts may be lost**." A card vendor documenting the exact failure mode
+`ap_i8259`'s edge model produces, and worth citing next to it.
+
+### Appendix H, new in this edition
+
+A commented assembly listing of `cmd_processor`, the firmware's main loop, with
+the PCB dispatch spelled out per command code — `01`-`03` and `0a`-`0c` and
+`0e`-`11` enqueued via `INT 88`, `04`-`07` processed directly via `INT 80`, `08`
+enqueued as a receive via `INT 86-1`, `09` fetching packet data then enqueueing
+a transmit PCB. Not modelled and not needed while the mailbox is the contract,
+but it is the only published description of *why* a given PCB's response timing
+differs, and would be the starting point if the firmware were ever emulated.

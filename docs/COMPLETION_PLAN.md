@@ -6886,7 +6886,25 @@ same number is what let them diverge once already.
             defect `ap_3c505.h` records was found. Record:
             `docs/references/3C505_WALK.md`.
 
-- [ ] **This core has implicitly chosen a 3c505 firmware revision.** Found
+- [ ] **This core has implicitly chosen a 3c505 hardware *and* firmware
+      revision.** Both axes now have evidence, from `[HIS]` 2026-08-25.
+      *Hardware*: `ap_3c505.h` records that the Host Control Register is
+      write-only on Rev 2, and says the DN3500's card "is not yet established
+      either way". `[HIS]` §3-4 adds a second consequence — the **Host Aux DMA
+      Register "doesn't exist on older Rev 2 hardware boards"**, and this core
+      maps `+2` on write to exactly that register — and its Appendix A prints
+      **two `dma0` value sets**, "(Rev 3 ROM)" and "for Rev 2", where `[DEV]`
+      had only the Rev 2 one.
+      *Firmware*: see below. **Both point the same way**: a Rev 3 board running
+      Rev 2.0-or-later firmware. Neither was decided; both follow from what was
+      modelled, and the header should say so.
+      *Also worth citing where it belongs*: `[HIS]` §2-12 documents the
+      edge-triggered-8259 hazard from the card's side — "the Interrupt Request
+      signal must go inactive sometime after the EOI is issued or the channel
+      will not be re-armed ... or interrupts may be lost" — which is the failure
+      mode `ap_i8259`'s edge model produces, from a vendor rather than from us.
+
+- [ ] **The firmware half of the same question.** Found
       2026-08-25 walking `[DEV]` appendices F and G. Several ROM-revision
       differences are host-visible: the maximum PCB timeout rises from **127 to
       32767 ticks** and the timer resolution from **25 µs to 15 µs** in Rev 2.0,
