@@ -6864,6 +6864,34 @@ same number is what let them diverge once already.
             **A method note the audit earned**: `ap_bt458.h` cites the databook
             by "Table 1" and by quotation, not by `§`, so the `§`-shaped grep
             saw nothing. Counting sections is a first pass, not a verdict.
+      - [x] **`[8640]` — walked whole 2026-08-23, 61/61.** Both halves of the
+            old one-line warning confirmed rather than assumed: §4 is the **AT
+            task file** (`1F0`-`1F7`, `3F6`/`3F7`, Table 4.2's own command set)
+            and shares nothing with the 862X's CDB protocol, while §5's floppy
+            chapter confirms throughout. **Its real value is a third witness for
+            the `WRITE DATA` finding** — §1.2.1 repeats "host has direct access
+            to floppy disk controller chip (NEC 765 or equivalent)" and Figure
+            1.1 draws buffered host data reaching a discrete `FDC 765` with the
+            Z8 on the Winchester branch, on a board designed three years after
+            `[8000]`. Also `-I/O CH CK` omitted from §2.3 a **third** time.
+      - [ ] **`[3c505]`**, both documents on the shelf (84 + 77 pages), no
+            record. An ordinary whole-document walk, not a hidden-part case —
+            the card is an 80186 running firmware and the mailbox is the
+            contract, so its own guides *are* the primary source.
+      - [ ] **`[82586]`**, the LAN coprocessor behind the 3c505 — **not on the
+            shelf, and lower value than it looks.** Checked 2026-08-22 against
+            the `[765]`/`[2681]` pattern and it does *not* fit: that pattern
+            needs the host's own bus cycles to reach the part, and `ap_3c505.h`
+            says plainly "**the host never touches the 82586**". Its datasheet
+            describes a part no host cycle can address. Worth reading only if
+            the adapter's firmware is ever emulated rather than replaced.
+            *The discriminator, since it will recur*: is there a processor
+            between the host and the chip? If yes, the board protocol governs.
+      - [ ] **`[SC-499]` and `[QIC-36]`**, the tape pair (42 + 44 pages).
+            `QIC-02` is walked whole; these two are not. *Same check, same
+            answer*: `[SC499]` is the controller's **own** guide and the host
+            addresses its four registers directly, so there is no part
+            underneath whose datasheet outranks it. Ordinary walks.
 
 - [ ] **The video A/D's scale is justified by a level the Bt458 does not
       produce.** Found 2026-08-22 by the `[Bt458]` walk. `ap_graphics.h` ends its
