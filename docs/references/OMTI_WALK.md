@@ -5,7 +5,7 @@ Three manuals, and the DN3500's controller is an **8621**.
 | Tag | File | Pages | Native | Cited |
 | --- | --- | --- | --- | --- |
 | `[OMTI]` | `omti/OMTI_AT_Controller_Series_Jan87.pdf` | 88 | 800 ppi | throughout `ap_omti.h` |
-| `[8640]` | `omti/OMTI_8640_Technical_Reference_Manual_Jun89.pdf` | 61 | 600 ppi | as the sibling, several places |
+| `[8640]` | `omti/OMTI_8640_Technical_Reference_Manual_Jun89.pdf` | 61 | 600 ppi | **walked whole, 61/61, 2026-08-23** |
 | `[765]` | `nec/NEC_uPD765_Floppy_Disk_Controller_Datasheet.pdf` | 20 | text layer | **the part on the board** — added 2026-08-22, walk owed |
 | `[765A]` | `nec/NEC_uPD765A_Datasheet.pdf`, `nec/NEC_uPD765A_uPD765B_Datasheet.pdf` | 19, 17 | image | later revisions of the same part |
 | `[8272A]` | `nec/Intel_8272A_Datasheet_Nov86.pdf` | 31 | image | Intel's licensed second source — independently typeset |
@@ -24,7 +24,7 @@ reading — the entries below are the evidence for each row:
 | §6.4 | | **walked** |
 | §1, §2-1/2-2, §6.1–§6.2, §7 onward | | **unread** |
 | `[8000]`, all sections | 71 pages | **walked whole**, 71/71, 2026-08-22 — entries from "`[8000]` — the walk is open" to "`[8000]` FINISHED" below |
-| `[8640]` | 61 pages | read for the floppy chapters only; its Winchester chapter is a trap (see below) |
+| `[8640]` | 61 pages | **walked whole**, 61/61, 2026-08-23 — its Winchester chapter is an AT task file and shares nothing with the 862X (confirmed, not assumed) |
 
 *The last two rows read "`[8640]`, `[8000]` | 132 pages | **unread entirely**"
 until 2026-08-22. `[8000]` is now finished; `[8640]`'s figure is unchanged and
@@ -2504,3 +2504,91 @@ a read or write command is issued, this flag is set", with the command
 terminating at `IC` = `01`. `AP_OMTI_ST0_NOT_READY` already exists and
 `ap_omti_fdc_at_speed` already computes the condition; nothing joins them. That
 is now an implementable item rather than a documentary dead end.
+
+
+## `[8640]` WALKED WHOLE — 61 of 61, 2026-08-23
+
+Document 3001946-0001 Revision B, June 1989, Scientific Micro Systems. Read as
+150 dpi page images, four to a sheet. The record above had this manual as "read
+for the floppy chapters only; its Winchester chapter is a trap" — both halves of
+that are now confirmed rather than assumed, and the manual adds a third witness
+to the finding that matters most.
+
+| § | pages | Yield |
+| --- | --- | --- |
+| 1 | 1-5 | Product description, specification, **Figure 1.1 block diagram**, **Figure 1.2 board layout** — see below |
+| 2 | 7-16 | Host and drive interface: the 62- and 36-pin ISA edge connectors, §2.3's signal descriptions, the ESDI J3/J4/J5 pinouts and the floppy J1 pinout |
+| 3 | 17-27 | Configuration: jumpers `W2`-`W28`, one- and two-drive installation, and nineteen screens of the on-board BIOS formatter utility |
+| 4 | 29-41 | **The Winchester half, and it is an AT task file** — see below |
+| 5 | 42-53 | The floppy half: five registers, the command protocol, the ten commands plus INVALID, the symbol glossary and `ST0`-`ST3` |
+
+### A third board, and the same floppy architecture
+
+`[8640]` §1.2.1's feature list ends: "**Host has direct access to floppy disk
+controller chip (NEC 765 or equivalent).**" That is the sentence `[8000]` §1.3.1
+carries, three years later on a different product.
+
+**And Figure 1.1 draws it the same way.** The host side splits at the card edge:
+one path runs `OMTI 5098 AT Bus Interface` → `5055 Kombo` → `5080 Drive
+Interface` to the Winchester, with the `Z8 Microprocessor`, `EPROM` and buffer
+memory hanging off that bus; the other runs `I/O Decode Logic & Buffers` →
+**"Buffered Host Data"** → **`FDC 765`** → `NEC 71065` → Floppy. The
+microprocessor is not on the floppy path. Figure 1.2's board layout shows a
+discrete **`FDC 765`** package beside the `Z8`.
+
+*So three OMTI boards spanning 1986 to 1989 — 8000-series, 862X and 8640 — all
+put a real 765 on buffered host data with no firmware between.* The `WRITE DATA`
+finding rested on `[8000]`'s figures; this is an independent third instance, on a
+board designed years later by the same vendor.
+
+### The Winchester chapter is a trap, and now concretely so
+
+§4 gives **ten registers at `1F0`-`1F7` plus `3F6`/`3F7`** — Data, Error, Sector
+Count, Sector Number, Cylinder LSB/MSB, SDH Select, Status/Command — and Table
+4.2's command set is Recalibrate `10`, Seek `70`, Read Sector `20`, Write Sector
+`30`, Format Track `50`, Read Verify `40`, Diagnostic `90`, plus Set Parameters,
+Initiate ESDI, Start/Stop Motor, Read/Write Data Buffer, Read Parameters, Read
+ESDI Defect List and Cache Control.
+
+**That is the AT task file. It shares nothing with the 862X's CDB protocol** —
+no six-byte descriptor, no `REQUEST SENSE`, no sense-code appendix, none of the
+opcodes `ap_omti_cdb.h` carries. A reader who took §4 for the DN3500's disk
+interface would rewrite a working module against the wrong part. The record's
+one-line warning is now backed by the register map.
+
+*Its §5 floppy chapter, by contrast, is directly comparable and confirms
+throughout*: five registers, the busy/command/result protocol, the same ten
+commands plus INVALID, the same symbol glossary with the same three `SRT` rows,
+and `ST0`-`ST3` carrying **the same `ST3` bit-4 slip** ("Track 0 (T0) - Status of
+the 'ready' signal from the diskette drive") and **the same `ST1` bit-2 wording**
+naming Read Data, Write Deleted Data, Scan, Read ID and Read Cylinder. Third
+printing of both, exactly as the shared-source finding predicts.
+
+### `-I/O CH CK` is skipped a third time
+
+§2.3's signal descriptions run SA, LA, CLK, RESET DRV, SD, BALE, I/O CH RDY, IRQ,
+IOR, IOW, SMEMR/MEMR, SMEMW/MEMW, DRQ, DACK, AEN, REFRESH, T/C, SBHE, MASTER,
+MEM CS16, I/O CS16, OSC, OWS — and **omit `-I/O CH CK`**, which its own §2.2 pin
+table lists at `A1`. `[OMTI]` and `[8000]` do the same.
+
+So the `IO_CH_CK.L` item now has **three** manuals explicitly checked and
+recorded as silent, rather than one checked and two assumed. It stays blocked on
+the same thing: nothing on this shelf says whether an OMTI controller ever drives
+a channel check.
+
+*Also here and shared*: §2.3's DRQ paragraph carries the width rule — "`DRQ0`
+through `DRQ3` will perform 8-bit DMA transfers; `DRQ5` through `DRQ7` will
+perform 16-bit transfers" — a third printing, which further confirms the
+correction made above that the rule is shared text rather than unique to
+`[OMTI]`.
+
+### What §1 adds that the others do not
+
+The 8640 is a later, larger part and its specification is worth one line for
+contrast: **32 Kbyte buffer minimum**, 56-bit ECC, full-track cache, 2048
+cylinders and 16 heads, 1:1 interleave, ESDI at 10 or 15 Mbit/s, up to four
+floppy drives at 250/300/500 Kbit/s, and an on-board BIOS. The 862X has none of
+the cache or BIOS machinery. Recorded so that a figure lifted from here is not
+mistaken for the DN3500's — the buffer size in particular, which is a live
+`PROVISIONAL` on the 8621 (`AP_OMTI_ID_BUFFER_32K`) and where **this manual's
+"32 Kbyte minimum" is about a different controller entirely**.
