@@ -6904,10 +6904,21 @@ same number is what let them diverge once already.
       *Order is by what this machine actually runs*: `[030]` first, then
       `[PRM]`; the 68020 and 68040 are Phase 2b/7 parts that do not exist yet
       and come last.
-      - [ ] **`[030]` `MC68030_Users_Manual_3ed_1990.pdf`, 608 pages.** The
-            DN3500's processor and the whole of Phase 2, cited **90 times** and
-            with no coverage record at all. The single highest-value document
-            left on the shelf.
+      - [ ] **`[030]` `MC68030_Users_Manual_3ed_1990.pdf`, 608 pages —
+            audited 2026-08-25, and the audit halved the job.** All 90
+            citations attributed by section: **§7, §8, §9 and §11 hold 88 of
+            them and are `derived`**, so a pass over those is verification
+            rather than discovery. **§2, §3 and §5 are genuinely unread**, about
+            100 pages, and they come first — §2 because `ap_m68030_ea.h` takes
+            the whole addressing-mode decode from `[PRM]` §2 and never opens the
+            processor's own chapter on it; §3 likewise for the instruction set;
+            and **§5, *Signal Description*, because `ap_m68030_bus.c` is built
+            from §7's timing without the chapter that defines the signals §7
+            operates on** — the arrangement that already let the write strobes
+            be wrong until §7.3.2 was transcribed. §12-§14 and Appendix A are
+            expected to be applications/electrical/mechanical and get read
+            anyway, after `[8259]` and `[8237]` each hid rules in such a range.
+            Record: `docs/references/M68030_WALK.md`.
       - [ ] **`[PRM]` `M68000_Family_Programmers_Reference_Manual_1992.pdf`,
             646 pages.** Cited 9 times, and it is where the instruction
             descriptions, the condition tests and Table 8-2's opcode map come
@@ -6915,16 +6926,21 @@ same number is what let them diverge once already.
             than from here.
       - [ ] **`[881]`/`[882]`
             `MC68881_MC68882_Floating-Point_Coprocessor_Users_Manual_1ed_1987.pdf`,
-            396 pages.** **Zero tagged citations**, and yet `src/core/cpu/m68882/`
-            exists — so either the FPU was built from `[030]` alone or from
-            something untagged. *Audit this one before anything else in the
-            batch*: a part modelled without its own manual is the `[765]`
-            pattern exactly.
+            396 pages.** *This item first said "zero tagged citations" and
+            implied the FPU was built without its manual. **Wrong** — it is
+            cited **11 times**, by full title rather than by a bracket tag, and
+            the `[030]` audit found it while checking something else.* So the
+            job is an ordinary audit-then-walk, not a rescue. **The lesson is
+            the one `[Bt458]` had already taught and this item ignored one
+            commit later**: counting tags is a first pass, never a verdict —
+            grep the full title too.
       - [ ] **`[851]` `MC68851_PMMU_Users_Manual_3ed_1988.pdf`, 356 pages.**
-            **Zero citations.** The 68030's on-chip MMU is a subset of this
-            part, and `CLAUDE.md`'s resolution order names the 68851's manual
-            explicitly as the sibling that "often carries the note that resolves
-            an ambiguity in ours". It has never been opened.
+            *Also mis-stated as "zero citations" when this item was written.* It
+            is cited **11 times** by full title — §5.1.5, §5.1.5.3, §5.2,
+            §5.2.1.3, §6.1.1-§6.1.4, §9.1.2, Figures 5-10/5-21/5-23/6-1/6-3 and
+            Appendix A — so the 68030's MMU **was** derived against the 68851
+            sibling, which is what `CLAUDE.md`'s resolution order asks for.
+            An ordinary audit-then-walk.
       - [ ] **`M68000_Family_Reference_1988.pdf`, 608 pages.** Untagged and
             uncited. Establish first whether it is a *third* printing of `[PRM]`
             material — in which case the shared-source rule applies and it is
