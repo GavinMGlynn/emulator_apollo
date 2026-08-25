@@ -6874,10 +6874,37 @@ same number is what let them diverge once already.
             1.1 draws buffered host data reaching a discrete `FDC 765` with the
             Z8 on the Winchester branch, on a board designed three years after
             `[8000]`. Also `-I/O CH CK` omitted from §2.3 a **third** time.
-      - [ ] **`[3c505]`**, both documents on the shelf (84 + 77 pages), no
-            record. An ordinary whole-document walk, not a hidden-part case —
-            the card is an 80186 running firmware and the mailbox is the
-            contract, so its own guides *are* the primary source.
+      - [ ] **`[3c505]` — `[DEV]` walked whole 2026-08-25, 77/77; `[HIS]`
+            owed (84 pages).** Chapters 1-3 confirm `ap_3c505.h` throughout:
+            all three address maps, every bit of the four registers, the PCB
+            protocol's `SF2`/`SF1` states and timeouts, and Table 1's whole
+            command set. Appendices A-E are host tools and firmware internals.
+            **Appendices F and G are not** — they list host-visible ROM
+            revision differences, and one of them lands on this model; see the
+            item below. `[HIS]` is the later and more authoritative of the pair
+            and has only ever been *queried*, which is how the register-map
+            defect `ap_3c505.h` records was found. Record:
+            `docs/references/3C505_WALK.md`.
+
+- [ ] **This core has implicitly chosen a 3c505 firmware revision.** Found
+      2026-08-25 walking `[DEV]` appendices F and G. Several ROM-revision
+      differences are host-visible: the maximum PCB timeout rises from **127 to
+      32767 ticks** and the timer resolution from **25 µs to 15 µs** in Rev 2.0,
+      which also **introduces PCB `11H` Adapter Info and `41H` its response**;
+      Rev 3.0 changes `Transmit Packet`'s download wait from 30 ms to 50 ms and
+      guarantees receive ordering. A *hardware* revision also inverts the ACR's
+      LED bits on later cards.
+      `ap_3c505.h` already records the Rev 2/Rev 3 **hardware** question from
+      `[HIS]` (the Host Control Register is write-only on Rev 2) and says the
+      DN3500's card "is not yet established either way". The **firmware**
+      revision is a second, independent axis — and this core implements
+      `AP_3C505_CMD_ADAPTER_INFO = 0x11`, which appendix F says is new in
+      Rev 2.0. So the model is a Rev 2.0-or-later ROM whether or not anyone
+      decided that.
+      **Nothing is changed**: `11H` is real on the revision Apollo most likely
+      shipped, and the differing timings are not modelled at all. What is needed
+      is the statement, so a reader meeting `[HIS]`'s hardware note does not
+      assume it settles the firmware too.
       - [ ] **`[82586]`**, the LAN coprocessor behind the 3c505 — **not on the
             shelf, and lower value than it looks.** Checked 2026-08-22 against
             the `[765]`/`[2681]` pattern and it does *not* fit: that pattern
