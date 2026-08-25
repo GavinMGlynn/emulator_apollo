@@ -3060,6 +3060,20 @@ static bool execute_control(ap_m68030_cpu_t *cpu,
 
   switch (control->kind) {
   case AP_M68030_CTL_NOP:
+    /* `[030]` §3.5.4 gives `NOP` a purpose beyond doing nothing: "it forces
+     * synchronization of the integer unit pipeline by waiting for all pending
+     * bus cycles to complete. All previous integer instructions and
+     * floating-point external operand accesses complete execution before the
+     * NOP begins."
+     *
+     * **Vacuous here, and that is a property of the model rather than an
+     * omission.** This core executes strictly in order and a bus cycle is
+     * accounted to the instruction that issued it, so nothing of a previous
+     * instruction can still be in flight when `NOP` runs -- there is no state
+     * for a synchronisation to wait on. The same shape as `CIIN` being ignored
+     * on writes: correct by construction.
+     * *It stops being vacuous if a store buffer or any out-of-order completion
+     * is ever added*, which is exactly when this comment should be re-read. */
     return true;
 
   case AP_M68030_CTL_TRAP:

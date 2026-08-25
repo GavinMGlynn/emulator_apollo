@@ -6940,7 +6940,21 @@ same number is what let them diverge once already.
             masking. **So the decision to use `[PRM]`'s intact figures was
             safe, and is now checked rather than trusted.** One bound is stated
             and unenforced: "the longest instruction contains 10 extension
-            words". §3 remains.
+            words".
+            ***§3 walked 32/32 the same day, completing all three of the
+            genuinely-unread sections.*** It confirms too: Table 3-13's
+            conditional tests match `[PRM]` Table 3-19 including the `T`/`F`
+            footnote the branch item rests on, the shift count is "modulo 64"
+            as modelled, and Table 3-6's note that bit-field instructions set
+            `N`/`Z` **before** the operation is the ordering the dispatch
+            already uses. **Table 3-12, *Condition Code Computations*, is now
+            on the shelf as the definitive cross-check for `ap_m68030_alu.c`.**
+            One documented effect is vacuous in this model and now says so:
+            §3.5.4's `NOP` pipeline synchronisation has nothing to wait on in a
+            strictly in-order core, and the arm was a bare `return true`.
+            *What remains of `[030]`*: §7/§8/§9/§11 (derived, wanting
+            verification rather than discovery), §1/§4/§6/§10 (sampled), and
+            §12-§14 plus Appendix A.
 
 - [ ] **`MMUDIS` is not modelled, and `CDIS` has no driver.** Found 2026-08-25
       walking `[030]` §5. Table 5-1 lists `MMUDIS` as an input and §5.11.2
