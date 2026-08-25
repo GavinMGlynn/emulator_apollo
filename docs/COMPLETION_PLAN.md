@@ -6926,7 +6926,21 @@ same number is what let them diverge once already.
             alone), one **stale comment corrected** — `ap_m68030_step.c`'s
             `RESET` arm said "until there are devices to reset" and
             `ap_machine.c` has reset them since it was wired — and one signal
-            not modelled at all, `MMUDIS`, below. §2 and §3 remain.
+            not modelled at all, `MMUDIS`, below.
+            ***§2 walked 40/40 the same day, and it confirms throughout.*** Its
+            whole premise was that `ap_m68030_ea.h` takes the EA decode from
+            `[PRM]` §2 and had never opened the processor's own chapter — and
+            §2.5's Figure 2-4 and Table 2-1 say the same things, **including
+            both traps the Phase 2 items record**: `BD SIZE` `00` is Reserved
+            rather than null, and `IS` must be read together with `I/IS` because
+            `001` is preindexed under one and memory-indirect under the other.
+            Three further rules checked and holding — A7's byte step (stated a
+            third time in §2.8.1), signed bit-field offsets with memory not
+            wrapping where a register does, and §2.2.3's CCR and SFC/DFC
+            masking. **So the decision to use `[PRM]`'s intact figures was
+            safe, and is now checked rather than trusted.** One bound is stated
+            and unenforced: "the longest instruction contains 10 extension
+            words". §3 remains.
 
 - [ ] **`MMUDIS` is not modelled, and `CDIS` has no driver.** Found 2026-08-25
       walking `[030]` §5. Table 5-1 lists `MMUDIS` as an input and §5.11.2
