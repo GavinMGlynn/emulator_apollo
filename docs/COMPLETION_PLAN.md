@@ -6885,6 +6885,57 @@ same number is what let them diverge once already.
             them. Also confirmed: `LPBK` is active low (this core has it right),
             and PCB `41H` returns the ROM revision level, so the revision is
             host-readable. Record: `docs/references/3C505_WALK.md`.
+      *Every peripheral datasheet on the shelf is now walked whole.* The
+      processor manuals are not, and are the far larger job — see the batch
+      below.
+
+- [ ] **Walk the processor manuals whole — the second batch, ~3,100 pages.**
+      Opened 2026-08-25, once the peripheral batch closed and an inventory
+      showed the shelf holds 133 PDFs against 14 walk records. Most of the
+      remainder is Domain/OS *software* documentation and out of scope; these
+      six are not. **Every one of them is the shape this project keeps finding
+      to be `derived` rather than `walked`** — heavily cited, never passed over
+      field by field — which is what `[OMTI]` §5, `[6840UM]` ch. 3 and
+      `[8259]`'s "whole programming model" each turned out to be.
+      **Do the citation audit first, per document.** It is one grep, it cost
+      nothing the last three times, and it is what turns "render 600 pages" into
+      "chapter N is already derived, verify it and read the rest". `[6840]`'s
+      item had its own premise reversed by exactly this check.
+      *Order is by what this machine actually runs*: `[030]` first, then
+      `[PRM]`; the 68020 and 68040 are Phase 2b/7 parts that do not exist yet
+      and come last.
+      - [ ] **`[030]` `MC68030_Users_Manual_3ed_1990.pdf`, 608 pages.** The
+            DN3500's processor and the whole of Phase 2, cited **90 times** and
+            with no coverage record at all. The single highest-value document
+            left on the shelf.
+      - [ ] **`[PRM]` `M68000_Family_Programmers_Reference_Manual_1992.pdf`,
+            646 pages.** Cited 9 times, and it is where the instruction
+            descriptions, the condition tests and Table 8-2's opcode map come
+            from — several of which `ap_m68030_*` derives *via* `[030]` rather
+            than from here.
+      - [ ] **`[881]`/`[882]`
+            `MC68881_MC68882_Floating-Point_Coprocessor_Users_Manual_1ed_1987.pdf`,
+            396 pages.** **Zero tagged citations**, and yet `src/core/cpu/m68882/`
+            exists — so either the FPU was built from `[030]` alone or from
+            something untagged. *Audit this one before anything else in the
+            batch*: a part modelled without its own manual is the `[765]`
+            pattern exactly.
+      - [ ] **`[851]` `MC68851_PMMU_Users_Manual_3ed_1988.pdf`, 356 pages.**
+            **Zero citations.** The 68030's on-chip MMU is a subset of this
+            part, and `CLAUDE.md`'s resolution order names the 68851's manual
+            explicitly as the sibling that "often carries the note that resolves
+            an ambiguity in ours". It has never been opened.
+      - [ ] **`M68000_Family_Reference_1988.pdf`, 608 pages.** Untagged and
+            uncited. Establish first whether it is a *third* printing of `[PRM]`
+            material — in which case the shared-source rule applies and it is
+            one witness, not two — or a distinct document.
+      - [ ] **`[020]` `MC68020_32-Bit_Microprocessor_Users_Manual_1984.pdf`,
+            452 pages**, and `[040]`'s two manuals (256 + 463). Phase 2b and
+            Phase 7 parts; cited once between them. Deferred until those
+            processors are built, and named here so the deferral is deliberate.
+      *Verification, per document: a coverage record in `docs/references/`, page
+      by page, saying what each yielded — and every fact either implemented with
+      a test or named as a `PROVISIONAL` gap.*
 
 - [ ] **This core has implicitly chosen a 3c505 hardware *and* firmware
       revision.** Both axes now have evidence, from `[HIS]` 2026-08-25.
