@@ -3241,8 +3241,20 @@ static bool execute_control(ap_m68030_cpu_t *cpu,
     /* "asserts the RSTO signal for 512 clock periods, resetting all external
      * devices. The processor state, other than the program counter, is
      * unaffected, and execution continues with the next instruction." So this
-     * changes nothing inside the processor -- counting it is the whole of the
-     * observable effect until there are devices to reset. */
+     * changes nothing inside the processor.
+     *
+     * `[030]` §5.10.1 states the same rule from the pin's end, and is where a
+     * reader should go for it: "A reset signal from the processor (asserted as
+     * part of the RESET instruction) resets external devices only; **the
+     * internal state of the processor is not altered**."
+     *
+     * *This comment used to end "counting it is the whole of the observable
+     * effect **until there are devices to reset**", and there are* -- corrected
+     * 2026-08-25 while walking §5. `ap_machine.c` watches this counter and
+     * calls `ap_board_reset_devices` when it moves, so the instruction does
+     * reach the board's reset line. The counter stays because it is the CPU's
+     * half of the signal and is hashed; what changed is that it is no longer
+     * the *whole* of the effect. */
     cpu->external_resets++;
     return true;
 

@@ -6919,6 +6919,30 @@ same number is what let them diverge once already.
             expected to be applications/electrical/mechanical and get read
             anyway, after `[8259]` and `[8237]` each hid rules in such a range.
             Record: `docs/references/M68030_WALK.md`.
+            ***§5 walked 12/12 on 2026-08-25***, the first section of this
+            manual anyone has read. Yield: three rules this core already obeys
+            *by construction and without citing them* (`CIIN` ignored on
+            writes, `CDIS` not flushing, `RESET` leaving processor state
+            alone), one **stale comment corrected** — `ap_m68030_step.c`'s
+            `RESET` arm said "until there are devices to reset" and
+            `ap_machine.c` has reset them since it was wired — and one signal
+            not modelled at all, `MMUDIS`, below. §2 and §3 remain.
+
+- [ ] **`MMUDIS` is not modelled, and `CDIS` has no driver.** Found 2026-08-25
+      walking `[030]` §5. Table 5-1 lists `MMUDIS` as an input and §5.11.2
+      defines it — "dynamically disables the translation mechanism of the MMU",
+      and its assertion "does **not** flush the address translation cache; ATC
+      entries become available again when `MMUDIS` is negated". Zero occurrences
+      in `src/`.
+      **Almost certainly unreachable, and the same shape as the SCN2681's
+      `0x0C`**: it is an emulator-support pin, and nothing in `src/core/board`
+      or `src/core/machine` drives either it or `CDIS` — both are tied inactive
+      on this machine, so no software can tell. `CDIS` *is* modelled
+      (`cache_disable`) and merely undriven; `MMUDIS` is neither.
+      **What would change it**: a frontend flag or a board register that drives
+      either pin. If `CDIS` ever becomes drivable, `MMUDIS` should arrive with
+      it — they are the same paragraph of the manual and the same kind of pin,
+      and modelling one without the other would be arbitrary.
       - [ ] **`[PRM]` `M68000_Family_Programmers_Reference_Manual_1992.pdf`,
             646 pages.** Cited 9 times, and it is where the instruction
             descriptions, the condition tests and Table 8-2's opcode map come
