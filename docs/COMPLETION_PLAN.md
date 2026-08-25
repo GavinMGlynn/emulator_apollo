@@ -335,8 +335,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         word, so a bus error faults where the word is *used*, not where it was
         fetched.*
   - [x] **Programming model** (`src/core/cpu/m68030/ap_m68030_regs.c`), `[030]`
-        §1.3 with `[PRM]` §1.3.2, whose Figure 1-8 survives the scan where the
-        68030 manual's does not — so the SR layout and the two tables are
+        §1.3 with `[PRM]` §1.3.2 — *and the parenthetical that used to follow,
+        "whose Figure 1-8 survives the scan where the 68030 manual's does not",
+        is **wrong**: `[030]` Figure 1-4 renders perfectly legibly at 150 dpi,
+        as the §1 walk of 2026-08-25 found. Its layout matches
+        `AP_M68030_SR_*` bit for bit and `0xF71F` is §2.2.3's "only 12 bits of
+        the status register are defined". Following `[PRM]` was harmless and
+        unnecessary; the claim about the scan was made without rendering the
+        page* — — so the SR layout and the two tables are
         transcribed rather than derived. Detail in `PROJECT_STATUS.md`.
         *Verification: `regs_suite`, 10 tests, including `S=0 M=1` still
         selecting the USP and a CCR write being unable to reach `S` and
