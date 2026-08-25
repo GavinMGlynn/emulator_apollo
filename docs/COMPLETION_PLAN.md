@@ -6874,17 +6874,17 @@ same number is what let them diverge once already.
             1.1 draws buffered host data reaching a discrete `FDC 765` with the
             Z8 on the Winchester branch, on a board designed three years after
             `[8000]`. Also `-I/O CH CK` omitted from §2.3 a **third** time.
-      - [ ] **`[3c505]` — `[DEV]` walked whole 2026-08-25, 77/77; `[HIS]`
-            owed (84 pages).** Chapters 1-3 confirm `ap_3c505.h` throughout:
-            all three address maps, every bit of the four registers, the PCB
-            protocol's `SF2`/`SF1` states and timeouts, and Table 1's whole
-            command set. Appendices A-E are host tools and firmware internals.
-            **Appendices F and G are not** — they list host-visible ROM
-            revision differences, and one of them lands on this model; see the
-            item below. `[HIS]` is the later and more authoritative of the pair
-            and has only ever been *queried*, which is how the register-map
-            defect `ap_3c505.h` records was found. Record:
-            `docs/references/3C505_WALK.md`.
+      - [x] **`[3c505]` — both walked whole 2026-08-25**, `[DEV]` 77/77 and
+            `[HIS]` 84/84. **The pair document different firmware revisions**,
+            proved by their bodies rather than their appendices — `[HIS]` says
+            "maximum 32767 ticks" everywhere `[DEV]` says 127, and its high-res
+            timer interrupts every 0.98 s against 1.6 s, which is 65536 × 15 µs
+            against 65536 × 25 µs and exactly appendix F's Rev 2.0 change. So
+            `[DEV]` is the Rev 1.0 manual and `[HIS]` the Rev 2.0+, which is why
+            the sibling-manual step once found a register-map defect between
+            them. Also confirmed: `LPBK` is active low (this core has it right),
+            and PCB `41H` returns the ROM revision level, so the revision is
+            host-readable. Record: `docs/references/3C505_WALK.md`.
 
 - [ ] **This core has implicitly chosen a 3c505 hardware *and* firmware
       revision.** Both axes now have evidence, from `[HIS]` 2026-08-25.

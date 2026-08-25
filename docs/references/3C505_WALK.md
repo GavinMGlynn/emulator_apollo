@@ -6,7 +6,7 @@ host-side mailbox and deliberately not the adapter's firmware.
 | Tag | File | Pages | State |
 | --- | --- | --- | --- |
 | `[DEV]` | `3com/3c505_Etherlink_Plus_Developers_Guide_May86.pdf` | 77 | **walked whole, 77/77, 2026-08-25** |
-| `[HIS]` | `3com/1569-03_EtherLink_Plus_Technical_Reference_Jan89.pdf` | 84 | **32/84 read 2026-08-25**; the rest is `[DEV]` reorganised |
+| `[HIS]` | `3com/1569-03_EtherLink_Plus_Technical_Reference_Jan89.pdf` | 84 | **walked whole, 84/84, 2026-08-25** |
 
 `[DEV]` is Revision 3.0, 3Com document 1569-02, 27 May 1986. Read as 150 dpi
 page images, four to a sheet. The book's content ends at page 73.
@@ -76,12 +76,8 @@ revision axes are independent. Named as a plan item so a later reader meeting
 descriptions promoted into their own Chapter 3, a new Chapter 5 (*Programming*),
 and a new **Appendix H, the firmware idle loop listing**.
 
-*Read*: PDF 1-8 (title, contents, figures and tables, Chapter 1), 21-32
-(§2-9 to §2-13 and the whole of Chapter 3), 57-64 (§5-3 to §5-5 with Figure 5-1,
-Appendix A and B, Appendix C's opening), and 81-84 (Appendix G's tail and all of
-Appendix H). *Owed*: Chapter 2's opening (§2-1 to §2-8), Chapter 4, and
-Appendices C-G's bodies — which are `[DEV]`'s chapters 1 and 3 and appendices
-C-G, walked whole there.
+**Walked whole, 84/84, 2026-08-25.** The 52 pages owed after the first pass —
+Chapter 2's opening, Chapter 4, and appendices C-G's bodies — read in full.
 
 ### It answers the hardware-revision question `ap_3c505.h` leaves open
 
@@ -122,6 +118,63 @@ holds the Adapter's Interrupt Request signal active. The ISR must check for this
 and in some way cause the request to go inactive after the EOI is issued **or
 interrupts may be lost**." A card vendor documenting the exact failure mode
 `ap_i8259`'s edge model produces, and worth citing next to it.
+
+### The two manuals document different firmware, and the body proves it
+
+This is the finding the remaining 52 pages produced, and it is cleaner than the
+appendix-diffing that suggested it.
+
+`[HIS]`'s **body** carries the Revision 2.0 values throughout, where `[DEV]`'s
+body carries Revision 1.0's:
+
+| | `[DEV]` (1986) | `[HIS]` (1989) |
+| --- | --- | --- |
+| ROM utility timeouts | "maximum is 127 ticks" | "maximum is **32767** ticks", in every one |
+| `INT 83H` high-res timer | interrupt every **1.6 s** | interrupt every **0.98 s** |
+| Idle vector | every five 10 ms ticks | "approximately every **50 ms**" |
+
+0.98 s is 65536 × **15 µs** and 1.6 s is 65536 × **25 µs** — exactly the timer
+resolution change appendix F attributes to Revision 2.0. So the appendices are
+not two lists of the same deltas: in `[DEV]` they are forward-looking notes about
+a ROM that manual does not describe, and in `[HIS]` they are history for a ROM
+whose behaviour is already in the body. **`[DEV]` is the Rev 1.0 manual and
+`[HIS]` is the Rev 2.0+ manual**, which is why `ap_3c505.h`'s sibling-manual step
+found a register-map defect: it was comparing two different products.
+
+### And the firmware revision is host-readable
+
+`[HIS]` §4-12, PCB `41H` Adapter Info Response: the first word is the "**ROM
+revision level (0x0300 = rev 3.0)**", followed by the ROM checksum, memory size
+and free-memory pointer. So a driver that issues `11H` is *told* the revision.
+
+That turns the open item's question from an inference into something a workload
+could answer: if Domain/OS ever issues `11H`, what it expects back is the
+revision, and this core would have to choose a number. It does not implement the
+reply — `AP_3C505_CMD_ADAPTER_INFO` names the command and nothing builds `41H` —
+which is consistent with modelling the mailbox and not the firmware, and is the
+right place to stop until something asks.
+
+### Two facts checked against the model while reading
+
+- **`LPBK` is active low**, stated twice: §3-5's "if CLEAR, loopback mode is
+  enabled" and appendix F's "be sure to set LPBK for normal network operation".
+  `ap_3c505.h` has it as "clear enables loopback at the 8023" — correct.
+- **§2-3's footnote, seen directly**: "Host Control Register is Write Only on
+  Rev 2 H/W. (Rev 3 H/W has large gate array chip)" — the sentence the header
+  cites, and the Host I/O map it annotates lists `+6` as `R/W`, so the map itself
+  assumes Rev 3.
+
+### The rest, recorded as read
+
+Chapter 2's opening (§2-1 to §2-8) is the hardware architecture — the block
+diagram, all three address maps, the 80186's 4-clock 500 ns cycles, the 82586's
+~35% bus share, the 8023's 25 ms watchdog, adapter RAM's CAS-before-RAS refresh
+at 15 µs consuming 3.3% of bandwidth, and the 200 µs power-up wait with 8 RAM
+initialisation cycles. Chapter 4 is the PCB interface in full: Table 4-1, every
+host and adapter PCB format field by field, and the `INT 80H`-`88H` ROM
+utilities. Appendices C-E are the diagnostic's eight tests, the 3D debugger and
+the developer's diskette contents. All host-side or firmware-internal; none
+contradicts the model.
 
 ### Appendix H, new in this edition
 
