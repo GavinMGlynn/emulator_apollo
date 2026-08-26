@@ -3073,7 +3073,18 @@ static bool execute_control(ap_m68030_cpu_t *cpu,
      * for a synchronisation to wait on. The same shape as `CIIN` being ignored
      * on writes: correct by construction.
      * *It stops being vacuous if a store buffer or any out-of-order completion
-     * is ever added*, which is exactly when this comment should be re-read. */
+     * is ever added*, which is exactly when this comment should be re-read.
+     *
+     * *`[030]` §7.6 is the fuller account and worth reading beside §3.5.4*: the
+     * case it exists for is an external write whose `BERR` is meant to control
+     * program flow, where the data cache may already have been updated and a
+     * later instruction could use data the bus error was going to invalidate.
+     * The same section then calls that "an irregular situation, and the use of
+     * the NOP instruction for this purpose is **not required by most
+     * systems**" -- and unnecessary even with error-detection circuitry, "since
+     * the MMU always checks the validity of write cycles before they proceed to
+     * the data cache". So it is an edge case on the real part as well as
+     * vacuous on this model. */
     return true;
 
   case AP_M68030_CTL_TRAP:

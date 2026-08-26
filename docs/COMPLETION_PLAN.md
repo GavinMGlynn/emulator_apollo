@@ -6958,9 +6958,19 @@ same number is what let them diverge once already.
             One documented effect is vacuous in this model and now says so:
             §3.5.4's `NOP` pipeline synchronisation has nothing to wait on in a
             strictly in-order core, and the arm was a bare `return true`.
-            *What remains of `[030]`*: §7/§8/§9/§11 (derived, wanting
-            verification rather than discovery), §1/§4/§6/§10 (sampled), and
-            §12-§14 plus Appendix A.
+            ***§1, §4, §6 and §7 walked 2026-08-25/26***, taking `[030]` to
+            §1-§7, 240 of 608 pages. §1 corrected a Phase 2 claim — Figure 1-4
+            is perfectly legible, so "the 68030 manual's does not survive the
+            scan" was decided without rendering the page. **§7 is the first of
+            the four *derived* sections to be verified, and it confirms the two
+            fixes this project made the hard way**: §7.3.2's states give the
+            write cycle's `DBEN` at S1, `DS` at S3 and `DBEN` held through S5 —
+            the three differences the write-timing item records — and §7.5.1
+            gives the pipe's deferred instruction bus error verbatim. It also
+            extends §5.7.1's `CIIN` rule with translation table searches, and
+            gives `NOP`'s synchronisation a purpose §3.5.4 only names.
+            *What remains of `[030]`*: §8/§9/§11 (derived, wanting the same
+            verification), §10 (sampled), §12-§14 and Appendix A.
 
 - [ ] **`MMUDIS` is not modelled, and `CDIS` has no driver.** Found 2026-08-25
       walking `[030]` §5. Table 5-1 lists `MMUDIS` as an input and §5.11.2
