@@ -6983,7 +6983,18 @@ same number is what let them diverge once already.
             including that reset invalidates the caches and **not** the ATC,
             Table 8-5's priority groups, Table 8-6's six stack frames and
             §8.2.1's Special Status Word.
-            *What remains of `[030]`*: §9/§11 (derived, wanting the same
+            ***§9 walked 2026-08-26, 86 pages — the largest citation block
+            (28 of 90), and it confirms throughout with no defect.*** Table
+            9-3's MMUSR definitions, §9.7.5.3's three configuration-exception
+            rules including that the register is loaded **before** the exception,
+            the `TIx` sum's "added together until a zero field is reached", and
+            §9.6's 68851 differences — a page `ap_m68030_step.c` already cites.
+            One rule is emergent rather than coded, like the 6840's: the limit
+            field's two "effectively disabled" cases fall out of
+            `index >= 0` / `index <= $7FFF`. *Thirty of its pages (§9.9, §9.10)
+            are operating-system design guidance and contain no part behaviour,
+            which is why so large a chapter yielded no correction.*
+            *What remains of `[030]`*: §11 (derived, wanting the same
             verification), §10 (sampled), §12-§14 and Appendix A.
 
 - [ ] **`MMUDIS` is not modelled, and `CDIS` has no driver.** Found 2026-08-25
