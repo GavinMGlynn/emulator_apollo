@@ -3877,6 +3877,45 @@ static void test_movec_is_privileged(void) {
   TEST_ASSERT_EQUAL_HEX32(0u, m.cpu.regs.vbr); /* and it did not take effect */
 }
 
+/* `[030]` §8.1.7: "**The STOP instruction does not perform its function when it
+ * is traced.** A STOP instruction that begins execution with T1 = 1 and T0 = 0
+ * forces a trace exception after it loads the status register ... and **the
+ * processor never enters the stopped condition**."
+ *
+ * So the SR load still happens and the stop does not. Found walking §8 on
+ * 2026-08-26; before that this arm stopped unconditionally, and a debugger
+ * single-stepping over a `STOP` would have wedged the machine. */
+static void test_a_traced_stop_loads_the_sr_but_never_stops(void) {
+  /* STOP #$2700, then MOVEQ #1,D0. */
+  static const uint16_t program[] = {0x4E72u, 0x2700u, 0x7001u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  /* Supervisor, and T1 set: trace every instruction. */
+  m.cpu.regs.sr = (uint16_t)((1u << AP_M68030_SR_S_BIT) |
+                             (1u << AP_M68030_SR_T1_BIT));
+
+  /* The instruction executes and forces the trace exception. */
+  const ap_m68030_step_result_t traced = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, traced.status);
+  /* The status register was still loaded -- that half is not skipped. */
+  TEST_ASSERT_EQUAL_UINT(7u, ap_m68030_interrupt_mask(&m.cpu.regs));
+  /* And the processor is not stopped: the next step runs the handler rather
+   * than reporting STOPPED. */
+  TEST_ASSERT_NOT_EQUAL(AP_M68030_STEP_STOPPED, ap_m68030_step(&m.cpu).status);
+}
+
+/* The untraced case is unchanged, and this is the control for the test above:
+ * with the trace bits clear the stop happens exactly as before. */
+static void test_an_untraced_stop_still_stops(void) {
+  static const uint16_t program[] = {0x4E72u, 0x2700u, 0x7001u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_STOPPED, ap_m68030_step(&m.cpu).status);
+}
+
 /* "Immediate Data -> SR; STOP" -- the status register is loaded *first*,
  * interrupt mask included, which is the point of the instruction: it is how a
  * supervisor waits at a chosen priority. Then nothing executes. */
@@ -8884,6 +8923,8 @@ int main(void) {
   RUN_TEST(test_the_control_register_codes_are_not_a_dense_index);
   RUN_TEST(test_movec_is_privileged);
   RUN_TEST(test_stop_loads_the_status_register_and_then_halts_fetching);
+  RUN_TEST(test_a_traced_stop_loads_the_sr_but_never_stops);
+  RUN_TEST(test_an_untraced_stop_still_stops);
   RUN_TEST(test_reset_asserts_externally_and_carries_on);
   RUN_TEST(test_a_word_branch_uses_the_same_base_as_a_byte_one);
   RUN_TEST(test_an_untaken_wide_branch_still_skips_its_displacement);

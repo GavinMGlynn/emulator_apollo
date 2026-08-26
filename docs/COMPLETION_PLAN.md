@@ -6969,7 +6969,21 @@ same number is what let them diverge once already.
             gives the pipe's deferred instruction bus error verbatim. It also
             extends §5.7.1's `CIIN` rule with translation table searches, and
             gives `NOP`'s synchronisation a purpose §3.5.4 only names.
-            *What remains of `[030]`*: §8/§9/§11 (derived, wanting the same
+            ***§8 walked 2026-08-26, and it found the first real defect in
+            `[030]`***: §8.1.7 has "the STOP instruction does not perform its
+            function when it is traced ... the processor never enters the
+            stopped condition", and this core's `STOP` arm stopped
+            unconditionally — so a debugger single-stepping over a `STOP` would
+            have wedged the machine, tracing being modelled. Fixed, reading the
+            trace mode *before* the `SR` load because "begins execution with
+            T1 = 1" is the entry state. *Verification: `step_suite` 297 → 299
+            with the untraced case as control; identity boot **unchanged** at
+            `42B14372F3677EE8`, so Domain/OS never traces a `STOP`.*
+            §8 otherwise confirms: Table 8-1's vectors, §8.1.1's ten reset steps
+            including that reset invalidates the caches and **not** the ATC,
+            Table 8-5's priority groups, Table 8-6's six stack frames and
+            §8.2.1's Special Status Word.
+            *What remains of `[030]`*: §9/§11 (derived, wanting the same
             verification), §10 (sampled), §12-§14 and Appendix A.
 
 - [ ] **`MMUDIS` is not modelled, and `CDIS` has no driver.** Found 2026-08-25

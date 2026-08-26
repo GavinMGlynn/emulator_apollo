@@ -3292,8 +3292,29 @@ static bool execute_control(ap_m68030_cpu_t *cpu,
     if (!next_word(cpu, clocks, &immediate)) {
       return false;
     }
+    /* Read **before** the load below -- see the citation that follows. */
+    const ap_m68030_trace_mode_t entry_trace = ap_m68030_trace_mode(&cpu->regs);
     ap_m68030_write_sr(&cpu->regs, immediate);
-    cpu->stopped = true;
+    /* `[030]` §8.1.7: "**The STOP instruction does not perform its function
+     * when it is traced.** A STOP instruction that begins execution with T1 = 1
+     * and T0 = 0 forces a trace exception after it loads the status register.
+     * Upon return from the trace handler routine, execution continues with the
+     * instruction following the STOP, and **the processor never enters the
+     * stopped condition**."
+     *
+     * The status register load still happens -- it is the half of `STOP` that
+     * has an effect either way, and the sentence says the trace is forced
+     * *after* it. What is skipped is the stop itself, and the trace exception
+     * the caller raises is what carries execution past this instruction.
+     *
+     * The test is on the *entry* trace mode, `AP_M68030_TRACE_ANY_INSTRUCTION`,
+     * because that is what "begins execution with T1 = 1 and T0 = 0" names --
+     * and it must be read before the `write_sr` above, since a `STOP` whose
+     * immediate clears the trace bits would otherwise look untraced. Found
+     * walking §8 on 2026-08-26; this arm stopped unconditionally. */
+    if (entry_trace != AP_M68030_TRACE_ANY_INSTRUCTION) {
+      cpu->stopped = true;
+    }
     return true;
   }
 
