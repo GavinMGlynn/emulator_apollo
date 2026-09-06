@@ -44,7 +44,16 @@ bool ap_m68882_exception_enabled(const ap_m68882_regs_t *regs,
 
 unsigned ap_m68882_trap_exception(const ap_m68882_regs_t *regs) {
   /* §6.1.9's order, highest first, so the first match wins and the rest "do
-   * not cause a trap". Written out because it is not the bit order. */
+   * not cause a trap".
+   *
+   * It **is** the bit order, descending -- `[881]` §2.2.1 says so outright:
+   * "The bits of the ENABLE byte are organized in decreasing priority, left to
+   * right, i.e., BSUN is the highest priority, and INEX1 is the lowest." This
+   * comment used to claim the opposite; corrected 2026-09-07 walking §2 and §6.
+   * Written out anyway, because the *reason* to keep it explicit is the arm
+   * below: `INEX2` is not simply last, it is reachable through a different
+   * test, and an implementation that scanned bits 15 down to 8 would get the
+   * order right and that case wrong. */
   static const unsigned by_priority[] = {
       AP_M68882_EXC_BSUN, AP_M68882_EXC_SNAN, AP_M68882_EXC_OPERR,
       AP_M68882_EXC_OVFL, AP_M68882_EXC_UNFL, AP_M68882_EXC_DZ,

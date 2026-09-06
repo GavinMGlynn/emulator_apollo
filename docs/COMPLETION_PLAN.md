@@ -7236,7 +7236,40 @@ same number is what let them diverge once already.
             Record: `docs/references/PRM_WALK.md`.
       - [ ] **`[881]`/`[882]`
             `MC68881_MC68882_Floating-Point_Coprocessor_Users_Manual_1ed_1987.pdf`,
-            396 pages.** *This item first said "zero tagged citations" and
+            396 pages — audited 2026-09-07, and the count was wrong a second
+            time.** This item had already corrected itself once, from "zero
+            tagged citations" to "cited 11 times". The real figure is **fifty**
+            references across `src/core`, spanning §2, §3, §4, §6 and §7. Fourth
+            document in this batch to have its premise reversed by the same one
+            grep.
+            **Method: this one is scanned, not born-digital** — `pdffonts` shows
+            `HiddenHorzOCR` — so unlike `[PRM]` the page-image rule applies in
+            full, and the OCR is exactly as bad as the rule assumes: Table 4-8
+            extracts `UEQ` as `UEa`, `SEQ` as `SEa`, `EQ` as `EO`, and an arrow
+            as a full stop.
+            ***§1-§4.6 and §6.1 walked.*** **The 4096-ULP question in
+            `ap_m68882_accuracy.h` is closed**, and the discriminator was three
+            paragraphs below the sentence that raised it: §4.3.2's worked example
+            converts 2^-57 to "64 units in the last place", a plain ratio with no
+            doubling — which excludes the window reading that header proposed as
+            a guess, and makes 4096 a documentary error for 2048. **`FATANH`'s
+            transposed infinity signs turn out to be stated twice**, in §6.1.6 as
+            well as on the instruction page; two statements of one error, which
+            strengthens the code's mathematical override rather than reversing
+            it. One comment corrected (the exception priority *is* the bit
+            order; §2.2.1 says so). Verified and holding: the `FSGLDIV`/`FSGLMUL`
+            precision/range split, §2.3.4's five AEXC equations including both
+            traps, §6.1.9's priority with the `INEX2`-on-overflow case, all seven
+            of Table 6-3's divide-by-zero cases, §3.4's 17-bit intermediate
+            exponent, and Table 4-10 as a **third witness** against `[PRM]`
+            Table 2-4.
+            **And a false start worth the record**: §4.5.5.2's "each mantissa is
+            truncated to 23 bits" is already implemented, and I implemented it a
+            second time before checking. The tell was a test that passed with the
+            new code removed. Reverted; what was missing was the *test*, which is
+            now there and discriminates.
+            Record: `docs/references/M68881_WALK.md`.
+            *Owed*: §4's per-instruction pages, §5, §6.2-§6.4, §7-§13, appendices. *This item first said "zero tagged citations" and
             implied the FPU was built without its manual. **Wrong** — it is
             cited **11 times**, by full title rather than by a bracket tag, and
             the `[030]` audit found it while checking something else.* So the

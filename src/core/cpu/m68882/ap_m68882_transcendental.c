@@ -1553,7 +1553,17 @@ ap_m68882_op_t ap_m68882_atanh(const ap_m68882_extended_t *x,
      * the printed text impossible, it supplies the unique replacement. There is
      * no third assignment of two signs to two arguments. `DZ` is raised either
      * way -- "set if the source is equal to +1 or -1" -- so only the sign of
-     * the result is at issue. */
+     * the result is at issue.
+     *
+     * **The manual says it twice, and that strengthens this rather than
+     * weakening it.** Walking `[881]` §6 on 2026-09-07 found §6.1.6's
+     * trap-disabled results repeating the same transposition: "For the FATANH
+     * instruction, return a +infinity if the source operand is -1; or a
+     * -infinity if the source operand is +1." Two statements, one error --
+     * which is what a sentence copied between an instruction page and an
+     * exception chapter looks like, and not what two independent derivations
+     * would look like. The operation tables in both places still agree with the
+     * mathematics; it is only the prose that is transposed, in both. */
     ap_m68882_extended_t value = nx_infinity(x->sign);
     return (ap_m68882_op_t){value, 1u << AP_M68882_EXC_DZ};
   }
