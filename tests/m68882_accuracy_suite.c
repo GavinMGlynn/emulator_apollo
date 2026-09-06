@@ -9,6 +9,8 @@
 
 #include "cpu/m68882/ap_m68882_accuracy.h"
 
+#include <stdio.h>
+
 #include "cpu/m68882/ap_m68882.h"
 #include "cpu/m68882/ap_m68882_decode.h"
 #include "unity.h"
@@ -391,6 +393,84 @@ static void test_a_comparison_reaches_a_branch_decision(void) {
   }
 }
 
+/* **`FCMP`'s operation table, all thirty-six cells.**
+ *
+ * The `FCMP` page prints a table shaped unlike every other instruction's: "for
+ * each combination of input operand types, the condition code bits that may be
+ * set are indicated. If the name of a condition code bit is given and is not
+ * enclosed in brackets, then it is always set ... If the name of a condition
+ * code bit is not given, then that bit is always cleared by the operation."
+ *
+ * Two of its statements are not derivable from "compare, then set the codes",
+ * and this core had one of them wrong:
+ *
+ *   - **`N` is set alongside `Z` when the operands are equal and the
+ *     destination is negative.** Three cells say so -- `Zero(-)` against both
+ *     zeros, and `Infinity(-)` against `Infinity(-)`, each printed `NZ` where
+ *     the mirrored positive row prints `Z`. This model cleared `N` on every
+ *     equality.
+ *   - **"The infinity bit is always cleared by the FCMP instruction, since it
+ *     is not used by any of the conditional predicate equations"**, even when
+ *     both operands are infinities. That one already held.
+ *
+ * And a third, from the exception byte rather than the table: `OPERR` is
+ * "Cleared", so comparing two like-signed infinities -- which as a *subtraction*
+ * is `inf - inf` -- raises nothing. */
+static void test_the_fcmp_operation_table_cell_by_cell(void) {
+  enum { N = 1u, Z = 2u };
+  static const ap_m68882_extended_t VALUES[6] = {
+      {false, 0x3FFFu, 0x8000000000000000ULL}, /* In Range + */
+      {true, 0x3FFFu, 0x8000000000000000ULL},  /* In Range - */
+      {false, 0u, 0u},                         /* Zero + */
+      {true, 0u, 0u},                          /* Zero - */
+      {false, 0x7FFFu, 0u},                    /* Infinity + */
+      {true, 0x7FFFu, 0u},                     /* Infinity - */
+  };
+  static const char *const NAMES[6] = {"+1.0", "-1.0",  "+0",
+                                       "-0",   "+inf", "-inf"};
+
+  /* Rows are the destination, columns the source, exactly as the page prints
+   * them. `{NZ}` cells are resolved here to what the operands actually are:
+   * both diagonal equalities, so `Z` for a positive destination and `NZ` for a
+   * negative one -- which is the rule the brackets leave to the reader. */
+  static const unsigned TABLE[6][6] = {
+      /*              src:  +1.0    -1.0    +0      -0      +inf    -inf  */
+      /* dest +1.0 */ {Z,      0u,     0u,     0u,     N,      0u},
+      /* dest -1.0 */ {N,      N | Z,  N,      N,      N,      0u},
+      /* dest +0   */ {N,      0u,     Z,      Z,      N,      0u},
+      /* dest -0   */ {N,      0u,     N | Z,  N | Z,  N,      0u},
+      /* dest +inf */ {0u,     0u,     0u,     0u,     Z,      0u},
+      /* dest -inf */ {N,      N,      N,      N,      N,      N | Z},
+  };
+
+  for (unsigned dest = 0; dest < 6u; dest++) {
+    for (unsigned src = 0; src < 6u; src++) {
+      ap_m68882_t fpu;
+      ap_m68882_reset(&fpu);
+      fpu.regs.fp[0] = VALUES[src];
+      fpu.regs.fp[1] = VALUES[dest];
+      TEST_ASSERT_EQUAL_INT(
+          AP_M68882_EXECUTED,
+          ap_m68882_execute(&fpu, 0xF200u, command_for(AP_M68882_OP_FCMP)));
+
+      char what[64];
+      (void)snprintf(what, sizeof what, "FCMP %s,%s", NAMES[src], NAMES[dest]);
+      const uint32_t s = fpu.regs.fpsr;
+      TEST_ASSERT_EQUAL_MESSAGE((TABLE[dest][src] & N) != 0u,
+                                ((s >> AP_M68882_FPCC_N) & 1u) != 0u, what);
+      TEST_ASSERT_EQUAL_MESSAGE((TABLE[dest][src] & Z) != 0u,
+                                ((s >> AP_M68882_FPCC_Z) & 1u) != 0u, what);
+      /* "The infinity bit is always cleared by the FCMP instruction." */
+      TEST_ASSERT_EQUAL_MESSAGE(0u, (s >> AP_M68882_FPCC_I) & 1u, what);
+      TEST_ASSERT_EQUAL_MESSAGE(0u, (s >> AP_M68882_FPCC_NAN) & 1u, what);
+      /* The whole exception byte is "Cleared" for these operands -- `OPERR`
+       * included, which is what separates a compare from the subtraction it is
+       * described as. */
+      TEST_ASSERT_EQUAL_HEX32_MESSAGE(0u, s & (UINT32_C(0xFF) << 8), what);
+    }
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_four_families_are_exactly_what_4_3_2_names);
@@ -399,6 +479,7 @@ int main(void) {
   RUN_TEST(test_the_typical_bound_is_far_tighter_than_the_worst_case);
   RUN_TEST(test_table_2_1_generates_only_eight_combinations);
   RUN_TEST(test_a_comparison_reaches_a_branch_decision);
+  RUN_TEST(test_the_fcmp_operation_table_cell_by_cell);
   RUN_TEST(test_a_conditional_reaches_the_status_register);
   RUN_TEST(test_every_transcendental_is_now_computed);
   RUN_TEST(test_every_defined_operation_now_executes);

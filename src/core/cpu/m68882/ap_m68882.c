@@ -5,6 +5,14 @@
 
 #include "cpu/m68882/ap_m68882_transcendental.h"
 
+bool ap_m68882_exception_pending(const ap_m68882_t *fpu) {
+  /* The derived model, plus the one-instruction suppression an `FSAVE` leaves.
+   * `ap_m68882.h` carries why `EXC PEND` is derived rather than latched, and
+   * why the save needs a latch anyway. */
+  return !fpu->save_negated_exc_pend &&
+         ap_m68882_trap_exception(&fpu->regs) != 0u;
+}
+
 void ap_m68882_reset(ap_m68882_t *fpu) {
   ap_m68882_regs_reset(&fpu->regs);
   fpu->cpid = AP_M68882_DEFAULT_CPID;
@@ -16,6 +24,16 @@ void ap_m68882_reset(ap_m68882_t *fpu) {
 }
 
 unsigned ap_m68882_save(ap_m68882_t *fpu, uint8_t *bytes) {
+  /* Read **before** the save negates it, because the frame's `EXC PEND` image
+   * is a record of the state the save is clearing. `FRESTORE`'s page is the
+   * reason it has to be in that order: "Exceptions that were pending before
+   * the execution of the previous FSAVE instruction are pending following the
+   * execution of the FRESTORE instruction." A frame that always claimed
+   * "nothing pending" would lose the exception across a context switch, and
+   * would make §6.4.2.2's `BSET #3,(SP,D0)` -- the handler's way of clearing
+   * it -- a no-op on a bit that was never set. */
+  const bool pending = ap_m68882_exception_pending(fpu);
+
   /* §6.4.1: "After the execution of an FSAVE, the FPCP enters the idle state,
    * and any pending exceptions are cleared." Set for both frame kinds, because
    * a null save means nothing has run and there is nothing pending either. */
@@ -33,7 +51,24 @@ unsigned ap_m68882_save(ap_m68882_t *fpu, uint8_t *bytes) {
      * operation and is ignored by the FPCP during a restore operation." Which is
      * what reconciles Figure 6-5 printing it "(UNDEFINED)" with FRESTORE's page
      * calling the format word `$0000`: the version identifies the frame and the
-     * size is a don't care. */
+     * size is a don't care.
+     *
+     * **A third value exists and is not this one.** `FSAVE`'s page lists the
+     * five save-CIR responses, and the first is "`$0018` Save NULL state
+     * frame" -- against "`$XX18` Save IDLE state frame ... where XX is the FPCP
+     * version number" for the row below it. So on an **MC68881** a null save
+     * writes the idle size byte with a zero version, and §7.5.3.1 has the MPU
+     * write that word straight to memory. What the **MC68882** writes there is
+     * not printed anywhere: its idle and busy size bytes are `$38` and `$D4`
+     * where the 68881's are `$18` and `$B4`, so `$0038` is the shape of the
+     * answer and it is an inference, not a transcription.
+     *
+     * Zero is kept, because it is the value `FRESTORE`'s page states outright
+     * and the only one this manual gives for a frame *in memory*. Nothing
+     * observable turns on it here: Figure 6-7 tells a null frame from an idle
+     * one with `TST.B (An)` on the **version** byte, and Figure 5-9's part
+     * identification reads the size byte only after an `FNOP` has taken the
+     * part out of the null state -- which is what the `FNOP` in it is for. */
     return AP_M68882_FRAME_NULL_BYTES;
   }
 
@@ -89,8 +124,13 @@ unsigned ap_m68882_save(ap_m68882_t *fpu, uint8_t *bytes) {
    * the CU" with no published encoding, and bits 23-20 are the operand
    * register's byte-valid flags, which are honestly zero because nothing wrote
    * an operand register image above. */
-  bytes[0x38] = 0x7Cu; /* 0111 1100: no protocol violation, 111 no pending, */
-  bytes[0x39] = 0x00u; /* EXC PEND clear-of-pending, ready to write, CU zero */
+  bytes[0x38] = (uint8_t)(pending ? 0x74u : 0x7Cu);
+  /* 0111 1100 quiescent, and 0111 0100 with bit 27 clear: "if this bit is
+   * zero, an exception is pending". Bits 30-28 stay `111` -- Table 6-4's "No
+   * Pending Instruction or Operand CIR Access" -- because this part completes
+   * every instruction inside the step that issues it, so there is never one in
+   * flight to report. */
+  bytes[0x39] = 0x00u;
   bytes[0x3A] = 0xFFu;
   bytes[0x3B] = 0xFFu;
 
@@ -135,6 +175,21 @@ void ap_m68882_restore(ap_m68882_t *fpu, const uint8_t *bytes) {
    * exactly as they are, and what changes is only that the part is no longer in
    * its null state. */
   fpu->executed = true;
+
+  /* **And the frame's `EXC PEND` comes back with it.** `FRESTORE`'s page:
+   * "Exceptions that were pending before the execution of the previous FSAVE
+   * instruction are pending following the execution of the FRESTORE
+   * instruction." §6.4.2.2 adds the handler's half -- "this bit must be set by
+   * the exception handler immediately before an FRESTORE and RTE. When this bit
+   * is not set in the exception handler, the MC68882 re-executes the handler"
+   * -- so a handler that omits its `BSET` loops, and one that does it proceeds.
+   * Both come out of reading the bit back rather than assuming either.
+   *
+   * Bit 27 of the long word at `$38`, which is bit 3 of the byte there: the
+   * same bit `BSET #3,(SP,D0)` sets, since `D0` holds the size byte and the
+   * long word begins at that offset. Set means *not* pending, so it becomes
+   * the suppression flag directly. */
+  fpu->save_negated_exc_pend = (bytes[0x38] & (1u << 3)) != 0u;
 }
 
 /* Set the condition codes from a result, Table 2-1. Every arithmetic
@@ -259,15 +314,18 @@ static ap_m68882_status_t execute_general(
     break;
 
   case AP_M68882_OP_FMOVE_TO_FPN:
-    result.value = source;
+    /* Not a copy. See `ap_m68882_move`: the page calls this "an arithmetic
+     * instruction" and rounds the source to the FPCR's rounding precision,
+     * which this arm did not do until §4's per-instruction pages were walked
+     * on 2026-09-07. An `FMOVE.D` of a 53-bit significand into a register
+     * under single-precision rounding kept all 53 bits and reported exact. */
+    result = ap_m68882_move(&source, mode, precision);
     break;
   case AP_M68882_OP_FABS:
-    result.value = source;
-    result.value.sign = false;
+    result = ap_m68882_sign_only(&source, false);
     break;
   case AP_M68882_OP_FNEG:
-    result.value = source;
-    result.value.sign = !source.sign;
+    result = ap_m68882_sign_only(&source, true);
     break;
 
   case AP_M68882_OP_FSQRT:
@@ -431,7 +489,24 @@ static ap_m68882_status_t execute_general(
     if (comparison.unordered) {
       ap_m68882_set_condition(&fpu->regs, AP_M68882_RESULT_NAN, false);
     } else if (comparison.equal) {
-      ap_m68882_set_condition(&fpu->regs, AP_M68882_RESULT_ZERO, false);
+      /* **`N` follows the destination's sign even when the operands compare
+       * equal**, which is what the `FCMP` page's operation table says and what
+       * this passed `false` for until §4 was walked on 2026-09-07. Three of its
+       * cells are the evidence, all of them equalities with a negative
+       * destination: `Zero(-)` against `Zero(+)` and against `Zero(-)`, and
+       * `Infinity(-)` against `Infinity(-)`, each printed **`NZ`** where the
+       * mirrored positive rows print `Z` alone.
+       *
+       * It is the sign of the difference, kept through a cancellation: the
+       * codes come from a subtraction whose result "is not retained", and a
+       * subtract that cancels to zero here keeps the destination's sign rather
+       * than IEEE's `+0` for `x - x`.
+       *
+       * Harmless to every ordering predicate and correct for two of them:
+       * §4.4's equations exclude `Z` from `LT` and `GT`, and `LE` and `GE` want
+       * exactly this. */
+      ap_m68882_set_condition(&fpu->regs, AP_M68882_RESULT_ZERO,
+                              destination.sign);
     } else {
       ap_m68882_set_condition(&fpu->regs, AP_M68882_RESULT_NORMAL,
                               comparison.less);

@@ -238,6 +238,24 @@ ap_m68882_compare(const ap_m68882_extended_t *a,
  * exponent to an extended precision floating-point number." So the *result* is
  * a float holding an integer, not an integer -- and `OPERR` for an infinity,
  * which has no meaningful exponent. */
+/* `FMOVE <ea>,FPn` and `FMOVE FPm,FPn`. Not a copy: "although the primary
+ * function of this instruction is data movement, it is also considered an
+ * arithmetic instruction ... the source operand is rounded according to the
+ * selected rounding precision and mode."
+ *
+ * `OVFL` is "Cleared" on that page with no qualification, and `UNFL` is named
+ * by the *source* -- "if the source is an extended precision denormalized
+ * number" -- so this does not go through the arithmetic path's range checks. */
+[[nodiscard]] ap_m68882_op_t ap_m68882_move(const ap_m68882_extended_t *a,
+                                            ap_m68882_rounding_t mode,
+                                            ap_m68882_precision_t precision);
+
+/* `FABS` and `FNEG`, which differ from the move in one line of their exception
+ * byte and it is the line that matters: `INEX2: Cleared`. They touch the sign
+ * and nothing else, so the rounding precision does not reach them. */
+[[nodiscard]] ap_m68882_op_t ap_m68882_sign_only(const ap_m68882_extended_t *a,
+                                                 bool negate);
+
 [[nodiscard]] ap_m68882_op_t ap_m68882_getexp(const ap_m68882_extended_t *a);
 
 /* "Extracts the mantissa ... The result is in the range [1.0 ... 2.0) with the

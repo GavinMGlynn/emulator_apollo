@@ -910,6 +910,81 @@ ap_m68882_op_t ap_m68882_getexp(const ap_m68882_extended_t *a) {
   return out;
 }
 
+/* §6.1.5's underflow, for the three instructions whose exception byte names it
+ * by the *source* rather than by the result: "If the source is an extended
+ * precision denormalized number, refer to 6.1.5 Underflow; cleared otherwise."
+ * `FMOVE`, `FABS` and `FNEG` all print that line, and none of them can produce
+ * an underflow any other way -- their `OVFL` is "Cleared" outright. */
+static uint32_t denormalized_source_underflow(const ap_m68882_extended_t *a) {
+  return ap_m68882_classify(a) == AP_M68882_TYPE_DENORMALIZED
+             ? (UINT32_C(1) << AP_M68882_EXC_UNFL)
+             : 0u;
+}
+
+ap_m68882_op_t ap_m68882_move(const ap_m68882_extended_t *a,
+                              ap_m68882_rounding_t mode,
+                              ap_m68882_precision_t precision) {
+  ap_m68882_op_t out = {0};
+  if (propagate_nan(a, a, &out)) {
+    return out;
+  }
+
+  const ap_m68882_type_t kind = ap_m68882_classify(a);
+  if (kind == AP_M68882_TYPE_INFINITY || kind == AP_M68882_TYPE_ZERO) {
+    out.value = *a;
+    return out;
+  }
+
+  out.exceptions = denormalized_source_underflow(a);
+
+  /* **The move rounds.** "Although the primary function of this instruction is
+   * data movement, it is also considered an arithmetic instruction ... the
+   * source operand is **rounded according to the selected rounding precision
+   * and mode**", and the page prints a table of which source formats can come
+   * out inexact at each rounding precision: `L`, `D`, `X` and `P` at single;
+   * `X` and `P` at double; `P` alone at extended.
+   *
+   * That table is *implied* by rounding the value rather than gated on the
+   * format, and deliberately so: a byte, word or single source is exactly
+   * representable at every rounding precision, so it cannot round inexactly,
+   * which is the same statement from the other end. Reading the format here
+   * would need the format, and by this point the operand is "an extended value
+   * like any other".
+   *
+   * No overflow check, because the page says `OVFL: Cleared` with no
+   * qualification -- unlike every arithmetic operation, which goes through
+   * `finish_in_range`. A move cannot leave the range it is already inside. */
+  const ap_m68882_round_result_t rounded =
+      ap_m68882_round(*a, false, false, false, mode, precision);
+  out.value = rounded.value;
+  if (rounded.inexact) {
+    out.exceptions |= UINT32_C(1) << AP_M68882_EXC_INEX2;
+  }
+  return out;
+}
+
+ap_m68882_op_t ap_m68882_sign_only(const ap_m68882_extended_t *a, bool negate) {
+  ap_m68882_op_t out = {0};
+  if (propagate_nan(a, a, &out)) {
+    /* A NAN keeps its payload and takes the sign anyway: the operation tables
+     * for both give "Absolute Value" and "Negate" across every column, and
+     * §4.5.4 has the NAN propagate rather than be replaced. */
+    out.value.sign = negate ? !a->sign : false;
+    return out;
+  }
+
+  /* **`FABS` and `FNEG` do not round, and `FMOVE` does.** Their exception
+   * bytes are the evidence and they disagree in exactly one line: `INEX2:
+   * Cleared` here against `INEX2: Refer to 6.1.7 Inexact Result if <fmt> is L,
+   * D or X` on the move. So these two touch the sign bit and nothing else --
+   * which is what makes them exact for every operand, and why the rounding
+   * precision cannot reach them. */
+  out.value = *a;
+  out.value.sign = negate ? !a->sign : false;
+  out.exceptions = denormalized_source_underflow(a);
+  return out;
+}
+
 ap_m68882_op_t ap_m68882_getman(const ap_m68882_extended_t *a) {
   ap_m68882_op_t out = {0};
   const ap_m68882_extended_t self = *a;

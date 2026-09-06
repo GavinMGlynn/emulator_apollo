@@ -24,6 +24,11 @@ static bool raised(const ap_m68882_op_t *op, unsigned bit) {
   return (op->exceptions & (UINT32_C(1) << bit)) != 0u;
 }
 
+/* The same test taken by value, so a call can be nested in an assertion. */
+static bool raised2(ap_m68882_op_t op, unsigned bit) {
+  return raised(&op, bit);
+}
+
 /* 1 + 1 = 2, which is the smallest thing that can be wrong: the mantissas
  * carry, the exponent goes up by one, and nothing is inexact. */
 static void test_one_plus_one_is_two(void) {
@@ -1193,6 +1198,73 @@ static void test_the_single_forms_truncate_their_inputs(void) {
       "the extra significand is truncated away, not rounded in");
 }
 
+/* **`FMOVE` rounds; `FABS` and `FNEG` do not.**
+ *
+ * The `FMOVE` page calls the instruction arithmetic -- "although the primary
+ * function of this instruction is data movement, it is also considered an
+ * arithmetic instruction ... the source operand is rounded according to the
+ * selected rounding precision and mode" -- and prints a table of which source
+ * formats can come out inexact at which rounding precision: `L`, `D`, `X` and
+ * `P` at single, `X` and `P` at double, `P` alone at extended.
+ *
+ * The `FABS` and `FNEG` pages print the same exception byte with one line
+ * changed, and it is the deciding line: `INEX2: Cleared` against the move's
+ * `INEX2: Refer to 6.1.7 Inexact Result if <fmt> is L, D or X`.
+ *
+ * A double-precision value with 53 significant bits is the discriminator: at
+ * single-precision rounding the move must lose 29 of them and say so, and the
+ * absolute value must keep every one. */
+static void test_a_move_rounds_where_an_absolute_value_does_not(void) {
+  /* 1 + 2^-52: exact in double, and 29 bits past single's 24. */
+  const ap_m68882_extended_t wide = {
+      false, AP_M68882_BIAS_EXTENDED,
+      (UINT64_C(1) << 63) | (UINT64_C(1) << 11)};
+
+  const ap_m68882_op_t moved =
+      ap_m68882_move(&wide, RN, AP_M68882_PRECISION_SINGLE);
+  TEST_ASSERT_TRUE_MESSAGE(raised(&moved, AP_M68882_EXC_INEX2),
+                           "an FMOVE at single precision did not round");
+  TEST_ASSERT_EQUAL_HEX64_MESSAGE(UINT64_C(1) << 63, moved.value.mantissa,
+                                  "the rounded value kept bits single cannot "
+                                  "hold");
+
+  /* The same value through `FABS`: every bit kept, nothing raised. */
+  const ap_m68882_op_t absolute = ap_m68882_sign_only(&wide, false);
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(0u, absolute.exceptions,
+                                   "FABS raised something; its page clears "
+                                   "every bit but UNFL");
+  TEST_ASSERT_EQUAL_HEX64(wide.mantissa, absolute.value.mantissa);
+
+  /* At extended precision the move keeps it too -- which is the other half of
+   * the table, and what stops this test passing on an implementation that
+   * simply always rounds to single. */
+  const ap_m68882_op_t kept = ap_m68882_move(&wide, RN, PX);
+  TEST_ASSERT_EQUAL_UINT32(0u, kept.exceptions);
+  TEST_ASSERT_EQUAL_HEX64(wide.mantissa, kept.value.mantissa);
+
+  /* And the sign, which is the whole of what `FABS` and `FNEG` do. */
+  const ap_m68882_extended_t minus = {true, AP_M68882_BIAS_EXTENDED,
+                                      UINT64_C(1) << 63};
+  TEST_ASSERT_FALSE(ap_m68882_sign_only(&minus, false).value.sign);
+  TEST_ASSERT_FALSE(ap_m68882_sign_only(&minus, true).value.sign == minus.sign);
+
+  /* **`UNFL` is named by the source, not by the result**, and all three pages
+   * name it the same way: "if the source is an extended precision denormalized
+   * number". So an `FABS` of a denormal raises it even though `FABS` cannot
+   * make a number smaller. */
+  const ap_m68882_extended_t denormal = {false, 0u, UINT64_C(1) << 40};
+  TEST_ASSERT_TRUE_MESSAGE(
+      raised2(ap_m68882_sign_only(&denormal, false), AP_M68882_EXC_UNFL),
+      "FABS of an extended denormal did not report underflow");
+  TEST_ASSERT_TRUE(raised2(ap_m68882_move(&denormal, RN, PX),
+                           AP_M68882_EXC_UNFL));
+  /* `OVFL` is "Cleared" on all three pages with no qualification, so the
+   * largest value there is passes through silently. */
+  const ap_m68882_extended_t huge = {false, 0x7FFEu,
+                                     UINT64_C(0xFFFFFFFFFFFFFFFF)};
+  TEST_ASSERT_FALSE(raised2(ap_m68882_move(&huge, RN, PX), AP_M68882_EXC_OVFL));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_square_root_is_exact_for_perfect_squares);
@@ -1237,5 +1309,6 @@ int main(void) {
   RUN_TEST(test_the_remainder_operation_table);
   RUN_TEST(test_an_exact_division_leaves_the_dividends_zero);
   RUN_TEST(test_fsglmul_truncates_its_inputs_rather_than_rounding_after);
+  RUN_TEST(test_a_move_rounds_where_an_absolute_value_does_not);
   return UNITY_END();
 }

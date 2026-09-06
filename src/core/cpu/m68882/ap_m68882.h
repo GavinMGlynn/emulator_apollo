@@ -131,6 +131,11 @@ enum {
 
 /* Write the state frame this part would save. Returns its length in bytes, so
  * the caller knows how far a predecrement steps. */
+/* Whether a floating-point exception is pending, which is what the main
+ * processor tests before initiating a non-exempt instruction. Derived from the
+ * FPSR and FPCR, minus the one instruction of grace an `FSAVE` leaves. */
+[[nodiscard]] bool ap_m68882_exception_pending(const ap_m68882_t *fpu);
+
 [[nodiscard]] unsigned ap_m68882_save(ap_m68882_t *fpu, uint8_t *bytes);
 
 /* How long a frame the format word describes, or zero if it is not one this

@@ -6813,6 +6813,81 @@ static void test_an_fsave_lets_the_handler_do_arithmetic(void) {
    * would arm the trap again -- which the test above already pins. */
 }
 
+/* **The state frame carries `EXC PEND` across a context switch, both ways.**
+ *
+ * `FRESTORE`'s page: "Exceptions that were pending before the execution of the
+ * previous FSAVE instruction are pending following the execution of the
+ * FRESTORE instruction." And §6.4.2.2's NOTE gives the handler's half -- "this
+ * bit must be set by the exception handler immediately before an FRESTORE and
+ * RTE. When this bit is not set in the exception handler, the MC68882
+ * **re-executes the handler**."
+ *
+ * So the two halves are a pair, and a model can only get both from the frame:
+ * the save has to *record* the pending state (not a constant), and the restore
+ * has to *read it back*. This runs Figure 7-28's handler twice over -- once
+ * with the `BSET` and once without -- and the two must differ. */
+static void test_a_state_frame_carries_a_pending_exception(void) {
+  for (unsigned with_bset = 0; with_bset < 2u; with_bset++) {
+    /* FDIV.X FP0,FP1 ; FSAVE -(A7) ; [BSET] ; FRESTORE (A7)+ ; FADD.X FP0,FP1 */
+    static const uint16_t program[] = {
+        0xF200u, 0x00A0u,          /* FDIV.X  FP0,FP1  -- raises DZ  */
+        0xF327u,                   /* FSAVE   -(A7)                  */
+        0x08EFu, 0x0003u, 0x0038u, /* BSET    #3,$38(A7)             */
+        0xF35Fu,                   /* FRESTORE (A7)+                 */
+        0xF200u, 0x00A2u,          /* FADD.X  FP0,FP1                */
+        0x4E71u};
+    machine_t m = {0};
+    load(&m, program, 10);
+    if (!with_bset) {
+      /* Replace the BSET with three NOPs, so the instruction count and every
+       * address stay put and the *only* difference is the bit.
+       *
+       * `$38(A7)` rather than `(A7)`: Figure 7-28 writes it `BSET #3,(SP,D0)`
+       * with `D0` holding the state frame's **size byte**, which for this part
+       * is `$38`. The frame's BIU flag long word begins there, and bit 3 of its
+       * first byte is bit 27 of the long word. Aimed at `(A7)` it would set a
+       * bit in the *version* byte instead, which is how this test first failed
+       * -- and is exactly the mistake the indexed form exists to prevent. */
+      for (unsigned w = 0; w < 3u; w++) {
+        m.memory.bytes[PROGRAM_BASE + 6u + w * 2u] = 0x4Eu;
+        m.memory.bytes[PROGRAM_BASE + 7u + w * 2u] = 0x71u;
+      }
+    }
+    plant_vector(&m, AP_M68030_VECTOR_FPCP_DZ, HANDLER);
+    m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+    m.cpu.regs.isp = SUPERVISOR_STACK;
+
+    ap_m68882_t fpu;
+    ap_m68882_reset(&fpu);
+    m.cpu.fpu = &fpu;
+    fpu.regs.fp[0] = ap_m68882_from_single(0x00000000u);
+    fpu.regs.fp[1] = ap_m68882_from_single(0x3F800000u);
+    fpu.regs.fpcr |= (uint32_t)1u << AP_M68882_EXC_DZ;
+
+    for (unsigned i = 0; i < 6u; i++) {
+      /* FDIV, FSAVE, the BSET or its three NOPs, FRESTORE. */
+      TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                            ap_m68030_step(&m.cpu).status);
+    }
+
+    /* The `FADD`. With the `BSET` the frame said "not pending" and it runs;
+     * without it the frame said "pending", the restore put that back, and the
+     * instruction takes the exception again -- which is the loop the NOTE
+     * warns about, reproduced. */
+    const ap_m68030_step_result_t added = ap_m68030_step(&m.cpu);
+    if (with_bset) {
+      TEST_ASSERT_EQUAL_INT_MESSAGE(
+          AP_M68030_STEP_EXECUTED, added.status,
+          "the handler set EXC PEND and the next instruction still trapped");
+    } else {
+      TEST_ASSERT_EQUAL_INT_MESSAGE(
+          AP_M68030_STEP_EXCEPTION, added.status,
+          "the handler omitted the BSET and the exception did not come back");
+      TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+    }
+  }
+}
+
 /* **`FMOVEM` is exempt, which is what makes a handler able to run at all.**
  *
  * The same page's parenthesis -- "other than an FMOVEM, FMOVE control register,
@@ -9072,6 +9147,7 @@ int main(void) {
   RUN_TEST(test_an_f_line_word_traps_when_no_coprocessor_is_fitted);
   RUN_TEST(test_an_enabled_floating_point_exception_traps_on_the_next_one);
   RUN_TEST(test_an_fsave_lets_the_handler_do_arithmetic);
+  RUN_TEST(test_a_state_frame_carries_a_pending_exception);
   RUN_TEST(test_fmovem_does_not_report_a_pending_floating_point_trap);
   RUN_TEST(test_a_disabled_floating_point_exception_does_not_trap);
   RUN_TEST(test_a_fitted_coprocessor_executes_an_f_line_instruction);
