@@ -7317,7 +7317,27 @@ same number is what let them diverge once already.
             the one `[Bt458]` had already taught and this item ignored one
             commit later**: counting tags is a first pass, never a verdict —
             grep the full title too.
-      - [ ] **`[851]` `MC68851_PMMU_Users_Manual_3ed_1988.pdf`, 356 pages.**
+      - [ ] **`[851]` `MC68851_PMMU_Users_Manual_3ed_1988.pdf`, 356 pages —
+            audited 2026-09-07, and the count was wrong a fifth time.** The item
+            says "cited 11 times by full title". `src/core` has **1,019**
+            occurrences of `68851` and an entire module behind nine test suites.
+            A subsystem is derived from this document; it is not "cited".
+            **Method: it is scanned, and it defeated the test being used.**
+            `pdffonts` reports plain Helvetica and Times-Roman with no OCR font
+            — which is how `[PRM]` was correctly judged born-digital — and
+            `pdfimages -list` shows full-page 400 dpi JBIG2 scans underneath.
+            Its text extracts `$00A01A00` as `$OOA01AOO`. So the discriminator
+            is `pdfimages -list`, not `pdffonts`; corrected in both other walk
+            records, and `[PRM]`'s conclusion is unchanged because it passes the
+            right test too.
+            ***§5.1 walked, and it confirms throughout*** — the indirection
+            prohibition that stops a chain (`ap_m68851_search.c` cites Figure
+            5-10's illegal cells), §5.1.4.1.2's limit bypass on a function-code
+            lookup (cited to Figure 5-26, and correctly extended to the DRP),
+            the `L/U` polarity, and §5.1.3's protection, ATC-management and
+            cache-inhibit bits.
+            Record: `docs/references/M68851_WALK.md`.
+            *Owed*: everything except §5.1, 325 pages.
             *Also mis-stated as "zero citations" when this item was written.* It
             is cited **11 times** by full title — §5.1.5, §5.1.5.3, §5.2,
             §5.2.1.3, §6.1.1-§6.1.4, §9.1.2, Figures 5-10/5-21/5-23/6-1/6-3 and
