@@ -7365,11 +7365,25 @@ same number is what let them diverge once already.
             (2) being the access levels above, (6) an ATC-residency-and-`M`-state
             rule that is not the status write-back's own `RMC`, which *is*
             modelled and cited to §4.3.2.2.
-            *Verification*: accumulate `S`, `RAL` and `WAL` across the search as
-            `write_protect` already is, take the most privileged of all `RAL` and
-            `WAL` for the write test, add §4.2.3.3's condition (6), and return a
-            denial the ATC fill caches as `B`. Suites: `m68851_search_suite`,
-            `m68851_atc_suite`.
+            **§5.1.6 gives the whole accumulation algorithm**, so this needs no
+            design work: "the supervisor-only, write-protect, and shared
+            attributes may be specified at any level ... **an attribute will be
+            conferred if the corresponding bit is set at any level**. The
+            effective RAL of a page will be the **minimum (most privileged) of
+            all RAL fields encountered**. The effective WAL ... the **minimum of
+            all WAL fields encountered**, with the exception that **if a WP bit
+            is set for the page at any level, the page will not be writable for
+            any access level**. If there are **no long format descriptors** in
+            the path ... the page is not restricted to supervisor-only, and the
+            effective RAL and WAL are **both `$7`** (least privileged)."
+            So: `S`, `WP` and `SG` OR across levels; `RAL` and `WAL` each take
+            the minimum; `WP` anywhere wins over any `WAL`; and the defaults are
+            not-supervisor and `$7`/`$7`.
+            *Verification*: accumulate them that way -- `write_protect` already
+            is -- add §4.2.3.3's condition (6), and return a denial the ATC fill
+            caches as `B`, which is what `ap_m68851_atc.h` already describes as
+            "the validity of the access is evaluated when the ATC entry is made".
+            Suites: `m68851_search_suite`, `m68851_atc_suite`.
             ***§8, §9, §10, §11 and Appendix A.1-A.2 walked 2026-09-07.***
             §8's Figures 8-3 and 8-4 have their captions transposed and this core
             read past them correctly; Table 9-1 gives the MC68020's four CPU
