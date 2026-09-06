@@ -4,7 +4,17 @@
  *
  * Only the rows whose instruction-cache case reads `(0/0/0)` — no operand
  * reads, no writes, and no instruction bus cycles because the instruction is in
- * the cache. `docs/references/M68030_TIMING.md` records why those rows and no
+ * the cache.
+ *
+ * **§11.6.17's `RESET` row was added on 2026-09-07**, widening the scope past
+ * §11.6.8 and §11.6.9 for one instruction, and the reason is that it was
+ * costing nothing at all. `[030]` §11.6.17 gives `RESET Instruction` as
+ * `518(0/0/0)`, which qualifies under the rule above, and `[PRM]`'s `RESET`
+ * page says the same figure from the other end: "Asserts the RSTO signal for
+ * **512** ... clock periods" — 512 plus six of overhead. Two independent
+ * documents for a number this core charged zero for, on an instruction the boot
+ * PROM executes. It is not data-dependent and it is not an average, so it needs
+ * no qualifier. `docs/references/M68030_TIMING.md` records why those rows and no
  * others: there is nothing in such a number but microcode, which is exactly the
  * quantity this core is missing, and §11.3.1 defines `CC` without any averaging.
  *

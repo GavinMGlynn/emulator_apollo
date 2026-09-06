@@ -7202,8 +7202,38 @@ same number is what let them diverge once already.
             code; identity boot **unchanged** at `42B14372F3677EE8` — and the
             reason is the same one that made the first test useless, so the fills
             count is the verification and the hash is not.*
+            ***§5-§8 and Appendices A-C walked 2026-09-07 --- `[PRM]` is
+            walked whole, 646/646.*** §5 is a completeness check and this core
+            passes it **45/45**: `FNOP` looked missing and is not an operation
+            at all, being `FBF.W *+2` --- coprocessor type `010`, predicate `F`
+            --- which executes through the `CP_BRANCH_WORD` arm *and* delivers a
+            pending trap first, which is the one thing its page says it is for.
+            **§6's defect: `RESET` cost nothing, and it costs 518 clocks.**
+            `[PRM]` gives "Asserts the RSTO signal for 512 ... clock periods" and
+            `[030]` §11.6.17 gives `518(0/0/0)`; the arm bumped a counter and
+            returned. Added to the timing table beside `NOP`/`RTS`/`RTR`/`RTD`.
+            **And `[PRM]` contradicts `[030]` on the traced `STOP`**, with the
+            trace bits transposed --- both read as page images, so neither is an
+            artifact. `[030]` is right (`T1:T0` = `10` is trace-on-any-instruction
+            and `STOP` is not a change of flow), and `[PRM]`'s parenthetical
+            contradicts its own prose in the same sentence. This core already
+            followed `[030]`; the conflict is now recorded in the code so nobody
+            "fixes" it back.
+            §8 verifies the ten citations that rest on it --- Table 8-2's opcode
+            map is `ap_m68030_opcode_family_t` verbatim, Byte/Long/Word ordering
+            included --- and Appendix B's vector table matches
+            `ap_m68030_exception.h` for every vector this part has, the three
+            absent ones being one 68040 and two 68851 vectors.
+            *Verification: `timing_table_suite` extended with `$4E70`; ctest
+            139/139. Identity boot unchanged at `42B14372F3677EE8` **and the
+            clock total byte-identical at `1408663613`**, which is the stronger
+            statement: adding 518 clocks per `RESET` to a total that does not
+            move by one proves the boot executes no `RESET` in its window, so
+            this change is verified by the unit test and not by the boot.*
+            **`[PRM]` finished**: two defects in this core, five documentary
+            errors, one citation defect, and one question recorded as
+            unanswerable because the Symbol font is not embedded.
             Record: `docs/references/PRM_WALK.md`.
-            *Owed*: the rest of §4, then §5-§8 and Appendices A-C.
       - [ ] **`[881]`/`[882]`
             `MC68881_MC68882_Floating-Point_Coprocessor_Users_Manual_1ed_1987.pdf`,
             396 pages.** *This item first said "zero tagged citations" and

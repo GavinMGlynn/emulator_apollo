@@ -69,6 +69,7 @@ enum {
   ROW_RO_IMM,
   ROW_ROX_DN,
   ROW_NOP,
+  ROW_RESET,
   ROW_RTS,
   ROW_RTR,
   ROW_RTD,
@@ -196,6 +197,11 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
      * includes two clocks of bus. Under `max(microcode, bus)` that is still the
      * microcode figure, since every one of these exceeds its own bus time. */
     [ROW_NOP] = {"NOP", {0, 0, 2, 2, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    /* §11.6.17, and the one row here from outside §11.6.8/§11.6.9. It is almost
+     * all `RSTO` assertion rather than microcode -- `[PRM]`'s `RESET` page gives
+     * "512 ... clock periods" against this 518 -- which is why it dwarfs every
+     * other entry and why it is not data-dependent despite doing so. */
+    [ROW_RESET] = {"RESET", {0, 0, 518, 518, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
     [ROW_RTS] = {"RTS", {1, 0, 9, 11, .reads = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_RTR] = {"RTR", {1, 0, 12, 14, .reads = 2, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_RTD] = {"RTD", {2, 0, 10, 12, .reads = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
@@ -264,6 +270,8 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
    * identified by their whole instruction word, since each is a single
    * encoding rather than a family. */
   switch (instruction) {
+  case 0x4E70u:
+    return &TABLE[ROW_RESET];
   case 0x4E71u:
     return &TABLE[ROW_NOP];
   case 0x4E75u:

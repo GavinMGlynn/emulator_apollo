@@ -4,7 +4,7 @@ The instruction set this project implements, for every part in it.
 
 | Tag | File | Pages | Text layer | State |
 | --- | --- | --- | --- | --- |
-| `[PRM]` | `motorola/M68000_Family_Programmers_Reference_Manual_1992.pdf` | 646 | **born-digital** | audit done 2026-09-06; **§1-§3 walked, §4 in progress**, 93+ pages |
+| `[PRM]` | `motorola/M68000_Family_Programmers_Reference_Manual_1992.pdf` | 646 | **born-digital** | audit done 2026-09-06; **WALKED WHOLE, 646/646**, 2026-09-07 |
 
 ## The audit, and it reversed the item's premise for the third time
 
@@ -29,14 +29,14 @@ same fraction of the truth.
 | 1 | Introduction | 12-41 | 1-1 to 1-30 | **walked 30/30, 2026-09-06** |
 | 2 | Addressing Capabilities | 42-71 | 2-1 to 2-30 | **walked 30/30, 2026-09-06** |
 | 3 | Instruction Set Summary | 72-104 | 3-1 to 3-33 | **walked 33/33, 2026-09-06** |
-| 4 | Integer Instructions | 105-302 | 4-1 to 4-198 | **in progress, 2026-09-06** |
-| 5 | Floating-Point Instructions | 303-454 | 5-1 to 5-152 | owed |
-| 6 | Supervisor (Privileged) Instructions | 455-540 | 6-1 to 6-86 | owed |
-| 7 | CPU32 Instructions | 541-556 | 7-1 to 7-16 | owed |
-| 8 | Instruction Format Summary | 557-596 | 8-1 to 8-40 | owed |
-| A | Processor Instruction Summary | 597-627 | | owed |
-| B | Exception Processing Reference | 628-640 | | owed |
-| C | S-Record Output Format | 641-646 | | owed |
+| 4 | Integer Instructions | 105-302 | 4-1 to 4-198 | **walked 198/198, 2026-09-06** |
+| 5 | Floating-Point Instructions | 303-454 | 5-1 to 5-152 | **walked 152/152, 2026-09-07** |
+| 6 | Supervisor (Privileged) Instructions | 455-540 | 6-1 to 6-86 | **walked 86/86, 2026-09-07** |
+| 7 | CPU32 Instructions | 541-556 | 7-1 to 7-16 | **walked 16/16, 2026-09-07** |
+| 8 | Instruction Format Summary | 557-596 | 8-1 to 8-40 | **walked 40/40, 2026-09-07** |
+| A | Processor Instruction Summary | 597-627 | | **walked, 2026-09-07** |
+| B | Exception Processing Reference | 628-640 | | **walked, 2026-09-07** |
+| C | S-Record Output Format | 641-646 | | **walked, 2026-09-07** |
 
 **There is no Appendix D and no Appendix E**, which matters: see the citation
 defect below.
@@ -345,7 +345,166 @@ verification and the hash is not.*
 - **`CHK2`/`CMP2`**: "Z — Set if Rn is equal to either bound; cleared otherwise.
   C — Set if Rn is out of bounds; cleared otherwise", with N and V undefined.
 
+## §5, FLOATING-POINT INSTRUCTIONS — WALKED, 152/152, 2026-09-07
+
+45 distinct instructions. **A completeness check against this list is what the
+section is worth**, because `PROJECT_STATUS.md` claims "every 68882 instruction
+and every data format executes" and this is the list that claim is against.
+
+**45/45.** `AP_M68882_OP_*` carries 44 of them, and the forty-fifth is not
+missing:
+
+**`FNOP` has no operation code because it is not one.** Its instruction format
+is `1111 cpID 010 000000` followed by a zero word — coprocessor type `010`,
+which is `cpBcc` with a *word* displacement, and conditional predicate `000000`,
+which is `F`. So `FNOP` is `FBF.W *+2`, and it executes through this core's
+`AP_M68030_CP_BRANCH_WORD` arm: the predicate evaluates false, the branch is not
+taken, and execution continues. Which is what "Operation: None" means.
+
+And it does the one thing the page says it is *for*. "Execution of FNOP also
+forces any exceptions pending from the execution of a previous floating-point
+instruction to be processed as a preinstruction exception" — and the branch types
+are not in `execute_step`'s save/restore/general exemption, so a pending trap is
+delivered before it. Correct, and for the documented reason rather than by
+accident.
+
+## §6, SUPERVISOR (PRIVILEGED) INSTRUCTIONS — WALKED, 86/86, 2026-09-07
+
+### The defect: `RESET` cost nothing, and it costs 518 clocks
+
+`[PRM]`'s `RESET` page: "Asserts the RSTO signal for **512** (124 for MC68000
+...) clock periods, resetting all external devices." `[030]` §11.6.17 gives the
+instruction as `518(0/0/0)` — the 512 plus six of overhead.
+
+`ap_m68030_step.c`'s `RESET` arm incremented `external_resets` and returned,
+charging **no microcode time at all**. So the machine drove the board's reset
+line and resumed instantly, where the hardware holds it for ~20 µs at 25 MHz.
+
+Fixed by adding the row to `ap_m68030_timing_table.c` beside `NOP`, `RTS`, `RTR`
+and `RTD`, which are already found by their whole instruction word. It is the
+one row from outside §11.6.8/§11.6.9, and the header now says why: it qualifies
+under the module's own `(0/0/0)` rule, it is doubly cited, and it is not
+data-dependent despite dwarfing every other entry — a fixed number of clock
+periods, not a range.
+
+*Verification: `timing_table_suite`'s encoding test extended with `$4E70`.
+Identity boot unchanged at `42B14372F3677EE8` — **and the clock total is
+byte-identical too**, `1408663613` before and after, which is stronger than the
+hash: adding 518 clocks per `RESET` to a total that does not move by one proves
+the boot executes **no `RESET` instruction** in its 350 M window. So this change
+is verified by the unit test and is not exercised by the boot, and saying which
+is the point.*
+
+### `STOP`'s trace bits are transposed here, and `[030]` is right
+
+`[PRM]`'s `STOP` page: "A trace exception occurs if instruction tracing is
+enabled (**T0 = 1, T1 = 0**) when the STOP instruction begins execution."
+
+`[030]` §8.1.7: "A STOP instruction that begins execution with **T1 = 1 and
+T0 = 0** forces a trace exception after it loads the status register."
+
+**The two bits are swapped between the manuals.** Both read as page images on
+2026-09-07, so neither is an extraction artifact, and they cannot both be right.
+
+`[030]` is. `T1:T0` = `10` is *trace on any instruction*, `01` is *trace on
+change of flow*, and `STOP` is not a change of flow — only the first has any
+reason to trace it. **And `[PRM]`'s parenthetical contradicts its own prose in
+the same sentence**: "instruction tracing is enabled" *is* `T1 = 1`, which is
+what the parenthesis then denies. The part's own manual is also what
+`CLAUDE.md`'s resolution order puts first.
+
+This core follows `[030]` and was already right — the traced-`STOP` fix landed
+on 2026-08-26 walking §8. The conflict is now recorded in
+`ap_m68030_step.c`'s `STOP` arm, because the next reader to check it against
+`[PRM]` will find it backwards and be tempted to "fix" it.
+
+### Verified
+
+- **`PMOVE`'s three operand sizes**: "a quad-word (8 byte) operation for the CPU
+  root pointer and the supervisor root pointer ... a long-word operation for the
+  translation control register and the transparent translation registers (TT0
+  and TT1) ... a word operation for the MMU status register". `pmove_size`
+  returns 8, 4 and 2 for exactly those.
+- **`MOVEC` is "always a 32-bit transfer, even though the control register may
+  be implemented with fewer bits. Unimplemented bits are read as zeros"** — which
+  is the sentence that arm already quotes.
+- `MOVES`, `MOVE USP`, `RTE`, `ANDI/EORI/ORI to SR`, `FSAVE`/`FRESTORE`.
+- The 68851-only instructions this part does not have — `PBcc`, `PDBcc`,
+  `PFLUSHR`, `PFLUSHS`, `PRESTORE`, `PSAVE`, `PScc`, `PTRAPcc`, `PVALID` — which
+  is the list `[030]` §9.6 gives and `ap_m68030_step.c` already cites p. 9-51
+  for.
+
+## §7, CPU32 INSTRUCTIONS — WALKED, 16/16, 2026-09-07
+
+Not this machine's part, read for completeness. Table 7-1's list of MC68020
+instructions the CPU32 drops is a useful negative: it contains every bit field
+instruction, `CALLM`/`RTM`, `CAS`/`CAS2`, `PACK`/`UNPK` and the whole coprocessor
+group — all of which the 68030 *does* have and this core implements.
+
+## §8, INSTRUCTION FORMAT SUMMARY — WALKED, 40/40, 2026-09-07
+
+The chapter ten citations already derive from, and it verifies all of them.
+
+- **Table 8-2, the operation code map**: all sixteen rows.
+  `ap_m68030_opcode_family_t` is that table verbatim, including the ordering that
+  invites the mistake — `0001` Move **Byte**, `0010` Move **Long**, `0011` Move
+  **Word** — which `ap_m68030_opcode_move_size` keeps as an explicit mapping
+  "because there is no arithmetic that produces it".
+- **Table 8-1, the conditional predicate field**: the same 32 encodings as
+  Table 3-23, and the same ones `ap_m68882_evaluate_condition` decodes.
+- **§8.1.4's source specifier field**: `000` L, `001` S, `010` X, `011` P, `100`
+  W, `101` D, `110` B. `ap_m68882_format_t` is those values exactly, with `111`
+  carrying the dynamic packed form the 68881/68882 adds.
+- **§8.1.7's shift and rotate fields**: `dr` 0 right / 1 left, `i/r` 0 immediate
+  / 1 register, and a count field where "a zero specifies 8" — the rule
+  `ap_m68030_quick.h` states for the quick data field and the shift decode
+  applies here.
+- **§8.1.8's size field**: `00` byte, `01` word, `10` long, and `11` unlisted
+  because it is the decode escape — which is what `ap_m68030_single.c` and
+  `ap_m68030_quick.h` both rely on.
+- The binary format of every instruction in the family, which is what the rest of
+  the chapter is.
+
+## APPENDICES A, B AND C — WALKED, 50/50, 2026-09-07
+
+- **Table A-8, the MC68030 instruction set**, and **Table A-9, its 18 addressing
+  modes.** This core's `ap_m68030_ea_kind_t` has twelve values, not eighteen, and
+  the difference is structural rather than a gap: Table A-9 counts
+  `(d8,An,Xn)`, `(bd,An,Xn)`, `([bd,An],Xn,od)` and `([bd,An,Xn],od)` as four
+  modes where all four share mode field `110`, and the four PC forms likewise
+  share `111`/`011`. Which of the four an encoding names lives in the *extension
+  word*, and `ap_m68030_ea.h` decodes that separately — the same split Table 2-4
+  makes.
+- **Table B-1, the exception vector assignments for the whole family**, and
+  `ap_m68030_exception.h` matches it for every vector the 68030 has. The three it
+  does not carry are all correctly absent: **55** is "FP Unimplemented Data Type
+  (Defined for MC68040)", and **57** (MMU Illegal Operation) and **58** (MMU
+  Access Level Violation) are the 68851's — access levels being one of the six
+  features `[030]` §9.6 lists the 68030 as lacking.
+- **Figures B-1 to B-15, every stack frame in the family**, including formats
+  `$0`, `$1`, `$2`, `$9`, `$A` and `$B` — the six `AP_M68030_FRAME_*` carries and
+  the same six Appendix A names.
+- **Appendix C, the S-record output format.** A file interchange format for
+  tooling, with no part behaviour in it. Read and recorded as such.
+
+## `[PRM]`: WALKED WHOLE, 646/646, 2026-09-06 to 2026-09-07
+
+Eight sections and three appendices.
+
+| Batch | Sections | Pages | Yield |
+| --- | --- | --- | --- |
+| 2026-09-06 | audit, §1, §2 | 60 | Table 2-4 wrong in four cells and *not* in a scan; Table 1-5's four slips; a citation to an appendix that does not exist |
+| 2026-09-06 | §3, §4 | 231 | a bit field accessed one byte per bit |
+| 2026-09-07 | §5-§8, A-C | 355 | `RESET` cost nothing where it costs 518 clocks; `STOP`'s trace bits transposed against `[030]` |
+
+**Two defects in this core, five documentary errors, one citation defect, and
+one question recorded as unanswerable.** Everything else verified — and the
+verification is the larger part: the opcode map, the vector table, the 32
+floating-point predicates, the FP data formats, the addressing categories, the
+45 floating-point instructions and the six stack frames are all this core's,
+checked field by field against the document they came from.
+
 ## Owed
 
-The rest of §4, then §5 through §8 and Appendices A, B and C.
+Nothing in `[PRM]`.
 

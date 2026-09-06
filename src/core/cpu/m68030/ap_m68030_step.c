@@ -3440,7 +3440,25 @@ static bool execute_control(ap_m68030_cpu_t *cpu,
      * because that is what "begins execution with T1 = 1 and T0 = 0" names --
      * and it must be read before the `write_sr` above, since a `STOP` whose
      * immediate clears the trace bits would otherwise look untraced. Found
-     * walking §8 on 2026-08-26; this arm stopped unconditionally. */
+     * walking §8 on 2026-08-26; this arm stopped unconditionally.
+     *
+     * ## `[PRM]` says the opposite, and `[PRM]` is wrong
+     *
+     * The `STOP` page there reads "A trace exception occurs if instruction
+     * tracing is enabled (**T0 = 1, T1 = 0**) when the STOP instruction begins
+     * execution" -- the two bits transposed against `[030]`'s sentence above.
+     * Both were read as page images on 2026-09-07, so neither is an extraction
+     * artifact, and they cannot both be right.
+     *
+     * `[030]` is. `T1:T0` = `10` is *trace on any instruction* and `01` is
+     * *trace on change of flow*; `STOP` is not a change of flow, so only the
+     * first has any reason to trace it. **And `[PRM]`'s parenthetical
+     * contradicts its own prose in the same sentence** -- "instruction tracing
+     * is enabled" is `T1 = 1`, which is what the parenthesis then denies. The
+     * part's own manual is also what `CLAUDE.md`'s resolution order puts first.
+     *
+     * Recorded here because the next reader to check this against `[PRM]` will
+     * find it backwards and be tempted to "fix" it. */
     if (entry_trace != AP_M68030_TRACE_ANY_INSTRUCTION) {
       cpu->stopped = true;
     }

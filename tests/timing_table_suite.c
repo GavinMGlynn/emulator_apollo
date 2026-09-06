@@ -213,6 +213,28 @@ static void test_the_control_instructions_are_found_by_their_encodings(void) {
       ap_m68030_timing_for_word(0x4808u);
   TEST_ASSERT_NOT_NULL(link_long);
   TEST_ASSERT_EQUAL_UINT(6u, link_long->timing.cache_case);
+
+  /* **RESET is $4E70 and costs 518 clocks, and this core charged nothing.**
+   *
+   * `[030]` §11.6.17 gives `RESET Instruction` as `518(0/0/0)`, and `[PRM]`'s
+   * `RESET` page says the same from the other end: "Asserts the RSTO signal for
+   * 512 ... clock periods", which is 512 plus six of overhead. Two independent
+   * documents for a figure the instruction arm was charging zero for -- and the
+   * boot PROM executes RESET, so the machine was resuming instantly where the
+   * hardware holds the reset line for ~20 us at 25 MHz.
+   *
+   * It is the one row here from outside §11.6.8/§11.6.9, because it is almost
+   * all signal duration rather than microcode. Found walking `[PRM]` §6 on
+   * 2026-09-07. */
+  const ap_m68030_table_entry_t *reset = ap_m68030_timing_for_word(0x4E70u);
+  TEST_ASSERT_NOT_NULL(reset);
+  TEST_ASSERT_EQUAL_UINT(518u, reset->timing.cache_case);
+  TEST_ASSERT_EQUAL_UINT(518u, reset->timing.no_cache_case);
+  TEST_ASSERT_EQUAL_UINT(0u, reset->timing.head);
+  TEST_ASSERT_EQUAL_UINT(0u, reset->timing.tail);
+  /* Not data-dependent, despite dwarfing every other row: the assertion is a
+   * fixed number of clock periods, not a range. */
+  TEST_ASSERT_FALSE(reset->data_dependent);
 }
 
 /* Writing the status register costs 12 clocks — six times the same logical
