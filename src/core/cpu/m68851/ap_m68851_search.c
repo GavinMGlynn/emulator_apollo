@@ -151,7 +151,27 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
     /* "TYPE <- 'EARLY'": the root maps directly with a constant offset and no
      * table is walked at all. §6.1.1.4: "the page descriptor is formed by
      * adding (unsigned) the value in the table address field to the incoming
-     * logical address." */
+     * logical address."
+     *
+     * ## No limit check here, and §6.1.1.4 says there is one
+     *
+     * That paragraph ends: "If the DT field of a root pointer is set to `$1`,
+     * the MC68851 performs a limit check **regardless of the state of the FCL
+     * bit**." Taken at face value it makes this arm a defect.
+     *
+     * It is not. **Figure 5-23, the detailed table search flowchart, draws this
+     * path with no limit check on it**: `CHECK DESCRIPTOR TYPE OF ROOT POINTER`
+     * -> `DT = 'PAGE DESCRIPTOR'` -> `TYPE <- 'EARLY'` -> `CREATE ATC ENTRY`,
+     * and `PERFORM LIMIT CHECK` appears only after `ENTERING A LEVEL TABLE
+     * SEARCH`. And §6.3.1.2 defines the violation as "a table index extracted
+     * from a logical address exceed[ing] the limit field of a corresponding
+     * long format descriptor" -- and this path extracts no table index at all.
+     *
+     * So it is the flowchart and the error definition against one sentence of
+     * register-field prose, which is the same shape as `[881]`'s transposed
+     * `FATANH` signs: the algorithm is right and the paragraph is not.
+     * Investigated 2026-09-07 and left as it is, recorded because §6.1.1.4
+     * reads like a defect report against this arm. */
     out.type = AP_M68851_SEARCH_TYPE_EARLY;
     out.physical_address = config->root->table_address + logical_address;
     out.shared_globally = config->root->shared_globally;
