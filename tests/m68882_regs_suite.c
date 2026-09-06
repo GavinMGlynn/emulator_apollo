@@ -506,16 +506,44 @@ static void test_the_branches_lack_trichotomy(void) {
   TEST_ASSERT_TRUE(ap_m68882_evaluate_condition(&unordered, 0x15u).bsun);
 }
 
-static void test_an_undefined_predicate_is_not_indexed(void) {
-  /* Table 4-8 defines `$00-$1F` and nothing above it. A six-bit field can hold
-   * more, and reading a table with an encoding the manual never defines is how
-   * a decoder invents behaviour. */
-  const ap_m68882_regs_t regs = with_condition(false, false, true);
-  for (unsigned p = 0x20u; p <= 0x3Fu; p++) {
-    const ap_m68882_condition_t got = ap_m68882_evaluate_condition(&regs, p);
-    TEST_ASSERT_FALSE(got.taken);
-    TEST_ASSERT_FALSE(got.bsun);
+/* **A predicate's bit 5 is ignored, not reserved.**
+ *
+ * This test used to assert the opposite, from Table 4-8: "Table 4-8 defines
+ * `$00-$1F` and nothing above it. A six-bit field can hold more, and reading a
+ * table with an encoding the manual never defines is how a decoder invents
+ * behaviour." That is a sound instinct and the wrong conclusion here, because
+ * §4.7.2's **Table 4-20** does define them -- its last row is `1XXXXX`
+ * "(Undefined, Reserved)" and note 3 says what that means: "Not used,
+ * **redundant encodings with 0XXXXX**. No F-line trap is taken if these bit
+ * patterns are used."
+ *
+ * So the upper sixteen are the lower sixteen, and the old code and the old test
+ * agreed on "always false" -- which took no trap, and so looked right, while
+ * answering false to every one of them. `FBNE` written as `$2E` would have
+ * fallen through every time. Corrected 2026-09-07 walking §4.7.2. */
+static void test_the_upper_predicates_alias_the_lower_ones(void) {
+  /* Every combination of the three condition bits the equations read, so the
+   * aliasing is checked against real answers rather than against `false`. */
+  for (unsigned bits = 0; bits < 8u; bits++) {
+    const ap_m68882_regs_t regs =
+        with_condition((bits & 1u) != 0u, (bits & 2u) != 0u,
+                       (bits & 4u) != 0u);
+    for (unsigned p = 0x00u; p <= 0x1Fu; p++) {
+      const ap_m68882_condition_t low =
+          ap_m68882_evaluate_condition(&regs, p);
+      const ap_m68882_condition_t high =
+          ap_m68882_evaluate_condition(&regs, p | 0x20u);
+      TEST_ASSERT_EQUAL_MESSAGE(low.taken, high.taken,
+                                "a predicate with bit 5 set did not alias");
+      TEST_ASSERT_EQUAL_MESSAGE(low.bsun, high.bsun,
+                                "the aliased predicate lost its BSUN rule");
+    }
   }
+
+  /* And at least one of them is genuinely true, so the test cannot pass by
+   * both halves being false: `$21` is `EQ`, and `Z` is set here. */
+  const ap_m68882_regs_t equal = with_condition(false, true, false);
+  TEST_ASSERT_TRUE(ap_m68882_evaluate_condition(&equal, 0x21u).taken);
 }
 
 int main(void) {
@@ -536,7 +564,7 @@ int main(void) {
   RUN_TEST(test_the_thirty_two_predicates_over_every_condition);
   RUN_TEST(test_bsun_is_bit_four_against_the_nan_condition);
   RUN_TEST(test_the_branches_lack_trichotomy);
-  RUN_TEST(test_an_undefined_predicate_is_not_indexed);
+  RUN_TEST(test_the_upper_predicates_alias_the_lower_ones);
   RUN_TEST(test_the_inexact_trap_has_its_own_equation);
   RUN_TEST(test_both_inexact_bits_share_one_vector);
   return UNITY_END();

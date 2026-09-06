@@ -533,6 +533,27 @@ static void test_scale_is_exact_exponent_arithmetic(void) {
   const ap_m68882_extended_t infinity = single(0x7F800000u);
   const ap_m68882_op_t infinite = ap_m68882_scale(&three, &infinity);
   TEST_ASSERT_TRUE(raised(&infinite, AP_M68882_EXC_OPERR));
+
+  /* **And it is exact even when it overflows.** The `FSCALE` page prints
+   * `INEX2: Cleared` outright, where every arithmetic instruction's exception
+   * byte says "Refer to 6.1.7 Inexact Result" -- and `[PRM]`'s own `FSCALE`
+   * page says it again five years later. Nothing here touches the mantissa, so
+   * there is nothing to be inexact about; the overflow is a range failure, not
+   * a rounding.
+   *
+   * The tell that this was wrong without the page: the underflow arm below
+   * already raised `UNFL` alone, and the two disagreed. */
+  const ap_m68882_extended_t big = single(0x46800000u); /* 2^14 */
+  const ap_m68882_op_t over = ap_m68882_scale(&three, &big);
+  TEST_ASSERT_TRUE(raised(&over, AP_M68882_EXC_OVFL));
+  TEST_ASSERT_FALSE_MESSAGE(raised(&over, AP_M68882_EXC_INEX2),
+                            "FSCALE reported an inexact result; both its page "
+                            "and [PRM]'s print INEX2 as Cleared");
+
+  const ap_m68882_extended_t small = single(0xC6800000u); /* -2^14 */
+  const ap_m68882_op_t under = ap_m68882_scale(&three, &small);
+  TEST_ASSERT_TRUE(raised(&under, AP_M68882_EXC_UNFL));
+  TEST_ASSERT_FALSE(raised(&under, AP_M68882_EXC_INEX2));
 }
 
 static void test_a_divide_normalises_when_the_dividend_is_the_smaller(void) {

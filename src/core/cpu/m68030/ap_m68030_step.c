@@ -5612,7 +5612,19 @@ static fp_source_result_t execute_fp_conditional(
   if (mode == 0x7u && reg > 0x1u) {
     /* Table 4-19's genuinely reserved rows, `111 101` through `111 111`. Note
      * 3: "The MPU takes an F-line emulation trap" -- the machine's behaviour
-     * and not our gap. */
+     * and not our gap.
+     *
+     * **"Genuinely" is doing work.** Table 4-19 also lists `111 000` and
+     * `111 001` as "(Undefined, reserved)" with the same note, and those are
+     * absolute short and absolute long -- which the `FScc` page's own
+     * addressing-mode table in the same manual lists as **allowed**, and which
+     * `[PRM]`'s `FScc` page repeats five years later under "only data alterable
+     * addressing modes can be used". Two witnesses against one, and the class
+     * settles it: absolute addressing *is* data alterable, and §4.7.1.6's NOTE
+     * puts the enforcement in the MPU, whose declared class for the conditional
+     * dialogue is data alterable. Table 4-19's two rows are the error, and
+     * `reg > 0x1u` rather than `reg != 0x2..0x4` is where that decision
+     * lives. */
     cpu->pending_vector = AP_M68030_VECTOR_LINE_F;
     return FP_SOURCE_FETCHED;
   }
@@ -5620,6 +5632,20 @@ static fp_source_result_t execute_fp_conditional(
   /* FScc. "If the specified floating-point condition is true, sets the byte
    * integer operand at the destination to TRUE (all ones), otherwise sets the
    * byte to FALSE (all zeroes)." */
+  /* **Unreachable, and that is a statement about the encoding rather than an
+   * accident.** Table 4-19 enumerates the whole instruction-specific field for
+   * this instruction type, and every one of the sixty-four encodings has
+   * already been claimed above: `001 xxx` is `FDBcc`, `111 010`-`111 100` are
+   * `FTRAPcc`, `111 101`-`111 111` are reserved, and the eight remaining mode
+   * groups -- `000`, `010`-`110`, and `111 000`/`111 001` -- are all data
+   * alterable. So an `FScc` with a non-alterable destination cannot be written.
+   *
+   * Kept rather than deleted, because the guard is what makes the enumeration
+   * checkable: `step_suite` sweeps all sixty-four and asserts none of them
+   * reaches it. `[030]` §10.2.2.2.2 has the main processor evaluate this
+   * address itself and never names an exception, so if the encoding ever did
+   * admit one there would be nothing to transcribe -- which is the other
+   * reason not to leave the arm out. */
   if (!ap_m68030_ea_is_data_alterable(coproc->ea.kind)) {
     return FP_SOURCE_PROTOCOL_VIOLATION;
   }

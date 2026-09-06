@@ -902,6 +902,106 @@ static void test_fsave_uses_the_active_stack_pointer_not_a7_the_array_slot(
   TEST_ASSERT_EQUAL_HEX32(0x00007000u, m.cpu.regs.usp);
 }
 
+/* **Table 4-19 accounts for all sixty-four conditional encodings, and two of
+ * its rows are wrong.**
+ *
+ * The table splits the operation word's instruction-specific field for the
+ * `FDBcc`/`FScc`/`FTRAPcc` type: `001 xxx` is `FDBcc`, `111 010`-`111 100` are
+ * `FTRAPcc`, `111 101`-`111 111` are reserved and take an F-line, and
+ * everything else is `FScc` with the field read as an addressing mode.
+ *
+ * It also lists **`111 000` and `111 001`** -- absolute short and absolute long
+ * -- as "(Undefined, reserved)", and that contradicts the `FScc` page's own
+ * addressing-mode table in the same manual *and* `[PRM]`'s five years later,
+ * both of which allow them under "only data alterable addressing modes can be
+ * used". Absolute addressing is data alterable; the two rows are the error.
+ *
+ * The sweep is what makes that a checkable claim rather than a preference:
+ * every encoding either does something or takes the F-line, **and none of them
+ * reaches the data-alterable guard**, which is therefore unreachable by
+ * construction. */
+static void test_every_conditional_encoding_is_accounted_for(void) {
+  for (unsigned field = 0; field < 64u; field++) {
+    const unsigned mode = field >> 3;
+    const unsigned reg = field & 7u;
+    if (mode == 1u) {
+      continue; /* FDBcc, which consumes a displacement word of its own. */
+    }
+    /* FScc/FTRAPcc with predicate `F` (never true), so nothing is written and
+     * no branch is taken -- the encoding is the whole subject here. */
+    const uint16_t program[] = {(uint16_t)(0xF240u | field), 0x0000u,
+                                0x0000u, 0x0000u, 0x4E71u};
+    machine_t m = {0};
+    load(&m, program, 5);
+    m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+    m.cpu.regs.isp = SUPERVISOR_STACK;
+    m.cpu.regs.a[0] = 0x00002000u;
+    plant_vector(&m, AP_M68030_VECTOR_LINE_F, HANDLER);
+    plant_vector(&m, AP_M68030_VECTOR_COPROCESSOR_PROTOCOL, HANDLER + 0x40u);
+    ap_m68882_t fpu;
+    ap_m68882_reset(&fpu);
+    m.cpu.fpu = &fpu;
+
+    char what[56];
+    (void)snprintf(what, sizeof what, "conditional field %u%u%u", mode >> 1,
+                   mode & 1u, reg);
+    const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+
+    const bool reserved = (mode == 7u && reg > 4u);
+    if (reserved) {
+      TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_STEP_EXCEPTION, r.status, what);
+      TEST_ASSERT_EQUAL_HEX32_MESSAGE(HANDLER, m.cpu.regs.pc, what);
+    } else {
+      /* Everything else runs. In particular `111 000` and `111 001` run, which
+       * is the half Table 4-19 gets wrong -- and nothing anywhere reaches the
+       * protocol-violation handler. */
+      TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_STEP_EXECUTED, r.status, what);
+      TEST_ASSERT_NOT_EQUAL_HEX32_MESSAGE(HANDLER + 0x40u, m.cpu.regs.pc, what);
+    }
+  }
+}
+
+/* **A register-to-register instruction ignores its effective address field,
+ * and must not trap on it.**
+ *
+ * §4.7.1: "If all operands are contained in FPCP floating-point data registers,
+ * the effective address field should be all zeros. If the effective address
+ * field is not all zeros, **instruction execution proceeds normally; no F-line
+ * emulator exception trap is taken**. However, to ensure compatibility with
+ * future devices, assembler and compiler programmers should fill this field
+ * with zeros when it is not used."
+ *
+ * That is worth pinning because five sites in this file *do* take the F-line
+ * on an addressing mode, corrected from `[030]` §10 and `[881]` Table 7-5 --
+ * and every one of them is a class the coprocessor declares for a *transfer*.
+ * Opclass `000` declares none, so the field is not an address at all. */
+static void test_a_register_to_register_operation_ignores_the_ea_field(void) {
+  /* FADD.X FP0,FP1 with every effective-address encoding in the operation
+   * word, including the ones that would be an F-line for a memory operand:
+   * `(d16,PC)` at `111 010`, `#<data>` at `111 100`, and the reserved
+   * `111 101`-`111 111`. */
+  for (unsigned ea = 0; ea < 64u; ea++) {
+    const uint16_t program[] = {(uint16_t)(0xF200u | ea), 0x00A2u, 0x4E71u};
+    machine_t m = {0};
+    load(&m, program, 3);
+    m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+    ap_m68882_t fpu;
+    ap_m68882_reset(&fpu);
+    m.cpu.fpu = &fpu;
+    fpu.regs.fp[0] = ap_m68882_from_single(0x3F800000u);
+    fpu.regs.fp[1] = ap_m68882_from_single(0x3F800000u);
+
+    char what[48];
+    (void)snprintf(what, sizeof what, "FADD FP0,FP1 with ea field %02o", ea);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_STEP_EXECUTED,
+                                  ap_m68030_step(&m.cpu).status, what);
+    /* And it really added: 1.0 + 1.0 = 2.0, so the field was ignored rather
+     * than consumed as an extension word. */
+    TEST_ASSERT_EQUAL_HEX32_MESSAGE(0x40000000u,
+                                    ap_m68882_to_single(&fpu.regs.fp[1]), what);
+  }
+}
+
 /* **A floating-point instruction costs what it calculates.**
  *
  * `[881]` §8.5.2 splits an FPCP instruction into six phases and says which side
@@ -9246,6 +9346,8 @@ int main(void) {
   RUN_TEST(test_no_word_in_the_instruction_space_reports_unimplemented);
   RUN_TEST(test_no_coprocessor_operation_reports_unimplemented);
   RUN_TEST(test_fsave_uses_the_active_stack_pointer_not_a7_the_array_slot);
+  RUN_TEST(test_every_conditional_encoding_is_accounted_for);
+  RUN_TEST(test_a_register_to_register_operation_ignores_the_ea_field);
   RUN_TEST(test_a_floating_point_instruction_costs_its_calculation);
   RUN_TEST(test_a_floating_point_store_costs_its_output_conversion);
   RUN_TEST(test_fmovem_predecrement_steps_the_active_stack_pointer);

@@ -96,9 +96,18 @@ ap_m68882_evaluate_condition(const ap_m68882_regs_t *regs,
   const bool z = ((regs->fpsr >> AP_M68882_FPCC_Z) & 1u) != 0u;
   const bool nan = ((regs->fpsr >> AP_M68882_FPCC_NAN) & 1u) != 0u;
 
-  if (predicate > 0x1Fu) {
-    return (ap_m68882_condition_t){false, false};
-  }
+  /* **Bit 5 is ignored, not reserved.** Table 4-20's last row gives `1XXXXX`
+   * as "(Undefined, Reserved)" and its note 3 says what that means here: "Not
+   * used, **redundant encodings with 0XXXXX**. No F-line trap is taken if these
+   * bit patterns are used. To ensure compatibility with future devices,
+   * assemblers and compilers should use the 0XXXXX encodings."
+   *
+   * So a predicate of `$21` is `EQ`, exactly as `$01` is. This used to return
+   * "not taken, no BSUN" for the whole upper half -- which took no trap, and
+   * so looked right, while answering **false** to sixteen predicates the part
+   * evaluates properly. `FBNE` written as `$2E` would have fallen through every
+   * time. Corrected 2026-09-07 walking §4.7.2. */
+  predicate &= 0x1Fu;
 
   bool taken;
   /* §4.4's sixteen equations, transcribed from the tables on pages 4-9 and

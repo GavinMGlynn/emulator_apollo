@@ -7216,115 +7216,22 @@ same number is what let them diverge once already.
             errors, one citation defect, and one question recorded as
             unanswerable because the Symbol font is not embedded.
             Record: `docs/references/PRM_WALK.md`.
-      - [ ] **`[881]`/`[882]`
-            `MC68881_MC68882_Floating-Point_Coprocessor_Users_Manual_1ed_1987.pdf`,
-            396 pages — audited 2026-09-07, and the count was wrong a second
-            time.** This item had already corrected itself once, from "zero
-            tagged citations" to "cited 11 times". The real figure is **fifty**
-            references across `src/core`, spanning §2, §3, §4, §6 and §7. Fourth
-            document in this batch to have its premise reversed by the same one
-            grep.
-            **Method: this one is scanned, not born-digital** — `pdffonts` shows
-            `HiddenHorzOCR` — so unlike `[PRM]` the page-image rule applies in
-            full, and the OCR is exactly as bad as the rule assumes: Table 4-8
-            extracts `UEQ` as `UEa`, `SEQ` as `SEa`, `EQ` as `EO`, and an arrow
-            as a full stop.
-            ***§1-§4.6 and §6.1 walked.*** **The 4096-ULP question in
-            `ap_m68882_accuracy.h` is closed**, and the discriminator was three
-            paragraphs below the sentence that raised it: §4.3.2's worked example
-            converts 2^-57 to "64 units in the last place", a plain ratio with no
-            doubling — which excludes the window reading that header proposed as
-            a guess, and makes 4096 a documentary error for 2048. **`FATANH`'s
-            transposed infinity signs turn out to be stated twice**, in §6.1.6 as
-            well as on the instruction page; two statements of one error, which
-            strengthens the code's mathematical override rather than reversing
-            it. One comment corrected (the exception priority *is* the bit
-            order; §2.2.1 says so). Verified and holding: the `FSGLDIV`/`FSGLMUL`
-            precision/range split, §2.3.4's five AEXC equations including both
-            traps, §6.1.9's priority with the `INEX2`-on-overflow case, all seven
-            of Table 6-3's divide-by-zero cases, §3.4's 17-bit intermediate
-            exponent, and Table 4-10 as a **third witness** against `[PRM]`
-            Table 2-4.
-            **And a false start worth the record**: §4.5.5.2's "each mantissa is
-            truncated to 23 bits" is already implemented, and I implemented it a
-            second time before checking. The tell was a test that passed with the
-            new code removed. Reverted; what was missing was the *test*, which is
-            now there and discriminates.
-            ***§6.2, §7 and §8 walked.*** **`[881]` Table 7-5 settles a
-            question the `[030]` §10 walk had to leave open** — it declares the
-            valid-EA class per opclass, and `FMOVE FPm,<ea>` (opclass `011`) is
-            `001` Data Alterable, so a non-alterable destination is a *class
-            mismatch* and therefore an F-line, not the protocol violation this
-            core reported. Corrected; two of the three deferred sites remain.
-            §7 also verifies `ap_m68882_cir.c` against **Table 7-2** field for
-            field, including the two CIRs the MC68881 does not implement and the
-            "reads of a write-only register always return all ones" rule.
-            Figure 6-3's rounding algorithm is transcribed line for line in
-            `ap_m68882_round.c`, tie-to-even included; §6.1.7's NOTE confirms the
-            overflow-through-`ENABLE(INEX2)` trap the priority scan carries; and
-            Table 6-2's operand errors and Table 6-3's seven divide-by-zero
-            cases both check out, the `k`-factor clamp to +17 with `OPERR`
-            included.
-            ***§5, §9-§13, both appendices, the index and the foldouts walked
-            2026-09-07 — 71 pages, and they found a real gap.*** Appendix A's
-            glossary defines an **unnormalized number** as a category separate
-            from a denormalized one, which sent me back to §3.2.2's NOTE:
-            "unnormalized inputs are always converted to normalized or
-            denormalized numbers or zero **before being used**", and "the
-            MC68881 never generates an unnormalized number as the result of any
-            operation". This core did neither — it copied the caller's redundant
-            encoding straight through. Fixed in `ap_m68882_normalize_input`,
-            called where both operands are gathered and on the extended store,
-            and deliberately *not* in the decoder `FMOVEM` shares. §5's
-            conversion-unit rules and Table 5-5's note **b** are a second and
-            third witness that the part treats "unnormalized" as an input data
-            type of its own.
-            §5 also gives Table 5-7's three `FMOVE` execution times and reaches
-            the idle state frame's layout by two further routes (Table 5-8's
-            sizes, §5.2.2's `$28`/`$34` offsets indexed by the size byte), and
-            **Figure 5-9 is the published way a program tells a 68881 from a
-            68882** — it reads the size byte and compares it with `$18`. The
-            `step_suite` assertion on that byte compared the constant with
-            itself; it now asserts the literal too. §10.2 and Figure 10-3 are a
-            second witness for `[030]` §10.5.3's "not by `RESET` instructions",
-            and §10.4 plus §12.6's clock-unit specs 25 and 27 cost the interface
-            itself. Detail in `PROJECT_STATUS.md` and the walk record.
-            ***§8 walked whole the same day, 38 pages, and it half-closes the
-            timing gap below.*** §8.5.2's phase diagram splits an FPCP
-            instruction six ways and assigns each side its own: start-up,
-            effective address and operand transfer are "almost entirely
-            dependent on the execution characteristics of the main processor",
-            and convert, calculate and round are "dependent **solely on the
-            FPCP**". This core charged the first three as real bus cycles and
-            the last three as nothing. `ap_m68882_timing.c` now charges them
-            from Table 8-3's register-to-register column and Tables 8-16/8-17's
-            output conversion — the register-to-register column deliberately,
-            because a memory column would count the operand transfer twice.
-            `PROVISIONAL` in three named ways (data-dependent calculation,
-            unmodelled concurrency, assumed rounding case), and §8.5.1's NOTE
-            that the tables assume an MC68020 host does not reach what is
-            transcribed. **A probe defect fell out of it**: `probe_fpu_transfer`
-            supplied one immediate word to a `MOVE.L #<data>,(An)` and decoded
-            from the wrong boundary thereafter, so the probe named after "both
-            operand directions" reached neither. Detail in `PROJECT_STATUS.md`
-            and the walk record.
-            ***§6.3-§6.4 and §7.5 walked the same day — the manual is now
-            whole except §4's per-instruction pages.*** Two defects in the idle
-            state frame: the reserved word is `$FFFF` and the BIU flag word
-            `$7C00FFFF`, where both were zeros — and Figure 6-6's definitions
-            run the *other way* from an uninitialised field, so a zeroed word
-            claimed an exception pending, an operand transfer outstanding and a
-            reserved pending-operation code on a part that had raised nothing.
-            **`FSAVE` negates `EXC PEND`**, stated three times, and Figure
-            7-28's handler shows it cannot be a write to the FPSR: without it a
-            handler's own first arithmetic instruction re-took the trap it was
-            written to handle. And a `PROVISIONAL` closed without the value
-            moving — §6.4.2.2's NOTE publishes the format words, `$1F38` for the
-            MC68882, where the old note had read the prose two paragraphs above
-            it and concluded nothing was published. Detail in
-            `PROJECT_STATUS.md` and the walk record.
+      - [x] **`[881]`/`[882]`
+            `MC68881_MC68882_Floating-Point_Coprocessor_Users_Manual_1ed_1987.pdf`
+            — walked whole, 396/396, 2026-09-07.** Scanned, so page images
+            throughout; the audit reversed the item's premise a fourth time
+            (fifty citations, not eleven). **Twelve defects fixed**, each with a
+            discriminating test: five coprocessor-EA refusals corrected to
+            F-line, the unnormalized fold, `FSAVE`/`FRESTORE`'s `EXC PEND`
+            record, the idle frame's reserved word and BIU flags, `FCMP`'s
+            `N`-on-equal, `FMOVE`'s rounding against `FABS`/`FNEG`'s, `FSCALE`'s
+            `INEX2`, and a predicate's bit 5 — that last one asserted by the
+            test as well. Instruction timing now charged from Table 8-3;
+            concurrency still not. Four `PROVISIONAL`s closed, including the
+            4096-ULP question and the microcode version. Eight documentary
+            errors recorded where the code is right.
+            Detail in `PROJECT_STATUS.md`.
             Record: `docs/references/M68881_WALK.md`.
-            *Owed*: §4's per-instruction pages (PDF 74-201). Nothing else.
       - [ ] **The 68882's instruction timing is charged as of 2026-09-07; its
             *concurrency* is not.** Opened as "no instruction execution timing",
             which was true until `[881]` §8 was walked whole. What remains is

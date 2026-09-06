@@ -1152,9 +1152,16 @@ ap_m68882_op_t ap_m68882_scale(const ap_m68882_extended_t *a,
   const int scaled = (int)a->exponent + amount;
   ap_m68882_extended_t result = *a;
   if (scaled >= (int)MAX_EXPONENT) {
+    /* **`OVFL` alone.** `FSCALE`'s exception byte prints `INEX2: Cleared`
+     * outright where every arithmetic instruction's says "Refer to 6.1.7
+     * Inexact Result", and `[PRM]`'s own `FSCALE` page says it again five years
+     * later -- two documents, and this one adds nothing to the mantissa to be
+     * inexact about. It used to raise both; corrected 2026-09-07 walking §4.6.
+     *
+     * The underflow arm below never raised it, which is the inconsistency that
+     * would have found this without the page. */
     out.value = make_infinity(a->sign);
-    out.exceptions = (UINT32_C(1) << AP_M68882_EXC_OVFL) |
-                     (UINT32_C(1) << AP_M68882_EXC_INEX2);
+    out.exceptions = UINT32_C(1) << AP_M68882_EXC_OVFL;
     return out;
   }
   if (scaled <= 0) {
