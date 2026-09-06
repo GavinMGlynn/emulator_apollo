@@ -1880,6 +1880,122 @@ typedef struct {
   bool to_register;
 } bitfield_spec_t;
 
+/* ## A bit field touches one to five bytes, and the part accesses exactly those
+ *
+ * `[PRM]`, the note on every bit field instruction page: "For the MC68020,
+ * MC68030, and MC68040, all bit field instructions access only those bytes in
+ * memory that contain some portion of the bit field. **The possible accesses are
+ * byte, word, 3-byte, long word, and long word with byte (for a 5-byte
+ * access).**"
+ *
+ * **This core read the field one byte per bit** — thirty-two single-byte
+ * accesses for a 32-bit field where the part performs one or two. Found walking
+ * `[PRM]` §4 on 2026-09-06, and `[030]` §11.6.14 confirms it from the timing
+ * end: `BFTST Mem (<5 Bytes)` is `10(1/0/0)`, **one** operand read, and
+ * `BFTST Mem (5 Bytes)` is `14(2/0/0)`, two. Nothing caught it because those
+ * rows are among the ones `ap_m68030_timing_table.c` deliberately does not
+ * transcribe — they have a non-zero read count.
+ *
+ * It was wrong about more than the count. Thirty-two byte cycles hit a
+ * read-side device thirty-two times, take thirty-two cache lookups, and give a
+ * bus error a byte address where the hardware would give a long-word one. The
+ * write path was worse: a read-modify-write **per bit**, so a bit field written
+ * across a device register read and rewrote it eight times a byte.
+ *
+ * `ap_m68030_operand_read` already splits a span at long-word boundaries and
+ * issues the fewest cycles for it, so asking for the span is all that is needed
+ * — the shapes the note lists fall out of that rather than being enumerated.
+ * The one case it cannot express is the five-byte span, because the result is a
+ * `uint32_t`; that is the note's own "long word with byte", done as two calls. */
+typedef struct {
+  int64_t first_byte; /* relative to the base address; may be negative */
+  unsigned bytes;     /* 1 to 5 */
+} bitfield_span_t;
+
+/* Flooring division, because the offset may be negative: bit -1 is the LSB of
+ * the byte *before* the base, so -1/8 must be -1 and not 0. */
+static int64_t bitfield_floor_byte(int64_t bit) {
+  return (bit >= 0) ? (bit / 8) : -((-bit + 7) / 8);
+}
+
+static bitfield_span_t bitfield_span_of(const bitfield_spec_t *spec) {
+  const int64_t low = (int64_t)spec->offset;
+  const int64_t high = low + (int64_t)spec->width - 1;
+  const int64_t first = bitfield_floor_byte(low);
+  const int64_t last = bitfield_floor_byte(high);
+  return (bitfield_span_t){first, (unsigned)(last - first + 1)};
+}
+
+/* Where field bit `i` sits in the assembled span, counting from the span's least
+ * significant bit. The span is assembled with its first byte most significant,
+ * so this is the big-endian position the manual's bit numbering describes. */
+static unsigned bitfield_span_shift(const bitfield_span_t *span,
+                                    const bitfield_spec_t *spec, unsigned i) {
+  const int64_t bit = (int64_t)spec->offset + (int64_t)i;
+  const int64_t within = bit - span->first_byte * 8;
+  return (unsigned)((int64_t)span->bytes * 8 - 1 - within);
+}
+
+static bool bitfield_span_read(ap_m68030_cpu_t *cpu, uint32_t base_address,
+                               const bitfield_span_t *span, uint64_t *out,
+                               uint32_t *clocks) {
+  const uint32_t start = (uint32_t)((int64_t)base_address + span->first_byte);
+  /* "long word with byte (for a 5-byte access)" is the only span that will not
+   * fit one call; every other shape the note lists -- byte, word, 3-byte, long
+   * word -- is one. */
+  const unsigned head = (span->bytes > 4u) ? 4u : span->bytes;
+  const ap_m68030_address_t where = {.address = start, .valid = true};
+  const ap_m68030_operand_result_t read = step_operand_read(
+      cpu, &cpu->regs, cpu->data, &where, head, cpu->data_function_code);
+  *clocks += read.clocks;
+  if (!read.ok) {
+    return false;
+  }
+  uint64_t value = read.value;
+
+  if (span->bytes > 4u) {
+    const ap_m68030_address_t tail = {.address = start + 4u, .valid = true};
+    const ap_m68030_operand_result_t second = step_operand_read(
+        cpu, &cpu->regs, cpu->data, &tail, span->bytes - 4u,
+        cpu->data_function_code);
+    *clocks += second.clocks;
+    if (!second.ok) {
+      return false;
+    }
+    value = (value << ((span->bytes - 4u) * 8u)) | second.value;
+  }
+  *out = value;
+  return true;
+}
+
+static bool bitfield_span_write(ap_m68030_cpu_t *cpu, uint32_t base_address,
+                                const bitfield_span_t *span, uint64_t value,
+                                uint32_t *clocks) {
+  const uint32_t start = (uint32_t)((int64_t)base_address + span->first_byte);
+  const unsigned head = (span->bytes > 4u) ? 4u : span->bytes;
+  const unsigned tail_bytes = span->bytes - head;
+
+  const ap_m68030_address_t where = {.address = start, .valid = true};
+  const ap_m68030_operand_result_t written = step_operand_write(
+      cpu, &cpu->regs, cpu->data, &where, head,
+      (uint32_t)(value >> (tail_bytes * 8u)), cpu->data_function_code);
+  *clocks += written.clocks;
+  if (!written.ok) {
+    return false;
+  }
+
+  if (tail_bytes == 0u) {
+    return true;
+  }
+  const ap_m68030_address_t tail = {.address = start + 4u, .valid = true};
+  const ap_m68030_operand_result_t second = step_operand_write(
+      cpu, &cpu->regs, cpu->data, &tail, tail_bytes,
+      (uint32_t)(value & ((UINT64_C(1) << (tail_bytes * 8u)) - 1u)),
+      cpu->data_function_code);
+  *clocks += second.clocks;
+  return second.ok;
+}
+
 /* Read the field's bits, most significant first, as the low `width` bits of the
  * returned value. */
 static bool bitfield_read(ap_m68030_cpu_t *cpu, const ap_m68030_shift_t *shift,
@@ -1897,22 +2013,16 @@ static bool bitfield_read(ap_m68030_cpu_t *cpu, const ap_m68030_shift_t *shift,
     return true;
   }
 
+  bitfield_span_t span = bitfield_span_of(spec);
+  uint64_t bytes = 0;
+  if (!bitfield_span_read(cpu, base_address, &span, &bytes, clocks)) {
+    return false;
+  }
+
   uint32_t field = 0;
   for (unsigned i = 0; i < spec->width; i++) {
-    const int64_t bit = (int64_t)spec->offset + (int64_t)i;
-    /* Flooring division, because the offset may be negative: bit -1 is the LSB
-     * of the byte *before* the base, so -1/8 must be -1 and not 0. */
-    const int64_t byte = (bit >= 0) ? (bit / 8) : -((-bit + 7) / 8);
-    const unsigned within = (unsigned)(bit - byte * 8);
-    const ap_m68030_address_t where = {
-        .address = (uint32_t)((int64_t)base_address + byte), .valid = true};
-    const ap_m68030_operand_result_t read = step_operand_read(
-        cpu, &cpu->regs, cpu->data, &where, 1u, cpu->data_function_code);
-    *clocks += read.clocks;
-    if (!read.ok) {
-      return false;
-    }
-    field = (field << 1) | ((read.value >> (7u - within)) & 1u);
+    field = (uint32_t)((field << 1) |
+                       ((bytes >> bitfield_span_shift(&span, spec, i)) & 1u));
   }
   *out = field;
   return true;
@@ -1933,30 +2043,20 @@ static bool bitfield_write(ap_m68030_cpu_t *cpu, const ap_m68030_shift_t *shift,
     return true;
   }
 
-  for (unsigned i = 0; i < spec->width; i++) {
-    const int64_t bit = (int64_t)spec->offset + (int64_t)i;
-    const int64_t byte = (bit >= 0) ? (bit / 8) : -((-bit + 7) / 8);
-    const unsigned within = (unsigned)(bit - byte * 8);
-    const ap_m68030_address_t where = {
-        .address = (uint32_t)((int64_t)base_address + byte), .valid = true};
-    const ap_m68030_operand_result_t read = step_operand_read(
-        cpu, &cpu->regs, cpu->data, &where, 1u, cpu->data_function_code);
-    *clocks += read.clocks;
-    if (!read.ok) {
-      return false;
-    }
-    const uint32_t mask = UINT32_C(1) << (7u - within);
-    const uint32_t one = (field >> (spec->width - 1u - i)) & 1u;
-    const uint32_t updated = one ? (read.value | mask) : (read.value & ~mask);
-    const ap_m68030_operand_result_t written =
-        step_operand_write(cpu, &cpu->regs, cpu->data, &where, 1u, updated,
-                           cpu->data_function_code);
-    *clocks += written.clocks;
-    if (!written.ok) {
-      return false;
-    }
+  bitfield_span_t span = bitfield_span_of(spec);
+  uint64_t bytes = 0;
+  if (!bitfield_span_read(cpu, base_address, &span, &bytes, clocks)) {
+    return false;
   }
-  return true;
+
+  for (unsigned i = 0; i < spec->width; i++) {
+    const unsigned bit_position = bitfield_span_shift(&span, spec, i);
+    const uint64_t mask = UINT64_C(1) << bit_position;
+    const uint64_t one = (field >> (spec->width - 1u - i)) & 1u;
+    bytes = one ? (bytes | mask) : (bytes & ~mask);
+  }
+
+  return bitfield_span_write(cpu, base_address, &span, bytes, clocks);
 }
 
 static bool execute_bitfield(ap_m68030_cpu_t *cpu,

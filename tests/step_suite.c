@@ -4967,6 +4967,74 @@ static void test_a_bit_field_reads_across_five_bytes(void) {
   TEST_ASSERT_EQUAL_HEX32(0x23456789u, m.cpu.regs.d[1]);
 }
 
+/* **The part accesses only the bytes the field touches, and this core read one
+ * byte per bit.**
+ *
+ * `[PRM]`, the note on every bit field instruction page: "For the MC68020,
+ * MC68030, and MC68040, all bit field instructions access only those bytes in
+ * memory that contain some portion of the bit field. The possible accesses are
+ * byte, word, 3-byte, long word, and long word with byte (for a 5-byte
+ * access)." `[030]` §11.6.14 prices it: `BFTST Mem (<5 Bytes)` is `10(1/0/0)`,
+ * one operand read, and `BFTST Mem (5 Bytes)` is `14(2/0/0)`, two.
+ *
+ * This core issued **thirty-two single-byte accesses** for a 32-bit field, and
+ * the write path did a read-modify-write per bit. The values were right, which
+ * is why every existing test passed; the bus was wrong by a factor of thirty.
+ *
+ * Measured as clocks, because that is what the extra cycles cost and what the
+ * timing table prices. The discriminating pair is the manual's own: a 32-bit
+ * field at offset 0 spans four bytes and a field at offset 4 spans five, so the
+ * second costs exactly one more operand access than the first — and both cost
+ * far less than a per-bit walk. Found walking `[PRM]` §4 on 2026-09-06. */
+static void test_a_bit_field_accesses_only_the_bytes_it_spans(void) {
+  /* **The data cache is turned off for this test, and that is the measurement.**
+   * With it on, thirty-two byte reads inside one sixteen-byte line cost one fill
+   * and thirty-one free hits -- so the clock is almost identical either way and
+   * a timing assertion passes on the broken code. The defect is in the number of
+   * *bus cycles*, so the bus cycles are what must be counted. `memory.fills` is
+   * one per external read once the cache cannot answer. */
+
+  /* BFTST (A0){0:32} -- four bytes, one access. */
+  static const uint16_t program[] = {0xE8D0u, 0x0000u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  write_ram_word(&m, PROGRAM_BASE + 2u, bitfield_extension(0, 0, 0, 0, 0));
+  load_bitfield_bytes(&m, 0x00005000u);
+  m.cpu.regs.a[0] = 0x00005000u;
+  m.data_access.cache_enabled = false;
+  const unsigned before_four = m.memory.fills;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  const unsigned four = m.memory.fills - before_four;
+
+  /* BFTST (A0){4:32} -- five bytes, so the manual's "long word with byte". */
+  machine_t n = {0};
+  load(&n, program, 3);
+  write_ram_word(&n, PROGRAM_BASE + 2u, bitfield_extension(0, 0, 4, 0, 0));
+  load_bitfield_bytes(&n, 0x00005000u);
+  n.cpu.regs.a[0] = 0x00005000u;
+  n.data_access.cache_enabled = false;
+  const unsigned before_five = n.memory.fills;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+  const unsigned five = n.memory.fills - before_five;
+
+  /* One operand access for the four-byte span and two for the five-byte one,
+   * which is exactly `[030]` §11.6.14's `10(1/0/0)` against `14(2/0/0)`. The
+   * per-bit walk this replaced made thirty-two of each. */
+  /* One instruction fill plus the operand accesses: two for the four-byte span
+   * and three for the five-byte one, which is `[030]` §11.6.14's `10(1/0/0)`
+   * against `14(2/0/0)` with the fetch added.
+   *
+   * Measured, not assumed. The per-bit walk this replaced gave **33 and 33** --
+   * thirty-two operand accesses either way, so it could not even distinguish
+   * the manual's four-byte case from its five-byte one. */
+  TEST_ASSERT_EQUAL_UINT(2u, four);
+  TEST_ASSERT_EQUAL_UINT(3u, five);
+
+  /* The value is still right, which is what the existing tests already covered
+   * and what must not regress while the bus traffic changes. */
+  TEST_ASSERT_EQUAL_HEX32(0u, m.cpu.regs.d[0]);
+}
+
 /* **A register-supplied offset is signed, and reaches backwards.** "If Do = 1,
  * the offset field specifies a data register that contains the offset. The
  * value is in the range of –2^31 to 2^31 – 1", and §1.7.2 makes offset –1 the
@@ -8995,6 +9063,7 @@ int main(void) {
   RUN_TEST(test_chk_jmp_and_movem_refuse_what_their_pages_exclude);
   RUN_TEST(test_a_refused_jump_does_not_move_the_address_register);
   RUN_TEST(test_a_bit_field_reads_across_five_bytes);
+  RUN_TEST(test_a_bit_field_accesses_only_the_bytes_it_spans);
   RUN_TEST(test_a_negative_bit_field_offset_reaches_the_previous_byte);
   RUN_TEST(test_a_data_register_bit_field_wraps_around);
   RUN_TEST(test_the_bit_field_operations_each_touch_only_their_field);

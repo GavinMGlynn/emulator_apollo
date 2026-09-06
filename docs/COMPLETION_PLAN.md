@@ -7164,8 +7164,46 @@ same number is what let them diverge once already.
             ends at Appendix C. The figures are `[020]`'s Appendix D, *Advanced
             Topics*, §D.1, which is where they belong. The facts were right and
             the tag sent a reader to a document that does not contain them.
+            ***§3 walked 33/33 the same day.*** Table 3-23's 32 floating-point
+            conditional tests, Table 3-21's FPCR encodings and Table 3-22's FPCC
+            settings all verify against `ap_m68882_evaluate_condition` and
+            `ap_m68882_regs.h` — the BSUN column really is exactly predicate bit
+            4, which the code already states. One error: Table 3-3's `SUB` row
+            reads "Destination **=** Source" where every sibling prints `–`.
+            And **one question no instrument here can answer**: the Symbol font
+            is not embedded, so `≤` and `→` neither render nor extract
+            distinguishably, and Table 3-3's `CMP2` row is unreadable either
+            way. Recorded as a limitation rather than a finding — CMP2's own §4
+            page says "Compare Rn < LB or Rn > UB" in glyphs that do render, and
+            that is the authority.
+            ***§4 in progress, and it found a real defect.*** The note on every
+            bit field instruction page: "all bit field instructions access only
+            those bytes in memory that contain some portion of the bit field.
+            The possible accesses are byte, word, 3-byte, long word, and long
+            word with byte (for a 5-byte access)." **This core read one byte per
+            bit** — thirty-two single-byte accesses for a 32-bit field, and the
+            write path a read-modify-write *per bit*. `[030]` §11.6.14 prices the
+            right behaviour (`BFTST Mem (<5 Bytes)` = `10(1/0/0)`, `(5 Bytes)` =
+            `14(2/0/0)`) and nothing was checking it, because those rows are
+            among the ones `ap_m68030_timing_table.c` deliberately does not
+            transcribe. Fixed by asking for the span.
+            **The first test of it was worthless and this is the lesson**: an
+            assertion on *clocks* passes on the broken code, because with the
+            data cache on, thirty-two byte reads inside one line cost one fill
+            and thirty-one free hits. The defect is in bus cycles, so bus cycles
+            are counted, cache off — measured at 2 and 3 fills against the per-bit
+            walk's **33 and 33**, which could not even distinguish the manual's
+            four-byte case from its five-byte one.
+            Also checked and holding: `ADDQ`/`SUBQ`'s address-register CCR and
+            size rules, the two rotate forms' differing zero-count `C`, the
+            multiprecision `Z`, the word-sized `MOVE` to/from `CCR`/`SR` against
+            byte-sized `TAS`, and `CLR` not reading its destination.
+            *Verification: `step_suite` 302 → 303, checked against the unfixed
+            code; identity boot **unchanged** at `42B14372F3677EE8` — and the
+            reason is the same one that made the first test useless, so the fills
+            count is the verification and the hash is not.*
             Record: `docs/references/PRM_WALK.md`.
-            *Owed*: §3-§8 and Appendices A-C, 586 pages.
+            *Owed*: the rest of §4, then §5-§8 and Appendices A-C.
       - [ ] **`[881]`/`[882]`
             `MC68881_MC68882_Floating-Point_Coprocessor_Users_Manual_1ed_1987.pdf`,
             396 pages.** *This item first said "zero tagged citations" and

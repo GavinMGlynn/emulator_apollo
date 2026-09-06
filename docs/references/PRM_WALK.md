@@ -4,7 +4,7 @@ The instruction set this project implements, for every part in it.
 
 | Tag | File | Pages | Text layer | State |
 | --- | --- | --- | --- | --- |
-| `[PRM]` | `motorola/M68000_Family_Programmers_Reference_Manual_1992.pdf` | 646 | **born-digital** | audit done 2026-09-06; **§1, §2 walked**, 60 pages |
+| `[PRM]` | `motorola/M68000_Family_Programmers_Reference_Manual_1992.pdf` | 646 | **born-digital** | audit done 2026-09-06; **§1-§3 walked, §4 in progress**, 93+ pages |
 
 ## The audit, and it reversed the item's premise for the third time
 
@@ -28,8 +28,8 @@ same fraction of the truth.
 | --- | --- | --- | --- | --- |
 | 1 | Introduction | 12-41 | 1-1 to 1-30 | **walked 30/30, 2026-09-06** |
 | 2 | Addressing Capabilities | 42-71 | 2-1 to 2-30 | **walked 30/30, 2026-09-06** |
-| 3 | Instruction Set Summary | 72-104 | 3-1 to 3-33 | owed |
-| 4 | Integer Instructions | 105-302 | 4-1 to 4-198 | owed |
+| 3 | Instruction Set Summary | 72-104 | 3-1 to 3-33 | **walked 33/33, 2026-09-06** |
+| 4 | Integer Instructions | 105-302 | 4-1 to 4-198 | **in progress, 2026-09-06** |
 | 5 | Floating-Point Instructions | 303-454 | 5-1 to 5-152 | owed |
 | 6 | Supervisor (Privileged) Instructions | 455-540 | 6-1 to 6-86 | owed |
 | 7 | CPU32 Instructions | 541-556 | 7-1 to 7-16 | owed |
@@ -210,8 +210,142 @@ Appendix E" and mean it.)*
 - **§2.4**'s brief extension word compatibility: `SCALE` = 0 is the encoding
   common to every family member, which is the note `[030]` §2.7 makes.
 
+## §3, INSTRUCTION SET SUMMARY — WALKED, 33/33, 2026-09-06
+
+The summary tables. Their authority is §4/§5/§6's per-instruction pages, which
+is worth stating because one of the two discrepancies found here is settled that
+way rather than by the table.
+
+### One confirmed error, and one question this instrument cannot answer
+
+**Table 3-3, *Integer Arithmetic Operation Format*, `SUB`**: the operation reads
+"Destination **=** Source → Destination". It is `–`. Every sibling row prints it
+correctly — `CMP` is "Destination – Source", `SUBI`/`SUBQ` are "Destination –
+Immediate Data", `SUBX` is "Destination – Source – X". Confirmed on the page
+image, in a rendering font.
+
+**Table 3-3, `CMP2`: "Lower Bound ? Rn ? Upper Bound" — and no instrument here
+can say which glyph that is.** The Symbol font is **not embedded** in this PDF
+(`pdffonts`: `emb no`), so the arrow and less-than-or-equal glyphs neither
+render in a rasterisation nor survive extraction reliably. `pdftotext` renders
+both as `→`; the page image shows blanks. **Recorded as a limitation, not a
+finding** — evidence that cannot tell two readings apart is not evidence.
+
+It does not matter, because CMP2's own page in §4 is unambiguous and is the
+authority: "Operation: Compare Rn < LB or Rn > UB and Set Condition Codes",
+in glyphs that do render.
+
+*This is the third residual risk of the text-layer method, alongside lost
+superscripts and column alignment, and it is the only one page images do not
+solve.*
+
+### Verified against this core, and they agree
+
+- **Table 3-23, the 32 floating-point conditional tests**, complete with
+  predicate encodings. `ap_m68882_evaluate_condition` matches all of it: sixteen
+  equations selected by `predicate & 0xF`, so each IEEE-aware test shares its
+  equation with the nonaware one four bits above — which is what the table's two
+  halves show. And the BSUN column is exactly bit 4, which the code already
+  states as "the rule is exactly bit 4 against the NAN condition code, with no
+  special cases at all". The `UGT` equation's overbar spanning the whole
+  parenthesis is the trap the code records catching by meaning rather than by
+  transcription.
+- **Table 3-21, FPCR encodings**: `RND` 00/01/10/11 = RN/RZ/RM/RP and `PREC`
+  00/01/10/11 = Extend/Single/Double/**Undefined**. `ap_m68882_regs.h`'s
+  `AP_M68882_PRECISION_*` are 0/1/2/3 in exactly that order, with the reserved
+  encoding carried rather than folded into one of the three.
+- **Table 3-22, FPCC encodings** for each data type, and §3.6's postprocessing:
+  underflow, round, overflow in that order.
+- **§3.5.2's rounding boundaries** — 24, 53 and 64 bits — which
+  `ap_m68882_precision_bits` returns and quotes.
+- **Tables 3-1 through 3-20**, the notational conventions and the operation
+  format summaries for every instruction group.
+
+## §4, INTEGER INSTRUCTIONS — IN PROGRESS, 2026-09-06
+
+198 pages, 97 condition-code blocks, ~80 instruction pages. The per-instruction
+authority this core's whole integer set derives from.
+
+### The defect: a bit field must access only the bytes it spans
+
+The note on every bit field instruction page:
+
+> For the MC68020, MC68030, and MC68040, all bit field instructions access only
+> those bytes in memory that contain some portion of the bit field. **The
+> possible accesses are byte, word, 3-byte, long word, and long word with byte
+> (for a 5-byte access).**
+
+`bitfield_read` and `bitfield_write` did **one byte access per bit** — thirty-two
+single-byte reads for a 32-bit field, and the write path a read-modify-write
+*per bit*, so a field written across a device register read and rewrote it eight
+times a byte.
+
+**`[030]` §11.6.14 prices the correct behaviour and nothing was checking it**:
+`BFTST Mem (<5 Bytes)` is `10(1/0/0)`, one operand read, and `BFTST Mem
+(5 Bytes)` is `14(2/0/0)`, two. Those rows are among the ones
+`ap_m68030_timing_table.c` deliberately does not transcribe, because they have a
+non-zero read count — so the table that would have caught it was, correctly, not
+carrying them.
+
+Fixed by computing the touched span and asking for it once.
+`ap_m68030_operand_read` already splits a span at long-word boundaries and
+issues the fewest cycles, so the shapes the note lists fall out rather than
+being enumerated; the five-byte span is two calls because the result is a
+`uint32_t`, which is the note's own "long word with byte".
+
+### The measurement, and the first test of it was worthless
+
+The obvious test — assert the clock cost — **passes on the broken code**, and did.
+With the data cache enabled, thirty-two byte reads inside one sixteen-byte line
+cost one fill and thirty-one free hits, so the clock is almost identical either
+way. A test that passes either way measures nothing.
+
+The defect is in the number of *bus cycles*, so bus cycles are what the test
+counts, with the data cache turned off so that each is visible. Measured rather
+than assumed:
+
+| | 4-byte span | 5-byte span |
+| --- | --- | --- |
+| span access (correct) | 2 fills | 3 fills |
+| per-bit walk (before) | **33 fills** | **33 fills** |
+
+One of those is an instruction fetch. So the correct behaviour is one operand
+access and two — exactly §11.6.14's `(1/0/0)` and `(2/0/0)` — and the per-bit
+walk made thirty-two either way, **unable even to distinguish the manual's
+four-byte case from its five-byte one**.
+
+*Identity boot unchanged at `42B14372F3677EE8`, and the reason is the same one
+that made the first test useless: the boot's bit fields are on cached data, so
+the extra accesses were free hits into a line that ends in the same state. The
+change is real and the hash cannot see it — which is why the fills count is the
+verification and the hash is not.*
+
+### Checked and holding
+
+- **`ADDQ`/`SUBQ` to an address register**: "The condition codes are not
+  affected when the destination is an address register", and "the entire
+  destination address register is used regardless of the operation size".
+  `execute_quick` has both, plus the rule that makes `ADDQ.B #1,A0` illegal and
+  the alterable-not-*data*-alterable category that lets these reach `An` at all.
+- **The zero-count shift and rotate rules**, which differ between the two rotate
+  forms: `ROd` clears C on a zero count, `ROXd` sets it to X, and both leave X
+  alone. `ap_m68030_alu_shift`'s `count == 0` arm is exactly that, and `V` is
+  raised only for the arithmetic *left* shift.
+- **The multiprecision `Z` rule** — "Cleared if the result is nonzero; unchanged
+  otherwise" — on `ABCD`, `SBCD`, `NBCD`, `ADDX` and `SUBX`.
+- **`MOVE to/from CCR` and `to/from SR` are word operations, `TAS` a byte one**,
+  where the size field is the decode escape and names no size.
+  `ap_m68030_single.c` assigns each a fixed size and says why.
+- **`CLR` does not read its destination** on the 68020 and later — the note says
+  "In the MC68000 and MC68008 a memory location is read before it is cleared",
+  and `reads_destination` excludes it.
+- **`MULS`/`MULU` overflow** "can occur only when multiplying 32-bit operands to
+  yield a 32-bit result", and the divides' `N`/`Z` "undefined if overflow or
+  divide by zero occurs".
+- **`CHK2`/`CMP2`**: "Z — Set if Rn is equal to either bound; cleared otherwise.
+  C — Set if Rn is out of bounds; cleared otherwise", with N and V undefined.
+
 ## Owed
 
-§3 through §8 and Appendices A, B and C — 586 pages. §4 (198) and §5 (152) are
-the per-instruction pages and are the bulk of it; §8 is Table 8-2, the operation
-code map, which ten citations already derive from.
+The rest of §4, then §5 through §8 and Appendices A, B and C.
+
