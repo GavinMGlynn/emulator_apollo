@@ -7438,6 +7438,19 @@ same number is what let them diverge once already.
             **One thing here is genuinely new to this project**: the MC68020
             technical summary. The full `[020]` manual is deferred to Phase 2b,
             and this is a short abridgement of it that costs a few pages.
+            ***§1-§3 walked 2026-09-07, 156/608.*** The citation audit came back
+            genuinely empty — one hit, and it is this item. §3's yield is
+            corroboration rather than discovery, and it lands squarely on this
+            session's work: the MC68020's **and** the MC68030's own AC tables
+            each print spec 56, "`RESET` Pulse Width (Reset Instruction) — 512
+            Clks", making four and five documents for the figure the `RESET`
+            arm was charging zero for; and spec 35 is "`BR` Asserted to `BG`
+            Asserted **(`RMC` Not Asserted)**" on both, a fifth and sixth
+            witness for the arbitration lock. Table 2-1's speed grades are the
+            fourth instance of a manual's ordering section lagging its own part,
+            and this book **disagrees with itself** about the MC68030's.
+            Record: `docs/references/M68000_FAMILY_REFERENCE_WALK.md`.
+            *Owed*: §4-§11, PDF 159-608.
       - [ ] **`[020]` `MC68020_32-Bit_Microprocessor_Users_Manual_1984.pdf`,
             452 pages**, and `[040]`'s two manuals (256 + 463). Phase 2b and
             Phase 7 parts; cited once between them. Deferred until those
