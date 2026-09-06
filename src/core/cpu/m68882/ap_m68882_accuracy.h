@@ -87,16 +87,31 @@
  * double is 2^(64-53) = **2048** units in the last place of extended. The
  * manual prints 4096. The two figures differ by a factor of two.
  *
- * One reading closes it: a bound of ±1 ULP spans a window of 2 ULP, so counting
- * the window rather than the bound gives 4096. That is a guess about intent,
- * not a source, and the parenthesis reads as an equality rather than a window.
- * Neither the M68000 Family Programmer's Reference Manual nor the 68040
- * manual's Appendix E, both on disk and both searched, restates the conversion.
+ * **Settled 2026-09-07 by walking `[881]` §4.3.2 whole, and the discriminator
+ * was on the same page all along.** This comment used to offer a reading --
+ * "a bound of ±1 ULP spans a window of 2 ULP, so counting the window gives
+ * 4096" -- and call it a guess, having searched `[PRM]` and the 68040 manual
+ * for a restatement without finding one. Nobody had read §4.3.2's own worked
+ * example, which establishes the conversion convention the manual uses:
  *
- * So both figures are transcribed as printed and neither is derived from the
- * other. A reader who computes the conversion will get 2048 and should not
- * conclude this file is wrong; a test asserts the discrepancy so that nobody
- * quietly "fixes" one of the two constants into agreement. */
+ *   "the relative difference between the correct result and the result
+ *   calculated by the FPCP is 2^-57 (assuming an extended precision result)
+ *   ... **This difference corresponds to an error of 64 units in the last
+ *   place.**"
+ *
+ * An extended LSB is 2^-63 relative to the leading one, and 2^-57/2^-63 = 2^6
+ * = 64. So the manual converts by the **plain ratio**, with no doubling --
+ * which is exactly the reading the window guess proposed and this rules out.
+ *
+ * Under that same convention one ULP of double is 2^-52/2^-63 = 2^11 = **2048**
+ * extended ULPs. The parenthesis prints 2^12. **4096 is a documentary error,
+ * an off-by-one in the exponent**, and no longer an open question.
+ *
+ * Both figures are still transcribed as printed, because this file records what
+ * the part's manual says rather than what it should have said, and the test
+ * still asserts the discrepancy so that nobody quietly "fixes" one constant
+ * into agreement with the other. What has changed is that the discrepancy is
+ * now explained instead of merely flagged. */
 #define AP_M68882_TRANSCENDENTAL_WORST_CASE_ULP_DOUBLE 1u
 #define AP_M68882_TRANSCENDENTAL_WORST_CASE_ULP_EXTENDED 4096u
 
