@@ -94,10 +94,23 @@ typedef enum {
   /* The ATC entry's `B` bit, or a search that ended invalid: "a bus error will
    * be signaled to the logical bus master". */
   AP_M68851_TRANSLATE_BUS_ERROR,
-  /* A write to a write-protected page. Reported apart from a bus error because
-   * the two reach different `PSR` bits, though the hardware signals both the
-   * same way. */
+  /* A write to a page that is not writeable -- §6.3.1.5, which is a `WP` bit
+   * anywhere in the path **or** an access level past the effective `WAL`.
+   * Reported apart from a bus error because the two reach different `PSR` bits,
+   * though the hardware signals both the same way. */
   AP_M68851_TRANSLATE_WRITE_PROTECTED,
+  /* §6.3.1.3: a user access to a page some level marked supervisor-only.
+   * Reported apart from a plain bus error because it is `PSR`'s `S` bit, and
+   * because it is the one protection test that runs with access levels
+   * disabled. */
+  AP_M68851_TRANSLATE_SUPERVISOR_ONLY,
+  /* §6.3.1.4: the address's access level is past the effective `RAL`, or more
+   * privileged than `CAL`. `PSR`'s `A` bit -- except for the `CAL` comparison,
+   * which §6.3.1.4 says "the PTEST instruction will not detect". */
+  AP_M68851_TRANSLATE_ACCESS_LEVEL,
+  /* §4.2.3.3's condition (6): a read-modify-write to a page with no resident
+   * ATC descriptor, with its modified bit clear, or write-protected. */
+  AP_M68851_TRANSLATE_RMC_DENIED,
 } ap_m68851_translate_status_t;
 
 typedef struct {
@@ -125,9 +138,15 @@ typedef struct {
  * and the hardware has no reason to walk the tree again to set them twice. */
 [[nodiscard]] ap_m68851_translation_t
 ap_m68851_translate(ap_m68851_t *mmu, uint32_t logical_address,
-                    unsigned function_code, bool is_write,
+                    const ap_m68851_access_t *access,
                     ap_m68851_fetch_fn fetch, void *fetch_context,
                     ap_m68851_store_fn store, void *store_context);
+
+/* The ordinary read or write, for a caller with no read-modify-write to
+ * declare. The three access-level fields are filled in by the MMU from `AC`,
+ * `CAL` and the address, so there is nothing else to supply. */
+[[nodiscard]] ap_m68851_access_t ap_m68851_simple_access(unsigned function_code,
+                                                         bool is_write);
 
 /* ---------------------------------------------------------------------------
  * Instructions.

@@ -156,6 +156,21 @@ ap_m68851_ac_module_descriptor_aligned(const ap_m68851_ac_t *ac,
 [[nodiscard]] unsigned ap_m68851_access_level_decode(uint8_t value);
 [[nodiscard]] uint8_t ap_m68851_access_level_encode(unsigned level);
 
+/* The access level a logical address carries. §7.2.2 states it exactly:
+ *
+ *   "The access level of a logical address is contained in **the most
+ *   significant one, two, or three bits of the logical address** (determined by
+ *   the ALC field of the AC register). It is interpreted as the level of
+ *   privilege requested by an access using the address."
+ *
+ * So the field's *width* is `ALC` and its position is the top of the address --
+ * which means the same address means a different level under a different `ALC`,
+ * and why this takes the register rather than a bit count. Zero when access
+ * level checking is disabled, which is also the most privileged level and
+ * therefore the value that passes every test the mechanism would apply. */
+[[nodiscard]] unsigned ap_m68851_address_access_level(const ap_m68851_ac_t *ac,
+                                                      uint32_t logical_address);
+
 /* §6.1.6's rule, which is a range test over a bitmap and not a comparison:
  * "if the current access level is n and the MC68020 requests a call to a module
  * of privilege m where m < n (greater privilege), the MC68851 will instruct the

@@ -6904,12 +6904,13 @@ same number is what let them diverge once already.
       ***All six documents are walked whole as of 2026-09-07: 2,633 pages***
       — `[030]` 608/608, `[PRM]` 646/646, `[851]` 356/356, `[881]` 396/396,
       `MC68030EC` 19/19 and `M68000_Family_Reference` 608/608. **The reading is
-      finished**; this item stays open only for the four implementation tails
-      the walks found, each a sub-item below with its own verification: the
-      unplaced `AP_M68030_RMC_FIRST_READ`, the table search as an extended
-      read-modify-write, the 68882's unmodelled concurrency, and the `m68851`
-      protection fields the search drops. `[020]` and `[040]` are a deliberate
-      deferral to Phase 2b/7 and are not part of this batch.
+      finished**; this item stays open only for the implementation tails the
+      walks found, each a sub-item below with its own verification. **Three
+      remain**: the unplaced `AP_M68030_RMC_FIRST_READ`, the table search as an
+      extended read-modify-write, and the 68882's unmodelled concurrency. The
+      fourth — the `m68851` protection fields — closed 2026-09-07. `[020]` and
+      `[040]` are a deliberate deferral to Phase 2b/7 and not part of this
+      batch.
       Opened 2026-08-25, once the peripheral batch closed and an inventory
       showed the shelf holds 133 PDFs against 14 walk records. Most of the
       remainder is Domain/OS *software* documentation and out of scope; these
@@ -7055,108 +7056,20 @@ same number is what let them diverge once already.
             root-`DT=$1` limit check, and §8's transposed figure captions.
             Detail in `PROJECT_STATUS.md`.
             Record: `docs/references/M68851_WALK.md`.
-      - [ ] **The `m68851` table search enforces `WP` and drops every other
-            protection field.** `ap_m68851_descriptor.c` decodes `RAL` (47-45),
-            `WAL` (44-42) and `S` (40) from every long-format descriptor;
-            `ap_m68851_search_result_t` carries `write_protect`,
-            `cache_inhibit`, `modified`, `gate`, `lock` and `shared_globally`
-            and neither access level nor the supervisor bit. They are read and
-            discarded. Found walking `[851]` §7 on 2026-09-07.
-            Four sections require them: §6.3.1.3 (a set `S` met during the
-            search with `FC[2]` zero makes a `B`-bit entry), §6.3.1.4 (an access
-            less privileged than `RAL` for a read, or than `RAL` **or** `WAL`
-            for a write), §7.2.3.1 (a write needs a level at least as privileged
-            as *all* `RAL` and `WAL` on the branch, because denying read implies
-            denying write), and §5.1.3.1, which names all five fields.
-            `ap_m68851_atc.h` already describes the mechanism correctly —
-            protection "evaluated when the ATC entry is made", a denial cached
-            with the `B` bit — so the design anticipated this; the evaluation is
-            what is absent.
-            **Not an in-scope defect, and the row says so**: `PVALID`'s own
-            `CAL`/`VAL` comparison *is* implemented, and the DN3500's MMU is the
-            68030's, which has no access levels at all (`[030]` §9.6) and whose
-            supervisor protection is enforced by
-            `ap_m68030_search_permits_access`. This is the `m68851` reference
-            module incomplete against its own manual.
-            **§4.2.3.3 gives the complete list**, which is what makes this
-            actionable — the six conditions under which the part terminates a
-            translation with `BERR`: (1) a write to a write-protected page,
-            (2) an access that exceeds the current access level, (3) an access
-            through an ATC descriptor with its bus error bit set, (4) a
-            breakpoint acknowledge against a `BACx` with a zero skip count,
-            (5) the same against one with its `E` bit clear, and (6) **a
-            read-modify-write to a page with no resident ATC descriptor, or with
-            its modified bit clear, or write-protected**.
-            Of those, (1) and (3) are implemented, (4) and (5) are implemented in
-            `ap_m68851_breakpoint_acknowledge`, and **(2) and (6) are the gap** —
-            (2) being the access levels above, (6) an ATC-residency-and-`M`-state
-            rule that is not the status write-back's own `RMC`, which *is*
-            modelled and cited to §4.3.2.2.
-            **§5.1.6 gives the whole accumulation algorithm**, so this needs no
-            design work: "the supervisor-only, write-protect, and shared
-            attributes may be specified at any level ... **an attribute will be
-            conferred if the corresponding bit is set at any level**. The
-            effective RAL of a page will be the **minimum (most privileged) of
-            all RAL fields encountered**. The effective WAL ... the **minimum of
-            all WAL fields encountered**, with the exception that **if a WP bit
-            is set for the page at any level, the page will not be writable for
-            any access level**. If there are **no long format descriptors** in
-            the path ... the page is not restricted to supervisor-only, and the
-            effective RAL and WAL are **both `$7`** (least privileged)."
-            So: `S`, `WP` and `SG` OR across levels; `RAL` and `WAL` each take
-            the minimum; `WP` anywhere wins over any `WAL`; and the defaults are
-            not-supervisor and `$7`/`$7`.
-            **And Figures 5-24 and 5-27 draw it as assignment statements**, so
-            there is nothing left to interpret. Figure 5-24, *Table Search
-            Initialization Detail*, is the whole of the initial state:
-            `ACC_STATUS[RAL] <- $7`, `[WAL] <- $7`, `[WP] <- 0`, `[SG] <- 0`,
-            `[S] <- 0`. Figure 5-27, *Detailed Flowchart of Descriptor Fetch
-            Operation*, is the per-descriptor accumulation, and it splits by
-            format: a **long** (`SIZE = 8`) descriptor does
-            `IF RAL < ACC_STATUS[RAL] THEN ACC_STATUS[RAL] <- RAL`, the same for
-            `WAL`, and `ACC_STATUS[SG|S|WP] <- ACC_STATUS[SG|S|WP] V SG|S|WP`;
-            a **short** (`SIZE = 4`) descriptor contributes only
-            `ACC_STATUS[WP] <- ACC_STATUS[WP] V WP`, which is why a path with no
-            long descriptors leaves `RAL` and `WAL` at `$7`. At the page level it
-            also takes `ACC_STATUS[G] <- G`, `[CI] <- CI` and `[L] <- L`.
-            *Verification*: accumulate them that way -- `write_protect` already
-            is -- add §4.2.3.3's condition (6), and return a denial the ATC fill
-            caches as `B`, which is what `ap_m68851_atc.h` already describes as
-            "the validity of the access is evaluated when the ATC entry is made".
-            Suites: `m68851_search_suite`, `m68851_atc_suite`.
-            **The same layer is missing for privilege.** §6.2: "All MC68851
-            instructions are privileged except PVALID." Nothing in
-            `src/core/cpu/m68851/` says which are, because the module is a
-            structural decoder plus per-instruction semantics with no dispatcher
-            above it -- no machine wires this part. Protection and privilege both
-            belong to that missing layer, so they are one item.
-            **And it has a second consequence, in `PTEST`**: §6.1.8.5's `W` bit
-            is set "if any descriptor encountered in the search contained a set
-            `WP` bit, **or if the address tested exceeded the `WAL` field of any
-            long descriptor**", and §6.1.8.4's `A` bit when it "exceeded `RAL`
-            for `PTESTR`, or `WAL` or `RAL` for `PTESTW`". So the missing
-            accumulation also makes two `PSR` bits unreportable.
-            ***§8, §9, §10, §11 and Appendix A.1-A.2 walked 2026-09-07.***
-            §8's Figures 8-3 and 8-4 have their captions transposed and this core
-            read past them correctly; Table 9-1 gives the MC68020's four CPU
-            space types including `0001` **access level control**, which `[030]`
-            omits because the 68030 has no access levels — so this core's
-            CPU-space decode is complete *by* that omission; Table 9-2's CIR
-            characteristics are the **inverse** of the 68882's on two registers
-            (the 68851 implements Operand Address and not Instruction Address)
-            and `ap_m68851_cir.c` has it right, which its header explicitly warns
-            about. **Table A-1 is a fourth witness against `[PRM]` Table 2-4** and
-            duplicates a row of its own.
-            §11's timing tables are the same shape as `[881]` §8.5, with the same
-            11-clock interface overhead, and the `m68851` module has no timing
-            either — folded into the 68882 timing item above rather than given
-            its own, since no in-scope machine has this part.
-            *Also mis-stated as "zero citations" when this item was written.* It
-            is cited **11 times** by full title — §5.1.5, §5.1.5.3, §5.2,
-            §5.2.1.3, §6.1.1-§6.1.4, §9.1.2, Figures 5-10/5-21/5-23/6-1/6-3 and
-            Appendix A — so the 68030's MMU **was** derived against the 68851
-            sibling, which is what `CLAUDE.md`'s resolution order asks for.
-            An ordinary audit-then-walk.
+      - [x] **The `m68851` protection mechanism — done 2026-09-07.** The
+            search decoded `RAL`, `WAL` and `S` from every long-format
+            descriptor and discarded all three; §5.1.6 and Figures 5-24/5-27
+            specify the accumulation end to end, so this was transcription
+            rather than design. `ACC_STATUS` now accumulates by minimum and OR,
+            §6.3.1.3/§6.3.1.4/§6.3.1.5's three denials are evaluated with the
+            division the ATC's own bits force, §4.2.3.3's condition (6) is
+            enforced, and `PSR`'s `S`, `A` and `W` are reportable. **Three
+            further defects fell out**: a short *indirect* descriptor's address
+            bit 2 read as a write protect, `SG` assigned where Figure 5-27 ORs
+            it, and the ATC entry's `M` copying the descriptor's pre-write bit.
+            No in-scope machine affected.
+            *Verification: `m68851_suite` 43 -> 52, each behaviour probed by
+            removing it alone.* Detail in `PROJECT_STATUS.md`.
       - [x] **`M68000_Family_Reference_1988.pdf`, 608 pages — walked whole,
             608/608, 2026-09-07.** A databook: abridged summaries of manuals
             already walked, plus datasheets for Motorola peripherals this

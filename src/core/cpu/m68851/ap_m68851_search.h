@@ -147,17 +147,55 @@ typedef struct {
   ap_m68851_search_fault_t fault;
   /* The page frame, meaningful unless the type is INVALID. */
   uint32_t physical_address;
-  /* Accumulated down the tree rather than copied from one descriptor: §5.2.1.2
-   * calls the ATC's copy "the effective write protection determined during the
-   * translation table search", so a write protect at any level protects
-   * everything below it. */
+  /* ---------------------------------------------------------------------
+   * `ACC_STATUS`, the accrued protection. Figure 5-24 gives its initial value
+   * and Figure 5-27 the per-descriptor accumulation, and §5.1.6 states the
+   * whole of it in prose:
+   *
+   *   "In general, the effective protection assigned to a page is the most
+   *   strict of those indicated at any level. The supervisor-only,
+   *   write-protect, and shared attributes may be specified at any level of the
+   *   translation tree when using long format descriptors. **An attribute will
+   *   be conferred if the corresponding bit is set at any level.** The
+   *   effective RAL of a page will be the **minimum (most privileged) of all
+   *   RAL fields encountered**. The effective WAL ... the minimum ... with the
+   *   exception that **if a WP bit is set for the page at any level, the page
+   *   will not be writable for any access level.** If there are no long format
+   *   descriptors in the path ... the shared attribute is as indicated in the
+   *   root pointer used, the page is not restricted to supervisor-only, and the
+   *   effective RAL and WAL are both `$7` (least privileged)."
+   *
+   * So three of these OR down the path and two take a minimum, which is why
+   * they are accumulated here rather than copied from the terminating
+   * descriptor -- and why `$7`, not zero, is the identity for the two levels.
+   * ------------------------------------------------------------------------ */
+
+  /* `ACC_STATUS[WP]`. §5.2.1.2 calls the ATC's copy "the effective write
+   * protection determined during the translation table search". */
   bool write_protect;
-  /* Copied from the terminating page descriptor. */
+  /* `ACC_STATUS[RAL]` and `[WAL]`, three bits each, **minimum** over every long
+   * descriptor in the path. `$7` when the path held none, which is Figure
+   * 5-24's initial value and §5.1.6's default in one. */
+  unsigned read_access_level;
+  unsigned write_access_level;
+  /* `ACC_STATUS[S]`: a supervisor-only attribute met anywhere in the path.
+   * §6.3.1.3 turns this into a denial for a user access. */
+  bool supervisor_only;
+  /* `ACC_STATUS[SG]`. Accumulated like `S` and `WP`, and seeded from the root
+   * pointer rather than from zero -- Figure 5-24 initialises it to 0, but the
+   * root pointer is the *only* place a shared attribute can come from when the
+   * path holds no long descriptor, and §5.1.6 says that is exactly where it
+   * comes from then. Reading Figure 5-24's zero literally would make that
+   * sentence false. */
+  bool shared_globally;
+  /* `ACC_STATUS[G]`, `[CI]` and `[L]`: **assigned**, not accumulated. Figure
+   * 5-27 writes these with `<-` where it writes the five above with `V` and
+   * the minimum, because they describe the page rather than the path to it. */
   bool cache_inhibit;
-  bool modified;
   bool gate;
   bool lock;
-  bool shared_globally;
+  /* From the terminating page descriptor. */
+  bool modified;
   /* How many descriptors were fetched. `PSR`'s `N` field. */
   unsigned levels;
   /* The descriptors themselves, for the status write-back. `path_length` can
@@ -166,6 +204,119 @@ typedef struct {
   ap_m68851_visited_t path[AP_M68851_SEARCH_MAX_PATH];
   unsigned path_length;
 } ap_m68851_search_result_t;
+
+/* ---------------------------------------------------------------------------
+ * Protection, §6.3.1.3 through §6.3.1.5 and §7.2.3.1
+ *
+ * The search accumulates `ACC_STATUS`; this is what turns it into a verdict for
+ * one access. Kept beside the search rather than in the translate path because
+ * it consumes nothing else -- and `PTEST` needs the same answer without making
+ * an ATC entry at all.
+ *
+ * ## Two of the three conditions cache; one does not
+ *
+ * §6.3.1.3 and §6.3.1.4's second paragraph both end "an ATC entry will be made
+ * with its internal bus error (B) bit set", so a supervisor-only or access-level
+ * denial is *cached* and every later access through that entry asserts `BERR`
+ * without another table search.
+ *
+ * §6.3.1.4's **first** paragraph is not like that: an address whose level is
+ * "a higher privilege (numerically less) than the value of the CAL register"
+ * asserts `BERR` outright, and "note that the **PTEST instruction will not
+ * detect this condition**, and the fault handler of the main processor should
+ * compare the access level field of the fault address with the value contained
+ * in the MC68851 CAL register at the time of the fault". It is a comparison
+ * against a register, not against anything the tables said, so it is reported
+ * separately below and makes no entry.
+ * ------------------------------------------------------------------------- */
+
+typedef enum {
+  AP_M68851_PROTECTION_OK,
+  /* §6.3.1.3: "If bit FC[2] of a logical address is zero and a set S bit is
+   * encountered during the table search in a long format descriptor for that
+   * address". `PSR`'s `S` bit. */
+  AP_M68851_PROTECTION_SUPERVISOR_ONLY,
+  /* §6.3.1.4's second paragraph, `RAL` half: an access level "less privilege
+   * (numerically greater) than that indicated by the RAL field". Denies reads
+   * and writes alike, which is why it is the one that caches as `B`. `PSR`'s
+   * `A` bit. */
+  AP_M68851_PROTECTION_ACCESS_LEVEL,
+  /* §6.3.1.4's first paragraph, which caches nothing and which `PTEST` cannot
+   * see. */
+  AP_M68851_PROTECTION_ABOVE_CAL,
+} ap_m68851_protection_t;
+
+/* One access, as the protection mechanism sees it. */
+typedef struct {
+  unsigned function_code;
+  bool is_write;
+  /* True for a read-modify-write, which §4.2.3.3's condition (6) treats apart
+   * from an ordinary write. */
+  bool is_read_modify_write;
+
+  /* ---------------------------------------------------------------------
+   * The three below are **derived by the MMU, not supplied by the caller**.
+   * `ap_m68851_translate`, `ap_m68851_pload` and `ap_m68851_ptest` fill them
+   * from `AC`, `CAL` and the logical address before evaluating; a caller builds
+   * an access with `ap_m68851_simple_access` and leaves them alone. They are in
+   * this struct so the evaluation below can be tested against a set of levels
+   * directly.
+   * ------------------------------------------------------------------------ */
+
+  /* The level the logical address carries -- §7.2.2's "most significant one,
+   * two, or three bits", already extracted by
+   * `ap_m68851_address_access_level`. */
+  unsigned access_level;
+  /* `CAL`'s three-bit level: "the level of privilege possessed by the task". */
+  unsigned current_access_level;
+  /* `ap_m68851_ac_access_levels()`: zero when `ALC` is `$0` and "access level
+   * checking is disabled", which is the reset state and the only state a
+   * machine without the MC68020's module calls ever leaves it in. */
+  unsigned access_levels_enabled;
+} ap_m68851_access_t;
+
+/* Evaluate one access against what the search accumulated.
+ *
+ * Write protection is deliberately *not* here, and neither is the `WAL` test.
+ * §5.2.1.2 gives the ATC its own `W` bit alongside `B` and no access levels at
+ * all, so an entry cannot re-derive `RAL` or `WAL` on a later hit: exceeding
+ * `RAL` denies reads *and* writes, which one `B` bit expresses exactly, while a
+ * `WP` bit or an exceeded `WAL` denies writes and permits reads, which is what
+ * `W` is for. §6.3.1.5 files both of those under one heading and one `PSR` bit
+ * for the same reason, and `ap_m68851_search_not_writeable` below is that
+ * heading. Folding them in here would deny the first *read* of a page a task
+ * may read and may not write. */
+[[nodiscard]] ap_m68851_protection_t
+ap_m68851_search_protection(const ap_m68851_search_result_t *result,
+                            const ap_m68851_access_t *access);
+
+/* §6.1.8.5's `W` bit, and §6.3.1.5's whole condition: "this bit is set if the
+ * address tested is not writeable. This may occur if any descriptor encountered
+ * in the search contained a set WP bit, **or if the address tested exceeded the
+ * WAL field of any long descriptor** encountered."
+ *
+ * Not conditioned on the access being a write -- the bit reports whether the
+ * address *is* writeable, which is what a `PTESTR` asks about too, and what an
+ * ATC entry has to carry so a later write can be refused without a search. */
+[[nodiscard]] bool
+ap_m68851_search_not_writeable(const ap_m68851_search_result_t *result,
+                               const ap_m68851_access_t *access);
+
+/* Whether §4.2.3.3's condition (6) forbids this access: "a read-modify-write
+ * operation is attempted to a page that does not have a corresponding
+ * descriptor resident in the address translation cache, has its modified bit
+ * clear, or is write-protected."
+ *
+ * All three disjuncts, and the first is the surprising one -- an `RMC` to a
+ * page the ATC has never seen is a bus error *even when the tables would map
+ * it*, because the part will not hold the bus across a table search. That is
+ * the same shape as the 68030's forced cache miss on an `RMC` read and for the
+ * same reason: an indivisible cycle cannot afford a detour.
+ *
+ * `resident` is whether the ATC answered; `modified` and `write_protect` are
+ * the entry's. */
+[[nodiscard]] bool ap_m68851_rmc_denied(bool resident, bool modified,
+                                        bool write_protect);
 
 /* One byte write the part would perform to keep the tables consistent with the
  * ATC. §4.3.2.2: "the only write cycles initiated by the MC68851 are byte

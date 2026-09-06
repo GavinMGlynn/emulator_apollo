@@ -137,6 +137,17 @@ uint8_t ap_m68851_access_level_encode(unsigned level) {
   return (uint8_t)((level & 0x7u) << 5);
 }
 
+unsigned ap_m68851_address_access_level(const ap_m68851_ac_t *ac,
+                                        uint32_t logical_address) {
+  /* `ALC` is the number of address bits, so it is also the shift's complement:
+   * one bit is address bit 31, two are 31-30, three are 31-29. */
+  const unsigned bits = (unsigned)ac->access_level_control;
+  if (bits == 0u) {
+    return 0u;
+  }
+  return (unsigned)(logical_address >> (32u - bits));
+}
+
 bool ap_m68851_scc_changes_stack(uint8_t scc, unsigned current,
                                  unsigned target) {
   /* "where m < n (greater privilege)". A call that does not increase privilege

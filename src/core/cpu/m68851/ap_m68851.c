@@ -68,15 +68,61 @@ static void write_back_status(const ap_m68851_search_result_t *found,
   }
 }
 
+ap_m68851_access_t ap_m68851_simple_access(unsigned function_code,
+                                           bool is_write) {
+  return (ap_m68851_access_t){.function_code = function_code,
+                              .is_write = is_write};
+}
+
+/* Fill in the three access-level fields from the part's own registers. §7.2.2
+ * puts every one of them inside the MC68851 -- the address's level is a field
+ * of the address, the task's is `CAL`, and whether either matters is `ALC` --
+ * so a caller has nothing to supply and no bit position to know. */
+static ap_m68851_access_t with_levels(const ap_m68851_t *mmu,
+                                      uint32_t logical_address,
+                                      const ap_m68851_access_t *access) {
+  ap_m68851_access_t out = *access;
+  out.access_levels_enabled = ap_m68851_ac_access_levels(&mmu->ac);
+  out.access_level = ap_m68851_address_access_level(&mmu->ac, logical_address);
+  out.current_access_level = ap_m68851_access_level_decode(mmu->cal);
+  return out;
+}
+
+/* §6.3.1.3's and §6.3.1.4's verdicts, as a translation status. */
+static ap_m68851_translate_status_t protection_status(
+    ap_m68851_protection_t verdict) {
+  switch (verdict) {
+  case AP_M68851_PROTECTION_OK:
+    return AP_M68851_TRANSLATE_OK;
+  case AP_M68851_PROTECTION_SUPERVISOR_ONLY:
+    return AP_M68851_TRANSLATE_SUPERVISOR_ONLY;
+  case AP_M68851_PROTECTION_ACCESS_LEVEL:
+  case AP_M68851_PROTECTION_ABOVE_CAL:
+    return AP_M68851_TRANSLATE_ACCESS_LEVEL;
+  }
+  return AP_M68851_TRANSLATE_OK;
+}
+
+/* Whether a verdict is one the ATC caches as a `B` entry. `ABOVE_CAL` is not:
+ * §6.3.1.4's first paragraph compares the address against a *register*, so the
+ * same page at the same level is permitted the moment `CAL` changes and an
+ * entry holding `B` would outlive the reason for it. */
+static bool caches_as_bus_error(ap_m68851_protection_t verdict) {
+  return verdict == AP_M68851_PROTECTION_SUPERVISOR_ONLY ||
+         verdict == AP_M68851_PROTECTION_ACCESS_LEVEL;
+}
+
 ap_m68851_translation_t ap_m68851_translate(ap_m68851_t *mmu,
                                             uint32_t logical_address,
-                                            unsigned function_code,
-                                            bool is_write,
+                                            const ap_m68851_access_t *access,
                                             ap_m68851_fetch_fn fetch,
                                             void *fetch_context,
                                             ap_m68851_store_fn store,
                                             void *store_context) {
   ap_m68851_translation_t out = {0};
+  const ap_m68851_access_t leveled = with_levels(mmu, logical_address, access);
+  const unsigned function_code = leveled.function_code;
+  const bool is_write = leveled.is_write;
 
   if (!mmu->tc.enable) {
     /* §6.1.3.1: "when the translation mechanism is disabled, logical addresses
@@ -105,6 +151,15 @@ ap_m68851_translation_t ap_m68851_translate(ap_m68851_t *mmu,
       out.status = AP_M68851_TRANSLATE_WRITE_PROTECTED;
       return out;
     }
+    /* §4.2.3.3's condition (6). The entry is resident by construction here, so
+     * what is left of the condition is the modified bit and the write
+     * protection -- an `RMC` to a page whose `M` is still clear faults rather
+     * than taking the write-back detour mid-cycle. */
+    if (leveled.is_read_modify_write &&
+        ap_m68851_rmc_denied(true, hit->modified, hit->write_protect)) {
+      out.status = AP_M68851_TRANSLATE_RMC_DENIED;
+      return out;
+    }
     out.physical_address = (hit->physical_address & ~offset_mask) |
                            (logical_address & offset_mask);
     return out;
@@ -130,6 +185,14 @@ ap_m68851_translation_t ap_m68851_translate(ap_m68851_t *mmu,
    * denied, because the pointers above the denial were still walked. */
   write_back_status(&found, is_write, store, store_context);
 
+  /* §6.3.1.3 and §6.3.1.4, evaluated against what the search accumulated.
+   * Before the entry is built, because both sections end "an ATC entry will be
+   * made with its internal bus error (B) bit set" -- the denial is cached, and
+   * `ap_m68851_atc.h` already describes the mechanism: "the validity of the
+   * access is evaluated when the ATC entry is made". */
+  const ap_m68851_protection_t verdict =
+      ap_m68851_search_protection(&found, &leveled);
+
   /* Build the entry the search earned, denial or not. */
   ap_m68851_atc_entry_t entry = {
       .logical_address = logical_address,
@@ -137,12 +200,26 @@ ap_m68851_translation_t ap_m68851_translate(ap_m68851_t *mmu,
       .task_alias = mmu->atc.task_alias,
       .shared_globally = found.shared_globally,
       .physical_address = found.physical_address,
-      .write_protect = found.write_protect,
+      /* §5.2.1.2 calls this "the effective write protection determined during
+       * the translation table search", and §6.3.1.5 says what makes a page not
+       * writeable: a `WP` bit anywhere in the path, **or** an address whose
+       * access level exceeds a `WAL`. An entry carries no access levels of its
+       * own, so folding the second cause in here is the only way a later hit
+       * can answer a write correctly -- and it is what `W` is for. */
+      .write_protect = ap_m68851_search_not_writeable(&found, &leveled),
       .cache_inhibit = found.cache_inhibit,
-      .modified = found.modified,
+      /* `M` follows the access, not just the descriptor. `write_back_status`
+       * above has already set the table's `M` for a write, so an entry that
+       * copied the descriptor's *pre-write* bit would disagree with the tables
+       * -- and §4.2.3.3's condition (6) reads that bit, so a read-modify-write
+       * would be denied for ever on a page it had just written. `PLOAD` has
+       * always done this (`found.modified || !read_from_mmu`); the translate
+       * path had not. */
+      .modified = found.modified || is_write,
       .gate = found.gate,
       .lock = found.lock,
-      .bus_error = found.type == AP_M68851_SEARCH_TYPE_INVALID,
+      .bus_error = found.type == AP_M68851_SEARCH_TYPE_INVALID ||
+                   caches_as_bus_error(verdict),
   };
   ap_m68851_atc_fill(&mmu->atc, ap_m68851_atc_select_victim(&mmu->atc), entry);
 
@@ -151,19 +228,43 @@ ap_m68851_translation_t ap_m68851_translate(ap_m68851_t *mmu,
   mmu->psr.limit_violation =
       found.fault == AP_M68851_SEARCH_FAULT_LIMIT_VIOLATION;
   mmu->psr.invalid = found.type == AP_M68851_SEARCH_TYPE_INVALID;
-  mmu->psr.write_protected = found.write_protect;
+  /* §6.1.8.3: set "if a set S bit of a long format descriptor was encountered"
+   * -- the attribute, not the denial, so a supervisor access to a
+   * supervisor-only page sets it too. The `FC[2]` gate is §6.3.1.3's and lives
+   * in the verdict above. */
+  mmu->psr.supervisor_only = found.supervisor_only;
+  /* §6.1.8.4's `A`. The `CAL` comparison is deliberately excluded: §6.3.1.4
+   * says outright that "the PTEST instruction will not detect this
+   * condition". */
+  mmu->psr.access_level_violation =
+      verdict == AP_M68851_PROTECTION_ACCESS_LEVEL;
+  mmu->psr.write_protected = ap_m68851_search_not_writeable(&found, &leveled);
   mmu->psr.modified = found.modified;
   mmu->psr.gate = found.gate;
   mmu->psr.globally_sharable = found.shared_globally;
   mmu->psr.levels = found.levels & 0x7u;
 
   out.cache_inhibit = entry.cache_inhibit;
-  if (entry.bus_error) {
+  if (found.type == AP_M68851_SEARCH_TYPE_INVALID) {
     out.status = AP_M68851_TRANSLATE_BUS_ERROR;
+    return out;
+  }
+  if (verdict != AP_M68851_PROTECTION_OK) {
+    out.status = protection_status(verdict);
     return out;
   }
   if (is_write && entry.write_protect) {
     out.status = AP_M68851_TRANSLATE_WRITE_PROTECTED;
+    return out;
+  }
+  /* §4.2.3.3's condition (6)'s first disjunct: "a page that does not have a
+   * corresponding descriptor resident in the address translation cache". This
+   * path *is* the miss, so an `RMC` here is denied however well the tables
+   * mapped it -- the entry the search just made is what lets the retry
+   * succeed. */
+  if (leveled.is_read_modify_write &&
+      ap_m68851_rmc_denied(false, entry.modified, entry.write_protect)) {
+    out.status = AP_M68851_TRANSLATE_RMC_DENIED;
     return out;
   }
   out.physical_address = (found.physical_address & ~offset_mask) |
@@ -471,18 +572,34 @@ ap_m68851_status_t ap_m68851_pload(ap_m68851_t *mmu,
    * entry's own `modified` uses just below -- so the table and the cache cannot
    * disagree about which direction a `PLOAD` imitated. */
   write_back_status(&found, !instruction->read_from_mmu, store, store_context);
+
+  /* The entry a `PLOAD` warms must be the entry a real access would have made,
+   * denial included. `ap_m68851_atc.h`: "the validity of the access is
+   * evaluated when the ATC entry is made" -- so if this evaluation were skipped
+   * here, a `PLOAD` would leave a *permitting* entry where the access it
+   * imitates would have left a denying one, and the next access would be
+   * allowed through a page the tables protect. The direction is the
+   * instruction's, the same `!read_from_mmu` the modified bit below uses. */
+  const ap_m68851_access_t loaded = with_levels(
+      mmu, address,
+      &(ap_m68851_access_t){.function_code = function_code,
+                            .is_write = !instruction->read_from_mmu});
+  const ap_m68851_protection_t verdict =
+      ap_m68851_search_protection(&found, &loaded);
+
   const ap_m68851_atc_entry_t entry = {
       .logical_address = address,
       .function_code = function_code,
       .task_alias = mmu->atc.task_alias,
       .shared_globally = found.shared_globally,
       .physical_address = found.physical_address,
-      .write_protect = found.write_protect,
+      .write_protect = ap_m68851_search_not_writeable(&found, &loaded),
       .cache_inhibit = found.cache_inhibit,
       .modified = found.modified || !instruction->read_from_mmu,
       .gate = found.gate,
       .lock = found.lock,
-      .bus_error = found.type == AP_M68851_SEARCH_TYPE_INVALID,
+      .bus_error = found.type == AP_M68851_SEARCH_TYPE_INVALID ||
+                   caches_as_bus_error(verdict),
   };
   ap_m68851_atc_fill(&mmu->atc, ap_m68851_atc_select_victim(&mmu->atc), entry);
   return AP_M68851_EXECUTED;
@@ -543,7 +660,30 @@ ap_m68851_status_t ap_m68851_ptest(ap_m68851_t *mmu,
    * table search)". A search stopped by the level ceiling has found no such
    * thing, so it is not invalid. */
   psr.invalid = found.type == AP_M68851_SEARCH_TYPE_INVALID;
-  psr.write_protected = found.write_protect;
+
+  /* The three bits the accrued protection makes reportable. `PTESTW` is the
+   * write form: §6.1.8.4 sets `A` "if the address tested exceeded RAL for the
+   * PTESTR instruction, or exceeded WAL or RAL for the PTESTW instruction", so
+   * the direction comes from the instruction exactly as `PLOAD`'s does. */
+  const ap_m68851_access_t tested = with_levels(
+      mmu, address,
+      &(ap_m68851_access_t){.function_code = function_code,
+                            .is_write = !instruction->read_from_mmu});
+  /* §6.1.8.5: "set if the address tested is not writeable ... if any descriptor
+   * encountered in the search contained a set WP bit, **or if the address
+   * tested exceeded the WAL field of any long descriptor**". The second
+   * disjunct is what the accumulation made reportable; before it, `W` could
+   * only ever mean the first. */
+  psr.write_protected = ap_m68851_search_not_writeable(&found, &tested);
+  /* §6.1.8.3: "set if a set S bit of a long format descriptor was encountered".
+   * The attribute, not §6.3.1.3's `FC[2]`-gated denial -- so a supervisor
+   * `PTEST` of a supervisor-only page sets it too, which is what makes the bit
+   * useful for inspecting a mapping rather than only for diagnosing a fault. */
+  psr.supervisor_only = found.supervisor_only;
+  psr.access_level_violation =
+      ap_m68851_search_protection(&found, &tested) ==
+      AP_M68851_PROTECTION_ACCESS_LEVEL;
+
   psr.modified = found.modified;
   psr.gate = found.gate;
   psr.globally_sharable = found.shared_globally;

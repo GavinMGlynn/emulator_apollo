@@ -62,17 +62,92 @@ static bool limit_violated(const ap_m68851_search_config_t *config,
   return lower_limit ? (index < limit) : (index > limit);
 }
 
+/* `ACC_STATUS`, Figures 5-24 and 5-27. Carried through the search as one value
+ * so that every exit reports the same accrued protection -- including the
+ * invalid exits, because a limit violation and an invalid descriptor still
+ * leave a `PSR` for `PTEST` to read. */
+typedef struct {
+  unsigned ral;
+  unsigned wal;
+  bool wp;
+  bool sg;
+  bool s;
+} acc_status_t;
+
+/* Figure 5-24, *Table Search Initialization Detail*, in full:
+ *
+ *     ACC_STATUS[RAL] <- $7
+ *     ACC_STATUS[WAL] <- $7
+ *     ACC_STATUS[WP]  <- 0
+ *     ACC_STATUS[SG]  <- 0
+ *     ACC_STATUS[S]   <- 0
+ *
+ * `SG` alone departs from the figure, and §5.1.6 is why: "if there are no long
+ * format descriptors in the path ... **the shared attribute is as indicated in
+ * the root pointer used**". The root pointer is the only descriptor that can
+ * supply it in that case -- it carries an `SG` and no other protection field --
+ * so seeding from it is what makes both statements true at once. */
+static acc_status_t acc_initial(const ap_m68851_rp_t *root) {
+  return (acc_status_t){.ral = 7u,
+                        .wal = 7u,
+                        .wp = false,
+                        .sg = root->shared_globally,
+                        .s = false};
+}
+
+/* Figure 5-27's per-descriptor accumulation. `size` is *this* descriptor's own
+ * width: the figure's `SIZE = 4` arm contributes only `WP`, which is why a path
+ * of short-format descriptors leaves `RAL` and `WAL` at `$7`.
+ *
+ *     SIZE = 8:  IF RAL < ACC_STATUS[RAL] THEN ACC_STATUS[RAL] <- RAL
+ *                IF WAL < ACC_STATUS[WAL] THEN ACC_STATUS[WAL] <- WAL
+ *                ACC_STATUS[SG] <- ACC_STATUS[SG] V SG
+ *                ACC_STATUS[S]  <- ACC_STATUS[S]  V S
+ *                ACC_STATUS[WP] <- ACC_STATUS[WP] V WP
+ *     SIZE = 4:  ACC_STATUS[WP] <- ACC_STATUS[WP] V WP
+ *
+ * A minimum for the two levels and an OR for the three attributes, which is
+ * §5.1.6's "most strict of those indicated at any level" in both directions:
+ * a smaller level number is more privileged, so the minimum is the strictest. */
+static void accumulate(acc_status_t *acc, const ap_m68851_descriptor_t *d,
+                       unsigned size) {
+  acc->wp = acc->wp || d->write_protect;
+  if (size != 8u) {
+    return;
+  }
+  if (d->read_access_level < acc->ral) {
+    acc->ral = d->read_access_level;
+  }
+  if (d->write_access_level < acc->wal) {
+    acc->wal = d->write_access_level;
+  }
+  acc->sg = acc->sg || d->shared_globally;
+  acc->s = acc->s || d->supervisor;
+}
+
+/* Copy the accrued protection into a result, whatever kind of exit this is. */
+static void take_acc(ap_m68851_search_result_t *out, const acc_status_t *acc) {
+  out->write_protect = acc->wp;
+  out->read_access_level = acc->ral;
+  out->write_access_level = acc->wal;
+  out->supervisor_only = acc->s;
+  out->shared_globally = acc->sg;
+}
+
 /* Figure 5-23's terminal states, gathered so each exit sets the same fields. */
 static ap_m68851_search_result_t
 invalid_result(ap_m68851_search_fault_t fault, unsigned levels,
-               bool write_protect, const ap_m68851_visited_t *path,
+               const acc_status_t *acc, const ap_m68851_visited_t *path,
                unsigned path_length) {
   ap_m68851_search_result_t out = {
       .type = AP_M68851_SEARCH_TYPE_INVALID,
       .fault = fault,
       .levels = levels,
-      .write_protect = write_protect,
   };
+  /* The accrued protection survives the fault with the path: `PTEST` reports
+   * `W` and `A` from what the search met, and a search that ended invalid still
+   * met it. */
+  take_acc(&out, acc);
   /* The path survives the fault. "A pointer may be fetched, and its U bit set,
    * for an address to which access is denied at another level of the tree" --
    * so the descriptors already read are still used, and dropping them here
@@ -107,19 +182,23 @@ static void visit(ap_m68851_visited_t *path, unsigned *path_length,
   (*path_length)++;
 }
 
-/* Fill the result from a terminating page descriptor. */
+/* Fill the result from a terminating page descriptor. `acc` has already had
+ * this descriptor accumulated into it by the caller, which is why the four
+ * fields below are the only ones taken from the descriptor directly: Figure
+ * 5-27 assigns `G`, `CI` and `L` where it accumulates the rest, and `M` belongs
+ * to the page alone. */
 static void take_page(ap_m68851_search_result_t *out,
-                      const ap_m68851_descriptor_t *page, bool write_protect) {
+                      const ap_m68851_descriptor_t *page,
+                      const acc_status_t *acc) {
   out->physical_address = page->address;
-  out->cache_inhibit = page->cache_inhibit;
   out->modified = page->modified;
+  /* `ACC_STATUS[G] <- G`, `[CI] <- CI`, `[L] <- L` -- assignment on both arms
+   * of Figure 5-27's page branch, including the short one, so a short page
+   * descriptor supplies them just as a long one does. */
+  out->cache_inhibit = page->cache_inhibit;
   out->gate = page->gate;
   out->lock = page->lock;
-  out->shared_globally = page->shared_globally;
-  /* "The effective write protection determined during the translation table
-   * search": the accumulated protection from every level, not this
-   * descriptor's bit alone. A write protect above cannot be undone below. */
-  out->write_protect = write_protect || page->write_protect;
+  take_acc(out, acc);
 }
 
 ap_m68851_search_result_t
@@ -139,7 +218,7 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
    * the root pointer on the first pass. */
   bool previous_lower_limit = config->root->lower_limit;
   unsigned previous_limit = config->root->limit;
-  bool write_protect = false;
+  acc_status_t acc = acc_initial(config->root);
   ap_m68851_visited_t path[AP_M68851_SEARCH_MAX_PATH];
   unsigned path_length = 0;
   uint32_t table = config->root->table_address;
@@ -174,7 +253,11 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
      * reads like a defect report against this arm. */
     out.type = AP_M68851_SEARCH_TYPE_EARLY;
     out.physical_address = config->root->table_address + logical_address;
-    out.shared_globally = config->root->shared_globally;
+    /* No descriptor was fetched, so `ACC_STATUS` is Figure 5-24's initial value
+     * -- which is §5.1.6's "no long format descriptors in the path" case
+     * exactly: the root pointer's `SG`, not supervisor-only, `RAL` and `WAL`
+     * both `$7`. */
+    take_acc(&out, &acc);
     return out;
   case AP_M68851_DT_VALID_4_BYTE:
     size = 4u;
@@ -187,7 +270,7 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
      * through `PRESTORE`. The manual calls the result undefined; ending the
      * search invalid is the containable reading. */
     return invalid_result(AP_M68851_SEARCH_FAULT_INVALID_DESCRIPTOR, 0u,
-                           false, path, path_length);
+                           &acc, path, path_length);
   }
 
   /* "PERFORM FUNCTION CODE LOOKUP IF REQUIRED": FCL = 1 OR FC3 = 1. The DMA
@@ -198,14 +281,21 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
     const uint32_t address = table + (function_code & 0xFu) * size;
     if (!config->fetch(config->fetch_context, address, size, &raw)) {
       return invalid_result(AP_M68851_SEARCH_FAULT_BUS_ERROR, levels,
-                           write_protect, path, path_length);
+                           &acc, path, path_length);
     }
     levels++;
 
     const ap_m68851_descriptor_t d =
         (size == 4u) ? ap_m68851_short_table_descriptor((uint32_t)raw)
                      : ap_m68851_long_table_descriptor(raw);
-    write_protect = write_protect || d.write_protect;
+    /* A function code lookup can only produce a table or a page descriptor --
+     * the indices have not started, so it can never be the indirect case --
+     * and either way Figure 5-27 accumulates from it. The page arm below
+     * re-decodes at page format and accumulates that instead, because only the
+     * page format has `G`, `CI` and `L`. */
+    if (d.dt != AP_M68851_DT_PAGE_DESCRIPTOR) {
+      accumulate(&acc, &d, size);
+    }
     /* Recorded only now, because until the type field is decoded there is no
      * telling whether this descriptor carries an `M` bit -- and an invalid one
      * is not recorded at all: nothing was translated through it, so it is not
@@ -226,12 +316,13 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
       out.type = AP_M68851_SEARCH_TYPE_EARLY;
       out.levels = levels;
       copy_path(&out, path, path_length);
-      take_page(&out, &page, write_protect);
+      accumulate(&acc, &page, size);
+      take_page(&out, &page, &acc);
       return out;
     }
     case AP_M68851_DT_INVALID:
       return invalid_result(AP_M68851_SEARCH_FAULT_INVALID_DESCRIPTOR, levels,
-                           write_protect, path, path_length);
+                           &acc, path, path_length);
     case AP_M68851_DT_VALID_4_BYTE:
       last_size = size;
       size = 4u;
@@ -257,7 +348,7 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
       out.type = AP_M68851_SEARCH_TYPE_TRUNCATED;
       out.levels = levels;
       copy_path(&out, path, path_length);
-      out.write_protect = write_protect;
+      take_acc(&out, &acc);
       return out;
     }
 
@@ -268,14 +359,14 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
     if (limit_violated(config, previous_is_root, last_size,
                        previous_lower_limit, previous_limit, index)) {
       return invalid_result(AP_M68851_SEARCH_FAULT_LIMIT_VIOLATION, levels,
-                           write_protect, path, path_length);
+                           &acc, path, path_length);
     }
 
     uint64_t raw = 0;
     const uint32_t address = table + index * size;
     if (!config->fetch(config->fetch_context, address, size, &raw)) {
       return invalid_result(AP_M68851_SEARCH_FAULT_BUS_ERROR, levels,
-                           write_protect, path, path_length);
+                           &acc, path, path_length);
     }
     levels++;
 
@@ -289,7 +380,7 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
 
     if (d.dt == AP_M68851_DT_INVALID) {
       return invalid_result(AP_M68851_SEARCH_FAULT_INVALID_DESCRIPTOR, levels,
-                           write_protect, path, path_length);
+                           &acc, path, path_length);
     }
 
     if (d.dt == AP_M68851_DT_PAGE_DESCRIPTOR) {
@@ -307,12 +398,43 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
                        : AP_M68851_SEARCH_TYPE_NORMAL;
       out.levels = levels;
       copy_path(&out, path, path_length);
-      take_page(&out, &page, write_protect || d.write_protect);
+      accumulate(&acc, &page, size);
+      take_page(&out, &page, &acc);
       return out;
     }
 
-    /* A table or indirect descriptor. Accumulate its protection either way. */
-    write_protect = write_protect || d.write_protect;
+    /* Are there more levels? "x = 'D'" or the next TIx is zero means the table
+     * indices are exhausted, and a valid descriptor there is an *indirect*
+     * descriptor rather than another table. Asked before the accumulation
+     * below, because the answer decides whether this descriptor *has* any
+     * protection to accumulate. */
+    const bool exhausted = (x >= 3u) || (tc->table_index[x + 1u] == 0u);
+
+    /* **An indirect descriptor contributes nothing.**
+     *
+     * Figure 5-27 draws one accumulation path for every `DT = '4 BYTE' OR
+     * '8 BYTE'` descriptor and does not single the indirect case out, which
+     * read literally would accumulate from bits Figures 5-17 and 5-18 say are
+     * not protection at all: a **short** indirect descriptor's Figure 5-17 puts
+     * the descriptor address at bits 31-2, so what the table format reads as
+     * `WP` at bit 2 is the address's own least significant bit; a **long**
+     * one's Figure 5-18 leaves everything above `DT` unused, so its `RAL` would
+     * read as `$0` -- the *most* privileged level -- and lock every task out of
+     * a page the tables map.
+     *
+     * `ap_m68851_descriptor.c` already says which way this goes: "an indirect
+     * descriptor carries no protection of its own -- the descriptor it names
+     * carries it, which is the point of the indirection." So the two figures
+     * win over the flowchart's undifferentiated branch, and the alternative is
+     * not a subtle difference but a mapping no access level can reach.
+     *
+     * Until this was written the `WP` half happened anyway, with a comment
+     * saying "accumulate its protection either way" -- so roughly half of all
+     * short indirect targets came back write-protected by an address bit. */
+    if (!exhausted) {
+      accumulate(&acc, &d, size);
+    }
+
     last_size = size;
     size = (d.dt == AP_M68851_DT_VALID_4_BYTE) ? 4u : 8u;
     table = d.address;
@@ -323,10 +445,6 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
     previous_lower_limit = d.lower_limit;
     previous_limit = d.limit;
 
-    /* Are there more levels? "x = 'D'" or the next TIx is zero means the table
-     * indices are exhausted, and a valid descriptor there is an *indirect*
-     * descriptor rather than another table. */
-    const bool exhausted = (x >= 3u) || (tc->table_index[x + 1u] == 0u);
     if (!exhausted) {
       x++;
       previous_is_root = false;
@@ -345,7 +463,7 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
     if (!config->fetch(config->fetch_context, indirect.address, size,
                        &target)) {
       return invalid_result(AP_M68851_SEARCH_FAULT_BUS_ERROR, levels,
-                           write_protect, path, path_length);
+                           &acc, path, path_length);
     }
     levels++;
     visit(path, &path_length, indirect.address, size, raw, true);
@@ -358,7 +476,7 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
      * 5-10's two illegal cells, which is what stops a chain of indirections. */
     if (probe.dt != AP_M68851_DT_PAGE_DESCRIPTOR) {
       return invalid_result(AP_M68851_SEARCH_FAULT_INVALID_DESCRIPTOR, levels,
-                           write_protect, path, path_length);
+                           &acc, path, path_length);
     }
 
     const ap_m68851_descriptor_t page =
@@ -367,9 +485,91 @@ ap_m68851_search(const ap_m68851_search_config_t *config,
     out.type = AP_M68851_SEARCH_TYPE_INDIRECT;
     out.levels = levels;
     copy_path(&out, path, path_length);
-    take_page(&out, &page, write_protect);
+    /* The page the indirection named is where the protection is. */
+    accumulate(&acc, &page, size);
+    take_page(&out, &page, &acc);
     return out;
   }
+}
+
+ap_m68851_protection_t
+ap_m68851_search_protection(const ap_m68851_search_result_t *result,
+                            const ap_m68851_access_t *access) {
+  if (result == NULL || access == NULL) {
+    return AP_M68851_PROTECTION_OK;
+  }
+
+  /* §6.3.1.3, and it is not gated on access levels: the supervisor-only
+   * attribute is a function code test, and `FC[2]` is presented on every bus
+   * cycle whether or not `ALC` enables anything.
+   *
+   * "If bit FC[2] of a logical address is zero and a set S bit is encountered
+   * during the table search in a long format descriptor for that address, an
+   * ATC entry will be made with its internal bus error (B) bit set." */
+  if (result->supervisor_only && (access->function_code & 0x4u) == 0u) {
+    return AP_M68851_PROTECTION_SUPERVISOR_ONLY;
+  }
+
+  /* Everything below is "if access levels are enabled". `ALC = $0` is the
+   * reset state and the only one a machine without the MC68020's module calls
+   * ever leaves it in, so this is the ordinary exit. */
+  if (access->access_levels_enabled == 0u) {
+    return AP_M68851_PROTECTION_OK;
+  }
+
+  /* §6.3.1.4's first paragraph, and §7.2.2 states the same rule from the task's
+   * side: "the access level encoded in the highest-order logical address bits
+   * must be greater than (less privileged) or equal to the value in CAL;
+   * otherwise, the MC68851 aborts the access."
+   *
+   * Numerically less is *more* privileged, so an address claiming a level below
+   * `CAL` is claiming privilege the task does not hold -- and this one is
+   * checked against a register rather than against the tables, which is why it
+   * caches nothing and why `PTEST` cannot see it. */
+  if (access->access_level < access->current_access_level) {
+    return AP_M68851_PROTECTION_ABOVE_CAL;
+  }
+
+  /* §6.3.1.4's second paragraph, `RAL` half only -- the `WAL` half is
+   * §6.3.1.5's write protection and lives in `ap_m68851_search_not_writeable`.
+   * The header above says why the split follows the ATC's own bits.
+   *
+   * §7.2.3.1's third worked example is what pins `RAL` covering writes too:
+   * "consider a page with a RAL encoding of five and a WAL encoding of six; a
+   * task must use an access level of five or lower to read from **or write to**
+   * this page. An attempt to write to this page using an access level of six
+   * would be aborted by the MC68851 **since it is less privileged than the read
+   * access level of the page**." A `WAL` looser than the `RAL` buys nothing,
+   * because "denying a task read access to an area implies that the task also
+   * does not have sufficient privilege to write to that area ... regardless of
+   * the write access level associated with that area." */
+  if (access->access_level > result->read_access_level) {
+    return AP_M68851_PROTECTION_ACCESS_LEVEL;
+  }
+
+  return AP_M68851_PROTECTION_OK;
+}
+
+bool ap_m68851_search_not_writeable(const ap_m68851_search_result_t *result,
+                                    const ap_m68851_access_t *access) {
+  if (result == NULL || access == NULL) {
+    return false;
+  }
+  /* "If any descriptor encountered in the search contained a set WP bit" --
+   * §5.1.6's "if a WP bit is set for the page at any level, the page will not
+   * be writable **for any access level**", so this wins outright. */
+  if (result->write_protect) {
+    return true;
+  }
+  /* "Or if the address tested exceeded the WAL field of any long descriptor
+   * encountered." `ACC_STATUS[WAL]` is already that minimum. */
+  return access->access_levels_enabled != 0u &&
+         access->access_level > result->write_access_level;
+}
+
+bool ap_m68851_rmc_denied(bool resident, bool modified, bool write_protect) {
+  /* §4.2.3.3's condition (6), all three disjuncts. */
+  return !resident || !modified || write_protect;
 }
 
 unsigned ap_m68851_status_writes(const ap_m68851_search_result_t *result,

@@ -8500,6 +8500,86 @@ above one has the *same* exponent as one and only a larger significand, so
 testing the exponent alone let `1 + 2^-63` through to a computation whose
 logarithm argument was negative.
 
+## The MC68851's protection mechanism, and five defects it uncovered
+
+Landed 2026-09-07, closing the batch item's third tail. The module decoded
+`RAL`, `WAL` and `S` from every long-format descriptor and threw all three away
+at the search boundary; §5.1.6 and Figures 5-24/5-27 specify the accumulation
+end to end, so this needed no design work, only transcription.
+
+**The accumulation**, `acc_status_t` in `ap_m68851_search.c`. Figure 5-24 gives
+the initial state (`RAL <- $7`, `WAL <- $7`, `WP <- 0`, `SG <- 0`, `S <- 0`) and
+Figure 5-27 the per-descriptor update, split by the descriptor's own width: a
+long one takes the **minimum** of `RAL` and `WAL` and **ORs** `SG`, `S` and
+`WP`, a short one contributes only `WP`. §5.1.6 states the same thing in prose
+and adds the default -- "if there are no long format descriptors in the path
+... the effective RAL and WAL are both `$7`".
+
+`SG` is the one place the figure is not followed literally, and §5.1.6 is why:
+it says the shared attribute comes from "the root pointer used" when no long
+descriptor is met, and the root pointer is the only descriptor that can supply
+it. Seeding `ACC_STATUS[SG]` from the root rather than from Figure 5-24's zero
+is what makes both statements true at once.
+
+**The evaluation** follows the manual's own division, which turns out to be
+forced by the ATC's bits rather than editorial:
+
+- §6.3.1.3, supervisor-only: a function code test, so it applies with access
+  levels disabled -- the only configuration an in-scope machine runs. Caches as
+  `B`.
+- §6.3.1.4 **first** paragraph, an address more privileged than `CAL`: compared
+  against a *register*, so it **caches nothing** and §6.3.1.4 says outright that
+  "the PTEST instruction will not detect this condition". Lowering `CAL` must
+  release the page with no flush, and a test asserts exactly that.
+- §6.3.1.4 **second** paragraph, `RAL`: denies reads *and* writes, which one `B`
+  bit expresses. §7.2.3.1's third worked example is what pins `RAL` covering
+  writes -- "a RAL encoding of five and a WAL encoding of six ... an attempt to
+  write using an access level of six would be aborted since it is less
+  privileged than the read access level of the page".
+- §6.3.1.5, `WP` **or** an address past `WAL`: denies writes and permits reads,
+  which is what the ATC's `W` bit is for. **§5.2.1.2 gives an entry a `W` bit, a
+  `B` bit and no access levels at all**, so an entry cannot re-derive `RAL` or
+  `WAL` on a later hit -- which is why the `WAL` test has to fold into `W` at
+  fill time and not sit beside the `RAL` test. A model that answered both in one
+  place would deny the first *read* of a page a task may read and may not write.
+
+**§4.2.3.3's condition (6)** is enforced: a read-modify-write to a page "that
+does not have a corresponding descriptor resident in the address translation
+cache, has its modified bit clear, or is write-protected". The first disjunct is
+the surprising one -- the mapping is good and the access is denied anyway,
+because the part will not walk the tables holding the bus. The retry succeeds on
+the entry the failed attempt left behind, which is the same shape as the 68030's
+forced data-cache miss on an `RMC` read.
+
+**Two `PSR` bits become reportable.** `S` and `A` were declared, encoded,
+decoded and never set. `W` was set but could only ever mean §6.1.8.5's first
+half; the second -- "or if the address tested exceeded the WAL field of any long
+descriptor" -- needed the accumulation.
+
+### Three defects the work uncovered, none of them the item's subject
+
+- **A short indirect descriptor's address bit 2 was read as a write protect.**
+  Figure 5-17 puts the descriptor address at bits 31-2, where Figure 5-12 reads
+  bit 2 of a short *table* descriptor as `WP` -- and the search accumulated from
+  the table decode before knowing which it had, with a comment saying
+  "accumulate its protection either way". So roughly half of all short indirect
+  targets came back write-protected by an address bit. Figures 5-17 and 5-18
+  win over Figure 5-27's undifferentiated branch, and `ap_m68851_descriptor.c`
+  already said so: "an indirect descriptor carries no protection of its own".
+- **`SG` was assigned from the terminating page rather than accumulated.**
+  Figure 5-27 ORs it exactly as it ORs `S` and `WP`.
+- **The ATC entry's `M` copied the descriptor's pre-write bit.** `PLOAD` had
+  always set `found.modified || !read_from_mmu`; the translate path had not, so
+  after a write the entry disagreed with the table the write-back had just
+  updated -- and condition (6) reads that bit, so a read-modify-write would have
+  been denied for ever on a page it had just written. The two paths must agree
+  and now do.
+
+*Verification: `m68851_suite` 43 -> 52. Each of the six behaviours has a test
+that fails when that behaviour alone is removed, checked one at a time. The
+tests are built on §7.2.3.1's own worked examples, which is what makes the
+`min(RAL, WAL)` rule a transcription rather than a reading.*
+
 ## The second processor-manual batch is walked whole — 2,633 pages
 
 Finished 2026-09-07. Six documents, every page read as an image except the one
@@ -10497,7 +10577,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 transparent translation (TT0/TT1) | working, bit layout now transcribed | `tt_suite`, 21 tests, `MC68030 User's Manual 3ed` §9.3, §9.7.3; layout from `M68000 Family Programmer's Reference Manual 1992` Figure 1-9 |
 | 68030 MMU status register (`MMUSR`) | working, both PTEST forms, bit layout transcribed | `mmusr_suite`, 17 tests, `MC68030 User's Manual 3ed` Table 9-3; layout from `M68000 Family Programmer's Reference Manual 1992` PTEST p. 6-64 |
 | 68030 translation table search (the walk) | working: search, U/M writeback, ATC fill, and `PTEST`'s level as a search depth | `walk_suite`, 52 tests, `MC68030 User's Manual 3ed` §9.2, §9.4, §9.5, §11; writeback cost cross-checked against `MC68851 PMMU User's Manual 3ed` §5.1.5.3.11; the level ceiling from `M68000 Family Programmer's Reference Manual 1992` PTEST p. 6-63 |
-| MC68851 PMMU | **the table search enforces `WP` and drops every other protection field**, which is named first because the rest of this row is a completeness claim: `RAL`, `WAL` and `S` are decoded from every long-format descriptor and discarded at the search boundary, where §6.3.1.3, §6.3.1.4, §7.2.3.1 and §5.1.3.1 all require them. `ap_m68851_atc.h` already describes the mechanism -- protection evaluated at ATC fill time, a denial cached with the `B` bit -- so what is missing is the evaluation. **No in-scope machine is affected**: `PVALID`'s own `CAL`/`VAL` check is implemented, and the DN3500's MMU is the 68030's, which has no access levels (`[030]` §9.6) and whose supervisor protection `ap_m68030_search_permits_access` enforces. Found walking `[851]` §7 on 2026-09-07 and made a named plan item. Otherwise working as its own subsystem: the translation control and root pointers, the six descriptor formats and Figure 5-10's type determination, the status and protection registers, the 64-entry ATC, and the table search with §5.1.5.3.11's U/M write-back. The **68030's** own MMU is separate and has its own rows above | `m68851_tc_suite` 13, `m68851_rp_suite` 13, `m68851_descriptor_suite` 21, `m68851_regs_suite` 22, `m68851_atc_suite` 22, `m68851_search_suite` 26, `m68851_suite` 43; `MC68851 PMMU User's Manual 3ed` |
+| MC68851 PMMU | **the protection mechanism is complete as of 2026-09-07**, which is where this row used to name a gap. `ACC_STATUS` is accumulated down the path exactly as Figure 5-24 initialises it and Figure 5-27 updates it -- `RAL` and `WAL` by **minimum**, `S`, `SG` and `WP` by **OR**, `G`/`CI`/`L` assigned from the terminating page -- and evaluated per §6.3.1.3 (a user access to a supervisor-only page), §6.3.1.4 (both paragraphs, which are two different mechanisms) and §6.3.1.5 (a `WP` bit anywhere, **or** an address past the effective `WAL`). §4.2.3.3's condition (6) is enforced, and `PSR`'s `S`, `A` and `W` bits are reportable for the first time. **Still no in-scope machine affected**: `PVALID`'s own `CAL`/`VAL` check was always implemented, and the DN3500's MMU is the 68030's, which has no access levels (`[030]` §9.6) and whose supervisor protection `ap_m68030_search_permits_access` enforces. Otherwise working as its own subsystem: the translation control and root pointers, the six descriptor formats and Figure 5-10's type determination, the status and protection registers, the 64-entry ATC, and the table search with §5.1.5.3.11's U/M write-back. The **68030's** own MMU is separate and has its own rows above | `m68851_tc_suite` 13, `m68851_rp_suite` 13, `m68851_descriptor_suite` 21, `m68851_regs_suite` 22, `m68851_atc_suite` 22, `m68851_search_suite` 26, `m68851_suite` 52; `MC68851 PMMU User's Manual 3ed` |
 | 68040 MMU | not started | — |
 | MC68882 FPU | **instruction execution timing is charged but the concurrency is not**, which is named first because the row is otherwise a completeness claim. Corrected 2026-09-07 from `[881]` §8, walked whole: the row used to say "no instruction execution timing", and an `FSIN` cost exactly what an `FMOVE` cost. §8.5.2 splits an FPCP instruction into six phases and says the first three are "almost entirely dependent on the execution characteristics of the main processor" while convert, calculate and round are "dependent **solely on the FPCP**" -- this core charged the first three as real bus cycles and the last three as nothing. `ap_m68882_timing.c` now supplies them from **Table 8-3's `FPn to FPm` column** (394 clocks for `FSIN` against 21 for `FMOVE`, 32 for `FMOVECR`) and from **Tables 8-16/8-17** for the store direction (18 extended, 38 single or double, 50 integer, 1942 typical for packed). The register-to-register column deliberately, because the memory columns differ from it only by the operand transfer -- `FADD` is 56 against 81 for an extended memory operand, and Table 8-4 prices that difference at ten bus cycles this core already performs, so taking a memory column would charge the bus twice. **`PROVISIONAL` in three named ways**: the calculation is data-dependent and this charges §8.5.1's typical case (Tables 8-14/8-15 give 2 clocks for a zero source to `FADD`, 6 for an infinity, 28 for a NAN); the MC68882's *concurrency* is not modelled, so a floating-point **sequence** is charged the sum of its totals where Table 8-5's worked example gets 331 for a sequence totalling 470; and only Table 8-18's assumed rounding case (6 clocks, extended, no exception) is charged rather than up to 60. §8.5.1's NOTE that the tables assume an MC68020 host and "actual operation when using the MC68030 always yields better values" does *not* apply to what is transcribed here -- it is about the MPU-dependent phases, which this takes from the tables not at all. §10.4 and §12.6's specs 25/27 cost the interface itself (five clocks for a synchronous read of the response or save CIR, three for every other CIR access) and are not charged, because this core issues no CPU-space cycle for the FPU at all. The asymmetry is the tell -- the *68040's* floating-point timings are transcribed in three modules, for a processor no in-scope model runs. Otherwise working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. `FMOVEM` of the data registers runs in both directions with its reversed mask orderings, and so do the system control registers, with the FPIAR tracking under §2.4's two conditions. `FMOVECR` returns all 22 published constants, computed and correctly rounded. **Every general-type instruction executes.** **Every instruction type executes**, the conditionals included. **Every 68882 instruction and every data format executes**, `FSAVE` and `FRESTORE` included. **The idle state frame's reserved word and BIU flags are written as the manual defines them** -- corrected 2026-09-07 from §6.4, walked whole: the reserved word is `$FFFF` and the BIU flag word `$7C00FFFF`, where both had been zeros. Figure 6-6's definitions run the *other way* from an uninitialised field (bit 27 "if this bit is zero, an exception is pending"; bit 26 the same for an operand transfer; bits 30-28 = `111` for "No Pending Instruction or Operand CIR Access" where `000` is reserved), and bits 15-0 are "written as ones during save operations" -- so a zeroed word told every handler three false things in the field §6.4.2.2 says exists so a handler can "display the pending exception status". **`FSAVE` negates `EXC PEND`** -- §6.4.1, §7.5.3.1 and §7.5.4.1 each say so, and Figure 7-28's handler (`FSAVE` / body / `BSET #3,(SP,D0)` / `FRESTORE` / `RTE`) shows it cannot be a write to the FPSR, since the `BSET` sets the bit *in the saved frame*. Without it the handler's own first arithmetic instruction re-took the trap it was written to handle: `FMOVEM` being exempt lets a handler move registers, only the `FSAVE` lets it calculate. A one-instruction latch, because the EXC byte "is cleared by the FPCP at the start of most operations". **The version number is no longer `PROVISIONAL`**: §6.4.2.2's NOTE publishes the format words (`$1F18`/`$3F18` for the MC68881, **`$1F38`** for the MC68882) and §6.4.3 repeats it, so `AP_M68882_DEFAULT_VERSION`'s `0x1F` is a transcription; the old note read the prose two paragraphs above the NOTE and concluded no value was published. **`FRESTORE` of an idle frame still ignores the frame's contents**, including the BIU bit 27 that §6.4.2.2 lets a program use to "create a software generated pending exception" -- named, small, and without a caller. **`FCMP` sets `N` alongside `Z` on an equal compare with a negative destination**, `FMOVE <ea>,FPn` **rounds to the FPCR precision** where `FABS` and `FNEG` deliberately do not, all three report `UNFL` for an extended denormalized *source*, `FSCALE` is **exact even when it overflows**, and a conditional predicate's **bit 5 is ignored rather than reserved** -- five corrections from §4.6 and §4.7, walked whole 2026-09-07. The predicate one had the test asserting the code's misreading, from Table 4-8, where §4.7.2's Table 4-20 note 3 defines the encodings outright ("redundant encodings with 0XXXXX"); an `FBNE` assembled as `$2E` fell through every time. **Unnormalized extended operands are folded before use** -- corrected 2026-09-07 from §3.2.2's NOTE, which Appendix A's glossary surfaced: the extended format's explicit integer bit makes redundant encodings possible, "the MC68881 never generates an unnormalized number as the result of any operation", and this core copied the caller's encoding straight through. The fold is exact, because Table 3-3 gives normalized and denormalized the same `(-1)^s x 2^(e-16383) x j.f`. §5's conversion-unit rules and Table 5-5's note **b** are the second and third witnesses that the part treats "unnormalized" as an input data type of its own. **An illegal addressing mode on a coprocessor instruction takes the F-line trap, not a protocol violation** -- corrected 2026-09-06 from `[030]` §10, walked whole. Table 10-6 splits the two, and §10.2.3.3.1, §10.2.3.4.1, §10.4.9 and §10.4.16 each state the F-line outright for the class check while leaving the length and nonalterable-write refusals a protocol violation. The difference is the frame: four-word pre-instruction and a restarted instruction, against the ten-word mid-instruction frame that resumes into a dialogue the processor never opened. A *busy* state frame is deliberately absent: this core's part never suspends, so nothing can generate one — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 19, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 43, `m68882_decode_suite` 12, `m68882_accuracy_suite` 11, `m68882_transcendental_suite` 36, `m68882_store_suite` 14, plus 51 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
 | MC68040 FPU | timing tables only — §10.6, §10.7.1/§10.7.2 and §10.7.3's pipeline stages are transcribed; no 68040 arithmetic | `m68040_iu_timing_suite` 99, `m68040_fpu_timing_suite` 32, `m68040_fp_pipeline_suite` 18 |
