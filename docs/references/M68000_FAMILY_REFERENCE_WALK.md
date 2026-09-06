@@ -5,7 +5,7 @@
 
 | Tag | File | Pages | Text layer | State |
 | --- | --- | --- | --- | --- |
-| `[FAMREF]` | `motorola/M68000_Family_Reference_1988.pdf` | 608 | **scanned, OCR** | **380/608 walked** |
+| `[FAMREF]` | `motorola/M68000_Family_Reference_1988.pdf` | 608 | **scanned, OCR** | **WALKED WHOLE, 608/608, 2026-09-07** |
 
 ## The citation audit: genuinely zero
 
@@ -37,10 +37,12 @@ that one witness, not two.
 | 3 | Microprocessors | 19-158 | **walked 140/140** |
 | 4 | Coprocessors (MC68851, MC68881, MC68882) | 159-244 | **walked 86/86** |
 | 5 | DMA controllers (MC68440/68442/68450) | 243-300 | **walked 58/58** |
-| 6 | Data communications | 301-384 | in progress, 380/608 |
-| 7 | Networking | 385-492 | owed |
-| 8 | General-purpose peripherals | 493-~570 | owed |
-| 9-11 | Development systems, mechanical, ordering | ~571-608 | owed |
+| 6 | Data communications (MC2681, MC68652, **MC68681**) | 301-384 | **walked 84/84** |
+| 7 | Network devices (MC68184/68194/68824/68605/68606) | 385-492 | **walked 108/108** |
+| 8 | General-purpose peripherals (MC68153, MC68230, MC68452, MC68901) | 493-558 | **walked 66/66** |
+| 9 | Mechanical data | 559-578 | **walked 20/20** |
+| 10 | Technical support | 579-590 | **walked 12/12** |
+| 11 | Development systems | 591-608 | **walked 18/18** |
 
 ## §3's yield: six corroborations, and every one of them lands on this session
 
@@ -244,6 +246,63 @@ the 38.4 kHz two-sample change-of-state mechanism it declines to model.
 §6 also carries the **MC68652/MC2652 MPCC**, a synchronous multi-protocol
 controller this machine does not have.
 
+## §7 through §11: nothing to implement, and two things worth keeping
+
+**§7, network devices**, is 108 pages of IEEE 802.4 token bus -- the MC68184
+broadband interface controller, the MC68194 carrierband modem, the MC68824
+token bus controller -- plus the MC68605 X.25 protocol controller and the
+MC68606 multi-link LAPD protocol controller. The DN3500's networking is a 3Com
+3c505 Ethernet card and the Apollo Domain ring, neither of which is any of
+these, and both of which have their own walked documents. Nothing.
+
+**§8, general-purpose peripherals**, is the MC68153 bus interrupter module, the
+MC68230 parallel interface/timer, the MC68452 bus arbitration module and the
+MC68901 multi-function peripheral. This machine's equivalents are all Intel or
+Signetics parts with their own walk records. Nothing.
+
+**§9 mechanical data** and **§11 development systems** are packages, in-circuit
+emulators and part numbers. Two things are worth keeping from them:
+
+- **§11.3.3's MC68030 emulator signal lists** name `MMUDIS`, `CDIS`, `CBREQ`,
+  `CBACK`, `STERM`, `CIOUT` and `CIIN` among the signals the emulator can
+  substitute or drive. That is the `MMUDIS`/`CDIS` plan item's own subject seen
+  from the other side -- these are the emulator-support inputs this core does
+  not model, and this is the fourth document to print what a system that *did*
+  drive them would look like.
+- **§10's Table 10-1, *MPU Product Literature*, is a bibliography**, and it
+  settles a question this project could otherwise only assume: the MC68882's
+  user's manual is listed as **`MC68881UM/AD`** -- the *same* document as the
+  MC68881's. There is no separate MC68882 user's manual, so
+  `MC68881_MC68882_..._Users_Manual_1ed_1987.pdf` is the whole of it and nothing
+  is missing. The table also gives `MC68030UM/AD`, `MC68851UM/AD` and
+  `MC68020UM/AD`, which are the three other manuals this project holds, and the
+  `BRxxx/D` technical-summary numbers for the abridgements §3 and §4 reprint.
+
+## What the whole document was worth
+
+**Zero implementable facts, and that is the correct outcome** for a databook
+whose content is either an abridgement of a manual already walked whole or a
+datasheet for a part this machine does not have. The shared-source rule says as
+much in advance.
+
+Its value was elsewhere, and there was more of it than expected:
+
+1. **It named the MC68681/MC2681 differences**, closing the opening finding of
+   `SCN2681_WALK.md` -- see §6 above. That is the `[8259]` lesson repeating: the
+   plan characterised these sections as parts this machine lacks, and §6 turned
+   out to hold the DUART it has.
+2. **It gave a second, independent statement of this session's `[881]`
+   exception-handler work**, as a three-item list on one page.
+3. **It cross-checked `ap_m68882_timing.c`'s transcription** against a
+   differently typeset printing of the same tables.
+4. **It supplied a fourth and fifth witness for the `RESET` instruction's 512
+   clocks and a fifth, sixth and seventh for the `RMC` arbitration lock** --
+   both facts this project changed code over in the same week.
+5. **It demonstrated the failure `ap_m68882_cir.h` warns about**, by printing a
+   CIR map without its footnote. Twice.
+6. **It closed the "is there a separate MC68882 manual?" question** by
+   bibliography.
+
 ## Owed
 
-The rest of §6, then §7 through §11 -- PDF 381-608.
+Nothing. **608/608.**

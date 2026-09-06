@@ -8500,6 +8500,86 @@ above one has the *same* exponent as one and only a larger significand, so
 testing the exponent alone let `1 + 2^-63` through to a computation whose
 logarithm argument was negative.
 
+## The second processor-manual batch is walked whole — 2,633 pages
+
+Finished 2026-09-07. Six documents, every page read as an image except the one
+that is genuinely born-digital:
+
+| Document | Pages | Record |
+| --- | --- | --- |
+| `[030]` MC68030 User's Manual 3ed | 608/608 | `M68030_WALK.md` |
+| `[PRM]` M68000 Family Programmer's Reference 1992 | 646/646 | `PRM_WALK.md` |
+| `[881]` MC68881/MC68882 User's Manual 1ed | 396/396 | `M68881_WALK.md` |
+| `[851]` MC68851 PMMU User's Manual 3ed | 356/356 | `M68851_WALK.md` |
+| `[FAMREF]` M68000 Family Reference 1988 | 608/608 | `M68000_FAMILY_REFERENCE_WALK.md` |
+| `[030EC]` MC68030 Electrical Specifications | 19/19 | `MC68030EC_WALK.md` |
+
+**The method, corrected mid-batch and worth stating first.** `pdffonts` is
+**not** the test for whether a text layer can be trusted -- `[851]`'s OCR is
+typeset in plain Helvetica over a 400 dpi scan and looks born-digital to it.
+**`pdfimages -list` is the test**: a full-page image at scan resolution means
+the text layer is a recognition. On that test `[PRM]` is the only born-digital
+document of the six (small figures only), and the only one where
+`pdftotext -layout` was treated as authoritative. Both walk records written
+before the correction were fixed.
+
+**Nineteen defects, each with a discriminating test, all in code a green suite
+had passed:**
+
+- **Five coprocessor addressing-mode refusals reported the wrong vector.** An
+  illegal `<ea>` on a coprocessor instruction is an **F-line**, not a protocol
+  violation -- `[030]` Table 10-6 splits them and `[881]` Table 7-5 supplies the
+  valid-EA class per opclass that `[030]` could not state. The difference is the
+  frame a handler gets: a four-word pre-instruction frame and a restarted
+  instruction, against a ten-word mid-instruction frame resuming a dialogue the
+  processor never opened.
+- **A bit field accessed one byte per bit** -- thirty-two bus accesses for a
+  32-bit field, and a read-modify-write per bit on the write path. Measured at
+  2 and 3 accesses after against 33 and 33 before. Every existing test passed,
+  because the values were always right.
+- **`RESET` charged nothing** for a 512-clock assertion, now on **five**
+  documents.
+- **`TAS` never asserted `RMC`**, and the arbiter's bus lock was called by
+  nobody but its own test.
+- **An `RMC` read must miss the data cache**, and did not.
+- **Unnormalized extended operands were copied through** rather than folded.
+- **`FCMP` cleared `N` on an equal compare** with a negative destination.
+- **`FMOVE` did not round** to the FPCR precision, where `FABS`/`FNEG`
+  deliberately must not.
+- **`FSCALE` reported an inexact result** it cannot have.
+- **A conditional predicate's bit 5 was treated as reserved**, answering false
+  to sixteen predicates the part evaluates -- with the *test* asserting the same
+  misreading.
+- **The FPU state frame's reserved word and BIU flags were zeros**, telling
+  every handler a quiescent part had an exception pending; and **`FSAVE` did not
+  negate `EXC PEND`**, so a handler could not reach its second instruction.
+
+**Instruction timing now charged for the FPU** (`ap_m68882_timing.c`), from
+`[881]` §8.5.2's split between the MPU-dependent phases this core already
+prices as bus cycles and the convert/calculate/round phases that are "dependent
+solely on the FPCP". `FSIN` is 394 clocks against `FMOVE`'s 21; it used to cost
+the same as `FMOVE`.
+
+**Four `PROVISIONAL`s closed**, including the 4096-ULP question (answered three
+paragraphs below the sentence that raised it) and the microcode version
+(published in a NOTE two pages past the prose that was read instead).
+
+**Roughly thirty documentary errors recorded**, each where the code is right and
+the manual is not, so nobody "fixes" a correct implementation: `FATANH`'s
+transposed infinity signs (stated twice), `[PRM]` Table 2-4's Alterable column
+(four witnesses against it), `[851]` §6.1.1.4's root-`DT` limit check, `[851]`
+§8's transposed figure captions, `FSINCOS`'s `+0.0` for a cosine of zero, and
+`[881]` Table 4-19's two reserved rows that its own `FScc` page contradicts.
+
+**And the last document repaid the `[8259]` lesson.** The family reference was
+characterised in advance as abridgements plus datasheets for parts this machine
+does not have -- accurate for five of its six device sections. §6 carries the
+**MC68681 DUART**, which the DN3500 *has*, alongside the **MC2681**, and their
+register maps printed fifty-five pages apart **name the "minor differences"**
+Motorola's equivalence claim never did. That closes the opening finding of
+`SCN2681_WALK.md`.
+
+
 ## The 68882 is complete
 
 ### The source operand transfer: `FADD.S (A0),FP1` now runs

@@ -6900,7 +6900,16 @@ same number is what let them diverge once already.
       processor manuals are not, and are the far larger job — see the batch
       below.
 
-- [ ] **Walk the processor manuals whole — the second batch, ~3,100 pages.**
+- [ ] **Walk the processor manuals whole — the second batch.**
+      ***All six documents are walked whole as of 2026-09-07: 2,633 pages***
+      — `[030]` 608/608, `[PRM]` 646/646, `[851]` 356/356, `[881]` 396/396,
+      `MC68030EC` 19/19 and `M68000_Family_Reference` 608/608. **The reading is
+      finished**; this item stays open only for the four implementation tails
+      the walks found, each a sub-item below with its own verification: the
+      unplaced `AP_M68030_RMC_FIRST_READ`, the table search as an extended
+      read-modify-write, the 68882's unmodelled concurrency, and the `m68851`
+      protection fields the search drops. `[020]` and `[040]` are a deliberate
+      deferral to Phase 2b/7 and are not part of this batch.
       Opened 2026-08-25, once the peripheral batch closed and an inventory
       showed the shelf holds 133 PDFs against 14 walk records. Most of the
       remainder is Domain/OS *software* documentation and out of scope; these
@@ -6915,166 +6924,19 @@ same number is what let them diverge once already.
       *Order is by what this machine actually runs*: `[030]` first, then
       `[PRM]`; the 68020 and 68040 are Phase 2b/7 parts that do not exist yet
       and come last.
-      - [ ] **`[030]` `MC68030_Users_Manual_3ed_1990.pdf`, 608 pages —
-            audited 2026-08-25, and the audit halved the job.** All 90
-            citations attributed by section: **§7, §8, §9 and §11 hold 88 of
-            them and are `derived`**, so a pass over those is verification
-            rather than discovery. **§2, §3 and §5 are genuinely unread**, about
-            100 pages, and they come first — §2 because `ap_m68030_ea.h` takes
-            the whole addressing-mode decode from `[PRM]` §2 and never opens the
-            processor's own chapter on it; §3 likewise for the instruction set;
-            and **§5, *Signal Description*, because `ap_m68030_bus.c` is built
-            from §7's timing without the chapter that defines the signals §7
-            operates on** — the arrangement that already let the write strobes
-            be wrong until §7.3.2 was transcribed. §12-§14 and Appendix A are
-            expected to be applications/electrical/mechanical and get read
-            anyway, after `[8259]` and `[8237]` each hid rules in such a range.
+      - [x] **`[030]` `MC68030_Users_Manual_3ed_1990.pdf`, 608 pages — walked
+            whole, 608/608, 2026-09-06.** The audit halved the job by
+            attribution: §7-§9 and §11 held 88 of 90 citations and were
+            verification, §2, §3 and §5 were unread. Yield: **an addressing-mode
+            refusal on a coprocessor instruction is an F-line, not a protocol
+            violation** (Table 10-6, five sites corrected); `RESET` costs its
+            **518 clocks**; a **traced `STOP` must not stop**; `[PRM]` Table
+            2-4's Alterable column is wrong and `[030]` Table 2-2 settles it;
+            and `MC68030EC/D` was found by §13 naming it, opening the item
+            below. Every section walked including §12-§14 and Appendix A, on the
+            rule that a range dismissed as electrical is where `[8259]` hid
+            `TJLJH`. Detail in `PROJECT_STATUS.md`.
             Record: `docs/references/M68030_WALK.md`.
-            ***§5 walked 12/12 on 2026-08-25***, the first section of this
-            manual anyone has read. Yield: three rules this core already obeys
-            *by construction and without citing them* (`CIIN` ignored on
-            writes, `CDIS` not flushing, `RESET` leaving processor state
-            alone), one **stale comment corrected** — `ap_m68030_step.c`'s
-            `RESET` arm said "until there are devices to reset" and
-            `ap_machine.c` has reset them since it was wired — and one signal
-            not modelled at all, `MMUDIS`, below.
-            ***§2 walked 40/40 the same day, and it confirms throughout.*** Its
-            whole premise was that `ap_m68030_ea.h` takes the EA decode from
-            `[PRM]` §2 and had never opened the processor's own chapter — and
-            §2.5's Figure 2-4 and Table 2-1 say the same things, **including
-            both traps the Phase 2 items record**: `BD SIZE` `00` is Reserved
-            rather than null, and `IS` must be read together with `I/IS` because
-            `001` is preindexed under one and memory-indirect under the other.
-            Three further rules checked and holding — A7's byte step (stated a
-            third time in §2.8.1), signed bit-field offsets with memory not
-            wrapping where a register does, and §2.2.3's CCR and SFC/DFC
-            masking. **So the decision to use `[PRM]`'s intact figures was
-            safe, and is now checked rather than trusted.** One bound is stated
-            and unenforced: "the longest instruction contains 10 extension
-            words".
-            ***§3 walked 32/32 the same day, completing all three of the
-            genuinely-unread sections.*** It confirms too: Table 3-13's
-            conditional tests match `[PRM]` Table 3-19 including the `T`/`F`
-            footnote the branch item rests on, the shift count is "modulo 64"
-            as modelled, and Table 3-6's note that bit-field instructions set
-            `N`/`Z` **before** the operation is the ordering the dispatch
-            already uses. **Table 3-12, *Condition Code Computations*, is now
-            on the shelf as the definitive cross-check for `ap_m68030_alu.c`.**
-            One documented effect is vacuous in this model and now says so:
-            §3.5.4's `NOP` pipeline synchronisation has nothing to wait on in a
-            strictly in-order core, and the arm was a bare `return true`.
-            ***§1, §4, §6 and §7 walked 2026-08-25/26***, taking `[030]` to
-            §1-§7, 240 of 608 pages. §1 corrected a Phase 2 claim — Figure 1-4
-            is perfectly legible, so "the 68030 manual's does not survive the
-            scan" was decided without rendering the page. **§7 is the first of
-            the four *derived* sections to be verified, and it confirms the two
-            fixes this project made the hard way**: §7.3.2's states give the
-            write cycle's `DBEN` at S1, `DS` at S3 and `DBEN` held through S5 —
-            the three differences the write-timing item records — and §7.5.1
-            gives the pipe's deferred instruction bus error verbatim. It also
-            extends §5.7.1's `CIIN` rule with translation table searches, and
-            gives `NOP`'s synchronisation a purpose §3.5.4 only names.
-            ***§8 walked 2026-08-26, and it found the first real defect in
-            `[030]`***: §8.1.7 has "the STOP instruction does not perform its
-            function when it is traced ... the processor never enters the
-            stopped condition", and this core's `STOP` arm stopped
-            unconditionally — so a debugger single-stepping over a `STOP` would
-            have wedged the machine, tracing being modelled. Fixed, reading the
-            trace mode *before* the `SR` load because "begins execution with
-            T1 = 1" is the entry state. *Verification: `step_suite` 297 → 299
-            with the untraced case as control; identity boot **unchanged** at
-            `42B14372F3677EE8`, so Domain/OS never traces a `STOP`.*
-            §8 otherwise confirms: Table 8-1's vectors, §8.1.1's ten reset steps
-            including that reset invalidates the caches and **not** the ATC,
-            Table 8-5's priority groups, Table 8-6's six stack frames and
-            §8.2.1's Special Status Word.
-            ***§9 walked 2026-08-26, 86 pages — the largest citation block
-            (28 of 90), and it confirms throughout with no defect.*** Table
-            9-3's MMUSR definitions, §9.7.5.3's three configuration-exception
-            rules including that the register is loaded **before** the exception,
-            the `TIx` sum's "added together until a zero field is reached", and
-            §9.6's 68851 differences — a page `ap_m68030_step.c` already cites.
-            One rule is emergent rather than coded, like the 6840's: the limit
-            field's two "effectively disabled" cases fall out of
-            `index >= 0` / `index <= $7FFF`. *Thirty of its pages (§9.9, §9.10)
-            are operating-system design guidance and contain no part behaviour,
-            which is why so large a chapter yielded no correction.*
-            ***§10 walked 2026-09-06, 76 pages, and it found the section's
-            one real defect.*** The audit had it at `sampled`, two citations
-            against the chapter that specifies the whole 68882 protocol.
-            **An addressing-mode refusal on a coprocessor instruction is an
-            F-line trap, not a protocol violation**: Table 10-6 splits the two
-            columns and §10.2.3.3.1, §10.2.3.4.1, §10.4.9 and §10.4.16 each say
-            so outright, while the length, direction and nonalterable-write
-            refusals stay protocol violations. This core reported all of them as
-            vector 13, which hands a handler the ten-word mid-instruction frame
-            where the hardware gives the four-word pre-instruction one and
-            restarts the instruction. Fixed at four sites. Three more turn on
-            what the **68882** declares as its valid-EA class and are left open
-            for the `[882]` walk, named in the record. Also: a "reading" promoted
-            to a transcription -- §10.5.2.2 states the F-line for types `110`
-            and `111` that the code had inferred, and adds that no CIR is
-            touched; two rules obeyed uncited (§10.5.3, a `RESET` instruction
-            must not reset the coprocessor; §10.1.4.3, no burst and no caching
-            on a CPU-space cycle); and two documentary errors -- §10.4.2 prints
-            the `PC` bit as [4] where thirteen figures put it at [14], and Table
-            10-6 transposes `(An)+` and `-(An)` against §10.4.16's own prose and
-            says "MC68020". *Verification: `step_suite` 299 → 302, with a
-            user-mode `FSAVE` as the control that the privilege check still
-            comes first; identity boot **unchanged** at `42B14372F3677EE8`, so
-            Domain/OS never names an illegal mode on a coprocessor instruction.*
-            ***§11 walked 2026-09-06, 62 pages -- the transcription verifies,
-            and the defect was in the prose.*** All 59 rows of
-            `ap_m68030_timing_table.c` and both effective-address tables
-            reproduce their page images exactly, head, tail, `CC` and `NCC` with
-            its `(r/p/w)` triple; §11.3.4's worked example is confirmed
-            mislabelled as `M68030_TIMING.md` records, and the text layer still
-            mangles `4(1/1/0)` into `4(1/010)` on p. 11-26. **The find is
-            §11.4's note**: "RMC cycles (e.g., TAS and CAS) are forced to miss on
-            data cache reads", and its sibling §6.1.2.2 -- "The read portion of a
-            read-modify-write cycle is **always forced to miss in the data
-            cache**" -- from a chapter marked `partly derived` that nobody had
-            asked this question of. `ap_m68030_access_read` looked up before
-            consulting `access->rmc` and passed a literal `false` into the cache,
-            so a `TAS` on a cached operand answered from the line: no external
-            cycle, and a semaphore read that could not see another master's
-            write. The one constant also hid the RMC from `CBREQ` suppression and
-            **cleared** `bus->rmc` on the read cycle of the indivisible pair.
-            Two rules obeyed uncited are now cited (§11.2.2's holding register
-            serving the pipe with the cache disabled; §6.1.2.2's table searches
-            being ignored by the data cache), one stale comment corrected, and
-            two documentary errors recorded -- §11.6.3's `([B],I,d32)` reads
-            `12(2/0/0)` where the calculate table can only mean one read, and
-            §11.6.5's jump table lists `([B],d32)` twice. *Verification:
-            `access_suite` 16 -> 18, the forced-miss test checked against the
-            unfixed code so it discriminates; identity boot **unchanged** at
-            `42B14372F3677EE8`.*
-            ***§12, §13, §14 and Appendix A walked 2026-09-06, 57 pages ---
-            `[030]` is walked whole, 608/608.*** The census dismissed these as
-            "applications, electrical and mechanical" and the record already
-            warned that was a claim about the contents page. **It hid the worst
-            defect this manual has produced.** From §12.1.2's line that a table
-            search "asserts `RMC` but not `CIOUT`", chased through §7.7.1, §11.9
-            and Appendix A: **an indivisible read-modify-write did not hold the
-            bus.** Two failures compounding --- `ap_m68030_arb_set_rmc` models
-            §7.7.4's lock in full and was called by `arb_suite` and by *nothing
-            in `src/`*, so a DMA channel asking during a semaphore operation was
-            granted the bus; and `TAS`, the one instruction the architecture
-            provides for semaphores, never asserted `RMC` at all --- only `CAS`
-            and `CAS2` did, into a flag no arbiter could see. Both fixed.
-            §12 and Appendix A also *verify* three things this core argued for:
-            `CALLM`/`RTM` are "(MC68020 only)" and take the 68030's trap, which
-            `has_module_calls` already did; the stack frame set is exactly
-            `$0`,`$1`,`$2`,`$9`,`$A`,`$B`; and MMU instructions take
-            control-alterable modes only. Table 12-4 is the `STATUS` signal's
-            definition and belongs with the `MMUDIS` item. Three documentary
-            errors: Appendix A calls the 68030's `MMUSR` by the 68851's name
-            `PSR`, and §12 has two wrong figure cross-references. *Verification:
-            `machine_suite` 56 -> 58, both tests checked against the unfixed
-            code; identity boot **unchanged** at `42B14372F3677EE8`, so no DMA
-            request collided with a semaphore in 350 M instructions.* **`[030]`
-            is finished**: fourteen sections and an appendix, 608 pages, four
-            real defects, every one of them in code the suite was green on.
       - [ ] **`AP_M68030_RMC_FIRST_READ` is modelled and never placed.** The
             arbiter has three RMC states because `[030]` §7.7.4 distinguishes
             the first read cycle --- a bus request arriving during it still
@@ -7113,113 +6975,18 @@ same number is what let them diverge once already.
             and `REFILL`. *Verification: no code change; all three corroborate
             changes already landed and tested.* Record:
             `docs/references/MC68030EC_WALK.md`. Detail in `PROJECT_STATUS.md`.
-      - [ ] **`[PRM]` `M68000_Family_Programmers_Reference_Manual_1992.pdf`,
-            646 pages — audited 2026-09-06, and the audit reversed this item's
-            premise for the third time.** It said "cited 9 times". It is cited
-            **9 times by tag and 29 more by full title**, across more than
-            twenty modules — essentially the whole instruction set derives from
-            it. That is `[Bt458]`'s lesson ("counting tags is a first pass,
-            never a verdict") failing for the third document *after* it was
-            written down.
-            **Method note, and it is a real one**: `[PRM]` is **born-digital** —
-            embedded Type 1 fonts, no OCR anywhere, only small raster figures.
-            `CLAUDE.md`'s page-image rule exists because *OCR* mangles tables,
-            and there is no OCR here; `pdftotext -layout` reproduces the
-            document's own text. Validated against `[030]`'s page image for the
-            same table before being relied on. Page images are still used for
-            figures, for anything with an exponent (superscripts are lost), and
-            for every table a finding rests on — which is every finding below.
-            ***§1 and §2 walked 2026-09-06, 60 pages.*** **Table 1-5** carries
-            four slips, three of them Table 1-4's values left behind when the
-            single-precision table was copied to make the double-precision one:
-            the NAN exponent maximum printed `255` for an 11-bit field, a `$00`
-            where `$000` belongs, and a lost decimal point in `1.8 x 10^308`.
-            This core is *structurally* immune to the first, which is worth more
-            than catching it — `from_ieee` computes the maximum from the field
-            width rather than transcribing it, and says why it is shared.
-            **Table 2-4 is wrong in four cells and it is not a scan artifact**:
-            absolute short and long are marked non-alterable and PC memory
-            indirect alterable, both pairs the wrong way round, in the
-            document's own vector text. `ap_m68030_category.c` already derived
-            from §2.3's definitions instead and blamed "the scan" — corrected,
-            because `[PRM]` is born-digital and there is no better copy to find.
-            `[030]` Table 2-2 settles it and agrees with our code. The same
-            table prints Absolute Long's register field as `000` where §2.2.17
-            on the facing page says `001`.
-            **And a citation defect**: `ap_m68030_step.c`'s `CALLM` arm cited
-            "`[PRM]` Figure D-1 and D-3", and **`[PRM]` has no Appendix D** — it
-            ends at Appendix C. The figures are `[020]`'s Appendix D, *Advanced
-            Topics*, §D.1, which is where they belong. The facts were right and
-            the tag sent a reader to a document that does not contain them.
-            ***§3 walked 33/33 the same day.*** Table 3-23's 32 floating-point
-            conditional tests, Table 3-21's FPCR encodings and Table 3-22's FPCC
-            settings all verify against `ap_m68882_evaluate_condition` and
-            `ap_m68882_regs.h` — the BSUN column really is exactly predicate bit
-            4, which the code already states. One error: Table 3-3's `SUB` row
-            reads "Destination **=** Source" where every sibling prints `–`.
-            And **one question no instrument here can answer**: the Symbol font
-            is not embedded, so `≤` and `→` neither render nor extract
-            distinguishably, and Table 3-3's `CMP2` row is unreadable either
-            way. Recorded as a limitation rather than a finding — CMP2's own §4
-            page says "Compare Rn < LB or Rn > UB" in glyphs that do render, and
-            that is the authority.
-            ***§4 in progress, and it found a real defect.*** The note on every
-            bit field instruction page: "all bit field instructions access only
-            those bytes in memory that contain some portion of the bit field.
-            The possible accesses are byte, word, 3-byte, long word, and long
-            word with byte (for a 5-byte access)." **This core read one byte per
-            bit** — thirty-two single-byte accesses for a 32-bit field, and the
-            write path a read-modify-write *per bit*. `[030]` §11.6.14 prices the
-            right behaviour (`BFTST Mem (<5 Bytes)` = `10(1/0/0)`, `(5 Bytes)` =
-            `14(2/0/0)`) and nothing was checking it, because those rows are
-            among the ones `ap_m68030_timing_table.c` deliberately does not
-            transcribe. Fixed by asking for the span.
-            **The first test of it was worthless and this is the lesson**: an
-            assertion on *clocks* passes on the broken code, because with the
-            data cache on, thirty-two byte reads inside one line cost one fill
-            and thirty-one free hits. The defect is in bus cycles, so bus cycles
-            are counted, cache off — measured at 2 and 3 fills against the per-bit
-            walk's **33 and 33**, which could not even distinguish the manual's
-            four-byte case from its five-byte one.
-            Also checked and holding: `ADDQ`/`SUBQ`'s address-register CCR and
-            size rules, the two rotate forms' differing zero-count `C`, the
-            multiprecision `Z`, the word-sized `MOVE` to/from `CCR`/`SR` against
-            byte-sized `TAS`, and `CLR` not reading its destination.
-            *Verification: `step_suite` 302 → 303, checked against the unfixed
-            code; identity boot **unchanged** at `42B14372F3677EE8` — and the
-            reason is the same one that made the first test useless, so the fills
-            count is the verification and the hash is not.*
-            ***§5-§8 and Appendices A-C walked 2026-09-07 --- `[PRM]` is
-            walked whole, 646/646.*** §5 is a completeness check and this core
-            passes it **45/45**: `FNOP` looked missing and is not an operation
-            at all, being `FBF.W *+2` --- coprocessor type `010`, predicate `F`
-            --- which executes through the `CP_BRANCH_WORD` arm *and* delivers a
-            pending trap first, which is the one thing its page says it is for.
-            **§6's defect: `RESET` cost nothing, and it costs 518 clocks.**
-            `[PRM]` gives "Asserts the RSTO signal for 512 ... clock periods" and
-            `[030]` §11.6.17 gives `518(0/0/0)`; the arm bumped a counter and
-            returned. Added to the timing table beside `NOP`/`RTS`/`RTR`/`RTD`.
-            **And `[PRM]` contradicts `[030]` on the traced `STOP`**, with the
-            trace bits transposed --- both read as page images, so neither is an
-            artifact. `[030]` is right (`T1:T0` = `10` is trace-on-any-instruction
-            and `STOP` is not a change of flow), and `[PRM]`'s parenthetical
-            contradicts its own prose in the same sentence. This core already
-            followed `[030]`; the conflict is now recorded in the code so nobody
-            "fixes" it back.
-            §8 verifies the ten citations that rest on it --- Table 8-2's opcode
-            map is `ap_m68030_opcode_family_t` verbatim, Byte/Long/Word ordering
-            included --- and Appendix B's vector table matches
-            `ap_m68030_exception.h` for every vector this part has, the three
-            absent ones being one 68040 and two 68851 vectors.
-            *Verification: `timing_table_suite` extended with `$4E70`; ctest
-            139/139. Identity boot unchanged at `42B14372F3677EE8` **and the
-            clock total byte-identical at `1408663613`**, which is the stronger
-            statement: adding 518 clocks per `RESET` to a total that does not
-            move by one proves the boot executes no `RESET` in its window, so
-            this change is verified by the unit test and not by the boot.*
-            **`[PRM]` finished**: two defects in this core, five documentary
-            errors, one citation defect, and one question recorded as
-            unanswerable because the Symbol font is not embedded.
+      - [x] **`[PRM]` `M68000_Family_Programmers_Reference_Manual_1992.pdf`,
+            646 pages — walked whole, 646/646, 2026-09-06.** The one
+            born-digital document in the batch: `pdfimages -list` shows small
+            figures only, so `pdftotext -layout` is authoritative here and the
+            page-image rule is relaxed **for this document alone**. That test,
+            not `pdffonts`, is what separates it from `[851]` — an OCR layer can
+            be typeset in Helvetica. Yield: the **bit-field span shapes** every
+            bit-field page prints as a note, which found this core reading one
+            byte *per bit*; the `RESET` page's "512 clock periods"; the `CALLM`
+            citation corrected to `[020]` Appendix D; and **Table 2-4's
+            Alterable column is a documentary error**, now with four witnesses
+            against it. Detail in `PROJECT_STATUS.md`.
             Record: `docs/references/PRM_WALK.md`.
       - [x] **`[881]`/`[882]`
             `MC68881_MC68882_Floating-Point_Coprocessor_Users_Manual_1ed_1987.pdf`
@@ -7274,44 +7041,19 @@ same number is what let them diverge once already.
             the one `[Bt458]` had already taught and this item ignored one
             commit later**: counting tags is a first pass, never a verdict —
             grep the full title too.
-      - [ ] **`[851]` `MC68851_PMMU_Users_Manual_3ed_1988.pdf`, 356 pages —
-            audited 2026-09-07, and the count was wrong a fifth time.** The item
-            says "cited 11 times by full title". `src/core` has **1,019**
-            occurrences of `68851` and an entire module behind nine test suites.
-            A subsystem is derived from this document; it is not "cited".
-            **Method: it is scanned, and it defeated the test being used.**
-            `pdffonts` reports plain Helvetica and Times-Roman with no OCR font
-            — which is how `[PRM]` was correctly judged born-digital — and
-            `pdfimages -list` shows full-page 400 dpi JBIG2 scans underneath.
-            Its text extracts `$00A01A00` as `$OOA01AOO`. So the discriminator
-            is `pdfimages -list`, not `pdffonts`; corrected in both other walk
-            records, and `[PRM]`'s conclusion is unchanged because it passes the
-            right test too.
-            ***§5.1 walked, and it confirms throughout*** — the indirection
-            prohibition that stops a chain (`ap_m68851_search.c` cites Figure
-            5-10's illegal cells), §5.1.4.1.2's limit bypass on a function-code
-            lookup (cited to Figure 5-26, and correctly extended to the DRP),
-            the `L/U` polarity, and §5.1.3's protection, ATC-management and
-            cache-inhibit bits.
-            ***§6.1.1, §6.3.1 and §7.1-§7.2.3 walked.*** §6.1.1.4 reads like a
-            defect report against `ap_m68851_search.c` — "if the DT field of a
-            root pointer is set to `$1`, the MC68851 performs a limit check
-            regardless of the state of the FCL bit" — and **it is wrong**:
-            Figure 5-23 draws that path with no limit check on it, and §6.3.1.2
-            defines the violation in terms of "a table index extracted from a
-            logical address", which the path never extracts. Recorded in the
-            code so nobody fixes a correct implementation to match it.
-            ***`[851]` is walked whole, 356/356, 2026-09-07*** — thirteen
-            sections and three appendices. Yield: **one gap in this core**, now
-            specified end to end (below); **one `PROVISIONAL` specified**, §5.3's
-            root pointer table in three cases with their `PCSR[F]` and
-            ATC-invalidation consequences; **one paragraph that reads like a
-            defect report and is wrong**, §6.1.1.4's limit check, refuted by
-            Figure 5-23 and §6.3.1.2; **two documentary errors**, §8's transposed
-            figure captions and Table A-1's duplicated row; and **a fourth
-            witness** against `[PRM]` Table 2-4. Appendices B and C are board
-            design and operating-system pseudocode with no part behaviour, the
-            same shape as `[030]` §9.9-§9.10 — read and recorded as such.
+      - [x] **`[851]` `MC68851_PMMU_Users_Manual_3ed_1988.pdf`, 356 pages —
+            walked whole, 356/356, 2026-09-06.** It is where the **method error
+            was found**: `pdffonts` had been used to judge a text layer's
+            trustworthiness, and this manual's OCR is typeset in plain Helvetica
+            over a 400 dpi scan. `pdfimages -list` is the test, and both
+            affected walk records were corrected. Yield: `ACC_STATUS`
+            protection accumulation, the root pointer table/task alias, the
+            ATC's `B`-bit denial caching, and the **end-to-end specification of
+            the protection gap** below (from §5.1.6, Figures 5-24/5-27,
+            §4.2.3.3's six `BERR` conditions and §6.1.8's PSR bits). Two
+            documentary errors recorded where the code is right: §6.1.1.4's
+            root-`DT=$1` limit check, and §8's transposed figure captions.
+            Detail in `PROJECT_STATUS.md`.
             Record: `docs/references/M68851_WALK.md`.
       - [ ] **The `m68851` table search enforces `WP` and drops every other
             protection field.** `ap_m68851_descriptor.c` decodes `RAL` (47-45),
@@ -7415,58 +7157,20 @@ same number is what let them diverge once already.
             Appendix A — so the 68030's MMU **was** derived against the 68851
             sibling, which is what `CLAUDE.md`'s resolution order asks for.
             An ordinary audit-then-walk.
-      - [ ] **`M68000_Family_Reference_1988.pdf`, 608 pages — established
-            2026-09-07, and it is neither of the two things this item guessed.**
-            It asked whether this is a third printing of `[PRM]` material or a
-            distinct document. It is a **databook**: a catalogue of abridged
-            datasheets and technical summaries for the whole family, with a
-            selector guide, mechanical data and a development-systems section.
-            Its contents divide cleanly, and the division decides how it must be
-            read:
-            - **Abridged versions of manuals this project already holds** — the
-              MC68000/`HC000`/`008`/`010`/`020`/**`030`** summaries around
-              pp. 60-180, and the MC68851, MC68881 and MC68882 summaries around
-              pp. 185-260. The **shared-source rule applies**: these are the
-              same source condensed, so where one agrees with `[030]`, `[851]`
-              or `[881]` that is *one* witness and not two. Their value is as a
-              cross-check on transcription, not as independent evidence.
-            - **Datasheets for Motorola peripherals this machine does not
-              have** — MC68450 DMA controller, MC68652/MC2652 MPCC, MC68605
-              X.25, MC68153 bus interrupter module, parallel interface/timer.
-              The DN3500's peripherals are Intel, Signetics, OMTI, 3Com and
-              Brooktree parts, every one of which has its own walked datasheet.
-            **It is still read whole**, because `[8259]` hid `TJLJH` in a range
-            dismissed as electrical and `[8237]` hid two rule pages in one
-            dismissed as mechanical — but the expectation is now specific rather
-            than open, which is what this item asked for as step one.
-            *Method*: scanned, 400 dpi JBIG2, so page images throughout.
-            **One thing here is genuinely new to this project**: the MC68020
-            technical summary. The full `[020]` manual is deferred to Phase 2b,
-            and this is a short abridgement of it that costs a few pages.
-            ***§1-§3 walked 2026-09-07, 156/608.*** The citation audit came back
-            genuinely empty — one hit, and it is this item. §3's yield is
-            corroboration rather than discovery, and it lands squarely on this
-            session's work: the MC68020's **and** the MC68030's own AC tables
-            each print spec 56, "`RESET` Pulse Width (Reset Instruction) — 512
-            Clks", making four and five documents for the figure the `RESET`
-            arm was charging zero for; and spec 35 is "`BR` Asserted to `BG`
-            Asserted **(`RMC` Not Asserted)**" on both, a fifth and sixth
-            witness for the arbitration lock. Table 2-1's speed grades are the
-            fourth instance of a manual's ordering section lagging its own part,
-            and this book **disagrees with itself** about the MC68030's.
-            ***§4 walked the same day, 242/608.*** The MC68882 datasheet's
-            compatibility section states this session's `[881]` exception-handler
-            work as a three-item list — `FSAVE` first, `BSET` bit 27 of the BIU
-            flag word, `FRESTORE` before `RTE` — and gives the "32 bytes larger,
-            unique format word" rule the `$1F38` finding rests on. Its Table 4 is
-            an independent transcription of the timing `ap_m68882_timing.c`
-            added, and explains the one row that breaks the pattern: `FMOVE` is
-            33 on the 68881 and **21** on the 68882, which is Table 5-5's
-            fully-concurrent case as a number. **And both its CIR tables get the
-            map wrong in exactly the way `ap_m68882_cir.h` predicts**, listing
-            the operand address CIR as R/W without Table 7-2's footnote.
+      - [x] **`M68000_Family_Reference_1988.pdf`, 608 pages — walked whole,
+            608/608, 2026-09-07.** A databook: abridged summaries of manuals
+            already walked, plus datasheets for Motorola peripherals this
+            machine does not have. The citation audit came back **genuinely
+            empty**, the only document in this batch where it did.
+            **Zero implementable facts, which is the correct outcome** — and
+            more value than that predicted. It **names the MC68681/MC2681
+            differences**, closing `SCN2681_WALK.md`'s opening finding; states
+            this session's `[881]` handler work as a three-item list;
+            cross-checks `ap_m68882_timing.c` against a differently typeset
+            printing; witnesses `RESET`'s 512 clocks and the `RMC` lock again;
+            and demonstrates the CIR-footnote failure `ap_m68882_cir.h` warns
+            about. Detail in `PROJECT_STATUS.md`.
             Record: `docs/references/M68000_FAMILY_REFERENCE_WALK.md`.
-            *Owed*: §5-§11, PDF 245-608.
       - [ ] **`[020]` `MC68020_32-Bit_Microprocessor_Users_Manual_1984.pdf`,
             452 pages**, and `[040]`'s two manuals (256 + 463). Phase 2b and
             Phase 7 parts; cited once between them. Deferred until those
