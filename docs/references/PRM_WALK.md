@@ -48,11 +48,24 @@ reason: "OCR mangles precisely what timing and register tables are made of, and
 `4(1/1/0)` arriving as `4(1/010)` reads as plausible data." That reason is about
 **OCR error**, and this document has no OCR in it.
 
-`pdffonts` shows embedded Type 1 faces — Helvetica, Times, Courier, Symbol — and
-`pdfimages -list` finds only small raster figures (288×154 diagrams). The text
-layer *is* the document's own text, the same glyph codes the renderer draws, not
-a recognition of a picture of them. The failure mode the rule guards against
-does not exist here.
+`pdfimages -list` finds only small raster figures (288×154 diagrams) — no
+full-page image anywhere. The text layer *is* the document's own text, the same
+glyph codes the renderer draws, not a recognition of a picture of them. The
+failure mode the rule guards against does not exist here.
+
+**`pdffonts` is not the test, and this record used to imply it was.** It reported
+embedded Type 1 faces here, which reads as born-digital — but an OCR layer can
+be typeset in Helvetica just as easily, and `[851]` is exactly that: `pdffonts`
+shows Helvetica and Times-Roman with no OCR font, and `pdfimages -list` shows
+full-page 2728×3621 JBIG2 scans at 400 dpi under them. Its text extracts
+`$00A01A00` as `$OOA01AOO`.
+
+So the discriminator is **`pdfimages -list`**: a full-page image at scan
+resolution means the text layer is a recognition and cannot be trusted; only
+small figures means it is the document's own. Corrected 2026-09-07, after the
+weaker test nearly sent a 356-page scanned manual to be read by its OCR. The
+conclusion for `[PRM]` is unchanged — it passes the right test too — but it
+passed the wrong one first.
 
 **Validated against a known answer before being relied on.** `pdftotext -layout`
 on Table 2-2 (*IS-I/IS Memory Indirect Action Encodings*) reproduces all
