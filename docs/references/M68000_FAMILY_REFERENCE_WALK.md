@@ -5,7 +5,7 @@
 
 | Tag | File | Pages | Text layer | State |
 | --- | --- | --- | --- | --- |
-| `[FAMREF]` | `motorola/M68000_Family_Reference_1988.pdf` | 608 | **scanned, OCR** | **§1-§4 walked, 242/608** |
+| `[FAMREF]` | `motorola/M68000_Family_Reference_1988.pdf` | 608 | **scanned, OCR** | **380/608 walked** |
 
 ## The citation audit: genuinely zero
 
@@ -36,8 +36,8 @@ that one witness, not two.
 | 2 | Selector Guide | 14-18 | **walked 5/5** |
 | 3 | Microprocessors | 19-158 | **walked 140/140** |
 | 4 | Coprocessors (MC68851, MC68881, MC68882) | 159-244 | **walked 86/86** |
-| 5 | DMA / peripheral controllers | 245-~318 | owed |
-| 6 | Data communications | ~319-384 | owed |
+| 5 | DMA controllers (MC68440/68442/68450) | 243-300 | **walked 58/58** |
+| 6 | Data communications | 301-384 | in progress, 380/608 |
 | 7 | Networking | 385-492 | owed |
 | 8 | General-purpose peripherals | 493-~570 | owed |
 | 9-11 | Development systems, mechanical, ordering | ~571-608 | owed |
@@ -207,6 +207,43 @@ The MC68882's electrical section here lists three speed grades (16.67, 20, 25)
 where §2's Table 2-1 lists four (16, 20, 25, **33**) -- the same shape as the
 MC68030's disagreement with itself, in the same book.
 
+## §5 is what the plan predicted; §6 is what the plan got wrong
+
+**§5, the DMA controllers**, is the MC68440/MC68442 and the MC68450 -- Motorola
+parts the DN3500 does not have, its DMA being an Intel 8237 with its own walked
+datasheet. Fifty-eight pages, nothing implementable, exactly as the item
+predicted.
+
+**§6 is not.** The plan characterised the peripheral sections as "datasheets for
+Motorola peripherals this machine does not have", and named five. It missed the
+sixth: §6 opens with the **MC2681 DUART** at 6-1 and carries the **MC68681
+DUART** at 6-52 -- and the DN3500's serial ports *are* a 68681. `ap_mc68681.c`
+is a real module in this core with its own walk record.
+
+That is the `[8259]` lesson exactly: a range dismissed as belonging to another
+part turns out to belong to this one. The yield is in `SCN2681_WALK.md`, and it
+**closes that record's opening finding**: Motorola's "functionally equivalent
+... with some minor differences" never names the differences, and this book
+names them, by printing both datasheets fifty-five pages apart with the same
+table numbering.
+
+The headline is the **`0x0C` divergence**, which `COMPLETION_PLAN.md` had closed
+by measurement (zero accesses at register 12 over 350 M instructions) and which
+now has a documentary source: MC68681 Table 2 gives `1100` as the
+**Interrupt-Vector Register** in both directions, MC2681 Table 2 gives it as
+**Do Not Access** in both. One vendor, one book, two maps. Also named there: the
+bus interface (`R`/`W` strobes and no `DTACK` against `R/W` + `DTACK`), the
+`IACK` pin, the input-port width, and a `Bit Set`/`Bit Reset` typo -- plus the
+reason the differences *look* unnamed, which is that the abridgement is not
+clean and four of the MC2681's own tables still describe the MC68681.
+
+Nothing to implement: `ap_mc68681.c` already matches both baud-rate sets code
+for code, the `$0F` IVR reset value, the input port's bit-7-reads-one rule, and
+the 38.4 kHz two-sample change-of-state mechanism it declines to model.
+
+§6 also carries the **MC68652/MC2652 MPCC**, a synchronous multi-protocol
+controller this machine does not have.
+
 ## Owed
 
-§5 through §11, PDF 245-608.
+The rest of §6, then §7 through §11 -- PDF 381-608.

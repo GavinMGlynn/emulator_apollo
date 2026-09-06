@@ -6764,7 +6764,12 @@ same number is what let them diverge once already.
       this machine can tell an IVR from a reserved location, so the divergence
       is recorded rather than modelled and `AP_MC68681_IVR` stays. *What would
       change it*: a driver touching `0x0C`, which the same census would show.
-      Detail in `PROJECT_STATUS.md`.
+      **Now documented as well as measured, 2026-09-07**: the M68000 family
+      databook prints both datasheets fifty-five pages apart, and their Table 2s
+      differ at exactly this address — MC68681 `1100` = Interrupt-Vector
+      Register, MC2681 `1100` = Do Not Access. The divergence no longer rests on
+      two vendors' independent documents. Detail in `SCN2681_WALK.md` and
+      `PROJECT_STATUS.md`.
 
 - [ ] **PROVISIONAL: the input-port change detector has a 25-50 µs filter and
       this core has none.** Assessed 2026-08-22 and deliberately *not* built;

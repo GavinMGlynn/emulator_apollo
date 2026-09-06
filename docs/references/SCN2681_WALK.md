@@ -113,6 +113,79 @@ receive FIFO; `ACR[3:0]` gating `ISR[7]` while the `IPCR` bit sets regardless;
 `ACR[7]`'s two baud sets being chip-wide rather than per-channel, which the
 header already records as a constraint; the counter/timer's eight modes.
 
+## The differences ARE named, in a third document — found 2026-09-07
+
+This record's opening finding is that Motorola's "functionally equivalent ...
+**with some minor differences**" never names the differences, and that using a
+vendor's one-line characterisation of a competitor's part as an equivalence
+proof is the `[765]` mistake repeating.
+
+**`M68000_Family_Reference_1988.pdf` names them, by printing both parts'
+datasheets fifty-five pages apart in one book** — the **MC2681** at 6-1 and the
+**MC68681** at 6-52 — with the same table numbering, so the maps can be laid
+side by side.
+
+| | MC2681 (6-7, Table 2) | MC68681 (6-60, Table 2) |
+| --- | --- | --- |
+| `1100` read | **Do Not Access** | **Interrupt-Vector Register (IVR)** |
+| `1100` write | **Do Not Access** | **Interrupt-Vector Register (IVR)** |
+| `1111` write | "Bit Set Command" *(and see below)* | Bit **Reset** Command |
+
+And from the two signal summaries (Table 1 in each):
+
+| | MC2681 | MC68681 |
+| --- | --- | --- |
+| Bus interface | separate `R` and `W` strobes, **no `DTACK`** | `R/W` + **`DTACK`**, the asynchronous M68000 bus |
+| Interrupt acknowledge | **no `IACK` pin** | **`IACK`**, pin 37 |
+| Parallel inputs | `IP0`-**`IP6`** (seven) | `IP0`-`IP5` (six) |
+| Package | 40-pin DIP / 44-pin PLCC | 40-pin DIP / 44-pin PLCC |
+
+**So the `0x0C` divergence this project measured is now documented as well as
+measured.** `COMPLETION_PLAN.md`'s item closed it by census -- zero reads and
+zero writes at register 12 on both DUARTs over 350 M instructions, so nothing on
+this machine can tell an IVR from a reserved location. That still stands; what
+is new is that the divergence is no longer inferred from two vendors'
+independent datasheets but printed by **one** vendor in **one** book.
+
+### The abridgement is not clean, and that is why the differences look unnamed
+
+The databook's MC2681 section is visibly the MC68681 section with the bus
+interface swapped, and several tables were not updated with it:
+
+- Its **Figure 2** programming block diagram draws `DTACK`, `R/W`, `IACK` and an
+  **IVR** -- on the part whose own Table 2 says `1100` is Do Not Access.
+- Its **Table 6 sheet 5** prints an **Interrupt Vector Register** bit format,
+  and an input-port footnote saying "bit six will reflect the current logic
+  level of `IACK`" -- on a part with no `IACK` pin.
+- Its **Table 6 sheet 5** input port shows six bits (`IP0`-`IP5`) where its own
+  **Table 1** lists seven pins (`IP0`-`IP6`).
+- Its **Table 2** gives `1111` write as "Bit **Set** Command", duplicating the
+  `1110` row; the MC68681's says "Bit **Reset** Command", which is the correct
+  one and what `ap_mc68681.c` implements.
+
+That is the mechanism behind "the differences are never named": the vendor's own
+abridgement does not separate them cleanly, so a reader of any single page comes
+away with a blend of the two parts. The two **Table 1** signal summaries and the
+two **Table 2** register maps *were* updated, and those are the four tables that
+carry the real answer.
+
+### A number that disagrees with itself on one page
+
+The MC68681's change-of-state paragraph (6-55) says a transition "lasting longer
+than **25 to 30** microseconds (best-to-worst case times)" sets the IPCR bit,
+and then explains the mechanism and concludes "the level change will not be
+recognized internally until **50 microseconds** after the level change took
+place on the pin". The MC2681's page (6-4) says "**25 to 50** microseconds" for
+the same sentence. So the MC68681 page's "30" is the typo, and Finding 2's
+"25-50 µs" is right. No consequence -- this core models no filter at all, by the
+decision recorded in `COMPLETION_PLAN.md`.
+
+The MC68681 page also restates the *mechanism* Finding 2 rests on, in the same
+words: two successive samples of a **38.4 kHz** sampling clock derived from a
+baud-rate generator tap, giving "a sampling period ... slightly more than 25
+microseconds (this assumes that the clock input is 3.6864 MHz)". Second witness
+for what `ap_mc68681.c` already cites.
+
 ## Owed
 
 Nothing of the document. Two items open in `COMPLETION_PLAN.md`: the `0x0C`
