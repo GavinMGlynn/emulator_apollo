@@ -7318,8 +7318,43 @@ same number is what let them diverge once already.
             lookup (cited to Figure 5-26, and correctly extended to the DRP),
             the `L/U` polarity, and §5.1.3's protection, ATC-management and
             cache-inhibit bits.
+            ***§6.1.1, §6.3.1 and §7.1-§7.2.3 walked.*** §6.1.1.4 reads like a
+            defect report against `ap_m68851_search.c` — "if the DT field of a
+            root pointer is set to `$1`, the MC68851 performs a limit check
+            regardless of the state of the FCL bit" — and **it is wrong**:
+            Figure 5-23 draws that path with no limit check on it, and §6.3.1.2
+            defines the violation in terms of "a table index extracted from a
+            logical address", which the path never extracts. Recorded in the
+            code so nobody fixes a correct implementation to match it.
             Record: `docs/references/M68851_WALK.md`.
-            *Owed*: everything except §5.1, 325 pages.
+            *Owed*: about 300 pages.
+      - [ ] **The `m68851` table search enforces `WP` and drops every other
+            protection field.** `ap_m68851_descriptor.c` decodes `RAL` (47-45),
+            `WAL` (44-42) and `S` (40) from every long-format descriptor;
+            `ap_m68851_search_result_t` carries `write_protect`,
+            `cache_inhibit`, `modified`, `gate`, `lock` and `shared_globally`
+            and neither access level nor the supervisor bit. They are read and
+            discarded. Found walking `[851]` §7 on 2026-09-07.
+            Four sections require them: §6.3.1.3 (a set `S` met during the
+            search with `FC[2]` zero makes a `B`-bit entry), §6.3.1.4 (an access
+            less privileged than `RAL` for a read, or than `RAL` **or** `WAL`
+            for a write), §7.2.3.1 (a write needs a level at least as privileged
+            as *all* `RAL` and `WAL` on the branch, because denying read implies
+            denying write), and §5.1.3.1, which names all five fields.
+            `ap_m68851_atc.h` already describes the mechanism correctly —
+            protection "evaluated when the ATC entry is made", a denial cached
+            with the `B` bit — so the design anticipated this; the evaluation is
+            what is absent.
+            **Not an in-scope defect, and the row says so**: `PVALID`'s own
+            `CAL`/`VAL` comparison *is* implemented, and the DN3500's MMU is the
+            68030's, which has no access levels at all (`[030]` §9.6) and whose
+            supervisor protection is enforced by
+            `ap_m68030_search_permits_access`. This is the `m68851` reference
+            module incomplete against its own manual.
+            *Verification*: accumulate `S`, `RAL` and `WAL` across the search as
+            `write_protect` already is, take the most privileged of all `RAL` and
+            `WAL` for the write test, and return a denial the ATC fill caches as
+            `B`. Suites: `m68851_search_suite`, `m68851_atc_suite`.
             *Also mis-stated as "zero citations" when this item was written.* It
             is cited **11 times** by full title — §5.1.5, §5.1.5.3, §5.2,
             §5.2.1.3, §6.1.1-§6.1.4, §9.1.2, Figures 5-10/5-21/5-23/6-1/6-3 and
