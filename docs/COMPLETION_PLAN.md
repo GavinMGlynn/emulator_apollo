@@ -7355,6 +7355,21 @@ same number is what let them diverge once already.
             `write_protect` already is, take the most privileged of all `RAL` and
             `WAL` for the write test, and return a denial the ATC fill caches as
             `B`. Suites: `m68851_search_suite`, `m68851_atc_suite`.
+            ***§8, §9, §10, §11 and Appendix A.1-A.2 walked 2026-09-07.***
+            §8's Figures 8-3 and 8-4 have their captions transposed and this core
+            read past them correctly; Table 9-1 gives the MC68020's four CPU
+            space types including `0001` **access level control**, which `[030]`
+            omits because the 68030 has no access levels — so this core's
+            CPU-space decode is complete *by* that omission; Table 9-2's CIR
+            characteristics are the **inverse** of the 68882's on two registers
+            (the 68851 implements Operand Address and not Instruction Address)
+            and `ap_m68851_cir.c` has it right, which its header explicitly warns
+            about. **Table A-1 is a fourth witness against `[PRM]` Table 2-4** and
+            duplicates a row of its own.
+            §11's timing tables are the same shape as `[881]` §8.5, with the same
+            11-clock interface overhead, and the `m68851` module has no timing
+            either — folded into the 68882 timing item above rather than given
+            its own, since no in-scope machine has this part.
             *Also mis-stated as "zero citations" when this item was written.* It
             is cited **11 times** by full title — §5.1.5, §5.1.5.3, §5.2,
             §5.2.1.3, §6.1.1-§6.1.4, §9.1.2, Figures 5-10/5-21/5-23/6-1/6-3 and

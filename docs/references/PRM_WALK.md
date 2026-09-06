@@ -177,7 +177,11 @@ Mode Categories*, rendered and read: absolute short and long are
 Table 4-10, of the same name, read on 2026-09-07 during that manual's walk,
 says the same — including Absolute Long's register field as `001`.
 
-So it is **three manuals against one**, and the one is `[PRM]`. That is what
+And `[851]` Table A-1, *Effective Addressing Mode Categories*, read on
+2026-09-07 during that manual's walk, is a **fourth**: same two absolute rows
+alterable, same two PC memory indirect rows not, same `001` register field.
+
+So it is **four manuals against one**, and the one is `[PRM]`. That is what
 `ap_m68030_category.c` has.
 
 **A second, independent error in the same table**: Absolute Long's register
