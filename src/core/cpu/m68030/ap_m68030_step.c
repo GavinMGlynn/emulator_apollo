@@ -5005,19 +5005,36 @@ static bool write_operand_bytes(ap_m68030_cpu_t *cpu, uint32_t *clocks,
   return true;
 }
 
-/* The store direction. Same shape as fetch_fp_source and the same two refusals,
- * with one addition that only applies here: §10.4.9's "the MC68030 initiates
- * protocol violation exception processing if the primitive requests a write to
- * a nonalterable effective address". */
+/* The store direction. Same shape as fetch_fp_source and the same two refusals.
+ *
+ * **The class refusal here is an F-line, and settling that needed `[882]`.**
+ * The `[030]` §10 walk left it open: Table 10-6 puts "Valid EA Field Does Not
+ * Match EA in Op-Word" in the F-Line column and "Attempt to Write to
+ * Nonalterable Address **Even if Address Declared Legal in Primitive**" in the
+ * Protocol one, and which applies depends on the class the *coprocessor*
+ * declares -- a fact `[030]` cannot state, because it is the 68882's.
+ *
+ * `[881]` Table 7-5, *Evaluate Effective Address and Transfer Data Primitive
+ * Encoding*, read on 2026-09-07, declares it: for `FMOVE FPm,<ea>` (opclass
+ * `011`) the valid-EA field is **`001`, Data Alterable** at lengths 1, 2 and 4,
+ * and `010`, Memory Alterable, at 8 and 12. Every one of those excludes the
+ * nonalterable modes outright.
+ *
+ * So a `(d16,PC)` destination never reaches the "declared legal in primitive"
+ * case at all -- the declared class already excludes it -- and the refusal is
+ * the class mismatch, which is F-line. This arm cited §10.4.9's nonalterable
+ * sentence, and that sentence is about a *different* situation: a primitive
+ * that declares `101` Data or `111` Any and then asks for a write. The 68882
+ * never declares either for a store. */
 static fp_source_result_t store_fp_destination(
     ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc,
     const ap_m68882_store_t *result, uint32_t *clocks) {
   /* Data *alterable*: the write rules out the PC-relative modes and the
    * immediate, which a read allows, as well as the address registers a read
    * already ruled out. Checked as the category so the whole family is covered
-   * by one rule. */
+   * by one rule -- and it is exactly the class `[881]` Table 7-5 declares. */
   if (!ap_m68030_ea_is_data_alterable(coproc->ea.kind)) {
-    return FP_SOURCE_PROTOCOL_VIOLATION;
+    return FP_SOURCE_LINE_F;
   }
 
   if (coproc->ea.kind == AP_M68030_EA_DATA_REGISTER) {

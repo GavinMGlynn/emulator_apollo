@@ -7129,15 +7129,24 @@ static void test_a_long_word_result_reaches_a_data_register(void) {
 
 /* A store needs a **data alterable** destination, which is stricter than the
  * source side's data category: `(d16,PC)` is a legal place to read an operand
- * from and not a legal place to put one. §10.4.9 names the failure -- "the
- * MC68030 initiates protocol violation exception processing if the primitive
- * requests a write to a nonalterable effective address". */
-static void test_storing_to_a_nonalterable_address_violates_the_protocol(void) {
+ * from and not a legal place to put one.
+ *
+ * **And the refusal is an F-line, which took `[882]` to settle.** The `[030]`
+ * §10 walk left this open: Table 10-6 separates "Valid EA Field Does Not Match
+ * EA in Op-Word" (F-Line) from "Attempt to Write to Nonalterable Address Even
+ * if Address Declared Legal in Primitive" (Protocol), and which applies turns
+ * on the class the *coprocessor* declares -- which `[030]` cannot state.
+ *
+ * `[881]` Table 7-5 declares it: `FMOVE FPm,<ea>` is opclass `011` with a
+ * valid-EA field of `001`, **Data Alterable**. A `(d16,PC)` destination is not
+ * in that class, so it is the mismatch and never reaches the "declared legal"
+ * case. Corrected from vector 13 to vector 11 on 2026-09-07. */
+static void test_storing_to_a_nonalterable_address_takes_the_f_line_trap(void) {
   /* $F23A is `(d16,PC)`: readable, never writable. */
   static const uint16_t program[] = {0xF23Au, 0x64C0u, 0x0004u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 4);
-  plant_vector(&m, AP_M68030_VECTOR_COPROCESSOR_PROTOCOL, HANDLER);
+  plant_vector(&m, AP_M68030_VECTOR_LINE_F, HANDLER);
   m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
   m.cpu.regs.isp = SUPERVISOR_STACK;
 
@@ -8898,7 +8907,7 @@ int main(void) {
   RUN_TEST(test_a_predecrement_store_steps_by_the_destination_length);
   RUN_TEST(test_a_store_leaves_the_condition_codes_alone);
   RUN_TEST(test_a_long_word_result_reaches_a_data_register);
-  RUN_TEST(test_storing_to_a_nonalterable_address_violates_the_protocol);
+  RUN_TEST(test_storing_to_a_nonalterable_address_takes_the_f_line_trap);
   RUN_TEST(test_fmovem_round_trips_through_both_mask_orderings);
   RUN_TEST(test_a_partial_mask_moves_only_its_registers);
   RUN_TEST(test_a_dynamic_register_list_reads_its_mask_from_a_data_register);
