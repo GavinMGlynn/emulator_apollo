@@ -433,6 +433,55 @@ Previously 2026-08-02 — Domain/OS SR10.4 installed and booted from its own
 disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
+
+## `MC68030EC` walked whole, and an electrical sheet carried three behavioural facts (2026-09-07)
+
+`[030]` §13 is two pages and names `MC68030EC/D` for everything else. That
+document was found by the §12-§14 walk and opened on the rule that **a document
+naming another document is not finished until the named one is on the list**.
+It is 19 pages, scanned at 299 dpi, and read as page images.
+
+It is genuinely electrical, and it still carried three facts that bear on
+behaviour — the third time in this project a range dismissed by its title has
+done so, after `[8259]`'s `TJLJH` and `[8237]`'s two rule pages.
+
+**Five of its AC specifications are given in clock units rather than
+nanoseconds**, and three corroborate work landed the previous day:
+
+- **Spec 56, `RESET` Pulse Width (Reset Instruction): 512 Clks minimum, at
+  every one of the five speed grades.** This is a *third* independent witness
+  for the `RESET` timing row added to `ap_m68030_timing_table.c` — `[030]`
+  §11.6.17 gives the instruction as `518(0/0/0)` and `[PRM]`'s `RESET` page says
+  "asserts the RSTO signal for 512 ... clock periods". The 518 is those 512 plus
+  six of overhead, and it now rests on three documents rather than two.
+- **Spec 35, `BR` Asserted to `BG` Asserted, qualified "(RMC Not Asserted)".**
+  The grant timing is specified only when `RMC` is *not* asserted, because when
+  it is there is no grant to time. That is `[030]` §7.7.1, §11.9 and §12.1.2
+  stated a fourth way, and it is the rule `ap_board_set_processor_rmc` was
+  wired up for on the same day.
+- **Figure 8, *Other Signal Timings*, is the electrical page for the signals the
+  `MMUDIS` item names.** It draws `IPEND`, `MMUDIS`, `CDIS`, `STATUS` and
+  `REFILL` against the clock, with spec 47A's asynchronous input setup on the
+  two inputs and specs 62/63 on the two outputs. So the two emulator-support
+  inputs this core does not model and the two outputs it does not drive all have
+  their timing here — what a board that *did* drive them would need.
+
+Also captured: maximum ratings and the "a continuous clock must be supplied when
+it is powered up" footnote; PGA thermal resistance and the four power equations;
+the DC specifications with their four `IOL` groups; the AC clock input and
+read/write specifications 6 through 63 at **20, 25, 33.33, 40 and 50 MHz**;
+Figures 1-8; and all fourteen notes, two of which (8 and 14) exist specifically
+to guarantee interoperation with the MC68881/MC68882.
+
+**A version note pointing both ways.** This sheet specifies 40 and 50 MHz parts;
+`[030]` §14.1's ordering information lists only 20, 25 and 33.33 MHz, while
+§12.4.1 still discusses a 16.67 MHz part §14.1 has dropped. The manual's
+ordering section is behind at both ends, and this Rev 1 sheet from the same year
+carries the full range. No consequence here: every model in the table runs at
+20, 25 or 33.33 MHz.
+
+Record: `docs/references/MC68030EC_WALK.md`.
+
 ## The `PROVISIONAL` cross-reference holds, and cannot be checked by script
 ## (2026-08-22)
 

@@ -7097,35 +7097,17 @@ same number is what let them diverge once already.
             **What would unblock it**: the same per-cycle processor item. The
             observable difference is a DMA grant landing inside a table search,
             which the identity boot does not exhibit.
-      - [ ] **`MC68030EC.pdf` is on the shelf and unwalked**, and `[030]` §13
-            names it: "Detailed information on timing specifications for power
-            considerations, DC electrical characteristics, and AC timing
-            specifications can be found in the MC68030EC/D, *MC68030 Electrical
-            Specifications*." §13 itself is two pages --- maximum ratings and
-            PGA thermal resistance --- because everything else was moved into
-            that document. It carries the AC specification numbers §12.4.1's
-            access-time equations are written in terms of (`t1`, `t6`, `t9`,
-            `t27`, `t47A`, `t60`), which is the only place this project could
-            get a *cited* figure for them.
-            **This is the read-the-whole-document rule applied to a pointer**:
-            a document that names another document has not been finished until
-            the named one is on the list.
-
-- [ ] **`MMUDIS` is not modelled, and `CDIS` has no driver.** Found 2026-08-25
-      walking `[030]` §5. Table 5-1 lists `MMUDIS` as an input and §5.11.2
-      defines it — "dynamically disables the translation mechanism of the MMU",
-      and its assertion "does **not** flush the address translation cache; ATC
-      entries become available again when `MMUDIS` is negated". Zero occurrences
-      in `src/`.
-      **Almost certainly unreachable, and the same shape as the SCN2681's
-      `0x0C`**: it is an emulator-support pin, and nothing in `src/core/board`
-      or `src/core/machine` drives either it or `CDIS` — both are tied inactive
-      on this machine, so no software can tell. `CDIS` *is* modelled
-      (`cache_disable`) and merely undriven; `MMUDIS` is neither.
-      **What would change it**: a frontend flag or a board register that drives
-      either pin. If `CDIS` ever becomes drivable, `MMUDIS` should arrive with
-      it — they are the same paragraph of the manual and the same kind of pin,
-      and modelling one without the other would be arbitrary.
+      - [x] **`MC68030EC.pdf` walked whole, 19/19, 2026-09-07.** The document
+            `[030]` §13 names, opened on the rule that a document naming another
+            document is not finished until the named one is on the list. A range
+            dismissed as electrical carried behavioural facts for the third time
+            in this project: five AC specifications are in **clock units**, and
+            three corroborate work landed the day before — spec 56's `RESET`
+            Pulse Width of 512 Clks, spec 35's grant timing qualified "(RMC Not
+            Asserted)", and Figure 8's timings for `MMUDIS`, `CDIS`, `STATUS`
+            and `REFILL`. *Verification: no code change; all three corroborate
+            changes already landed and tested.* Record:
+            `docs/references/MC68030EC_WALK.md`. Detail in `PROJECT_STATUS.md`.
       - [ ] **`[PRM]` `M68000_Family_Programmers_Reference_Manual_1992.pdf`,
             646 pages — audited 2026-09-06, and the audit reversed this item's
             premise for the third time.** It said "cited 9 times". It is cited
