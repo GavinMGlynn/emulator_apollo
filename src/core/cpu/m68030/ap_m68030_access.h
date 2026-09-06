@@ -149,7 +149,7 @@ typedef struct {
    * creates its own cycle -- the signal spans two of them, so nothing shorter
    * than the context can hold it. `[030]` §7.3.5: assert before the read,
    * negate after the write. */
-  bool rmc; /* TC's E bit */
+  bool rmc;
 
   /* The table search's bus access, and the fill's, as callbacks -- the same
    * shape `ap_m68030_walk` and `ap_m68030_cache_read` already use. */

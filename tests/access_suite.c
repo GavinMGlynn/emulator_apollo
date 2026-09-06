@@ -185,6 +185,74 @@ static void test_a_cache_hit_costs_nothing_and_skips_the_mmu(void) {
 
 /* The burst filled the whole line, so the three neighbouring long words are
  * hits too -- and they likewise skip the MMU. */
+/* **The read half of an indivisible operation is forced to miss**, even when the
+ * long word is sitting in the data cache from an ordinary read a moment before.
+ *
+ * `[030]` §6.1.2.2: "The read portion of a read-modify-write cycle is always
+ * forced to miss in the data cache." §11.4's note repeats it from the timing
+ * end: "RMC cycles (e.g., TAS and CAS) are forced to miss on data cache reads.
+ * Therefore, a data cache hit has no effect on these instructions."
+ *
+ * The reason is not the clock count. A `TAS` answered from the cache reads
+ * whatever the line held, and an alternate bus master can have written that
+ * location since -- nothing invalidates the line on someone else's write. The
+ * forced miss is what makes the semaphore read see memory, which is the whole
+ * point of the operation being indivisible.
+ *
+ * This core passed a literal `false` for the flag, so the rule reached neither
+ * this lookup nor the one inside `ap_m68030_cache_read`. Found walking `[030]`
+ * §11 on 2026-09-06 and confirmed against §6's page image. */
+static void test_an_rmc_read_is_forced_to_miss_the_data_cache(void) {
+  machine_t m = make_machine();
+  ap_m68030_access_ctx_t ctx = context_of(&m);
+
+  /* Warm the line with an ordinary read, and check it is warm. */
+  (void)ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+  const ap_m68030_access_result_t warm =
+      ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_TRUE(warm.cache_hit);
+  TEST_ASSERT_EQUAL_UINT32(0, warm.clocks);
+
+  const unsigned fills_before = m.memory.fills;
+
+  /* The same address again, this time as the read half of a TAS or CAS. */
+  ctx.rmc = true;
+  const ap_m68030_access_result_t locked =
+      ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+  ctx.rmc = false;
+
+  TEST_ASSERT_FALSE(locked.cache_hit);
+  TEST_ASSERT_TRUE(locked.clocks > 0u);
+  /* It went to memory: the fill ran, which is also the rest of §6.1.2.2 --
+   * "the processor either uses the data read from memory to update a matching
+   * entry in the data cache or creates a new entry with the read data". */
+  TEST_ASSERT_TRUE(m.memory.fills > fills_before);
+  TEST_ASSERT_EQUAL_HEX32(warm.value, locked.value);
+
+  /* And the line is still usable afterwards: the forced miss suppresses the
+   * hit, it does not invalidate the entry. */
+  const ap_m68030_access_result_t after =
+      ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_TRUE(after.cache_hit);
+}
+
+/* The control for the rule above: with `rmc` clear the very same sequence hits,
+ * so the test above is measuring the flag and not some other difference. */
+static void test_the_same_read_without_rmc_still_hits(void) {
+  machine_t m = make_machine();
+  ap_m68030_access_ctx_t ctx = context_of(&m);
+
+  (void)ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+  const unsigned fills_before = m.memory.fills;
+
+  const ap_m68030_access_result_t plain =
+      ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+
+  TEST_ASSERT_TRUE(plain.cache_hit);
+  TEST_ASSERT_EQUAL_UINT32(0, plain.clocks);
+  TEST_ASSERT_EQUAL_UINT(fills_before, m.memory.fills);
+}
+
 static void test_the_rest_of_the_filled_line_also_skips_the_mmu(void) {
   machine_t m = make_machine();
   ap_m68030_access_ctx_t ctx = context_of(&m);
@@ -511,6 +579,8 @@ int main(void) {
   RUN_TEST(test_a_cold_access_consults_the_mmu_and_pays_for_it);
   RUN_TEST(test_a_cache_hit_costs_nothing_and_skips_the_mmu);
   RUN_TEST(test_the_rest_of_the_filled_line_also_skips_the_mmu);
+  RUN_TEST(test_an_rmc_read_is_forced_to_miss_the_data_cache);
+  RUN_TEST(test_the_same_read_without_rmc_still_hits);
   RUN_TEST(test_a_disabled_cache_consults_the_mmu_every_time);
   RUN_TEST(test_the_cache_disable_signal_overrides_the_enable_bit);
   RUN_TEST(test_a_transparent_access_skips_the_translation_tables);

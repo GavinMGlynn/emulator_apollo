@@ -263,8 +263,12 @@ ap_m68030_cache_read(ap_m68030_cache_t *cache, ap_m68030_bus_t *bus,
   /* "Whenever a read access occurs and the required instruction word or data
    * operand is resident in the appropriate on-chip cache (no external bus cycle
    * is required)" -- a hit costs nothing, which is the claim this whole module
-   * exists to make measurable. */
-  if (cache_enabled &&
+   * exists to make measurable.
+   *
+   * §6.1.2.2 carves out the one exception: "The read portion of a
+   * read-modify-write cycle is always forced to miss in the data cache." The
+   * fill below still runs, which is the rest of that paragraph. */
+  if (cache_enabled && !read_modify_write &&
       ap_m68030_cache_lookup(cache, address, function_code, &result.value)) {
     result.hit = true;
     return result;

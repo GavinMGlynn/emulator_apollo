@@ -57,8 +57,26 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
           access->inhibits_cache(access->context, logical));
 
   /* Step one, and the whole point of the module: the cache answers first, from
-   * the *logical* address. "the MMU is completely ignored" if it does. */
-  if (cache_usable &&
+   * the *logical* address. "the MMU is completely ignored" if it does.
+   *
+   * **Except under RMC**, which is the read half of an indivisible operation
+   * and must go to memory. `[030]` §6.1.2.2: "The read portion of a
+   * read-modify-write cycle is **always forced to miss in the data cache**",
+   * and §11.4's note says the same from the timing end -- "RMC cycles (e.g.,
+   * TAS and CAS) are forced to miss on data cache reads. Therefore, a data
+   * cache hit has no effect on these instructions."
+   *
+   * It is not only a timing rule. A `TAS` that answered from this cache would
+   * read whatever the line held, and an alternate bus master can have written
+   * that location since -- the line is not invalidated by anyone else's write.
+   * Forcing the miss is what makes the semaphore read see memory, which is the
+   * whole reason the operation is indivisible.
+   *
+   * The fill still happens: §6.1.2.2 continues that the processor "either uses
+   * the data read from memory to update a matching entry in the data cache or
+   * creates a new entry with the read data", which is what the miss path below
+   * does anyway. Only the *hit* is suppressed. */
+  if (cache_usable && !access->rmc &&
       ap_m68030_cache_lookup(access->cache, logical, function_code,
                              &out.value)) {
     out.ok = true;
@@ -179,10 +197,17 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
       access->cache_enabled, access->cache_disable,
       cache_inhibit || board_inhibits);
 
+  /* `access->rmc` reaches the cache here, where a literal `false` used to sit.
+   * Three things followed from that constant, all of them wrong under an RMC:
+   * the second hit test inside `ap_m68030_cache_read` could still answer from
+   * the cache; `ap_m68030_cache_burst_request` never saw the RMC that §7.3.6
+   * says suppresses `CBREQ`; and `ap_m68030_cache_read`'s own
+   * `bus->rmc = read_modify_write` *cleared* the signal on the read cycle of an
+   * indivisible operation, which is exactly the cycle it must be asserted on. */
   const ap_m68030_cache_access_t fetched = ap_m68030_cache_read(
       access->cache, &access->bus, logical, physical, function_code, fillable,
       access->burst_enabled,
-      access->cache_frozen, false, access->fill, access->wait_states,
+      access->cache_frozen, access->rmc, access->fill, access->wait_states,
       access->context);
 
   out.value = fetched.value;

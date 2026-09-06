@@ -16,6 +16,22 @@
  * cost **two** fetches from a long-word-aligned start and **three** from an odd
  * one, and no single number describes both. `pipe_suite` already pins that
  * against synthetic words; here it falls out of the memory path.
+ *
+ * ## The holding register is not part of the instruction cache
+ *
+ * §11.2.2, read whole on 2026-09-06: "The cache holding register provides
+ * instruction words to the pipe, **regardless of whether the instruction cache
+ * is enabled or disabled**", and "Prefetch requests are simultaneously
+ * submitted to the cache holding register, the instruction cache, and the bus
+ * controller. Thus, even if the instruction cache is disabled, an instruction
+ * prefetch may hit in the cache holding register and cause an external bus
+ * cycle to be aborted."
+ *
+ * `ap_m68030_fetch_word` consults `ap_m68030_pipe_holding_has` before anything
+ * else and never looks at the enable bit, so this holds by construction. Cited
+ * because the shape invites the opposite: the register is *called* the cache
+ * holding register and sits beside the cache in Figure 11-1, and gating it on
+ * `CACR`'s `EI` would look like a tidy-up rather than a defect.
  */
 
 #ifndef APOLLO_CPU_M68030_AP_M68030_FETCH_H

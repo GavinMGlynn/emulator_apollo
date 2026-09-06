@@ -49,6 +49,11 @@ typedef struct {
   bool supervisor;        /* S */
   bool cache_inhibit;     /* CI */
   bool modified;          /* M */
+  /* The data cache is never involved in any of this. §6.1.2.2: "Table search
+   * accesses, however, are completely ignored by the data cache; it is never
+   * updated for a table search access." True here by construction -- the walk
+   * reads descriptors through its own `fetch` callback and never through
+   * `ap_m68030_cache_read` -- and cited so it stays that way. */
   bool used;              /* U, as read: already set means no update is needed */
 } ap_m68030_descriptor_t;
 

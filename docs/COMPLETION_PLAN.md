@@ -7018,8 +7018,34 @@ same number is what let them diverge once already.
             user-mode `FSAVE` as the control that the privilege check still
             comes first; identity boot **unchanged** at `42B14372F3677EE8`, so
             Domain/OS never names an illegal mode on a coprocessor instruction.*
-            *What remains of `[030]`*: §11 (derived, wanting the same
-            verification), §12-§14 and Appendix A -- 195 pages.
+            ***§11 walked 2026-09-06, 62 pages -- the transcription verifies,
+            and the defect was in the prose.*** All 59 rows of
+            `ap_m68030_timing_table.c` and both effective-address tables
+            reproduce their page images exactly, head, tail, `CC` and `NCC` with
+            its `(r/p/w)` triple; §11.3.4's worked example is confirmed
+            mislabelled as `M68030_TIMING.md` records, and the text layer still
+            mangles `4(1/1/0)` into `4(1/010)` on p. 11-26. **The find is
+            §11.4's note**: "RMC cycles (e.g., TAS and CAS) are forced to miss on
+            data cache reads", and its sibling §6.1.2.2 -- "The read portion of a
+            read-modify-write cycle is **always forced to miss in the data
+            cache**" -- from a chapter marked `partly derived` that nobody had
+            asked this question of. `ap_m68030_access_read` looked up before
+            consulting `access->rmc` and passed a literal `false` into the cache,
+            so a `TAS` on a cached operand answered from the line: no external
+            cycle, and a semaphore read that could not see another master's
+            write. The one constant also hid the RMC from `CBREQ` suppression and
+            **cleared** `bus->rmc` on the read cycle of the indivisible pair.
+            Two rules obeyed uncited are now cited (§11.2.2's holding register
+            serving the pipe with the cache disabled; §6.1.2.2's table searches
+            being ignored by the data cache), one stale comment corrected, and
+            two documentary errors recorded -- §11.6.3's `([B],I,d32)` reads
+            `12(2/0/0)` where the calculate table can only mean one read, and
+            §11.6.5's jump table lists `([B],d32)` twice. *Verification:
+            `access_suite` 16 -> 18, the forced-miss test checked against the
+            unfixed code so it discriminates; identity boot **unchanged** at
+            `42B14372F3677EE8`.*
+            *What remains of `[030]`*: §12, §13, §14 and Appendix A -- 57
+            pages, all unread.
 
 - [ ] **`MMUDIS` is not modelled, and `CDIS` has no driver.** Found 2026-08-25
       walking `[030]` §5. Table 5-1 lists `MMUDIS` as an input and §5.11.2
