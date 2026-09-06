@@ -7326,8 +7326,18 @@ same number is what let them diverge once already.
             defines the violation in terms of "a table index extracted from a
             logical address", which the path never extracts. Recorded in the
             code so nobody fixes a correct implementation to match it.
+            ***`[851]` is walked whole, 356/356, 2026-09-07*** — thirteen
+            sections and three appendices. Yield: **one gap in this core**, now
+            specified end to end (below); **one `PROVISIONAL` specified**, §5.3's
+            root pointer table in three cases with their `PCSR[F]` and
+            ATC-invalidation consequences; **one paragraph that reads like a
+            defect report and is wrong**, §6.1.1.4's limit check, refuted by
+            Figure 5-23 and §6.3.1.2; **two documentary errors**, §8's transposed
+            figure captions and Table A-1's duplicated row; and **a fourth
+            witness** against `[PRM]` Table 2-4. Appendices B and C are board
+            design and operating-system pseudocode with no part behaviour, the
+            same shape as `[030]` §9.9-§9.10 — read and recorded as such.
             Record: `docs/references/M68851_WALK.md`.
-            *Owed*: about 300 pages.
       - [ ] **The `m68851` table search enforces `WP` and drops every other
             protection field.** `ap_m68851_descriptor.c` decodes `RAL` (47-45),
             `WAL` (44-42) and `S` (40) from every long-format descriptor;
