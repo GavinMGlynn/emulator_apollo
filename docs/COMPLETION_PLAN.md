@@ -7344,10 +7344,34 @@ same number is what let them diverge once already.
             Appendix A — so the 68030's MMU **was** derived against the 68851
             sibling, which is what `CLAUDE.md`'s resolution order asks for.
             An ordinary audit-then-walk.
-      - [ ] **`M68000_Family_Reference_1988.pdf`, 608 pages.** Untagged and
-            uncited. Establish first whether it is a *third* printing of `[PRM]`
-            material — in which case the shared-source rule applies and it is
-            one witness, not two — or a distinct document.
+      - [ ] **`M68000_Family_Reference_1988.pdf`, 608 pages — established
+            2026-09-07, and it is neither of the two things this item guessed.**
+            It asked whether this is a third printing of `[PRM]` material or a
+            distinct document. It is a **databook**: a catalogue of abridged
+            datasheets and technical summaries for the whole family, with a
+            selector guide, mechanical data and a development-systems section.
+            Its contents divide cleanly, and the division decides how it must be
+            read:
+            - **Abridged versions of manuals this project already holds** — the
+              MC68000/`HC000`/`008`/`010`/`020`/**`030`** summaries around
+              pp. 60-180, and the MC68851, MC68881 and MC68882 summaries around
+              pp. 185-260. The **shared-source rule applies**: these are the
+              same source condensed, so where one agrees with `[030]`, `[851]`
+              or `[881]` that is *one* witness and not two. Their value is as a
+              cross-check on transcription, not as independent evidence.
+            - **Datasheets for Motorola peripherals this machine does not
+              have** — MC68450 DMA controller, MC68652/MC2652 MPCC, MC68605
+              X.25, MC68153 bus interrupter module, parallel interface/timer.
+              The DN3500's peripherals are Intel, Signetics, OMTI, 3Com and
+              Brooktree parts, every one of which has its own walked datasheet.
+            **It is still read whole**, because `[8259]` hid `TJLJH` in a range
+            dismissed as electrical and `[8237]` hid two rule pages in one
+            dismissed as mechanical — but the expectation is now specific rather
+            than open, which is what this item asked for as step one.
+            *Method*: scanned, 400 dpi JBIG2, so page images throughout.
+            **One thing here is genuinely new to this project**: the MC68020
+            technical summary. The full `[020]` manual is deferred to Phase 2b,
+            and this is a short abridgement of it that costs a few pages.
       - [ ] **`[020]` `MC68020_32-Bit_Microprocessor_Users_Manual_1984.pdf`,
             452 pages**, and `[040]`'s two manuals (256 + 463). Phase 2b and
             Phase 7 parts; cited once between them. Deferred until those
