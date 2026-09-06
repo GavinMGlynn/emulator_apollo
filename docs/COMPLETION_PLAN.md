@@ -7127,10 +7127,45 @@ same number is what let them diverge once already.
       it — they are the same paragraph of the manual and the same kind of pin,
       and modelling one without the other would be arbitrary.
       - [ ] **`[PRM]` `M68000_Family_Programmers_Reference_Manual_1992.pdf`,
-            646 pages.** Cited 9 times, and it is where the instruction
-            descriptions, the condition tests and Table 8-2's opcode map come
-            from — several of which `ap_m68030_*` derives *via* `[030]` rather
-            than from here.
+            646 pages — audited 2026-09-06, and the audit reversed this item's
+            premise for the third time.** It said "cited 9 times". It is cited
+            **9 times by tag and 29 more by full title**, across more than
+            twenty modules — essentially the whole instruction set derives from
+            it. That is `[Bt458]`'s lesson ("counting tags is a first pass,
+            never a verdict") failing for the third document *after* it was
+            written down.
+            **Method note, and it is a real one**: `[PRM]` is **born-digital** —
+            embedded Type 1 fonts, no OCR anywhere, only small raster figures.
+            `CLAUDE.md`'s page-image rule exists because *OCR* mangles tables,
+            and there is no OCR here; `pdftotext -layout` reproduces the
+            document's own text. Validated against `[030]`'s page image for the
+            same table before being relied on. Page images are still used for
+            figures, for anything with an exponent (superscripts are lost), and
+            for every table a finding rests on — which is every finding below.
+            ***§1 and §2 walked 2026-09-06, 60 pages.*** **Table 1-5** carries
+            four slips, three of them Table 1-4's values left behind when the
+            single-precision table was copied to make the double-precision one:
+            the NAN exponent maximum printed `255` for an 11-bit field, a `$00`
+            where `$000` belongs, and a lost decimal point in `1.8 x 10^308`.
+            This core is *structurally* immune to the first, which is worth more
+            than catching it — `from_ieee` computes the maximum from the field
+            width rather than transcribing it, and says why it is shared.
+            **Table 2-4 is wrong in four cells and it is not a scan artifact**:
+            absolute short and long are marked non-alterable and PC memory
+            indirect alterable, both pairs the wrong way round, in the
+            document's own vector text. `ap_m68030_category.c` already derived
+            from §2.3's definitions instead and blamed "the scan" — corrected,
+            because `[PRM]` is born-digital and there is no better copy to find.
+            `[030]` Table 2-2 settles it and agrees with our code. The same
+            table prints Absolute Long's register field as `000` where §2.2.17
+            on the facing page says `001`.
+            **And a citation defect**: `ap_m68030_step.c`'s `CALLM` arm cited
+            "`[PRM]` Figure D-1 and D-3", and **`[PRM]` has no Appendix D** — it
+            ends at Appendix C. The figures are `[020]`'s Appendix D, *Advanced
+            Topics*, §D.1, which is where they belong. The facts were right and
+            the tag sent a reader to a document that does not contain them.
+            Record: `docs/references/PRM_WALK.md`.
+            *Owed*: §3-§8 and Appendices A-C, 586 pages.
       - [ ] **`[881]`/`[882]`
             `MC68881_MC68882_Floating-Point_Coprocessor_Users_Manual_1ed_1987.pdf`,
             396 pages.** *This item first said "zero tagged citations" and

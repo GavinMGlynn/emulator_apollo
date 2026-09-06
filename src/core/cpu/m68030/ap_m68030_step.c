@@ -5461,7 +5461,19 @@ static fp_source_result_t execute_fp_conditional(
   return wrote.ok ? FP_SOURCE_FETCHED : FP_SOURCE_FAILED;
 }
 
-/* `CALLM`, `[PRM]` Figure D-1 and D-3. The descriptor is read, validated and
+/* `CALLM`, **`[020]` Appendix D** (*Advanced Topics*), §D.1 *Module Support*,
+ * Figures D-1 and D-3.
+ *
+ * **This cited `[PRM]` and `[PRM]` has no Appendix D.** Corrected 2026-09-06 by
+ * the `[PRM]` citation audit: that manual ends at Appendix C (*S-Record Output
+ * Format*), and the module descriptor and stack frame figures are the *68020*
+ * user's manual's -- which is right, since `CALLM` is a 68020 instruction the
+ * 68030 removed. The facts below are unchanged and were always taken from the
+ * correct pages; only the tag was wrong, and a reader following it would have
+ * opened a document that does not contain them and concluded they were
+ * invented.
+ *
+ * The descriptor is read, validated and
  * turned into a module stack frame; the entry word names the register that
  * receives the data area pointer, and execution continues at the word after it.
  *

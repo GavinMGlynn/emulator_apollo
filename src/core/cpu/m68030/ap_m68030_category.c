@@ -1,6 +1,26 @@
 /* MC68030 addressing mode categories. See ap_m68030_category.h for why these
- * are derived from §2.3's definitions rather than transcribed from Table 2-4,
- * whose Alterable column is shifted in the scan. */
+ * are derived from §2.3's definitions rather than transcribed from Table 2-4.
+ *
+ * **That table is wrong, and it is not a scan artifact.** This comment used to
+ * say the Alterable column was "shifted in the scan", which invites someone to
+ * go and find a better copy. There is none to find: `[PRM]` is a born-digital
+ * PDF -- embedded Type 1 fonts, no OCR anywhere -- so the cells are wrong in
+ * the document's own vector text, and in every copy of it. Established
+ * 2026-09-06 by rendering the page.
+ *
+ * Four cells, wrong in both directions, which is what a swap looks like:
+ * Table 2-4 marks *Absolute Short* and *Absolute Long* non-alterable and *PC
+ * Memory Indirect* postindexed and preindexed alterable. Both pairs are the
+ * other way round. `MOVE.W D0,(xxx).L` is legal on every member of the family
+ * and no PC-relative operand is writable on any of them.
+ *
+ * **The sibling manual settles it**: `[030]` Table 2-2, *Effective Addressing
+ * Mode Categories*, gives absolute short and long `Alterable = X` and both PC
+ * memory indirect rows `Alterable = —`. Which is what this file has.
+ *
+ * The same table has a second, independent error: it prints Absolute Long's
+ * register field as `000`, which is Absolute Short's on the line above. `[PRM]`
+ * §2.2.17 says `001` on the facing page, and `[030]` Table 2-2 says `001`. */
 
 #include "cpu/m68030/ap_m68030_category.h"
 
