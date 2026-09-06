@@ -7449,8 +7449,19 @@ same number is what let them diverge once already.
             witness for the arbitration lock. Table 2-1's speed grades are the
             fourth instance of a manual's ordering section lagging its own part,
             and this book **disagrees with itself** about the MC68030's.
+            ***§4 walked the same day, 242/608.*** The MC68882 datasheet's
+            compatibility section states this session's `[881]` exception-handler
+            work as a three-item list — `FSAVE` first, `BSET` bit 27 of the BIU
+            flag word, `FRESTORE` before `RTE` — and gives the "32 bytes larger,
+            unique format word" rule the `$1F38` finding rests on. Its Table 4 is
+            an independent transcription of the timing `ap_m68882_timing.c`
+            added, and explains the one row that breaks the pattern: `FMOVE` is
+            33 on the 68881 and **21** on the 68882, which is Table 5-5's
+            fully-concurrent case as a number. **And both its CIR tables get the
+            map wrong in exactly the way `ap_m68882_cir.h` predicts**, listing
+            the operand address CIR as R/W without Table 7-2's footnote.
             Record: `docs/references/M68000_FAMILY_REFERENCE_WALK.md`.
-            *Owed*: §4-§11, PDF 159-608.
+            *Owed*: §5-§11, PDF 245-608.
       - [ ] **`[020]` `MC68020_32-Bit_Microprocessor_Users_Manual_1984.pdf`,
             452 pages**, and `[040]`'s two manuals (256 + 463). Phase 2b and
             Phase 7 parts; cited once between them. Deferred until those
