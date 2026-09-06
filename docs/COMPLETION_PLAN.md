@@ -7384,6 +7384,12 @@ same number is what let them diverge once already.
             caches as `B`, which is what `ap_m68851_atc.h` already describes as
             "the validity of the access is evaluated when the ATC entry is made".
             Suites: `m68851_search_suite`, `m68851_atc_suite`.
+            **And it has a second consequence, in `PTEST`**: §6.1.8.5's `W` bit
+            is set "if any descriptor encountered in the search contained a set
+            `WP` bit, **or if the address tested exceeded the `WAL` field of any
+            long descriptor**", and §6.1.8.4's `A` bit when it "exceeded `RAL`
+            for `PTESTR`, or `WAL` or `RAL` for `PTESTW`". So the missing
+            accumulation also makes two `PSR` bits unreportable.
             ***§8, §9, §10, §11 and Appendix A.1-A.2 walked 2026-09-07.***
             §8's Figures 8-3 and 8-4 have their captions transposed and this core
             read past them correctly; Table 9-1 gives the MC68020's four CPU
