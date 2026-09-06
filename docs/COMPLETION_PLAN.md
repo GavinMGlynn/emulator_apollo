@@ -7268,8 +7268,48 @@ same number is what let them diverge once already.
             second time before checking. The tell was a test that passed with the
             new code removed. Reverted; what was missing was the *test*, which is
             now there and discriminates.
+            ***§6.2, §7 and §8 walked.*** **`[881]` Table 7-5 settles a
+            question the `[030]` §10 walk had to leave open** — it declares the
+            valid-EA class per opclass, and `FMOVE FPm,<ea>` (opclass `011`) is
+            `001` Data Alterable, so a non-alterable destination is a *class
+            mismatch* and therefore an F-line, not the protocol violation this
+            core reported. Corrected; two of the three deferred sites remain.
+            §7 also verifies `ap_m68882_cir.c` against **Table 7-2** field for
+            field, including the two CIRs the MC68881 does not implement and the
+            "reads of a write-only register always return all ones" rule.
+            Figure 6-3's rounding algorithm is transcribed line for line in
+            `ap_m68882_round.c`, tie-to-even included; §6.1.7's NOTE confirms the
+            overflow-through-`ENABLE(INEX2)` trap the priority scan carries; and
+            Table 6-2's operand errors and Table 6-3's seven divide-by-zero
+            cases both check out, the `k`-factor clamp to +17 with `OPERR`
+            included.
             Record: `docs/references/M68881_WALK.md`.
-            *Owed*: §4's per-instruction pages, §5, §6.2-§6.4, §7-§13, appendices. *This item first said "zero tagged citations" and
+            *Owed*: §4's per-instruction pages, §5, §6.3-§6.4, §7.5, §8.5's
+            tables, §9-§13, appendices.
+      - [ ] **The 68882 has no instruction execution timing, and the 68040 —
+            which this machine does not have — has three modules of it.**
+            `[881]` §8.5's tables give best, typical and worst case clock counts
+            for every FPCP instruction, plus the interface overheads §8.4
+            measures: **eleven clocks** typical for instruction initiation with
+            no overlap, two best case, and a ten-clock worst-case
+            synchronisation period. §8.1 states the assumptions they hold under
+            — an MC68020 host on the same clock, long-word-aligned operands, a
+            32-bit bus, no wait states except **two wait cycles (five-clock
+            reads) on the response and save CIRs**.
+            This core charges an `FADD` its *operand bus* time and nothing for
+            the calculation, so every floating-point instruction is a lower
+            bound. `PROJECT_STATUS.md` already records the same shape for the
+            integer instructions outside §11.6's 59 rows; this is the FPU's
+            version of it and was not named.
+            **The asymmetry is the tell**: `ap_m68040_fpu_timing.h`,
+            `_fp_pipeline.h` and `_misc_timing.c` transcribe the *68040's*
+            floating-point timings, for a processor no in-scope model runs,
+            while the 68882 the DN3500 actually has has none.
+            *Verification when done*: a suite in the shape of
+            `m68040_fpu_timing_suite`, and the figures composed through the same
+            overlap model the integer side uses. Mark `PROVISIONAL` where §8.5
+            publishes a range rather than a point, which it does for the
+            data-dependent transcendentals. *This item first said "zero tagged citations" and
             implied the FPU was built without its manual. **Wrong** — it is
             cited **11 times**, by full title rather than by a bracket tag, and
             the `[030]` audit found it while checking something else.* So the
