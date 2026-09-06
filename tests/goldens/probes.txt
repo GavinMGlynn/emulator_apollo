@@ -11,8 +11,8 @@ trap                  4 STOPPED        00000009 00001008       26    0 F456AB4A1
 wide-arithmetic       4 STOPPED        0003299B 00001012       10    0 8BE38DA6B28E3185
 movem                 7 STOPPED        00000001 00001014       22    0 753A0066E6630345
 pmove                 3 STOPPED        00000000 0000100E       10    0 6C4F71D0F60B57D7
-fpu                   6 STOPPED        00000000 0000101A       18    0 6FC15659E7090D79
-fpu-transfer          9 STOPPED        00000002 00001028       70    0 BA7B3DEF314B31EB
+fpu                   6 STOPPED        00000000 0000101A      165    0 5BE6D47CA1C94E3C
+fpu-transfer          8 STOPPED        00000000 0000102A      155    0 2C739FC56A16594E
 
 # what each probe covers
 # moveq              one register write, the smallest thing that can be wrong

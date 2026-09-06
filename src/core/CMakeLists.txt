@@ -37,6 +37,7 @@ add_library(apollo_core STATIC
   cpu/m68882/ap_m68882_store.c
   cpu/m68882/ap_m68882_packed.c
   cpu/m68882/ap_m68882_format.c
+  cpu/m68882/ap_m68882_timing.c
   cpu/m68882/ap_m68882_regs.c
   cpu/m68030/ap_m68030_bounds.c
   cpu/m68030/ap_m68030_branch.c

@@ -7289,10 +7289,35 @@ same number is what let them diverge once already.
             second witness for `[030]` §10.5.3's "not by `RESET` instructions",
             and §10.4 plus §12.6's clock-unit specs 25 and 27 cost the interface
             itself. Detail in `PROJECT_STATUS.md` and the walk record.
+            ***§8 walked whole the same day, 38 pages, and it half-closes the
+            timing gap below.*** §8.5.2's phase diagram splits an FPCP
+            instruction six ways and assigns each side its own: start-up,
+            effective address and operand transfer are "almost entirely
+            dependent on the execution characteristics of the main processor",
+            and convert, calculate and round are "dependent **solely on the
+            FPCP**". This core charged the first three as real bus cycles and
+            the last three as nothing. `ap_m68882_timing.c` now charges them
+            from Table 8-3's register-to-register column and Tables 8-16/8-17's
+            output conversion — the register-to-register column deliberately,
+            because a memory column would count the operand transfer twice.
+            `PROVISIONAL` in three named ways (data-dependent calculation,
+            unmodelled concurrency, assumed rounding case), and §8.5.1's NOTE
+            that the tables assume an MC68020 host does not reach what is
+            transcribed. **A probe defect fell out of it**: `probe_fpu_transfer`
+            supplied one immediate word to a `MOVE.L #<data>,(An)` and decoded
+            from the wrong boundary thereafter, so the probe named after "both
+            operand directions" reached neither. Detail in `PROJECT_STATUS.md`
+            and the walk record.
             Record: `docs/references/M68881_WALK.md`.
-            *Owed*: §4's per-instruction pages, §6.3-§6.4, §7.5, and §8 whole.
-      - [ ] **The 68882 has no instruction execution timing, and the 68040 —
-            which this machine does not have — has three modules of it.**
+            *Owed*: §4's per-instruction pages, §6.3-§6.4, §7.5.
+      - [ ] **The 68882's instruction timing is charged as of 2026-09-07; its
+            *concurrency* is not.** Opened as "no instruction execution timing",
+            which was true until `[881]` §8 was walked whole. What remains is
+            the overlap: Table 8-5's worked example runs a sequence in 331
+            clocks whose totals add to 470, and this core charges the sum.
+            Detail in `PROJECT_STATUS.md`. The original item follows.
+            **The 68040 — which this machine does not have — has three modules
+            of floating-point timing.**
             `[881]` §8.5's tables give best, typical and worst case clock counts
             for every FPCP instruction, plus the interface overheads §8.4
             measures: **eleven clocks** typical for instruction initiation with

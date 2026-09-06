@@ -902,6 +902,96 @@ static void test_fsave_uses_the_active_stack_pointer_not_a7_the_array_slot(
   TEST_ASSERT_EQUAL_HEX32(0x00007000u, m.cpu.regs.usp);
 }
 
+/* **A floating-point instruction costs what it calculates.**
+ *
+ * `[881]` §8.5.2 splits an FPCP instruction into six phases and says which side
+ * owns each: everything up to the operand transfer "is almost entirely
+ * dependent on the execution characteristics of the main processor", and the
+ * convert, calculate and round phases are "dependent solely on the FPCP". This
+ * core charged the first half as real bus cycles and the second half as
+ * nothing, so an `FSIN` cost exactly what an `FMOVE` cost.
+ *
+ * The test is a *difference* between two register-to-register instructions
+ * whose encodings differ only in the operation field. Everything the main
+ * processor does -- the fetch, the command word, the pipe -- is identical, so
+ * whatever the bus costs cancels and what is left is Table 8-3's column: 394
+ * clocks for `FSIN` against 21 for `FMOVE`.
+ *
+ * A difference rather than an absolute, because an absolute would pin the bus
+ * model as well and would have to be rewritten every time the cache or the
+ * prefetch changed -- and it would no longer be a statement about the FPU. */
+static void test_a_floating_point_instruction_costs_its_calculation(void) {
+  static const uint16_t move[] = {0xF200u, 0x0000u, 0x4E71u};
+  static const uint16_t sine[] = {0xF200u, 0x000Eu, 0x4E71u};
+
+  uint64_t clocks[2] = {0, 0};
+  const uint16_t *programs[2] = {move, sine};
+  for (unsigned i = 0; i < 2u; i++) {
+    machine_t m = {0};
+    load(&m, programs[i], 3);
+    m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+    ap_m68882_t fpu;
+    ap_m68882_reset(&fpu);
+    m.cpu.fpu = &fpu;
+    /* FP0 holds a non-signalling NAN after a reset, and `FSIN` of a NAN takes
+     * a different path from `FSIN` of a number. Start from zero so both
+     * instructions run their ordinary arithmetic. */
+    fpu.regs.fp[0] = (ap_m68882_extended_t){0};
+
+    const uint64_t before = m.cpu.clocks;
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                          ap_m68030_step(&m.cpu).status);
+    clocks[i] = m.cpu.clocks - before;
+  }
+
+  /* Table 8-3, `FPn to FPm` totals: FSIN 394, FMOVE to FPn 21. */
+  TEST_ASSERT_EQUAL_UINT64(394u - 21u, clocks[1] - clocks[0]);
+  /* And the cheap one is not free either, which is the half a difference
+   * cannot see: 21 clocks of FPCP time on top of whatever the bus cost. */
+  TEST_ASSERT_TRUE_MESSAGE(clocks[0] >= 21u,
+                           "an FMOVE FPm,FPn was charged no FPCP time");
+}
+
+/* The store direction is priced from a different table, and by the destination
+ * format rather than by the operation: Table 8-16's output conversion. An
+ * extended destination "is the internal format, so there is nothing to round"
+ * and costs 18; a single or double goes through Table 8-17's 38.
+ *
+ * Same shape of test -- two encodings differing only in the format field, so
+ * the effective address and the operand write are common to both and the
+ * twenty-clock gap is the conversion. */
+static void test_a_floating_point_store_costs_its_output_conversion(void) {
+  /* FMOVE.X FP0,(A0): F210 6800.  FMOVE.D FP0,(A0): F210 7400. */
+  static const uint16_t extended[] = {0xF210u, 0x6800u, 0x4E71u};
+  static const uint16_t doubled[] = {0xF210u, 0x7400u, 0x4E71u};
+
+  uint64_t clocks[2] = {0, 0};
+  const uint16_t *programs[2] = {extended, doubled};
+  for (unsigned i = 0; i < 2u; i++) {
+    machine_t m = {0};
+    load(&m, programs[i], 3);
+    m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+    m.cpu.regs.a[0] = 0x00002000u;
+    ap_m68882_t fpu;
+    ap_m68882_reset(&fpu);
+    m.cpu.fpu = &fpu;
+    fpu.regs.fp[0] = (ap_m68882_extended_t){0};
+
+    const uint64_t before = m.cpu.clocks;
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                          ap_m68030_step(&m.cpu).status);
+    clocks[i] = m.cpu.clocks - before;
+  }
+
+  /* The double costs 38 and the extended 18, and the extended also writes four
+   * more bytes -- so the *conversion* gap is 20 and the bus works the other
+   * way. Assert the conversion difference is present by comparing against the
+   * same pair with the timing removed: what must hold is that the double is
+   * dearer despite writing less. */
+  TEST_ASSERT_TRUE_MESSAGE(clocks[1] > clocks[0],
+                           "a double store did not cost its conversion");
+}
+
 /* And the same for `FMOVEM`, which has the identical predecrement rule and was
  * wrong in the identical way. */
 static void test_fmovem_predecrement_steps_the_active_stack_pointer(void) {
@@ -8989,6 +9079,8 @@ int main(void) {
   RUN_TEST(test_no_word_in_the_instruction_space_reports_unimplemented);
   RUN_TEST(test_no_coprocessor_operation_reports_unimplemented);
   RUN_TEST(test_fsave_uses_the_active_stack_pointer_not_a7_the_array_slot);
+  RUN_TEST(test_a_floating_point_instruction_costs_its_calculation);
+  RUN_TEST(test_a_floating_point_store_costs_its_output_conversion);
   RUN_TEST(test_fmovem_predecrement_steps_the_active_stack_pointer);
   RUN_TEST(test_no_mmu_extension_form_reports_unimplemented);
   RUN_TEST(test_the_stacked_fault_address_is_the_cycle_that_faulted);

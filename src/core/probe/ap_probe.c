@@ -121,7 +121,15 @@ static const uint16_t probe_fpu[] = {
  * itself, and the whole register file written out and read back by FMOVEM. */
 static const uint16_t probe_fpu_transfer[] = {
     0x207Cu, 0x0000u, 0x2000u, /* MOVEA.L #$2000,A0        */
-    0x20BCu, 0x4000u,          /* MOVE.L  #$40000000,(A0)  */
+    /* `MOVE.L #<data>,(An)` carries a **long** immediate, so two words. This
+     * had one, and the missing word made the rest of the probe decode from the
+     * wrong boundary: the `FMOVE.D (A0),FP1` below was never reached, and the
+     * probe named after "both operand directions" exercised neither of them.
+     * Found on 2026-09-07 by charging floating-point instructions their
+     * calculation time -- the probe's clock count moved by one `FADD` and
+     * nothing else, which is not what seven instructions and two transfers
+     * should cost. */
+    0x20BCu, 0x4000u, 0x0000u, /* MOVE.L  #$40000000,(A0)  */
     0x217Cu, 0x0000u, 0x0000u, 0x0004u, /* MOVE.L #0,4(A0) */
     0xF210u, 0x5480u,          /* FMOVE.D (A0),FP1         */
     0xF200u, 0x04A2u,          /* FADD    FP1,FP1          */

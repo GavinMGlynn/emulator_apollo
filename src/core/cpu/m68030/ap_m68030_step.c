@@ -32,6 +32,7 @@ static bool execute_extended(ap_m68030_cpu_t *cpu,
 #include "cpu/m68030/ap_m68030_mmusr.h"
 #include "cpu/m68030/ap_m68030_operand.h"
 #include "cpu/m68030/ap_m68030_ssw.h"
+#include "cpu/m68882/ap_m68882_timing.h"
 
 /* The two operand entry points, wrapped so that a fault is *recorded* on the
  * CPU before the result reaches a caller that will reduce it to a bool.
@@ -5489,6 +5490,56 @@ static fp_source_result_t execute_fp_state(ap_m68030_cpu_t *cpu,
  * both. Absolute addressing *is* data alterable. Two sources against one
  * summary table, so absolute addressing is accepted here and Table 4-19 is
  * recorded as the suspect entry. */
+/* What the coprocessor spends on the instruction *after* the main processor
+ * has finished with it -- `[881]` §8.5.2's convert, calculate and round phases,
+ * the ones it says are "dependent solely on the FPCP".
+ *
+ * Everything to the left of them is already priced here as real bus cycles: the
+ * operation and command words, the effective address, the operand read or
+ * write. So this adds the missing half rather than replacing anything, and the
+ * numbers come from `ap_m68882_timing.c` -- Table 8-3's register-to-register
+ * column, which is the same instruction with no external operand, and Table
+ * 8-16's output conversion for a store.
+ *
+ * Until this landed an `FSIN` cost what an `FMOVE` cost. It is 394 clocks
+ * against 21.
+ *
+ * The MPU-side opclasses charge nothing: `100`/`101` move a control register
+ * and `110`/`111` are `FMOVEM`, and Tables 8-6 and 8-21 price those almost
+ * entirely in bus cycles this core already performs. */
+static uint32_t fp_execution_clocks(uint16_t command) {
+  const ap_m68882_command_word_t decoded = ap_m68882_decode_command(command);
+  if (decoded.extension_class != AP_M68882_EXTENSION_DEFINED) {
+    return 0u;
+  }
+  switch (decoded.opclass) {
+  case AP_M68882_OPCLASS_MEMORY_TO_REGISTER:
+    /* `RX` = `111` in this opclass is `FMOVECR`, not a source format, and
+     * Table 8-3 gives it a row of its own: 32, against the 21 the `FMOVE to
+     * FPn` row it otherwise decodes as would charge. The eleven clocks are the
+     * constant ROM read, which is why the row carries footnote ****** -- "the
+     * source operand is from the constant ROM rather than a floating-point
+     * data register". */
+    if (decoded.rx == 7u) {
+      return 32u;
+    }
+    [[fallthrough]];
+  case AP_M68882_OPCLASS_REGISTER:
+    return ap_m68882_operation_clocks(decoded.operation);
+  case AP_M68882_OPCLASS_REGISTER_TO_MEMORY:
+    /* Bits 12-10 are the *destination* format for this opclass, which is what
+     * `rx` holds -- the same field is the source format for `010`. */
+    return ap_m68882_store_clocks((ap_m68882_format_t)decoded.rx);
+  case AP_M68882_OPCLASS_RESERVED_1:
+  case AP_M68882_OPCLASS_MOVE_TO_CONTROL:
+  case AP_M68882_OPCLASS_MOVE_FROM_CONTROL:
+  case AP_M68882_OPCLASS_MOVEM_TO_REGISTERS:
+  case AP_M68882_OPCLASS_MOVEM_FROM_REGISTERS:
+    return 0u;
+  }
+  return 0u;
+}
+
 static fp_source_result_t execute_fp_conditional(
     ap_m68030_cpu_t *cpu, const ap_m68030_coproc_t *coproc,
     uint16_t operation_word, uint32_t *clocks, bool *branch_taken) {
@@ -6992,6 +7043,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       }
 
       if (executed == AP_M68882_EXECUTED) {
+        out.clocks += fp_execution_clocks(command);
         break;
       }
       if (executed == AP_M68882_UNIMPLEMENTED) {
