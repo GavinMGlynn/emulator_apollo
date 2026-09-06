@@ -7379,6 +7379,19 @@ same number is what let them diverge once already.
             So: `S`, `WP` and `SG` OR across levels; `RAL` and `WAL` each take
             the minimum; `WP` anywhere wins over any `WAL`; and the defaults are
             not-supervisor and `$7`/`$7`.
+            **And Figures 5-24 and 5-27 draw it as assignment statements**, so
+            there is nothing left to interpret. Figure 5-24, *Table Search
+            Initialization Detail*, is the whole of the initial state:
+            `ACC_STATUS[RAL] <- $7`, `[WAL] <- $7`, `[WP] <- 0`, `[SG] <- 0`,
+            `[S] <- 0`. Figure 5-27, *Detailed Flowchart of Descriptor Fetch
+            Operation*, is the per-descriptor accumulation, and it splits by
+            format: a **long** (`SIZE = 8`) descriptor does
+            `IF RAL < ACC_STATUS[RAL] THEN ACC_STATUS[RAL] <- RAL`, the same for
+            `WAL`, and `ACC_STATUS[SG|S|WP] <- ACC_STATUS[SG|S|WP] V SG|S|WP`;
+            a **short** (`SIZE = 4`) descriptor contributes only
+            `ACC_STATUS[WP] <- ACC_STATUS[WP] V WP`, which is why a path with no
+            long descriptors leaves `RAL` and `WAL` at `$7`. At the page level it
+            also takes `ACC_STATUS[G] <- G`, `[CI] <- CI` and `[L] <- L`.
             *Verification*: accumulate them that way -- `write_protect` already
             is -- add §4.2.3.3's condition (6), and return a denial the ATC fill
             caches as `B`, which is what `ap_m68851_atc.h` already describes as
