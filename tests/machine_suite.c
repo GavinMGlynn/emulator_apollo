@@ -2014,6 +2014,87 @@ static void test_a_dma_transfer_costs_the_processor_clocks(void) {
   TEST_ASSERT_TRUE(lost <= second_board.dma_transfers * 4u + 16u);
 }
 
+/* **An indivisible operation holds the bus, and this core let go of it.**
+ *
+ * `[030]` §7.7.1: "The read-modify-write sequence is normally indivisible to
+ * support semaphore operations and multiprocessor synchronization. During this
+ * indivisible sequence, the MC68030 asserts the RMC signal and causes the bus
+ * arbitration state machine to ignore bus requests (assertions of BR) that
+ * occur after the first read cycle." §11.9 says the same as a latency rule and
+ * §12.1.2 as a pin one; Appendix A lists it as the family difference outright.
+ *
+ * Two things were wrong and they compounded. `ap_m68030_arb.h` models that lock
+ * in full -- three states, because the manual distinguishes the first read
+ * cycle -- and `ap_m68030_arb_set_rmc` was called by `arb_suite` and by nothing
+ * in `src/`: the state machine was correct and connected to nothing. And `TAS`,
+ * the one instruction the architecture provides for semaphores, never asserted
+ * `RMC` at all -- only `CAS` and `CAS2` did, and only into a flag the arbiter
+ * could not see.
+ *
+ * Found walking `[030]` §12 on 2026-09-06. A green suite could not see it,
+ * because the arbiter's own test supplied the wiring the machine did not.
+ *
+ * This asserts the board-level rule directly: with the processor's `RMC`
+ * asserted, a DMA channel asking for the bus does not get it. */
+static void test_an_indivisible_operation_holds_the_bus_against_dma(void) {
+  ap_board_t *board = &second_board;
+  ap_machine_t machine;
+  build_board_machine(&machine, board, other_ram, idle_program,
+                      sizeof idle_program / sizeof idle_program[0]);
+  start_verify_channel(board, 1u, 63u);
+
+  /* Locked: the channel is asking, and the processor keeps the bus however
+   * long the arbiter is ticked. */
+  ap_board_set_processor_rmc(board, true);
+  const uint64_t transfers_before = board->dma_transfers;
+  for (unsigned i = 0; i < 64u; i++) {
+    ap_board_bus_tick(board);
+  }
+  TEST_ASSERT_TRUE(ap_board_processor_may_run(board));
+  TEST_ASSERT_EQUAL_UINT64(transfers_before, board->dma_transfers);
+
+  /* Released, and the same channel takes the bus on the same ticks. This is
+   * the control: without it the test would pass on a board whose DMA never
+   * ran at all. */
+  ap_board_set_processor_rmc(board, false);
+  for (unsigned i = 0; i < 64u; i++) {
+    ap_board_bus_tick(board);
+  }
+  TEST_ASSERT_TRUE(board->dma_transfers > transfers_before);
+}
+
+/* The other half of the same wiring: the instruction has to *say* it locked the
+ * bus, and `TAS` did not. `rmc_operations` is what the machine diffs across a
+ * step to drive the pin, so this is the CPU end of the same rule.
+ *
+ * `TAS Dn` is the control. Its addressing modes are data alterable, which
+ * includes a data register, and a register operand runs no bus cycle -- so
+ * there is nothing to lock and the counter must not move. */
+static void test_tas_locks_the_bus_for_memory_and_not_for_a_register(void) {
+  /* TAS (A0) : $4AD0. Then TAS D0 : $4AC0. Then STOP. */
+  static const uint16_t program[] = {0x4AD0u, 0x4AC0u, 0x4E72u, 0x2700u};
+
+  ap_machine_t machine;
+  build_board_machine(&machine, &first_board, ram, program,
+                      sizeof program / sizeof program[0]);
+  machine.cpu.regs.a[0] = AP_BOARD_RAM_BASE + 0x400u;
+
+  const unsigned before = machine.cpu.rmc_operations;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                        ap_m68030_step(&machine.cpu).status);
+  const unsigned after_memory = machine.cpu.rmc_operations;
+  TEST_ASSERT_EQUAL_UINT(before + 1u, after_memory);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                        ap_m68030_step(&machine.cpu).status);
+  TEST_ASSERT_EQUAL_UINT(after_memory, machine.cpu.rmc_operations);
+
+  /* And the pin is not left asserted behind either of them: §7.3.5 negates it
+   * after the write, and a stuck `RMC` would lock the bus for the rest of the
+   * program. */
+  TEST_ASSERT_FALSE(machine.cpu.data->rmc);
+}
+
 /* And the converse, which is what stops the test above passing on a machine
  * that simply charged for having a board: a board whose controllers are idle
  * costs the identical program exactly nothing. */
@@ -2418,6 +2499,8 @@ int main(void) {
   RUN_TEST(test_a_boardless_machine_advances_nothing);
   RUN_TEST(test_two_interrupts_at_once_are_serviced_in_priority_order);
   RUN_TEST(test_a_dma_transfer_costs_the_processor_clocks);
+  RUN_TEST(test_an_indivisible_operation_holds_the_bus_against_dma);
+  RUN_TEST(test_tas_locks_the_bus_for_memory_and_not_for_a_register);
   RUN_TEST(test_an_idle_bus_costs_the_processor_nothing);
   RUN_TEST(test_a_device_interrupt_reaches_the_processor_on_its_vector);
   RUN_TEST(test_an_unprogrammed_controller_delivers_nothing);

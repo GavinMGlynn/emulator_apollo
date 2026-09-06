@@ -7044,8 +7044,72 @@ same number is what let them diverge once already.
             `access_suite` 16 -> 18, the forced-miss test checked against the
             unfixed code so it discriminates; identity boot **unchanged** at
             `42B14372F3677EE8`.*
-            *What remains of `[030]`*: §12, §13, §14 and Appendix A -- 57
-            pages, all unread.
+            ***§12, §13, §14 and Appendix A walked 2026-09-06, 57 pages ---
+            `[030]` is walked whole, 608/608.*** The census dismissed these as
+            "applications, electrical and mechanical" and the record already
+            warned that was a claim about the contents page. **It hid the worst
+            defect this manual has produced.** From §12.1.2's line that a table
+            search "asserts `RMC` but not `CIOUT`", chased through §7.7.1, §11.9
+            and Appendix A: **an indivisible read-modify-write did not hold the
+            bus.** Two failures compounding --- `ap_m68030_arb_set_rmc` models
+            §7.7.4's lock in full and was called by `arb_suite` and by *nothing
+            in `src/`*, so a DMA channel asking during a semaphore operation was
+            granted the bus; and `TAS`, the one instruction the architecture
+            provides for semaphores, never asserted `RMC` at all --- only `CAS`
+            and `CAS2` did, into a flag no arbiter could see. Both fixed.
+            §12 and Appendix A also *verify* three things this core argued for:
+            `CALLM`/`RTM` are "(MC68020 only)" and take the 68030's trap, which
+            `has_module_calls` already did; the stack frame set is exactly
+            `$0`,`$1`,`$2`,`$9`,`$A`,`$B`; and MMU instructions take
+            control-alterable modes only. Table 12-4 is the `STATUS` signal's
+            definition and belongs with the `MMUDIS` item. Three documentary
+            errors: Appendix A calls the 68030's `MMUSR` by the 68851's name
+            `PSR`, and §12 has two wrong figure cross-references. *Verification:
+            `machine_suite` 56 -> 58, both tests checked against the unfixed
+            code; identity boot **unchanged** at `42B14372F3677EE8`, so no DMA
+            request collided with a semaphore in 350 M instructions.* **`[030]`
+            is finished**: fourteen sections and an appendix, 608 pages, four
+            real defects, every one of them in code the suite was green on.
+      - [ ] **`AP_M68030_RMC_FIRST_READ` is modelled and never placed.** The
+            arbiter has three RMC states because `[030]` §7.7.4 distinguishes
+            the first read cycle --- a bus request arriving during it still
+            walks the machine to its grant states, one arriving after is
+            ignored --- and the machine can only assert `AP_M68030_RMC_LOCKED`,
+            because the whole sequence happens inside one `ap_m68030_step` and
+            the clocks are delivered afterwards. So the lock is one instruction
+            wide where the hardware's is narrower.
+            **What would unblock it**: the per-cycle processor (Phase 8), which
+            is the item that makes a bus cycle addressable from outside the
+            step. Until then the wider lock is the conservative direction ---
+            it refuses a grant the hardware would allow, rather than allowing
+            one it forbids.
+      - [ ] **A translation table search is an extended read-modify-write and
+            this core does not lock the bus for one.** `[030]` §11.9: "Since the
+            address translation search is an extended read-modify-write
+            operation, the no-cache-case latency is incurred by the longest
+            address translation search required by the system." §12.1.2 gives
+            the pins --- "the MC68030 asserts `RMC` but not `CIOUT`" --- and
+            §11.7's own table counts "an RMC cycle to set the U bit ... as one
+            read and one write". `ap_m68030_walk.h` already cites the rule from
+            §9; what is missing is the *bus*: the walk reads descriptors through
+            a plain callback (`machine_table_fetch`) with no bus object, so
+            there is no cycle on which to assert anything.
+            **What would unblock it**: the same per-cycle processor item. The
+            observable difference is a DMA grant landing inside a table search,
+            which the identity boot does not exhibit.
+      - [ ] **`MC68030EC.pdf` is on the shelf and unwalked**, and `[030]` §13
+            names it: "Detailed information on timing specifications for power
+            considerations, DC electrical characteristics, and AC timing
+            specifications can be found in the MC68030EC/D, *MC68030 Electrical
+            Specifications*." §13 itself is two pages --- maximum ratings and
+            PGA thermal resistance --- because everything else was moved into
+            that document. It carries the AC specification numbers §12.4.1's
+            access-time equations are written in terms of (`t1`, `t6`, `t9`,
+            `t27`, `t47A`, `t60`), which is the only place this project could
+            get a *cited* figure for them.
+            **This is the read-the-whole-document rule applied to a pointer**:
+            a document that names another document has not been finished until
+            the named one is on the list.
 
 - [ ] **`MMUDIS` is not modelled, and `CDIS` has no driver.** Found 2026-08-25
       walking `[030]` §5. Table 5-1 lists `MMUDIS` as an input and §5.11.2

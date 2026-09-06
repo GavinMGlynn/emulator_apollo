@@ -622,6 +622,10 @@ void ap_board_sample_interrupts(ap_board_t *board) {
   board->interrupt_valid_until = ap_board_interrupt_next_change(board);
 }
 
+void ap_board_set_processor_rmc(ap_board_t *board, bool locked) {
+  ap_arbiter_set_processor_rmc(&board->arbiter, locked);
+}
+
 void ap_board_reset_devices(ap_board_t *board) {
   if (board == NULL) {
     return;

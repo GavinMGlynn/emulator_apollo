@@ -84,6 +84,26 @@ void ap_arbiter_request(ap_arbiter_t *arbiter, unsigned drq, bool asserted);
  * handshake around it. */
 void ap_arbiter_tick(ap_arbiter_t *arbiter);
 
+/* Drive the processor's `RMC` pin, which locks the bus for an indivisible
+ * read-modify-write.
+ *
+ * `[030]` §7.7.1: "The read-modify-write sequence is normally indivisible to
+ * support semaphore operations and multiprocessor synchronization. During this
+ * indivisible sequence, the MC68030 asserts the RMC signal and causes the bus
+ * arbitration state machine to ignore bus requests (assertions of BR) that
+ * occur after the first read cycle." §11.9 restates it from the latency end and
+ * §12.1.2 from the pin's.
+ *
+ * `ap_m68030_arb_set_rmc` takes three states because §7.7.4 distinguishes the
+ * first read cycle from the rest. This takes a bool and asserts the *locked*
+ * one, because the machine cannot see inside a step: the whole sequence happens
+ * within one `ap_m68030_step` and the clocks are delivered afterwards, so what
+ * the board learns is "this instruction held the bus", not which cycle of it is
+ * running. The narrower `AP_M68030_RMC_FIRST_READ` needs the per-cycle
+ * processor and is named in `COMPLETION_PLAN.md` rather than approximated
+ * here. */
+void ap_arbiter_set_processor_rmc(ap_arbiter_t *arbiter, bool locked);
+
 /* Who holds the bus: `AP_ARBITER_PROCESSOR`, or a DRQ index. */
 [[nodiscard]] int ap_arbiter_master(const ap_arbiter_t *arbiter);
 

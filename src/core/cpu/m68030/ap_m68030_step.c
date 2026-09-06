@@ -1318,12 +1318,37 @@ static bool execute_single(ap_m68030_cpu_t *cpu,
       single->kind != AP_M68030_SINGLE_MOVE_FROM_SR &&
       single->kind != AP_M68030_SINGLE_MOVE_FROM_CCR;
 
+  /* **`TAS` is a read-modify-write and this core did not say so.** Its own arm
+   * below quotes the page -- the operation happens "over a locked or
+   * read-modify-write transfer sequence" -- and then locked nothing: `RMC` was
+   * asserted by `CAS` and `CAS2` and by nothing else, so the one instruction
+   * the architecture provides *for* semaphores was the one that did not hold
+   * the bus.
+   *
+   * Three things follow from asserting it, all of them documented:
+   * `[030]` §6.1.2.2 forces the read to miss the data cache -- §11.4's note
+   * names this instruction first, "RMC cycles (e.g., TAS and CAS)"; §7.3.6
+   * suppresses `CBREQ`; and §7.7.1 makes the board's arbiter ignore bus
+   * requests, which Appendix A states as the family difference outright
+   * ("Indivisible Bus Cycles -- MC68020 and MC68030: Use RMC Signal").
+   *
+   * Only for a memory operand. `TAS Dn` is legal -- the page's addressing modes
+   * are data alterable, which includes `Dn` -- and runs no bus cycle at all, so
+   * there is nothing to lock. */
+  const bool tas_locks_bus = single->kind == AP_M68030_SINGLE_TAS &&
+                             !where.in_register && !where.immediate;
+  if (tas_locks_bus) {
+    cpu->data->rmc = true;
+    cpu->rmc_operations++;
+  }
+
   uint32_t value = 0;
   if (reads_destination) {
     const ap_m68030_operand_result_t read = step_operand_read(
         cpu, &cpu->regs, cpu->data, &where, single->size, cpu->data_function_code);
     *clocks += read.clocks;
     if (!read.ok) {
+      cpu->data->rmc = false;
       return false;
     }
     value = read.value;
@@ -1371,6 +1396,10 @@ static bool execute_single(ap_m68030_cpu_t *cpu,
         cpu, &cpu->regs, cpu->data, &where, 1u, value | 0x80u,
         cpu->data_function_code);
     *clocks += wrote.clocks;
+    /* §7.3.5: negated after the write, whether or not it succeeded. A fault
+     * ends the sequence too, and leaving the pin asserted would lock the bus
+     * for every instruction after it. */
+    cpu->data->rmc = false;
     return wrote.ok;
   }
 
@@ -5752,6 +5781,7 @@ static bool execute_cas2(ap_m68030_cpu_t *cpu, const ap_m68030_bounds_t *bounds,
   unsigned update_reg[2] = {0};
 
   cpu->data->rmc = true;
+  cpu->rmc_operations++;
 
   for (unsigned i = 0; i < 2u; i++) {
     const uint16_t word = extensions[i];
@@ -5871,6 +5901,7 @@ static bool execute_cas(ap_m68030_cpu_t *cpu, const ap_m68030_bounds_t *bounds,
   /* RMC spans both halves. Asserted before the read and negated after the
    * write, exactly as §7.3.5's flowchart has it. */
   cpu->data->rmc = true;
+  cpu->rmc_operations++;
 
   const ap_m68030_operand_result_t read = step_operand_read(
       cpu, &cpu->regs, cpu->data, &where, bounds->size,

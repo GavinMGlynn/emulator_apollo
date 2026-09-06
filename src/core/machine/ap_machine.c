@@ -922,6 +922,7 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
         watched != 0u ? machine->cpu.exceptions_taken[watched & 0xFFu] : 0u;
     const uint32_t before_pc = machine->cpu.regs.pc;
     const unsigned before_resets = machine->cpu.external_resets;
+    const unsigned before_rmc = machine->cpu.rmc_operations;
 
     const ap_m68030_step_result_t result = ap_m68030_step(&machine->cpu);
     /* `RESET` drives the board's reset line -- see `drive_external_reset`. Both
@@ -945,6 +946,31 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
      * where the board can prove the ticks identical, so the resolution was
      * never the problem -- the lag was. */
     if (machine->board != NULL && !machine->defer_cycle_delivery) {
+      /* **`RMC` reaches the arbiter here, and it did not before.** An
+       * instruction that ran an indivisible read-modify-write holds the bus for
+       * the whole of it: `[030]` §7.7.1 has the arbitration state machine
+       * "ignore bus requests ... that occur after the first read cycle", §11.9
+       * says the processor "does not relinquish the physical bus while it is
+       * performing a read-modify-write operation", and §12.1.2 gives the pin.
+       *
+       * `ap_m68030_arb.h` modelled that lock in full and `ap_m68030_arb_set_rmc`
+       * was called only by `arb_suite`, so the state machine was correct and
+       * connected to nothing -- and a DMA channel asking during a `TAS` was
+       * granted the bus. Found walking `[030]` §12 on 2026-09-06; the audit
+       * question is "what is called by nobody", and a green suite could not see
+       * it because the test supplied its own wiring.
+       *
+       * Held across the clock walk rather than around a single tick, because
+       * the whole sequence happened inside `ap_m68030_step` and these are its
+       * clocks being delivered. That makes the lock exactly as wide as the
+       * instruction, which is wider than the hardware's -- the hardware allows
+       * arbitration during the first read cycle, which is `AP_M68030_RMC_FIRST_
+       * READ` and needs the per-cycle processor to place. Named in
+       * `COMPLETION_PLAN.md` rather than approximated. */
+      const bool indivisible = machine->cpu.rmc_operations != before_rmc;
+      if (indivisible) {
+        ap_board_set_processor_rmc(machine->board, true);
+      }
       /* **Walked, not batched.** The step now records when each charge of
        * clocks happened within the instruction, so the bus is advanced in the
        * same order the processor spent them rather than in one lump at the end.
@@ -960,6 +986,9 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
         }
       } else {
         ap_board_bus_ticks(machine->board, machine->last_instruction_clocks);
+      }
+      if (indivisible) {
+        ap_board_set_processor_rmc(machine->board, false);
       }
     }
     /* Converted once, here. The step reports CPU clocks; the machine keeps

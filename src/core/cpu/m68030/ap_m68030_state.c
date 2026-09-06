@@ -291,6 +291,18 @@ void ap_m68030_hash_cpu(ap_hash_t *st, const ap_m68030_cpu_t *cpu) {
   ap_hash_scope(st, "cpu.exec");
   hash_bool(st, cpu->stopped);
   ap_hash_u32(st, (uint32_t)cpu->external_resets);
+  /* `rmc_operations` is deliberately **not** hashed beside it, and the two look
+   * alike enough that the reason belongs here.
+   *
+   * `external_resets` is hashed because it is *acted on*: the machine diffs it
+   * and drives the board's reset line, so a difference in it is a difference in
+   * the machine. `rmc_operations` is diffed the same way and drives the
+   * arbiter's `RMC` -- but that pin is `arb->rmc`, which `hash_cpu_arb` already
+   * hashes, and everything the lock changes (which master wins, when a DMA
+   * transfer lands) is board and memory state that the hash covers too. So the
+   * counter adds no coverage, and adding it would move every golden in the tree
+   * including the identity boot's published reference. An observation aid, not
+   * machine state. */
   ap_hash_u32(st, (uint32_t)cpu->interrupt_level);
   ap_hash_u32(st, (uint32_t)cpu->previous_interrupt_level);
   ap_hash_u32(st, (uint32_t)cpu->extension_words);

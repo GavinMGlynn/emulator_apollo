@@ -167,6 +167,29 @@ typedef struct {
    * external devices yet, and a count is what a test can observe. */
   unsigned external_resets;
 
+  /* Indivisible read-modify-write operations begun, counted the same way and
+   * for the same reason: the machine diffs it across a step to learn that this
+   * instruction locked the bus.
+   *
+   * **`RMC` has to reach the arbiter, and it did not.** `ap_m68030_arb.h`
+   * models §7.7.4's lock in detail -- three states, because the manual
+   * distinguishes the first read cycle from the rest -- and
+   * `ap_m68030_arb_set_rmc` was called by `arb_suite` and by nothing in
+   * `src/`. So the state machine was correct and disconnected, and a DMA
+   * request arriving mid-`TAS` was granted the bus. `[030]` §7.7.1 forbids it
+   * ("causes the bus arbitration state machine to ignore bus requests ... that
+   * occur after the first read cycle"), §11.9 restates it as a latency rule
+   * ("The MC68030 does not relinquish the physical bus while it is performing
+   * a read-modify-write operation"), and §12.1.2 gives the pin's own version
+   * ("the MC68030 asserts RMC but not CIOUT").
+   *
+   * A count rather than a live flag because the signal's whole window is
+   * *inside* one `ap_m68030_step`: by the time the step returns, `data->rmc`
+   * is false again. The machine delivers the instruction's clocks afterwards,
+   * so what it needs to know is "did this instruction hold the bus", and the
+   * difference in this counter is exactly that. */
+  unsigned rmc_operations;
+
   /* Set when an access made *during* an instruction faulted, so that the step
    * can tell a bus that said no from an instruction this model cannot execute.
    *

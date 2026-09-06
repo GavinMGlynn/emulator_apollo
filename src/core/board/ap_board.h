@@ -1157,6 +1157,11 @@ void ap_board_bus_tick(ap_board_t *board);
  * tests, so a tick that would have done anything is never batched away. */
 void ap_board_bus_ticks(ap_board_t *board, uint64_t n);
 
+/* Drive the processor's `RMC` pin on the board's arbiter, so that an
+ * indivisible read-modify-write holds the bus against every DMA channel. See
+ * `ap_arbiter_set_processor_rmc` for the citations. */
+void ap_board_set_processor_rmc(ap_board_t *board, bool locked);
+
 /* Whether the processor may run a cycle this clock. False while a controller
  * holds the bus, which is the whole of how contention reaches the CPU. */
 [[nodiscard]] bool ap_board_processor_may_run(const ap_board_t *board);
