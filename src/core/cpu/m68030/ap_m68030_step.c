@@ -4682,6 +4682,41 @@ typedef enum {
    * gap: "all other lengths (zero, for example) cause the main processor to
    * initiate protocol violation exception processing". */
   FP_SOURCE_PROTOCOL_VIOLATION,
+  /* **An addressing-mode refusal is a different exception from a length one**,
+   * and this core reported both as a protocol violation until `[030]` §10 was
+   * walked whole on 2026-09-06.
+   *
+   * Table 10-6, *Exceptions Related to Primitive Processing*, splits the two
+   * columns explicitly, and four of its rows are stated again in prose:
+   *
+   * - §10.4.9, evaluate effective address and transfer data: "If the effective
+   *   address specified in the instruction operation word is not a member of
+   *   the class specified by bits [8-10], the main processor aborts the
+   *   coprocessor instruction ... and by initiating F-line emulation exception
+   *   processing." Table 10-6's F-Line cell for that row reads "Valid EA Field
+   *   Does Not Match EA in Op-Word".
+   * - §10.4.16, transfer multiple coprocessor registers: "Invalid addressing
+   *   modes cause the MC68030 to abort the instruction ... and to initiate
+   *   F-line emulator exception processing."
+   * - §10.2.3.3.1, cpSAVE: "The control alterable and predecrement addressing
+   *   modes are valid ... Other addressing modes cause the MC68030 to initiate
+   *   F-line emulator exception processing."
+   * - §10.2.3.4.1, cpRESTORE: "All memory addressing modes except the
+   *   predecrement addressing mode are valid. Invalid effective address
+   *   encodings cause the MC68030 to initiate F-line emulator exception
+   *   processing."
+   *
+   * The *length*, *direction* and *nonalterable-write* refusals stay a protocol
+   * violation -- Table 10-6 keeps them in the Protocol column, and §10.4.9
+   * names them there one by one.
+   *
+   * The difference is visible to a handler, not just to a vector number: a
+   * protocol violation stacks the ten-word mid-instruction frame (§10.5.2.1)
+   * and resumes by re-reading the response CIR, while an F-line stacks the
+   * four-word pre-instruction frame (§10.5.2.2) and *restarts the
+   * instruction*. Reporting one as the other hands the handler a frame of the
+   * wrong shape. */
+  FP_SOURCE_LINE_F,
   /* A bus fault, or an addressing mode this step cannot yet supply. */
   FP_SOURCE_FAILED,
 } fp_source_result_t;
@@ -4727,9 +4762,13 @@ static fp_source_result_t fetch_fp_source(ap_m68030_cpu_t *cpu,
    * *data* addressing mode. Address register direct is the one mode with no
    * encoding shown at all -- its row carries dashes -- because an address
    * register cannot hold a floating-point operand. Checked as the category so
-   * that the whole family of modes is covered by the one rule. */
+   * that the whole family of modes is covered by the one rule.
+   *
+   * §10.4.9 says what the refusal *is*: the class the primitive declares
+   * against the class the operation word names is "Valid EA Field Does Not
+   * Match EA in Op-Word", Table 10-6's F-Line column, not its Protocol one. */
   if (!ap_m68030_ea_is_data(coproc->ea.kind)) {
-    return FP_SOURCE_PROTOCOL_VIOLATION;
+    return FP_SOURCE_LINE_F;
   }
 
   if (coproc->ea.kind == AP_M68030_EA_DATA_REGISTER) {
@@ -4892,14 +4931,20 @@ static fp_source_result_t execute_fmovem(ap_m68030_cpu_t *cpu,
   const ap_m68030_ea_kind_t kind = coproc->ea.kind;
   const bool control = ap_m68030_ea_is_control(kind);
 
+  /* §10.4.16 states the exception for both of these outright -- "Invalid
+   * addressing modes cause the MC68030 to abort the instruction by writing an
+   * abort mask ... and to initiate F-line emulator exception processing" -- and
+   * Table 10-6 puts the same two rows in its F-Line column. The *odd length*
+   * refusal in the same paragraph stays a protocol violation, which is the
+   * split the two columns are there to make. */
   if (movem->to_memory) {
     if (!(ap_m68030_ea_is_control_alterable(kind) ||
           kind == AP_M68030_EA_PREDECREMENT)) {
-      return FP_SOURCE_PROTOCOL_VIOLATION;
+      return FP_SOURCE_LINE_F;
     }
   } else {
     if (!(control || kind == AP_M68030_EA_POSTINCREMENT)) {
-      return FP_SOURCE_PROTOCOL_VIOLATION;
+      return FP_SOURCE_LINE_F;
     }
   }
   /* The mode field and the effective address have to agree. MODE says
@@ -5171,10 +5216,12 @@ static fp_source_result_t execute_fp_state(ap_m68030_cpu_t *cpu,
   *format_error = false;
 
   if (saving) {
-    /* Control alterable or predecrement, as for a register-to-memory FMOVEM. */
+    /* Control alterable or predecrement, as for a register-to-memory FMOVEM.
+     * §10.2.3.3.1 names both the rule and its refusal: "Other addressing modes
+     * cause the MC68030 to initiate F-line emulator exception processing." */
     if (!(ap_m68030_ea_is_control_alterable(kind) ||
           kind == AP_M68030_EA_PREDECREMENT)) {
-      return FP_SOURCE_PROTOCOL_VIOLATION;
+      return FP_SOURCE_LINE_F;
     }
     uint8_t frame[AP_M68882_FRAME_IDLE_BYTES] = {0};
     const unsigned length = ap_m68882_save(cpu->fpu, frame);
@@ -5203,10 +5250,19 @@ static fp_source_result_t execute_fp_state(ap_m68030_cpu_t *cpu,
                : FP_SOURCE_FAILED;
   }
 
-  /* Restoring: control modes or postincrement, the mirror of the save. */
+  /* Restoring: control modes or postincrement, the mirror of the save, and
+   * §10.2.3.4.1's "Invalid effective address encodings cause the MC68030 to
+   * initiate F-line emulator exception processing".
+   *
+   * **The generic interface is wider than this part's instruction.** §10.2.3.4.1
+   * allows "all memory addressing modes except the predecrement addressing
+   * mode", which admits `#<data>`; the 68882's own FRESTORE is defined over
+   * control modes and postincrement, and that is the coprocessor actually
+   * fitted here. The narrower rule is kept and the difference is recorded in
+   * `docs/references/M68030_WALK.md` to settle against `[882]`. */
   if (!(ap_m68030_ea_is_control(kind) ||
         kind == AP_M68030_EA_POSTINCREMENT)) {
-    return FP_SOURCE_PROTOCOL_VIOLATION;
+    return FP_SOURCE_LINE_F;
   }
   uint32_t base = 0;
   if (kind == AP_M68030_EA_POSTINCREMENT) {
@@ -6436,15 +6492,24 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
        * save, and context restore." Types 110 and 111 are none of them, so no
        * dialogue is defined for them and the part has nothing to answer with.
        *
-       * Taken as the line 1111 emulator exception, vector 11 -- the same answer
-       * an F-line word gets when no coprocessor responds at all, and the same
-       * one Table 4-13's footnote 2 has the FPCP itself ask for when a *command*
-       * word is undefined. **This is a reading**: the manual defines what the
-       * four categories do and is silent on what a fitted coprocessor does with
-       * a fifth, so the F-line trap is inference from the two neighbouring
-       * cases rather than a transcription. Recorded as such.
+       * Taken as the line 1111 emulator exception, vector 11.
        *
-       * Without it the reserved types fell through to the general path, which
+       * **This was recorded here as a reading, and it is a transcription.** The
+       * comment used to say the manual "is silent on what a fitted coprocessor
+       * does with a fifth" category and called the F-line trap an inference from
+       * the neighbouring cases. §10.5.2.2, read on 2026-09-06, states it: "Any
+       * F-line operation word with bits [8:6] = 110 or 111 causes the MC68030 to
+       * initiate exception processing **without initiating any communication
+       * with the coprocessor for that instruction**." So the vector is right,
+       * the silence was not, and the sentence goes further than the inference
+       * did -- no CIR is touched and no abort mask is written, which is exactly
+       * what this arm does by returning before the part is consulted.
+       *
+       * The same paragraph settles the other half: an operation word with bits
+       * [8:6] = 000-101 "that does not map to one of the valid coprocessor
+       * instructions in the instruction set" is an F-line too.
+       *
+       * Without this the reserved types fell through to the general path, which
        * fetches no command word for them -- so the part was asked to execute
        * command zero, and answered about an instruction the program had not
        * written. */
@@ -6485,6 +6550,9 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
           cpu->pending_vector = violated ? AP_M68030_VECTOR_FORMAT_ERROR
                                          : AP_M68030_VECTOR_COPROCESSOR_PROTOCOL;
           break;
+        case FP_SOURCE_LINE_F:
+          cpu->pending_vector = AP_M68030_VECTOR_LINE_F;
+          break;
         case FP_SOURCE_FAILED:
           out.status = fault_or_unimplemented(cpu, &out, instruction_address);
           ap_m68030_charge(cpu, out.clocks);
@@ -6511,6 +6579,9 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
           break;
         case FP_SOURCE_PROTOCOL_VIOLATION:
           cpu->pending_vector = AP_M68030_VECTOR_COPROCESSOR_PROTOCOL;
+          break;
+        case FP_SOURCE_LINE_F:
+          cpu->pending_vector = AP_M68030_VECTOR_LINE_F;
           break;
         case FP_SOURCE_FAILED:
           out.status = fault_or_unimplemented(cpu, &out, instruction_address);
@@ -6625,6 +6696,10 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
           cpu->pending_vector = AP_M68030_VECTOR_COPROCESSOR_PROTOCOL;
           violated = true;
           break;
+        case FP_SOURCE_LINE_F:
+          cpu->pending_vector = AP_M68030_VECTOR_LINE_F;
+          violated = true;
+          break;
         case FP_SOURCE_FAILED:
           out.status = fault_or_unimplemented(cpu, &out, instruction_address);
           ap_m68030_charge(cpu, out.clocks);
@@ -6659,6 +6734,10 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
               cpu->pending_vector = AP_M68030_VECTOR_COPROCESSOR_PROTOCOL;
               violated = true;
               break;
+            case FP_SOURCE_LINE_F:
+              cpu->pending_vector = AP_M68030_VECTOR_LINE_F;
+              violated = true;
+              break;
             case FP_SOURCE_FAILED:
               out.status =
                   fault_or_unimplemented(cpu, &out, instruction_address);
@@ -6684,6 +6763,10 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
               cpu->pending_vector = AP_M68030_VECTOR_COPROCESSOR_PROTOCOL;
               violated = true;
               break;
+            case FP_SOURCE_LINE_F:
+              cpu->pending_vector = AP_M68030_VECTOR_LINE_F;
+              violated = true;
+              break;
             case FP_SOURCE_FAILED:
               out.status =
                   fault_or_unimplemented(cpu, &out, instruction_address);
@@ -6707,6 +6790,10 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
                 break;
               case FP_SOURCE_PROTOCOL_VIOLATION:
                 cpu->pending_vector = AP_M68030_VECTOR_COPROCESSOR_PROTOCOL;
+                violated = true;
+                break;
+              case FP_SOURCE_LINE_F:
+                cpu->pending_vector = AP_M68030_VECTOR_LINE_F;
                 violated = true;
                 break;
               case FP_SOURCE_FAILED:

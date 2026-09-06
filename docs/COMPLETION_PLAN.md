@@ -6994,8 +6994,32 @@ same number is what let them diverge once already.
             `index >= 0` / `index <= $7FFF`. *Thirty of its pages (§9.9, §9.10)
             are operating-system design guidance and contain no part behaviour,
             which is why so large a chapter yielded no correction.*
+            ***§10 walked 2026-09-06, 76 pages, and it found the section's
+            one real defect.*** The audit had it at `sampled`, two citations
+            against the chapter that specifies the whole 68882 protocol.
+            **An addressing-mode refusal on a coprocessor instruction is an
+            F-line trap, not a protocol violation**: Table 10-6 splits the two
+            columns and §10.2.3.3.1, §10.2.3.4.1, §10.4.9 and §10.4.16 each say
+            so outright, while the length, direction and nonalterable-write
+            refusals stay protocol violations. This core reported all of them as
+            vector 13, which hands a handler the ten-word mid-instruction frame
+            where the hardware gives the four-word pre-instruction one and
+            restarts the instruction. Fixed at four sites. Three more turn on
+            what the **68882** declares as its valid-EA class and are left open
+            for the `[882]` walk, named in the record. Also: a "reading" promoted
+            to a transcription -- §10.5.2.2 states the F-line for types `110`
+            and `111` that the code had inferred, and adds that no CIR is
+            touched; two rules obeyed uncited (§10.5.3, a `RESET` instruction
+            must not reset the coprocessor; §10.1.4.3, no burst and no caching
+            on a CPU-space cycle); and two documentary errors -- §10.4.2 prints
+            the `PC` bit as [4] where thirteen figures put it at [14], and Table
+            10-6 transposes `(An)+` and `-(An)` against §10.4.16's own prose and
+            says "MC68020". *Verification: `step_suite` 299 → 302, with a
+            user-mode `FSAVE` as the control that the privilege check still
+            comes first; identity boot **unchanged** at `42B14372F3677EE8`, so
+            Domain/OS never names an illegal mode on a coprocessor instruction.*
             *What remains of `[030]`*: §11 (derived, wanting the same
-            verification), §10 (sampled), §12-§14 and Appendix A.
+            verification), §12-§14 and Appendix A -- 195 pages.
 
 - [ ] **`MMUDIS` is not modelled, and `CDIS` has no driver.** Found 2026-08-25
       walking `[030]` §5. Table 5-1 lists `MMUDIS` as an input and §5.11.2

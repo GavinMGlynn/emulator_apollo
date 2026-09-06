@@ -6925,12 +6925,20 @@ static void test_an_extended_operand_from_a_data_register_violates_the_protocol(
 /* Address register direct is the one mode whose row in the FADD table carries
  * dashes instead of an encoding: an address register cannot hold a
  * floating-point operand at any length. Checked separately from the length rule
- * above because they are different refusals -- this one has no legal format. */
-static void test_an_address_register_is_never_a_floating_point_source(void) {
+ * above because they are different refusals -- this one has no legal format.
+ *
+ * **And they take different vectors.** `[030]` §10.4.9 calls a class mismatch
+ * between the primitive's valid-EA field and the operation word's mode "F-line
+ * emulation exception processing", and Table 10-6 puts it in the F-Line column
+ * while keeping the *length* rule in the Protocol one. This core reported both
+ * as vector 13 until §10 was walked whole. */
+static void
+test_an_address_register_source_takes_the_f_line_trap_not_a_protocol_violation(
+    void) {
   static const uint16_t program[] = {0xF208u, 0x44A2u, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 3);
-  plant_vector(&m, AP_M68030_VECTOR_COPROCESSOR_PROTOCOL, HANDLER);
+  plant_vector(&m, AP_M68030_VECTOR_LINE_F, HANDLER);
   m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
   m.cpu.regs.isp = SUPERVISOR_STACK;
 
@@ -7263,13 +7271,19 @@ static void test_fmovem_moves_a_signalling_nan_without_touching_the_fpsr(void) {
  * address is the predecrement mode, only a register to memory operation is
  * allowed", and postincrement only a memory to register one. No addressing
  * category expresses that, so it is its own rule -- and a mode field that
- * disagrees with the effective address names no transfer at all. */
+ * disagrees with the effective address names no transfer at all.
+ *
+ * The refusal is the **F-line** trap: §10.4.16 says so of the transfer multiple
+ * coprocessor registers primitive in as many words -- "Invalid addressing modes
+ * cause the MC68030 to abort the instruction ... and to initiate F-line
+ * emulator exception processing" -- and Table 10-6 agrees. Its *odd length*
+ * refusal, in the same paragraph, stays a protocol violation. */
 static void test_fmovem_allows_each_increment_mode_in_one_direction_only(void) {
   /* FMOVEM.X (A0)+,... in the *store* direction: dr = 1 with postincrement. */
   static const uint16_t program[] = {0xF218u, 0xF0FFu, 0x4E71u};
   machine_t m = {0};
   load(&m, program, 3);
-  plant_vector(&m, AP_M68030_VECTOR_COPROCESSOR_PROTOCOL, HANDLER);
+  plant_vector(&m, AP_M68030_VECTOR_LINE_F, HANDLER);
   m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
   m.cpu.regs.isp = SUPERVISOR_STACK;
 
@@ -7285,7 +7299,7 @@ static void test_fmovem_allows_each_increment_mode_in_one_direction_only(void) {
   static const uint16_t loading[] = {0xF220u, 0xC0FFu, 0x4E71u};
   machine_t n = {0};
   load(&n, loading, 3);
-  plant_vector(&n, AP_M68030_VECTOR_COPROCESSOR_PROTOCOL, HANDLER);
+  plant_vector(&n, AP_M68030_VECTOR_LINE_F, HANDLER);
   n.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
   n.cpu.regs.isp = SUPERVISOR_STACK;
   ap_m68882_t second;
@@ -7740,6 +7754,99 @@ static void test_fsave_writes_a_null_frame_until_something_runs(void) {
                          n.memory.bytes[FP_OPERAND + 4u]);
   TEST_ASSERT_EQUAL_HEX8(AP_M68882_FRAME_IDLE_SIZE_BYTE,
                          n.memory.bytes[FP_OPERAND + 5u]);
+}
+
+/* **cpSAVE and cpRESTORE refuse an addressing mode with the F-line trap, not a
+ * protocol violation**, and the difference is the shape of the frame the
+ * handler is given.
+ *
+ * `[030]` §10.2.3.3.1: "The control alterable and predecrement addressing modes
+ * are valid for the cpSAVE instruction. Other addressing modes cause the
+ * MC68030 to initiate F-line emulator exception processing." §10.2.3.4.1 says
+ * the mirror of it for cpRESTORE, whose predecrement is the one mode barred.
+ *
+ * An F-line is a group 3 exception: the four-word pre-instruction frame, and an
+ * `RTE` restarts the instruction. A protocol violation is group 2 and stacks the
+ * ten-word mid-instruction frame, which resumes by re-reading the response CIR
+ * -- into a dialogue that was never opened, because the main processor checks
+ * the operation word's mode before it touches a CIR at all. Reporting the wrong
+ * one hands the handler a frame it cannot use.
+ *
+ * Both instructions are privileged, and the privilege check comes first: these
+ * run in supervisor state so that the addressing mode is what is on trial. */
+static void test_an_fsave_to_postincrement_takes_the_f_line_trap(void) {
+  /* FSAVE (A0)+ : $F318 is cpID 1, type 100, postincrement -- neither control
+   * alterable nor predecrement, so §10.2.3.3.1 refuses it. */
+  static const uint16_t program[] = {0xF318u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  plant_vector(&m, AP_M68030_VECTOR_LINE_F, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.a[0] = FP_OPERAND;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  /* The address register is untouched: the refusal precedes the transfer. */
+  TEST_ASSERT_EQUAL_HEX32(FP_OPERAND, m.cpu.regs.a[0]);
+
+  /* The control-alterable half of the same rule still runs, so the test is not
+   * passing because every FSAVE faults. */
+  static const uint16_t legal[] = {0xF320u, 0x4E71u, 0x4E71u};
+  machine_t n = {0};
+  load(&n, legal, 3);
+  n.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  ap_m68882_t second;
+  ap_m68882_reset(&second);
+  n.cpu.fpu = &second;
+  n.cpu.regs.a[0] = FP_OPERAND + 64u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&n.cpu).status);
+}
+
+static void test_an_frestore_from_predecrement_takes_the_f_line_trap(void) {
+  /* FRESTORE -(A0) : $F360 is type 101, predecrement -- the one mode
+   * §10.2.3.4.1 bars. */
+  static const uint16_t program[] = {0xF360u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  plant_vector(&m, AP_M68030_VECTOR_LINE_F, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.a[0] = FP_OPERAND + 64u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_HEX32(FP_OPERAND + 64u, m.cpu.regs.a[0]);
+}
+
+/* The privilege check comes **before** the addressing mode one, so a user-mode
+ * cpSAVE naming an illegal mode is a privilege violation and not an F-line.
+ * §10.2.3.3.2: the processor "initiates privilege violation exception
+ * processing without accessing any of the coprocessor interface registers", and
+ * §10.5.2.3 repeats it -- "prior to any communication with the coprocessor".
+ * The two refusals are ordered, and this is the control that says which. */
+static void test_a_user_mode_fsave_is_a_privilege_violation_before_anything_else(
+    void) {
+  /* The same illegal FSAVE (A0)+, attempted from user state. */
+  static const uint16_t program[] = {0xF318u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  plant_vector(&m, AP_M68030_VECTOR_PRIVILEGE_VIOLATION, HANDLER);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  m.cpu.regs.a[0] = FP_OPERAND;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
 }
 
 /* **Restoring a null frame is a reset**: "equivalent to a hardware reset of the
@@ -8705,7 +8812,8 @@ int main(void) {
   RUN_TEST(test_a_postincrement_steps_by_the_source_format_length);
   RUN_TEST(test_a_word_immediate_source_is_signed_and_in_the_stream);
   RUN_TEST(test_an_extended_operand_from_a_data_register_violates_the_protocol);
-  RUN_TEST(test_an_address_register_is_never_a_floating_point_source);
+  RUN_TEST(
+      test_an_address_register_source_takes_the_f_line_trap_not_a_protocol_violation);
   RUN_TEST(test_a_packed_decimal_operand_converts);
   RUN_TEST(test_the_extremes_of_the_decimal_exponent_convert_exactly);
   RUN_TEST(test_a_packed_infinity_and_nan_need_all_three_markers);
@@ -8713,6 +8821,9 @@ int main(void) {
   RUN_TEST(test_a_packed_decimal_result_is_stored_with_its_k_factor);
   RUN_TEST(test_fsave_writes_a_null_frame_until_something_runs);
   RUN_TEST(test_frestore_resets_on_null_and_preserves_on_idle);
+  RUN_TEST(test_an_fsave_to_postincrement_takes_the_f_line_trap);
+  RUN_TEST(test_an_frestore_from_predecrement_takes_the_f_line_trap);
+  RUN_TEST(test_a_user_mode_fsave_is_a_privilege_violation_before_anything_else);
   RUN_TEST(test_an_unrecognised_state_frame_takes_a_format_exception);
   RUN_TEST(test_the_state_frame_instructions_are_privileged);
   RUN_TEST(test_a_result_is_stored_to_memory);
