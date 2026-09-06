@@ -1061,6 +1061,59 @@ static void test_an_exact_division_leaves_the_dividends_zero(void) {
                            "an exact remainder keeps the dividend's sign");
 }
 
+/* **`FSGLMUL` truncates its inputs, and that is different from rounding its
+ * result.**
+ *
+ * `[881]` §4.5.5.2: "The input operands to these instructions are assumed to be
+ * single precision values, but no checking is performed to verify the inputs
+ * (**each mantissa is truncated to 23 bits**, and the exponent is accepted as
+ * an extended precision value)."
+ *
+ * `ap_m68882_single_mul` does this through `truncate_to_single`, and it was
+ * already correct -- found while walking `[881]` §4 on 2026-09-07, where the
+ * first move was to assume it was missing and add it a second time. It was not
+ * missing; the existing one also handles NANs and infinities, which the
+ * duplicate did not. The lesson is the one this project keeps relearning: grep
+ * the code before believing a manual has found a gap.
+ *
+ * What *was* missing is a test that tells the two apart, because every existing
+ * case used operands that are exactly representable in single precision, where
+ * truncating the inputs and rounding the result agree.
+ *
+ * `1 + 2^-24` has its lowest set bit one place below single precision's least
+ * significant fraction bit. Truncating each input makes both exactly 1.0, so
+ * the product is exactly 1.0. Keeping them and rounding the product instead
+ * gives `(1 + 2^-24)^2 = 1 + 2^-23 + 2^-48`, which rounds to `1 + 2^-23` -- one
+ * bit larger. `FMUL.S` is the control that shows the difference is real. */
+static void test_fsglmul_truncates_its_inputs_rather_than_rounding_after(void) {
+  /* Extended mantissa: bit 63 is the explicit integer bit, so `1 + 2^-24` sets
+   * bit 63 and bit 39. Single keeps 23 fraction bits, i.e. down to bit 40. */
+  const ap_m68882_extended_t just_below = {
+      false, AP_M68882_BIAS_EXTENDED,
+      0x8000000000000000ULL | (UINT64_C(1) << 39)};
+
+  const ap_m68882_op_t truncated =
+      ap_m68882_single_mul(&just_below, &just_below, AP_M68882_ROUND_NEAREST);
+
+  TEST_ASSERT_EQUAL_UINT_MESSAGE((unsigned)AP_M68882_BIAS_EXTENDED,
+                                 truncated.value.exponent,
+                                 "FSGLMUL of 1+2^-24 squared is exactly 1.0");
+  TEST_ASSERT_EQUAL_HEX64_MESSAGE(
+      0x8000000000000000ULL, truncated.value.mantissa,
+      "the sub-single input bits are discarded before the multiply, not after");
+
+  /* The control: `FMUL` at single precision keeps the inputs whole and rounds
+   * the product, so it lands one bit higher. Without it this test would pass on
+   * an implementation that did no truncation at all and simply happened to
+   * round to the same place. */
+  const ap_m68882_op_t rounded_after = ap_m68882_mul(
+      &just_below, &just_below, AP_M68882_ROUND_NEAREST,
+      AP_M68882_PRECISION_SINGLE);
+  TEST_ASSERT_EQUAL_HEX64_MESSAGE(
+      0x8000000000000000ULL | (UINT64_C(1) << 40), rounded_after.value.mantissa,
+      "FMUL.S keeps the inputs whole and rounds the product to 1+2^-23");
+}
+
 static void test_the_single_forms_round_the_mantissa_but_not_the_range(void) {
   /* The two halves §6.1.4 splits, and the reason `finish` had to take them
    * apart. The *mantissa* is rounded to single "regardless of the current
@@ -1183,5 +1236,6 @@ int main(void) {
   RUN_TEST(test_the_quotient_sign_is_the_operands_exclusive_or);
   RUN_TEST(test_the_remainder_operation_table);
   RUN_TEST(test_an_exact_division_leaves_the_dividends_zero);
+  RUN_TEST(test_fsglmul_truncates_its_inputs_rather_than_rounding_after);
   return UNITY_END();
 }

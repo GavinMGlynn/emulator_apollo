@@ -157,10 +157,15 @@ Wrong in **both directions**, which is what a swap between two row groups looks
 like. `MOVE.W D0,(xxx).L` is legal on every member of the family, and no
 PC-relative operand is writable on any of them.
 
-**The sibling manual settles it, exactly as `CLAUDE.md`'s resolution order
-predicts.** `[030]` Table 2-2, *Effective Addressing Mode Categories*, rendered
-and read: absolute short and long are `Alterable = X`, both PC memory indirect
-rows are `Alterable = —`. That is what `ap_m68030_category.c` has.
+**The sibling manuals settle it, exactly as `CLAUDE.md`'s resolution order
+predicts — and there are two of them.** `[030]` Table 2-2, *Effective Addressing
+Mode Categories*, rendered and read: absolute short and long are
+`Alterable = X`, both PC memory indirect rows are `Alterable = —`. And `[881]`
+Table 4-10, of the same name, read on 2026-09-07 during that manual's walk,
+says the same — including Absolute Long's register field as `001`.
+
+So it is **three manuals against one**, and the one is `[PRM]`. That is what
+`ap_m68030_category.c` has.
 
 **A second, independent error in the same table**: Absolute Long's register
 field is printed `000`, which is Absolute Short's on the line above. §2.2.17 on
