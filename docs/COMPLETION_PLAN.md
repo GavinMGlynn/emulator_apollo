@@ -7384,6 +7384,12 @@ same number is what let them diverge once already.
             caches as `B`, which is what `ap_m68851_atc.h` already describes as
             "the validity of the access is evaluated when the ATC entry is made".
             Suites: `m68851_search_suite`, `m68851_atc_suite`.
+            **The same layer is missing for privilege.** §6.2: "All MC68851
+            instructions are privileged except PVALID." Nothing in
+            `src/core/cpu/m68851/` says which are, because the module is a
+            structural decoder plus per-instruction semantics with no dispatcher
+            above it -- no machine wires this part. Protection and privilege both
+            belong to that missing layer, so they are one item.
             **And it has a second consequence, in `PTEST`**: §6.1.8.5's `W` bit
             is set "if any descriptor encountered in the search contained a set
             `WP` bit, **or if the address tested exceeded the `WAL` field of any
