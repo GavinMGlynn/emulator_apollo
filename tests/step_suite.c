@@ -6759,6 +6759,60 @@ static void test_an_enabled_floating_point_exception_traps_on_the_next_one(
                           ap_m68030_frame_vector_offset_of(format_word));
 }
 
+/* **And `FSAVE` clears it, which is what makes a handler able to *calculate*.**
+ *
+ * `FMOVEM` being exempt lets a handler move the registers out; it does not let
+ * the handler do arithmetic on them. Figure 7-28's recommended handler opens
+ * with `FSAVE`, and §6.4.1, §7.5.3.1 and §7.5.4.1 each say why: "after the
+ * execution of an FSAVE, the FPCP enters the idle state, and **any pending
+ * exceptions are cleared**", so the handler's own floating-point instructions
+ * run instead of re-taking the exception they were written to handle.
+ *
+ * Until §6.4 and §7.5 were walked on 2026-09-07 this model derived `EXC PEND`
+ * from the FPSR alone, so the `FADD` below took the trap a second time -- and
+ * with the handler's `FSAVE` in front of it, that is a handler that cannot
+ * reach its second instruction. */
+static void test_an_fsave_lets_the_handler_do_arithmetic(void) {
+  /* FDIV.X FP0,FP1 ; FSAVE -(A7) ; FADD.X FP0,FP1 ; NOP */
+  static const uint16_t program[] = {0xF200u, 0x00A0u, 0xF327u,
+                                     0xF200u, 0x00A2u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+  plant_vector(&m, AP_M68030_VECTOR_FPCP_DZ, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  m.cpu.fpu = &fpu;
+  fpu.regs.fp[0] = ap_m68882_from_single(0x00000000u);
+  fpu.regs.fp[1] = ap_m68882_from_single(0x3F800000u);
+  fpu.regs.fpcr |= (uint32_t)1u << AP_M68882_EXC_DZ;
+
+  /* The divide runs and leaves DZ pending, exactly as the test above. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_TRUE((fpu.regs.fpsr & ((uint32_t)1u << AP_M68882_EXC_DZ)) != 0u);
+
+  /* `FSAVE` is one of the four exempt forms, so it runs rather than trapping.
+   * That much held before; what follows did not. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+
+  /* **The `FADD` now runs.** The DZ bit is still set in the FPSR and the trap
+   * is still enabled -- nothing about the programmer's model changed, which is
+   * the point: it is the internal `EXC PEND` signal the save negated. */
+  TEST_ASSERT_TRUE((fpu.regs.fpsr & ((uint32_t)1u << AP_M68882_EXC_DZ)) != 0u);
+  TEST_ASSERT_TRUE((fpu.regs.fpcr & ((uint32_t)1u << AP_M68882_EXC_DZ)) != 0u);
+  const ap_m68030_step_result_t after = ap_m68030_step(&m.cpu);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_STEP_EXECUTED, after.status,
+                                "the handler's own FADD re-took the trap the "
+                                "FSAVE was executed to clear");
+  TEST_ASSERT_NOT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  /* And it is one instruction of grace, not a mode: the `FADD` cleared the EXC
+   * byte at its start, so the part is back to deriving. An `FDIV` by zero here
+   * would arm the trap again -- which the test above already pins. */
+}
+
 /* **`FMOVEM` is exempt, which is what makes a handler able to run at all.**
  *
  * The same page's parenthesis -- "other than an FMOVEM, FMOVE control register,
@@ -7940,6 +7994,42 @@ static void test_fsave_writes_a_null_frame_until_something_runs(void) {
    * 68882 -- and 60 is four bytes of format word plus this `$38`. */
   TEST_ASSERT_EQUAL_HEX8(0x38u, n.memory.bytes[FP_OPERAND + 5u]);
   TEST_ASSERT_EQUAL_UINT(60u, 4u + n.memory.bytes[FP_OPERAND + 5u]);
+
+  /* **The reserved word is `$FFFF`, not zero.** §6.4.2.2: "A reserved word is
+   * also included in order to align the state frame to a long-word boundary; it
+   * is written as $FFFF and ignored during restore operations." */
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, n.memory.bytes[FP_OPERAND + 6u]);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, n.memory.bytes[FP_OPERAND + 7u]);
+
+  /* **And the BIU flags are not zero either**, which is the half that is a
+   * behavioural claim rather than a tidiness one. Figure 6-6's definitions run
+   * the other way from an uninitialised field:
+   *
+   *   bit 27 -- "if this bit is zero, an exception is pending"
+   *   bit 26 -- "if this bit is a zero, an operand transfer to memory is
+   *              pending"
+   *   bits 30-28 -- Table 6-4: `111` is "No Pending Instruction or Operand CIR
+   *              Access"; `000` is "(Undefined, Reserved)"
+   *   bits 15-0 -- "written as ones during save operations"
+   *
+   * So a zeroed flag word says this quiescent part has an exception pending, an
+   * operand transfer outstanding and a reserved pending-operation code. Three
+   * false statements, in the field §6.4.2.2 says exists so a handler can
+   * "display the pending exception status".
+   *
+   * The frame starts at `FP_OPERAND + 4`, so the flags long word is at `+$38`
+   * from there. */
+  const unsigned biu = FP_OPERAND + 4u + 0x38u;
+  TEST_ASSERT_EQUAL_HEX8(0x7Cu, n.memory.bytes[biu]);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, n.memory.bytes[biu + 1u]);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, n.memory.bytes[biu + 2u]);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, n.memory.bytes[biu + 3u]);
+  /* Stated as the rule rather than the byte, because the byte is what a
+   * transcription error looks like and the rule is what a handler reads:
+   * EXC PEND set means *no* exception is pending. */
+  TEST_ASSERT_TRUE_MESSAGE((n.memory.bytes[biu] & (1u << 3)) != 0u,
+                           "EXC PEND clear: the frame claims an exception is "
+                           "pending on a part that has raised none");
 }
 
 /* **cpSAVE and cpRESTORE refuse an addressing mode with the F-line trap, not a
@@ -8981,6 +9071,7 @@ int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_an_f_line_word_traps_when_no_coprocessor_is_fitted);
   RUN_TEST(test_an_enabled_floating_point_exception_traps_on_the_next_one);
+  RUN_TEST(test_an_fsave_lets_the_handler_do_arithmetic);
   RUN_TEST(test_fmovem_does_not_report_a_pending_floating_point_trap);
   RUN_TEST(test_a_disabled_floating_point_exception_does_not_trap);
   RUN_TEST(test_a_fitted_coprocessor_executes_an_f_line_instruction);

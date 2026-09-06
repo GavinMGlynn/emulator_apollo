@@ -34,19 +34,44 @@ typedef struct {
    * is configured rather than assumed. */
   unsigned cpid;
   /* The microcode version this part reports in a state frame's format word.
-   * **`PROVISIONAL`**: "The version number is an 8-bit value that identifies the
-   * microcode version of the FPCP, and the format of this number is defined
-   * internally by the FPCP" -- so the manual publishes no value, and there is
-   * nothing to transcribe. Held as state rather than a constant because that is
-   * what it is on the part, and because the only behaviour a program can
-   * observe is *self-consistency*: what `FSAVE` writes, `FRESTORE` must accept.
-   * See `PROJECT_STATUS.md` for the closing measurement. */
+   * **`$1F`, and published**: §6.4.2.2's NOTE names the format word values
+   * outright -- "`$1F18` and `$3F18` for the MC68881, and **`$1F38` for the
+   * MC68882**" -- so this is a transcription and not the guess it was recorded
+   * as until §6.4 was walked on 2026-09-07. The prose two paragraphs above it
+   * ("the format of this number is defined internally by the FPCP") is what the
+   * old note read, and stopping there is what made a published value look
+   * absent. Held as state rather than a constant because that is what it is on
+   * the part. */
   unsigned version;
   /* Whether any instruction has run since the last reset or null restore, which
    * is exactly what decides a null save from an idle one: "A save of the null
    * state results when no FPCP instructions have been executed since the last
    * null state restore or hardware reset." */
   bool executed;
+  /* **`FSAVE` negates `EXC PEND`, and the derived model below cannot express
+   * that without a latch.** Three statements say it: §6.4.1, "after the
+   * execution of an FSAVE, the FPCP enters the idle state, and any pending
+   * exceptions are cleared"; §7.5.3.1, "after the state save operation is
+   * complete, the FPCP is in the idle state with no pending exceptions"; and
+   * §7.5.4.1, "an FSAVE (or an FRESTORE of the null state) restores the
+   * MC68882 to an idle state, allowing subsequent floating-point instructions
+   * to execute".
+   *
+   * It has to be a flag rather than a write to the FPSR, and Figure 7-28 is
+   * why. The recommended handler is `FSAVE -(SP)` / body / `BSET #3,(SP,D0)` /
+   * `FRESTORE (SP)+` / `RTE`: the `BSET` sets `EXC PEND` **in the saved frame**,
+   * and the NOTE says "when this bit is not set in the exception handler, the
+   * MC68882 re-executes the handler". So the live signal and the frame's image
+   * of it move independently, and an `FSAVE` that cleared the FPSR would make
+   * the `BSET` meaningless and take the programmer's model with it.
+   *
+   * One instruction is all it needs to survive. The EXC byte "is cleared by the
+   * FPCP at the start of most operations", so the first non-exempt instruction
+   * after the save re-derives `EXC PEND` from its own result and the derived
+   * model is right again from there. Without this, that first instruction --
+   * the handler's own arithmetic, which is the entire point of the `FSAVE` --
+   * took the exception it was written to handle. */
+  bool save_negated_exc_pend;
 } ap_m68882_t;
 
 /* ---------------------------------------------------------------------------
@@ -106,7 +131,7 @@ enum {
 
 /* Write the state frame this part would save. Returns its length in bytes, so
  * the caller knows how far a predecrement steps. */
-[[nodiscard]] unsigned ap_m68882_save(const ap_m68882_t *fpu, uint8_t *bytes);
+[[nodiscard]] unsigned ap_m68882_save(ap_m68882_t *fpu, uint8_t *bytes);
 
 /* How long a frame the format word describes, or zero if it is not one this
  * part will accept -- "the FPCP checks the version number and frame size values

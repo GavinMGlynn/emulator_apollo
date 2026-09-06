@@ -12,9 +12,15 @@ void ap_m68882_reset(ap_m68882_t *fpu) {
   /* "A save of the null state results when no FPCP instructions have been
    * executed since the last null state restore or hardware reset." */
   fpu->executed = false;
+  fpu->save_negated_exc_pend = false;
 }
 
-unsigned ap_m68882_save(const ap_m68882_t *fpu, uint8_t *bytes) {
+unsigned ap_m68882_save(ap_m68882_t *fpu, uint8_t *bytes) {
+  /* §6.4.1: "After the execution of an FSAVE, the FPCP enters the idle state,
+   * and any pending exceptions are cleared." Set for both frame kinds, because
+   * a null save means nothing has run and there is nothing pending either. */
+  fpu->save_negated_exc_pend = true;
+
   for (unsigned i = 0; i < AP_M68882_FRAME_IDLE_BYTES; i++) {
     bytes[i] = 0;
   }
@@ -31,25 +37,64 @@ unsigned ap_m68882_save(const ap_m68882_t *fpu, uint8_t *bytes) {
     return AP_M68882_FRAME_NULL_BYTES;
   }
 
+  for (unsigned i = 0; i < AP_M68882_FRAME_IDLE_BYTES; i++) {
+    bytes[i] = 0u;
+  }
+
   bytes[0] = (uint8_t)fpu->version;
   bytes[1] = AP_M68882_FRAME_IDLE_SIZE_BYTE;
+
+  /* §6.4.2.2: "A reserved word is also included in order to align the state
+   * frame to a long-word boundary; **it is written as `$FFFF`** and ignored
+   * during restore operations." Not zero, which is what this wrote until §6.4
+   * was walked on 2026-09-07 -- and the difference is visible to any handler
+   * that looks. */
+  bytes[2] = 0xFFu;
+  bytes[3] = 0xFFu;
+
 
   /* The command/condition register image at `$04`. The condition codes are the
    * part of it this model has, and they are the part an exception handler reads
    * -- "it contains information that is useful to most floating-point exception
-   * handlers". */
+   * handlers". Figure 6-5 puts the field in bits 31-16 of this long word, so it
+   * is the top byte; the low word is another `(RESERVED)`. */
   const uint32_t condition = (fpu->regs.fpsr >> 24) & 0x0Fu;
   bytes[4] = (uint8_t)condition;
 
-  /* `$08`-`$27` are the CU internal registers, `$34` the operand register and
-   * `$38` the BIU flags. All `PROVISIONAL` zeros, for the reason the 68030's
-   * stack frames give: this model has no microsequencer state to save. Written
-   * rather than skipped, so a handler cannot read the previous program's data
-   * from under a documented field name.
+  /* `$08`-`$27` are the CU internal registers and `$34` the operand register.
+   * `PROVISIONAL` zeros: this model has no microsequencer state to save. The
+   * exceptional operand at `$28` is the one field with a real value when there
+   * is one, and there is not -- it is defined only for a *taken* trap, and
+   * §6.1.7 notes even the part leaves it undefined for an inexact.
    *
-   * The exceptional operand at `$28` is the one field with a real value when
-   * there is one, and there is not: it is defined only for a *taken* trap, and
-   * §6.1.7 notes even the part leaves it undefined for an inexact. */
+   * **The BIU flags at `$38` are not zeros, and were.** Figure 6-6 and Table
+   * 6-4 define them, and the definitions run the *other way* from an
+   * uninitialised field: bit 27 is "if this bit is **zero**, an exception is
+   * pending", bit 26 is "if this bit is a **zero**, an operand transfer to
+   * memory is pending", and bits 30-28 = `111` is Table 6-4's "No Pending
+   * Instruction or Operand CIR Access" where `000` is reserved. So a zeroed
+   * flag word tells a handler that this quiescent part has an exception
+   * pending, an operand transfer outstanding and a reserved pending-operation
+   * encoding -- three false statements, in the field §6.4.2.2 says exists so a
+   * handler can "display the pending exception status".
+   *
+   * It matters beyond tidiness. §5.2.2's handler ends by setting bit 27 before
+   * its `FRESTORE`, and the NOTE says "when this bit is not set in the
+   * exception handler, the MC68882 **re-executes the handler**" -- so bit 27 is
+   * the bit a context switch is built around. §6.4.2.2 also states the halves
+   * differently: bits 15-0 are "undefined bits ... **written as ones** during
+   * save operations", not zeros.
+   *
+   * Bits 25-24 and 19-16 stay zero: they are "internal state information about
+   * the CU" with no published encoding, and bits 23-20 are the operand
+   * register's byte-valid flags, which are honestly zero because nothing wrote
+   * an operand register image above. */
+  bytes[0x38] = 0x7Cu; /* 0111 1100: no protocol violation, 111 no pending, */
+  bytes[0x39] = 0x00u; /* EXC PEND clear-of-pending, ready to write, CU zero */
+  bytes[0x3A] = 0xFFu;
+  bytes[0x3B] = 0xFFu;
+
+
   return AP_M68882_FRAME_IDLE_BYTES;
 }
 

@@ -7308,8 +7308,23 @@ same number is what let them diverge once already.
             from the wrong boundary thereafter, so the probe named after "both
             operand directions" reached neither. Detail in `PROJECT_STATUS.md`
             and the walk record.
+            ***§6.3-§6.4 and §7.5 walked the same day — the manual is now
+            whole except §4's per-instruction pages.*** Two defects in the idle
+            state frame: the reserved word is `$FFFF` and the BIU flag word
+            `$7C00FFFF`, where both were zeros — and Figure 6-6's definitions
+            run the *other way* from an uninitialised field, so a zeroed word
+            claimed an exception pending, an operand transfer outstanding and a
+            reserved pending-operation code on a part that had raised nothing.
+            **`FSAVE` negates `EXC PEND`**, stated three times, and Figure
+            7-28's handler shows it cannot be a write to the FPSR: without it a
+            handler's own first arithmetic instruction re-took the trap it was
+            written to handle. And a `PROVISIONAL` closed without the value
+            moving — §6.4.2.2's NOTE publishes the format words, `$1F38` for the
+            MC68882, where the old note had read the prose two paragraphs above
+            it and concluded nothing was published. Detail in
+            `PROJECT_STATUS.md` and the walk record.
             Record: `docs/references/M68881_WALK.md`.
-            *Owed*: §4's per-instruction pages, §6.3-§6.4, §7.5.
+            *Owed*: §4's per-instruction pages (PDF 74-201). Nothing else.
       - [ ] **The 68882's instruction timing is charged as of 2026-09-07; its
             *concurrency* is not.** Opened as "no instruction execution timing",
             which was true until `[881]` §8 was walked whole. What remains is

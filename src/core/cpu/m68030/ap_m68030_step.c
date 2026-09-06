@@ -6754,7 +6754,13 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
           coproc->type != AP_M68030_CP_RESTORE &&
           coproc->type != AP_M68030_CP_GENERAL) {
         const unsigned pending = ap_m68882_trap_exception(&cpu->fpu->regs);
-        if (pending != 0u) {
+        /* An `FSAVE` since the last non-exempt instruction negated `EXC PEND`,
+         * so this one runs whatever the FPSR still says -- and re-derives it.
+         * `ap_m68882.h` carries the three statements and Figure 7-28's handler,
+         * which is the shape this exists for. */
+        if (cpu->fpu->save_negated_exc_pend) {
+          cpu->fpu->save_negated_exc_pend = false;
+        } else if (pending != 0u) {
           cpu->pending_vector = ap_m68030_fpu_trap_vector(pending);
           break;
         }
@@ -6882,7 +6888,13 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
        * again when the handler returns. */
       if ((command >> 13) < 4u) {
         const unsigned pending = ap_m68882_trap_exception(&cpu->fpu->regs);
-        if (pending != 0u) {
+        /* An `FSAVE` since the last non-exempt instruction negated `EXC PEND`,
+         * so this one runs whatever the FPSR still says -- and re-derives it.
+         * `ap_m68882.h` carries the three statements and Figure 7-28's handler,
+         * which is the shape this exists for. */
+        if (cpu->fpu->save_negated_exc_pend) {
+          cpu->fpu->save_negated_exc_pend = false;
+        } else if (pending != 0u) {
           cpu->pending_vector = ap_m68030_fpu_trap_vector(pending);
           break;
         }

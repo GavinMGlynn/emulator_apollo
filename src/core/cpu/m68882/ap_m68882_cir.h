@@ -54,13 +54,20 @@
 
 /* The microcode version reported in a state frame's format word.
  *
- * **`PROVISIONAL`.** "The version number is an 8-bit value that identifies the
- * microcode version of the FPCP, and the format of this number is defined
- * internally by the FPCP" -- the manual publishes no value for any part, so
- * there is nothing to transcribe and nothing to be correct about from the
- * documents. What a program *can* observe is self-consistency: a frame written
- * by `FSAVE` must be accepted by `FRESTORE`, and version zero must be accepted
- * whatever this is. Both hold for any non-zero choice. */
+ * **No longer `PROVISIONAL`, and the value did not change.** This carried the
+ * note that "the manual publishes no value for any part, so there is nothing to
+ * transcribe" -- which was true of §6.4.2.2's *prose*, and false of its NOTE
+ * two pages later, found walking §6.4 on 2026-09-07:
+ *
+ *   "The formats of the idle state frame and the BIU flags shown are for the
+ *   initial production versions of the FPCP; this format is identified by the
+ *   format word values (`$1F18` and `$3F18` for the MC68881, and **`$1F38` for
+ *   the MC68882**)."
+ *
+ * `$1F38` is version `$1F` and Table 6-6's `$vv38` idle-state size byte for
+ * this part. So the value this core guessed is the published one, and the
+ * guess is now a transcription. §6.4.3's text says the same thing again --
+ * "versions `$1F` and `$3F` for the MC68881 or `$1F` for the MC68882". */
 #define AP_M68882_DEFAULT_VERSION 0x1Fu
 
 typedef enum {
