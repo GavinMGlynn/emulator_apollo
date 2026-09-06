@@ -7351,10 +7351,25 @@ same number is what let them diverge once already.
             supervisor protection is enforced by
             `ap_m68030_search_permits_access`. This is the `m68851` reference
             module incomplete against its own manual.
+            **§4.2.3.3 gives the complete list**, which is what makes this
+            actionable — the six conditions under which the part terminates a
+            translation with `BERR`: (1) a write to a write-protected page,
+            (2) an access that exceeds the current access level, (3) an access
+            through an ATC descriptor with its bus error bit set, (4) a
+            breakpoint acknowledge against a `BACx` with a zero skip count,
+            (5) the same against one with its `E` bit clear, and (6) **a
+            read-modify-write to a page with no resident ATC descriptor, or with
+            its modified bit clear, or write-protected**.
+            Of those, (1) and (3) are implemented, (4) and (5) are implemented in
+            `ap_m68851_breakpoint_acknowledge`, and **(2) and (6) are the gap** —
+            (2) being the access levels above, (6) an ATC-residency-and-`M`-state
+            rule that is not the status write-back's own `RMC`, which *is*
+            modelled and cited to §4.3.2.2.
             *Verification*: accumulate `S`, `RAL` and `WAL` across the search as
             `write_protect` already is, take the most privileged of all `RAL` and
-            `WAL` for the write test, and return a denial the ATC fill caches as
-            `B`. Suites: `m68851_search_suite`, `m68851_atc_suite`.
+            `WAL` for the write test, add §4.2.3.3's condition (6), and return a
+            denial the ATC fill caches as `B`. Suites: `m68851_search_suite`,
+            `m68851_atc_suite`.
             ***§8, §9, §10, §11 and Appendix A.1-A.2 walked 2026-09-07.***
             §8's Figures 8-3 and 8-4 have their captions transposed and this core
             read past them correctly; Table 9-1 gives the MC68020's four CPU
