@@ -75,6 +75,39 @@ typedef enum {
 [[nodiscard]] ap_m68882_type_t
 ap_m68882_classify(const ap_m68882_extended_t *value);
 
+/* Convert an *unnormalized* extended value to the equivalent normalized or
+ * denormalized number, or to zero. Every other value is returned unchanged.
+ *
+ * §3.2.2's NOTE names the case and states the rule outright:
+ *
+ *   "Since the extended precision data format has an explicit integer part bit,
+ *   a number can be formatted with a non-zero exponent (less than the maximum
+ *   value) and a zero integer bit, which is not defined by the IEEE standard.
+ *   Such a number is called an **unnormalized** number. The MC68881 never
+ *   generates an unnormalized number as the result of any operation.
+ *   **Unnormalized inputs are always converted to normalized or denormalized
+ *   numbers or zero before being used.** Thus, as required by the IEEE
+ *   standard, the FPCP does not distinguish between redundant encodings of
+ *   extended precision values."
+ *
+ * The conversion is exact, and Table 3-3 is why: for extended, *both* the
+ * normalized and the denormalized rows read
+ * `(-1)^s x 2^(e - 16383) x j.f` -- the denormal exponent is `0 - bias`, not
+ * the `1 - bias` that single and double use. One formula covers the whole
+ * format, so shifting the mantissa up one place and taking the exponent down
+ * one leaves the value alone. That is what makes these *redundant encodings*
+ * rather than distinct numbers, and it is why the part is allowed to fold them.
+ *
+ * A zero mantissa with a non-zero exponent is the "or zero" arm: it is already
+ * classified `ZERO`, but its encoding is not the canonical one Table 3-3 gives
+ * for a signed zero (`e` = format minimum), and an uncorrected copy would write
+ * that non-canonical pattern back to memory.
+ *
+ * Infinities and NANs are left alone: the NOTE's definition excludes the
+ * maximum exponent, and a NAN's payload is not a number to renormalize. */
+[[nodiscard]] ap_m68882_extended_t
+ap_m68882_normalize_input(const ap_m68882_extended_t *value);
+
 /* Whether a NAN is signalling. The IEEE distinction is the most significant
  * fraction bit: clear means signalling. On this format the mantissa's bit 63 is
  * the integer bit, so the fraction begins at bit 62 -- taking bit 63 instead

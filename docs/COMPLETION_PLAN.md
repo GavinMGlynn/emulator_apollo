@@ -7265,9 +7265,32 @@ same number is what let them diverge once already.
             Table 6-2's operand errors and Table 6-3's seven divide-by-zero
             cases both check out, the `k`-factor clamp to +17 with `OPERR`
             included.
+            ***§5, §9-§13, both appendices, the index and the foldouts walked
+            2026-09-07 — 71 pages, and they found a real gap.*** Appendix A's
+            glossary defines an **unnormalized number** as a category separate
+            from a denormalized one, which sent me back to §3.2.2's NOTE:
+            "unnormalized inputs are always converted to normalized or
+            denormalized numbers or zero **before being used**", and "the
+            MC68881 never generates an unnormalized number as the result of any
+            operation". This core did neither — it copied the caller's redundant
+            encoding straight through. Fixed in `ap_m68882_normalize_input`,
+            called where both operands are gathered and on the extended store,
+            and deliberately *not* in the decoder `FMOVEM` shares. §5's
+            conversion-unit rules and Table 5-5's note **b** are a second and
+            third witness that the part treats "unnormalized" as an input data
+            type of its own.
+            §5 also gives Table 5-7's three `FMOVE` execution times and reaches
+            the idle state frame's layout by two further routes (Table 5-8's
+            sizes, §5.2.2's `$28`/`$34` offsets indexed by the size byte), and
+            **Figure 5-9 is the published way a program tells a 68881 from a
+            68882** — it reads the size byte and compares it with `$18`. The
+            `step_suite` assertion on that byte compared the constant with
+            itself; it now asserts the literal too. §10.2 and Figure 10-3 are a
+            second witness for `[030]` §10.5.3's "not by `RESET` instructions",
+            and §10.4 plus §12.6's clock-unit specs 25 and 27 cost the interface
+            itself. Detail in `PROJECT_STATUS.md` and the walk record.
             Record: `docs/references/M68881_WALK.md`.
-            *Owed*: §4's per-instruction pages, §5, §6.3-§6.4, §7.5, §8.5's
-            tables, §9-§13, appendices.
+            *Owed*: §4's per-instruction pages, §6.3-§6.4, §7.5, and §8 whole.
       - [ ] **The 68882 has no instruction execution timing, and the 68040 —
             which this machine does not have — has three modules of it.**
             `[881]` §8.5's tables give best, typical and worst case clock counts

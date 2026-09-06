@@ -6,6 +6,8 @@
  */
 
 #include "cpu/m68882/ap_m68882_format.h"
+
+#include "cpu/m68882/ap_m68882.h"
 #include "unity.h"
 
 void setUp(void) {}
@@ -345,6 +347,56 @@ static void test_integers_round_trip_across_their_range(void) {
   }
 }
 
+/* §3.2.2's NOTE, the "before being used" half.
+ *
+ * `FGETEXP` returns the operand's exponent, so it reads the encoding directly
+ * and cannot be right about a redundant one. 1.0 written with the mantissa
+ * sixteen places down and the exponent sixteen places up is the same number;
+ * its exponent is still zero, and an implementation that took the stored field
+ * at face value would answer sixteen.
+ *
+ * This goes through `ap_m68882_execute` rather than calling the operation,
+ * because the fold belongs where the operands are gathered -- one place for
+ * every instruction -- and a test against the operation itself would pass over
+ * a fold that had been put in the wrong layer. */
+static void test_an_unnormalized_operand_is_folded_before_it_is_used(void) {
+  for (unsigned shift = 1u; shift <= 32u; shift++) {
+    ap_m68882_t fpu;
+    ap_m68882_reset(&fpu);
+    /* Source is FP0 and destination FP1: opclass `000`, RX = 0, RY = 1. */
+    fpu.regs.fp[0] = (ap_m68882_extended_t){
+        .sign = false,
+        .exponent = (uint16_t)(AP_M68882_BIAS_EXTENDED + shift),
+        .mantissa = UINT64_C(1) << (63u - shift)};
+
+    const uint16_t command =
+        (uint16_t)((1u << 7) | (unsigned)AP_M68882_OP_FGETEXP);
+    TEST_ASSERT_EQUAL_INT(AP_M68882_EXECUTED,
+                          ap_m68882_execute(&fpu, 0xF200u, command));
+
+    /* The exponent of 1.0 is zero, whichever of the encodings was supplied. */
+    TEST_ASSERT_EQUAL_INT(AP_M68882_TYPE_ZERO,
+                          ap_m68882_classify(&fpu.regs.fp[1]));
+  }
+
+  /* And the "never generates" half: `FMOVE FP0,FP1` leaves the canonical
+   * encoding in the destination, not the caller's redundant one. */
+  ap_m68882_t fpu;
+  ap_m68882_reset(&fpu);
+  fpu.regs.fp[0] = (ap_m68882_extended_t){
+      .sign = true,
+      .exponent = (uint16_t)(AP_M68882_BIAS_EXTENDED + 5),
+      .mantissa = UINT64_C(1) << 58};
+  const uint16_t move =
+      (uint16_t)((1u << 7) | (unsigned)AP_M68882_OP_FMOVE_TO_FPN);
+  TEST_ASSERT_EQUAL_INT(AP_M68882_EXECUTED,
+                        ap_m68882_execute(&fpu, 0xF200u, move));
+  TEST_ASSERT_EQUAL_UINT16((uint16_t)AP_M68882_BIAS_EXTENDED,
+                           fpu.regs.fp[1].exponent);
+  TEST_ASSERT_EQUAL_HEX64(UINT64_C(1) << 63, fpu.regs.fp[1].mantissa);
+  TEST_ASSERT_TRUE(fpu.regs.fp[1].sign);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_integer_operands_are_signed);
@@ -364,6 +416,7 @@ int main(void) {
   RUN_TEST(test_a_nan_round_trips_without_becoming_an_infinity);
   RUN_TEST(test_the_extended_memory_format_has_sixteen_unused_bits);
   RUN_TEST(test_the_unused_bits_are_ignored_on_the_way_in);
+  RUN_TEST(test_an_unnormalized_operand_is_folded_before_it_is_used);
   RUN_TEST(test_single_precision_round_trips_across_the_range);
   return UNITY_END();
 }

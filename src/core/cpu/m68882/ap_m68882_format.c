@@ -42,6 +42,37 @@ ap_m68882_type_t ap_m68882_classify(const ap_m68882_extended_t *value) {
                                                : AP_M68882_TYPE_DENORMALIZED;
 }
 
+ap_m68882_extended_t
+ap_m68882_normalize_input(const ap_m68882_extended_t *value) {
+  ap_m68882_extended_t out = *value;
+
+  /* The NOTE's definition is "a non-zero exponent (less than the maximum
+   * value) and a zero integer bit", so infinities and NANs are out of scope by
+   * the exponent and normalized numbers by the integer bit. */
+  if (out.exponent == EXTENDED_MAX_EXPONENT ||
+      (out.mantissa & INTEGER_BIT) != 0u) {
+    return out;
+  }
+
+  if (out.mantissa == 0u) {
+    /* Table 3-3's signed zero: the exponent is the format minimum. The sign is
+     * kept, because the format has two zeros and they are distinguishable. */
+    out.exponent = 0u;
+    return out;
+  }
+
+  /* Exact: one place of mantissa for one of exponent, by the single value
+   * formula both rows of Table 3-3 share. The loop stops with the integer bit
+   * set (a normalized number) or with the exponent at its minimum and the bit
+   * still clear (a denormalized one) -- which is precisely the pair of outcomes
+   * the NOTE names. */
+  while ((out.mantissa & INTEGER_BIT) == 0u && out.exponent > 0u) {
+    out.mantissa <<= 1;
+    out.exponent = (uint16_t)(out.exponent - 1u);
+  }
+  return out;
+}
+
 bool ap_m68882_is_signalling_nan(const ap_m68882_extended_t *value) {
   if (ap_m68882_classify(value) != AP_M68882_TYPE_NAN) {
     return false;

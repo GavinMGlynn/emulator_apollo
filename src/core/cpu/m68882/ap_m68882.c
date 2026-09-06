@@ -172,8 +172,24 @@ static ap_m68882_status_t execute_general(
   const ap_m68882_precision_t precision =
       ap_m68882_rounding_precision(&fpu->regs);
 
-  const ap_m68882_extended_t source = *supplied_source;
-  const ap_m68882_extended_t destination = fpu->regs.fp[command->ry];
+  /* §3.2.2's NOTE: "Unnormalized inputs are always converted to normalized or
+   * denormalized numbers or zero **before being used**." This is the point at
+   * which both operands are in hand and nothing has used either of them yet,
+   * so it is the one place the rule belongs.
+   *
+   * It is deliberately not in `ap_m68882_from_extended`, which is the decoder
+   * `FMOVEM` also reaches: §4's `FMOVEM` page transfers registers without
+   * conversion, and folding a redundant encoding there would make a bit-exact
+   * register move lossy. "Used" is the word the NOTE chose, and an FMOVEM does
+   * not use the value.
+   *
+   * Without this an `FMOVE.X` in and back out reproduced the caller's
+   * redundant encoding byte for byte, where the part writes the canonical one:
+   * "the MC68881 never generates an unnormalized number as the result of any
+   * operation". */
+  const ap_m68882_extended_t source = ap_m68882_normalize_input(supplied_source);
+  const ap_m68882_extended_t destination =
+      ap_m68882_normalize_input(&fpu->regs.fp[command->ry]);
 
   ap_m68882_op_t result = {0};
   bool writes_destination = true;

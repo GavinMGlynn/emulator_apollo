@@ -297,7 +297,13 @@ bool ap_m68882_store_encode(ap_m68882_format_t format,
      * and no range to leave -- the one store that cannot be inexact. A
      * signalling NAN is still made quiet and still raises, because §6.1.2 lists
      * X alongside S and D. */
-    ap_m68882_extended_t stored = *value;
+    /* Still folded, even though nothing here rounds. §3.2.2's NOTE: "the
+     * MC68881 never generates an unnormalized number as the result of any
+     * operation", and a store *is* an operation -- the only way the register
+     * could hold one is an `FMOVEM` that put it there, which converts nothing
+     * on the way in. Exact, so the "cannot be inexact" claim above still
+     * holds. */
+    ap_m68882_extended_t stored = ap_m68882_normalize_input(value);
     if (ap_m68882_is_signalling_nan(&stored)) {
       out->exceptions |= UINT32_C(1) << AP_M68882_EXC_SNAN;
       stored.mantissa |= QUIET_BIT;

@@ -503,6 +503,50 @@ static void test_single_precision_round_trips_across_the_range(void) {
   }
 }
 
+/* §3.2.2's NOTE: "The MC68881 never generates an unnormalized number as the
+ * result of any operation. Unnormalized inputs are always converted to
+ * normalized or denormalized numbers or zero before being used."
+ *
+ * 1.0 has infinitely many extended encodings -- shift the mantissa down and the
+ * exponent up together and the value is unchanged, because Table 3-3 gives the
+ * same `2^(e-16383) x j.f` for the normalized and denormalized rows alike. The
+ * part stores the canonical one. Sixteen shifts, so a store that merely copied
+ * the register would be off by every one of them. */
+static void test_an_unnormalized_extended_store_folds_to_the_canonical_form(void) {
+  const ap_m68882_extended_t canonical = from_parts(false, 0, UINT64_C(1) << 63);
+  const ap_m68882_store_t want =
+      encode(AP_M68882_FORMAT_EXTENDED, canonical, AP_M68882_ROUND_NEAREST);
+
+  for (unsigned shift = 1u; shift <= 16u; shift++) {
+    const ap_m68882_extended_t redundant =
+        from_parts(false, (int)shift, UINT64_C(1) << (63u - shift));
+    const ap_m68882_store_t got =
+        encode(AP_M68882_FORMAT_EXTENDED, redundant, AP_M68882_ROUND_NEAREST);
+    TEST_ASSERT_EQUAL_UINT(want.size, got.size);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want.bytes, got.bytes, want.size);
+  }
+
+  /* The "or zero" arm. A zero mantissa under a non-zero exponent is a zero by
+   * value, and Table 3-3 puts a signed zero's exponent at the format minimum --
+   * so the encoding has to move even though the value does not. */
+  const ap_m68882_extended_t odd_zero = from_parts(true, 300, 0u);
+  const ap_m68882_store_t zeroed =
+      encode(AP_M68882_FORMAT_EXTENDED, odd_zero, AP_M68882_ROUND_NEAREST);
+  const ap_m68882_store_t minus_zero = encode(
+      AP_M68882_FORMAT_EXTENDED, from_parts(true, -AP_M68882_BIAS_EXTENDED, 0u),
+      AP_M68882_ROUND_NEAREST);
+  TEST_ASSERT_EQUAL_HEX8_ARRAY(minus_zero.bytes, zeroed.bytes, zeroed.size);
+
+  /* An infinity is excluded by the NOTE's own wording -- its exponent *is* the
+   * maximum -- and its integer bit reads as clear on a real part's output, so a
+   * fold that ignored the exponent would shift a NAN's payload apart. */
+  const ap_m68882_extended_t inf = special(false, 0u);
+  const ap_m68882_store_t stored_inf =
+      encode(AP_M68882_FORMAT_EXTENDED, inf, AP_M68882_ROUND_NEAREST);
+  TEST_ASSERT_EQUAL_HEX8(0x7Fu, stored_inf.bytes[0]);
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, stored_inf.bytes[1]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_one_point_zero_lands_in_every_format);
@@ -514,6 +558,7 @@ int main(void) {
   RUN_TEST(test_an_integer_store_follows_the_rounding_mode);
   RUN_TEST(test_a_signalling_nan_is_quietened_and_reported);
   RUN_TEST(test_an_extended_store_is_exact_and_twelve_bytes);
+  RUN_TEST(test_an_unnormalized_extended_store_folds_to_the_canonical_form);
   RUN_TEST(test_the_k_factor_table_from_page_4_67);
   RUN_TEST(test_an_out_of_range_k_factor_raises_and_still_converts);
   RUN_TEST(test_packed_specials_and_a_round_trip);

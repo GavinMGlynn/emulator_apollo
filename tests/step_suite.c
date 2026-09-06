@@ -7831,6 +7831,25 @@ static void test_fsave_writes_a_null_frame_until_something_runs(void) {
                          n.memory.bytes[FP_OPERAND + 4u]);
   TEST_ASSERT_EQUAL_HEX8(AP_M68882_FRAME_IDLE_SIZE_BYTE,
                          n.memory.bytes[FP_OPERAND + 5u]);
+
+  /* And the literal, because the line above compares the constant with itself
+   * and would hold whatever it was set to.
+   *
+   * `[881]` Figure 5-9, *Coprocessor Identification Code*, is a program that
+   * reads this byte to tell the two parts apart:
+   *
+   *     FSAVE   -(SP)          SAVE INTERNAL STATE
+   *     CLR.L   D0             ZERO INDEX
+   *     MOVE.B  1(SP),D0       OBTAIN STATE FRAME SIZE
+   *     CMPI    #$18,D0        MC68881?
+   *     BEQ     ONE            YES
+   *
+   * So this byte is the published discriminator, and `$18` is the answer that
+   * sends a caller down the 68881 path. Table 5-8's frame sizes are the same
+   * fact stated as lengths -- 28 bytes idle on the 68881 against 60 on the
+   * 68882 -- and 60 is four bytes of format word plus this `$38`. */
+  TEST_ASSERT_EQUAL_HEX8(0x38u, n.memory.bytes[FP_OPERAND + 5u]);
+  TEST_ASSERT_EQUAL_UINT(60u, 4u + n.memory.bytes[FP_OPERAND + 5u]);
 }
 
 /* **cpSAVE and cpRESTORE refuse an addressing mode with the F-line trap, not a
