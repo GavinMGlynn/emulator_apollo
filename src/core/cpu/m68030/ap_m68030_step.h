@@ -190,6 +190,18 @@ typedef struct {
    * difference in this counter is exactly that. */
   unsigned rmc_operations;
 
+  /* Whether the instruction just executed was a floating-point general-type
+   * one, which is what `[881]` §8.5.1.3's concurrency composes across.
+   *
+   * Its tail is "the period during which the MC68882 can begin **another
+   * floating-point instruction**", so a tail reaches only as far as the next
+   * instruction -- and if that one is not floating-point, the manual gives no
+   * head to overlap it with and this core discards the tail rather than letting
+   * it wait for an arbitrarily later `FADD`. That is the conservative
+   * direction, the same one the `RMC` arbitration lock takes: it charges more
+   * than the hardware would, never less. */
+  bool fp_sequence_live;
+
   /* Set when an access made *during* an instruction faulted, so that the step
    * can tell a bus that said no from an instruction this model cannot execute.
    *

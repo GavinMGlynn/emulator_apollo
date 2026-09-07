@@ -6904,13 +6904,14 @@ same number is what let them diverge once already.
       ***All six documents are walked whole as of 2026-09-07: 2,633 pages***
       — `[030]` 608/608, `[PRM]` 646/646, `[851]` 356/356, `[881]` 396/396,
       `MC68030EC` 19/19 and `M68000_Family_Reference` 608/608. **The reading is
-      finished**; this item stays open only for the implementation tails the
-      walks found, each a sub-item below with its own verification. **Three
-      remain**: the unplaced `AP_M68030_RMC_FIRST_READ`, the table search as an
-      extended read-modify-write, and the 68882's unmodelled concurrency. The
-      fourth — the `m68851` protection fields — closed 2026-09-07. `[020]` and
-      `[040]` are a deliberate deferral to Phase 2b/7 and not part of this
-      batch.
+      finished**, and so is every tail it found that can be finished now. **Two
+      remain and both name the same blocker**: `AP_M68030_RMC_FIRST_READ` is
+      modelled and never placed, and a translation table search does not lock
+      the bus — each needs the **per-cycle processor of Phase 8**, which is what
+      makes a bus cycle addressable from outside the step. The other two closed
+      2026-09-07: the `m68851` protection fields and the 68882's concurrency.
+      `[020]` and `[040]` are a deliberate deferral to Phase 2b/7 and not part
+      of this batch.
       Opened 2026-08-25, once the peripheral batch closed and an inventory
       showed the shelf holds 133 PDFs against 14 walk records. Most of the
       remainder is Domain/OS *software* documentation and out of scope; these
@@ -7005,43 +7006,21 @@ same number is what let them diverge once already.
             errors recorded where the code is right.
             Detail in `PROJECT_STATUS.md`.
             Record: `docs/references/M68881_WALK.md`.
-      - [ ] **The 68882's instruction timing is charged as of 2026-09-07; its
-            *concurrency* is not.** Opened as "no instruction execution timing",
-            which was true until `[881]` §8 was walked whole. What remains is
-            the overlap: Table 8-5's worked example runs a sequence in 331
-            clocks whose totals add to 470, and this core charges the sum.
-            Detail in `PROJECT_STATUS.md`. The original item follows.
-            **The 68040 — which this machine does not have — has three modules
-            of floating-point timing.**
-            `[881]` §8.5's tables give best, typical and worst case clock counts
-            for every FPCP instruction, plus the interface overheads §8.4
-            measures: **eleven clocks** typical for instruction initiation with
-            no overlap, two best case, and a ten-clock worst-case
-            synchronisation period. §8.1 states the assumptions they hold under
-            — an MC68020 host on the same clock, long-word-aligned operands, a
-            32-bit bus, no wait states except **two wait cycles (five-clock
-            reads) on the response and save CIRs**.
-            This core charges an `FADD` its *operand bus* time and nothing for
-            the calculation, so every floating-point instruction is a lower
-            bound. `PROJECT_STATUS.md` already records the same shape for the
-            integer instructions outside §11.6's 59 rows; this is the FPU's
-            version of it and was not named.
-            **The asymmetry is the tell**: `ap_m68040_fpu_timing.h`,
-            `_fp_pipeline.h` and `_misc_timing.c` transcribe the *68040's*
-            floating-point timings, for a processor no in-scope model runs,
-            while the 68882 the DN3500 actually has has none.
-            *Verification when done*: a suite in the shape of
-            `m68040_fpu_timing_suite`, and the figures composed through the same
-            overlap model the integer side uses. Mark `PROVISIONAL` where §8.5
-            publishes a range rather than a point, which it does for the
-            data-dependent transcendentals. *This item first said "zero tagged citations" and
-            implied the FPU was built without its manual. **Wrong** — it is
-            cited **11 times**, by full title rather than by a bracket tag, and
-            the `[030]` audit found it while checking something else.* So the
-            job is an ordinary audit-then-walk, not a rescue. **The lesson is
-            the one `[Bt458]` had already taught and this item ignored one
-            commit later**: counting tags is a first pass, never a verdict —
-            grep the full title too.
+      - [x] **The 68882's instruction timing and its concurrency — done
+            2026-09-07.** Opened as "no instruction execution timing", which was
+            true until `[881]` §8 was walked; the totals landed first and the
+            overlap now with them. §8.5.1.3's rule is the 68030's `min` over
+            different quantities, with one difference that matters: Table 8-3
+            prints `T = *` for every `FMOVE`, which has no tail and merges its
+            head into the next instruction's, so the accumulator needs a
+            lookahead a copy of `ap_m68030_overlap` does not have — and the
+            first version, which lacked it, lost 14 clocks a pair. Checked by
+            composing **Table 8-5's own example**, which it reproduces at 331
+            for a sequence totalling 470, and applied in the step across
+            consecutive floating-point instructions. **Table 8-5 carries four
+            arithmetic slips**, none of which changes its answer, and a probe
+            found the `min` rule written twice. Detail in `PROJECT_STATUS.md`.
+            *Verification: `m68882_timing_suite` 8, plus a `step_suite` test.*
       - [x] **`[851]` `MC68851_PMMU_Users_Manual_3ed_1988.pdf`, 356 pages —
             walked whole, 356/356, 2026-09-06.** It is where the **method error
             was found**: `pdffonts` had been used to judge a text layer's

@@ -26,6 +26,7 @@
 #include "cpu/m68882/ap_m68882_format.h"
 #include "cpu/m68882/ap_m68882_regs.h"
 #include "cpu/m68882/ap_m68882_store.h"
+#include "cpu/m68882/ap_m68882_timing.h"
 
 typedef struct {
   ap_m68882_regs_t regs;
@@ -72,6 +73,13 @@ typedef struct {
    * the handler's own arithmetic, which is the entire point of the `FSAVE` --
    * took the exception it was written to handle. */
   bool save_negated_exc_pend;
+  /* §8.5.1.3's concurrency, carried across instructions. Pure timing state --
+   * no program can read it and no `FSAVE` frame holds it -- so it is
+   * deliberately **not** hashed by `ap_m68030_hash_fpu`, for the reason
+   * `rmc_operations` is not: what it moves is the clock total, and the identity
+   * harness reports that separately. Hashing it would move every golden without
+   * describing anything a program can observe. */
+  ap_m68882_overlap_state_t concurrency;
 } ap_m68882_t;
 
 /* ---------------------------------------------------------------------------

@@ -21,6 +21,7 @@ void ap_m68882_reset(ap_m68882_t *fpu) {
    * executed since the last null state restore or hardware reset." */
   fpu->executed = false;
   fpu->save_negated_exc_pend = false;
+  fpu->concurrency = ap_m68882_overlap_begin();
 }
 
 unsigned ap_m68882_save(ap_m68882_t *fpu, uint8_t *bytes) {

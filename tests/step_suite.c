@@ -1052,6 +1052,101 @@ static void test_a_floating_point_instruction_costs_its_calculation(void) {
                            "an FMOVE FPm,FPn was charged no FPCP time");
 }
 
+/* **Two floating-point instructions in a row cost less than two apart.**
+ *
+ * `[881]` §8.5.1.3: the MC68882's conversion unit can hold one instruction
+ * while the arithmetic unit runs another, so "the total execution time for a
+ * set of instructions is the sum of the overall execution times of the
+ * individual instructions in the set **minus the total overlap time**", and the
+ * overlap is "the lesser of the effective tail and the effective head". Table
+ * 8-5 works an example: 470 clocks of instructions in 331.
+ *
+ * `FADD` has a tail of 35 and a head of 17, so a second `FADD` immediately
+ * after the first starts inside it. Separate them by a `NOP` and the tail has
+ * nothing left to reach -- §8.5.1.3's tail is "the period during which the
+ * MC68882 can begin **another floating-point instruction**", and an instruction
+ * that is not one ends the sequence.
+ *
+ * Written as three measurements of the *same* `FADD` so the bus time, the
+ * prefetch and the 56 clocks of calculation all cancel and what is left is the
+ * overlap alone. */
+static void test_adjacent_floating_point_instructions_overlap(void) {
+  /* FADD.X FP0,FP1 twice, then a NOP. */
+  static const uint16_t adjacent[] = {0xF200u, 0x00A2u, 0xF200u, 0x00A2u,
+                                      0x4E71u};
+  /* The same two with a NOP between them. */
+  static const uint16_t separated[] = {0xF200u, 0x00A2u, 0x4E71u,
+                                       0xF200u, 0x00A2u, 0x4E71u};
+
+  uint64_t first = 0;
+  uint64_t second_adjacent = 0;
+  uint64_t second_separated = 0;
+
+  {
+    machine_t m = {0};
+    load(&m, adjacent, 5);
+    m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+    ap_m68882_t fpu;
+    ap_m68882_reset(&fpu);
+    m.cpu.fpu = &fpu;
+    fpu.regs.fp[0] = (ap_m68882_extended_t){0};
+    fpu.regs.fp[1] = (ap_m68882_extended_t){0};
+
+    uint64_t before = m.cpu.clocks;
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                          ap_m68030_step(&m.cpu).status);
+    first = m.cpu.clocks - before;
+
+    before = m.cpu.clocks;
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                          ap_m68030_step(&m.cpu).status);
+    second_adjacent = m.cpu.clocks - before;
+  }
+
+  {
+    machine_t m = {0};
+    load(&m, separated, 6);
+    m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+    ap_m68882_t fpu;
+    ap_m68882_reset(&fpu);
+    m.cpu.fpu = &fpu;
+    fpu.regs.fp[0] = (ap_m68882_extended_t){0};
+    fpu.regs.fp[1] = (ap_m68882_extended_t){0};
+
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                          ap_m68030_step(&m.cpu).status); /* FADD */
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                          ap_m68030_step(&m.cpu).status); /* NOP */
+    const uint64_t before = m.cpu.clocks;
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                          ap_m68030_step(&m.cpu).status); /* FADD */
+    second_separated = m.cpu.clocks - before;
+  }
+
+  /* The first of a run overlaps with nothing, so it is the unadjusted cost --
+   * and the separated one must match it exactly, because the `NOP` discarded
+   * the tail. */
+  TEST_ASSERT_EQUAL_UINT64_MESSAGE(
+      first, second_separated,
+      "a NOP between two FADDs did not end the floating-point sequence");
+
+  /* And the adjacent one is strictly cheaper, by the overlap. */
+  TEST_ASSERT_TRUE_MESSAGE(
+      second_adjacent < first,
+      "a second FADD immediately after the first cost the same as the first");
+
+  /* The overlap is `min(tail, head)`: `FADD`'s tail is 35 and its effective
+   * head is 17 plus whatever the main processor spent getting here, so the
+   * head is the smaller and the saving is that head. Asserted as a bound
+   * rather than a constant, because the bus half of the head is this
+   * machine's and not the manual's. */
+  const uint64_t saved = first - second_adjacent;
+  TEST_ASSERT_TRUE_MESSAGE(saved >= 17u,
+                           "the overlap was less than FADD's own head");
+  TEST_ASSERT_TRUE_MESSAGE(saved <= 35u,
+                           "the overlap exceeded FADD's tail of 35");
+}
+
 /* The store direction is priced from a different table, and by the destination
  * format rather than by the operation: Table 8-16's output conversion. An
  * extended destination "is the internal format, so there is nothing to round"
@@ -9349,6 +9444,7 @@ int main(void) {
   RUN_TEST(test_every_conditional_encoding_is_accounted_for);
   RUN_TEST(test_a_register_to_register_operation_ignores_the_ea_field);
   RUN_TEST(test_a_floating_point_instruction_costs_its_calculation);
+  RUN_TEST(test_adjacent_floating_point_instructions_overlap);
   RUN_TEST(test_a_floating_point_store_costs_its_output_conversion);
   RUN_TEST(test_fmovem_predecrement_steps_the_active_stack_pointer);
   RUN_TEST(test_no_mmu_extension_form_reports_unimplemented);

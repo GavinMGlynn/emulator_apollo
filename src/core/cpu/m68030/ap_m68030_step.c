@@ -5507,6 +5507,39 @@ static fp_source_result_t execute_fp_state(ap_m68030_cpu_t *cpu,
  * The MPU-side opclasses charge nothing: `100`/`101` move a control register
  * and `110`/`111` are `FMOVEM`, and Tables 8-6 and 8-21 price those almost
  * entirely in bus cycles this core already performs. */
+/* Table 8-3's `H` and `T` for the instruction this command word names, or no
+ * concurrency at all for the opclasses the manual gives none for. */
+static ap_m68882_concurrency_t fp_concurrency(uint16_t command) {
+  const ap_m68882_command_word_t decoded = ap_m68882_decode_command(command);
+  if (decoded.extension_class != AP_M68882_EXTENSION_DEFINED) {
+    return (ap_m68882_concurrency_t){0};
+  }
+  switch (decoded.opclass) {
+  case AP_M68882_OPCLASS_MEMORY_TO_REGISTER:
+    if (decoded.rx == 7u) {
+      /* `FMOVECR`: Table 8-3 gives it `H = 10`, `T = 0`, and a zero tail there
+       * is a real zero rather than the `*` the `FMOVE` rows carry -- the row
+       * prints `0`, not an asterisk. */
+      return (ap_m68882_concurrency_t){.head = 10u, .tail = 0u,
+                                       .has_tail = true};
+    }
+    [[fallthrough]];
+  case AP_M68882_OPCLASS_REGISTER:
+    return ap_m68882_operation_concurrency(decoded.operation);
+  case AP_M68882_OPCLASS_REGISTER_TO_MEMORY:
+    /* Table 8-3's `FMOVE to memory` row, whose head is per destination format.
+     * Bits 12-10 are that format here, which is what `rx` holds. */
+    return ap_m68882_store_concurrency((ap_m68882_format_t)decoded.rx);
+  case AP_M68882_OPCLASS_RESERVED_1:
+  case AP_M68882_OPCLASS_MOVE_TO_CONTROL:
+  case AP_M68882_OPCLASS_MOVE_FROM_CONTROL:
+  case AP_M68882_OPCLASS_MOVEM_TO_REGISTERS:
+  case AP_M68882_OPCLASS_MOVEM_FROM_REGISTERS:
+    return (ap_m68882_concurrency_t){0};
+  }
+  return (ap_m68882_concurrency_t){0};
+}
+
 static uint32_t fp_execution_clocks(uint16_t command) {
   const ap_m68882_command_word_t decoded = ap_m68882_decode_command(command);
   if (decoded.extension_class != AP_M68882_EXTENSION_DEFINED) {
@@ -6330,6 +6363,20 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
    * distinguish them. */
   const uint64_t instruction_bus_before = cpu->fetch.bus_clocks;
 
+  /* End the floating-point sequence if the previous instruction was not one.
+   * `[881]` §8.5.1.3's tail reaches the *next* instruction and no further, so a
+   * tail that has already survived a non-floating-point instruction has nothing
+   * left to overlap with. The result is discarded rather than credited: Table
+   * 8-5 gives a trailing `FMOVE` an overlap because the sequence it composes
+   * ends there, and a running machine's does not -- crediting it would hand
+   * clocks back to whatever instruction happened to follow, which the manual
+   * gives no head for. */
+  const bool fp_ran_previously = cpu->fp_sequence_live;
+  cpu->fp_sequence_live = false;
+  if (cpu->fpu != nullptr && !fp_ran_previously) {
+    (void)ap_m68882_overlap_flush(&cpu->fpu->concurrency);
+  }
+
   /* This describes the instruction about to run, so it starts clear. Leaving a
    * previous instruction's fault standing would make the *next* unimplemented
    * instruction report as a fault -- the same conflation this flag exists to
@@ -7083,7 +7130,30 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       }
 
       if (executed == AP_M68882_EXECUTED) {
-        out.clocks += fp_execution_clocks(command);
+        const uint32_t fp_clocks = fp_execution_clocks(command);
+        out.clocks += fp_clocks;
+
+        /* §8.5.1.3's concurrency, applied across the *sequence* rather than
+         * within this instruction.
+         *
+         * The head is Table 8-3's `H` plus what the main processor has already
+         * spent on this instruction -- §8.5.1.3's "the effective address
+         * calculation should be added to the head to obtain the true head
+         * time", with this core's measured bus time standing where the
+         * manual's Table 8-1 figure would. That is the same substitution
+         * `ap_m68882_timing.h` makes for the total, and for the same reason:
+         * the bus here is the one this machine has.
+         *
+         * The overlap comes back as clocks to *not* charge, so a run of
+         * floating-point instructions costs less than the sum of its parts --
+         * which is the whole of Table 8-5's 331 against 470. */
+        const ap_m68882_concurrency_t concurrency = fp_concurrency(command);
+        const uint32_t head = concurrency.head + out.clocks - fp_clocks;
+        const uint32_t overlap = ap_m68882_overlap_add(
+            &cpu->fpu->concurrency, 0u, head, concurrency.tail,
+            concurrency.has_tail);
+        out.clocks = out.clocks > overlap ? out.clocks - overlap : 0u;
+        cpu->fp_sequence_live = true;
         break;
       }
       if (executed == AP_M68882_UNIMPLEMENTED) {
