@@ -3160,7 +3160,7 @@ is inline. Whether any executes on some *other* path is not settled by this, and
 does not need to be: what the boot shows is that giving them their documented
 effect changes nothing the reference run does.
 
-**`C0C008BB82E7BD70` is the current reference hash** (2026-09-07; the table
+**`FE2BB02AEF1F4624` is the current reference hash** (2026-09-08; the table
 below is the lineage, and this line named `4EAC44B176697CE7` while four rows
 were appended beneath it). Produced by
 `tools/identity-boot.sh` on the release build. It differs from the hashes
@@ -3186,7 +3186,25 @@ E577E1BC3A1071F8   + §2.4.6's refresh cycles, stolen from the processor
 42B14372F3677EE8   + the MC146818's `UIP` window -- **unmoved**
 42B14372F3677EE8   + its half second after a divider release -- **unmoved**
 C0C008BB82E7BD70   + `divider_held` and `dst_shifted` in the hash
+FE2BB02AEF1F4624   + the DUART's input-port change filter -- **and the clocks move**
 ```
+
+**The last row is the first in this table to move the clock total**, and that is
+the finding rather than a complication: `1408663613` -> `1408661906`, 1,707
+fewer over 1.4 billion. The console output is **byte-identical**, as are the
+exception tallies, the disk command census, the posted codes and the final PC.
+What moved is one counter, and it is the right one — **`sio1 reg 4` reads go
+from 179 to 543**. Register 4 is the `IPCR`, and `FINDINGS.md` C116's
+disassembly has the boot PROM polling it at `00658C` for delta-IP0 before
+counting the refresh wave. The filter makes that poll wait for the detector's
+aliased confirmation instead of the first edge, so it spins 364 times more; the
+run is instruction-limited, so more instructions spent in a cheap loop is fewer
+clocks at the limit.
+
+*Attribution is clean.* Every `src/` commit between the row above and this one is
+comment-only — the `007196-01` walk's findings recorded in headers, and one
+`ap_omti.c` change with no non-comment line in it — so this boot has exactly one
+cause.
 
 **The three 2026-09-07 rows are a controlled triple**, and were run in that
 order for that reason: the two behavioural changes were measured with the hasher
@@ -10694,7 +10712,7 @@ failure that cost a bit position in the 68020's module entry word.
 | MC146818A calendar (the part) | working: ten clock bytes, four registers, 50 RAM bytes, the once-per-second update with a full Gregorian carry, the alarm with don't-care codes, and Register C's read-to-clear. **Time is supplied by the caller, never the host** — the oracle seeds its calendar from the wall clock, which would rot every golden. The **periodic interrupt** is implemented for **all fifteen** of `[146818]` Table 5's rates, 32.768 kHz down to 2 Hz: the base is the LCM times 2^6 so that it carries the 2^15 the six fastest need, at a span of 9.9 days rather than 634. The **square wave** is driven, sharing that selector and gated by Register B's `SQWE`, and the `DSE` bit's two **daylight-savings** updates are applied. The crystal itself stays unrepresentable — 4.194304 MHz would need a base spanning under two hours — and `ap_mc146818_rate_supported` is kept for that reason. **Wired to the board at `010900`** — `AP_BOARD_REGION_CALENDAR`, with `ap_calendar_advance` on the tick and `ap_calendar_irq` into the interrupt controller. The row said "not yet wired" long after it was. **The whole-document walk found one defect**: `[146818]` p. 15 has `UIE` cleared by "the RESET pin going low **or the SET bit going high**", and Register B was stored verbatim, so a program that stopped the clock to set the time kept its update-ended interrupt armed. Fixed as a *transition* rather than a level, because a level test would make it impossible to re-arm `UIE` while `SET` is held — which is exactly what an initialisation sequence does. **`UIP` pulses**, as of 2026-09-07: Table 6 and Figure 15 give `tBUC` = 244 µs of lead on every time base and `tUC` = 248 µs (either fast crystal) or 1984 µs (32.768 kHz), and the bit is high for their sum ending at the second boundary the update lands on — where Figure 15 puts it, with `UF` set as `UIP` falls. `SET` and a held divider each clear it where it stands, which is why both tests apply them to a clock already inside the window rather than advancing into one. The update itself stays atomic, so a driver that ignores `UIP` still reads valid bytes: permissive, and the one part of p. 14 left unmodelled. **A defect the walk itself missed**, found 2026-09-07 while modelling `UIP`: `[146818]` prints "when the divider is changed from reset to an operating time base, the first update cycle is one-half second later" twice — p. 13's divider-control paragraph and p. 15's `DV2-DV0` entry — and this core resumed a released chain on the old cadence, a whole second late. The periodic tap restarts at the release with it, since it hangs off the same chain. The walk's rows for both pages cited their *tables* and neither carried the sentence beside them. **Both of the part's booleans now reach the state hash** — `divider_held`, which the new rule creates, and `dst_shifted`, which was missing already: two clocks reading 1:30 AM on the last Sunday in October differ in whether the special update has been taken and in nothing else | `mc146818_suite`, 42 tests, `MC146818A` (**walked whole, 21/21, 2026-08-22** — register figures read from page images) |
 | Node ID PROM (`011200`) | working: the layout measured from the oracle's own PROM — stride 2 with the **odd byte reading zero** (unlike the serial ports at the same stride), the identifier big-endian in registers 0-3, and a checksum in register **15** confirmed arithmetically (`01 + 23 + 45 = 69`) and then by the boot PROM's own self-test, which sums registers 0-14 and compares. The identifier is supplied by the caller, never a constant: a device whose purpose is to be unique per machine must not be the same on every one | `nodeid_suite`, 8 tests; `008778-03` Table 2-8, CPU self-test 8 at `008218` |
 | Apollo serial ports (`010400`, `010500`) | working: both DUARTs at **stride 2** (measured), sixteen registers over thirty-two bytes and aliased, sharing IRQ1 through to vector `A1`. The memory-refresh square wave of §3.9 runs: the counter is clocked at the DUART's X1 and produces a 15 microsecond period from the boot PROM's own preload. Its *frequency*, 66666.67 Hz, is not an integer, so a core counting in hertz could not represent this board's refresh clock at all | `sio_suite`, 40 tests, one of them pinning that a character on the **second** 2681 raises the single serial interrupt line -- `002398-04` p. 12-28 gives `IRQ 1` to "sio" unqualified, where `008778-03` Table 2-3 names "2681 SIO Port 1" (`RING.md`-style sibling-manual resolution, `FINDINGS.md` C223-C224); `FINDINGS.md` C14 |
-| MC68681 / SCN2681 DUART (the part) | **programming model complete**: all sixteen register addresses of `[68681]` Table 4-1, both channels' mode registers with their shared pointer, clock-select, command and status registers, the three-deep receive FIFO with overrun, the interrupt status and mask registers, the input and output ports, and the counter/timer with both address-triggered commands. **All eight of §4.2.7.2's miscellaneous commands** — the audit found three falling through a bare `default: break;` (reset break change interrupt, start break, stop break) and, in the same paragraph, three outright errors in the transmitter status bits; see below. **Serial framing is modelled**, and the claim that it was not was stale: `ap_mc68681_resample` reshapes a character arriving at a mismatched baud rate rather than flagging an intact one, `ap_mc68681_character_bits` applies `MR1`'s width, parity is checked on both enable *and* type, `MR2`'s stop-bit field is read, and all four channel modes — normal, auto-echo, local loopback, remote loopback — behave differently. **Wired to the board** through `board/ap_sio.h` | **the receive shift register is modelled**: the part is quadruple-buffered, so a character meeting a full FIFO is held rather than lost and only the next one overruns, and a read that frees a position refills the FIFO from it -- which is why §4.2.9.7 says `FFULL` is not cleared by that read | `mc68681_suite`, 58 tests, `MC68681 DUART Sep85` |
+| MC68681 / SCN2681 DUART (the part) | **programming model complete**: all sixteen register addresses of `[68681]` Table 4-1, both channels' mode registers with their shared pointer, clock-select, command and status registers, the three-deep receive FIFO with overrun, the interrupt status and mask registers, the input and output ports, and the counter/timer with both address-triggered commands. **All eight of §4.2.7.2's miscellaneous commands** — the audit found three falling through a bare `default: break;` (reset break change interrupt, start break, stop break) and, in the same paragraph, three outright errors in the transmitter status bits; see below. **Serial framing is modelled**, and the claim that it was not was stale: `ap_mc68681_resample` reshapes a character arriving at a mismatched baud rate rather than flagging an intact one, `ap_mc68681_character_bits` applies `MR1`'s width, parity is checked on both enable *and* type, `MR2`'s stop-bit field is read, and all four channel modes — normal, auto-echo, local loopback, remote loopback — behave differently. **And the input-port change detector is modelled**, as of 2026-09-08: `[2681]` doc 2-193's 38.4 kHz sampler (X1/96) with its two-successive-samples rule, so a transition shorter than a sample period is never reported and a longer one is reported one to two sample periods late -- while `IPCR[3:0]` and the input port register stay unlatched, which is what the datasheet says and what keeps the boot PROM's level count intact. **Wired to the board** through `board/ap_sio.h` | **the receive shift register is modelled**: the part is quadruple-buffered, so a character meeting a full FIFO is held rather than lost and only the next one overruns, and a read that frees a position refills the FIFO from it -- which is why §4.2.9.7 says `FFULL` is not cleared by that read | `mc68681_suite`, 61 tests, `MC68681 DUART Sep85` |
 | QIC-02 tape drive | **the whole command set**, all eleven of `[SC499]` §1.13: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, both format selects, READ, READ STATUS, and WRITE, WRITE FILE MARK, READ FILE MARK and ERASE recognised and refused. **WRITE places a block** on a cartridge loaded writable, the distinction `ap_ct_t` now carries; a read-only one refuses. WRITE FILE MARK and ERASE are still refused, and for a reason that has not changed — a `.ct` is a raw block image with no file marks in it. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. **The two opcodes C25 recorded as lost are recovered**: §1.13's summary table has a previous owner's pen through `H'22'` and `H'26'`, and §1.13.1's numbered descriptions two pages on give the same codes in clean binary, corroborated by the three codes either side of them that this core already had. **READ STATUS now transfers its block**: six bytes, the length `[SC499]` §1.13.1 gives outright, as three 16-bit fields LSB-first — exception flags, data-error count, underrun count — and reading it clears the power-on condition it reports. **The status bits and the SELECT opcode are now the standard's own**, `QIC-02 Rev D` read whole, 29 of 29 pages: SELECT's low nibble is the drive mask §4.2.2 titles it with, so selecting drive 2 is a legal SELECT of an absent drive rather than an unimplemented command, a reset defaults selection to drive 0 as §3.5 pin 32 and §4.2.1 both say, and `USL` and two further `ILL` causes are reachable in consequence; `NDT` with the `UDA` and `BNL` that §5.3 row 8 prints beside it, so a read past the last block reports "no recorded data found on tape" rather than a bare failure, and the two counters cleared by the status read as §5.2 requires of each | `qic_suite`, 27 tests; `FINDINGS.md` C25 |
 | Cartridge tape images (`image/ap_ct.c`) | working: block addressing over a raw `.ct` image, refusing any size that is not a whole number of 512-byte blocks, and boot-record parsing that returns the four header words. Their reading as load address and entry point is now **confirmed by the boot code itself** — its first instruction, a PC-relative `LEA`, computes word 0 exactly when executed at word 1, so the image proves its own layout. `ap_ct_boot_image` therefore *names* load address, entry point and length, and refuses a cartridge that does not announce itself, or whose header describes more than the file holds. Takes memory, never a filename, so `src/core` keeps its zero file I/O and the tests need no gitignored media | `ct_suite`, 12 tests; `FINDINGS.md` C24 |
 | Apollo display controller (`05D800`, `05E800`) | **identification**: both register blocks decode whether or not a screen is fitted, and the device ID at offset 1 reports `C4P=8`, `19I=9`, `C8P=10` or `15I=11` for the fitted family and `FF` for the other. An absent screen reads `FF` and does **not** bus error — "nothing is fitted" and "nothing is there" are different answers, and getting that wrong cost an investigation. **Drawing**: `CR0`'s mode and shift, `CR1`'s bits named per family, `CR2`'s two plane-select encodings, all sixteen raster operations, the word-level data path with its two active-low fields, and the blit that is the plane loop around them. **Lookup table**: *both* of them -- the 8-plane board's Bt458 behind its data and control ports, active-low chip selects and the FIFO that commits a palette on the release of `CPAL_CS`; and the **4-plane board's own**, three write-only registers carrying sixteen entries of four bits a gun, from `002398-04` p. 12-19. **A/D converter**: the diagnostic register at offset `407`, whose channel byte selects a gun's video output and whose result is hundredths of a volt. **Raster**: both dot clocks, the beam as a function of the instant, and the status register's timing bits gated on `CR1`. **Scanout**: the four geometries, each buffer width being the manual's own printed capacity divided out, planes composed with plane 0 as bit 0 and bit 15 as the leftmost pixel. **Registers**: sixteen of them in two groups of eight, the low group aliased across the block, `CR0`-`CR3B`, the 16-bit write enable and the 32-bit raster operation, with `CR3A` as a bit port onto `CR1`. **Corrected 2026-08-11**: this line previously said the status register, the raster operation's low half and the lookup table's two ports were "still unmodelled and reading `FF`". All three are modelled -- the status register answers from the raster (`graphics_status`), the lookup table has its Bt458 with the release-committed FIFO, and the raster operation's low half reads `FF` because it is **write-only in the hardware**, which is a model of the part rather than a gap in it. What genuinely reads `FF` is the low register group on a board that is not 8-plane, and registers that are write-only -- `FF` rather than zero, because zero is a state a real register can report and these cannot report anything | `graphics_suite`, 89 tests; `FINDINGS.md` C31-C32 |
@@ -40046,6 +40064,85 @@ the initial character, the two the selection needs and the `$158(a6)`
 bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
+
+## The DUART's input-port change detector is modelled — and its blocker was never real
+
+`[2681]` doc 2-193, read as a page image 2026-09-08: "Four change-of-state
+detectors are provided which are associated with inputs IP3, IP2, IP1, and IP0.
+A high-to-low or low-to-high transition of these inputs, **lasting longer than
+25-50 µs**, will set the corresponding bit in the input port change register" —
+and the mechanism that makes it a range rather than a figure: "The input port
+pulse detection circuitry uses a **38.4 kHz sampling clock derived from one of
+the baud rate generator taps** ... requires **two successive samples at the new
+logic level** be observed."
+
+`ap_mc68681_set_input` used to set `IPCR[7:4]` and `ISR[7]` the instant a pin
+moved. It now sets only the level; the change bits belong to a sampler that
+`ap_mc68681_clock` runs.
+
+### The blocker the plan item carried for weeks did not apply
+
+That item named two routes to closing it — an `ap_mc68681_set_input(..., now)`,
+or "a 38.4 kHz sampling tick driven from the board, **the second being closer to
+the silicon and the more expensive**" — and recorded a design tension against the
+first: `ap_mc68681_t` deliberately keeps no `now`, because a stored one must be
+refreshed on every advance and that is the exact-skip item's own blocker.
+
+**The second route cost one counter.** 3.6864 MHz / 38.4 kHz is exactly 96, so
+the sampling tap is **X1/96** — and the board already delivers X1 pulses to this
+part for the counter/timer. The sampler is `if (++sample_divider >= 96)`, placed
+*before* `ap_mc68681_clock`'s counter guard because a baud-rate-generator tap
+does not stop when the counter does. The struct still keeps no `now`.
+
+The window is this board's crystal, not the datasheet's number: `AP_SIO_X1_HZ`
+is 3.6 MHz here, derived and checked from the firmware's own refresh preload, so
+the sample period is 26.67 µs and a transition qualifies between 26.67 and 53.33
+µs after the edge. Hard-coding 25 µs would have transcribed a number instead of
+modelling the divider that produces it.
+
+### Only the change bits are filtered, and that is what saves the boot
+
+`IPCR[3:0]` is "the current state of the respective inputs. The information is
+**unlatched**" (doc 2-200), and the input port register at `D16` is "this
+**unlatched** 7-bit port". So the level follows a pin immediately.
+
+That distinction is load-bearing. `FINDINGS.md` C116 disassembles the boot PROM's
+refresh check: **one** `btst #$4` waiting for delta-IP0, then five cycles counted
+with `btst #$0` on the *level*. The level count is untouched by the filter.
+
+**And the one delta the firmware waits for still arrives — by aliasing.** The
+refresh square wave's half period is 7.5 µs and the sampler runs every 26.67 µs,
+which is 3.5556 half periods per sample. That is not a whole number, so
+successive samples land at the same level often and a change registers within a
+few samples although no transition is ever "seen". A faithful filter therefore
+does not break this machine, and `sio_suite` asserts both halves: the delta is
+**absent** after one half period, where the old model set it, and present within
+eight sample periods.
+
+*What this had to be checked against before it could be written*: a 15 µs square
+wave through a 25-50 µs filter looks like a contradiction, and it would have been
+one if the firmware had counted the change bits instead of the levels. The
+disassembly settles it, and the test now encodes the settlement.
+
+### Verification
+
+`mc68681_suite` 58 → 61: a pulse pumped high inside every sample period and
+never reported; a held level absent at one sample period and present at two; and
+the detector still sampling with the counter stopped, which is the state a part
+is in until a driver programs the timer — a sampler placed after the counter
+guard would have made carrier detect depend on whether the memory refresh had
+been started. `sio_suite`'s four input tests now qualify their transitions, and
+the refresh loopback test carries the aliasing above.
+
+`ap_sio_interrupt_next_change` gained a term for it: a pending change on an
+`ACR`-enabled pin bounds at the **next sample**, because the detector can raise
+`ISR[7]` with the counter stopped and a bound derived from the counter alone
+would miss exactly that. Gated on `ACR[3:0]` because that function bounds the
+interrupt output, and `ap_sio_advance` runs every tick regardless, so the
+register is never late. And `ap_board_hash_calendar`'s sibling, the DUART hasher,
+gained all three fields: two runs agreeing on the pins but disagreeing on the
+divider, the sample history or the confirmed level will report `IPCR[7:4]` at
+different instants.
 
 ## `007196-01` is walked whole — 722 of 722, and the last document is finished
 

@@ -626,6 +626,82 @@ static void test_the_two_channels_are_independent(void) {
   TEST_ASSERT_EQUAL_HEX8('z', byte);
 }
 
+/* Run the input-port change detector far enough to confirm a level.
+ *
+ * `[2681]` doc 2-193's detector samples at X1/96 and "requires two successive
+ * samples at the new logic level be observed", so a transition needs at most
+ * two sample periods to reach `IPCR[7:4]`. Every test below that drives a pin
+ * and then looks at the change bits must go through this: setting a pin no
+ * longer sets the bit, which is the whole point of the filter. */
+static void qualify_input_change(ap_mc68681_t *d) {
+  for (unsigned i = 0; i < 2u * AP_MC68681_INPUT_SAMPLE_DIVIDER; i++) {
+    ap_mc68681_clock(d);
+  }
+}
+
+/* A pulse narrower than the detector's sample period is not reported at all --
+ * `[2681]` doc 2-193, "a high-to-low or low-to-high transition of these inputs,
+ * lasting longer than 25-50 us, will set the corresponding bit". This is the
+ * behaviour the model lacked: it used to record every transition, however
+ * short, the instant it happened. */
+static void test_a_pulse_shorter_than_a_sample_period_is_never_reported(void) {
+  ap_mc68681_t d;
+  ap_mc68681_reset(&d);
+  ap_mc68681_write(&d, AP_MC68681_IPCR_ACR, 0x0Fu);
+
+  /* Up and down again inside one sample period, repeatedly -- the detector
+   * never sees two successive samples at the new level because the level is
+   * back before the next sample lands. */
+  for (unsigned pulse = 0; pulse < 10u * AP_MC68681_INPUT_SAMPLE_DIVIDER;
+       pulse++) {
+    const bool high = (pulse % AP_MC68681_INPUT_SAMPLE_DIVIDER) == 40u;
+    ap_mc68681_set_input(&d, high ? 0x04u : 0x00u);
+    ap_mc68681_clock(&d);
+  }
+
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_mc68681_read(&d, AP_MC68681_IPCR_ACR) & 0xF0u);
+  TEST_ASSERT_FALSE((d.isr & AP_MC68681_ISR_INPUT) != 0u);
+}
+
+/* And a level that stays is reported, but not before the detector has had two
+ * samples at it. The two assertions together are the 25-50 us window: nothing
+ * at one sample period, the change by two. */
+static void test_a_held_level_is_reported_only_after_two_samples(void) {
+  ap_mc68681_t d;
+  ap_mc68681_reset(&d);
+  ap_mc68681_write(&d, AP_MC68681_IPCR_ACR, 0x0Fu);
+
+  ap_mc68681_set_input(&d, 0x04u);
+  /* One sample period cannot be enough: the first sample at the new level has
+   * no predecessor to agree with. */
+  for (unsigned i = 0; i < AP_MC68681_INPUT_SAMPLE_DIVIDER; i++) {
+    ap_mc68681_clock(&d);
+  }
+  TEST_ASSERT_EQUAL_HEX8(0u, d.ipcr & 0xF0u);
+
+  for (unsigned i = 0; i < AP_MC68681_INPUT_SAMPLE_DIVIDER; i++) {
+    ap_mc68681_clock(&d);
+  }
+  TEST_ASSERT_EQUAL_HEX8(0x40u, d.ipcr & 0xF0u);
+}
+
+/* The detector runs off a baud-rate tap, not off the counter -- so it must keep
+ * sampling with the counter stopped, which is the state a part is in until a
+ * driver programs the timer. A model that ran the sampler after
+ * `ap_mc68681_clock`'s counter guard would make carrier detect depend on
+ * whether the memory refresh happened to have been started. */
+static void test_the_detector_samples_with_the_counter_stopped(void) {
+  ap_mc68681_t d;
+  ap_mc68681_reset(&d);
+  ap_mc68681_write(&d, AP_MC68681_IPCR_ACR, 0x0Fu);
+  TEST_ASSERT_FALSE(d.counter_running);
+  TEST_ASSERT_FALSE(ap_mc68681_timer_mode(&d));
+
+  ap_mc68681_set_input(&d, 0x02u);
+  qualify_input_change(&d);
+  TEST_ASSERT_EQUAL_HEX8(0x20u, d.ipcr & 0xF0u);
+}
+
 static void test_reading_the_input_change_register_clears_it(void) {
   ap_mc68681_t d;
   ap_mc68681_reset(&d);
@@ -634,6 +710,7 @@ static void test_reading_the_input_change_register_clears_it(void) {
    * machine read `10` and then `00` from the two bytes of this one register,
    * which is what identified it. `FINDINGS.md` C14. */
   ap_mc68681_set_input(&d, 0x01);
+  qualify_input_change(&d);
   uint8_t first = ap_mc68681_read(&d, AP_MC68681_IPCR_ACR);
   uint8_t second = ap_mc68681_read(&d, AP_MC68681_IPCR_ACR);
 
@@ -653,6 +730,7 @@ static void test_an_input_change_raises_its_interrupt(void) {
 
   TEST_ASSERT_FALSE(ap_mc68681_irq(&d));
   ap_mc68681_set_input(&d, 0x04);
+  qualify_input_change(&d);
   TEST_ASSERT_TRUE(ap_mc68681_irq(&d));
 
   /* A pin whose enable is clear records its change and raises nothing. */
@@ -661,6 +739,7 @@ static void test_an_input_change_raises_its_interrupt(void) {
   ap_mc68681_write(&gated, AP_MC68681_ISR_IMR, AP_MC68681_ISR_INPUT);
   ap_mc68681_write(&gated, AP_MC68681_IPCR_ACR, 0x01u); /* IP0 only */
   ap_mc68681_set_input(&gated, 0x04u);                  /* IP2 changed */
+  qualify_input_change(&gated);
   TEST_ASSERT_FALSE(ap_mc68681_irq(&gated));
   TEST_ASSERT_TRUE((ap_mc68681_read(&gated, AP_MC68681_IPCR_ACR) & 0x40u) != 0u);
 
@@ -1446,6 +1525,9 @@ int main(void) {
   RUN_TEST(test_a_disabled_receiver_takes_nothing);
   RUN_TEST(test_a_character_written_comes_back_out);
   RUN_TEST(test_the_two_channels_are_independent);
+  RUN_TEST(test_a_pulse_shorter_than_a_sample_period_is_never_reported);
+  RUN_TEST(test_a_held_level_is_reported_only_after_two_samples);
+  RUN_TEST(test_the_detector_samples_with_the_counter_stopped);
   RUN_TEST(test_reading_the_input_change_register_clears_it);
   RUN_TEST(test_an_input_change_raises_its_interrupt);
   RUN_TEST(test_a_masked_interrupt_still_shows_in_the_status_register);

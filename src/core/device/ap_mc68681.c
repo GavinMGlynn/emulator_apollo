@@ -58,6 +58,13 @@ void ap_mc68681_reset(ap_mc68681_t *duart) {
    * The one register reset gives a *value* rather than clearing -- so a
    * `memset` alone gets it wrong, which is exactly what happened. */
   duart->ivr = 0x0Fu;
+  /* The change detector starts *tracking* the pins rather than differing from
+   * them. `memset` has already put `input`, `sampled` and `detected` at zero,
+   * which is that state; this says so, because a detector seeded to disagree
+   * with its own pins would report a change nobody made on the first sample
+   * after reset. */
+  duart->sampled = (uint8_t)(duart->input & 0x0Fu);
+  duart->detected = duart->sampled;
 }
 
 bool ap_mc68681_timer_mode(const ap_mc68681_t *duart) {
@@ -569,29 +576,66 @@ bool ap_mc68681_output_pin(const ap_mc68681_t *duart, unsigned pin,
  * **What would make it matter**: a frontend or a test that moves an input pin
  * faster than 25 us, or a driver that arms `ACR` before the pins settle. */
 void ap_mc68681_set_input(ap_mc68681_t *duart, uint8_t value) {
-  uint8_t changed = (uint8_t)(duart->input ^ value);
   duart->input = value;
-  if (changed != 0u) {
-    /* §4.2.14: the input port change register records *which* pins changed in
-     * its high nibble and their current state in the low one. */
-    duart->ipcr |= (uint8_t)((changed & 0x0Fu) << 4);
-    /* §4.2.13.3: `ACR[3:0]` "selects which bits of the input port change
-     * register can cause the input change bit in the interrupt status register
-     * (ISR[7]) to be set" -- so a pin whose enable is clear records its change
-     * in the `IPCR` and raises nothing.
-     *
-     * This set `ISR[7]` on *any* change, which is the difference between a
-     * board that interrupts on one wire and one that interrupts on all four.
-     * The `IPCR` record is deliberately still unconditional: the datasheet
-     * gates the *interrupt*, not the register. */
-    if ((changed & duart->acr & 0x0Fu) != 0u) {
-      duart->isr |= AP_MC68681_ISR_INPUT;
-    }
-  }
+  /* §4.2.14: `IPCR[3:0]` is the pins' *current* state and is **unlatched** --
+   * "the information is unlatched and reflects the state of the input pins at
+   * the time the IPCR is read". So the level moves here and now.
+   *
+   * The change bits do not. They belong to the 38.4 kHz detector, which
+   * `ap_mc68681_clock` runs; see `sample_divider` in the header. This function
+   * used to set them, and `ISR[7]` with them, the instant a pin moved -- which
+   * reported transitions the part filters out and the rest up to two sample
+   * periods early. */
   duart->ipcr = (uint8_t)((duart->ipcr & 0xF0u) | (value & 0x0Fu));
 }
 
+bool ap_mc68681_input_change_pending(const ap_mc68681_t *duart) {
+  return (uint8_t)(duart->input & 0x0Fu) != duart->detected;
+}
+
+/* One tick of the input-port change detector, `[2681]` doc 2-193.
+ *
+ * "The detection circuitry, in order to guarantee that a true change in level
+ * has occurred, requires **two successive samples at the new logic level** be
+ * observed." So a level is confirmed when this sample agrees with the previous
+ * one; a confirmed level that differs from the last confirmed level is the
+ * change, and it is what sets `IPCR[7:4]`.
+ *
+ * A pulse narrower than one sample period can still be caught -- if it happens
+ * to straddle two samples -- and one narrower than the *gap* between samples
+ * can be missed entirely. That is the part's behaviour, not an approximation of
+ * it: the datasheet's 25 and 50 us are the two ends of exactly this race. */
+static void sample_input_port(ap_mc68681_t *duart) {
+  const uint8_t level = (uint8_t)(duart->input & 0x0Fu);
+  const uint8_t previous = duart->sampled;
+  duart->sampled = level;
+  if (level != previous || level == duart->detected) {
+    return; /* not yet two successive samples, or nothing new to confirm */
+  }
+  const uint8_t changed = (uint8_t)(level ^ duart->detected);
+  duart->detected = level;
+  duart->ipcr |= (uint8_t)(changed << 4);
+  /* §4.2.13.3: `ACR[3:0]` "selects which bits of the input port change register
+   * can cause the input change bit in the interrupt status register (ISR[7]) to
+   * be set" -- so a pin whose enable is clear records its change in the `IPCR`
+   * and raises nothing. The `IPCR` record is unconditional: the datasheet gates
+   * the *interrupt*, not the register. */
+  if ((changed & duart->acr & 0x0Fu) != 0u) {
+    duart->isr |= AP_MC68681_ISR_INPUT;
+  }
+}
+
 void ap_mc68681_clock(ap_mc68681_t *duart) {
+  /* **Before the counter's guard, because the detector is not the counter.**
+   * The sampling clock is a baud-rate-generator tap and runs whenever the part
+   * is clocked; a stopped counter does not stop it. Putting this after the
+   * early return would have made carrier detect depend on whether the memory
+   * refresh timer happened to be running. */
+  if (++duart->sample_divider >= AP_MC68681_INPUT_SAMPLE_DIVIDER) {
+    duart->sample_divider = 0u;
+    sample_input_port(duart);
+  }
+
   if (!duart->counter_running && !ap_mc68681_timer_mode(duart)) {
     return;
   }

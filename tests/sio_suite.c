@@ -123,6 +123,17 @@ static void test_the_refresh_period_is_exact_in_base_units(void) {
                            (AP_TIME_BASE_HZ * 15u) / 1000000u);
 }
 
+/* Run one part's input-port change detector far enough to confirm a level.
+ *
+ * `[2681]` doc 2-193 samples at X1/96 and needs two successive samples at the
+ * new level, so driving a pin no longer sets `IPCR[7:4]` on its own. See
+ * `ap_mc68681.h`'s `sample_divider`. */
+static void qualify_input_change(ap_mc68681_t *part) {
+  for (unsigned i = 0; i < 2u * AP_MC68681_INPUT_SAMPLE_DIVIDER; i++) {
+    ap_mc68681_clock(part);
+  }
+}
+
 static void test_the_serial_ports_raise_the_second_priority_interrupt(void) {
   ap_sio_t sio;
   ap_intr_t intr;
@@ -141,6 +152,7 @@ static void test_the_serial_ports_raise_the_second_priority_interrupt(void) {
   ap_sio_write(&sio, AP_SIO1_ADDR + 10u, AP_MC68681_ISR_INPUT);
   ap_sio_write(&sio, AP_SIO1_ADDR + 8u, 0x0Fu); /* ACR: all four deltas */
   ap_mc68681_set_input(&sio.port[0], 0x02);
+  qualify_input_change(&sio.port[0]);
   TEST_ASSERT_TRUE(ap_sio_irq(&sio));
 
   ap_intr_set_request(&intr, AP_SIO_IRQ, ap_sio_irq(&sio));
@@ -597,10 +609,34 @@ static void test_the_refresh_output_returns_to_the_input_port(void) {
   TEST_ASSERT_EQUAL_INT(ap_sio_refresh_output(&sio) ? 1 : 0,
                         sio.port[AP_SIO_RAM_CONFIG_UNIT].input & 0x01u);
 
-  /* And the change is *visible* in the change register, which is the bit the
-   * firmware actually polls -- a pin that changed with no delta flag would
-   * leave the PROM spinning exactly as it did before the wire existed. */
-  TEST_ASSERT_TRUE((sio.port[AP_SIO_RAM_CONFIG_UNIT].ipcr & 0x10u) != 0u);
+  /* **The delta bit is not set yet, and that is the filter working.** The
+   * refresh wave's half period is 7.5 us and the change detector samples every
+   * 96 X1 pulses -- 26.67 us on this board's 3.6 MHz crystal -- so a single
+   * half period cannot produce two successive samples at a new level. Before
+   * the detector existed this assertion read `TRUE` here. */
+  TEST_ASSERT_EQUAL_HEX8(0u, sio.port[AP_SIO_RAM_CONFIG_UNIT].ipcr & 0x10u);
+
+  /* **But it does get set, by aliasing, and that is what keeps the boot PROM's
+   * poll from spinning for ever.** `FINDINGS.md` C116 disassembles the poll:
+   * one `btst #$4` waiting for delta-IP0, then five cycles counted with
+   * `btst #$0` on the *level*. A 7.5 us half period sampled every 26.67 us is
+   * 3.5556 half periods per sample, which is not a whole number -- so
+   * successive samples land at the same level often, and a change registers
+   * within a few samples even though no transition is ever "seen".
+   *
+   * That is the whole reason a faithful filter does not break this machine, and
+   * it is worth an assertion rather than an argument: the level count is
+   * unaffected because `IPCR[3:0]` is unlatched, and the one delta the firmware
+   * waits for arrives. */
+  const ap_time_t sample = AP_MC68681_INPUT_SAMPLE_DIVIDER *
+                           sio.x1[AP_SIO_RAM_CONFIG_UNIT].period;
+  bool delta = false;
+  for (unsigned i = 0; i < 8u && !delta; i++) {
+    now += sample;
+    ap_sio_advance(&sio, now);
+    delta = (sio.port[AP_SIO_RAM_CONFIG_UNIT].ipcr & 0x10u) != 0u;
+  }
+  TEST_ASSERT_TRUE(delta);
 }
 
 /* The loopback must not disturb the RAM configuration on the other six pins:
@@ -975,6 +1011,7 @@ static void test_an_input_transition_on_the_second_duart_gates_on_its_enable(
   ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_ISR_IMR * 2u),
                AP_MC68681_ISR_INPUT);
   ap_mc68681_set_input(&sio.port[1], IP2);
+  qualify_input_change(&sio.port[1]);
   TEST_ASSERT_FALSE(ap_sio_irq(&sio));
 
   /* The delta is in the IPCR's high nibble all the same, and the pin's current
@@ -988,6 +1025,7 @@ static void test_an_input_transition_on_the_second_duart_gates_on_its_enable(
    * raises the interrupt. */
   ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_IPCR_ACR * 2u), IP2);
   ap_mc68681_set_input(&sio.port[1], 0x00u);
+  qualify_input_change(&sio.port[1]);
   TEST_ASSERT_TRUE(ap_sio_irq(&sio));
 
   /* And a *different* pin's change still raises nothing, so the gate is
@@ -998,6 +1036,7 @@ static void test_an_input_transition_on_the_second_duart_gates_on_its_enable(
   ap_sio_write(&sio, AP_SIO2_ADDR + (AP_MC68681_ISR_IMR * 2u),
                AP_MC68681_ISR_INPUT);
   ap_mc68681_set_input(&sio.port[1], 0x08u); /* IP3, not enabled */
+  qualify_input_change(&sio.port[1]);
   TEST_ASSERT_FALSE(ap_sio_irq(&sio));
 }
 

@@ -195,7 +195,48 @@ typedef struct {
   uint8_t ipcr;   /* input port change; cleared by reading it */
   uint8_t opcr;
   uint8_t opr;    /* output port */
-  uint8_t input;  /* the input port pins */
+  uint8_t input;  /* the input port pins, raw and unlatched */
+
+  /* ## The change-of-state detector, which is a filter and not a comparator
+   *
+   * `[2681]` doc 2-193, Input Port: "Four change-of-state detectors are
+   * provided which are associated with inputs IP3, IP2, IP1, and IP0. A
+   * high-to-low or low-to-high transition of these inputs, **lasting longer
+   * than 25-50 us**, will set the corresponding bit in the input port change
+   * register." The same page gives the mechanism, which is what makes it a
+   * range rather than a figure: "The input port pulse detection circuitry uses
+   * a **38.4KHz sampling clock derived from one of the baud rate generator
+   * taps** ... The detection circuitry, in order to guarantee that a true
+   * change in level has occurred, requires **two successive samples at the new
+   * logic level** be observed."
+   *
+   * **Only the change bits are filtered.** `IPCR[3:0]` is "the current state of
+   * the respective inputs. The information is **unlatched** and reflects the
+   * state of the input pins at the time the IPCR is read" (doc 2-200), and the
+   * input port register at `D16` is likewise "this **unlatched** 7-bit port".
+   * So `input` and `IPCR`'s low nibble follow a pin immediately; `IPCR[7:4]`
+   * and `ISR[7]` follow the detector.
+   *
+   * **The sampler is a divider of X1, so it needs no clock of its own and no
+   * `now`.** 3.6864 MHz / 38.4 kHz is exactly 96, so the tap is X1/96 and the
+   * board already delivers X1 pulses to this part for the counter/timer. That
+   * is what makes this cheap: the plan item that carried this gap for weeks
+   * named two routes -- an `ap_mc68681_set_input(..., now)` or "a 38.4 kHz
+   * sampling tick driven from the board, the second being closer to the silicon
+   * and the more expensive" -- and the second turned out to cost one counter,
+   * because the tick was already arriving. The design tension the item recorded
+   * (this struct keeps no `now`, see the closing comment) never applied to it.
+   *
+   * **The window is this board's crystal, not the datasheet's number.**
+   * `AP_SIO_X1_HZ` is 3.6 MHz here, derived and checked from the firmware's own
+   * refresh preload, so the sample period is 96/3.6 MHz = 26.67 us and a
+   * transition qualifies between 26.67 and 53.33 us after the edge. The
+   * datasheet's 25-50 us is the same mechanism at its own 3.6864 MHz. Hard-
+   * coding 25 us would have been transcribing a number instead of modelling the
+   * divider that produces it. */
+  uint8_t sample_divider; /* X1 pulses since the last sample, 0..95 */
+  uint8_t sampled;        /* IP3-IP0 at the previous sample */
+  uint8_t detected;       /* the level two successive samples have confirmed */
 
   uint16_t preload; /* CTUR:CTLR */
   uint16_t counter;
@@ -514,9 +555,27 @@ void ap_mc68681_receive_framed(ap_mc68681_t *duart, unsigned channel,
 [[nodiscard]] bool ap_mc68681_transmit(ap_mc68681_t *duart, unsigned channel,
                                        uint8_t *byte);
 
-/* Drive the input port pins. A change sets the input port change register and
- * `ISR[7]`. */
+/* Drive the input port pins.
+ *
+ * The level is taken immediately -- `input` and `IPCR[3:0]` are unlatched. The
+ * *change* bits are not: they follow the 38.4 kHz detector described at
+ * `sample_divider`, so a transition shorter than one sample period is never
+ * reported and a longer one is reported one to two sample periods late. */
 void ap_mc68681_set_input(ap_mc68681_t *duart, uint8_t value);
+
+/* True while a pin sits at a level the change-of-state detector has not yet
+ * confirmed -- so a future sample can still set `IPCR[7:4]` and `ISR[7]` with
+ * no further write and no further input.
+ *
+ * This is what stops the exact-skip bound from answering `never` across a
+ * pending transition: the counter may be idle, but the detector is not. */
+[[nodiscard]] bool ap_mc68681_input_change_pending(const ap_mc68681_t *duart);
+
+/* X1 pulses per sample of the input-port change detector, `[2681]` doc 2-193:
+ * a 38.4 kHz tap of a 3.6864 MHz clock is exactly X1/96. Expressed as a divider
+ * rather than a frequency so it follows this board's crystal -- see
+ * `sample_divider` for why that matters. */
+#define AP_MC68681_INPUT_SAMPLE_DIVIDER 96u
 
 /* The level on an output pin, `OP0` to `OP7`.
  *

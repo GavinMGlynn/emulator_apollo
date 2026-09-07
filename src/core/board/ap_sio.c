@@ -81,6 +81,35 @@ ap_time_t ap_sio_interrupt_next_change(const ap_sio_t *sio) {
      * one instruction ahead and would make the whole aggregate worthless. The
      * counter is idle for most of a boot, and then this part answers `never`. */
     const ap_mc68681_t *part = &sio->port[unit];
+
+    /* **The change-of-state detector can raise `ISR[7]` with the counter
+     * stopped**, so it is bounded first and separately. A pin sitting at a
+     * level the detector has not confirmed will be sampled again at the next
+     * X1/96 boundary, and that sample can set `IPCR[7:4]` and `ISR[7]` with no
+     * write and no further input -- which is precisely the shape this function
+     * exists to catch, and precisely what a bound derived from the counter
+     * alone would miss.
+     *
+     * Gated on `ACR[3:0]` because this function bounds the *interrupt* output:
+     * a pending change on a pin whose enable is clear moves the `IPCR` and
+     * nothing else, and `ap_sio_advance` runs on every tick regardless, so the
+     * register is never late. Bounding on it would cost a sample every 26.67 us
+     * for a bit no interrupt can follow.
+     *
+     * The next sample, not the second: a level whose *previous* sample already
+     * agreed is confirmed by the very next one. Early is a wasted sample; late
+     * would lose an interrupt. */
+    if (ap_mc68681_input_change_pending(part) &&
+        ((uint8_t)(part->input ^ part->detected) & part->acr & 0x0Fu) != 0u) {
+      const uint64_t to_sample =
+          AP_MC68681_INPUT_SAMPLE_DIVIDER - part->sample_divider;
+      const ap_time_t at =
+          sio->clocked_to[unit] + to_sample * sio->x1[unit].period;
+      if (at < next) {
+        next = at;
+      }
+    }
+
     if (!part->counter_running && !ap_mc68681_timer_mode(part)) {
       continue;
     }

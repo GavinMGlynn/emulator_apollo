@@ -281,6 +281,15 @@ static void hash_mc68681(ap_hash_t *st, const ap_mc68681_t *duart,
   ap_hash_u8(st, duart->opcr);
   ap_hash_u8(st, duart->opr);
   ap_hash_u8(st, duart->input);
+  /* The change-of-state detector's three fields. All three are real state: the
+   * divider decides *when* the next sample lands, `sampled` is the one-sample
+   * history the two-successive-samples rule needs, and `detected` is the level
+   * every future change is measured against. Two runs that agree on the pins
+   * and disagree on any of these will report `IPCR[7:4]` at different instants,
+   * which is a divergence this hash exists to catch. */
+  ap_hash_u8(st, duart->sample_divider);
+  ap_hash_u8(st, duart->sampled);
+  ap_hash_u8(st, duart->detected);
 
   ap_hash_u16(st, duart->preload);
   ap_hash_u16(st, duart->counter);

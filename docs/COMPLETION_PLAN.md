@@ -6678,31 +6678,21 @@ same number is what let them diverge once already.
       two vendors' independent documents. Detail in `SCN2681_WALK.md` and
       `PROJECT_STATUS.md`.
 
-- [ ] **PROVISIONAL: the input-port change detector has a 25-50 µs filter and
-      this core has none.** Assessed 2026-08-22 and deliberately *not* built;
-      the reasoning is in `ap_mc68681.c` above `ap_mc68681_set_input`.
-      **Why not**: qualifying a transition needs the part to know the time, and
-      `ap_mc68681_t` deliberately keeps no `now` — a stored one must be
-      refreshed on every advance whether or not anything moved, which is the
-      blocker the exact-skip item names. Undoing that for a part the boot
-      exercises on every character needs a reason, and there is not one yet:
-      the only driver of these pins is `--sio-input` at script timescales, and
-      the DCD thread's own finding is that every boot sets the pins *before*
-      `ACR` is programmed, so no transition occurs after arming.
-      **Cost to close**: a `now` parameter plus a pending-transition latch, or a
-      38.4 kHz sampling tick from the board (closer to the silicon, dearer).
-      **What would make it matter**: anything moving an input pin faster than
-      25 µs, or a driver arming `ACR` before the pins settle.
-      *Original finding:* Found 2026-08-22, `[2681]` doc 2-193: a transition must last
-      "**longer than 25-50 µs**" to set an `IPCR` bit, because detection samples
-      at 38.4 kHz and **requires two successive samples at the new level**.
-      `ap_mc68681_set_input` sets the delta bits immediately, so this core
-      reports transitions the part would ignore and reports the rest up to 50 µs
-      early. **This bears on the open `siologin`/DCD item**, whose remaining
-      sub-question is precisely the *ordering* of a DCD transition against the
-      driver's `ACR` write. *Verification: `sio_suite` — a sub-25 µs pulse
-      leaving `IPCR` clear, and a qualifying one recorded no earlier than 25 µs
-      after the edge.*
+- [x] **The input-port change detector's 25-50 µs filter — done 2026-09-08.**
+      `[2681]` doc 2-193's sampler is modelled: X1/96, two successive samples at
+      the new level, so a transition shorter than a sample period is never
+      reported and a longer one is reported one to two sample periods late.
+      `IPCR[3:0]` and the input port register stay **unlatched**, which is what
+      the datasheet says and what keeps the boot PROM's level count intact.
+      **The blocker this item recorded never applied to the route it named**: it
+      offered an `..._set_input(..., now)` or "a 38.4 kHz sampling tick driven
+      from the board, the second being ... more expensive", and the second cost
+      one counter because the board already delivers X1 pulses to the part.
+      *Verification: `mc68681_suite` 58 → 61, `sio_suite`, one identity boot* —
+      and the boot is the measurement: reference hash moves to
+      `FE2BB02AEF1F4624` with the console byte-identical and **`sio1 reg 4`
+      reads 179 → 543**, which is the PROM's delta-IP0 poll waiting for the
+      detector. Detail in `PROJECT_STATUS.md`.
 
 - [ ] **Walk the remaining part datasheets whole — the batch.** Opened
       2026-08-22 after `[765]` and `[2681]` each turned a "minor difference" or a
