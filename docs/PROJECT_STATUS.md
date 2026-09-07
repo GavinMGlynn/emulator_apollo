@@ -434,6 +434,44 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## `siomonit` cannot carry `lcnode`, and it fails for the reason C238 measured
+## (2026-09-08, RESOLVED)
+
+Before the MD route worked, the plan for the two-node frame check was to give
+each volume a `siomonit_file` that runs `/com/lcnode` instead of `siologin`:
+`siomonit` spawns its command on the named device and `-repeat`s it, so a node
+would put traffic on the ring with no console dialogue at all. Both volumes were
+rewritten in the oracle and read back —
+
+    -repeat /dev/sio2 -n lcnode_probe /com/lcnode
+
+— and **it produces nothing**. A 3 G-instruction boot reaches `SPM system init
+complete.`, `Node ID = 12345`, and the SPM log line showing `siomonit` started
+with our file; `sio2` then shows **no data register touched in either
+direction** — no `reg 3`, no `reg 11`, read or written — across 1.5 G
+instructions past SPM.
+
+That is the entry two above, from the other side. Domain/OS reads `sio1`'s
+interrupt status 65,124 times and `sio2`'s zero and never touches `sio2`'s data
+registers; a process whose stdout *is* `/dev/sio2` is on the wrong side of the
+same wall. Whether `lcnode` ran is not the question — nothing this operating
+system does reaches that port.
+
+**The volumes are not wasted.** `media/dn3500-nodeA-lcnode.awd` and
+`media/dn3500-nodeB-lcnode.awd` are two cleanly-shut, same-era volumes with
+distinct node IDs — 12345 and 22222, dismounted five seconds apart — which is
+what a two-node run wants, and the `siomonit_file` change in them is inert.
+
+*The cost of asking on the right machine.* This was settled by a **single-node**
+3 G probe costing 50 minutes, instead of the two-node run of the same question,
+which is about ten hours at the runner's measured 46 k instructions/s per node.
+
+*Verification: `tools/spm-boot.sh` on a copy, `--boot-limit 3000000000`;
+`FINDINGS.md` C242. The volume-editing route is `FINDINGS.md` C211 plus three
+things it does not record — `/com/` prefixes on `catf` and `tee`, eight-character
+typing chunks with a pause, and a `--commands-timeout` that outlasts `shut`.*
+
+
 ## MD talks, a shell opens, and `/com/lcnode` runs on this core
 ## (2026-09-08, RESOLVED)
 

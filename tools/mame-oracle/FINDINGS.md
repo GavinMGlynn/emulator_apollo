@@ -13157,3 +13157,43 @@ deadlock from a run that got further than any before it and stopped somewhere
 new. The rate was **predicted before the run** -- 2400 because `$C7` is the
 shape a 2400 terminal makes at a 2000-baud receiver -- which is the difference
 between deriving a number and searching for one.
+
+## C242 -- `siomonit` cannot be used to run `lcnode`, and it fails for C238's reason
+
+Before the MD route worked, the plan was to give each node's volume a
+`siomonit_file` that runs `/com/lcnode` instead of `siologin` -- `siomonit`
+spawns its command on the named device and `-repeat`s it, so a node would put
+traffic on the ring with no console dialogue at all. Both volumes were rewritten
+in the oracle and read back:
+
+    -repeat /dev/sio2 -n lcnode_probe /com/lcnode
+
+**It produces nothing.** A 3 G-instruction boot of node A's volume reaches
+`SPM system init complete.`, `Node ID = 12345`, and
+
+      12:03:02   Op: CPS  Name: "siomonit"  Command: "/sys/siologin/siomonit
+                 /sys/node_data/siomonit_file"
+
+-- so `siomonit` is started, with our file -- and then `sio2` shows **no data
+register touched in either direction**: no `reg 3`, no `reg 11`, read or
+written, in a run that ran 1.5 G instructions past SPM.
+
+**Which is C238, from the other side.** That finding measured Domain/OS reading
+`sio1`'s interrupt status 65,124 times and `sio2`'s zero, and never touching
+`sio2`'s data registers at all. A process whose stdout *is* `/dev/sio2` is on
+the wrong side of the same wall: it does not matter whether `lcnode` ran, because
+nothing this operating system does reaches that port.
+
+*So the route is spent, and the volumes are not wasted*: `media/dn3500-nodeA-lcnode.awd`
+and `media/dn3500-nodeB-lcnode.awd` are two cleanly-shut, same-era volumes with
+distinct node IDs, which is what a two-node run wants; the `siomonit_file` change
+in them is inert.
+
+**And the route that does work is C241's**: the Mnemonic Debugger on the serial
+console, `SH`, `login: user`, `/com/lcnode` -- which needs the *console* line,
+the one Domain/OS actually serves.
+
+*Method note.* The 3 G single-node probe cost 50 minutes and was run instead of
+the two-node version of the same question, which would have cost about ten
+hours to reach the same negative. Ask a question on the cheapest machine that
+can answer it.
