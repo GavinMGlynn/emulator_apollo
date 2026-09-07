@@ -305,6 +305,22 @@ def main() -> int:
             source_check("a console dialogue cannot deadlock on a prompt "
                          "printed early: %s" % what, fragment in main_c)
 
+        # `--boot-input-rate` has to reach the **two-node** runner as well, or
+        # one harness can do something the other cannot: reaching MD needs 2400
+        # baud (`FINDINGS.md` C241) and the ring runner sent at a hardcoded
+        # 0xBB, so `--ring-script-a/-b` could never be driven to a shell.
+        for fragment, what in (
+                ("static uint8_t g_console_rate = AP_SIO_CONSOLE_RATE;",
+                 "the rate is a variable"),
+                ("g_console_rate = (uint8_t)boot_input_rate;",
+                 "--boot-input-rate sets it"),
+                ("(uint8_t)knock[0],\n                            g_console_rate)",
+                 "the two-node knock uses it"),
+                ("(uint8_t)byte, g_console_rate)",
+                 "the two-node script uses it")):
+            source_check("the two-node runner sends at --boot-input-rate: %s"
+                         % what, fragment in main_c)
+
         # ---- the model table's fields must be consulted, not just declared ----
         #
         # `model/`'s own rule is "all machine variance lives here, and every

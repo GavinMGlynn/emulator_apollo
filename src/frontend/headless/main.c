@@ -1251,6 +1251,20 @@ static unsigned g_script_channel = 0u;
 #define AP_SIO_CONSOLE_CHANNEL 1u
 #define AP_SIO_CONSOLE_RATE 0xBBu
 
+/* The rate the **two-node** runner's knock and script send at.
+ *
+ * It was `AP_SIO_CONSOLE_RATE` outright, and that made one harness unable to do
+ * something the other could: the single-machine path takes `--boot-input-rate`,
+ * and reaching the Mnemonic Debugger needs **2400** rather than 9600, because
+ * the boot PROM's console election runs a 2000-baud receiver whose autobaud
+ * table answers a 9600 `0D` with 4800 and then discards the election
+ * (`FINDINGS.md` C240, C241). A two-node run could therefore never be driven to
+ * a shell, whatever its script said.
+ *
+ * `--boot-input-rate`'s own default is `0xBB`, so a run that does not ask for
+ * anything is byte-identical to what this constant gave it. */
+static uint8_t g_console_rate = AP_SIO_CONSOLE_RATE;
+
 /* Defined below, beside the single-machine path that also uses it: a node
  * presents the ID its own volume records. */
 static bool node_id_from_volume(const char *path, uint32_t *out);
@@ -1879,7 +1893,7 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
         if (knock_pace[i] == 0u) {
           ap_sio_receive_at(&board[i].sio, AP_SIO_CONSOLE_UNIT,
                             AP_SIO_CONSOLE_CHANNEL, (uint8_t)knock[0],
-                            AP_SIO_CONSOLE_RATE);
+                            g_console_rate);
           if (ap_sio_receiver_ready(&board[i].sio, AP_SIO_CONSOLE_UNIT,
                                     AP_SIO_CONSOLE_CHANNEL) &&
               knocked[i] < sizeof knock - 1u) {
@@ -1899,7 +1913,7 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
         const int byte = console_script_next(&script[i]);
         if (byte >= 0) {
           ap_sio_receive_at(&board[i].sio, script_unit, script_channel,
-                            (uint8_t)byte, AP_SIO_CONSOLE_RATE);
+                            (uint8_t)byte, g_console_rate);
           if (!ap_sio_receiver_ready(&board[i].sio, script_unit,
                                      script_channel)) {
             script[i].sent--; /* not taken: put it back */
@@ -6541,6 +6555,9 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--boot-input-rate") == 0 && i + 1 < argc) {
       boot_input_rate = (unsigned)strtoul(argv[i + 1], NULL, 0);
+      /* The two-node runner sends at this too, so one flag serves both
+       * harnesses -- C214's rule, applied to the rate rather than the script. */
+      g_console_rate = (uint8_t)boot_input_rate;
       i += 2;
       continue;
     }
