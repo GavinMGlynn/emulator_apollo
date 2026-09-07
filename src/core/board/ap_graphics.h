@@ -890,6 +890,23 @@ typedef struct {
  * stride shears the image progressively down the screen, which reads as a
  * timing fault rather than as an arithmetic one.
  *
+ * **And the operating system says what the extra memory is for.**
+ * `007196-01`'s `PAD` chapter, PAD-40: `PAD_$LOAD_FONT` "merely loads the font
+ * into the **invisible portion of display memory** and returns a font ID", with
+ * up to 100 fonts per pad. So the 224 lines a 1024x1024 plane has beyond the
+ * 1024x800 visible area are a glyph cache the Display Manager blits from -- not
+ * slack. A model that only ever renders the visible region is right about what
+ * reaches the screen and wrong about what the memory *contains*, which matters
+ * the moment a dump of display RAM is compared against the oracle's.
+ *
+ * Two smaller figures from the same chapter, recorded where the geometry is:
+ * PAD-53 says "one raster unit is equal to **one bit in the display**", which
+ * is this file's pixel-per-plane-bit model stated from above; and PAD-54 says
+ * "the display contains approximately **100 bits per inch**", the only pixel
+ * pitch any source held here gives. At 100 dpi a 1024-pixel line is 10.2 inches
+ * and 1024 lines are 10.2 -- consistent with a 15-inch diagonal tube, which is
+ * what `PAD_$BW_15P` is named for.
+ *
  * The 15-inch 1024 x 800 monochrome is **not in this manual** -- Chapter 10
  * covers the 4-plane, the 1280 x 1024 monochrome and the 8-plane, and that
  * board is later. Its geometry is the oracle's, and is marked as such here

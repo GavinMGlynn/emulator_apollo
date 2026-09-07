@@ -6192,8 +6192,12 @@ same number is what let them diverge once already.
       **All nine device chapters are finished, 2026-09-07** — `SIO`, `CAL`,
       `CTM`, `FPP`, `GMF`, `MTS`, `SMD`, `TIME`, `TONE` and `TPAD` — and the
       remainder is being walked in document order. **`ERROR`, `ACLM`, `EC2`, `IOS`,
-      `IOS_DIR`, `IPC`, `MBX`, `MS`, `MUTEX` and `NAME` are done too**, 396 of
-      722; 326 pages remain. **`MS` checks a hardware register from the software side**:
+      `IOS_DIR`, `IPC`, `MBX`, `MS`, `MUTEX`, `NAME` and `PAD` are done too**,
+      456 of 722; 266 pages remain. **`PAD` gives `ap_graphics.h` two figures**:
+      the display is "approximately 100 bits per inch" — the only pixel pitch
+      any source here has — and the invisible part of display memory is where
+      `PAD_$LOAD_FONT` puts up to 100 fonts, so the 224 lines past the visible
+      area are a glyph cache rather than slack. **`MS` checks a hardware register from the software side**:
       `MS_$TRUNCATE` says a page-aligned length is "a multiple of 1024", and
       this machine's `TC` (`82A28750`, from the identity boot) has `PS` = 10,
       a 1024-byte page, with the manual's `PS+IS+TIA+TIB+TIC = 32` rule closing

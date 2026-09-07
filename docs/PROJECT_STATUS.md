@@ -40047,6 +40047,50 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s PAD chapter walked whole — the pixel pitch, and what the off-screen memory holds
+
+PDF 349-408, 456 of 722. Fifty-seven pages of Display Manager calls, most of it
+window management with nothing below it. Four things in it are hardware facts no
+source held here had, and `ap_graphics.h` now carries two of them.
+
+**What the invisible display memory is for.** `PAD_$LOAD_FONT` "merely loads the
+font into the **invisible portion of display memory** and returns a font ID", up
+to 100 fonts per pad. `ap_graphics.h` derives each board's buffer width from
+`008778-03`'s printed capacities — a 4-plane board's 128 KB plane is 1024×1024
+bits with 1024×800 visible — and warns that using the visible width as the stride
+shears the image. This says what the extra 224 lines *hold*: a glyph cache the
+Display Manager blits from. A model that treats the region as slack is right
+about the screen and wrong about the memory, which matters the first time a
+display-RAM dump is compared against the oracle's.
+
+**The pixel pitch, which no source here had.** PAD-54: "the display contains
+approximately **100 bits per inch**", with a worked example putting tab stops at
+100, 300 and 500 raster units "about 1, 3, and 5 inches from the left edge". At
+100 dpi a 1024-pixel line is 10.2 inches, consistent with the 15-inch diagonal
+`PAD_$BW_15P` is named for. And PAD-53: "one raster unit is equal to **one bit in
+the display**" — this file's pixel-per-plane-bit model stated from above. Both
+are now recorded in `ap_graphics.h` beside the geometry.
+
+**Three keyboards.** `PAD_$INQ_KBD` returns a filename suffix: null for the
+**880** keyboard, `"2"` for the **low-profile**, `"3"` for the low-profile **with
+numeric keypad**. `ap_kbd.h` models one, from `002398-04` ch. 13 and the `FF 12
+21` identification string. Recorded and not acted on — nothing in this core's
+boot depends on which of the three it is, and adding a second keyboard model to
+match a suffix would be a change with no measurement behind it.
+
+**The display census is a second printing, not a second witness.**
+`PAD_$INQ_DISP_TYPE` returns the same eight values with the same dimensions as
+`SMD_$INQ_DISP_TYPE`, already recorded. Two chapters of one manual corroborate a
+printing; they are one witness. What it does expose is a **stale type
+definition**: `PAD_$DISPLAY_TYPE_T` on PAD-3 lists five of the eight, missing
+every `COLORn` entry — so a reader who trusts the Data Types section alone builds
+a display model with no board that states a depth.
+
+Also recorded in the walk record: the 6-byte cursor position report format (flag,
+x, y, keystroke) that a raw-mode pad interleaves with character data; ceilings of
+40 pads, 60 windows, 100 fonts and 100 tab stops; and a `PAD_$KEY_DEF_T` printed
+as 256 characters on one page and 128 on another.
+
 ## `007196-01`'s MUTEX and NAME chapters walked whole — the 48-bit clock gets a byte count
 
 PDF 318-348, 396 of 722. Six numbered pages and twenty.
