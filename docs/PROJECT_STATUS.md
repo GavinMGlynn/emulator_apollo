@@ -40047,6 +40047,41 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s MUTEX and NAME chapters walked whole — the 48-bit clock gets a byte count
+
+PDF 318-348, 396 of 722. Six numbered pages and twenty.
+
+**`TIME_$CLOCK_T` is six bytes, printed as a number.** MUTEX-5: "this data type is
+**6 bytes** long". This project has asserted the 48-bit 4 µs clock since the `CAL`
+chapter, derived from `TIME`'s 32-bit high plus 16-bit low split rather than read
+anywhere. Six bytes is 48 bits and the derivation is now a citation.
+
+**`EC2_$EVENTCOUNT_T` is confirmed from a second chapter.**
+`MUTEX_$LOCK_REC_T` embeds one at offset 2 and totals 8 bytes, which fixes `value`
+at 4 bytes and `awaiters` at 2 — exactly what the `EC2` walk derived from the type's
+stated 6-byte size and its diagram.
+
+**The 44-byte directory entry, a third printing, and now with the type codes as
+numbers.** `NAME_$DIR_ENTRY_T` is byte for byte `IOS_DIR_$ENTRY_T`, and NAME-2's
+constants add what `IOS_DIR` gave only as names: **`NAME_$FILE` = 1,
+`NAME_$LINK` = 3**, `NAME_$COMPLEN_MAX` = 32, `NAME_$PNAMLEN_MAX` = 256.
+`002398-04` §2 p. 39 gives the same two values from the disk side (with `0` for an
+unused slot), so the entry type's values are confirmed across both levels. The
+width is confirmed a third way too: NAME-11 describes the FORTRAN view as a
+"(22,n) INTEGER*2 array" — 22 two-byte integers per entry.
+
+*A contradiction inside the chapter, resolved 2 against 1*: NAME-11 lists
+"2 - `NAME_$LINK`" where NAME-2 and `002398-04` both say 3. NAME-11 is wrong, and
+a directory walker built from that page alone would misclassify every link.
+
+**The naming server's error list is module `0E`'s, from the other end.** NAME-20
+names `NAME_$NOT_FOUND` "Name not found", `NAME_$NOT_LINK`, `NAME_$ILL_LINK_OP`
+and `NAME_$BAD_DIRECTORY` — four of the strings `002398-04` p. 73 prints in its
+module `0E` table beside `(000E0007)`. Two manuals, one module. **It gives no
+codes**: the list is alphabetical, so no ordinal can be read off it, and
+`002398-04` §4 stays the only source pairing a name with its number. Both walk
+records now carry the cross-reference.
+
 ## `007196-01`'s MS chapter walked whole — the operating system calls 1024 bytes a page, and `TC` agrees
 
 PDF 265-300, 365 of 722. `MS`, the Mapped Segment manager, sits directly above

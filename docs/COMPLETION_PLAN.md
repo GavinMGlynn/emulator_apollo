@@ -6192,8 +6192,8 @@ same number is what let them diverge once already.
       **All nine device chapters are finished, 2026-09-07** — `SIO`, `CAL`,
       `CTM`, `FPP`, `GMF`, `MTS`, `SMD`, `TIME`, `TONE` and `TPAD` — and the
       remainder is being walked in document order. **`ERROR`, `ACLM`, `EC2`, `IOS`,
-      `IOS_DIR`, `IPC`, `MBX` and `MS` are done too**, 365 of 722; 357 pages
-      remain. **`MS` checks a hardware register from the software side**:
+      `IOS_DIR`, `IPC`, `MBX`, `MS`, `MUTEX` and `NAME` are done too**, 396 of
+      722; 326 pages remain. **`MS` checks a hardware register from the software side**:
       `MS_$TRUNCATE` says a page-aligned length is "a multiple of 1024", and
       this machine's `TC` (`82A28750`, from the identity boot) has `PS` = 10,
       a 1024-byte page, with the manual's `PS+IS+TIA+TIB+TIC = 32` rule closing
