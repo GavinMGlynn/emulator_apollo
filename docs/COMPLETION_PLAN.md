@@ -5549,20 +5549,27 @@ Only after the reference core is proven, and only under an identity harness.
       and a model table whose `.mmu` only prints. The reading that this made the
       work small did not, and it is the same shape as C220: a plausible
       conclusion from real evidence, wrong because one thing was not checked.*
-      **And the same shape appears a third time in the same table** (C228).
-      Counting readers for every field of `ap_model_t` outside `ap_model.c`
-      puts `cpu` at 110, `fpu` at 30, `ram_base` at 10 -- and **`has_ring` at
-      zero**. It is declared, set on eleven rows, and referenced outside the
-      table only by `model_suite`, which asserts the rows are what the table
-      already says; the card is fitted by `--ring` instead. So a row claiming a
-      card the machine never consults sits beside a row claiming an MMU the
-      machine never builds.
-      *Three sub-items, each small and none started here*: `ap_machine` builds
-      the CPU its row names; `.mmu` selects the MMU its own enum documents; and
-      `has_ring` either gates the default fit or is deleted. **The middle one is
-      not behaviour-neutral** -- an MMU with a different descriptor format is a
-      translation change -- and the third is not either, since gating the fit
-      would put a card in machines the reference boot has none in. Both need the
+      **And the same shape appeared a third time in the same table** (C228) --
+      **but it is not the same shape, and 2026-09-08 corrects that.** Counting
+      readers for every field of `ap_model_t` outside `ap_model.c` puts `cpu` at
+      110, `fpu` at 30, `ram_base` at 10 and **`has_ring` at zero**, and the two
+      zeroes were read as one finding. They are not. `.mmu` genuinely **varies**
+      -- three rows `M68851`, seven `M68030`, two `M68040` -- and `ap_machine`
+      ignores it, which is a declaration the machine does not honour.
+      `has_ring` is **`true` on all twelve rows**, so it selects nothing and
+      *cannot* be read: it is unread by construction, not by oversight. Nothing
+      to gate and nothing to delete-for-being-ignored; the statement it carries
+      -- every model this project supports takes a ring card -- is worth keeping,
+      and the field becomes live the moment a model that cannot is added.
+      `ap_model.h` now says so at the field, beside the reader count that will
+      keep finding it. *The lesson is the audit's own*: a reader count is an
+      instrument, and an instrument that finds two zeroes has not thereby found
+      two defects.
+      *Two sub-items, each small and neither started here* (the third is
+      withdrawn above): `ap_machine` builds the CPU its row names, and `.mmu`
+      selects the MMU its own enum documents. **The second is not
+      behaviour-neutral** -- an MMU with a different descriptor format is a
+      translation change -- and it needs the
       identity harness on the other side, which is why they are named rather
       than done in passing.
 

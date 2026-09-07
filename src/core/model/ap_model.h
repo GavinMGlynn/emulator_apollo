@@ -108,7 +108,23 @@ typedef struct {
   uint32_t ram_max_bytes;
 
   /* Apollo Token Ring controller fitted. Every model in this table supports
-   * one; a node may still be configured without it. */
+   * one; a node may still be configured without it.
+   *
+   * **It is `true` on all twelve rows, so it selects nothing, and an audit that
+   * counts readers will find zero.** That is correct rather than a defect, and
+   * it is worth saying because the reader count is exactly how `FINDINGS.md`
+   * C228 found it -- listed beside `.mmu`, which counts zero readers for a
+   * different and much worse reason. `.mmu` genuinely *varies* (three rows
+   * `M68851`, seven `M68030`, two `M68040`) and `ap_machine` ignores it,
+   * building an `ap_m68030_cpu_t` unconditionally; that is a declaration the
+   * machine does not honour. This field declares nothing to honour.
+   *
+   * Kept rather than deleted because the *statement* is worth having -- every
+   * Apollo model this project supports takes a ring card -- and because the
+   * field becomes live the moment a model that cannot is added. **Whether a
+   * given run has one is the frontend's `--ring`, not this**, and that is the
+   * distinction the comment above draws between what a model supports and how a
+   * node is configured. */
   bool has_ring;
 
   /* Board-level address translation map at `017000`, between the AT bus and

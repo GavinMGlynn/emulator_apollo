@@ -40065,6 +40065,39 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `has_ring` is unread because it is invariant, not because the machine ignores it
+
+A correction to `FINDINGS.md` C228, made 2026-09-08. The audit counted readers
+for every field of `ap_model_t` outside `ap_model.c` — `cpu` 110, `fpu` 30,
+`ram_base` 10, **`has_ring` zero** — and read the zero as the same defect as
+`.mmu`'s. It is not, and the difference matters because one of them is work and
+the other is not.
+
+**`.mmu` varies**: three rows say `AP_MMU_M68851`, seven `AP_MMU_M68030`, two
+`AP_MMU_M68040`. `ap_machine` builds an `ap_m68030_cpu_t` unconditionally and
+never consults it. That is a declaration the machine does not honour — a real
+defect, correctly named, and blocked on there being no 68020 or 68040 execution
+core to select.
+
+**`has_ring` is `true` on all twelve rows.** A field with one value across the
+whole table selects nothing, so nothing *can* read it: it is unread by
+construction. There is no gate to add and no ignored declaration to fix. Whether
+a given run has a card is `--ring`'s business, which is exactly the distinction
+the field's own comment already drew between what a model *supports* and how a
+node is *configured*.
+
+The field stays, and `ap_model.h` now says why at the point an auditor will look:
+the statement it carries — every Apollo model this project supports takes a ring
+card — is worth having, and the field becomes live the moment a model that cannot
+is added. The plan's sub-item "`has_ring` either gates the default fit or is
+deleted" is withdrawn; both halves of it were wrong.
+
+*The lesson is the audit's own instrument.* A reader count found two zeroes and
+the write-up treated them as two findings of one kind. One was a defect and one
+was a tautology, and telling them apart took a `grep -c` on the table. `CLAUDE.md`
+already has the rule for this shape — a search result is not a code check — and
+this is the same failure at one remove: a *metric* is not a diagnosis.
+
 ## The `siologin` re-scoping is finished, and the last of it was already built
 
 Ticked 2026-09-08. The item asked for seven items that named "`siologin` needs a
