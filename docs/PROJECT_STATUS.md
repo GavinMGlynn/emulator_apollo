@@ -40047,6 +40047,47 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s STREAMS chapter walked whole — the file-attribute record, and a VTOC bit with a face
+
+PDF 584-646, 630 of 722. Sixty numbered pages, the map's figure confirmed.
+`STREAMS` is the layer `IOS` sits on and the fullest account this manual gives of
+what a Domain/OS file is.
+
+**A VTOC bit gets its user-visible face.** `STREAM_$FILE_TROUBLE_WARNING` reads
+"**WARNING: (SALVAGER) File trouble bit set in VTOCE.**" `002398-04` §2 p. 56's
+`vtoce_hdr_t` flag byte carries `F`, "file needs salvaging" (`.trouble`), already
+recorded in that walk as part of the per-object record. This is the string a
+program sees when it opens such a file — an on-disk flag and its message joined,
+and a reminder that a volume has a per-*file* trouble bit as well as the BAT
+header's per-*volume* `V`. Both walk records now carry the cross-reference.
+
+**`STREAM_$IR_REC_T` is the file's attributes at named offsets**, given twice —
+as a diagram and as prose. It is `MS_$ATTRIB_T`'s set and `002398-04`'s
+`vtoce_hdr_t`'s set again, with the flags spelled out bit by bit, and all three
+put the two time stamps in `time_$clockh_t`, the 4-byte type that ticks every
+262,144 µs. The object type is a `uid_$t` drawn from a canned census that
+includes **`SIO_$UID`** and **`MT_$UID`** — a serial line and a tape drive are
+named objects with type UIDs, the same mechanism `002398-04` §2 p. 50 gives for
+`pv_label_$uid` and company. `STREAM_$SIO_NOT_LOCAL` says where they live:
+"SIO object not in **/DEV**".
+
+**Two things Domain/OS states it has not implemented**: object concurrency is
+marked "(not implemented)" in both attribute masks, and Flag1's bits 14-15 read
+"Not implemented. Always is `STREAM_$N_AND_N`" — any number of readers and
+writers. The five-value concurrency type is aspirational in January 1987.
+
+**What a console driver gets by default**, twice stated: "For streams to SIO
+lines, however, '**cooked**' input mode and **NO_WAIT** are always in effect when
+the stream is opened." Line-buffered input that never blocks, changed only
+through `STREAM_$REDEFINE` or `SIO_$CONTROL`. And the text convention: "UASC file
+records are delimited by the **line-feed character (16#0A)**" — LF, not CR/LF.
+
+The 44-byte directory entry appears a **fourth** time, with a type label that is
+wrong: `entname` is bracketed `name_$pname_t` (256 characters) where the diagram's
+own offsets give 32 and the other two chapters say `name_$name_t`. Six documentary
+defects in total are recorded in the walk record, two of them resolved from within
+the chapter.
+
 ## `007196-01`'s PROC1, PROC2 and RWS chapters walked whole — the 4 µs clock a fourth time
 
 PDF 483-518, 566 of 722. `PROC1` is **3** pages, not the 8 the chapter map gave —
