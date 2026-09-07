@@ -12960,3 +12960,98 @@ Three things, none of them the harness:
 *Not claimed*: that this core is wrong. Every value above follows from a
 correction with a datasheet behind it, and the alternative -- that the firmware
 converges anyway -- has no witness on either side.
+
+## C240 -- the console-selection poll and its autobaud table, read out of the PROM
+
+C239 left three questions and said the second was "what does the poll want at
+`0007AE`, which has never been walked in the disassembly". It has now been, and
+the whole routine is short enough to quote. `a0` is `00010401`, so the DUART's
+register `n` is at `a0 + 2n` and `$100(a0)` is the second part.
+
+    000762  move.b #$e0, $8(a0)      sio1 ACR  = E0   -- ACR[7] SET: baud set 2
+    000768  move.b #$77, $12(a0)     sio1 CSRB = 77   -- code 7 both halves
+    00076E  move.b #$80, $108(a0)    sio2 ACR  = 80   -- set 2 again
+    000774  move.b #$77, $102(a0)    sio2 CSRA = 77
+    00077A  clr.b  $158(a6)          the two-character handshake flag
+    00078E  btst.b #$0, $2(a0)       sio1 A RxRDY -> $80E   (the keyboard)
+    000794  bne.w  $80e
+    000798  moveq  #$0, d4
+    00079A  btst.b #$0, $12(a0)      sio1 B RxRDY -> $7E6   (serial 1 B)
+    0007A0  bne.b  $7e6
+    0007A2  move.l #$f0, d4
+    0007A8  btst.b #$0, $102(a0)     sio2 A RxRDY -> falls through (serial 2)
+    0007AE  beq.b  $78e              round again
+
+**So the poll is a three-way console *election*, not a wait**, and `d4` is how
+the same code answers whichever part won: `$12(a0, d4.w)` is sio1's `CSRB` with
+`d4 = 0` and sio2's `CSRA` with `d4 = $F0`.
+
+The channel-B arm is the two-character handshake this project has met from the
+outside for months:
+
+    0007E6  bsr.w  $251a / dc.b $0A   post "serial 1 channel B"
+    0007EC  move.b $16(a0), d1        read RHR B -- the character
+    0007F0  bclr.b #$0, $158(a6)
+    0007F6  beq.b  $822               first character: go and autobaud
+    0007F8  move.b #$45, $14(a0)      second character: take the console
+    00080A  bra.w  $8bc
+
+### The autobaud table, verbatim
+
+`$822` is the whole of it, and it recognises **five shapes**:
+
+    $844  cmp.b #$ff  ->  CSRB = $BB    9600
+    $85A  cmp.b #$fe  ->  CSRB = $99    4800
+    $870  cmp.b #$c7  ->  CSRB = $88    2400
+    $886  cmp.b #$72  ->  d0 = 0, defer $66   1200
+    $8A0  cmp.b #$c0  ->  d0 = 1, defer $44    300
+          anything else  ->  round again, handshake flag untouched
+
+The last two set `$158(a6)` bit **1** and stash the clock select in `$159(a6)`
+instead of writing it, and `$822`'s own head -- `btst #$1, $158(a6)` /
+`dbra d0, $78e` -- then applies it after `d0` more characters. So the two slow
+rates are given a settling delay the three fast ones are not.
+
+### And that is the whole `--boot-input-rate` question, stated exactly
+
+The firmware sets the receiver to **code 7 in baud set 2**, which the SCN2681's
+Table (p. 2-198, page image) makes **2000 baud** -- and this project's own
+correction of `set_two[7]` from 1050 to 2000 is therefore confirmed from the
+*firmware's* side as well as the datasheet's: `000762` selects set 2
+deliberately, which is only sensible if the rate it then selects is one it
+wants.
+
+Two of our measurements fall straight out of it, and both were predicted by
+`ap_mc68681.c`'s own comment before either run existed:
+
+    sender 9600 (CSR BB) into a 2000-baud receiver   ->  d1 = $FE   (C239, md5)
+    sender 4800 (CSR 99) into a 2000-baud receiver   ->  d1 = $F9   (C239, md6)
+
+Both reproduce by hand: sampling a `0D` frame at `(1.5 + k)` receiver bit times
+gives `$FE` for any sender between 7200 and 12000 baud, and `$F9` at 4800.
+`$FE` maps to 4800, which is not 9600, so a 9600 terminal cannot converge; `$F9`
+is not in the table at all, so a 4800 terminal cannot either.
+
+### The question that leaves, which is sharper than "is `ACR[7]` right"
+
+Work the table backwards and ask what receiver rate each entry implies:
+
+  - **`$C7` -> 2400** needs the sample ratio to be **1.25**, so a receiver of
+    2400/1.25 = **1920 baud**. That is 2000 to within the resolution of the
+    exercise, and it **confirms** the 2000-baud receiver.
+  - **`$FF` -> 9600** needs the first data sample to land past the stop bit, so
+    a ratio of 6 or more -- a receiver of **1600 baud or less**.
+  - **`$FE` -> 4800** needs a ratio between 3.6 and 6 -- a receiver between
+    **800 and 1333 baud**.
+
+**No single receiver rate satisfies all three.** So either the table's entries
+were not all taken at one rate, or this core's resampler and the part disagree
+at the high ratios where a whole character falls inside one receiver bit. That
+is a real question about `ap_mc68681_resample`, with a named discriminator --
+the firmware's own five shapes -- and it is the first time anything has been
+able to check the resampler against something other than itself.
+
+*Not changed, and deliberately.* The resampler reproduces two measured values
+by independent arithmetic, the baud table is confirmed by the page image, and
+the firmware's intent is confirmed by its own instruction. Changing any of the
+three to make the fourth fit is exactly what `CLAUDE.md` names as the tell.

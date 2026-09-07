@@ -4223,8 +4223,10 @@ discipline throughout.
       **baud set 2** and `ap_mc68681.c` already says in writing what that does
       -- receiver at 2000, a 9600 `0D` resampling to `$FE`, the table mapping
       `$FE` to `$99`. Measured `ACR E0`, `CSR 99`, `d1 = FE`: every value.
-      **So the MD route is not blocked by the harness**, and what it now waits
-      on is whether `ACR[7]` is right here. Detail in `PROJECT_STATUS.md`.
+      **So the MD route is not blocked by the harness.** What it waits on is
+      now an item of its own: C240 walked the poll and its autobaud table out of
+      the PROM, and the table's five shapes imply three different receiver
+      rates. Detail in `PROJECT_STATUS.md`.
       **The route on this core is C165's**: boot **Normal**, where a node prints
       its whole Domain/OS startup on serial 1 channel B and then goes quiet at
       `SPM system init complete.`, with **`siologin`** configured -- which is
@@ -6200,6 +6202,27 @@ same number is what let them diverge once already.
       the row count. §3.3 carried the DS3000's period into the DS4000's clause.
       `ap_atbus.h` states the interval and derives both periods; `PROVISIONAL`
       lifted. *Verification: `atbus_suite` 11 -> 14.*
+- [ ] **The boot PROM's autobaud table implies three different receiver rates,
+      and it is the first external check `ap_mc68681_resample` has ever had.**
+      Opened 2026-09-08 from `FINDINGS.md` C240, which walks the console-election
+      poll at `00078E`–`0007AE` and its table at `$822` out of the PROM. The
+      firmware sets `ACR = $E0` (baud set 2) and `CSRB = $77` (code 7 = **2000
+      baud** in set 2) and then recognises exactly five shapes: `$FF`→9600,
+      `$FE`→4800, `$C7`→2400, `$72`→1200, `$C0`→300.
+      Worked backwards against a `0D` sampled at `(1.5 + k)` receiver bit times,
+      `$C7`→2400 implies a receiver at **1920 baud** — confirming the 2000 —
+      while `$FF`→9600 implies **≤1600** and `$FE`→4800 implies **800–1333**.
+      **No single rate satisfies all three.**
+      *Nothing is changed on this*: the resampler reproduces both measured `d1`
+      values (`$FE` at a 9600 sender, `$F9` at 4800) by independent arithmetic,
+      the baud table is confirmed by the datasheet's page image, and the
+      firmware's intent by its own instruction — so altering one of the three to
+      fit the fourth is the tell `CLAUDE.md` names.
+      *Verification would be*: a resampling model that reproduces all five of the
+      firmware's shapes from one receiver rate, or a statement that the table's
+      entries are not all taken at one. It is also what unblocks the MD route on
+      the serial console, and with it a shell and `/com/lcnode`. Detail in
+      `PROJECT_STATUS.md`.
 - [ ] **The 2681's modem-control signals — blocked on a pin assignment, and
       the gap is narrower than this item claimed.** §3.9 and Figures 3-4/3-5
       list DTR and DCD among the six RS-232 signals SIO1/2/3 carry, with their

@@ -434,6 +434,84 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## The console-selection poll, its autobaud table, and a check the resampler has
+## never had (2026-09-08)
+
+The entry below left "what the poll wants at `0007AE`" as unwalked. It is walked
+now, out of the boot PROM's own disassembly, and it turns a months-old black box
+into fifteen instructions.
+
+**It is a three-way console *election*, not a wait.** `a0` is `00010401`, so
+register `n` is at `a0 + 2n` and `$100(a0)` is the second DUART:
+
+    000762  move.b #$e0, $8(a0)      sio1 ACR  = E0   -- ACR[7] SET: baud set 2
+    000768  move.b #$77, $12(a0)     sio1 CSRB = 77   -- code 7 both halves
+    00076E  move.b #$80, $108(a0)    sio2 ACR  = 80
+    000774  move.b #$77, $102(a0)    sio2 CSRA = 77
+    00078E  btst.b #$0, $2(a0)  / bne  $80E    sio1 A -- the keyboard
+    000798  moveq  #$0, d4
+    00079A  btst.b #$0, $12(a0) / bne  $7E6    sio1 B -- the serial console
+    0007A2  move.l #$f0, d4
+    0007A8  btst.b #$0, $102(a0)               sio2 A -- serial 2
+    0007AE  beq.b  $78e                        round again
+
+`d4` is how one piece of code answers whichever part won: `$12(a0, d4.w)` is
+sio1's `CSRB` at `d4 = 0` and sio2's `CSRA` at `d4 = $F0`. And the channel-B arm
+is the two-character handshake this project has met from the outside for months
+— `bclr #0, $158(a6)`, first character to the autobaud at `$822`, second
+character takes the console.
+
+**The autobaud table recognises five shapes**, and nothing else:
+
+    $FF -> CSRB $BB  9600     $FE -> $99  4800     $C7 -> $88  2400
+    $72 -> defer $66 1200     $C0 -> defer $44 300
+
+The two slow rates set a second flag and stash the clock select rather than
+writing it, so they get a settling delay the three fast ones do not.
+
+### It confirms the baud-set correction from the firmware's side
+
+`000762` selects **baud set 2** deliberately, and `000768` then selects **code
+7**, which the SCN2681's own table (p. 2-198, page image) makes **2000 baud** in
+set 2 against 1050 in set 1. This project corrected `set_two[7]` from 1050 to
+2000 on the datasheet's authority; the firmware's own instruction is the second
+witness, because selecting set 2 is only sensible if the rate it then picks is
+one it wants.
+
+### And it gives the resampler its first external check
+
+Two measured values fall straight out, and `ap_mc68681.c`'s comment predicted
+both before either run existed:
+
+    sender 9600 into a 2000-baud receiver  ->  d1 = $FE     $FE maps to 4800
+    sender 4800 into a 2000-baud receiver  ->  d1 = $F9     not in the table
+
+Both reproduce by hand from `(1.5 + k)` receiver bit times. So no terminal rate
+converges, which is why the MD route stalls.
+
+**Worked backwards, the table implies three different receiver rates**, and that
+is the finding:
+
+- `$C7` → 2400 needs a sample ratio of 1.25, so a receiver at **1920 baud** —
+  which *confirms* 2000.
+- `$FF` → 9600 needs a ratio of 6 or more, so **1600 baud or less**.
+- `$FE` → 4800 needs a ratio between 3.6 and 6, so **800–1333 baud**.
+
+No single rate satisfies all three. Either the table's entries were not all
+taken at one rate, or `ap_mc68681_resample` and the part disagree where a whole
+character falls inside one receiver bit. **That is the first time anything has
+been able to check the resampler against something other than itself**, and it
+is a named plan item rather than a change: the resampler reproduces two measured
+values by independent arithmetic, the baud table is confirmed by a page image,
+and the firmware's intent is confirmed by its own instruction. Changing one of
+the three to make the fourth fit is the tell `CLAUDE.md` names.
+
+*Verification: the disassembly is `tools/ring-rom/`'s companion listing of
+`3500_BOOT_12191_7`; the two `d1` values are from the C239 runs' reports; the
+baud table is `[2681]` (`signetics/SCN2681_DUART_Signetics_1986.pdf`,
+untracked like every PDF here) p. 2-198 read as a page image. No code changed. `FINDINGS.md` C240.*
+
+
 ## `--boot-input-after-pc`, and what it proves about the MD route
 ## (2026-09-08)
 
