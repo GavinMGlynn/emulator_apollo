@@ -7091,66 +7091,32 @@ same number is what let them diverge once already.
       hash, and a report line that catches the assumption breaking.* Detail in
       `PROJECT_STATUS.md`.
 
-- [ ] **The keyboard's self-diagnostics.** Chapter 12's opening sentence has the
-      part "performs power-up and operator requested self-diagnostics". No
-      command in `ap_kbd_receive`'s set runs one and no result is defined
-      anywhere in the chapter, so this is named rather than modelled —
-      inventing a diagnostic result would be inventing a failure mode.
-- [ ] **What a command issued into a stopped spindle does.** Narrowed
-      2026-08-22 from "the floppy spindle's 500 ms start time", whose timing
-      half is now **done**: `AP_OMTI_FDC_SPINDLE_START` runs from the Digital
+- [ ] **The keyboard's self-diagnostics.** `002398-04` ch. 12's opening sentence
+      has the part "performs power-up and operator requested self-diagnostics".
+      No command in `ap_kbd_receive`'s set runs one and no result is defined
+      anywhere in the chapter, so this is named rather than modelled — inventing
+      a diagnostic result would be inventing a failure mode.
+      **What would unblock it**, named because "blocked" without that is not a
+      claim: an Apollo keyboard protocol document, or a boot that issues an
+      unrecognised command and waits for a reply this core does not send — which
+      the existing `ap_kbd` counters would show. Neither has appeared.
+      `007196-01` is **eliminated** as a source (walked whole 2026-09-08): its
+      insert-file census lists `KBD` as "[Useful constants for keyboard keys]"
+      with **no chapter behind it**, the one census row with no section.
+- [x] **What a command issued into a stopped spindle does — mapped to
+      exhaustion 2026-08-22, and the answer is that this card cannot report it.**
+      The timing half is done: `AP_OMTI_FDC_SPINDLE_START` runs from the Digital
       Output Register's motor bits and `ap_omti_fdc_at_speed` says whether a
-      drive has reached 360 rpm. Table 7-1 and Table 7-4 both print the figure.
-      **What remains is one question**, and the sibling manual sharpened it
-      rather than settling it. The drive's `ready` line is the reporting
-      channel, and `[OMTI]` §6.4.4 and `[8640]` §5.6.4 carry the *identical*
-      sentence — "Track 0 (T0) - Status of the 'ready' signal from the diskette
-      drive" at `ST3` **bit 4** — with both calling bit 5 "not used", where the
-      generic 765 puts ready. So the name-versus-description contradiction is
-      **the vendor's, repeated across two products**, not a slip in one
-      transcription. That is what reading the sibling established and what one
-      manual could not.
-      Driving a bit whose own name denies its description would be choosing one
-      half of a contradiction, so nothing is driven from the timer yet.
-      **SETTLED 2026-08-22 by `[765]`, the part's own datasheet — and the
-      question was mis-posed.** Its page 3 pin table shows `FLT/TR0` (33) and
-      `WP/TS` (34) are *multiplexed* pins, so `[OMTI]`'s "not used" bits are
-      honest about this board while the datasheet's eight live bits are right
-      about the part; the two never conflicted. The real defect is that bit 4's
-      row keeps its own name and carries **bit 5's description** — the datasheet
-      has bit 4 Track 0 and bit 5 Ready — a one-row slip copied into all three
-      manuals, which is why three documents agreed on a contradiction.
-      *So the ready line is not the reporting channel here*: pin 35 `RDY` is
-      dedicated, but the AT 34-pin interface carries no READY line and bit 5 is
-      tied. **`ST0` bit 3 `NR` is the channel** — "when the FDD is in the
-      not-ready state and a read or write command is issued, this flag is set",
-      terminating at `IC` = `01`. `AP_OMTI_ST0_NOT_READY` exists and
-      `ap_omti_fdc_at_speed` computes the condition; **nothing joins them**, and
-      joining them is the remaining work. Moved into the FDC completion block
-      above. Nothing is driven from `ST3` bit 4 by the spindle, correctly.
-      **The third manual had been read, and it does not discriminate.**
-      `[8000]` §6.4.4 (doc 6-7, June 1986) carries the identical eight lines as
-      `[OMTI]` §6.4.4 of January 1987 and `[8640]` §5.6.4 of June 1989 — three
-      documents, three years, two product families, one wording. That weakens
-      "a typesetting slip", which would not survive being reset for a different
-      product twice, and equally kills the hope that a *fourth* OMTI manual
-      helps: they are one source text. **The documentary route is closed.**
-      **What is left**: a driver that reads the bit, or a machine to probe.
-      **Narrowed again 2026-08-22 by `[765]`, and the answer is that this board
-      cannot report it at all.** `ST3` bit 4 is Track 0 (settled above) and this
-      core already drives it from the cylinder, which the datasheet retroactively
-      justifies — the code followed the bit's *name* and the name was right.
-      `ST3` bit 5 is Ready, tied on AT cabling. `ST0` bit 3 `NR` reflects the
-      same tied `RDY` pin, so it cannot report a stopped spindle either — see
-      the FDC block above for why wiring it would be a mistake.
-      *So the reporting channel does not exist on this card*, and what remains is
-      purely physical: no motor means no index pulses and no address marks, and
-      **no document on this shelf says what the part does with a medium that
-      never moves**. That is a narrower and more honest blocker than the one this
-      item opened with, and it is now fully mapped rather than merely open.
-      Domain/OS never issues `SENSE DRIVE STATUS`, so the first would have to be
-      some other operating system's. *Verification of the half that is done:
-      `afd_suite` 36 → 40.*
+      drive has reached 360 rpm. The reporting half has **no channel**. `[765]`'s
+      multiplexed `FLT/TR0` and `WP/TS` pins dissolve a contradiction three OMTI
+      manuals share word for word: `ST3` bit 4 keeps its own name and carries
+      bit 5's description. Bit 4 is Track 0, already driven from the cylinder;
+      bit 5 is Ready, **tied on AT cabling**; `ST0` bit 3 `NR` reflects the same
+      tied pin, so wiring it would be a mistake. What is left is purely physical
+      and no document held says what the part does with a medium that never
+      moves — and Domain/OS never issues `SENSE DRIVE STATUS`. `PROVISIONAL`.
+      *Verification: `afd_suite` 36 → 40.* Detail in `PROJECT_STATUS.md`.
+
 ## Deferred tails
 
 Nothing is deferred silently. Current list:

@@ -40065,6 +40065,47 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## The stopped floppy spindle: the card has no channel to report it, and that closes the question
+
+Ticked 2026-09-08. The investigation was finished on 2026-08-22 and the item was
+never closed; this records why it can be.
+
+**The timing half is modelled.** `AP_OMTI_FDC_SPINDLE_START` runs from the
+Digital Output Register's motor bits and `ap_omti_fdc_at_speed` answers whether a
+drive has reached 360 rpm. Both Table 7-1 and Table 7-4 print the 500 ms figure.
+
+**The reporting half has no channel on this card, and three manuals agreeing on a
+contradiction is what made that hard to see.** `[OMTI]` §6.4.4, `[8640]` §5.6.4
+and `[8000]` §6.4.4 — three documents, three years, two product families — carry
+the *identical* eight lines, so a fourth OMTI manual could not help: they are one
+source text. `[765]`, the part's own datasheet, settles it: `FLT/TR0` (pin 33)
+and `WP/TS` (pin 34) are **multiplexed**, so OMTI's "not used" bits are honest
+about this board while the datasheet's eight live bits are right about the part.
+The real defect is one row: `ST3` bit 4 keeps its own name and carries **bit 5's
+description**.
+
+So: bit 4 is **Track 0**, which this core already drives from the cylinder — the
+code followed the bit's name and the name was right. Bit 5 is **Ready**, tied on
+AT cabling. And `ST0` bit 3 `NR` reflects that same tied `RDY` pin, so it cannot
+report a stopped spindle either. `AP_OMTI_ST0_NOT_READY` exists and
+`ap_omti_fdc_at_speed` computes the condition; **joining them would be wiring a
+tied pin to a live one**, which is why nothing joins them and nothing should.
+
+**What is left is purely physical and no document held answers it**: no motor
+means no index pulses and no address marks, and nothing on this shelf says what
+the part does with a medium that never moves. Domain/OS never issues `SENSE DRIVE
+STATUS`, so the question could only be asked by another operating system's driver
+or by a machine to probe. `PROVISIONAL`, marked at the FDC.
+
+*Why this is a closure rather than an evasion*: the item opened as "the floppy
+spindle's 500 ms start time" and narrowed twice on evidence — first to "which bit
+reports it", then to "the bit that would report it is tied". The answer is that
+the model is already correct and the remaining gap is in the *hardware's* ability
+to report, not in this core's modelling of it. Leaving it open would have implied
+work that does not exist.
+
+*Verification: `afd_suite` 36 → 40.*
+
 ## The three unset ring timeout bits: the named route is checked and spent
 
 `AP_RING_CTL_STATUS_TMO`, `AP_RING_CTL_XMIT_TMO` and `AP_RING_CTL_RCV_PE` are
