@@ -6268,9 +6268,17 @@ same number is what let them diverge once already.
       (DS3000) or **1000** (DS4000); §2.3.2 caps `IO_CH_RDY` low at **2.5 µs**.
       All four are now constants in `board/ap_atbus.h` with their citations, and
       all four land on the time base exactly — asserted, not assumed.
-      **Still enforced by nothing**: no access consumes RAS or CAS time, no
-      cycle is stolen for refresh, and a device holding `IO_CH_RDY` low for ever
-      is not detected. Naming is not modelling and the header says so.
+      **Two of the three are enforced by nothing** — corrected 2026-09-08. No
+      access consumes RAS or CAS time, and a device holding `IO_CH_RDY` low for
+      ever is not detected. Naming is not modelling and the header says so.
+      **The refresh clause was stale**: `ap_board.h`'s `refresh_interval_ticks`
+      implements §2.4.6's inserted cycles and the reference boot reports
+      3,756,431 of them. This item and `ap_atbus.h` both still claimed otherwise,
+      falsified by a later commit that had no reason to look at either.
+      *And the two intervals are not a contradiction*: the board refreshes every
+      **15 µs**, the 2681 counter's rate, while `AP_ATBUS_DRAM_ROW_INTERVAL` is
+      the part's **15.625 µs** guarantee. Refreshing faster than the DRAM
+      requires is correct hardware — the guarantee is a ceiling, not a target.
       *What the figures did settle*: 4 ms over 256 rows is **15.625 µs** a row,
       which is §2.4.6's "approximately 15 microseconds" and the fixed 15 µs
       square wave already modelled on the 2681's `OP3`. That source was taken

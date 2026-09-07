@@ -248,12 +248,28 @@ typedef struct {
  * 86,169,600,000 for the refresh period. Asserted in `atbus_suite` rather than
  * trusted, on the same principle as the ring's byte time.
  *
- * **Named, and enforced by nothing.** No access here consumes RAS or CAS time,
- * no bus cycle is stolen for refresh, and a device holding `IO_CH_RDY` low
- * forever is not detected. These are constants so a later reader has the
- * figures with their citation, not a claim that memory timing is modelled --
- * `ap_atbus_access_time` above models the *bus* cycle, which is a different
- * thing from the DRAM behind it.
+ * **Two of the three are enforced by nothing** -- corrected 2026-09-08; the
+ * sentence beneath is what this said. No access here consumes RAS or CAS time,
+ * and a device holding `IO_CH_RDY` low forever is not detected. These two are
+ * constants so a later reader has the figures with their citation, not a claim
+ * that memory timing is modelled -- `ap_atbus_access_time` above models the
+ * *bus* cycle, which is a different thing from the DRAM behind it.
+ *
+ * **Refresh, however, *is* stolen.** `ap_board.h`'s `refresh_interval_ticks`
+ * implements §2.4.6's inserted cycles and the reference boot reports over three
+ * and a half million of them. The claim below was true when written and a later
+ * commit falsified it.
+ *
+ * *And the two intervals are not a contradiction, which is worth saying before
+ * someone reconciles them.* The board refreshes every **15 us**, the 2681
+ * counter's rate from §2.4.6 and §3.9, which is what `ap_board.c` derives from
+ * `cpu_hz`. `AP_ATBUS_DRAM_ROW_INTERVAL` below is **15.625 us**, the *part's*
+ * standard-refresh guarantee. A board that refreshes faster than the DRAM
+ * requires is correct hardware; the guarantee is a ceiling, not a target.
+ *
+ * *What it said*: "Named, and enforced by nothing. No access here consumes RAS
+ * or CAS time, no bus cycle is stolen for refresh, and a device holding
+ * `IO_CH_RDY` low forever is not detected." 
  *
  * ## The per-row interval, and the question the two figures raised -- settled
  *
@@ -294,12 +310,17 @@ typedef struct {
  * Recorded rather than silently rounded, because "the manual says 1000" and
  * "the part has 1024 rows" are two facts and only one of them is cited here.
  *
- * **Still enforced by nothing.** No access consumes RAS or CAS time, no bus
- * cycle is stolen for refresh, and a device holding `IO_CH_RDY` low forever is
- * not detected. These are constants so a later reader has the figures with
- * their citation, not a claim that memory timing is modelled. What has changed
- * is that the figures no longer contradict each other, so the item that
- * implements them has one interval to implement rather than a choice to make.
+ * **RAS, CAS and `IO_CH_RDY` are still enforced by nothing** -- corrected
+ * 2026-09-08, and the clause about refresh is struck: `ap_board.h` steals a
+ * cycle every `refresh_interval_ticks` and has since §2.4.6's refresh landed.
+ * The three remaining constants are here so a later reader has the figures with
+ * their citation, not a claim that memory timing is modelled. What the
+ * settlement above changed is that the figures no longer contradict each other,
+ * so whoever implements them has one interval rather than a choice.
+ *
+ * *What it said*: "Still enforced by nothing. No access consumes RAS or CAS
+ * time, no bus cycle is stolen for refresh, and a device holding `IO_CH_RDY`
+ * low forever is not detected." 
  */
 #define AP_ATBUS_DRAM_RAS_TICKS ((ap_time_t)AP_TIME_BASE_HZ * 120u / 1000000000u)
 #define AP_ATBUS_DRAM_CAS_TICKS ((ap_time_t)AP_TIME_BASE_HZ * 60u / 1000000000u)
