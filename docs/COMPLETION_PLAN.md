@@ -4327,10 +4327,22 @@ discipline throughout.
          system, on this volume, serves `/dev/sio1` and not `/dev/sio2`, which
          is a question for the volume's configuration. Detail in
          `PROJECT_STATUS.md`.
-      5. Run the two nodes with a script that waits for
-         `SPM system init complete.`, knocks, logs in as `user`, and runs
-         **`/com/lcnode`** by absolute path -- now with `--boot-script-line`
-         pointing the dialogue at the line `siologin` serves.
+      5. Run the two nodes with a script that reaches a shell and runs
+         **`/com/lcnode`** by absolute path.
+         **The route is settled, 2026-09-08, and it is not `siologin`'s.** It is
+         `FINDINGS.md` C164's, on this core: the Mnemonic Debugger on the serial
+         console, `DI W`, `EX DOMAIN_OS`, `SH`, `login: user`, `$`,
+         `/com/lcnode` -- proven single-node (C241, `tools/md-shell.sh`) and
+         then on **both ring nodes at once**, which took three fixes the
+         two-node runner needed and the single-machine path already had:
+         `--boot-input-rate` and `--boot-input-interval` reaching the ring
+         runner at all, and `console_script_settle` on both edges so a dialogue
+         cannot deadlock on a prompt printed early. A fourth was the script's:
+         wait for MD's **prompt**, not its banner, because it discards what is
+         typed while it is still printing.
+         *`siomonit` was tried first and is spent* (C242): a `siomonit_file`
+         running `/com/lcnode` on `/dev/sio2` produces nothing, because
+         Domain/OS never touches that port -- C238, from the other side.
       *What is already proven and needs no repeating*: both volumes boot clean
       (no salvage line in a two-node run), and **both nodes reach
       `Domain/OS kernel(7)` on one segment** with distinct node IDs.
