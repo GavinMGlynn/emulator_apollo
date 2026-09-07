@@ -5755,9 +5755,20 @@ same number is what let them diverge once already.
       **Still not wired to a bit**, and deliberately: what the DS3000's gate
       array times is not established, and naming `XMIT_TMO` from a
       protocol-layer figure would be inferring the register from the wire.
-      *What would settle it: the ring firmware's own timeout handling — the
-      ROMs are on disk. Verification would be a receive that stalls mid-packet
-      and a status read that finds `TMO`.*
+      **The route this item named is now checked, and it is spent** (2026-09-08,
+      `RING.md` findings 131-131b). It said "the ring firmware's own timeout
+      handling — the ROMs are on disk". They are: `MISC_STAT` is read four times
+      across the DS3500 and DS4500 ring ROMs and only bits 15, 13, 2 and 1 are
+      ever tested — **bit 14 never**; `RCV_STAT` is read as a **byte**, so bit 15
+      is in the half never fetched; and `XMIT_STAT`'s `pe` is tested only to
+      print "ring: transmit error" without decoding which error. `RING_PROC`'s
+      five `btst #$e` are on a 20-byte-record array in memory, not on the
+      registers, so the kernel driver is eliminated too.
+      *What would settle it now is a **consumer***: a Domain/OS ring diagnostic
+      that reports a timeout, or hardware. Nothing held reads these bits, so
+      setting them could not be checked and choosing when to set them would be
+      invention. Verification would still be a receive that stalls mid-packet
+      and a status read that finds `TMO`.
 
 - [x] **`010005-00` walked whole — 29 of 29 pages, finished 2026-08-21.** The
       coverage record is `docs/references/010005-00_WALK.md`; every numbered

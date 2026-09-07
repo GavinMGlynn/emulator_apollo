@@ -40065,6 +40065,46 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## The three unset ring timeout bits: the named route is checked and spent
+
+`AP_RING_CTL_STATUS_TMO`, `AP_RING_CTL_XMIT_TMO` and `AP_RING_CTL_RCV_PE` are
+defined in `ap_ring_ctl.h` and set by nobody. The plan item carrying that said
+what would settle it: "the ring firmware's own timeout handling — **the ROMs are
+on disk**". They are, and disassembled. 2026-09-08 asked them.
+
+**Neither ring boot ROM reads any of the three.** `MISC_STAT` at `+400` is read
+four times across `r3500.lst` and `r4500.lst`, and only bits **15** (`nct`, as
+`and.w #$8000`), **13** (`xby`), **2** (`xi`) and **1** (`ri`) are ever tested —
+bit 14, `TMO`, never. `RCV_STAT` at `+404` is read with `move.b`, a **byte**,
+and compared to zero, so bit 15 (`RCV_PE`, glossed `timeout_rs`) sits in the half
+that is never fetched. `XMIT_STAT` at `+402` *is* tested for `pe` at `0001DE` —
+but the only consequence is the string `"ring: transmit error"`, so which of the
+`pe`-layout errors occurred is never decoded and `XMIT_TMO` is not distinguished.
+`r3000.lst` is the DN3xx generation and addresses the `9800` window's `$0`/`$2`/
+`$4` offsets, a different register set entirely.
+
+**And the kernel driver is eliminated too.** `RING.md` finding 113 left
+`RING_PROC` as a live route because it "polls status and issues commands". Its
+five `btst #$e` are on `$284(a2)`, `$28a(a2)` and neighbours, and `a2` is indexed
+as `(a2, d4.w)` with `d4 = d2 × 20` — an **array of 20-byte records in memory**.
+The adjacent `andi.l #$ff00` / `lsr.l #$8` pairs have the 8254 read-back shape
+finding 99 records, but the base is a driver control block and not a register
+window.
+
+**So nothing this project holds reads these bits.** That is what makes the item
+properly blocked rather than merely unfinished: setting them could not be checked
+against anything, and choosing *when* to set them would be the invention the item
+already refused when it declined to name `XMIT_TMO` from `[MAC]`'s protocol
+figure. What would unblock it is a **consumer** — a Domain/OS ring diagnostic
+that reports a timeout, or hardware. The two published durations stay recorded
+and unwired: `RING.md` finding 139's 10.9 ms strip timeout, and `002398-04`
+p. 8-39's 2^12 byte-times receive timeout.
+
+*The value of the exercise is the elimination.* The item had named a route that
+sounded cheap and had never been walked; walking it cost one afternoon of
+disassembly reading and removed it, so the next reader does not spend the same
+afternoon. Recorded as `RING.md` findings 131, 131a and 131b.
+
 ## The DUART's input-port change detector is modelled — and its blocker was never real
 
 `[2681]` doc 2-193, read as a page image 2026-09-08: "Four change-of-state
