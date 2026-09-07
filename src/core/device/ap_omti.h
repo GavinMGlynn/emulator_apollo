@@ -241,9 +241,11 @@ typedef enum {
 #define AP_OMTI_FDC_CONTROL_PIN4 0x10u
 #define AP_OMTI_FDC_CONTROL_PIN6 0x20u
 
-/* The Diskette Control Register at AT `3F7` written -- the data rate, from the
- * 8640 manual's §5.1. See `fdc_rate` in the structure below for why these are
- * kept and not acted on, and for what it cost to have them share `3F6`'s byte. */
+/* The Diskette Control Register at AT `3F7` written -- the data rate. Printed
+ * identically in `[OMTI]` doc 4-6 and the 8640 manual's §5.1; transcribed from
+ * the latter for its text layer, and one witness rather than two. See `fdc_rate`
+ * in the structure below for why these are kept and not acted on, and for what
+ * it cost to have them share `3F6`'s byte. */
 #define AP_OMTI_FDC_RATE_MASK 0x03u
 typedef enum {
   AP_OMTI_FDC_RATE_500K = 0u,
@@ -254,9 +256,10 @@ typedef enum {
 
 /* The floppy Main Status Register.
  *
- * `[OMTI]` Table 4-3 names these; the sibling 8640 manual's §5.1 spells them
- * out and is the transcription used here, because that manual has a text layer
- * where ours is a scan. Bit 7 "must be used by the host to perform handshaking
+ * `[OMTI]` Table 4-3 names these and **doc 4-6 to 4-7 spells them out** -- a
+ * correction of 2026-09-07, this having said only the 8640 manual did. The
+ * transcription is still the 8640's, for its text layer against our scan, and
+ * the two are word for word: one witness. Bit 7 "must be used by the host to perform handshaking
  * ... cleared by reading or writing the Data Register", bit 6 gives the
  * direction, bit 4 is busy, bits 1 and 0 report a seek in progress per drive.
  * Bits 3 and 2 are reserved. */
@@ -1163,11 +1166,14 @@ typedef struct {
    * prints `3F6`'s fields, which is what made it visible that `3F7`'s writes
    * were landing on them.
    *
-   * `[OMTI]` names the register and does not decompose it; the sibling 8640
-   * manual's §5.1 does, and is the transcription used here as it is for the Main
-   * Status Register: "an output only register which gives the controller data
-   * rate information. All bits are cleared when a channel reset occurs. Bits
-   * 7-2 Reserved", then bits 1 and 0 --
+   * **`[OMTI]` does decompose it**, on doc 4-6, and this comment said it did not
+   * until §4 was walked in order on 2026-09-07. The transcription below came
+   * from the sibling 8640 manual's §5.1 because that manual has a text layer
+   * where ours is a scan; the two are word for word, which is one witness and
+   * not two (the manuals share source text). `[OMTI]`'s own wording: "an output
+   * only register which gives the controller data rate information. All bits are
+   * cleared when a channel reset occurs. Bits 2-7 Reserved", then bits 1 and 0
+   * --
    *
    *     0 0   500 Kbits/sec
    *     0 1   300 Kbits/sec

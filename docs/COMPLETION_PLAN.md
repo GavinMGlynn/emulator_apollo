@@ -6234,7 +6234,11 @@ same number is what let them diverge once already.
       distinction — **§4 and §5 are *derived*, not walked**: the code cites 37
       §5 subsections and both §4 register tables, which shows those pages were
       read for what someone went looking for rather than covered field by field.
-      **§5 is now walked whole too, 2026-09-07** — 27 pages in order, which
+      **§4 and §5 are now walked whole too, 2026-09-07, so `[OMTI]` is 88/88.**
+      §4's seven pages correct an attribution made three times in `ap_omti.h`:
+      doc 4-6 and 4-7 spell out the Diskette Control, Additional Control and
+      Main Status registers, where the file said only the sibling 8640 manual
+      did. §5 was 27 pages in order, which
       lifted the sector-buffer cap `PROVISIONAL` (§5.4.14 prints a fourth row
       the other three cap tables omit, and four rows admit one rule) and
       corrected three stale claims in this core's own comments: the drive

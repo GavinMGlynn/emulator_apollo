@@ -12,13 +12,14 @@ Three manuals, and the DN3500's controller is an **8621**.
 | `[8000]` | `omti/OMTI_8000_Series_AT_Reference_Jun86.pdf` | 71 | 400 ppi | **walked whole, 71/71, 2026-08-22** |
 
 **220 pages total.** Coverage of `[OMTI]`, restated 2026-08-22 after the day's
-reading — the entries below are the evidence for each row:
+reading and **finished 2026-09-07 at 88 of 88 pages** — the entries below are the
+evidence for each row:
 
 | section | pages | state |
 | --- | --- | --- |
 | §2, Configuration and Installation | 2-3 to 2-19 (PDF 12-29) | **walked** — jumper allocation's four tables, both COMMON SYSTEM JUMPER SETTINGS tables, the installation procedures, the format flowchart, the 1701 codes, the DOS patch |
 | §3, Host Electrical Interface | 3-1 to 3-7 (PDF 33-40) | **walked** — §3.1-§3.4 |
-| §4.1–§4.5 | 4-1 to 4-7 (PDF 40-46) | **derived into the model** — and the extent is now measured: this row read "4-1 to 4-8, PDF 40-47" from the contents, and PDF 47 is 5-1 |
+| §4.1–§4.5 | 4-1 to 4-7 (PDF 40-46) | **walked whole 2026-09-07** — and the extent is now measured: this row read "4-1 to 4-8, PDF 40-47" from the contents, and PDF 47 is 5-1 |
 | §5.1–§5.4 | 5-1 to 5-27 (PDF 47-73) | **walked whole 2026-09-07**, page by page and in order, against `ap_omti_cdb.h`, `ap_omti_cdb.c` and `ap_omti.c` — see below |
 | §6.3 | | **derived** |
 | §6.4 | | **walked** |
@@ -47,7 +48,18 @@ sections. A coverage header is the part of a walk record that rots first,
 because every entry appended below it is a reason to change it and none of them
 is a prompt to.*
 
-## STATUS: **§5's command chapter is DERIVED, and this record said it was owed**
+## STATUS: **`[OMTI]` FINISHED 2026-09-07 — every page**, and with it all three manuals; `[8000]` and `[8640]` finished in August.
+
+Per-manual page counts are in the table above, deliberately and not here: this
+record covers three documents and `check_docs.py` resolves a record's own page
+claim by matching its name against a PDF prefix, which `OMTI_WALK.md` shares with
+all three. A count in a heading here would be checked against whichever file
+sorts first.
+
+The section below is kept because the correction it records is the method lesson
+of this whole record.
+
+## Earlier status: **§5's command chapter is DERIVED, and this record said it was owed**
 
 **Corrected 2026-08-22, and the correction is the finding.** This record's status
 line said "§5 and §6.1–6.3 are still owed", and the plan's item says the manuals
@@ -810,6 +822,34 @@ in an image-backed model.
 installation and jumper chapters, and the floppy chapter's opening. The two
 sibling manuals remain, `[8640]` partly used and `[8000]` untouched.
 
+
+## §4 walked whole — and `[OMTI]` spells out three registers this core said it did not
+
+PDF 40-46, doc 4-1 to 4-7, read in order 2026-09-07. **`[OMTI]` is now walked
+whole, 88 of 88 pages.**
+
+§4.1's two independent controllers, Table 4-1's four fixed-disk ports, Table
+4-2's register definitions, §4.3's six logical states with the 100 µs
+reset-to-select warning printed twice, Table 4-3's five floppy registers at
+primary or secondary addresses, and §4.5's command-busy-results protocol all
+confirm the model, which cites them.
+
+**What the walk corrects is an attribution, in three places in `ap_omti.h`.** The
+file says of the Diskette Control Register that "`[OMTI]` names the register and
+does not decompose it; the sibling 8640 manual's §5.1 does", and of the Main
+Status Register that "`[OMTI]` Table 4-3 names these; the sibling 8640 manual's
+§5.1 spells them out". **Doc 4-6 and 4-7 spell out both** — the Diskette Control
+Register's `00`/`01`/`10` data rates with "Bits 2-7 Reserved", the Additional
+Control Register's precompensation and pin bits with the whole FLOPPY WRITE
+PRECOMPENSATION TABLE, and the Main Status Register bit by bit from `RQM` down to
+the two per-drive seek bits. The 8640's text was used because that manual has a
+text layer where ours is a scan, which is a good reason to transcribe from it and
+not a reason to say our own manual is silent.
+
+*It changes no witness count*, because the wordings are identical and the manuals
+share source text — which the file already says about the precompensation table.
+What it changes is a claim about what is in the document this project's model is
+named after.
 
 ## §5 walked whole — 27 pages, three stale claims in *our* files and one rule settled
 

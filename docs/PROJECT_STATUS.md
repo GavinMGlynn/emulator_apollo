@@ -40047,6 +40047,23 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `[OMTI]` is walked whole — 88/88, and §4 corrects an attribution three times over
+
+Doc 4-1 to 4-7 (PDF 40-46) read in order 2026-09-07, which finishes the manual.
+§4.1's two independent controllers, Tables 4-1 and 4-2, §4.3's six states with
+the 100 µs reset-to-select warning, Table 4-3's five floppy registers and §4.5's
+protocol all confirm the model.
+
+**The correction is an attribution.** `ap_omti.h` says in three places that
+`[OMTI]` only *names* the Diskette Control Register, the Additional Control
+Register and the Main Status Register, and that the sibling 8640 manual is what
+spells them out. Doc 4-6 and 4-7 spell out all three — the data-rate bits with
+"Bits 2-7 Reserved", the write-precompensation table entire, and every Main
+Status bit. The 8640's text was transcribed because that manual has a text layer
+where ours is a scan; that is a reason to quote from it, not a reason to say our
+own manual is silent. No witness count changes: the wordings are identical and
+the manuals share source text.
+
 ## `[OMTI]` §5 walked whole — 27 pages, and *derived is not walked* pays again
 
 Doc 5-1 to 5-27 (PDF 47-73), read in order 2026-09-07 against `ap_omti_cdb.h`,
