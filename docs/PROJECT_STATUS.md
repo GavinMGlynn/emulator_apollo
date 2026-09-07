@@ -40047,6 +40047,45 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s IPC chapter walked whole — `[MAC]`'s "typically 1024 bytes" gets a source
+
+PDF 209-226, 292 of 722. Sixteen numbered pages, not the fifteen the map gave —
+and this time with a fix for the map rather than another correction.
+
+### Every chapter carries its own table of contents, and that is the length source
+
+PDF 209 is the `IPC` chapter's **table-of-contents divider**: `Data Types IPC-2`
+… `Errors IPC-16`. One page, read before the chapter, and it states the extent
+that the footer arithmetic gets wrong. `IOS_DIR`'s divider said 8 and the chapter
+is 8; `IPC`'s says 16 and it is 16. From here the walk takes each chapter's
+**start** from the map and its **length** from its own divider, confirming both
+by reading to where the footer changes.
+
+### The datagram is 128 + 1024, and that closes an adjective in `RING.md`
+
+`IPC_$HDR_INFO_T` is up to **128** characters, `IPC_$DATA_T` up to **1024** — the
+header and data portions of an IPC datagram, stated on IPC-2 and repeated by
+`$RCV`, `$SAR` and `$SEND`.
+
+`RING.md` finding 26 records `[MAC]` §2.2.2.3's packet data as "0 to 4096 bytes,
+always even, **typically ... 1024 bytes**", and finding 21 the header as 12 bytes
+plus 0-1012 of header data. The protocol manual gives a range and calls one value
+typical without saying why. **The typical value is `IPC_$DATA_T`.** Recorded as
+`RING.md` finding 130.
+
+Finding 130a carries the rest: eight sockets per node for user programs, one
+program per socket, a queue **one to four datagrams** deep, and a full queue
+means "the datagram is lost" — so IPC's loss is at the receiving socket, not on
+the wire. Timeouts are counted in **quarter-seconds**, the `TIME_$CLOCKH_KEY`
+eventcount's own tick used as a network unit. And the manual tells programmers to
+put fewer than 128 bytes wholly in the header with the data length zero, "because
+it takes less time to send a datagram that contains only a header" — which is
+finding 81's `bit 11 of transmit header count = 1 => data length = 0` seen from
+the application side.
+
+Nothing in the chapter is implementable here: IPC sits above the driver. It is
+the first statement this project has of what the ring is *for*.
+
 ## `007196-01`'s IOS and IOS_DIR chapters walked whole — a 44-byte directory entry, and a map correction
 
 PDF 123-208, 274 of 722. The I/O Switch's 75 pages and the I/O Switch Directory's

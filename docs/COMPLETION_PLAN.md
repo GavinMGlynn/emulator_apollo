@@ -6191,12 +6191,18 @@ same number is what let them diverge once already.
       queried. Record: `docs/references/007196-01_WALK.md`.
       **All nine device chapters are finished, 2026-09-07** — `SIO`, `CAL`,
       `CTM`, `FPP`, `GMF`, `MTS`, `SMD`, `TIME`, `TONE` and `TPAD` — and the
-      remainder is being walked in document order. **`ERROR`, `ACLM`, `EC2`, `IOS` and
-      `IOS_DIR` are done too**, 274 of 722; 448 pages remain. **The map's
-      lengths are not trustworthy** — `IOS` is 75 pages, not the 73 the footer
-      arithmetic gave, because unnumbered blank and table-of-contents pages
-      between chapters carry no footer; starts stay reliable, and the end of a
-      chapter is found by reading until the footer changes. **The chapter map is built**: INTRO-2's
+      remainder is being walked in document order. **`ERROR`, `ACLM`, `EC2`, `IOS`,
+      `IOS_DIR` and `IPC` are done too**, 292 of 722; 430 pages remain.
+      **The map's lengths are not trustworthy and there is a better source** —
+      `IOS` is 75 pages and `IPC` 16, not the 73 and 15 the footer arithmetic
+      gave, because unnumbered blank and table-of-contents pages between
+      chapters carry no footer. Every chapter is preceded by **its own
+      table-of-contents divider page**, whose last entry gives the extent; take
+      the start from the map, the length from the divider, and confirm by
+      reading to where the footer changes.
+      **`IPC` closes an adjective in `RING.md`**: `[MAC]` calls 1024 bytes the
+      "typical" packet data length without saying why, and `IPC_$DATA_T` is
+      exactly 1024 with a 128-byte header. Recorded as `RING.md` finding 130. **The chapter map is built**: INTRO-2's
       census plus the running footers give every chapter's first page.
       `ERROR` was taken first among the operating system's own chapters
       because `002398-04` p. 68 pointed at a "Chapter 4, Error Codes and
