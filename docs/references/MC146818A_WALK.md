@@ -54,16 +54,34 @@ clear UIE`) would make it *impossible* to arm `UIE` while the clock is held —
 and holding `SET` while programming the other Register B bits is exactly what an
 initialisation sequence does. One of the three tests pins that.
 
-## The approximation the walk can now close
+## The approximation the walk closed — `UIP`, done 2026-09-07
 
-`ap_mc146818.c` never sets `UIP`, and says so: "this core's update is
-instantaneous, so it never [sets it] ... Modelling the 248 microsecond window
-would need the rate tables". **Table 6 and Figure 15 are those figures**: `tUC` =
-248 µs or 1984 µs by time base, and `tBUC` = 244 µs of `UIP` lead before the
-update begins. So the named blocker on that approximation is gone; what remains
-is whether it is worth modelling, since a driver polling `UIP` to dodge the
-update simply never sees it set and reads valid data every time — permissive
-rather than wrong. Recorded as a plan item rather than done here.
+**Corrected.** `UIP` now pulses. `ap_mc146818_update_in_progress` reports it high
+for Table 6's `tBUC + tUC` — 244 µs of lead on every time base, plus 248 µs
+(4.194304 or 1.048576 MHz) or 1984 µs (32.768 kHz) of cycle — ending at the
+one-second boundary the update lands on, which is where Figure 15 puts it: `UF`
+is set as `UIP` falls. `SET` and a divider held in reset each clear the bit where
+it stands, both stated as *actions on the bit* rather than as conditions, and
+both tested that way. Table 4's divider codes are transcribed alongside, so the
+32.768 kHz row can be told from the two fast ones. `mc146818_suite` 35 → 39.
+
+One part of p. 14 is deliberately still unmodelled and is named in the header:
+"the MC146818A protects the program from reading transitional data ... by
+switching the time, calendar, and alarm portion of the RAM off the
+microprocessor bus during the entire update cycle." The update here is atomic, so
+a driver that reads the clock bytes while `UIP` is high gets valid data where the
+part would give it none. Permissive, not wrong.
+
+The row as it stood, which is what explained the code before the change:
+
+> `ap_mc146818.c` never sets `UIP`, and says so: "this core's update is
+> instantaneous, so it never [sets it] ... Modelling the 248 microsecond window
+> would need the rate tables". **Table 6 and Figure 15 are those figures**: `tUC`
+> = 248 µs or 1984 µs by time base, and `tBUC` = 244 µs of `UIP` lead before the
+> update begins. So the named blocker on that approximation is gone; what remains
+> is whether it is worth modelling, since a driver polling `UIP` to dodge the
+> update simply never sees it set and reads valid data every time — permissive
+> rather than wrong. Recorded as a plan item rather than done here.
 
 ## Two typos in the datasheet
 

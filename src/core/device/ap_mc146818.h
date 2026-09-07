@@ -88,6 +88,29 @@
  * the pin, which is a fact about the board rather than the part, and is no
  * reason for the part to be unable to say what it is driving.
  *
+ * ## `UIP`, and the 492 microseconds it is high for
+ *
+ * **Modelled.** This module used to answer `UIP` as a constant zero on the
+ * grounds that its own update cycle is instantaneous, and named the blocker:
+ * "modelling the 248 microsecond window would need the rate tables that are
+ * declined". The 2026-08-22 walk read those tables -- `[146818]` Table 6 and
+ * Figure 15 -- so the blocker is gone and the bit now pulses.
+ *
+ * The update cycle here is still instantaneous; what is modelled is the
+ * *window around it*. `ap_mc146818_update_in_progress` reports the bit high for
+ * the `tBUC + tUC` that ends at the one-second boundary the update lands on,
+ * which is where Figure 15 puts it: `UF` is set as `UIP` falls.
+ *
+ * That is a real behavioural difference and not a cosmetic one. A driver that
+ * polls `UIP` and waits for it to clear before reading the time now waits, and
+ * one that reads the clock bytes while `UIP` is high is reading what the part
+ * calls invalid data. This core still hands it valid data -- the bytes are
+ * never in transition here, because the update is atomic -- which is
+ * permissive rather than wrong, and is the one part of `[146818]` p. 14 left
+ * unmodelled: "the MC146818A protects the program from reading transitional
+ * data ... by switching the time, calendar, and alarm portion of the RAM off
+ * the microprocessor bus during the entire update cycle".
+ *
  * The `DSE` bit's two special updates are **applied**: last Sunday in April
  * 1:59:59 -> 3:00:00, last Sunday in October 1:59:59 -> 1:00:00, the second
  * only the *first* time the hour comes round. That "first" is the whole
@@ -124,6 +147,27 @@
 /* Register A. "UIP ... is a status flag that may be monitored by the program",
  * read-only; DV2-DV0 select the divider; RS3-RS0 the rate. */
 #define AP_MC146818_A_UIP 0x80u
+/* `[146818]` Table 6, *Update Cycle Times*, in microseconds.
+ *
+ * `tBUC` is the lead `UIP` gives before the update cycle begins, and the table
+ * prints 244 against all three time bases; p. 15 says the same in words --
+ * "when UIP is a '0', the update cycle is not in progress and will not be for
+ * at least 244 us (**for all time bases**)". `tUC` is the cycle itself, and it
+ * is the one quantity the time base changes: 248 us on either fast crystal,
+ * 1984 us on the watch crystal.
+ *
+ * `UIP` is high across both spans. Figure 15 draws them end to end beneath one
+ * pulse, and p. 14 states the sum outright: "periodic interrupts that occur at
+ * a rate of greater than tBUC + tUC allow valid time and date information to be
+ * read at each occurrence of the periodic interrupt."
+ *
+ * (p. 11 prints the slow figure as **1948** us. Table 6 and p. 14 both say
+ * 1984, Table 6 carries it beside the fast figure, and 1984 us is 2^16/33 ms to
+ * within rounding -- the shape a divider chain produces. A transposition, and
+ * `docs/references/MC146818A_WALK.md` records it.) */
+#define AP_MC146818_TBUC_US 244u
+#define AP_MC146818_TUC_US 248u
+#define AP_MC146818_TUC_SLOW_US 1984u
 /* `DV2-DV0`, Register A bits 6-4. The datasheet's Table 4 gives them "three
  * uses": select one of three operating time bases -- 4.194304 MHz, 1.048576
  * MHz or 32.768 kHz -- or **hold the divider chain in reset**, which "prevents
@@ -181,6 +225,14 @@ typedef struct {
   /* Base-unit time the last one-second update happened at. */
   ap_time_t updated_to;
   ap_clock_t second_clock;
+  /* The instant `ap_mc146818_advance` was last called with. `updated_to` moves
+   * only in whole seconds, so it cannot say *where inside* the current second
+   * the clock stands -- and that is exactly the question `UIP` answers.
+   *
+   * Deliberately absent from `ap_board_hash_calendar`: it is a copy of the
+   * caller's own argument, equal to the machine's absolute time on every call,
+   * so hashing it would hash the clock the harness already hashes. */
+  ap_time_t stepped_to;
 
   /* The periodic interrupt, kept separate because it runs at its own rate and
    * must not be quantised to the one-second update. */
@@ -261,6 +313,34 @@ ap_mc146818_interrupt_next_change(const ap_mc146818_t *rtc);
 /* Whether the divider chain is running. False while `DV2-DV0` hold it in
  * reset, when neither the update cycle nor the square wave operates. */
 [[nodiscard]] bool ap_mc146818_divider_running(const ap_mc146818_t *rtc);
+
+/* The operating time base `DV2-DV0` selects, in hertz: `[146818]` Table 4's
+ * 4.194304 MHz (`000`), 1.048576 MHz (`001`) or 32.768 kHz (`010`). Zero for
+ * every other code.
+ *
+ * This and `ap_mc146818_divider_running` disagree about `011`, `100` and `101`,
+ * and the disagreement is Table 4's: the table lists five rows and its note says
+ * "other combinations of divider bits are used for **test purposes only**", so
+ * those three neither hold the chain in reset nor name a crystal. The chain
+ * runs -- which is what `ap_mc146818_divider_running` reports -- at a rate the
+ * table declines to state.
+ *
+ * Nothing on this board selects one: `008778-03` section 3.6 and the
+ * datasheet's own interface figures both show the 4.194304 MHz crystal. */
+[[nodiscard]] uint32_t ap_mc146818_time_base_hz(const ap_mc146818_t *rtc);
+
+/* Register A's `UIP`, which `ap_mc146818_read` returns in bit 7.
+ *
+ * `[146818]` p. 15: "When UIP is a '1', the update cycle is in progress or will
+ * soon begin. When UIP is a '0', the update cycle is not in progress and will
+ * not be for at least 244 us (for all time bases) ... Writing the SET bit in
+ * Register B to a '1' inhibits any update cycle and then clears the UIP status
+ * bit."
+ *
+ * So two things hold it low wherever the second stands -- `SET`, and a divider
+ * chain held in reset -- which are two of the three conditions p. 14 opens the
+ * update cycle with. */
+[[nodiscard]] bool ap_mc146818_update_in_progress(const ap_mc146818_t *rtc);
 
 /* The clock as numbers, for tests and for a state hash that must not depend on
  * the register format software happens to have selected. */

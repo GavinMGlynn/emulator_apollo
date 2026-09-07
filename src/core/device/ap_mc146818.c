@@ -211,6 +211,16 @@ static void update_cycle(ap_mc146818_t *rtc) {
 }
 
 void ap_mc146818_advance(ap_mc146818_t *rtc, ap_time_t now) {
+  /* Where the machine's clock stands, kept before any of the guards below.
+   * `updated_to` moves in whole seconds and cannot answer "how far into this
+   * one", which is the whole of `UIP`; and a call that runs no update cycle --
+   * because a second has not elapsed, or because the divider is held -- still
+   * moves the machine's clock, so the cursor must not be gated on the work.
+   * Monotonic, because `ap_mc146818_advance` ignores a time earlier than the
+   * last one it saw and this must not be the one place that does not. */
+  if (now > rtc->stepped_to) {
+    rtc->stepped_to = now;
+  }
   if (now <= rtc->updated_to) {
     return;
   }
@@ -376,6 +386,79 @@ bool ap_mc146818_divider_running(const ap_mc146818_t *rtc) {
          (rtc->ram[AP_MC146818_REGISTER_A] & AP_MC146818_A_DIVIDER) !=
              AP_MC146818_A_DIVIDER;
 }
+uint32_t ap_mc146818_time_base_hz(const ap_mc146818_t *rtc) {
+  /* `[146818]` Table 4, *Divider Configurations*, in full. Five rows; the note
+   * beneath disposes of the other three codes. */
+  switch (rtc->ram[AP_MC146818_REGISTER_A] & AP_MC146818_A_DIVIDER) {
+  case 0x00u: /* DV2-DV0 = 000 */
+    return 4194304u;
+  case 0x10u: /* 001 */
+    return 1048576u;
+  case 0x20u: /* 010 */
+    return 32768u;
+  default:
+    /* `110` and `111` hold the chain in reset -- Table 4's two "Any" rows --
+     * and `011`, `100` and `101` are its note, "used for test purposes only".
+     * Neither group names a crystal, which is all this function reports. */
+    return 0u;
+  }
+}
+
+/* `AP_TIME_BASE_HZ` in units per microsecond. Exact, and the assertion is here
+ * rather than assumed because the base is a *derived* constant that has already
+ * been recomputed twice in this project's life -- and a rounded microsecond
+ * would put `UIP`'s edge in the wrong place by a fraction that no test would
+ * ever be shaped to notice. */
+static_assert((AP_TIME_BASE_HZ % UINT64_C(1000000)) == 0u,
+              "the time base must carry a whole microsecond");
+#define UNITS_PER_US (AP_TIME_BASE_HZ / UINT64_C(1000000))
+
+/* How long `UIP` is high for, in base units: `[146818]` Table 6's `tBUC + tUC`.
+ *
+ * The slow crystal is the only one that changes `tUC`, and it is charged to
+ * `010` alone rather than to "not one of the fast codes": Table 4's three test
+ * codes name no crystal at all, and a chain running at an unstated rate is
+ * closer to the 4.194304 MHz this board actually fits than to the watch
+ * crystal. Nothing selects them, so the choice costs nothing either way -- but
+ * it is a choice and not a fallthrough. */
+static ap_time_t uip_window(const ap_mc146818_t *rtc) {
+  const uint64_t tuc = ap_mc146818_time_base_hz(rtc) == 32768u
+                           ? AP_MC146818_TUC_SLOW_US
+                           : AP_MC146818_TUC_US;
+  return (ap_time_t)((AP_MC146818_TBUC_US + tuc) * UNITS_PER_US);
+}
+
+bool ap_mc146818_update_in_progress(const ap_mc146818_t *rtc) {
+  /* "The MC146818A executes an update cycle once per second, assuming one of
+   * the proper time bases is in place, the DV0-DV2 divider is not clear, and
+   * the SET bit in Register B is clear." No update cycle, no `UIP` -- and for
+   * `SET` the datasheet says it twice, the second time as an action: "writing
+   * the SET bit in Register B to a '1' inhibits any update cycle and then
+   * clears the UIP status bit." */
+  if (rtc->second_clock.period == 0u) {
+    return false;
+  }
+  if (!ap_mc146818_divider_running(rtc)) {
+    return false;
+  }
+  if ((rtc->ram[AP_MC146818_REGISTER_B] & AP_MC146818_B_SET) != 0u) {
+    return false;
+  }
+
+  /* The update this core runs is instantaneous and lands on the second
+   * boundary `updated_to` counts to. Figure 15 puts that instant at the *end*
+   * of the pulse -- `UF` is set as `UIP` falls -- so the window is the
+   * `tBUC + tUC` before it, and never after. */
+  const ap_time_t next = rtc->updated_to + rtc->second_clock.period;
+  const ap_time_t window = uip_window(rtc);
+  if (next < window) {
+    /* The first fraction of a second after reset, where the window would begin
+     * before time started. Nothing has updated yet and the bit is low. */
+    return false;
+  }
+  return rtc->stepped_to >= next - window;
+}
+
 uint32_t ap_mc146818_square_wave_hz(const ap_mc146818_t *rtc) {
   /* Held low unless `SQWE` is set, and silent about rates this core cannot
    * represent exactly -- the same guard `ap_mc146818_rate_supported` exists
@@ -420,13 +503,15 @@ uint8_t ap_mc146818_read(ap_mc146818_t *rtc, uint8_t address) {
      * state and not in a register, because the part has no century byte. */
     return to_format(rtc, rtc->now.year % 100u);
   case AP_MC146818_REGISTER_A: {
-    /* UIP is read-only and this core's update is instantaneous, so it never
-     * reports an update in progress. Honest rather than convenient: software
-     * that polls UIP to avoid reading mid-update will simply never see it set,
-     * which is the correct answer for a clock that cannot be caught in the
-     * middle. Modelling the 248 microsecond window would need the rate tables
-     * that are declined. */
-    return (uint8_t)(rtc->ram[AP_MC146818_REGISTER_A] & ~AP_MC146818_A_UIP);
+    /* "Read/Write Register except UIP" -- so bit 7 is never what was written
+     * there, it is the part's own status, and `ap_mc146818_write` masks it out
+     * on the way in. See `ap_mc146818_update_in_progress` for the window. */
+    uint8_t value =
+        (uint8_t)(rtc->ram[AP_MC146818_REGISTER_A] & ~AP_MC146818_A_UIP);
+    if (ap_mc146818_update_in_progress(rtc)) {
+      value |= AP_MC146818_A_UIP;
+    }
+    return value;
   }
   case AP_MC146818_REGISTER_C: {
     /* "The flag bits in Register C are cleared (record of the interrupt event

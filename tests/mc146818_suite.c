@@ -825,6 +825,129 @@ static void test_the_same_fortnight_reached_in_steps_agrees(void) {
   TEST_ASSERT_EQUAL_UINT(a.second, b.second);
 }
 
+/* ## `UIP`, `[146818]` Table 6 and Figure 15
+ *
+ * The bit pulses once per second: high for `tBUC + tUC` and low for the rest.
+ * Figure 15 puts the update itself -- and `UF` with it -- at the *falling* edge,
+ * so the window is the lead up to the second boundary and never after it. */
+
+/* One microsecond in base units. Whole, and `ap_mc146818.c` asserts that it
+ * is; a rounded microsecond would put every edge below in the wrong place. */
+static const ap_time_t US = AP_TIME_BASE_HZ / 1000000u;
+
+static bool uip(ap_mc146818_t *rtc) {
+  return (ap_mc146818_read(rtc, AP_MC146818_REGISTER_A) & AP_MC146818_A_UIP) !=
+         0u;
+}
+
+static void test_uip_is_high_for_the_492_microseconds_before_an_update(void) {
+  ap_mc146818_t rtc;
+  init(&rtc);
+
+  /* 244 us of lead plus a 248 us cycle on the 4.194304 MHz crystal this board
+   * fits. One microsecond earlier than that, the bit is still clear -- and
+   * p. 15 promises exactly this much: "when UIP is a '0', the update cycle is
+   * not in progress and will not be for at least 244 us". */
+  ap_mc146818_advance(&rtc, seconds(1u) - (493u * US));
+  TEST_ASSERT_FALSE(uip(&rtc));
+
+  ap_mc146818_advance(&rtc, seconds(1u) - (492u * US));
+  TEST_ASSERT_TRUE(uip(&rtc));
+  ap_mc146818_advance(&rtc, seconds(1u) - 1u);
+  TEST_ASSERT_TRUE(uip(&rtc));
+
+  /* The update lands, and the flag it sets arrives as the bit falls. */
+  ap_mc146818_advance(&rtc, seconds(1u));
+  TEST_ASSERT_FALSE(uip(&rtc));
+  TEST_ASSERT_TRUE((ap_mc146818_read(&rtc, AP_MC146818_REGISTER_C) &
+                    AP_MC146818_C_UF) != 0u);
+
+  /* And it is a pulse, not a level: a whole second later the bit is back. */
+  ap_mc146818_advance(&rtc, seconds(2u) - (100u * US));
+  TEST_ASSERT_TRUE(uip(&rtc));
+}
+
+static void test_the_watch_crystal_widens_the_window_to_2228_microseconds(void) {
+  /* Table 6's `tUC` is the one quantity the time base changes: 248 us on
+   * either fast crystal, 1984 on the 32.768 kHz one. `tBUC` is 244 on all
+   * three. So the same instant is outside the window on one and inside it on
+   * the other, and nothing else about the two clocks differs. */
+  ap_mc146818_t fast;
+  ap_mc146818_t slow;
+  init(&fast);
+  init(&slow);
+  /* `DV2-DV0` = `010`, Table 4's third row. */
+  ap_mc146818_write(&slow, AP_MC146818_REGISTER_A, 0x20u);
+  TEST_ASSERT_EQUAL_UINT32(4194304u, ap_mc146818_time_base_hz(&fast));
+  TEST_ASSERT_EQUAL_UINT32(32768u, ap_mc146818_time_base_hz(&slow));
+
+  const ap_time_t at = seconds(1u) - (1000u * US);
+  ap_mc146818_advance(&fast, at);
+  ap_mc146818_advance(&slow, at);
+  TEST_ASSERT_FALSE(uip(&fast));
+  TEST_ASSERT_TRUE(uip(&slow));
+
+  /* The slow window's own edge, 244 + 1984. */
+  ap_mc146818_t edge;
+  init(&edge);
+  ap_mc146818_write(&edge, AP_MC146818_REGISTER_A, 0x20u);
+  ap_mc146818_advance(&edge, seconds(1u) - (2229u * US));
+  TEST_ASSERT_FALSE(uip(&edge));
+  ap_mc146818_advance(&edge, seconds(1u) - (2228u * US));
+  TEST_ASSERT_TRUE(uip(&edge));
+}
+
+static void test_set_and_a_held_divider_each_clear_uip_where_it_stands(void) {
+  /* Both are read as *actions on the bit* rather than as conditions the cursor
+   * happens to satisfy, so each is applied to a clock already inside the
+   * window and with nothing advanced afterwards. A model that only declined to
+   * *raise* the bit -- rather than clearing one already up -- passes every test
+   * that advances first and fails both of these. */
+  ap_mc146818_t held;
+  init(&held);
+  ap_mc146818_advance(&held, seconds(1u) - (100u * US));
+  TEST_ASSERT_TRUE(uip(&held));
+  /* "Writing the SET bit in Register B to a '1' inhibits any update cycle and
+   * then clears the UIP status bit." */
+  ap_mc146818_write(&held, AP_MC146818_REGISTER_B, AP_MC146818_B_SET);
+  TEST_ASSERT_FALSE(uip(&held));
+  ap_mc146818_write(&held, AP_MC146818_REGISTER_B, 0u);
+  TEST_ASSERT_TRUE(uip(&held));
+
+  ap_mc146818_t reset;
+  init(&reset);
+  ap_mc146818_advance(&reset, seconds(1u) - (100u * US));
+  TEST_ASSERT_TRUE(uip(&reset));
+  /* `11X` holds the chain in reset, and p. 14 makes an unheld divider one of
+   * the three conditions the update cycle needs. */
+  ap_mc146818_write(&reset, AP_MC146818_REGISTER_A, AP_MC146818_A_DIVIDER_RESET);
+  TEST_ASSERT_FALSE(uip(&reset));
+}
+
+static void test_the_divider_codes_are_table_fours(void) {
+  ap_mc146818_t rtc;
+  init(&rtc);
+  /* Table 4 in full: three time bases, two reset codes, and three the note
+   * reserves for test purposes and gives no frequency. */
+  static const uint32_t expected[8] = {
+      4194304u, /* 000 */
+      1048576u, /* 001 */
+      32768u,   /* 010 */
+      0u,       /* 011, test purposes only */
+      0u,       /* 100, test purposes only */
+      0u,       /* 101, test purposes only */
+      0u,       /* 110, divider reset */
+      0u,       /* 111, divider reset */
+  };
+  for (unsigned code = 0; code < 8u; code++) {
+    ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, (uint8_t)(code << 4));
+    TEST_ASSERT_EQUAL_UINT32(expected[code], ap_mc146818_time_base_hz(&rtc));
+    /* The chain runs for everything but the two reset codes, which is where
+     * this deliberately parts company with the frequency above. */
+    TEST_ASSERT_EQUAL_INT(code < 6u, ap_mc146818_divider_running(&rtc));
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_held_divider_stops_the_clock_and_the_square_wave);
@@ -863,5 +986,9 @@ int main(void) {
   RUN_TEST(test_setting_the_set_bit_disarms_the_update_ended_interrupt);
   RUN_TEST(test_a_write_that_leaves_set_already_high_does_not_disarm_uie);
   RUN_TEST(test_the_set_bit_leaves_every_other_register_b_bit_alone);
+  RUN_TEST(test_uip_is_high_for_the_492_microseconds_before_an_update);
+  RUN_TEST(test_the_watch_crystal_widens_the_window_to_2228_microseconds);
+  RUN_TEST(test_set_and_a_held_divider_each_clear_uip_where_it_stands);
+  RUN_TEST(test_the_divider_codes_are_table_fours);
   return UNITY_END();
 }

@@ -6843,13 +6843,13 @@ same number is what let them diverge once already.
             functions", which is why `ap_board_reset_devices` excludes it.
             *Verification: `mc146818_suite` 32 → 35.* Record:
             `docs/references/MC146818A_WALK.md`.
-      - [ ] **`UIP` and its 244 µs lead — the named blocker is gone.**
-            `ap_mc146818.c` never sets `UIP` and says modelling it "would need
-            the rate tables"; `[146818]` Table 6 and Figure 15 are those tables
-            — `tUC` 248 µs or 1984 µs by time base, `tBUC` 244 µs of lead. What
-            remains is a judgement rather than a gap: a driver polling `UIP` to
-            dodge the update never sees it set and reads valid data every time,
-            which is permissive rather than wrong. Decide and record.
+      - [x] **`UIP` and its 244 µs lead — modelled 2026-09-07.** The bit
+            pulses for Table 6's `tBUC + tUC` ending at the update, and `SET`
+            or a held divider clears it where it stands; Table 4's divider
+            codes are transcribed with it. The update stays atomic, so the
+            bytes a driver reads mid-window are valid — permissive, and named.
+            *Verification: `mc146818_suite` 35 → 39, four probes.* Detail in
+            `PROJECT_STATUS.md`.
       - [x] **`[6840]` MC6840 PTM — both documents walked whole, 2026-08-23**:
             datasheet 14/14, user manual 56/56. The item's premise ("no record")
             was wrong — a citation audit found sixteen `[6840UM]` sections
