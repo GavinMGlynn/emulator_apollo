@@ -43,8 +43,43 @@
  *
  * `[HIS]` §3-1's footnote is why `+6` is not simply "read/write": the Host
  * Control Register is **write-only on Rev 2 hardware**, and readable only on
- * Rev 3, which has the large gate array. A model must therefore decide which
- * revision it is; the DN3500's card is not yet established either way.
+ * Rev 3, which has the large gate array.
+ *
+ * ## Which revisions this model is, and that nobody chose them
+ *
+ * A model must decide, and this one already had -- on both axes, by
+ * implication rather than by decision. Stated here 2026-09-08 so a reader
+ * meeting the footnote above does not think it is still open, and so that
+ * meeting the *hardware* note does not suggest it settles the firmware too.
+ * The two are independent.
+ *
+ * **Hardware: Rev 3.** Two consequences point the same way and this model takes
+ * both. `+6` is decoded readable, which `[HIS]` §3-1 makes a Rev 3 property.
+ * And `+2` on write is the **Host Aux DMA Register**, which `[HIS]` §3-4 says
+ * "doesn't exist on older Rev 2 hardware boards" -- a Rev 2 model would have to
+ * decode that address as nothing. `[HIS]` Appendix A prints two `dma0` value
+ * sets, "(Rev 3 ROM)" and "for Rev 2", where `[DEV]` had only the Rev 2 one.
+ *
+ * **Firmware: Rev 2.0 or later.** `AP_3C505_CMD_ADAPTER_INFO = 0x11` is
+ * implemented, and `[DEV]` appendix F introduces PCB `11H` *and* its `41H`
+ * response **in Rev 2.0**. A Rev 1 model could not answer it.
+ *
+ * **Nothing is changed by saying so**, and that is deliberate. `11H` is real on
+ * the revision Apollo most likely shipped, and the other host-visible
+ * revision differences are not modelled at all: `[DEV]` appendix G has the
+ * maximum PCB timeout rise from **127 to 32767 ticks** and the timer resolution
+ * from **25 us to 15 us** in Rev 2.0, Rev 3.0 change `Transmit Packet`'s
+ * download wait from 30 ms to 50 ms and guarantee receive ordering, and a later
+ * *hardware* revision invert the ACR's LED bits. None of those is implemented,
+ * so the revisions above are what the model *is* rather than what it enforces.
+ * If any of them is ever wanted, this is the paragraph that says which side of
+ * each line this core already sits on.
+ *
+ * *And one hazard `[HIS]` states from the card's side*, worth citing where the
+ * failure lives: §2-12, "the Interrupt Request signal must go inactive sometime
+ * after the EOI is issued or the channel will not be re-armed ... or interrupts
+ * may be lost". That is exactly the edge-triggered-8259 failure `ap_i8259`'s
+ * model produces -- documented by the vendor rather than deduced by us.
  *
  * Base is jumpered; the factory setting is `300H`, which through this machine's
  * AT decode -- `physical = 0x040000 + (ISA << 7)` -- puts the card at physical

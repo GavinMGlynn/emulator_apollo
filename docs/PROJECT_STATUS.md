@@ -40065,6 +40065,48 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## The 3c505's two revisions were chosen by implication, and now they are stated
+
+Two plan items, merged and closed 2026-09-08. Both said the same thing in
+different words: this core had picked a 3c505 **hardware** revision and a
+**firmware** revision without anyone deciding either, and the header did not say
+so. `ap_3c505.h` says so now.
+
+**Hardware: Rev 3.** Two independent consequences and this model takes both.
+`+6` is decoded readable, which `[HIS]` §3-1's footnote makes a Rev 3 property —
+on Rev 2 the Host Control Register is write-only, and the large gate array is
+what makes it readable. And `+2` on write is the **Host Aux DMA Register**, of
+which `[HIS]` §3-4 says "it doesn't exist on older Rev 2 hardware boards"; a Rev
+2 model would have to decode that address as nothing. `[HIS]` Appendix A prints
+two `dma0` value sets, "(Rev 3 ROM)" and "for Rev 2", where `[DEV]` had only the
+Rev 2 one.
+
+**Firmware: Rev 2.0 or later**, and independently. `AP_3C505_CMD_ADAPTER_INFO =
+0x11` is implemented, and `[DEV]` appendix F introduces PCB `11H` **and** its
+`41H` response in Rev 2.0. A Rev 1 model could not answer it.
+
+**Nothing changes, which is the point.** `11H` is real on the revision Apollo
+most likely shipped, and every other host-visible revision difference is
+unmodelled: appendix G has the maximum PCB timeout rise from **127 to 32767
+ticks** and the timer resolution from **25 µs to 15 µs** in Rev 2.0, Rev 3.0
+change `Transmit Packet`'s download wait from 30 ms to 50 ms and guarantee
+receive ordering, and a later hardware revision inverts the ACR's LED bits. So
+the revisions above are what the model *is*, not what it enforces — and the
+paragraph exists so that whoever wants one of those differences can see which
+side of each line this core already sits on, instead of deciding it twice.
+
+*Why the two axes needed saying together*: the header already carried the
+hardware footnote and a reader meeting it could reasonably conclude the question
+was settled for the card as a whole. It is not — the ROM revision is a second
+axis with its own evidence, and the two happen to point the same way.
+
+*And one hazard cited where the failure lives.* `[HIS]` §2-12, from the card's
+side: "the Interrupt Request signal must go inactive sometime after the EOI is
+issued or the channel will not be re-armed ... or interrupts may be lost." That
+is exactly the edge-triggered-8259 failure `ap_i8259`'s model produces —
+documented by the vendor rather than deduced here, which is the better standing
+for a behaviour a driver can trip over.
+
 ## The stopped floppy spindle: the card has no channel to report it, and that closes the question
 
 Ticked 2026-09-08. The investigation was finished on 2026-08-22 and the item was
