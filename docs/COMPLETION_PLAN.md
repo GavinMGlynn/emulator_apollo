@@ -5486,159 +5486,44 @@ Only after the reference core is proven, and only under an identity harness.
       Detail — the media census, the calendar gate, why a restored volume is
       not a bootable one, the oracle's tape underrun abort, and the four-link
       chain SR10.2 needed — in `PROJECT_STATUS.md`.
-- [ ] Boot every firmware revision we hold, including both `3000_BOOT` revisions
-      and both ring board generations.
-      **Done and recorded**: six boot PROMs across five models, each with its
-      state hash and what it did. It found one defect of ours — the frontend
-      fitted 16 MB to every model, twice what a DN3000 takes, which left the
-      boot PROM's sizing strap unset and failed its memory test with
-      `E0060882`. Memory size now comes from the model table, `--ram` selects
-      it, and both DN3000 revisions pass into Memory Module 2. Detail and the
-      display-redirects-the-console trap in `PROJECT_STATUS.md`.
-      **Awaiting**, each named there. The **DN2500 now loads its own 128 K PROM
-      and runs**, on a `DS2500_MAP` holding only measured placements, and stops
-      at a named gap: its core block is **not** the Series 4000's — thirty-two
-      four-byte registers where that has one aliased across 256 bytes — so the
-      range was left undecoded rather than answering another machine's register.
-      *Superseded 2026-08-19 by the entry below*: the block is now decoded as
-      `AP_BOARD_REGION_S2500_CONTROL`, **storage and `PROVISIONAL`**, because
-      the firmware's own reset code requires `0202D4` to read back what it
-      writes and spins for ever otherwise. That is the same restraint, not a
-      reversal of it -- the range answers *itself* rather than another machine's
-      register -- and it took the machine from 18 instructions to 60 M.
-      Reference, web and oracle are all exhausted for a Series 2500, so
-      finishing it is an undocumented-hardware project of its own rather than a
-      tail of this item.
-      **Re-verified rather than carried forward on trust** (2026-08-18):
-      bitsavers' whole Apollo index holds **no** Series 2500 document of any
-      kind, and its only register-level hardware reference for any model is
-      `008778-03`, the Series 3000/4000 manual this project already has. A web
-      search for a Series 2500 core-board or service manual returns
-      configuration guides and parts lists and no hardware reference. **What
-      would unblock it is a Series 2500 hardware manual or a machine to
-      **Three DS5500 registers the addendum documents and this core does not**
-      (`FINDINGS.md` C236), found by reading `019411-A00` as **page images**
-      after a text-layer grep had declared it silent. §4.2.1.14 **DS5500 Cache
-      Status Register**, 8-bit read-only, `HSI Present <3>` cleared when a
-      graphics device is in the HSI connector and `MEM Time <0>` for an access
-      to non-existent memory; §4.2.1.18 **DS5500 Memory Present Register**,
-      8-bit read-only, `MEM Present <7-0>` cleared when boards are present with
-      each consecutive **pair** of bits identifying a slot, P25/P24/P23/P22
-      right to left; and Table 4-6's added line `PC ON/OFF -- Physical Cache
-      (DS4500 Only)`. The first two are the shape the memory strap needed on
-      other models -- read-only registers a boot PROM consults to size what is
-      fitted -- so they belong with this item even though a 68040 core is what
-      makes them reachable.
+- [x] **Boot every firmware revision we hold — done, and the residue belongs to
+      other items.** Six boot PROMs across five models, each with its state hash
+      and what it did, plus **both ring board generations**, with Domain/OS's own
+      self-test suite passing when the card is fitted. It found two defects of
+      ours: the frontend fitted 16 MB to every model, twice what a DN3000 takes,
+      leaving the sizing strap unset and failing the memory test with `E0060882`
+      — memory size now comes from the model table — and unit 1 answered as a
+      second ring card because the decoded unit was discarded.
+      **The DN4500's memory strap is solved**: a fourteen-arm `cmp.b` chain in
+      the firmware, identical in the DN3500's PROM, from which the oracle's four
+      bank layouts fall out unchanged.
+      **What is not a tail of this item, and is named where its blocker lives**:
+      the DN2500 runs 60 M instructions and then polls a status bit no storage
+      model can satisfy — a Series 2500 register document or a 2500 driver, and
+      neither exists — and the DN5500 stops at `cinva`, its second instruction,
+      which is the **68040 execution core** item. Detail in `PROJECT_STATUS.md`.
 
-      **A third tail, found by audit on 2026-08-19 and sized rather than
-      guessed** (`FINDINGS.md` C226, C227). Two whole parts are built, tested
-      and **unreachable from any machine** -- `src/core/cpu/m68040/` (3,181
-      lines, 13 modules) and `src/core/cpu/m68851/` (2,039 lines, 9 suites) have
-      **zero** call sites anywhere in `src/` outside their own directories. And the field that would
-      select between them is consumed only by a hash-scope *name* and a line in
-      the frontend's report, so `.mmu = AP_MMU_M68851` on the DN3000 rows is a
-      declaration the machine does not honour: `ap_machine` builds an
-      `ap_m68030_cpu_t` unconditionally, which is the same root cause as the
-      DN5500 stopping at its second instruction.
-      *Not a live defect* -- the DN3000 diffs pass, so its firmware does not
-      depend on the difference within the window measured -- but it is exactly
-      what `model/`'s own rule forbids, "all machine variance lives here", and
-      **and the inference drawn from that on the day was wrong.** It read "so
-      this item's remaining work is *one* change: teach `ap_machine` to build
-      the CPU and MMU its model row names, the 68040 and 68851 halves being
-      already written and tested behind it". Checked an hour later: **no 68040
-      CPU type or step function exists anywhere in the tree, and no 68020 core
-      either** -- only the 68030 has an execution core at all. What those directories hold
-      are the *parts a core would use* -- MMU descriptors, ATCs, caches, an
-      FPU, timing tables -- not a core, so `ap_machine` cannot be taught to
-      build one that does not exist. The DN5500 tail stays what it was: build a
-      68040 execution core, against the 68030's 14,034 lines of the same.
-      *The audit's facts stand -- 22 suites reachable only from their own tests,
-      and a model table whose `.mmu` only prints. The reading that this made the
-      work small did not, and it is the same shape as C220: a plausible
-      conclusion from real evidence, wrong because one thing was not checked.*
-      **And the same shape appeared a third time in the same table** (C228) --
-      **but it is not the same shape, and 2026-09-08 corrects that.** Counting
-      readers for every field of `ap_model_t` outside `ap_model.c` puts `cpu` at
-      110, `fpu` at 30, `ram_base` at 10 and **`has_ring` at zero**, and the two
-      zeroes were read as one finding. They are not. `.mmu` genuinely **varies**
-      -- three rows `M68851`, seven `M68030`, two `M68040` -- and `ap_machine`
-      ignores it, which is a declaration the machine does not honour.
-      `has_ring` is **`true` on all twelve rows**, so it selects nothing and
-      *cannot* be read: it is unread by construction, not by oversight. Nothing
-      to gate and nothing to delete-for-being-ignored; the statement it carries
-      -- every model this project supports takes a ring card -- is worth keeping,
-      and the field becomes live the moment a model that cannot is added.
-      `ap_model.h` now says so at the field, beside the reader count that will
-      keep finding it. *The lesson is the audit's own*: a reader count is an
-      instrument, and an instrument that finds two zeroes has not thereby found
-      two defects.
-      *Two sub-items, each small and neither started here* (the third is
-      withdrawn above): `ap_machine` builds the CPU its row names, and `.mmu`
-      selects the MMU its own enum documents. **The second is not
-      behaviour-neutral** -- an MMU with a different descriptor format is a
-      translation change -- and it needs the
-      identity harness on the other side, which is why they are named rather
-      than done in passing.
+- [ ] **The DS5500's three addendum registers, and the model table's `.mmu`.**
+      Split out of the boot item 2026-09-08, because both wait on the 68040 core
+      rather than on anything that item was about.
+      `019411-A00` §4.2.1.14's **DS5500 Cache Status Register**, 8-bit read-only,
+      `HSI Present <3>` cleared when a graphics device is in the HSI connector
+      and `MEM Time <0>` for an access to non-existent memory; §4.2.1.18's
+      **Memory Present Register**, `MEM Present <7-0>` with each consecutive
+      *pair* of bits identifying a slot, P25/P24/P23/P22 right to left; and
+      Table 4-6's added line, which has its own item. The first two are the
+      shape the memory strap needed on other models — read-only registers a boot
+      PROM consults to size what is fitted.
+      **And `.mmu` is a declaration the machine does not honour**: three rows say
+      `AP_MMU_M68851`, seven `AP_MMU_M68030`, two `AP_MMU_M68040`, and
+      `ap_machine` builds an `ap_m68030_cpu_t` unconditionally. Not a live defect
+      — the DN3000 diffs pass 29 of 29 CPU fields — but it is what `model/`'s own
+      rule forbids. *Not behaviour-neutral*: an MMU with a different descriptor
+      format is a translation change, so it needs the identity harness on the
+      other side.
+      **What would unblock both**: a 68040 execution core, so a DS5500 runs far
+      enough to read a register and so `.mmu` has something to select.
 
-      **DN2500, 2026-08-19: from 18 instructions to 60 M, and the next blocker
-      is named.** The tail recorded here -- "the Series 2500 PROM is 131072
-      bytes against `AP_BOARD_PROM_SIZE`" -- was already closed: `DS2500_MAP`
-      carries `prom_size 0x020000`. What actually stopped it was its **second
-      instruction**, and its own reset code says so:
-
-          0001F040  move.b #$1F,$00020800    ; the posted code, mapped
-          0001F048  move.b #$FF,$000202D0    ; <- bus error, nothing decoded
-          0001F050  move.b #$40,$000202CC
-          0001F058  move.b #$2, $00020800
-          0001F060  move.b #$1, $000202D4
-          0001F068  move.b $000202D4,d0 / andi.b #$0F,d0 / cmpi.b #$1,d0 / beq
-          0001F078  ... else spin here for ever
-
-      So `0202D4`'s low nibble must read back what was written. **It is not the
-      DN3500's core-register page at this family's displacement**: that PROM
-      references none of `0202CC`, `0202D0` or `0202D4`, searched exhaustively
-      over the image. Series 2500-only, no document on disk, and a fresh web
-      search finds none -- `[CFG]`'s Product Summary is configuration, not
-      registers -- and the oracle has no 2500 driver.
-      Modelled as `AP_BOARD_REGION_S2500_CONTROL`: **storage, `PROVISIONAL`**,
-      the same restraint the ring's unmapped slots are kept under. `020000` and
-      `020100` *are* the DN3500's CPU status and control at the same
-      displacement, which is the reading three other blocks in this map already
-      make (`010400`->`020400`, `010800`->`020800`, `010C00`->`020C00`).
-      *Verification: `board_suite` 56 -> 57; the machine runs **60 M
-      instructions with zero bus errors**, PC `0000BB06`, against 18
-      instructions and a fault before.*
-      **The next blocker, measured rather than guessed**: it prints nothing and
-      sits with `a1`/`a2` at `00020200` and `a3` at `00020280`, so the block is a
-      real device with register sets `$80` apart and the firmware is polling a
-      status bit. **Storage cannot satisfy a bit that must change**, which is
-      exactly the limit a storage model has. Closing it needs a Series 2500
-      register document or a 2500 driver to instrument, and neither exists
-      today -- so this is `PROVISIONAL` with its cost to close named, not a
-      module claimed finished.
-      The DN4500's memory strap is
-      **solved**: the firmware decodes it with a fourteen-arm `cmp.b` chain,
-      identical in the DN3500's PROM, and the oracle's four bank layouts fall
-      out of it unchanged. Its self-test failure was our unstrapped port reading
-      `00`, which the firmware reads as twenty megabytes rather than as no
-      answer. Still open: the DN5500, now precisely diagnosed — it stops at its
-      second instruction, `cinva`, because the 68040 is modelled and nothing
-      executes on it. **Re-verified 2026-08-18 down to the opcode**: `4E71`
-      (`nop`) at `00060C`, `F4D8` (`cinva bc`) at `00060E`, and the F-line is
-      taken there — `stopped on vector 11 taken from PC 0000060E, after 1
-      instruction(s)`. What follows is worth knowing so "stops" is not
-      misread: the run does *not* halt there. The 68030 core takes the F-line
-      correctly, the PROM's handler runs ~135 more instructions, and the
-      machine ends on a bus error writing its exception frame at `FFFFFFFC`
-      with `a7` zero. So the core's exception path is not what is missing;
-      the instruction is. **Both ring generations now boot**, and Domain/OS's own
-      self-test suite passes with the card fitted -- `Apollo Token Ring test
-      passed.`, `above driver type loaded.`, `Self tests passed.` -- with
-      reproducible hashes for each. It found one defect of ours that no
-      self-test could reach: unit 1 answered as a second card, because the
-      decoded unit was discarded. Detail in `PROJECT_STATUS.md`.
-      *Verification: `frontend_flags` 13 → 16; DN3500 30 M hash unchanged.*
 - [ ] Real multi-node Domain workloads: distributed single-level store across
       nodes, `lcnode`, remote file access. *Verification: content finds what
       unit tests did not; each finding lands with a test.*
