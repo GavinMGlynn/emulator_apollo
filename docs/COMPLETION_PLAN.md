@@ -6255,16 +6255,26 @@ same number is what let them diverge once already.
       36 after the matching `ST0` correction.* Detail in
       `docs/references/OMTI_WALK.md`.
 - [ ] **The Series 4000 virtual cache and write buffer, and their 16 KB of
-      board-visible RAM.** §1.3.1: "an **8-KB, direct-mapped** cache ... 2048
-      4-byte instruction and/or data entries ... **write-through with
-      write-allocate**". §1.3.2's write buffer "resides on the virtual bus
-      **between the microprocessor and the PMMU**". Neither is modelled, and
-      neither is the 68030's on-chip cache — Figure 1-2 draws both on a **68020**
-      logical bus beside a separate 68851. **Not merely internal**: Table 2-8
-      gives `012000`-`013FFF` CACHE RAM and `014000`-`015FFF` CACHE CONDITION
-      CODE RAM, so firmware can read and write the cache's data *and* its
-      condition-code RAM, and a diagnostic almost certainly does. Open question
-      the walk has not settled: whether a DS3500 carries the structure at all.
+      board-visible RAM — a `dn4000` gap, and 2026-09-08 establishes that it is
+      *only* that.** §1.3.1: "an **8-KB, direct-mapped** cache ... 2048 4-byte
+      instruction and/or data entries ... **write-through with write-allocate**".
+      §1.3.2's write buffer "resides on the virtual bus **between the
+      microprocessor and the PMMU**". Neither is modelled. **Not merely
+      internal**: Table 2-8 gives `012000`-`013FFF` CACHE RAM and
+      `014000`-`015FFF` CACHE CONDITION CODE RAM, so firmware can read and write
+      the cache's data *and* its condition-code RAM.
+      **The open question — "whether a DS3500 carries the structure at all" — is
+      answered, and the answer is no.** §1.3.2 puts the write buffer *between the
+      microprocessor and the PMMU*, and a 68030 has no such bus: its MMU is on
+      chip, so the position the structure occupies does not exist on a DS3500.
+      §1.3.1's virtual cache sits on the same logical bus. Derived from the part
+      rather than measured, and marked as such. `008778-03` was never going to
+      settle it either way — §3.2 names "the DMMU in the DS3000, PMMU in the
+      DS4000" and the manual covers **no DS3500 at all**; that model's own
+      document is the *Hardware Architecture Handbook* `007861-A01`, already
+      recorded here as unobtainable.
+      **So this is scoped to `dn4000`**, which is in the model table, and stays
+      open for it. *What would close it*: a `dn4000` boot that reads `012000`.
 - [x] **The DS4000 is in the model table**, as `dn4000` — this table uses `dn`
       throughout and `019411-A00`'s DS3500 is `dn3500` here. 25-MHz 68020, 68851,
       68881, 4–32 MB from `002398-04` Figure 1-2 and §1; the **display is
