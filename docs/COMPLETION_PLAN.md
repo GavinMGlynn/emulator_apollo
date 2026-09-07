@@ -6191,7 +6191,9 @@ same number is what let them diverge once already.
       queried. Record: `docs/references/007196-01_WALK.md`.
       **Eight of the nine device chapters are finished, 2026-09-07** — `SIO`,
       `CAL`, `CTM`, `FPP`, `GMF`, `MTS`, `TIME`, `TONE` and `TPAD`, 119 of 722
-      read as images plus 7 of `SMD`'s 41, with **34 pages of `SMD` owed** —
+      read as images, and **all nine device chapters are finished** at 160 of
+      722 — what remains is the 562 pages where the operating system talks to
+      itself —
       and **the chapter map is built**: INTRO-2's census plus the running
       footers give every chapter's first page, so nine of the thirty-three
       touch hardware this core models and are 138 pages between them. Walk

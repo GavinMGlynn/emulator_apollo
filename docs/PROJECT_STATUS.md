@@ -40047,6 +40047,47 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s SMD chapter finished — 41/41, and every device chapter with it
+
+The remaining 34 pages. **All nine device chapters of the *Domain System Call
+Reference* are now walked**, 160 of 722; what is left is the 562 pages where the
+operating system talks to itself.
+
+**A claim from the seven-page pass is withdrawn.** That write-up said the core's
+two 1280×1024 monochrome boards are `SMD_$BW_19L`, the landscape type. SMD-13 and
+SMD-22 give both orientations outright — portrait is **800 wide × 1024 tall**,
+landscape **1024 × 800** — so neither is 1280×1024, and `SMD_$INQ_DISP_TYPE`'s
+census has no monochrome 1280×1024 entry at all. The January 1987 manual simply
+does not list `008157` or `010735`. What survives is the part that mattered:
+`SMD_$COLOR3_DISPLAY` is `010104` and `SMD_$COLOR4_DISPLAY` is the same geometry
+at four planes, which is what this core's sixteen-entry LUT is for.
+
+**The 128 KB display window decomposes exactly.** The font loaders say "the images
+of all loaded fonts coexist in the invisible **28-K byte** portion of display
+memory". With SMD-19's 128 KB map and the portrait geometry the arithmetic closes
+with nothing over: 800 × 1024 bits is 102,400 bytes visible, and 131,072 − 102,400
+is 28,672 — 28 KB exactly. So the window this core carried as a size is now a
+layout: a screen plus a 28 KB off-screen store the error list calls **hidden
+display memory** (`SMD_$HDM_FULL`, `SMD_$HDMT_UNLOAD_ERR`).
+
+**Soft scroll moves two raster lines at a time**, replicating the pair on the
+opposite boundary — the granularity an interlaced display forces. That makes Table
+SMD-1's `SMD_$NONINTERLACE` coherent: the screen these calls target is interlaced,
+where `008778-03` Table 11-3 gives the DS3500's 1024×800 as noninterlaced. Two
+different screens, no contradiction with the board manual.
+
+Smaller, each checkable here: the keyboard cursor is 8 bits wide and 13 high;
+locator buttons run to **four** where `ap_kbd.h`'s relative packet encodes three
+(the fourth is the tablet's, the device `SIO_$BP_ENABLE` and `TPAD_$HAVE_BITPAD`
+also name); `SMD_$WHITE` makes vectors "white **or green**"; "nonconforming and
+main memory BLTs are not implemented", so the blitter's mode space is wider than
+the driver offers; and `SMD_$CANT_BORROW_BOTH` implies two displays where every
+call says unit 1 is the only valid number — recorded as a tension.
+
+Three documentary errors: an example that sets `buttons := 3` and calls it one
+button; `SMD_$WRITE_STRING_U`'s line and column ranges transposed against the
+vector calls' three pages earlier; and two error codes with the identical gloss.
+
 ## `007196-01`'s SMD chapter started — the display census, and a bus error this core cannot raise
 
 Seven of the 41 pages of the Screen Manager chapter, chosen by extracting the
