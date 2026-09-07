@@ -4225,8 +4225,10 @@ discipline throughout.
       `$FE` to `$99`. Measured `ACR E0`, `CSR 99`, `d1 = FE`: every value.
       **So the MD route is not blocked by the harness.** What it waits on is
       now an item of its own: C240 walked the poll and its autobaud table out of
-      the PROM, and the table's five shapes imply three different receiver
-      rates. Detail in `PROJECT_STATUS.md`.
+      the PROM, found the table reproduced **exactly** by this core's resampler
+      across both baud sets, and located the failure *after* the console is
+      chosen — sixty-three selections, each returned to the poll by the retry
+      vector the firmware installs. Detail in `PROJECT_STATUS.md`.
       **The route on this core is C165's**: boot **Normal**, where a node prints
       its whole Domain/OS startup on serial 1 channel B and then goes quiet at
       `SPM system init complete.`, with **`siologin`** configured -- which is
@@ -6202,26 +6204,26 @@ same number is what let them diverge once already.
       the row count. §3.3 carried the DS3000's period into the DS4000's clause.
       `ap_atbus.h` states the interval and derives both periods; `PROVISIONAL`
       lifted. *Verification: `atbus_suite` 11 -> 14.*
-- [ ] **The boot PROM's autobaud table implies three different receiver rates,
-      and it is the first external check `ap_mc68681_resample` has ever had.**
-      Opened 2026-09-08 from `FINDINGS.md` C240, which walks the console-election
-      poll at `00078E`–`0007AE` and its table at `$822` out of the PROM. The
-      firmware sets `ACR = $E0` (baud set 2) and `CSRB = $77` (code 7 = **2000
-      baud** in set 2) and then recognises exactly five shapes: `$FF`→9600,
-      `$FE`→4800, `$C7`→2400, `$72`→1200, `$C0`→300.
-      Worked backwards against a `0D` sampled at `(1.5 + k)` receiver bit times,
-      `$C7`→2400 implies a receiver at **1920 baud** — confirming the 2000 —
-      while `$FF`→9600 implies **≤1600** and `$FE`→4800 implies **800–1333**.
-      **No single rate satisfies all three.**
-      *Nothing is changed on this*: the resampler reproduces both measured `d1`
-      values (`$FE` at a 9600 sender, `$F9` at 4800) by independent arithmetic,
-      the baud table is confirmed by the datasheet's page image, and the
-      firmware's intent by its own instruction — so altering one of the three to
-      fit the fourth is the tell `CLAUDE.md` names.
-      *Verification would be*: a resampling model that reproduces all five of the
-      firmware's shapes from one receiver rate, or a statement that the table's
-      entries are not all taken at one. It is also what unblocks the MD route on
-      the serial console, and with it a shell and `/com/lcnode`. Detail in
+- [ ] **Sixty-three console selections, all rejected: what `$8BC` wants after the
+      boot PROM has chosen a console.** Opened 2026-09-08 from `FINDINGS.md`
+      C240, which walks the console-election poll at `00078E`–`0007AE` and its
+      autobaud table at `$822` out of the PROM.
+      **The autobaud is not the blocker and the resampler is confirmed.** The
+      table's five shapes — `$FF`→9600, `$FE`→4800, `$C7`→2400, `$72`→1200,
+      `$C0`→300 — are reproduced **exactly** by `ap_mc68681_resample`, three of
+      them with the receiver at 2000 baud (`ACR[7]`=1, set 2) and two at 1050
+      (set 1), which is the first external check that model has ever had and
+      confirms *both* of code 7's values from the firmware's side.
+      So the firmware does converge, and the run says it then **selected the
+      console sixty-three times**: `sio1 reg 10 (CRB) — 63 write(s)` is `$7F8`'s
+      `move.b #$45, $14(a0)` and nothing else. It came back to the poll every
+      time, because `000752`/`000756` install the poll's own address as a retry
+      vector in `$150(a6)` before the loop starts.
+      **What is left is `$8BC` onward** — `move.l a0, $130(a6)` /
+      `suba.l $12c(a6), a0` — and why it rejects a chosen console. Not the
+      harness, not the pacing, not the baud set.
+      *Verification*: a service-mode boot that reaches `MD7C REV 8.00` on the
+      serial console. That unblocks a shell and `/com/lcnode` with it. Detail in
       `PROJECT_STATUS.md`.
 - [ ] **The 2681's modem-control signals — blocked on a pin assignment, and
       the gap is narrower than this item claimed.** §3.9 and Figures 3-4/3-5

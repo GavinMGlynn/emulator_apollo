@@ -13032,26 +13032,48 @@ gives `$FE` for any sender between 7200 and 12000 baud, and `$F9` at 4800.
 `$FE` maps to 4800, which is not 9600, so a 9600 terminal cannot converge; `$F9`
 is not in the table at all, so a 4800 terminal cannot either.
 
-### The question that leaves, which is sharper than "is `ACR[7]` right"
+### The table matches this core's resampler EXACTLY, at all five entries
 
-Work the table backwards and ask what receiver rate each entry implies:
+*Written first as "no single receiver rate satisfies all three", from three
+entries worked backwards by hand. Running all five through the model instead
+gives a complete match, and the hand argument was wrong to stop at three.*
 
-  - **`$C7` -> 2400** needs the sample ratio to be **1.25**, so a receiver of
-    2400/1.25 = **1920 baud**. That is 2000 to within the resolution of the
-    exercise, and it **confirms** the 2000-baud receiver.
-  - **`$FF` -> 9600** needs the first data sample to land past the stop bit, so
-    a ratio of 6 or more -- a receiver of **1600 baud or less**.
-  - **`$FE` -> 4800** needs a ratio between 3.6 and 6 -- a receiver between
-    **800 and 1333 baud**.
+`ap_mc68681_resample`'s rule -- sample the sender's waveform at `(1.5 + k)`
+receiver bit times -- applied to a `0D` at each rate the table names, against
+**both** of code 7's values:
 
-**No single receiver rate satisfies all three.** So either the table's entries
-were not all taken at one rate, or this core's resampler and the part disagree
-at the high ratios where a whole character falls inside one receiver bit. That
-is a real question about `ap_mc68681_resample`, with a named discriminator --
-the firmware's own five shapes -- and it is the first time anything has been
-able to check the resampler against something other than itself.
+    receiver 2000 (ACR[7]=1, set 2)      receiver 1050 (ACR[7]=0, set 1)
+      300  -> $C0   table $C0  MATCH       4800 -> $FE   table $FE  MATCH
+     1200  -> $72   table $72  MATCH       9600 -> $FF   table $FF  MATCH
+     2400  -> $C7   table $C7  MATCH
 
-*Not changed, and deliberately.* The resampler reproduces two measured values
-by independent arithmetic, the baud table is confirmed by the page image, and
-the firmware's intent is confirmed by its own instruction. Changing any of the
-three to make the fourth fit is exactly what `CLAUDE.md` names as the tell.
+**All five, and no entry is matched by both sets**: the three slow rates are
+the 2000-baud receiver's shapes and the two fast ones are the 1050-baud
+receiver's. So the table **spans both baud sets**, which is exactly what the
+run's `sio1 reg 4 -- 63 write(s)` says the firmware is doing: it walks `ACR[7]`
+as well as `CSRB`, and the table covers the shapes from both halves of the walk.
+
+That is the first external check `ap_mc68681_resample` has ever had -- every
+earlier test asserted the model against itself -- and it passes at five points
+across two baud sets. It also confirms **both** of code 7's values from the
+firmware's side: `set_one[7] = 1050` and `set_two[7] = 2000`, the second of
+which this project corrected from 1050 on the datasheet's authority alone.
+
+### So the blocker is after the selection, not before it
+
+With the table read correctly, the firmware *can* converge on a 9600 terminal:
+in set 1 it reads `$FF`, writes `CSRB = $BB`, sets `$158` bit 0, and the next
+character falls through `$7F6` and **selects the console**. And the run says it
+did -- `sio1 reg 10 (CRB) -- 63 write(s)`, which is `$7F8`'s
+`move.b #$45, $14(a0)` and nothing else.
+
+**Sixty-three console selections, and the machine came back to the poll every
+time.** `000752`/`000756` say how: `lea.l $78e(pc), a0` / `move.l a0, $150(a6)`
+installs the poll's own address as a **retry vector** before the loop begins. So
+whatever `$8BC` onward does with the selected port -- `move.l a0, $130(a6)`,
+`suba.l $12c(a6), a0` -- is failing, and failing back to `$78E`.
+
+That is a different and much narrower question than the one this finding opened
+with, and it is where the MD route now stands: not the harness, not the pacing,
+not the resampler, not the baud set. **The console is selected and something
+after the selection rejects it.**
