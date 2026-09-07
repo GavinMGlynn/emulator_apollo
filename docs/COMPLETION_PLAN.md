@@ -6113,6 +6113,14 @@ same number is what let them diverge once already.
       manual cannot say whether the controller ever drives a channel check, and
       this is one more source checked and recorded as silent rather than
       untried.
+      **And now every AT-bus device manual on the shelf has been checked, 2026-
+      09-08 — all silent.** `[OMTI]`, `[8000]` and `[8640]` (whose only hit is
+      the same connector pin list, with no signal description), both 3c505
+      manuals `[DEV]` and `[HIS]`, both tape specifications `[08845]` and
+      `[SC499]`, `QIC-02`, and the three 765 datasheets: **not one defines a
+      condition under which its card asserts `-I/O CH CK`.** So the documentary
+      route is exhausted across the whole shelf rather than in one manual, and
+      re-checking it is wasted effort.
       **What is left is a source.** Nothing this core models can assert a
       channel check: the bit is named so a firmware read is recognisable, and
       raised by nothing. Closing it needs an AT-bus device that can fail, which
