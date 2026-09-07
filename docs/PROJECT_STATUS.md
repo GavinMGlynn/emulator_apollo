@@ -40142,6 +40142,62 @@ it was last read, and its own named remedy had been built. The correction to
 step 4 of the two-node item — which still said "it needs `--sio-input` to grow a
 'when'" — is kept in place with the original sentence beneath it.
 
+## The ring type mask is the driver's, not the controller's — and one command answered it
+
+Settled 2026-09-08, closing an item that had been open since the `002398-04`
+walk and had three named routes, two of them already spent.
+
+**The question**: `002398-04` p. 7-31 gives the DN3xx controller a `TMASK`
+register and p. 8-37 the matching rule, `[MAC]` p. 2-7 makes type filtering a
+property of the Apollo ring protocol, and `ap_ring_station` accepts on
+broadcast-or-destination alone. So — the item asked — would a driver that
+programs a mask to take only paging packets receive everything?
+
+**It would not, because on this board generation the mask never reaches
+hardware.** `RING_$SET_TMASK`, at `+0x1FAE` in the extracted `RING_PROC`, reads
+the caller's 16-bit mask, indexes a per-unit control block, returns early if it
+is unchanged, stores it, sets a changed flag, bumps a statistic, and calls
+**exactly one** external routine.
+
+That routine is **`EC_$ADVANCE`**.
+
+**And naming it took one command, where the plan had budgeted a module
+extraction.** `tools/kernel_symbols.py --build domain_os11` resolves `7A42138E`
+to `EC_$ADVANCE` and — the check that makes it trustworthy — resolves
+`7A4D1FAE` to `RING_$SET_TMASK` itself, which is the exact offset finding 53f
+predicted from the link map months ago. The build and the address frame are
+pinned by the same lookup that answers the question.
+
+So the driver's mask-change path ends in an **eventcount advance**: store the
+mask, wake whatever is waiting. It is a signal, not a register write, and no
+path from `SET_TMASK` reaches the controller.
+
+*A whole-image scan of the link maps had already put `7A42138E` inside
+`WIRED_PROC` (`7A407000`, size `0x26690`) — consistent, and superseded by the
+symbol. Worth recording only because it is the expensive way to the same answer,
+and the tool that gives the cheap one was written by this project for exactly
+this.*
+
+**Taken with the register evidence, the item closes.** `002398-04` ch. 12's
+enumeration for the AT board — `MISC_CMD`/`MISC_STAT`, `XMIT_CMD`/`XMIT_STAT`,
+`RCV_CMD`/`RCV_STAT`, the byte-swapped address registers, the six 8254 counters
+and their load/read protocol — carries **no mask**, where the `9800` page of the
+DN3xx and DN5xx controllers has `TMASK` at `+04`. That is a generation
+difference and not a gap in this model: the older controller filtered in
+hardware, the AT board's driver filters in software, and `ap_ring_station`'s
+acceptance rule is right for the boards this core supports.
+
+*What is deliberately not claimed*: that no register anywhere on the AT board
+carries a mask. Absence from a handbook chapter is weaker than presence, and
+this conclusion rests on the driver to carry it. If one is ever found, the filter
+belongs at `ap_ring_ctl` and not in `ap_ring_station`, whose job is the wire —
+which is what the item said and stays true.
+
+*And a small pleasure*: the driver's mask path ends in `EC_$ADVANCE`, the same
+`EC2` eventcount primitive `007196-01`'s `EC2` chapter was walked for a week
+earlier — a six-byte object with a 4-byte value and a 2-byte `awaiters`, 32 per
+node. The manual and the kernel meeting on the same primitive.
+
 ## A WACKing receiver still asserts intend-to-copy — a published status word this core could not produce
 
 Settled and fixed 2026-09-08, on evidence that had been on the shelf the whole

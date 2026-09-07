@@ -5810,58 +5810,22 @@ same number is what let them diverge once already.
       best findings came from Appendix A, which this project had never opened.**
       Detail in `PROJECT_STATUS.md`.
 
-- [ ] **Does the DN3000's ring controller filter received packets by type?**
-      Two chapters of `002398-04` give the earlier controllers a type-mask
-      register with consistent semantics: p. 7-31's `TMASK` names its bits
-      (`80 broadcast` down to `01 xtype3`) and **p. 8-37 gives the matching
-      rule** — "Type mask, accept message if **any** bits in type field of
-      message are set in corresponding bit of type mask", with a separate
-      `BRDCST` bit for broadcast.
-      This core has no type filter anywhere. `ap_ring_station` accepts on
-      broadcast-or-destination-match alone, and `ap_ring_ctl` has no such
-      register among its ID, status and timer banks. So a driver that programs a
-      mask to take only paging packets would receive everything.
-      **`[MAC]` p. 2-7 settles the architectural half** (walked 2026-08-21):
-      "The type field determines whether a node receives or ignores a message
-      ... Such software control enables nodes to selectively discard or ignore
-      messages **at the hardware level**, effectively enhancing ring
-      performance." That is the ring's own protocol spec, not a per-generation
-      page, so **hardware type filtering is a property of the Apollo ring** and
-      a DS3000 controller without it could not implement the protocol. What
-      p. 2-7 does **not** give is the DS3000's *register* — its address, its bit
-      order, or whether the mask is a single register as on the earlier
-      controllers. So the item narrows from "does it filter at all" to "where is
-      the mask", which is a controller-register question and not a protocol one.
-      **And its own ROM cannot supply it** (searched 2026-08-21). `[ROM3500]`
-      hardcodes `lea.l $51000.l` and `lea.l $59000.l`, which is how `RING.md`
-      finding 11 recovered that placement from firmware. `[ROM3000]` has **no
-      absolute controller address anywhere**: it takes a table of base pointers
-      in `a1`, loads blocks from `+0`/`+4`/`+10`/`+14`/`+18`/`+1c`, and accesses
-      each at `+0`-`+6`. The caller supplies the addresses, so the image is
-      silent about them. Finding 143; that ROM is spent as a source here.
-      **Not implemented on those two pages**, because both describe *other*
-      controller generations at other addresses, and whether the DS3000's has
-      the register is not established by anything read so far. `[MAC]` documents
-      the type *field* and says nothing about a mask.
-      **The third route is now walked and it points the other way** (2026-09-08,
-      `RING.md` findings 132-132b). `RING_$SET_TMASK`, at `+0x1FAE` in the
-      extracted `RING_PROC`, **touches no controller register**: it stores the
-      caller's 16-bit mask in a per-unit software control block at `+$36`, sets
-      a changed flag, bumps a counter and calls an external routine outside the
-      module. Its one decision on the value — `d2 & $FF7E`, singling out bits 7
-      and 0 — matches `[EH]` p. 7-31's `80 broadcast` / `01 xtype3` exactly, so
-      it is the same mask; it simply is not programmed here.
-      **And the AT board's documented register set has no mask.** `002398-04`
-      ch. 12 was walked register by register and names `MISC_CMD`/`MISC_STAT`,
-      `XMIT_CMD`/`XMIT_STAT`, `RCV_CMD`/`RCV_STAT`, the byte-swapped address
-      registers and the six 8254 counters — no mask — where the DN3xx/DN5xx
-      `9800` page puts `TMASK` at `+04`. **Not concluded**: absence in a handbook
-      chapter is weaker than presence, and the routine behind `$7A42138E` is
-      unread.
-      *What would settle it now*: the module that `$7A42138E` lives in, extracted
-      the same way `RING_PROC` was. The other two documentary routes are spent —
-      `010005-00` is walked whole and settled only the architectural half, and
-      `008778-03` has no ring chapter for this board.
+- [x] **The DN3000's ring controller does not filter received packets by type,
+      and the mask is the driver's — settled 2026-09-08.** The item's concern was
+      that "a driver that programs a mask to take only paging packets would
+      receive everything". It would not.
+      **`RING_$SET_TMASK` writes no register.** At `+0x1FAE` in the extracted
+      `RING_PROC` it stores the caller's mask in a per-unit software block, sets
+      a changed flag, bumps a statistic and calls one external routine, which
+      `tools/kernel_symbols.py --build domain_os11` names as **`EC_$ADVANCE`**.
+      The same command resolves `7A4D1FAE` to `RING_$SET_TMASK` itself, pinning
+      the build and the frame. An eventcount signal, not a register write.
+      **And `002398-04` ch. 12's register enumeration for the AT board carries
+      no mask**, where the DN3xx/DN5xx `9800` page has `TMASK` at `+04` — a
+      generation difference, not a gap. `ap_ring_station`'s acceptance on
+      broadcast-or-destination is not missing a hardware filter.
+      *Not claimed*: that no register anywhere on that board carries one. If one
+      is found the filter belongs at `ap_ring_ctl`. `RING.md` 132-133b.
 
 - [x] **A WACKing receiver still asserts intend-to-copy — settled and fixed
       2026-09-08.** `002398-04` p. 7-29 prints two worked transmit-status words:
