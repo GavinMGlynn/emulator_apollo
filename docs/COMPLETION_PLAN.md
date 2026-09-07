@@ -6189,8 +6189,8 @@ same number is what let them diverge once already.
       2026-08-21 under the whole-document rule: its SIO chapter yielded four
       facts this core did not have, so the document must be derived rather than
       queried. Record: `docs/references/007196-01_WALK.md`.
-      **`SIO`, `CAL`, `MTS`, `TIME`, `TONE` and `TPAD` are finished,
-      2026-09-07** — 82 of 722 read as images,
+      **`SIO`, `CAL`, `CTM`, `MTS`, `TIME`, `TONE` and `TPAD` are finished,
+      2026-09-07** — 94 of 722 read as images,
       and **the chapter map is built**: INTRO-2's census plus the running
       footers give every chapter's first page, so nine of the thirty-three
       touch hardware this core models and are 138 pages between them. Walk

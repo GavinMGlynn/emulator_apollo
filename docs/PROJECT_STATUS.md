@@ -40047,6 +40047,37 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s CTM chapter walked whole — three palette sizes confirmed from the far side
+
+Pages 49-60, CTM-1 to CTM-12. 94 of 722. The Color Table Manager hands out indices
+into a shared colour map and counts users, so most of it sits above the hardware.
+Three things do not.
+
+**CTM-5 tabulates the palette sizes and they are this core's exactly** — 2 for
+monochrome, 16 for 4-plane colour, 256 for 8-plane. `ap_graphics.h`'s LUT block
+holds sixteen entries at four bits per gun and `AP_BT458_PALETTE_ENTRIES` is 256,
+both read off hardware manuals; the operating system counts the same.
+
+**The colour a program asks for is wider than the 4-plane board can store.**
+`GPR_$COLOR_T` is one byte per gun, which the Bt458's triple 8-bit DACs take whole
+and the 4-plane LUT's four bits must truncate — so `CTM_$FIND_COLOR`'s
+nearest-colour search can land on a different entry on a 4-plane node than on an
+8-plane one. The manual does not say it; it follows from the two widths, and it is
+now noted at the LUT.
+
+**A monochrome screen has a colour map, and it is one bit.** "Even monochrome
+displays have 'color maps' ... applications can invert the display by calling
+`GPR_$SET_COLOR_MAP` for pixel values zero and one." A two-entry black/white map
+carries exactly one bit, and `CR1`'s monochrome `INV`, which this core models, is
+that bit. That the driver reaches `INV` rather than some unmodelled register is an
+*inference* and is flagged as one in the code: a boot using the `MONO` command
+would show which register it writes.
+
+Also recorded because it frames any future boot: the Display Manager preallocates
+pixel values 0, 1 and 7-15 and releases 8-15 only under `MONO`; borrow-mode
+applications get a private copy of the map where direct and frame mode share "a
+single physical color map for the display device".
+
 ## `007196-01`'s MTS chapter walked whole — the cartridge drive from above
 
 Pages 303-317, MTS-1 to MTS-15. 82 of 722.

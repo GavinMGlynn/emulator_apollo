@@ -296,7 +296,25 @@ typedef struct {
  *
  * Sixteen entries -- one per index a 4-plane board can produce -- and **four
  * bits per gun**, so the whole palette is 16 x 3 x 4 bits and a driver loads it
- * with 48 byte writes. `ap_scanout_palette` used to answer an even grey ramp
+ * with 48 byte writes.
+ *
+ * **Sixteen is confirmed from the operating system's side.** `007196-01`'s
+ * `CTM` chapter (CTM-5) tabulates the pixel values a program may allocate:
+ * monochrome **2**, 4-plane colour **16**, 8-plane colour **256** -- 2^1, 2^4
+ * and 2^8, matching this LUT, the Bt458's `AP_BT458_PALETTE_ENTRIES` and a
+ * one-bit screen exactly.
+ *
+ * *And the colour a program asks for is wider than this board can store*:
+ * `GPR_$COLOR_T` is "a 4-byte integer that specifies values for red, green and
+ * blue", one byte a gun, which the Bt458's triple 8-bit DACs take whole and
+ * these four-bit LUTs must truncate. The manual never says so; it follows from
+ * the two widths, and it is why a colour matched by `CTM_$FIND_COLOR`'s
+ * distance metric can land on a different entry here than on an 8-plane node.
+ *
+ * *Also from CTM-5, and useful before reading a boot*: the Display Manager
+ * preallocates pixel values **0, 1 and 7 through 15**, and releases 8 through
+ * 15 only under the `MONO` command. On a 4-plane node that leaves 2 to 6 free
+ * to applications. `ap_scanout_palette` used to answer an even grey ramp
  * here and flag it `real = false`, with a comment naming exactly this register
  * set as the thing it could not model. It is modelled now.
  *
@@ -1265,6 +1283,18 @@ void ap_graphics_advance(ap_graphics_t *graphics, ap_time_t now);
  * index is one bit, and a set bit is a **dark** pixel -- the bitmap stores ink,
  * not light. `CR1`'s monochrome `INV` inverts the memory word before that,
  * which is why it is applied here and not by whoever paints.
+ *
+ * **The operating system calls that bit a colour map**, which is worth knowing
+ * before someone goes looking for a second mechanism. `007196-01` CTM-5: "even
+ * monochrome displays have 'color maps'. Monochrome color maps control whether
+ * the display is operating in white-on-black or black-on-white ... applications
+ * can invert the display by calling `GPR_$SET_COLOR_MAP` for pixel values zero
+ * and one, specifying the colors white and black". A two-entry map whose
+ * entries are black and white carries exactly one bit -- normal or inverted --
+ * and `INV` is that bit. *That the driver reaches it through `CR1` rather than
+ * some register this core does not model is an inference, not a citation*: no
+ * document here traces `GPR_$SET_COLOR_MAP` down to a monochrome register, and
+ * a boot that used the `MONO` command would show which one it writes.
  *
  * Returns the number of pixels written, or zero if there is no screen, no
  * memory attached, the memory is too small for the geometry, or the buffer
