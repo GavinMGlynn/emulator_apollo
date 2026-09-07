@@ -40047,6 +40047,63 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s MS chapter walked whole — the operating system calls 1024 bytes a page, and `TC` agrees
+
+PDF 265-300, 365 of 722. `MS`, the Mapped Segment manager, sits directly above
+the 68030's MMU, and it is the first chapter of this walk whose prose can be
+checked against a hardware register.
+
+### 1024 is the page, in three places and three languages
+
+`MS_$TRUNCATE` (MS-31): "when you unmap a file, the system may set the file
+length to a **page-aligned** value. (That is, the length will be a multiple of
+**1024**.)"
+
+The identity boot's MMU trace loads `TC <- 82A28750`. Decomposed by `[030]`
+§9.7.1: `E`=1, `SRE`=1, `FCL`=0, **`PS`=`A`=10 — a 10-bit page offset, 1024
+bytes** — `IS`=2, `TIA`=8, `TIB`=7, `TIC`=5, `TID`=0. The manual's consistency
+rule closes on it exactly: 10 + 2 + 8 + 7 + 5 = **32**, which is what
+`ap_m68030_tc_is_consistent` enforces, and `ap_m68030_tc_page_size` already
+returns 1024 for that field.
+
+So the MMU's page as the running operating system programs it, the file system's
+block (`IOS_$INQ_FILE_ATTR`'s "1024-byte blocks", the payload inside our
+1056-byte AWD sector), and the mapping manager's *page* in prose are one number.
+**Nothing in the model changes** — what changes is that a decoded register field
+is now a figure the operating system's own documentation states.
+
+### Shared write locks are node-local
+
+MS-19 and MS-22 print the lock compatibility matrix twice, and its only starred
+entries say that **Shared Read against Shared Write, and Shared Write against
+Shared Write, "are allowed only if the processes are on the same node."** A
+shared write lock does not cross the ring.
+
+`MS_$ACC_MODE_T` distinguishes **execute** from read (`R`, `RX`, `WR`, `WRX`,
+`RIW`) where neither the 68030 MMU nor the 68851's short descriptors do — that
+protection is enforced above the hardware, by the file system.
+
+### `MS_$ATTRIB_T` is the VTOC entry, presented
+
+Twenty-two bytes: `permanent`, `immutable`, `cur_len`, `blocks_used`, then `dtu`,
+`dtm`, `dtcr` — each a `time_$clockh_t`. `002398-04` §2 p. 56's `vtoce_hdr_t`
+carries the same set, with permanent and immutable as flag bits. Same
+relationship as `IOS_DIR`'s directory entry to the on-disk record: same fields,
+different packing, identifying half withheld. And a **fifth** appearance of
+`TIME_$CLOCKH_T`.
+
+### Two behaviours a boot trace would otherwise misread
+
+**Write-back is lazy locally, eager remotely**: a remote object's changes go back
+on `MS_$UNMAP`; a local object's "when the space they occupy in memory is
+needed". Disk traffic follows memory pressure, not unmap. And **a force-write
+writes two objects**: "when you force-write a permanent object, the system also
+force-writes the directory where the object is cataloged".
+
+Four documentary errors are recorded in the walk record, including a concurrency
+mode printed as `MS_$WR_XOR_1W` on two pages where five others say
+`MS_$NR_XOR_1W`.
+
 ## `007196-01`'s MBX chapter walked whole — the other half of Domain/OS's IPC
 
 PDF 227-263, 329 of 722. Thirty-five numbered pages. `IPC` gives datagrams and
