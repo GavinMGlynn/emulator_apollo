@@ -6185,75 +6185,19 @@ same number is what let them diverge once already.
       shell items should be re-read against `PROJECT_STATUS`'s `sh` at the `)`
       prompt before anyone assumes they need `siologin` at all.
 
-- [ ] **Walk `007196-01` *Domain System Call Reference*, 722 pages.** Opened
-      2026-08-21 under the whole-document rule: its SIO chapter yielded four
-      facts this core did not have, so the document must be derived rather than
-      queried. Record: `docs/references/007196-01_WALK.md`.
-      **All nine device chapters are finished, 2026-09-07** — `SIO`, `CAL`,
-      `CTM`, `FPP`, `GMF`, `MTS`, `SMD`, `TIME`, `TONE` and `TPAD` — and the
-      remainder is being walked in document order. **`ERROR`, `ACLM`, `EC2`, `IOS`,
-      `IOS_DIR`, `IPC`, `MBX`, `MS`, `MUTEX`, `NAME`, `PAD`, `PBUFS`, `PFM`,
-      `PGM`, `PM`, `PRF`, `PROC1`, `PROC2`, `RWS` and `STREAMS` are done
-      too**, 630 of 722; 92 pages remain — `VEC`, `VFMT` and the front matter. **`PAD` gives `ap_graphics.h` two figures**:
-      the display is "approximately 100 bits per inch" — the only pixel pitch
-      any source here has — and the invisible part of display memory is where
-      `PAD_$LOAD_FONT` puts up to 100 fonts, so the 224 lines past the visible
-      area are a glyph cache rather than slack. **`MS` checks a hardware register from the software side**:
-      `MS_$TRUNCATE` says a page-aligned length is "a multiple of 1024", and
-      this machine's `TC` (`82A28750`, from the identity boot) has `PS` = 10,
-      a 1024-byte page, with the manual's `PS+IS+TIA+TIB+TIC = 32` rule closing
-      exactly. No model change; a decoded field now has the operating system's
-      own words behind it.
-      **The map's lengths are not trustworthy and there is a better source** —
-      `IOS` is 75 pages and `IPC` 16, not the 73 and 15 the footer arithmetic
-      gave, because unnumbered blank and table-of-contents pages between
-      chapters carry no footer. Every chapter is preceded by **its own
-      table-of-contents divider page**, whose last entry gives the extent; take
-      the start from the map, the length from the divider, and confirm by
-      reading to where the footer changes.
-      **`IPC` closes an adjective in `RING.md`**: `[MAC]` calls 1024 bytes the
-      "typical" packet data length without saying why, and `IPC_$DATA_T` is
-      exactly 1024 with a 128-byte header. Recorded as `RING.md` finding 130. **The chapter map is built**: INTRO-2's
-      census plus the running footers give every chapter's first page.
-      `ERROR` was taken first among the operating system's own chapters
-      because `002398-04` p. 68 pointed at a "Chapter 4, Error Codes and
-      Messages" to name the subsystem and module codes. **It is not this
-      chapter**: ERROR-1 says outright "the ERROR calls do not produce unique
-      error messages", and the eleven calls are field accessors plus a runtime
-      text lookup. The question is closed negatively, and `002398-04`'s own §4
-      stays the only table of names. What it does give is `STATUS_$T`'s
-      boundaries a **third** time, as prose in four calls — bit 31 fail, 30-24
-      subsystem, **23-16 module**, 15-0 code — so p. 526's disagreement with
-      `002398-04` over bit 23 is what the manual means rather than a
-      typesetting slip.
-      `CAL`, the calendar chapter, gives the **citation for the 4 µs clock from
-      1980-01-01** that this project had derived by fitting two machine-printed
-      dates — the 262144 µs volume-label tick is its high 32 bits — plus the
-      **1980-2079 two-digit year window**, and two negative confirmations: the
-      time zone lives on the boot volume rather than in the calendar's battery
-      RAM, and Domain/OS computes the weekday rather than reading the part's
-      register, so a boot is no evidence about that one.
-      Its best find is p. 533's table of **incompatible baud rates**: the A list
-      (`50`, `7200`) and B list (`75`, `150`, `2000`, `19200`) are exactly the
-      MC68681's set-1-only and set-2-only rates among the fifteen the operating
-      system exposes — a *negative* statement, so a real check on
-      `ap_mc68681`'s table rather than a copy of it, and the third level of the
-      stack to state the one-generator-per-part constraint. The same page's
-      machine-type table lists **`DN3000` as having no partnered lines**, which
-      the two-2681 board does not obviously allow; three readings are set out in
-      the record and the model is right under all of them. Also: p. 526's
-      `STATUS_$T` layout differs from `002398-04` p. 68 at **bit 23**, which the
-      handbook splits out as an asynchronous-fault flag and this manual folds
-      into the module field.
-      **Two findings already, both needing follow-up**: `SIO_$LINE_T` is "0
-      through `SIO_$MAX_LINE` (3)", i.e. **four** SIO lines where `008778-03`
-      §3.9 names three RS-232 ports — so what line 0 is has to be settled. And
-      the manual's own `SIO_$DCD` entry reads "**Read DTR bit** (inquire only)",
-      which is a typo in the document, confirmed against the same page's
-      `SIO_$DTR` and `SIO_$CTS` entries; recorded so a later reader does not
-      take it for a fact.
-      **The text layer is not usable for this document** — it renders DCD as
-      "DOD", Check as "Oheck", IOS as "lOS". Page images only.
+- [x] **Walk `007196-01` *Domain System Call Reference* — done 2026-09-08,
+      722/722.** Opened 2026-08-21 when its SIO chapter yielded four facts this
+      core lacked. All thirty-three chapters read as page images, plus the front
+      matter and the inter-chapter dividers. **No model change resulted**, which
+      is what the whole-document rule exists to establish rather than assume:
+      the yield is six cross-checks on figures this core already had — the
+      1024-byte page against `TC`'s `PS` field, the 100 dpi pixel pitch and the
+      off-screen font cache (both now in `ap_graphics.h`), the 1024-byte block
+      and `TIME_$CLOCKH_T` file stamps, the 44-byte directory entry with type
+      codes 1 and 3, the VTOC trouble bit's user-visible message, and `[MAC]`'s
+      "typically 1024 bytes" traced to `IPC_$DATA_T` (`RING.md` finding 130).
+      The manual is SR 9.5, January 1987, which dates its display census.
+      Detail in `PROJECT_STATUS.md`.
 
 - [x] **Walk the Intel 8237A and 8259A datasheets — done 2026-08-22, 43/43.**
       `[8259]` 24/24 and `[8237]` 19/19. One defect: a software DMA request was

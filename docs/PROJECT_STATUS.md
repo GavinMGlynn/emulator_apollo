@@ -40047,6 +40047,78 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01` is walked whole — 722 of 722, and the last document is finished
+
+PDF 671-722 and 1-14 read as images 2026-09-08. Every page of all thirty-three
+chapters, plus the front matter, the thirty-three chapter table-of-contents
+dividers and the blanks between them. **The *Domain System Call Reference* is
+derived in full.**
+
+### `VEC` and `VFMT` — nothing, and the reason is worth recording
+
+`VEC` is thirty-six pages of a software BLAS: about 130 routines in four type
+variants each, every one specified by a FORTRAN loop. Its only connection to this
+core's subject is that `VEC_$MAT_MULT`, `VEC_$POSTMULT` and `VEC_$PREMULT` are
+fixed at 4 × 4 and are twice called "intended for use in graphics applications" —
+so Domain/OS's transform pipeline is 4 × 4 homogeneous matrices **in software**,
+which is consistent with there being no transform hardware on any board in
+`ap_graphics.h`'s census.
+
+`VFMT` is twelve pages of formatter, and it closes the forward dependency the
+`ERROR` chapter opened — and opens a named gap: the **control-string syntax is
+not in this manual**. All seven `VFMT` calls and both `ERROR` formatting calls
+point at the VFMT chapter of *Programming With General System Calls*, order no.
+**005506**, which this project does not hold. Recorded as an open question in the
+walk record rather than left implicit; nothing here needs it.
+
+### The front matter dates the content and confirms the method
+
+**PREFACE-1: "In support of SR 9.5, the following new managers have been added:
+CTM, FPP, PRF."** So this is the **SR 9.5** manual, copyright 1986, first printing
+January 1987. **That dates the display census**: its lack of a 1280×1024
+*monochrome* entry for `ap_graphics.h`'s `008157` (DN3000) and `010735` (DN4000)
+is a manual that predates those boards, not a contradiction. The withdrawal
+recorded when `SMD` was finished now has a date behind it rather than only an
+absence. PREFACE-1 also explains why `GPR` sits in INTRO-2's census with no
+chapter: the GM and GPR calls "are now documented separately", orders 009793 and
+007194 — moved out of this very edition.
+
+**CONTENTS-1 and CONTENTS-2 list exactly the thirty-three chapters the footer map
+derived, in the same order.** The map was built from page furniture — running
+footers, solved as `start = page - (n-1)` — and used for three weeks before the
+manual's own table of contents was read. It is right.
+
+### What 722 pages cost and what they gave
+
+The nine device chapters carried almost all of the hardware yield: the 4 µs
+clock's citation, the 262,144 µs tick in print, the baud-partner table, a third
+printing of the FPCR and FPSR, the display census, the palette sizes, the tape
+geometry, the beeper's duration type.
+
+**The remaining 562 pages gave six things, and not one of them changed the
+model**: the 1024-byte page (`MS`, checked against `TC`'s `PS` field on a real
+boot), the 100 dpi pixel pitch and the off-screen font cache (`PAD`, both now in
+`ap_graphics.h`), the 1024-byte block and `TIME_$CLOCKH_T` as a file time stamp
+(`IOS`), the 44-byte directory entry with its type codes (`IOS_DIR`, `NAME` and
+`STREAMS`, against `002398-04` §2's on-disk record), the VTOC trouble bit's
+user-visible message (`STREAMS`), and `[MAC]`'s unexplained "typically 1024
+bytes" traced to `IPC_$DATA_T` (`RING.md` finding 130).
+
+**That is the outcome the whole-document rule exists to establish rather than
+assume.** A document read only where it was expected to pay would have produced
+the same nine chapters and left the other 562 as an open claim. Reading them
+turned "probably nothing else in here" into a fact, and produced six independent
+confirmations of numbers this core had derived by other means — including one,
+the MMU page size, that had never been checked against anything the operating
+system says.
+
+*Two method results worth carrying forward*: a chapter's own table-of-contents
+divider page gives its extent more reliably than footer arithmetic (which charges
+unnumbered dividers and blanks to the previous chapter — it made `IOS` 73 instead
+of 75, `IPC` 15 instead of 16, `PROC1` 8 instead of 3); and the divider's last
+entry is the last *section*'s first page, so it is a lower bound, confirmed by
+reading until the footer changes.
+
 ## `007196-01`'s STREAMS chapter walked whole — the file-attribute record, and a VTOC bit with a face
 
 PDF 584-646, 630 of 722. Sixty numbered pages, the map's figure confirmed.
