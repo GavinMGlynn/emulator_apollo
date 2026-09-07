@@ -40047,6 +40047,29 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s GMF chapter walked whole — the ink convention from the other side
+
+Pages 107-119, GMF-1 to GMF-13. 119 of 722, and `SMD` is the last device chapter
+owed. Graphics Map Files are a bitmap interchange format — six calls that dump a
+rectangle of display memory to a file and put one back.
+
+**"In the GMF, '1' bits are assumed to mean black."** Both copy calls take a
+`black_or_white` Boolean and explain it that way, inverting on the way out when a
+caller says otherwise. `ap_graphics_scanout` says the same about display memory —
+"a set bit is a dark pixel, the bitmap stores ink, not light" — and reached it
+from the hardware. Two levels of the stack, one convention; noted at the scanout.
+
+**A bitmap's scan line is "usually 64" 16-bit words** — 1024 bits, the width of
+`010104`, the 1024x800 8-plane board in this core's list — with the rule "the
+width must be at least 1/16 of the specified x-dim" and `GMF_$BAD_WPL` when it is
+not. And `GMF_$RESTORE_PLANE` clips rather than failing: "if this area runs off
+the right side or the bottom of the screen, the GMF manager restores only the
+portion of the stored image that fits".
+
+One documentary error whose own numbers give it away: `GMF_$MEMORY_T` is "a
+65535-element array of 131070-byte integers. An array of two-byte integers" —
+65535 × 2 = 131070, so the total has been transposed into the element size.
+
 ## `007196-01`'s FPP chapter walked whole — a third printing of the FPCR and FPSR
 
 Pages 93-104, FPP-1 to FPP-12. 106 of 722. The Floating Point Package is six calls

@@ -1281,8 +1281,13 @@ void ap_graphics_advance(ap_graphics_t *graphics, ap_time_t now);
  * An index is what the *controller* produces; what colour it becomes is the
  * lookup table's answer and is not this module's. On a monochrome screen the
  * index is one bit, and a set bit is a **dark** pixel -- the bitmap stores ink,
- * not light. `CR1`'s monochrome `INV` inverts the memory word before that,
- * which is why it is applied here and not by whoever paints.
+ * not light. **The operating system says the same about the image it dumps out
+ * of here**: `007196-01`'s `GMF_$COPY_PLANE` (GMF-5) takes a `black_or_white`
+ * flag and explains it as "in the GMF, **'1' bits are assumed to mean black**",
+ * inverting on the way out when a caller says otherwise. Two levels of the
+ * stack, one convention, and this one was read off the hardware. `CR1`'s
+ * monochrome `INV` inverts the memory word before that, which is why it is
+ * applied here and not by whoever paints.
  *
  * **The operating system calls that bit a colour map**, which is worth knowing
  * before someone goes looking for a second mechanism. `007196-01` CTM-5: "even
