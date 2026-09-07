@@ -40047,6 +40047,63 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s IOS and IOS_DIR chapters walked whole — a 44-byte directory entry, and a map correction
+
+PDF 123-208, 274 of 722. The I/O Switch's 75 pages and the I/O Switch Directory's
+8, with three unnumbered pages between them.
+
+### The chapter map's lengths are not trustworthy; its starts are
+
+The map built from running footers gives `IOS` **73** pages. It is **75** —
+IOS-74 and IOS-75 finish an error list that IOS-73 leaves mid-alphabet. Between
+chapters this manual puts **unnumbered pages** carrying no `NAME-n` footer: PDF
+198 blank, **199 the next chapter's own table-of-contents divider**, 200 blank.
+The arithmetic charged all three to `IOS`. Starts stay reliable and every one is
+confirmed when its chapter is walked; **lengths must be found by reading until
+the footer changes**, which is now how the rest of the walk proceeds.
+
+### `IOS` — three cross-checks a hardware core can use
+
+**The 1024-byte block, stated twice.** `IOS_$INQ_FILE_ATTR` returns `blocks`,
+"the number of **1024-byte blocks** that the object occupies"; `IOS_$LOCATE`
+falls back to a buffer of "the length you specify, or **1024 bytes**, whichever
+is the smaller". `AP_AWD_SECTOR_BYTES` is 1056 — 1024 of payload behind the
+32-byte block header `002398-04` §2 defines and this project used to settle
+`AP_VOLUME_LABEL_BASE`. The operating system's unit of storage is the sector's
+payload, agreeing to the byte from the far end of the stack.
+
+**A file's time stamp is the volume label's type.** `dt-created`, `dt-modified`
+and `dt-used` are **`TIME_$CLOCKH_T`**, the top 32 bits of the 48-bit 4 µs clock
+— the same type the mount history stores, ticking every 262,144 µs.
+
+**`UID_$T` is 8 bytes**, and `XOID_$T` is 16: `rfu1`, `rfu2`, UID at offset 8.
+
+Also: `IOS_$MAX` = 127 so a process has 128 stream IDs; `SIO_$UID` and `MT_$UID`
+are standard object types, so a serial port and a tape drive are named objects;
+`IOS_$COND_OPT`'s own example is "data on an SIO line is not always available
+immediately"; the input pad's eventcount advances per carriage return in cooked
+mode and **per keystroke in raw mode**; and a stream open on an SIO line returns
+no `IOS_$MF_SEEK` flags "since serial lines do not support seeking".
+
+### `IOS_DIR` — the directory entry, and it is the *presented* one
+
+`IOS_DIR_$ENTRY_T` is 44 bytes (`IOS_DIR_$DIR_ENTRY_SIZE` = 44): `enttype` at 0
+(**1 = file, 3 = link**), `entlen` at 2, `entname` at 4 as **32 characters**,
+then `unused1` and `unused2`.
+
+`002398-04` §2 p. 39 describes the same 44 bytes **from the disk side** and this
+project already uses that row to compare volumes by their root-directory block.
+The two agree on the width, the 32-byte name and the type codes — and **disagree
+on field order**: the handbook puts the name first, the streams view puts the
+type first. Where the disk record's last eight bytes hold **the UID or the link
+text**, the streams record calls them reserved, because a program reading a
+directory through `IOS_$GET` is not entitled to the UID.
+
+**So this is not a second printing of the on-disk layout.** It is the presented
+record. A tool that walks a raw volume must use `002398-04`'s order; the value of
+this chapter is knowing that two orders exist and which one a given reader sees.
+Both walk records now carry the cross-reference.
+
 ## `007196-01`'s ACLM and EC2 chapters walked whole — the object the 262,144 µs tick advances
 
 PDF 15-17 and 63-73, 188 of 722. Two operating-system chapters with no device in
