@@ -6189,11 +6189,20 @@ same number is what let them diverge once already.
       2026-08-21 under the whole-document rule: its SIO chapter yielded four
       facts this core did not have, so the document must be derived rather than
       queried. Record: `docs/references/007196-01_WALK.md`.
-      **Coverage so far is honest and small**: the SIO chapter is pages
-      **521-540**, and pages 521-524 are read as images — the chapter opening,
-      the fifteen baud constants (50 … 19200), `SIO_$MAX_LINE`, the four
-      `ERR_ENABLES` values and the whole `SIO_$OPT_T` option list. **Nothing
-      else in the 722 pages has been read.**
+      **The SIO chapter is finished, 2026-09-07** — pages 521-540, SIO-1 to
+      SIO-20, all read as images. **The other 702 pages are not read.**
+      Its best find is p. 533's table of **incompatible baud rates**: the A list
+      (`50`, `7200`) and B list (`75`, `150`, `2000`, `19200`) are exactly the
+      MC68681's set-1-only and set-2-only rates among the fifteen the operating
+      system exposes — a *negative* statement, so a real check on
+      `ap_mc68681`'s table rather than a copy of it, and the third level of the
+      stack to state the one-generator-per-part constraint. The same page's
+      machine-type table lists **`DN3000` as having no partnered lines**, which
+      the two-2681 board does not obviously allow; three readings are set out in
+      the record and the model is right under all of them. Also: p. 526's
+      `STATUS_$T` layout differs from `002398-04` p. 68 at **bit 23**, which the
+      handbook splits out as an asynchronous-fault flag and this manual folds
+      into the module field.
       **Two findings already, both needing follow-up**: `SIO_$LINE_T` is "0
       through `SIO_$MAX_LINE` (3)", i.e. **four** SIO lines where `008778-03`
       §3.9 names three RS-232 ports — so what line 0 is has to be settled. And

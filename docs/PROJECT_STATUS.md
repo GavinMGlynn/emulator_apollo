@@ -40047,6 +40047,58 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s SIO chapter walked whole — and the operating system checks our baud table
+
+Pages 521-540 (SIO-1 to SIO-20) of the *Domain System Call Reference*, read as
+page images because the OCR layer mangles the identifiers that matter. 20 of 722;
+the rest is not read, and the record says so.
+
+**The find is p. 533's incompatible-rate lists.** `SIO_$SPEED` refuses a rate that
+conflicts with a "partnered" line, and the manual prints which rates conflict: list
+**A** is `SIO_$50` and `SIO_$7200`, list **B** is `SIO_$75`, `SIO_$150`,
+`SIO_$2000` and `SIO_$19200`, and "speeds other than those in the two lists are
+compatible". Those are **exactly** the MC68681's set-1-only and set-2-only rates,
+restricted to the fifteen the operating system exposes — `ap_mc68681.c`'s table
+gives set 1 as 50/110/134.5/200/300/600/1200/1050/2400/4800/7200/9600/38.4k and
+set 2 as 75/110/134.5/150/300/600/1200/2000/2400/4800/1800/9600/19.2k, and the
+intersections come out as the two printed lists with nothing left over.
+
+That is a stronger check than a reprinted table would be, because it is a negative
+statement: the operating system is naming which *pairs* cannot coexist, which
+follows from `ACR[7]` selecting one set for both channels of a part. Three levels
+of the stack now agree on the constraint — `[68681]` for the mechanism,
+`002398-04` p. 7-32 for the driver-facing consequence, this for the
+application-facing one — and this is the only one that could have disagreed in
+detail. *One rate fits nowhere*: `SIO_$3600` is in neither set, and the same
+page's machine-type table explains it — the list spans DN400s and DSP80s with
+other UARTs, so it is the union of what Domain/OS supports rather than what any
+one part can generate.
+
+**And a question worth having.** That table lists `DN3000` as having **no
+partnered lines**, where this board's two 2681s share `ACR[7]` per part and the
+firmware programs generator codes (`CSRA = 66`, `CSRB = 77`) rather than the
+counter/timer or an external pin — so lines 0/1 and 2/3 would be partnered exactly
+as the table says a `DN460`'s are. Three readings are recorded and nothing here
+chooses: a table not revised for the DN3000, a statement about what the *driver*
+enforces rather than about the silicon, or different serial hardware. The middle
+one costs nothing and explains the row, and the constraint is structural in
+`ap_mc68681` — one `acr` field per part — so the model is right under all three.
+
+Smaller yields: `SIO_$SPEED_FORCE` sets the partner to 9600 when it forces an
+incompatible rate, which predicts the register traffic exactly; `SIO_$RTS`
+defaults TRUE beside `SIO_$DTR`, which is consistent with Phase A measuring one
+`OPR` write at open because an `OP` pin is its `OPR` bit complemented and `OPR` is
+clear at reset; `SIO_$CHECK_FRAMING` is enabled by default and `CHECK_PARITY` is
+not; and `SIO_$BP_ENABLE` puts a graphics tablet on a serial line, with the driver
+suppressing points within ±2 in x and y.
+
+**One documentary difference.** p. 526 draws `STATUS_$T` as bit 31 `fail`, bits
+30-24 `subsys`, bits 23-16 `modc`, bits 15-0 `code`. `002398-04` p. 68 splits bit
+23 out as `A`, "asynchronous fault; only set during delivery of fault", leaving a
+seven-bit module field. The handbook is the more specific and is the reading
+followed; the difference is invisible for any code with bit 23 clear, which is
+every one this project has decoded.
+
 ## `[OMTI]` is walked whole — 88/88, and §4 corrects an attribution three times over
 
 Doc 4-1 to 4-7 (PDF 40-46) read in order 2026-09-07, which finishes the manual.
