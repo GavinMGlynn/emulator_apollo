@@ -4113,6 +4113,14 @@ discipline throughout.
       stopped at three, and killing it produced no report at all, because the
       ring counters printed only at the end. The runner now reports a frame
       crossing when it happens.
+      **And the rate is now measured rather than estimated, 2026-09-08: 46 k
+      instructions/s per node**, at 99% of one core with the ring card fitted
+      and a console script running. The number that matters beside it is what
+      the *same build* does with one machine — **about 830 k/s** — so the
+      two-node runner is roughly **eighteen times slower per node**, not two.
+      That is the shared cable being stepped at its own 12 Mbit/s bit rate
+      between slices, and it makes a 1.6 G-per-node run about **ten hours**. A
+      run to launch deliberately, which is what this item has always said.
       **This was recorded as "a media question with no route". It has a route,
       and it was in the oracle's source rather than in any manual.** `apollo_ni`
       is a `device_image_interface`, so the node ID is a **loadable 32-byte ROM
