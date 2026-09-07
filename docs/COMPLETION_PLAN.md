@@ -6850,6 +6850,13 @@ same number is what let them diverge once already.
             bytes a driver reads mid-window are valid — permissive, and named.
             *Verification: `mc146818_suite` 35 → 39, four probes.* Detail in
             `PROJECT_STATUS.md`.
+      - [x] **The half second after a divider release — done 2026-09-07.**
+            Found while modelling `UIP`: `[146818]` states twice that the first
+            update cycle after a release is one-half second later, and this core
+            resumed on the old cadence. The periodic tap restarts with it. The
+            walk's rows for both pages cited their tables and missed the
+            sentence beside them. *Verification: `mc146818_suite` 39 → 42, two
+            probes.* Detail in `PROJECT_STATUS.md`.
       - [x] **`[6840]` MC6840 PTM — both documents walked whole, 2026-08-23**:
             datasheet 14/14, user manual 56/56. The item's premise ("no record")
             was wrong — a citation audit found sixteen `[6840UM]` sections

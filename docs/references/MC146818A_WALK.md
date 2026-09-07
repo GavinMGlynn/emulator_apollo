@@ -30,9 +30,9 @@ other grounds.**
 | 10 | **`IRQ`, `RESET`, `STBY`, `PS`** | **The `RESET` pin's effects a) to j)** — and see the typo below. "**The RESET pin does not affect the clock, calendar, or RAM functions.**" `PS` low clears `VRT` |
 | 11 | Power-down, **address map (Figure 14)**, time/calendar/alarm locations | The three read-only exceptions: Registers C and D, **bit 7 of Register A**, and **the high-order bit of the seconds byte**. Update lockout 248 µs / *1948* µs (see typo below). The **don't-care alarm code is any byte `C0`-`FF`** — two MSBs set — giving hourly, per-minute or per-second alarms |
 | 12 | **Table 3, every data-mode range**; static RAM; interrupts | Binary vs BCD ranges for all ten bytes, including 12-hour mode's `$81`-`$8C` PM encoding. With the dividers held reset the user RAM extends to **59 bytes**. Register C's flags set **independent of** the Register B enables; a read clears them all, double-latched; "**if an interrupt flag is already set when the interrupt becomes enabled, the `IRQ` pin is immediately activated**" |
-| 13 | Divider stages, **Table 4 divider configurations**, **Table 5 rates** | `DV2:DV0` = `000`/`001`/`010` select the three time bases, `11X` holds the chain reset. All sixteen `RS3:RS0` rates with both time-base columns |
+| 13 | Divider stages, **Table 4 divider configurations**, **Table 5 rates** | `DV2:DV0` = `000`/`001`/`010` select the three time bases, `11X` holds the chain reset; the note beneath Table 4 gives the other three codes as "test purposes only". All sixteen `RS3:RS0` rates with both time-base columns. **"When the divider is changed from reset to an operating time base, the first update cycle is one-half second later"** — added 2026-09-07, see below |
 | 14 | **Update cycle**, Figure 15 | `tUC` = 248 µs (fast bases) or **1984 µs** (32.768 kHz); `tBUC` = **244 µs** of `UIP` lead. Data unavailable "once every 4032 attempts" at random, 2032 by the `UIP` route. DST needs the time set **two seconds** before a rollover |
-| 15 | **Registers A, B and C**, Table 6 | Every bit. `UIP` read-only and *not* affected by Reset; `DV` and `RS` bits not affected by Reset. Register B bit by bit — and `UIE`'s clearing rule, the defect below. `IRQF = PF·PIE + AF·AIE + UF·UIE` |
+| 15 | **Registers A, B and C**, Table 6 | Every bit. `UIP` read-only and *not* affected by Reset; `DV` and `RS` bits not affected by Reset, and **"when the divider reset is removed, the first update cycle begins one-half second later"** (added 2026-09-07). Register B bit by bit — and `UIE`'s clearing rule, the defect below. `IRQF = PF·PIE + AF·AIE + UF·UIE` |
 | 16 | **Register C (cont.), Register D**, typical interfacing | `VRT` at bit 7, bits 6-0 "cannot be written, but are always read as 0's" |
 | 17-19 | Figures 17-21, host interfacing and a 6800 driver | `none` (host-side) |
 | 20 | Package dimensions | `none` (mechanical) |
@@ -82,6 +82,21 @@ The row as it stood, which is what explained the code before the change:
 > is whether it is worth modelling, since a driver polling `UIP` to dodge the
 > update simply never sees it set and reads valid data every time — permissive
 > rather than wrong. Recorded as a plan item rather than done here.
+
+## What the walk named but did not derive: the half second after a release
+
+Both rows above cited their tables and neither carried this sentence, which sits
+in the prose beside them and is printed **twice** — p. 13's divider-control
+paragraph and p. 15's `DV2, DV1, DV0` entry. `ap_mc146818.c` resumed a released
+chain on the old cadence, so the first update came a whole second after the
+release rather than half of one. Fixed 2026-09-07, with the periodic tap
+restarted at the same instant for the same reason: it hangs off the same chain,
+which has just been zeroed.
+
+The lesson is the one this project keeps relearning in a new shape. The walk was
+looking for *tables* — it found Table 4 and Table 5 on that page and recorded
+both accurately — and a rule stated only in the surrounding sentences went past
+it. A page is read when its prose is read, not when its tables are transcribed.
 
 ## Two typos in the datasheet
 

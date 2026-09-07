@@ -239,6 +239,13 @@ typedef struct {
   ap_time_t periodic_to;
   ap_clock_t periodic_clock;
 
+  /* Whether the divider chain was held in reset at the last advance. The
+   * release is what needs remembering, not the hold: `[146818]` p. 13 and p. 15
+   * both give the first update cycle after a release as one-half second later,
+   * and a level test cannot tell the instant the chain restarted from every
+   * instant since. */
+  bool divider_held;
+
   /* Whether `DSE`'s special update has already been taken in the hour it
    * applies to. October's rule is "when the time **first** reaches 1:59:59 AM",
    * and the hour repeats -- without this the clock would be pushed back to one

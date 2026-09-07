@@ -221,17 +221,50 @@ void ap_mc146818_advance(ap_mc146818_t *rtc, ap_time_t now) {
   if (now > rtc->stepped_to) {
     rtc->stepped_to = now;
   }
-  if (now <= rtc->updated_to) {
-    return;
-  }
   /* The 22-stage divider produces "a 1 Hz signal to the update-cycle logic",
    * and `DV2-DV0` can hold it in reset. Held, no update cycle runs -- which is
-   * what lets a driver set the time without it moving underneath.
+   * what lets a driver set the time without it moving underneath. Nor does
+   * anything else downstream of the chain: p. 13 has the reset "prevent
+   * interrupts or SQW output from operating", so the periodic tap stops with
+   * the update.
    *
    * The cursor still advances, so time that passed while the chain was held is
    * *not* replayed when it is released. A held clock is stopped, not paused. */
   if (!ap_mc146818_divider_running(rtc)) {
-    rtc->updated_to = now;
+    if (now > rtc->updated_to) {
+      rtc->updated_to = now;
+    }
+    rtc->divider_held = true;
+    return;
+  }
+  if (rtc->divider_held) {
+    rtc->divider_held = false;
+    /* "When the divider is changed from reset to an operating time base, the
+     * first update cycle is one-half second later" (p. 13), and p. 15 says it
+     * again for `DV2-DV0`: "when the divider reset is removed, the first update
+     * cycle begins one-half second later". The chain restarts at zero, and the
+     * update logic hangs off a tap half a second along it.
+     *
+     * Expressed by putting the cursor half a second in the past rather than by
+     * carrying a separate first-update deadline, which keeps the one invariant
+     * everything else here reads: the next update is always at
+     * `updated_to + period`. `UIP`'s window follows it without knowing this
+     * rule exists.
+     *
+     * The periodic cursor restarts *at* the release for the same reason -- the
+     * chain it taps has just been zeroed -- and that also stops the first call
+     * after a long hold from delivering a flag for time the chain was not
+     * running through.
+     *
+     * The release is noticed on the first advance after the write that made it,
+     * not at the write, because `ap_mc146818_write` has no notion of when it is
+     * being called. `ap_board_advance` advances the calendar every instruction, so
+     * the lag is one instruction against a half-second interval. */
+    const ap_time_t half = rtc->second_clock.period / 2u;
+    rtc->updated_to = now > half ? now - half : 0u;
+    rtc->periodic_to = now;
+  }
+  if (now <= rtc->updated_to) {
     return;
   }
   /* The same divide-avoidance as `ap_timer_advance`: zero seconds have elapsed

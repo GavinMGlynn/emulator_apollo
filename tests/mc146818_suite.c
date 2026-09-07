@@ -137,10 +137,17 @@ static void test_a_held_divider_stops_the_clock_and_the_square_wave(void) {
 
   /* Released: it runs again from where it stopped, and the five seconds that
    * passed while held are not replayed -- a held clock is stopped, not
-   * paused. */
+   * paused.
+   *
+   * Four and not five, because "when the divider reset is removed, the first
+   * update cycle begins one-half second later": the chain restarts at zero and
+   * the update logic hangs off a tap half a second along it. So the first of
+   * these two whole-second steps crosses no boundary and the second crosses
+   * one. `test_the_first_update_after_a_release_is_half_a_second_later` is
+   * where that is measured; this is a second witness to it. */
   ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, 0x2Fu);
   run_seconds(&rtc, &clock, 2u);
-  TEST_ASSERT_EQUAL_UINT(5u, ap_mc146818_now(&rtc).second);
+  TEST_ASSERT_EQUAL_UINT(4u, ap_mc146818_now(&rtc).second);
 }
 
 static void test_the_square_wave_pin_follows_sqwe_and_the_rate_select(void) {
@@ -948,6 +955,107 @@ static void test_the_divider_codes_are_table_fours(void) {
   }
 }
 
+/* ## The half second after a divider release, `[146818]` p. 13 and p. 15
+ *
+ * "When the divider is changed from reset to an operating time base, the first
+ * update cycle is one-half second later", and the Register A entry says it
+ * again. The chain restarts at zero and the update logic hangs off a tap half a
+ * second along it, so a release is not the same as a clock that has been
+ * running all along -- which is what this core used to make it. */
+
+static unsigned second_of(ap_mc146818_t *rtc) {
+  return ap_mc146818_now(rtc).second;
+}
+
+static void test_the_first_update_after_a_release_is_half_a_second_later(void) {
+  ap_mc146818_t rtc;
+  init(&rtc);
+  const ap_time_t half = AP_TIME_BASE_HZ / 2u;
+
+  /* Ten seconds with the chain in reset: nothing moves. */
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, AP_MC146818_A_DIVIDER_RESET);
+  ap_mc146818_advance(&rtc, seconds(10u));
+  TEST_ASSERT_EQUAL_UINT(START.second, second_of(&rtc));
+
+  /* Released at exactly ten seconds. */
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, 0u);
+  ap_mc146818_advance(&rtc, seconds(10u));
+
+  /* A microsecond short of the half second, and the clock has not moved: a
+   * model that simply resumed on the old cadence would have updated a whole
+   * second after the release, and one that ignored the release entirely would
+   * have updated here. */
+  ap_mc146818_advance(&rtc, seconds(10u) + half - US);
+  TEST_ASSERT_EQUAL_UINT(START.second, second_of(&rtc));
+  ap_mc146818_advance(&rtc, seconds(10u) + half);
+  TEST_ASSERT_EQUAL_UINT(START.second + 1u, second_of(&rtc));
+
+  /* And only the *first* is half a second: the ones after it are a second
+   * apart, on the phase the release established. */
+  ap_mc146818_advance(&rtc, seconds(11u) + half - US);
+  TEST_ASSERT_EQUAL_UINT(START.second + 1u, second_of(&rtc));
+  ap_mc146818_advance(&rtc, seconds(11u) + half);
+  TEST_ASSERT_EQUAL_UINT(START.second + 2u, second_of(&rtc));
+}
+
+static void test_uip_moves_with_the_phase_the_release_sets(void) {
+  /* `UIP` is defined against the update, not against the second, so it follows
+   * a release without knowing the rule exists. This is what says the half
+   * second was expressed as a *phase* and not as a one-off deadline beside
+   * it. */
+  ap_mc146818_t rtc;
+  init(&rtc);
+  const ap_time_t half = AP_TIME_BASE_HZ / 2u;
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, AP_MC146818_A_DIVIDER_RESET);
+  ap_mc146818_advance(&rtc, seconds(10u));
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, 0u);
+  ap_mc146818_advance(&rtc, seconds(10u));
+
+  /* Where the window is: 492 us before the update at ten and a half seconds.
+   * The checks run in time order, because `ap_mc146818_advance` ignores an
+   * instant earlier than the last one it saw. */
+  ap_mc146818_advance(&rtc, seconds(10u) + half - (493u * US));
+  TEST_ASSERT_FALSE(uip(&rtc));
+  ap_mc146818_advance(&rtc, seconds(10u) + half - (492u * US));
+  TEST_ASSERT_TRUE(uip(&rtc));
+
+  /* And where it would have been had the release not moved the phase -- just
+   * short of the eleven-second boundary -- there is nothing. */
+  ap_mc146818_advance(&rtc, seconds(11u) - (100u * US));
+  TEST_ASSERT_FALSE(uip(&rtc));
+}
+
+static void test_a_released_divider_restarts_the_periodic_tap(void) {
+  /* The periodic interrupt taps the same chain, so it stops with it -- p. 13's
+   * reset "prevents interrupts or SQW output from operating" -- and restarts
+   * from zero at the release. Without that, the first advance after a long hold
+   * delivers a flag for periods the chain was not running through, which is the
+   * backlog `test_selecting_a_rate_late_delivers_no_backlog` refuses for the
+   * other way of arriving at the same state. */
+  ap_mc146818_t rtc;
+  init(&rtc);
+  /* 500 ms, the slowest rate, so the quarter and three-quarter points below are
+   * unambiguous. */
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A,
+                    (uint8_t)(AP_MC146818_A_DIVIDER_RESET | 0x0Fu));
+  ap_mc146818_advance(&rtc, seconds(10u));
+  TEST_ASSERT_EQUAL_HEX8(0, ap_mc146818_read(&rtc, AP_MC146818_REGISTER_C) &
+                                AP_MC146818_C_PF);
+
+  ap_mc146818_write(&rtc, AP_MC146818_REGISTER_A, 0x0Fu);
+  ap_mc146818_advance(&rtc, seconds(10u));
+  /* A quarter of a second after the release: less than one period, so no flag
+   * -- and ten seconds of held time have not been paid out either. */
+  ap_mc146818_advance(&rtc, seconds(10u) + (AP_TIME_BASE_HZ / 4u));
+  TEST_ASSERT_EQUAL_HEX8(0, ap_mc146818_read(&rtc, AP_MC146818_REGISTER_C) &
+                                AP_MC146818_C_PF);
+  /* Three quarters: one period has passed since the release. */
+  ap_mc146818_advance(&rtc, seconds(10u) + ((3u * AP_TIME_BASE_HZ) / 4u));
+  TEST_ASSERT_EQUAL_HEX8(AP_MC146818_C_PF,
+                         ap_mc146818_read(&rtc, AP_MC146818_REGISTER_C) &
+                             AP_MC146818_C_PF);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_held_divider_stops_the_clock_and_the_square_wave);
@@ -990,5 +1098,8 @@ int main(void) {
   RUN_TEST(test_the_watch_crystal_widens_the_window_to_2228_microseconds);
   RUN_TEST(test_set_and_a_held_divider_each_clear_uip_where_it_stands);
   RUN_TEST(test_the_divider_codes_are_table_fours);
+  RUN_TEST(test_the_first_update_after_a_release_is_half_a_second_later);
+  RUN_TEST(test_uip_moves_with_the_phase_the_release_sets);
+  RUN_TEST(test_a_released_divider_restarts_the_periodic_tap);
   return UNITY_END();
 }
