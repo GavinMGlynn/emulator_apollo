@@ -40142,6 +40142,60 @@ it was last read, and its own named remedy had been built. The correction to
 step 4 of the two-node item — which still said "it needs `--sio-input` to grow a
 'when'" — is kept in place with the original sentence beneath it.
 
+## `TJLJH` closed on a measurement, and the reason the item gave was the wrong one
+
+`[8259]` p. 21 Note 1 gives `TJLJH`, a **100 ns minimum IR low time** before the
+edge latch will present a fresh edge. `ap_i8259` re-arms on any observed low.
+The plan item declined to implement it because "nothing on this machine toggles
+an IRQ that fast, and **a filter fitted to no observation would be invention**".
+
+**The second half of that is wrong.** The filter is *stated by the part's own
+datasheet*, not fitted to anything, and implementing a documented minimum is
+modelling the part — which is exactly what was done for the 2681's 25-50 µs
+input-port filter earlier the same day, on the same principle. Declining on
+"invention" would have been declining for a reason that does not apply.
+
+**So it was measured instead.** One identity boot with temporary instrumentation
+in `ap_board_sample_interrupts`, timing every low→high transition on every IRQ
+line against board time — reverted before commit, and the run's hash confirms it
+was read-only at `FE2BB02AEF1F4624`:
+
+```
+100 ns is 2,154,240 time-base units
+irq  0   edges 3   min low 22,266,224,640 units (1.03 ms)   under 100 ns: 0
+irq 13   edges 1   min low      53,425,152 units (2.48 µs)  under 100 ns: 0
+```
+
+**Only two IRQ lines produce an edge at all** in 350 M instructions — the
+interval timer and serial 1's `OP7` diagnostic line — and the **shortest low
+anywhere is 2.48 µs against a 100 ns minimum, a margin of 24.8×**. Nothing on
+this machine comes within a factor of twenty of the rule.
+
+*That is worth more than the decision it supports.* The item had asserted the
+same conclusion; now it is a number, and a later reader can see how much room
+there is before the assumption breaks.
+
+### Why it is still not implemented, and what it would cost
+
+Enforcing `TJLJH` needs the part to know when a line went low, and
+`ap_i8259_set_request` has no time. Supplying it means threading an `ap_time_t`
+through `ap_i8259_set_request`, `ap_intr_set_request` and
+`ap_board_sample_interrupts` — **54 call sites**, on the path sampled every
+emulated tick — and carrying **sixteen per-line timestamps** into the identity
+hash. That is the design cost `ap_mc68681.h` sets out at length for a part that
+stores time, and the 2681's own filter was taken by the route that avoided it.
+
+Paying it for a rule the machine misses by 24.8× buys no behaviour. So this is
+the deliberate approximation `CLAUDE.md` allows — documented, with its reason
+and its cost — rather than an unexamined gap. **What would make it matter**: a
+device that pulses an IRQ shorter than 100 ns. The probe above is the instrument
+that would catch one, and it took twenty lines.
+
+*And it closes its parent.* Every part in the "walk the remaining part
+datasheets" batch is now walked and every tail resolved: `[8259]` 24/24 with
+`TJLJH` measured, `[8237]` 19/19, `[765]`, `[2681]`, `[146818]`, `[6840]` and
+its user manual, `[Bt458]`, `[SC-499]`, `[QIC-36]` and `QIC-02`.
+
 ## The ring type mask is the driver's, not the controller's — and one command answered it
 
 Settled 2026-09-08, closing an item that had been open since the `002398-04`

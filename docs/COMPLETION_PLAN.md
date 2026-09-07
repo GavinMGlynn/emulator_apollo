@@ -6544,7 +6544,8 @@ same number is what let them diverge once already.
       reads 179 → 543**, which is the PROM's delta-IP0 poll waiting for the
       detector. Detail in `PROJECT_STATUS.md`.
 
-- [ ] **Walk the remaining part datasheets whole — the batch.** Opened
+- [x] **Walk the remaining part datasheets whole — the batch: done, every
+      part and every tail.** Opened
       2026-08-22 after `[765]` and `[2681]` each turned a "minor difference" or a
       vendor summary into a real defect. Every part below is modelled by this
       core and none has a whole-document walk. Same method each time: page
@@ -6561,12 +6562,23 @@ same number is what let them diverge once already.
             which this core does not enforce — named below. The coverage row
             also called page 15 unread while the table above it recorded page 15
             walked; corrected in place.
-      - [ ] **`TJLJH`: an IR line must be low 100 ns to present a fresh edge.**
-            `[8259]` p. 21 Note 1. `ap_i8259` re-arms on any observed low with no
-            minimum. Not implemented: nothing on this machine toggles an IRQ that
-            fast, and a filter fitted to no observation would be invention.
-            `PROVISIONAL`, and what would close it is a device that pulses an IRQ
-            shorter than 100 ns.
+      - [x] **`TJLJH`: an IR line must be low 100 ns to present a fresh edge —
+            measured 2026-09-08, and this item's stated reason was wrong.**
+            `[8259]` p. 21 Note 1; `ap_i8259` re-arms on any observed low. This
+            said "a filter fitted to no observation would be invention" — but
+            the filter is **stated by the datasheet**, not fitted. The right
+            reason is a number: one instrumented identity boot timing every
+            low→high edge found **two lines ever producing one** in 350 M
+            instructions, and a **shortest low of 2.48 µs against a 100 ns
+            minimum — 24.8×**. Zero lows under 100 ns.
+            **Deliberately not implemented, with the cost stated**: enforcing it
+            needs an `ap_time_t` threaded through 54 call sites on the machine's
+            hottest path plus sixteen per-line timestamps in the identity hash,
+            for a rule nothing here can reach. The approximation `CLAUDE.md`
+            allows — documented, with reason and cost. *What would make it
+            matter*: a device pulsing an IRQ shorter than 100 ns. Detail and the
+            probe in `PROJECT_STATUS.md`.
+
       - [x] **`[8237]` to 19/19 — done 2026-08-22, and the premise was wrong
             twice over.** The record called pages 1 and 11-19 "electrical and
             mechanical"; **p. 11 is a PROGRAMMING section and p. 19 is DESIGN
