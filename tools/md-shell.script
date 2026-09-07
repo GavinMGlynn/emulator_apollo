@@ -8,6 +8,12 @@
 # the third character the firmware needs is then misread (000008C8's
 # `cmp.b #$d, d1` / `bne.w $752`).
 expect MD7C
+# **Wait for the prompt, not the banner.** MD prints `\r\n>` *after* its sign-on
+# and reads and discards whatever is typed while it is still printing -- the same
+# type-ahead handling `md-keyboard-console-recipe` records for the keyboard
+# console. A script that sent on the banner alone lost its first character: a
+# two-node run received `DI W` as `I W` and `EX DOMAIN_OS` as `EMAIN_OS`.
+expect >
 send DI W\r
 expect >
 send EX DOMAIN_OS\r

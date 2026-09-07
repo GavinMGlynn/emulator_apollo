@@ -321,6 +321,23 @@ def main() -> int:
             source_check("the two-node runner sends at --boot-input-rate: %s"
                          % what, fragment in main_c)
 
+        # ...and so does `--boot-input-interval`. The ring runner sent a
+        # character on every slice the receiver was free -- one per 4096
+        # instructions, about 0.55 ms, where a 2400-baud character takes 4.17 ms
+        # -- so the first two-node run to reach MD on both nodes received
+        # `DI W` as nothing and `EX DOMAIN_OS` as `EMAIN_OS`.
+        for fragment, what in (
+                ("static unsigned g_console_interval_us = 0u;",
+                 "the interval is a variable"),
+                ("g_console_interval_us = boot_input_interval_us;",
+                 "--boot-input-interval sets it"),
+                ("ap_machine_now(&machine[i]) >= script_next_at[i]",
+                 "the two-node send waits for it"),
+                ("script[i].sent--; /* not taken: put it back */",
+                 "a refused byte is retried, and so not charged the gap")):
+            source_check("the two-node runner paces at --boot-input-interval: "
+                         "%s" % what, fragment in main_c)
+
         # ---- the model table's fields must be consulted, not just declared ----
         #
         # `model/`'s own rule is "all machine variance lives here, and every

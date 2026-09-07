@@ -1265,6 +1265,18 @@ static unsigned g_script_channel = 0u;
  * anything is byte-identical to what this constant gave it. */
 static uint8_t g_console_rate = AP_SIO_CONSOLE_RATE;
 
+/* And the gap the two-node runner leaves between scripted characters, in
+ * emulated microseconds, from `--boot-input-interval`.
+ *
+ * It had none: the runner sent a character on every slice where the receiver
+ * was free, which is one every 4096 instructions -- about 0.55 ms, where a
+ * character at 2400 baud takes 4.17 ms on the wire. The single-machine path has
+ * had `--boot-input-interval` since `MD.md`'s "one carriage return every 0.4 s"
+ * was read; the ring runner did not, so the first two-node run to reach
+ * `MD7C REV 8.00` on **both** nodes then received `DI W` as nothing at all and
+ * `EX DOMAIN_OS` as `EMAIN_OS`. Same flag, same meaning, both harnesses. */
+static unsigned g_console_interval_us = 0u;
+
 /* Defined below, beside the single-machine path that also uses it: a node
  * presents the ID its own volume records. */
 static bool node_id_from_volume(const char *path, uint32_t *out);
@@ -1746,6 +1758,9 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
   static ap_console_script_t script[NODES];
   unsigned knocked[NODES] = {0};
   unsigned knock_pace[NODES] = {0};
+  /* When each node's script may send its next character. Zero until the first
+   * one goes, so a run that asks for no interval behaves exactly as before. */
+  ap_time_t script_next_at[NODES] = {0};
   static const char knock[] = "\r";
 /* Slices between knocks. One knock per 4096-instruction slice would flood the
  * poll; a few slices apart is the cadence `mdsession.py` uses in wall time. */
@@ -1904,6 +1919,7 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
           knock_pace[i]--;
         }
       } else if (script[i].steps > 0u &&
+                 ap_machine_now(&machine[i]) >= script_next_at[i] &&
                  !ap_sio_receiver_ready(&board[i].sio, script_unit,
                                         script_channel) &&
                  ap_sio_character_bits(&board[i].sio, script_unit,
@@ -1917,6 +1933,15 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
           if (!ap_sio_receiver_ready(&board[i].sio, script_unit,
                                      script_channel)) {
             script[i].sent--; /* not taken: put it back */
+          } else {
+            /* Only when it was taken. Charging the interval for a byte the
+             * port refused would delay the retry by a whole dialogue gap, and
+             * the retry is the thing that makes the refusal free. The wire's
+             * own floor is the port's business; what is asked for here is the
+             * *dialogue's* gap, a property of the far end and not the cable. */
+            script_next_at[i] =
+                ap_machine_now(&machine[i]) +
+                (ap_time_t)g_console_interval_us * (AP_TIME_BASE_HZ / 1000000u);
           }
         }
       }
@@ -6220,6 +6245,7 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--boot-input-interval") == 0 && i + 1 < argc) {
       boot_input_interval_us = (unsigned)strtoul(argv[i + 1], NULL, 0);
+      g_console_interval_us = boot_input_interval_us;
       i += 2;
       continue;
     }
