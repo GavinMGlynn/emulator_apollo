@@ -5642,8 +5642,14 @@ Only after the reference core is proven, and only under an identity harness.
 - [ ] Real multi-node Domain workloads: distributed single-level store across
       nodes, `lcnode`, remote file access. *Verification: content finds what
       unit tests did not; each finding lands with a test.*
-      **Blocked on a second *installed* volume, and this objection still
-      stands after C180.** Every workload here is a thing two booted nodes do.
+      **Not blocked — startable, and unstarted.** The head of this item read
+      "**Blocked on a second *installed* volume, and this objection still stands
+      after C180**", which its own last paragraph has contradicted since C199;
+      corrected 2026-09-08, the original kept here because it is what explains
+      the paragraph that follows.
+      *That paragraph is still the reason the shortcut is refused*, and it
+      matters more than the blocker did. Every workload here is a thing two
+      booted nodes do.
       Patching a copy's label -- which is how the Phase 6 item's two nodes are
       now made -- is **not** the route for *this* item: the objects on the copy
       were created by the first node and carry its ID, so distributed
