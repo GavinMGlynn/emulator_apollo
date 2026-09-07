@@ -40047,6 +40047,43 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s MBX chapter walked whole — the other half of Domain/OS's IPC
+
+PDF 227-263, 329 of 722. Thirty-five numbered pages. `IPC` gives datagrams and
+`MBX` gives virtual circuits; the two read together are what makes either
+legible, and the contrast is the finding.
+
+**A full channel blocks; a full socket drops.** `MBX_$PUT_REC` "waits until there
+is room" and `MBX_$PUT_REC_COND` returns `MBX_$NO_ROOM_IN_CHANNEL` at once, where
+`IPC`'s socket queue simply loses an arriving datagram. The two chapters state
+the circuit/datagram difference through their own failure modes rather than by
+describing it.
+
+**`TIME_$CLOCKH_T` appears as a duration.** `MBX_$TIMED_OPEN`'s `wait-time` is in
+that format, zero meaning wait forever — the fourth chapter to use the 4-byte top
+half of the 48-bit 4 µs clock, and the first to use it *relatively*. `IPC`, in the
+same manual, counts its timeouts in quarter-seconds as a 2-byte integer: two
+mechanisms, two units for the same quantity.
+
+**The message header is six bytes** — `cnt` (total including the header), `mt`,
+`chan` — and servers must send it where clients send data only, which is why every
+`buflen` in the chapter is 32766 for a server and 32760 for a client. The
+constants: 255 channels per mailbox, a 64-byte minimum channel buffer, 32760 data
+bytes, `MBX_$SERV_MSG_MAX` 1030 = 1024 + 6.
+
+**The 1024 here is not the ring's.** It bounds what an *open request* may carry,
+on a service that otherwise moves 32 KB — a separate ceiling that happens to share
+`IPC_$DATA_T`'s value, recorded as such rather than merged.
+
+And **1158** is a default, a minimum and a fallback at once: the `MBX_HELPER`'s
+default `-DATASIZE`, the minimum a pre-SR9 helper maintains, and the value
+`MBX_$SERVER_WINDOW` returns when it cannot ask a pre-SR9 node.
+
+*A method refinement, recorded in the walk record*: a chapter's table-of-contents
+divider gives the last **section's** first page, not the chapter's last. `MBX`'s
+says `Errors MBX-33` and the chapter runs to MBX-35. The divider is a lower bound;
+the end is still found by reading to where the footer changes.
+
 ## `007196-01`'s IPC chapter walked whole — `[MAC]`'s "typically 1024 bytes" gets a source
 
 PDF 209-226, 292 of 722. Sixteen numbered pages, not the fifteen the map gave —

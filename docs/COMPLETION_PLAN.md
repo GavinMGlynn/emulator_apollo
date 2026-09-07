@@ -6192,7 +6192,7 @@ same number is what let them diverge once already.
       **All nine device chapters are finished, 2026-09-07** — `SIO`, `CAL`,
       `CTM`, `FPP`, `GMF`, `MTS`, `SMD`, `TIME`, `TONE` and `TPAD` — and the
       remainder is being walked in document order. **`ERROR`, `ACLM`, `EC2`, `IOS`,
-      `IOS_DIR` and `IPC` are done too**, 292 of 722; 430 pages remain.
+      `IOS_DIR`, `IPC` and `MBX` are done too**, 329 of 722; 393 pages remain.
       **The map's lengths are not trustworthy and there is a better source** —
       `IOS` is 75 pages and `IPC` 16, not the 73 and 15 the footer arithmetic
       gave, because unnumbered blank and table-of-contents pages between
