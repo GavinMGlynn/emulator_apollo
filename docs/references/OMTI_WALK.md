@@ -4,9 +4,9 @@ Three manuals, and the DN3500's controller is an **8621**.
 
 | Tag | File | Pages | Native | Cited |
 | --- | --- | --- | --- | --- |
-| `[OMTI]` | `omti/OMTI_AT_Controller_Series_Jan87.pdf` | 88 | 800 ppi | throughout `ap_omti.h` |
+| `[OMTI]` | `omti/OMTI_AT_Controller_Series_Jan87.pdf` | 88 | 800 ppi | **walked whole, 2026-09-07**; cited throughout `ap_omti.h` |
 | `[8640]` | `omti/OMTI_8640_Technical_Reference_Manual_Jun89.pdf` | 61 | 600 ppi | **walked whole, 61/61, 2026-08-23** |
-| `[765]` | `nec/NEC_uPD765_Floppy_Disk_Controller_Datasheet.pdf` | 20 | text layer | **the part on the board** — added 2026-08-22, walk owed |
+| `[765]` | `nec/NEC_uPD765_Floppy_Disk_Controller_Datasheet.pdf` | 20 | text layer | **the part on the board** — added and **walked whole, 2026-08-22**; the row said "walk owed" until 2026-09-07, four days after the walk landed |
 | `[765A]` | `nec/NEC_uPD765A_Datasheet.pdf`, `nec/NEC_uPD765A_uPD765B_Datasheet.pdf` | 19, 17 | image | later revisions of the same part |
 | `[8272A]` | `nec/Intel_8272A_Datasheet_Nov86.pdf` | 31 | image | Intel's licensed second source — independently typeset |
 | `[8000]` | `omti/OMTI_8000_Series_AT_Reference_Jun86.pdf` | 71 | 400 ppi | **walked whole, 71/71, 2026-08-22** |

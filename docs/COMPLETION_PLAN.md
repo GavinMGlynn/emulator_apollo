@@ -6217,72 +6217,20 @@ same number is what let them diverge once already.
       are under *Walk the remaining part datasheets whole*. Detail in
       `PROJECT_STATUS.md`.
 
-- [ ] **Walk the OMTI controller manuals — 220 pages, and the "none walked" in
-      this item's own title was wrong.** Corrected 2026-08-22: `[OMTI]`'s **§5
-      command chapter is derived into the model**, which an audit of the code's
-      citations shows and this item did not — `ap_omti_cdb.h`, `ap_omti.h` and
-      `ap_omti.c` cite **37 distinct §5 subsections**, the whole §5.4.3–§5.4.29
-      command run among them. **§3.4, §4.5 and §6.3's floppy command set are
-      derived too**, on the same evidence — verbatim quotes in the model. §4.1–
-      §4.4 and §6.4 are walked and recorded, and **Appendices A and B are walked
-      entire** (PDF 81–88, 2026-08-22), which found the sense LUN defect, marked
-      the 32K buffer `PROVISIONAL` and opened two named gaps.
-      **`[OMTI]` has no unread pages left, 2026-09-07**: the front matter, §1
-      entire and the last of §2 (2-1, 2-2 and 2-20 to 2-22) were walked, and the
-      coverage row's "§7 onward" was a section the manual never had. `[8640]`
-      and `[8000]` are both walked whole. What remains is the record's own
-      distinction — **§4 and §5 are *derived*, not walked**: the code cites 37
-      §5 subsections and both §4 register tables, which shows those pages were
-      read for what someone went looking for rather than covered field by field.
-      **§4 and §5 are now walked whole too, 2026-09-07, so `[OMTI]` is 88/88.**
-      §4's seven pages correct an attribution made three times in `ap_omti.h`:
-      doc 4-6 and 4-7 spell out the Diskette Control, Additional Control and
-      Main Status registers, where the file said only the sibling 8640 manual
-      did. §5 was 27 pages in order, which
-      lifted the sector-buffer cap `PROVISIONAL` (§5.4.14 prints a fourth row
-      the other three cap tables omit, and four rows admit one rule) and
-      corrected three stale claims in this core's own comments: the drive
-      configuration word is defined on doc 5-27 where `ap_omti.c` said the
-      documents had run out, SEEK's immediate completion is §5.4.10's ESDI rule
-      rather than a model simplification, and the LUN field is drawn two and
-      three bits wide in five places where §5.1.1 defines one.
-      §1's yield is the 862X's own Figure 1.1 and Figure 2.1, showing the
-      discrete 765 on this board where the figure evidence had been `[8000]`'s
-      different card. **Its prose yielded nothing new**: §1.1 and §1.3.1 are
-      word for word `[8000]`'s, already walked, and were written up as findings
-      for several hours before the shared-source-text rule was applied. The one
-      thing the pair says is that `[OMTI]` contradicts *itself* on the buffer
-      minimum where `[8000]` does not, which widens `AP_OMTI_ID_BUFFER_32K`'s
-      `PROVISIONAL`.
-      *Derived is not walked*: a verbatim quote shows the page was read, not
-      that the section was covered field by field, and §6.4's pass found `ST3`
-      only by doing the latter.
-      **They have NO TEXT LAYER.** The 8621 is the DN3500's disk and floppy controller,
-      so the boot path runs through it, and `CLAUDE.md`'s rule that a module is
-      presumed incomplete until its register tables are walked applies directly.
-      Record: `docs/references/OMTI_WALK.md`.
-      **The blocking operational fact**: `pdftotext` returns **zero characters**
-      from `[OMTI]` and `[8000]` — verified. Every page must be read as an
-      image, the footer map included, and **a search that returns nothing means
-      nothing**. That already nearly produced a wrong conclusion here: scanning
-      `[8000]` for "862x" found no hits, which reads as "does not cover the
-      8621" and actually means "cannot be searched". Any existing claim of the
-      form "the OMTI manuals do not mention X" needs checking against what it
-      rests on. Budget several sessions, not one.
-      **First step taken, and it shrank the job**: `[8000]`'s title page lists
-      **Models: OMTI 8100, 8200, 8500, 8600** — no 862x. It covers a different
-      product line, is not a second source for the Apollo's 8621, and drops to
-      last: **71 of the 220 pages leave the critical path**. It does *not*
-      establish that `8600` and `8620` are unrelated — only §1 would — so that
-      is recorded as unresolved rather than assumed.
-      **And `[OMTI]` does not name the 8621 either** — §1.2's Table 1-1 lists
-      exactly **8620, 8627, 8120, 8127**, and §1.1 opens "The OMTI 8000 Series",
-      so both manuals share the brand while their model sets do not overlap.
-      **The 8621 is documented in neither.** So `ap_omti.h`'s "same family, so
-      it covers the DN3500's 8621" **cannot become a citation by walking these
-      manuals**; it stays an inference, and any `ST3` reading from `[OMTI]`
-      §6.4.4 inherits that status. Known at page 7 rather than page 200, which
-      is the point of reading §1.2 first.
+- [x] **Walk the OMTI controller manuals — finished 2026-09-07, 220/220.**
+      `[OMTI]` 88/88, `[8000]` 71/71, `[8640]` 61/61, all read as page images
+      because none has a text layer. The item's own title was wrong when it was
+      written ("none walked": §5 was already derived into the model), and the
+      last pass was the mirror of that — §4 and §5 were *derived* and walking
+      them field by field still paid. Yield across the batch: the `ST3` and
+      `ST0` settlement, the sense-block LUN bit, the `1A` range check, the
+      buffer-cap rule (§5.4.14 prints a fourth row the other three cap tables
+      omit, which lifted a `PROVISIONAL`), and **five stale claims in this
+      core's own comments** — the drive configuration word, SEEK's ESDI rule,
+      the LUN field's width, and three registers `[OMTI]` spells out where
+      `ap_omti.h` said only the 8640 manual did. *Derived is not walked, and a
+      comment written before a later walk is a claim nothing re-checks.*
+      Record: `docs/references/OMTI_WALK.md`. Detail in `PROJECT_STATUS.md`.
 
 - [x] **ST3's five constant bits — settled 2026-08-21**, by walking `[OMTI]`
       §6.4 in order rather than by any of the three resolution tiers, all of
