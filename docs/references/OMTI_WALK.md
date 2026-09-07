@@ -840,47 +840,40 @@ Diagram)" where the figure itself is captioned "CONTROLLER BLOCK DIAGRAM", and
 the contents calls §2.2 "System Configuration" where the heading reads "BOARD
 PREPARATION".
 
-**PDF 7-8, §1.1 and §1.3.1 — the specification list.** §1.1 was read 2026-08-21
-for Table 1-1; its feature list was not. It gives **"8Kbyte buffer minimum"**,
-and that matters here: `ap_omti.h` argues that §5.4.13's printed cap table
-(15x512, 7x1024, 7x1056) is *one buffer size's instance of a rule*, identified as
-the 8K part because all three rows fall just under 8192 — an arithmetic
-inference. §1.1 says independently that 8K is the smallest buffer the family
-ships with, so the one table printed is the smallest part's. The `PROVISIONAL`
-stands (whether a 32K part stops at 31 blocks or 30 is still unsettled), but its
-argument now rests on a sentence as well as on a division. *It also sits against
-§5.4.13's identification byte 14, which enumerates **2K**, 8K, 16K and 32K — the
-feature list and the identification block disagree about the smallest part, and
-neither changes what this machine reports.*
+**PDF 7-8, §1.1 and §1.3.1 — the specification list, and it is shared text.**
+§1.1 was read 2026-08-21 for Table 1-1; its feature list was not. Read now, and
+**every statement in it was already recorded from `[8000]`** — the entry *"`[8000]`
+§1.3 — a confirmation of the address fields, and two tensions"* below, and the
+`[8000]` §1 entry above it, carry the same 8Kbyte buffer minimum, the same 2048
+tracks and 16 heads, the same 256-bytes-per-sector tension with no jumper to
+reach it, the same 10 Mbit/s ESDI rate, the same 1:1 interleave, and the same
+"Host has direct access to floppy disk controller chip (NEC765 or equivalent)".
 
-§1.3.1, *Features per Peripherals*, is a capability list and **confirms the model
-throughout**, with four statements worth naming because each is a bound this
-core does not carry:
+**This entry claimed those as new findings for several hours on 2026-09-07 and
+they are not.** The rule that should have caught it is this record's own and is
+in the standing notes: *the OMTI manuals share source text — where two of them
+agree, that is one witness.* The two feature lists are one list printed twice.
+Corrected here, in `ap_omti.h`'s two blocks and in `PROJECT_STATUS.md`.
 
-- "Supports **256 (ESDI only)**, 512, 1024 or 1056 bytes/sector" — a fourth
-  sector size, and §2.3's `W10 W11` jumper table offers only the last three. So
-  256 is a capability with no strap to reach it on this board, which is why the
-  model's three sizes are complete rather than short.
-- "Addresses up to **2048 tracks (cylinders) and 16 heads**" — the sixteen heads
-  are §5.2's conversion geometry, already modelled; the 2048-cylinder ceiling is
-  a controller limit that cannot bind here, because the model takes geometry from
-  the drive and `image/ap_awd.h`'s two Apollo drives are 1223 and 1023 cylinders.
-- "Supports **overlapped seek**" — seeking one drive while another transfers.
-  Not modelled and not reachable: this board has one Winchester.
-- Floppy: "Supports **250, 300, or 500 K bits/sec** transfer rate including dual
-  rotational speed floppies", and "**Host has direct access to floppy disk
-  controller chip (NEC765 or equivalent)**".
+*One thing the pair does say that neither says alone.* `[OMTI]` §1.1 puts the
+family minimum at **8K** while `[OMTI]` §5.4.13's encoding table starts at
+**2K**; `[8000]`'s two agree at 8K. So `[OMTI]` contradicts itself where the
+other manual does not — either §1.1 is text carried across and left stale (which
+the list-of-tables finding above shows this manual does), or `[OMTI]`'s encoding
+table is `[8000]`'s shifted by a row, in which case `0xC0` is 64K here too. That
+widens the doubt on `AP_OMTI_ID_BUFFER_32K`'s `PROVISIONAL` without settling it,
+and is recorded there.
 
-**That last sentence is the yield.** It is word for word `[8000]` §1.3.1's, which
-is what the `WRITE DATA` plan item was opened on — and `[8000]`'s title page
-covers the 8100/8200/8500/8600, *not* the 862X. The same sentence in **this**
-manual is evidence about the board the DN3500 actually carries. So is the
-hardware: PDF 10's **Figure 1.1** draws the flexible-disk path as `I/O Decode
-Logic & Buffers` to a discrete **FDC 765** to a **9239** data separator, with the
-Z8, the EPROM and the five OMTI VLSI parts all on the Winchester branch; and PDF
-12's **Figure 2.1, the 862X PCB diagram**, shows a package marked **765** on the
-board. The argument for the five unimplemented µPD765 commands was resting on a
-different product line's manual and no longer is.
+**What is genuinely new is the pair of drawings**, because drawings are not
+shared: `[8000]`'s figures are the 8100/8200/8500/8600 card. PDF 10's **Figure
+1.1** routes the flexible-disk path through `I/O Decode Logic & Buffers` to a
+discrete **FDC 765** and a **9239** data separator, with the Z8, the EPROM and
+the five OMTI VLSI parts all on the Winchester branch; and PDF 12's **Figure 2.1,
+the 862X PCB diagram**, shows a package marked **765** on the board *this machine
+has*. The `WRITE DATA` item's figure evidence was a different product line's card
+until now — and note that the PDF 13 entry above, on Figure 2.2, says in as many
+words that it is "**for the 812X**, not the 862X this machine has". Figure 2.1 is
+the one that is.
 
 **PDF 9-10, §1.3.2 to §1.3.4 and Figure 1.1.** Physical dimensions, environmental
 range and power draw — nothing this core models — and the block diagram above.

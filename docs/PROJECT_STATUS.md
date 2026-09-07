@@ -40057,37 +40057,35 @@ record's own distinction: §4 and §5 are *derived* — 37 §5 subsections and b
 register tables are cited in the model — rather than walked field by field, which
 is how §6.4's pass found `ST3`.
 
-**The yield is a citation moving to the right manual.** The open plan item on the
-five unimplemented µPD765 commands — `02`, `05` WRITE DATA, `09`, `0A`, `0C` —
-was opened on `[8000]` §1.3.1's "Host has direct access to floppy disk controller
-chip (NEC765 or equivalent)" plus that manual's Figures 1.1 and 2.1. **`[8000]`
-covers the OMTI 8100/8200/8500/8600 and not the 862X this machine carries.**
-`[OMTI]` carries the identical sentence in its own §1.3.1, draws the same
-discrete `FDC 765` (through `I/O Decode Logic & Buffers` to a `9239` data
-separator, with the Z8, the EPROM and the five OMTI VLSI parts all on the
-Winchester branch) in its own Figure 1.1, and shows a package marked **765** on
-the board in Figure 2.1, the 862X PCB diagram. Three witnesses in the manual for
-the part that is actually here, where there were none before.
+**The prose yield was claimed and withdrawn the same day, and the withdrawal is
+the lesson.** §1.1's feature list and §1.3.1's specification list were written up
+as new findings — the 8Kbyte buffer minimum, the 2048-cylinder and 16-head
+ceiling, the 256-bytes-per-sector capability with no jumper to reach it, the
+floppy rates, and "Host has direct access to floppy disk controller chip (NEC765
+or equivalent)". **Every one of them was already recorded from `[8000]` on
+2026-08-22.** The two manuals share source text; the two feature lists are one
+list printed twice, so they are one witness and not two. That rule is in
+`OMTI_WALK.md`'s own standing notes and in this project's memory, and it was not
+applied until a later page of the same walk put `[8000]`'s wording side by side
+with `[OMTI]`'s.
 
-**§1.1 names the part §5.4.13's cap table describes.** `ap_omti.h` argues that
-the printed table (15x512, 7x1024, 7x1056) is one buffer size's instance of a
-rule, identified as the 8K part because all three rows fall just under 8192 — an
-arithmetic inference. §1.1's feature list says "**8Kbyte buffer minimum**", so
-the smallest part in the family is the 8K one and the one table printed is its.
-The `PROVISIONAL` on a 32K part's exact cap stands; its argument now rests on a
-sentence as well as a division. *And it sits against §5.4.13's identification
-byte 14, which enumerates 2K as well — the feature list and the identification
-block disagree about the smallest part, and neither changes what this machine
-reports.*
+**What is genuinely new is the pair of drawings.** Figures are not shared between
+the manuals: `[8000]`'s are the 8100/8200/8500/8600 card, and the walk record's
+own entry on `[OMTI]` Figure 2.2 says it is "for the 812X, not the 862X this
+machine has". `[OMTI]` **Figure 1.1** routes the flexible-disk path through `I/O
+Decode Logic & Buffers` to a discrete `FDC 765` and a `9239` data separator, with
+the Z8, the EPROM and the five OMTI VLSI parts on the Winchester branch, and
+**Figure 2.1, the 862X PCB diagram**, shows a package marked `765` on the board
+this machine actually has. The `WRITE DATA` item's figure evidence had been a
+different product line's card.
 
-**Four capability bounds this core does not carry, each unreachable.** §1.3.1
-gives 256-byte sectors "(ESDI only)" — a fourth size with no `W10 W11` strap to
-select it, which is why the model's three are complete rather than short; a
-2048-cylinder, 16-head addressing ceiling, where the sixteen heads are §5.2's
-conversion geometry already modelled and the cylinders cannot bind because
-geometry comes from the drive and Apollo's two are 1223 and 1023; overlapped
-seek, which needs a second Winchester this board does not have; and the floppy's
-250/300/500 Kbit/s rates.
+**And one thing the shared pair says that neither manual says alone.** `[OMTI]`
+§1.1 puts the family buffer minimum at 8K while `[OMTI]` §5.4.13's encoding table
+starts at 2K; `[8000]`'s two agree at 8K. So `[OMTI]` contradicts itself where
+`[8000]` does not — either §1.1 is text carried across and left stale, which the
+list-of-tables finding below shows this manual does, or `[OMTI]`'s encoding table
+is `[8000]`'s shifted by a row, in which case `0xC0` is 64K here too. It widens
+the doubt on `AP_OMTI_ID_BUFFER_32K`'s `PROVISIONAL` rather than settling it.
 
 **Three front-matter errors, recorded because each sends a reader nowhere.** The
 list of tables promises Tables 2-1 Jumper Assignments, 2-2 Connector Assignment

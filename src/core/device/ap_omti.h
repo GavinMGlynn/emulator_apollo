@@ -326,16 +326,21 @@ typedef enum {
  * in it. A host writing into a real 765's data register gets the 765's
  * behaviour.
  *
- * **That evidence was the wrong manual's, and 2026-09-07 replaced it with this
- * board's own.** `[8000]`'s title page covers the OMTI 8100, 8200, 8500 and
- * 8600 -- not the 862X the DN3500 carries. `[OMTI]`, which does, carries the
- * same sentence in its own §1.3.1 ("Host has direct access to floppy disk
- * controller chip (NEC765 or equivalent)"), draws the same path in its own
- * **Figure 1.1** -- `I/O Decode Logic & Buffers` to a discrete `FDC 765` to a
- * `9239` data separator, with the Z8, the EPROM and the five OMTI VLSI parts
- * all on the Winchester branch -- and shows a package marked **765** on the
- * board in **Figure 2.1, the 862X PCB diagram**. Three witnesses, in the manual
- * for the part that is actually here.
+ * **The figures were the wrong board's, and 2026-09-07 added this one's.**
+ * `[8000]`'s title page covers the OMTI 8100, 8200, 8500 and 8600 -- not the
+ * 862X the DN3500 carries -- so its Figure 2.1 draws a different card.
+ * `[OMTI]`'s **Figure 1.1** routes the host data path through `I/O Decode Logic
+ * & Buffers` to a discrete `FDC 765` and a `9239` data separator, with the Z8,
+ * the EPROM and the five OMTI VLSI parts all on the Winchester branch, and its
+ * **Figure 2.1, the 862X PCB diagram**, shows a package marked **765** on the
+ * board this machine has.
+ *
+ * *The prose is not a second witness and was briefly written here as one.*
+ * `[OMTI]` §1.3.1 does carry "Host has direct access to floppy disk controller
+ * chip (NEC765 or equivalent)" -- word for word `[8000]` §1.3.1's, walked
+ * 2026-08-22. The two manuals share source text, so that is one sentence
+ * printed twice. The **drawings** differ between them, and they are what moved
+ * this from a different product line's card to this one.
  *
  * **Implemented 2026-08-22**, from `[765]` pp. 8-9 and 13-14 with every opcode
  * cross-checked against `[8272A]` Table 4, so the floppy can be written. This
@@ -919,13 +924,22 @@ typedef enum {
  * 32K. A single fixed table cannot describe four parts. The rows themselves say
  * which one they are: 15x512, 7x1024 and 7x1056 all fall just under **8192**.
  *
- * **And `[OMTI]` §1.1 says which part that is, in words**: the feature list
- * opens with "8Kbyte buffer **minimum**", so the smallest controller in the
- * family carries 8K and the one table printed is the smallest one's. Found
- * 2026-09-07 walking §1, and it turns an arithmetic coincidence into a
- * documented identity. *It also disagrees with byte `14` above, which
- * enumerates **2K** as well -- the feature list and the identification block do
- * not name the same smallest part. Neither changes what this machine reports.*
+ * **`[OMTI]` §1.1 says "8Kbyte buffer minimum", and that is not a second
+ * witness.** It was written here on 2026-09-07 as one -- "turns an arithmetic
+ * coincidence into a documented identity" -- and withdrawn the same day.
+ * `[8000]` §1.1's feature list carries the identical sentence and was walked
+ * 2026-08-22; the two manuals share source text, so the two sentences are one
+ * witness, and it is cited below in `AP_OMTI_ID_BUFFER_32K` already.
+ *
+ * *What it does say is something about `[OMTI]` alone*: its §1.1 puts the
+ * family minimum at 8K while its own §5.4.13 encoding starts at **2K**, where
+ * `[8000]`'s two agree at 8K. So this manual contradicts itself where the other
+ * does not -- either §1.1 is stale text carried across, or the encoding table
+ * was shifted a row. That bears on `AP_OMTI_ID_BUFFER_32K`'s `PROVISIONAL`
+ * rather than on this cap, and it is recorded there.
+ *
+ * The identification of *this* table stays what it was: arithmetic. All three
+ * rows fall just under 8192 and nothing else in either manual names them.
  *
  * This machine's controller reports **32K**, so the cap it was refusing at was
  * another part's. The machine told the host it had 32K and then refused eight
@@ -1061,6 +1075,16 @@ typedef enum {
  * one, and Appendix A's generic 8K is encoding `0-1` in one and `0-0` in the
  * other. `[8000]` §1.1's feature list -- "**8Kbyte buffer minimum**" -- is
  * consistent with its own table starting at 8K.
+ *
+ * **And `[OMTI]` §1.1 carries that same sentence**, read 2026-09-07 -- the two
+ * feature lists are shared source text -- which makes `[OMTI]` contradict
+ * *itself*: 8K minimum in §1.1, a 2K row in §5.4.13. `[8000]` has no such
+ * tension. Two readings, and nothing on this shelf chooses between them: either
+ * §1.1 is text carried across from the older manual and left stale, or
+ * `[OMTI]`'s encoding table is `[8000]`'s shifted by a row -- in which case
+ * `0xC0` is **64K** here too. It does not settle the `PROVISIONAL`; it says the
+ * doubt is a little wider than "two tables disagree".
+ *
  * `[OMTI]`'s table is the one followed, because the DN3500's part is an 8621
  * and `[OMTI]` is the 862X manual. Recorded because the difference makes the
  * value ambiguous *between documents* as well as unsourced, which the single

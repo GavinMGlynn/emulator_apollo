@@ -6234,9 +6234,14 @@ same number is what let them diverge once already.
       distinction — **§4 and §5 are *derived*, not walked**: the code cites 37
       §5 subsections and both §4 register tables, which shows those pages were
       read for what someone went looking for rather than covered field by field.
-      §1's yield was a stronger citation for the discrete 765 (below), §1.1's
-      "8Kbyte buffer minimum" naming the part §5.4.13's cap table belongs to,
-      and four capability bounds this core does not carry and cannot reach.
+      §1's yield is the 862X's own Figure 1.1 and Figure 2.1, showing the
+      discrete 765 on this board where the figure evidence had been `[8000]`'s
+      different card. **Its prose yielded nothing new**: §1.1 and §1.3.1 are
+      word for word `[8000]`'s, already walked, and were written up as findings
+      for several hours before the shared-source-text rule was applied. The one
+      thing the pair says is that `[OMTI]` contradicts *itself* on the buffer
+      minimum where `[8000]` does not, which widens `AP_OMTI_ID_BUFFER_32K`'s
+      `PROVISIONAL`.
       *Derived is not walked*: a verbatim quote shows the page was read, not
       that the section was covered field by field, and §6.4's pass found `ST3`
       only by doing the latter.
@@ -6611,11 +6616,12 @@ same number is what let them diverge once already.
       with five rows deleted and nothing renumbered, which is a vendor
       documenting its subset rather than a smaller part; the host reaches a
       discrete 765 through buffered logic, so what it decodes is the
-      datasheet's set. **The evidence was the wrong manual's until 2026-09-07**:
-      it came from `[8000]`, whose title page covers the 8100/8200/8500/8600 and
-      not the 862X this machine carries. `[OMTI]` says the identical §1.3.1
-      sentence, draws the same discrete `FDC 765` in its own Figure 1.1, and
-      shows the package on the board in Figure 2.1's 862X PCB diagram. What
+      datasheet's set. **The *figure* evidence was the wrong board's until
+      2026-09-07**: it came from `[8000]`, which covers the
+      8100/8200/8500/8600. `[OMTI]`'s Figure 1.1 and its Figure 2.1, the 862X
+      PCB diagram, show the discrete `765` on the board this machine has. Its
+      §1.3.1 sentence is word for word `[8000]`'s and is not a second witness —
+      briefly claimed as one and withdrawn the same day. What
       unblocked it was fetching the *part's* datasheet after a year of reading
       the *card's*. The five are implemented in the item below. Detail in
       `PROJECT_STATUS.md`.
