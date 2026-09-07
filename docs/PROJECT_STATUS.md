@@ -40047,6 +40047,29 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s MTS chapter walked whole — the cartridge drive from above
+
+Pages 303-317, MTS-1 to MTS-15. 82 of 722.
+
+**The chapter identifies this machine's drive twice.** `MTS_$DEVICE_T` names
+`MTS_$MT` (magtape), `MTS_$NOT_REALLY` ("not currently supported") and `MTS_$CT`
+(cartridge tape); Table MTS-1's `MTS_$VOL_DEVICE_A` gives the codes as
+`tfp_$mt = 0` and `tfp_$ct = 3`. So a DN3500's tape traffic is the `ct` path at
+device type 3.
+
+**And it prints a block length that is not the drive's**: `MTS_$BLOCK_LENGTH_A`
+defaults to 2048 bytes where `AP_SC499_BLOCK_BYTES` is 512 on the authority of
+QIC-02 Rev D §4.2. A logical block in a magtape descriptor file, four physical
+blocks to one — different layers, and the note is now at the constant because two
+numbers that close get reconciled by mistake.
+
+The rest is a file-and-volume interface above the driver and confirms nothing
+about the hardware: ANSI x3.27-1978 labelling on by default, record formats
+F/D/S/U with D the default, ASCII newline handling on ("strip newlines on write,
+supply them on read"), buffer offset that "must be zero". One documentary
+inconsistency: `mts_$file_resvl_a` is listed as gettable and settable and appears
+in neither the attribute enumeration nor the table.
+
 ## `007196-01`'s TIME, TONE and TPAD chapters walked whole — a calibrated constant closes
 
 Pages 649-655, 659-660 and 663-670. 67 of 722.

@@ -398,7 +398,21 @@ typedef struct {
 #define AP_SC499_T_BLOCK_TO_READY_MIN ((AP_TIME_BASE_HZ * 100u) / 1000000u)
 
 /* QIC-02 Rev D: the fixed block. `archive/QIC-02_Rev_D_Specification_Sep82.pdf`
- * is on the shelf and §4.2's data block is 512 bytes. */
+ * is on the shelf and §4.2's data block is 512 bytes.
+ *
+ * **Not to be confused with the 2048 the operating system defaults to.**
+ * `007196-01`'s Table MTS-1 gives `MTS_$BLOCK_LENGTH_A` a default of **2048
+ * bytes** and `MTS_$RECORD_LENGTH_A` the same. That is a *logical* block in a
+ * magtape descriptor file, four of these to one of those, and it is the
+ * driver's business rather than the interface's. The two numbers live at
+ * different layers and this note exists because they are the kind of pair that
+ * gets reconciled by mistake.
+ *
+ * The same table also identifies this drive from the operating system's side:
+ * `MTS_$VOL_DEVICE_A` is "type of device: **tfp_$mt = 0** for magtape,
+ * **tfp_$ct = 3** for cartridge", and `MTS_$DEVICE_T` names three values with
+ * the middle one "`MTS_$NOT_REALLY`, not currently supported". So tape traffic
+ * on this machine is the `ct` path, device type 3. */
 #define AP_SC499_BLOCK_BYTES 512u
 
 /* How long a block of `bytes` takes to cross the head at the drive's nominal
