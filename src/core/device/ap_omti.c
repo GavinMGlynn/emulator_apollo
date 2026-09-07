@@ -1025,10 +1025,22 @@ static void execute(ap_omti_t *omti) {
     omti->buffer[1] = (uint8_t)highest_cylinder;
     omti->buffer[2] = (uint8_t)(g.heads - 1u);
     omti->buffer[3] = (uint8_t)(g.sectors - 1u);
-    /* The **drive configuration word**, bytes 4 and 5, which the manual names
-     * and does not define for this drive. The resolution order ran out at the
-     * document and the oracle answers: `omti8621.cpp`'s `set_configuration_data`
-     * writes `02 44` for every drive it configures.
+    /* The **drive configuration word**, bytes 4 and 5. It was taken from the
+     * oracle -- `omti8621.cpp`'s `set_configuration_data` writes `02 44` for
+     * every drive it configures -- and this comment said the manual "does not
+     * define [it] for this drive" and that "the resolution order ran out at the
+     * document". **Both halves of that are wrong and were already known to be**:
+     * `[OMTI]` p. 5-27 defines the word bit by bit, and `ap_omti_cdb.h` decodes
+     * `02 44` against it -- byte 4 bit 1 "TRANSFER RATE T = 10 MHZ", byte 5 bits
+     * 6 and 2 "ESDI FIXED MEDIA" and "ESDI SOFT SECTORED", which is this
+     * machine's drive exactly and matches `[8000]` doc 2-4's three straps.
+     * Corrected 2026-09-07 while walking §5 in order; the header carried the
+     * decode and this site kept the sentence that predated it.
+     *
+     * *The value is still the oracle's*, in that nothing here computes it from
+     * the straps -- see `ap_omti_cdb.h` on why that framing stands -- but it is
+     * a value the document accounts for bit by bit rather than an unexplained
+     * one.
      *
      * That same function corroborates bytes 0-3 independently -- it computes
      * `(cylinders - 1) >> 8`, `(cylinders - 1) & 0xff`, `heads - 1` and
@@ -1548,7 +1560,17 @@ static void execute(ap_omti_t *omti) {
   case AP_OMTI_CMD_SEEK:
     /* Positioning, which this model has no position to change: a seek is
      * complete the moment it is asked for, and the address is still checked so
-     * a seek off the end fails as the hardware would. */
+     * a seek off the end fails as the hardware would.
+     *
+     * **And on this board that is not a simplification.** §5.4.10: "Completion
+     * status is returned to the host immediately after issuing all required
+     * step pulses **or immediately after issuing the command (ESDI drives
+     * only)**. This allows overlap seek operations." This machine's drives are
+     * ESDI, so the hardware returns completion without waiting either, and the
+     * head movement happens behind whatever the host does next. §1.3.1's
+     * "Supports overlapped seek" is the same fact from the feature list.
+     * Read 2026-09-07; the arm was right for a weaker reason than the one the
+     * manual gives. */
     if (!addressed(omti, &cdb, &lba)) {
       return;
     }

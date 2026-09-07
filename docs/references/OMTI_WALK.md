@@ -18,8 +18,8 @@ reading — the entries below are the evidence for each row:
 | --- | --- | --- |
 | §2, Configuration and Installation | 2-3 to 2-19 (PDF 12-29) | **walked** — jumper allocation's four tables, both COMMON SYSTEM JUMPER SETTINGS tables, the installation procedures, the format flowchart, the 1701 codes, the DOS patch |
 | §3, Host Electrical Interface | 3-1 to 3-7 (PDF 33-40) | **walked** — §3.1-§3.4 |
-| §4.1–§4.5 | | **derived into the model** |
-| §5.1–§5.4 | | **derived**, and §5.4.1, §5.4.2 and §5.4.4 read as images 2026-08-22 after the coverage row's lower endpoint proved wrong |
+| §4.1–§4.5 | 4-1 to 4-7 (PDF 40-46) | **derived into the model** — and the extent is now measured: this row read "4-1 to 4-8, PDF 40-47" from the contents, and PDF 47 is 5-1 |
+| §5.1–§5.4 | 5-1 to 5-27 (PDF 47-73) | **walked whole 2026-09-07**, page by page and in order, against `ap_omti_cdb.h`, `ap_omti_cdb.c` and `ap_omti.c` — see below |
 | §6.3 | | **derived** |
 | §6.4 | | **walked** |
 | front matter and §1 entire | PDF 1-10 (cover, title, copyright, contents, lists, FCC; doc 1-1 to 1-4) | **walked 2026-09-07** — §1.3's specification list, Figure 1.1's block diagram, and the front matter's own census of figures and tables |
@@ -809,6 +809,74 @@ in an image-backed model.
 `[OMTI]` is **§1, §2, most of §3, and §6.1-§6.2** — the introduction, the
 installation and jumper chapters, and the floppy chapter's opening. The two
 sibling manuals remain, `[8640]` partly used and `[8000]` untouched.
+
+
+## §5 walked whole — 27 pages, three stale claims in *our* files and one rule settled
+
+PDF 47-73, doc 5-1 to 5-27, read in order 2026-09-07. This chapter was
+**derived** — the model cites 37 of its subsections — and the record's own
+warning applies: *derived is not walked*. Walking it found nothing wrong with the
+model's reading of the chapter and three things wrong with what this project says
+about it, plus one rule the chapter settles on a page nobody had needed.
+
+**The rule: §5.4.14 prints the sector-buffer cap table with a fourth row.**
+§5.4.13 (doc 5-14), §5.4.19 and §5.4.20 all print three rows — 512/15,
+1024/7, 1056/7 — and `ap_omti.h` identified them as the 8K part's by arithmetic,
+marking the exact boundary `PROVISIONAL`: "two of that table's rows are
+`floor(8192/size) - 1` and the third is `floor(8192/1056)`, so whether a 32K part
+stops at 31 or at 30 is not settled by anything on the page". **§5.4.14, doc
+5-16, prints a `256 / 31` row the other three leave out**, and four rows admit
+one rule where three admitted several: *the largest count whose bytes are
+strictly less than the buffer*, `floor((buffer - 1) / size)`. 31x256, 15x512,
+7x1024 and 7x1056 all fit 8192; 32, 16, 8 and 8 do not. The part will not let the
+last block fill the buffer. `PROVISIONAL` lifted, the expression rewritten as the
+rule, and a test pins it against all four printed rows. **The value does not
+change** — this machine's sector is 1056 and both readings give 31 — which is the
+answer to the 31-or-30 question the `PROVISIONAL` posed.
+
+*The 256 row is also a fourth statement that 256 bytes per sector is real, which
+the three-row tables one and three pages away omit.*
+
+**Stale claim 1: the drive configuration word.** `ap_omti.c`'s READ CONFIGURATION
+arm said bytes 4 and 5 are "which the manual names and does not define for this
+drive" and that "the resolution order ran out at the document". **Doc 5-27
+defines the word bit by bit** — and `ap_omti_cdb.h`, 900 lines away in the same
+subsystem, already decodes `02 44` against that very page. The comment predated
+the decode and was never revisited. Corrected.
+
+**Stale claim 2: SEEK completes immediately "because this model has no position
+to change".** True, and weaker than the manual: §5.4.10 says completion status is
+returned "immediately after issuing all required step pulses **or immediately
+after issuing the command (ESDI drives only)**. This allows overlap seek
+operations." This machine's drives are ESDI, so the hardware does not wait
+either, and §1.3.1's "Supports overlapped seek" is the same fact from the feature
+list. The arm was right for the wrong reason.
+
+**Stale claim 3 (the front matter's, not ours): the LUN field's width.** §5.1.1
+is explicit — "Bit 6 is not used. Bit 5 identifies the Logical Unit Number" — and
+`ap_omti_cdb.c` decodes one bit. But §5.4.11, §5.4.17 and §5.4.25 draw `LUN`
+across bits 6-5, §5.4.21's COPY draws `SOURCE LUN` and `DEST. LUN` across bits
+6-5, §5.4.29 draws it across bits 7-5, and §5.4.13's identification block
+reserves defaults for **LUN 0, 1 and 3**, which one bit cannot address. The field
+definition is followed; it is inert on a board with one drive at LUN 0. Noted at
+the field.
+
+**Everything else confirms, field by field**: §5.1.1's eleven-bit cylinder across
+three bytes and the five-bit head; §5.1.2's whole command set (every opcode is
+modelled, and `1A START/STOP` is modelled although the summary omits it); §5.2's
+control byte with its "4 retries, 1 recalibration, 4 retries", its `6Ch` format
+fill and its eight step rates; §5.3's status register; §5.4.1's 50-second ready
+wait; §5.4.3's sense format and its address-valid bit; §5.4.4's skew and
+interleave rules including "an interleave factor of zero is set equal to one";
+§5.4.8/9's "if byte 4 is equal to zero, 256 sectors will be transferred";
+§5.4.11's ESDI exclusion; §5.4.12's word-against-byte inconsistency, already
+noted in the model; §5.4.13's identification block; §5.4.16's alternate tracks;
+§5.4.22's five-`FFh` terminator; §5.4.24's ID flags; and §5.4.27/28's six-byte
+ESDI ECC. The one thing on doc 5-15 the model does not carry is the **LUN DEFAULT
+VALUES** block's actual bytes — `00 00 00 00 01 31 03 ? 00 80 00 80 3C 09 00 82`,
+305 cylinders and 4 heads, the classic ST-506 default — and that omission was
+already recorded from `[8000]`; the values are added here so it is a known
+omission with a known content.
 
 
 ## The front matter and §1, walked 2026-09-07 — and a stronger citation for the 765

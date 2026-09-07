@@ -410,6 +410,54 @@ static void test_a_block_count_past_the_buffer_is_refused(void) {
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_disk_phase(&o));
 }
 
+/* §5.4.14 prints §5.4.13's cap table with a row §5.4.13 omits -- 256 bytes per
+ * sector, 31 blocks -- and the fourth row is what turns three points into a
+ * rule. `ap_omti.h` derives the cap as "the largest count whose bytes are
+ * strictly less than the buffer"; this checks that against all four printed
+ * rows at the 8K buffer they were printed for, and then against the boundary
+ * this part's 32K produces.
+ *
+ * The arithmetic is deliberately written out rather than calling the macro with
+ * a different buffer: the macro is the claim, and a test that computed it the
+ * same way would agree with itself. */
+static void test_the_buffer_cap_rule_reproduces_all_four_printed_rows(void) {
+  static const struct {
+    unsigned sector_size;
+    unsigned blocks;
+  } printed[4] = {{256u, 31u}, {512u, 15u}, {1024u, 7u}, {1056u, 7u}};
+
+  for (unsigned i = 0; i < 4u; i++) {
+    /* The largest N with N * size < 8192. */
+    unsigned n = 0;
+    while ((n + 1u) * printed[i].sector_size < 8192u) {
+      n++;
+    }
+    TEST_ASSERT_EQUAL_UINT(printed[i].blocks, n);
+  }
+
+  /* And this part, which reports 32K and has 1056-byte sectors: 31 blocks.
+   * `floor(8192/1056)` against `floor(8192/1056) - 1` was the ambiguity the
+   * `PROVISIONAL` named, and the 256 row settles it at the plain floor --
+   * 31 x 1056 = 32736 fits a 32K buffer and 32 x 1056 does not. The value is
+   * unchanged by the correction; what changed is that it now follows from a
+   * rule with four supporting rows rather than from one of two readings. */
+  TEST_ASSERT_EQUAL_UINT(31u, AP_OMTI_MAX_BUFFER_BLOCKS);
+  TEST_ASSERT_TRUE(AP_OMTI_MAX_BUFFER_BLOCKS * AP_AWD_SECTOR_BYTES <
+                   AP_OMTI_BUFFER_RAM_BYTES);
+  TEST_ASSERT_FALSE((AP_OMTI_MAX_BUFFER_BLOCKS + 1u) * AP_AWD_SECTOR_BYTES <
+                    AP_OMTI_BUFFER_RAM_BYTES);
+}
+
+static void test_the_last_block_the_buffer_holds_is_accepted(void) {
+  /* The pair the off-by-one lived in: 63 goes through and 64 is refused, where
+   * the cap was `buffer / size` and 64 went through. */
+  ap_omti_t o;
+  ap_omti_reset(&o);
+  const uint8_t cdb[6] = {0x0E, 0, 0, 0, (uint8_t)AP_OMTI_MAX_BUFFER_BLOCKS, 0};
+  issue(&o, cdb);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_DATA_IN, ap_omti_disk_phase(&o));
+}
+
 /* ## `0F WRITE DATA TO SECTOR BUFFER`, the direction `0E` is not
  *
  * §5.4.14, and the sentence that decides the whole arm: "the controller does
@@ -1091,6 +1139,8 @@ int main(void) {
   RUN_TEST(test_a_reset_leaves_the_identification_block_in_the_buffer);
   RUN_TEST(test_a_word_read_of_the_data_port_takes_two_buffer_bytes);
   RUN_TEST(test_a_block_count_past_the_buffer_is_refused);
+  RUN_TEST(test_the_buffer_cap_rule_reproduces_all_four_printed_rows);
+  RUN_TEST(test_the_last_block_the_buffer_holds_is_accepted);
   RUN_TEST(test_writing_the_sector_buffer_does_not_touch_the_drive);
   RUN_TEST(test_every_command_the_esdi_set_accepts_reaches_an_implementation);
   RUN_TEST(test_a_command_outside_the_esdi_set_reports_invalid_command);

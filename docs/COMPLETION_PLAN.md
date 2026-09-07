@@ -6234,6 +6234,14 @@ same number is what let them diverge once already.
       distinction — **§4 and §5 are *derived*, not walked**: the code cites 37
       §5 subsections and both §4 register tables, which shows those pages were
       read for what someone went looking for rather than covered field by field.
+      **§5 is now walked whole too, 2026-09-07** — 27 pages in order, which
+      lifted the sector-buffer cap `PROVISIONAL` (§5.4.14 prints a fourth row
+      the other three cap tables omit, and four rows admit one rule) and
+      corrected three stale claims in this core's own comments: the drive
+      configuration word is defined on doc 5-27 where `ap_omti.c` said the
+      documents had run out, SEEK's immediate completion is §5.4.10's ESDI rule
+      rather than a model simplification, and the LUN field is drawn two and
+      three bits wide in five places where §5.1.1 defines one.
       §1's yield is the 862X's own Figure 1.1 and Figure 2.1, showing the
       discrete 765 on this board where the figure evidence had been `[8000]`'s
       different card. **Its prose yielded nothing new**: §1.1 and §1.3.1 are

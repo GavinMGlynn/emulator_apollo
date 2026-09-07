@@ -40047,6 +40047,47 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `[OMTI]` §5 walked whole — 27 pages, and *derived is not walked* pays again
+
+Doc 5-1 to 5-27 (PDF 47-73), read in order 2026-09-07 against `ap_omti_cdb.h`,
+`ap_omti_cdb.c` and `ap_omti.c`. The chapter was already **derived** — the model
+cites 37 of its subsections — and walking it confirmed the model's reading
+everywhere while finding **one rule the model had marked `PROVISIONAL` and three
+stale claims in this project's own comments**.
+
+**The rule.** §5.4.13, §5.4.19 and §5.4.20 print the sector-buffer cap table with
+three rows (512/15, 1024/7, 1056/7); `ap_omti.h` identified them as the 8K part's
+by arithmetic and marked the exact boundary `PROVISIONAL` — "whether a 32K part
+stops at 31 or at 30 is not settled by anything on the page". **§5.4.14 prints a
+fourth row, `256 / 31`, that the other three omit.** Four rows admit one rule
+where three admitted several: the largest count whose bytes are *strictly less
+than* the buffer, `floor((buffer - 1) / size)`. The part will not let the last
+block fill the buffer. `PROVISIONAL` lifted; the expression is now the rule
+rather than a division that happens to agree with it; and a test pins it against
+all four printed rows. **No value changes** — this machine's sector is 1056 and
+both readings give 31, which is itself the answer to the 31-or-30 question.
+
+**Three stale claims, all ours.** (1) `ap_omti.c`'s READ CONFIGURATION arm said
+the drive configuration word is one "the manual names and does not define for
+this drive" and that "the resolution order ran out at the document" — doc 5-27
+defines it bit by bit, and `ap_omti_cdb.h` in the same subsystem already decodes
+`02 44` against that page as ESDI fixed media, soft sectored, 10 MHz. (2) SEEK's
+immediate completion was justified by "this model has no position to change",
+where §5.4.10 says the hardware returns completion immediately after issuing the
+command on **ESDI drives** and calls it overlap seek — right arm, weaker reason.
+(3) The LUN field's width: §5.1.1 defines one bit and the model decodes one, but
+§5.4.11, §5.4.17, §5.4.21, §5.4.25 and §5.4.29 draw the field two or three bits
+wide and §5.4.13 reserves defaults for LUN 0, 1 and **3**. Inert on a one-drive
+board; noted at the field rather than left in a drawing.
+
+Everything else confirms field by field — the eleven-bit cylinder, the whole
+command set, the control byte's retry algorithm and `6Ch` fill and eight step
+rates, the status register, the 50-second ready wait, the sense address-valid
+bit, "interleave factor of zero is set equal to one", "if byte 4 is equal to
+zero, 256 sectors will be transferred", the identification block, the five-`FFh`
+defect-list terminator and the six-byte ESDI ECC. Coverage per page is in
+`docs/references/OMTI_WALK.md`.
+
 ## `[OMTI]`'s front matter and §1, walked 2026-09-07 — and the 765 citation moves to the right manual
 
 The last unread prose in `OMTI_AT_Controller_Series_Jan87.pdf`: PDF 1-10 (cover,

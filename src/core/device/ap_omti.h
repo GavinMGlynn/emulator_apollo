@@ -951,15 +951,47 @@ typedef enum {
  *
  * So the cap is derived from the buffer the part reports.
  *
- * `PROVISIONAL` in its exact boundary, and marked as such rather than rounded:
- * the manual gives the rule and one table, not the table for 32K. Two of that
- * table's rows are `floor(8192/size) - 1` and the third is `floor(8192/1056)`,
- * so whether a 32K part stops at 31 or at 30 is not settled by anything on the
- * page. The figure below is the plain division; the ambiguity is one block wide
- * and no observed command comes near it. */
+ * ## The rule, settled by a **fourth** row on the next page
+ *
+ * The `PROVISIONAL` this block carried said the exact boundary was unsettled:
+ * two of §5.4.13's rows are `floor(8192/size) - 1` and the third is plain
+ * `floor(8192/1056)`, "so whether a 32K part stops at 31 or at 30 is not
+ * settled by anything on the page". It was settled by the page after it.
+ *
+ * **§5.4.14 `0F WRITE DATA TO SECTOR BUFFER` prints the same table with a row
+ * §5.4.13 leaves out** -- found 2026-09-07 walking §5 in order:
+ *
+ *     Sector Size   Block or Sector Count
+ *     256           31
+ *     512           15
+ *     1024           7
+ *     1056           7
+ *
+ * One rule fits all four with no exception: **the largest count whose bytes are
+ * strictly less than the buffer**, `floor((buffer - 1) / size)`. 31x256 = 7936,
+ * 15x512 = 7680, 7x1024 = 7168 and 7x1056 = 7392 all fit; 32, 16, 8 and 8 do
+ * not. `floor(size) - 1` fits three of the four and misses 1056; nothing else
+ * fits any three. So the part will not let the last block fill the buffer, and
+ * the 256 row is what makes that a rule rather than a coincidence -- three
+ * points admit several curves and four admit one.
+ *
+ * **It changes no number here, and that is the result.** This machine's sector
+ * is `AP_AWD_SECTOR_BYTES`, 1056, and 32768/1056 and 32767/1056 are both 31 --
+ * so the plain division this file had been doing already gave the right answer
+ * for the one sector size it is ever asked about. What was missing was the
+ * reason: the `PROVISIONAL` asked "31 or 30" and could not choose, and the
+ * fourth row chooses 31. 31x1056 = 32736 fits a 32K buffer and 32x1056 = 33792
+ * does not. **The `PROVISIONAL` is lifted**, the expression is written as the
+ * rule rather than as the coincidence that agrees with it at 1056, and a test
+ * pins the rule against all four printed rows instead of against this one
+ * value. (The `PROVISIONAL` on the *buffer size* below -- 32K against
+ * `[8000]`'s reading of 64K -- is a different question and stands.)
+ *
+ * *And the 256 row is a fourth statement that 256 bytes per sector is a real
+ * sector size, which §5.4.13's table one page earlier omits.* */
 #define AP_OMTI_BUFFER_RAM_BYTES 32768u
 #define AP_OMTI_MAX_BUFFER_BLOCKS                                              \
-  (AP_OMTI_BUFFER_RAM_BYTES / AP_AWD_SECTOR_BYTES)
+  ((AP_OMTI_BUFFER_RAM_BYTES - 1u) / AP_AWD_SECTOR_BYTES)
 
 /* §5.4.27 and §5.4.28: READ LONG and WRITE LONG move "the jumper selected
  * sector size (512, 1024 or 1056) of data plus 4 bytes (for ST506/412 drives)

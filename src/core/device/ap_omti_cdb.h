@@ -206,7 +206,21 @@ typedef struct {
   uint8_t command;       /* byte 0 whole; the code §5.1.2 lists */
   uint8_t command_class; /* byte 0 bits 7-5 */
   uint8_t opcode;        /* byte 0 bits 4-0 */
-  uint8_t lun;           /* byte 1 bit 5 */
+  /* Byte 1 bit 5. **One bit, and the manual is not consistent about that.**
+   * §5.1.1's field description is explicit -- "Bit 6 is not used. Bit 5
+   * identifies the Logical Unit Number (LUN)" -- and §5.4.1, §5.4.3, §5.4.5 and
+   * every data command draw it that way. But §5.4.11, §5.4.17 and §5.4.25 draw
+   * `LUN` spanning bits 6-5; §5.4.21's ten-byte COPY draws `SOURCE LUN` and
+   * `DEST. LUN` across bits 6-5; §5.4.29 draws "Logical Unit Number" across
+   * bits 7-5; and §5.4.13's identification block reserves default values for
+   * **LUN 0, 1 and 3**, which one bit cannot address.
+   *
+   * §5.1.1 is the field definition and the drawings are per-command art, so one
+   * bit is what is decoded here. It is inert either way on this board: the
+   * DN3500 carries a single Winchester at LUN 0, so no CDB it sees has bit 6
+   * set. Recorded 2026-09-07 rather than left for a later reader to rediscover
+   * from a drawing. */
+  uint8_t lun;
   uint8_t head;          /* byte 1 bits 4-0 */
   uint16_t cylinder;     /* C10..C00, reassembled from bytes 1, 2 and 3 */
   uint8_t sector;        /* byte 2 bits 5-0 */
