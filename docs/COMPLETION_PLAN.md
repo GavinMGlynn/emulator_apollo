@@ -5816,9 +5816,25 @@ same number is what let them diverge once already.
       controller generations at other addresses, and whether the DS3000's has
       the register is not established by anything read so far. `[MAC]` documents
       the type *field* and says nothing about a mask.
-      *What would settle it: `010005-00`, `008778-03`'s ring chapter, or the ring
-      firmware programming such a register. If it is there, the filter belongs at
-      the controller and not in `ap_ring_station`, whose job is the wire.*
+      **The third route is now walked and it points the other way** (2026-09-08,
+      `RING.md` findings 132-132b). `RING_$SET_TMASK`, at `+0x1FAE` in the
+      extracted `RING_PROC`, **touches no controller register**: it stores the
+      caller's 16-bit mask in a per-unit software control block at `+$36`, sets
+      a changed flag, bumps a counter and calls an external routine outside the
+      module. Its one decision on the value — `d2 & $FF7E`, singling out bits 7
+      and 0 — matches `[EH]` p. 7-31's `80 broadcast` / `01 xtype3` exactly, so
+      it is the same mask; it simply is not programmed here.
+      **And the AT board's documented register set has no mask.** `002398-04`
+      ch. 12 was walked register by register and names `MISC_CMD`/`MISC_STAT`,
+      `XMIT_CMD`/`XMIT_STAT`, `RCV_CMD`/`RCV_STAT`, the byte-swapped address
+      registers and the six 8254 counters — no mask — where the DN3xx/DN5xx
+      `9800` page puts `TMASK` at `+04`. **Not concluded**: absence in a handbook
+      chapter is weaker than presence, and the routine behind `$7A42138E` is
+      unread.
+      *What would settle it now*: the module that `$7A42138E` lives in, extracted
+      the same way `RING_PROC` was. The other two documentary routes are spent —
+      `010005-00` is walked whole and settled only the architectural half, and
+      `008778-03` has no ring chapter for this board.
 
 - [ ] **Settle whether a WACKing receiver still asserts intend-to-copy.**
       `002398-04` p. 7-29 prints two worked transmit-status words for the DN3xx
