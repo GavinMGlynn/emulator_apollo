@@ -6605,68 +6605,20 @@ same number is what let them diverge once already.
       machine's 18-sector drives, as the range check already is — the field is
       four bits. Marked at `ap_omti.c`'s CHECK TRACK FORMAT case.
 
-- [ ] **The floppy half may accept more commands than three manuals list, and
-      the missing one is `WRITE DATA`.** Found 2026-08-22 walking `[8000]`
-      §1.3.1, doc 1-2: "**Host has direct access to floppy disk controller chip
-      (NEC765 or equivalent)**."
-      `ap_omti.h` reasons at length that there is no WRITE DATA command —
-      `[OMTI]` §6.3, `[8640]` §5.3 and `[8000]` §6.1 all list the same ten plus
-      INVALID (the third of those was cited here before it had been read, and
-      was **verified 2026-08-22**: doc 6-1, eleven entries, no `WRITE DATA`), and §6.3.11 defines the INVALID path — and deliberately does not
-      invent one "from general 765 knowledge". That reasoning is sound about the
-      *documents*. This sentence is evidence about the *silicon*, and the two
-      point opposite ways: a host with direct access to a real 765 can issue
-      `05 WRITE DATA` and have it work.
-      **Why it matters more than the other unlisted commands**: a floppy that
-      cannot be written is not a floppy. If Domain/OS ever formats or writes one
-      through this controller, our INVALID path fails it.
-      **Not changed on this evidence**, because "or equivalent" is exactly the
-      phrase that stops a datasheet's command set being transferable, and
-      inventing a command is the error this project has already avoided here
-      once.
-      **The evidence was the wrong manual's until 2026-09-07.** `[8000]`'s
-      title page covers the OMTI 8100, 8200, 8500 and 8600 — not the 862X this
-      machine carries. `[OMTI]`, which does, says the identical sentence in its
-      own §1.3.1, draws the same discrete `FDC 765` in its own **Figure 1.1**,
-      and shows a package marked **765** on the board in **Figure 2.1, the 862X
-      PCB diagram**. So the argument below now rests on the manual for the part
-      that is actually here.
-      **Advanced 2026-08-22 by finishing `[8000]`, and on figures rather than
-      prose.** Figure 1.1 (doc 1-3) draws the host data path reaching the
-      **`FDC 765` through `I/O Decode Logic & Buffers` and nothing else** — the
-      Z8, the EPROM and the five OMTI VLSI parts are all on the Winchester
-      branch — and Figure 2.1 (doc 2-2) shows the 765 as a **discrete package on
-      the board**. §4.1's "two independent controllers ... two independent sets
-      of registers" and §4.5's MSR-bit-6-and-7 handshake say the same from the
-      register side: the floppy half's protocol *is* the 765's own.
-      *So no firmware interprets floppy command bytes, and §6.3's ten commands
-      are what OMTI **documented**, not what the silicon **decodes**.* The
-      INVALID arm stays — but it is no longer justified by "the documented set
-      is the whole set", which is now known to be the wrong justification.
-      **SETTLED 2026-08-22, and it is not a floppy-workload question after
-      all.** An hour before this was written the item recorded a blocker — "no
-      document on this shelf gives the command set of the part on this board" —
-      and named, as what would unblock it, "a µPD765/8272A datasheet". Nobody
-      searched for one. The user did, and it took a search engine and a chip
-      name. **The datasheet is step 1 of `CLAUDE.md`'s resolution order — "the
-      part's own manual" — and this project had been reading the *card's*
-      manual and calling it that.**
-      `[765]`, the µPD765 datasheet, now on the local shelf beside the others and
-      gitignored with them (`OMTI_WALK.md` names the files):
-      "**There are 15 separate commands which the µPD765 will execute.**" Its
-      INSTRUCTION SET table (pp. 8-9) gives all fifteen, and `[8272A]`, Intel's
-      licensed second source, Table 4 — independently typeset — agrees bit for
-      bit.
-      **Five are missing from this core**, none colliding with the ten: `02`
-      READ A TRACK, `05` WRITE DATA, `09` WRITE DELETED DATA, `0A` READ ID, `0C`
-      READ DELETED DATA. So the three OMTI manuals print the datasheet's table
-      **with five rows deleted and nothing renumbered** — a vendor documenting
-      its supported subset, not a smaller part. And the four that `ST1`/`ST2`
-      name are four of those five, so the prose `ap_omti.h` dismissed as
-      "inherited" was inherited *and accurate*.
-      *`ap_omti.h`'s "There is no WRITE DATA command" is corrected*, and the
-      INVALID path for those five is now a **known defect** rather than
-      documented behaviour. Carried to the two items below.
+- [x] **The floppy half accepts more commands than three manuals list, and the
+      missing one was `WRITE DATA` — settled 2026-08-22, evidence corrected
+      2026-09-07.** Three OMTI manuals print `[765]`'s INSTRUCTION SET table
+      with five rows deleted and nothing renumbered, which is a vendor
+      documenting its subset rather than a smaller part; the host reaches a
+      discrete 765 through buffered logic, so what it decodes is the
+      datasheet's set. **The evidence was the wrong manual's until 2026-09-07**:
+      it came from `[8000]`, whose title page covers the 8100/8200/8500/8600 and
+      not the 862X this machine carries. `[OMTI]` says the identical §1.3.1
+      sentence, draws the same discrete `FDC 765` in its own Figure 1.1, and
+      shows the package on the board in Figure 2.1's 862X PCB diagram. What
+      unblocked it was fetching the *part's* datasheet after a year of reading
+      the *card's*. The five are implemented in the item below. Detail in
+      `PROJECT_STATUS.md`.
 
 - [x] **Walk `[765]`, the µPD765 datasheet, whole — done 2026-08-22, 20/20.**
       Every register, command and timing table read as a page image, with

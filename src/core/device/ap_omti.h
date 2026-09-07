@@ -337,11 +337,17 @@ typedef enum {
  * board in **Figure 2.1, the 862X PCB diagram**. Three witnesses, in the manual
  * for the part that is actually here.
  *
- * **Still unimplemented, and named rather than quietly added.** The five are a
- * `COMPLETION_PLAN.md` item with the whole-document walk `[765]` now obliges,
- * and until they land a driver issuing `05` still takes the INVALID path --
- * which is now a **known defect** rather than the documented behaviour it was
- * believed to be. */
+ * **Implemented 2026-08-22**, from `[765]` pp. 8-9 and 13-14 with every opcode
+ * cross-checked against `[8272A]` Table 4, so the floppy can be written. This
+ * paragraph read "still unimplemented ... a driver issuing `05` still takes the
+ * INVALID path" until 2026-09-07, two weeks after the commit that landed them
+ * -- a comment describing work that was already done, and the reason to look
+ * before picking up a gap a header names.
+ *
+ * Two of the five behave the way the *image format* forces rather than the way
+ * the part does, and both are named below: `0C` READ DELETED DATA always
+ * reports `CM`, and `09` WRITE DELETED DATA writes the data but cannot lay the
+ * mark down. */
 typedef enum {
   /* The ten `[OMTI]` §6.3 documents. */
   AP_OMTI_FDC_SPECIFY = 0x03u,
