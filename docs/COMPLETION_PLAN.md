@@ -4793,11 +4793,15 @@ Only after the reference core is proven, and only under an identity harness.
       *Verification: `ctest` 140/140 both presets and the identity boot
       **`FE2BB02AEF1F4624` unchanged** — behaviour-neutral by measurement, not
       by inspection.*
-      **What remains of 1b** is the substance rather than the shape: giving the
-      read path the access context's persistent bus instead of the one its caller
-      passes, which §7.3.6 settles — "the synchronous read-modify-write operation
-      is **indivisible**", so read and write are strictly sequential and one bus
-      field is correct, which is also what the hardware has.
+      **And 1b's other half was already done — checked, not assumed.** The
+      sentence above first read "what remains is giving the read path the access
+      context's persistent bus"; it has one. `ap_m68030_access.c` passes
+      `&access->bus` to `ap_m68030_cache_read` and `write_bus` is
+      `&access->bus` too, so **both paths already share the one bus field**
+      §7.3.6's "the synchronous read-modify-write operation is **indivisible**"
+      says is correct, and neither constructs a local. Step 1 is finished.
+      *This is the fourth time in two sessions that an open item described work
+      already done*, which is why the check came before the code.
       **And a correctness question with it**: whether the read path shares
       `ap_m68030_access_ctx_t`'s bus or gets its own field. They are never live
       simultaneously — a read-modify-write is a read *then* a write — so one bus
