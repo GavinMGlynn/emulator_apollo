@@ -58,7 +58,26 @@ typedef struct {
  * the manual puts them in the same positions on purpose.
  *
  * "The bits of the ENABLE byte are organized in decreasing priority, left to
- * right, i.e., BSUN is the highest priority, and INEX1 is the lowest." */
+ * right, i.e., BSUN is the highest priority, and INEX1 is the lowest."
+ *
+ * ## Both registers now have a third witness, at the top of the stack
+ *
+ * `007196-01`'s `FPP` chapter draws the `FPCR` (FPP-5) and the `FPSR` (FPP-10
+ * and FPP-11) field by field for an application programmer, and **every field
+ * below matches it**: the enable and exception bytes in these positions and this
+ * order; `PREC` at 7-6 with `00` extended, `01` single, `10` double, `11`
+ * reserved; `RND` at 5-4 with `00` nearest, `01` zero, `10` minus infinity, `11`
+ * plus infinity; the condition codes at 27-24; the quotient's sign at 23 and its
+ * seven bits at 22-16; and the accrued byte's `IOP`, `OVFL`, `UNFL`, `DZ`,
+ * `INEX` at 7 down to 3 with 2-0 zero. `[881]`'s figures, `002398-04`'s tables
+ * and now an operating-system reference agree, which is as many independent
+ * printings as this project is going to get.
+ *
+ * *One documentary error, so a later reader does not stop at it*: FPP-10 calls
+ * the status register "a bit mask of 32 bits, of which only the **low 16 bits**
+ * are currently used" and then draws bits **31 to 16**. The sentence is copied
+ * from FPP-4, where the control register's diagram does show bits 15-0. The
+ * diagram is right on both pages and the FPSR page's prose is not. */
 enum {
   AP_M68882_EXC_BSUN = 15,  /* branch/set on unordered */
   AP_M68882_EXC_SNAN = 14,  /* signalling not a number */

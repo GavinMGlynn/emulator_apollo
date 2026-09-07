@@ -40047,6 +40047,37 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s FPP chapter walked whole — a third printing of the FPCR and FPSR
+
+Pages 93-104, FPP-1 to FPP-12. 106 of 722. The Floating Point Package is six calls
+over the coprocessor's two control registers, and it draws both field by field for
+an application programmer.
+
+**Every field matches this core.** The FPCR's enable byte at 15-8, `PREC` at 7-6
+(extended / single / double / reserved) and `RND` at 5-4 (nearest / zero / −∞ /
++∞); the FPSR's condition codes at 27-24, the quotient's sign at 23 and its seven
+bits at 22-16, the exception status byte at 15-8 and the accrued byte's `IOP`,
+`OVFL`, `UNFL`, `DZ`, `INEX` at 7 down to 3. `ap_m68882_regs.c`'s two shifts —
+`fpcr >> 6 & 3` and `>> 4 & 3` — are exactly the diagram. `[881]`'s figures,
+`002398-04`'s tables and now an operating-system reference agree, which is as many
+independent printings as these registers will get.
+
+**`FPP_$SAVE_AREA_T` is "up to 104 bytes", and the "up to" is the point**:
+`FPP_$SAVE_RESTORE_SIZE` says "the number of bytes varies according to the FP
+machine type", so 104 is a maximum over Domain/OS's floating-point hardware rather
+than the 68882's figure — whose `FSAVE` idle frame is 60. Recorded rather than
+decomposed; the manual does not say what is in it.
+
+**Domain/OS distinguishes three floating-point configurations.** `FPP_$CONTROL`
+and `FPP_$STATUS` are "for use only with machines equipped with the MC68881 or
+**FPX** units", anything else returning `FPP_$UNSUPPORTED_FUNCTION`. FPX is
+Apollo's own accelerator, named beside the Motorola part.
+
+One documentary error: FPP-10 calls the status register "a bit mask of 32 bits, of
+which only the low 16 bits are currently used" and then draws bits 31 to 16 — the
+sentence copied from the control register's page, where the diagram does show bits
+15-0.
+
 ## `007196-01`'s CTM chapter walked whole — three palette sizes confirmed from the far side
 
 Pages 49-60, CTM-1 to CTM-12. 94 of 722. The Color Table Manager hands out indices
