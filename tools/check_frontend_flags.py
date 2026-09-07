@@ -269,6 +269,26 @@ def main() -> int:
             source_check("the script can type at a line other than the "
                          "console's: %s" % what, fragment in main_c)
 
+        # `--boot-input-after-pc` needs firmware to observe, so it is checked
+        # in the source too. It exists because `--boot-input-interval` sets the
+        # *spacing* between scripted characters and not the *offset* of the
+        # first: without a trigger the first character always goes at t=0, and
+        # `PROJECT_STATUS.md` records what that costs -- a boot that reaches its
+        # console poll later discards the whole burst, and pacing cannot fix it
+        # because pacing moves the gap and not the start. The keyboard path had
+        # this flag as `--boot-type-after-pc` and the serial path did not.
+        for fragment, what in (
+                ('strcmp(argv[i], "--boot-input-after-pc")',
+                 "the flag is parsed"),
+                ("g_boot_input_armed && input_sent < input_length",
+                 "the send is gated on it"),
+                ("machine.cpu.regs.pc == g_boot_input_after_pc",
+                 "it is a trigger on arrival, not a threshold"),
+                ('printf(" from pc %08X", g_boot_input_after_pc)',
+                 "the run header names it")):
+            source_check("scripted input can be held until a PC is reached: "
+                         "%s" % what, fragment in main_c)
+
         # ---- the model table's fields must be consulted, not just declared ----
         #
         # `model/`'s own rule is "all machine variance lives here, and every
@@ -333,6 +353,8 @@ def main() -> int:
         for flag in ("--boot-prom", "--boot-limit", "--boot-trace",
                      "--boot-watch", "--boot-console", "--boot-input",
                      "--boot-input-rate", "--boot-input-interval",
+                     "--boot-input-after-pc (the trigger firing, as opposed to "
+                     "its parsing)",
                      "--boot-key", "--screen", "--screenshot", "--disk",
                      "--disk-meta", "--diskette", "--cartridge",
                      "--option-rom-entry", "--option-rom-text",

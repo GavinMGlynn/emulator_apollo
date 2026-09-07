@@ -4211,6 +4211,20 @@ discipline throughout.
       fits an `apollo_stdio` device, which is a MAME convenience and not this
       machine. The MD route is the *oracle's*, and `ring-a.script` was written
       for it.
+      **And the MD route was re-opened, measured and closed again on
+      2026-09-08** (`FINDINGS.md` C239), which is worth recording because the
+      obvious next attempt is the one that has now been made. `--boot-input`
+      had no offset -- `--boot-input-interval` sets the *spacing* between
+      characters and not the start -- so `--boot-input-after-pc ADDR` was
+      added, the serial twin of `--boot-type-after-pc`. It changes `0 of 60`
+      into `120 of 120` characters delivered **inside** the service-mode poll,
+      and the poll still does not leave: the firmware reads every one and
+      rewrites the clock select sixty-three times, because service mode selects
+      **baud set 2** and `ap_mc68681.c` already says in writing what that does
+      -- receiver at 2000, a 9600 `0D` resampling to `$FE`, the table mapping
+      `$FE` to `$99`. Measured `ACR E0`, `CSR 99`, `d1 = FE`: every value.
+      **So the MD route is not blocked by the harness**, and what it now waits
+      on is whether `ACR[7]` is right here. Detail in `PROJECT_STATUS.md`.
       **The route on this core is C165's**: boot **Normal**, where a node prints
       its whole Domain/OS startup on serial 1 channel B and then goes quiet at
       `SPM system init complete.`, with **`siologin`** configured -- which is

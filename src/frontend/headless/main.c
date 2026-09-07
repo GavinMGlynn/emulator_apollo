@@ -282,6 +282,19 @@ static void print_usage(const char *program_name) {
           "                        makes the boot PROM answer)\n"
           "  --boot-input-interval US  emulated microseconds between scripted\n"
           "                        characters; the wire's own floor if 0\n"
+          "");
+  /* And split again, for the same 4095-character reason: the block above
+   * reached the limit when this flag was added. No flag is grouped by meaning
+   * across the break. */
+  fprintf(stdout,
+          "  --boot-input-after-pc ADDR  hold --boot-input until the machine\n"
+          "                        first *reaches* ADDR (hex). --boot-input-interval\n"
+          "                        sets the spacing between characters and not the\n"
+          "                        offset of the first, so without this the first\n"
+          "                        one always goes at t=0 -- too early for any\n"
+          "                        prompt the firmware reaches later, which\n"
+          "                        discards it. A trigger, not a threshold: MD\n"
+          "                        runs in the boot PROM at 0000xxxx\n"
           "  --boot-type TEXT      type TEXT on the keyboard, one character each\n"
           "  --boot-report         print the input path end to end at exit: the\n"
           "                        port, the receiver, the interrupt and its mask,\n"
@@ -2415,6 +2428,27 @@ static const char *g_boot_script_path = NULL;
 static const char *g_boot_input_text = NULL;
 static unsigned g_boot_input_unit = 0u;
 static unsigned g_boot_input_channel = 0u;
+/* Hold `--boot-input` until the machine first *reaches* this PC.
+ *
+ * `--boot-input-interval` sets the **spacing** between scripted characters and
+ * not the **offset** of the first, so the first one always goes at t=0. That is
+ * right for the console-only boot, where the autobaud is the first thing the
+ * firmware does and a character has to be waiting for it. It is wrong for every
+ * prompt that comes later, and `PROJECT_STATUS.md` names the cost: a display
+ * boot reaches the console poll long after t=0, so an early burst is discarded
+ * -- "a burst arrives long before the autobaud runs and is discarded" -- and
+ * pacing cannot fix it because pacing moves the gap, not the start.
+ *
+ * The keyboard path already had this flag, as `--boot-type-after-pc`, and the
+ * serial path did not; `md-keyboard-console-recipe` records why it has to be a
+ * **trigger** rather than a threshold: MD runs in the boot PROM at `0000xxxx`,
+ * below every threshold rather than above one, so the question is "has the
+ * machine arrived at X", not "has it got past X".
+ *
+ * Zero means armed from the start, which is what every existing invocation
+ * expects. */
+static uint32_t g_boot_input_after_pc = 0u;
+static bool g_boot_input_armed = true;
 static uint8_t *g_ring_rom = NULL;
 static uint32_t g_ring_rom_bytes = 0;
 static bool g_fit_matrox = false;
@@ -4048,6 +4082,13 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     printf(", %lu byte(s) typed at sio%u %c",
            (unsigned long)strlen(g_boot_input_text), g_boot_input_unit + 1u,
            g_boot_input_channel != 0u ? 'B' : 'A');
+    /* Named here for the reason the whole line exists: two runs that differ
+     * only in when the typing starts would otherwise print byte-identical
+     * headers, and one of them booting while the other hangs is exactly the
+     * pair this header was added to tell apart. */
+    if (g_boot_input_after_pc != 0u) {
+      printf(" from pc %08X", g_boot_input_after_pc);
+    }
   }
   if (g_boot_script_path != NULL) {
     printf(", script %s", g_boot_script_path);
@@ -4329,7 +4370,13 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
        * "one carriage return every 0.4 s on standard input, not a pipe
        * delivered at once" -- and this could not honour it until the machine
        * advanced time at all, which is a Phase 3 tick-loop item away. */
-      if (input_sent < input_length &&
+      /* Arm the scripted input when the machine first reaches the PC the
+       * caller named. Checked before the send, so the character can go on the
+       * very step that arrives. */
+      if (!g_boot_input_armed && machine.cpu.regs.pc == g_boot_input_after_pc) {
+        g_boot_input_armed = true;
+      }
+      if (g_boot_input_armed && input_sent < input_length &&
           ap_machine_now(&machine) >= input_next_at &&
           !ap_sio_receiver_ready(&board->sio, input_unit, input_channel) &&
           ap_sio_character_bits(&board->sio, input_unit, input_channel) == 8u &&
@@ -6122,6 +6169,14 @@ int main(int argc, char **argv) {
   for (int i = 1; i < argc;) {
     if (strcmp(argv[i], "--volume") == 0 && i + 1 < argc) {
       volume_path = argv[i + 1];
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-input-after-pc") == 0 && i + 1 < argc) {
+      /* Hex, like `--boot-type-after-pc`, because the addresses this is used
+       * with come out of a disassembly listing. */
+      g_boot_input_after_pc = (uint32_t)strtoul(argv[i + 1], NULL, 16);
+      g_boot_input_armed = (g_boot_input_after_pc == 0u);
       i += 2;
       continue;
     }

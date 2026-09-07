@@ -12872,3 +12872,91 @@ serve both lines -- the same asymmetry C219 found for input -- and the way
 through was to put the answer in `--boot-input`, paced with
 `--boot-input-interval`, so that a `y` is still arriving when the question is
 finally asked.
+
+## C239 -- the MD route's blocker is not the harness: `--boot-input` now lands in the poll and the autobaud still cannot converge
+
+`PROJECT_STATUS.md` left the serial MD route as *"a harness question rather than
+a kernel one, and it is the next thing to settle"*, with two attempts recorded
+so a third would not repeat them: carriage returns alone do not interrupt the
+autoboot, and service mode alone does not produce the sign-on. Both stand, and a
+third and fourth are now recorded with them.
+
+### The instrument the question needed, and what it changed
+
+`--boot-input-interval` sets the **spacing** between scripted characters and not
+the **offset** of the first, so the first one always went at `t=0`. The keyboard
+path has had a trigger for this since 2026-08-10 -- `--boot-type-after-pc`,
+which `md-keyboard-console-recipe` explains has to be a *trigger* rather than a
+threshold because MD runs in the boot PROM at `0000xxxx`, below every threshold
+rather than above one -- and the serial path had nothing.
+
+**`--boot-input-after-pc ADDR` is that flag for `--boot-input`**, and it is what
+turns the measurement from a guess into a fact:
+
+    normal mode,  --boot-input-after-pc 78E     0 of 60 delivered
+    service mode, --boot-input-after-pc 78E   120 of 120 delivered
+
+The first line is a finding on its own: **`00078E` is never reached in normal
+mode**, with or without `--configure`. It is the *service-mode* poll, and a
+normal boot does not go there -- so the c8p result that "sixty carriage returns
+at 0.4 s gives `MD7C` in normal mode" is a property of a **display-fitted** boot,
+which stalls in a poll a console-only boot walks straight past. A console-only
+normal boot with sixty paced returns reaches `Domain/OS kernel(7)` and never
+sees MD (measured, 1.5 G).
+
+### And with the characters in the right place, the firmware still will not converge
+
+Service mode, `--boot-key 0x5A`, 120 returns at 0.4 s, all delivered inside the
+poll:
+
+    sio1 reg 4     63 write(s)     ACR
+    sio1 reg 10    63 write(s)     CSRB
+    sio1 reg 11     0 write(s)   120 read(s)
+    sio1 B  listening at 4800 baud (CSR 99),  sender at 9600 (CSR BB)
+    ACR E0  -- bit 7 set, baud set 2
+    d1 = 000000FE
+
+**The firmware read every character and reprogrammed the clock select once per
+two of them, sixty-three times, and never agreed with the sender.** And this
+core's own `ap_mc68681.c` predicted that outcome in writing, before the run:
+
+> With `ACR[7]` clear the receiver is at 1050, a `0D` from a 9600 terminal
+> resamples to `$FF`, and `000844`'s table maps `$FF` to clock select `$BB` --
+> 9600, the sender's own rate, so the link agrees on the second character. With
+> `ACR[7]` set the receiver is at 2000, the same `0D` resamples to `$FE`, and
+> the table maps that to `$99` -- 4800, which is *not* what the sender was, so
+> the next character is misread too and the poll never ends.
+
+`ACR = E0` is `ACR[7]` **set**, the receiver ends at `$99`, and `d1` holds
+`$FE`. Every value in that paragraph, reached independently.
+
+**So it is not a harness question.** The characters arrive, at the pace the
+document asks for, at the moment the firmware is polling. What stops the route
+is that **service mode selects baud set 2**, and with set 2 the autobaud table
+maps a 9600 terminal's carriage return to a rate that terminal is not using.
+
+*One further arm, and it is the firmware's own answer rather than a search*: the
+machine had programmed 4800, so the terminal was set to 4800 (`--boot-input-rate
+0x99`). The poll advances further -- `000007A2` -> `07A8` -> `07AE`, the last
+address of the `00078E`-`0007AE` range, where the 9600 arm stalls at `0794` --
+and still does not leave, ending with `CSRB` back at its reset `77` and
+`d1 = 0000FFF9`. So the poll is a *sequence* of candidate consoles rather than
+one loop, and each rate satisfies more of it.
+
+### What this leaves
+
+Three things, none of them the harness:
+
+  - **Is `ACR[7]` set correctly here?** Service mode makes the firmware select
+    baud set 2, and set 2's code 7 is `2000` where set 1's is `1050` -- a
+    correction this project made deliberately, and the only place it is
+    load-bearing. If the correction is right, the machine really cannot autobaud
+    a 9600 terminal in service mode, and that is hardware.
+  - **What does the poll want at `0007AE`?** It is one instruction from the end
+    of its own range and has never been walked in the disassembly.
+  - **The oracle does not arbitrate**: MAME fits an `apollo_stdio` device and
+    models no autobaud, which is why `MD.md`'s capture succeeded there.
+
+*Not claimed*: that this core is wrong. Every value above follows from a
+correction with a datasheet behind it, and the alternative -- that the firmware
+converges anyway -- has no witness on either side.

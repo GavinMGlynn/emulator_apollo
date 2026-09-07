@@ -434,6 +434,130 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## `--boot-input-after-pc`, and what it proves about the MD route
+## (2026-09-08)
+
+This file left the serial route to the Mnemonic Debugger as *"a harness question
+rather than a kernel one, and it is the next thing to settle"*. It is settled,
+and it is **not** a harness question.
+
+### The flag
+
+`--boot-input-interval` sets the **spacing** between scripted characters and not
+the **offset** of the first, so the first one always went at `t=0`. That is
+right for a console-only boot, where the autobaud is the first thing the
+firmware does; it is wrong for every prompt reached later, and this file already
+recorded the cost — "a burst arrives long before the autobaud runs and is
+discarded", and pacing cannot fix it because pacing moves the gap and not the
+start.
+
+The **keyboard** path has had a trigger for this since 2026-08-10, as
+`--boot-type-after-pc`. The **serial** path had nothing. It does now:
+`--boot-input-after-pc ADDR` holds `--boot-input` until the machine first
+*reaches* ADDR — a trigger, not a threshold, for the reason
+`md-keyboard-console-recipe` gives: MD runs in the boot PROM at `0000xxxx`,
+below every threshold rather than above one. The run header names it, because
+two runs differing only in when the typing starts would otherwise print
+byte-identical headers, which is the pair that header exists to tell apart.
+
+### What it measured
+
+    normal mode,  --boot-input-after-pc 78E     0 of 60 delivered
+    service mode, --boot-input-after-pc 78E   120 of 120 delivered
+
+**`00078E` is never reached in normal mode**, with or without `--configure`. It
+is the *service-mode* poll. So the earlier c8p result — "sixty carriage returns
+at 0.4 s gives `MD7C` in normal mode" — is a property of a **display-fitted**
+boot, which stalls in a poll a console-only boot walks straight past; a
+console-only normal boot with sixty paced returns reaches `Domain/OS kernel(7)`
+and never sees MD.
+
+And with the characters landing inside the poll, the firmware still will not
+converge:
+
+    sio1 reg 4     63 write(s)          ACR
+    sio1 reg 10    63 write(s)          CSRB
+    sio1 reg 11     0 write(s)  120 read(s)
+    sio1 B  listening at 4800 (CSR 99), sender at 9600 (CSR BB), ACR E0, d1 = FE
+
+Sixty-three clock-select rewrites against 120 characters read, and no agreement.
+**`ap_mc68681.c` predicted every one of those values in writing, before the run
+existed**: with `ACR[7]` set the receiver is at 2000 baud, a 9600 terminal's
+`0D` resamples to `$FE`, and `000844`'s table maps `$FE` to `$99` — 4800, which
+is not the sender's rate, so the next character is misread too and the poll
+never ends. `ACR = E0` is `ACR[7]` set; the receiver ends at `$99`; `d1` holds
+`$FE`.
+
+*A second arm, taken from the firmware's own answer rather than by search*: the
+machine had programmed 4800, so the terminal was set to 4800. The poll advances
+further — `000007A2` → `07A8` → `07AE`, the last address of its own
+`00078E`–`0007AE` range, where the 9600 arm stalls at `0794` — and still does
+not leave. So the poll is a **sequence of candidate consoles**, not one loop.
+
+### What it leaves, and none of it is the harness
+
+- **Is `ACR[7]` right here?** Service mode selects baud set 2, whose code 7 is
+  `2000` where set 1's is `1050` — a correction this project made deliberately
+  and the only place it is load-bearing. If it is right, the machine genuinely
+  cannot autobaud a 9600 terminal in service mode, and that is hardware.
+- **What the poll wants at `0007AE`**, which has never been walked in the
+  disassembly.
+- **The oracle cannot arbitrate**: MAME fits an `apollo_stdio` device and models
+  no autobaud at all, which is why `MD.md`'s capture succeeded there.
+
+*Verification: four boots — normal with and without `--configure`, service mode
+at 9600 and at 4800 — each reported with its delivered count, its final PC and
+its clock select. `check_frontend_flags.py` gains four source-level checks, the
+flag being one that needs firmware CI has none of. `ctest` 140/140. Detail in
+`FINDINGS.md` C239.*
+
+
+## Domain/OS unmasks IRQ2 for the ring card, and the guest confirms our wiring
+## (2026-09-08, RESOLVED)
+
+`AP_BOARD_RING_IRQ = 2` has rested on two sources and never on a guest:
+`002398-04` p. 12-28's DN3000 assignment table, and `FINDINGS.md` C11's
+measurement putting the 8259 cascade on IR3 — which is what leaves IRQ2 free
+(`RING.md` 107, 107a). `008778-03` Table 2-3 disagrees, giving IRQ3 to "Network
+Board", and that row has been treated as the one that cannot stand.
+
+**The operating system now says the same thing, one bit wide.** Two boots to
+`SPM system init complete.` on **the same image and the same invocation**,
+differing only in `--ring --ring-rom`:
+
+    with the card      master IMR F0    IRQ0, IRQ1, IRQ2, IRQ3 unmasked
+    without the card   master IMR F4    IRQ0, IRQ1, IRQ3 unmasked
+
+Bit 2 and nothing else. Domain/OS enables the ring's interrupt line exactly when
+a ring card is fitted, and it is the line this core assigns.
+
+*The first version of this comparison was across two different volumes and is
+not what is recorded here.* `dn3500-nodeB-line2.awd` gave `F4` and
+`dn3500-sr10.4-installed.awd` with the card gave `F0`, which compares two
+machines as much as two configurations; the control above is the identical
+image with the flags removed. A one-bit result deserves a one-variable
+experiment.
+
+**And the card was genuinely exercised**: `network driver search started... /
+Apollo Token Ring test passed.` on the console, and **1,322,127 reads and
+928,108 writes** to the token ring controller in the run's device counts.
+
+### Which eliminates a reading of `claims 0`
+
+`FINDINGS.md` C229 pre-registered three readings of a two-node run that reports
+`ring claims 0  frames seen 0  copied 0`, and reading 1 — "nothing asked" — was
+the one the run supported. What could not be told apart until now is *why*
+nothing asked: a driver that never came up would look identical to an idle one.
+It came up. The driver is loaded, the diagnostic passed, and its interrupt is
+armed at the controller. So two booted nodes exchanging no frames is not a
+broken driver; it is two idle nodes on a token ring with nothing to send, and
+the item's remaining need is **traffic**.
+
+*Verification: two 1.5 G boots through `tools/spm-boot.sh` on copies of
+`media/dn3500-sr10.4-installed.awd`, both reaching `SPM system init complete.`
+and `Node ID = 12345`, reports read for the master 8259's `IMR`. `RING.md` 144.*
+
+
 ## C237's experiment run: the ORing costs nothing, and Domain/OS never looks at
 ## the second DUART (2026-09-08, RESOLVED)
 
@@ -10816,7 +10940,7 @@ with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both d
 | Distribution cartridge extractor (`tools/ct_extract.py`) | **working, and it reads every SR10.3 cartridge**: ANSI labels, `wbak` blocks and records, `--list`, `--extract` by path or basename, `--extract-all`. `ring8a.drvr` came out of it, 29,992 bytes. The AEGIS filesystem walk it replaces is abandoned — see the section below | `ct_extract`, 16 checks against a cartridge it builds; `--verify` parses all five cartridges with zero residue, 9,426 objects |
 | Golden regression harness | working | `golden_model_table`, run under every build preset; drift, `-O3` identity and regeneration all verified |
 | Shared frontend layer (`frontend/common/`) | working: option parsing and the model table report, plus `ap_png` — screenshots as indexed-colour PNGs, so an index and the palette behind it stay separable in the file exactly as they are in the hardware. libpng is optional and the build says which it is; without one the entry point reports "built without libpng", which is a different answer from a failed write | `frontend_common_suite`, 21 tests |
-| Headless frontend | working, and the row above understated it by about forty flags. It boots a PROM against a model, fits a Winchester, diskette, cartridge, ring card and option ROM, drives a console dialogue with `expect`/`send`, seals a calendar configuration, runs **two whole machines on one ring segment**, and reports a run's state hash, register file, exception and fault tallies, MMU loads and device counters. Three instruments were added on 2026-08-19 and each closed a measurement that had been made blind: **`--disk-writeback`**, because a run whose disk dies with the process cannot show what the guest *wrote* -- which is how `siologin`'s live process was finally found (`FINDINGS.md` C219); **`--boot-script-line PORT:CHANNEL`**, because the console's output drained all four serial channels and its input went to one, so a login offered on line 2 could be seen and never answered; and a **frame-crossing heartbeat** in the two-node runner, because its ring counters printed only in the final report and a run bounded too high showed nothing for hours. The run header now also names how the console was driven, after two runs printed byte-identical headers while one booted and one hung | `check_frontend_flags.py`, **28 checks**, of which four are source-level because the property needs firmware CI has none of; 21 flags named as needing `roms/`; `golden_model_table` |
+| Headless frontend | working, and the row above understated it by about forty flags. It boots a PROM against a model, fits a Winchester, diskette, cartridge, ring card and option ROM, drives a console dialogue with `expect`/`send`, seals a calendar configuration, runs **two whole machines on one ring segment**, and reports a run's state hash, register file, exception and fault tallies, MMU loads and device counters. Three instruments were added on 2026-08-19 and each closed a measurement that had been made blind: **`--disk-writeback`**, because a run whose disk dies with the process cannot show what the guest *wrote* -- which is how `siologin`'s live process was finally found (`FINDINGS.md` C219); **`--boot-script-line PORT:CHANNEL`**, because the console's output drained all four serial channels and its input went to one, so a login offered on line 2 could be seen and never answered; and a **frame-crossing heartbeat** in the two-node runner, because its ring counters printed only in the final report and a run bounded too high showed nothing for hours. The run header now also names how the console was driven, after two runs printed byte-identical headers while one booted and one hung | `check_frontend_flags.py`, **37 checks**, of which eleven are source-level because the property needs firmware CI has none of; 24 flags named as needing `roms/`; `golden_model_table` |
 | SDL frontend | not started, deliberately not stubbed | — |
 
 ## Domain/OS binaries are readable off the distribution cartridges
