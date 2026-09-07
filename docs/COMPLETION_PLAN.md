@@ -4597,6 +4597,14 @@ discipline throughout.
       named here rather than left implicit because the DS5500 is in the model
       table — a supported model with an unmodelled bus is the kind of gap that
       reads as working until something uses it.
+      **Not blocked on evidence; gated on reachability** (stated 2026-09-08,
+      because "blocked" without a named unblocker is not a claim). Nothing here
+      is unknown — SCSI is a documented bus and `019411-A00` names the
+      controller. What is missing is a machine that would exercise it: the
+      DS5500 stops at its second instruction for want of a **68040 execution
+      core**, so a SCSI subsystem would be written against no boot and no
+      oracle. *It becomes worth starting when the DN5500 runs*, which is the
+      68040 item's dependency, and not before.
 
 - [x] **The DS5500's address translation map is 4 KB — implemented 2026-08-22.**
       `019411-A00` Table 2-5 gives `017000`-`017FFF` against `[S3K]` §2.5's
@@ -6271,6 +6279,14 @@ same number is what let them diverge once already.
       **Two of the three are enforced by nothing** — corrected 2026-09-08. No
       access consumes RAS or CAS time, and a device holding `IO_CH_RDY` low for
       ever is not detected. Naming is not modelling and the header says so.
+      **What would close each half**, named because "enforced by nothing" is not
+      a blocker on its own: RAS and CAS want the memory system to charge per
+      access, which is the same structural change the DMA-transfer item waits on
+      and inherits the **DS3500 bus-clock question** with it — a `PROVISIONAL`
+      number in the identity hash is the one thing this project must not guess.
+      `IO_CH_RDY` wants a **device that can hold it low**, which is the same
+      dependency `IO_CH_CK.L` names: no AT-bus card this core models can stall
+      the bus, so the ceiling has nothing to enforce against.
       **The refresh clause was stale**: `ap_board.h`'s `refresh_interval_ticks`
       implements §2.4.6's inserted cycles and the reference boot reports
       3,756,431 of them. This item and `ap_atbus.h` both still claimed otherwise,
