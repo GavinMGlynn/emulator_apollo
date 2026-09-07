@@ -6189,15 +6189,22 @@ same number is what let them diverge once already.
       2026-08-21 under the whole-document rule: its SIO chapter yielded four
       facts this core did not have, so the document must be derived rather than
       queried. Record: `docs/references/007196-01_WALK.md`.
-      **Eight of the nine device chapters are finished, 2026-09-07** — `SIO`,
-      `CAL`, `CTM`, `FPP`, `GMF`, `MTS`, `TIME`, `TONE` and `TPAD`, 119 of 722
-      read as images, and **all nine device chapters are finished** at 160 of
-      722 — what remains is the 562 pages where the operating system talks to
-      itself —
-      and **the chapter map is built**: INTRO-2's census plus the running
-      footers give every chapter's first page, so nine of the thirty-three
-      touch hardware this core models and are 138 pages between them. Walk
-      those, then the rest in document order.
+      **All nine device chapters are finished, 2026-09-07** — `SIO`, `CAL`,
+      `CTM`, `FPP`, `GMF`, `MTS`, `SMD`, `TIME`, `TONE` and `TPAD` — and the
+      remainder is being walked in document order. **`ERROR` is done too**,
+      174 of 722; 548 pages remain. **The chapter map is built**: INTRO-2's
+      census plus the running footers give every chapter's first page.
+      `ERROR` was taken first among the operating system's own chapters
+      because `002398-04` p. 68 pointed at a "Chapter 4, Error Codes and
+      Messages" to name the subsystem and module codes. **It is not this
+      chapter**: ERROR-1 says outright "the ERROR calls do not produce unique
+      error messages", and the eleven calls are field accessors plus a runtime
+      text lookup. The question is closed negatively, and `002398-04`'s own §4
+      stays the only table of names. What it does give is `STATUS_$T`'s
+      boundaries a **third** time, as prose in four calls — bit 31 fail, 30-24
+      subsystem, **23-16 module**, 15-0 code — so p. 526's disagreement with
+      `002398-04` over bit 23 is what the manual means rather than a
+      typesetting slip.
       `CAL`, the calendar chapter, gives the **citation for the 4 µs clock from
       1980-01-01** that this project had derived by fitting two machine-printed
       dates — the 262144 µs volume-label tick is its high 32 bits — plus the

@@ -40047,6 +40047,64 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s ERROR chapter walked whole — the question it was opened for comes back no
+
+PDF 77-90, ERROR-1 to ERROR-14, 174 of 722. The first of the operating system's
+own chapters, taken out of document order for a reason: `002398-04` p. 68
+decomposes an Apollo status longword into subsystem, module and code and points
+at "Chapter 4, Error Codes and Messages" **to name them**. If those names were
+here, `E0007` and every code this project has read off a console would decode by
+table instead of by inference.
+
+**They are not, and the chapter's first line says so.** ERROR-1: "The ERROR
+programming calls provide status printing and interpretation ... **The ERROR
+calls do not produce unique error messages.**" The eleven calls are four field
+accessors (`$CODE`, `$FAIL`, `$MODULE`, `$SUBSYS`), two text lookups
+(`$FIND_TEXT`, `$GET_TEXT`) and five printers. Where the text comes from is never
+stated — it is a runtime database. So `002398-04`'s own §4 stays the only table
+of names this project holds, and the p. 68 pointer was to a different manual's
+chapter 4. The question is closed **negatively**, which is a result: it stops the
+search rather than leaving it open.
+
+### What it does settle: `STATUS_$T` printed a third time, in four pieces
+
+| call | says |
+| --- | --- |
+| `ERROR_$FAIL` | "the fail bit is **bit number 31**" |
+| `ERROR_$SUBSYS` | "the subsystem is found in **bits 30 through 24**" |
+| `ERROR_$MODULE` | "the module is found in **bits 23 through 16**" |
+| `ERROR_$CODE` | "the module-specific code is the **rightmost 16 bits**" |
+
+`007196-01` p. 526 gives the same longword as a diagram; this gives it as prose,
+one call at a time. **The disagreement with `002398-04` is therefore deliberate,
+not a typesetting slip**: the handbook splits bit 23 out as `A`, "asynchronous
+fault; only set during delivery of fault", and this manual folds it into the
+module. The reading followed is unchanged — `002398-04` is the Engineering
+Handbook and the more specific — and the difference is invisible for every code
+this project has decoded, `E0007` among them, because all of them have bit 23
+clear. Note the corroboration is *within one manual*: two printings, one witness.
+
+### And it explains the shape of a line this project has been reading for months
+
+ERROR-9 and ERROR-12: "If the text for any of the three fields is not found, the
+status code is displayed in **hexadecimal**, along with the subsystem and module
+names, if known." That is exactly
+`Unable to resolve "/sys/node_data" -- E0007` — `ERROR_$PRINT_NAME` with the
+supplied name first and the code text missing, not a distinct mechanism. ERROR-9
+also names the user-facing route to the same lookup: "The **STCODE** command,
+which can be used to view error messages, uses `ERROR_$PRINT`."
+
+Smaller facts recorded in the walk record: `STREAM_$ERROUT` is stream ID 3;
+`ERROR_$STRING_T` bounds every returned string at 80 characters; a zero subsystem
+length means the status is invalid and a zero module length invalidates the module
+and code both; the standard format state is kept per process level; and two
+documentary errors — `ERROR_$INTEGER32` described as "a **2-byte** integer" with a
+range to 2147483647, and "(Stream ID **+** 3)" for "= 3".
+
+**Nothing here is implementable and that is the finding.** It is an
+operating-system API chapter with no register, no timing and no device behaviour;
+the one thing it could have given this core it explicitly does not have.
+
 ## `007196-01`'s SMD chapter finished — 41/41, and every device chapter with it
 
 The remaining 34 pages. **All nine device chapters of the *Domain System Call
