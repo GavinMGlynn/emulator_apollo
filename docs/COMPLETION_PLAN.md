@@ -5859,116 +5859,22 @@ same number is what let them diverge once already.
       own bit — and one identity boot: hash and clocks **unmoved**, the station
       being hashed but never fed without `--ring`. Detail in `PROJECT_STATUS.md`.
 
-- [ ] **(superseded, kept for its evidence)** `002398-04`
-      p. 4-23 gives the DN3000's boot PROM LED table — every power-on test
-      named against its Ext./Int. LED pair — and p. 4-18/4-19 give the steady
-      state, wait, diagnostic, DISK, SYSBOOT and AEGIS CRASH codes. The core
-      records posted bytes raw and reports them undecoded, which is the right
-      storage and an unreadable report.
-      **The evidence, and why it is not yet a decode.** The reference DN3500
-      boot posts `FF EF DF FE EE DE CF BF AF 9F 8F …`; complemented, that is
-      `00 10 20 01 11 21 30 40 50 60 70 …`, and reading the low nibble as Ext
-      and the high as Int makes `00 10 20 30 40 50 60 70` the DN3000 table's
-      Ext-0 column *in order* — Turn off LEDs, Checksum PROM, Refresh
-      circuitry, Bus Error, Enable Instruction Cache, Keyboard SIO, Parity
-      circuitry, MMU. That is a strong correspondence and **not a document**:
-      this handbook is Jan 87 and the DN3500 postdates it, `11` is not in the
-      DN3000 table at all, and the nibble order is inferred from the fit rather
-      than stated. Implement the DN3000's table for the DN3000, and settle the
-      DN3500's numbering from a DN3500 PROM disassembly before decoding its
-      codes as if they were the same.
-      **Evidence for the shared numbering, 2026-08-20, and it is short of
-      proof.** The PROM service table the walk found gives `led_update` at
-      `0000254E`; it is disassembled in `ap_boardreg.h` and swaps two display
-      bytes, which confirms the *alternation* this core models and not the
-      numbering. So the call sites of the post routine at `00251A` were scanned
-      in `3500_BOOT_12191_7` — `BSR.W`, `BSR.S` and `JSR.L` — and there are
-      **fourteen**, each followed by its code inline:
-
-          0006B8 03    002412 04    002B9E 82
-          00074C 08    00245C 05    00329E 82
-          0007B0 0B    002466 06    00334E 82
-          0007E6 0A    002476 07    003EC0 83
-          00080E 09
-          0008EC 0F
-
-      **Ten of the twelve distinct codes are `03`-`0B` plus `0F`**, and p. 4-23's
-      DN3000 table numbers its Ext-0 column `03` Bus Error, `04` Enable
-      Instruction Cache, `05` Keyboard SIO, `06` Parity circuitry, `07` MMU, `08`
-      Interrupt, `09` Timers, `0A` DMA page register, `0B` DMA controller 1. A
-      DN3500 PROM posting exactly that run is strong evidence the two families
-      share the numbering.
-      **Not proof, and the gaps are stated rather than glossed**: the table's
-      `0C` (DMA controller 2) and `0D` (Calendar and configuration) have no call
-      site this scan found, `0F` is outside the table's range entirely, and the
-      reference boot posts 32 distinct values where these account for twelve —
-      the rest coming from the direct writes at `005EC8`/`005ED8` this file
-      already documents, or from call forms the scan does not cover.
-      **The direct writers are accounted for now, and they post no new codes.**
-      `005EBC`-`005EE0` is one loop:
-
-          5EC0  122D 0092              MOVE.B  ($92,A5),D1
-          5EC4  C23C 000F              AND.B   #$0F,D1
-          5EC8  13C1 0001 0100         MOVE.B  D1,($00010100).L
-          5ECE  203C 0007 A120         MOVE.L  #$0007A120,D0
-          5ED4  6100 02FE              BSR.W   $61D4
-          5ED8  13ED 0092 0001 0100    MOVE.B  ($92,A5),($00010100).L
-          5EE0  60D4                   BRA.S   $5EB6
-
-      It writes one code byte, held at `A5+$92`, to the control register twice —
-      **once masked to its low nibble and once whole** — with `$7A120`, half a
-      million, counted down between them by the delay at `61D4`. So a stuck
-      machine's two alternating values are **one code shown two ways**, not two
-      codes, and the pair identifies a single failure.
-      **And `0C`/`0D` are not missing — the scan could not have found them.**
-      The post routine has *two* entry points:
-
-          251A  48E7 E0C0        MOVEM.L D0-D2/A0-A1,-(SP)
-          251E  206F 0014        MOVEA.L ($14,SP),A0     ; the return address
-          2522  3010             MOVE.W  (A0),D0         ; fetch the inline code
-          2524  54AF 0014        ADDQ.L  #2,($14,SP)     ; and step over it
-          2528  6004             BRA.S   $252E
-          252A  48E7 E0C0        MOVEM.L D0-D2/A0-A1,-(SP)   ; code already in D0
-          252E  0C2E 00FF 01C9   CMPI.B  #$FF,($1C9,A6)
-          2534  6712             BEQ.S   $2548
-          2536  4600             NOT.B   D0              ; complemented, as documented
-          2538  1D40 01D5        MOVE.B  D0,($1D5,A6)
-          253C  1D7C 00FF 01D4   MOVE.B  #$FF,($1D4,A6)
-          2542  226E 015A        MOVEA.L ($15A,A6),A1
-          2546  1280             MOVE.B  D0,(A1)
-
-      `252A` skips the inline fetch, for callers that **compute** their code, and
-      it has **four** more sites: `000934`, `0025AC`, `002648`, `003F0C`. So the
-      complete picture is eighteen call sites over two entries, and a computed
-      code cannot be read from the call site at all — which is why `0C` and `0D`
-      never appeared and why no scan of this kind could close the set.
-      Three further facts fall out and are worth more than the codes: the
-      complement is **`NOT.B D0` at `2536`**, confirming from the code what
-      `ap_boardreg.h` inferred from the writes; the routine stores the code at
-      `A6+$1D5` and a constant **`FF`** at `A6+$1D4`, which is why the boot's
-      posted sequence alternates every code with `FF` and what `led_update`
-      swaps; and the control register's address is held at `A6+$15A` rather than
-      being immediate.
-      **The four computed sites, traced:**
-
-          000930  303C 000C   MOVE.W #$000C,D0      -> posts 0C
-          0025A6  3017        MOVE.W (A7),D0        -> caller's value
-          002648              (D0 set before entry) -> not resolved
-          003EFE  103C 0085   MOVE.B #$85,D0        -> posts 85 or 84,
-          003F08  103C 0084   MOVE.B #$84,D0           chosen by ($1BC,A6)
-
-      **`0C` is recovered**, and with it the run is `03`-`0C` **contiguous** —
-      ten codes against p. 4-23's ten consecutive Ext-0 entries, Bus Error,
-      Enable Instruction Cache, Keyboard SIO, Parity circuitry, MMU, Interrupt,
-      Timers, DMA page register, DMA controller 1, DMA controller 2. Ten for ten
-      is past coincidence: **the DN3500 uses the DN3000's numbering.**
-      *Remaining*: only `0D`, Calendar and configuration — and the reference boot
-      does run a calendar test, so it is likely one of the two sites whose `D0`
-      comes from a variable. The decode can be written for `03`-`0C` on this
-      evidence; `0D` and the `8x` band want their own tracing first.
-      *Verification: a `--boot-report` line naming each posted code for a DN3000
-      boot, and a test that the DN3500 path stays undecoded until its own source
-      exists.*
+- [x] **The boot PROM's posted-code decode — done, and this item was stale.**
+      `002398-04` p. 4-23 gives the DN3000's Ext-0 column, and eighteen call
+      sites across the post routine's **two** entry points in
+      `3500_BOOT_12191_7` post `03`-`0C` **contiguous** — ten for ten against
+      the table's ten consecutive entries, which is past coincidence: **the
+      DN3500 uses the DN3000's numbering.** `ap_boardreg_post_code_name` decodes
+      exactly that run and refuses everything outside it; `--boot-report` names
+      each posted code and the reference boot prints six.
+      Three facts from the disassembly outlast the codes: the complement is
+      `NOT.B D0` at `2536`; the routine stores the code at `A6+$1D5` and a
+      constant `FF` at `A6+$1D4`, which is why every code alternates with `FF`;
+      and a stuck machine's two alternating values are **one code shown two
+      ways**, `005EC0` writing it masked and then whole.
+      *Remaining and deliberately not decoded*: `0D` and the `8x` band, computed
+      rather than inline. *Verification: `boardreg_suite`.* Detail in
+      `PROJECT_STATUS.md`.
 
 - [x] **`QIC-02 Rev D` walked whole**, 29 of 29 pages — the standard both Apollo
       tape documents defer to for the six-byte status block and neither
