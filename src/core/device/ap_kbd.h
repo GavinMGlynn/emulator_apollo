@@ -219,7 +219,23 @@ typedef struct {
 
   /* What is plugged into the pointing-device port. Not commanded and not
    * reported -- it is which device is on the cable, and it is what decides
-   * between the relative and absolute packet in either mode. */
+   * between the relative and absolute packet in either mode.
+   *
+   * **A bool is the right shape, and `007196-01`'s `TPAD` chapter says which
+   * devices each state means.** `TPAD_$DEV_TYPE_T` names four --
+   * `TPAD_$UNKNOWN`, `TPAD_$HAVE_TOUCHPAD`, `TPAD_$HAVE_MOUSE`,
+   * `TPAD_$HAVE_BITPAD` -- and `TPAD_$SET_MODE` says the mouse "uses only the
+   * scale and hysteresis factors and ignores the other mode settings, **since
+   * it is an inherently relative device**". So `false` is the mouse and `true`
+   * is the touchpad or the Bit Pad One, which is the reading §13.3's Mode 2 and
+   * Mode 3 split already implied from the hardware side. Two documents, two
+   * levels of the stack, one division.
+   *
+   * *And a bit pad has a second route in*: `SIO_$BP_ENABLE` puts "bit pad input
+   * from a graphics tablet" on a **serial line**, with the driver accumulating
+   * points and suppressing any within plus or minus two in x and y. So the
+   * absolute device the item below wants may arrive on this port or on an SIO
+   * line, and an implementer should know both exist before choosing one. */
   bool pointing_absolute;
 
   /* ## The beeper, which stopped being a decline when the handbook turned up
@@ -240,7 +256,20 @@ typedef struct {
    * one part a driver could actually be timing against.
    *
    * Zero when silent. The *sound* is still not modelled and is not claimed to
-   * be: this core has no audio path, and a caller wanting one reads the level. */
+   * be: this core has no audio path, and a caller wanting one reads the level.
+   *
+   * **The 300 ms is load-bearing, and `007196-01` shows why.** Its `TONE`
+   * chapter is one call -- `TONE_$TIME (time)`, "makes a tone, the tone remains
+   * on for the time indicated", with `time` a `TIME_$CLOCK_T`, a 48-bit count of
+   * 4 microsecond periods. So the operating system asks for an arbitrary
+   * duration while the hardware switches itself off after 300 ms: a tone longer
+   * than that **cannot come from one ON sequence** and the driver must re-issue
+   * it, which is register traffic on SIO line 0 that a boot would show. The
+   * auto-off is not a detail the model could round away.
+   *
+   * The same page also settles that this machine has the part at all: "only
+   * DOMAIN nodes shipped after **April 19, 1982** contain a working speaker",
+   * and a DN3500 is six years later. */
   ap_time_t beeper_until;
 
   /* ## The CAPS LOCK LED, which the chapter opens by naming

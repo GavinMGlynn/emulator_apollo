@@ -40047,6 +40047,45 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s TIME, TONE and TPAD chapters walked whole — a calibrated constant closes
+
+Pages 649-655, 659-660 and 663-670. 67 of 722.
+
+**`TIME` prints 262,144 microseconds outright.** TIME-5: the eventcount keyed
+`TIME_$CLOCKH_KEY` — clock-*high* — advances at "nominally 262,144 microseconds
+(about 0.25 second)". And TIME-3 gives `TIME_$CLOCK_T` two overlaid views, the
+first of which names the field this project decodes: `time_$clockh_t.high` is
+"High 32 bits of the clock" with `low` the low 16. So the 48-bit clock has a
+*named type for its top 32 bits* and a volume label stores that type.
+
+Together with `CAL`'s 4 µs unit and 1980 epoch, that is three independent
+statements of the same figure. The section above on volume labels records the
+262144 µs tick as **calibrated** — fitted to two dates the machines printed
+themselves, after a quarter-second tick proved 4.9% out. The calibration was
+right; the tick is no longer an inference.
+
+**`TONE` makes the beeper's 300 ms auto-off load-bearing.** The whole chapter is
+one call, `TONE_$TIME (time)`, with `time` a 48-bit count of 4 µs periods — so
+the operating system asks for an arbitrary duration while `002398-04` p. 12-2 has
+the hardware switch itself off after 300 ms. A longer tone cannot come from one ON
+sequence; the driver must re-issue it, which is traffic on SIO line 0 that a boot
+would show. `ap_kbd.h` models the auto-off and now says why it cannot be rounded
+away. The same page settles that this machine has a speaker at all: "only DOMAIN
+nodes shipped after April 19, 1982".
+
+**`TPAD` names the devices each half of a bool means.** `TPAD_$DEV_TYPE_T` gives
+four locators — unknown, touchpad, mouse, bit pad — and `TPAD_$SET_MODE` says the
+mouse "uses only the scale and hysteresis factors and ignores the other mode
+settings, since it is an inherently relative device". `ap_kbd.h`'s
+`pointing_absolute` bool was decided from `002398-04` §13.3's Mode 2/Mode 3 packet
+split; the two agree, so `false` is the mouse and `true` is the touchpad or Bit
+Pad One. The open item on an absolute pointing device can now name what it is
+for — and `SIO_$BP_ENABLE` shows a bit pad has a second route in, on a serial
+line, which an implementer should weigh before choosing.
+
+One documentary gap: `TIME`'s error list names `TIME_$ADVANCE` and a cancel call
+the chapter never describes.
+
 ## `007196-01`'s CAL chapter walked whole — the 4 µs clock gets a citation
 
 Pages 21-45 (CAL-1 to CAL-25) of the *Domain System Call Reference*, the Calendar
