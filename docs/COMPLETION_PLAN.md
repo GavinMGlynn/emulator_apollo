@@ -6193,7 +6193,8 @@ same number is what let them diverge once already.
       `CTM`, `FPP`, `GMF`, `MTS`, `SMD`, `TIME`, `TONE` and `TPAD` — and the
       remainder is being walked in document order. **`ERROR`, `ACLM`, `EC2`, `IOS`,
       `IOS_DIR`, `IPC`, `MBX`, `MS`, `MUTEX`, `NAME`, `PAD`, `PBUFS`, `PFM`,
-      `PGM`, `PM` and `PRF` are done too**, 530 of 722; 192 pages remain. **`PAD` gives `ap_graphics.h` two figures**:
+      `PGM`, `PM`, `PRF`, `PROC1`, `PROC2` and `RWS` are done too**, 566 of
+      722; 156 pages remain — `STREAMS`, `VEC` and `VFMT`. **`PAD` gives `ap_graphics.h` two figures**:
       the display is "approximately 100 bits per inch" — the only pixel pitch
       any source here has — and the invisible part of display memory is where
       `PAD_$LOAD_FONT` puts up to 100 fonts, so the 224 lines past the visible

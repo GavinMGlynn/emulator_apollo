@@ -40047,6 +40047,45 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s PROC1, PROC2 and RWS chapters walked whole — the 4 µs clock a fourth time
+
+PDF 483-518, 566 of 722. `PROC1` is **3** pages, not the 8 the chapter map gave —
+a third length correction, caught by the chapter's own divider page.
+
+**The 4 µs unit, stated in a new context.** `PROC1_$GET_CPUT` returns CPU time
+"in `TIME_$CLOCK_T` format ... **the returned clock value has a resolution of 4
+microseconds**". `CAL` gives the unit and the 1980 epoch, `TIME` the 262,144 µs
+eventcount, `MUTEX` the type's 6-byte size — and this gives the resolution for
+*CPU time accounting*, so the 4 µs period is the machine's single time quantum
+rather than a calendar artefact. It also defines what CPU time counts: the
+operating system's work on the process's behalf, but **not** time waiting for I/O.
+
+**`PROC2_$INFO_T` is the operating system's per-process register save area**, 36
+bytes: the user stack's UID and base, the process state, then `usr` (user status
+register), `upc` (user program counter), `usp` and `usb` — and PROC2-6 names the
+last two outright as "the user stack pointer (**A7**)" and "the stack base
+pointer (**A6**)". Domain/OS's frame pointer is A6, stated by the operating
+system rather than assumed. A process cannot read its own saved registers: "if the
+process-uid in the call is the caller's own process, the only information returned
+is the stack UID and virtual address".
+
+**`RWS` states that every process reserves an identical portion of address
+space** — printed four times — which is why a global-pool pointer is valid in all
+of them, and why global storage is "kept until **reboot**". That is a statement
+about how the MMU is used: the global region sits at the same virtual addresses
+everywhere. *This core's identity boot loads `SRP` and `CRP` with the same value,
+which is the same shape of arrangement, but that boot runs the PROM's self-test
+rather than Domain/OS — a consistency observation, not a measurement of what the
+chapter describes.*
+
+`RWS`'s error list is the informative half: `RWS_$SCRIBBLED_OVER` and
+`RWS_$LEVEL_FAILURE` both mean "user program wrote over the storage where the
+system stored [its] information", so the heap's bookkeeping lives inside the
+allocated region and an overrun is detected by finding it damaged.
+
+Three documentary defects are recorded in the walk record, including a `UID_$T`
+called 4 bytes where four other pages say 8.
+
 ## `007196-01`'s PGM, PM and PRF chapters walked whole — the four standard streams
 
 PDF 431-482, 530 of 722. Twenty-three numbered pages, four and eighteen.
