@@ -6204,38 +6204,18 @@ same number is what let them diverge once already.
       **The text layer is not usable for this document** — it renders DCD as
       "DOD", Check as "Oheck", IOS as "lOS". Page images only.
 
-- [ ] **Walk the Intel 8237A and 8259A datasheets — 43 pages.** Record:
-      `docs/references/INTEL_WALK.md`. Chosen because Phase A measured the boot
-      as **never touching the floppy controller** while it issues 401 disk
-      commands through DMA and interrupts.
-      **`[8259]` is 11 of 24 as of 2026-08-22 — the whole programming model, and
-      no defect.** ICW1's six automatic effects are lettered a–f in the code,
-      every ICW4 bit position matches, the poll byte and the **default IR7**
-      that sets no ISR bit are both implemented with their sentences quoted.
-      Two method findings: the one clause that could have hidden a defect was a
-      **negative** — "If BUF = 0, M/S has no function" — settled by sweeping the
-      field's *readers* and finding none, since no register sweep can tell
-      "correctly inert" from "forgotten"; and the datasheet contradicts itself
-      once, putting AEOI in ICW1 in one paragraph and ICW4 in the next, which is
-      recorded so a later reader does not take the first for a fact.
-      **`[8237]` is 12 of 19 — the whole programmable interface, the pin table and the state machine**, and p. 4 found a second gap (the DMA transfer's four states, its own item above). p. 8's Command Register box *saved* a wrong
-      fix: the prose says channel 0 may hold its address "for all transfers",
-      which reads as a defect here, while the box marks the bit "X If bit 0 = 0"
-      — a don't-care unless memory-to-memory is on, which is exactly where this
-      core consults it. Prose against figure, and the figure won. Two of our
-      citations were wrong in the same place (the bit layouts are unnumbered,
-      not "Figure 5") and so are the datasheet's.
-      **p. 7 found the walk's first real defect**:
-      "In order to make a software request, the channel must be in Block Mode"
-      was not implemented, so a software request was serviced in any mode — the
-      permissive direction. Fixed, with the rule factored into one place because
-      three sites combined `dreq` and `request` by hand. The document does not
-      say what the part does when the rule is broken, so the oracle was
-      consulted **in order** and agrees (`am9517a.cpp:205`). Reference boot
-      unmoved, so it is a latent defect corrected.
-      What is left of `[8259]` is pin descriptions and AC/DC characteristics —
-      wires and voltages this core has no model for — named rather than skipped
-      silently.
+- [x] **Walk the Intel 8237A and 8259A datasheets — done 2026-08-22, 43/43.**
+      `[8259]` 24/24 and `[8237]` 19/19. One defect: a software DMA request was
+      serviced in any mode where p. 7 requires Block Mode. One gap opened: the
+      transfer's four 8237A clock states, charged nowhere (its own item above).
+      Two near-misses where a figure overruled the prose and the code was
+      already right. **This item's own last paragraph was the error the batch
+      then recorded**: it called the remaining pages "pin descriptions and AC/DC
+      characteristics", and reading them yielded `TJLJH` and p. 11's whole
+      PROGRAMMING section — a page range cannot be characterised without opening
+      it. Record: `docs/references/INTEL_WALK.md`; the batch's per-part entries
+      are under *Walk the remaining part datasheets whole*. Detail in
+      `PROJECT_STATUS.md`.
 
 - [ ] **Walk the OMTI controller manuals — 220 pages, and the "none walked" in
       this item's own title was wrong.** Corrected 2026-08-22: `[OMTI]`'s **§5
@@ -6246,10 +6226,17 @@ same number is what let them diverge once already.
       derived too**, on the same evidence — verbatim quotes in the model. §4.1–
       §4.4 and §6.4 are walked and recorded, and **Appendices A and B are walked
       entire** (PDF 81–88, 2026-08-22), which found the sense LUN defect, marked
-      the 32K buffer `PROVISIONAL` and opened two named gaps. What is
-      **genuinely unread** is §1, §2, most of §3 and §6.1–§6.2 — the
-      introduction, installation and jumper chapters and the floppy chapter's
-      opening — plus `[8640]` (partly used) and `[8000]`.
+      the 32K buffer `PROVISIONAL` and opened two named gaps.
+      **`[OMTI]` has no unread pages left, 2026-09-07**: the front matter, §1
+      entire and the last of §2 (2-1, 2-2 and 2-20 to 2-22) were walked, and the
+      coverage row's "§7 onward" was a section the manual never had. `[8640]`
+      and `[8000]` are both walked whole. What remains is the record's own
+      distinction — **§4 and §5 are *derived*, not walked**: the code cites 37
+      §5 subsections and both §4 register tables, which shows those pages were
+      read for what someone went looking for rather than covered field by field.
+      §1's yield was a stronger citation for the discrete 765 (below), §1.1's
+      "8Kbyte buffer minimum" naming the part §5.4.13's cap table belongs to,
+      and four capability bounds this core does not carry and cannot reach.
       *Derived is not walked*: a verbatim quote shows the page was read, not
       that the section was covered field by field, and §6.4's pass found `ST3`
       only by doing the latter.
@@ -6637,6 +6624,13 @@ same number is what let them diverge once already.
       phrase that stops a datasheet's command set being transferable, and
       inventing a command is the error this project has already avoided here
       once.
+      **The evidence was the wrong manual's until 2026-09-07.** `[8000]`'s
+      title page covers the OMTI 8100, 8200, 8500 and 8600 — not the 862X this
+      machine carries. `[OMTI]`, which does, says the identical sentence in its
+      own §1.3.1, draws the same discrete `FDC 765` in its own **Figure 1.1**,
+      and shows a package marked **765** on the board in **Figure 2.1, the 862X
+      PCB diagram**. So the argument below now rests on the manual for the part
+      that is actually here.
       **Advanced 2026-08-22 by finishing `[8000]`, and on figures rather than
       prose.** Figure 1.1 (doc 1-3) draws the host data path reaching the
       **`FDC 765` through `I/O Decode Logic & Buffers` and nothing else** — the

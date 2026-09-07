@@ -40047,6 +40047,65 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `[OMTI]`'s front matter and §1, walked 2026-09-07 — and the 765 citation moves to the right manual
+
+The last unread prose in `OMTI_AT_Controller_Series_Jan87.pdf`: PDF 1-10 (cover,
+title, copyright, contents, the lists of figures and tables, the FCC notice, and
+§1 entire), PDF 11-12 (doc 2-1 and 2-2) and PDF 30-32 (doc 2-20 to 2-22, the tail
+of the DOS patch). **`[OMTI]` now has no unread pages.** What remains is the walk
+record's own distinction: §4 and §5 are *derived* — 37 §5 subsections and both §4
+register tables are cited in the model — rather than walked field by field, which
+is how §6.4's pass found `ST3`.
+
+**The yield is a citation moving to the right manual.** The open plan item on the
+five unimplemented µPD765 commands — `02`, `05` WRITE DATA, `09`, `0A`, `0C` —
+was opened on `[8000]` §1.3.1's "Host has direct access to floppy disk controller
+chip (NEC765 or equivalent)" plus that manual's Figures 1.1 and 2.1. **`[8000]`
+covers the OMTI 8100/8200/8500/8600 and not the 862X this machine carries.**
+`[OMTI]` carries the identical sentence in its own §1.3.1, draws the same
+discrete `FDC 765` (through `I/O Decode Logic & Buffers` to a `9239` data
+separator, with the Z8, the EPROM and the five OMTI VLSI parts all on the
+Winchester branch) in its own Figure 1.1, and shows a package marked **765** on
+the board in Figure 2.1, the 862X PCB diagram. Three witnesses in the manual for
+the part that is actually here, where there were none before.
+
+**§1.1 names the part §5.4.13's cap table describes.** `ap_omti.h` argues that
+the printed table (15x512, 7x1024, 7x1056) is one buffer size's instance of a
+rule, identified as the 8K part because all three rows fall just under 8192 — an
+arithmetic inference. §1.1's feature list says "**8Kbyte buffer minimum**", so
+the smallest part in the family is the 8K one and the one table printed is its.
+The `PROVISIONAL` on a 32K part's exact cap stands; its argument now rests on a
+sentence as well as a division. *And it sits against §5.4.13's identification
+byte 14, which enumerates 2K as well — the feature list and the identification
+block disagree about the smallest part, and neither changes what this machine
+reports.*
+
+**Four capability bounds this core does not carry, each unreachable.** §1.3.1
+gives 256-byte sectors "(ESDI only)" — a fourth size with no `W10 W11` strap to
+select it, which is why the model's three are complete rather than short; a
+2048-cylinder, 16-head addressing ceiling, where the sixteen heads are §5.2's
+conversion geometry already modelled and the cylinders cannot bind because
+geometry comes from the drive and Apollo's two are 1223 and 1023; overlapped
+seek, which needs a second Winchester this board does not have; and the floppy's
+250/300/500 Kbit/s rates.
+
+**Three front-matter errors, recorded because each sends a reader nowhere.** The
+list of tables promises Tables 2-1 Jumper Assignments, 2-2 Connector Assignment
+and 2-3 LED Meaning at doc 2-2 and 2-3; those pages carry Figures 2.1 and 2.2
+alone, and §2's tables are the four unnumbered DRIVE CONFIGURATION tables and the
+two COMMON SYSTEM JUMPER SETTINGS ones. The three named tables are `[8000]`'s,
+which this record walked there — **the front matter was carried across and the
+body was not**. Figure 1.1 is listed as "Functional Organization (Block Diagram)"
+and captioned "CONTROLLER BLOCK DIAGRAM"; §2.2 is listed as "System
+Configuration" and headed "BOARD PREPARATION". The copyright page also states the
+convention this record had inferred from the marks themselves: "Vertical bars in
+the left margin indicate changes from the previous revision."
+
+**And the coverage row was two kinds of stale**, which is the failure the record
+warns about in its own header note: it said §6.1 and §6.2 were unread while two
+sections below it recorded them walked, and it said "§7 onward" of a manual whose
+contents ends at §6 plus two appendices.
+
 ## The `[8000]` manual, walked whole — 71/71, and it corrected this project twice
 ## (moved from COMPLETION_PLAN.md on completion, 2026-08-22)
 

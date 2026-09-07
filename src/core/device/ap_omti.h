@@ -326,6 +326,17 @@ typedef enum {
  * in it. A host writing into a real 765's data register gets the 765's
  * behaviour.
  *
+ * **That evidence was the wrong manual's, and 2026-09-07 replaced it with this
+ * board's own.** `[8000]`'s title page covers the OMTI 8100, 8200, 8500 and
+ * 8600 -- not the 862X the DN3500 carries. `[OMTI]`, which does, carries the
+ * same sentence in its own §1.3.1 ("Host has direct access to floppy disk
+ * controller chip (NEC765 or equivalent)"), draws the same path in its own
+ * **Figure 1.1** -- `I/O Decode Logic & Buffers` to a discrete `FDC 765` to a
+ * `9239` data separator, with the Z8, the EPROM and the five OMTI VLSI parts
+ * all on the Winchester branch -- and shows a package marked **765** on the
+ * board in **Figure 2.1, the 862X PCB diagram**. Three witnesses, in the manual
+ * for the part that is actually here.
+ *
  * **Still unimplemented, and named rather than quietly added.** The five are a
  * `COMPLETION_PLAN.md` item with the whole-document walk `[765]` now obliges,
  * and until they land a driver issuing `05` still takes the INVALID path --
@@ -901,6 +912,14 @@ typedef enum {
  * identification block below enumerates four buffer sizes -- 2K, 8K, 16K and
  * 32K. A single fixed table cannot describe four parts. The rows themselves say
  * which one they are: 15x512, 7x1024 and 7x1056 all fall just under **8192**.
+ *
+ * **And `[OMTI]` §1.1 says which part that is, in words**: the feature list
+ * opens with "8Kbyte buffer **minimum**", so the smallest controller in the
+ * family carries 8K and the one table printed is the smallest one's. Found
+ * 2026-09-07 walking §1, and it turns an arithmetic coincidence into a
+ * documented identity. *It also disagrees with byte `14` above, which
+ * enumerates **2K** as well -- the feature list and the identification block do
+ * not name the same smallest part. Neither changes what this machine reports.*
  *
  * This machine's controller reports **32K**, so the cap it was refusing at was
  * another part's. The machine told the host it had 32K and then refused eight

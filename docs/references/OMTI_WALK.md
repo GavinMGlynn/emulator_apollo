@@ -22,7 +22,15 @@ reading — the entries below are the evidence for each row:
 | §5.1–§5.4 | | **derived**, and §5.4.1, §5.4.2 and §5.4.4 read as images 2026-08-22 after the coverage row's lower endpoint proved wrong |
 | §6.3 | | **derived** |
 | §6.4 | | **walked** |
-| §1, §2-1/2-2, §6.1–§6.2, §7 onward | | **unread** |
+| front matter and §1 entire | PDF 1-10 (cover, title, copyright, contents, lists, FCC; doc 1-1 to 1-4) | **walked 2026-09-07** — §1.3's specification list, Figure 1.1's block diagram, and the front matter's own census of figures and tables |
+| §2 entire | 2-1 to 2-22 (PDF 11-32) | **walked** — 2-3 to 2-19 on 2026-08-22, and 2-1, 2-2 and 2-20 to 2-22 on 2026-09-07 |
+| §6.1–§6.2 | PDF 74-75 | **walked 2026-08-22** — two sections below record them, and this row still said "unread" |
+| §7 onward | — | **there is no §7.** The contents ends at §6, Appendix A and Appendix B, and PDF 88 is the last page |
+
+*That row read `| §1, §2-1/2-2, §6.1–§6.2, §7 onward | | **unread** |` until
+2026-09-07 — which is the same rot the note below this table describes, twice
+over: §6.1 and §6.2 had been walked for a fortnight, and "§7 onward" was a
+section the manual never had.*
 | `[8000]`, all sections | 71 pages | **walked whole**, 71/71, 2026-08-22 — entries from "`[8000]` — the walk is open" to "`[8000]` FINISHED" below |
 | `[8640]` | 61 pages | **walked whole**, 61/61, 2026-08-23 — its Winchester chapter is an AT task file and shares nothing with the 862X (confirmed, not assumed) |
 
@@ -801,6 +809,97 @@ in an image-backed model.
 `[OMTI]` is **§1, §2, most of §3, and §6.1-§6.2** — the introduction, the
 installation and jumper chapters, and the floppy chapter's opening. The two
 sibling manuals remain, `[8640]` partly used and `[8000]` untouched.
+
+
+## The front matter and §1, walked 2026-09-07 — and a stronger citation for the 765
+
+PDF 1-10. The last of `[OMTI]`'s prose, and it is not filler.
+
+**PDF 1-4, the front matter.** Cover; a divider; the title page, *IBM PC AT
+INTELLIGENT DATA CONTROLLERS REFERENCE MANUAL*, **publication 3001483**, listing
+the four models a third time (8620, 8627 ESDI/ST412 with flexible disks; 8120,
+8127 Winchester only); and the copyright page, **document 3001483, REVISION C,
+20 January 1987** — with the sentence that explains a mark this record had only
+observed: "**Vertical bars in the left margin indicate changes from the previous
+revision.**" The entry on §1.1's model sentence noted revision bars and inferred
+what they meant; page four says it.
+
+**PDF 5-6, the contents and the census.** The contents lists §1 to §6 and two
+appendices — **so "§7 onward" never existed**. PDF 6 is a *census*: three figures
+(1.1 at 1-4, 2.1 at 2-2, 2.2 at 2-3) and seven tables (1-1, 2-1 Jumper
+Assignments, 2-2 Connector Assignment, 2-3 LED Meaning, 4-1 I/O Port Addresses,
+4-2 I/O Registers, 4-3 Floppy Disk Registers). Every figure and every numbered
+table in this manual is therefore accounted for — **except that three of them are
+not in it**: doc 2-2 carries Figure 2.1 alone and doc 2-3 Figure 2.2 alone, and
+§2's tables are the four unnumbered DRIVE CONFIGURATION tables and the two
+COMMON SYSTEM JUMPER SETTINGS ones. Tables 2-1, 2-2 and 2-3 are `[8000]`'s, which
+this record walked there. **The front matter was carried across and the body was
+not**, so a reader following the list of tables hunts for pages that do not
+exist. The same page's Figure 1.1 is titled "Functional Organization (Block
+Diagram)" where the figure itself is captioned "CONTROLLER BLOCK DIAGRAM", and
+the contents calls §2.2 "System Configuration" where the heading reads "BOARD
+PREPARATION".
+
+**PDF 7-8, §1.1 and §1.3.1 — the specification list.** §1.1 was read 2026-08-21
+for Table 1-1; its feature list was not. It gives **"8Kbyte buffer minimum"**,
+and that matters here: `ap_omti.h` argues that §5.4.13's printed cap table
+(15x512, 7x1024, 7x1056) is *one buffer size's instance of a rule*, identified as
+the 8K part because all three rows fall just under 8192 — an arithmetic
+inference. §1.1 says independently that 8K is the smallest buffer the family
+ships with, so the one table printed is the smallest part's. The `PROVISIONAL`
+stands (whether a 32K part stops at 31 blocks or 30 is still unsettled), but its
+argument now rests on a sentence as well as on a division. *It also sits against
+§5.4.13's identification byte 14, which enumerates **2K**, 8K, 16K and 32K — the
+feature list and the identification block disagree about the smallest part, and
+neither changes what this machine reports.*
+
+§1.3.1, *Features per Peripherals*, is a capability list and **confirms the model
+throughout**, with four statements worth naming because each is a bound this
+core does not carry:
+
+- "Supports **256 (ESDI only)**, 512, 1024 or 1056 bytes/sector" — a fourth
+  sector size, and §2.3's `W10 W11` jumper table offers only the last three. So
+  256 is a capability with no strap to reach it on this board, which is why the
+  model's three sizes are complete rather than short.
+- "Addresses up to **2048 tracks (cylinders) and 16 heads**" — the sixteen heads
+  are §5.2's conversion geometry, already modelled; the 2048-cylinder ceiling is
+  a controller limit that cannot bind here, because the model takes geometry from
+  the drive and `image/ap_awd.h`'s two Apollo drives are 1223 and 1023 cylinders.
+- "Supports **overlapped seek**" — seeking one drive while another transfers.
+  Not modelled and not reachable: this board has one Winchester.
+- Floppy: "Supports **250, 300, or 500 K bits/sec** transfer rate including dual
+  rotational speed floppies", and "**Host has direct access to floppy disk
+  controller chip (NEC765 or equivalent)**".
+
+**That last sentence is the yield.** It is word for word `[8000]` §1.3.1's, which
+is what the `WRITE DATA` plan item was opened on — and `[8000]`'s title page
+covers the 8100/8200/8500/8600, *not* the 862X. The same sentence in **this**
+manual is evidence about the board the DN3500 actually carries. So is the
+hardware: PDF 10's **Figure 1.1** draws the flexible-disk path as `I/O Decode
+Logic & Buffers` to a discrete **FDC 765** to a **9239** data separator, with the
+Z8, the EPROM and the five OMTI VLSI parts all on the Winchester branch; and PDF
+12's **Figure 2.1, the 862X PCB diagram**, shows a package marked **765** on the
+board. The argument for the five unimplemented µPD765 commands was resting on a
+different product line's manual and no longer is.
+
+**PDF 9-10, §1.3.2 to §1.3.4 and Figure 1.1.** Physical dimensions, environmental
+range and power draw — nothing this core models — and the block diagram above.
+Note that the contents lists §1.3 alone: the three subsections beneath it are
+another case of *a section's listed start saying nothing about its extent*.
+
+**PDF 11-12, doc 2-1 and 2-2.** §2.1 Unpacking and Inspection, §2.2 Board
+Preparation, and Figure 2.1. Procedural, apart from the figure above.
+
+**PDF 30-32, doc 2-20 to 2-22.** The tail of §2.6's DOS 3.1/3.2 patch — DEBUG
+transcripts for patching a system floppy, ending "This concludes the required
+patch". Nothing for the model, and §2 ends at 2-22 with §3 opening at PDF 33,
+which closes the chapter against the footer map.
+
+**So `[OMTI]` has no unread pages left in §1, §2, §3, §6 or the appendices.**
+What remains is the record's own distinction: **§4 and §5 are *derived*, not
+walked** — the code cites 37 §5 subsections and both §4 register tables, which
+shows those pages were read for what someone went looking for, not covered field
+by field. §6.4's pass found `ST3` only by doing the latter.
 
 
 ## §6.2, the floppy chapter's symbol glossary — one encoding this core lacked
