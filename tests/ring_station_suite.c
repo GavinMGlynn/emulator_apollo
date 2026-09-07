@@ -587,6 +587,35 @@ static void test_a_receiver_not_enabled_to_copy_sets_wait_ack(void) {
   TEST_ASSERT_TRUE(ap_ring_ack_parity_ok(r.station[2].rx_late));
 }
 
+/* **The two status words Apollo publishes, and the pairing that produces
+ * them.** `002398-04` p. 7-29 prints a successful transmit as `0014` and a WACK
+ * as `0012`; p. 7-28's bit list makes those `icopy | copy` and `icopy | wack`.
+ * So **intend-to-copy is set in both cases**, and a model that gated it on the
+ * receiver being enabled could produce the first word and not the second.
+ *
+ * That is what this core did until 2026-09-08, and no test caught it -- the two
+ * tests above assert `copied` and `wait ack` and neither looked at
+ * intend-to-copy on the WACK arm. This one asserts the *pairing*, which is the
+ * quantity the published words are about. See `ap_ring_station.c` for why
+ * `[MAC]` Figure 2-8's two readings are settled this way. */
+static void test_a_wacking_receiver_still_sets_intend_to_copy(void) {
+  ring_t r;
+  static uint8_t txbuf[2048];
+
+  /* Enabled: `icopy | copy`, and nothing else of the three. */
+  late_ack_ring(&r, txbuf, sizeof txbuf, true);
+  TEST_ASSERT_TRUE((r.station[2].rx_late & AP_RING_LATE_INTEND_TO_COPY) != 0u);
+  TEST_ASSERT_TRUE((r.station[2].rx_late & AP_RING_LATE_COPIED) != 0u);
+  TEST_ASSERT_EQUAL_HEX8(0u, r.station[2].rx_late & AP_RING_LATE_WAIT_ACK);
+
+  /* Not enabled: `icopy | wack`. The intend-to-copy bit is the one that moved. */
+  late_ack_ring(&r, txbuf, sizeof txbuf, false);
+  TEST_ASSERT_TRUE((r.station[2].rx_late & AP_RING_LATE_INTEND_TO_COPY) != 0u);
+  TEST_ASSERT_TRUE((r.station[2].rx_late & AP_RING_LATE_WAIT_ACK) != 0u);
+  TEST_ASSERT_EQUAL_HEX8(0u, r.station[2].rx_late & AP_RING_LATE_COPIED);
+  TEST_ASSERT_TRUE(ap_ring_ack_parity_ok(r.station[2].rx_late));
+}
+
 /* **The transmitter's own read-back, `[MAC]` §2.2.2.5.** A late acknowledge is
  * written by the receivers a frame passes and read by the sender when the frame
  * comes back round to be stripped -- and that read is the only way a node ever
@@ -649,6 +678,7 @@ int main(void) {
   RUN_TEST(test_an_addressed_receiver_sets_intend_to_copy_in_flight);
   RUN_TEST(test_an_addressed_receiver_sets_copied_in_the_late_ack);
   RUN_TEST(test_a_receiver_not_enabled_to_copy_sets_wait_ack);
+  RUN_TEST(test_a_wacking_receiver_still_sets_intend_to_copy);
   RUN_TEST(test_a_transmitter_reads_back_that_its_frame_was_copied);
   RUN_TEST(test_a_transmitter_reads_back_a_wait_acknowledge);
   return UNITY_END();

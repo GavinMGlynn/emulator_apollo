@@ -359,10 +359,46 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
           }
         } else {
           /* **Figure 2-8, set as the field goes past.** An addressed receiver
-           * that is enabled sets *copied* and *intend-to-copy*; one that is
-           * not sets *wait ack*. Any station that saw an error in the frame
-           * sets *error* -- "a station that observes an error in the packet
-           * going by sets this bit", which is not limited to the addressee.
+           * that is enabled sets *copied*; one that is not sets *wait ack*;
+           * and **an addressed receiver sets *intend-to-copy* either way**.
+           * Any station that saw an error in the frame sets *error* -- "a
+           * station that observes an error in the packet going by sets this
+           * bit", which is not limited to the addressee.
+           *
+           * ## Why intend-to-copy is not gated on `receive_enabled`
+           *
+           * Corrected 2026-09-08. It was, and the consequence was a status
+           * word Apollo publishes that this core could not produce.
+           *
+           * `002398-04` p. 7-29 prints two worked transmit-status words for a
+           * real Apollo ring controller: a successful transmit reads **`0014`**
+           * and a WACK reads **`0012`**. p. 7-28's bit list makes those
+           * `icopy(0010) | copy(0004)` and `icopy(0010) | wack(0002)` -- so
+           * **intend-to-copy is set in both cases**, and the escape that it
+           * mirrors the *early* acknowledge is closed by p. 7-30, whose
+           * receive-status gloss puts `icopy` beside `copy` and `wack` in the
+           * *late* field.
+           *
+           * `[MAC]` Figure 2-8 admits two readings and the words differ by one
+           * phrase: wait-ack is set by "an addressed receiver that **wasn't
+           * enabled to copy** the packet", intend-to-copy by "an addressed
+           * receiver that **is set up to copy** the packet (and whose type
+           * field matches)". Read as *able to copy right now*, the two are
+           * mutually exclusive and `0012` is unreachable. Read as *wanted this
+           * packet* -- addressed and type-matched -- they are independent, and
+           * both published words fall out: wanted-and-took is `icopy|copy`,
+           * wanted-and-had-no-room is `icopy|wack`.
+           *
+           * **The second reading is the one that reproduces the evidence, so it
+           * is the one implemented.** The first was chosen when Figure 2-8 was
+           * the only source; p. 7-29 is Apollo's own worked example and is
+           * concrete where the figure is ambiguous.
+           *
+           * *The type-match half is not modelled and cannot be*, which this
+           * comment states rather than leaves: no controller register on this
+           * board generation carries a type mask (`RING.md` finding 132b), so
+           * "addressed" is the whole of the condition here. If a mask is ever
+           * found, this is where it belongs.
            *
            * Outside the CRC entirely (finding 25: the late field "is neither
            * sequence"), so nothing is recalculated; and its legal bits give a
@@ -373,8 +409,8 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
             out = true; /* copied <6> */
           } else if (s->rx_addressed && pos == 2u && !s->receive_enabled) {
             out = true; /* wait ack <5> */
-          } else if (s->rx_addressed && pos == 4u && s->receive_enabled) {
-            out = true; /* intend-to-copy <3> */
+          } else if (s->rx_addressed && pos == 4u) {
+            out = true; /* intend-to-copy <3>, enabled or not */
           } else if (s->rx_frame_error && pos == 5u) {
             out = true; /* error <2> */
           } else if (pos == 6u) {

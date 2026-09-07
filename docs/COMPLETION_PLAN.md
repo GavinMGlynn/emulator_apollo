@@ -5836,111 +5836,22 @@ same number is what let them diverge once already.
       `010005-00` is walked whole and settled only the architectural half, and
       `008778-03` has no ring chapter for this board.
 
-- [ ] **Settle whether a WACKing receiver still asserts intend-to-copy.**
-      `002398-04` p. 7-29 prints two worked transmit-status words for the DN3xx
-      ring controller: a successful transmit reads `0014` (`icopy | copy`) and
-      **a WACK reads `0012` (`icopy | wack`)**. This core sets the late
-      acknowledge's intend-to-copy only when the addressed receiver is enabled,
-      so `0012` is a status word it cannot produce. p. 7-30's receive status
-      names the field — `icopy` is "somebody **before me** Intended to COPY",
-      beside `copy` and `wack`, and only the late field has those — so the
-      escape that the bit mirrors the *early* acknowledge is closed.
-      The disagreement is a reading of `[MAC]` Figure 2-8's gloss, "addressed
-      receiver set up to copy, type matched": *wanted this packet* (compatible
-      with wait-ack, reproduces both words) versus *able to copy it* (mutually
-      exclusive with wait-ack, which is what is implemented).
-      **The ring firmware does not settle it either, and that was the last named
-      route** (searched 2026-08-21, all three ROM listings in `tools/ring-rom`).
-      The item said "the ring firmware's own wait-ack handling" would decide it.
-      **There is no such handling.** `XMIT_STAT`'s `WAK` is bit 13 of `+402`
-      and `ICP` is bit 12, and **no path in `r3500`, `r4500` or `r3000` tests
-      either**: there is no `btst #$c` anywhere, and the single `btst #$d` is on
-      the `+400` status register, not on `XMIT_STAT`. The transmit self-test
-      reads `+402` and branches on **bit 15 `pe` only** — set is a transmit
-      error — and then on **bit 14 `cpd`, copied**, as success. It never asks
-      whether the packet was wait-acknowledged.
-      *What the search did settle*: that branch pair **corroborates the
-      two-layout reading of `XMIT_STAT`** from `002398-04` p. 12-31, which was
-      read from a page image with no other source. `pe` set is the error layout;
-      `pe` clear with `cpd` set is a successful copy. Firmware confirmation of a
-      register layout that had none.
-      **Both named routes are now spent**, so this item no longer has a
-      discriminator on the shelf. The remaining candidate is **Domain/OS's own
-      ring driver** — on disk, not in ROM, needing a running system that
-      transmits to a busy receiver. That is the same shape as the `ST3` item's
-      blocker and should be budgeted the same way.
-      **`[MAC]` p. 2-9 is now walked, and it does not settle it either.** This
-      item named the discriminator as "a `[MAC]` sentence that says whether a
-      busy receiver still asserts intend-to-copy". Figure 2-8 is the only page
-      that could carry one, and its two descriptions use **different words for
-      the condition**: wait ack is set by "an addressed receiver that **wasn't
-      enabled to copy** the packet", intend-to-copy by "an addressed receiver
-      that **is set up to copy** the packet (and whose type field matches)".
-      Whether "enabled to" and "set up to" denote the same condition **is the
-      question**, so restating it in the spec's words does not answer it.
-      **`010005-00` is therefore spent as a source for this item** — walked, not
-      merely queried, so it will not be proposed again. What remains is the ring
-      firmware's own wait-ack handling, and those ROMs are on disk.
-      *One side-effect*: intend-to-copy requires "whose type field matches", so
-      type matching is in the wire protocol's own field definition — independent
-      support for the `TMASK` item's architectural half.
-      **p. 8-43 does not settle it, and the escape it seemed to close is open.**
-      The DN4xx controller defines its three outcomes by *address* rather than by
-      wanting-versus-able: `MSGCPY` copied, `WACK` "a receiver observed his node
-      id, but wasn't enabled to copy", `NCOPY` "no receiver observed his node
-      address and/or was enabled to copy". That `WACK` is Figure 2-8's wording
-      exactly, and the register has **no `icopy` bit at all**, so it bears on the
-      question neither way.
-      Which leaves p. 7-29's `0012` the only evidence — and the argument that its
-      `icopy` must mirror the *late* field is too quick. A status register can
-      gather from both acknowledge fields: p. 8-42's own `PKTERR` gathers its
-      causes from the transmitter's side and the receiver's. If `icopy` is the
-      **early** field's intend-to-copy and `copy`/`wack`/`errbit` are the late
-      field's, `0012` reads as "the addressee recognised the packet, then could
-      not take it" — coherent, and consistent with what is implemented here.
-      *What would settle it: `010005-00`, the ring firmware's own handling of a
-      wait-ack, or a `[MAC]` sentence about a busy receiver. The fix if reading
-      (a) wins is one guard in `ap_ring_station.c`; `ring_station_suite` and
-      `ring_ctl_suite` both have the two-arm tests to extend.*
-
-- [x] **`doc_claims`'s table-row filter is correct, and I was wrong to call it a
-      gap** (2026-08-21). It skips every line not starting with `| ` — so a
-      subsystem row is checked and a `*Verification: `x_suite`, N tests*` line is
-      not — and I recorded that as rot to be fixed. It is not. Scanning the prose
-      finds **85 counts that disagree with the tree**, and they are *right*: each
-      sits in a dated status entry recording what was verified **then**.
-      `machine_suite, 48 tests; ctest 122/122` is a true statement about the day
-      it was written. **The table row is the live claim; the prose is a log.**
-      A checker over prose would fail on 85 accurate records.
-      *Cost of finding out the wrong way*: I "corrected" two of those records
-      from 21 to 22 while fixing a genuinely stale table row, which made them
-      false — one then read `22 tests, two of which now cover eleven models`,
-      mixing today's count with that day's model total. Both reverted.
-
-- [x] **Transcribe the Low-Profile Model II keyboard charts.** Both halves are
-      done. p. 6-14's **keystate chart**: `ap_kbd_key_name` names 106 of the 128
-      codes and refuses the 22 the page leaves blank. p. 6-13's **ASCII chart**:
-      transcribed cell by cell, then spent on *checking* rather than stored — the
-      inverse map a frontend needs is computed from `008778-03` Table 12-1 by
-      `ap_kbd_ascii_decode`, and the page's 241 named cells verify it. 238 agree
-      exactly; the three that do not are a typo (`C7` prints `AB` for a key that
-      does not exist) and a real two-manual disagreement over `F8`/`FB`, left
-      `PROVISIONAL` with the firmware evidence pulling both ways.
-      The unlock was **render resolution**, not effort: the scan is 600 ppi and
-      every earlier render was 200, which is why the cells kept reading as
-      illegible and the work kept being deferred.
-      *Verification: `kbd_suite` 37 -> 44 — the round trip over all 241 named
-      cells, the three findings each asserted individually so neither a silent
-      agreement nor a silent divergence survives, and the five codes the page
-      omits.* Detail in `PROJECT_STATUS.md`.
-
-- [x] **Decode the posted diagnostic codes in `--boot-report`**, for the run the
-      firmware is evidenced to post. `ap_boardreg_post_code_name` names `03`-`0C`
-      from `002398-04` p. 4-23; everything else prints nothing rather than a
-      guess. *Verification: `boardreg_suite` 30, and the 350 M reference boot
-      names 12 of its 32 posted values.* Detail, including the register's three
-      kinds of writer and why `0D` is not statically recoverable, in
-      `PROJECT_STATUS.md`.
+- [x] **A WACKing receiver still asserts intend-to-copy — settled and fixed
+      2026-09-08.** `002398-04` p. 7-29 prints two worked transmit-status words:
+      a successful transmit reads **`0014`** and a WACK **`0012`**, which
+      p. 7-28's bit list makes `icopy|copy` and `icopy|wack`. **This core could
+      not produce the second**, gating intend-to-copy on the receiver being
+      enabled; p. 7-30 closes the escape that the bit mirrors the early
+      acknowledge. `[MAC]` Figure 2-8 admits two readings, and only *wanted this
+      packet* reproduces both published words — so that is what is implemented.
+      Two routes were spent first and stay recorded: the three ring ROMs have no
+      wait-ack handling at all, and `[MAC]` p. 2-9 restates the question in its
+      own words. A concrete worked example decided it against an ambiguous
+      figure.
+      *Verification: `ring_station_suite` 20 → 21*, asserting the **pairing** on
+      both arms — which the two existing tests did not, each looking only at its
+      own bit — and one identity boot: hash and clocks **unmoved**, the station
+      being hashed but never fed without `--ring`. Detail in `PROJECT_STATUS.md`.
 
 - [ ] **(superseded, kept for its evidence)** `002398-04`
       p. 4-23 gives the DN3000's boot PROM LED table — every power-on test
