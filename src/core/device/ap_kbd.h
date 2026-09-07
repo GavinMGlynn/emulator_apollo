@@ -304,6 +304,25 @@ typedef struct {
    * shortcut: the transition *is* the lamp's, and the byte on the wire is the
    * same either way. */
   bool caps_lock_led;
+
+  /* ## How many command bytes this part refused, which nothing counted
+   *
+   * `002398-04` ch. 12's opening sentence has the keyboard performing
+   * "power-up and operator requested self-diagnostics", and no command in the
+   * set below runs one: no document held names the command or the reply, so
+   * inventing either would be inventing a failure mode. The plan item that
+   * records the gap named its own discriminator -- *"a boot that issues an
+   * unrecognised command and waits for a reply this core does not send, which
+   * the existing `ap_kbd` counters would show"* -- and **there were no such
+   * counters**. The `default:` arm ignored the byte in silence, so the
+   * experiment the item was waiting for could not have been read even if a boot
+   * had run it.
+   *
+   * A diagnostic counter, not machine state: nothing branches on it and
+   * `ap_board_hash_keyboard` leaves it out, as it leaves every other counter
+   * out. Counted only outside loopback, because in loopback an unrecognised
+   * byte is not refused -- echoing it is the documented behaviour. */
+  unsigned ignored_commands;
 } ap_kbd_t;
 
 /* Table 12-2's final row: the CAPS LOCK **LED**'s two transition codes. `7E` is

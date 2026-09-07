@@ -6875,8 +6875,20 @@ same number is what let them diverge once already.
       a diagnostic result would be inventing a failure mode.
       **What would unblock it**, named because "blocked" without that is not a
       claim: an Apollo keyboard protocol document, or a boot that issues an
-      unrecognised command and waits for a reply this core does not send — which
-      the existing `ap_kbd` counters would show. Neither has appeared.
+      unrecognised command and waits for a reply this core does not send.
+      **The instrument that sentence named did not exist, and now does**
+      (2026-09-08). It said "which the existing `ap_kbd` counters would show";
+      the `default:` arm ignored the byte in silence and nothing counted it, so
+      the experiment could not have been read even if a boot had run it.
+      `ignored_commands` counts a byte refused **outside loopback** — in
+      loopback an unrecognised byte is echoed, which is behaviour and not a
+      refusal — and the boot report prints it.
+      **Measured: `kbd refused 0`** on a 1.5 G boot to `SPM system init
+      complete.`, so neither the firmware nor Domain/OS asks this part anything
+      it does not answer. That is now evidence for the block rather than an
+      assumption about it. *Verification: `kbd_suite` 60 → 61; no behaviour
+      changed and the counter is a diagnostic, outside the state hash as every
+      other counter is.*
       `007196-01` is **eliminated** as a source (walked whole 2026-09-08): its
       insert-file census lists `KBD` as "[Useful constants for keyboard keys]"
       with **no chapter behind it**, the one census row with no section.

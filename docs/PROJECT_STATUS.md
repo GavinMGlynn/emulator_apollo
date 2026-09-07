@@ -434,6 +434,39 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## The keyboard gap named a counter that did not exist (2026-09-08)
+
+`002398-04` ch. 12's opening sentence has the keyboard performing "power-up and
+operator requested self-diagnostics". No command in `ap_kbd_receive`'s set runs
+one and no document held names the command or the reply, so the gap is recorded
+rather than modelled — inventing a diagnostic result would be inventing a
+failure mode.
+
+**What the plan item got wrong was its own discriminator.** It said the thing
+that would open the gap is "a boot that issues an unrecognised command and waits
+for a reply this core does not send — which the existing `ap_kbd` counters would
+show". There were no such counters: `ap_kbd_receive`'s `default:` arm ignored
+the byte in silence. The experiment the item had been waiting for could not have
+been read even if a boot had run it — which is
+[`audit-what-the-instrument-covers`] in its narrowest form, an instrument named
+in a document and never built.
+
+`ignored_commands` counts a command byte refused **outside loopback**. The
+distinction is the point: in loopback an unrecognised byte is *echoed*, which is
+the documented behaviour and not a refusal. It is a diagnostic counter, so
+`ap_board_hash_keyboard` leaves it out as it leaves every other counter out, and
+the boot report prints it.
+
+**Measured: `kbd refused 0`** on a 1.5 G boot to `SPM system init complete.`, so
+across the firmware, its loaded diagnostics and Domain/OS's own startup nothing
+asks this part anything it does not answer. The block is now evidenced rather
+than assumed, and a boot that ever does ask will say so in one line.
+
+*Verification: `kbd_suite` 60 → 61 — the same byte echoed in loopback and
+counted outside it, with `00`'s mode announcement in between; `ctest` 140/140;
+one 1.5 G boot through `tools/spm-boot.sh`. No behaviour changed.*
+
+
 ## `siomonit` cannot carry `lcnode`, and it fails for the reason C238 measured
 ## (2026-09-08, RESOLVED)
 

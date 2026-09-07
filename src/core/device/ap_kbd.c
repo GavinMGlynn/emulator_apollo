@@ -599,9 +599,14 @@ unsigned ap_kbd_receive(ap_kbd_t *kbd, uint8_t byte, uint8_t *reply,
       return sent;
     default:
       /* In loopback anything else comes straight back, which is what makes it
-       * loopback. Outside it, an unrecognised byte is ignored. */
+       * loopback. Outside it, an unrecognised byte is ignored -- and **counted**
+       * now, which it was not: the keyboard self-diagnostics gap names "a boot
+       * that issues an unrecognised command" as the thing that would open it,
+       * and this is what makes such a boot readable. See `ap_kbd.h`. */
       if (kbd->loopback) {
         EMIT(byte);
+      } else {
+        kbd->ignored_commands++;
       }
       return sent;
   }

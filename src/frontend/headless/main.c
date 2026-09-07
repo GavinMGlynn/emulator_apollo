@@ -3521,6 +3521,14 @@ static void report_input_path(ap_board_t *board, unsigned unit,
     /* Both queues, because the part has one transmitter and two sources: an
      * answer still going out and a burst of typing waiting behind it are
      * different situations, and one total cannot tell them apart. */
+    /* **And how many command bytes the part refused.** `002398-04` ch. 12 has
+     * the keyboard performing self-diagnostics that no command in its set runs,
+     * and the plan item recording that gap names "a boot that issues an
+     * unrecognised command" as what would open it. Printing zero every time is
+     * the evidence that no boot does; printing anything else is the boot that
+     * item has been waiting for. */
+    printf("  kbd refused  %u unrecognised command byte(s) outside loopback\n",
+           board->keyboard.ignored_commands);
     printf("  keyboard     %s, %s set, %u reply + %u key byte(s) still on the "
            "wire\n",
            board->keyboard.loopback ? "in loopback" : "out of loopback",

@@ -1216,6 +1216,42 @@ static void test_the_transmitter_runs_at_the_keyboards_own_eleven_bits(void) {
                            AP_KBD_TX_CHARACTER);
 }
 
+/* **A refused command byte is counted, and an echoed one is not.**
+ *
+ * `002398-04` ch. 12 has this part performing "power-up and operator requested
+ * self-diagnostics" that no command in its set runs, and the plan item holding
+ * that gap named its own discriminator: a boot that issues an unrecognised
+ * command, "which the existing `ap_kbd` counters would show". There were none
+ * -- the `default:` arm ignored the byte in silence -- so the experiment could
+ * not have been read even if a boot had run it. This is the counter that makes
+ * it readable, and the distinction that makes it mean something: in loopback an
+ * unrecognised byte is **not** refused, it is echoed, which is the documented
+ * behaviour and not a refusal to count. */
+static void test_an_unrecognised_command_is_counted_only_outside_loopback(void) {
+  ap_kbd_t k;
+  ap_kbd_reset(&k);
+  uint8_t reply[AP_KBD_REPLY_MAX];
+
+  TEST_ASSERT_EQUAL_UINT(0u, k.ignored_commands);
+
+  /* In loopback it comes straight back, and that is not a refusal. */
+  TEST_ASSERT_TRUE(k.loopback);
+  TEST_ASSERT_EQUAL_UINT(1u, ap_kbd_receive(&k, 0x5Au, reply, sizeof reply));
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, reply[0]);
+  TEST_ASSERT_EQUAL_UINT(0u, k.ignored_commands);
+
+  /* `00` leaves loopback; it is a command, so it is not counted either. */
+  TEST_ASSERT_EQUAL_UINT(2u, ap_kbd_receive(&k, 0x00u, reply, sizeof reply));
+  TEST_ASSERT_FALSE(k.loopback);
+  TEST_ASSERT_EQUAL_UINT(0u, k.ignored_commands);
+
+  /* Outside it, the same byte is refused -- no reply, and now visible. */
+  TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_receive(&k, 0x5Au, reply, sizeof reply));
+  TEST_ASSERT_EQUAL_UINT(1u, k.ignored_commands);
+  TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_receive(&k, 0x5Bu, reply, sizeof reply));
+  TEST_ASSERT_EQUAL_UINT(2u, k.ignored_commands);
+}
+
 static void test_a_reset_empties_the_transmit_buffer(void) {
   ap_kbd_t kbd;
   uint8_t code = 0u;
@@ -1453,5 +1489,6 @@ int main(void) {
   RUN_TEST(test_a_reply_queued_behind_a_keystroke_does_not_overtake_it);
   RUN_TEST(test_the_answer_queue_holds_a_reply_the_key_buffer_could_not);
   RUN_TEST(test_the_transmitter_runs_at_the_keyboards_own_eleven_bits);
+  RUN_TEST(test_an_unrecognised_command_is_counted_only_outside_loopback);
   return UNITY_END();
 }
