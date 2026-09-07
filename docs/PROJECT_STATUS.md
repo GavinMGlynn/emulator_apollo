@@ -40047,6 +40047,38 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s PBUFS and PFM chapters walked whole — the operating system's fault taxonomy
+
+PDF 409-430, 478 of 722. `PBUFS` is four pages of paste-buffer calls with nothing
+below them. `PFM`, the Process Fault Manager, has one sentence that names this
+core's exceptions from the other side (PFM-9):
+
+> "Inhibiting asynchronous faults has no effect on the processing of
+> **synchronous faults such as floating-point overflow errors, access violations,
+> address errors**, and so on."
+
+So Domain/OS's split maps onto the 68030's vectors: an **address error** (3), an
+**access violation** — an MMU bus error, vector 2 — and an **FPCP overflow** (53)
+are synchronous and reach the program regardless of `PFM_$INHIBIT`. What
+`$INHIBIT` gates is the asynchronous kind, whose named example is a **CTRL/Q**
+keystroke reaching the Display Manager's quit command. Nothing here changes the
+model; it settles which side of the operating system's own boundary each vector
+this core raises falls on.
+
+**The asynchronous queue is one deep**, stated twice: "the operating system holds
+at most one asynchronous fault ... the program receives the **first**". A held
+fault is kept and later ones are dropped.
+
+Also: clean-up handlers are a LIFO stack with a built-in handler always at the
+bottom that "closes any files that are still open and returns control to the
+invoking Shell"; `PFM_$SIGNAL` never returns and stores no traceback where
+`PFM_$ERROR_TRAP` does; and "when a fault occurs the operating system
+automatically stores traceback information". `PFM_$FAULT_REC_T` carries a
+`STATUS_$T` at offset 2 — the fifth printing of that longword in this walk.
+
+A documentary contradiction recorded in the walk record: `PFM_$CLEANUP_REC` is 64
+bytes on one page and 8 on three others.
+
 ## `007196-01`'s PAD chapter walked whole — the pixel pitch, and what the off-screen memory holds
 
 PDF 349-408, 456 of 722. Fifty-seven pages of Display Manager calls, most of it

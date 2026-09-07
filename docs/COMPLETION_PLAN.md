@@ -6192,8 +6192,8 @@ same number is what let them diverge once already.
       **All nine device chapters are finished, 2026-09-07** — `SIO`, `CAL`,
       `CTM`, `FPP`, `GMF`, `MTS`, `SMD`, `TIME`, `TONE` and `TPAD` — and the
       remainder is being walked in document order. **`ERROR`, `ACLM`, `EC2`, `IOS`,
-      `IOS_DIR`, `IPC`, `MBX`, `MS`, `MUTEX`, `NAME` and `PAD` are done too**,
-      456 of 722; 266 pages remain. **`PAD` gives `ap_graphics.h` two figures**:
+      `IOS_DIR`, `IPC`, `MBX`, `MS`, `MUTEX`, `NAME`, `PAD`, `PBUFS` and `PFM`
+      are done too**, 478 of 722; 244 pages remain. **`PAD` gives `ap_graphics.h` two figures**:
       the display is "approximately 100 bits per inch" — the only pixel pitch
       any source here has — and the invisible part of display memory is where
       `PAD_$LOAD_FONT` puts up to 100 fonts, so the 224 lines past the visible
