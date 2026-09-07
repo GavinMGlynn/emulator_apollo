@@ -40047,6 +40047,47 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s SMD chapter started — the display census, and a bus error this core cannot raise
+
+Seven of the 41 pages of the Screen Manager chapter, chosen by extracting the
+whole chapter and reading the pages whose text carries numbers. **The chapter is
+not finished and the record says which pages are owed.** What the seven gave:
+
+**A census of every display an Apollo node can have.** `SMD_$INQ_DISP_TYPE`
+returns one of `SMD_$NONE`, `SMD_$BW_15P` (black and white portrait),
+`SMD_$BW_19L` (landscape), `SMD_$COLOR_DISPLAY` (1024×1024), `SMD_$800_COLOR`
+(1024×800), `SMD_$COLOR2_DISPLAY` (1280×1024×8), `SMD_$COLOR3_DISPLAY`
+(1024×800×8) and `SMD_$COLOR4_DISPLAY` (1024×800×4). `ap_graphics.h` lists three
+boards: two 1280×1024 monochrome and one 1024×800 8-plane colour.
+`SMD_$COLOR3_DISPLAY` is that colour board, `SMD_$COLOR4_DISPLAY` is the same
+geometry at four planes — which is what the sixteen-entry LUT in that file is for
+— and the monochrome pair are `SMD_$BW_19L`. The operating system names displays
+by tube and orientation where the hardware documents name them by part number and
+resolution; this is the row that joins the two.
+
+**The SMD coordinate space is 800 × 1024 — portrait.** `SMD_$DRAW_ABS_U` takes a
+column 0-799 and a line 0-1023, and the chapter opens "direct control over
+black-and-white displays". So these calls are written for the portrait monochrome
+screen, and a 1280×1024 landscape one is outside the range they document.
+
+**`SMD_$MAP_DISPLAY_U` confirms the 128 KB window** this core already carried as
+"the CPU's 128 KB window" with the plane selection marked unmeasured — the size is
+now cited rather than inferred.
+
+**And a hardware bus error this core cannot raise.** "Be careful not to access
+display memory while a bit BLT is underway. Doing so causes the offending program
+to abort with a hardware bus error fault." The interval exists because `IDONE`
+makes `SMD_$BLT_U` return immediately and signal completion later. **Unreachable
+here rather than unimplemented**: this core models the blit as the CPU's own bus
+cycles, so a blit occupies no interval anything can arrive during. It becomes
+reachable the day the blitter is given its own time, and is recorded now.
+
+One open question: Table SMD-1's `SMD_$NONINTERLACE`, "disable hardware
+interlacing", has no home in `CR1` — whose eight bits are all named — and
+`008778-03` Table 11-3 gives this machine's display as 1024×800 *noninterlaced*.
+Either the bit belongs to a display type this board is not, or it lives in
+`CR3A`/`CR3B`.
+
 ## `007196-01`'s GMF chapter walked whole — the ink convention from the other side
 
 Pages 107-119, GMF-1 to GMF-13. 119 of 722, and `SMD` is the last device chapter
