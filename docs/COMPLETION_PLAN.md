@@ -4282,13 +4282,19 @@ discipline throughout.
          `PROJECT_STATUS.md`.
          **What is still true**: no *semantics* are attached to DCD or DTR —
          the pin is nameable and drivable, and nothing faults on its loss.
-         **And this step names the experiment that would test that**, which is
-         worth more than the correction: the line here is configured `tctl -line
-         2 ... -dcd_enable ...` by the template the volume ships. Every boot so
-         far sets the pins *before* the driver programs `ACR`, so no transition
-         ever occurs after arming and the fault path is never entered. A
-         **timed** pin change — after `siologin` has configured the line — is
-         the untried experiment, and it needs `--sio-input` to grow a "when".
+         **And this step named the experiment that would test that** — a
+         *timed* pin change, after `siologin` has configured the line, because
+         every boot until then set the pins *before* the driver programmed `ACR`
+         so no transition ever occurred after arming.
+         **That experiment has been run** (corrected 2026-09-08; the sentence
+         below is what this step said until then). `--sio-input-at
+         N:UNIT:HEX` exists, and one gated boot at
+         `--sio-input-at 1200000000:1:04` — `IP2` raised at 1.2 G, past SPM at
+         ~1.05 G — took `sio2`'s `ISR` from `11` to **`91`**, §4.2.15's Input
+         Port Change Status, exactly as the datasheet says. `IPCR` is **never
+         read**, so nothing clears it, and the console stops where the baseline
+         goes on. `PROJECT_STATUS.md` records both readings and chooses neither.
+         *What it said*: "it needs `--sio-input` to grow a 'when'". It grew one.
       5. Run the two nodes with a script that waits for
          `SPM system init complete.`, knocks, logs in as `user`, and runs
          **`/com/lcnode`** by absolute path -- now with `--boot-script-line`
@@ -6095,33 +6101,22 @@ same number is what let them diverge once already.
       services. *Verification: three gated 1.5 G boots.* Detail in
       `PROJECT_STATUS.md`.
 
-- [ ] **Re-scope the seven items that waited behind "`siologin` needs a
-      modem-control signal".** Opened 2026-08-21. C220's sentence is refuted by
-      measurement: the signal is readable, reads asserted, and no `login:`
-      appears. Every item that named it as its blocker needs its real blocker
-      found instead -- and the ones that wanted a *shell* may not need
-      `siologin` at all, since `PROJECT_STATUS` records `sh` at the `)` prompt
-      giving a `login:` on the display route.
-      **Start from what the run shows**: `siologin` runs, inquires the port,
-      programs the line, and stays silent. The next question is what it does
-      after that, which is a matter for a trace rather than another register
-      count.
-      **Progressed 2026-08-22, and the re-scoping is now cheaper than it was.**
-      Two of the three things this chain waited on are settled: the input port
-      is drivable (`--sio-input`), and **DCD's pin is named — `IP2`**, by
-      measurement. So an item that said "blocked on modem control" must now say
-      which of three different things it means:
-      1. *The pin is unnamed* — **no longer true.**
-      2. *The pin cannot be moved* — **no longer true.**
-      3. *No semantics attach to it*: nothing faults on carrier loss, because
-         `SIO_$DCD_ENABLE` arms a change interrupt and every boot so far sets
-         the pins **before** the driver programs `ACR`, so no transition occurs
-         after arming. **This is the one still standing**, and it is a
-         `--sio-input` that grows a "when" rather than a modelling gap.
-      *The ring item at line 4051 needs none of it* — its own text already moved
-      to the frame check and says `lcnode` is the weaker measurement — and the
-      shell items should be re-read against `PROJECT_STATUS`'s `sh` at the `)`
-      prompt before anyone assumes they need `siologin` at all.
+- [x] **Re-scope the seven items that waited behind "`siologin` needs a
+      modem-control signal" — done 2026-09-08.** All three things the chain
+      waited on are settled, and every item that named it has a real blocker.
+      1. *The pin is unnamed* — false since 2026-08-22: DCD is **`IP2`**,
+         measured by six gated boots, recorded as `AP_SIO_DCD_PIN`.
+      2. *The pin cannot be moved* — false: `--sio-input UNIT:HEX`.
+      3. *No semantics attach to it* — the experiment this item named has been
+         **run**. `--sio-input-at N:UNIT:HEX` exists, and one gated boot raising
+         `IP2` at 1.2 G took `sio2`'s `ISR` from `11` to `91`, §4.2.15's Input
+         Port Change Status, never cleared because `IPCR` is never read.
+         `PROJECT_STATUS.md` records both readings and chooses neither.
+      The two ring items had their verifications rewritten on 2026-08-19 to the
+      ring property they are about, `lcnode` moving to multi-node workloads —
+      whose blocker is now "a second installed volume", which C199 delivered.
+      The one surviving modem-control gap is a different question, *which* `OPR`
+      bit is DTR, and has its own item. Detail in `PROJECT_STATUS.md`.
 
 - [x] **Walk `007196-01` *Domain System Call Reference* — done 2026-09-08,
       722/722.** Opened 2026-08-21 when its SIO chapter yielded four facts this

@@ -40065,6 +40065,50 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## The `siologin` re-scoping is finished, and the last of it was already built
+
+Ticked 2026-09-08. The item asked for seven items that named "`siologin` needs a
+modem-control signal" to be given their real blockers, and listed three things
+the chain waited on. All three are settled, and two of them had been settled for
+weeks without the item saying so.
+
+1. **The pin is unnamed** — false since 2026-08-22. DCD is **`IP2`**, measured
+   by six gated boots that bisect the four `ACR`-armed pins, three reproducing
+   the baseline exactly and `IP2` alone reproducing the all-four result.
+   `AP_SIO_DCD_PIN` records it.
+2. **The pin cannot be moved** — false. `ap_sio_set_input` and the headless
+   `--sio-input UNIT:HEX`.
+3. **No semantics attach to it** — this is the one the item called "still
+   standing", and it described the fix as "a `--sio-input` that grows a *when*".
+   **It grew one.** `--sio-input-at N:UNIT:HEX` exists, and the experiment has
+   been run: one gated boot at `--sio-input-at 1200000000:1:04` raised `IP2` at
+   1.2 G instructions, past SPM at ~1.05 G, and took `sio2`'s `ISR` from `11` to
+   **`91`** — §4.2.15's Input Port Change Status, exactly as the datasheet says.
+   `IPCR` is **never read**, so nothing clears the change, and the console stops
+   where the baseline goes on. Two readings of what follows are recorded above
+   and neither is chosen. That is a **result**, not a gap.
+
+**And the items themselves were re-scoped where they live**, which is why the
+count of "seven" no longer matches anything: the two ring items had their
+verifications rewritten on 2026-08-19 to the ring property they are actually
+about — two nodes exchanging frames, measured from the station counters and the
+transmit read-back — with `lcnode` moved to multi-node workloads. That item's
+blocker is now "a second *installed* volume", and C199 made the second install
+work, so it is startable rather than blocked.
+
+**The one surviving modem-control gap is a different question** and has its own
+item: *which* `OPR` bit is DTR and *which* input pin the board wires DCD to at
+the connector. The part is complete — input pins, `IPCR` deltas, `ACR[3:0]`
+gating `ISR[7]`, the output port and both Set/Clear registers — and what is
+missing is board-level naming, exhausted at reference, web and oracle.
+
+*Why this was worth closing rather than leaving*: an item that says seven other
+items are mis-scoped is a claim about the plan, and a claim about the plan goes
+stale exactly as fast as a comment does. Two of its three points were false when
+it was last read, and its own named remedy had been built. The correction to
+step 4 of the two-node item — which still said "it needs `--sio-input` to grow a
+'when'" — is kept in place with the original sentence beneath it.
+
 ## A WACKing receiver still asserts intend-to-copy — a published status word this core could not produce
 
 Settled and fixed 2026-09-08, on evidence that had been on the shelf the whole
