@@ -6191,8 +6191,8 @@ same number is what let them diverge once already.
       queried. Record: `docs/references/007196-01_WALK.md`.
       **All nine device chapters are finished, 2026-09-07** — `SIO`, `CAL`,
       `CTM`, `FPP`, `GMF`, `MTS`, `SMD`, `TIME`, `TONE` and `TPAD` — and the
-      remainder is being walked in document order. **`ERROR` is done too**,
-      174 of 722; 548 pages remain. **The chapter map is built**: INTRO-2's
+      remainder is being walked in document order. **`ERROR`, `ACLM` and `EC2` are done
+      too**, 188 of 722; 534 pages remain. **The chapter map is built**: INTRO-2's
       census plus the running footers give every chapter's first page.
       `ERROR` was taken first among the operating system's own chapters
       because `002398-04` p. 68 pointed at a "Chapter 4, Error Codes and

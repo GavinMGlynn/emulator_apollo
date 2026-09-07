@@ -40047,6 +40047,32 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s ACLM and EC2 chapters walked whole — the object the 262,144 µs tick advances
+
+PDF 15-17 and 63-73, 188 of 722. Two operating-system chapters with no device in
+them, walked in document order.
+
+`ACLM` is three pages and two calls, `$UP` and `$DOWN`, bracketing a program's
+protected-subsystem rights around a per-process **counter** rather than a flag.
+Nothing for this core; derived and empty.
+
+`EC2` puts a shape on something already measured here. The `TIME` chapter gave
+the number — the `TIME_$CLOCKH_KEY` eventcount advances every **262,144 µs** —
+and `EC2` gives the object: `EC2_$EVENTCOUNT_T` is a 4-byte `value` at offset 0
+and a 2-byte `awaiters` at offset 4, six bytes in total, and the value is read as
+"a **positive** 4-byte integer". The ceiling is **32 eventcounts per node**, not
+per process. And the system-defined ones are explicitly outside these calls: "do
+not use `EC2_$INIT` to initialize a system-defined eventcount; the system
+automatically initializes eventcounts associated with system events" — so the
+clock tick is the operating system advancing its own counter off a hardware
+interrupt, which is why `TIME` can say the interval "changes slightly with system
+load".
+
+EC2-3 is a fourth printing of `STATUS_$T`, and it is the one that glosses the
+fail bit: "the error was not within the scope of the module invoked, but occurred
+within a **lower-level module**". `002398-04` p. 68's "module couldn't handle
+error" agrees.
+
 ## `007196-01`'s ERROR chapter walked whole — the question it was opened for comes back no
 
 PDF 77-90, ERROR-1 to ERROR-14, 174 of 722. The first of the operating system's
