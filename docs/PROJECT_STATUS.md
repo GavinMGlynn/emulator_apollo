@@ -40047,6 +40047,43 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s PGM, PM and PRF chapters walked whole — the four standard streams
+
+PDF 431-482, 530 of 722. Twenty-three numbered pages, four and eighteen.
+
+**`PGM` numbers the standard streams and closes a loop the `ERROR` chapter
+opened.** PGM-14: "by default, every program is invoked with four streams,
+numbered 0 through 3. Stream 0 is standard input, stream 1 is standard output,
+**Stream 2 is error input**, stream 3 is error output." `ERROR` gave
+`STREAM_$ERROUT` = 3 alone; here are all four, and a distinct *error input*
+stream is not what a Unix-shaped expectation predicts.
+
+**`UID_$T`'s layout is printed**: `high` at 0, `low` at 4, four bytes each — the
+eight bytes `IOS` states as a width and `002398-04` §2's canned UIDs are printed
+in. **`EC2_$EVENTCOUNT_T` appears a third time** and this printing glosses
+`awaiters` as "first process waiting", where `EC2` called it reserved for internal
+use.
+
+Also: `PGM_$EXIT` "calls `PFM_$SIGNAL` with a status code equal to the last
+severity level set", which is how the `PFM` chapter's LIFO clean-up stack is
+entered on a normal exit; a child's eventcount is **0 while running and 1 at
+termination**; and the severity ladder runs `OK`/`TRUE` 0 … `PROGRAM_FAULTED` 6,
+`MAX_SEVERITY` 15.
+
+**`PRF` has one line that touches the display.** Its print options include
+**`BW_REV ON|OFF`** — "enable/disable black and white reversal for bitmaps",
+default OFF — beside `PLOT ON`, which selects bitmap mode "to print bitmap files
+created by a graphics metafile (GMF) manager or GPR or the **CPSCR
+(COPY_SCREEN)** command". The `GMF` chapter established that a graphics map
+file's `1` bits mean black; this is the path from this core's frame buffer to
+paper, and the command that makes one. Nothing implementable, recorded because it
+is the other end of the ink convention.
+
+`PM` is four calls; `PM_$GET_SID_TXT` prints the login identifier as
+`person.group.project.nodeid`. Documentary defects from all three chapters are in
+the walk record, including a stream-count that is 32 in one paragraph and 128 in
+the next.
+
 ## `007196-01`'s PBUFS and PFM chapters walked whole — the operating system's fault taxonomy
 
 PDF 409-430, 478 of 722. `PBUFS` is four pages of paste-buffer calls with nothing
