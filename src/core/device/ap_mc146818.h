@@ -208,7 +208,17 @@ typedef struct {
   unsigned year;        /* full year, e.g. 1987 */
   unsigned month;       /* 1-12 */
   unsigned day;         /* 1-31 */
-  unsigned day_of_week; /* 1-7, `[146818]` numbers Sunday as 1 */
+  /* 1-7, `[146818]` numbers Sunday as 1.
+   *
+   * **Domain/OS never reads this register**, which is worth knowing before a
+   * boot is taken as evidence about it: `007196-01`'s `CAL_$TIMEDATE_REC_T` is
+   * year, month, day, hour, minute and second with **no weekday field**, and
+   * `CAL_$WEEKDAY` "computes the day of the week for any Gregorian date" from
+   * the other three. So this field is modelled and tested from the datasheet
+   * alone, and always will be. *The operating system's own enumeration differs
+   * by one* -- `CAL_$SUN` through `CAL_$SAT` have "ordinal values 0 through 6"
+   * -- so a driver that did read the register would subtract. */
+  unsigned day_of_week;
   unsigned hour;        /* 0-23, always twenty-four hour here */
   unsigned minute;      /* 0-59 */
   unsigned second;      /* 0-59 */

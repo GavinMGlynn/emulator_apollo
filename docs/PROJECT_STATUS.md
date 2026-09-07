@@ -40047,6 +40047,41 @@ bit 0 sequencing at once. Every link of that is measured and recorded in
 `TEST_SHELF.md`; none of it blocks the release boots. Finish it as
 harness work when it is wanted for its own sake, not as a prerequisite.
 
+## `007196-01`'s CAL chapter walked whole — the 4 µs clock gets a citation
+
+Pages 21-45 (CAL-1 to CAL-25) of the *Domain System Call Reference*, the Calendar
+chapter — this machine's MC146818 seen from the operating system. 50 of 722 now
+read.
+
+**`TIME_$CLOCK_T` is a 48-bit count of 4-microsecond periods since 1980-01-01
+00:00**, stated on CAL-19 and again on CAL-8. That is the document behind a figure
+this project derived by calibration: the section above on volume labels records "a
+label time is the high 32 bits of Apollo's 48-bit 4 µs clock from 1980-01-01 — a
+262144 µs tick", fitted to two dates the machines themselves printed after a
+quarter-second tick proved 4.9% out. 65536 × 4 µs is 262144 µs exactly. The
+inference was right and now has a citation rather than two data points.
+
+**The two-digit year window is 1980-2079.** `CAL_$DECODE_ASCII_DATE` adds 1900 to
+a year of 80-99 and 2000 to a year of 0-79. That is an ASCII-parsing rule and not
+a rule for the RTC's year register — `ap_mc146818.c` is right to refuse to window
+a register write — but it names the era Domain/OS assumes, and it agrees with the
+SR10.4 volume's 2002 dates.
+
+**Two negative confirmations, both useful.** The time zone is written "onto the
+logical disk volume from which the operating system was started", not into the
+calendar's battery RAM, so `ap_calendar.c`'s fifty bytes hold the node
+configuration and nothing else. And Domain/OS never reads the part's day-of-week
+register: `CAL_$TIMEDATE_REC_T` has no weekday field and `CAL_$WEEKDAY` computes
+one from the date, so a boot is no evidence about `AP_MC146818_DAY_OF_WEEK`, which
+this core models and tests from the datasheet alone. The two conventions differ by
+one — `CAL_$SUN` is ordinal 0 where `[146818]` numbers Sunday 1 — and both now have
+citations.
+
+`STATUS_$T` is reprinted on CAL-5 identically to SIO-6, so the bit-23 difference
+with `002398-04` is systematic across this manual rather than one page's slip. One
+documentary error: CAL-20's FORMAT line for `CAL_$REMOVE_LOCAL_OFFSET` prints the
+previous call's name.
+
 ## `007196-01`'s SIO chapter walked whole — and the operating system checks our baud table
 
 Pages 521-540 (SIO-1 to SIO-20) of the *Domain System Call Reference*, read as

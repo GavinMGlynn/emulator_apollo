@@ -6189,8 +6189,18 @@ same number is what let them diverge once already.
       2026-08-21 under the whole-document rule: its SIO chapter yielded four
       facts this core did not have, so the document must be derived rather than
       queried. Record: `docs/references/007196-01_WALK.md`.
-      **The SIO chapter is finished, 2026-09-07** — pages 521-540, SIO-1 to
-      SIO-20, all read as images. **The other 702 pages are not read.**
+      **`SIO` and `CAL` are finished, 2026-09-07** — 50 of 722 read as images,
+      and **the chapter map is built**: INTRO-2's census plus the running
+      footers give every chapter's first page, so nine of the thirty-three
+      touch hardware this core models and are 138 pages between them. Walk
+      those, then the rest in document order.
+      `CAL`, the calendar chapter, gives the **citation for the 4 µs clock from
+      1980-01-01** that this project had derived by fitting two machine-printed
+      dates — the 262144 µs volume-label tick is its high 32 bits — plus the
+      **1980-2079 two-digit year window**, and two negative confirmations: the
+      time zone lives on the boot volume rather than in the calendar's battery
+      RAM, and Domain/OS computes the weekday rather than reading the part's
+      register, so a boot is no evidence about that one.
       Its best find is p. 533's table of **incompatible baud rates**: the A list
       (`50`, `7200`) and B list (`75`, `150`, `2000`, `19200`) are exactly the
       MC68681's set-1-only and set-2-only rates among the fifteen the operating
