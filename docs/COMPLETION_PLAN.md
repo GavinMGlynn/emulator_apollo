@@ -6016,7 +6016,22 @@ same number is what let them diverge once already.
       document is the *Hardware Architecture Handbook* `007861-A01`, already
       recorded here as unobtainable.
       **So this is scoped to `dn4000`**, which is in the model table, and stays
-      open for it. *What would close it*: a `dn4000` boot that reads `012000`.
+      open for it.
+      *What would close it* was written as "a `dn4000` boot that reads
+      `012000`", and **2026-09-08 establishes that no such boot can be run
+      today**. `roms/firmware/` holds six boot PROMs across five models — 2500,
+      3000 (two revisions), 3500, 4500, 5500 — and **none of them is a DN4000's**;
+      the oracle has no DN4000 either, its driver declaring only dn3000, dn3500,
+      dn5500 and the three headless variants. So the blocker is a **DN4000 boot
+      PROM**, named as such rather than described.
+      **And the two PROMs from the right family do not reach the window.**
+      Searched for an aligned 32-bit `00012000` or `00014000` in the 4500's, the
+      3500's and the 3000's boot PROMs: **zero hits in all three**, where the
+      same search finds `00010400` (SIO 1) ten times in the 4500's and the
+      3500's, `00011000` (interrupt controller 1) once, and `00010800` twice —
+      so the instrument works and the answer is a clean negative. *Evidence, not
+      proof*: an address computed from a base register would evade it, which is
+      exactly how the DS2500's own map is written.
 - [x] **The DS4000 is in the model table**, as `dn4000` — this table uses `dn`
       throughout and `019411-A00`'s DS3500 is `dn3500` here. 25-MHz 68020, 68851,
       68881, 4–32 MB from `002398-04` Figure 1-2 and §1; the **display is
