@@ -4779,13 +4779,25 @@ Only after the reference core is proven, and only under an identity harness.
       which the caller sets immediately before, so a persisting bus is identical
       to the fresh local it replaces. No signature changed.
       *Verification: `ctest` 138/138, identity boot `A354786119A3931D`
-      unchanged.* **Step 1b remains, and it is not as mechanical as 1a.**
-      `ap_m68030_cache_read` already takes **ten parameters** and has **twelve
-      call sites** (`ap_m68030_access.c`, `tests/cache_suite.c`), so an
-      eleventh is poor design rather than merely tedious — the honest options
-      are (a) add the parameter anyway and bundle later, or (b) bundle the
-      argument list into a request struct *first*, which touches the same twelve
-      sites once instead of twice.
+      unchanged.*
+      **Step 1b's bundling is DONE, 2026-09-08, and option (b) was taken.**
+      `ap_m68030_cache_read` took **ten parameters** across **twelve call sites**
+      (`ap_m68030_access.c` and `tests/cache_suite.c`), so the eleventh this item
+      needs would have been poor design rather than merely tedious. The argument
+      list is now `ap_m68030_cache_request_t`, so the next parameter costs one
+      field and no call site. It also removes a hazard the function's own comment
+      records: `address` and `physical` were adjacent `uint32_t`s that are
+      **equal whenever the MMU is off**, so transposing them is invisible to
+      every test in `cache_suite` — which is how the read path once fetched from
+      the logical address for real. Named fields cannot be transposed.
+      *Verification: `ctest` 140/140 both presets and the identity boot
+      **`FE2BB02AEF1F4624` unchanged** — behaviour-neutral by measurement, not
+      by inspection.*
+      **What remains of 1b** is the substance rather than the shape: giving the
+      read path the access context's persistent bus instead of the one its caller
+      passes, which §7.3.6 settles — "the synchronous read-modify-write operation
+      is **indivisible**", so read and write are strictly sequential and one bus
+      field is correct, which is also what the hardware has.
       **And a correctness question with it**: whether the read path shares
       `ap_m68030_access_ctx_t`'s bus or gets its own field. They are never live
       simultaneously — a read-modify-write is a read *then* a write — so one bus

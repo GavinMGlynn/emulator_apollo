@@ -204,11 +204,20 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
    * says suppresses `CBREQ`; and `ap_m68030_cache_read`'s own
    * `bus->rmc = read_modify_write` *cleared* the signal on the read cycle of an
    * indivisible operation, which is exactly the cycle it must be asserted on. */
-  const ap_m68030_cache_access_t fetched = ap_m68030_cache_read(
-      access->cache, &access->bus, logical, physical, function_code, fillable,
-      access->burst_enabled,
-      access->cache_frozen, access->rmc, access->fill, access->wait_states,
-      access->context);
+  const ap_m68030_cache_request_t request = {
+      .address = logical,
+      .physical = physical,
+      .function_code = function_code,
+      .cache_enabled = fillable,
+      .burst_enable = access->burst_enabled,
+      .frozen = access->cache_frozen,
+      .read_modify_write = access->rmc,
+      .fill = access->fill,
+      .wait_states = access->wait_states,
+      .context = access->context,
+  };
+  const ap_m68030_cache_access_t fetched =
+      ap_m68030_cache_read(access->cache, &access->bus, &request);
 
   out.value = fetched.value;
   out.clocks = fetched.clocks;

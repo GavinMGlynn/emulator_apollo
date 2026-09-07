@@ -253,11 +253,20 @@ bool ap_m68030_cache_burst_request(const ap_m68030_cache_t *cache,
 
 ap_m68030_cache_access_t
 ap_m68030_cache_read(ap_m68030_cache_t *cache, ap_m68030_bus_t *bus,
-                     uint32_t address,
-                     uint32_t physical, uint8_t function_code, bool cache_enabled,
-                     bool burst_enable, bool frozen, bool read_modify_write,
-                     ap_m68030_fill_fn fill,
-                     ap_m68030_wait_states_fn wait_states, void *context) {
+                     const ap_m68030_cache_request_t *request) {
+  /* Unpacked once, so the body below reads exactly as it did when these were
+   * parameters. The bundle is about the call sites, not about this function. */
+  const uint32_t address = request->address;
+  const uint32_t physical = request->physical;
+  const uint8_t function_code = request->function_code;
+  const bool cache_enabled = request->cache_enabled;
+  const bool burst_enable = request->burst_enable;
+  const bool frozen = request->frozen;
+  const bool read_modify_write = request->read_modify_write;
+  const ap_m68030_fill_fn fill = request->fill;
+  const ap_m68030_wait_states_fn wait_states = request->wait_states;
+  void *const context = request->context;
+
   ap_m68030_cache_access_t result = {0};
 
   /* "Whenever a read access occurs and the required instruction word or data

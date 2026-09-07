@@ -315,13 +315,35 @@ typedef struct {
  * The low four bits agree by construction -- the smallest page this part
  * supports is 256 bytes and a line is sixteen -- so the offset within the line
  * is the same either way. */
+/* ## Everything a read needs beyond the cache and the bus, in one place
+ *
+ * This was ten separate parameters across twelve call sites, and the next
+ * increment of the per-cycle processor item wants an **eleventh** -- the machine
+ * driving `ap_m68030_bus_tick` instead of the access ticking the bus to
+ * completion. The plan named the two honest options and preferred this one:
+ * bundle first and touch the twelve sites once, rather than add a parameter and
+ * bundle later and touch them twice.
+ *
+ * It also makes the distinction above visible at every call. `address` and
+ * `physical` were adjacent `uint32_t`s that a caller could transpose in
+ * silence, and with the MMU off the two are equal, so the transposition would
+ * be invisible on every test this suite has -- which is exactly how the bug
+ * that comment describes got in. Named fields cannot be transposed. */
+typedef struct {
+  uint32_t address;  /* logical: what tags the cache */
+  uint32_t physical; /* what the bus cycle uses on a miss */
+  uint8_t function_code;
+  bool cache_enabled;
+  bool burst_enable;
+  bool frozen;
+  bool read_modify_write;
+  ap_m68030_fill_fn fill;
+  ap_m68030_wait_states_fn wait_states;
+  void *context;
+} ap_m68030_cache_request_t;
+
 ap_m68030_cache_access_t
 ap_m68030_cache_read(ap_m68030_cache_t *cache, ap_m68030_bus_t *bus,
-                     uint32_t address,
-                     uint32_t physical,
-                     uint8_t function_code, bool cache_enabled,
-                     bool burst_enable, bool frozen, bool read_modify_write,
-                     ap_m68030_fill_fn fill,
-                     ap_m68030_wait_states_fn wait_states, void *context);
+                     const ap_m68030_cache_request_t *request);
 
 #endif /* APOLLO_CPU_M68030_AP_M68030_CACHE_H */
