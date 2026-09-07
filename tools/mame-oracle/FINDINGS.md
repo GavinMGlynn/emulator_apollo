@@ -13077,3 +13077,83 @@ That is a different and much narrower question than the one this finding opened
 with, and it is where the MD route now stands: not the harness, not the pacing,
 not the resampler, not the baud set. **The console is selected and something
 after the selection rejects it.**
+
+## C241 -- MD talks, a shell opens, and `lcnode` runs on this core: C165 is withdrawn
+
+    MD7C REV 8.00, 1989/08/16.17:23:52
+    >DI W
+    >EX DOMAIN_OS
+    Domain/OS kernel(7), revision 10.4, February 14, 1992  11:42:25 am
+    SH
+    Apollo Phase II Environment   Revision 10.4   Jan 25, 1992  12:59:03 pm
+    )... loading global libraries
+    login: user
+    Password:
+    Registries unavailable. You are logged in as user.none.none.
+    $ /com/lcnode
+
+     The node ID of this node is 12345.
+     No other nodes responded.
+
+    Node ID      Boot time           Current time         Entry Directory
+    12345   2002/11/28 12:01:56   2002/11/28 12:03:06  //node_12345
+
+**On this core, on its serial console, in one run.** Byte for byte what C164
+recorded from the oracle in August, including `No other nodes responded`, which
+is the right answer for one machine with no cable. `tools/md-shell.sh` records
+the invocation.
+
+### C165 is withdrawn, and it was wrong for a reason worth keeping
+
+C165 concluded *"this core cannot put MD on the serial line"* and built a table
+saying so: our core, Service -> "silent, PROM poll". That measurement was real.
+The conclusion drawn from it was that MD here talks to the frame buffer, and it
+was wrong. **Three things had to be true at once, and every earlier attempt had
+at most two.**
+
+1. **`--boot-input-after-pc 78E`.** `--boot-input-interval` sets the *spacing*
+   between characters and not the *offset* of the first, so every attempt
+   delivered its burst at `t = 0` and had it discarded -- the exact failure
+   `MD.md` describes and which pacing cannot fix, because pacing moves the gap
+   and not the start. C239 added the flag and measured what it changes:
+   `0 of 60` becomes `120 of 120`.
+2. **2400 baud, chosen by the firmware and not by us.** C240 read the election's
+   autobaud table out of the PROM: `ACR = $E0`, `CSRB = $77` -- baud set 2,
+   code 7, **2000 baud** -- and five recognised shapes. This core's resampler
+   reproduces all five exactly, and only the three slow ones are
+   *self-consistent* at a 2000-baud receiver. A 2400 terminal's `0D` reads as
+   `$C7` and is answered with 2400; a 9600 terminal's reads as `$FE` and is
+   answered with **4800**.
+3. **A frontend deadlock, found by the run that first reached MD.** With 1 and 2
+   in place the banner appeared and `DI W` went through -- and the dialogue then
+   stopped with 48 emulated seconds of budget left. `expect` was evaluated only
+   when a byte *arrived*, and MD printed its prompt inside the 0.4 s between the
+   script's last character and the call that advances past the `send`. So the
+   `>` reached the buffer one step early, was never tested, and no later byte
+   could trigger the test **because the machine was waiting for the answer the
+   script was holding**. `console_script_settle` now runs on both edges.
+
+### Why 9600 could never have worked, in the firmware's own instructions
+
+`0008C8` is what C240 could not see the significance of. After the console is
+elected the firmware reads **one more character** and requires it to be exactly
+a carriage return:
+
+    0008C8  bsr.w  $21fa          read a character
+    0008CC  and.w  #$7f, d1
+    0008D0  cmp.b  #$d, d1
+    0008D4  bne.w  $752           not a CR -> throw the election away
+
+At 9600 the election answers 4800, the third character is misread, and `$752`
+rewrites `ACR` and `CSRB` and starts again. That is the **63 `CRB` writes** the
+C239 run reported: sixty-three complete elections, each thrown away by one
+character. Nothing was broken; the terminal was set to a rate this firmware's
+table cannot close on.
+
+*Method note.* Each of the three parts was found by measuring rather than by
+trying rates: the offset from a flag that made the delivery count visible, the
+rate from the firmware's own table checked against our resampler, and the
+deadlock from a run that got further than any before it and stopped somewhere
+new. The rate was **predicted before the run** -- 2400 because `$C7` is the
+shape a 2400 terminal makes at a 2000-baud receiver -- which is the difference
+between deriving a number and searching for one.

@@ -289,6 +289,22 @@ def main() -> int:
             source_check("scripted input can be held until a PC is reached: "
                          "%s" % what, fragment in main_c)
 
+        # A console dialogue deadlocks unless `expect` is evaluated on **both**
+        # edges: when a byte arrives, and when a `send` completes. A prompt
+        # printed while the preceding `send` was still going out lands in the
+        # buffer one step early, and the machine then stops talking -- it is
+        # waiting for the answer the script is holding -- so no later byte can
+        # trigger the test. Measured on the run that first reached MD
+        # (`FINDINGS.md` C241): the dialogue stopped after `DI W` with 48
+        # emulated seconds of budget left and MD idle at a prompt.
+        for fragment, what in (
+                ("static void console_script_settle(", "the helper exists"),
+                ("  console_script_settle(script);\n}", "a byte settles it"),
+                ("    console_script_settle(script);\n    return -1;",
+                 "a completed send settles it too")):
+            source_check("a console dialogue cannot deadlock on a prompt "
+                         "printed early: %s" % what, fragment in main_c)
+
         # ---- the model table's fields must be consulted, not just declared ----
         #
         # `model/`'s own rule is "all machine variance lives here, and every

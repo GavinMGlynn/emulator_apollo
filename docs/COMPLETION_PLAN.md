@@ -6204,27 +6204,17 @@ same number is what let them diverge once already.
       the row count. §3.3 carried the DS3000's period into the DS4000's clause.
       `ap_atbus.h` states the interval and derives both periods; `PROVISIONAL`
       lifted. *Verification: `atbus_suite` 11 -> 14.*
-- [ ] **Sixty-three console selections, all rejected: what `$8BC` wants after the
-      boot PROM has chosen a console.** Opened 2026-09-08 from `FINDINGS.md`
-      C240, which walks the console-election poll at `00078E`–`0007AE` and its
-      autobaud table at `$822` out of the PROM.
-      **The autobaud is not the blocker and the resampler is confirmed.** The
-      table's five shapes — `$FF`→9600, `$FE`→4800, `$C7`→2400, `$72`→1200,
-      `$C0`→300 — are reproduced **exactly** by `ap_mc68681_resample`, three of
-      them with the receiver at 2000 baud (`ACR[7]`=1, set 2) and two at 1050
-      (set 1), which is the first external check that model has ever had and
-      confirms *both* of code 7's values from the firmware's side.
-      So the firmware does converge, and the run says it then **selected the
-      console sixty-three times**: `sio1 reg 10 (CRB) — 63 write(s)` is `$7F8`'s
-      `move.b #$45, $14(a0)` and nothing else. It came back to the poll every
-      time, because `000752`/`000756` install the poll's own address as a retry
-      vector in `$150(a6)` before the loop starts.
-      **What is left is `$8BC` onward** — `move.l a0, $130(a6)` /
-      `suba.l $12c(a6), a0` — and why it rejects a chosen console. Not the
-      harness, not the pacing, not the baud set.
-      *Verification*: a service-mode boot that reaches `MD7C REV 8.00` on the
-      serial console. That unblocks a shell and `/com/lcnode` with it. Detail in
-      `PROJECT_STATUS.md`.
+- [x] **MD talks on the serial console, and a shell runs `/com/lcnode` — done
+      2026-09-08.** Three things had to be true at once: the *offset* of the
+      first scripted character rather than its spacing, **2400 baud** because
+      the firmware's own autobaud table makes it the self-consistent rate at the
+      2000-baud receiver the election programs, and a frontend deadlock fixed —
+      `expect` was evaluated only when a byte arrived, so a prompt printed one
+      step early was never tested. **C165 is withdrawn.**
+      *Verification: `tools/md-shell.sh` reaches `MD7C REV 8.00`, `login: user`,
+      `$`, and `/com/lcnode` reporting `The node ID of this node is 12345. / No
+      other nodes responded.` — byte for byte C164's oracle transcript; `ctest`
+      140/140.* Detail in `PROJECT_STATUS.md`, `FINDINGS.md` C240–C241.
 - [ ] **The 2681's modem-control signals — blocked on a pin assignment, and
       the gap is narrower than this item claimed.** §3.9 and Figures 3-4/3-5
       list DTR and DCD among the six RS-232 signals SIO1/2/3 carry, with their

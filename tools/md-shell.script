@@ -1,0 +1,21 @@
+# Reach the Mnemonic Debugger on the serial console at 2400 baud, load Domain/OS
+# from it, and take C164's route from the `)` prompt to a shell and `lcnode`.
+#
+# 2400 is not a search: the boot PROM's own autobaud table (FINDINGS.md C240)
+# maps the shape a 2400 terminal's `0D` makes at its 2000-baud receiver to
+# CSR $88 -- 2400, the sender's own rate -- so the negotiation closes. A 9600
+# terminal's `0D` reads as $FE there, which the table answers with 4800, and
+# the third character the firmware needs is then misread (000008C8's
+# `cmp.b #$d, d1` / `bne.w $752`).
+expect MD7C
+send DI W\r
+expect >
+send EX DOMAIN_OS\r
+expect )
+send SH\r
+expect login:
+send user\r
+expect Password
+send \r
+expect $
+send /com/lcnode\r

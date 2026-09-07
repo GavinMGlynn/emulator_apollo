@@ -1412,6 +1412,25 @@ static void console_script_unescape(char *text) {
   return ok;
 }
 
+/* Advance the script past every `expect` the accumulated stream already
+ * satisfies.
+ *
+ * Called both when a byte arrives and when a `send` completes: a prompt can be
+ * printed *before* the `expect` that waits for it becomes the current step, and
+ * a machine that has printed a prompt then stops talking, so there is no later
+ * byte to trigger the test. */
+static void console_script_settle(ap_console_script_t *script) {
+  while (script->at < script->steps && !script->step[script->at].send &&
+         strstr(script->seen, script->step[script->at].text) != NULL) {
+    /* Matched: consume the stream so the next `expect` cannot be satisfied by
+     * the same text, which is how a script silently skips a prompt. */
+    script->seen_len = 0u;
+    script->seen[0] = '\0';
+    script->at++;
+    script->sent = 0u;
+  }
+}
+
 /* A byte the machine transmitted. Kept in a sliding tail, and an `expect` that
  * matches advances the script. */
 static void console_script_saw(ap_console_script_t *script, uint8_t byte) {
@@ -1428,15 +1447,7 @@ static void console_script_saw(ap_console_script_t *script, uint8_t byte) {
   script->seen[script->seen_len++] = (char)byte;
   script->seen[script->seen_len] = '\0';
 
-  while (script->at < script->steps && !script->step[script->at].send &&
-         strstr(script->seen, script->step[script->at].text) != NULL) {
-    /* Matched: consume the stream so the next `expect` cannot be satisfied by
-     * the same text, which is how a script silently skips a prompt. */
-    script->seen_len = 0u;
-    script->seen[0] = '\0';
-    script->at++;
-    script->sent = 0u;
-  }
+  console_script_settle(script);
 }
 
 /* The next byte to deliver, or -1 when the script is waiting or finished. */
@@ -1449,6 +1460,19 @@ static void console_script_saw(ap_console_script_t *script, uint8_t byte) {
   if (script->sent >= length) {
     script->at++;
     script->sent = 0u;
+    /* **Settle here too, and this is not a tidy-up.** An `expect` was evaluated
+     * only when a byte *arrived*, so a prompt printed while the preceding
+     * `send` was still going out was accumulated and then never tested -- and
+     * the machine has stopped talking, because it is waiting for the answer the
+     * script is holding. That is a deadlock the console cannot break out of.
+     *
+     * Measured, on the run that first reached MD: `expect MD7C` / `send DI W\r`
+     * / `expect >`. MD echoed `DI W` and printed its prompt inside the 0.4 s
+     * between the script's last character and the call that advances past the
+     * send, so `>` reached the buffer one step early. The dialogue stopped
+     * there with 48 emulated seconds of budget left and MD idle at a prompt
+     * nobody was reading. */
+    console_script_settle(script);
     return -1;
   }
   return (unsigned char)text[script->sent++];

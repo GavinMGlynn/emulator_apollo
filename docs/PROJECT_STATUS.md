@@ -434,6 +434,84 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## MD talks, a shell opens, and `/com/lcnode` runs on this core
+## (2026-09-08, RESOLVED)
+
+    MD7C REV 8.00, 1989/08/16.17:23:52
+    >DI W
+    >EX DOMAIN_OS
+    Domain/OS kernel(7), revision 10.4, February 14, 1992  11:42:25 am
+    SH
+    Apollo Phase II Environment   Revision 10.4   Jan 25, 1992  12:59:03 pm
+    )... loading global libraries
+    login: user
+    Password:
+    Registries unavailable. You are logged in as user.none.none.
+    $ /com/lcnode
+
+     The node ID of this node is 12345.
+     No other nodes responded.
+
+    Node ID      Boot time           Current time         Entry Directory
+    12345   2002/11/28 12:01:56   2002/11/28 12:03:06  //node_12345
+
+**One run, on the serial console, with no display and no oracle.** Byte for byte
+what `FINDINGS.md` C164 recorded from the oracle in August — `No other nodes
+responded` included, which is the right answer for one machine with no cable.
+The invocation is `tools/md-shell.sh`, recorded for the reason
+`spm-boot.sh` was: a harness that reaches a state is the cheapest thing here to
+write down and the most expensive to rebuild.
+
+**C165 is withdrawn.** It concluded "this core cannot put MD on the serial line"
+and tabulated our Service mode as "silent, PROM poll". The measurement was real;
+the inference — that MD here talks to the frame buffer — was not. Three things
+had to be true at once and every earlier attempt had at most two:
+
+1. **`--boot-input-after-pc 78E`.** The offset, not the spacing. Every earlier
+   run delivered its burst at `t = 0` and had it discarded.
+2. **2400 baud, chosen by the firmware.** The election programs a 2000-baud
+   receiver and recognises five shapes; only the three slow rates are
+   *self-consistent* there. A 2400 terminal's `0D` reads as `$C7` and is
+   answered with 2400; a 9600 terminal's reads as `$FE` and is answered with
+   4800.
+3. **A frontend deadlock**, below.
+
+### The deadlock, which the run that first reached MD exposed
+
+With 1 and 2 in place the banner appeared, `DI W` went through — and the
+dialogue stopped with 48 emulated seconds of budget left. `expect` was evaluated
+**only when a byte arrived**, and MD printed its prompt inside the 0.4 s between
+the script's last character and the call that advances past the `send`. The `>`
+reached the buffer one step early, was never tested, and no later byte could
+trigger the test **because the machine was waiting for the answer the script was
+holding**.
+
+`console_script_settle` now runs on both edges — a byte arriving, and a `send`
+completing. It is the shape of bug that only appears once a dialogue gets far
+enough to have a machine wait for it, which is why months of failing at the
+banner never showed it.
+
+### And why 9600 could never have worked, in the firmware's own instructions
+
+`0008C8`: after the console is elected the firmware reads **one more character**
+and requires it to be exactly a carriage return —
+
+    0008C8  bsr.w  $21fa      read a character
+    0008CC  and.w  #$7f, d1
+    0008D0  cmp.b  #$d, d1
+    0008D4  bne.w  $752       not a CR -> throw the election away
+
+At 9600 the election answers 4800, the third character is misread, and `$752`
+rewrites `ACR` and `CSRB` and starts over. That is the **63 `CRB` writes** the
+earlier run reported: sixty-three complete elections, each discarded by one
+character. Nothing was broken.
+
+*Verification: `tools/md-shell.sh` on a copy of
+`media/dn3500-sr10.4-installed.awd`, 2.5 G instructions, reaching the `$` prompt
+at about 1.1 G. `check_frontend_flags.py` gains three source-level checks on the
+settle fix, 40 in all. `ctest` 140/140. `FINDINGS.md` C241.*
+
+
 ## The console-selection poll, its autobaud table, and a check the resampler has
 ## never had (2026-09-08)
 
@@ -11044,7 +11122,7 @@ with `0E` as §5.4.13 names from the other end. **IRQ14 and DRQ7 wired**, both d
 | Distribution cartridge extractor (`tools/ct_extract.py`) | **working, and it reads every SR10.3 cartridge**: ANSI labels, `wbak` blocks and records, `--list`, `--extract` by path or basename, `--extract-all`. `ring8a.drvr` came out of it, 29,992 bytes. The AEGIS filesystem walk it replaces is abandoned — see the section below | `ct_extract`, 16 checks against a cartridge it builds; `--verify` parses all five cartridges with zero residue, 9,426 objects |
 | Golden regression harness | working | `golden_model_table`, run under every build preset; drift, `-O3` identity and regeneration all verified |
 | Shared frontend layer (`frontend/common/`) | working: option parsing and the model table report, plus `ap_png` — screenshots as indexed-colour PNGs, so an index and the palette behind it stay separable in the file exactly as they are in the hardware. libpng is optional and the build says which it is; without one the entry point reports "built without libpng", which is a different answer from a failed write | `frontend_common_suite`, 21 tests |
-| Headless frontend | working, and the row above understated it by about forty flags. It boots a PROM against a model, fits a Winchester, diskette, cartridge, ring card and option ROM, drives a console dialogue with `expect`/`send`, seals a calendar configuration, runs **two whole machines on one ring segment**, and reports a run's state hash, register file, exception and fault tallies, MMU loads and device counters. Three instruments were added on 2026-08-19 and each closed a measurement that had been made blind: **`--disk-writeback`**, because a run whose disk dies with the process cannot show what the guest *wrote* -- which is how `siologin`'s live process was finally found (`FINDINGS.md` C219); **`--boot-script-line PORT:CHANNEL`**, because the console's output drained all four serial channels and its input went to one, so a login offered on line 2 could be seen and never answered; and a **frame-crossing heartbeat** in the two-node runner, because its ring counters printed only in the final report and a run bounded too high showed nothing for hours. The run header now also names how the console was driven, after two runs printed byte-identical headers while one booted and one hung | `check_frontend_flags.py`, **37 checks**, of which eleven are source-level because the property needs firmware CI has none of; 24 flags named as needing `roms/`; `golden_model_table` |
+| Headless frontend | working, and the row above understated it by about forty flags. It boots a PROM against a model, fits a Winchester, diskette, cartridge, ring card and option ROM, drives a console dialogue with `expect`/`send`, seals a calendar configuration, runs **two whole machines on one ring segment**, and reports a run's state hash, register file, exception and fault tallies, MMU loads and device counters. Three instruments were added on 2026-08-19 and each closed a measurement that had been made blind: **`--disk-writeback`**, because a run whose disk dies with the process cannot show what the guest *wrote* -- which is how `siologin`'s live process was finally found (`FINDINGS.md` C219); **`--boot-script-line PORT:CHANNEL`**, because the console's output drained all four serial channels and its input went to one, so a login offered on line 2 could be seen and never answered; and a **frame-crossing heartbeat** in the two-node runner, because its ring counters printed only in the final report and a run bounded too high showed nothing for hours. The run header now also names how the console was driven, after two runs printed byte-identical headers while one booted and one hung | `check_frontend_flags.py`, **40 checks** -- 25 that run the binary and 15 source-level, because the property needs firmware CI has none of; 24 flags named as needing `roms/`; `golden_model_table` |
 | SDL frontend | not started, deliberately not stubbed | — |
 
 ## Domain/OS binaries are readable off the distribution cartridges
