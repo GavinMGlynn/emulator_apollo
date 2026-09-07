@@ -6857,6 +6857,13 @@ same number is what let them diverge once already.
             walk's rows for both pages cited their tables and missed the
             sentence beside them. *Verification: `mc146818_suite` 39 → 42, two
             probes.* Detail in `PROJECT_STATUS.md`.
+      - [x] **The calendar's two booleans reach the state hash — 2026-09-07.**
+            `divider_held` and `dst_shifted` are state the registers cannot
+            reconstruct and neither was hashed nor in `board_state_suite`'s
+            sweep. Reference hash moves to `C0C008BB82E7BD70` with clocks and
+            final PC unmoved — the two bytes the stream gains, measured on its
+            own after the two behavioural changes. *Verification:
+            `board_state_suite`, one probe.* Detail in `PROJECT_STATUS.md`.
       - [x] **`[6840]` MC6840 PTM — both documents walked whole, 2026-08-23**:
             datasheet 14/14, user manual 56/56. The item's premise ("no record")
             was wrong — a citation audit found sixteen `[6840UM]` sections

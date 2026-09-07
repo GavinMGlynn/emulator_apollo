@@ -176,6 +176,19 @@ void ap_board_hash_calendar(ap_hash_t *st, const ap_calendar_t *calendar) {
   ap_hash_time(st, rtc->updated_to);
   hash_clock(st, &rtc->second_clock);
 
+  /* Two booleans that outlive the registers they were decided from.
+   *
+   * `divider_held` says the chain was in reset at the last advance, and the
+   * *release* is what it is for: the first update after one is half a second
+   * later, so a clock whose Register A now reads "running" is not yet the same
+   * clock as one that has been running all along. Register A cannot say which.
+   *
+   * `dst_shifted` says October's special update has already been taken in this
+   * hour. The hour repeats, so two clocks reading 1:30 AM on the last Sunday in
+   * October are in different states and every byte here is equal. */
+  ap_hash_u8(st, rtc->divider_held ? 1u : 0u);
+  ap_hash_u8(st, rtc->dst_shifted ? 1u : 0u);
+
   /* The periodic interrupt runs at its own rate and must not be quantised to
    * the one-second update, so its cursor and clock are separate state. */
   ap_hash_time(st, rtc->periodic_to);

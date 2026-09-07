@@ -192,6 +192,28 @@ static void test_every_calendar_field_moves_the_hash(void) {
   MOVES_THE_HASH(scratch.calendar.rtc.periodic_to += 1u);
   MOVES_THE_HASH(scratch.calendar.rtc.periodic_clock.hz ^= 0x01u);
   MOVES_THE_HASH(scratch.calendar.rtc.periodic_clock.period ^= 0x01u);
+
+  /* Two booleans the registers above cannot reconstruct, and neither was in
+   * this sweep or in the hash until 2026-09-07 -- exactly the hollow spot the
+   * suite exists to refuse.
+   *
+   * `divider_held` says the chain was in reset at the last advance. The first
+   * update after a release is half a second later, so a clock whose Register A
+   * now reads "running" is not the same clock as one that has been running all
+   * along, and Register A cannot say which it is.
+   *
+   * `dst_shifted` says October's special update has already been taken. That
+   * hour repeats, so two clocks reading 1:30 AM on the last Sunday in October
+   * are in different states with every byte above equal. */
+  MOVES_THE_HASH(scratch.calendar.rtc.divider_held =
+                     !scratch.calendar.rtc.divider_held);
+  MOVES_THE_HASH(scratch.calendar.rtc.dst_shifted =
+                     !scratch.calendar.rtc.dst_shifted);
+
+  /* `stepped_to` is deliberately *not* here, and this note is what stops it
+   * being added as a missing field: it is a copy of the caller's own argument
+   * to `ap_mc146818_advance`, equal to the machine's absolute time on every
+   * call, so hashing it would hash the clock the harness already hashes. */
 }
 
 static void test_every_dma_field_moves_the_hash(void) {
