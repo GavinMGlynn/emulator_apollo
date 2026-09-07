@@ -434,6 +434,89 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## C237's experiment run: the ORing costs nothing, and Domain/OS never looks at
+## the second DUART (2026-09-08, RESOLVED)
+
+`ap_sio_irq` returns `port[0] || port[1]` — both 2681s on IRQ1 — where
+`008778-03` Table 2-3 gives `IRQ1` to "2681 SIO **Port 1**" and lists no
+on-board line for Port 2 at all. `FINDINGS.md` C237 wrote the discriminating
+experiment down before running it, with both outcomes named. It has been run.
+
+**Method: two binaries first, then one window.** The same rule
+`tools/ab-boot.sh` exists for — this machine's wall clock drifts and its
+scheduler is shared — so the arms were built, saved, and launched together on
+hashed-identical copies of `media/dn3500-nodeB-line2.awd`, the volume whose
+`siomonit_file` puts `siologin2_local` on `/dev/sio2`. 2 G instructions each,
+`--clock 2002-11-28`, the login dialogue on `--boot-script-line 2:A`.
+
+**Result: no behavioural difference.** Both arms reach `Self tests passed.`,
+`Domain/OS kernel(7), revision 10.4`, `SPM system init complete.` and
+`Node ID = 22222`. The **console output is byte-identical**; every serial
+register count matches; `sio2` ends `imr A2 isr 13 (A sr 05, B sr 04)` in both,
+a pending armed interrupt nobody serviced. The whole diff between the two runs
+is the disk filename, the state hash, and `sio1`'s own report line — `line
+asserted` where both parts are ORed, `line not asserted` where only the first
+is.
+
+**So the model is unchanged.** The manual and the code still disagree, C234's
+`PROVISIONAL` stands, and there is now a measurement saying the disagreement is
+unobservable on the only workload that could see it. Changing `ap_sio_irq` would
+move the identity hash to buy that.
+
+### What the same run settles, which the experiment was not designed for
+
+    sio1 reg 5    306 write(s)   65124 read(s)      interrupt status
+    sio2 reg 5      2 write(s)       0 read(s)
+    sio1 reg 9      2 write(s)  35279008 read(s)    channel B status, polled
+    sio1 reg 11  3100 write(s)     200 read(s)      channel B data, read
+    sio2 reg 1      3 write(s)       0 read(s)      channel A status
+    sio2 reg 3    absent from the report            channel A data, never touched
+
+Domain/OS reads the **first** DUART's interrupt status sixty-five thousand times
+and the **second's** not once, having written its `IMR` to arm it; and it does
+not poll the second part either. Line 2 is served by neither route, so C233's
+two readings — "the interrupt is pending and unserviced" versus "the handler
+inspects only the first part" — collapse into the second.
+
+**And no interrupt line is left over for it.** The master 8259 ends the run
+`IMR F4`: `IRQ0` (the MC6840 timer), `IRQ1` (the first 2681) and `IRQ3` — which
+on this machine is the cascade to the slave PIC, measured by `FINDINGS.md` C11
+and documented by `002398-04` p. 12-28 (`RING.md` 107a). `IRQ2` is masked, which
+is right for a run with no ring card fitted, and 4–7 are masked. Domain/OS
+enables exactly the lines this core assigns and no others.
+
+That agrees with what the document already said and nobody had checked against a
+run: `008778-03` §2.1 gives the machine "11 Interrupt levels", Table 2-3 has
+exactly eleven unstarred rows, and the starred on-board set is therefore closed
+at five — none of them a second SIO. **The documentary and behavioural pictures
+now say the same thing.**
+
+### What it does to the `siologin` blocker, and what it does not
+
+It removes two live explanations and leaves the blocker where C222 put it. It is
+not the shared IRQ1, and it is not a handler that would have serviced the part
+had the interrupt reached it — nothing inspects the part at all. What remains is
+that this operating system, on this volume, services `/dev/sio1` and not
+`/dev/sio2`, which is a question to ask of the volume's configuration rather
+than of this core.
+
+*Not claimed*: that the second 2681 is unwired on real hardware. `019411-A00`
+proves the controller exists and assigns it no interrupt (C234); this run says
+only that Domain/OS never looks at it.
+
+*Method note, because it cost a launch.* `--boot-script-line 2:A` moves the
+**whole** script to line 2, the PROM's `Do you wish to continue (y,n)?`
+included, and this volume still asks it. One flag cannot serve both lines — the
+same asymmetry C219 found for input — so the answer went into `--boot-input`,
+paced with `--boot-input-interval`, and a `y` was still arriving when the
+question was asked.
+
+*Verification: two 2 G boots, `apollo-headless` built twice from a one-line
+difference, logs diffed whole — 8 changed lines and every one of them the
+filename, the hash, or the line's own assertion. `ctest` 140/140. Detail in
+`FINDINGS.md` C238.*
+
+
 ## `MC68030EC` walked whole, and an electrical sheet carried three behavioural facts (2026-09-07)
 
 `[030]` §13 is two pages and names `MC68030EC/D` for everything else. That

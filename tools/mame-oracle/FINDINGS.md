@@ -12776,3 +12776,99 @@ about the hardware and the symptom is not; changing the model because a change
 What has been established is that the code and the manual **disagree**, which
 they were not known to before, and that the disagreement is testable in one
 boot.
+
+## C238 -- C237's experiment run: the ORing is not implicated, and Domain/OS reads only the first DUART's ISR
+
+C237 pre-registered a single-boot experiment and named both of its outcomes
+before it was run. It has been run, in the arm-against-arm form the drift on
+this machine requires: **two binaries built first**, differing in one line, and
+both boots launched together on hashed-identical copies of
+`media/dn3500-nodeB-line2.awd` -- the volume whose `siomonit_file` puts
+`siologin2_local` on `/dev/sio2`.
+
+    ap_sio_irq: port[0] || port[1]     as the code has it
+    ap_sio_irq: port[0]                as Table 2-3 reads
+
+Both: 2 G instructions, `--clock 2002-11-28`, the login dialogue on
+`--boot-script-line 2:A`, and the PROM's own `Do you wish to continue (y,n)?`
+answered from `--boot-input` because the script had been pointed away from the
+console line.
+
+**The result is C237's second branch.** Both arms reach `Self tests passed.`,
+`Domain/OS kernel(7), revision 10.4`, `SPM system init complete.` and
+`Node ID = 22222`; the **console output is byte-identical**; and every serial
+register count, every `imr`/`isr`/`acr`/`opr` and every port statistic matches.
+The entire difference between the two runs is **four lines**: the disk's
+filename, the state hash, and `sio1`'s own report line reading `line asserted`
+in the ORed arm and `line not asserted` in the other.
+
+    sio2 armed  imr A2  isr 13  (A sr 05, B sr 04)     -- both arms
+    script line sio2 A, knocked 1 time(s) before its first match
+
+So the ORing bought nothing, and Table 2-3 is recorded as agreeing with a change
+that changes no behaviour. **`ap_sio_irq` is left as it is**: the manual and the
+code still disagree (C234's `PROVISIONAL` stands), and there is now a
+measurement saying the disagreement is not observable on the only workload that
+could see it. Changing the model would move the identity hash to buy that.
+
+### And the run says something C237 could not
+
+The register counts, which the experiment did not need and which settle a
+question three findings have hung on:
+
+    sio1 reg 5    306 write(s)   65124 read(s)      <- interrupt status
+    sio2 reg 5      2 write(s)       0 read(s)
+    sio1 reg 9      2 write(s)  35279008 read(s)    <- channel B status, polled
+    sio1 reg 11  3100 write(s)     200 read(s)      <- channel B data, read
+    sio2 reg 1      3 write(s)       0 read(s)      <- channel A status
+    sio2 reg 3    (absent -- never accessed)        <- channel A data
+
+**Domain/OS reads the first DUART's interrupt status sixty-five thousand times
+and the second's not once**, having written its `IMR` to arm it. It does not
+poll the second part either: `sio2` channel A's status register is never read
+and its receive holding register is never touched at all. So line 2 is served by
+**neither** route -- not by interrupt, not by polling -- and C233's two readings
+collapse to one: whatever handles line 1 inspects only the part line 1 is on.
+
+**And no interrupt line is left over for the second part.** The master 8259 ends
+the run `IMR F4`, which unmasks exactly three lines:
+
+  - `IRQ0`, the MC6840 timer;
+  - `IRQ1`, the first 2681;
+  - `IRQ3`, which on this machine is the **cascade to the slave PIC** -- C11
+    measured it there and `002398-04` p. 12-28 puts it there (`RING.md` 107a).
+
+`IRQ2` is masked, which is correct for a run with no ring card fitted, and
+`IRQ4`-`IRQ7` are masked. So Domain/OS enables precisely the lines this core
+assigns, and there is no unexplained line for a second DUART to be arriving on.
+Taken with `008778-03`'s own count -- §2.1's "11 Interrupt levels" against
+Table 2-3's exactly eleven unstarred rows, closing the on-board set at five --
+the documentary and the behavioural pictures now agree: **on this machine the
+on-board second 2681 has no interrupt line, and the operating system does not
+look for one.**
+
+### What that does to the `siologin` thread
+
+C222 left it at "`siologin` blocked before its first read". This does not move
+that, but it removes the two explanations that were still live. It is not the
+shared IRQ1 (measured here), and it is not a handler that would have serviced
+the part if only the interrupt had arrived (the part is never inspected by any
+means). The remaining shape is that Domain/OS's SIO driver on this machine
+services `/dev/sio1` and does not service `/dev/sio2` at all -- which is a
+statement about *its* device configuration, and the next thing to ask of the
+volume rather than of this core.
+
+*What is not claimed*: that the second 2681 is unwired on real hardware.
+`019411-A00` proves the controller exists and assigns it nothing (C234), and
+this run says only that **this** operating system, on **this** volume, never
+looks at it.
+
+*Method note, because it cost a run.* The first launch of both arms hung at
+`Do you wish to continue (y,n)?` for the whole budget: `--boot-script-line 2:A`
+moves the **whole** script to line 2, including the `y` that
+`tools/boot-domainos.script` exists to send, and a configured-looking volume
+that still has an uninitialised configuration table still asks. One flag cannot
+serve both lines -- the same asymmetry C219 found for input -- and the way
+through was to put the answer in `--boot-input`, paced with
+`--boot-input-interval`, so that a `y` is still arriving when the question is
+finally asked.

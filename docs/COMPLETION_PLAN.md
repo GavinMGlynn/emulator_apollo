@@ -4295,6 +4295,20 @@ discipline throughout.
          read**, so nothing clears it, and the console stops where the baseline
          goes on. `PROJECT_STATUS.md` records both readings and chooses neither.
          *What it said*: "it needs `--sio-input` to grow a 'when'". It grew one.
+         **And the last interrupt-side explanation is eliminated, 2026-09-08**
+         (`FINDINGS.md` C238). C237's pre-registered experiment ran: two 2 G
+         boots differing only in whether `ap_sio_irq` ORs the second DUART onto
+         IRQ1 produce **byte-identical console output** and identical serial
+         counters, so the ORing is not why the line goes unserved and the model
+         is unchanged. The same run shows Domain/OS reading `sio1`'s interrupt
+         status **65,124** times and `sio2`'s **zero**, never polling `sio2`'s
+         status either, and ending with master `IMR F4` — IRQ0, IRQ1 and the
+         cascade unmasked and nothing else. **Nothing inspects the second part
+         by any route, and no line is left over for it.** So the blocker is not
+         an interrupt this core fails to deliver; it is that this operating
+         system, on this volume, serves `/dev/sio1` and not `/dev/sio2`, which
+         is a question for the volume's configuration. Detail in
+         `PROJECT_STATUS.md`.
       5. Run the two nodes with a script that waits for
          `SPM system init complete.`, knocks, logs in as `user`, and runs
          **`/com/lcnode`** by absolute path -- now with `--boot-script-line`
