@@ -4112,17 +4112,27 @@ discipline throughout.
       **sees the other's frames**: 115 and 122 of them, first crossing at
       399,556,608 instructions, both counters climbing together. Every previous
       two-node run reported `frames seen 0`.
-      **What is left is acceptance.** `copied 0` on both, so each `lcnode`
-      lists only its own node; and `claims 0` with **`forced 61`** on both says
-      the token never circulates — neither station takes a *free* token, each
-      starts its own ring sixty-one times, where §2.1 step 6 has a transmitting
-      station "send out a new free token to follow the frame". The two may be
-      one fault: a frame that is not copied is not acknowledged, and a ring
-      never released gives the far station nothing to claim.
-      *The next step is a comparison, not a run*: `ring_station_suite` already
-      has a frame delivered to its addressee and a bystander required not to
-      take it, so acceptance works there — what differs is the address the board
-      gives the station and the free token after step 6.
+      **Acceptance now works too** (`FINDINGS.md` C249). Two more defects, both
+      found by capturing what Domain/OS actually writes: the header's **type
+      word is stored low byte first** — the driver's `90 00` is
+      `BROADCAST | PLEASE`, and read big-endian it was `9000`, all reserved bits
+      and no type, so every broadcast was dropped — and the **receiver disabled
+      itself**, the MISC_CMD defect one register along, its `move.w #$0800` to
+      RCV_CMD enabling `ren` with the first byte and clearing it with the
+      second. Frames now go **seen → addressed → copied**.
+      **What is left is that the frames carry no payload.**
+      `ring_ctl_queue_from_buffer` sends `data = NULL, data_bytes = 0`, and its
+      own comment says why: the §2.2.2 minimum of twelve bytes was "the only
+      length that is evidenced", with a longer one "a named gap rather than a
+      guess". So each node sends one frame, the other copies it, and neither can
+      answer — `lcnode` still reports "No other nodes responded".
+      *The source that comment wanted is on the card*: `[EH]` p. 12-29 gives the
+      buffer as "1k bytes of header and 1k bytes of data", and finding 100
+      already recovered `XMT_HDR` ("Transmitter Header Word", **words**) and
+      `XMT_PKT` ("Transmitter Total Word", **words**) from the driver's own
+      descriptor table — two 8254 counters this core models, which the driver
+      programs before transmitting. Size the frame from those instead of from
+      the minimum, and the data at the buffer's 1 KB offset goes with it.
       **And the run costs about fifteen minutes now**, not ten hours. Detail in
       `PROJECT_STATUS.md`; `FINDINGS.md` C243–C248.
       **The verification was rewritten on 2026-08-19, and the reason matters.**

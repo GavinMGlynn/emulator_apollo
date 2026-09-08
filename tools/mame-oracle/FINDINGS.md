@@ -13688,3 +13688,62 @@ after step 6.
 
 *What is now settled for the item*: "two booted Domain/OS nodes on one segment
 exchange ring frames" is **demonstrated**; "each reporting the other" is not.
+
+## C249 -- frames are copied now, and the last gap is that they carry no data
+
+Two more defects, both found by capturing what Domain/OS writes rather than
+reasoning about what it should.
+
+**The type word is stored low byte first.** A real transmit's header, captured
+on two booted nodes:
+
+    00 00 00 00  90 00  00 00  00 01 23 45   station address 00012345
+
+The source field at offset 8 is `00012345`, the node's own ID, so the offsets
+are right. That makes the type bytes `90 00` -- big-endian `9000`, which is
+entirely `[MAC]` §2.2.2's *reserved* bits and no type at all; low byte first
+`0090`, which is `BROADCAST | PLEASE`. That is exactly what `lcnode` sends: a
+broadcast **request**, answered by `THANK_YOU`, which is C222's "responded is
+the language of a request and a reply" in the bits.
+
+Read the wrong way round every broadcast failed `ap_ring_header_addressed_to`
+and was dropped: 115 and 122 frames crossed and **none** was addressed.
+Corrected: 573 and 580 addressed.
+
+**And the receiver disabled itself**, the MISC_CMD defect one register along.
+`rcv 00A0` has p. 12-30's `ren` clear; Domain/OS writes `move.w #$0800` to
+RCV_CMD, `ap_board_write` is byte-wide, and this bank merged the second byte
+against a **read** -- a different register (p. 12-29) -- so the first byte
+enabled the receiver and the second disabled it. `command_402`/`command_404`
+could not be the merge source because completion zeroes them and subtest 22
+depends on that (`d0 E0000022`, measured); shadow copies carry the value with
+none of the meaning. Result: `rcv 40E0`, and frames **copied** for the first
+time.
+
+### What is left, and it is a gap this core already named
+
+    node 0  frames seen 1 copied 1   ctl 476 read(s) 1602 write(s)
+    node 1  frames seen 2 copied 2   ctl 606 read(s) 1634 write(s)
+
+Each node sends **one** frame, the other copies it, and neither replies -- so
+`lcnode` still reports "No other nodes responded". The ring traffic collapsed
+from 141,616 controller reads to 476 because the operating system stopped
+retrying, which is what a working path looks like from the driver's side.
+
+`ring_ctl_queue_from_buffer` sends `data = NULL, data_bytes = 0`. Its own
+comment says why: *"the minimum §2.2.2 allows is used ... 12 bytes. A longer
+header needs a source that says where its length comes from, and is a named gap
+rather than a guess."* So the far node receives a twelve-byte header with **no
+payload** and has nothing to answer.
+
+**The source that comment wanted is on the card.** `[EH]` p. 12-29 gives the
+transmit buffer as "1k bytes of header and 1k bytes of data", and finding 100
+already recovered the lengths' home from `ring8a.drvr`'s own descriptor table:
+`XMT_HDR` is "Transmitter Header Word" in **words** and `XMT_PKT` is
+"Transmitter Total Word" in **words** -- two of the six 8254 counters, which the
+driver programs before it transmits. Header length and total length, in the
+units finding 100 established, from registers this core already models.
+
+*That is the next piece of work and it is specified rather than open*: size the
+frame from `XMT_HDR_CNT` and `XMT_PKT_CNT` instead of from the §2.2.2 minimum,
+and the data at the buffer's 1 KB offset goes on the wire with it.
