@@ -13865,11 +13865,25 @@ the candidates are all above it and none is yet tested:
     slot 1 again only by passing **through slot 0**. Node 0's station therefore
     had node 1's frame on its wire and did not count it.
     So this is not "the frame never left" and not the protocol: it is a station
-    that fails to see a frame it demonstrably carried. `ring_medium_suite`
-    circulates a token across three stations, so the mechanism works there;
-    what differs here is two stations transmitting into one segment from
-    running machines, and the asymmetry -- slot 0 is also the segment's
-    *lowest* slot, the one `ap_board_advance` uses to decide who steps the
-    shared cable. That coincidence is the first thing to rule out.
+    that fails to see a frame it demonstrably carried.
+
+    **The obvious explanation was tried and is refuted.** `board_ring_step`
+    drives and then receives for **one** node, and `ap_ring_sched` calls each
+    node's step separately, so with the medium advanced first node 0 receives
+    before node 1 has driven and node 1 receives after node 0 has -- the result
+    depending on node order, which is exactly the shape of the symptom.
+    Receiving before driving removes that dependence and is arguably truer to a
+    station, which cannot drive a cell it has not clocked in. **It changes
+    nothing**: `frames seen 1 copied 0` and `2 / 1` exactly as before. Reverted,
+    because it moves the ring's phase and has no measurement behind it.
+
+    *What that leaves*: `ring_medium_suite` circulates a token across three
+    stations, so the mechanism works there, and the difference here is two
+    stations transmitting into one segment from running machines. The next
+    thing to look at is the medium's own delay lines -- `ap_ring_medium.h`
+    notes "a ring of fewer than nine stations is shorter than its own nine-bit
+    token", so a two-slot segment is the shortest case there is, and whether a
+    cell driven at slot 1 survives the wrap to slot 0 is a property of those
+    lines rather than of the schedule.
 
 *Recorded before either is tried, for the reason C229 and C230 were.*
