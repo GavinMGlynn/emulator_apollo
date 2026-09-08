@@ -2052,6 +2052,24 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
        * takes the destination from the first four and the type from the next
        * two, and the station's own address is this node's ID -- so a frame that
        * crosses and is never copied is answered here or nowhere. */
+      /* **And whether the card's interrupt ever reached the processor.**
+       *
+       * The single-machine report has printed the master 8259's `IRR`/`IMR`
+       * since `--boot-report` existed; the two-node runner, which is where the
+       * ring's own interrupt matters, printed none. With a ninety-byte request
+       * deposited and the far node silent, "does the handler run" is the first
+       * question and nothing here could answer it. `ri` is MISC_STAT bit 1 and
+       * active low (p. 12-30), so a **clear** bit is a pending interrupt. */
+      fprintf(out,
+              "  node %u  intr  master IRR %02X IMR %02X  IRQ%u %s  ri %s  %s\n",
+              i, board[i].interrupts.master.irr, board[i].interrupts.master.imr,
+              AP_BOARD_RING_IRQ,
+              (board[i].interrupts.master.imr & (1u << AP_BOARD_RING_IRQ))
+                  ? "masked"
+                  : "unmasked",
+              (board[i].ring.a2.status & AP_RING_CTL_STATUS_RI) ? "idle"
+                                                                : "PENDING",
+              ap_intr_pending(&board[i].interrupts) ? "pending" : "nothing");
       fprintf(out, "  node %u  ring  first tx header", i);
       for (unsigned b = 0; b < AP_RING_CTL_XMIT_HEADER_BYTES; b++) {
         fprintf(out, " %02X", board[i].ring.first_tx_header[b]);

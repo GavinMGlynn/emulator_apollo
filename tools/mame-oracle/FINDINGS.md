@@ -13814,14 +13814,20 @@ it is copied (C249), and the **whole** of it is delivered.
 in the far node's buffer. Everything below the driver is now accounted for, so
 the candidates are all above it and none is yet tested:
 
-  - **The receive interrupt.** The deposit clears `ri` -- MISC_STAT bit 1,
-    active low, so clear *is* pending -- and `ap_ring_ctl_irq` asserts on it,
-    and Domain/OS unmasks IRQ2 when a card is fitted (`RING.md` 144). Whether
-    the handler runs is not measured: the two-node runner prints no interrupt
-    state, where the single-machine report has printed the master 8259's
-    `IRR`/`IMR` all along. **That asymmetry is the cheapest thing to close
-    first**, and it is the same shape as the `--boot-input-rate` and
-    `--boot-input-interval` gaps this session already found in that runner.
+  - ~~**The receive interrupt.**~~ **Answered, and it is not the problem.** The
+    runner printed no interrupt state where the single-machine report has
+    printed the master 8259's `IRR`/`IMR` all along -- the same asymmetry as the
+    `--boot-input-rate` and `--boot-input-interval` gaps this session found in
+    it -- so the instrument was added and the answer came in one run:
+
+        node 0  intr  master IRR 00 IMR F0  IRQ2 unmasked  ri idle  nothing
+        node 1  intr  master IRR 00 IMR F0  IRQ2 unmasked  ri idle  nothing
+
+    IRQ2 is unmasked and `ri` reads **idle**, not pending. The deposit *clears*
+    `ri` -- bit 1 is active low (p. 12-30) -- and only a `RCV_ACK` write at the
+    first window's `+4` sets it again (finding 74a). So Domain/OS took the
+    interrupt and **acknowledged** it: the whole path from a frame on the wire
+    to the driver's handler works.
   - **Where the frame landed.** The deposit addresses `RCV_ADDR` from
     `slot_004`'s written value; p. 12-29's note *2 makes `59004` read as
     `XMIT_ABORT` on the **two-board** version and `RCV_ADDR` on the
