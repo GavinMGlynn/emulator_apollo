@@ -754,7 +754,14 @@ typedef struct ap_board {
   /* The first distinct addresses a program wrote in the DMA range. Which
    * controller a run programmed is not visible from the registers alone once
    * two decodes are in play -- the addresses are the fact. */
-  uint32_t dma_register_writes[12];
+  /* **Thirty-two, because twelve silently truncated.** Two controllers of
+   * sixteen registers each is thirty-two distinct addresses, and the census
+   * filled at twelve on the cartridge boot -- so a reader asking "does this
+   * program ever unmask a channel?" got a list with `010C0A` and `010C0E`
+   * missing and no sign that anything had been dropped. A census that can be
+   * full is a census that can mislead, and this one was read as evidence.
+   * `FINDINGS.md` C268. */
+  uint32_t dma_register_writes[32];
   unsigned dma_register_write_count;
   /* The same for the core registers, and for the same reason: which address a
    * program wrote is the fact, and a register that did not change cannot say
