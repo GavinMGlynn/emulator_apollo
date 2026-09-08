@@ -4726,17 +4726,22 @@ Only after the reference core is proven, and only under an identity harness.
       neither exists — and the DN5500 stops at `cinva`, its second instruction,
       which is the **68040 execution core** item. Detail in `PROJECT_STATUS.md`.
 
-- [ ] **The DS5500's three addendum registers, and the model table's `.mmu`.**
-      Split out of the boot item 2026-09-08, because both wait on the 68040 core
-      rather than on anything that item was about.
-      `019411-A00` §4.2.1.14's **DS5500 Cache Status Register**, 8-bit read-only,
-      `HSI Present <3>` cleared when a graphics device is in the HSI connector
-      and `MEM Time <0>` for an access to non-existent memory; §4.2.1.18's
-      **Memory Present Register**, `MEM Present <7-0>` with each consecutive
-      *pair* of bits identifying a slot, P25/P24/P23/P22 right to left; and
-      Table 4-6's added line, which has its own item. The first two are the
-      shape the memory strap needed on other models — read-only registers a boot
-      PROM consults to size what is fitted.
+- [ ] **The model table's `.mmu`, which the machine does not honour.**
+      *Retitled 2026-09-09: this was "the DS5500's three addendum registers, and
+      the model table's `.mmu`", and **two of the three registers were already
+      built**.* Checked in the source rather than inferred, which is the rule
+      this project has now been caught by five times: `019411-A00` §4.2.1.14's
+      **Cache Status Register** is `ap_boardreg.c`'s `ds5500_cache_status` with
+      `HSI Present` following a fitted graphics device, and §4.2.1.18's
+      **Memory Present Register** is at `011400` with
+      `ap_boardreg_memory_present_code` behind it — and `boardreg_suite` asserts
+      it against **all 35 published configurations** of the addendum's table,
+      through the bus as well as through the accessor. The third, Table 4-6's
+      added line, has its own item and is blocked on `007861`.
+      *The values were re-derived from the page image while checking, and agree
+      with the code exactly*: each slot is a bit **pair**, `00` 8 MB, `01`
+      16 MB, `10` 4 MB, `11` absent, cleared when a board is present — `FE` for
+      one 4 MB board, `55` for four 16 MB, `E5` for `16 16 4 -`.
       **And `.mmu` is a declaration the machine does not honour**: three rows say
       `AP_MMU_M68851`, seven `AP_MMU_M68030`, two `AP_MMU_M68040`, and
       `ap_machine` builds an `ap_m68030_cpu_t` unconditionally. Not a live defect
@@ -4744,8 +4749,11 @@ Only after the reference core is proven, and only under an identity harness.
       rule forbids. *Not behaviour-neutral*: an MMU with a different descriptor
       format is a translation change, so it needs the identity harness on the
       other side.
-      **What would unblock both**: a 68040 execution core, so a DS5500 runs far
-      enough to read a register and so `.mmu` has something to select.
+      **What would unblock it**: a 68040 **MMU**, so `.mmu` has something to
+      select. The execution-core half is no longer the blocker — a DN5500 now
+      runs 50 M instructions and prints its firmware self-test
+      (`FINDINGS.md` C256) — so this is the next increment of the 68040 item
+      rather than a separate wait.
 
 - [ ] Real multi-node Domain workloads: distributed single-level store across
       nodes, `lcnode`, remote file access. *Verification: content finds what

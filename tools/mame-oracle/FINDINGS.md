@@ -14402,3 +14402,45 @@ family 1111 claims it and it arrives as `AP_M68030_DECODED_COPROC`, not as
 `ILLEGAL` -- the F-line answer that is right on a 68030 and wrong on a 68040.
 Guessing which arm and testing the guess cost two builds; reading the reported
 vector -- `1 x vector 11` -- named it in one.
+
+## C257 -- the fifth stale gap, and this time the check took two minutes
+
+C256 left the DN5500 stalled inside its firmware's Memory Module 2 test, and
+named the next question: `019411-A00` §4.2.1.18's DS5500 Memory Present
+Register, in an item recorded as waiting on the 68040 core.
+
+**It is already implemented, and so is the register beside it.** Checked in the
+source before writing a line, which is what `stale-claims-outlive-the-walk`
+exists for and what this project has now been caught by five times:
+
+- §4.2.1.14's **Cache Status Register** is `ap_boardreg.c`'s
+  `ds5500_cache_status`, with `HSI Present` following a fitted graphics device
+  and the register read-only. `boardreg_suite` tests both.
+- §4.2.1.18's **Memory Present Register** is at `011400`, behind
+  `ap_boardreg_memory_present_code`, and `boardreg_suite` asserts it against
+  **all 35 published configurations** of the addendum's own table -- through the
+  bus as well as through the accessor.
+
+So the item's first two clauses were done and its title was wrong. Corrected:
+what remains is the model table's `.mmu`, which no machine honours.
+
+### The encoding, re-derived while checking, and it agrees
+
+The addendum's value table is scrambled by `pdftotext` -- the columns interleave
+-- so it was read as a page image, and the encoding falls out of five rows:
+each slot is a bit **pair**, cleared when a board is present, with `00` = 8 MB,
+`01` = 16 MB, `10` = 4 MB and `11` = absent. `FE` is one 4 MB board, `55` is
+four 16 MB, `E5` is `16 16 4 -`.
+
+That is exactly what the code produces, and the derivation was done *before*
+looking at it. An independent re-derivation agreeing with an implementation is
+worth more than the ten minutes it cost, because the alternative -- reading the
+code first and then "confirming" it against the manual -- cannot fail.
+
+### And the blocker moved rather than vanished
+
+The item said "a 68040 execution core, so a DS5500 runs far enough to read a
+register and so `.mmu` has something to select". The first half is answered: a
+DN5500 now runs 50 M instructions and prints its self-test. The second needs a
+68040 **MMU**, which is the next increment of the 68040 item rather than a
+separate wait -- so the item now names that.
