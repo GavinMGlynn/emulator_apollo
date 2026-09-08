@@ -15788,3 +15788,89 @@ kind of observable. What is established is the *name* -- the check is on the
 *The next step is one pass that captures the whole exchange around the failure*
 -- the 8237 programming for channel 1, the command bytes, and the transfer
 counts -- as C270's lesson requires and as the plan item already says.
+
+## C272 -- the DMA range is one block, and a reset must leave the part answering
+
+C271 said the next step was one pass capturing the exchange, and the resolution
+order puts the documents first. `[SC499]`'s §1.11 and its sixteen driver flow
+charts were the pages to read, and both rows of `TAPE_WALK.md` that cover them
+were wrong -- the second of them **corrected earlier the same day**, and still a
+sample.
+
+### §1.11's fifth step, which the walk row recorded as "the five-step sequence"
+
+    1. Issue a transfer command to the tape controller.
+    2. Set up the 8237 DMA controller's register (but leave the mask bit set).
+    3. Write (any value) to the tape controller register at BASE ADDRESS+2
+       (DMAGO).
+    4. Clear the mask bit in the 8237 DMA controller.
+    5. Repeat above from step 2 for each subsequent block.
+
+**Step 5 is the rule the interface turns on**: the programmed range is *one
+block*, reprogrammed per block, not one range for a file. The row named the
+sequence and recorded none of it. A previous owner's margin notes say the same
+thing twice on that page -- "for each blk", and "block length can be 1024
+(page)".
+
+Step 2's held mask is also the answer to a question `ap_tape_dma_request`
+already argues from that step: a host is told to keep the channel masked across
+the window *because the card is already asking*.
+
+### The charts, all sixteen this time
+
+The §1.13.3 row was corrected this morning from "driver-side, not part
+behaviour" to "**two of them** are the specification of this interface's
+handshake". Correcting a row by opening two of its sixteen pages leaves fourteen
+uncharacterised, and **four of those fourteen carry specification too**:
+
+- **Figure 1-14 READ FILE**, and **1-12 READ FILE WITH SPECIFIC 1ST BLOCK ID**
+  identically: `SET UP DMA FOR NEXT 512 BYTE TRANSFER` -> `READY?` -> `START
+  DMA` -> `DMA DONE?` -> `HOST BUFFER FULL?`, with "30 ms" written against the
+  READY loop and "30ms/512" against the DMA one. The range is **512 bytes**, and
+  the host waits for READY **before** DMAGO. §1.11 step 5 in a picture, twice.
+- **Figure 1-15 WRITE FILE** is the mirror, and its margin notes map the boxes
+  to the registers: `SET UP DMA` = "write to DMAGO", `START DMA` = "clear mask".
+- **Figure 1-24 DONE**: `READY?` no -> `EXCEPTION?` no -> **back to `READY?`,
+  for ever** -> either exit -> `CALL READ STATUS` -> `RETURN`.
+- **Figure 1-23 RESET**: `ASSERT RESET` -> `START TIMER` -> `25 usec?` ->
+  `DROP RESET` -> **`CALL HOST DONE`**.
+
+The other ten are composition and add no part behaviour -- 1-11 and 1-13 compose
+READ FILE MARK with READ FILE and WRITE FILE; 1-16 through 1-22 are one skeleton,
+`BUILD <x> COMMAND` -> `CALL SEND COMMAND` -> `CALL DONE`, which is itself the
+fact that **every** command ends in the DONE routine. One naming detail worth
+having: 1-19 INITIALIZE CARTRIDGE builds a **RETENSION** command.
+
+### The gap the last two name together
+
+Put Figure 1-23 beside Figure 1-24 and the RESET routine ends in a loop that
+exits only on READY or EXCEPTION. **So a part that comes out of RSTSAC asserting
+neither hangs its own driver.** `ap_sc499_reset` asserts neither: `memset`
+clears READY, `set_exception` is not called, and nothing schedules either --
+there is no command executing and no close/reopen pending.
+
+**This settles a question `ap_tape_reset` records as open**, and settles it from
+the part's own guide rather than from the oracle. The comment there says
+EXCEPTION at reset is deliberately not modelled because "`[SC499]` describes
+what RSTDMA does ... and says nothing about EXCEPTION", and that raising it on
+MAME's commented-out line "would be inferring hardware behaviour from someone
+else's source". Both sentences were right about the pages that had been read.
+Figure 1-23 is about **RSTSAC**, not RSTDMA -- §1.12 is what makes the 25 us
+hold RSTSAC's -- and it does say what happens next.
+
+Which of the two it is, is not a choice either: the drive comes out of reset
+holding "power on/reset occurred" (`QIC-02` §5.2), §1.8.1 reports the power-on
+confidence test's success "by the assertion of **EXC-** within five seconds",
+and Figure 1-24's DONE ends by calling READ STATUS -- the one sequence that
+reports POR and clears it.
+
+*Named, not yet implemented*: it is a behaviour change on a path the SR10.4 boot
+takes, so it lands as its own item with its test and its identity measurement
+rather than inside a documentary commit. **And a second gap it uncovers**: this
+core does not model the POC at all, so §1.8.1's five-second EXC- at power-on has
+nowhere to come from either. Both are plan items.
+
+*What this does **not** explain*: `28001E`. The first census pass recorded 2,048
+tape transfers and every one of them was healthy -- `base 01FF`, terminal count
+reached -- with 67,353 more dropped. The measurement is being retaken against
+the failing shape.

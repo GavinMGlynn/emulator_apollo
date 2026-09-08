@@ -645,6 +645,47 @@ Apollo Phase II Environment   Revision 10.4   Jan 25, 1992  12:59:03 pm
 and `bad rewind … 280002` are all gone: **the kernel acquires the drive and
 rewinds it.** What is left is a later failure with a different name.
 
+## The DMA range is one block, and a reset must leave the part answering (2026-09-09)
+
+The resolution order puts the documents before the oracle, and `[SC499]`'s
+§1.11 and its sixteen driver flow charts were the pages `28001E` sent me to.
+**Both walk rows covering them were wrong** — and the second had been corrected
+earlier the same day, and was still a sample.
+
+**§1.11 step 5: "Repeat above from step 2 for each subsequent block."** The
+programmed DMA range is *one block*, reprogrammed per block, not one range for a
+file. The row named the sequence and recorded none of it; a previous owner's
+margin notes on that page say the same twice — "for each blk", "block length can
+be 1024 (page)".
+
+**Four more charts are specification, not commentary.** The §1.13.3 row had just
+been corrected from "driver-side, not part behaviour" to "**two of them** are
+the specification". Opening two of sixteen pages leaves fourteen
+uncharacterised, and four of those fourteen carry specification: Figures 1-14
+and 1-12 both give the read loop as `SET UP DMA FOR NEXT 512 BYTE TRANSFER` →
+`READY?` → `START DMA` → `DMA DONE?`, Figure 1-15 mirrors it for writes, and
+Figures 1-23 and 1-24 give RESET and DONE.
+
+**The gap those last two name together**: RESET ends by calling HOST DONE, and
+DONE loops on `READY?`/`EXCEPTION?` for ever. A part that comes out of RSTSAC
+asserting neither hangs its own driver — and `ap_sc499_reset` asserts neither.
+This settles the question `ap_tape_reset` records as open, from the part's own
+guide rather than from the oracle: that comment declined MAME's commented-out
+line, correctly, and Figure 1-23 is about **RSTSAC** where the comment's
+citation was RSTDMA. Which of the two, is not a choice either — the drive comes
+out of reset holding `POR` (`QIC-02` §5.2), §1.8.1 reports the power-on
+confidence test "by the assertion of **EXC-** within five seconds", and DONE
+ends by calling READ STATUS, the one sequence that reports POR and clears it.
+
+**Named, not implemented**: it changes behaviour on a path the SR10.4 boot
+takes, so it lands as its own item with its test and its identity measurement.
+A second gap comes with it — this core does not model the POC at all, so
+§1.8.1's five-second `EXC-` has nowhere to come from. Both are plan items.
+
+*Not an explanation of `28001E`.* The first census pass recorded 2,048 tape
+transfers, every one healthy (`base 01FF`, terminal count reached), and dropped
+67,353 more. `FINDINGS.md` C272.
+
 ## `28001E` is `dma not at end of range` — named, not diagnosed (2026-09-09)
 
 `002398-04` p. 4-14 gives module 28's code `001E` as **`dma not at end of

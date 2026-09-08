@@ -5002,6 +5002,33 @@ same number is what let them diverge once already.
       *Verification: the environment comes up running the tape's `rbak_shell`,
       with no `28001E` and no `E0007`.*
 
+- [ ] **A reset must leave the part asserting READY or EXCEPTION — `[SC499]`
+      Figures 1-23 and 1-24.** Found 2026-09-09 by reading all sixteen driver
+      flow charts as specification. RESET is `ASSERT RESET` → `25 µsec?` →
+      `DROP RESET` → **`CALL HOST DONE`**, and DONE is `READY?` no →
+      `EXCEPTION?` no → **back to `READY?`, for ever**. So a part that comes out
+      of RSTSAC asserting neither hangs its own driver, and `ap_sc499_reset`
+      asserts neither. **Which of the two is not a choice**: the drive comes out
+      holding `POR` (`QIC-02` §5.2), §1.8.1 reports the power-on confidence
+      test's success "by the assertion of **EXC-** within five seconds", and
+      DONE ends by calling READ STATUS — the one sequence that reports POR and
+      clears it. This settles the question `ap_tape_reset`'s comment records as
+      open; that comment declined MAME's commented-out line correctly, and cited
+      **RSTDMA**, where Figure 1-23 is about **RSTSAC**.
+      *Verification: a test that pulses RSTSAC and finds EXCEPTION asserted and
+      a READ STATUS that reports and clears `POR`; identity measured either way.*
+
+- [ ] **The power-on confidence test is not modelled at all — `[SC499]`
+      §1.8.1.** The POC checks microprocessor RAM, the LSI controller, the 16K
+      RAM and the data separator, and reports success "by the assertion of
+      `EXC-` **within five seconds**", with five LEDs blinking once each. This
+      core has no POC: `ap_tape_init` leaves the card idle and asserting
+      nothing, so §1.8.1's `EXC-` has nowhere to come from and a driver that
+      waits for it at power-on waits for ever. Uncovered by the item above,
+      which is the same sentence at a different reset.
+      *Verification: a power-on that asserts `EXC-` within the published bound,
+      and a test that a READ STATUS then reports the power-on condition.*
+
 
 - [ ] **Three ring timeout status bits are defined and set by nobody.**
       `AP_RING_CTL_STATUS_TMO`, `AP_RING_CTL_XMIT_TMO` and `AP_RING_CTL_RCV_PE`
