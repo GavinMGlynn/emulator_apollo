@@ -732,6 +732,14 @@ typedef struct ap_board {
    * one that does not run, from any count. */
   uint32_t dma_last_read;
   uint32_t dma_last_write;
+  /* And the **first**, with a flag because zero is a legitimate address. The
+   * last write alone says where a transfer ended and nothing about where it
+   * began, and a DMA whose destination is chosen by a translation map the host
+   * reprograms per block can begin somewhere quite unrelated to where it ends
+   * -- which is exactly the question the cartridge boot's missing first block
+   * poses. Diagnostic, not machine state: not hashed. */
+  bool dma_first_write_seen;
+  uint32_t dma_first_write;
   /* The first distinct addresses a program wrote in the DMA range. Which
    * controller a run programmed is not visible from the registers alone once
    * two decodes are in play -- the addresses are the fact. */

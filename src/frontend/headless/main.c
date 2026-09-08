@@ -5727,6 +5727,9 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
            " last read %08X wrote %08X\n",
            board->dma_transfers, board->dma_unwired_transfers,
            board->dma_last_read, board->dma_last_write);
+    if (board->dma_first_write_seen) {
+      printf("  dma first    wrote %08X\n", board->dma_first_write);
+    }
   }
   printf("  blit cycles  %u, %u plane write(s)\n", board->graphics_cycles,
          board->graphics_planes_written);

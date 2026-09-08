@@ -883,6 +883,10 @@ static void dma_memory_write(void *context, uint16_t address, uint8_t value) {
   ap_board_t *board = (ap_board_t *)context;
   const uint32_t physical = dma_physical(board, address);
   board->dma_last_write = physical;
+  if (!board->dma_first_write_seen) {
+    board->dma_first_write_seen = true;
+    board->dma_first_write = physical;
+  }
   bool ok = false;
   ap_board_write(board, physical, value, &ok);
 }
