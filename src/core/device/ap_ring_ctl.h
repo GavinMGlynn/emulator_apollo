@@ -450,6 +450,18 @@ typedef struct {
    * *sequence*. `nct` is modelled as a level, p. 12-32's "1 => network
    * connect", so in this core every write re-derives the connection. */
   uint16_t misc_cmd_first[AP_RING_CTL_CMD_LOG];
+  /* The offset each of those arrived at, **unmasked**.
+   *
+   * `002398-04` p. 12-29 gives bus `328` / phys `59400` as MISC_STAT when read
+   * and MISC_CMD when written, and p. 12-32 gives MISC_CMD's layout with its
+   * low byte defined as **zero** -- so a guest writing `000F` there is writing
+   * ones into bits the manual says are zero, and `nct` is a level, so it
+   * disconnects. Working software does not bypass its own relay on every
+   * interrupt acknowledge, which leaves the reading that something else is
+   * being routed here. The offset says which: a different alias, bank or slot
+   * masked down to this one is a decode gap, and the same offset every time is
+   * the driver really writing MISC_CMD. */
+  uint32_t misc_cmd_offset[AP_RING_CTL_CMD_LOG];
   unsigned misc_cmd_logged;
   uint16_t misc_cmd_last;
 

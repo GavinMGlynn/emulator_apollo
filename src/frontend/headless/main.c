@@ -5527,7 +5527,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     if (board->ring.a2.misc_cmd_logged > 0u) {
       printf("  ring cmds   ");
       for (unsigned k = 0; k < board->ring.a2.misc_cmd_logged; k++) {
-        printf(" %04X", board->ring.a2.misc_cmd_first[k]);
+        printf(" %04X@%X", board->ring.a2.misc_cmd_first[k],
+               board->ring.a2.misc_cmd_offset[k]);
       }
       printf("%s  last %04X\n",
              board->ring.a2.misc_cmd_writes > board->ring.a2.misc_cmd_logged

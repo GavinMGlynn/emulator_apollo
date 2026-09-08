@@ -13272,3 +13272,61 @@ has a history of being the one that is wrong.
 **The next instrument is small and names both readings apart**: count writes to
 MISC_CMD and how many carried `nct`. Written and never carrying the bit is the
 first reading; never written is the second. One 35-minute autoboot answers it.
+
+## C244 -- the MISC_CMD sequence, and two page images that make the disagreement exact
+
+C243 ended on two readings and an instrument. The instrument reported:
+
+    ring card    misc B007  xmit 00B0  rcv 00A0  (a1 misc F807)
+    ring connect a2 MISC_CMD 44 write(s), 3 with nct; a1 0 write(s), 0 with nct
+    ring cmds    0107 0007 000F x22 ...  last 3000
+
+**Neither reading was right.** MISC_CMD *is* written, and three of the writes
+*do* carry `nct` -- so Domain/OS connects the station and something later
+disconnects it. The three fall in the unlogged tail, and the **last** write
+carries no `nct`, which is why the run ends with the relay open.
+
+### What the two pages say
+
+`002398-04` p. 12-29, the AT board's own register map, read as a page image:
+bus `328` / phys `59400` is **MISC_STAT when read and MISC_CMD when written**.
+So this core's decode is faithful and there is no second meaning for `+400`.
+
+`002398-04` p. 12-32, MISC_CMD's layout, likewise:
+
+    15 14 13 12  11  10   9   8  7 6 5 4 3 2 1 0
+     0  0  0 bpm nct td1 td2 lpb 0 0 0 0 0 0 0 0
+
+Every bit position in `ap_ring_ctl.h` is confirmed -- `bpm` 12, `nct` 11, `td1`
+10, `td2` 9, `lpb` 8 -- and **the low byte is defined as zero**. There is no
+acknowledge lane in MISC_CMD.
+
+### Which makes the observation contradictory rather than merely puzzling
+
+A write of `000F` sets four bits the page defines as **0** and clears `nct`,
+which is a level; `3000` sets `bpm` and bit 13, also defined 0. Under the two
+pages together, twenty-two `000F` writes are twenty-two disconnections of the
+ring, and no working driver bypasses its own relay on every interrupt
+acknowledge.
+
+So one of these must give:
+
+  - Domain/OS really writes those values to MISC_CMD, and a real DN3000 really
+    would disconnect -- which cannot be how the software works; or
+  - **something else is being routed to `+400` by this core's decode**, and the
+    values are somebody else's register.
+
+The second is the live reading, and the discriminator is the **offset** each
+write arrived at, unmasked: the same offset every time is the driver genuinely
+writing MISC_CMD, and a different alias, bank or slot masked down to this one
+is a decode gap. `ap_ring_ctl` now records it beside each value.
+
+*Recorded before that run reports, for the reason C229 and C230 were.*
+
+*Method note.* Three instruments in a row, each answering its own question and
+each producing a reading the one before could not hold: a region total said the
+driver reached the card, a pair of counters said `nct` is written and then
+lost, and the sequence said the loss is not a driver's last act but twenty-two
+writes that should not be MISC_CMD values at all. None of them was a guess
+about the answer; each was the cheapest thing that could separate the readings
+then standing.

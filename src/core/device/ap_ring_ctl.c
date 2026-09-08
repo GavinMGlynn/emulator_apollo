@@ -1199,6 +1199,7 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
         w->misc_cmd_nct++;
       }
       if (w->misc_cmd_logged < AP_RING_CTL_CMD_LOG) {
+        w->misc_cmd_offset[w->misc_cmd_logged] = offset;
         w->misc_cmd_first[w->misc_cmd_logged++] = value;
       }
       w->misc_cmd_last = value;
