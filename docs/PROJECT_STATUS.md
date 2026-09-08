@@ -434,6 +434,40 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## Devices see time pass while the processor is stalled (2026-09-09)
+
+`ap_machine_tick`'s stall loop was
+
+    while (!ap_board_processor_may_run(board) && stalled < LIMIT) {
+      ap_board_bus_tick(board);
+      machine->cpu.clocks++;
+    }
+
+— bus ticks and a clock count, and **no `ap_board_advance`**. The board's `now`
+was reconciled after the stall, which is harmless for a device whose *deadlines*
+matter: it sees the elapsed time in one jump. It is not harmless for a device
+whose **output is consulted inside the loop**, and two are —
+`ap_board_processor_may_run` itself, and every DMA request line the arbiter
+polls on each of those ticks. Both were answered at the instant the stall began,
+however long it ran.
+
+The loop now carries its own instant and advances the board one CPU clock at a
+time. It is kept beside `machine->now` rather than in it, because the step below
+converts `cpu.clocks - before` once and lands on exactly that instant plus the
+instruction's own — adding here as well would count every stalled clock twice —
+and `ap_clock_duration` is `cycles * period`, so a clock at a time and all of
+them at once are the same number.
+
+**Behaviour-neutral on the reference boot, measured rather than argued**:
+identity `1AE206D37D8A8D1F` and the whole report byte-identical, which is what
+deadline-driven devices reaching the same instant by steps or by one jump should
+give. What it changes is the answer a device gives *during* a stall, and the one
+that asked was the tape.
+
+*Verification: identity boot and full report diffed before and after, `ctest`
+140/140 both presets. Found by implementing the tape's byte rate and watching it
+fail; `FINDINGS.md` C268.*
+
 ## The tape hands over a block 280x too fast, and the host loses a race it
 ## cannot see (2026-09-09)
 

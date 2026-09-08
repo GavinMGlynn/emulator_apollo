@@ -938,29 +938,37 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
        * a broken machine, and spinning forever inside a bounded `ap_machine_run`
        * would turn that into a hung harness rather than a visible fault -- the
        * same reason the run takes a limit at all. */
-      /* **Devices are consulted here at the time the stall began**, and that
-       * is a known gap with a named plan item rather than an oversight.
+      /* **And the devices see the time pass while it happens.**
        *
-       * This loop ticks the bus and counts the clock; it does not call
-       * `ap_board_advance`, so `now` is reconciled after the stall. A device
-       * whose *deadlines* matter is unharmed -- it sees the elapsed time in one
-       * jump. A device whose **output is consulted inside the loop** is not,
+       * This loop ticked the bus and counted the clock and did not advance the
+       * board, so `now` was reconciled only afterwards. A device whose
+       * *deadlines* matter was unharmed -- it saw the elapsed time in one jump
+       * -- but a device whose **output is consulted inside the loop** was not,
        * and two are: `ap_board_processor_may_run` itself, and every DMA request
-       * line the arbiter polls on each of these ticks.
+       * line the arbiter polls on each of these ticks. Those were answered at
+       * the instant the stall began, however long it ran.
        *
-       * `FINDINGS.md` C268 is the measured cost. The tape's request line cannot
-       * be paced at the drive's 90,000 bytes a second, because a paced line
-       * against a clock that does not move delivers one byte and then spins to
-       * the limit below -- so the cartridge's blocks cross the interface in
-       * 20 us apiece instead of 5.69 ms, and the SR10.4 firmware, which writes
-       * DMAGO forty-six instructions before the 8237 address it belongs to,
-       * loses the race every time. */
+       * `FINDINGS.md` C268 is what that cost. A request line cannot be paced at
+       * its device's own rate against a clock that does not move: the tape's
+       * would deliver one byte and then spin to the limit below, so a cartridge
+       * block crossed the interface in 20 us instead of the 5.69 ms its 90,000
+       * bytes a second take, and the SR10.4 firmware -- which writes DMAGO
+       * forty-six instructions before the 8237 address it belongs to -- lost
+       * the race every time. */
       unsigned stalled = 0;
+      /* Kept beside `machine->now` rather than in it: the step below converts
+       * `cpu.clocks - before` once and lands on exactly this instant plus the
+       * instruction's own, so adding here as well would count every stalled
+       * clock twice. `ap_clock_duration` is `cycles * period`, so a clock at a
+       * time and all of them at once are the same number. */
+      ap_time_t stall_now = machine->now;
       while (!ap_board_processor_may_run(machine->board) &&
              stalled < AP_MACHINE_STALL_LIMIT) {
         ap_board_bus_tick(machine->board);
         machine->cpu.clocks++;
         stalled++;
+        stall_now += ap_clock_duration(&machine->cpu_clock, 1u);
+        ap_board_advance(machine->board, stall_now);
       }
     }
     /* The vector counts before the step, so the one it takes can be told from
