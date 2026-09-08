@@ -15472,6 +15472,34 @@ emergent contention should do, and it moves every device's timing, not the
 tape's. It belongs beside the exact-skip and resumable-sequencer items rather
 than smuggled in behind a tape fix.
 
-`AP_SC499_T_BYTE` is kept, tied to `ap_sc499_block_duration` by an assertion so
-the two figures cannot drift, and `ap_tape_dma_request` carries the whole
-finding at the line that will change.
+### Landed, and the error has not moved
+
+With the stall loop advancing the board, the pacing works. `ap_tape_dma_request`
+is now a paced level, `ap_sc499_block_boundary` is Figure 1-5's `100 us. <`
+interface turnaround rather than a second charge of the media time, and
+`ap_sc499_block_duration` keeps the media figure it always had.
+
+One thing had to move with it. `board->dma_possible` is a poll guard whose own
+comment says "the three request sources are all software-started" -- and one of
+them no longer is. A paced line drops between bytes and returns *by the clock*,
+so latching the guard off on that gap stopped the poll and the transfer with it
+after the first byte, with nothing to re-arm it until the host next touched a
+device region. A read in progress is the drive saying it will ask again.
+
+**Behaviour-neutral on the reference boot**: identity `1AE206D37D8A8D1F`, report
+byte-identical. The line is now visibly paced -- `dma bus … 32768 asking, 8192
+holding`, four asks per byte where it used to be one -- and a block takes its
+5.69 ms.
+
+**And the cartridge error has not moved**: `error: sysboot not found`, with
+`dma first wrote 010FD800`, `last wrote 010FF5FF` and `dma 8192 transfer(s)` --
+the same fifteen blocks of span for sixteen blocks of data.
+
+*So the ordering model is incomplete, and that is the finding rather than a
+disappointment.* With pacing, only the byte that moves at DMAGO can run before
+MD's map and 8237 writes; the other 511 arrive after them. One early byte cannot
+produce a whole-block collision, so something else places two blocks together.
+The `dma writes` census names the registers MD touches -- `010C0F`, the
+**mask-all** register, rather than `010C0A`'s mask-single -- so when the channel
+is unmasked relative to DMAGO is the next thing to watch, and it is one address
+away.

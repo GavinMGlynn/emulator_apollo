@@ -5108,20 +5108,24 @@ same number is what let them diverge once already.
       entry, and the one that loses is block 0, which carries `SYSBOOT REV`.
       **The fix is the drive's byte rate**: one byte is `AP_TIME_BASE_HZ /
       90000` = 239,360,000 base units exactly, and `ap_tape_dma_request` becomes
-      a paced level. `ap_sc499_block_boundary` must change with it — with the
-      media paid byte by byte, Figure 1-5's T14→T15 is the interface turnaround
-      it was first read as, `100 us. <`.
-      **Blocked, and the blocker was found by trying it.** `ap_machine_tick`'s
-      stall loop calls `ap_board_bus_tick` with no `ap_board_advance`, so while
-      the processor is stalled the board's devices see **no time pass** — the
-      tape's clock is frozen for the whole burst and reconciled afterwards. A
-      paced request line against a frozen clock delivers one byte and spins to
-      `AP_MACHINE_STALL_LIMIT`; four suites showed it at once. The dependency
-      moves every device's timing rather than the tape's, so it belongs with the
-      exact-skip and resumable-sequencer items and wants its own identity
-      measurement. `AP_SC499_T_BYTE` is kept, tied to `ap_sc499_block_duration`
-      by an assertion, and `ap_tape_dma_request` carries the finding at the line
-      that will change.
+      a paced level, with `ap_sc499_block_boundary` reduced to Figure 1-5's
+      `100 us. <` interface turnaround so a block does not cost its media time
+      twice. **Landed**, once the stall loop was made to advance the board — the
+      blocker it found, now its own closed item — together with an amendment to
+      `board->dma_possible`, whose comment says "the three request sources are
+      all software-started" and one of which no longer is: a paced line returns
+      *by the clock*, and latching the guard off on the gap stopped the transfer
+      after its first byte. Behaviour-neutral on the reference boot, identity
+      `1AE206D37D8A8D1F` and the report byte-identical, with the line visibly
+      paced at `32768 asking, 8192 holding`.
+      **And the error did not move**: `error: sysboot not found`, same fifteen
+      blocks of span for sixteen blocks of data. *So the ordering model is
+      incomplete, which is the next thing to measure rather than a
+      disappointment*: with pacing only the byte that moves at DMAGO can precede
+      MD's map and 8237 writes, and one early byte cannot collide a whole block.
+      The `dma writes` census names `010C0F`, the **mask-all** register, rather
+      than `010C0A`'s mask-single — so when the channel is unmasked relative to
+      DMAGO is the next watch, and it is one address away.
       **What it unblocks**: a cartridge boot on this core, and with it the SAU 14
       install that the DS5500 boot and the multi-node workloads item both want —
       without borrowing the oracle. *The media is confirmed held*: `019593-001`

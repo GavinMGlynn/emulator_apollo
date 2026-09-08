@@ -582,19 +582,78 @@ static void test_the_nominal_rate_is_the_tape_speed_times_the_bit_density(void) 
                          inches_per_second * bits_per_inch / 8u);
 }
 
-/* A data block costs the time the *media* takes over it, which is what Figure
- * 1-5's gap between blocks physically is. It used to cost that figure's `100 us
- * <` minimum -- a bound on the *interface*, standing in for a drive rate no
- * document on the shelf gave until chapter 9 was walked. */
+/* **A block boundary must not lift an exception**, and it did.
+ *
+ * `ap_sc499_advance`'s completion deasserted EXCEPTION on Figure 1-8's
+ * authority -- "Device Deasserts EXCEPTION" -- and 1-8 is the entry a *command*
+ * takes when there is an exception to lift. `AP_SC499_ENTRY_DATA_BLOCK` is not
+ * a command at all: it is Figure 1-5's gap between one data block and the next.
+ *
+ * Measured on the SR10.4 boot cartridge before the media time was charged per
+ * byte, when a gap outlasted the block it followed: the firmware polls for
+ * READY between blocks, saw the file mark's exception for 3,825 polls -- status
+ * `5F` -- and then watched it turn into `3F` and read on. `FINDINGS.md` C267.
+ *
+ * Asserted here rather than through the tape, because with the gap at Figure
+ * 1-5's `100 us. <` and a block at 5.69 ms a boundary is never still in flight
+ * when a read ends, so the path that found it can no longer be built from
+ * outside. The rule is the figures', not that path's. */
+static void test_a_block_boundary_does_not_lift_an_exception(void) {
+  ap_sc499_t t;
+  ap_sc499_reset(&t);
+  ap_sc499_advance(&t, 1u);
+
+  ap_sc499_block_boundary(&t);
+  TEST_ASSERT_TRUE(ap_sc499_executing(&t));
+  TEST_ASSERT_EQUAL_UINT(AP_SC499_ENTRY_DATA_BLOCK, t.entry);
+
+  /* Something the drive found while the gap was running. */
+  ap_sc499_set_exception(&t, true);
+  TEST_ASSERT_FALSE(t.ready);
+
+  ap_sc499_advance(&t, 1u + ap_sc499_handshake_duration(AP_SC499_ENTRY_DATA_BLOCK));
+  TEST_ASSERT_FALSE(ap_sc499_executing(&t));
+  TEST_ASSERT_TRUE(t.exception);
+  /* And READY is not asserted over it: Figure 1-6, "READY shall not be asserted
+   * for an EXCEPTION condition", which the completion has to honour as much as
+   * `ap_sc499_set_exception` does. */
+  TEST_ASSERT_FALSE(t.ready);
+
+  /* A *command* entered by Figure 1-8 still lifts it, which is the whole point
+   * of telling the entries apart. */
+  ap_sc499_command_accepted(&t);
+  TEST_ASSERT_EQUAL_UINT(AP_SC499_ENTRY_EXCEPTION, t.entry);
+  ap_sc499_advance(&t, t.ready_at);
+  TEST_ASSERT_FALSE(t.exception);
+  TEST_ASSERT_TRUE(t.ready);
+}
+
+/* **A data block's media time is charged one byte at a time, and the gap
+ * between blocks is the interface's own turnaround.**
+ *
+ * This asserted the reverse, and the reverse was right while nothing paced the
+ * bytes inside a block: the block crossed the interface instantly, so the
+ * media's 5.69 ms had to be charged as the *gap* or it would not be charged at
+ * all. `ap_tape_dma_request` now spends it where the media spends it --
+ * `AP_SC499_T_BYTE` a byte -- so what is left between one block and the next is
+ * Figure 1-5's `100 us. <`, which is what the bound always said.
+ *
+ * Charging it in both places would make every block cost 5.69 ms twice.
+ * `FINDINGS.md` C268. */
 static void test_a_data_block_costs_the_drives_nominal_transfer_rate(void) {
   const ap_time_t expected = (ap_time_t)((uint64_t)AP_TIME_BASE_HZ *
                                          AP_SC499_BLOCK_BYTES /
                                          AP_SC499_DRIVE_BYTES_PER_SEC);
+  /* The media time is still the media time, and `ap_sc499_block_duration` still
+   * says so -- it is only charged elsewhere. */
   TEST_ASSERT_EQUAL_UINT64(expected,
+                           ap_sc499_block_duration(AP_SC499_BLOCK_BYTES));
+  TEST_ASSERT_EQUAL_UINT64(AP_SC499_T_BLOCK_TO_READY_MIN,
                            ap_sc499_handshake_duration(AP_SC499_ENTRY_DATA_BLOCK));
 
-  /* 5.69 ms, against the 100 us it was: the media is fifty-seven times slower
-   * than the interface bound that was standing in for it. */
+  /* 5.69 ms against 100 us: the media is fifty-seven times slower than the
+   * interface bound, which is why charging one as the other was wrong in both
+   * directions. */
   TEST_ASSERT_TRUE(expected > 50u * AP_SC499_T_BLOCK_TO_READY_MIN);
 
   /* **And a block is its bytes.** `AP_SC499_T_BYTE` is the same rate said one
@@ -646,6 +705,7 @@ int main(void) {
   RUN_TEST(test_the_modelled_times_sit_inside_apollos_documented_maxima);
   RUN_TEST(test_the_nominal_rate_is_the_tape_speed_times_the_bit_density);
   RUN_TEST(test_a_data_block_costs_the_drives_nominal_transfer_rate);
+  RUN_TEST(test_a_block_boundary_does_not_lift_an_exception);
   RUN_TEST(test_the_interface_minimum_is_a_floor_under_the_media_rate);
   RUN_TEST(test_the_published_rewind_maximum_exceeds_the_hosts_patience);
   RUN_TEST(test_the_handshake_times_are_exact_in_base_units);

@@ -372,10 +372,23 @@ static void test_the_drive_stops_asking_at_a_file_mark(void) {
   ap_tape_write(&t, AP_TAPE_ADDR + 2u, 0u); /* DMAGO */
   TEST_ASSERT_FALSE(t.controller.done);
 
-  /* The whole first block comes out under DMA, and the line stays up for it. */
+  /* The whole first block comes out under DMA, **one byte-time apart**: the
+   * drive is 90,000 bytes a second and the line goes down in between, which is
+   * what stops a block crossing the interface faster than the media can supply
+   * it. `FINDINGS.md` C268. */
   for (unsigned i = 0; i < AP_CT_BLOCK_SIZE; i++) {
+    if (i > 0u) {
+      /* The wait is taken *before* the byte, so the loop leaves the tape where
+       * the last byte left it rather than one byte-time past the end -- which
+       * is where the ending below is asserted from. */
+      clock_now += AP_SC499_T_BYTE;
+      ap_tape_advance(&t, clock_now);
+    }
     TEST_ASSERT_TRUE(ap_tape_dma_request(&t));
     TEST_ASSERT_EQUAL_HEX8(cartridge[i], ap_tape_dma_read(&t));
+    /* And down again until the next is due: the line is paced, not a level
+     * held for a whole block. */
+    TEST_ASSERT_FALSE(ap_tape_dma_request(&t));
   }
 
   /* And then it goes down, **without a byte having been taken from the mark**.
@@ -385,13 +398,11 @@ static void test_the_drive_stops_asking_at_a_file_mark(void) {
   TEST_ASSERT_TRUE(t.drive.reading);
 
   /* The ending lands with the clock, where the tape reaches the mark: `FIL`
-   * latched, EXCEPTION up, and the sequencer with nothing in flight.
-   *
-   * One tick, deliberately: the block boundary the last fetch armed is **still
-   * in flight**, and the next assertion is about what its completion does. */
+   * latched, EXCEPTION up, and the sequencer with nothing in flight. One tick
+   * is enough -- the ending is a fact about the tape's position, not a
+   * deadline. */
   clock_now += 1u;
   ap_tape_advance(&t, clock_now);
-  TEST_ASSERT_TRUE(ap_sc499_executing(&t.controller));
   TEST_ASSERT_FALSE(t.drive.reading);
   TEST_ASSERT_TRUE(t.drive.file_mark);
   TEST_ASSERT_TRUE(t.controller.exception);
@@ -399,16 +410,14 @@ static void test_the_drive_stops_asking_at_a_file_mark(void) {
   /* Past the mark, so the next READ begins the next file. */
   TEST_ASSERT_EQUAL_UINT64(2u, t.drive.position);
 
-  /* **And the exception survives the block boundary still in flight.** The last
-   * block armed Figure 1-5's gap before the mark was reached, and that gap's
-   * completion used to deassert EXCEPTION -- Figure 1-8's T3 applied to a
-   * figure that is not a command. The firmware polls for READY between blocks,
-   * was shown one, and read on: measured as `5F` turning into `3F` at the end
-   * of the file. */
+  /* And the exception stands, with READY down under it -- Figure 1-6's rule.
+   * That a *block boundary's* completion must not lift it is `sc499_suite`'s to
+   * assert directly: with the media time charged per byte the gap is 100 us and
+   * a block takes 5.69 ms, so a boundary is never still in flight when a read
+   * ends, and this test can no longer build the collision that found it. */
   clock_now += ap_sc499_handshake_duration(AP_SC499_ENTRY_DATA_BLOCK) * 2u;
   ap_tape_advance(&t, clock_now);
   TEST_ASSERT_TRUE(t.controller.exception);
-  /* And READY stays down under it, which is Figure 1-6's rule. */
   TEST_ASSERT_FALSE(t.controller.ready);
 
   /* **And the host's next DMAGO does not hang.** A driver that reads a file by

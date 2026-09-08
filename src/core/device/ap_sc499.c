@@ -50,14 +50,16 @@ ap_time_t ap_sc499_handshake_duration(ap_sc499_entry_t entry) {
   case AP_SC499_ENTRY_DATA_BLOCK:
     /* Figure 1-5's T14->T15, the gap between data blocks -- which is how long
      * the *media* takes over a block, not how fast the interface could turn
-     * round. `008778-03` Table 9-1 supplies the media rate; see the header.
+     * round -- **and the media time is charged where it is spent**, one
+     * `AP_SC499_T_BYTE` at a time by `ap_tape_dma_request`, so what is left
+     * here is Figure 1-5's own bound rather than a whole block's worth of it.
      *
-     * **This is where the whole block's media time is charged, because nothing
-     * charges it byte by byte.** When `ap_tape_dma_request` learns the drive's
-     * rate -- `FINDINGS.md` C268, and it needs the board's clock to advance
-     * during a stall first -- this becomes the `100 us. <` interface turnaround
-     * the bound was first read as, or a block will cost its media time twice. */
-    return ap_sc499_block_duration(AP_SC499_BLOCK_BYTES);
+     * This returned `ap_sc499_block_duration(AP_SC499_BLOCK_BYTES)` while
+     * nothing paced the bytes inside a block: the block crossed the interface
+     * instantly and the media time had to be charged somewhere. Charging it in
+     * both places would make every block cost 5.69 ms twice. `FINDINGS.md`
+     * C268. */
+    return AP_SC499_T_BLOCK_TO_READY_MIN;
   case AP_SC499_ENTRY_READY:
     break;
   }

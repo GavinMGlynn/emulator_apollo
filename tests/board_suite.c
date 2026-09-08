@@ -1240,9 +1240,20 @@ static void test_the_tapes_done_returns_at_the_dmas_terminal_count(void) {
   ap_i8237_write(cascade, AP_I8237_REG_MASK_SINGLE,
                  (uint8_t)AP_DMA_CASCADE_CHANNEL);
 
-  /* Long enough for four bytes and the arbitration around them, and no longer:
-   * a loop that ran until the assertion passed would pass on any board. */
-  ap_board_bus_ticks(&b, 256u);
+  /* Long enough for four bytes at the drive's rate and the arbitration around
+   * them, and no longer: a loop that ran until the assertion passed would pass
+   * on any board. A byte is `AP_SC499_T_BYTE`, 11.1 us, or about 278 bus ticks
+   * on a 25 MHz machine -- 256 stood here while the request line was a level
+   * held for a whole block (`FINDINGS.md` C268).
+   *
+   * Ticked with the clock, because `ap_board_bus_tick` carries none of its own
+   * and a paced line against a stopped clock delivers one byte and stops. */
+  TEST_ASSERT_TRUE(b.bus_tick_period > 0u);
+  for (unsigned i = 0; i < BYTES * 300u; i++) {
+    ap_board_bus_tick(&b);
+    now += b.bus_tick_period;
+    ap_board_advance(&b, now);
+  }
 
   TEST_ASSERT_TRUE(b.dma_transfers >= BYTES);
   TEST_ASSERT_TRUE(b.tape.controller.done);

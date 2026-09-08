@@ -1110,7 +1110,16 @@ void ap_board_bus_tick(ap_board_t *board) {
     asking = (board->dma.controller[i].dreq != 0u) ||
              (board->dma.controller[i].request != 0u);
   }
-  board->dma_possible = asking;
+  /* **And a line that will come back on its own keeps the poll alive.** The
+   * comment above the guard says "the three request sources are all
+   * software-started", and since 2026-09-09 one of them is not: the tape's line
+   * is paced at the drive's 90,000 bytes a second, so it drops between bytes
+   * and returns by the clock rather than by a register write. Latching the
+   * guard off on that gap stopped the poll, and the transfer with it, after the
+   * *first* byte -- nothing would have re-armed it until the host next touched
+   * a DMA or device region. A read in progress is the drive saying it will ask
+   * again. */
+  board->dma_possible = asking || board->tape.drive.reading;
   if (selected >= 0) {
     board->dma_bus_requests++;
   }
@@ -1541,6 +1550,13 @@ bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
      * this core cannot say the clock of. */
     board->refresh_interval_ticks =
         entry == NULL ? 0u : (uint32_t)((uint64_t)entry->cpu_hz * 15u / 1000000u);
+    /* One period of the same clock. `ap_time_base_divides` is what makes this
+     * exact rather than rounded, and it is checked when a clock is initialised
+     * -- 21,542,400,000,000 / 25,000,000 is 861,696 with no remainder. */
+    board->bus_tick_period =
+        entry == NULL || entry->cpu_hz == 0u
+            ? (ap_time_t)0
+            : (ap_time_t)(AP_TIME_BASE_HZ / (uint64_t)entry->cpu_hz);
     board->refresh_ticks_left = board->refresh_interval_ticks;
     board->refresh_holding = false;
   }

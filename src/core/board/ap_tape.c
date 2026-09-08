@@ -17,6 +17,7 @@ void ap_tape_reset(ap_tape_t *tape) {
   memset(tape->status_block, 0, sizeof tape->status_block);
   tape->status_offset = 0u;
   tape->status_valid = false;
+  tape->next_byte_at = 0u;
 
   /* **Open: whether the controller asserts EXCEPTION at reset.** The drive
    * does hold a condition -- `ap_qic_reset` sets "power on/reset occurred",
@@ -208,6 +209,9 @@ uint8_t ap_tape_read(ap_tape_t *tape, uint32_t address) {
      * device takes the bus to deliver data, and holds it until a command makes
      * it hand back -- which is the condition Figure 1-9 exists for. */
     tape->controller.direction = true;
+    /* The next byte is one byte-time away, whichever path took this one: the
+     * rate belongs to the drive and not to how the host asked. */
+    tape->next_byte_at = tape->controller.now + AP_SC499_T_BYTE;
     return tape->block[tape->offset++];
   }
   if (!ap_tape_decode(address, &reg) || !ap_sc499_readable(reg)) {
@@ -449,24 +453,26 @@ bool ap_tape_dma_request(const ap_tape_t *tape) {
    * after it.** A DRQ the drive cannot answer buys a bus cycle whose only
    * product is an invented byte in the host's buffer; the drive knows it has
    * nothing before the sequencer asks, so it says so. */
-  /* **The drive's byte rate is not modelled here, and it is the last known
-   * defect on this path.** `008778-03` Table 9-1 gives the drive 90,000 bytes a
-   * second -- `AP_SC499_T_BYTE`, 11.1 us -- and this line is a level held for a
-   * whole block, so the arbiter hands 512 bytes over in 20 us with the
-   * processor stalled throughout. `FINDINGS.md` C268 measured what that costs:
-   * the SR10.4 boot firmware writes DMAGO and then the translation-map entry
-   * six instructions later, which is safe against a drive 11.1 us from its
-   * first byte and fatal against one that has already delivered all 512.
+  /* **And not before the drive has the byte.** `008778-03` Table 9-1 gives the
+   * drive 90,000 bytes a second, so a byte is `AP_SC499_T_BYTE` -- 11.1 us --
+   * and this line used to be a level held for a whole block: the arbiter took
+   * 512 bytes in 20 us with the processor stalled throughout.
    *
-   * **Pacing it needs a clock this core does not yet advance.**
-   * `ap_machine_tick`'s stall loop calls `ap_board_bus_tick` without an
-   * `ap_board_advance`, so while the processor is stalled the board's devices
-   * see no time pass and `tape->controller.now` is frozen for the whole burst.
-   * A paced request line against a frozen clock delivers one byte and then
-   * spins to `AP_MACHINE_STALL_LIMIT`. The dependency is a real change with its
-   * own identity measurement -- devices seeing time pass during a stall is what
-   * the reference core claims to model -- and it is a named plan item rather
-   * than something to smuggle in beside a tape fix. */
+   * `FINDINGS.md` C268 measured what that cost. The SR10.4 boot firmware writes
+   * DMAGO, then the translation-map entry six instructions later, then the 8237
+   * address forty-six instructions later -- an order a drive 11.1 us from its
+   * first byte can afford. Against one that had already delivered all 512,
+   * every block was placed through the *previous* block's setup, two of the
+   * sixteen collided, and the one overwritten was block 0, which carries the
+   * boot header the firmware then reported it could not find.
+   *
+   * This needed `ap_machine_tick`'s stall loop to advance the board, which it
+   * did not: a paced line against a frozen clock delivers one byte and spins to
+   * `AP_MACHINE_STALL_LIMIT`. That is fixed and measured behaviour-neutral on
+   * the reference boot. */
+  if (tape->controller.now < tape->next_byte_at) {
+    return false;
+  }
   if (!needs_block(tape)) {
     return true;
   }

@@ -245,7 +245,23 @@ static void arm_channel2_for_device(ap_board_t *b, unsigned channel,
                  &ok);
 }
 
+/* A bus tick with the clock the machine gives it.
+ *
+ * `ap_board_bus_tick` carries no time of its own, so a test that drove the bus
+ * with it alone left every device answering at the instant the loop started --
+ * which is exactly the gap `ap_machine_tick`'s stall loop had until 2026-09-09,
+ * and the reason the tape's request line could not be paced at the drive's own
+ * rate. `board->bus_tick_period` is what one tick costs. */
+static ap_time_t dma_now;
+
+static void dma_bus_tick(ap_board_t *b) {
+  ap_board_bus_tick(b);
+  dma_now += b->bus_tick_period;
+  ap_board_advance(b, dma_now);
+}
+
 static void build(void) {
+  dma_now = 0u;
   for (unsigned i = 0; i < DMA_RAM_BYTES; i++) {
     dma_ram[i] = 0;
   }
@@ -532,10 +548,18 @@ static void test_a_cartridge_block_reaches_memory_by_dma(void) {
                          (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (1u << 2)),
                          0x0200u, 15u);
 
-  for (unsigned i = 0; i < 256u; i++) {
-    ap_board_bus_tick(&dma_board);
+  /* **Long enough for sixteen bytes at the drive's rate.** A byte is
+   * `AP_SC499_T_BYTE`, 11.1 us, or about 278 bus ticks on a 25 MHz machine --
+   * 256 stood here while the request line was a level held for a whole block
+   * and the drive handed one over as fast as the bus could take it, which is
+   * what `FINDINGS.md` C268 cost the cartridge boot. */
+  for (unsigned i = 0; i < 16u * 300u; i++) {
+    dma_bus_tick(&dma_board);
   }
 
+  /* A tick has to cost something, or this loop is 4,800 repetitions of the same
+   * instant and the pacing above is untested rather than satisfied. */
+  TEST_ASSERT_TRUE(dma_board.bus_tick_period > 0u);
   TEST_ASSERT_EQUAL_UINT(16u, dma_board.dma_transfers);
   /* Nothing counted as unwired: a real device answered every acknowledge. */
   TEST_ASSERT_EQUAL_UINT(0u, dma_board.dma_unwired_transfers);
@@ -565,8 +589,10 @@ static void test_the_request_line_gates_a_block_not_a_word(void) {
                          (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (1u << 2)),
                          0x0000u, 4095u);
 
-  for (unsigned i = 0; i < 4096u; i++) {
-    ap_board_bus_tick(&dma_board);
+  /* A byte costs about 278 bus ticks, so a whole cartridge of 1,024 of them
+   * costs rather more than 4,096. */
+  for (unsigned i = 0; i < sizeof cartridge * 300u; i++) {
+    dma_bus_tick(&dma_board);
   }
 
   /* It moved the cartridge and stopped: the count never reached terminal, and

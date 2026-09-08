@@ -125,6 +125,19 @@ typedef struct {
   uint8_t status_block[AP_QIC_STATUS_BYTES];
   unsigned status_offset;
   bool status_valid;
+  /* **When the drive can hand over its next byte.** `008778-03` Table 9-1 gives
+   * the drive 90,000 bytes a second, so the interface cannot go faster however
+   * fast the bus is -- and the DMA request line was a level held for a whole
+   * block, so the arbiter took 512 bytes in 20 us with the processor stalled
+   * throughout. `FINDINGS.md` C268: the SR10.4 boot firmware writes DMAGO and
+   * then, forty-six instructions later, the 8237 address the block belongs to.
+   * A drive 11.1 us from its first byte can afford that and one that has
+   * already delivered all 512 cannot.
+   *
+   * A deadline rather than a countdown, so a caller that asks twice in one tick
+   * gets the same answer. Not hashed, for the same reason `ap_sc499_t`'s
+   * `ready_at` is not: a scheduled instant rather than a fact about the tape. */
+  ap_time_t next_byte_at;
 } ap_tape_t;
 
 /* First use. See `ap_qic_init`: the drive's reset keeps its media, so it cannot

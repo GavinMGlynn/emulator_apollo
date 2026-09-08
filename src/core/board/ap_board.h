@@ -720,6 +720,17 @@ typedef struct ap_board {
    * memory requires, which is the margin a designer leaves. The DRAM constant
    * says what the parts need; this says what the board supplies. */
   uint32_t refresh_interval_ticks;
+  /* What one bus tick costs. The board already needs the processor's clock to
+   * derive the refresh interval above, and a tick is one of that clock's
+   * periods -- so the board can say what its own tick is worth instead of every
+   * caller re-deriving it. Zero on a model with no clock recorded, which is the
+   * same honest answer `refresh_interval_ticks` gives there.
+   *
+   * `ap_machine_tick` uses its own `cpu_clock` for the same figure; this exists
+   * for callers that drive the bus without a machine around it, which until now
+   * meant the bus ran with no clock at all and every device answered at the
+   * instant the caller started. */
+  ap_time_t bus_tick_period;
   uint32_t refresh_ticks_left;
   /* True for exactly the tick being stolen, so `ap_board_processor_may_run`
    * can answer with it and nothing else has to know. */
