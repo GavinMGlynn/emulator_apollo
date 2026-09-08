@@ -4147,6 +4147,115 @@ static void test_the_control_register_codes_are_not_a_dense_index(void) {
   TEST_ASSERT_EQUAL_HEX32(HANDLER, n.cpu.regs.pc);
 }
 
+/* **The MC68040's eight control registers, and the one it lost.**
+ *
+ * `M68000PRM`'s MOVEC table, read as a page image (PDF p. 477), lists TC
+ * ($003), ITT0/1 ($004/$005), DTT0/1 ($006/$007), MMUSR ($805), URP ($806) and
+ * SRP ($807) under "MC68040/MC68LC040" -- and footnotes CAAR ($802) "For the
+ * MC68020 and MC68030 only". So the same table both adds eight and takes one
+ * away, and a part that got only the additions would accept a register the
+ * manual says it has not got.
+ *
+ * The test above already requires a 68030 to refuse $003. This one requires a
+ * 68040 to take it, and to refuse $802. */
+static void test_the_68040s_control_registers_are_reached_by_movec(void) {
+  /* MOVEC D0,ITT0 ($004) ; MOVEC ITT0,D1 */
+  static const uint16_t program[] = {0x4E7Bu, 0x0004u, 0x4E7Au, 0x1004u,
+                                     0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 6);
+  m.cpu.has_68040_mmu_registers = true;
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.d[0] = 0x00FF8407u;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x00FF8407u, m.cpu.ittr_040[0]);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0x00FF8407u, m.cpu.regs.d[1]);
+  /* And the 68030's own SRP is a different register with a similar name: this
+   * wrote the 68040's, so the 68030's descriptor must be untouched. */
+  TEST_ASSERT_EQUAL_HEX32(0u, m.cpu.ittr_040[1]);
+
+  /* CAAR is gone. MOVEC D0,CAAR ($802) is an illegal instruction here and a
+   * register two parts ago. */
+  static const uint16_t caar[] = {0x4E7Bu, 0x0802u, 0x4E71u, 0x4E71u};
+  machine_t n = {0};
+  load(&n, caar, 4);
+  n.cpu.has_68040_mmu_registers = true;
+  plant_vector(&n, AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, HANDLER);
+  n.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  n.cpu.regs.isp = SUPERVISOR_STACK;
+  n.cpu.regs.d[0] = 0x12345678u;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, n.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_HEX32(0u, n.cpu.caar);
+}
+
+/* **`CINVA BC`, the second instruction a DN5500 executes.**
+ *
+ * `M68000PRM`'s CINV page (page image, PDF p. 458) gives
+ * `1111 0100 CACHE 0 SCOPE REGISTER`, and CPUSH the same with bit 5 set. `F4D8`
+ * is CACHE `11` (both) and SCOPE `11` (all), which is exactly the word the
+ * DN5500's boot PROM executes at `00060E` -- the encoding derived from the page
+ * and the encoding in the ROM agree, which is the check that makes this a
+ * reading rather than a guess.
+ *
+ * Three things are asserted because three things are decided: the part flag,
+ * the privilege, and the illegal scope. What is *not* asserted is an effect on
+ * a cache line, and that is the named gap -- this core's 68040 caches are
+ * attached to no CPU, so there is nothing to invalidate. */
+static void test_the_68040s_cache_instructions_execute_only_on_a_68040(void) {
+  static const uint16_t cinva[] = {0xF4D8u, 0x4E71u, 0x4E71u, 0x4E71u};
+
+  /* On a part without them it is an F-line: coprocessor ID `010` is nobody. */
+  machine_t without = {0};
+  load(&without, cinva, 4);
+  without.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  without.cpu.regs.isp = SUPERVISOR_STACK;
+  plant_vector(&without, AP_M68030_VECTOR_LINE_F, HANDLER);
+  const ap_m68030_step_result_t line_f = ap_m68030_step(&without.cpu);
+  TEST_ASSERT_TRUE(line_f.status != AP_M68030_STEP_EXECUTED);
+  TEST_ASSERT_EQUAL_UINT64(0u, without.cpu.cache_maintenance_operations);
+
+  /* On a 68040 it executes, costs Table 10-3's clocks, and moves the PC by the
+   * two bytes it occupies. */
+  machine_t with = {0};
+  load(&with, cinva, 4);
+  with.cpu.has_cache_maintenance = true;
+  with.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  const uint32_t before = with.cpu.regs.pc;
+  const ap_m68030_step_result_t ran = ap_m68030_step(&with.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ran.status);
+  TEST_ASSERT_EQUAL_HEX32(before + 2u, with.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_UINT64(1u, with.cpu.cache_maintenance_operations);
+  TEST_ASSERT_TRUE(ran.clocks > 0u);
+
+  /* "If Supervisor State ... ELSE TRAP". */
+  machine_t user = {0};
+  load(&user, cinva, 4);
+  user.cpu.has_cache_maintenance = true;
+  user.cpu.regs.isp = SUPERVISOR_STACK;
+  plant_vector(&user, AP_M68030_VECTOR_PRIVILEGE_VIOLATION, HANDLER);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION,
+                        ap_m68030_step(&user.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, user.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_UINT64(0u, user.cpu.cache_maintenance_operations);
+
+  /* "00 -- Illegal (causes illegal instruction trap)", which the page states
+   * outright: a scope the hardware refuses, not a form this core lacks. */
+  static const uint16_t bad_scope[] = {0xF4C0u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t illegal = {0};
+  load(&illegal, bad_scope, 4);
+  illegal.cpu.has_cache_maintenance = true;
+  illegal.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  illegal.cpu.regs.isp = SUPERVISOR_STACK;
+  plant_vector(&illegal, AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, HANDLER);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION,
+                        ap_m68030_step(&illegal.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, illegal.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_UINT64(0u, illegal.cpu.cache_maintenance_operations);
+}
+
 /* MOVEC is privileged: the control registers are the machine's configuration,
  * and a user program that could write VBR would own the exception table. */
 static void test_movec_is_privileged(void) {
@@ -9586,6 +9695,8 @@ int main(void) {
   RUN_TEST(test_a_reserved_displacement_size_is_not_a_null_one);
   RUN_TEST(test_movec_reaches_the_vector_base_register_both_ways);
   RUN_TEST(test_the_control_register_codes_are_not_a_dense_index);
+  RUN_TEST(test_the_68040s_control_registers_are_reached_by_movec);
+  RUN_TEST(test_the_68040s_cache_instructions_execute_only_on_a_68040);
   RUN_TEST(test_movec_is_privileged);
   RUN_TEST(test_stop_loads_the_status_register_and_then_halts_fetching);
   RUN_TEST(test_a_traced_stop_loads_the_sr_but_never_stops);

@@ -14326,3 +14326,79 @@ nothing covered.
 can skip work that only a dump needs", with no such caller. Deleted rather than
 tested: a predicate with no behaviour and no user is not worth an assertion, and
 dead code in the reference core is dead code.
+
+## C256 -- the DN5500 goes from two instructions to its own memory self-test
+
+The 68040 item's measurement, made 2026-08-19, was exact: the DN5500 "executes
+`NOP` at `00060C` and then takes **vector 11, the F-line emulator trap**, on
+`F4D8` at `00060E` -- `CINVA BC`, a 68040 cache-invalidate", and dies 137
+instructions later in the handler. `src/core/cpu/m68040/` is 3,181 lines of ATC,
+descriptors, caches, FPU and timing tables with **no step and no decoder**.
+
+This is the first increment of that core, and it is the two instruction groups
+the PROM reaches before anything else.
+
+### Both encodings derived from page images, and the ROM agrees
+
+`M68000PRM`, read as `pdftoppm` output rather than a text extraction, because a
+bit-field table is exactly what OCR destroys:
+
+    CINV  (PDF p. 458)   1111 0100 CACHE 0 SCOPE REGISTER
+    CPUSH (PDF p. 462)   1111 0100 CACHE 1 SCOPE REGISTER
+
+CACHE is `00` none, `01` data, `10` instruction, `11` both. SCOPE is `00`
+**illegal (causes illegal instruction trap)**, `01` line, `10` page, `11` all.
+Both pages are headed "(MC68040, MC68LC040)" and both open "If Supervisor State
+... ELSE TRAP".
+
+`CINVA BC` is then CACHE `11`, bit 5 clear, SCOPE `11` -- **`F4D8`**, the exact
+word the DN5500's PROM executes. The encoding derived from the page and the
+encoding in the ROM agree, which is what makes this a reading rather than a
+guess.
+
+And the MOVEC page (PDF p. 477) gives the control registers per part. The
+"MC68040/MC68LC040" block is TC `$003`, ITT0/1 `$004`/`$005`, DTT0/1
+`$006`/`$007`, MMUSR `$805`, URP `$806`, SRP `$807` -- **and the same table
+footnotes CAAR `$802` "For the MC68020 and MC68030 only"**. So the 68040 both
+gains eight and loses one, and a model that took only the additions would accept
+a register the manual says it has not got.
+
+### The result
+
+    before   2 instructions, then vector 11, dead at 137
+    after    50,000,000 instructions, and:
+
+        Self tests in progress.
+           CPU              Test # 7 started.
+           Memory Module 1  Test # 0 started.
+           Memory Module 2  Test # 0 starte...
+
+**A machine that could execute two instructions now runs its firmware's own
+diagnostic suite and prints it.** It stalls inside Memory Module 2's test at
+`00002940`, which is the next question and belongs to a *different* open item --
+`019411-A00` §4.2.1.18's DS5500 Memory Present Register, "each consecutive pair
+of bits identifying a slot". That item was recorded as waiting on a 68040 core;
+it is now reachable.
+
+### What is modelled, and the gap that is named rather than hidden
+
+Privilege, the illegal scope, and the cost -- Table 10-3 for `CINV` and Table
+10-4's **best case** for `CPUSH`, which is what a push over no dirty lines is.
+The invalidation itself has nothing to act on: `ap_m68040_cache.*` is a complete
+module attached to no CPU, so there are no lines to invalidate and no dirty data
+to push. **That makes a no-op the correct effect here rather than a convenient
+one**, and attaching the caches is the rest of the 68040 core item.
+
+### Two mistakes on the way, both mine and both instructive
+
+The first version **returned early** from the step instead of falling through to
+its tail, so the PC never advanced: the DN5500 executed `F4D8` three thousand
+times without leaving `00060E`. A step that skips the tail skips the PC advance,
+the pending-vector handling and the trace, and the symptom looks like a hang
+rather than like a missing line.
+
+The second guarded the wrong switch arm. `F4xx` carries coprocessor ID `010`, so
+family 1111 claims it and it arrives as `AP_M68030_DECODED_COPROC`, not as
+`ILLEGAL` -- the F-line answer that is right on a 68030 and wrong on a 68040.
+Guessing which arm and testing the guess cost two builds; reading the reported
+vector -- `1 x vector 11` -- named it in one.

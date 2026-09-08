@@ -578,10 +578,21 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
 
   machine->cpu = (ap_m68030_cpu_t){0};
   /* The one place a model changes the CPU's behaviour, read from the table
-   * rather than decided here. */
-  machine->cpu.has_module_calls =
-      machine->model != NULL &&
-      ap_cpu_features(machine->model->cpu).has_module_calls;
+   * rather than decided here.
+   *
+   * Three flags now, not one: the 68020's module calls, and the 68040's cache
+   * maintenance instructions and MMU control registers. All three are derived
+   * from `ap_cpu_t` by `ap_cpu_features`, so a model cannot claim a 68030 with
+   * `CINV` -- which is the rule `model/` exists to keep. */
+  const ap_cpu_features_t features =
+      machine->model != NULL ? ap_cpu_features(machine->model->cpu)
+                             : ap_cpu_features(AP_CPU_M68030);
+  machine->cpu.has_module_calls = machine->model != NULL &&
+                                  features.has_module_calls;
+  machine->cpu.has_cache_maintenance = machine->model != NULL &&
+                                       features.has_cache_maintenance;
+  machine->cpu.has_68040_mmu_registers =
+      machine->model != NULL && features.has_68040_mmu_registers;
   ap_m68882_reset(&machine->fpu);
   /* **Every model in the table has a coprocessor**, so attaching one is not the
    * approximation it was once recorded as. `ap_m68882.h` says "a DN3500 has a

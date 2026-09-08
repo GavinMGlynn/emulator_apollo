@@ -157,6 +157,31 @@ typedef struct {
   ap_m68030_cacr_t cacr;
   uint32_t caar;
 
+  /* **The MC68040's control registers, when the part has them.**
+   *
+   * A 68040 reaches its MMU through `MOVEC` where the 68030 reaches its own
+   * through `PMOVE`, so these eight have no 68030 counterpart and live beside
+   * the 68030's rather than inside them. `M68000PRM`'s MOVEC table (page image,
+   * PDF p. 477) is the source for every code.
+   *
+   * Held as raw 32-bit values. `ap_m68040_regs.h` already decodes a TTR, a TCR
+   * and an MMUSR field by field, and this is deliberately not that: what the
+   * DN5500's boot PROM does two instructions in is *write* them, and a register
+   * that is written and read back is the whole of what an instruction core owes
+   * before an MMU exists to consult them. Decoding them where they are used,
+   * not where they are stored, is the same split `ap_m68030_cacr_t` has. */
+  uint32_t tc_040;
+  uint32_t ittr_040[2];
+  uint32_t dttr_040[2];
+  uint32_t mmusr_040;
+  uint32_t urp_040;
+  /* `_040` on every one of them, and `srp_040` is why: the 68030 already has an
+   * `srp`, and it is a different register -- a root pointer *descriptor* whose
+   * fields Table 9-4 names, where the 68040's is a plain 32-bit pointer. Two
+   * registers with one name in one struct is how a model writes a translation
+   * root into a cache-control field. */
+  uint32_t srp_040;
+
   /* "STOP ... Immediate Data -> SR; STOP". The processor "stops fetching and
    * executing instructions" until an interrupt or a reset -- so this is a state
    * a step can be in, not something a step does. */
@@ -342,6 +367,35 @@ typedef struct {
    * before the machine had a model. An enum would have made the zero value a
    * 68020 and changed behaviour everywhere by omission. */
   bool has_module_calls;
+
+  /* Whether this part has the 68040's `CINV`/`CPUSH` and its MMU control
+   * registers. **Bools defaulting false for the same reason `has_module_calls`
+   * is one**: a zero-initialised CPU is a 68030, which is what every caller
+   * built before the machine had a model.
+   *
+   * Two flags and not one because the MOVEC table splits them that way -- a
+   * part can have the cache instructions and a different register set, and the
+   * MC68EC040 in that same table does exactly that. */
+  bool has_cache_maintenance;
+  bool has_68040_mmu_registers;
+  /* How many `CINV`/`CPUSH` this part has executed. A counter rather than a
+   * silent no-op, because the invalidation has nothing to act on until the
+   * 68040 caches are attached: a run that shows the count climbing has reached
+   * the instructions, which is a different fact from a run where the boot never
+   * gets that far. Diagnostic, and outside the state hash as every counter
+   * here is. */
+  uint64_t cache_maintenance_operations;
+  /* And the register the 68040 **lost** needs no third flag: `MOVEC` code
+   * `$802` is CAAR on a 68020 and a 68030 and an illegal instruction on a
+   * 68040, and it is the *same table* that adds the eight above and footnotes
+   * CAAR "For the MC68020 and MC68030 only". So the MOVEC path refuses `$802`
+   * exactly when `has_68040_mmu_registers` is set.
+   *
+   * A separate `has_cache_address_register` would have to default **true** to
+   * keep a zero-initialised CPU a 68030, and a flag whose safe default is the
+   * opposite of its siblings' is the shape that gets set wrong. It exists in
+   * `ap_cpu_features_t`, where it describes a part rather than initialising
+   * one, and a test requires the two to agree. */
 } ap_m68030_cpu_t;
 
 typedef struct {

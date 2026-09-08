@@ -81,6 +81,25 @@ typedef struct {
 #define AP_M68030_CONTROL_MSP 0x803u
 #define AP_M68030_CONTROL_ISP 0x804u
 
+/* And the **MC68040's**, from the same table's "MC68040/MC68LC040" block, read
+ * as a page image (`M68000PRM` MOVEC, PDF p. 477). They are accepted only on a
+ * part that has them -- `ap_cpu_features_t::has_68040_mmu_registers` -- because
+ * the table's own footnote is that "any other code causes an illegal
+ * instruction exception", and a 68030 that quietly took `$004` would be a part
+ * this manual does not describe.
+ *
+ * The 68040 reaches its MMU through these where the 68030 reaches its own
+ * through `PMOVE`, which is why the two sets do not overlap and why the
+ * paragraph above says the MMU registers are not in the 68030's list. */
+#define AP_M68040_CONTROL_TC 0x003u
+#define AP_M68040_CONTROL_ITT0 0x004u
+#define AP_M68040_CONTROL_ITT1 0x005u
+#define AP_M68040_CONTROL_DTT0 0x006u
+#define AP_M68040_CONTROL_DTT1 0x007u
+#define AP_M68040_CONTROL_MMUSR 0x805u
+#define AP_M68040_CONTROL_URP 0x806u
+#define AP_M68040_CONTROL_SRP 0x807u
+
 /* True when the instruction word is in the `0100 1110` subtree at all. */
 [[nodiscard]] bool ap_m68030_control_matches(uint16_t instruction);
 

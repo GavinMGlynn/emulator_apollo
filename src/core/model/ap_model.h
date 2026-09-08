@@ -207,6 +207,23 @@ typedef struct {
    * alone -- the PRM marks both "(MC68020)" -- and removed from the 68030
    * onward, where their encodings take an F-line/illegal path instead. */
   bool has_module_calls;
+
+  /* `CINV` and `CPUSH`, the cache maintenance instructions. `M68000PRM` heads
+   * both pages "(MC68040, MC68LC040)" -- they exist on no earlier part, where
+   * `$F4xx` is an F-line the coprocessor interface answers for. */
+  bool has_cache_maintenance;
+
+  /* The 68040's MMU control registers, reached by `MOVEC` rather than by the
+   * 68030's `PMOVE`: `M68000PRM`'s MOVEC table lists TC, ITT0/1, DTT0/1,
+   * MMUSR, URP and SRP under "MC68040/MC68LC040". */
+  bool has_68040_mmu_registers;
+
+  /* And one the 68040 **lost**. The same table footnotes CAAR "For the MC68020
+   * and MC68030 only", so `MOVEC` code `$802` is an illegal instruction on a
+   * 68040 where it is a register on the two parts before it. Carried as its own
+   * flag rather than derived from the part, because it is the only entry in
+   * that table that goes the other way and a reader will look for it. */
+  bool has_cache_address_register;
 } ap_cpu_features_t;
 
 /* Derive the features of a CPU family. Total: every `ap_cpu_t` has an entry. */

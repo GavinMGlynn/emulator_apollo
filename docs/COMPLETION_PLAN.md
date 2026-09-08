@@ -4396,6 +4396,24 @@ discipline throughout.
       Phase 2b project rather than a tail of this item. What would close it is
       a 68040 instruction core; nothing in `docs/references/` is missing for
       it — `motorola/` holds the manual.
+      **The first increment is DONE, 2026-09-09, and the machine is
+      unrecognisable** (`FINDINGS.md` C256). `CINV`/`CPUSH` and the 68040's
+      eight `MOVEC` control registers, both encodings derived from
+      `M68000PRM` page images — and `CINVA BC` decodes to **`F4D8`**, the exact
+      word in the ROM, so the page and the firmware agree. The same table takes
+      **CAAR** away, which is modelled too.
+      *Result: 2 instructions and a dead handler become **50 M instructions**
+      and `Self tests in progress. / CPU Test # 7 started. / Memory Module 1
+      Test # 0 started.` — the firmware's own diagnostic suite, printing.*
+      **And it stalls somewhere useful**: Memory Module 2's test at `00002940`,
+      which is `019411-A00` §4.2.1.18's Memory Present Register — the *other*
+      open item that was waiting on this one, now reachable.
+      *Verification: `step_suite` 310 → 312; identity boot `FE2BB02AEF1F4624`
+      and the ring ROM self-test byte-identical, since all three flags derive
+      from `ap_cpu_t`. Detail in `PROJECT_STATUS.md`.*
+      **What is left**: the caches the invalidation should act on are a complete
+      module attached to no CPU, so the instruction is correctly a no-op; and
+      everything past the memory test. Neither is blocked on a document.
 - [ ] **Table 4-6's added line, which cannot be implemented from what is held.**
       `PROVISIONAL`. The addendum says "On page 4-19, add the following line to
       Table 4-6: `PC ON/OFF — Physical Cache (DS4500 Only)`", and page 4-19 is

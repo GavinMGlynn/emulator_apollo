@@ -6,6 +6,7 @@
 #include "cpu/m68030/ap_m68030_step.h"
 
 #include "cpu/m68020/ap_m68020_decode.h"
+#include "cpu/m68040/ap_m68040_cache_timing.h"
 #include "cpu/m68030/ap_m68030_ea_timing.h"
 #include "cpu/m68030/ap_m68030_timing_table.h"
 
@@ -3505,6 +3506,14 @@ static bool execute_control(ap_m68030_cpu_t *cpu,
         cpu->regs.vbr = value;
         return true;
       case AP_M68030_CONTROL_CAAR:
+        /* **Not on a 68040**, and it is the same table that says so: the MOVEC
+         * page footnotes CAAR "For the MC68020 and MC68030 only" while listing
+         * the eight registers below under "MC68040/MC68LC040". Falling through
+         * to the default is note 1's answer -- "any other code causes an
+         * illegal instruction exception". */
+        if (cpu->has_68040_mmu_registers) {
+          break;
+        }
         cpu->caar = value;
         return true;
       case AP_M68030_CONTROL_MSP:
@@ -3513,13 +3522,48 @@ static bool execute_control(ap_m68030_cpu_t *cpu,
       case AP_M68030_CONTROL_ISP:
         cpu->regs.isp = value;
         return true;
-      default:
-        /* "If an attempt is made to access a control register that is not
-         * defined ... an illegal instruction exception occurs." A code this
-         * part does not implement is not a no-op. */
-        cpu->pending_vector = AP_M68030_VECTOR_ILLEGAL_INSTRUCTION;
+      /* **The MC68040's eight.** Stored and read back, which is what an
+       * instruction core owes before there is a 68040 MMU to consult them:
+       * `ap_m68040_regs.h` decodes a TTR, a TCR and an MMUSR field by field
+       * already, and decoding happens where a register is *used*. The DN5500's
+       * boot PROM writes ITT0 two instructions in, which is why these come
+       * before any of that. */
+      case AP_M68040_CONTROL_TC:
+        if (!cpu->has_68040_mmu_registers) { break; }
+        cpu->tc_040 = value;
         return true;
+      case AP_M68040_CONTROL_ITT0:
+      case AP_M68040_CONTROL_ITT1:
+        if (!cpu->has_68040_mmu_registers) { break; }
+        cpu->ittr_040[which - AP_M68040_CONTROL_ITT0] = value;
+        return true;
+      case AP_M68040_CONTROL_DTT0:
+      case AP_M68040_CONTROL_DTT1:
+        if (!cpu->has_68040_mmu_registers) { break; }
+        cpu->dttr_040[which - AP_M68040_CONTROL_DTT0] = value;
+        return true;
+      case AP_M68040_CONTROL_MMUSR:
+        if (!cpu->has_68040_mmu_registers) { break; }
+        cpu->mmusr_040 = value;
+        return true;
+      case AP_M68040_CONTROL_URP:
+        if (!cpu->has_68040_mmu_registers) { break; }
+        cpu->urp_040 = value;
+        return true;
+      case AP_M68040_CONTROL_SRP:
+        if (!cpu->has_68040_mmu_registers) { break; }
+        cpu->srp_040 = value;
+        return true;
+      default:
+        break;
       }
+      /* "If an attempt is made to access a control register that is not
+       * defined ... an illegal instruction exception occurs." A code this part
+       * does not implement is not a no-op -- and reached by `break` as well as
+       * by `default`, since a code that exists on *another* member of the
+       * family is exactly as undefined here. */
+      cpu->pending_vector = AP_M68030_VECTOR_ILLEGAL_INSTRUCTION;
+      return true;
     }
 
     uint32_t value = 0;
@@ -3540,6 +3584,10 @@ static bool execute_control(ap_m68030_cpu_t *cpu,
       value = cpu->regs.vbr;
       break;
     case AP_M68030_CONTROL_CAAR:
+      if (cpu->has_68040_mmu_registers) {
+        cpu->pending_vector = AP_M68030_VECTOR_ILLEGAL_INSTRUCTION;
+        return true;
+      }
       value = cpu->caar;
       break;
     case AP_M68030_CONTROL_MSP:
@@ -3547,6 +3595,29 @@ static bool execute_control(ap_m68030_cpu_t *cpu,
       break;
     case AP_M68030_CONTROL_ISP:
       value = cpu->regs.isp;
+      break;
+    case AP_M68040_CONTROL_TC:
+    case AP_M68040_CONTROL_ITT0:
+    case AP_M68040_CONTROL_ITT1:
+    case AP_M68040_CONTROL_DTT0:
+    case AP_M68040_CONTROL_DTT1:
+    case AP_M68040_CONTROL_MMUSR:
+    case AP_M68040_CONTROL_URP:
+    case AP_M68040_CONTROL_SRP:
+      if (!cpu->has_68040_mmu_registers) {
+        cpu->pending_vector = AP_M68030_VECTOR_ILLEGAL_INSTRUCTION;
+        return true;
+      }
+      switch (which) {
+      case AP_M68040_CONTROL_TC: value = cpu->tc_040; break;
+      case AP_M68040_CONTROL_ITT0: value = cpu->ittr_040[0]; break;
+      case AP_M68040_CONTROL_ITT1: value = cpu->ittr_040[1]; break;
+      case AP_M68040_CONTROL_DTT0: value = cpu->dttr_040[0]; break;
+      case AP_M68040_CONTROL_DTT1: value = cpu->dttr_040[1]; break;
+      case AP_M68040_CONTROL_MMUSR: value = cpu->mmusr_040; break;
+      case AP_M68040_CONTROL_URP: value = cpu->urp_040; break;
+      default: value = cpu->srp_040; break;
+      }
       break;
     default:
       cpu->pending_vector = AP_M68030_VECTOR_ILLEGAL_INSTRUCTION;
@@ -6530,9 +6601,66 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     ap_m68030_charge(cpu, out.clocks);
     return out;
   }
+  /* **The MC68040's cache maintenance instructions.**
+   *
+   * `M68000PRM`'s CINV and CPUSH pages, both headed "(MC68040, MC68LC040)",
+   * read as page images: `1111 0100 CACHE b5 SCOPE REGISTER`, with `b5` clear
+   * for CINV and set for CPUSH. CACHE is `00` none, `01` data, `10`
+   * instruction, `11` both; SCOPE is `00` **illegal**, `01` line, `10` page,
+   * `11` all. The DN5500's boot PROM executes `F4D8` -- both caches, all lines
+   * -- as its second instruction, which is what this exists for.
+   *
+   * Recognised here rather than in `ap_m68030_decode` for the reason the
+   * 68020's module calls are: the decoder is a pure function of the instruction
+   * word, and this group's *existence* is a fact about the part.
+   *
+   * **It sets state and falls through to the tail** rather than returning: the
+   * tail advances the PC, takes any pending vector against Table 8-6's stacked
+   * addresses, and handles tracing. An earlier version returned early and the
+   * PC never moved -- the DN5500 executed `F4D8` three thousand times without
+   * leaving `00060E`, which is what a step that forgets the tail looks like.
+   *
+   * **The named gap**: the invalidation has nothing to act on. This core's
+   * 68040 caches (`ap_m68040_cache.*`) are a complete module attached to no
+   * CPU, so there are no lines to invalidate and no dirty data to push -- which
+   * makes a no-op the *correct* effect rather than a convenient one, and
+   * attaching them is the 68040 core item this is an increment of. What is
+   * modelled is what the instruction decides: privilege, the illegal scope, and
+   * the cost. */
+  const bool cache_maintenance =
+      cpu->has_cache_maintenance && (word & 0xFF00u) == 0xF400u;
+  if (cache_maintenance) {
+    const unsigned scope = (unsigned)((word >> 3) & 0x3u);
+    if (!ap_m68030_supervisor(&cpu->regs)) {
+      /* "If Supervisor State ... ELSE TRAP", on both pages. */
+      cpu->pending_vector = AP_M68030_VECTOR_PRIVILEGE_VIOLATION;
+    } else if (scope == 0u) {
+      /* "00 -- Illegal (causes illegal instruction trap)", which the page says
+       * outright: the hardware's verdict, not this model's gap. */
+      cpu->pending_vector = AP_M68030_VECTOR_ILLEGAL_INSTRUCTION;
+    } else {
+      const bool push = (word & 0x0020u) != 0u;
+      /* Table 10-3 and Table 10-4, through the timing module that already
+       * holds them. A push over no dirty lines is Table 10-4's **best case**,
+       * which is what `ap_m68040_cpush_best_case` is -- the worst case is
+       * "best + lines written back", and there are none. Naming the best case
+       * rather than passing zero to a worst-case function is the difference
+       * between a figure and an argument for it. */
+      out.clocks += push ? ap_m68040_cpush_best_case(
+                               scope == 1u ? AP_M68040_CPUSH_LINE
+                                           : AP_M68040_CPUSH_PAGE_OR_ALL)
+                         : ap_m68040_cinv_clocks(
+                               scope == 1u   ? AP_M68040_CINV_LINE
+                               : scope == 2u ? AP_M68040_CINV_PAGE
+                                             : AP_M68040_CINV_ALL,
+                               0u);
+      cpu->cache_maintenance_operations++;
+    }
+  }
+
   out.kind = decoded.kind;
 
-  if (decoded.kind == AP_M68030_DECODED_ILLEGAL) {
+  if (!cache_maintenance && decoded.kind == AP_M68030_DECODED_ILLEGAL) {
     /* `[030]` §8.1.5, p. 8-9: "An illegal instruction is an instruction that
      * contains any bit pattern in its first word that does not correspond to
      * the bit pattern of the first word of a valid MC68030 instruction ... An
@@ -6739,6 +6867,15 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     break;
 
   case AP_M68030_DECODED_COPROC: {
+    /* **Unless it is a 68040 cache instruction.** `F4xx` carries coprocessor ID
+     * `010`, so family 1111 claims it and the dialogue below answers F-line for
+     * an ID no coprocessor here has -- which is right on a 68030 and wrong on a
+     * 68040, where `CINV` and `CPUSH` live at exactly that encoding. Handled
+     * above, where the part's own flag decides; this breaks out to the tail for
+     * the PC advance and any vector it set. */
+    if (cache_maintenance) {
+      break;
+    }
     const ap_m68030_coproc_t *coproc = &decoded.as.coproc;
 
     /* "The MMU instructions use the same opcodes and coprocessor

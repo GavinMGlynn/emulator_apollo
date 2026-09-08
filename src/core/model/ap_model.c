@@ -351,6 +351,9 @@ ap_cpu_features_t ap_cpu_features(ap_cpu_t cpu) {
         .has_synchronous_bus = false,
         .has_burst_fill = false,
         .has_module_calls = true,  /* CALLM and RTM */
+        .has_cache_maintenance = false,
+        .has_68040_mmu_registers = false,
+        .has_cache_address_register = true,
     };
   case AP_CPU_M68030:
     return (ap_cpu_features_t){
@@ -363,6 +366,9 @@ ap_cpu_features_t ap_cpu_features(ap_cpu_t cpu) {
         .has_synchronous_bus = true,
         .has_burst_fill = true,
         .has_module_calls = false,
+        .has_cache_maintenance = false,
+        .has_68040_mmu_registers = false,
+        .has_cache_address_register = true,
     };
   case AP_CPU_M68040:
     return (ap_cpu_features_t){
@@ -376,6 +382,11 @@ ap_cpu_features_t ap_cpu_features(ap_cpu_t cpu) {
         .has_synchronous_bus = true,
         .has_burst_fill = true,
         .has_module_calls = false,
+        .has_cache_maintenance = true,
+        .has_68040_mmu_registers = true,
+        /* Lost, not gained: `M68000PRM`'s MOVEC table footnotes CAAR "For the
+         * MC68020 and MC68030 only". */
+        .has_cache_address_register = false,
     };
   }
   /* Unreachable for a valid `ap_cpu_t`; the 68030 is the reference superset. */
