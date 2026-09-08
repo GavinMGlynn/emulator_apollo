@@ -5119,13 +5119,20 @@ same number is what let them diverge once already.
       `1AE206D37D8A8D1F` and the report byte-identical, with the line visibly
       paced at `32768 asking, 8192 holding`.
       **And the error did not move**: `error: sysboot not found`, same fifteen
-      blocks of span for sixteen blocks of data. *So the ordering model is
-      incomplete, which is the next thing to measure rather than a
-      disappointment*: with pacing only the byte that moves at DMAGO can precede
-      MD's map and 8237 writes, and one early byte cannot collide a whole block.
-      The `dma writes` census names `010C0F`, the **mask-all** register, rather
-      than `010C0A`'s mask-single — so when the channel is unmasked relative to
-      DMAGO is the next watch, and it is one address away.
+      blocks of span for sixteen blocks of data.
+      **The ordering theory is refuted**, by its own next measurement. The `dma
+      writes` census that named `010C0F` and not `010C0A` was *full* — twelve
+      entries, and this boot fills it — so "MD never writes mask-single" was the
+      instrument's claim rather than the machine's. Widened to thirty-two,
+      `010C0A` is there, and its watch gives the order: DMAGO `3796`, map
+      `37AC`, address `37BE`/`37C4`, **unmask `37E0`**, mask `3806`. MD unmasks
+      *last*, sixteen times, and `ap_i8237` honours the mask on pin requests —
+      so no byte can move before the map and the address are set, with or
+      without pacing, and the race described above does not exist.
+      *What is left*: the arithmetic puts the collision at the **end** — sixteen
+      blocks from `010FD800` at 512 apiece end at `010FF7FF` and `last wrote` is
+      `010FF5FF` — and settling it needs the physical address each *transfer*
+      starts at, which is a new instrument rather than another register watch.
       **What it unblocks**: a cartridge boot on this core, and with it the SAU 14
       install that the DS5500 boot and the multi-node workloads item both want —
       without borrowing the oracle. *The media is confirmed held*: `019593-001`

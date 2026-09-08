@@ -15495,11 +15495,36 @@ holding`, four asks per byte where it used to be one -- and a block takes its
 `dma first wrote 010FD800`, `last wrote 010FF5FF` and `dma 8192 transfer(s)` --
 the same fifteen blocks of span for sixteen blocks of data.
 
-*So the ordering model is incomplete, and that is the finding rather than a
-disappointment.* With pacing, only the byte that moves at DMAGO can run before
-MD's map and 8237 writes; the other 511 arrive after them. One early byte cannot
-produce a whole-block collision, so something else places two blocks together.
-The `dma writes` census names the registers MD touches -- `010C0F`, the
-**mask-all** register, rather than `010C0A`'s mask-single -- so when the channel
-is unmasked relative to DMAGO is the next thing to watch, and it is one address
-away.
+### The ordering theory is refuted, and by its own next measurement
+
+The census that named `010C0F` and not `010C0A` was **full** -- twelve distinct
+addresses, and the cartridge boot fills it -- so "MD never writes mask-single"
+was the instrument's claim and not the machine's. Widened to thirty-two,
+`010C0A` is there.
+
+Watching it settles the order, and it settles it against me:
+
+    3796  DMAGO
+    37AC  translation map entry
+    37BE  8237 address, low half
+    37C4  8237 address, high half
+    37E0  UNMASK channel 1     value 01
+    3806  MASK channel 1       value 05
+
+**MD unmasks last**, sixteen times, each unmask 16,357 instructions before the
+mask that ends the block. `ap_i8237` honours the mask on pin requests --
+`dreq & ~mask` -- so **no byte can move before the map and the address are
+set**, with or without pacing. The race I described does not exist, and the
+`dma first wrote 010FD800` that suggested it is a first *write*, not a first
+early write.
+
+So what places two blocks together is still unknown, and the arithmetic says it
+is at the **end** rather than the beginning: sixteen blocks from `010FD800` at
+512 apiece would end at `010FF7FF`, and `last wrote` is `010FF5FF` -- the end of
+the fifteenth slot, not the sixteenth.
+
+**What would settle it** is the one thing none of these watches can give: the
+physical address each *transfer* starts at. `dma_first_write` gives the run's
+first and `dma_last_write` its last, and the sixteen in between are exactly what
+is in question -- so the next instrument is a log of each transfer's first
+destination, not another register watch.
