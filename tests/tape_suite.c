@@ -405,6 +405,48 @@ static void test_an_exception_survives_until_its_figure_completes(void) {
  * Written against the image the drive is holding, so it fails if the block is
  * assembled but never handed over, and fails differently if it is handed over
  * misaligned. */
+/* **READ STATUS's six bytes come out of the data register, and nothing
+ * delivered them.**
+ *
+ * `[SC499]` §1.13.1: after a READ STATUS "the device transfers the standard six
+ * bytes to the host", through the same data register a block goes through.
+ * `ap_qic_read_status` composes that block and clears the conditions it
+ * reports -- and its only caller was `qic_suite`, so on a machine it was never
+ * delivered. `check_what_is_called_by_nobody`'s pattern for the fourth time
+ * here, and the one an earlier sweep this same day **missed**, because it
+ * counted a test caller as a caller.
+ *
+ * The first byte carries `POR`, the power-on condition a reset leaves behind:
+ * that is what a firmware issuing READ STATUS in answer to an exception is
+ * asking for, and reading it is what clears it. */
+static void test_read_status_delivers_its_six_bytes_through_the_data_register(
+    void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_SELECT);
+  /* A drive that has been reset holds "power on/reset occurred". */
+  TEST_ASSERT_TRUE(t.drive.power_on);
+  issue(&t, AP_QIC_CMD_READ_STATUS);
+  TEST_ASSERT_TRUE(t.drive.status_pending);
+
+  uint8_t block[AP_QIC_STATUS_BYTES];
+  for (unsigned i = 0; i < AP_QIC_STATUS_BYTES; i++) {
+    block[i] = ap_tape_read(&t, AP_TAPE_ADDR + 0u);
+  }
+
+  /* The device took the bus to deliver them, as it does for a data block. */
+  TEST_ASSERT_TRUE(t.controller.direction);
+  /* Byte 0 bit 1 is `POR`, and reading the block is what clears it -- so the
+   * condition is reported exactly once, which is the whole contract. */
+  TEST_ASSERT_TRUE((block[0] & AP_QIC_EXS_POWER_ON) != 0u);
+  TEST_ASSERT_FALSE(t.drive.power_on);
+  TEST_ASSERT_FALSE(t.drive.status_pending);
+
+  /* And the register goes back to being the data register: a second sweep is
+   * not a second status block. */
+  TEST_ASSERT_FALSE(t.status_valid);
+}
+
 static void test_a_written_block_reaches_the_cartridge(void) {
   ap_tape_t t;
   arm(&t);
@@ -471,6 +513,7 @@ int main(void) {
   RUN_TEST(test_the_registers_alias_on_an_eight_byte_period);
   RUN_TEST(test_nothing_outside_the_range_decodes);
   RUN_TEST(test_the_tape_raises_its_documented_interrupt);
+  RUN_TEST(test_read_status_delivers_its_six_bytes_through_the_data_register);
   RUN_TEST(test_a_written_block_reaches_the_cartridge);
   RUN_TEST(test_a_partial_block_is_not_written);
   return UNITY_END();

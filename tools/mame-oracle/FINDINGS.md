@@ -14668,3 +14668,60 @@ The SAU 14 install has two routes and this settles which is which:
 Route 2 is the better one to spend on, because it is a defect in this core
 rather than a job for somebody else's emulator -- and because a cartridge boot
 that works is worth more than one volume.
+
+## C261 -- READ STATUS's six bytes were composed and never delivered
+
+C260 said the way into the cartridge boot failure was the register traffic
+rather than the status code. Four watched runs later, the exchange is:
+
+    write 050001 = 80          reset            PC 3562
+    write 050001 = 00          release          PC 3572,  739 instructions later
+    ... 21.0 M instructions ...
+    write 050001 = 40          REQUEST          PC 3898
+    write 050000 = C0          READ STATUS      PC 3894
+    read  050001               8,195 times, **last value 57**
+
+`57` is exactly what `ap_sc499.h` records Domain/OS waiting for -- "EXCEPTION
+asserted, and cannot proceed without it" -- so the **reset handshake completes**
+and the failure is in the command phase. And `C0` is `AP_QIC_CMD_READ_STATUS`:
+the firmware is doing precisely what the header describes, issuing READ STATUS
+in answer to an exception.
+
+### The defect
+
+`ap_qic_read_status` composes the standard six bytes -- `[SC499]` §1.13.1, "the
+device transfers the standard six bytes to the host" -- and clears the
+conditions it reports, `POR` among them. **Its only caller was `qic_suite`.**
+`ap_tape_read`'s data-register branch delivers bytes only while
+`drive.reading`, and a READ STATUS is not a READ, so the block reached no
+firmware ever. A complete, documented, tested structure wired to nothing: the
+**fourth** instance of `check_what_is_called_by_nobody`'s pattern in this
+project, after `ap_ring_station_attach_rx`, `ap_master_t` and the ring's own
+receive buffer.
+
+Fixed: the data register serves the status block when one is pending, taking the
+bus as Figure 1-6 has it, fetching once on the first byte because the compose
+clears the drive's latched conditions. `tape_suite` requires the six bytes, the
+`POR` bit in byte 0, and that reading them clears it -- and fails on the old
+code.
+
+### And it is necessary rather than sufficient, which is said plainly
+
+**The cartridge still does not boot.** `DI C` / `EX DOMAIN_OS` reports
+`Tape C0  000000  00  C` exactly as before. So this was a real defect on the
+path and not *the* defect, and the next step is the same instrument one register
+along: what the firmware reads back from `050000` after its READ STATUS, and
+what it does with the ten bytes it then writes there (`01 07 28 28 00 00 03 AA
+01 01`, at one PC, five instructions apart).
+
+### The audit that missed it, and why its obvious generalisation is not a check
+
+This same day's sweep for functions "called by nobody" counted occurrences
+across `src/`, `tools/` **and** `tests/`, so six calls from `qic_suite` made
+`ap_qic_read_status` look connected. The obvious fix -- flag anything whose only
+callers are tests -- was tried and produces **~140 hits**, nearly all of them
+legitimate: a predicate a test exercises against a manual's table is a
+*specification* check, not disconnected wiring. So that generalisation is
+recorded as **not** a useful check rather than added to the tooling, and the
+distinction that does matter is narrower: a function that *composes state for
+delivery* with nothing to deliver it.

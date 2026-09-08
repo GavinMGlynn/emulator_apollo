@@ -108,6 +108,23 @@ typedef struct {
   uint8_t block[AP_CT_BLOCK_SIZE];
   unsigned offset;
   bool block_valid;
+
+  /* **READ STATUS's six bytes, on their way to the host.**
+   *
+   * `[SC499]` §1.13.1: after a READ STATUS "the device transfers the standard
+   * six bytes to the host", and it transfers them through the *data* register
+   * exactly as a data block goes. `ap_qic_read_status` composes the block and
+   * clears the conditions it reports, but it has to be *called*, and until
+   * 2026-09-09 the only caller was `qic_suite` -- so a firmware that issued
+   * READ STATUS in answer to an exception was handed tape data or the
+   * controller's own register instead, and gave up.
+   *
+   * Held here rather than in the drive because the boundary this crosses is the
+   * controller's: the drive composes a block, the register hands out bytes, and
+   * that is the same split `block`/`offset` already make for a data transfer. */
+  uint8_t status_block[AP_QIC_STATUS_BYTES];
+  unsigned status_offset;
+  bool status_valid;
 } ap_tape_t;
 
 /* First use. See `ap_qic_init`: the drive's reset keeps its media, so it cannot

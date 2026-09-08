@@ -14,6 +14,9 @@ void ap_tape_reset(ap_tape_t *tape) {
   memset(tape->block, 0, sizeof tape->block);
   tape->offset = 0u;
   tape->block_valid = false;
+  memset(tape->status_block, 0, sizeof tape->status_block);
+  tape->status_offset = 0u;
+  tape->status_valid = false;
 
   /* **Open: whether the controller asserts EXCEPTION at reset.** The drive
    * does hold a condition -- `ap_qic_reset` sets "power on/reset occurred",
@@ -79,6 +82,44 @@ bool ap_tape_decode(uint32_t address, unsigned *reg) {
 
 uint8_t ap_tape_read(ap_tape_t *tape, uint32_t address) {
   unsigned reg;
+  /* **READ STATUS's six bytes come out of the same register a data block
+   * does**, and until 2026-09-09 they came out of nowhere.
+   *
+   * `[SC499]` §1.13.1: after a READ STATUS "the device transfers the standard
+   * six bytes to the host". `ap_qic_read_status` composes them and clears the
+   * conditions they report -- and its only caller was `qic_suite`, so on a real
+   * machine the block was never delivered. The SR10.4 boot cartridge's firmware
+   * issues READ STATUS (`C0`) in answer to the power-on exception, read six
+   * bytes of something else, and reported `Tape C0  000000  00  C`
+   * (`FINDINGS.md` C261).
+   *
+   * Taken **before** the data branch, because the two are exclusive: a READ
+   * STATUS is not a READ, so `drive.reading` is false throughout and the data
+   * branch would decline anyway -- but ordering it first says which of the two
+   * a pending status belongs to rather than leaving it to that accident.
+   *
+   * The block is fetched once, on the first byte, because `ap_qic_read_status`
+   * clears `status_pending` and the drive's latched conditions with it: calling
+   * it per byte would hand out the first byte six times and acknowledge the
+   * exception five times over. */
+  if (ap_tape_decode(address, &reg) && reg == AP_SC499_DATA &&
+      (tape->status_valid || tape->drive.status_pending)) {
+    if (!tape->status_valid) {
+      if (!ap_qic_read_status(&tape->drive, tape->status_block)) {
+        return 0xFFu;
+      }
+      tape->status_valid = true;
+      tape->status_offset = 0u;
+    }
+    /* Figure 1-6's opening step for any device-to-host transfer. */
+    tape->controller.direction = true;
+    const uint8_t byte = tape->status_block[tape->status_offset++];
+    if (tape->status_offset >= AP_QIC_STATUS_BYTES) {
+      tape->status_valid = false;
+      tape->status_offset = 0u;
+    }
+    return byte;
+  }
   if (ap_tape_decode(address, &reg) && reg == AP_SC499_DATA &&
       tape->drive.reading) {
     /* The data register delivers the drive's bytes -- but only while a READ is

@@ -4940,6 +4940,17 @@ same number is what let them diverge once already.
       walked whole and the firmware is the authority — but **the route in is the
       register traffic, not the code**, since the code cannot be decoded from
       what is held.
+      **One defect found that way and fixed** (`FINDINGS.md` C261): the reset
+      handshake *completes* — the firmware reads status `57`, which is what
+      `ap_sc499.h` records it waiting for — and then issues `C0`,
+      `AP_QIC_CMD_READ_STATUS`. `ap_qic_read_status` composed the six bytes
+      `[SC499]` §1.13.1 requires and **its only caller was `qic_suite`**, so the
+      block reached no firmware ever. Now served through the data register;
+      `tape_suite` 19 → 20 and the test fails on the old code.
+      **Necessary, not sufficient**: the cartridge still reports `Tape C0`. The
+      next instrument is one register along — what the firmware reads back from
+      `050000`, and what the ten bytes it then writes there
+      (`01 07 28 28 00 00 03 AA 01 01`, one PC, five instructions apart) are.
       **What it unblocks**: a cartridge boot on this core, and with it the SAU 14
       install that the DS5500 boot and the multi-node workloads item both want —
       without borrowing the oracle. *The media is confirmed held*: `019593-001`
