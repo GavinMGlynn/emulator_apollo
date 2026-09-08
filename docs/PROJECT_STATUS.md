@@ -719,6 +719,47 @@ unconnected card does not transmit; `board_suite`'s two-board exchange had
 two booted nodes each reporting the other. It is launched.
 
 
+## The reading is finished, and here is the evidence rather than the assertion
+## (2026-09-08)
+
+"Every document read" is a claim this file has made in pieces and never in one
+place, so it is collected here with what backs it.
+
+**Twenty walk records in `docs/references/`, and every one says walked whole**:
+`002398-04` 330/330, `007196-01` 722/722, `008778-03` 209/209, `010005-00`
+29/29, `019411-A00` 10/10, `3C505`, `BT458`, `INTEL`, `MC146818A`,
+`MC68030EC` 19/19, `MC6840`, `OMTI`, `QIC-02`, `SCN2681`, `TAPE`, and the
+processor batch — `[030]` 608/608, `[PRM]` 646/646, `[851]` 356/356, `[881]`
+396/396, `M68000_Family_Reference` 608/608. Each record is page by page with
+what the page yielded, which is what separates a finished document from a
+sampled one.
+
+**One reading item is unticked and it is not the reading.** "Walk the processor
+manuals whole — the second batch" says in its own text that all six are walked,
+2,633 pages; it stays open for two **implementation** tails —
+`AP_M68030_RMC_FIRST_READ` never placed, and a translation-table search that
+does not lock the bus — both of which need Phase 8's per-cycle processor. That
+is a code blocker, not a page unturned.
+
+**`[020]` and `[040]` are a deliberate deferral**, named as one: they describe
+processors this core does not have, and reading them before the cores exist
+would derive facts into nothing.
+
+**The shelf is 133 PDFs and the rest is out of scope by kind, not by neglect.**
+The remainder is Domain/OS *software* documentation — language references,
+user's guides, administration — against a project modelling hardware. The
+hardware-relevant shelf is what the twenty records cover, and
+`apollo-documentary-universe-is-exhausted` records that bitsavers' whole Apollo
+index was diffed against what is held: there is no public DN3500 hardware
+document, and the two `PROVISIONAL`s that want one name it by order number,
+`007861-A01`, which bitsavers does not have.
+
+*So the reading half of the standing goal is complete and checkable. What
+remains open in the plan is implementation, and each item names its own
+blocker — a 68040 execution core, Phase 8's resumable sequencer, or a document
+or ROM that does not exist.*
+
+
 ## The keyboard gap named a counter that did not exist (2026-09-08)
 
 `002398-04` ch. 12's opening sentence has the keyboard performing "power-up and
