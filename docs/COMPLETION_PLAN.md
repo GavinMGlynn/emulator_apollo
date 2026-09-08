@@ -4106,12 +4106,25 @@ discipline throughout.
       `$32` is a counter check six short (`FDFA` against `FE00`), on the 8254
       byte/word counters finding 100 records as counting in three different
       units.
-      **So the self-test passes today because nothing ever reaches the medium**,
-      and making the transmit real makes the firmware test it thoroughly. That
-      is `RING.md` 69's "transmit path with duration" arriving at once, and it
-      is the work this item now needs — with a **thirty-second** reproduction
-      (`--ring-selftest`) that names its own failing subtest. Detail in
-      `PROJECT_STATUS.md`; `FINDINGS.md` C243–C247.
+      **Half the verification is now demonstrated** (`FINDINGS.md` C248). Two
+      booted Domain/OS nodes on one segment, each driven to a shell through its
+      own Mnemonic Debugger, each running `/com/lcnode` — and each station
+      **sees the other's frames**: 115 and 122 of them, first crossing at
+      399,556,608 instructions, both counters climbing together. Every previous
+      two-node run reported `frames seen 0`.
+      **What is left is acceptance.** `copied 0` on both, so each `lcnode`
+      lists only its own node; and `claims 0` with **`forced 61`** on both says
+      the token never circulates — neither station takes a *free* token, each
+      starts its own ring sixty-one times, where §2.1 step 6 has a transmitting
+      station "send out a new free token to follow the frame". The two may be
+      one fault: a frame that is not copied is not acknowledged, and a ring
+      never released gives the far station nothing to claim.
+      *The next step is a comparison, not a run*: `ring_station_suite` already
+      has a frame delivered to its addressee and a bystander required not to
+      take it, so acceptance works there — what differs is the address the board
+      gives the station and the free token after step 6.
+      **And the run costs about fifteen minutes now**, not ten hours. Detail in
+      `PROJECT_STATUS.md`; `FINDINGS.md` C243–C248.
       **The verification was rewritten on 2026-08-19, and the reason matters.**
       It read "`lcnode` on each node lists the other", which is an *operating
       system* check standing in for a *ring* one: it needs a shell, a shell

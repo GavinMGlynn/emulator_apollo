@@ -13645,3 +13645,46 @@ and the failing subtest names itself.
 XMIT_STAT's `nct` derived from the connection, ring self-test byte-identical
 (`d0 0`, 7,263,778 steps, 1,321,914 reads / 927,828 writes), identity boot
 `FE2BB02AEF1F4624`, `ctest` 140/140.
+
+## C248 -- frames cross between two booted nodes, and neither copies them
+
+The item's run, on a runner made sixty-four times faster an hour earlier:
+
+    node 0  ran 1600000000  ring claims 0  frames seen 115  copied 0   forced 61
+    node 1  ran 1600000000  ring claims 0  frames seen 122  copied 0   forced 61
+    ring    hash EFC57AD1CF04A3FD
+
+    node 1 | $ /com/lcnode
+    node 0 | $ /com/lcnode
+    node 1 |  The node ID of this node is 22222.   No other nodes responded.
+    node 0 |  The node ID of this node is 12345.   No other nodes responded.
+    node 1 | 22222   2002/11/28  2:01:08   ...  //node_22222
+    node 0 | 12345   2002/11/28  2:01:08   ...  //node_12345
+
+**Frames cross.** Two booted Domain/OS nodes, each with a shell, each running
+the item's own verification command, and each station **sees the other's
+traffic** -- 115 and 122 frames, the first crossing at 399,556,608 instructions
+and both counters climbing together from there. That was impossible this
+morning: every previous two-node run reported `frames seen 0`.
+
+**Neither copies.** `copied 0` on both, so `lcnode` lists only its own node.
+Acceptance is `[MAC]` §2.2.2.2 -- destination match or broadcast, with the
+receiver enabled -- and the frames arriving are evidently matching none of it.
+
+**And the token never circulates.** `claims 0` with `forced 61` on **both**
+stations: neither ever takes a *free* token, each starts its own ring
+sixty-one times. §2.1 step 6 has a transmitting station "send out a new free
+token to follow the frame", and if that is not reaching the other station the
+ring is never released -- which is consistent with both sides forcing, and with
+`claims_made` staying at zero on a segment that plainly carries traffic.
+
+*Two symptoms, and they may be one.* A frame that is not copied is also not
+acknowledged, and a ring that is never released gives the far station nothing to
+claim. The next step is `ring_station_suite`'s own two-station tests against
+what the runner does differently -- the suite has a frame delivered to its
+addressee and a bystander required not to take it, so acceptance works *there*,
+and what differs is the address the board gives the station and the free token
+after step 6.
+
+*What is now settled for the item*: "two booted Domain/OS nodes on one segment
+exchange ring frames" is **demonstrated**; "each reporting the other" is not.
