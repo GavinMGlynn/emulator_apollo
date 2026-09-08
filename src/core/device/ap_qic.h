@@ -377,6 +377,14 @@ void ap_qic_reset(ap_qic_t *qic);
  * the header. Fails if the image is not a whole number of blocks. */
 [[nodiscard]] bool ap_qic_load(ap_qic_t *qic, uint8_t *data, size_t size,
                                ap_qic_cartridge_t cartridge, bool writable);
+/* **No production caller, and that is a missing route rather than a design.**
+ * Nothing in any frontend removes a cartridge from a running machine -- media
+ * is supplied once, at start-up -- so the operator action this models cannot be
+ * performed. The drive's side is right and complete; what is absent is a way to
+ * ask for it. `CLAUDE.md`'s first audit check found it, and it is recorded
+ * rather than deleted because `QIC-02` §5.2's `CNI` is a real condition a
+ * driver decodes and the model can produce it the moment a frontend offers the
+ * verb. */
 void ap_qic_eject(ap_qic_t *qic);
 
 /* Issue a command. False for a command this core does not model or does not

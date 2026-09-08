@@ -424,7 +424,22 @@ typedef struct {
 #define AP_SC499_BLOCK_BYTES 512u
 
 /* How long a block of `bytes` takes to cross the head at the drive's nominal
- * rate, floored at the interface's own turnaround. */
+ * rate, floored at the interface's own turnaround.
+ *
+ * **No production caller, by design and not by accident.** It was
+ * `ap_sc499_handshake_duration`'s answer for `AP_SC499_ENTRY_DATA_BLOCK` until
+ * 2026-09-09, when the media time moved to where the media spends it -- one
+ * `AP_SC499_T_BYTE` per byte in `ap_tape_dma_request` -- and Figure 1-5's gap
+ * became the interface turnaround it was first read as. Nothing needs a whole
+ * block's media time in one figure any more.
+ *
+ * It is kept because it is where the rate is *derived* -- `008778-03` Table
+ * 9-1's 90 KB/s with Figure 1-5's `100 us <` floor, and the reasoning for both
+ * is above -- and because `sc499_suite` holds it against `AP_SC499_T_BYTE` so
+ * the constant and the derivation cannot drift apart. An uncalled function is
+ * usually a disconnected path, which is why `CLAUDE.md`'s first audit check
+ * looks for them; this one is a derivation with a test, and saying so here is
+ * what stops the next sweep re-deciding it. */
 [[nodiscard]] ap_time_t ap_sc499_block_duration(unsigned bytes);
 
 /* **One byte at the drive's rate**, which is `ap_sc499_block_duration(1)` said
