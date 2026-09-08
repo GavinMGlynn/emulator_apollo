@@ -4953,13 +4953,15 @@ same number is what let them diverge once already.
       before T2 Controller Asserts REQUEST**, and `ap_tape_write` took a byte as
       a command only when REQUEST was *already* set, so a host following the
       figure had its command executed by nothing. Both orders now work.
-      *And the error moved into the documented table*: `Tape C0` → **`Tape 39`**,
-      which p. 4-17 gives as *drive not present*. `tape_suite` 20 → 21.
-      **What is left**: `39` is `USL`, set because a reset deselects the drive
-      and the firmware reads status *before* selecting. §5.2 defines `USL` as the
-      **selected** drive being absent, so with none selected it is ambiguous —
-      and the firmware's own sequence is evidence that hardware does not report
-      it. That is the next question.
+      *And the error changed*: `Tape C0` → **`Tape 39`**. `tape_suite` 20 → 21.
+      **What is left, and it is a measurement rather than an inference**: `39` is
+      a row of p. 4-17's table (*drive not present*), but that it **is** that row
+      is not established — MD's first field carried the echoed byte before the
+      fix, and `39` is not this model's first status byte either (after a reset
+      with a cartridge loaded and the drive selected, the exception word is
+      `POWER_ON | BYTE_1` = `0081`). The next instrument is **the six bytes as
+      the firmware saw them**; inferring instead is what went wrong twice on this
+      thread already.
       **What it unblocks**: a cartridge boot on this core, and with it the SAU 14
       install that the DS5500 boot and the multi-node workloads item both want —
       without borrowing the oracle. *The media is confirmed held*: `019593-001`

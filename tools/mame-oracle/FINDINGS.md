@@ -14765,23 +14765,25 @@ byte the data register holds.
     before   Tape C0  000000  00  C
     after    Tape 39  000000  00  C
 
-**`39` is in MD's own table**: `002398-04` p. 4-17, "drive not present". So the
-command transfer now works, the firmware's READ STATUS executes, it reads the
-status block, and it reports a *documented* condition instead of an echo.
+**The command transfer now works** -- the firmware's READ STATUS executes and
+what it reports changed -- and `39` is a row of `002398-04` p. 4-17's table,
+"drive not present".
 
-`39` is `USL` in the status block, and `ap_qic_exception_word` sets it because
-the drive is **deselected** -- which a reset does, and the guide says so:
-"The drive shall remain selected until changed by another SELECT command or
-RESET." The firmware issues READ STATUS *before* its SELECT, which is the
-documented way to clear the power-on condition, and this model answers "no
-drive" to it.
+**Whether it *is* that row is NOT established, and the difference matters.**
+C262's other finding is that MD's first field carried the byte it read back
+(`C0`, its own command), and both readings cannot be simply true at once. Nor
+does `39` match this model's status block: after a reset with a cartridge loaded
+and the drive selected -- which is the state, since `ap_qic_reset` sets
+`selected` per §3.5 pin 32's "default selection to device 0" -- the exception
+word is `POWER_ON | BYTE_1` = `0081`, so byte 0 is `81`.
 
-*Whether a post-reset READ STATUS should report `USL` when no drive has been
-selected is genuinely ambiguous in the standard* -- §5.2 defines `USL` as the
-**selected** drive being absent, and with none selected there is no selected
-drive. The firmware's own sequence is evidence that real hardware does not
-report it, and that is the next question rather than a change made at the end of
-a long session.
+So `39` is neither our first status byte nor obviously the table row, and the
+two candidate mechanisms are that **MD decodes the block into its own code**, or
+that it prints some other byte of it. *Deciding needs the six bytes as the
+firmware saw them*, which is one more instrument and not an inference -- and
+inferring it is exactly what went wrong twice already on this thread, first
+decoding `C0` against `ap_sc499.h`'s register bits and then against a table that
+does not contain it.
 
 ### And the suite agreed with the model rather than the manual
 

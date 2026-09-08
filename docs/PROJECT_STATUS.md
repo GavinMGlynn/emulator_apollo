@@ -462,17 +462,19 @@ orders are now accepted.
     before   Tape C0  000000  00  C
     after    Tape 39  000000  00  C
 
-**`39` is in MD's own table** (p. 4-17): *drive not present*. The command
-transfer works, READ STATUS executes, and the firmware reports a **documented**
-condition instead of an echo.
+**The command transfer works** — READ STATUS executes and what the firmware
+reports changed. `39` is a row of p. 4-17's table, *drive not present*.
 
-`39` is `USL`, set because the drive is deselected — which a reset does, and the
-guide says so: "The drive shall remain selected until changed by another SELECT
-command or RESET." The firmware issues READ STATUS *before* its SELECT, which is
-the documented way to clear the power-on condition. *Whether a post-reset READ
-STATUS should report `USL` with no drive selected is genuinely ambiguous* — §5.2
-defines `USL` as the **selected** drive being absent — and the firmware's own
-sequence is evidence that hardware does not. That is the next question.
+**Whether it *is* that row is not established**, and that distinction is the
+point. C262's other finding is that MD's first field carried the byte it read
+back — its own `C0` — and both readings cannot be simply true. Nor does `39`
+match this model's status block: after a reset with a cartridge loaded and the
+drive selected (which it is — `ap_qic_reset` sets it, per §3.5 pin 32's "default
+selection to device 0"), the exception word is `POWER_ON | BYTE_1` = `0081`, so
+byte 0 is `81`. So `39` is neither our first status byte nor obviously the table
+row. Deciding needs **the six bytes as the firmware saw them**, which is one
+more instrument rather than an inference — and inferring it is what went wrong
+twice on this thread already.
 
 **And the suite agreed with the model rather than the manual**: `tape_suite`'s
 `issue` helper raises REQUEST *then* writes the byte, so every test passed
