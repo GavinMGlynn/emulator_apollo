@@ -426,6 +426,31 @@ typedef struct {
 /* How long a block of `bytes` takes to cross the head at the drive's nominal
  * rate, floored at the interface's own turnaround. */
 [[nodiscard]] ap_time_t ap_sc499_block_duration(unsigned bytes);
+
+/* **One byte at the drive's rate**, which is `ap_sc499_block_duration(1)` said
+ * as a constant because the DMA request line consults it on every bus tick.
+ *
+ * 90,000 bytes a second is 11.1 us a byte, and on the time base that is
+ * **239,360,000 units exactly** -- `21542400000000 / 90000`, no remainder, so
+ * this is not a rounded figure on top of a nominal one.
+ *
+ * ## Why a byte needs a rate at all
+ *
+ * `ap_tape_dma_request` used to be a level held for a whole block, so the
+ * arbiter gave the DMA the bus and 512 cycles ran back to back with the
+ * processor stalled: **20 us of emulated time in which the host executes no
+ * instruction**. A real drive is 11.1 us from its *first* byte and 5.69 ms from
+ * its last, and the host runs the whole time.
+ *
+ * That is not a refinement. `FINDINGS.md` C268: the SR10.4 boot firmware writes
+ * DMAGO and then, **six instructions later**, the AT translation map entry that
+ * says where the block goes -- which is safe on a machine where the first byte
+ * is 11.1 us away and fatal on one that has already delivered all 512. Every
+ * block was placed through the previous map entry, two of the sixteen collided,
+ * and the one overwritten was block 0, which carries the boot header the
+ * firmware then reported it could not find. */
+#define AP_SC499_T_BYTE \
+  ((ap_time_t)(AP_TIME_BASE_HZ / AP_SC499_DRIVE_BYTES_PER_SEC))
 #define AP_SC499_T_CLOSE_MIN AP_SC499_US(20)           /* 20 us <, T6->T8 */
 #define AP_SC499_T_CLOSE_MAX AP_SC499_US(100)           /* < 100 us, T6->T8 */
 

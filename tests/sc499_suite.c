@@ -596,6 +596,19 @@ static void test_a_data_block_costs_the_drives_nominal_transfer_rate(void) {
   /* 5.69 ms, against the 100 us it was: the media is fifty-seven times slower
    * than the interface bound that was standing in for it. */
   TEST_ASSERT_TRUE(expected > 50u * AP_SC499_T_BLOCK_TO_READY_MIN);
+
+  /* **And a block is its bytes.** `AP_SC499_T_BYTE` is the same rate said one
+   * byte at a time, and it converts exactly -- `21542400000000 / 90000` is
+   * 239,360,000 with no remainder -- so the two figures cannot drift apart. It
+   * is tied to the block here rather than left dangling because nothing paces
+   * bytes yet: `ap_tape_dma_request` hands a whole block to the arbiter at bus
+   * speed, and `FINDINGS.md` C268 measured what that costs the cartridge boot.
+   * Pacing it waits on the board's clock advancing while the processor is
+   * stalled, which is a change with its own identity measurement. */
+  TEST_ASSERT_EQUAL_UINT64(AP_TIME_BASE_HZ / AP_SC499_DRIVE_BYTES_PER_SEC,
+                           AP_SC499_T_BYTE);
+  TEST_ASSERT_EQUAL_UINT64(expected,
+                           AP_SC499_T_BYTE * (ap_time_t)AP_SC499_BLOCK_BYTES);
 }
 
 /* The interface minimum survives as a floor rather than being discarded: a

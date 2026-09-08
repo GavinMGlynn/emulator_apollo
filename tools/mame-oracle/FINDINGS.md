@@ -15422,7 +15422,32 @@ turnaround it was originally read as -- `100 us. <`, which is
 `AP_SC499_T_BLOCK_TO_READY_MIN`. The two must move together or a block will cost
 its media time twice.
 
-That is a change to the reference core's timing rather than to a register, so it
-wants its own measurement: the identity boot fits no cartridge and cannot move,
-but `tape_suite`'s DMA tests time blocks explicitly and every one of them will
-need re-reading against the new rate.
+### And it is blocked on a clock, which was found by trying it
+
+The pacing was implemented and reverted the same hour, because it does not work
+against this core's clock and the reason is worth having written down.
+
+`ap_machine_tick`'s stall loop is
+
+    while (!ap_board_processor_may_run(board) && stalled < LIMIT) {
+      ap_board_bus_tick(board);
+      machine->cpu.clocks++;
+    }
+
+-- `ap_board_bus_tick` and no `ap_board_advance`. So while the processor is
+stalled the board's *devices see no time pass*: `tape->controller.now` is frozen
+for the whole burst and is reconciled only afterwards. A paced request line
+against a frozen clock delivers one byte, never sees its deadline arrive, and
+the machine spins to `AP_MACHINE_STALL_LIMIT`. Four suites showed it at once --
+`dma_suite`'s two cartridge transfers stopped at one byte each, and
+`board_suite`'s and `tape_suite`'s DMA tests with them.
+
+**The dependency is a real change with its own identity measurement**: devices
+seeing time pass while the processor is stalled is what a core whose claim is
+emergent contention should do, and it moves every device's timing, not the
+tape's. It belongs beside the exact-skip and resumable-sequencer items rather
+than smuggled in behind a tape fix.
+
+`AP_SC499_T_BYTE` is kept, tied to `ap_sc499_block_duration` by an assertion so
+the two figures cannot drift, and `ap_tape_dma_request` carries the whole
+finding at the line that will change.

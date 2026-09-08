@@ -5095,9 +5095,18 @@ same number is what let them diverge once already.
       90000` = 239,360,000 base units exactly, and `ap_tape_dma_request` becomes
       a paced level. `ap_sc499_block_boundary` must change with it — with the
       media paid byte by byte, Figure 1-5's T14→T15 is the interface turnaround
-      it was first read as, `100 us. <`. A reference-core *timing* change, so it
-      wants its own measurement pass: the identity boot fits no cartridge and
-      cannot move, but every `tape_suite` DMA test times blocks explicitly.
+      it was first read as, `100 us. <`.
+      **Blocked, and the blocker was found by trying it.** `ap_machine_tick`'s
+      stall loop calls `ap_board_bus_tick` with no `ap_board_advance`, so while
+      the processor is stalled the board's devices see **no time pass** — the
+      tape's clock is frozen for the whole burst and reconciled afterwards. A
+      paced request line against a frozen clock delivers one byte and spins to
+      `AP_MACHINE_STALL_LIMIT`; four suites showed it at once. The dependency
+      moves every device's timing rather than the tape's, so it belongs with the
+      exact-skip and resumable-sequencer items and wants its own identity
+      measurement. `AP_SC499_T_BYTE` is kept, tied to `ap_sc499_block_duration`
+      by an assertion, and `ap_tape_dma_request` carries the finding at the line
+      that will change.
       **What it unblocks**: a cartridge boot on this core, and with it the SAU 14
       install that the DS5500 boot and the multi-node workloads item both want —
       without borrowing the oracle. *The media is confirmed held*: `019593-001`

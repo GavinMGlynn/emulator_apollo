@@ -449,6 +449,24 @@ bool ap_tape_dma_request(const ap_tape_t *tape) {
    * after it.** A DRQ the drive cannot answer buys a bus cycle whose only
    * product is an invented byte in the host's buffer; the drive knows it has
    * nothing before the sequencer asks, so it says so. */
+  /* **The drive's byte rate is not modelled here, and it is the last known
+   * defect on this path.** `008778-03` Table 9-1 gives the drive 90,000 bytes a
+   * second -- `AP_SC499_T_BYTE`, 11.1 us -- and this line is a level held for a
+   * whole block, so the arbiter hands 512 bytes over in 20 us with the
+   * processor stalled throughout. `FINDINGS.md` C268 measured what that costs:
+   * the SR10.4 boot firmware writes DMAGO and then the translation-map entry
+   * six instructions later, which is safe against a drive 11.1 us from its
+   * first byte and fatal against one that has already delivered all 512.
+   *
+   * **Pacing it needs a clock this core does not yet advance.**
+   * `ap_machine_tick`'s stall loop calls `ap_board_bus_tick` without an
+   * `ap_board_advance`, so while the processor is stalled the board's devices
+   * see no time pass and `tape->controller.now` is frozen for the whole burst.
+   * A paced request line against a frozen clock delivers one byte and then
+   * spins to `AP_MACHINE_STALL_LIMIT`. The dependency is a real change with its
+   * own identity measurement -- devices seeing time pass during a stall is what
+   * the reference core claims to model -- and it is a named plan item rather
+   * than something to smuggle in beside a tape fix. */
   if (!needs_block(tape)) {
     return true;
   }

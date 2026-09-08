@@ -471,10 +471,20 @@ the media paid byte by byte, Figure 1-5's T14→T15 is the interface turnaround 
 was first read as — `100 us. <`, which is `AP_SC499_T_BLOCK_TO_READY_MIN`. The
 two move together or a block costs its media time twice.
 
-That is a change to the reference core's *timing* rather than to a register, so
-it wants its own measurement: the identity boot fits no cartridge and cannot
-move, but every one of `tape_suite`'s DMA tests times blocks explicitly and each
-needs re-reading against the new rate. Detail in `FINDINGS.md` C268.
+**And it is blocked on a clock, which was found by trying it.**
+`ap_machine_tick`'s stall loop calls `ap_board_bus_tick` and increments the
+CPU's clock count *without* an `ap_board_advance`, so while the processor is
+stalled the board's devices see no time pass — `tape->controller.now` is frozen
+for the whole burst and reconciled only afterwards. A paced request line against
+a frozen clock delivers one byte and then spins to `AP_MACHINE_STALL_LIMIT`;
+four suites showed it at once. The dependency is a real change with its own
+identity measurement — devices seeing time pass while the processor is stalled
+is what a core whose claim is emergent contention should do, and it moves every
+device's timing rather than the tape's — so it belongs beside the exact-skip and
+resumable-sequencer items. `AP_SC499_T_BYTE` is kept and tied to
+`ap_sc499_block_duration` by an assertion so the two cannot drift, and
+`ap_tape_dma_request` carries the finding at the line that will change. Detail
+in `FINDINGS.md` C268.
 
 ## A card cannot transfer a byte the drive never sent (2026-09-09)
 
