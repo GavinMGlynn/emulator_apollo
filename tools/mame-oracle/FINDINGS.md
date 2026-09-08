@@ -13786,8 +13786,49 @@ bytes of it. **That is the last link in the chain**, it is one change in
 `ap_ring_station_attach_rx` gives the station a board-owned receive buffer, and
 what stops at eight bytes is the capture loop, not the room to put it.
 
+### The deposit is fixed too, and the frame path is now byte-consistent
+
+The "station change" that comment wanted had already been made -- `attach_rx`
+lends a board-owned buffer, `rx_bytes` and `rx_header_bytes` describe the
+capture, and `ap_board` lends both buffers on every station init. Only the
+deposit still used `sizeof rx_header`. Header at `RCV_ADDR` and data a kilobyte
+past it now, the same layout the transmit side reads.
+
+**Measured effective rather than assumed** -- the report prints what the station
+captured, and two booted nodes give
+
+    rx 90 bytes (90 header)      against a transmitted xmt_hdr 002D (45 words)
+
+so transmit, capture and deposit agree byte for byte where the deposit used to
+truncate to eight.
+
 *The chain as it now stands, every link measured*: the driver connects the card
 (C246), sees the connection in XMIT_STAT (C247), commands a transmit that
 reaches the station (C247), the station starts a ring and strips (C247), the
-frame is sized as the driver asked (here), it crosses (C248), it is addressed
-(C249), it is copied (C249) -- and eight bytes of it are delivered.
+frame is sized as the driver asked, it crosses (C248), it is addressed (C249),
+it is copied (C249), and the **whole** of it is delivered.
+
+### And the driver still does not answer, which is a new question
+
+`lcnode` reports "No other nodes responded" with a ninety-byte request sitting
+in the far node's buffer. Everything below the driver is now accounted for, so
+the candidates are all above it and none is yet tested:
+
+  - **The receive interrupt.** The deposit clears `ri` -- MISC_STAT bit 1,
+    active low, so clear *is* pending -- and `ap_ring_ctl_irq` asserts on it,
+    and Domain/OS unmasks IRQ2 when a card is fitted (`RING.md` 144). Whether
+    the handler runs is not measured: the two-node runner prints no interrupt
+    state, where the single-machine report has printed the master 8259's
+    `IRR`/`IMR` all along. **That asymmetry is the cheapest thing to close
+    first**, and it is the same shape as the `--boot-input-rate` and
+    `--boot-input-interval` gaps this session already found in that runner.
+  - **Where the frame landed.** The deposit addresses `RCV_ADDR` from
+    `slot_004`'s written value; p. 12-29's note *2 makes `59004` read as
+    `XMIT_ABORT` on the **two-board** version and `RCV_ADDR` on the
+    single-board one, with the *write* side `RCV_ADDR` on both -- so the write
+    side is right, and whether the driver looks there is not established.
+  - **What the request asks for.** The ninety bytes are captured but never
+    decoded; `lcnode`'s reply is a `THANK_YOU` and nothing here has read the
+    request's own fields to see what a reply would have to contain.
+
+*Recorded before any of them is tried, for the reason C229 and C230 were.*

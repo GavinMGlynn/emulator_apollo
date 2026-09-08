@@ -4120,19 +4120,23 @@ discipline throughout.
       itself**, the MISC_CMD defect one register along, its `move.w #$0800` to
       RCV_CMD enabling `ren` with the first byte and clearing it with the
       second. Frames now go **seen → addressed → copied**.
-      **What is left is that the frames carry no payload.**
-      `ring_ctl_queue_from_buffer` sends `data = NULL, data_bytes = 0`, and its
-      own comment says why: the §2.2.2 minimum of twelve bytes was "the only
-      length that is evidenced", with a longer one "a named gap rather than a
-      guess". So each node sends one frame, the other copies it, and neither can
-      answer — `lcnode` still reports "No other nodes responded".
-      *The source that comment wanted is on the card*: `[EH]` p. 12-29 gives the
-      buffer as "1k bytes of header and 1k bytes of data", and finding 100
-      already recovered `XMT_HDR` ("Transmitter Header Word", **words**) and
-      `XMT_PKT` ("Transmitter Total Word", **words**) from the driver's own
-      descriptor table — two 8254 counters this core models, which the driver
-      programs before transmitting. Size the frame from those instead of from
-      the minimum, and the data at the buffer's 1 KB offset goes with it.
+      **And the frame path is now complete and byte-consistent** (C250). The
+      extent comes from the driver's own counters — `XMT_HDR`/`XMT_PKT`, both in
+      words, which finding 100 recovered from `ring8a.drvr`'s descriptor table
+      and which read `002D` on a real `lcnode` transmit: 45 words, 90 bytes. And
+      the deposit hands over the **whole** frame instead of §2.2.2's eight
+      decision bytes, header at `RCV_ADDR` and data a kilobyte past it, which is
+      p. 12-29's "1k bytes of header and 1k bytes of data". Measured effective:
+      `rx 90 bytes (90 header)` against a transmitted `xmt_hdr 002D`.
+      **What is left is above the driver's own boundary**, and it is a new
+      question rather than this one: a ninety-byte request sits in the far
+      node's buffer and it does not answer. Three candidates, none tested —
+      whether the receive interrupt reaches the handler, whether the driver
+      looks where the frame was deposited, and what the request's own fields ask
+      for. *The cheapest is the first*: the two-node runner prints no interrupt
+      state where the single-machine report has printed the master 8259's
+      `IRR`/`IMR` all along, which is the same asymmetry this session already
+      closed for `--boot-input-rate` and `--boot-input-interval`.
       **And the run costs about fifteen minutes now**, not ten hours. Detail in
       `PROJECT_STATUS.md`; `FINDINGS.md` C243–C248.
       **The verification was rewritten on 2026-08-19, and the reason matters.**
