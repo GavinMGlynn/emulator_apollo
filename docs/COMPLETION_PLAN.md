@@ -4128,15 +4128,24 @@ discipline throughout.
       decision bytes, header at `RCV_ADDR` and data a kilobyte past it, which is
       p. 12-29's "1k bytes of header and 1k bytes of data". Measured effective:
       `rx 90 bytes (90 header)` against a transmitted `xmt_hdr 002D`.
-      **What is left is above the driver's own boundary**, and it is a new
-      question rather than this one: a ninety-byte request sits in the far
-      node's buffer and it does not answer. Three candidates, none tested —
-      whether the receive interrupt reaches the handler, whether the driver
-      looks where the frame was deposited, and what the request's own fields ask
-      for. *The cheapest is the first*: the two-node runner prints no interrupt
-      state where the single-machine report has printed the master 8259's
-      `IRR`/`IMR` all along, which is the same asymmetry this session already
-      closed for `--boot-input-rate` and `--boot-input-interval`.
+      **Two of the three candidates are answered and were defects of ours.**
+      The receive interrupt *does* reach the handler — `IRQ2 unmasked`, `ri`
+      idle, so Domain/OS took it and acknowledged it. And the frame each node
+      was handed was **its own**: source at offset 8 equal to its own ID, early
+      acknowledge gone from `00` to `0A`, its own broadcast once round the ring.
+      §2.1 step 7 strips a transmitter's own frame and §2.2.2.2's delivery is a
+      receiver's business; the two are exclusive, and the acceptance test alone
+      is unconditionally true for a broadcast. Fixed — node 1's received frame
+      goes from its own ID to node 0's.
+      **What is left is two questions of a different kind from the nine fixed.**
+      *A node with the other's request does not reply*: the ninety bytes are
+      captured and never decoded, and a reply is a `THANK_YOU` (p. 7-31's type
+      `20`) — this is Domain/OS **protocol**, where every defect so far was "the
+      core does what the documents say it should not". And *node 0 never sees
+      node 1's frame at all* (`frames seen 1 copied 0`, its own only, where node
+      1 sees two) — a one-way segment, which is a medium or timing question and
+      separate. `ring_medium_suite` circulates a token across three stations, so
+      what differs is two running machines transmitting into it.
       **And the run costs about fifteen minutes now**, not ten hours. Detail in
       `PROJECT_STATUS.md`; `FINDINGS.md` C243–C248.
       **The verification was rewritten on 2026-08-19, and the reason matters.**

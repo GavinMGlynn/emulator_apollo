@@ -13828,13 +13828,36 @@ the candidates are all above it and none is yet tested:
     first window's `+4` sets it again (finding 74a). So Domain/OS took the
     interrupt and **acknowledged** it: the whole path from a frame on the wire
     to the driver's handler works.
-  - **Where the frame landed.** The deposit addresses `RCV_ADDR` from
-    `slot_004`'s written value; p. 12-29's note *2 makes `59004` read as
-    `XMIT_ABORT` on the **two-board** version and `RCV_ADDR` on the
-    single-board one, with the *write* side `RCV_ADDR` on both -- so the write
-    side is right, and whether the driver looks there is not established.
-  - **What the request asks for.** The ninety bytes are captured but never
-    decoded; `lcnode`'s reply is a `THANK_YOU` and nothing here has read the
-    request's own fields to see what a reply would have to contain.
+  - ~~**Where the frame landed.**~~ **Answered, and it was the wrong frame.**
+    Capturing what each card *received* and comparing it against what it sent:
 
-*Recorded before any of them is tried, for the reason C229 and C230 were.*
+        node 0  tx  00 00 00 00 90 00 00 00 00 01 23 45
+        node 0  rx  00 00 00 00 90 00 00 0A 00 01 23 45
+
+    the source at offset 8 is the node's **own** ID, and the early acknowledge
+    at offset 7 has gone from `00` to `0A` -- its own frame, once round the
+    ring. Both nodes were being handed their own broadcast back, so `lcnode`
+    was reading its own question.
+    §2.1 step 7 has a transmitter strip "until it finishes receiving its own
+    frame" and §2.2.2.2's delivery is what a *receiver* does; the two are
+    exclusive, and this took the acceptance test alone, which for a broadcast
+    is unconditionally true. **Fixed**, and node 1's received frame goes from
+    `00 02 22 22` to `00 01 23 45` -- the other node's.
+
+### Two questions left, and they are not the same kind
+
+  - **A node with the other's request does not reply.** Node 1 now copies node
+    0's ninety-byte broadcast and answers nothing. The bytes are captured and
+    have never been decoded: `lcnode`'s reply is a `THANK_YOU` (`002398-04`
+    p. 7-31's type `20`) and nothing here has read the request's own fields to
+    see what one would have to contain. **This is Domain/OS protocol, not
+    hardware** -- every defect from C246 to here was "the core does what the
+    documents say it should not", found by comparing captured bytes against a
+    manual, and this one has no manual behind it.
+  - **Node 0 never sees node 1's frame at all**: `frames seen 1 copied 0`, its
+    own only, where node 1 sees two. A one-way segment is a *medium* or timing
+    question and separate from the first. `ring_medium_suite` circulates a
+    token across three stations, so the mechanism works there; what differs is
+    two stations transmitting into it from a running machine.
+
+*Recorded before either is tried, for the reason C229 and C230 were.*
