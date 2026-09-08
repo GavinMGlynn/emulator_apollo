@@ -4983,20 +4983,30 @@ same number is what let them diverge once already.
       twice — `ST0 | FIL`, §5.3's *Filemark read* row, which is exactly right
       for a read that ended at a mark. The status path works and delivers real
       bytes; nothing reads `FF`.
-      **What the same watch does show** is the kernel's driver spinning
-      **14,773,981 times at one PC**, `3C4A4A6A`, on word reads of `050000` —
-      and the low half of every one of them is **`5F`**: the status register
-      with `EXC` **asserted** and `RDY` **not** asserted, persistently. So the
-      failure is not a bad status block. It is the controller left in EXCEPTION
-      with READY down and the driver waiting for a READY that never comes —
-      the same shape as `FINDINGS.md` C264's spin, one layer up.
-      *What is not yet established* is why the exception is not lifted. A
-      command entered by Figure 1-8 clears it at its completion, the kernel
-      issues `C0` READ STATUS three times, and the status stays `5F` — so
-      either those writes are not being taken as commands, or something
-      re-raises it. The next measurement is the **control** register,
-      `050001` writes, through the kernel phase: whether REQUEST is pulsed at
-      all is what tells those two apart.
+      **"Spinning on a READY that never comes" is wrong too** — the third
+      inference in a row killed by the run that was meant to confirm it, and the
+      pattern is the lesson: each one read a mechanism off a partial observable.
+      What the same run's *report* says is that the drive is **working**:
+
+          tape drive   block 98263 of 104841, selected, reading
+          tape card    status 5F, control 40, exception, done, to host, exs 0000
+          final PC     3C43F5A8 -> 010421A8 (main memory)
+          dma          35531776 transfer(s)
+
+      The position advanced to 98,263 of 104,841, `reading` is still set, the
+      processor is in Domain/OS code rather than a PROM loop, and 35.5 M bytes
+      moved by DMA besides. The 14.8 M reads at PC `3C4A4A6A` are the driver
+      *streaming tape data*, not polling a stuck line — and the log's own
+      ordering puts `bad acquire tape` **after** essentially all of them.
+      **What is measured, and nothing beyond it**: the status path delivers
+      correct bytes; the kernel reads the tape at length and then reports
+      `280011` and `280002`; and at the limit the card shows `EXC` asserted with
+      `control 40` (REQUEST held) while the drive's own exception word is
+      `0000` — the controller holding a condition the drive does not.
+      *Why* is not established, and this item has had three guesses too many.
+      The next step is one pass that captures the whole exchange around the
+      failure — control writes, data writes, status reads — rather than another
+      single-address watch answering one question at a time.
       *Already measured, and orderly*: the PROM's own command sequence is `C0`,
       `80`, `C0`, **`A0` READ FILE MARK**, `80` — the firmware using the
       file-mark command this session implemented, corroborating it from the

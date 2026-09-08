@@ -654,14 +654,24 @@ status bytes come back correct at every point — `00`/`89`, then `81`/`00` twic
 which is `ST0 | FIL`, §5.3's *Filemark read*, exactly right after a read that
 ended at a mark. The status path works and nothing reads `FF`.
 
-What the same watch shows is the kernel's driver spinning **14,773,981 times at
-one PC**, `3C4A4A6A`, on word reads of `050000` — and the low half of every one
-is **`5F`**: the status register with `EXC` asserted and `RDY` **not** asserted,
-persistently. So the failure is not a bad status block; it is the controller
-left in EXCEPTION with READY down and the driver waiting for a READY that never
-comes — the same shape as C264's spin, one layer up. Why the exception is not
-lifted is not yet established, and the next measurement is the control register.
-It has its own plan item.
+*And a third reading — "the driver is spinning on a READY that never comes" —
+is wrong as well*, killed by the same run's report. That is three inferences in
+a row, each read off a partial observable, and the pattern is the lesson rather
+than any one of them.
+
+The report says the drive is **working**: `tape drive block 98263 of 104841,
+selected, reading`, `final PC 3C43F5A8 -> 010421A8 (main memory)`, 35.5 M DMA
+transfers. The 14.8 M reads at PC `3C4A4A6A` are the driver *streaming tape
+data*, and the log's own ordering puts `bad acquire tape` after essentially all
+of them.
+
+What is measured and nothing beyond it: the status path delivers correct bytes;
+the kernel reads the tape at length and then reports `280011` and `280002`; and
+at the limit the card shows `EXC` asserted with `control 40` — REQUEST held —
+while the drive's own exception word is `0000`, the controller holding a
+condition the drive does not. Why is not established. It has its own plan item,
+and the next step there is one pass capturing the whole exchange rather than
+another single-address watch.
 
 ## The first block is handed over twice, and the boot gets past `EX DOMAIN_OS`
 ## (2026-09-09)
