@@ -4977,20 +4977,30 @@ same number is what let them diverge once already.
       **No SELECT is issued at any point.** Nothing else in this model clears
       `selected`, and both `ap_qic_init` and `ap_qic_reset` set it, so the drive
       cannot be deselected and byte 0 cannot be `F0` that way.
-      *The reading that replaces it, and it is a hypothesis rather than a
-      finding*: the kernel issues READ STATUS and does not receive the block, so
-      it reads the board's undriven `FF` — whose bits include `CNI`, `USL` and
-      `WRP`, the three that make §5.3 row 2's `11110000`. A host that gets `FF`
-      decodes "drive does not exist" from a drive that is present. The status
-      path is served on REQUEST edges (`FINDINGS.md` C264), and whether the
-      Domain/OS driver clocks it out the same way MD does is exactly what has
-      not been measured.
-      *What it needs*: a watch on `050000` **reads** through the kernel phase,
-      to see what the driver actually gets back — six status bytes or `FF`. The
-      write side is now measured and the PROM's own sequence is orderly, `C0`,
-      `80`, `C0`, **`A0` READ FILE MARK**, `80`, which is the firmware using the
-      file-mark command this session implemented and so corroborating it from
-      the machine rather than only from the media.
+      **And the `FF` reading that replaced it is wrong too, measured the same
+      way.** Watching *reads* of `050000`, the PROM's status bytes come back
+      correct at every point: `00`/`89` at the first READ STATUS, then `81`/`00`
+      twice — `ST0 | FIL`, §5.3's *Filemark read* row, which is exactly right
+      for a read that ended at a mark. The status path works and delivers real
+      bytes; nothing reads `FF`.
+      **What the same watch does show** is the kernel's driver spinning
+      **14,773,981 times at one PC**, `3C4A4A6A`, on word reads of `050000` —
+      and the low half of every one of them is **`5F`**: the status register
+      with `EXC` **asserted** and `RDY` **not** asserted, persistently. So the
+      failure is not a bad status block. It is the controller left in EXCEPTION
+      with READY down and the driver waiting for a READY that never comes —
+      the same shape as `FINDINGS.md` C264's spin, one layer up.
+      *What is not yet established* is why the exception is not lifted. A
+      command entered by Figure 1-8 clears it at its completion, the kernel
+      issues `C0` READ STATUS three times, and the status stays `5F` — so
+      either those writes are not being taken as commands, or something
+      re-raises it. The next measurement is the **control** register,
+      `050001` writes, through the kernel phase: whether REQUEST is pulsed at
+      all is what tells those two apart.
+      *Already measured, and orderly*: the PROM's own command sequence is `C0`,
+      `80`, `C0`, **`A0` READ FILE MARK**, `80` — the firmware using the
+      file-mark command this session implemented, corroborating it from the
+      machine rather than only from the media.
       *Verification: the environment comes up with its tape acquired.*
 
 - [ ] **Three ring timeout status bits are defined and set by nobody.**

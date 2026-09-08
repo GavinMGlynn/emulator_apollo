@@ -648,12 +648,20 @@ selects shows that **no SELECT is issued at all**, through 1.78 G instructions.
 Nothing else clears `selected` and both the init and the reset set it, so the
 drive cannot be deselected and that cannot be the cause.
 
-What replaces it is a hypothesis, not a finding: the driver issues READ STATUS
-and does not receive the block, so it reads the board's undriven `FF` — whose
-bits include `CNI`, `USL` and `WRP`, exactly the three that make row 2's
-`11110000`. The status path is served on REQUEST edges, and whether the
-Domain/OS driver clocks it out the way MD does has not been measured. It has its
-own plan item.
+*And the `FF` reading that replaced it is wrong too*, measured the same way and
+worth saying twice rather than once. Watching **reads** of `050000`, the PROM's
+status bytes come back correct at every point — `00`/`89`, then `81`/`00` twice,
+which is `ST0 | FIL`, §5.3's *Filemark read*, exactly right after a read that
+ended at a mark. The status path works and nothing reads `FF`.
+
+What the same watch shows is the kernel's driver spinning **14,773,981 times at
+one PC**, `3C4A4A6A`, on word reads of `050000` — and the low half of every one
+is **`5F`**: the status register with `EXC` asserted and `RDY` **not** asserted,
+persistently. So the failure is not a bad status block; it is the controller
+left in EXCEPTION with READY down and the driver waiting for a READY that never
+comes — the same shape as C264's spin, one layer up. Why the exception is not
+lifted is not yet established, and the next measurement is the control register.
+It has its own plan item.
 
 ## The first block is handed over twice, and the boot gets past `EX DOMAIN_OS`
 ## (2026-09-09)
