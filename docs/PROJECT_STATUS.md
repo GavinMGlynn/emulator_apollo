@@ -567,13 +567,26 @@ run is blocks 1 to 15 laid down contiguously and the first is block 0 alone, at
 the same address, overwritten by block 1.
 
 *A shift of exactly one block, and only after the first.* Blocks 1 through 15
-are placed correctly relative to each other, end to end, with no gap anywhere.
-Whatever is wrong is wrong once, at the boundary between the first block and the
-second. Why block 0 and block 1 share a destination **is not yet known**, and
-the obvious explanation is already refuted: MD unmasks last and masks after the
-block, and the 8237 masks itself at terminal count, so exactly one block moves
-per window and each window's programming is complete before it opens. Detail in
-`FINDINGS.md` C268.
+are placed end to end with no gap, so their programming must be pages
+`F6 F6 F7 F7 … FC FC FD` with the base alternating — which is exactly map writes
+2 through 16. Write 1 is the extra `F6`, and block 0 landed at `F6 + 0000`.
+
+**So MD programmed the same destination twice**, once for its first transfer and
+once for block 0 of the load. It is not a race and not an off-by-one here: the
+host asked for the same address twice, and this core's drive answered with two
+different blocks, because a READ streams and nothing rewound. The obvious
+alternative is refuted — MD unmasks *last* and the 8237 masks itself at terminal
+count, so one block moves per window and each window's programming is complete
+before it opens.
+
+**And the documents end here.** `[SC499]`'s only mention of the 16K RAM buffer
+in forty-two pages is the power-on test's LED assignment; `QIC-02` §4.2.8 says
+only that a READ "following cartridge insertion or RESET shall commence at BOT".
+Neither says whether a real SC-499 hands the same block to two consecutive
+DMAGOs, and **no BOT is issued** — the only command-register writes in the run
+are `C0` and `80`. So the oracle is fourth and now due: `sc499.cpp` logging the
+tape block index against each DMAGO answers it directly, and it is a question
+about the *card*. Detail in `FINDINGS.md` C268.
 
 ## A card cannot transfer a byte the drive never sent (2026-09-09)
 

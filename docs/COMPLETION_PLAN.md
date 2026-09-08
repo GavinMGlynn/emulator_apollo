@@ -5133,11 +5133,21 @@ same number is what let them diverge once already.
       of every run of contiguous DMA writes, and the boot gives **`dma runs
       010FD800 010FD800`** — two runs at the same address. 7,680 bytes is
       fifteen blocks, so the second run is blocks 1–15 laid down contiguously
-      and the first is block 0 alone, overwritten by block 1. **A shift of
-      exactly one block, and only after the first**: 1 through 15 are correct
-      relative to each other, end to end, with no gap. Why block 0 and block 1
-      share a destination is **not yet known**, and the obvious explanation is
-      refuted above.
+      and the first is block 0 alone, overwritten by block 1. Blocks 1–15 end to
+      end require pages `F6 F6 F7 F7 … FC FC FD` with the base alternating,
+      which is exactly map writes 2–16 — so write 1 is an extra `F6` and **MD
+      programmed the same destination twice**, once for its first transfer and
+      once for block 0 of the load. Not a race and not an off-by-one here: the
+      host asked for the same address twice and this core's drive answered with
+      two different blocks, because a READ streams and nothing rewound.
+      **And the documents end here.** `[SC499]`'s only mention of the 16K RAM
+      buffer in 42 pages is the power-on test's LED; `QIC-02` §4.2.8 says only
+      that a READ "following cartridge insertion or RESET shall commence at
+      BOT". Neither says whether a real SC-499 hands the same block to two
+      consecutive DMAGOs, and **no BOT is issued** — the only command-register
+      writes in the run are `C0` and `80`. *So the oracle is fourth and now
+      due*: `sc499.cpp` logging the tape block index against each DMAGO answers
+      it directly, and it is a question about the card.
       **What it unblocks**: a cartridge boot on this core, and with it the SAU 14
       install that the DS5500 boot and the multi-node workloads item both want —
       without borrowing the oracle. *The media is confirmed held*: `019593-001`

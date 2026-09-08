@@ -15546,5 +15546,37 @@ block and the second, and it moves everything after it one slot early.
 after the map at `37AC` and the address at `37BE`/`37C4`) and masks after the
 block (`3806`), and `ap_i8237` masks itself at terminal count, so exactly one
 block moves per window and each window's programming is complete before it
-opens. Why block 0 and block 1 share a destination is not yet known, and is
-recorded as not known.
+opens.
+
+### So MD programs the same destination twice, on purpose
+
+Reading the map sequence against the contiguous run settles what the sixteen
+windows were *for*. Blocks 1 to 15 land end to end from `010FD800`, so their
+programming must be pages `F6 F6 F7 F7 F8 F8 F9 F9 FA FA FB FB FC FC FD` with
+the base alternating `0000`/`0200` -- and that is exactly map writes 2 through
+16. Write 1 is the extra `F6`, and block 0 landed at `010FD800`, which is
+`F6 + 0000`.
+
+**MD programmed `F6 + 0000` twice: once for its first transfer and once for
+block 0 of the load.** It is not a race and not an off-by-one in this core --
+the host asked for the same address twice, and this core's drive answered with
+two different blocks, because a READ streams and nothing rewound.
+
+### What the documents do not say
+
+`[SC499]`'s **only** mention of the 16K RAM buffer in forty-two pages is the
+power-on test's LED assignment, "DS2 - 16K RAM buffer logic". It says nothing
+about what the buffer holds between transfers or whether a host may read a block
+and have it again. `QIC-02 Rev D` §4.2.8 says only that a READ "following
+cartridge insertion or RESET shall commence at BOT" -- nothing about a second
+DMAGO within one READ. Neither answers whether a real SC-499 hands the same
+block to two consecutive DMAGOs, and **no BOT is issued**: the only two writes
+to the command register in the whole run are `C0` and `80`.
+
+That is the documentary end of this, named as `CLAUDE.md` requires before
+measuring: the guide, the standard and Apollo's own two tape documents were
+read, and none of them describes the card's buffer as a thing a host may re-read
+from. **So the oracle is now fourth and due.** MAME boots this cartridge;
+`sc499.cpp` logging the tape block index against each DMAGO would say directly
+whether the real model delivers block 0 twice -- and that is a question about
+the *card*, which is exactly what the oracle is for.
