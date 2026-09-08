@@ -787,6 +787,57 @@ static void test_read_status_delivers_its_six_bytes_through_the_data_register(
  * No figure describes a host abandoning a status sequence: Figure 1-25 always
  * takes all six bytes. So this is a choice among undefined behaviours, and the
  * one that keeps the board's half and the drive's half saying the same thing. */
+/* **RSTSAC resets the drive too, and this core reset only the card.**
+ *
+ * `[SC499]` §1.12 lists what resets the controller's microprocessor -- the two
+ * supply rails, and "c. RSTSAC is set" -- and then says it outright:
+ *
+ *     NOTE
+ *     Microprocessor RESET will also cause a tape drive reset.
+ *
+ * So a host that pulses RSTSAC gets a drive at load point holding a power-on
+ * condition, not one left exactly where it was. Measured on the SR10.4
+ * cartridge boot, where Domain/OS resets the card and then reports `bad rewind`
+ * -- the run's report had the drive at block 98,263 with its exception word
+ * `0000`, when a just-reset drive owes `POR` and `BOM` and sits at BOT.
+ * `FINDINGS.md` C270.
+ *
+ * The walk record for §1.12 recorded the 25 us hold and not the NOTE beside it,
+ * which is why this was missed until a boot went looking. */
+static void test_the_controller_reset_resets_the_drive_too(void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_SELECT);
+  issue(&t, AP_QIC_CMD_READ);
+
+  /* Move the tape off load point and spend the power-on condition, so neither
+   * is true by accident when the reset is asked for. */
+  for (unsigned i = 0; i < AP_CT_BLOCK_SIZE * 2u; i++) {
+    (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u);
+  }
+  TEST_ASSERT_TRUE(t.drive.position > 0u);
+  issue(&t, AP_QIC_CMD_READ_STATUS);
+  uint8_t block[AP_QIC_STATUS_BYTES];
+  for (unsigned i = 0; i < AP_QIC_STATUS_BYTES; i++) {
+    block[i] = take_byte(&t);
+  }
+  TEST_ASSERT_FALSE(t.drive.power_on);
+
+  /* §1.12's RSTSAC: "Activated by writing a 1 to Control Register Bit 7." */
+  ap_tape_write(&t, AP_TAPE_ADDR + 1u, AP_SC499_CTL_RESET);
+
+  /* The drive is at load point, owes its power-on condition, and is selected by
+   * default -- `QIC-02` §4.2.1's "defaults to drive 0 for subsequent
+   * commands", which `ap_qic_reset` already implements. */
+  TEST_ASSERT_EQUAL_UINT64(0u, t.drive.position);
+  TEST_ASSERT_TRUE(t.drive.power_on);
+  TEST_ASSERT_TRUE(t.drive.selected);
+  TEST_ASSERT_FALSE(t.drive.reading);
+  /* And the cartridge is still in: a reset is a command to the drive, not to
+   * the operator. */
+  TEST_ASSERT_TRUE(t.drive.loaded);
+}
+
 static void test_a_new_command_abandons_a_status_block_nobody_took(void) {
   ap_tape_t t;
   arm(&t);
@@ -882,6 +933,7 @@ int main(void) {
   RUN_TEST(test_releasing_request_takes_ready_down_and_brings_it_back);
   RUN_TEST(test_read_status_delivers_its_six_bytes_through_the_data_register);
   RUN_TEST(test_a_new_command_abandons_a_status_block_nobody_took);
+  RUN_TEST(test_the_controller_reset_resets_the_drive_too);
   RUN_TEST(test_a_written_block_reaches_the_cartridge);
   RUN_TEST(test_a_partial_block_is_not_written);
   return UNITY_END();

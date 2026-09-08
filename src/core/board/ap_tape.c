@@ -421,6 +421,27 @@ void ap_tape_write(ap_tape_t *tape, uint32_t address, uint8_t value) {
       tape->status_offset = 0u;
       tape->block_valid = false;
       tape->offset = 0u;
+      /* **And the drive with it.** `[SC499]` §1.12 lists the conditions that
+       * reset the controller's microprocessor -- the two supply rails, and "c.
+       * RSTSAC is set" -- and then says outright:
+       *
+       *     NOTE
+       *     Microprocessor RESET will also cause a tape drive reset.
+       *
+       * This core reset the *controller* alone, so a host that pulsed RSTSAC
+       * got a drive left exactly where it was: mid-tape, holding no power-on
+       * condition, with its selection and lock untouched. Measured on the
+       * SR10.4 cartridge boot, where Domain/OS resets the card and then reports
+       * `bad rewind` -- the report showed the drive at block 98,263 with its
+       * exception word `0000`, when a just-reset drive owes `POR` and `BOM` and
+       * sits at load point (`FINDINGS.md` C270).
+       *
+       * `ap_qic_reset` is what §4.2.1's "the device initializes operating
+       * parameters and defaults to drive 0" already means, so the fix is to
+       * call it rather than to write a second one. */
+      ap_qic_reset(&tape->drive);
+      tape->first_block_pending = true;
+      tape->next_byte_at = 0u;
     }
     ap_sc499_write(&tape->controller, reg, value);
     const bool now_requesting =

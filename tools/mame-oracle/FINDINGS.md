@@ -15646,3 +15646,62 @@ block, each saying why. The reference hash moves to `5AF8B16F9BA4B7D0` because
 the board's half of a transfer joins the hashed state -- `status_valid`, the
 status block while one is in flight, and this latch -- and the report either side
 is identical apart from two lines the new instruments print.*
+
+## C270 -- RSTSAC resets the drive too, and the report is what found it
+
+C269 left the cartridge booting to the Phase II prompt with two tape errors on
+the way: `bad acquire tape … 280011` and `bad rewind … 280002`. Four readings of
+why were published and withdrawn -- deselection, an undriven `FF`, a spin on
+READY, and a stale open status block -- each read off a single-address watch and
+each killed by the next run. The lesson was written up before the answer was
+found, and the answer came from following it.
+
+### The report, once it printed the board's half
+
+    tape drive   block 98263 of 104841, selected, reading
+    tape board   no status block open; first block spent
+    tape card    status 5F, control 40, exception, done, to host, exs 0000
+
+Three lines and the fourth hypothesis dies with the second of them. What is left
+is the pairing of the first and third: **the drive is at block 98,263 holding
+nothing at all**, `exs 0000`, while the card carries an exception -- and the
+control-write log shows Domain/OS pulsing RSTSAC (`80` held 6,340 instructions,
+then `00`) shortly before.
+
+**A just-reset drive is not at block 98,263 and does not hold nothing.** It is
+at load point with `POR` and `BOM` up.
+
+### `[SC499]` §1.12, in a NOTE between two lists
+
+    Microprocessor RESET. Reset the controller microprocessor when any of the
+    following conditions occur:
+        a. The +5V supply drops below 4.6V.
+        b. The +12V supply drops below 9V.
+        c. RSTSAC is set.
+
+                                NOTE
+        Microprocessor RESET will also cause a tape drive reset.
+
+So writing RSTSAC resets the **drive** as well as the card. This core reset the
+controller alone: `ap_tape_write`'s RESET arm called `ap_sc499_reset` and left
+`ap_qic_t` untouched, so a host that pulsed RSTSAC got a drive still mid-tape,
+still holding whatever it held, with its selection and lock as they were -- and
+`exs 0000` because `ap_qic_reset`, which sets `power_on`, never ran.
+
+**The walk record had passed over the NOTE.** `TAPE_WALK.md`'s §1.12 row recorded
+"Four resets. `RSTSAC` must be set, held for more than 25 µsec, then cleared" --
+the hold requirement from the paragraph *after* the NOTE, with the NOTE itself
+between them unrecorded. Corrected in place with the original kept beneath.
+
+### What it fixes
+
+`ap_qic_reset` already implements what a drive reset is -- §4.2.1's "the device
+initializes operating parameters and defaults to drive 0", `position` to zero,
+`POR` set, the latches cleared, the cartridge left in -- so the fix is to call it
+rather than to write a second one. The board's own transfer state and the
+doubled first block are re-armed with it, since both belong to a card that has
+just come up.
+
+*Verification: `tape_suite` 26 -> 27. The test moves the tape off load point and
+spends the power-on condition first, so neither is true by accident, and fails
+on the old code at the position.*
