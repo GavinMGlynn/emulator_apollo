@@ -4090,13 +4090,28 @@ discipline throughout.
       connection. Domain/OS went from 4 XMIT_CMD writes (`ine` only) to **65**
       (last `ten`), and **`/com/lcnode` completes with its table** where it
       answered `transmit failed`.
-      **What remains is one layer down**: `claims 0` after 65 `ten` commands,
-      because `ring_ctl_queue_from_buffer` matches the **whole word** against
-      `$0200` where the command is the high lane. Two fixes for that were tried
-      and both were refuted by the ring ROM's own self-test (`d0 E0000022`), so
-      the exact match is load-bearing for the firmware in a way not yet
-      understood — that is the next question, and `r3500.lst` is on disk to
-      answer it. Detail in `PROJECT_STATUS.md`; `FINDINGS.md` C243–C247.
+      **And a third defect fixed**: a station that *forces* a token — §2.2.1.1's
+      route onto a ring with none, which is every segment this core assembles —
+      never began stripping, so it acquired the ring and emitted nothing. §2.1
+      step 3 makes acquiring and transmitting one event, which the claim path
+      already honoured.
+      **What remains is a chain, and it is named subtest by subtest.**
+      `ring_ctl_queue_from_buffer` matches the **whole word** against `$0200`
+      where the command is the high lane, so Domain/OS's 65 `ten` commands never
+      reach the station. Correcting that, and gating the queue on `lpb` being
+      clear — the ROM's `$11`–`$16` group runs in loopback, its `$21`–`$26`
+      group does not — walks the firmware's own self-test forward `$22` → `$14`
+      → **`$32`**, and produces `forced 1  frames seen 1  copied 1`: **a frame
+      crossing the ring and returning**, where every run before read zero.
+      `$32` is a counter check six short (`FDFA` against `FE00`), on the 8254
+      byte/word counters finding 100 records as counting in three different
+      units.
+      **So the self-test passes today because nothing ever reaches the medium**,
+      and making the transmit real makes the firmware test it thoroughly. That
+      is `RING.md` 69's "transmit path with duration" arriving at once, and it
+      is the work this item now needs — with a **thirty-second** reproduction
+      (`--ring-selftest`) that names its own failing subtest. Detail in
+      `PROJECT_STATUS.md`; `FINDINGS.md` C243–C247.
       **The verification was rewritten on 2026-08-19, and the reason matters.**
       It read "`lcnode` on each node lists the other", which is an *operating
       system* check standing in for a *ring* one: it needs a shell, a shell

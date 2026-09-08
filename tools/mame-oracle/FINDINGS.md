@@ -13598,10 +13598,48 @@ a receive interrupt that should not fire for a station's own stripped frame --
 needs the ROM's expectations re-derived from `r3500.lst` rather than another
 attempt. Three have been made; that is the budget.
 
-**What is landed**: the forced-token stripping, document-grounded and
-measurably inert. **What is not**: the command-lane comparison, which is
-correct by this file's own account of the register and regresses the firmware's
-self-test until subtest 20 is understood.
+### Subtest $14 re-derived from the ROM, and the answer moves it twice more
+
+`r3500.lst` puts subtest `$14` at `0004D0`, inside the `$11`-`$16` group -- the
+group that runs after `00045C move.b #$1,$400(a4)`, which this core already
+reads as `$0100`, p. 12-32's bit 8, **`lpb`, digital loopback enable**. Subtest
+`$22`'s group runs after `000512 move.b #$0,$400`, loopback off.
+
+So the failure moving from `$22` to `$14` was consistent: with the transmit
+working, a frame was going onto the medium **during the loopback subtests**,
+where `lpb` means it loops inside the board and nothing is on a wire -- the same
+condition `ring_ctl_defer_completion` applies one screen below. *An earlier test
+of that gate was confounded by the merge change carried alongside it.*
+
+Adding it moves the firmware further again:
+
+    trigger masked                          d0 E0000022   (then, with stripping) E0000014
+    + loopback gate                         d0 E0000032   forced 1  frames seen 1  copied 0
+
+**Subtest `$32` is a counter check**: `0005C0` calls `$af8` six times over
+`d4 <= 5`, and the mismatch is `d1 FDFA` against `d2 FE00` -- **six short**, on
+what p. 12-29's map makes one of the card's 8254 byte/word counters. Finding 100
+records those counting in **three different units** across six counters, which
+is exactly the model a real transmit would now exercise for the first time.
+
+### So the trigger fix is blocked by a chain, not by one thing
+
+`$22` -> `$14` -> `$32` is three different subtests, each satisfied in turn by a
+change with a document behind it, and each uncovering the next part of a
+transmit path that has never run. **The ROM's self-test passes today because
+nothing ever reaches the medium**; making the transmit real makes the firmware
+test it, and it tests it thoroughly. That is `RING.md` 69's "transmit path with
+duration" item arriving all at once.
+
+**What is landed**: the forced-token stripping, document-grounded and measurably
+inert. **What is not**: the command-lane comparison and the loopback gate, both
+correct by this file's own account of the register, held back because the
+firmware's own self-test -- the hardware's test suite, for free -- is the check
+this part answers to, and it goes red until the counters are right.
+
+*The order for whoever takes it up*: land the trigger and the loopback gate
+together, then work `$32`'s counters, then re-run. The harness is thirty seconds
+and the failing subtest names itself.
 
 *The model is left in its proven state*: slot 0 merged against the last command,
 XMIT_STAT's `nct` derived from the connection, ring self-test byte-identical
