@@ -14777,13 +14777,36 @@ and the drive selected -- which is the state, since `ap_qic_reset` sets
 `selected` per §3.5 pin 32's "default selection to device 0" -- the exception
 word is `POWER_ON | BYTE_1` = `0081`, so byte 0 is `81`.
 
-So `39` is neither our first status byte nor obviously the table row, and the
-two candidate mechanisms are that **MD decodes the block into its own code**, or
-that it prints some other byte of it. *Deciding needs the six bytes as the
-firmware saw them*, which is one more instrument and not an inference -- and
-inferring it is exactly what went wrong twice already on this thread, first
-decoding `C0` against `ap_sc499.h`'s register bits and then against a table that
-does not contain it.
+So `39` is neither our first status byte nor obviously the table row.
+
+### The instrument, and what it says
+
+A watched read reported only its *last* value, so a status block coming back a
+byte at a time could be counted and not read -- which is why the two corrections
+above were inferences. `--boot-log-watch-reads` is the read-side counterpart of
+`--boot-log-watch-writes` and prints every one:
+
+    watch read   1 at 00050000 value 00000089 by PC 000035E2
+
+**One read, and the byte is right.** `89` is `BYTE_1 | BOM | POWER_ON` -- the
+ST1 summary bit, beginning of media, and the power-on condition -- which is
+exactly a just-reset drive holding a cartridge at block zero. Before the
+command-order fix the same watch reported **thirteen** reads whose last value
+was `C0`, the echoed command. So the status block is now composed and delivered
+correctly, and its first byte is what the standard says it should be.
+
+*(The earlier prediction of `81` in this finding omitted `BOM`, which
+`ap_qic_exception_word` sets for a loaded cartridge at position zero. Kept
+because it is why the measurement was worth taking rather than the arithmetic.)*
+
+### And the precise question that is left
+
+**The firmware reads one byte and stops**, where READ STATUS transfers six.
+`[SC499]` §1.13.1's data phase gives each byte its own READY handshake, so a
+model that does not drop and re-assert READY per byte would strand a host after
+the first -- but that is a hypothesis and this thread has now paid three times
+for inferring instead of measuring. The next instrument is the controller's
+READY across those reads, which the same flag can show one register along.
 
 ### And the suite agreed with the model rather than the manual
 

@@ -78,6 +78,10 @@ static void print_usage(const char *program_name) {
           "                        the same dump, of the address the *program*\n"
           "                        named: translated as an access would be\n"
           "  --boot-watch-write ADDR\n"
+          "  --boot-log-watch-reads\n"
+          "                        the same for reads: a watched read reports\n"
+          "                        only its last value, so a sequence of them\n"
+          "                        can be counted and not read\n"
           "  --boot-log-watch-writes\n"
           "                        print every watched write as it\n"
           "                        happens -- value, program counter and\n"
@@ -2615,6 +2619,7 @@ static const char *g_dump_state_path = NULL;
  * codes the report summarises. At file scope with the others: it is consumed
  * deep in the step loop, not where arguments are read. */
 static bool g_log_watch_writes = false;
+static bool g_log_watch_reads = false;
 
 /* The selected oracle divergences, at file scope for the same reason: they are
  * applied where the board is built, which is not where arguments are read. */
@@ -4568,7 +4573,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       progress_every > 0u || stop_pc != 0u || stop_physical_pc != 0u ||
       stop_mmu_fault_at != 0u || stop_vector != 0u || log_pc_count > 0u ||
       stop_on_watch != 0u || stop_on_watch_read != 0u || stop_on_refusal ||
-      g_log_watch_writes;
+      g_log_watch_writes || g_log_watch_reads;
   if (wants_steps) {
     /* Step by step, reporting the program counter and the active stack pointer.
      *
@@ -4586,6 +4591,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     unsigned progress_base = 0u;
     bool stop_pc_armed = false;
     unsigned logged_watch_writes = 0u;
+    unsigned logged_watch_reads = 0u;
     run = (ap_machine_run_t){.status = AP_M68030_STEP_EXECUTED};
     if (trace && trace_last == 0u) {
       printf("# step pc a7 a6 a0 instruction status%s\n",
@@ -5050,6 +5056,18 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                machine.watch_writes, machine.watch_write_address,
                machine.watch_write_value, machine.watch_write_size,
                machine.watch_write_pc, i);
+      }
+      /* **The read side of the same instrument**, and it was missing for a
+       * reason worth stating: a watched read reports only its *last* value, so
+       * a sequence of them -- a status block coming back a byte at a time --
+       * could be counted and not read. That is exactly what a QIC-02 READ
+       * STATUS is, and the tape thread spent two corrections inferring what
+       * those bytes were rather than printing them (`FINDINGS.md` C262). */
+      if (g_log_watch_reads && machine.watch_reads != logged_watch_reads) {
+        logged_watch_reads = machine.watch_reads;
+        printf("  watch read   %u at %08X value %08X by PC %08X after %u\n",
+               machine.watch_reads, machine.watch_read_address,
+               machine.watch_read_value, machine.watch_read_pc, i);
       }
       if (stop_on_watch_read != 0u && machine.watch_reads >= stop_on_watch_read) {
         printf("  stopped on   read %u of %08X after %u instruction(s)\n",
@@ -6761,6 +6779,11 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--boot-log-watch-writes") == 0) {
       g_log_watch_writes = true;
+      i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-log-watch-reads") == 0) {
+      g_log_watch_reads = true;
       i += 1;
       continue;
     }

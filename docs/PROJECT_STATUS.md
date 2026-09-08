@@ -472,9 +472,26 @@ match this model's status block: after a reset with a cartridge loaded and the
 drive selected (which it is — `ap_qic_reset` sets it, per §3.5 pin 32's "default
 selection to device 0"), the exception word is `POWER_ON | BYTE_1` = `0081`, so
 byte 0 is `81`. So `39` is neither our first status byte nor obviously the table
-row. Deciding needs **the six bytes as the firmware saw them**, which is one
-more instrument rather than an inference — and inferring it is what went wrong
-twice on this thread already.
+row.
+
+**So the instrument was built rather than the inference made.** A watched read
+reported only its *last* value, so a status block arriving a byte at a time
+could be counted and not read; `--boot-log-watch-reads` is the read-side
+counterpart of `--boot-log-watch-writes` and prints every one:
+
+    watch read   1 at 00050000 value 00000089 by PC 000035E2
+
+**One read, and the byte is right.** `89` is `BYTE_1 | BOM | POWER_ON` — the ST1
+summary bit, beginning of media, the power-on condition — exactly a just-reset
+drive holding a cartridge at block zero, where before the fix the same watch
+showed **thirteen** reads ending in the echoed `C0`. The status block is
+composed and delivered correctly.
+
+*What is left is precise*: the firmware reads **one** byte where READ STATUS
+transfers six. §1.13.1's data phase gives each byte its own READY handshake, so a
+model that does not drop and re-assert READY per byte would strand a host after
+the first — but that is a hypothesis, and this thread has paid three times for
+inferring instead of measuring. The next instrument is READY across those reads.
 
 **And the suite agreed with the model rather than the manual**: `tape_suite`'s
 `issue` helper raises REQUEST *then* writes the byte, so every test passed

@@ -4959,9 +4959,19 @@ same number is what let them diverge once already.
       is not established — MD's first field carried the echoed byte before the
       fix, and `39` is not this model's first status byte either (after a reset
       with a cartridge loaded and the drive selected, the exception word is
-      `POWER_ON | BYTE_1` = `0081`). The next instrument is **the six bytes as
-      the firmware saw them**; inferring instead is what went wrong twice on this
-      thread already.
+      `POWER_ON | BYTE_1 | BOM` = `0089`).
+      **Measured** with a new `--boot-log-watch-reads` — the read-side
+      counterpart of the write log, since a watched read reported only its last
+      value and so could count a status block without reading it: the firmware
+      reads **one** byte, `89`, which is `BYTE_1 | BOM | POWER_ON` and exactly
+      right for a just-reset drive holding a cartridge at block zero. Before the
+      command-order fix the same watch showed thirteen reads ending in the echoed
+      `C0`.
+      *What is left is precise*: READ STATUS transfers **six** bytes and the
+      firmware reads one. §1.13.1's data phase gives each byte its own READY
+      handshake, so a model that does not drop and re-assert READY per byte would
+      strand a host after the first — a hypothesis, and the next instrument is
+      READY across those reads.
       **What it unblocks**: a cartridge boot on this core, and with it the SAU 14
       install that the DS5500 boot and the multi-node workloads item both want —
       without borrowing the oracle. *The media is confirmed held*: `019593-001`
