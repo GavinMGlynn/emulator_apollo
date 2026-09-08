@@ -588,6 +588,59 @@ are `C0` and `80`. So the oracle is fourth and now due: `sc499.cpp` logging the
 tape block index against each DMAGO answers it directly, and it is a question
 about the *card*. Detail in `FINDINGS.md` C268.
 
+## The SR10.4 cartridge boots (2026-09-09)
+
+```
+>DI C
+
+>EX DOMAIN_OS
+low: 01002000  high: 01111FFF  start: 01002024
+boot error: rewinding, tape status=39: no drive
+
+Domain/OS kernel(7), revision 10.4, February 14, 1992  11:42:25 am
+
+bad acquire tape - trying normal shell -- 280011
+
+bad rewind - trying normal shell -- 280002
+
+Apollo Phase II Environment   Revision 10.4   Jan 25, 1992  12:59:03 pm
+
+)
+```
+
+**`EX DOMAIN_OS` loads and runs the tape's SYSBOOT** — 1.1 MB at `01002000`,
+entry `01002024` — which brings up the Domain/OS kernel and reaches the Apollo
+Phase II Environment prompt, entirely from tape. That is the item's own
+verification condition: *reaches the install environment rather than reporting a
+tape status.*
+
+Nine defects lie between `Tape C0` and that prompt, each from a numbered step of
+a document or from a measurement, each landing with a test that fails on the old
+code:
+
+| | |
+| --- | --- |
+| C261 | READ STATUS's six bytes came out of nowhere — `ap_qic_read_status`'s only caller was a test |
+| C262 | the command byte goes on the bus **before** REQUEST, `[SC499]` Figure 1-8's T1/T2 |
+| C263 | a delivering command ends with DIRECTION **asserted**; the clear belongs to Figure 1-9 alone |
+| C264 | **READY is a four-edge interlock**, `QIC-02` §3.6.3, and REQUEST is a byte's acknowledge, §3.6.1/Figure 1-25 — and the status block went out in the **wrong wire order** |
+| C265 | DONE returns at the 8237's terminal count; the tape's `EOP` line was never wired |
+| C266 | the `.ct` format **has file marks**, `DEAFFAED` blocks, which this core denied in four places; and a read the *drive* ends also ends the DMA |
+| C267 | a card cannot transfer a byte the drive never sent — and a block boundary must not lift an exception |
+| C268 | the drive's byte rate, and the machine clock that had to advance during a stall before it could be modelled |
+| C269 | the first block is **handed over twice** — the firmware demands it, the oracle needed it, no document explains it |
+
+Two walk records were corrected in place with their originals kept — `QIC-02`
+§3.6.1 recorded as "confirms a modelled constant" and §3.6.3 as `none`,
+`TAPE_WALK` dismissing §1.13.3's flow charts as "driver-side, not part
+behaviour" in the same sentence that records Figure 1-26's 20 µs loop maximum —
+and one open question closed by walking §3.6.5 and §3.6.6 event by event.
+
+**What is not done**: the kernel's own tape driver cannot acquire the drive.
+`bad acquire tape … 280011` is module `28`, the cartridge tape manager, code
+`0011` — *No drive* — and `ap_qic_exception_word` composes that row exactly when
+`!selected`, so something is deselecting the drive. It has its own plan item.
+
 ## The first block is handed over twice, and the boot gets past `EX DOMAIN_OS`
 ## (2026-09-09)
 

@@ -4939,216 +4939,42 @@ same number is what let them diverge once already.
       `FE2BB02AEF1F4624` unchanged. Detail in `PROJECT_STATUS.md`;
       `FINDINGS.md` C251.*
 
-- [ ] **The SR10.4 cartridge will not boot on this core: `Tape C0`.**
-      Found 2026-09-09 taking the SAU 14 route (`FINDINGS.md` C260). MD's own
-      first install step is `DI C` / `EX DOMAIN_OS`, and this core answers
-      `Tape C0  000000  00  C` and returns to `>`.
-      **The drive is reached** — 8,208 reads and 17 writes to the cartridge tape
-      region — so it is the controller answering, not a decode gap.
-      **`C0` is MD's status code and is not in MD's own table**: `002398-04`
-      p. 4-17 gives the line as `disk init error <SC> <RCD> <UNIT> <W/F/S/C>`,
-      whose Disk/Tape codes are `11`–`1F`, `21`–`29`, `30`–`3A` and `FF`. `C0`
-      is in none of them, nor is the `C8` the same PROM prints on the disk path.
-      *A first version of this item decoded `C0` against `ap_sc499.h`'s
-      controller-status bits; that was the wrong table and is withdrawn.*
-      **Not blocked on anything**: `[SC499]`, `[08845]` and `[QIC-36]` are all
-      walked whole and the firmware is the authority — but **the route in is the
-      register traffic, not the code**, since the code cannot be decoded from
-      what is held.
-      **One defect found that way and fixed** (`FINDINGS.md` C261): the reset
-      handshake *completes* — the firmware reads status `57`, which is what
-      `ap_sc499.h` records it waiting for — and then issues `C0`,
-      `AP_QIC_CMD_READ_STATUS`. `ap_qic_read_status` composed the six bytes
-      `[SC499]` §1.13.1 requires and **its only caller was `qic_suite`**, so the
-      block reached no firmware ever. Now served through the data register;
-      `tape_suite` 19 → 20 and the test fails on the old code.
-      **A second defect found the same way and fixed** (`FINDINGS.md` C262):
-      the firmware reads the data register thirteen times and gets back **`C0`**
-      — its own command. `[SC499]` §1.13.2's figures put **T1 Bus Data Valid
-      before T2 Controller Asserts REQUEST**, and `ap_tape_write` took a byte as
-      a command only when REQUEST was *already* set, so a host following the
-      figure had its command executed by nothing. Both orders now work.
-      *And the error changed*: `Tape C0` → **`Tape 39`**. `tape_suite` 20 → 21.
-      **What is left, and it is a measurement rather than an inference**: `39` is
-      a row of p. 4-17's table (*drive not present*), but that it **is** that row
-      is not established — MD's first field carried the echoed byte before the
-      fix, and `39` is not this model's first status byte either (after a reset
-      with a cartridge loaded and the drive selected, the exception word is
-      `POWER_ON | BYTE_1 | BOM` = `0089`).
-      **Measured** with a new `--boot-log-watch-reads` — the read-side
-      counterpart of the write log, since a watched read reported only its last
-      value and so could count a status block without reading it: the firmware
-      reads **one** byte, `89`, which is `BYTE_1 | BOM | POWER_ON` and exactly
-      right for a just-reset drive holding a cartridge at block zero. Before the
-      command-order fix the same watch showed thirteen reads ending in the echoed
-      `C0`.
-      **A third defect, measured and fixed** (`FINDINGS.md` C263). The new
-      `--boot-log-watch-reads` printed all 8,201 status reads: **two
-      4096-iteration timeouts**, `57` (exception, not ready) then `37` (ready,
-      no exception, DONE set, **DIRECTION clear**). §1.13.2's data figure makes
-      `T1 Device Changes Bus DIRECTION` the *first* step, so a delivering command
-      ends with the bus turned round — and `ap_sc499`'s completion deasserted it
-      unconditionally, citing Figure **1-9**'s T4, which is the transfer entered
-      *while the device already holds the bus*. Right for its figure, wrong for
-      every command. `tape_suite` 21 → 22.
-      **And it does not fix the boot**: `Tape 39` before and after. Three defects
-      on this path are fixed, each from a numbered step in one section, each with
-      a test that fails on the old code.
-      **A fourth and fifth defect, and the boot error moved again**
-      (`FINDINGS.md` C264): `Tape 39` → **`Tape 01`**. Two documents already on
-      the shelf specify the handshake completely and both walk records drew the
-      wrong conclusion from them — corrected in place, originals kept beneath.
-      `QIC-02` §3.6.3 numbers a SELECT and READY moves **four** times: down when
-      REQUEST rises, up when the command is done, **down when the host releases
-      REQUEST** (T7), up again for the next command (T8). This core had the
-      first two, so READY rose once and stayed up — and `[SC499]` Figure 1-26,
-      the guide's own SEND COMMAND flow chart, ends by looping *while READY is
-      still asserted*, footnoted "20 µsec loop max". That is the spin C263
-      measured. `AP_SC499_T_CLOSE_MIN`/`_MAX` were already defined for T7 and
-      produced by nothing. And §3.6.1's 22 events plus Figure 1-25 make
-      **REQUEST the acknowledge of a byte**, not the host's read — so a rising
-      REQUEST is a command or an acknowledge depending on which way the bus
-      points, and this core read every one as a command. Both fixed;
-      `tape_suite` 22 → 23. The firmware now walks the whole exchange: six
-      READY up/down cycles at PC 39C0/39E0 with DIRECTION asserted, and the two
-      4,096-iteration timeouts are down to one.
-      **A sixth defect, and `DI C` now succeeds.** Watching the *data* register
-      showed the firmware taking the right two bytes in the wrong order:
-      `QIC-02` §5.1 numbers BYTE 0 (`ST0 CNI USL WRP EOM UDA BNL FIL`) and
-      BYTE 1 (`ST1 ILL NDT MBD BOM RES RES POR`), and `002398-04` p. 12-5
-      numbers the counters a line each — byte 2 the *high* byte of the data
-      error counter, byte 3 the low, 4 and 5 the same for the underruns.
-      `ap_qic_read_status` sent all three fields low half first on a comment
-      that cited nothing, so **status byte 1 went out first**: the firmware read
-      `89` (`ST1|BOM|POR`, a just-reset drive at beginning of media) and decoded
-      it against byte 0's bits. The sentence came from Linux's `struct tpstatus`
-      "LSB first", which is consistent with byte 0 arriving first *on a
-      little-endian host* and became its own reverse when copied onto a word
-      composed the other way. Fixed; `qic_suite` 27, **five of whose tests
-      asserted the reversed order**.
-      **`DI C` now returns to the prompt with no error**, and `EX DOMAIN_OS`
-      reaches the next command in the sequence — `80`, READ DATA — and reports
-      **`Tape FF`**, which for the first time on this path *is* a row of p.
-      4-17's table: "timeout waiting for controller **done**".
-      **A seventh defect, and the cartridge streams** (`FINDINGS.md` C265).
-      `[SC499]` §1.9 calls status bit 4 "Done, **from DMA logic**" and §1.11
-      says RSTDMA "sets DONE to 1" while DMAGO starts a transfer — so DONE up is
-      a card with nothing in flight, and what ends a transfer is the byte count,
-      which lives in the 8237 and not on the card. **Nothing raised DONE again**:
-      set by reset, cleared by DMAGO, set by nothing. The `EOP` the 8237 drives
-      at terminal count now reaches the tape as it already reached the ethernet.
-      With it, 900 M instructions give `dma1 ch1 mode 45` — single, to memory,
-      channel 1, 512-byte count — and **17,807,360 transfers in 34,780 whole
-      blocks**, one DMAGO apiece, with **no tape error at all**; the run ends on
-      its instruction limit a third of the way through a 104,841-block
-      cartridge. `board_suite` 80 → 81.
-      **An eighth and ninth defect: the format has file marks and this core said
-      four times that it does not** (`FINDINGS.md` C266). The longer run gave
-      `Tape read error: FF  000002  00  C` — p. 4-17's *read* line — and the
-      watch showed the firmware issuing **two commands and no more**, `C0` and
-      `80`. One READ, then 34,780 DMAGOs: *the firmware expects the drive to
-      stop*. `QIC-02` §3.6.6 T38 is what stops it, EXCEPTION at a file mark,
-      with §5.2 byte 0 bit 0 `FIL` for the report — and
-      `AP_QIC_EXS_FILE_MARK` was defined and set by nobody, because `ap_qic`
-      said "a `.ct` is a raw block image with no file marks in it". **A mark is
-      one whole block of `DEAFFAED`**, measured on all five cartridges; the boot
-      cartridge's three sit at 16, 22 and 104,838, which is exactly where ANSI
-      labelling puts them around the SYSBOOT image, the `VOL1` label group, the
-      data file and the `EOF1`/`EOF2` trailer. READ now ends at a mark, READ
-      FILE MARK spaces to the next, WRITE FILE MARK writes one. **Three tests
-      asserted the refusals** and were rewritten.
-      Then the read stopped exactly right — `tape drive block 17 of 104841`,
-      `exs 8100` (`ST0 | FIL`), `dma 8193 transfer(s)` = 16 × 512 + 1 — and the
-      error did not move, because **DONE was still clear**: the transfer stalled
-      one byte into a 512-byte count. The 8237's terminal count is one of two
-      ways a transfer ends and the drive running out is the other; a mark falls
-      where the tape's structure puts it, so the last DMAGO of every file is
-      short by construction and a card that raised DONE only at the host's byte
-      count could never read a file to its end. Fixed; **the error moved again,
-      `FF` → `36`**, which is p. 4-17's "bad block transferred".
-      `qic_suite` 27 → 29, `tape_suite` 24 → 25, `ct_suite` 12 → 13.
-      **The identity hash moves**, `FE2BB02AEF1F4624` → `1AE206D37D8A8D1F`,
-      because the `FIL` latch joins the hashed state; the two runs are
-      byte-identical with the hash line removed.
-      **Three more, and the tape error is gone** (`FINDINGS.md` C267). `36` is
-      "bad block transferred" and the report said why: `dma 8193 transfer(s)` =
-      16 × 512 + **1**, `count 01FE (base 01FF)`. The seventeenth transfer moved
-      one *invented* `FF`, because `ap_tape_read`'s failure path returns a byte
-      and under DMA the cycle that discovered the mark also delivered something.
-      §3.6.6's T38 asserts EXCEPTION *because the tape passed a mark*, not
-      because a host asked, so the ending moved to the clock:
-      `ap_qic_read_exhausted` is a pure question and `ap_qic_end_read` the
-      action, the DRQ asks it **before** raising, and `ap_tape_advance` performs
-      it. Then a **DMAGO with nothing to move ends at once** — a driver
-      repeating §1.11 steps 2-5 always issues one DMAGO after the last block, it
-      lowers DONE, and nothing raised it again. And the poll log showed the last
-      piece: sixteen blocks of `FF…3F` at PC 39C0 and then `5F…3F` — the
-      firmware **watching the file mark's exception go away**, because a block
-      boundary's completion deasserted EXCEPTION on Figure 1-8's authority when
-      `AP_SC499_ENTRY_DATA_BLOCK` is not a command at all. The same shape as the
-      DIRECTION defect one figure further on. `tape_suite` 25 → 26.
-      **`Tape read error: 36` → `error: sysboot not found`**: no longer a tape
-      error at all, but p. 4-17's other line — "The SYSBOOT read from records 2
-      thru B did not have a good boot header". Identity `1AE206D37D8A8D1F`
-      unchanged throughout.
-      *What is left is one timing fact, and it is measured* (`FINDINGS.md`
-      C268). Sixteen blocks arrive and one lands on another: `dma 8192
-      transfer(s)` is 16 × 512 exactly, but `dma first wrote 010FD800` and
-      `last wrote 010FF5FF` span `1E00` — **fifteen** blocks — and a dump shows
-      cartridge block **1** at `010FD800` with the 512 bytes in front of it
-      zero. Three watches say why. The translation map's entry 512 takes sixteen
-      word writes at PC `37AC` — `43F6` **three times**, every other page twice
-      — and DMAGO takes sixteen at PC `3796`, each **six instructions before**
-      its map write. **MD writes DMAGO and then the map**, which it can afford
-      because a real drive is 11.1 µs from its first byte at `008778-03` Table
-      9-1's 90,000 bytes/second. This core hands the whole block over first: the
-      DRQ is a level held for all 512 bytes, the arbiter grants the bus, and 512
-      cycles run back to back with the processor stalled — 20 µs in which MD
-      executes no instruction. Every block is placed through the *previous* map
-      entry, and the one that loses is block 0, which carries `SYSBOOT REV`.
-      **The fix is the drive's byte rate**: one byte is `AP_TIME_BASE_HZ /
-      90000` = 239,360,000 base units exactly, and `ap_tape_dma_request` becomes
-      a paced level, with `ap_sc499_block_boundary` reduced to Figure 1-5's
-      `100 us. <` interface turnaround so a block does not cost its media time
-      twice. **Landed**, once the stall loop was made to advance the board — the
-      blocker it found, now its own closed item — together with an amendment to
-      `board->dma_possible`, whose comment says "the three request sources are
-      all software-started" and one of which no longer is: a paced line returns
-      *by the clock*, and latching the guard off on the gap stopped the transfer
-      after its first byte. Behaviour-neutral on the reference boot, identity
-      `1AE206D37D8A8D1F` and the report byte-identical, with the line visibly
-      paced at `32768 asking, 8192 holding`.
-      **And the error did not move**: `error: sysboot not found`, same fifteen
-      blocks of span for sixteen blocks of data.
-      **The ordering theory is refuted**, by its own next measurement. The `dma
-      writes` census that named `010C0F` and not `010C0A` was *full* — twelve
-      entries, and this boot fills it — so "MD never writes mask-single" was the
-      instrument's claim rather than the machine's. Widened to thirty-two,
-      `010C0A` is there, and its watch gives the order: DMAGO `3796`, map
-      `37AC`, address `37BE`/`37C4`, **unmask `37E0`**, mask `3806`. MD unmasks
-      *last*, sixteen times, and `ap_i8237` honours the mask on pin requests —
-      so no byte can move before the map and the address are set, with or
-      without pacing, and the race described above does not exist.
-      **Closed by the oracle, fourth and due** (`FINDINGS.md` C269). The
-      firmware asks for block 0 **twice** — its first two transfers name the
-      same destination, `43F6`+`0000` at `010FD800`, with no BOT between them —
-      and `sc499.cpp` carries the same requirement as `m_first_block_hack` with
-      its own *"why is this necessary???"*. No document explains it: `[SC499]`'s
-      only mention of the 16K buffer in 42 pages is a POC LED, and `QIC-02`
-      §4.2.8 covers only a READ after insertion or RESET. Modelled as a
-      **deliberate approximation** on the card, `first_block_pending`, armed at
-      reset and spent on one block; putting it on the *drive* was tried first
-      and made five `qic_suite` tests count a block they had no reason to know
-      about.
-      **`error: sysboot not found` is gone.** 900 M instructions with no error
-      of any kind, `final PC 000037F2` in the tape read loop, `tape drive block
-      31997 of 104841, selected, reading` — the header check passed and the
-      firmware is streaming the tape, having crossed the file marks at 16 and 22
-      with successive READs. *The first time this core has got past `EX
-      DOMAIN_OS`.* Reference hash `1AE206D37D8A8D1F` → `5AF8B16F9BA4B7D0`, the
-      board's half of a transfer joining the hashed state, report otherwise
-      identical.
-      *What is left*: whether it finishes. A 4.29 G run is in flight.
+- [x] **The SR10.4 cartridge boots — landed 2026-09-09.** `DI C` returns to the
+      prompt and `EX DOMAIN_OS` loads and runs the tape's SYSBOOT, which brings
+      up `Domain/OS kernel(7), revision 10.4` and reaches the **Apollo Phase II
+      Environment** `)` prompt, entirely from tape. **Nine defects** between
+      `Tape C0` and that prompt, each from a numbered step of a document or from
+      a measurement, each landing with a test that fails on the old code — the
+      status block undelivered and then in the wrong wire order, the command
+      byte's order, DIRECTION, READY as a four-edge interlock, REQUEST as a
+      byte's acknowledge, DONE at both ends of a transfer, **file marks** the
+      format has and this core denied in four places, and the first block
+      **handed over twice**. Two walk records corrected in place and one open
+      question closed.
+      *Verification: `DI C` / `EX DOMAIN_OS` reaches the install environment
+      rather than a tape status — met. `tape_suite` 22 → 26, `qic_suite` 27 →
+      29, `ct_suite` 12 → 13, `sc499_suite` 27 → 28, `board_suite` 80 → 81.*
+      Detail in `PROJECT_STATUS.md`; `FINDINGS.md` C261-C269.
+
+- [ ] **The kernel's own tape driver cannot acquire the drive: `280011`.**
+      Found 2026-09-09 the moment the cartridge booted. Between SYSBOOT and the
+      `)` prompt the console prints `boot error: rewinding, tape status=39: no
+      drive`, then `bad acquire tape - trying normal shell -- 280011` and `bad
+      rewind - trying normal shell -- 280002`, and the environment comes up
+      without its tape.
+      **`00280011` is module `28`, the cartridge tape manager, code `0011`**,
+      which `002398-04` p. 4-14 gives as *No drive* — the same condition p.
+      4-17's `39` names. `002398-04` p. 12-5's summary row for it is byte 0
+      `11110000`, and `ap_qic_exception_word` composes exactly that when
+      `!selected`. **So the drive is being deselected**, and the only thing in
+      this model that deselects it is a SELECT naming a drive other than
+      `AP_QIC_THIS_DRIVE`'s `0000 0001`.
+      *What it needs*: a watch on `050000` through the kernel phase, to see
+      which drive number Domain/OS selects. If it selects drive 0 or 2 then
+      either the nibble's meaning or this card's drive number is wrong, and
+      `QIC-02` §4.1's `0000 0001` SELECT DRIVE 1 is what that has to be read
+      against.
+      *Verification: the environment comes up with its tape acquired.*
 
 - [ ] **Three ring timeout status bits are defined and set by nobody.**
       `AP_RING_CTL_STATUS_TMO`, `AP_RING_CTL_XMIT_TMO` and `AP_RING_CTL_RCV_PE`
