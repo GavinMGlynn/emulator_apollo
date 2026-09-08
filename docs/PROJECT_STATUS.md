@@ -434,6 +434,37 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## The SR10.4 cartridge will not boot on this core (2026-09-09)
+
+C259's specification needed an SR10.4 distribution, and **the media is all
+held** — checked, not assumed. `019593-001.CRTG_STD_SFW_BOOT_1-REV.A.ct`
+announces itself `VOL1SR10.4` / `Revision 10.4`, and
+`019594-002.CRTG_STD_SFW_2.ct` carries **16,934** occurrences of `sau14` where
+every SR10.3 cartridge carries **none** — so the DN5500's tree is on cartridge 2
+of the SR10.4 set and SR10.3 predates it.
+
+**But the install cannot be driven here yet.** MD's own first step is `DI C` /
+`EX DOMAIN_OS`, and this core answers:
+
+    >DI C
+    >EX DOMAIN_OS
+    Tape C0  000000  00  C
+    >
+
+The drive *is* reached — 8,208 reads and 17 writes to the cartridge tape region
+— so this is the controller answering rather than a decode gap. `C0` decodes
+against `ap_sc499.h`'s own table, three of whose four bits are **active low**:
+IRQ negated, **RDY negated**, **EXC clear = EXCEPTION asserted**, DONE clear. So
+*not ready, exception asserted*. The header already records that the drive
+"asserts EXCEPTION to report the power-on-reset condition" and that the firmware
+waits "for status `57` ... and cannot proceed without it", so an exception
+belongs somewhere in this sequence and the question is where.
+
+*It is a named plan item and not blocked*: all three tape manuals are walked
+whole and the firmware is the authority. What it unblocks is a cartridge boot on
+this core, and with it the SAU 14 install — without borrowing the oracle.
+Detail in `FINDINGS.md` C260.
+
 ## What SAU 14 needs, settled on the machine (2026-09-09)
 
 C256 left the DS5500's boot needing a volume installed under **SAU 14**, from one

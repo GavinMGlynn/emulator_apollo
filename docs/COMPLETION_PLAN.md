@@ -4924,6 +4924,29 @@ same number is what let them diverge once already.
       `FE2BB02AEF1F4624` unchanged. Detail in `PROJECT_STATUS.md`;
       `FINDINGS.md` C251.*
 
+- [ ] **The SR10.4 cartridge will not boot on this core: `Tape C0`.**
+      Found 2026-09-09 taking the SAU 14 route (`FINDINGS.md` C260). MD's own
+      first install step is `DI C` / `EX DOMAIN_OS`, and this core answers
+      `Tape C0  000000  00  C` and returns to `>`.
+      **The drive is reached** — 8,208 reads and 17 writes to the cartridge tape
+      region — so it is the controller answering, not a decode gap. `C0` decodes
+      against `ap_sc499.h`'s own table, three of whose four bits are **active
+      low**: IRQ negated, **RDY negated (not ready)**, **EXC clear = EXCEPTION
+      asserted**, DONE clear.
+      **Not blocked on anything**: `[SC499]`, `[08845]` and `[QIC-36]` are all
+      walked whole, the firmware is the authority, and the symptom is one status
+      byte at a named point. `ap_sc499.h` already records that the drive
+      "asserts EXCEPTION to report the power-on-reset condition" and that the
+      firmware waits "for status `57` ... and cannot proceed without it", so the
+      sequence is partly understood already.
+      **What it unblocks**: a cartridge boot on this core, and with it the SAU 14
+      install that the DS5500 boot and the multi-node workloads item both want —
+      without borrowing the oracle. *The media is confirmed held*: `019593-001`
+      announces `VOL1SR10.4`, and `019594-002` carries `sau14` where every SR10.3
+      cartridge carries none.
+      *Verification: `DI C` / `EX DOMAIN_OS` reaches the install environment on
+      this core rather than reporting a tape status.*
+
 - [ ] **Three ring timeout status bits are defined and set by nobody.**
       `AP_RING_CTL_STATUS_TMO`, `AP_RING_CTL_XMIT_TMO` and `AP_RING_CTL_RCV_PE`
       (glossed `timeout_rs`) appear in `ap_ring_ctl.h` and in no `.c` file, so a

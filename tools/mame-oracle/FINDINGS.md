@@ -14601,3 +14601,58 @@ edge-triggered on arriving bytes, so a doubled one is a deadlock rather than a
 no-op.
 
 Each cost a 45-minute run. The third was right and answered the question.
+
+## C260 -- the SR10.4 cartridge will not boot on this core, and the status byte names why
+
+C259 specified what SAU 14 needs: `distaa` from an SR10.4 distribution into an
+Authorized Area, then `config`/`install`. **The media is all held**, which was
+checked rather than assumed:
+
+- `019593-001.CRTG_STD_SFW_BOOT_1-REV.A.ct` announces itself `VOL1SR10.4`,
+  `HDR1SR10.4 Boot Volum`, `Revision 10.4` -- the SR10.4 boot cartridge.
+- `019594-002.CRTG_STD_SFW_2.ct` carries **16,934** occurrences of `sau14`,
+  where every SR10.3 cartridge (`018847`, `018848-001..004`) carries **none**.
+  So the DN5500's machine-specific tree is on cartridge 2 of the SR10.4 set, and
+  SR10.3 predates it.
+
+### And the install cannot be driven on this core, yet
+
+MD's own first step in the recorded install route is `DI C` then `EX DOMAIN_OS`
+-- boot from the cartridge instead of the Winchester. On this core:
+
+    >DI C
+    >EX DOMAIN_OS
+    Tape C0  000000  00  C
+    >
+
+**The drive was reached**: 8,208 reads and 17 writes to the cartridge tape
+region, so this is the controller answering rather than a decode gap. And `C0`
+decodes against `ap_sc499.h`'s own bit table, where three of the four are
+**active low**:
+
+    0x80 IRQ  active low -- set means *not* asserted
+    0x40 RDY  active low -- set means *not ready*
+    0x20 EXC  active low -- clear means **EXCEPTION asserted**
+    0x10 DONE active high -- clear
+
+So `C0` is *not ready, exception asserted, no interrupt*. The header already
+records that the drive "asserts EXCEPTION to report the power-on-reset
+condition" and that the firmware waits "for status `57`, which is EXCEPTION
+asserted, and cannot proceed without it" -- so an exception is expected at some
+point in the sequence, and what this run shows is the firmware giving up on one
+it did not expect *here*.
+
+### What that changes
+
+The SAU 14 install has two routes and this settles which is which:
+
+1. **Under the oracle**, as the SR10.3 install was done
+   (`sr10-3-install-route`) -- available today, and the media is confirmed.
+2. **On this core**, which needs the tape boot path to work first. That is a
+   *core* item and an unblocked one: `[SC499]`, `[08845]` and `[QIC-36]` are all
+   walked whole, the firmware is the authority, and the symptom is one status
+   byte at a named point.
+
+Route 2 is the better one to spend on, because it is a defect in this core
+rather than a job for somebody else's emulator -- and because a cartridge boot
+that works is worth more than one volume.
