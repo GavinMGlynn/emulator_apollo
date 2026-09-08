@@ -417,14 +417,58 @@ void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl) {
    * forwarding (finding 87a). Capturing a whole frame is a station change, and
    * a named gap -- `RING.md` 105b. */
   const uint16_t base = ring_ctl_addr(ctl->a2.slot_004);
-  const unsigned words = sizeof ctl->station->rx_header / 2u;
+
+  /* **The whole frame, not the decision bytes.**
+   *
+   * The comment above this said "a frame longer than its first eight bytes is
+   * not deposited, because the station does not capture one ... capturing a
+   * whole frame is a station change, and a named gap -- `RING.md` 105b". The
+   * station change had already been made: `ap_ring_station_attach_rx` lends a
+   * board-owned buffer, `rx_bytes` says how much of it is a frame, and
+   * `rx_header_bytes` is the header/data split taken at the second separator.
+   * Only this deposit still used `sizeof rx_header`, so a driver handed a
+   * ninety-byte request received **eight bytes** of it and could not answer --
+   * which is exactly where `/com/lcnode` stopped on two booted nodes
+   * (`FINDINGS.md` C250).
+   *
+   * Header at `RCV_ADDR` and data a kilobyte past it, the same layout the
+   * transmit side now reads and for the same reason: p. 12-29's "7 rcv msg
+   * buffers (each **1k bytes of header and 1k bytes of data**)".
+   *
+   * The board's own loopback diagnostic is unaffected -- finding 50 reads four
+   * words back at `+10` and those bytes are the header's first eight either
+   * way. */
+  const ap_ring_station_t *const st = ctl->station;
+  const size_t header_bytes =
+      st->rx_buffer != NULL ? st->rx_header_bytes : sizeof st->rx_header;
+  const size_t data_bytes =
+      st->rx_buffer != NULL && st->rx_bytes > st->rx_header_bytes
+          ? st->rx_bytes - st->rx_header_bytes
+          : 0u;
+  const uint8_t *const src =
+      st->rx_buffer != NULL ? st->rx_buffer : st->rx_header;
+  const unsigned words = (unsigned)((header_bytes + 1u) / 2u);
   if ((size_t)base + words > AP_RING_CTL_BUFFER_WORDS) {
     return;
   }
   for (unsigned i = 0; i < words; i++) {
+    const size_t lo = (size_t)i * 2u + 1u;
     ctl->buffer[base + i] =
-        (uint16_t)((ctl->station->rx_header[i * 2u] << 8) |
-                   ctl->station->rx_header[i * 2u + 1u]);
+        (uint16_t)(((uint16_t)src[i * 2u] << 8) |
+                   (uint16_t)(lo < header_bytes ? src[lo] : 0u));
+  }
+  if (data_bytes > 0u) {
+    const size_t data_base = (size_t)base + (1024u / 2u);
+    const unsigned data_words = (unsigned)((data_bytes + 1u) / 2u);
+    if (data_base + data_words <= AP_RING_CTL_BUFFER_WORDS) {
+      const uint8_t *const dsrc = src + st->rx_header_bytes;
+      for (unsigned i = 0; i < data_words; i++) {
+        const size_t lo = (size_t)i * 2u + 1u;
+        ctl->buffer[data_base + i] =
+            (uint16_t)(((uint16_t)dsrc[i * 2u] << 8) |
+                       (uint16_t)(lo < data_bytes ? dsrc[lo] : 0u));
+      }
+    }
   }
   /* `ri` is MISC_STAT bit 1, "RCV intr pending **<=0**" (p. 12-30) -- active
    * low, so a pending interrupt *clears* it. Finding 74a already had the other

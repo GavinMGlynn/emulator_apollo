@@ -2056,6 +2056,9 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
       for (unsigned b = 0; b < AP_RING_CTL_XMIT_HEADER_BYTES; b++) {
         fprintf(out, " %02X", board[i].ring.first_tx_header[b]);
       }
+      fprintf(out, "   rx %u bytes (%u header)",
+              (unsigned)board[i].ring_station.rx_bytes,
+              (unsigned)board[i].ring_station.rx_header_bytes);
       fprintf(out, "   xmt_hdr %04X xmt_pkt %04X",
               board[i].ring.first_tx_hdr_count,
               board[i].ring.first_tx_pkt_count);
