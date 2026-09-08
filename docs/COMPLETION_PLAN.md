@@ -5076,13 +5076,22 @@ same number is what let them diverge once already.
       error at all, but p. 4-17's other line — "The SYSBOOT read from records 2
       thru B did not have a good boot header". Identity `1AE206D37D8A8D1F`
       unchanged throughout.
-      *What is left*: the boot header check. The firmware reads records **2
-      through B** and looks for a header there, and this cartridge carries
-      `SYSBOOT REV` in block **0** with the image spanning blocks 0-15
-      (`0013D800`-`0013F6BC`, 7,868 bytes). Whether the firmware wants a
-      different part of the tape, or the image landed somewhere it did not
-      expect, is the next measurement — the DMA's destination runs through the
-      AT address translation map, which the run programs 69,562 times.
+      *What is left, and it is now outside the tape*: **the sixteen blocks
+      arrive and one of them lands on another**. `dma 8192 transfer(s)` is 16 ×
+      512 exactly, but `dma first wrote 010FD800` and `last wrote 010FF5FF`
+      span `1E00` — **fifteen** blocks. A dump of that window shows cartridge
+      block **1** at `010FD800` with the 512 bytes in front of it zero, so
+      blocks 0 and 1 both went to `010FD800` and the second overwrote the first.
+      The boot header the firmware is looking for is block 0's, and it is the
+      block that was overwritten.
+      The destination runs through the AT address translation map, which the
+      host reprograms per block (`translation map` 34 writes for 16 blocks, and
+      `dma writes 010C02 010C03` — the channel's address register — beside
+      them), so the next measurement is the map entry and the 8237 base address
+      against each block: watch `010C02`/`010C03` and the map, and see which
+      pair of blocks shares a destination. Nothing on the tape path is implicated
+      — the drive delivers sixteen blocks, stops at the mark, and the firmware
+      reads and clears the status (`exs 0000`).
       **What it unblocks**: a cartridge boot on this core, and with it the SAU 14
       install that the DS5500 boot and the multi-node workloads item both want —
       without borrowing the oracle. *The media is confirmed held*: `019593-001`

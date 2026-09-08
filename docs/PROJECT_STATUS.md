@@ -497,6 +497,21 @@ raised it again. The same sentence a third time — a sequencer with no transfer
 in front of it has nothing in flight — so a DMAGO the drive cannot answer ends
 at once.
 
+**And the failure has left the tape.** The boot now reports `error: sysboot not
+found`, which is `002398-04` p. 4-17's other line, and the report shows a
+healthy drive: `dma 8192 transfer(s)` — 16 × 512 exactly, no invented byte —
+`tape drive block 17 of 104841` past the mark, and `tape card status 37, ready,
+done, exs 0000`, the status read and cleared by the firmware.
+
+What is wrong is downstream: `dma first wrote 010FD800` and `last wrote
+010FF5FF` span `1E00`, which is **fifteen** blocks for sixteen transfers, and a
+dump of that window shows cartridge block **1** at `010FD800` with the 512 bytes
+in front of it zero. Blocks 0 and 1 both went to `010FD800` and the second
+overwrote the first — and block 0 is the one carrying the boot header. The
+destination runs through the AT address translation map, which the host
+reprograms per block; which pair of blocks shares a destination, and why, is the
+next measurement.
+
 *Verification: `tape_suite` 25 → 26; the new test reads a one-block file under
 DMA with a mark behind it, requires the request line to go down with the mark
 **untouched**, the ending to arrive on the next advance, and the DMAGO that

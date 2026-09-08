@@ -15329,3 +15329,33 @@ mark **untouched** -- the drive still reading, no byte taken -- the ending to
 arrive on the next advance, and the DMAGO that follows it to complete rather
 than hang. It fails on the old request line, and its last three lines fail
 without the trailing-DMAGO rule.*
+
+### Where it stands: the tape delivers, and one block lands on another
+
+The boot now reports **`error: sysboot not found`** -- `002398-04` p. 4-17's
+other line, "The SYSBOOT read from records 2 thru B did not have a good boot
+header" -- and the tape is healthy in every respect the report can show:
+
+    dma          8192 transfer(s)          16 x 512 exactly, no invented byte
+    dma first    wrote 010FD800
+    dma          last wrote 010FF5FF
+    tape drive   block 17 of 104841, selected      past the mark
+    tape card    status 37, ready, done, exs 0000  status read and cleared
+
+**`010FF5FF - 010FD800 + 1` is `1E00`, which is fifteen blocks for sixteen
+transfers.** A dump of that window shows cartridge block **1** at `010FD800`
+with the 512 bytes in front of it zero, so blocks 0 and 1 both went to
+`010FD800` and the second overwrote the first -- and block 0 is the one carrying
+`SYSBOOT REV` and the four header words.
+
+Neither the PROM's workspace at `01000000`-`01008000` nor the window around the
+transfer holds a second copy, so nothing was written elsewhere: two transfers
+shared one destination.
+
+The destination runs through the AT address translation map, which the host
+reprograms per block -- 34 map writes for 16 blocks, with `010C02`/`010C03`, the
+channel's address register, among the DMA writes. **The next measurement is the
+map entry and the 8237 base address against each block**, to see which pair
+shares a destination and why. Nothing on the tape path is implicated: the drive
+delivers sixteen blocks, stops at the mark, and the firmware reads and clears
+the status.
