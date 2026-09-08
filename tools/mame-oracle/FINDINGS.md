@@ -13476,3 +13476,73 @@ written and lost), a value log (connect paired with disconnect), a route split
 which showed that four of the eight "driver writes" were this core's own. Every
 step before the last was reasoning about values the device received, and the
 answer was only visible one level up.
+
+## C247 -- the second fix, and a third layer that is identified but not solved
+
+### Fixed: XMIT_STAT's `nct` was a constant, and the driver believed it
+
+p. 12-31's low byte is status and the polarity is the manual's own -- "network
+connect <= 0" -- so the bit reads **0** when the station is on the ring.
+`AP_RING_CTL_COMMAND_STATUS_IDLE` set it at reset and nothing ever cleared it,
+so a driver that connected the card and then read XMIT_STAT was told it was
+still bypassed. MISC_STAT's bit 15 has been derived from `connected` since
+finding 40; this is the same fact in the other register and it was missing.
+
+Domain/OS is exactly such a driver, and the effect is not subtle:
+
+    before  XMIT_CMD written  4 times, only $0100 (ine)
+    after   XMIT_CMD written 65 times, last $0200 (ten)
+
+    ?(lcnode)  List may not be complete - waited too long for more nodes to respond
+     The node ID of this node is 12345.
+     No other nodes responded.
+    Node ID      Boot time           Current time         Entry Directory
+
+**`/com/lcnode` completes**, with the table, on a machine with the card fitted --
+where it previously answered `transmit failed (OS/network)`. "No other nodes
+responded" is the right answer for a lone node on a segment and is what C164
+recorded from the oracle.
+
+*`board_suite`'s two-board exchange asserted `B0` for this byte and called `nct`
+one of the bits that "stay set" -- the model's constant restated as an
+expectation. It connects both cards forty lines earlier, so `30` is what a
+connected station reads.*
+
+### Not fixed: the transmit is commanded and the station never claims
+
+`ring station claims 0  frames seen 0  copied 0` after sixty-five `ten`
+commands. The cause is visible and the fix is not.
+
+`ring_ctl_queue_from_buffer` is gated on `value == 0x0200u || value == 0x0600u`
+-- an exact match on the **whole word**. `ap_board_write` is byte-wide, so a
+guest's `move.w #$0200` arrives as two byte accesses, and this bank's byte path
+merges against a *read* whose low lane is `command_402_status` (`B0` or `F0`).
+The device therefore sees `02B0`, never `0200`, and never queues. This file says
+two hundred lines above that for `+402` "the command byte is the **high lane**;
+the low lane is status", so comparing the whole word is wrong whenever the low
+lane is non-zero.
+
+**Two attempts, both refuted by the ring ROM's own self-test**, which is the
+right authority and is why nothing was kept:
+
+  - *Merge `+402`/`+404` against their written command lanes*, as slot 0 now
+    does. `command_402` is **cleared to zero when a command is taken**, so a
+    later byte merges against nothing and subtest 22 fails: `d0 E0000022`,
+    against `d0 0` and 7,263,778 steps before.
+  - *Compare only the command lane*, `value & 0xFF00`. The ROM's
+    `move.b #$2,$402(a4)` then matches where it never did, a frame is queued,
+    and the queued frame defers the completion subtest 22 polls for -- the same
+    `E0000022`. Gating the queue on `!loopback_enabled` did not save it, and the
+    step count was identical across all three attempts, so the ROM's transmit
+    subtests are not in loopback where it matters.
+
+**So the exact match is load-bearing for the firmware in a way not yet
+understood**, and that is the question rather than the fix. What would settle
+it: the ROM's own writes to `+402` traced with their low lanes, against
+subtest 22's poll -- the firmware is on disk as `r3500.lst` and the subtest
+numbers are already mapped.
+
+*The model is left in its proven state*: slot 0 merged against the last command,
+XMIT_STAT's `nct` derived from the connection, ring self-test byte-identical
+(`d0 0`, 7,263,778 steps, 1,321,914 reads / 927,828 writes), identity boot
+`FE2BB02AEF1F4624`, `ctest` 140/140.

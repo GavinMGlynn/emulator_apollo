@@ -4077,10 +4077,26 @@ discipline throughout.
       **Two readings, neither established**: the AT board's MISC_CMD differs
       from `002398-04` p. 12-32's DN3000 layout and `nct` is latched — our
       defect — or the layouts agree and the driver is waiting on something else.
-      *What separates them* is which routine issues `$70`, and it is in reach
-      rather than blocked: `--boot-watch-write 59400 --boot-log-watch-writes`
-      records the writing PC, and `tools/kernel_symbols.py --build domain_os11`
-      names it. Detail in `PROJECT_STATUS.md`; `FINDINGS.md` C243–C245.
+      **Both readings were wrong, and two defects of ours are found and fixed**
+      (`FINDINGS.md` C246–C247). `--boot-watch-write` showed the guest writing
+      **words**: `$0800` four times, last one `nct` set. `$70` was never a
+      driver value — `ap_board_write` is byte-wide, this bank's byte path
+      read-modify-wrote, and p. 12-29 makes `+400` MISC_STAT read and MISC_CMD
+      written, so the low half of each connect composed a command out of status
+      and disconnected the ring. Merging against the last written command fixes
+      it: the card now ends **connected**, `misc` bit 15 clear.
+      **And XMIT_STAT's `nct` was a constant**, so the driver was told it was
+      still bypassed: p. 12-31's "network connect <= 0" makes it follow the
+      connection. Domain/OS went from 4 XMIT_CMD writes (`ine` only) to **65**
+      (last `ten`), and **`/com/lcnode` completes with its table** where it
+      answered `transmit failed`.
+      **What remains is one layer down**: `claims 0` after 65 `ten` commands,
+      because `ring_ctl_queue_from_buffer` matches the **whole word** against
+      `$0200` where the command is the high lane. Two fixes for that were tried
+      and both were refuted by the ring ROM's own self-test (`d0 E0000022`), so
+      the exact match is load-bearing for the firmware in a way not yet
+      understood — that is the next question, and `r3500.lst` is on disk to
+      answer it. Detail in `PROJECT_STATUS.md`; `FINDINGS.md` C243–C247.
       **The verification was rewritten on 2026-08-19, and the reason matters.**
       It read "`lcnode` on each node lists the other", which is an *operating
       system* check standing in for a *ring* one: it needs a shell, a shell
