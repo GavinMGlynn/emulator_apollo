@@ -479,6 +479,15 @@ the media paid byte by byte, Figure 1-5's T14→T15 is the interface turnaround 
 was first read as — `100 us. <`, which is `AP_SC499_T_BLOCK_TO_READY_MIN`. The
 two move together or a block costs its media time twice.
 
+*The reference boot is unmoved by all of it*: `1AE206D37D8A8D1F` across the
+byte-rate constant and the reverted pacing, with the report identical **apart
+from the one line `dma first wrote 01100800` that the new instrument itself
+prints** — which is worth stating exactly, since a commit message called it
+byte-identical. That line also says the reference boot *does* drive DMA, which
+is why the cartridge run's `dma 8192 transfer(s)` being exactly 16 × 512 is
+evidence that no disk transfer ran in it and the first write recorded is the
+tape's.
+
 **And it is blocked on a clock, which was found by trying it.**
 `ap_machine_tick`'s stall loop calls `ap_board_bus_tick` and increments the
 CPU's clock count *without* an `ap_board_advance`, so while the processor is
