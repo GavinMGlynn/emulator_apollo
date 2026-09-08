@@ -5224,6 +5224,11 @@ Only after the reference core is proven, and only under an identity harness.
       to come from the ring's own latency being long enough that two nodes cannot
       observe each other inside it, which is a different argument and is not the
       one this item is written on.
+      **What would unblock it**, stated in the form the other items use rather
+      than left to be inferred from the two paragraphs above: the exact-skip
+      item finished with a design that measures faster, **and** a re-derivation
+      of this item's premise, since the inert-window argument it was written on
+      is refuted by the paragraph above. Both, not either.
 
 ## Phase 9 — Content testing
 
@@ -5302,6 +5307,14 @@ Only after the reference core is proven, and only under an identity harness.
       The boundary is exact: ring **membership** is a function of the node a
       machine presents, and C180's relabelling settles that; anything reading
       **object UIDs across the ring** is not, and this item is all of that.
+      **`lcnode`'s ring half is done and its OS half is located** (2026-09-08,
+      `FINDINGS.md` C253). Two booted nodes exchange frames and each reports the
+      other; the card delivers **every** frame its station copies — `deposits`
+      equal to `frames_copied` on both nodes, `refused 0`, one `ri` each — and
+      the driver reads them, ~370 card accesses a frame. What never appears is a
+      reply: p. 7-31's `TMASK` makes `20` *thank you*, and across 104 delivered
+      frames the census holds only `0090` (`broadcast | please`) and `0094`.
+      **Domain/OS never answers**, which is this item's work and not the ring's.
       **The second install now works and this item is startable** (C199): node
       B's volume boots. What had stopped it was this frontend never giving a
       machine its disk's node on the `--disk` path, so a volume recording node

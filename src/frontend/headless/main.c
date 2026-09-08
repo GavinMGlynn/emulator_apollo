@@ -2130,6 +2130,35 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
                   : "",
               board[i].ring.a2.misc_cmd_last);
     }
+    /* **The receive census, which is where the remaining question is.**
+     *
+     * Frames cross, are addressed, are copied and are acknowledged, and
+     * `/com/lcnode` still answers "No other nodes responded". `002398-04`
+     * p. 7-31's `TMASK` names the types -- `80` broadcast, `40` hw diag, `20`
+     * thank you, `10` please, `08` paging, `04` user, `02` sw diag -- and
+     * `lcnode` is a broadcast of *please* collecting *thank you*s. So a census
+     * of what was actually deposited says which half of that sentence fails:
+     * no `20` anywhere means nobody replied, and a `20` that arrives means the
+     * reply is being lost above the card.
+     *
+     * `deposits` beside the station's `copied` is the other half -- a frame the
+     * station copied and the card never delivered reaches no driver, and the
+     * two counts live in different modules with nothing comparing them. */
+    fprintf(out,
+            "  node %u  ring  deposits %u (refused %u)  ri %u  types",
+            i, board[i].ring.deposits, board[i].ring.deposits_refused,
+            board[i].ring.ri_raised);
+    for (unsigned k = 0; k < board[i].ring.rx_types_seen; k++) {
+      fprintf(out, " %04X x%u", board[i].ring.rx_type[k],
+              board[i].ring.rx_type_count[k]);
+    }
+    if (board[i].ring.rx_types_seen == 0u) {
+      fprintf(out, " none");
+    }
+    if (board[i].ring.rx_types_dropped > 0u) {
+      fprintf(out, " (+%u past the census)", board[i].ring.rx_types_dropped);
+    }
+    fprintf(out, "\n");
     fprintf(out,
             "  node %u  ring  XMIT_CMD %u write(s), %u with ten, %u rising\n",
             i, board[i].ring.a2.xmit_cmd_writes, board[i].ring.a2.xmit_cmd_ten,
@@ -5730,6 +5759,16 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
      * it set arms exactly one frame however many times it asks. A region total
      * cannot separate that from a driver that never asked (`FINDINGS.md`
      * C251). */
+    printf("  ring deposits %u (refused %u)  ri %u  types",
+           board->ring.deposits, board->ring.deposits_refused,
+           board->ring.ri_raised);
+    for (unsigned k = 0; k < board->ring.rx_types_seen; k++) {
+      printf(" %04X x%u", board->ring.rx_type[k], board->ring.rx_type_count[k]);
+    }
+    if (board->ring.rx_types_seen == 0u) {
+      printf(" none");
+    }
+    printf("\n");
     printf("  ring xmit    XMIT_CMD %u write(s), %u with ten, %u rising\n",
            board->ring.a2.xmit_cmd_writes, board->ring.a2.xmit_cmd_ten,
            board->ring.a2.xmit_cmd_rising);

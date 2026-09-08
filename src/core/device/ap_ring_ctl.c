@@ -471,7 +471,41 @@ void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl) {
       st->rx_buffer != NULL ? st->rx_buffer : st->rx_header;
   const unsigned words = (unsigned)((header_bytes + 1u) / 2u);
   if ((size_t)base + words > AP_RING_CTL_BUFFER_WORDS) {
+    /* Counted rather than returned in silence: a frame the station copied and
+     * the card never delivered is invisible from either side otherwise, and
+     * `frames_copied` against `deposits` is the comparison that would show it
+     * (see `ap_ring_ctl.h`). */
+    ctl->deposits_refused++;
     return;
+  }
+  /* **The census, taken before the deposit so a refused frame is not counted
+   * as delivered.** `[MAC]` §2.2.2.2 puts the type in the third header word,
+   * and `ap_ring_header_type` reads it low byte first -- the order a captured
+   * Domain/OS header settled (`FINDINGS.md` C249). `002398-04` p. 7-31 names
+   * the bits, of which `20` thank you and `10` please are the pair `lcnode`
+   * is made of. */
+  ctl->deposits++;
+  /* Gated on the **type's own extent**, not on the whole fixed header: the
+   * type is §2.2.2.2's third word, bytes 4-5, and both deposit paths reach it.
+   * A station with no receive buffer lent captures §2.2.2.2's eight decision
+   * bytes and no more, which is what the board's own loopback diagnostic reads
+   * back, and gating on the twelve-byte header skipped the census for exactly
+   * that path. */
+  if (header_bytes >= (size_t)AP_RING_HDR_TYPE + 2u) {
+    const uint16_t type = ap_ring_header_type(src);
+    unsigned slot = 0u;
+    while (slot < ctl->rx_types_seen && ctl->rx_type[slot] != type) {
+      slot++;
+    }
+    if (slot < ctl->rx_types_seen) {
+      ctl->rx_type_count[slot]++;
+    } else if (ctl->rx_types_seen < AP_RING_CTL_TYPE_CENSUS) {
+      ctl->rx_type[ctl->rx_types_seen] = type;
+      ctl->rx_type_count[ctl->rx_types_seen] = 1u;
+      ctl->rx_types_seen++;
+    } else {
+      ctl->rx_types_dropped++;
+    }
   }
   if (!ctl->first_rx_captured) {
     for (unsigned i = 0; i < AP_RING_CTL_XMIT_HEADER_BYTES; i++) {
@@ -505,6 +539,7 @@ void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl) {
    * directions now belong to the two events rather than one of them being a
    * bare acknowledge with nothing to acknowledge. */
   ctl->a2.status &= (uint16_t)~AP_RING_CTL_STATUS_RI;
+  ctl->ri_raised++;
 
   /* **The 8254s clocked from real ring traffic**, in the units the board's own
    * driver names them with (`RING.md` 100, 108): `RCV_HDR` counts header

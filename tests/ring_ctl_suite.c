@@ -976,6 +976,64 @@ static void test_a_second_transmit_command_arms_a_second_frame(void) {
   TEST_ASSERT_EQUAL_UINT64(2u, w.station[1].frames_addressed);
 }
 
+/* **What the card delivered, counted where the station's own counters cannot
+ * see it.**
+ *
+ * `frames_copied` is the *station's* count of frames it took off the wire;
+ * `deposits` is the *controller's* count of frames it put in the buffer and
+ * raised `ri` for. They live in different modules and nothing compared them, so
+ * a frame copied and never delivered would have been invisible from both sides.
+ * On two booted Domain/OS nodes they now agree exactly -- 33 and 33, 71 and 71,
+ * with `refused 0` (`FINDINGS.md` C253) -- and this is the unit-level statement
+ * of that.
+ *
+ * The type census is the other half and is what the two-node question turned
+ * on. `002398-04` p. 7-31's `TMASK` makes `10` please and `20` thank you, so a
+ * census of what a node was actually handed says whether a reply ever arrived.
+ * Here the frame is `AP_RING_TYPE_USER`, and the assertion is that the census
+ * reports the type that was *sent* rather than a placeholder. */
+static void test_the_card_counts_and_types_what_it_delivers(void) {
+  static wired_t w;
+  static uint8_t txbuf[2048];
+  wired_build(&w);
+  /* Station 1 transmits; the controller is joined to station 0, so station 0
+   * is the receiver and the card under test is the one delivering. */
+  ap_ring_station_attach_tx(&w.station[1], txbuf, sizeof txbuf);
+  ap_ring_station_set_address(&w.station[0], 0x00012345u);
+
+  uint8_t header[AP_RING_CTL_XMIT_HEADER_BYTES] = {0};
+  ap_ring_header_set_destination(header, 0x00012345u);
+  ap_ring_header_set_type(header, AP_RING_TYPE_USER);
+  ap_ring_header_set_source(header, 0x00ABCDEFu);
+  const ap_ring_frame_fields_t fields = {.header = header,
+                                         .header_bytes = sizeof header,
+                                         .data = NULL,
+                                         .data_bytes = 0u,
+                                         .late_acknowledge = 0u};
+  TEST_ASSERT_TRUE(ap_ring_station_queue_frame(&w.station[1], &fields));
+
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_W2_RCV_ADDR,
+                      ring_addr_reg(0x0010u));
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 4u,
+                      AP_RING_CTL_RCV_CMD_RCV);
+  ap_ring_station_originate_token(&w.station[1], AP_RING_OOB_FREE_TOKEN);
+  for (unsigned i = 0; i < 4000u; i++) {
+    wired_step(&w);
+  }
+
+  /* Copied by the station, delivered by the card, and the two agree. */
+  TEST_ASSERT_EQUAL_UINT64(1u, w.station[0].frames_copied);
+  TEST_ASSERT_EQUAL_UINT(1u, w.ctl.deposits);
+  TEST_ASSERT_EQUAL_UINT(0u, w.ctl.deposits_refused);
+  TEST_ASSERT_EQUAL_UINT(1u, w.ctl.ri_raised);
+  /* And the census carries the type the sender put in the header. */
+  TEST_ASSERT_EQUAL_UINT(1u, w.ctl.rx_types_seen);
+  TEST_ASSERT_EQUAL_HEX16(AP_RING_TYPE_USER, w.ctl.rx_type[0]);
+  TEST_ASSERT_EQUAL_UINT(1u, w.ctl.rx_type_count[0]);
+}
+
 /* And a command that is not a transmit does not transmit one.
  *
  * `$0100` is the third value both drivers write (`RING.md` 103d) and it starts
@@ -1217,6 +1275,7 @@ int main(void) {
   RUN_TEST(test_a_transmit_command_puts_the_buffers_frame_on_the_ring);
   RUN_TEST(test_a_received_frame_lands_at_rcv_addr_and_raises_ri);
   RUN_TEST(test_a_second_transmit_command_arms_a_second_frame);
+  RUN_TEST(test_the_card_counts_and_types_what_it_delivers);
   RUN_TEST(test_only_the_transmit_command_values_queue_a_frame);
   RUN_TEST(test_the_command_registers_drive_the_relay_and_the_receiver);
   RUN_TEST(test_the_idle_words_are_the_manuals_bits_and_not_magic);

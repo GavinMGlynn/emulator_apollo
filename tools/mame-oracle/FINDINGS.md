@@ -14112,3 +14112,59 @@ acknowledged; what does not happen is a **reply**, which is Domain/OS protocol
 does what the documents say it should not"; this one has no manual behind it and
 is a different kind of work. The item's verification was rewritten to the ring
 property in August for exactly this reason, and the ring property is now met.
+
+## C253 -- the card delivers everything and nobody replies: the census says which half
+
+C252 closed the two-node ring item and left one question, deliberately marked
+"not a ring question": `/com/lcnode` answers "No other nodes responded" while
+frames cross, are addressed, copied and acknowledged. That sentence has two
+halves -- the frames a node is handed are not the ones it needs, or the reply it
+should send is never sent -- and nothing measured could tell them apart.
+
+The instrument is the one that has now paid three times: a log where a region
+total used to be. MISC_CMD's writes settled who was disconnecting the ring
+(C243), XMIT_CMD's settled why eighteen asks armed one frame (C252), and the
+receive side had neither. It now carries a **delivery count** and a **type
+census**.
+
+    node 0  ring  deposits 33 (refused 0)  ri 33  types 0094 x2  0090 x31
+    node 1  ring  deposits 71 (refused 0)  ri 71  types 0090 x70  0094 x1
+
+### The card's half is complete, and the counts prove it rather than suggest it
+
+`deposits` equals the station's `frames_copied` **exactly** on both nodes -- 33
+and 33, 71 and 71 -- with `refused 0` and one `ri` raised per deposit. Those two
+counts live in different modules and nothing had ever compared them, so a frame
+copied off the wire and never delivered would have been invisible from both
+sides. It does not happen. And the driver reads what it is given: 12,212 card
+reads against 33 deposits is about 370 accesses a frame, which is a ninety-eight
+byte frame being pulled through `RAM_ADDR`/`RAM_DATA` a byte at a time and then
+some.
+
+### And the other half is answered by an absence
+
+`002398-04` p. 7-31's `TMASK`: `80` broadcast, `40` hw diag, **`20` thank you**,
+`10` please, `08` paging, `04` user, `02` sw diag. `lcnode` is a broadcast of
+*please* collecting *thank you*s.
+
+**There is no `20` in the census.** `0090` is `broadcast | please` and `0094` is
+`broadcast | please | user`; across 104 frames delivered between two booted
+nodes, not one is a reply. So the failing half is not "the frames are wrong" --
+it is that **Domain/OS never answers**. Every ring defect this project has found
+was "the core does what the documents say it should not"; this is not one, and
+it is above the card.
+
+*What that leaves, named rather than guessed*: the operating system has the
+request, whole, with the sender's ID at offset 8, delivered on an interrupt it
+takes and acknowledges, and does not reply. Candidates, in the order the
+evidence ranks them: a service that is not running on a node with no registry
+(both nodes log "Registries unavailable"); a request whose *content* the far
+node rejects for a reason the header cannot show; or a reply path that needs
+something of the card this core does not offer. Deciding between them means
+decoding the ninety-eight bytes, which is protocol work with no manual on the
+shelf behind it -- and it belongs to the multi-node workloads item, not to the
+ring.
+
+**The ring path itself is finished and says so in its own numbers**: node 0
+`forced 0` against 71 claims, 134 million free tokens seen, every frame it
+copied delivered, every delivery interrupting.

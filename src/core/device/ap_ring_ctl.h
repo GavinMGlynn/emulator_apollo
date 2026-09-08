@@ -173,6 +173,11 @@
  * whole initialisation without making the report a trace. */
 #define AP_RING_CTL_CMD_LOG 24u
 
+/* Distinct received type words the census holds. `002398-04` p. 7-31's
+ * `TMASK` has seven bits, but a node sees a handful of combinations in
+ * practice; an overflow is counted rather than silently folded. */
+#define AP_RING_CTL_TYPE_CENSUS 8u
+
 #define AP_RING_CTL_STATUS_ESB 0x0200u     /* sticky elastic-store error */
 #define AP_RING_CTL_STATUS_BPE 0x0100u     /* sticky bi-phase error */
 #define AP_RING_CTL_STATUS_GPS 0x0008u     /* sticky good packet seen */
@@ -727,6 +732,42 @@ typedef struct {
   uint8_t first_rx_header[AP_RING_CTL_XMIT_HEADER_BYTES];
   uint16_t first_rx_deposit_at;
   bool first_rx_captured;
+
+  /* **The receive side's own log, and the one question it exists to answer.**
+   *
+   * MISC_CMD's writes settled who was disconnecting the ring (`FINDINGS.md`
+   * C243) and XMIT_CMD's settled why eighteen asks armed one frame (C252). The
+   * receive side has the same shape of question and no instrument: with frames
+   * crossing, addressed, copied and acknowledged on two booted nodes,
+   * `/com/lcnode` still answers "No other nodes responded" -- so either the
+   * frames a node is handed are not the ones it needs, or the reply it should
+   * send is never sent.
+   *
+   * `002398-04` p. 7-31's `TMASK` names the types: `80` broadcast, `40` hw
+   * diag, **`20` thank you**, `10` please, `08` paging, `04` user, `02` sw
+   * diag. `lcnode` is a broadcast of `please` collecting `thank you`s, so a
+   * census of the type words actually deposited says which half of that
+   * sentence is failing -- and it costs one counter per distinct type rather
+   * than a trace of every frame.
+   *
+   * `deposits` against the station's `frames_copied` is the other half: a
+   * frame copied by the station and never deposited never reaches the driver
+   * at all, and the two counts sit in different modules with nothing comparing
+   * them. `deposits_refused` counts the one way this can fail quietly -- a
+   * `RCV_ADDR` that would put the frame past the end of the card's buffer. */
+  unsigned deposits;
+  unsigned deposits_refused;
+  /* How many times the deposit asserted `ri`, which is what the driver's
+   * interrupt handler runs on. */
+  unsigned ri_raised;
+  /* A census of the deposited frames' type words, `[MAC]` §2.2.2.2's third
+   * header word. Small and fixed: the seven `TMASK` bits make few distinct
+   * combinations in practice, and an overflowing census says so rather than
+   * growing. */
+  uint16_t rx_type[AP_RING_CTL_TYPE_CENSUS];
+  unsigned rx_type_count[AP_RING_CTL_TYPE_CENSUS];
+  unsigned rx_types_seen;
+  unsigned rx_types_dropped;
 } ap_ring_ctl_t;
 
 /* Join a controller to a station on a medium. Both pointers are borrowed and
