@@ -13197,3 +13197,78 @@ the one Domain/OS actually serves.
 the two-node version of the same question, which would have cost about ten
 hours to reach the same negative. Ask a question on the cheapest machine that
 can answer it.
+
+## C243 -- `lcnode` transmits, the transmit fails, and the card says the station was never connected
+
+The two-node run reached the thing this project has been trying to reach since
+August: **`/com/lcnode` running on two booted Domain/OS nodes on one ring
+segment**. Both answered
+
+    ?(lcnode)  Node 22222 did not respond - transmit failed (OS/network)
+    ?(lcnode)  Node 12345 did not respond - transmit failed (OS/network)
+
+each naming its **own** node -- so each failed on the first thing `lcnode` does,
+and Domain/OS classified the failure itself. No `ring claims` heartbeat printed
+on either node.
+
+**That excludes C229's reading 1.** "Nothing asked" was the reading the earlier
+two-node run supported and could not be told apart from "something asked and
+nothing carried it". Something asked.
+
+### And it is reproducible on one node, in fifty minutes instead of ten hours
+
+`tools/md-shell.sh <copy> --ring --configure --ring-rom ...` gives the same
+line on a single machine. That matters more than the finding it produced: the
+two-node runner costs **46 k instructions/s per node** against a single
+machine's **830 k/s**, so every question asked on two nodes costs eighteen
+times what the same question costs on one. `lcnode` failing needs no second
+node, because it fails while talking to itself.
+
+### What the card was reporting
+
+The boot report now prints it, composed as `ap_ring_ctl_read16` composes it --
+the status field is only the high byte and `command_402_status` the low, and a
+first version that printed the raw field showed `xmit 0000`, which is not a
+number any driver saw:
+
+    MD route      misc F007  xmit 00F0  rcv 00A0  (a1 misc F807)   ctl 460/506
+    autoboot      misc B007  xmit 00B0  rcv 00A0  (a1 misc F807)   ctl 1.3M/928k
+
+Three things fall out.
+
+  - **`a1 misc F807` is `AP_RING_CTL_STATUS_IDLE` exactly**, on both: the first
+    window is never touched.
+  - **The two `xmit` values are each the state their own route leaves.** `00B0`
+    is precisely what the ring ROM's subtest 23 requires after a `$6` command
+    (`(+402) & $FFF0 == $00B0`), so the autoboot's card is sitting in the
+    *firmware's* post-self-test state and the operating system did not move it.
+    `00F0` is subtest 13's healthy-idle low nibble-pair on a card whose ROM
+    self-test never ran, because the MD route skips SELF_TEST. Neither is a
+    transmitter reporting a fault.
+  - **`misc` bit 15 is set on BOTH.** In this model that bit is not a read-back:
+    `ap_ring_ctl.c:1197` drives it from `present && !connected`, and a card *is*
+    fitted. **So the station is not connected to the ring, on either route.**
+
+`connected` has exactly one setter -- `ap_ring_ctl.c:1194`, a write to MISC_CMD
+carrying `nct` (bit 11, p. 12-32). So **across 506 writes on one route and
+928,108 on the other, Domain/OS never connected the station**, which is why
+`claims_made` is zero and why a transmit fails: there is no ring to claim.
+
+### Which kills the hypothesis this session had for it
+
+The obvious candidate was that the MD route skips SELF_TEST -- no `network
+driver search started... / Apollo Token Ring test passed. / above driver type
+loaded.` -- so the operating system might be missing something the diagnostic
+does. The autoboot arm ran the diagnostic, printed both lines, and **ends with
+the same bit 15 set**. The boot route is eliminated.
+
+*What is not established*, and the two readings are worth writing down before
+the next run rather than after: either Domain/OS never writes `nct` at all
+(its driver's choice, or a prerequisite it is waiting on), or it writes it
+somewhere this core's decode does not route to `MISC_CMD`. C204 found `nct`
+"doing duty as board present" once already and C205 fixed it, so this register
+has a history of being the one that is wrong.
+
+**The next instrument is small and names both readings apart**: count writes to
+MISC_CMD and how many carried `nct`. Written and never carrying the bit is the
+first reading; never written is the second. One 35-minute autoboot answers it.

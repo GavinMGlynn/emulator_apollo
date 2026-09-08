@@ -434,6 +434,85 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## `lcnode` runs on two ring nodes, the transmit fails, and the card says why
+## (2026-09-08)
+
+The run this item has been building toward since August:
+
+    node 1 | $ /com/lcnode
+    node 0 | $ /com/lcnode
+    node 1 | ?(lcnode)  Node 22222 did not respond - transmit failed (OS/network)
+    node 0 | ?(lcnode)  Node 12345 did not respond - transmit failed (OS/network)
+    node 0 | $
+    node 1 | $
+    node 0  pc 3C43F5AC  ran 1600000000  executed (op 027C)  ring claims 0  frames seen 0 copied 0
+    node 1  pc 3C43F5A8  ran 1600000000  executed (op 60FA)  ring claims 0  frames seen 0 copied 0
+    ring     hash 02A6A1B66557C023
+
+**Two booted Domain/OS nodes on one segment, each with a shell, each running
+the item's own verification command.** Both ran the full 1.6 G instructions,
+both still executing, both back at their prompt afterwards — the operating
+systems are fine; only the ring transmit failed. Nine hours of wall clock at the
+runner's measured 46 k instructions/s per node.
+
+**`claims 0  frames seen 0  copied 0` on both, at the end of the run** rather
+than mid-run, which is the standard `FINDINGS.md` C229 set for itself.
+
+### What it settles
+
+C229 pre-registered three readings of a zero and the earlier run could only
+support the first — "nothing asked", the operating system never arming a
+transmit. **Something asked.** Each node names its *own* ID, so each `lcnode`
+failed on the first thing it does, and Domain/OS classified the failure itself.
+
+### And what the card was reporting, which is the answer
+
+Reproduced on **one** node in fifty minutes — `tools/md-shell.sh <copy> --ring
+--configure --ring-rom ...` gives the same line, because `lcnode` fails while
+talking to itself and needs no second node. That matters more than the finding:
+the two-node runner costs 46 k instructions/s per node against a single
+machine's 830 k/s, so every question asked on two nodes costs eighteen times
+what it costs on one.
+
+    MD route      misc F007  xmit 00F0  rcv 00A0  (a1 misc F807)   ctl 460/506
+    autoboot      misc B007  xmit 00B0  rcv 00A0  (a1 misc F807)   ctl 1.3M/928k
+
+- `a1 misc F807` is `AP_RING_CTL_STATUS_IDLE` exactly on both: that window is
+  never touched.
+- Each `xmit` is the state its own route leaves. `00B0` is precisely what the
+  ring ROM's subtest 23 requires after a `$6` command, so the autoboot's card
+  sits in the **firmware's** post-self-test state and the operating system did
+  not move it; `00F0` is subtest 13's healthy idle on a card whose ROM self-test
+  never ran, the MD route skipping SELF_TEST. Neither transmitter reports a
+  fault.
+- **`misc` bit 15 is set on both.** That bit is not a read-back —
+  `ap_ring_ctl.c` drives it from `present && !connected` — and a card *is*
+  fitted. **The station is not connected to the ring, on either route.**
+
+`connected` has one setter: a MISC_CMD write carrying `nct`, bit 11 of
+`002398-04` p. 12-32. So across 506 writes on one route and 928,108 on the
+other, nothing ever joined the station to the ring — which is why `claims_made`
+is zero and why a transmit fails. There is no ring to claim.
+
+**The boot route is eliminated as the cause.** The obvious candidate was that
+the MD route skips SELF_TEST and its `network driver search started... / Apollo
+Token Ring test passed. / above driver type loaded.`; the autoboot arm ran the
+diagnostic, printed both lines, and ends with the same bit set.
+
+*Two readings remain and are written down before the run that separates them*:
+either Domain/OS never writes `nct` — its driver's choice, or a prerequisite it
+waits on — or it writes it somewhere this core's decode does not route to
+MISC_CMD. C204 found `nct` "doing duty as board present" once already and C205
+fixed it, so this register has a history. `ap_ring_ctl` now counts MISC_CMD
+writes and how many carried `nct`, and the boot report prints both: written
+without the bit is the first reading, never written is the second.
+
+*Verification: one `--ring-two-node 1600000000` run with `--ring-script-a/-b`
+driving each node's Mnemonic Debugger to a shell; three single-node runs
+(`--ring` with and without, autoboot and MD route) for the card state.
+`FINDINGS.md` C243.*
+
+
 ## The keyboard gap named a counter that did not exist (2026-09-08)
 
 `002398-04` ch. 12's opening sentence has the keyboard performing "power-up and

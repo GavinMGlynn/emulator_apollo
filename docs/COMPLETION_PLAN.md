@@ -4051,6 +4051,23 @@ discipline throughout.
       reporting the other -- measured from the station counters and the
       transmit read-back; console output diffed against itself across runs for
       determinism.*
+      **The run has been made, 2026-09-08, and it names the blocker.** Two
+      booted nodes on one segment, each driven to a shell through its own
+      Mnemonic Debugger, each running `/com/lcnode`:
+      `?(lcnode) Node NNNNN did not respond - transmit failed (OS/network)` on
+      both, naming its **own** node, and `ring claims 0 frames seen 0 copied 0`
+      at the end of 1.6 G instructions per node. So `FINDINGS.md` C229's
+      reading 1 is excluded -- something asked.
+      **The card says the station was never connected.** `misc` bit 15 is set on
+      both boot routes, and that bit is driven from `present && !connected`, not
+      read back; `connected`'s one setter is a MISC_CMD write carrying `nct`.
+      Nothing joined the station to the ring, so there was no ring to claim.
+      The boot route is eliminated: the autoboot arm runs SELF_TEST, prints
+      `Apollo Token Ring test passed.`, and ends with the same bit set.
+      **And it is now a fifty-minute question, not a ten-hour one**:
+      `tools/md-shell.sh <copy> --ring --configure --ring-rom ...` reproduces it
+      on one node, because `lcnode` fails while talking to itself. Detail in
+      `PROJECT_STATUS.md`; `FINDINGS.md` C243.
       **The verification was rewritten on 2026-08-19, and the reason matters.**
       It read "`lcnode` on each node lists the other", which is an *operating
       system* check standing in for a *ring* one: it needs a shell, a shell

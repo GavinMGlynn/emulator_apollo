@@ -424,6 +424,19 @@ typedef struct {
   uint16_t status;
   uint16_t command_402;
 
+  /* ## How often MISC_CMD was written, and how often it carried `nct`
+   *
+   * Diagnostic counters, outside the state hash as every other counter is.
+   * They exist because `FINDINGS.md` C243 ends on two readings a total cannot
+   * separate: a fully booted Domain/OS leaves MISC_STAT bit 15 set on both boot
+   * routes, which `ap_ring_ctl.c` drives from `present && !connected`, so the
+   * station is never joined to the ring and every transmit fails -- and the
+   * question is whether the driver **wrote MISC_CMD without `nct`** or **never
+   * wrote MISC_CMD at all**. Those are a driver's choice and a decode gap
+   * respectively, and 928,108 writes to the card do not tell them apart. */
+  unsigned misc_cmd_writes;
+  unsigned misc_cmd_nct;
+
   /* `+402`'s low lane, which is status rather than the constant finding 63
    * first modelled: subtest 13 requires `F0` on an idle register and subtest 23
    * requires `B0` once a `$6` command has been taken, so bit 6 goes with the

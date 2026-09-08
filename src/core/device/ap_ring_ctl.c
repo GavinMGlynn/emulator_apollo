@@ -1192,6 +1192,12 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
        * recomputed from it: a driver that connects and then reads `nct` must
        * see the connection it just asked for, not the one before it. */
       w->connected = (value & AP_RING_CTL_MISC_CMD_NCT) != 0u;
+      /* Counted here rather than at the register decode, so the count is of
+       * writes that reached *this* meaning of the register. See the header. */
+      w->misc_cmd_writes++;
+      if (w->connected) {
+        w->misc_cmd_nct++;
+      }
       w->status = (uint16_t)(
           (w->status & (uint16_t) ~(AP_RING_CTL_STATUS_BIT11 |
                                     AP_RING_CTL_STATUS_PRESENT)) |

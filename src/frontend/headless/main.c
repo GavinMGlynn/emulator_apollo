@@ -5510,6 +5510,15 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
            (uint16_t)((board->ring.a2.rcv_status & 0xFF00u) |
                       board->ring.a2.command_404_status),
            board->ring.a1.status);
+    /* **And whether anything ever asked the station onto the ring.** MISC_STAT
+     * bit 15 is `present && !connected`, and `connected` has one setter: a
+     * MISC_CMD write carrying `nct`. A card written a million times with that
+     * bit never set is a driver's choice; one never written at all is a decode
+     * gap, and the region total cannot tell them apart (`FINDINGS.md` C243). */
+    printf("  ring connect a2 MISC_CMD %u write(s), %u with nct; "
+           "a1 %u write(s), %u with nct\n",
+           board->ring.a2.misc_cmd_writes, board->ring.a2.misc_cmd_nct,
+           board->ring.a1.misc_cmd_writes, board->ring.a1.misc_cmd_nct);
   }
   /* Which serial registers, not just how many. A transmit that never happened
    * and one dropped at the register look identical from a total. */
