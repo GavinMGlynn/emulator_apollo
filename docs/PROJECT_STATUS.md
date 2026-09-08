@@ -27682,6 +27682,27 @@ than "RAM is not a device".
 *Kept rather than reverted: it costs no measurable time, and it makes the
 invalidation rule match the justification the code gives for it.*
 
+## WITHDRAWN 2026-09-08 — the bus tick batch was never provably one
+##
+## `ap_board_bus_ticks` decremented the refresh counter in its own body instead
+## of going through `ap_board_bus_tick`, so it ordered §2.4.6's steal
+## differently from the loop it stood in for — **not equivalent even at n = 1**.
+## The two guards named below are the *board's*, and the thing they had to prove
+## identical was a function with its own refresh handling; the entry says "the
+## loop's entire effect is on `bus_ticks`", and it is not.
+##
+## The cost was a real divergence, found only because a second schedule existed
+## to disagree with: a cycle-stepped boot and an instruction-stepped one, which
+## differ in exactly this, parted company at instruction 86 (`FINDINGS.md`
+## C254). The shortcut is removed — 37.8 s → 44.0 s on the 350 M boot, 1.16x,
+## with the state hash unmoved and the two schedules agreeing again.
+##
+## **The lesson, and it is the entry's own words turned around**: "a hash
+## unchanged" was the whole verification, on *one* schedule. An equivalence
+## claim needs a second observer, and this project now has one.
+##
+## The original follows unaltered.
+
 ## The bus tick is batched when the ticks are provably one: 1.31x more
 
 The profile's next item after the interrupt sample was `ap_board_bus_tick` at

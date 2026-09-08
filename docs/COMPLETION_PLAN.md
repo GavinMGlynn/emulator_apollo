@@ -4608,11 +4608,18 @@ Only after the reference core is proven, and only under an identity harness.
     instruction. Its blocker turned out to be hypothetical all the same --
     `duart->now` is read only through `ap_mc68681_output_pin`, which no
     production code calls. Detail in `PROJECT_STATUS.md`.
-  - [x] **The bus tick is batched when `n` ticks are provably one** -- no DMA
-    able to ask and an idle arbiter, both guards being the ones the per-tick
-    path itself tests. *Verification: 39.9 s → **30.4 s**, 1.311x, state hash
-    unchanged and the two boot reports identical line for line; `ctest`
-    137/137. Detail in `PROJECT_STATUS.md`.*
+  - [x] **WITHDRAWN 2026-09-08: the batch was never provably one, and it is
+    removed.** `ap_board_bus_ticks` decremented the refresh counter in its own
+    body instead of going through `ap_board_bus_tick`, so it ordered §2.4.6's
+    steal differently from the loop it replaced -- not equivalent even at n = 1
+    -- and a cycle-stepped boot disagreed with an instruction-stepped one from
+    instruction 86 onward. Removed: 37.8 s → 44.0 s on the 350 M boot, **1.16x**,
+    hash unmoved, the two schedules agreeing again. Detail in
+    `PROJECT_STATUS.md`; `FINDINGS.md` C254.
+    *The original claim is kept in `PROJECT_STATUS.md` beside its correction,
+    because a hash unchanged on one boot being read as proof of an equivalence a
+    second schedule then broke is the mistake worth remembering.*
+
   - [x] **The interrupt sample is skipped when no source can have changed** --
     `next_event()` for interrupt sources, an aggregate bound, and
     `interrupt_valid_until` discarded by the three sites that reach a device.
@@ -5805,8 +5812,11 @@ same number is what let them diverge once already.
       finished**, and so is every tail it found that can be finished now. **Two
       remain and both name the same blocker**: `AP_M68030_RMC_FIRST_READ` is
       modelled and never placed, and a translation table search does not lock
-      the bus — each needs the **per-cycle processor of Phase 8**, which is what
-      makes a bus cycle addressable from outside the step. The other two closed
+      the bus — each needs a bus cycle to be addressable from **inside** an
+      instruction, which is Phase 8's **resumable sequencer** item and not the
+      per-cycle processor one, closed 2026-09-08. The distinction is the whole
+      of what that closure established: everything *outside* the CPU now sees a
+      per-cycle machine, and these two are inside it. The other two closed
       2026-09-07: the `m68851` protection fields and the 68882's concurrency.
       `[020]` and `[040]` are a deliberate deferral to Phase 2b/7 and not part
       of this batch.
@@ -5845,9 +5855,10 @@ same number is what let them diverge once already.
         because the whole sequence happens inside one `ap_m68030_step` and
         the clocks are delivered afterwards. So the lock is one instruction
         wide where the hardware's is narrower.
-        **What would unblock it**: the per-cycle processor (Phase 8), which
-        is the item that makes a bus cycle addressable from outside the
-        step. Until then the wider lock is the conservative direction ---
+        **What would unblock it**: Phase 8's **resumable sequencer**. The
+        per-cycle processor item closed 2026-09-08 and does not unblock this
+        one: it makes a bus cycle addressable from *outside* the step, and the
+        first read cycle of an RMC is inside it. Until then the wider lock is the conservative direction ---
         it refuses a grant the hardware would allow, rather than allowing
         one it forbids.
   - [ ] **A translation table search is an extended read-modify-write and
@@ -5861,7 +5872,9 @@ same number is what let them diverge once already.
         §9; what is missing is the *bus*: the walk reads descriptors through
         a plain callback (`machine_table_fetch`) with no bus object, so
         there is no cycle on which to assert anything.
-        **What would unblock it**: the same per-cycle processor item. The
+        **What would unblock it**: the same **resumable sequencer** item, not
+        the per-cycle processor one, which closed 2026-09-08 without reaching
+        inside an instruction. The
         observable difference is a DMA grant landing inside a table search,
         which the identity boot does not exhibit.
   - [x] **`MC68030EC.pdf` walked whole, 19/19, 2026-09-07.** The document
