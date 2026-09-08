@@ -13854,10 +13854,22 @@ the candidates are all above it and none is yet tested:
     hardware** -- every defect from C246 to here was "the core does what the
     documents say it should not", found by comparing captured bytes against a
     manual, and this one has no manual behind it.
-  - **Node 0 never sees node 1's frame at all**: `frames seen 1 copied 0`, its
-    own only, where node 1 sees two. A one-way segment is a *medium* or timing
-    question and separate from the first. `ring_medium_suite` circulates a
-    token across three stations, so the mechanism works there; what differs is
-    two stations transmitting into it from a running machine.
+  - **Node 0 never sees node 1's frame at all**, and the counters alone say
+    where to look. Each node transmits once. Node 1 reads `frames seen 2
+    copied 1` -- node 0's frame, copied, plus its own, stripped. Node 0 reads
+    `frames seen 1 copied 0`: not copied, so by the fix above that one **is**
+    its own, and node 1's never arrived.
+    **But node 1 stripped its own frame**, which means that frame went round
+    and came back -- and `ap_ring_medium.h` is explicit that "the signal flows
+    from slot `i` to slot `i+1`, wrapping", so a frame leaving slot 1 reaches
+    slot 1 again only by passing **through slot 0**. Node 0's station therefore
+    had node 1's frame on its wire and did not count it.
+    So this is not "the frame never left" and not the protocol: it is a station
+    that fails to see a frame it demonstrably carried. `ring_medium_suite`
+    circulates a token across three stations, so the mechanism works there;
+    what differs here is two stations transmitting into one segment from
+    running machines, and the asymmetry -- slot 0 is also the segment's
+    *lowest* slot, the one `ap_board_advance` uses to decide who steps the
+    shared cable. That coincidence is the first thing to rule out.
 
 *Recorded before either is tried, for the reason C229 and C230 were.*
