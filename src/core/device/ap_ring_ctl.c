@@ -834,7 +834,9 @@ void ap_ring_ctl_write8(ap_ring_ctl_t *ctl, bool second_window, uint32_t offset,
         (offset & 1u) != 0u
             ? (uint16_t)((held & 0xFF00u) | value)
             : (uint16_t)((held & 0x00FFu) | (uint16_t)(value << 8));
+    w->in_byte_write = true;
     ap_ring_ctl_write16(ctl, second_window, offset & ~1u, merged);
+    w->in_byte_write = false;
     return;
   }
   /* Both counter banks belong to the **second** window: p. 12-29 gives the
@@ -1200,6 +1202,7 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
       }
       if (w->misc_cmd_logged < AP_RING_CTL_CMD_LOG) {
         w->misc_cmd_offset[w->misc_cmd_logged] = offset;
+        w->misc_cmd_byte[w->misc_cmd_logged] = w->in_byte_write;
         w->misc_cmd_first[w->misc_cmd_logged++] = value;
       }
       w->misc_cmd_last = value;

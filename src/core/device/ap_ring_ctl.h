@@ -462,6 +462,23 @@ typedef struct {
    * masked down to this one is a decode gap, and the same offset every time is
    * the driver really writing MISC_CMD. */
   uint32_t misc_cmd_offset[AP_RING_CTL_CMD_LOG];
+  /* Whether each arrived through the **byte** path.
+   *
+   * Every logged write is at offset `400` exactly, so the values are not an
+   * alias or a masked slot -- the guest really writes MISC_CMD. What gives them
+   * away is their shape: `0107` is `$01` over `07` and `000F` is `$00` over
+   * `0F`, and those low bytes are **MISC_STAT's** (`07` is `XI|RI|TMI`, `0F`
+   * adds `GPS`). `ap_ring_ctl_write8` read-modify-writes this bank -- it reads
+   * the word, merges the byte and writes it back -- but p. 12-29 makes `59400`
+   * MISC_STAT when read and MISC_CMD when written, two different registers
+   * sharing an address, so a byte write composes a command out of a status
+   * read. This is the one datum that separates that from a guest genuinely
+   * writing those words. */
+  bool misc_cmd_byte[AP_RING_CTL_CMD_LOG];
+  /* Set by the byte path around its call into `write16`, so the recorder can
+   * tell which door a write came through without another parameter on a
+   * function the whole board calls. */
+  bool in_byte_write;
   unsigned misc_cmd_logged;
   uint16_t misc_cmd_last;
 
