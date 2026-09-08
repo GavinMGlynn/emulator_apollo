@@ -409,13 +409,37 @@ bool ap_qic_read_status(ap_qic_t *qic, uint8_t out[AP_QIC_STATUS_BYTES]) {
   }
   const uint16_t exs = ap_qic_exception_word(qic);
 
-  /* Three 16-bit fields, least significant byte first. */
-  out[0] = (uint8_t)(exs & 0xFFu);
-  out[1] = (uint8_t)(exs >> 8);
-  out[2] = (uint8_t)(qic->data_errors & 0xFFu);
-  out[3] = (uint8_t)(qic->data_errors >> 8);
-  out[4] = (uint8_t)(qic->underruns & 0xFFu);
-  out[5] = (uint8_t)(qic->underruns >> 8);
+  /* **Six bytes, most significant first, and this core sent all three fields
+   * backwards.** The line this replaces read "Three 16-bit fields, least
+   * significant byte first" and cited nothing; it was an assumption about a
+   * layout two documents number explicitly.
+   *
+   * `QIC-02 Rev D` §5.1's STATUS BYTE SUMMARY numbers the bits of BYTE 0 --
+   * `ST0 CNI USL WRP EOM UDA BNL FIL` -- and of BYTE 1 -- `ST1 ILL NDT MBD BOM
+   * RES RES POR`. `ap_qic_exception_word` composes them as `(byte0 << 8) |
+   * byte1`, which is why sending the low half first sent **byte 1 as byte 0**:
+   * a host reading the first byte of a just-reset drive got `89` -- `ST1 | BOM
+   * | POR` -- and decoded it against byte 0's bits as `ST0 | EOM | FIL`.
+   *
+   * `002398-04` p. 12-5 says the same of the counters in Apollo's own words,
+   * one line each and leaving nothing to infer:
+   *
+   *     Tape Status Byte 2 = high byte of data error counter
+   *     Tape Status Byte 3 = low byte of data error counter
+   *     Tape Status Byte 4 = high byte of underrun counter
+   *     Tape Status Byte 5 = low byte of underrun counter
+   *
+   * QIC-02 itself says only that "Bytes 2 and 3 contain the data error counter"
+   * without saying which end, so the counters' order rests on Apollo's page
+   * alone -- and it is unobservable here either way, since nothing in this model
+   * increments either counter. It is corrected with the two that are
+   * observable because a layout half right is a layout nobody can check. */
+  out[0] = (uint8_t)(exs >> 8);
+  out[1] = (uint8_t)(exs & 0xFFu);
+  out[2] = (uint8_t)(qic->data_errors >> 8);
+  out[3] = (uint8_t)(qic->data_errors & 0xFFu);
+  out[4] = (uint8_t)(qic->underruns >> 8);
+  out[5] = (uint8_t)(qic->underruns & 0xFFu);
 
   /* Reading the status is what clears the condition it reports. A drive whose
    * power-on flag survived being read would report a reset that had already

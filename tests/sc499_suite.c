@@ -305,13 +305,25 @@ static void test_accepting_a_command_applies_all_three_figures(void) {
   TEST_ASSERT_TRUE(ap_sc499_executing(&t));
   TEST_ASSERT_TRUE(t.exception);
 
-  /* And at the deadline the whole destination arrives at once. */
+  /* And at the deadline the whole destination arrives at once -- Figure 1-8's,
+   * which is the figure this command entered by.
+   *
+   * **The bus is not handed back**, and that is the correction to what this
+   * test used to assert. Handing it back is Figure **1-9**'s T4, and 1-9 is the
+   * entry a command takes when the device holds the bus and nothing else is
+   * wrong. Figure 1-8 says nothing about DIRECTION; it lifts an exception. A
+   * device in both conditions at once -- which is the state this test builds by
+   * hand, and which no figure draws -- needs both figures, and gets them one
+   * command apart: the exception is cleared here, so the *next* command enters
+   * by 1-9 and releases the bus. `FINDINGS.md` C263/C264 is what made the
+   * difference visible: an unconditional release took the bus away from the
+   * READ STATUS that was about to deliver through it. */
   ap_sc499_advance(&t, AP_SC499_T_EXCEPTION_TO_READY);
   TEST_ASSERT_FALSE(ap_sc499_executing(&t));
   TEST_ASSERT_FALSE(t.exception);
-  TEST_ASSERT_FALSE(t.direction);
+  TEST_ASSERT_TRUE(t.direction);
   TEST_ASSERT_TRUE(t.ready);
-  TEST_ASSERT_EQUAL_UINT(AP_SC499_ENTRY_READY, ap_sc499_command_entry(&t));
+  TEST_ASSERT_EQUAL_UINT(AP_SC499_ENTRY_DIRECTION, ap_sc499_command_entry(&t));
 }
 
 /* Each figure's total, checked against `[SC499]` §1.13.2's own bounds. Figure

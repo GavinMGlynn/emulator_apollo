@@ -36,38 +36,14 @@ void ap_tape_reset(ap_tape_t *tape) {
 }
 
 void ap_tape_advance(ap_tape_t *tape, ap_time_t now) {
+  /* Nothing here but the controller's own clock. **The bus direction used to be
+   * put back here**, on every advance, because `ap_sc499`'s completion cleared
+   * it on every command and a command about to deliver needs it -- see
+   * `FINDINGS.md` C263. That was the right fact wired in the wrong place: the
+   * completion now clears DIRECTION only for the figure that says to (1-9,
+   * a command issued while the device still holds the bus), and the delivery
+   * that needs the bus takes it where `QIC-02` §3.6.1 puts it, at T8. */
   ap_sc499_advance(&tape->controller, now);
-  /* **A command that will deliver to the host ends with the bus turned round,
-   * and this core turned it back.**
-   *
-   * `ap_sc499`'s completion deasserts DIRECTION on Figure 1-9's T4, "Device
-   * Deasserts DIRECTION, handing the bus back" -- and Figure **1-9** is the
-   * command transfer entered *while the device already holds the bus*, whose T4
-   * hands it back so that new command can proceed. Applying it to every
-   * command's completion takes the bus away from the command that was about to
-   * use it.
-   *
-   * §1.13.2's data-transfer figure has the other order, and DIRECTION is its
-   * first step:
-   *
-   *     T1 - Device Changes Bus DIRECTION
-   *     T2 - Bus Data Valid                0 us. < T1 -> T2
-   *     T3 - Device Asserts READY          0 us. < T2 -> T3
-   *     T4 - Controller Asserts REQUEST    0 us. < T3 -> T4
-   *
-   * So a READ or a READ STATUS finishes with DIRECTION *asserted*, which is how
-   * a host knows it may read. Re-asserted here rather than by suppressing the
-   * completion's clear, because the clear is right for the figure it cites and
-   * the two conditions are different: one is "a command took the bus back", the
-   * other "a command is about to deliver".
-   *
-   * Measured (`FINDINGS.md` C263): after READ STATUS the SR10.4 boot firmware
-   * polls the status register **4,097 times** at one PC -- a 4096-iteration
-   * timeout and its exit -- reading `37` every time, which is READY asserted,
-   * no exception, DONE set and **DIRECTION clear**. */
-  if (tape->drive.status_pending || tape->drive.reading) {
-    tape->controller.direction = true;
-  }
 }
 
 bool ap_tape_load(ap_tape_t *tape, uint8_t *data, size_t size,
@@ -124,32 +100,28 @@ uint8_t ap_tape_read(ap_tape_t *tape, uint32_t address) {
    * bytes of something else, and reported `Tape C0  000000  00  C`
    * (`FINDINGS.md` C261).
    *
+   * **Reading the register does not advance the block, and this is the
+   * correction to what that fix first did.** `QIC-02` §3.6.1 numbers the whole
+   * exchange and `[SC499]` Figure 1-25 draws the driver that walks it: `READY?`
+   * -> `READ DATA BUS` -> `ASSERT REQ` -> `READY?` -> `DROP REQ` -> `ALL 6
+   * BYTES?`. The read is a *sample* of a byte the device is holding on the bus,
+   * and it is the host's REQUEST that says the byte has been taken. A host that
+   * reads twice reads the same byte twice, which is what a bus does.
+   *
    * Taken **before** the data branch, because the two are exclusive: a READ
    * STATUS is not a READ, so `drive.reading` is false throughout and the data
    * branch would decline anyway -- but ordering it first says which of the two
-   * a pending status belongs to rather than leaving it to that accident.
-   *
-   * The block is fetched once, on the first byte, because `ap_qic_read_status`
-   * clears `status_pending` and the drive's latched conditions with it: calling
-   * it per byte would hand out the first byte six times and acknowledge the
-   * exception five times over. */
+   * a pending status belongs to rather than leaving it to that accident. */
   if (ap_tape_decode(address, &reg) && reg == AP_SC499_DATA &&
-      (tape->status_valid || tape->drive.status_pending)) {
-    if (!tape->status_valid) {
-      if (!ap_qic_read_status(&tape->drive, tape->status_block)) {
-        return 0xFFu;
-      }
-      tape->status_valid = true;
-      tape->status_offset = 0u;
-    }
-    /* Figure 1-6's opening step for any device-to-host transfer. */
-    tape->controller.direction = true;
-    const uint8_t byte = tape->status_block[tape->status_offset++];
+      tape->status_valid) {
     if (tape->status_offset >= AP_QIC_STATUS_BYTES) {
-      tape->status_valid = false;
-      tape->status_offset = 0u;
+      /* T19, "BUS DATA INVALID": the last byte has been taken and the device
+       * has stopped driving, but the bus has not been turned round yet -- that
+       * is T21, and it waits for the host to release REQUEST. Undriven reads as
+       * `FF`, the same answer the board gives for every line nothing holds. */
+      return 0xFFu;
     }
-    return byte;
+    return tape->status_block[tape->status_offset];
   }
   if (ap_tape_decode(address, &reg) && reg == AP_SC499_DATA &&
       tape->drive.reading) {
@@ -221,6 +193,63 @@ static void accept_byte(ap_tape_t *tape, uint8_t value) {
   ap_sc499_block_boundary(&tape->controller);
 }
 
+/* **The host has taken the byte the device was holding**: `QIC-02` §3.6.1's
+ * T11, and `[SC499]` Figure 1-25's `ASSERT REQ`.
+ *
+ * This is the step that makes REQUEST mean two different things depending on
+ * what the device is doing. With the bus turned round and a block in flight, a
+ * rising REQUEST is an *acknowledge* -- and this core read every rising REQUEST
+ * as a command, so the firmware's acknowledge of status byte 0 was executed as
+ * a command whose opcode was whatever the data register still held, which also
+ * abandoned the block it was acknowledging. */
+static void status_byte_taken(ap_tape_t *tape) {
+  if (tape->status_offset < AP_QIC_STATUS_BYTES) {
+    tape->status_offset++;
+  }
+  ap_sc499_byte_taken(&tape->controller);
+}
+
+/* **The host has released REQUEST**: `QIC-02` §3.6.1 T5/T14/T20, §3.6.3 T5, and
+ * `[SC499]` Figure 1-25's and 1-26's `DROP REQ`. Both flow charts wait on the
+ * device's answer to it, and until now the device had none.
+ *
+ * Three things can be waiting on this edge, and the figure says which by where
+ * the exchange has got to:
+ *
+ *   - a command has completed and the drive has a status block armed. §3.6.1
+ *     T8/T9/T10: the device turns the bus round, puts the first of the six
+ *     bytes up, and asserts READY.
+ *   - a block is in flight with bytes left. T15/T16: the next byte goes up and
+ *     READY returns.
+ *   - the last byte has been taken. T21/T22: the bus goes back to the host's
+ *     direction and READY returns, ready for the next command.
+ *
+ * The plain command -- nothing armed, nothing in flight -- is §3.6.3's T7/T8
+ * and needs nothing from the board at all; `ap_sc499_request_released` makes
+ * both edges either way. */
+static void request_released(ap_tape_t *tape) {
+  if (tape->status_valid) {
+    if (tape->status_offset >= AP_QIC_STATUS_BYTES) {
+      /* T21: "CONTROLLER CHANGES BUS DIRECTION", back towards the host. */
+      tape->status_valid = false;
+      tape->status_offset = 0u;
+      tape->controller.direction = false;
+    }
+  } else if (tape->drive.status_pending &&
+             !ap_sc499_executing(&tape->controller)) {
+    /* T8 and T9. The fetch lands here rather than on the host's first read
+     * because `ap_qic_read_status` clears `status_pending` and the drive's
+     * latched conditions with it -- it is the transfer beginning, which happens
+     * once, and not the reading of a byte, which may happen many times. */
+    if (ap_qic_read_status(&tape->drive, tape->status_block)) {
+      tape->status_valid = true;
+      tape->status_offset = 0u;
+      tape->controller.direction = true;
+    }
+  }
+  ap_sc499_request_released(&tape->controller);
+}
+
 /* One command transfer's effect, whichever order the host used to start it.
  *
  * A command the drive refuses raises Exception instead of failing silently --
@@ -246,10 +275,12 @@ void ap_tape_write(ap_tape_t *tape, uint32_t address, uint8_t value) {
   if (!ap_tape_decode(address, &reg)) {
     return;
   }
-  if (reg == AP_SC499_DATA &&
+  if (reg == AP_SC499_DATA && !tape->status_valid &&
       (tape->controller.control & AP_SC499_CTL_REQUEST) != 0u) {
     /* Control bit 6 is "Request to LSI chip", so a data-register write with it
-     * already set is a command rather than data. */
+     * already set is a command rather than data -- unless the device is holding
+     * the bus for a block it is delivering, in which case REQUEST is the
+     * acknowledge of a byte and the host has no business writing here at all. */
     issue_command(tape, value);
     return;
   }
@@ -277,11 +308,29 @@ void ap_tape_write(ap_tape_t *tape, uint32_t address, uint8_t value) {
   if (reg == AP_SC499_CONTROL_STATUS) {
     const bool was_requesting =
         (tape->controller.control & AP_SC499_CTL_REQUEST) != 0u;
+    /* A controller reset abandons whatever was in flight. `ap_sc499_write` does
+     * the controller's half; the block being delivered is the board's, and
+     * leaving it standing would make the next rising REQUEST an acknowledge of
+     * a transfer the host has just thrown away. */
+    if ((value & AP_SC499_CTL_RESET) != 0u) {
+      tape->status_valid = false;
+      tape->status_offset = 0u;
+      tape->block_valid = false;
+      tape->offset = 0u;
+    }
     ap_sc499_write(&tape->controller, reg, value);
-    if (!was_requesting &&
-        (tape->controller.control & AP_SC499_CTL_REQUEST) != 0u) {
-      /* T2, with the byte T1 left in the data register. */
-      issue_command(tape, tape->controller.data);
+    const bool now_requesting =
+        (tape->controller.control & AP_SC499_CTL_REQUEST) != 0u;
+    if (!was_requesting && now_requesting) {
+      if (tape->status_valid) {
+        /* T11: the host has taken the byte on the bus. */
+        status_byte_taken(tape);
+      } else {
+        /* T2, with the byte T1 left in the data register. */
+        issue_command(tape, tape->controller.data);
+      }
+    } else if (was_requesting && !now_requesting) {
+      request_released(tape);
     }
     return;
   }

@@ -153,13 +153,39 @@ static void arm(ap_tape_t *t) {
  * request bit in the control register, then write the opcode to the data
  * register. */
 static void issue(ap_tape_t *t, uint8_t command) {
-  ap_tape_write(t, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST);
+  /* `[SC499]` Figure 1-26, the guide's own SEND COMMAND flow chart, and
+   * `QIC-02` §3.6.3's eight numbered events. Four edges, not two:
+   *
+   *     COMMAND BYTE TO DATA BUS DRIVERS   T1
+   *     ASSERT REQUEST                     T2
+   *     READY?  -- wait for it             T4
+   *     DROP REQUEST                       T5
+   *     READY?* -- wait for it to go       T7   *20 usec loop max
+   *
+   * This helper did the first two and stopped, which is exactly what the device
+   * did, so every test in this file agreed with the model about a handshake
+   * neither of them finished. */
   ap_tape_write(t, AP_TAPE_ADDR + 0u, command);
-  /* Then wait for READY, which is what a driver does before it issues the next
-   * command. The longest figure covers whichever one this entered by. */
+  ap_tape_write(t, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST);
+  /* Wait for READY. The longest figure covers whichever one this entered by. */
   clock_now += ap_sc499_handshake_duration(AP_SC499_ENTRY_READY) +
                ap_sc499_handshake_duration(AP_SC499_ENTRY_DIRECTION);
   ap_tape_advance(t, clock_now);
+  ap_tape_write(t, AP_TAPE_ADDR + 1u, 0u);
+  clock_now += AP_SC499_T_CLOSE_MIN + AP_SC499_T_READY_REOPEN;
+  ap_tape_advance(t, clock_now);
+}
+
+/* Take one byte of a device-to-host block the way Figure 1-25 does: read the
+ * bus, assert REQUEST to say it has been taken, wait, drop REQUEST, and wait
+ * for the device to put the next one up. */
+static uint8_t take_byte(ap_tape_t *t) {
+  const uint8_t byte = ap_tape_read(t, AP_TAPE_ADDR + 0u);
+  ap_tape_write(t, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST);
+  ap_tape_write(t, AP_TAPE_ADDR + 1u, 0u);
+  clock_now += AP_SC499_T_CLOSE_MIN + AP_SC499_T_READY_REOPEN;
+  ap_tape_advance(t, clock_now);
+  return byte;
 }
 
 /* READY marks the block boundary, which the data path used to hide.
@@ -446,16 +472,17 @@ static void test_a_command_byte_may_precede_the_request_that_takes_it(void) {
   TEST_ASSERT_TRUE(t.drive.status_pending);
 }
 
-/* **The device turns the bus round when it takes the command, not when its
- * first byte is read.**
+/* **The device turns the bus round for the block it is about to deliver.**
  *
- * `[SC499]` §1.13.2's data-transfer figure numbers the steps, and DIRECTION is
- * the *first*:
+ * `QIC-02` §3.6.1 numbers the whole READ STATUS exchange, and the bus turns at
+ * T8 -- after the host has released REQUEST (T5) and the device has answered by
+ * dropping READY (T7), and before the first byte reaches the bus (T9):
  *
- *     T1 - Device Changes Bus DIRECTION
- *     T2 - Bus Data Valid                0 us. < T1 -> T2
- *     T3 - Device Asserts READY          0 us. < T2 -> T3
- *     T4 - Controller Asserts REQUEST    0 us. < T3 -> T4
+ *     T5  - HOST RESETS REQUEST
+ *     T7  - CONTROLLER RESETS READY      20 < T5 -> T7 < 100 us
+ *     T8  - CONTROLLER CHANGES BUS DIRECTION
+ *     T9  - 1ST STATUS BYTE TO BUS
+ *     T10 - CONTROLLER SETS READY        T7 -> T10 > 20 us
  *
  * This core set `direction` as it handed a byte over, so a host that polls for
  * DIRECTION before reading waited for a signal only its own read would produce.
@@ -470,13 +497,66 @@ static void test_a_status_command_turns_the_bus_round_before_any_byte(void) {
   TEST_ASSERT_FALSE(t.controller.direction);
 
   issue(&t, AP_QIC_CMD_READ_STATUS);
-  /* T1, and nothing has been read yet. */
+  /* T8 and T9, and nothing has been read yet. */
   TEST_ASSERT_TRUE(t.controller.direction);
-  TEST_ASSERT_TRUE(t.drive.status_pending);
+  TEST_ASSERT_TRUE(t.status_valid);
+  /* The drive's arming is spent: the block has been fetched, once. */
+  TEST_ASSERT_FALSE(t.drive.status_pending);
 }
 
-/* **READ STATUS's six bytes come out of the data register, and nothing
- * delivered them.**
+/* **READY is an interlock, and this core drove one of its four edges.**
+ *
+ * `QIC-02` §3.6.3's SELECT is the plainest command there is and READY moves
+ * four times: down when REQUEST rises (T3), up when the command is done (T4),
+ * down again when the host releases REQUEST (T7), and up once more when the
+ * device is ready for the next command (T8). This core had T3 and T4.
+ *
+ * **A driver waits at T7.** `[SC499]` Figure 1-26, the guide's own SEND COMMAND
+ * flow chart, is `ASSERT REQUEST` -> `READY?` -> `DROP REQUEST` -> `READY?*`
+ * looping while the answer is still *yes*, footnoted "20 usec loop max, see
+ * timing". Against a device that never drops READY that loop cannot end, and
+ * the SR10.4 boot firmware sits in one: 4,097 reads of the status register at a
+ * single PC with `37` every time -- READY asserted (`FINDINGS.md` C264).
+ *
+ * `AP_SC499_T_CLOSE_MIN` and `_MAX` were defined for this edge, asserted about
+ * by `sc499_suite`, and produced by nothing. */
+static void test_releasing_request_takes_ready_down_and_brings_it_back(void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_SELECT);
+  TEST_ASSERT_TRUE(t.controller.ready);
+
+  /* T2 then T4: the command is taken and completed. */
+  ap_tape_write(&t, AP_TAPE_ADDR + 0u, AP_QIC_CMD_SELECT);
+  ap_tape_write(&t, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST);
+  TEST_ASSERT_FALSE(t.controller.ready);
+  clock_now += ap_sc499_handshake_duration(AP_SC499_ENTRY_READY);
+  ap_tape_advance(&t, clock_now);
+  TEST_ASSERT_TRUE(t.controller.ready);
+
+  /* T5. READY is still up an instant later -- the edge is the device's answer,
+   * not the host's write. */
+  ap_tape_write(&t, AP_TAPE_ADDR + 1u, 0u);
+  clock_now += AP_SC499_T_CLOSE_MIN - 1u;
+  ap_tape_advance(&t, clock_now);
+  TEST_ASSERT_TRUE(t.controller.ready);
+
+  /* T7, which is the edge the driver's loop is waiting for. */
+  clock_now += 1u;
+  ap_tape_advance(&t, clock_now);
+  TEST_ASSERT_FALSE(t.controller.ready);
+
+  /* T8: and back, ready for the next command. */
+  clock_now += AP_SC499_T_READY_REOPEN - 1u;
+  ap_tape_advance(&t, clock_now);
+  TEST_ASSERT_FALSE(t.controller.ready);
+  clock_now += 1u;
+  ap_tape_advance(&t, clock_now);
+  TEST_ASSERT_TRUE(t.controller.ready);
+}
+
+/* **READ STATUS's six bytes come out of the data register, and the host clocks
+ * them out with REQUEST.**
  *
  * `[SC499]` §1.13.1: after a READ STATUS "the device transfers the standard six
  * bytes to the host", through the same data register a block goes through.
@@ -485,6 +565,19 @@ static void test_a_status_command_turns_the_bus_round_before_any_byte(void) {
  * delivered. `check_what_is_called_by_nobody`'s pattern for the fourth time
  * here, and the one an earlier sweep this same day **missed**, because it
  * counted a test caller as a caller.
+ *
+ * **The first fix advanced the block on the host's read, and that is not how a
+ * byte is taken.** `[SC499]` Figure 1-25 is the guide's own READ STATUS driver:
+ *
+ *     READY? -> READ DATA BUS -> ASSERT REQ -> 20 usec -> READY? (loop while
+ *     yes) -> DROP REQ -> ALL 6 BYTES?
+ *
+ * The read is a sample of a byte the device is holding; REQUEST is what says it
+ * has been taken. So a rising REQUEST means two different things depending on
+ * which way the bus is pointing -- a command when the host holds it, an
+ * acknowledge when the device does -- and this core read every one of them as a
+ * command, executing the stale byte in the data register and abandoning the
+ * block it was acknowledging.
  *
  * The first byte carries `POR`, the power-on condition a reset leaves behind:
  * that is what a firmware issuing READ STATUS in answer to an exception is
@@ -496,25 +589,45 @@ static void test_read_status_delivers_its_six_bytes_through_the_data_register(
   issue(&t, AP_QIC_CMD_SELECT);
   /* A drive that has been reset holds "power on/reset occurred". */
   TEST_ASSERT_TRUE(t.drive.power_on);
+  /* The drive as it stands *before* the block is fetched, so the six bytes can
+   * be checked against what this drive would compose rather than against a
+   * freshly initialised one, which is a different drive. */
+  ap_qic_t before = t.drive;
   issue(&t, AP_QIC_CMD_READ_STATUS);
-  TEST_ASSERT_TRUE(t.drive.status_pending);
+
+  /* Reading without taking gets the same byte again, which is what a bus does. */
+  TEST_ASSERT_EQUAL_HEX8(ap_tape_read(&t, AP_TAPE_ADDR + 0u),
+                         ap_tape_read(&t, AP_TAPE_ADDR + 0u));
 
   uint8_t block[AP_QIC_STATUS_BYTES];
   for (unsigned i = 0; i < AP_QIC_STATUS_BYTES; i++) {
-    block[i] = ap_tape_read(&t, AP_TAPE_ADDR + 0u);
+    /* The device holds the bus for the whole block: T8 to T21. */
+    TEST_ASSERT_TRUE(t.controller.direction);
+    block[i] = take_byte(&t);
   }
 
-  /* The device took the bus to deliver them, as it does for a data block. */
-  TEST_ASSERT_TRUE(t.controller.direction);
-  /* Byte 0 bit 1 is `POR`, and reading the block is what clears it -- so the
-   * condition is reported exactly once, which is the whole contract. */
-  TEST_ASSERT_TRUE((block[0] & AP_QIC_EXS_POWER_ON) != 0u);
+  /* T21: the last byte has been taken and the bus goes back. */
+  TEST_ASSERT_FALSE(t.controller.direction);
+  /* T22: and READY with it, ready for the next command. */
+  TEST_ASSERT_TRUE(t.controller.ready);
+
+  /* `POR` is bit 0 of status **byte 1**, the second byte on the wire, and
+   * reading the block is what clears it -- so the condition is reported exactly
+   * once, which is the whole contract. */
+  TEST_ASSERT_TRUE((block[1] & AP_QIC_EXS_POWER_ON) != 0u);
   TEST_ASSERT_FALSE(t.drive.power_on);
   TEST_ASSERT_FALSE(t.drive.status_pending);
 
   /* And the register goes back to being the data register: a second sweep is
    * not a second status block. */
   TEST_ASSERT_FALSE(t.status_valid);
+
+  /* The six are the drive's own block, in order -- not the first byte six
+   * times, which is what an acknowledge that did not advance would give. */
+  uint8_t expected[AP_QIC_STATUS_BYTES];
+  before.status_pending = true;
+  TEST_ASSERT_TRUE(ap_qic_read_status(&before, expected));
+  TEST_ASSERT_EQUAL_HEX8_ARRAY(expected, block, AP_QIC_STATUS_BYTES);
 }
 
 static void test_a_written_block_reaches_the_cartridge(void) {
@@ -585,6 +698,7 @@ int main(void) {
   RUN_TEST(test_the_tape_raises_its_documented_interrupt);
   RUN_TEST(test_a_command_byte_may_precede_the_request_that_takes_it);
   RUN_TEST(test_a_status_command_turns_the_bus_round_before_any_byte);
+  RUN_TEST(test_releasing_request_takes_ready_down_and_brings_it_back);
   RUN_TEST(test_read_status_delivers_its_six_bytes_through_the_data_register);
   RUN_TEST(test_a_written_block_reaches_the_cartridge);
   RUN_TEST(test_a_partial_block_is_not_written);

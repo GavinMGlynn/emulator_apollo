@@ -14874,3 +14874,188 @@ and deasserts it when the host has taken one. The status path asserts it never.
 `ap_sc499_block_boundary` already does exactly this per *block* for tape data,
 which is the shape the status path needs per byte -- so the next piece is
 building, not reading.
+
+## C264 -- READY is an interlock, and this core drove one of its four edges
+
+C263 named the next piece as "the rest of that same figure" and expected to
+build it from `[SC499]` §1.13.2. **Two documents already on the shelf specify it
+completely, and the walk records that read them both drew the wrong conclusion
+from what they found.**
+
+### `QIC-02 Rev D` §3.6.1, and the 22 events nobody counted
+
+`QIC-02_WALK.md`'s row for PDF page 9 says the figure "**confirms a modelled
+constant**" -- `T3->T4 > 10 us` -- and lists the rest as trailing numbers. The
+figure is the whole READ STATUS exchange, 22 numbered events, and it is where
+the per-byte handshake is written down:
+
+    T1  - HOST COMMAND TO BUS            N/A
+    T2  - HOST SETS REQUEST              T1 -> T2 > 0 us
+    T3  - CONTROLLER RESETS EXCEPTION    T3 -> T4 > 10 us
+    T4  - CONTROLLER SETS READY          T2 -> T4 > 20 us (500 us nominal)
+    T5  - HOST RESETS REQUEST            T4 -> T5 > 0 us
+    T6  - BUS DATA INVALID               T4 -> T6 > 0 us
+    T7  - CONTROLLER RESETS READY        20 < T5 -> T7 < 100 us
+    T8  - CONTROLLER CHANGES BUS DIRECTION
+    T9  - 1ST STATUS BYTE TO BUS
+    T10 - CONTROLLER SETS READY          T7 -> T10 > 20 us
+    T11 - HOST SETS REQUEST
+    T12 - CONTROLLER RESETS READY        T11 -> T12 < 1 us
+    T13 - BUS DATA INVALID               T11 -> T13 > 0 us
+    T14 - HOST RESETS REQUEST            T11 -> T14 > 20 us
+    T15 - LAST STATUS BYTE TO BUS
+    T16..T20 - SAME AS T10..T14
+    T21 - CONTROLLER CHANGES BUS DIRECTION   T20 -> T21 > 0
+    T22 - CONTROLLER SETS READY              T21 -> T22 > 0
+
+**The host takes a byte by pulsing REQUEST, not by reading the register.** T10
+puts a byte on the bus and raises READY; the host's REQUEST at T11 says it has
+been taken and READY goes down within a microsecond; the host releases REQUEST
+at T14 and the next byte comes up with READY behind it. After the last, the bus
+turns back and READY returns.
+
+### `[SC499]` Figure 1-25, which is the driver that walks it
+
+`TAPE_WALK.md`'s row for §1.13.3 dismisses sixteen flow charts as "**Driver-side,
+not part behaviour**" -- and then records, in the same sentence, that "Figure
+1-26 notes a `20 usec loop max`". A driver's loop maximum is a statement about
+what the *part* must do inside it. Figure 1-25, READ STATUS FLOW DIAGRAM, is the
+guide's own driver for this exchange:
+
+    START -> READ STATUS COMMAND -> CALL SEND COMMAND
+      -> READY? (loop while no)
+      -> READ DATA BUS
+      -> ASSERT REQ
+      -> 20 usec
+      -> READY? (loop while YES)
+      -> DROP REQ
+      -> ALL 6 BYTES? (no: back to the READY? poll)
+      -> RETURN
+
+and Figure 1-26, SEND COMMAND, is the command half:
+
+    START -> READY? (no: EXCEPTION? no: loop)
+      -> COMMAND BYTE TO DATA BUS DRIVERS
+      -> ASSERT REQUEST
+      -> READY? (loop while no)
+      -> DROP REQUEST
+      -> READY?* (loop while YES)    *20 usec loop max, see timing
+      -> RETURN
+
+**Both charts end by waiting for READY to go away.** That is `QIC-02` §3.6.3's
+T7, and this core never produced it.
+
+### Which is the spin the firmware is in
+
+C263 measured `4097 x 37 at PC 39E0` -- READY asserted, no exception, DONE set.
+A 4096-iteration loop reading a status register whose READY bit is up and
+leaving by its timeout is exactly Figure 1-26's `READY?*` or Figure 1-25's
+post-`ASSERT REQ` `READY?`: both spin while READY is *yes*, and against a device
+that never lowers it neither can end.
+
+### The defect, in one sentence
+
+`ap_sc499` modelled two of READY's four edges. `QIC-02` §3.6.3 numbers a SELECT
+-- the plainest command in the set -- and READY moves four times:
+
+    T3 - CONTROLLER RESETS READY   T2 -> T3 < 1 us     (REQUEST rose)
+    T4 - CONTROLLER SETS READY     T3 -> T4 > 50 us    (command done)
+    T7 - CONTROLLER RESETS READY   20 < T5 -> T7 < 100 (REQUEST fell)
+    T8 - CONTROLLER SETS READY     T7 -> T8 > 20 us    (ready for the next)
+
+T3 and T4 were modelled. T7 and T8 were not, so READY went up once and stayed
+up for the life of the machine.
+
+**And `AP_SC499_T_CLOSE_MIN` and `_MAX` were already defined for T7**, asserted
+about by `sc499_suite`, and produced by nothing --
+`check_what_is_called_by_nobody` in a form the audit does not catch, because the
+thing with no caller is a constant rather than a function.
+
+### The second defect, which the same figure exposes
+
+With the bus turned round and a block in flight, a **rising REQUEST is an
+acknowledge, not a command**. `ap_tape_write` read every rising REQUEST as a
+command: the firmware's acknowledge of status byte 0 would be executed as a
+command whose opcode was whatever stale byte the data register held, and
+`issue_command` clears the delivery, so the block it was acknowledging was
+abandoned in the same instruction.
+
+### What changed
+
+- `ap_sc499_request_released` makes T7 and T8 -- or, when READY is already down
+  because the host's REQUEST took it (T12), only T8.
+- `ap_sc499_byte_taken` makes T12.
+- `ap_tape_write` routes a rising REQUEST to whichever of the two it is, by
+  which way the bus points; a falling REQUEST opens the delivery (T8/T9),
+  advances it (T15/T16), or closes it (T21/T22).
+- `ap_tape_read` of a status byte no longer advances the block. A read is a
+  sample of a byte the device is holding, and a host that reads twice reads the
+  same byte twice.
+- The command completion deasserts DIRECTION only for Figure 1-9's entry, which
+  is the figure that says to. C263 re-asserted it from `ap_tape_advance` on
+  every tick to work around the unconditional clear; that is now unnecessary and
+  is gone.
+
+### The one figure not taken at its slowest legal bound
+
+`20 < T5 -> T7 < 100 us` is a window, and this file's rule is to take the
+documented bound and err slow. **The minimum is taken here**, because the same
+guide's own driver caps its wait for that edge at 20 us: a part sitting at the
+100 us maximum could not be talked to by the flow chart eleven pages later.
+Between two readings of one document, the one that makes it consistent with
+itself is the one to model.
+
+*Verification: `tape_suite` 22 -> 23, `sc499_suite` 27. The new test walks
+§3.6.3's four edges and fails on the old code at the third. `ap_qic_read_status`
+is now reached through the REQUEST handshake, and the six bytes are checked
+against what the drive itself would compose rather than against a fresh one.*
+
+### And with the handshake running, the block came out backwards
+
+The boot error moved on the first run with the interlock in: `Tape 39` →
+**`Tape 01`**. Watching the *data* register instead of the status register shows
+why, and it is a third defect the same page settles.
+
+    write C0 @3894      READ STATUS
+    read  89 @38C8      first status byte
+    read  00 @38F4      second status byte
+    read  C0 @35E2      ... and the firmware has left the routine
+
+The firmware takes the block correctly -- it reads the two exception bytes it
+needs and pulses REQUEST through the remaining four without reading them, which
+is why only two data-register reads appear against seven acknowledges. **The two
+bytes are the right two, in the wrong order.**
+
+`QIC-02 Rev D` §5.1, STATUS BYTE SUMMARY, numbers them:
+
+    BYTE 0   ST0 CNI USL WRP EOM UDA BNL FIL
+    BYTE 1   ST1 ILL NDT MBD BOM RES RES POR
+    BYTE 2/3 DEC, data error counter
+    BYTE 4/5 URC, underrun counter
+
+and `002398-04` p. 12-5 numbers the counters a line each, in Apollo's own words:
+"Tape Status Byte 2 = high byte of data error counter", byte 3 the low, bytes 4
+and 5 the same for the underruns.
+
+`ap_qic_read_status` sent all three fields low half first, on a comment that
+cited nothing: *"Three 16-bit fields, least significant byte first."* Since
+`ap_qic_exception_word` composes `(byte0 << 8) | byte1`, that put **status byte
+1 on the wire first**. The firmware read `89` -- `ST1 | BOM | POR`, a
+just-reset drive holding a cartridge at beginning of media -- and decoded it
+against byte 0's bits as `ST0 | EOM | FIL`.
+
+**Where the wrong sentence came from.** Linux's `struct tpstatus { unsigned
+short exs, dec, urc; }` is documented "LSB first", and on a little-endian host
+that is *consistent with byte 0 arriving first*: the first byte lands in the low
+half of `exs`. This core's word is composed the other way round, so copying the
+byte order across without the endianness reversed it. The sentence was true of
+the structure it was written about and false of the one it was applied to.
+
+`002398-04` p. 12-5's STATUS SUMMARY confirms the corrected pair directly. Its
+`Power on/reset` row is `Status 0 = XXXX0000`, `Status 1 = 1000X001`; this
+drive's block is now `00 89 ...`, which is that row with the don't-cares taken
+as BOM.
+
+*Verification: `qic_suite` 27, five of whose tests asserted the reversed order --
+the case `CLAUDE.md` names, where "tests encode the same misreadings as the
+code". The order test fails on the old code at the first byte.*

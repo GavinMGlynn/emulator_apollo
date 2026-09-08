@@ -392,12 +392,24 @@ static void test_the_status_block_needs_its_command_first(void) {
   TEST_ASSERT_FALSE(ap_qic_read_status(&q, block));
 }
 
-/* Three 16-bit fields, **least significant byte first** -- Linux's
- * `struct tpstatus { unsigned short exs, dec, urc; }` with "LSB first", and the
- * oracle keeping the same three. A big-endian reader would see every field
- * byte-swapped, which for a count of zero looks identical and for the exception
- * word puts status byte 0 where byte 1 belongs. */
-static void test_the_status_block_is_three_words_least_significant_byte_first(void) {
+/* **Six bytes in the standard's own numbering**, and this test used to assert
+ * the reverse of it.
+ *
+ * `QIC-02 Rev D` §5.1 numbers the bits of BYTE 0 (`ST0 CNI USL WRP EOM UDA BNL
+ * FIL`) and of BYTE 1 (`ST1 ILL NDT MBD BOM RES RES POR`), and `002398-04`
+ * p. 12-5 numbers the counters a line each: byte 2 the *high* byte of the data
+ * error counter, byte 3 the low, byte 4 and 5 the same for the underruns.
+ *
+ * The old claim -- "three 16-bit fields, least significant byte first" -- came
+ * from Linux's `struct tpstatus { unsigned short exs, dec, urc; }` and its "LSB
+ * first" note, and **the sentence does not survive the journey**. Linux reads
+ * the wire into a little-endian `unsigned short`, so status byte 0 arriving
+ * first lands in the *low* half of its `exs`. `ap_qic_exception_word` composes
+ * the opposite way, `(byte0 << 8) | byte1`, so copying Linux's byte order onto
+ * this core's word put byte 1 on the wire first. A host reading the first byte
+ * of a just-reset drive got `89` and decoded `ST1 | BOM | POR` against byte 0's
+ * bits. `FINDINGS.md` C264. */
+static void test_the_status_block_is_six_bytes_in_the_standards_own_order(void) {
   ap_qic_t q;
   uint8_t block[AP_QIC_STATUS_BYTES];
   load(&q);
@@ -408,7 +420,7 @@ static void test_the_status_block_is_three_words_least_significant_byte_first(vo
   const uint16_t expected = ap_qic_exception_word(&q);
   TEST_ASSERT_TRUE(ap_qic_read_status(&q, block));
 
-  const uint16_t exs = (uint16_t)(block[0] | ((uint16_t)block[1] << 8));
+  const uint16_t exs = (uint16_t)(((uint16_t)block[0] << 8) | block[1]);
   TEST_ASSERT_EQUAL_HEX16(expected, exs);
 
   /* The two counts are genuinely zero rather than unmodelled: this core
@@ -442,7 +454,8 @@ static void test_the_power_on_flag_survives_until_read_and_not_after(void) {
 
   TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
   TEST_ASSERT_TRUE(ap_qic_read_status(&q, block));
-  TEST_ASSERT_TRUE((block[0] & (uint8_t)AP_QIC_EXS_POWER_ON) != 0u);
+  /* `POR` is a bit of status **byte 1**, which is the second byte on the wire. */
+  TEST_ASSERT_TRUE((block[1] & (uint8_t)AP_QIC_EXS_POWER_ON) != 0u);
 
   /* Reported once, then gone. */
   TEST_ASSERT_TRUE((ap_qic_exception_word(&q) & AP_QIC_EXS_POWER_ON) == 0u);
@@ -607,7 +620,7 @@ static void test_an_unimplemented_command_latches_illegal_until_read(void) {
    * have a driver rejecting every command that followed one bad one. */
   uint8_t block[AP_QIC_STATUS_BYTES];
   TEST_ASSERT_TRUE(ap_qic_read_status(&q, block));
-  TEST_ASSERT_TRUE((block[0] & (uint8_t)AP_QIC_EXS_ILLEGAL) != 0u);
+  TEST_ASSERT_TRUE((block[1] & (uint8_t)AP_QIC_EXS_ILLEGAL) != 0u);
   TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
   TEST_ASSERT_EQUAL_HEX16(
       0u, (uint16_t)(ap_qic_exception_word(&q) & AP_QIC_EXS_ILLEGAL));
@@ -669,11 +682,11 @@ static void test_the_no_data_latch_is_reset_by_the_status_read(void) {
 
   TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
   TEST_ASSERT_TRUE(ap_qic_read_status(&q, block));
-  /* Byte 1 of the six-byte block is exception status byte 0, and byte 0 is
-   * byte 1 -- three 16-bit fields, least significant byte first. */
-  TEST_ASSERT_TRUE((block[0] & (uint8_t)AP_QIC_EXS_NO_DATA) != 0u);
-  TEST_ASSERT_TRUE((block[1] & (uint8_t)(AP_QIC_EXS_DATA_ERROR >> 8)) != 0u);
-  TEST_ASSERT_TRUE((block[1] & (uint8_t)(AP_QIC_EXS_NO_BLOCK >> 8)) != 0u);
+  /* `NDT` is a byte 1 bit and the two it travels with are byte 0 bits, so the
+   * three land in the block in the order §5.1 numbers them. */
+  TEST_ASSERT_TRUE((block[1] & (uint8_t)AP_QIC_EXS_NO_DATA) != 0u);
+  TEST_ASSERT_TRUE((block[0] & (uint8_t)(AP_QIC_EXS_DATA_ERROR >> 8)) != 0u);
+  TEST_ASSERT_TRUE((block[0] & (uint8_t)(AP_QIC_EXS_NO_BLOCK >> 8)) != 0u);
 
   const uint16_t after = ap_qic_exception_word(&q);
   TEST_ASSERT_EQUAL_HEX16(0u, (uint16_t)(after & AP_QIC_EXS_NO_DATA));
@@ -707,12 +720,13 @@ static void test_the_two_status_counters_are_cleared_by_the_status_read(void) {
   q.underruns = 0x5678u;
   TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
   TEST_ASSERT_TRUE(ap_qic_read_status(&q, block));
-  /* Reported first, least significant byte first, as the standard's three
-   * 16-bit fields. */
-  TEST_ASSERT_EQUAL_HEX8(0x34u, block[2]);
-  TEST_ASSERT_EQUAL_HEX8(0x12u, block[3]);
-  TEST_ASSERT_EQUAL_HEX8(0x78u, block[4]);
-  TEST_ASSERT_EQUAL_HEX8(0x56u, block[5]);
+  /* Reported high byte first, which is `002398-04` p. 12-5 stated a line each:
+   * "Tape Status Byte 2 = high byte of data error counter", byte 3 the low, and
+   * bytes 4 and 5 the same for the underrun counter. */
+  TEST_ASSERT_EQUAL_HEX8(0x12u, block[2]);
+  TEST_ASSERT_EQUAL_HEX8(0x34u, block[3]);
+  TEST_ASSERT_EQUAL_HEX8(0x56u, block[4]);
+  TEST_ASSERT_EQUAL_HEX8(0x78u, block[5]);
 
   /* Then cleared, so the next read reports the interval and not the lifetime. */
   TEST_ASSERT_EQUAL_HEX16(0u, q.data_errors);
@@ -765,7 +779,7 @@ int main(void) {
   RUN_TEST(test_the_two_recovered_opcodes_do_what_the_manual_says);
   RUN_TEST(test_the_status_block_is_the_six_bytes_the_manual_names);
   RUN_TEST(test_the_status_block_needs_its_command_first);
-  RUN_TEST(test_the_status_block_is_three_words_least_significant_byte_first);
+  RUN_TEST(test_the_status_block_is_six_bytes_in_the_standards_own_order);
   RUN_TEST(test_an_empty_drive_reports_no_cartridge_rather_than_beginning);
   RUN_TEST(test_the_power_on_flag_survives_until_read_and_not_after);
   RUN_TEST(test_reading_off_the_end_reports_end_of_media);

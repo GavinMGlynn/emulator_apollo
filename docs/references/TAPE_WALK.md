@@ -39,7 +39,8 @@ the class of statement a vendor guide cannot make.
 | 1.11 | DMA via the host 8237, and the five-step transfer sequence |
 | 1.12 | Four resets. **`RSTSAC` must be set, held for more than 25 µsec, then cleared** |
 | 1.13-1.13.2 | The twelve QIC-02 commands with opcodes, and Figures 1-5 to 1-10's interface timing — `T4→T5 < 500 ms` for a command's READY, `20 µs < … < 100 µs` for its deassertion, `< 3 µs` acknowledge deassert |
-| 1.13.3 | Sixteen driver flow charts (Figures 1-11 to 1-26). Driver-side, not part behaviour; Figure 1-23's RESET chart shows the 25 µs hold, and Figure 1-26 notes a "20 µsec loop max" |
+| 1.13.3 | **CORRECTED 2026-09-09.** Sixteen driver flow charts (Figures 1-11 to 1-26), and **two of them are the specification of this interface's handshake, not commentary on it**. Figure 1-25, READ STATUS: `READY?` → `READ DATA BUS` → `ASSERT REQ` → 20 µs → `READY?` *looping while the answer is yes* → `DROP REQ` → `ALL 6 BYTES?`. Figure 1-26, SEND COMMAND: `READY?`/`EXCEPTION?` → byte to the bus → `ASSERT REQUEST` → `READY?` → `DROP REQUEST` → `READY?*` *looping while yes*, footnoted "20 µsec loop max, see timing". Both end by waiting for READY to **go away** — `QIC-02` §3.6.3's T7 — which `ap_sc499` never produced, and which is the spin the SR10.4 boot firmware dies in (`FINDINGS.md` C264). Figure 1-23's RESET chart shows the 25 µs hold |
+| | *original row, kept because it is what the reading stood on* | *Sixteen driver flow charts (Figures 1-11 to 1-26). **Driver-side, not part behaviour**; Figure 1-23's RESET chart shows the 25 µs hold, and Figure 1-26 notes a "20 µsec loop max". — The dismissal and its own counter-example are in one sentence: a driver's loop **maximum** is a statement about what the part must do inside it.* |
 
 ## `[08845]` coverage, and the three things only Apollo can say
 

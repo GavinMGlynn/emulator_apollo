@@ -67,6 +67,31 @@ void ap_sc499_command_accepted(ap_sc499_t *tape) {
   tape->ready = false;
   tape->executing = true;
   tape->ready_at = tape->now + ap_sc499_handshake_duration(tape->entry);
+  /* A command supersedes whatever the previous one's release had scheduled:
+   * `QIC-02` §3.6.3's T7 and T8 exist to bring the device back to *ready for a
+   * command*, and one has arrived. */
+  tape->closing = false;
+  tape->reopening = false;
+}
+
+void ap_sc499_byte_taken(ap_sc499_t *tape) {
+  tape->ready = false;
+  tape->closing = false;
+  tape->reopening = false;
+}
+
+void ap_sc499_request_released(ap_sc499_t *tape) {
+  if (tape->ready) {
+    tape->closing = true;
+    tape->close_at = tape->now + AP_SC499_T_CLOSE_MIN;
+    tape->reopen_at = tape->close_at + AP_SC499_T_READY_REOPEN;
+  } else {
+    /* The data phase: T12 already took READY down when the host asserted
+     * REQUEST, so T7 has nothing to do and only T10's return is left. */
+    tape->closing = false;
+    tape->reopen_at = tape->now + AP_SC499_T_READY_REOPEN;
+  }
+  tape->reopening = true;
 }
 
 bool ap_sc499_executing(const ap_sc499_t *tape) { return tape->executing; }
@@ -124,21 +149,46 @@ void ap_sc499_advance(ap_sc499_t *tape, ap_time_t now) {
     tape->exception = true;
   }
 
-  if (!tape->executing || tape->now < tape->ready_at) {
-    return;
+  if (tape->executing && tape->now >= tape->ready_at) {
+    /* Figure 1-8, T3: "Device Deasserts EXCEPTION" -- so a command is what
+     * lifts an exception, and the lifting lands with the completion rather than
+     * with the acceptance. A driver that reads status in between sees the
+     * exception still up, which is the truth: the device has not finished with
+     * it. */
+    tape->exception = false;
+    /* Figure 1-9, T4: "Device Deasserts DIRECTION", handing the bus back --
+     * **and only Figure 1-9's**, which is the entry taken by a command issued
+     * while the device still holds the bus. Applied to every completion it took
+     * the bus away from the command that was about to deliver through it, which
+     * is what `FINDINGS.md` C263 measured. `QIC-02` §3.6.1 gives the other
+     * order: the device turns the bus round *towards* the host at T8 and back
+     * again at T21, after the last status byte has been taken. */
+    if (tape->entry == AP_SC499_ENTRY_DIRECTION) {
+      tape->direction = false;
+    }
+    /* And in all three figures the device ends by asserting READY: 1-7's T5,
+     * 1-8's T4, 1-9's T6. */
+    tape->ready = true;
+    tape->executing = false;
   }
 
-  /* Figure 1-8, T3: "Device Deasserts EXCEPTION" -- so a command is what lifts
-   * an exception, and the lifting lands with the completion rather than with
-   * the acceptance. A driver that reads status in between sees the exception
-   * still up, which is the truth: the device has not finished with it. */
-  tape->exception = false;
-  /* Figure 1-9, T4: "Device Deasserts DIRECTION", handing the bus back. */
-  tape->direction = false;
-  /* And in all three figures the device ends by asserting READY: 1-7's T5,
-   * 1-8's T4, 1-9's T6. */
-  tape->ready = true;
-  tape->executing = false;
+  /* §3.6.3 T7, the device acknowledging the host's release of REQUEST, and T8,
+   * its return. Outside the command block above because by T7 the command has
+   * finished: these are the edges that make READY an interlock rather than a
+   * level that goes up once and stays. */
+  if (tape->closing && tape->now >= tape->close_at) {
+    tape->closing = false;
+    tape->ready = false;
+  }
+  if (tape->reopening && tape->now >= tape->reopen_at) {
+    tape->reopening = false;
+    /* Figure 1-6's rule holds here as everywhere: READY is not asserted for an
+     * EXCEPTION condition. A refused command leaves the exception up, and the
+     * host's release of REQUEST must not talk over it. */
+    if (!tape->exception) {
+      tape->ready = true;
+    }
+  }
 }
 
 void ap_sc499_set_exception(ap_sc499_t *tape, bool asserted) {
@@ -220,6 +270,15 @@ ap_time_t ap_sc499_interrupt_next_change(const ap_sc499_t *tape) {
   ap_time_t next = AP_TIME_NEVER;
   if (tape->executing && tape->ready_at < next) {
     next = tape->ready_at;
+  }
+  /* Both halves of the REQUEST release, because both move READY and READY is an
+   * interrupt source. A bound that named only the assertion would let the
+   * scheduler sleep through the deassertion. */
+  if (tape->closing && tape->close_at < next) {
+    next = tape->close_at;
+  }
+  if (tape->reopening && tape->reopen_at < next) {
+    next = tape->reopen_at;
   }
   if (tape->exception_at != 0u && tape->exception_at < next) {
     next = tape->exception_at;

@@ -209,6 +209,14 @@ typedef struct {
   bool hold_dating;
   bool hold_dated;
   ap_time_t held_since;
+  /* A scheduled READY *deassertion* and the reassertion that follows it --
+   * §3.6.3's T7 and T8. `executing`/`ready_at` cannot carry these: that pair
+   * schedules an assertion, and it belongs to the command in flight, which by
+   * T7 has finished. Kept apart for the same reason `reset_arming` is. */
+  bool closing;
+  ap_time_t close_at;
+  bool reopening;
+  ap_time_t reopen_at;
   /* Which figure the command in flight entered by, kept so the completion knows
    * what to undo -- 1-8 lifts an exception, 1-9 hands back the bus. */
   ap_sc499_entry_t entry;
@@ -421,6 +429,48 @@ typedef struct {
 #define AP_SC499_T_CLOSE_MIN AP_SC499_US(20)           /* 20 us <, T6->T8 */
 #define AP_SC499_T_CLOSE_MAX AP_SC499_US(100)           /* < 100 us, T6->T8 */
 
+/* ## The other half of the handshake, which had two constants and no behaviour
+ *
+ * The two above are `QIC-02 Rev D` §3.6.3's `20 < T5->T7 < 100 U sec` -- the
+ * device dropping READY once the host releases REQUEST -- and until 2026-09-09
+ * nothing in this core produced that edge. They were defined, asserted about by
+ * `sc499_suite`, and modelled by nothing: `check_what_is_called_by_nobody` in
+ * its documentary form.
+ *
+ * §3.6.3 numbers a SELECT, the plainest command there is, and READY moves
+ * **four** times:
+ *
+ *     T1 - HOST COMMAND TO BUS
+ *     T2 - HOST SETS REQUEST            T1->T2 > 0 us
+ *     T3 - CONTROLLER RESETS READY      T2->T3 < 1 us
+ *     T4 - CONTROLLER SETS READY        T3->T4 > 50 us (500 us nominal)
+ *     T5 - HOST RESETS REQUEST          T4->T5 > 0 us
+ *     T6 - BUS DATA INVALID             T4->T6 > 0 us
+ *     T7 - CONTROLLER RESETS READY      20 < T5->T7 < 100 us
+ *     T8 - CONTROLLER SETS READY        T7->T8 > 20 us
+ *
+ * This core had T3 and T4 and stopped there, so READY went up at T4 and stayed
+ * up for ever. **A driver waits at T7**, and `[SC499]` Figure 1-26, the guide's
+ * own SEND COMMAND flow chart, is where it waits: `ASSERT REQUEST` -> `READY?`
+ * -> `DROP REQUEST` -> `READY?*` looping while the answer is *yes* -- with the
+ * footnote "*20 usec loop max., see timing". A device that never drops READY
+ * hangs that loop, and the SR10.4 boot firmware hangs in exactly one, 4,097
+ * reads of `37` at a single PC (`FINDINGS.md` C264).
+ *
+ * ### Which end of the 20-100 us window
+ *
+ * The **minimum**, and this is the one figure in this file that does not take
+ * the slowest legal bound. The rule elsewhere is to err slow, because a
+ * documented range gives no typical -- but here the vendor's own driver caps
+ * its wait for this edge at 20 us, so a part that took the 100 us maximum could
+ * not be talked to by the flow chart printed eleven pages later in the same
+ * guide. Between two readings of one document, the one that makes it consistent
+ * with itself is the one to model. The inequality is strict and the modelled
+ * edge lands on the excluded endpoint; that is one tick of a base whose unit is
+ * far below a nanosecond, and naming it here is cheaper than pretending to a
+ * precision the figure does not carry. */
+#define AP_SC499_T_READY_REOPEN AP_SC499_US(20)         /* 20 us <, T7->T8 */
+
 void ap_sc499_reset(ap_sc499_t *tape);
 
 /* Which figure a command issued now would follow. */
@@ -460,6 +510,30 @@ void ap_sc499_advance(ap_sc499_t *tape, ap_time_t now);
 /* The device has begun a data block: READY goes down and comes back up when it
  * is ready for the next one. `[SC499]` §1.13.1 and Figure 1-5. */
 void ap_sc499_block_boundary(ap_sc499_t *tape);
+
+/* The host has taken the byte the device was holding on the bus: `QIC-02` §3.6.1
+ * T11 -> T12, "T11->T12 < 1 U sec". READY goes down at once and stays down --
+ * the device has nothing more to offer until the host releases REQUEST, which
+ * is what asks for the next byte.
+ *
+ * Taken early rather than at the 1 us bound, for the reason
+ * `ap_sc499_command_accepted` gives for the identical edge at T3: holding READY
+ * up shows a driver a byte that is still available when it is not. */
+void ap_sc499_byte_taken(ap_sc499_t *tape);
+
+/* The host has released REQUEST: `QIC-02` §3.6.3 T5, and the two device edges
+ * that answer it. READY follows it down after `T_CLOSE_MIN` (T7) and returns
+ * `T_READY_REOPEN` later (T8) -- by which time the device has prepared whatever
+ * comes next, which is a fresh command for a plain command, the first status
+ * byte after a READ STATUS (§3.6.1 T8/T9/T10), or the next byte of a block in
+ * flight (T16).
+ *
+ * If READY is already down -- the data phase, where the host's REQUEST took it
+ * down at T12 -- there is no edge at T7 to make, and only the return is
+ * scheduled. One entry point either way, because the host does the same thing
+ * in both and the device's answer differs only in how many edges it has left to
+ * make. */
+void ap_sc499_request_released(ap_sc499_t *tape);
 
 /* Raise or clear the exception condition, keeping it exclusive of ready.
  *

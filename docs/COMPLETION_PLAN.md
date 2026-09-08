@@ -4979,11 +4979,47 @@ same number is what let them diverge once already.
       **And it does not fix the boot**: `Tape 39` before and after. Three defects
       on this path are fixed, each from a numbered step in one section, each with
       a test that fails on the old code.
-      *What is left is the rest of that figure*: T3 and T5 make READY a
-      **per-byte** signal, asserted when a byte is ready and deasserted when the
-      host takes one, and the status path asserts it never.
-      `ap_sc499_block_boundary` already does this per *block* for tape data — so
-      the next piece is building rather than reading.
+      **A fourth and fifth defect, and the boot error moved again**
+      (`FINDINGS.md` C264): `Tape 39` → **`Tape 01`**. Two documents already on
+      the shelf specify the handshake completely and both walk records drew the
+      wrong conclusion from them — corrected in place, originals kept beneath.
+      `QIC-02` §3.6.3 numbers a SELECT and READY moves **four** times: down when
+      REQUEST rises, up when the command is done, **down when the host releases
+      REQUEST** (T7), up again for the next command (T8). This core had the
+      first two, so READY rose once and stayed up — and `[SC499]` Figure 1-26,
+      the guide's own SEND COMMAND flow chart, ends by looping *while READY is
+      still asserted*, footnoted "20 µsec loop max". That is the spin C263
+      measured. `AP_SC499_T_CLOSE_MIN`/`_MAX` were already defined for T7 and
+      produced by nothing. And §3.6.1's 22 events plus Figure 1-25 make
+      **REQUEST the acknowledge of a byte**, not the host's read — so a rising
+      REQUEST is a command or an acknowledge depending on which way the bus
+      points, and this core read every one as a command. Both fixed;
+      `tape_suite` 22 → 23. The firmware now walks the whole exchange: six
+      READY up/down cycles at PC 39C0/39E0 with DIRECTION asserted, and the two
+      4,096-iteration timeouts are down to one.
+      **A sixth defect, and `DI C` now succeeds.** Watching the *data* register
+      showed the firmware taking the right two bytes in the wrong order:
+      `QIC-02` §5.1 numbers BYTE 0 (`ST0 CNI USL WRP EOM UDA BNL FIL`) and
+      BYTE 1 (`ST1 ILL NDT MBD BOM RES RES POR`), and `002398-04` p. 12-5
+      numbers the counters a line each — byte 2 the *high* byte of the data
+      error counter, byte 3 the low, 4 and 5 the same for the underruns.
+      `ap_qic_read_status` sent all three fields low half first on a comment
+      that cited nothing, so **status byte 1 went out first**: the firmware read
+      `89` (`ST1|BOM|POR`, a just-reset drive at beginning of media) and decoded
+      it against byte 0's bits. The sentence came from Linux's `struct tpstatus`
+      "LSB first", which is consistent with byte 0 arriving first *on a
+      little-endian host* and became its own reverse when copied onto a word
+      composed the other way. Fixed; `qic_suite` 27, **five of whose tests
+      asserted the reversed order**.
+      **`DI C` now returns to the prompt with no error**, and `EX DOMAIN_OS`
+      reaches the next command in the sequence — `80`, READ DATA — and reports
+      **`Tape FF`**, which for the first time on this path *is* a row of p.
+      4-17's table: "timeout waiting for controller **done**".
+      *What is left*: DONE. `AP_SC499_ST_DONE` is set by reset, cleared by a
+      write to DMAGO, and set again by nothing, so a host that starts a DMA
+      transfer and waits for its completion waits for ever. The tape's DRQ and
+      DACK are wired (`ap_board.c`), so the transfer itself has a path; what has
+      no path is its end.
       **What it unblocks**: a cartridge boot on this core, and with it the SAU 14
       install that the DS5500 boot and the multi-node workloads item both want —
       without borrowing the oracle. *The media is confirmed held*: `019593-001`
