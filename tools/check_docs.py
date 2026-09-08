@@ -449,9 +449,17 @@ def check_references(problems: list[str]) -> int:
                 if (not present(cited) and not planned
                         and not deliberately_absent(cited)):
                     problems.append(f"{document.name}: names {cited}, which does not exist")
+            # A line that records a *removal* necessarily names something the
+            # tree no longer has, and that is the point of writing it down --
+            # `CLAUDE.md` requires the original to be kept beneath a correction.
+            # Narrow on purpose: the words have to be on the same line as the
+            # symbol, so an ordinary stale reference still fails.
+            records_a_removal = any(
+                word in line.lower()
+                for word in ("deleted", "removed", "withdrawn"))
             for symbol in SYMBOL.findall(line):
                 checked += 1
-                if symbol not in symbols:
+                if symbol not in symbols and not records_a_removal:
                     problems.append(
                         f"{document.name}: names `{symbol}`, which is nowhere in the tree")
     return checked

@@ -188,6 +188,76 @@ static void test_mode_two_reloads_and_mode_three_halves(void) {
   TEST_ASSERT_TRUE(ap_i8254_out(&pit, 0u) != level); /* toggled at N/2 */
 }
 
+/* **The GATE pin, which nothing in this core drives and nothing tested.**
+ *
+ * `ap_i8254_set_gate` was found by the "what is called by nobody" audit: no
+ * board wires a gate, which `ap_i8254.h` states deliberately -- "this board's
+ * undriven gate leaves them reported rather than approximated" -- and the
+ * counters come out of reset with their gates **high** for exactly that reason.
+ * Deliberately uncalled is a fine answer; deliberately untested is not, because
+ * a part nobody exercises is a part nobody knows works.
+ *
+ * Two documented behaviours, one per direction. `[8254]`: "In Modes 0, 2, 3 and
+ * 4 the GATE input is level sensitive", so a low gate stops the count where it
+ * stands; and modes 2 and 3 **reload on a rising gate edge**, which is the
+ * trigger the three gate-triggered modes need to start at all. */
+static void test_the_gate_stops_a_count_and_a_rising_edge_reloads_it(void) {
+  ap_i8254_t pit;
+  ap_i8254_reset(&pit);
+
+  /* Mode 0, level sensitive: a low gate holds the count. */
+  ap_i8254_write(&pit, AP_I8254_CONTROL, 0x30u);
+  ap_i8254_write(&pit, AP_I8254_COUNTER_0, 0x05u);
+  ap_i8254_write(&pit, AP_I8254_COUNTER_0, 0x00u);
+  ap_i8254_clock(&pit);
+  const uint16_t after_one = pit.counter[0].counter;
+  TEST_ASSERT_EQUAL_HEX16(4u, after_one);
+  ap_i8254_set_gate(&pit, 0u, false);
+  ap_i8254_clock(&pit);
+  ap_i8254_clock(&pit);
+  TEST_ASSERT_EQUAL_HEX16(after_one, pit.counter[0].counter);
+  /* And released, it goes on from where it was rather than restarting: mode 0
+   * "merely resumes". */
+  ap_i8254_set_gate(&pit, 0u, true);
+  ap_i8254_clock(&pit);
+  TEST_ASSERT_EQUAL_HEX16(3u, pit.counter[0].counter);
+
+  /* Modes 2 and 3 reload on the **rising edge**, which mode 0 does not.
+   *
+   * The two count at different rates and the expectation says so rather than
+   * splitting the difference: mode 3 is the square wave, so it decrements by
+   * **two** a clock -- `[8254]`'s "half period" -- where mode 2 decrements by
+   * one. Asserting 4 for both was this test's own first mistake, and the model
+   * was right. */
+  static const struct { uint8_t control; uint16_t after_two; } gated[] = {
+      {0x34u, 4u}, /* mode 2: 6, 5, 4 */
+      {0x36u, 2u}, /* mode 3: 6, 4, 2 */
+  };
+  for (unsigned pass = 0; pass < 2u; pass++) {
+    ap_i8254_reset(&pit);
+    ap_i8254_write(&pit, AP_I8254_CONTROL, gated[pass].control);
+    ap_i8254_write(&pit, AP_I8254_COUNTER_0, 0x06u);
+    ap_i8254_write(&pit, AP_I8254_COUNTER_0, 0x00u);
+    ap_i8254_clock(&pit);
+    ap_i8254_clock(&pit);
+    TEST_ASSERT_EQUAL_HEX16(gated[pass].after_two, pit.counter[0].counter);
+    ap_i8254_set_gate(&pit, 0u, false);
+    ap_i8254_set_gate(&pit, 0u, true);
+    TEST_ASSERT_EQUAL_HEX16(6u, pit.counter[0].counter);
+  }
+
+  /* A gate that was already high is not an edge, so nothing reloads -- the
+   * assertion that separates "level" from "edge" and the one a model that
+   * reloaded on every write would fail. */
+  ap_i8254_reset(&pit);
+  ap_i8254_write(&pit, AP_I8254_CONTROL, 0x34u);
+  ap_i8254_write(&pit, AP_I8254_COUNTER_0, 0x06u);
+  ap_i8254_write(&pit, AP_I8254_COUNTER_0, 0x00u);
+  ap_i8254_clock(&pit);
+  ap_i8254_set_gate(&pit, 0u, true);
+  TEST_ASSERT_EQUAL_HEX16(5u, pit.counter[0].counter);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_ring_firmwares_own_sequence);
@@ -197,5 +267,6 @@ int main(void) {
   RUN_TEST(test_a_read_back_of_both_returns_status_first);
   RUN_TEST(test_the_gate_triggered_modes_are_reported);
   RUN_TEST(test_mode_two_reloads_and_mode_three_halves);
+  RUN_TEST(test_the_gate_stops_a_count_and_a_rising_edge_reloads_it);
   return UNITY_END();
 }

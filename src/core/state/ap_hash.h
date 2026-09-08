@@ -137,10 +137,6 @@ void ap_hash_scope(ap_hash_t *st, const char *scope);
 void ap_hash_group_begin(ap_hash_t *st, const char *name);
 void ap_hash_group_end(ap_hash_t *st);
 
-/* Whether a dump target is attached, so a caller can skip work that only a
- * dump needs. */
-[[nodiscard]] bool ap_hash_dumping(const ap_hash_t *st);
-
 /* Emit a **derived** value to the dump, named, without absorbing it.
  *
  * The oracle differential runs into a structural mismatch the field mapping

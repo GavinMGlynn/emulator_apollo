@@ -2075,6 +2075,52 @@ static void test_two_boards_exchange_a_frame_on_a_scheduled_ring(void) {
  * always at the start of it. The first version of this test swept `n` alone on
  * a fresh board, passed with the defect present, and was cited as evidence that
  * the batching was not the cause of a divergence it was in fact causing. */
+/* **The absolute pointing packet reaches the wire, which nothing tested.**
+ *
+ * `ap_board_mouse_move_absolute` was found by the "what is called by nobody"
+ * audit: no frontend offers an absolute pointing device and `002398-04` §13's
+ * preamble says the standard configuration never has one -- "a quadrature mouse
+ * transmits data in relative mode only" -- so being uncalled is the right
+ * answer and the header says so. Being **untested** is not: the part's side is
+ * complete, and until this nothing checked that the board's side hands its
+ * bytes to the same wire a keystroke uses.
+ *
+ * The all-or-nothing rule is what is actually at stake. The leading byte frames
+ * the three coordinate bytes after it, so a packet cut short by a full queue
+ * would make whatever is sent next look like a coordinate -- which is why the
+ * board checks for room before queueing anything rather than discovering it
+ * half way. */
+static void test_an_absolute_pointing_packet_goes_out_whole(void) {
+  ap_board_t b;
+  bool ok = false;
+  init(&b);
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
+                 AP_SIO_KEYBOARD_MR1, &ok);
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
+                 AP_SIO_KEYBOARD_CSR, &ok);
+  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
+
+  /* It is the *device* that decides which leading byte goes out, not a
+   * command, so the board is put in absolute mode first. */
+  ap_kbd_set_pointing_absolute(&b.keyboard, true);
+
+  uint8_t expected[AP_KBD_MOUSE_PACKET];
+  const unsigned bytes = ap_kbd_mouse_packet_absolute(
+      &b.keyboard, 0x123u, 0x456u, false, false, false, expected);
+  TEST_ASSERT_TRUE(bytes > 0u);
+
+  TEST_ASSERT_TRUE(ap_board_mouse_move_absolute(&b, 0x123u, 0x456u, false,
+                                                false, false));
+  /* Every byte the part composed, in order, off the keyboard's own line. */
+  for (unsigned i = 0; i < bytes; i++) {
+    clock_out_one_byte(&b);
+    TEST_ASSERT_EQUAL_HEX8(
+        expected[i],
+        ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
+    TEST_ASSERT_TRUE(ok);
+  }
+}
+
 static void test_a_batch_of_bus_ticks_equals_that_many_single_ticks(void) {
   static ap_board_t batched;
   static ap_board_t singly;
@@ -2859,6 +2905,7 @@ int main(void) {
   RUN_TEST(test_two_boards_on_one_ring_segment_exchange_a_frame);
   RUN_TEST(test_a_frame_crosses_the_ring_under_board_time);
   RUN_TEST(test_two_boards_exchange_a_frame_on_a_scheduled_ring);
+  RUN_TEST(test_an_absolute_pointing_packet_goes_out_whole);
   RUN_TEST(test_a_batch_of_bus_ticks_equals_that_many_single_ticks);
   RUN_TEST(test_a_board_joining_a_ring_makes_it_long_enough_for_a_token);
   RUN_TEST(test_only_the_ds5500_places_the_memory_present_register);

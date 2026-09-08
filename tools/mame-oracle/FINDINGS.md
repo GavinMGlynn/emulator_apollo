@@ -14270,3 +14270,59 @@ because ordinary instructions never move the sequencer the stall depends on.
 
 *The default path is untouched throughout*: `FE2BB02AEF1F4624`, clocks
 1,408,661,906, `ctest` 140/140.
+
+## C255 -- the "called by nobody" audit, run whole: three, and all three were untested
+
+`CLAUDE.md` names this as the first audit check, and it has found real things
+here twice -- `ap_ring_station_attach_rx` called by nothing at all, and a
+complete `ap_master_t` attached to no board. It had never been run across the
+whole of `src/core` in one pass. Run 2026-09-08 over every exported
+`ap_*` function in the core's headers, counting occurrences in `src/`, `tools/`
+and `tests/`:
+
+    UNCALLED: ap_board_mouse_move_absolute
+    UNCALLED: ap_hash_dumping
+    UNCALLED: ap_i8254_set_gate
+
+Three, out of several hundred. **All three are deliberate and say so in their own
+headers** -- no frontend offers an absolute pointing device and `002398-04` §13
+says the standard configuration never has one; no board wires an 8254 gate, which
+`ap_i8254.h` states outright. So the audit found no disconnected subsystem, which
+is the result and a good one.
+
+**What it did find is that all three were untested**, and that is a different
+defect. Deliberately uncalled is a fine answer; deliberately unchecked is not,
+because a function nobody exercises is a function nobody knows works. Two of them
+now have tests and the third is deleted.
+
+### The 8254's GATE, and the test caught its own author out
+
+`[8254]`: "In Modes 0, 2, 3 and 4 the GATE input is level sensitive", and modes
+2 and 3 **reload on a rising gate edge**. Both are now asserted, in both
+directions -- a low gate holds the count where it stands, mode 0 resumes from
+there rather than restarting, and a gate that was already high is not an edge and
+reloads nothing.
+
+Writing it produced a failure that was **mine**: the first version expected both
+mode 2 and mode 3 to read 4 after two clocks from 6. Mode 3 is the square wave
+and decrements by **two** a clock, so it reads 2. The model was right and the
+expectation was wrong -- recorded because the reflex on a red assertion is to
+suspect the code, and here the code was the only thing that had been checked
+against the manual.
+
+### The absolute pointing packet
+
+`ap_board_mouse_move_absolute` composes the packet through `ap_kbd` and queues it
+on the keyboard's own wire under an all-or-nothing rule: the leading byte frames
+the three coordinate bytes, so a packet cut short by a full queue would make
+whatever went out next look like a coordinate. `board_suite` now puts a board in
+absolute mode, sends a position, and reads every byte back off the serial line in
+order -- so the board's side is checked against the part's, which is the join
+nothing covered.
+
+### And one deletion
+
+`ap_hash_dumping` was a getter for an optimisation nobody made -- "so a caller
+can skip work that only a dump needs", with no such caller. Deleted rather than
+tested: a predicate with no behaviour and no user is not worth an assertion, and
+dead code in the reference core is dead code.

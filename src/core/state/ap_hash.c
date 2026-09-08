@@ -10,8 +10,6 @@ void ap_hash_scope(ap_hash_t *st, const char *scope) {
   st->index = 0u;
 }
 
-bool ap_hash_dumping(const ap_hash_t *st) { return st->out != NULL; }
-
 void ap_hash_note_u32(ap_hash_t *st, const char *name, uint32_t v) {
   /* Suppressed inside a group for the same reason the fields are: the group's
    * one summary line is the dump's account of that run, and a derived line
