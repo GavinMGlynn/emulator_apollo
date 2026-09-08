@@ -451,6 +451,13 @@ void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl) {
   if ((size_t)base + words > AP_RING_CTL_BUFFER_WORDS) {
     return;
   }
+  if (!ctl->first_rx_captured) {
+    for (unsigned i = 0; i < AP_RING_CTL_XMIT_HEADER_BYTES; i++) {
+      ctl->first_rx_header[i] = i < header_bytes ? src[i] : 0u;
+    }
+    ctl->first_rx_deposit_at = base;
+    ctl->first_rx_captured = true;
+  }
   for (unsigned i = 0; i < words; i++) {
     const size_t lo = (size_t)i * 2u + 1u;
     ctl->buffer[base + i] =

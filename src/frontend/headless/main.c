@@ -2080,6 +2080,13 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
       fprintf(out, "   xmt_hdr %04X xmt_pkt %04X",
               board[i].ring.first_tx_hdr_count,
               board[i].ring.first_tx_pkt_count);
+      if (board[i].ring.first_rx_captured) {
+        fprintf(out, "\n  node %u  ring  first rx header", i);
+        for (unsigned b = 0; b < AP_RING_CTL_XMIT_HEADER_BYTES; b++) {
+          fprintf(out, " %02X", board[i].ring.first_rx_header[b]);
+        }
+        fprintf(out, "   deposited at %04X", board[i].ring.first_rx_deposit_at);
+      }
       fprintf(out, "   (station address %08X, addressed %llu)\n",
               board[i].ring_station.address,
               (unsigned long long)board[i].ring_station.frames_addressed);

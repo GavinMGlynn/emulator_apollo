@@ -689,6 +689,17 @@ typedef struct {
   uint16_t first_tx_hdr_count;
   uint16_t first_tx_pkt_count;
   bool first_tx_captured;
+
+  /* And the first frame this card **received**, at the moment it was deposited.
+   *
+   * The transmit side is captured above and the two are directly comparable: a
+   * frame that crossed intact should arrive as the bytes that left. With the
+   * interrupt path proven and the driver still not answering, what it was
+   * handed is the next thing no test can tell us -- `ring_station_suite` builds
+   * both ends of every frame it checks. */
+  uint8_t first_rx_header[AP_RING_CTL_XMIT_HEADER_BYTES];
+  uint16_t first_rx_deposit_at;
+  bool first_rx_captured;
 } ap_ring_ctl_t;
 
 /* Join a controller to a station on a medium. Both pointers are borrowed and

@@ -446,7 +446,21 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
           }
           s->rx_late = (uint8_t)(((unsigned)s->rx_late << 1) | (out ? 1u : 0u));
           if (++s->rx_late_bits >= 8u) {
-            if (s->rx_addressed) {
+            /* **A station does not copy its own frame**, and the frame it is
+             * stripping is its own by definition.
+             *
+             * §2.1 step 7 has a transmitter strip "until it finishes receiving
+             * its own frame", and stripping is how it recognises one; §2.2.2.2's
+             * delivery is what a *receiver* does. The two are exclusive, and
+             * this took the acceptance test alone -- which for a **broadcast**
+             * is unconditionally true, since "receivers ignore the destination
+             * address field". So a node that broadcast a request copied it back
+             * to itself: measured on two booted nodes, each was handed its own
+             * ninety bytes with its own ID at offset 8 and the early
+             * acknowledge at offset 7 changed from `00` to `0A` -- its own
+             * frame, once round the ring (`FINDINGS.md` C250). `lcnode` had
+             * nothing to answer because it was reading its own question. */
+            if (s->rx_addressed && !s->stripping) {
               if (s->receive_enabled) {
                 s->frames_copied++;
               } else {
