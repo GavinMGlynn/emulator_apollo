@@ -1223,6 +1223,16 @@ static void test_the_tapes_done_returns_at_the_dmas_terminal_count(void) {
                            AP_DMA_TAPE_CHANNEL));
   ap_i8237_write(host, AP_I8237_REG_MASK_SINGLE, (uint8_t)AP_DMA_TAPE_CHANNEL);
 
+  /* An 8-bit channel's DMA address reaches memory through the AT address
+   * translation map -- `019411-A00` §4.2.1.4, index from bus address <15:10>
+   * and offset from <9:0> -- so the entry the transfer will index has to name a
+   * page of main memory or the bytes go somewhere undecoded. Which entry is
+   * asked of the map rather than worked out here: the window the DMA index
+   * lands in is the map's own business and duplicating it would test the
+   * duplicate. */
+  b.translation_map.entry[ap_atmap_index(0x0100u, AP_ATMAP_TRANSFER_8BIT)] =
+      (uint16_t)(AP_BOARD_RAM_BASE >> AP_ATMAP_PAGE_SHIFT);
+
   ap_i8237_t *cascade = &b.dma.controller[AP_DMA_CASCADE_UNIT];
   ap_i8237_write(cascade, AP_I8237_REG_MODE,
                  (uint8_t)((AP_I8237_MODE_CASCADE << 6) |
@@ -1240,6 +1250,17 @@ static void test_the_tapes_done_returns_at_the_dmas_terminal_count(void) {
    * reads it. */
   TEST_ASSERT_TRUE((ap_board_read(&b, AP_TAPE_ADDR + 1u, &ok) &
                     AP_SC499_ST_DONE) != 0u);
+
+  /* **And the bytes are the cartridge's, in order.** DONE returning says the
+   * transfer ended; it says nothing about what moved, and nothing else in this
+   * core checks the tape's DMA path end to end. The physical address comes from
+   * the cycle rather than from the test's arithmetic, because the 16-bit DMA
+   * address reaches memory through the page register and the translation map
+   * and reconstructing that here would be testing the reconstruction. */
+  for (unsigned i = 0; i < BYTES; i++) {
+    const uint32_t at = b.dma_last_write - (BYTES - 1u - i);
+    TEST_ASSERT_EQUAL_HEX8(cartridge[i], ap_board_read(&b, at, &ok));
+  }
 }
 
 /* The DMA page register: what a machine without a translation map uses to
