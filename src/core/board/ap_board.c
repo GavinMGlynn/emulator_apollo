@@ -1151,9 +1151,25 @@ void ap_board_bus_tick(ap_board_t *board) {
      * terminal count is carried to it here, where the cycle that produced it
      * is. `[HIS]` p. 3-4 makes this `HSR`'s `DONE`, and `TCEN` turns it into an
      * interrupt on the line wired above. */
-    if (cycle.terminal_count &&
-        dma_peripheral(board, unit, cycle.channel) == DMA_PERIPHERAL_ETHERNET) {
-      ap_3c505_dma_terminal_count(&board->ethernet);
+    if (cycle.terminal_count) {
+      switch (dma_peripheral(board, unit, cycle.channel)) {
+      case DMA_PERIPHERAL_ETHERNET:
+        ap_3c505_dma_terminal_count(&board->ethernet);
+        break;
+      /* And the tape's, which had no line at all. `[SC499]` §1.9 calls the
+       * status bit "Done, **from DMA logic**" and §1.11 says RSTDMA "sets DONE
+       * to 1" while DMAGO starts a transfer, so DONE up is a card with nothing
+       * in flight. `ap_sc499_write` cleared it at DMAGO and nothing raised it,
+       * so the SR10.4 boot cartridge's READ DATA reported `002398-04` p. 4-17's
+       * `FF`, "timeout waiting for controller done". */
+      case DMA_PERIPHERAL_TAPE:
+        ap_tape_dma_terminal_count(&board->tape);
+        break;
+      case DMA_PERIPHERAL_FLOPPY:
+      case DMA_PERIPHERAL_WINCHESTER:
+      case DMA_PERIPHERAL_NONE:
+        break;
+      }
     }
   }
 }

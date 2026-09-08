@@ -356,6 +356,14 @@ bool ap_tape_dma_request(const ap_tape_t *tape) {
   if (!tape->drive.reading) {
     return false;
   }
+  /* **Not gated on `dma_active`**, which is the card's DMAGO latch, and the
+   * question is worth answering rather than leaving to look like an oversight.
+   * `[SC499]` §1.11's five-step sequence issues the transfer command *first*
+   * (step 1) and writes DMAGO third, and it tells the host to "set up the 8237
+   * DMA controller's register (but leave the mask bit set)" in between --
+   * clearing the mask only at step 4. A host is told to hold the channel masked
+   * across that window precisely because the card is already asking, so gating
+   * the request on DMAGO would make step 2's instruction pointless. */
   /* Bytes left in the block in hand, or another block to fetch. The request is
    * a level and stays up across the whole of it. */
   return (tape->block_valid && tape->offset < AP_CT_BLOCK_SIZE) ||
@@ -368,6 +376,10 @@ uint8_t ap_tape_dma_read(ap_tape_t *tape) {
    * block itself. Anything the programmed read does about running off the end
    * of the cartridge, this does too. */
   return ap_tape_read(tape, AP_TAPE_ADDR + AP_SC499_DATA);
+}
+
+void ap_tape_dma_terminal_count(ap_tape_t *tape) {
+  ap_sc499_dma_terminal_count(&tape->controller);
 }
 
 void ap_tape_dma_write(ap_tape_t *tape, uint8_t value) {

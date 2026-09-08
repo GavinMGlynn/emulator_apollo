@@ -15059,3 +15059,56 @@ as BOM.
 *Verification: `qic_suite` 27, five of whose tests asserted the reversed order --
 the case `CLAUDE.md` names, where "tests encode the same misreadings as the
 code". The order test fails on the old code at the first byte.*
+
+## C265 -- DONE was lowered by DMAGO and raised by nothing, and the cartridge now streams
+
+With the status block right, `DI C` returns to the prompt and `EX DOMAIN_OS`
+reaches the next command in the firmware's sequence: `80`, READ DATA. It then
+reported **`Tape FF`** -- and for the first time on this path that is a row of
+`002398-04` p. 4-17's own table: **"timeout waiting for controller done"**.
+
+### The bit, and what the guide says about it
+
+`[SC499]` §1.9 names the status bit's *source* rather than its meaning: bit 4,
+"Done, **from DMA logic**". §1.11 supplies the meaning in two halves. RSTDMA
+"initializes the DMA sequencer, clears all Control Register bits to 0, and
+**sets DONE to 1**", and the five-step sequence starts a transfer at step 3 with
+a write to DMAGO. So DONE up is a card with nothing in flight and DONE down is a
+transfer running -- which is why `ap_sc499_write` clears it at DMAGO. Control
+bit 4, `DNIEN`, "Enables DONE int", is the same statement from the other side:
+DONE is an *event* a driver may be interrupted by.
+
+**Nothing raised it again.** DONE was set by reset, cleared by DMAGO, and set by
+nothing, so a host that started a transfer and waited for its end waited for
+ever. What ends a transfer is the byte count, and the count lives in the 8237
+rather than on the card -- the card streams through a FIFO and has no length.
+So the signal is the `EOP` the 8237 drives at its terminal count, carried to the
+peripheral by the board, exactly as `ap_3c505_dma_terminal_count` already was.
+**The ethernet had that line and the tape did not.**
+
+### And with it, the cartridge streams
+
+Same invocation, 900 M instructions:
+
+    dma1 ch1   mode 45, address 0200 (base 0000), count FFFF (base 01FF)
+    dma        17807360 transfer(s)
+    regions    cartridge tape  133453168 reads,  34799 writes
+               main memory                     152945947 writes
+               DMA                 34780 reads, 313035 writes
+
+Mode `45` is single-cycle, write-to-memory, channel 1 -- the tape's own, Table
+2-4's DRQ1 -- with a 512-byte base count, which is `AP_SC499_BLOCK_BYTES`.
+**34,780 × 512 = 17,807,360**, so every transfer the controller ran is a byte of
+a whole block and no block is partial. The nine DMA register writes per block
+are §1.11 step 5, "Repeat above from step 2 for each subsequent block", and the
+34,799 tape register writes are one DMAGO apiece.
+
+**No tape error at all.** The run ended on its instruction limit, a third of the
+way through a 104,841-block cartridge, with the firmware still looping. That is
+not a boot and is not claimed as one; it is the first time this core has moved
+tape data under its own DMA.
+
+*Verification: `board_suite` 80 → 81, programming the 8237 for a short
+write-to-memory transfer on the tape's channel and requiring DONE back at its
+terminal count -- on the board, because the line that was missing is the board's.
+It fails on the old code. Identity boot `FE2BB02AEF1F4624` unchanged.*

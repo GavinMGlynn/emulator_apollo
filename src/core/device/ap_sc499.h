@@ -511,6 +511,27 @@ void ap_sc499_advance(ap_sc499_t *tape, ap_time_t now);
  * is ready for the next one. `[SC499]` §1.13.1 and Figure 1-5. */
 void ap_sc499_block_boundary(ap_sc499_t *tape);
 
+/* **The DMA transfer this card was told to run has ended**: the `EOP` the 8237
+ * drives at its terminal count, which the card latches as DONE.
+ *
+ * `[SC499]` §1.9 names the bit's source rather than its meaning -- bit 4,
+ * "Done, **from DMA logic**" -- and §1.11 supplies the meaning in two halves.
+ * RSTDMA "initializes the DMA sequencer, clears all Control Register bits to 0,
+ * and **sets DONE to 1**", and its five-step transfer sequence starts one with
+ * a write to DMAGO. So DONE up is *no transfer in flight* and DONE down is one
+ * running -- which is why `ap_sc499_write` clears it at DMAGO -- and the thing
+ * that ends a transfer is the byte count, which lives in the 8237 and not on
+ * this card. Control bit 4, `DNIEN`, "Enables DONE int", is the other half of
+ * the same statement: DONE is an *event* a driver may be interrupted by.
+ *
+ * **Nothing set it.** DONE was raised by reset, lowered by DMAGO, and raised
+ * again by nothing, so a host that started a transfer and waited for its end
+ * waited for ever -- and `002398-04` p. 4-17 has a status code for exactly that
+ * host: `FF`, "timeout waiting for controller done", which is what the SR10.4
+ * boot cartridge reports the moment it gets as far as READ DATA
+ * (`FINDINGS.md` C264). */
+void ap_sc499_dma_terminal_count(ap_sc499_t *tape);
+
 /* The host has taken the byte the device was holding on the bus: `QIC-02` §3.6.1
  * T11 -> T12, "T11->T12 < 1 U sec". READY goes down at once and stays down --
  * the device has nothing more to offer until the host releases REQUEST, which

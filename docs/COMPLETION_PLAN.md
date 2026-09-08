@@ -5015,11 +5015,21 @@ same number is what let them diverge once already.
       reaches the next command in the sequence — `80`, READ DATA — and reports
       **`Tape FF`**, which for the first time on this path *is* a row of p.
       4-17's table: "timeout waiting for controller **done**".
-      *What is left*: DONE. `AP_SC499_ST_DONE` is set by reset, cleared by a
-      write to DMAGO, and set again by nothing, so a host that starts a DMA
-      transfer and waits for its completion waits for ever. The tape's DRQ and
-      DACK are wired (`ap_board.c`), so the transfer itself has a path; what has
-      no path is its end.
+      **A seventh defect, and the cartridge streams** (`FINDINGS.md` C265).
+      `[SC499]` §1.9 calls status bit 4 "Done, **from DMA logic**" and §1.11
+      says RSTDMA "sets DONE to 1" while DMAGO starts a transfer — so DONE up is
+      a card with nothing in flight, and what ends a transfer is the byte count,
+      which lives in the 8237 and not on the card. **Nothing raised DONE again**:
+      set by reset, cleared by DMAGO, set by nothing. The `EOP` the 8237 drives
+      at terminal count now reaches the tape as it already reached the ethernet.
+      With it, 900 M instructions give `dma1 ch1 mode 45` — single, to memory,
+      channel 1, 512-byte count — and **17,807,360 transfers in 34,780 whole
+      blocks**, one DMAGO apiece, with **no tape error at all**; the run ends on
+      its instruction limit a third of the way through a 104,841-block
+      cartridge. `board_suite` 80 → 81.
+      *What is left*: whether it boots. The firmware is still looping when the
+      limit arrives, so nothing beyond "tape data moves under its own DMA" is
+      established. The next run is the same one with room to finish.
       **What it unblocks**: a cartridge boot on this core, and with it the SAU 14
       install that the DS5500 boot and the multi-node workloads item both want —
       without borrowing the oracle. *The media is confirmed held*: `019593-001`

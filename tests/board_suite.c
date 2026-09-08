@@ -1156,6 +1156,92 @@ static void test_a_ds3000_device_write_reaches_the_same_register(void) {
   TEST_ASSERT_TRUE(ap_sio_receiver_enabled(&ds4000.sio, 0u, 0u));
 }
 
+/* **DONE comes back at the DMA's terminal count, and nothing brought it back.**
+ *
+ * `[SC499]` §1.9 names the status bit's source rather than its meaning -- bit 4,
+ * "Done, **from DMA logic**" -- and §1.11 supplies the meaning in two halves:
+ * RSTDMA "initializes the DMA sequencer ... and **sets DONE to 1**", and its
+ * five-step sequence starts a transfer with a write to DMAGO. So DONE up is a
+ * card with nothing in flight, DONE down is a transfer running, and what ends
+ * one is the byte count -- which lives in the 8237, not on the card.
+ *
+ * `ap_sc499_write` cleared DONE at DMAGO and **nothing set it again**, so a host
+ * that started a transfer and waited for its end waited for ever. `002398-04`
+ * p. 4-17 has the status code for that host: `FF`, "timeout waiting for
+ * controller done", which is what the SR10.4 boot cartridge reports the moment
+ * it reaches READ DATA (`FINDINGS.md` C264).
+ *
+ * Tested on the board rather than on the part, because the line that was
+ * missing is the board's: the 8237's `EOP` reaching the card. The ethernet's
+ * equivalent was wired and the tape's was not. */
+static void test_the_tapes_done_returns_at_the_dmas_terminal_count(void) {
+  enum { BYTES = 4u };
+  static uint8_t cartridge[AP_CT_BLOCK_SIZE];
+  ap_board_t b;
+  bool ok = false;
+  init(&b);
+  for (unsigned i = 0; i < sizeof cartridge; i++) {
+    cartridge[i] = (uint8_t)(0x40u + (i & 0x3Fu));
+  }
+  TEST_ASSERT_TRUE(ap_tape_load(&b.tape, cartridge, sizeof cartridge,
+                                AP_QIC_CARTRIDGE_DC600A, false));
+
+  /* A drive selected and reading, which is the only state in which the tape
+   * asks for DMA cycles at all. Driven through the registers, in the figures'
+   * order: byte to the bus, REQUEST up, wait, REQUEST down. */
+  static const uint8_t commands[2] = {AP_QIC_CMD_SELECT, AP_QIC_CMD_READ};
+  ap_time_t now = 0u;
+  for (unsigned c = 0; c < 2u; c++) {
+    ap_board_write(&b, AP_TAPE_ADDR + 0u, commands[c], &ok);
+    ap_board_write(&b, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST, &ok);
+    now += ap_sc499_handshake_duration(AP_SC499_ENTRY_READY) +
+           ap_sc499_handshake_duration(AP_SC499_ENTRY_DIRECTION);
+    ap_board_advance(&b, now);
+    ap_board_write(&b, AP_TAPE_ADDR + 1u, 0u, &ok);
+    now += AP_SC499_T_CLOSE_MIN + AP_SC499_T_READY_REOPEN;
+    ap_board_advance(&b, now);
+  }
+  TEST_ASSERT_TRUE(b.tape.drive.reading);
+
+  /* Step 3 of §1.11's sequence, and the bit goes down: "Write (any value) to
+   * the tape controller register at BASE ADDRESS+2 (DMAGO)." */
+  TEST_ASSERT_TRUE(b.tape.controller.done);
+  ap_board_write(&b, AP_TAPE_ADDR + 2u, 0u, &ok);
+  TEST_ASSERT_FALSE(b.tape.controller.done);
+
+  /* Steps 2 and 4: the 8237 programmed for a short write-to-memory transfer on
+   * the tape's own channel, and the cascade that carries it to the bus. */
+  ap_i8237_t *host = &b.dma.controller[AP_DMA_TAPE_UNIT];
+  ap_i8237_write(host, AP_I8237_REG_CLEAR_FLIPFLOP, 0u);
+  ap_i8237_write(host, AP_DMA_TAPE_CHANNEL * 2u, 0x00u);
+  ap_i8237_write(host, AP_DMA_TAPE_CHANNEL * 2u, 0x01u); /* address 0100 */
+  ap_i8237_write(host, AP_DMA_TAPE_CHANNEL * 2u + 1u, (uint8_t)(BYTES - 1u));
+  ap_i8237_write(host, AP_DMA_TAPE_CHANNEL * 2u + 1u, 0x00u);
+  ap_i8237_write(host, AP_I8237_REG_MODE,
+                 (uint8_t)((AP_I8237_MODE_SINGLE << 6) |
+                           (AP_I8237_TRANSFER_WRITE << 2) |
+                           AP_DMA_TAPE_CHANNEL));
+  ap_i8237_write(host, AP_I8237_REG_MASK_SINGLE, (uint8_t)AP_DMA_TAPE_CHANNEL);
+
+  ap_i8237_t *cascade = &b.dma.controller[AP_DMA_CASCADE_UNIT];
+  ap_i8237_write(cascade, AP_I8237_REG_MODE,
+                 (uint8_t)((AP_I8237_MODE_CASCADE << 6) |
+                           AP_DMA_CASCADE_CHANNEL));
+  ap_i8237_write(cascade, AP_I8237_REG_MASK_SINGLE,
+                 (uint8_t)AP_DMA_CASCADE_CHANNEL);
+
+  /* Long enough for four bytes and the arbitration around them, and no longer:
+   * a loop that ran until the assertion passed would pass on any board. */
+  ap_board_bus_ticks(&b, 256u);
+
+  TEST_ASSERT_TRUE(b.dma_transfers >= BYTES);
+  TEST_ASSERT_TRUE(b.tape.controller.done);
+  /* And the status register says so to a driver, which is where the firmware
+   * reads it. */
+  TEST_ASSERT_TRUE((ap_board_read(&b, AP_TAPE_ADDR + 1u, &ok) &
+                    AP_SC499_ST_DONE) != 0u);
+}
+
 /* The DMA page register: what a machine without a translation map uses to
  * extend a DMA address. Storage only -- Table 2-6 names it and no manual here
  * gives its bits -- and it has to exist because the boot PROM writes it five
@@ -2860,6 +2946,7 @@ int main(void) {
   RUN_TEST(test_the_ds3000_ignores_the_five_high_address_bits);
   RUN_TEST(test_the_ds3000_takes_a_32k_prom_and_refuses_a_64k_one);
   RUN_TEST(test_a_ds3000_device_write_reaches_the_same_register);
+  RUN_TEST(test_the_tapes_done_returns_at_the_dmas_terminal_count);
   RUN_TEST(test_the_dma_page_registers_store);
   RUN_TEST(test_each_dma_channels_page_register_is_the_handbooks);
   RUN_TEST(test_the_cascade_channel_has_no_page_register);
