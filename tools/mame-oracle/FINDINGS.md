@@ -13536,11 +13536,36 @@ right authority and is why nothing was kept:
     step count was identical across all three attempts, so the ROM's transmit
     subtests are not in loopback where it matters.
 
-**So the exact match is load-bearing for the firmware in a way not yet
-understood**, and that is the question rather than the fix. What would settle
-it: the ROM's own writes to `+402` traced with their low lanes, against
-subtest 22's poll -- the firmware is on disk as `r3500.lst` and the subtest
-numbers are already mapped.
+**So the exact match is load-bearing for the firmware**, and tracing *why* --
+which is what this finding said to do next -- turned out to reach further than
+the register decode. Instrumenting the self-test's own station answers it in
+thirty seconds instead of a fifty-minute boot:
+
+    with the command lane masked:
+      d0 E0000022   station claims 0  forced 1  frames seen 0  copied 0
+                    completion STILL DEFERRED
+
+**The queue trigger is not the last problem.** With it corrected the ROM's `$6`
+hands the station a frame, the station finds a ring with no token on it and
+**starts one itself** -- §2.2.1.1's "generate a claimed token (after a specified
+timeout) in order to force transmission", which
+`ap_ring_station.c:205` has implemented all along -- and then the transmit
+**never completes**: no frame is ever seen, and the deferral subtest 22 polls
+against is still outstanding when the firmware gives up.
+
+*Two things this cost, both worth recording as errors rather than smoothed
+over.* `claims_made` was read as "the station never got the ring", and a forced
+token increments `forced_tokens` instead, so a segment that had to be started --
+which is every segment this core assembles -- reads `claims 0` while holding the
+ring. And on the strength of that, "nothing in `src/` ever originates a token"
+was about to be *implemented*, with a new counter and a new timeout, when
+`ap_ring_station.c:205` already does it from the same quotation and the same
+constant. Both reports now print `forced` beside `claims`.
+
+**So the remaining layer is in `ap_ring_station`'s transmit path**, not in the
+register decode: a station that holds the ring with a queued frame emits
+nothing that comes back. That is its own investigation and it now has a
+thirty-second harness.
 
 *The model is left in its proven state*: slot 0 merged against the last command,
 XMIT_STAT's `nct` derived from the connection, ring self-test byte-identical

@@ -2242,6 +2242,21 @@ static int run_ring_selftest(FILE *out, ap_model_id_t model,
   fprintf(out, "  ring         %u read(s), %u write(s)\n",
           board.region_reads[AP_BOARD_REGION_RING],
           board.region_writes[AP_BOARD_REGION_RING]);
+  /* **`forced` beside `claims`, because they are two ways onto the ring and
+   * only one of them was being counted.** §2.2.1.1 lets a station with no token
+   * generate a claimed one after a timeout, which `ap_ring_station_drive` does
+   * -- and it increments `forced_tokens`, not `claims_made`. Reading `claims 0`
+   * as "never got the ring" is therefore wrong on any segment that had to be
+   * started, which is every segment this core assembles. */
+  fprintf(out,
+          "  station      claims %llu  forced %llu  frames seen %llu  "
+          "copied %llu%s\n",
+          (unsigned long long)board.ring_station.claims_made,
+          (unsigned long long)board.ring_station.forced_tokens,
+          (unsigned long long)board.ring_station.frames_seen,
+          (unsigned long long)board.ring_station.frames_copied,
+          board.ring.a2.completion_deferred ? "  completion STILL DEFERRED"
+                                            : "");
   free(rom);
   return 0;
 }
