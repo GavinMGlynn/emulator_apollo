@@ -15705,3 +15705,86 @@ just come up.
 *Verification: `tape_suite` 26 -> 27. The test moves the tape off load point and
 spends the power-on condition first, so neither is true by accident, and fails
 on the old code at the position.*
+
+### Measured on the boot: three of the four errors are gone
+
+`tools/identity-boot.sh` first -- state hash `5AF8B16F9BA4B7D0`, report otherwise
+byte-identical, so the reference path is unchanged by the fix except through the
+tape. Then the cartridge boot, `/home/gavin/apollo-scratch/c264/ctbootD2.log`:
+
+    >EX DOMAIN_OS
+    low: 01002000  high: 01111FFF  start: 01002024
+
+    Domain/OS kernel(7), revision 10.4, February 14, 1992  11:42:25 am
+
+    bad tape read - trying normal shell -- 28001E
+
+    bad tape read - trying normal shell -- 28001E
+
+    can't find bscom/rbak_shell on tape - trying normal shell -- E0007
+
+    Apollo Phase II Environment   Revision 10.4   Jan 25, 1992  12:59:03 pm
+
+Against C269's console, **three lines are gone**: `boot error: rewinding, tape
+status=39: no drive`, `bad acquire tape -- 280011` and `bad rewind -- 280002`.
+The kernel now acquires the drive and rewinds it. What replaces them is a
+different error at a later stage, twice, and it has a different name.
+
+**This is a thermometer, not the item's verification.** The item's verification
+is the test, and it is above. The boot is recorded because it is what
+distinguishes "the driver takes a different path now" from "the same failure,
+reworded".
+
+## C271 -- `28001E` is `dma not at end of range`, and the channel moved six bytes of 32,768
+
+C270's boot left one tape error, printed twice: `bad tape read - trying normal
+shell -- 28001E`, followed by `can't find bscom/rbak_shell on tape -- E0007`.
+
+**`0028001E` is module `28`, the cartridge tape manager, code `001E`.**
+`002398-04` p. 4-14 gives it, in the middle of module 28's twenty-eight codes:
+
+    (0028001D)  unrecognized drive status
+    (0028001E)  dma not at end of range
+    (0028001F)  dma underrun/overrun
+
+Named from the document, not inferred. Its neighbours are the shape of the
+check: after a tape read the driver interrogates the **8237's own registers** and
+requires the channel to have reached the end of the range it programmed.
+
+### The end-of-run report says the same thing in the register
+
+    dma1 ch1      mode 45, address 0006 (base 0000), count 7FF9 (base 7FFF)
+
+Base word count `7FFF` is 32,768 transfers programmed -- a 32 KB read. Current
+count `7FF9` and current address `0006` say **six bytes moved**. That is
+`dma not at end of range`, stated by the part rather than by the driver.
+
+Mode `45` is `01 0 0 01 01`: single mode, address increment, no autoinitialise,
+**write transfer** (into memory, out of the device), channel 1 -- which is DRQ1,
+the tape, per `008778-03` Table 2-4. So the programming is a tape read of 32 KB
+and the channel stopped after six.
+
+**Six is not an arbitrary number**: `AP_QIC_STATUS_BYTES` is 6. But the report's
+other lines are a post-reset drive --
+
+    tape drive   block 0 of 104841, selected
+    tape board   no status block open; first block spent
+    tape card    status 37, control 00, ready, done, exs 8188
+
+`exs 8188` is `ST0 | FIL | ST1 | BOM | POR`: a drive at load point that has just
+been reset, holding a file mark. So this register state is what was **left**
+after the last thing the driver did, at the 1.9 G instruction limit and long
+after the `)` prompt -- it is consistent with a six-byte status read into a
+channel programmed for 32 KB, and it is not yet evidence that this is the
+transfer that failed.
+
+**Not claimed**: that the six bytes are the status block, or that the failing
+read is this one. This item has already cost four withdrawn readings taken from
+one observable, and a register snapshot at an instruction limit is exactly that
+kind of observable. What is established is the *name* -- the check is on the
+8237's range -- and that at the end of the run a tape channel programmed for
+32 KB holds six.
+
+*The next step is one pass that captures the whole exchange around the failure*
+-- the 8237 programming for channel 1, the command bytes, and the transfer
+counts -- as C270's lesson requires and as the plan item already says.

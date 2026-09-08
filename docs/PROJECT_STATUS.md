@@ -622,6 +622,55 @@ looking for.
 spends the power-on condition first, so neither is true by accident, and fails
 on the old code at the position. Detail in `FINDINGS.md` C270.*
 
+**Measured on the boot, and three of the four errors are gone.** Identity first
+— state hash `5AF8B16F9BA4B7D0`, report otherwise byte-identical — then the
+cartridge:
+
+```
+>EX DOMAIN_OS
+low: 01002000  high: 01111FFF  start: 01002024
+
+Domain/OS kernel(7), revision 10.4, February 14, 1992  11:42:25 am
+
+bad tape read - trying normal shell -- 28001E
+
+bad tape read - trying normal shell -- 28001E
+
+can't find bscom/rbak_shell on tape - trying normal shell -- E0007
+
+Apollo Phase II Environment   Revision 10.4   Jan 25, 1992  12:59:03 pm
+```
+
+`boot error: rewinding, tape status=39: no drive`, `bad acquire tape … 280011`
+and `bad rewind … 280002` are all gone: **the kernel acquires the drive and
+rewinds it.** What is left is a later failure with a different name.
+
+## `28001E` is `dma not at end of range` — named, not diagnosed (2026-09-09)
+
+`002398-04` p. 4-14 gives module 28's code `001E` as **`dma not at end of
+range`**, between `unrecognized drive status` and `dma underrun/overrun`. The
+check is on the **8237's own registers**: after a tape read the driver requires
+the channel to have reached the end of the range it programmed.
+
+The end-of-run report states the same condition from the part's side:
+
+```
+dma1 ch1      mode 45, address 0006 (base 0000), count 7FF9 (base 7FFF)
+```
+
+Base count `7FFF` is 32,768 transfers programmed; current count `7FF9` and
+address `0006` are **six moved**. Mode `45` is single, increment, no
+autoinitialise, write-to-memory, channel 1 — DRQ1, the tape (`008778-03`
+Table 2-4). So a 32 KB tape read that stopped after six bytes.
+
+**Not diagnosed, deliberately.** That snapshot is taken at the 1.9 G instruction
+limit, long after the `)` prompt, with the drive reset and at load point (`exs
+8188` = `ST0 | FIL | ST1 | BOM | POR`); it is consistent with the failing read
+and is not evidence of it. This item has already spent four readings taken from
+one observable. The next step is one pass capturing the whole exchange — the
+8237 programming for channel 1, the command bytes, the transfer counts —
+not another single-register inference. `FINDINGS.md` C271.
+
 ## The SR10.4 cartridge boots (2026-09-09)
 
 ```

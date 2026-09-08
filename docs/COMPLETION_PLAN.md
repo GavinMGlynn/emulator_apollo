@@ -4956,62 +4956,52 @@ same number is what let them diverge once already.
       29, `ct_suite` 12 → 13, `sc499_suite` 27 → 28, `board_suite` 80 → 81.*
       Detail in `PROJECT_STATUS.md`; `FINDINGS.md` C261-C269.
 
-- [ ] **The kernel's own tape driver cannot acquire the drive: `280011`.**
-      Found 2026-09-09 the moment the cartridge booted. Between SYSBOOT and the
-      `)` prompt the console prints `boot error: rewinding, tape status=39: no
-      drive`, then `bad acquire tape - trying normal shell -- 280011` and `bad
-      rewind - trying normal shell -- 280002`, and the environment comes up
-      without its tape.
-      **`00280011` is module `28`, the cartridge tape manager, code `0011`.**
-      `002398-04` p. 82 gives it as *"drive does not exist"* and the walk record
-      pairs it with `QIC-02` §5.3 **row 2**, "No drive"; p. 12-5 prints that row
-      as byte 0 `11110000`; and the same page's module-28 warning band has
-      *"tape unit is offline"* for the unselected condition. Three statements of
-      one thing, and `ap_qic_exception_word` composes byte 0 `F0` in exactly one
-      circumstance — `!selected`, where `USL` comes from.
-      **"So the drive is being deselected" — WITHDRAWN 2026-09-09, by the
-      measurement it asked for.** Watching every write to `050000` through
-      1.78 G instructions gives five commands from the PROM — `C0`, `80`, `C0`,
-      `A0`, `80` — and then three more `C0` READ STATUS, the last two from PCs
-      `3C4A4FB2` and `3C4A4AE2`, which is Domain/OS rather than the PROM.
-      **No SELECT is issued at any point.** Nothing else in this model clears
-      `selected`, and both `ap_qic_init` and `ap_qic_reset` set it, so the drive
-      cannot be deselected and byte 0 cannot be `F0` that way.
-      **And the `FF` reading that replaced it is wrong too, measured the same
-      way.** Watching *reads* of `050000`, the PROM's status bytes come back
-      correct at every point: `00`/`89` at the first READ STATUS, then `81`/`00`
-      twice — `ST0 | FIL`, §5.3's *Filemark read* row, which is exactly right
-      for a read that ended at a mark. The status path works and delivers real
-      bytes; nothing reads `FF`.
-      **"Spinning on a READY that never comes" is wrong too** — the third
-      inference in a row killed by the run that was meant to confirm it, and the
-      pattern is the lesson: each one read a mechanism off a partial observable.
-      What the same run's *report* says is that the drive is **working**:
+- [x] **The kernel's own tape driver cannot acquire the drive: `280011`** —
+      closed 2026-09-09. `[SC499]` §1.12's NOTE, "Microprocessor RESET will also
+      cause a tape drive reset": this core's RSTSAC reset the controller alone,
+      so a host that pulsed it got a drive still mid-tape with no `POR`. **Four
+      readings were published and withdrawn first** — deselection, an undriven
+      `FF`, a spin on READY, a stale status block — each taken off a
+      single-address watch; the answer came from printing the board's own half
+      of the transfer and reading the report.
+      *Verification: the environment comes up with its tape acquired — met.
+      `boot error: rewinding, tape status=39: no drive`, `bad acquire tape …
+      280011` and `bad rewind … 280002` are all gone from the console; the
+      kernel acquires the drive and rewinds it. `tape_suite` 26 → 27, the test
+      moving the tape off load point and spending the power-on condition first
+      so neither is true by accident. Identity `5AF8B16F9BA4B7D0`, report
+      otherwise byte-identical.* Detail in `PROJECT_STATUS.md`; `FINDINGS.md`
+      C270.
 
-          tape drive   block 98263 of 104841, selected, reading
-          tape card    status 5F, control 40, exception, done, to host, exs 0000
-          final PC     3C43F5A8 -> 010421A8 (main memory)
-          dma          35531776 transfer(s)
+- [ ] **The tape read leaves the DMA channel short of its range: `28001E`.**
+      Found 2026-09-09, the moment `280011` was fixed. The console now prints
+      `bad tape read - trying normal shell -- 28001E` **twice**, then `can't
+      find bscom/rbak_shell on tape - trying normal shell -- E0007`, and the
+      Phase II environment comes up on its own shell rather than the tape's.
+      **`0028001E` is module `28` code `001E`, `002398-04` p. 4-14:
+      *"dma not at end of range"***, sitting between `unrecognized drive status`
+      and `dma underrun/overrun`. Its neighbours give the shape: after a tape
+      read the driver interrogates the **8237's own registers** and requires the
+      channel to have reached the end of the range it programmed.
+      *One register reading, offered as a lead and not as a diagnosis*: the
+      end-of-run report has `dma1 ch1 mode 45, address 0006 (base 0000), count
+      7FF9 (base 7FFF)` — 32,768 transfers programmed, **six moved** — with mode
+      `45` being single, increment, no autoinit, write-to-memory on DRQ1, which
+      `008778-03` Table 2-4 gives as the tape. But that snapshot is taken at the
+      1.9 G instruction limit, long after the `)` prompt, with the drive reset
+      and at load point (`exs 8188` = `ST0 | FIL | ST1 | BOM | POR`), so it is
+      *consistent with* the failing read and is not evidence of it.
+      **The predecessor item spent four readings taken from one observable and
+      withdrew all four.** The next step is therefore one pass capturing the
+      whole exchange around the failure — the 8237 programming for channel 1,
+      the command bytes, the block boundaries and the transfer counts — not
+      another single-register inference.
+      *Already walked, so this is not a table gap*: `[8237]` is 19 of 19 pages
+      confirmed (`INTEL_WALK.md`), and `QIC-02` §3.6.5/§3.6.6 and `[SC499]`
+      §1.11 were walked event by event this session.
+      *Verification: the environment comes up running the tape's `rbak_shell`,
+      with no `28001E` and no `E0007`.*
 
-      The position advanced to 98,263 of 104,841, `reading` is still set, the
-      processor is in Domain/OS code rather than a PROM loop, and 35.5 M bytes
-      moved by DMA besides. The 14.8 M reads at PC `3C4A4A6A` are the driver
-      *streaming tape data*, not polling a stuck line — and the log's own
-      ordering puts `bad acquire tape` **after** essentially all of them.
-      **What is measured, and nothing beyond it**: the status path delivers
-      correct bytes; the kernel reads the tape at length and then reports
-      `280011` and `280002`; and at the limit the card shows `EXC` asserted with
-      `control 40` (REQUEST held) while the drive's own exception word is
-      `0000` — the controller holding a condition the drive does not.
-      *Why* is not established, and this item has had three guesses too many.
-      The next step is one pass that captures the whole exchange around the
-      failure — control writes, data writes, status reads — rather than another
-      single-address watch answering one question at a time.
-      *Already measured, and orderly*: the PROM's own command sequence is `C0`,
-      `80`, `C0`, **`A0` READ FILE MARK**, `80` — the firmware using the
-      file-mark command this session implemented, corroborating it from the
-      machine rather than only from the media.
-      *Verification: the environment comes up with its tape acquired.*
 
 - [ ] **Three ring timeout status bits are defined and set by nobody.**
       `AP_RING_CTL_STATUS_TMO`, `AP_RING_CTL_XMIT_TMO` and `AP_RING_CTL_RCV_PE`
