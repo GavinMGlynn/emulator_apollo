@@ -259,10 +259,50 @@ static void test_cable_makes_a_small_ring_longer_than_its_token(void) {
   TEST_ASSERT_EQUAL_UINT(15u, ap_ring_medium_circumference_bits(&m));
   TEST_ASSERT_TRUE(ap_ring_medium_circumference_bits(&m) > AP_RING_OOB_BITS);
 
-  /* A bypassed node contributes neither its bit nor its cable, for the same
-   * reason it contributes no delay. */
+  /* **A bypassed node loses its retiming bit and keeps its cable**, so
+   * fifteen becomes fourteen and not ten. `[MAC]` §3.5's relays "connect a
+   * node's input coaxial cable to its output coaxial cable" -- both stay in
+   * the loop, and no relay has ever shortened a cable plant. What the relays
+   * cost nothing in is *delay*, which is a different thing from length.
+   *
+   * *This assertion read `10u` until 2026-09-08, with the comment "a bypassed
+   * node contributes neither its bit nor its cable, for the same reason it
+   * contributes no delay". The reason was the model's, not the manual's, and
+   * the test encoded it faithfully. Kept because it is what let a two-node
+   * segment shrink to one bit whenever one card was still bypassed --
+   * `FINDINGS.md` C251.* */
   ap_ring_medium_set_bypass(&m, 0, true);
-  TEST_ASSERT_EQUAL_UINT(10u, ap_ring_medium_circumference_bits(&m));
+  TEST_ASSERT_EQUAL_UINT(14u, ap_ring_medium_circumference_bits(&m));
+  /* And the plant does not move at all: a relay is not a pair of wire
+   * cutters. */
+  TEST_ASSERT_EQUAL_UINT(15u, ap_ring_medium_plant_bits(&m));
+}
+
+/* And the cable of a bypassed node really does carry the signal, which is the
+ * half of §3.5 that a circumference alone cannot show.
+ *
+ * Two nodes, all the cable on the one that gets bypassed. Before the
+ * correction the ring lost that cable entirely and a cell came back to its
+ * sender in one bit time; now it comes back delayed by the cable it went
+ * through, which is what "input coax joined to output coax" means. */
+static void test_a_bypassed_node_still_carries_its_cable(void) {
+  ap_ring_medium_t m;
+  ap_ring_medium_init(&m);
+  const int a = ap_ring_medium_attach(&m);
+  const int b = ap_ring_medium_attach(&m);
+  ap_ring_medium_set_cable_bits(&m, b, 3u);
+  ap_ring_medium_set_bypass(&m, b, true);
+  /* One retiming bit at `a`, none at `b`, plus `b`'s three bits of coax. */
+  TEST_ASSERT_EQUAL_UINT(4u, ap_ring_medium_circumference_bits(&m));
+
+  ap_ring_medium_transmit(&m, a, mark(1));
+  for (unsigned t = 0; t < 3u; t++) {
+    ap_ring_medium_advance(&m);
+    ap_ring_medium_transmit(&m, a, mark(2)); /* nothing else on the wire */
+    TEST_ASSERT_FALSE(same(mark(1), ap_ring_medium_receive(&m, a)));
+  }
+  ap_ring_medium_advance(&m);
+  TEST_ASSERT_TRUE(same(mark(1), ap_ring_medium_receive(&m, a)));
 }
 
 int main(void) {
@@ -270,6 +310,7 @@ int main(void) {
   RUN_TEST(test_a_cable_delays_a_cell_by_its_length);
   RUN_TEST(test_a_cable_longer_than_the_medium_models_is_refused);
   RUN_TEST(test_cable_makes_a_small_ring_longer_than_its_token);
+  RUN_TEST(test_a_bypassed_node_still_carries_its_cable);
   RUN_TEST(test_attaching_hands_out_slots_in_cable_order);
   RUN_TEST(test_a_cell_moves_exactly_one_hop_per_bit_clock);
   RUN_TEST(test_a_cell_returns_to_its_sender_after_one_lap);

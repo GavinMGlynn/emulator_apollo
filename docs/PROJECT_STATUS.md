@@ -434,6 +434,40 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## A relay is not a pair of wire cutters (2026-09-08, FIXED)
+
+The gap the token-length work exposed, closed the same day. `ap_ring_medium`
+walked past a bypassed slot **and its cable**, so bypassing a node shortened the
+ring — where `[MAC]` §3.5 has the relays "connect a node's input coaxial cable
+to its output coaxial cable", both of which stay in the loop. What a bypassed
+node costs nothing in is *delay*: its relays add no bit time. Length and delay
+are different things, and one comment was doing for both.
+
+**What it cost, measured before the fix rather than argued.** On a two-node
+segment where the padded node was the bypassed one, the live circumference was
+**one bit** — which cannot carry a nine-bit token — so the connected node forced
+a token where it should have claimed a circulating one. It decided which of
+§2.2.1.1's two routes onto the ring was taken while a segment was
+half-connected, and nothing once every node was in the ring.
+
+**What changed.** `ap_ring_medium_advance` now walks the cable in path order
+from a node that drives it: a slot in the ring puts its own `driving` onto its
+cable, a bypassed one puts through whatever arrived. Every delay line's *output*
+is read before any input is written, so a run of bypassed nodes is crossed
+within one bit time plus whatever their cables hold — §3.5's relays exactly —
+and what a cable delivers still cannot depend on the order slots are visited in.
+`circumference_bits` keeps a bypassed node's cable and drops only its retiming
+bit.
+
+*Verification: `ring_medium_suite` 12 → 13. The new test puts all the cable on
+the node that gets bypassed and requires a cell to come back to its sender
+delayed by that cable rather than immediately. And an existing assertion was
+**corrected**: it read `10u` with the comment "a bypassed node contributes
+neither its bit nor its cable", which was the model's reason and not the
+manual's — fifteen bits become fourteen, not ten. The original is kept beneath
+the correction. Ring ROM self-test byte-identical (`d0 0`, 7,263,778 steps),
+identity boot `FE2BB02AEF1F4624` unchanged, `ctest` 140/140 both presets.*
+
 ## The ring had no token, twice over (2026-09-08, FIXED)
 
 Two defects, found by asking a question no ring test had asked: **two stations

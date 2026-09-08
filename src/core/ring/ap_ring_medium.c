@@ -111,58 +111,59 @@ ap_ring_cell_t ap_ring_medium_receive(const ap_ring_medium_t *m, int slot) {
   return m->node[slot].received;
 }
 
-/* The nearest slot upstream of `slot` that actually *drives* the cable:
- * attached and in the ring.
+/* The nearest attached slot upstream of `slot`, whether or not it is in the
+ * ring.
  *
- * Both kinds of skipped slot are skipped for the same reason -- neither is a
- * retiming element. A detached slot is a gap in the cable. A bypassed one is a
- * pair of relays joining input coax to output coax (`[MAC]` §3.5), which is
- * also just cable: it adds no bit delay, which is why it contributes none to
- * `ap_ring_medium_delay_centibits` either. So the signal crosses any run of
- * them within one bit time and the search walks past them.
+ * **A bypassed slot is not skipped, and that is a correction.** This used to
+ * walk past both kinds of skipped slot for one stated reason -- neither is a
+ * retiming element -- and walking past a bypassed node took its *cable* with
+ * it, so bypassing a node shortened the ring. `[MAC]` §3.5's own sentence is
+ * that the relays "connect a node's input coaxial cable to its output coaxial
+ * cable": both cables stay in the loop and no relay has ever shortened a cable
+ * plant. What a bypassed node contributes nothing to is the *delay* -- its
+ * relays add no bit time, which is why it still counts for nothing in
+ * `ap_ring_medium_delay_centibits` -- and its cable is a separate thing from
+ * its relays.
  *
- * **`PROVISIONAL`, and the gap is named rather than implied: walking past a
- * bypassed node also walks past its *cable*, so bypassing a node shortens the
- * ring.** §3.5's own sentence is that the relays "connect a node's input
- * coaxial cable to its output coaxial cable" -- both cables stay in the loop,
- * and no relay has ever shortened a cable plant. Modelling the outgoing cable
- * of a bypassed node needs its delay line fed from the previous line's output
- * within the same bit time, which is a cascade of shift registers and wants a
- * read-all-then-write-all pass rather than the single loop below.
+ * A **detached** slot is still skipped, and for a different reason: it is a gap
+ * in the cable, a slot with no node and no coax in it at all.
  *
- * Measured consequence, so the cost is stated rather than guessed: on a
- * two-node segment where the padded node is the bypassed one, the live
- * circumference is one bit, which cannot carry a nine-bit token -- so the
- * connected node forces one where it should have claimed a circulating one
- * (`FINDINGS.md` C251). It changes which of §2.2.1.1's two routes onto the ring
- * is taken while a segment is half-connected, and nothing once every node is
- * in the ring. A named plan item.
+ * The walk runs a full lap, so a ring with exactly one attached slot finds that
+ * slot as its own upstream -- which is right: its signal goes round and comes
+ * back.
  *
- * The walk runs a full lap, so a ring with exactly one driving node finds that
- * node as its own upstream -- which is right: its signal goes round the
- * bypassed nodes and comes back. */
-static int driver_upstream_of(const ap_ring_medium_t *m, unsigned slot) {
+ * Measured consequence of the old behaviour, kept because it is what found
+ * this: on a two-node segment where the padded node was the bypassed one, the
+ * live circumference was **one bit**, which cannot carry a nine-bit token, so
+ * the connected node forced a token where it should have claimed a circulating
+ * one (`FINDINGS.md` C251). */
+static unsigned attached_upstream_of(const ap_ring_medium_t *m, unsigned slot) {
   for (unsigned step = 1u; step <= m->slots; step++) {
     const unsigned i = (slot + m->slots - step) % m->slots;
-    if (m->node[i].attached && ap_ring_node_in_ring(m->node[i].bypass)) {
-      return (int)i;
+    if (m->node[i].attached) {
+      return i;
     }
   }
-  return -1;
+  return slot;
 }
 
-/* Put `in` onto the cable leaving `slot` and return what emerges at its far
- * end this bit time. With no cable the two are the same cell, which is what
- * makes a zero-length link behave exactly as it did before cables existed. */
-static ap_ring_cell_t cable_shift(ap_ring_node_t *n, ap_ring_cell_t in) {
-  if (n->cable_bits == 0u) {
-    return in;
-  }
+/* What is emerging from the cable leaving `slot` this bit time, read before
+ * anything is written into any cable. A zero-length link has nothing stored, so
+ * its output is whatever is put in and it is resolved during the walk instead.
+ *
+ * Split from the write half so that every delay line's *output* is taken from
+ * its old contents: a bypassed node's cable is fed from its upstream
+ * neighbour's cable within the same bit time, and without this split what a
+ * cable delivered would depend on the order slots were visited in. */
+static ap_ring_cell_t cable_head(const ap_ring_node_t *n) {
+  return n->line[n->line_head % n->cable_bits];
+}
+
+/* Put `in` onto the cable leaving `slot`, having already taken its output. */
+static void cable_push(ap_ring_node_t *n, ap_ring_cell_t in) {
   const unsigned head = n->line_head % n->cable_bits;
-  const ap_ring_cell_t out = n->line[head];
   n->line[head] = in;
   n->line_head = (head + 1u) % n->cable_bits;
-  return out;
 }
 
 void ap_ring_medium_advance(ap_ring_medium_t *m) {
@@ -171,26 +172,67 @@ void ap_ring_medium_advance(ap_ring_medium_t *m) {
     return;
   }
 
-  /* Every receiver is settled from what emerges from a cable, and every cable
-   * is fed from a *driven* cell placed before this call. Nothing reads a
-   * receiver, so there is no order dependence between slots and no way for a
-   * cell to cross two driving nodes in one bit time -- the ring's whole timing
-   * argument rests on exactly one hop per clock between retiming elements.
+  /* **Pass one: every delay line's output, before any input is written.**
    *
-   * §3.5's two relay connections are independent and both are modelled here:
-   * the input-coax-to-output-coax path is what `driver_upstream_of` walks
-   * across, and the transmit-to-receive path is the loopback below. Making the
-   * second *replace* the first was the bug the pass-through test caught -- a
-   * bypassed node then swallowed the ring instead of passing it on.
-   *
-   * The cables are shifted for every slot before anything is delivered, so a
-   * cable's contents cannot depend on the order slots are visited in. */
+   * Nothing reads a receiver here, and every cable's output is its own old
+   * contents, so there is no order dependence between slots and no way for a
+   * cell to cross two *driving* nodes in one bit time -- the ring's whole
+   * timing argument rests on exactly one hop per clock between retiming
+   * elements. A run of bypassed nodes is crossed within one bit time plus
+   * whatever their cables hold, which is what §3.5's relays do. */
   ap_ring_cell_t from_cable[AP_RING_MAX_NODES];
   for (unsigned i = 0; i < m->slots; i++) {
-    if (!m->node[i].attached || !ap_ring_node_in_ring(m->node[i].bypass)) {
+    from_cable[i] = (ap_ring_cell_t){0};
+    if (m->node[i].attached && m->node[i].cable_bits > 0u) {
+      from_cable[i] = cable_head(&m->node[i]);
+    }
+  }
+
+  /* **Pass two: walk the cable in order, starting at a node that drives it.**
+   *
+   * A slot in the ring puts its own `driving` onto its cable; a bypassed one
+   * puts through whatever arrived, §3.5's input coax joined to output coax. The
+   * walk has to start somewhere its input is known, which is any node still in
+   * the ring. A segment with none is pure cable with no source: it circulates
+   * what its lines already hold, and `carried` is seeded from the upstream
+   * line so a lap of stored cells still comes round. */
+  int first = -1;
+  for (unsigned i = 0; i < m->slots; i++) {
+    if (m->node[i].attached && ap_ring_node_in_ring(m->node[i].bypass)) {
+      first = (int)i;
+      break;
+    }
+  }
+  if (first < 0) {
+    for (unsigned i = 0; i < m->slots; i++) {
+      if (m->node[i].attached) {
+        first = (int)i;
+        break;
+      }
+    }
+  }
+  if (first < 0) {
+    m->bit_time++;
+    return;
+  }
+  ap_ring_cell_t carried = from_cable[attached_upstream_of(m, (unsigned)first)];
+  for (unsigned step = 0; step < m->slots; step++) {
+    const unsigned i = ((unsigned)first + step) % m->slots;
+    if (!m->node[i].attached) {
       continue;
     }
-    from_cable[i] = cable_shift(&m->node[i], m->node[i].driving);
+    const ap_ring_cell_t in = ap_ring_node_in_ring(m->node[i].bypass)
+                                  ? m->node[i].driving
+                                  : carried;
+    if (m->node[i].cable_bits > 0u) {
+      cable_push(&m->node[i], in);
+    } else {
+      /* A zero-length link is a wire, not a register: what goes in comes out
+       * the same bit time, which is what makes it behave exactly as it did
+       * before cables existed. */
+      from_cable[i] = in;
+    }
+    carried = from_cable[i];
   }
 
   for (unsigned i = 0; i < m->slots; i++) {
@@ -200,13 +242,13 @@ void ap_ring_medium_advance(ap_ring_medium_t *m) {
     if (ap_ring_node_loopback(m->node[i].bypass)) {
       /* "these relays connect the node's transmit output to its receive
        * input" -- so a bypassed node hears itself, while the ring's signal
-       * goes past it untouched. */
+       * goes past it untouched. Both halves of §3.5 are independent and both
+       * are modelled: the pass-through is the walk above, and making this one
+       * *replace* it was the bug the pass-through test caught. */
       m->node[i].received = m->node[i].driving;
       continue;
     }
-    const int up = driver_upstream_of(m, i);
-    m->node[i].received =
-        (up >= 0) ? from_cable[(unsigned)up] : (ap_ring_cell_t){0};
+    m->node[i].received = from_cable[attached_upstream_of(m, i)];
   }
 
   m->bit_time++;
@@ -228,13 +270,19 @@ int ap_ring_medium_delay_centibits(const ap_ring_medium_t *m,
 unsigned ap_ring_medium_circumference_bits(const ap_ring_medium_t *m) {
   unsigned total = 0u;
   for (unsigned i = 0; i < m->slots; i++) {
-    if (!m->node[i].attached || !ap_ring_node_in_ring(m->node[i].bypass)) {
+    if (!m->node[i].attached) {
       continue;
     }
-    /* One bit for the station's own retiming, plus the cable it drives. A
-     * bypassed node contributes neither, for the same reason it contributes no
-     * delay: its relays are cable with no length of their own here. */
-    total += 1u + m->node[i].cable_bits;
+    /* The cable always, the retiming bit only when the node is in the ring.
+     * A bypassed node's **relays** have no length of their own, which is why
+     * it contributes no delay -- but the coax they are spliced into is still
+     * there, which is why its cable counts. Corrected 2026-09-08; this used to
+     * skip a bypassed slot entirely, so bypassing a node shortened the ring.
+     * `attached_upstream_of` carries the reasoning and the measured cost. */
+    total += m->node[i].cable_bits;
+    if (ap_ring_node_in_ring(m->node[i].bypass)) {
+      total += 1u;
+    }
   }
   return total;
 }

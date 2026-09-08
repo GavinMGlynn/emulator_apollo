@@ -5846,28 +5846,17 @@ same number is what let them diverge once already.
       and the same console, so the reference path does not depend on it. Detail
       in `PROJECT_STATUS.md`.
 
-- [ ] **A bypassed node's cable is skipped, so bypassing a node shortens the
-      ring.** `PROVISIONAL` in `ap_ring_medium.c`'s `driver_upstream_of`, found
-      2026-09-08 while giving segments enough length to carry a token
-      (`FINDINGS.md` C251). `[MAC]` §3.5's own sentence is that the relays
-      "connect a node's input coaxial cable to its output coaxial cable" --
-      both cables stay in the loop, and no relay has ever shortened a cable
-      plant. This model walks past a bypassed slot entirely, cable included, so
-      `ap_ring_medium_circumference_bits` and `_delay_centibits` both drop it.
-      *What it costs, measured rather than guessed*: on a two-node segment where
-      the padded node is the bypassed one, the live circumference is one bit,
-      which cannot carry a nine-bit token -- so the connected node **forces** a
-      token where it should have claimed a circulating one. It changes which of
-      §2.2.1.1's two routes onto the ring is taken while a segment is
-      half-connected, and nothing once every node is in the ring.
-      *What it needs*: a bypassed node's delay line fed from the previous line's
-      output within the same bit time, which is a cascade of shift registers and
-      wants a read-all-then-write-all pass rather than `advance`'s single loop.
-      No existing test combines cable with bypass, so the change is invisible to
-      the suite until one does -- which is the test it lands with.
-      *Verification: a bypassed node with cable delays the ring by that cable's
-      length, and a two-node segment keeps its circumference when either node
-      bypasses.*
+- [x] **A bypassed node's cable is skipped, so bypassing a node shortens the
+      ring** — found and fixed 2026-09-08. `[MAC]` §3.5's relays "connect a
+      node's input coaxial cable to its output coaxial cable"; this model walked
+      past a bypassed slot and took its cable with it. Length and delay are
+      different things and one comment was doing for both.
+      *Verification: `ring_medium_suite` 12 → 13 — all the cable on the node
+      that gets bypassed, and a cell must come back to its sender delayed by it;
+      plus a corrected assertion, 15 bits becoming 14 and not 10, with the
+      original kept beneath. Ring ROM self-test byte-identical, identity boot
+      `FE2BB02AEF1F4624` unchanged. Detail in `PROJECT_STATUS.md`;
+      `FINDINGS.md` C251.*
 
 - [ ] **Three ring timeout status bits are defined and set by nobody.**
       `AP_RING_CTL_STATUS_TMO`, `AP_RING_CTL_XMIT_TMO` and `AP_RING_CTL_RCV_PE`
