@@ -434,6 +434,56 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## Eighteen asks, one frame: the transmit enable was never released
+## (2026-09-08, FIXED)
+
+    node 0  ring  XMIT_CMD 26 write(s), 18 with ten, 1 rising
+
+**Domain/OS asked eighteen times and this core armed one frame.** `+402`'s
+trigger fires on `ten`'s **rising** edge — p. 12-32 makes `ten` a level — and
+nothing cleared the latch, so after the first frame there was never another
+edge. The driver writes `$0200` unbroken with no completing `$6` and no other
+command between them, which the new XMIT_CMD log shows outright; the region
+total that preceded it could not tell "asked and was declined" from "never
+asked".
+
+**The bit was already being cleared, one lane along.**
+`ring_ctl_complete_operation` has cleared `command_402_status`'s bit 6 since
+subtest 23 required it, and `RING.md` 97d reads p. 12-31's XMIT_STAT low byte
+and names that bit `xen`, transmit enable. So the status said the enable was
+released and the latch behind it did not follow — one bit, held twice, updated
+once. `w->xmit_enabled = false` beside the line that clears it.
+
+**And that is the two-node ring item.** Same invocation, 1.5 G instructions per
+node, nothing else changed:
+
+    node 0  ring  claims 71  frames seen 104  copied 33   forced 0
+    node 1  ring  claims 52  frames seen 124  copied 71   forced 1
+    node 0  ring  first rx header 00 00 00 00 94 00 00 00 00 02 22 22
+    node 1  ring  first rx header 00 00 00 00 90 00 00 00 00 01 23 45
+
+Each node's received frames carry **the other's ID** at offset 8, where every
+run before this had node 0 reading its own broadcast back. Both read
+`ack 4A cpd icopy` off their own returning frames, so both ends say a frame
+crossed — §2.2.2.5's read-back between two machines. And node 0 **forces
+nothing**: `forced 0` against 71 claims, because the token now circulates and
+there is one to take.
+
+*Verification: ring ROM self-test **byte-identical** (`d0 0`, 7,263,778 steps,
+1,321,914 reads / 927,828 writes) — a `$6` after a `$2` is still one transmit,
+because the `$2` before it either runs in digital loopback and never completes
+or completes through the ring after its frame has gone. Identity boot
+`FE2BB02AEF1F4624` unchanged, `ctest` 140/140 both presets. Detail in
+`FINDINGS.md` C252.*
+
+**What is still open, and it is not a ring question.** `/com/lcnode` reports "No
+other nodes responded" on both nodes while 104 and 124 frames go past and 33 and
+71 are copied. The frames cross, are addressed, are copied and are acknowledged;
+what does not happen is a **reply**, which is Domain/OS protocol — the bytes are
+captured and never decoded, and a reply is a `THANK_YOU` (`002398-04` p. 7-31's
+type `20`). Every ring defect so far has been "the core does what the documents
+say it should not"; this one has no manual behind it.
+
 ## A relay is not a pair of wire cutters (2026-09-08, FIXED)
 
 The gap the token-length work exposed, closed the same day. `ap_ring_medium`
@@ -11540,7 +11590,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 40 tests sweeping every device field by field |
 | Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 58 tests, incl. the same workload run twice on two boards agreeing at every step |
 | Ring protocol stack (`ring/ap_ring_{mac,frame,framer,phy,medium,station}.*`) | **JOINED TO THE CONTROLLER, and two boards on one segment exchange a frame; not yet reachable from a *booting* machine.** `ap_ring_ctl_attach_ring` is the wire `RING.md` 85e opened and 104 closed: a transmit command assembles the frame in the board's buffer and hands it to the station, MISC_CMD's `nct` drives §3.5's bypass relay and RCV_CMD's `rcv` the receiver, and the board's node ID becomes the station's ring address. The medium now has a home: `ap_board_t` owns the **station** (the card) and `ap_board_join_ring` lends it a **shared segment** (the cable), because a board that owned a medium would make every ring single-node by construction. `board_suite` drives two boards through their register interfaces and the header arrives in the other's buffer. `--ring` now owns a **segment** and joins the card to it, `ap_board_advance` polls the ring when the card has a cable, and the card's **interrupt line is wired** — master IRQ 2, documented at last (`RING.md` 107). **A frame now crosses under `ap_board_advance`** — the ring's 12 Mbit/s bit clock is driven from board time, with only the segment's lowest attached slot stepping the shared cable, and `board_suite` advances two boards' *clocks* and requires the frame to arrive. **And `ap_ring_sched` is wired**: `ap_board_join_ring_sched` registers a board as a ring participant at the medium's own bit rate, so nodes of different models can share one segment against `AP_TIME_BASE_HZ` — `board_suite` runs a real exchange through it and asserts the scheduler's phase hash is identical across two runs. **And a segment now crosses process boundaries**: `frontend/common/ap_ring_link.*` carries the cable's cells between two emulator instances in strict lock-step, batched a cable-length at a time — which `[MAC]` §3.4 makes free, since a bit cannot reach the next node for 64 bit times anyway. **The DMA question is answered and it was the wrong question**: `002398-04` p. 12-23 enumerates the DN3000's DMA Channel Usage in full — SDLC, floppy, cascade, the rest available — and the ring is not among them, so there is no host channel to model. The host reaches the buffer through `RAM_ADDR`/`RAM_DATA`, which is what this core does; finding 79's "loop xmit DMA to rcv DMA" is the gate array's own internal DMA. **And `--ring-two-node [N]` runs two whole machines on one segment** — two boards with distinct node IDs on one `ap_ring_sched`, each machine run a slice at a time with the ring advanced only to the time *both* have reached, reporting each node's PC and the ring's phase hash, reproducibly and without needing firmware. **Domain/OS now accepts the card** (`RING.md` 119): with a sealed configuration table, the device bits set from what is fitted, register `2B` = 2 and a ring option ROM, the SR10.4 diagnostic runs `network driver search` and an Apollo Token Ring test — and fails on `Expected= 0000FC03, Actual= 0000FC00, Address= 00059800`, which is SUBTEST 32's number reached by a second, independent path. **What is still missing**: that one count, and 80c's loopback residual. *The clause that used to follow -- "so the plan's `lcnode` check needs a booted Domain/OS per node, a disk question rather than a ring one" -- was answered on 2026-08-19*: both nodes now boot Domain/OS from their own installed volumes on one segment, each reaching `Domain/OS kernel(7)` with `Apollo Token Ring test passed.` and its driver loaded. `lcnode` itself moved to the multi-node workloads item, because it needs a *shell*, which needs `siologin`, which is a separate open thread (`FINDINGS.md` C222); this item's verification was rewritten to the ring property it is actually about -- two booted nodes exchanging frames, which the runner now reports as it happens. What else is done, and audited line by line against `[MAC]` chapters 1-3 and Appendix A (findings 85-94): bit stuffing and the four out-of-band characters, the three separators, all five framing sequences and the CRC, the bi-phase physical layer with both clock domains, §3.5's bypass relay in both halves, per-hop cable delay, and the station's §2.1 transmit sequence, §2.2.2.2 destination and broadcast matching, and both acknowledge fields modified in flight. **The buffer defect was NOT what held `claims_made` at zero, and that is now measured.** The first two-node run with both buffers lent (`fr4`, 2026-08-19, `--ring-two-node 1200000000`) took **both** nodes to `Domain/OS kernel(7) revision 10.4`, `Apollo Token Ring test passed.`, `SPM system init complete.` and `siomonit` started, with distinct node IDs — `Node ID = 12345` and `Node ID = 22222` — on one segment. **And `ring claims` stayed at zero for both — confirmed at the end of the run, not merely mid-run.** The full budget completed: `node 0 pc 3C43F5A8 ran 1200000000 executed (op 60FA) ring claims 0 frames seen 0 copied 0` and the identical line for node 1, with `ring hash 3BC182783938C47C`. Both nodes ended at the **same PC executing the same branch**, which is what two idle booted nodes in the same wait loop look like, and the last console line was `MBX_HELPER not running. Starting one.` — ordinary Domain/OS startup, not a hang. That is `FINDINGS.md` C229's pre-registered **reading 1, "nothing asked"**: the operating system never armed a transmit, so no frame was ever offered to the station. It is not reading 2 (a ring defect) and not reading 3 (success). The honest conclusion about the buffer fix is that it repaired a real and separate defect — transmit was *impossible* before it — and repairing it changed nothing here, which **locates the remaining problem above the station entirely**. C222 predicted exactly this: two booted nodes sitting idle exchange no frames at all, because "responded" is the language of a request and a reply. The item's verification needs *traffic*, which needs `lcnode`, which needs a shell. **And the station's two buffers are now lent by the board, which nothing was doing.** `ap_ring_station` allocates nothing, so both the transmit bit stream and the received frame live in caller storage — and `ap_ring_station_attach_tx` was called by **tests only** while `ap_ring_station_attach_rx` was called by **nothing at all**. On a running machine `ap_ring_station_queue_frame` therefore returned false on its first line (`tx_bits == NULL`), so a booting node could never transmit, and every received byte was discarded without even setting the overrun flag, which needs a non-NULL buffer to report against. Every ring suite passed throughout, because each one attached its own buffer — the failure mode where the test supplies the wiring the board does not. Found by sweeping `src/core`'s exported functions for ones nothing calls. The board owns the storage now, sized from `[EH]` p. 12-29's 1 KB header plus 1 KB data, and the three board tests that used to attach their own no longer do — so they exercise the machine's wiring rather than their own. **And a transmit now completes when the ring has carried it, not when the command was written.** `RING.md` 73b parked the completion *duration* "until `ap_ring_station` drives it" — and the station could not drive anything while nothing lent it a transmit buffer, so that blocker was the one above. A frame that genuinely goes onto a cable now finishes the operation when it has been driven, and the duration is **emergent** from the frame's own length at 12 Mbit/s: nothing here chooses a number, which is what 73a's refusal to pick a value inside its 8–85 µs bracket required. **The change is confined to the path where a frame is really on a wire**, which is `RING.md` 108a's rule expressed in code rather than as a blanket approximation — the deferral needs a queued frame, an attached medium, and digital loopback off. So the ring firmware's own self-test, which loops transmit DMA to receive DMA with no medium at all, keeps finding 66's immediate completion, and is **byte-identical** across the change: 7,263,778 steps, same registers, same elapsed, same 1,321,914 reads and 927,828 writes, checked by running it either side. Findings 66, 69 and 73's self-test bracket are therefore untouched and still open; what closed is 73b's blocker, not 69. The row said "not started", which was stale by six modules | `ring_mac_suite`, 11 tests; `ring_frame_suite`, 9 tests; `ring_framer_suite`, 12 tests; `ring_phy_suite`, 10 tests; `ring_medium_suite`, 13 tests, including a three-station ring circulating a token and a **bypassed node still carrying its cable** -- §3.5's relays join input coax to output coax, so a relay shortens no ring; `ring_station_suite`, 24 tests, including a frame delivered to its addressee with a bystander required *not* to accept it, and a **transmitter reading back the acknowledge its own frame returned with** -- `[MAC]` §2.2.2.5, the only way a sender ever learns whether anybody took its packet (`RING.md` 137), and **the pairing `002398-04` p. 7-29 publishes** -- `icopy|copy` on a copy and `icopy|wack` on a WACK, the second of which this core could not produce until 2026-09-08; `ring_sched_suite`, 7 tests |
-| Ring controller (`device/ap_ring_ctl.*`) | **register interface working**, wired into the AT decode: a unit's two windows, the ID register, the presence gate and its two Intel 8254 timers, all from the firmware disassembly that is this board's only specification. Fitted only on request -- an empty slot reads `FF`, which `RING.md` finding 40 makes the successful outcome of the firmware's probe. The dual-ported RAM buffer is **64 KB reached through the `+406` data port**, not a memory window -- findings 46, 46a and 47, which correct finding 42. **Nothing is blocked on a source any more**: `+400` MISC_STAT, `+402` XMIT_STAT and `+404` RCV_STAT are named bit for bit from `002398-04` pp. 12-30/12-31, and `ring8a.drvr` corroborates them from the board's own driver (`RING.md` 93, 97). The row said the meanings were blocked, which was stale by two findings | `ring_ctl_suite`, 24 tests, one of which is the firmware's own 64 KB memory test, one of which decomposes all three idle words into their named bits, one of which walks the first window's eight write-only registers, one of which reads that window as the node ID PROM it is -- four ID lanes, eleven unused slots and a checksum (`RING.md` 136) -- and one of which resets the board through `BOARD_RESET` at `59000`; the three receive counters are clocked individually since `[EH]` pp. 12-30/12-31 show header and data are separate phases on this board (`RING.md` 95a-95c); `i8254_suite`, 7 tests; `board_suite` 38 -> 40 |
+| Ring controller (`device/ap_ring_ctl.*`) | **register interface working**, wired into the AT decode: a unit's two windows, the ID register, the presence gate and its two Intel 8254 timers, all from the firmware disassembly that is this board's only specification. Fitted only on request -- an empty slot reads `FF`, which `RING.md` finding 40 makes the successful outcome of the firmware's probe. The dual-ported RAM buffer is **64 KB reached through the `+406` data port**, not a memory window -- findings 46, 46a and 47, which correct finding 42. **Nothing is blocked on a source any more**: `+400` MISC_STAT, `+402` XMIT_STAT and `+404` RCV_STAT are named bit for bit from `002398-04` pp. 12-30/12-31, and `ring8a.drvr` corroborates them from the board's own driver (`RING.md` 93, 97). The row said the meanings were blocked, which was stale by two findings | `ring_ctl_suite`, 25 tests -- the newest requiring a **second** transmit command to arm a second frame, which needed the harness to poll the controller as a board does before the deferred-completion path was reachable from this suite at all, one of which is the firmware's own 64 KB memory test, one of which decomposes all three idle words into their named bits, one of which walks the first window's eight write-only registers, one of which reads that window as the node ID PROM it is -- four ID lanes, eleven unused slots and a checksum (`RING.md` 136) -- and one of which resets the board through `BOARD_RESET` at `59000`; the three receive counters are clocked individually since `[EH]` pp. 12-30/12-31 show header and data are separate phases on this board (`RING.md` 95a-95c); `i8254_suite`, 7 tests; `board_suite` 38 -> 40 |
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
 | 68030 bus cycle state machine | working, including burst line fills | `bus_suite`, 25 tests, each citing `MC68030 User's Manual 3ed` ch. 7 (read, write and burst cycles) |
 | 68030 bus arbitration control unit | working: the five-state machine of `[030]` §7.7.4, the processor at lowest priority, both documented deferrals (a committed bus cycle, and a locked read-modify-write) and the single-wire BGACK-alone path. Figure 7-61 did not survive the scan and the states are recovered from the prose walking it; one edge is marked `INFERRED` in code against the two passages supporting it. The input synchroniser is `PROVISIONAL` | `arb_suite`, 16 tests, `MC68030 User's Manual 3ed` §7.7 |
@@ -42866,3 +42916,468 @@ someone is already looking.
 answered a question before any code was written* — after the SIO's per-register
 census settled the `0x0C` divergence and the boot PROM's disassembly settled
 whether the floppy commands were on the boot path.
+
+
+## Two nodes see each other over the ring under Domain/OS
+## (moved from COMPLETION_PLAN.md on completion, 2026-09-08)
+
+The item's own record, kept verbatim: the run history, the eleven defects and
+the two questions that were not like them, in the order they were found. The
+outcome and its verification are summarised in the plan; everything a reader who
+has to trust or change the ring path needs is here and in the 2026-09-08 entries
+above.
+
+Two nodes see each other over the ring under Domain/OS. *Verification:
+two booted Domain/OS nodes on one segment **exchange ring frames**, each
+reporting the other -- measured from the station counters and the
+transmit read-back; console output diffed against itself across runs for
+determinism.*
+**The run has been made, 2026-09-08, and it names the blocker.** Two
+booted nodes on one segment, each driven to a shell through its own
+Mnemonic Debugger, each running `/com/lcnode`:
+`?(lcnode) Node NNNNN did not respond - transmit failed (OS/network)` on
+both, naming its **own** node, and `ring claims 0 frames seen 0 copied 0`
+at the end of 1.6 G instructions per node. So `FINDINGS.md` C229's
+reading 1 is excluded -- something asked.
+**The card says the station was never connected.** `misc` bit 15 is set on
+both boot routes, and that bit is driven from `present && !connected`, not
+read back; `connected`'s one setter is a MISC_CMD write carrying `nct`.
+Nothing joined the station to the ring, so there was no ring to claim.
+The boot route is eliminated: the autoboot arm runs SELF_TEST, prints
+`Apollo Token Ring test passed.`, and ends with the same bit set.
+**And it is now a fifty-minute question, not a ten-hour one**:
+`tools/md-shell.sh <copy> --ring --configure --ring-rom ...` reproduces it
+on one node, because `lcnode` fails while talking to itself.
+**Narrowed to eight writes, 2026-09-08** (`FINDINGS.md` C245). Isolating
+Domain/OS from the ring ROM — the MD route skips SELF_TEST, whose own
+listing writes `move.b #$0,$400(a4)` four times — cuts 44 MISC_CMD writes
+to **8**, and they pair: `$08` (`nct` alone, connect) immediately followed
+by `$70` (no `nct`), three times, last write `7000`. This core re-derives
+`connected` from every write to `+400`, so each connect is undone by the
+write after it.
+**Two readings, neither established**: the AT board's MISC_CMD differs
+from `002398-04` p. 12-32's DN3000 layout and `nct` is latched — our
+defect — or the layouts agree and the driver is waiting on something else.
+**Both readings were wrong, and two defects of ours are found and fixed**
+(`FINDINGS.md` C246–C247). `--boot-watch-write` showed the guest writing
+**words**: `$0800` four times, last one `nct` set. `$70` was never a
+driver value — `ap_board_write` is byte-wide, this bank's byte path
+read-modify-wrote, and p. 12-29 makes `+400` MISC_STAT read and MISC_CMD
+written, so the low half of each connect composed a command out of status
+and disconnected the ring. Merging against the last written command fixes
+it: the card now ends **connected**, `misc` bit 15 clear.
+**And XMIT_STAT's `nct` was a constant**, so the driver was told it was
+still bypassed: p. 12-31's "network connect <= 0" makes it follow the
+connection. Domain/OS went from 4 XMIT_CMD writes (`ine` only) to **65**
+(last `ten`), and **`/com/lcnode` completes with its table** where it
+answered `transmit failed`.
+**And a third defect fixed**: a station that *forces* a token — §2.2.1.1's
+route onto a ring with none, which is every segment this core assembles —
+never began stripping, so it acquired the ring and emitted nothing. §2.1
+step 3 makes acquiring and transmitting one event, which the claim path
+already honoured.
+**What remains is a chain, and it is named subtest by subtest.**
+`ring_ctl_queue_from_buffer` matches the **whole word** against `$0200`
+where the command is the high lane, so Domain/OS's 65 `ten` commands never
+reach the station. Correcting that, and gating the queue on `lpb` being
+clear — the ROM's `$11`–`$16` group runs in loopback, its `$21`–`$26`
+group does not — walks the firmware's own self-test forward `$22` → `$14`
+→ **`$32`**, and produces `forced 1  frames seen 1  copied 1`: **a frame
+crossing the ring and returning**, where every run before read zero.
+`$32` is a counter check six short (`FDFA` against `FE00`), on the 8254
+byte/word counters finding 100 records as counting in three different
+units.
+**Half the verification is now demonstrated** (`FINDINGS.md` C248). Two
+booted Domain/OS nodes on one segment, each driven to a shell through its
+own Mnemonic Debugger, each running `/com/lcnode` — and each station
+**sees the other's frames**: 115 and 122 of them, first crossing at
+399,556,608 instructions, both counters climbing together. Every previous
+two-node run reported `frames seen 0`.
+**Acceptance now works too** (`FINDINGS.md` C249). Two more defects, both
+found by capturing what Domain/OS actually writes: the header's **type
+word is stored low byte first** — the driver's `90 00` is
+`BROADCAST | PLEASE`, and read big-endian it was `9000`, all reserved bits
+and no type, so every broadcast was dropped — and the **receiver disabled
+itself**, the MISC_CMD defect one register along, its `move.w #$0800` to
+RCV_CMD enabling `ren` with the first byte and clearing it with the
+second. Frames now go **seen → addressed → copied**.
+**And the frame path is now complete and byte-consistent** (C250). The
+extent comes from the driver's own counters — `XMT_HDR`/`XMT_PKT`, both in
+words, which finding 100 recovered from `ring8a.drvr`'s descriptor table
+and which read `002D` on a real `lcnode` transmit: 45 words, 90 bytes. And
+the deposit hands over the **whole** frame instead of §2.2.2's eight
+decision bytes, header at `RCV_ADDR` and data a kilobyte past it, which is
+p. 12-29's "1k bytes of header and 1k bytes of data". Measured effective:
+`rx 90 bytes (90 header)` against a transmitted `xmt_hdr 002D`.
+**Two of the three candidates are answered and were defects of ours.**
+The receive interrupt *does* reach the handler — `IRQ2 unmasked`, `ri`
+idle, so Domain/OS took it and acknowledged it. And the frame each node
+was handed was **its own**: source at offset 8 equal to its own ID, early
+acknowledge gone from `00` to `0A`, its own broadcast once round the ring.
+§2.1 step 7 strips a transmitter's own frame and §2.2.2.2's delivery is a
+receiver's business; the two are exclusive, and the acceptance test alone
+is unconditionally true for a broadcast. Fixed — node 1's received frame
+goes from its own ID to node 0's.
+**The one-way segment is answered, and it was not the segment**
+(`FINDINGS.md` C251). The runner now reports each card's bypass relay on
+the same timeline as the frames, and node 1 broadcast **618,496
+instructions before node 0's relay closed**: its frame had nowhere to go
+and it heard itself, which is what a station alone on a ring hears. Node
+0's frame, sent once both relays were closed, crossed and was copied — and
+node 0 read that back out of its own returning frame, `ack 4A cpd icopy`,
+§2.2.2.5 working between two machines for the first time. **One direction
+is demonstrated end to end; the other needs the two transmits to overlap.**
+**Two ring defects were found on the way and are fixed**: a transmitter
+stripped nine bits too many and destroyed the free token it had just
+emitted, and every segment this core assembled was shorter than its own
+nine-bit token. Measured in the machine: `tokens 193654419` where the token
+used to die on its first lap.
+**A second `/com/lcnode` is not the way to make them overlap.** Measured,
+2 G instructions per node: it answers in full and **transmits nothing** —
+`frames seen` unchanged, 258 more writes to the card, no frame to the
+station. The harness step was reverted.
+*The live question*: those 258 writes. `+402` fires on a **rising** `ten`
+(p. 12-32 makes `ten` a level) and nothing here clears `xmit_enabled` when
+an operation completes, so a driver that leaves `ten` set would never arm a
+second frame. Checkable, and not yet checked: the report logs MISC_CMD's
+writes and values since `FINDINGS.md` C243 and logs nothing for XMIT_CMD.
+**And a node with the other's request still does not reply**: the ninety
+bytes are captured and never decoded, and a reply is a `THANK_YOU`
+(p. 7-31's type `20`) — Domain/OS **protocol**, where every defect so far
+was "the core does what the documents say it should not".
+**The run costs about twenty-five minutes now**, not ten hours, and two
+runs on their own disk pairs are **byte-identical**, which is this item's
+determinism clause. Detail in `PROJECT_STATUS.md`; `FINDINGS.md`
+C243–C248, C251.
+**The verification was rewritten on 2026-08-19, and the reason matters.**
+It read "`lcnode` on each node lists the other", which is an *operating
+system* check standing in for a *ring* one: it needs a shell, a shell
+needs `siologin`, and `siologin` needs a modem-control signal this core
+does not model (C220). A day went into that chain, and six of the
+failures along the way were the harness rather than the machine.
+The property this item is about -- two nodes seeing each other over the
+ring -- is directly measurable without a login: the runner reports each
+node's `frames seen`/`frames copied`, and since `RING.md` 137b a sender
+can read `cpd`/`wak` out of its own returning frame, so **both ends can
+say whether a frame crossed**. `lcnode` is the OS-level confirmation of
+the same fact and moves to the multi-node workloads item, where the
+`siologin` work already belongs.
+*Do not read this as lowering the bar: the frame check is the stronger
+one for a ring, because it names which node copied what, where `lcnode`
+reports only that a name resolved.*
+**The core supports it; the frontend runs one machine.** Everything
+below this line is built and tested (`RING.md` 104-112): the register
+interface is joined to the protocol stack, a transmit command puts the
+buffer's frame on the medium and a received frame lands at `RCV_ADDR`
+and raises `ri`, the card's interrupt line is wired to master IRQ 2, and
+`ap_board_join_ring_sched` registers a board with `ap_ring_sched` so
+nodes of **different models** share one segment against
+`AP_TIME_BASE_HZ` with a reproducible phase hash. `board_suite` drives a
+two-board exchange through the registers alone and asserts the frame
+arrives in the other board's buffer.
+**The DMA clause here was stale and is withdrawn**: `002398-04` p. 12-23
+enumerates the DN3000's DMA Channel Usage in full and the ring is not
+among them, so there is no host channel to model (`RING.md` 107). The
+driver reaches the buffer through `RAM_ADDR`/`RAM_DATA`, which is what
+this core does.
+**`--ring-two-node` now runs two machines that actually execute.** Each
+node gets the model's memory with its parity array, its own sealed
+configuration and node ID, the ring option ROM, and -- the defect that
+hid all of this -- a **reset out of the PROM's own vector**. Without that
+last one both nodes started with SSP and PC at zero and faulted at
+instruction 262 on a stack push, at every limit from 3 M to 80 M, while
+reporting only a PC that looked like progress. Both now reach the same PC
+as a single machine at the same instruction count.
+**The second volume is no longer a blocker: it is four bytes.** The node
+a machine presents comes from the **creator UID at block 0 `0x48`**, so a
+copy of the volume that already boots, with three bytes changed, boots
+identically as node `22222` and the runner starts `node 0 id 012345` and
+`node 1 id 022222` on one segment. Deliberate approximation, cost named:
+the copy's objects still carry `12345`. Detail in `PROJECT_STATUS.md`,
+`FINDINGS.md` C180.
+**What remained was the run itself, and it has been taken** (2026-08-19).
+Both nodes boot Domain/OS from their own installed volumes on one segment,
+each reaching `Domain/OS kernel(7)` with `Apollo Token Ring test passed.`
+and its driver loaded. `lcnode` has moved to the multi-node workloads
+item -- it needs a shell, which needs `siologin`, which is its own open
+thread -- and this item's verification is the ring property instead.
+**The rate estimate here was optimistic and the correction is worth
+keeping**: "138 k instructions/s each ... a three-hour run" became, under
+a real two-node run with other work on the machine, closer to **60 k per
+node**. `--ring-two-node`'s budget is moreover **per node** (`done +=
+take`, with `take` instructions run on each), so a limit chosen as though
+it were a total is out by a factor of two on top of that. A run bounded at
+6 G on those two mistakes would have taken about **28 hours**; it was
+stopped at three, and killing it produced no report at all, because the
+ring counters printed only at the end. The runner now reports a frame
+crossing when it happens.
+**And the rate was a defect, not a property of the workload — 2026-09-08.**
+A 20 M-per-node run took **347.89 s** before and **5.45 s** after, with
+the ring hash `1E2AAD222E42DD06` identical on both binaries: `sixty-four
+times`. `ap_machine_state()` computes a full state hash and the hash walks
+the whole of RAM, and the slice loop called it three times per
+4096-instruction slice to read a program counter and two clocks — about
+**64 MB hashed per slice**. So a 1.6 G-per-node run is about **nine
+minutes**, not ten hours, and this item's "a run to launch deliberately"
+no longer applies.
+*What this item said until then, kept because it is the mistake worth
+remembering*: "the rate is now measured rather than estimated: 46 k
+instructions/s per node ... about **830 k/s** with one machine — so the
+two-node runner is roughly **eighteen times slower per node**, not two.
+**That is the shared cable being stepped at its own 12 Mbit/s bit rate
+between slices**". The measurement was right and the explanation was
+**invented** — the cable had nothing to do with it, and `perf record -p`
+on the running job put 86% of its samples in `machine_hash_into` in
+minutes. Eighteen times has no physical story; two nodes should cost
+twice. The anomaly was recorded as a characteristic and given a plausible
+cause, which is exactly how it survived several multi-hour runs.
+**This was recorded as "a media question with no route". It has a route,
+and it was in the oracle's source rather than in any manual.** `apollo_ni`
+is a `device_image_interface`, so the node ID is a **loadable 32-byte ROM
+image** and `DEFAULT_NODE_ID = 0x12345` is only what a run without one
+gets — which is why every MINST transcript here shows `//node_12345`.
+`tools/mame-oracle/nodeid.py` writes an image and `mdsession.py
+--node-id` passes it, so a second machine can be given node B and an
+install under it produces a volume whose label carries B.
+*Verification: `oracle_nodeid`, 15 checks restating
+`apollo_ni::call_load`'s acceptance rule — including that its checksum is
+a **byte-wide** sum, which agrees with a wider one for every small ID and
+disagrees exactly when it carries. Detail in `FINDINGS.md` C129.*
+**The frontend half is now BUILT.** `run_ring_two_node` took no disk at
+all, so its nodes could never run an OS — the whole of what this item asks.
+`--ring-disk-a` / `--ring-disk-b` attach one Winchester per node, each node
+takes its ID from its **own** volume as a single machine does, and two
+volumes recording the same node are **refused**: `[MAC]` §2.2.2.2 decides
+delivery on the node address alone, so two stations on one address would
+not fail loudly — frames would vanish.
+*Verification: `ctest` 139/139, identity boot `03EE415450926A89` with clocks
+unchanged, the single-machine path untouched.*
+**The second volume exists, and four sessions were spent on the wrong
+mechanism to get it.** `-node_id` loaded an image for node `22222`,
+`apollo_ni::call_load` accepted it, and every volume INVOL then wrote
+recorded `12345` -- the node of the ancestor every image here is copied
+from. Three sources were eliminated by measurement (the node-ID ROM, the
+battery configuration table, `ex config`'s own write; `FINDINGS.md`
+C146-C149) before the cause turned out to be one line of the oracle's
+driver: `apollo.cpp:911` calls `set_node_id_from_disk()` at
+`MACHINE_RESET`, overwriting the node-ID device from the label of the
+disk on **unit 0**, and `mdsession.lua` -- running from a periodic
+callback -- cannot turn that setting off until after the reset has
+happened. Its soft reset repairs every field the firmware *re-reads*, and
+cannot repair one that is acted on once. **A setting whose effect is a
+one-way write has to be in place before the first reset**, so
+`mdsession.py` now plants MAME's system config in the run directory -- off
+only when `--node-id` names an image, since off across the board would
+trade one wrong node for another.
+*Verification: two runs, same volume and same `-node_id` image, differing
+only in which unit it was mounted on -- the guest reads `12345` on unit 0
+and `22222` on unit 1; with the config planted it reads `22222` on unit 0,
+and node B's volume with no `--node-id` reads its own `22222`. Seven
+checks in `test_mdsession.py`, `ctest` 139/139. `FINDINGS.md` C151.*
+**And the volume is made**: INVOL options 7 then 1 on a copy, run to
+`Initialization complete.` and ended with `!exit` -- which is enough
+*here* because INVOL is a standalone utility and writes through; an
+install under Domain/OS is not, and needs the guest itself shut down
+(C192) -- gives
+`APOLLODN3500B`, creator UID `77536D6F10022222`, node ID **`22222`** --
+read back by this project's own `node_id_from_volume`. `--ring-two-node`
+now runs two machines with two *different* node IDs, each taking its ID
+from its own volume, both reaching `pc 0000269E` at 2,000,000
+instructions.
+**Node B runs Domain/OS SR10.4**: installed, booted, salvaged, calendar
+set, cleanly dismounted at `1996-08-18 04:54:26`, paging file added
+(`FINDINGS.md` C153). Both volumes exist and record different nodes.
+**And the frontend is finished**: `--ring-console` tags each node's
+output by line so two machines running one firmware stay attributable,
+`--ring-script-a/-b` drive a dialogue at each with its own autobaud
+knock, and `--clock` reaches the ring path -- which it did not, and the
+runner's hardcoded zero epoch is 1900, so **neither node could ever have
+reached a shell** whatever else was in place (C158).
+*Verification: this core boots one node to a live Domain/OS -- `Apollo
+Phase II Environment`, Init, global libraries, `Node ID = 12345`, daemons
+-- at `--clock 2002-11-28`, read from the volume's own dismount stamp.
+1.5 G instructions, 5,419,460,924 clocks, hash `98874E148005986A`.*
+**`lcnode` RUNS, and the way in was never a login server.** Booting the
+OS from MD -- `di w`, `ex domain_os` -- leaves a `)` prompt, which is not
+a shell (`lcnode` there gives `? Unknown command`) but `sh` at it is:
+`login: user`, and then, by absolute path because `/com` is not on the
+path,
+
+    $ /com/lcnode
+     The node ID of this node is 22222.
+     No other nodes responded.
+     Node ID      Boot time           Current time      Entry Directory
+     22222   1996/08/18  6:16:41   1996/08/18  7:05:58  //node_22222
+
+*That is this item's verification command, working, on the node this
+session built.* `No other nodes responded` is right for one machine with
+no cable.
+**The earlier "there is no login" conclusion was measured on one path
+only** -- the PROM's autoboot, which goes to SPM and never prompts. True
+of that path, false of the MD path, and the difference went untested for
+a session. `siologin` was configured on the volume anyway
+(`FINDINGS.md` C163) and is a real capability; it is simply not what this
+check needed. Detail in `FINDINGS.md` C164.
+**So what remains is one run**: `--ring-script-a/-b` driving each node's
+MD through `di w`, `ex domain_os`, `sh`, `user`, `/com/lcnode`, with both
+volumes and `--clock`. Everything it needs is built.
+**That sentence is stale and C165 already refuted it** -- left standing
+here for a session while the finding sat in `FINDINGS.md`. **This core
+cannot put MD on the serial line**: a *key press* releases the boot PROM's
+console-selection poll and serial characters do not, so MD here talks to
+the frame buffer. The oracle's MD answers a serial port only because MAME
+fits an `apollo_stdio` device, which is a MAME convenience and not this
+machine. The MD route is the *oracle's*, and `ring-a.script` was written
+for it.
+**And the MD route was re-opened, measured and closed again on
+2026-09-08** (`FINDINGS.md` C239), which is worth recording because the
+obvious next attempt is the one that has now been made. `--boot-input`
+had no offset -- `--boot-input-interval` sets the *spacing* between
+characters and not the start -- so `--boot-input-after-pc ADDR` was
+added, the serial twin of `--boot-type-after-pc`. It changes `0 of 60`
+into `120 of 120` characters delivered **inside** the service-mode poll,
+and the poll still does not leave: the firmware reads every one and
+rewrites the clock select sixty-three times, because service mode selects
+**baud set 2** and `ap_mc68681.c` already says in writing what that does
+-- receiver at 2000, a 9600 `0D` resampling to `$FE`, the table mapping
+`$FE` to `$99`. Measured `ACR E0`, `CSR 99`, `d1 = FE`: every value.
+**So the MD route is not blocked by the harness.** What it waits on is
+now an item of its own: C240 walked the poll and its autobaud table out of
+the PROM, found the table reproduced **exactly** by this core's resampler
+across both baud sets, and located the failure *after* the console is
+chosen — sixty-three selections, each returned to the poll by the retry
+vector the firmware installs. Detail in `PROJECT_STATUS.md`.
+**The route on this core is C165's**: boot **Normal**, where a node prints
+its whole Domain/OS startup on serial 1 channel B and then goes quiet at
+`SPM system init complete.`, with **`siologin`** configured -- which is
+precisely the thing that turns that silence into a `login:` prompt,
+because it waits for a carriage return from a terminal on the SIO line.
+Then knock with carriage returns, log in as `user`, and run
+**`/com/lcnode`** by absolute path, since `/com` is not on the path.
+**So the remaining work is named**, and 2026-08-19 measured it exactly.
+Searching the images for `siologin1_local` -- the string C163 wrote --
+finds it in **`media/dn3500-nodeB-siologin.awd` and nowhere else**:
+neither `dn3500-sr10.4-installed.awd` (node A) nor `nodeB4.awd`, the two
+volumes the two-node runs actually use, carries the configuration. So the
+chain is three steps and none of them is a ring question:
+1. ~~Salvage `dn3500-nodeB-siologin.awd`.~~ **DONE** (C210): 32 seconds
+   in the oracle, against 40% of the way through 1.5 G instructions on
+   this core. `di w` / `ex salvol` / `w` / `1 -f -t -s`; **not**
+   `ex domain_os`, which offers to bring the OS up *without* salvaging and
+   says so. Saved as `media/dn3500-nodeB-siologin-salvaged.awd` with
+   `siologin1_local` intact.
+2. ~~Give node A's volume the same treatment.~~ **DONE** (C211), and no
+   re-install was needed: C162 called the MINST window "the only window
+   for configuring a node from a command line", and **C164 supersedes
+   that for an installed volume**. `di w` / `ex calendar` / `ex domain_os`
+   leaves a `)` prompt, `sh` at it gives `login:` -- **that prompt is the
+   shell's, not `siologin`'s**, which is exactly why a volume lacking
+   `siologin` can still be reached here to be given it. Both files written
+   and read back:
+
+       siomonit_file:  -repeat /dev/sio1 -n siologin1_local
+       startup.spm:    cps /com/tctl -line 1 -insync
+                       cps /sys/siologin/siomonit -n siomonit /sys/node_data/siomonit_file
+
+   Saved as `media/dn3500-nodeA-siologin.awd`, `shut` giving
+   `Shutdown successful` and a dismount stamp of 2002-11-27T23:30:15.
+   C162's claim was true of a **bare** disk, which is the case it was
+   measured on.
+3. **A third step the first two exposed, now done too**: the volumes had
+   to be brought into **one era**. A two-node run shares a single
+   `--clock`, and after step 1 node B's volume had a **zero** dismount
+   stamp and a 1996 mount stamp against node A's 2002 -- no clock
+   satisfies both, and Domain/OS halts with *"More than 14 days have
+   elapsed since the last shutdown"* on whichever it misses. Both volumes
+   were booted in the oracle with `ex calendar` set to 2002/11/27 and shut
+   cleanly, which is what writes the stamp:
+
+       dn3500-nodeA-siologin.awd  mount 22:06:42  dismount 23:30:15
+       dn3500-nodeB-ready.awd     mount 22:34:40  dismount 22:42:09
+
+   both carrying `siologin1_local`. **Read the stamps from the label
+   rather than guessing a clock** -- block `0x440`, `+0xBC` mount and
+   `+0xC0` dismount, in 262144 µs ticks from 1980.
+4. **Model the SIO lines' modem control** (C220) -- the step the first
+   three uncovered. `siologin2_local` is a live process and a carriage
+   return delivered to its line reads
+   `sio2 A  1 discarded unread`: taken by the port, never read by the OS.
+   The line is configured `tctl -line 2 ... -dcd_enable ...` by the
+   template the volume ships, and `008778-03` Figure 3-5 carries
+   `SI01_DCD`/`SI02_DCD`/`SI03_DCD` with §3.9 listing Data Carrier Detect
+   and Data Terminal Ready among the six signals each line supports.
+   **This core modelled one of the six** when this was written:
+   `ap_mc68681.h` has CTS and RTS, serial 1's `IP0` is §3.9's refresh
+   loopback, and serial 2's input port was driven by nothing.
+   **Two thirds of that is now out of date (2026-08-22).** Serial 2's
+   input port *can* be driven — `ap_sio_set_input` and the headless
+   `--sio-input UNIT:HEX` — and **DCD's pin is named**: `IP2`, measured by
+   six gated boots that bisect the four `ACR`-armed pins, with three
+   reproducing the baseline exactly and `IP2` alone reproducing the
+   all-four result. `AP_SIO_DCD_PIN` records it; detail in
+   `PROJECT_STATUS.md`.
+   **What is still true**: no *semantics* are attached to DCD or DTR —
+   the pin is nameable and drivable, and nothing faults on its loss.
+   **And this step named the experiment that would test that** — a
+   *timed* pin change, after `siologin` has configured the line, because
+   every boot until then set the pins *before* the driver programmed `ACR`
+   so no transition ever occurred after arming.
+   **That experiment has been run** (corrected 2026-09-08; the sentence
+   below is what this step said until then). `--sio-input-at
+   N:UNIT:HEX` exists, and one gated boot at
+   `--sio-input-at 1200000000:1:04` — `IP2` raised at 1.2 G, past SPM at
+   ~1.05 G — took `sio2`'s `ISR` from `11` to **`91`**, §4.2.15's Input
+   Port Change Status, exactly as the datasheet says. `IPCR` is **never
+   read**, so nothing clears it, and the console stops where the baseline
+   goes on. `PROJECT_STATUS.md` records both readings and chooses neither.
+   *What it said*: "it needs `--sio-input` to grow a 'when'". It grew one.
+   **And the last interrupt-side explanation is eliminated, 2026-09-08**
+   (`FINDINGS.md` C238). C237's pre-registered experiment ran: two 2 G
+   boots differing only in whether `ap_sio_irq` ORs the second DUART onto
+   IRQ1 produce **byte-identical console output** and identical serial
+   counters, so the ORing is not why the line goes unserved and the model
+   is unchanged. The same run shows Domain/OS reading `sio1`'s interrupt
+   status **65,124** times and `sio2`'s **zero**, never polling `sio2`'s
+   status either, and ending with master `IMR F4` — IRQ0, IRQ1 and the
+   cascade unmasked and nothing else. **Nothing inspects the second part
+   by any route, and no line is left over for it.** So the blocker is not
+   an interrupt this core fails to deliver; it is that this operating
+   system, on this volume, serves `/dev/sio1` and not `/dev/sio2`, which
+   is a question for the volume's configuration. Detail in
+   `PROJECT_STATUS.md`.
+5. Run the two nodes with a script that reaches a shell and runs
+   **`/com/lcnode`** by absolute path.
+   **The route is settled, 2026-09-08, and it is not `siologin`'s.** It is
+   `FINDINGS.md` C164's, on this core: the Mnemonic Debugger on the serial
+   console, `DI W`, `EX DOMAIN_OS`, `SH`, `login: user`, `$`,
+   `/com/lcnode` -- proven single-node (C241, `tools/md-shell.sh`) and
+   then on **both ring nodes at once**, which took three fixes the
+   two-node runner needed and the single-machine path already had:
+   `--boot-input-rate` and `--boot-input-interval` reaching the ring
+   runner at all, and `console_script_settle` on both edges so a dialogue
+   cannot deadlock on a prompt printed early. A fourth was the script's:
+   wait for MD's **prompt**, not its banner, because it discards what is
+   typed while it is still printing.
+   *`siomonit` was tried first and is spent* (C242): a `siomonit_file`
+   running `/com/lcnode` on `/dev/sio2` produces nothing, because
+   Domain/OS never touches that port -- C238, from the other side.
+*What is already proven and needs no repeating*: both volumes boot clean
+(no salvage line in a two-node run), and **both nodes reach
+`Domain/OS kernel(7)` on one segment** with distinct node IDs.
+**And the run itself is affordable and measured**: about 1.5 G
+instructions per node against 125 K instructions/s per node (C156), so
+roughly three hours for two nodes. A run to launch deliberately rather
+than a gap.
+**No copied volume is used and none is needed** (C199, C200). Node B's
+own volume boots -- what stopped it was this frontend not giving a machine
+its disk's node on the `--disk` path -- so the run uses two genuinely
+installed volumes, `012345` and `022222`. The relabelling C180 proposed is
+withdrawn: besides being an approximation, it could not have worked here,
+because the runner takes each node's ID from its disk and the copy's
+objects carry the *other* node's, which is the mismatch Domain/OS shuts a
+node down for.
+**Diskless boot is the other route and is now sketched from the web**: a
+diskless node's PROM broadcasts a partnership request, and a partner
+running `netman` with the client listed in `/sys/net/diskless_list`
+answers with `netboot` and then the OS image. That is a protocol project,
+but it is no longer an unnamed one.

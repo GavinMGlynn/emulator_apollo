@@ -35,6 +35,14 @@ static void wired_build(wired_t *w) {
   for (unsigned i = 0; i < 2u; i++) {
     ap_ring_station_init(&w->station[i], ap_ring_medium_attach(&w->medium));
   }
+  /* **Enough cable to carry a nine-bit token**, which is what a board gives its
+   * own link (`board_pad_ring_for_token`) and what two bare stations do not
+   * have. A segment two bit times around loses the head of every token it
+   * originates, so one frame can cross and the ring is then dead -- which is
+   * `FINDINGS.md` C251, and which made the second transmit below untestable
+   * for a reason that had nothing to do with the transmit. */
+  ap_ring_medium_set_cable_bits(&w->medium, 0, 4u);
+  ap_ring_medium_set_cable_bits(&w->medium, 1, 3u);
   ap_ring_ctl_reset(&w->ctl, true);
   ap_ring_ctl_set_node_id(&w->ctl, 0x00012345u);
   ap_ring_ctl_attach_ring(&w->ctl, &w->station[0], &w->medium);
@@ -120,6 +128,14 @@ static void wired_step(wired_t *w) {
   for (unsigned i = 0; i < 2u; i++) {
     ap_ring_station_receive(&w->station[i], &w->medium);
   }
+  /* **And the controller, which a real board polls every bit time and this
+   * harness did not** -- `ap_board.c`'s `board_ring_step` drives, receives and
+   * then calls this. Without it `completion_deferred` was never cleared here,
+   * so the *whole* deferred-completion path -- the one a frame that genuinely
+   * goes onto a cable takes -- was unreachable from this suite while looking
+   * exactly like a suite that covered it. The mirror image of the failure
+   * `RING.md` 104 records, where a test supplied wiring the board did not. */
+  ap_ring_ctl_poll_ring(&w->ctl);
 }
 
 void setUp(void) {}
@@ -905,6 +921,61 @@ static void test_a_transmit_command_puts_the_buffers_frame_on_the_ring(void) {
   TEST_ASSERT_TRUE(ap_ring_station_transmitted(&w.station[0]));
 }
 
+/* **A second transmit command arms a second frame, and it did not.**
+ *
+ * `+402`'s trigger fires on `ten`'s **rising** edge -- p. 12-32 makes `ten` a
+ * level, "set `ten` to 0 to abort an enabled transmit" -- and nothing released
+ * the latch when the operation finished, so a driver that wrote `$0200` again
+ * with no intervening command never saw another edge. Measured on two booted
+ * Domain/OS nodes: `XMIT_CMD 26 write(s), 18 with ten, 1 rising`, and the
+ * values `$0200` unbroken with no completing `$6` between them
+ * (`FINDINGS.md` C252).
+ *
+ * The bit was already being cleared one lane along -- `RING.md` 97d reads
+ * p. 12-31's XMIT_STAT low byte as `7 nct`, **`6 xen` "xmt enable"**, `5 iby`,
+ * `4 xby`, and completion has dropped that bit since subtest 23 required it.
+ * One bit, held twice, updated once.
+ *
+ * Two frames, not one, is the assertion: the ring has to carry the first away
+ * before the second is asked for, which is what a driver sending a queue of
+ * packets does and what a single `lcnode` broadcast never revealed. */
+static void test_a_second_transmit_command_arms_a_second_frame(void) {
+  static wired_t w;
+  static uint8_t txbuf[2048];
+  wired_build(&w);
+  ap_ring_station_attach_tx(&w.station[0], txbuf, sizeof txbuf);
+  ap_ring_station_set_address(&w.station[1], 0x00ABCDEFu);
+
+  uint8_t header[AP_RING_CTL_XMIT_HEADER_BYTES] = {0};
+  ap_ring_header_set_destination(header, 0x00ABCDEFu);
+  ap_ring_header_set_type(header, AP_RING_TYPE_USER);
+  ap_ring_header_set_source(header, 0x00012345u);
+  for (unsigned i = 0; i < AP_RING_CTL_XMIT_HEADER_WORDS; i++) {
+    w.ctl.buffer[0x40u + i] =
+        (uint16_t)((header[i * 2u] << 8) | header[i * 2u + 1u]);
+  }
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_W2_XMIT_ADDR,
+                      ring_addr_reg(0x0040u));
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 4u,
+                      AP_RING_CTL_RCV_CMD_RCV);
+  ap_ring_station_originate_token(&w.station[1], AP_RING_OOB_FREE_TOKEN);
+
+  /* Two identical asks, each given time for the ring to carry the frame and
+   * finish the operation. Nothing else is written between them -- which is
+   * exactly what Domain/OS does. */
+  for (unsigned round = 0; round < 2u; round++) {
+    ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 2u, 0x0200u);
+    for (unsigned i = 0; i < 4000u; i++) {
+      wired_step(&w);
+    }
+  }
+
+  /* Two frames addressed to station 1, not one. */
+  TEST_ASSERT_EQUAL_UINT64(2u, w.station[1].frames_addressed);
+}
+
 /* And a command that is not a transmit does not transmit one.
  *
  * `$0100` is the third value both drivers write (`RING.md` 103d) and it starts
@@ -1145,6 +1216,7 @@ int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_transmit_command_puts_the_buffers_frame_on_the_ring);
   RUN_TEST(test_a_received_frame_lands_at_rcv_addr_and_raises_ri);
+  RUN_TEST(test_a_second_transmit_command_arms_a_second_frame);
   RUN_TEST(test_only_the_transmit_command_values_queue_a_frame);
   RUN_TEST(test_the_command_registers_drive_the_relay_and_the_receiver);
   RUN_TEST(test_the_idle_words_are_the_manuals_bits_and_not_magic);

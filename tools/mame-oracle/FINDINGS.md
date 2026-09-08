@@ -14047,3 +14047,68 @@ command would never arm a second frame -- and nothing in this core clears
 `xmit_enabled` when an operation completes. That is checkable and is not yet
 checked: the report logs MISC_CMD's writes and values (C243) and logs nothing at
 all for XMIT_CMD, which is the same instrument gap one register along.
+
+## C252 -- eighteen asks, one frame: the transmit enable was never released
+
+C251 ended with a question and a named instrument gap: 258 writes reached the
+card on a second `/com/lcnode` and no frame reached the station, and the report
+logged MISC_CMD's writes and values (C243) and logged **nothing at all** for
+XMIT_CMD. The gap was closed the same way -- counts, values, and the one
+derived number that separates the readings.
+
+    node 0  ring  XMIT_CMD 26 write(s), 18 with ten, 1 rising
+    node 0  ring  xmits 0100b 0100b 0000b 0000b 0100b 0100b 0100b 0100b
+                        0200b 0200b 0200b ...  last 0200
+
+**Domain/OS asked eighteen times and this core armed one frame.** After the
+`$0100`/`$0000` opening the driver writes `$0200` unbroken -- no completing
+`$6`, no other command between them -- and `+402`'s trigger fires on `ten`'s
+**rising** edge, p. 12-32 making `ten` a level. Nothing cleared the latch, so
+after the first frame there was never another edge.
+
+### The bit was already being cleared, one lane along
+
+`ring_ctl_complete_operation` has cleared `command_402_status`'s bit 6 since
+subtest 23 required it -- "once the command has been taken ... the status lane
+drops bit 6, `B0` where an idle register reads `F0`". `RING.md` 97d reads
+p. 12-31's XMIT_STAT low byte and names that bit: `7 nct`, **`6 xen` "xmt
+enable"**, `5 iby`, `4 xby`. So the status said the transmit enable was released
+and the latch behind it did not follow. One bit, held twice, updated once.
+
+`w->xmit_enabled = false` beside the line that clears it.
+
+**The firmware's own self-test is what says this is right rather than
+convenient**, and it is unmoved: `d0 0`, 7,263,778 steps, 1,321,914 reads and
+927,828 writes, byte for byte. A `$6` after a `$2` stays **one** transmit,
+because the `$2` before it either runs in digital loopback and never completes
+(subtest 12's `move.b #$1,$400`) or completes through the ring after its frame
+has gone.
+
+### And it is the whole of the two-node item
+
+Same invocation, 1.5 G instructions per node, nothing else changed:
+
+    node 0  ring  claims 71  frames seen 104  copied 33   forced 0
+    node 1  ring  claims 52  frames seen 124  copied 71   forced 1
+    node 0  ring  first rx header 00 00 00 00 94 00 00 00 00 02 22 22
+    node 1  ring  first rx header 00 00 00 00 90 00 00 00 00 01 23 45
+
+**Each node's received frames carry the other's ID at offset 8** -- node 0 is
+handed `02 22 22` and node 1 `01 23 45` -- where every run before this had node
+0 reading its own broadcast back. Both read `ack 4A cpd icopy` off their own
+returning frames, so both ends say a frame crossed, which is what §2.2.2.5 is
+for. And **node 0 forces nothing at all**: `forced 0` against 71 claims, because
+C251's token now circulates and there is one to take.
+
+`XMIT_CMD 150 write(s), 142 with ten, 71 rising` on node 0 and `114 / 106 / 53`
+on node 1 -- the driver's asks and this core's frames now track each other.
+
+*What is still open, and it is not a ring question*: `/com/lcnode` still reports
+"No other nodes responded" on both nodes while 104 and 124 frames go past and 33
+and 71 are copied. The frames cross, are addressed, are copied and are
+acknowledged; what does not happen is a **reply**, which is Domain/OS protocol
+-- the ninety-odd bytes are captured and never decoded, and a reply is a
+`THANK_YOU` (p. 7-31's type `20`). Every ring defect so far has been "the core
+does what the documents say it should not"; this one has no manual behind it and
+is a different kind of work. The item's verification was rewritten to the ring
+property in August for exactly this reason, and the ring property is now met.

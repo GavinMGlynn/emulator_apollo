@@ -285,6 +285,28 @@ static void ring_ctl_complete_operation(ap_ring_ctl_window_t *w) {
    * together rather than as two rules. */
   w->command_402 = 0u;
   w->command_402_status &= (uint16_t)~0x0040u;
+  /* **And the enable this core latches is that same bit.**
+   *
+   * `RING.md` 97d reads p. 12-31's XMIT_STAT low byte as `7 nct`, `6 xen`
+   * "xmt enable", `5 iby`, `4 xby` -- so the bit cleared on the line above *is*
+   * the transmit enable, and `xmit_enabled`, which the `+402` handler uses to
+   * make a queue fire on `ten`'s **rising** edge, is the same thing held twice.
+   * It was not cleared here, so a driver that wrote `ten` again without an
+   * intervening non-transmit command never saw another edge and armed exactly
+   * one frame for the life of the boot.
+   *
+   * Measured, and it is not a hypothetical: `/com/lcnode` on two booted nodes
+   * writes `+402` **26 times, 18 of them carrying `ten`**, and this core queued
+   * **1** -- `0100 0100 0000 0000 0100 0100 0100 0100` and then `0200`
+   * unbroken, with no completing `$6` and no other command between them
+   * (`FINDINGS.md` C252). Releasing the enable where the status says it is
+   * released turns those eighteen asks into eighteen frames.
+   *
+   * The firmware's own self-test is what says this is right rather than
+   * convenient: a `$6` after a `$2` must stay **one** transmit, and it does,
+   * because the `$2` that precedes it either runs in digital loopback and
+   * never completes, or completes through the ring after its frame has gone. */
+  w->xmit_enabled = false;
   /* **And `+404` with it: one completion, three registers.** Subtests 15
    * and 25 both follow `$976` (which writes zero to `+404`), a
    * `move.b #$8,$404(a4)`, and `$944` (which loads the 8254s) -- an
@@ -1453,6 +1475,24 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
       const bool wants_transmit =
           command_lane == 0x0200u || command_lane == 0x0600u;
       const bool rising = wants_transmit && !w->xmit_enabled;
+      /* Logged for the reason MISC_CMD's writes are (`FINDINGS.md` C243, C251):
+       * a region total cannot tell a driver that never asked for a transmit
+       * from one whose ask this core declined, and the gap between `ten` and
+       * `rising` is exactly that distinction. */
+      if (second_window) {
+        w->xmit_cmd_writes++;
+        if (wants_transmit) {
+          w->xmit_cmd_ten++;
+        }
+        if (rising) {
+          w->xmit_cmd_rising++;
+        }
+        if (w->xmit_cmd_logged < AP_RING_CTL_CMD_LOG) {
+          w->xmit_cmd_byte[w->xmit_cmd_logged] = w->in_byte_write;
+          w->xmit_cmd_first[w->xmit_cmd_logged++] = value;
+        }
+        w->xmit_cmd_last = value;
+      }
       if (second_window) {
         w->xmit_enabled = wants_transmit;
       }

@@ -531,6 +531,33 @@ typedef struct {
   unsigned misc_cmd_logged;
   uint16_t misc_cmd_last;
 
+  /* **The same log one register along, for the same reason.**
+   *
+   * MISC_CMD's counts and values (above) settled who was disconnecting the
+   * ring; XMIT_CMD had none, and the question that needs them is the mirror
+   * image: a second `/com/lcnode` on a booted node touches the card 154 more
+   * times and writes it 258 more, and **no frame reaches the station**
+   * (`FINDINGS.md` C251). Whether the driver asked for a transmit at all, and
+   * with what value, is not answerable from a region total -- which is exactly
+   * the reading C243 could not take before MISC_CMD got its log.
+   *
+   * It matters because `+402`'s trigger is a **rising** `ten`: p. 12-32 makes
+   * `ten` a level, so this core queues on the edge and nothing clears
+   * `xmit_enabled` when an operation completes. A driver that left `ten` set
+   * would arm exactly one frame per boot, which is what the two-node runs
+   * show -- but "would" is not "did", and the values are what say which. */
+  unsigned xmit_cmd_writes;
+  /* How many of them carried `ten` -- the command lane `$0200` or `$0600`,
+   * p. 12-32's transmit enable with and without `fen`. */
+  unsigned xmit_cmd_ten;
+  /* And how many of those were a **rising** edge, so actually queued a frame.
+   * The gap between this and `xmit_cmd_ten` is the whole question. */
+  unsigned xmit_cmd_rising;
+  uint16_t xmit_cmd_first[AP_RING_CTL_CMD_LOG];
+  bool xmit_cmd_byte[AP_RING_CTL_CMD_LOG];
+  unsigned xmit_cmd_logged;
+  uint16_t xmit_cmd_last;
+
   /* `+402`'s low lane, which is status rather than the constant finding 63
    * first modelled: subtest 13 requires `F0` on an idle register and subtest 23
    * requires `B0` once a `$6` command has been taken, so bit 6 goes with the

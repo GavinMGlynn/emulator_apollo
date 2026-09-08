@@ -2130,6 +2130,23 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
                   : "",
               board[i].ring.a2.misc_cmd_last);
     }
+    fprintf(out,
+            "  node %u  ring  XMIT_CMD %u write(s), %u with ten, %u rising\n",
+            i, board[i].ring.a2.xmit_cmd_writes, board[i].ring.a2.xmit_cmd_ten,
+            board[i].ring.a2.xmit_cmd_rising);
+    if (board[i].ring.a2.xmit_cmd_logged > 0u) {
+      fprintf(out, "  node %u  ring  xmits", i);
+      for (unsigned k = 0; k < board[i].ring.a2.xmit_cmd_logged; k++) {
+        fprintf(out, " %04X%s", board[i].ring.a2.xmit_cmd_first[k],
+                board[i].ring.a2.xmit_cmd_byte[k] ? "b" : "w");
+      }
+      fprintf(out, "%s  last %04X\n",
+              board[i].ring.a2.xmit_cmd_writes >
+                      board[i].ring.a2.xmit_cmd_logged
+                  ? " ..."
+                  : "",
+              board[i].ring.a2.xmit_cmd_last);
+    }
     if (board[i].ring.first_tx_captured) {
       /* The twelve bytes the driver asked to send, verbatim. `[MAC]` §2.2.2.2
        * takes the destination from the first four and the type from the next
@@ -5706,6 +5723,27 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
                  ? " ..."
                  : "",
              board->ring.a2.misc_cmd_last);
+    }
+    /* **And XMIT_CMD, which had no log at all.** The gap between `ten` and
+     * `rising` is the whole reading: this core queues a frame on `ten`'s
+     * **rising** edge, p. 12-32 making `ten` a level, so a driver that leaves
+     * it set arms exactly one frame however many times it asks. A region total
+     * cannot separate that from a driver that never asked (`FINDINGS.md`
+     * C251). */
+    printf("  ring xmit    XMIT_CMD %u write(s), %u with ten, %u rising\n",
+           board->ring.a2.xmit_cmd_writes, board->ring.a2.xmit_cmd_ten,
+           board->ring.a2.xmit_cmd_rising);
+    if (board->ring.a2.xmit_cmd_logged > 0u) {
+      printf("  ring xmits  ");
+      for (unsigned k = 0; k < board->ring.a2.xmit_cmd_logged; k++) {
+        printf(" %04X%s", board->ring.a2.xmit_cmd_first[k],
+               board->ring.a2.xmit_cmd_byte[k] ? "b" : "w");
+      }
+      printf("%s  last %04X\n",
+             board->ring.a2.xmit_cmd_writes > board->ring.a2.xmit_cmd_logged
+                 ? " ..."
+                 : "",
+             board->ring.a2.xmit_cmd_last);
     }
   }
   /* Which serial registers, not just how many. A transmit that never happened
