@@ -4511,9 +4511,21 @@ Only after the reference core is proven, and only under an identity harness.
       half and devices half of the tick split so a span-breaking I/O write still
       runs its devices half canonically. *Verification: entire probe suite and
       long boot hashes byte-identical to the reference core.*
-      **Awaiting:** the CPU half, and the two device-side increments above are
-      done — **45.3 s → 30.3 s, 1.49x**, every step verified by an unchanged
-      `A354786119A3931D` and boot reports identical line for line.
+      **Awaiting:** the CPU half. Two device-side increments below survive —
+      the interrupt-sample skip and the timer advance — each verified by an
+      unchanged state hash and boot reports identical line for line.
+      **The cumulative figure is WITHDRAWN, 2026-09-08**, because one of its
+      three terms was: the bus-tick batching that contributed 1.311x was not
+      equivalent to the loop it replaced and has been removed (`FINDINGS.md`
+      C254). It read "**45.3 s → 30.3 s, 1.49x**", and that number cannot be
+      carried with a term taken out of it.
+      *Nor is it simply re-measurable by subtraction*: 45.3 s was this machine's
+      baseline months and many commits ago, and comparing it against today's
+      **44.0 s** would be the cross-time comparison this project has already
+      recorded five withdrawn conclusions from. The two surviving increments'
+      own **interleaved** A/Bs stand -- those were measured pairwise, on one
+      tree, in one sitting -- and a cumulative figure needs a fresh baseline
+      taken the same way.
       **A re-profile has moved the target.** With the device work reduced, the
       instruction pipeline is now the largest share — `ap_m68030_step` 10.5%,
       `fill_to_decoded` 9.8%, `ap_m68030_decode` 4.4% — against

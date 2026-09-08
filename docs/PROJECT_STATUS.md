@@ -2148,13 +2148,22 @@ A bus tick here is a processor clock, and §3.3 sources the interval from the
 clocks: **375** on a 25 MHz DN3500, and a whole number on every model in the
 table. Taken from the model table, never a conditional.
 
-Timing it instead would need `ap_board_bus_tick` to carry an instant, and the
-batch in `ap_board_bus_ticks` could then step straight over a refresh without
-noticing — that batch exists because an idle arbiter makes N ticks identical to
-one, and a refresh is not arbitration, so the equivalence stops holding the
-moment the counter would reach zero inside the batch. A counter can bound the
-batch because it shares units with it. `board_suite` asserts a batched run and a
-stepped run steal the same cycles and end in the same state.
+Timing it instead would need `ap_board_bus_tick` to carry an instant, and a
+counter is what makes the refresh exact without one.
+
+*The paragraph that stood here described a **batch** in `ap_board_bus_ticks`
+bounded by that same counter, and the batch is gone* — removed 2026-09-08
+because it was not equivalent to the loop it replaced, not even at n = 1: it
+decremented the counter in its own body rather than going through
+`ap_board_bus_tick`, and so ordered the steal differently (`FINDINGS.md` C254).
+It read: "the batch in `ap_board_bus_ticks` could then step straight over a
+refresh without noticing — that batch exists because an idle arbiter makes N
+ticks identical to one, and a refresh is not arbitration, so the equivalence
+stops holding the moment the counter would reach zero inside the batch." The
+guard it describes was real and the equivalence it assumed was not.
+`board_suite` now requires `ap_board_bus_ticks(n)`, n calls of one, and n calls
+of `ap_board_bus_tick` to be three names for one thing, swept across the refresh
+phase — which is the assertion the old one should have been.
 
 *`AP_ATBUS_DRAM_ROW_INTERVAL` is 15.625 µs and this is 15 µs, and the difference
 is not an error*: the board supplies refresh slightly faster than the parts
