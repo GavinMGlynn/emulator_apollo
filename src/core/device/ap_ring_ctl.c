@@ -1314,9 +1314,45 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
       /* Whether *this* command handed the station a frame. The result used to
        * be discarded; it is what separates a completion the ring finishes from
        * one with nothing to wait for. */
+      /* **The command is the high lane, the wire is real only with `lpb` off,
+       * and `ten` is a level.**
+       *
+       * The whole word was matched against `$0200`/`$0600`, which is right only
+       * when the low lane happens to be zero -- and this file says two hundred
+       * lines up that for `+402` "the command byte is the high lane; the low
+       * lane is status". `ap_board_write` is byte-wide, so a guest's
+       * `move.w #$0200` arrives as two byte accesses and the first merges the
+       * command with `command_402_status`, giving `02B0`; Domain/OS commanded
+       * sixty-five transmits that way and not one reached the station.
+       *
+       * The exact match was standing in for two real conditions, which is why
+       * correcting it alone regressed the firmware. With `lpb` set the transmit
+       * loops inside the board and nothing is on the wire -- the same condition
+       * `ring_ctl_defer_completion` applies below, and the ROM's `$11`-`$16`
+       * group is a loopback group. And `ten` is a **level**: p. 12-32 says "set
+       * `ten` to 0 to abort an enabled transmit" and makes `fen` "a modifier to
+       * Transmit Enable, not a separate command", so a `$6` after a `$2` is the
+       * same transmit forced. Queueing on both sent one frame too many, which
+       * subtest `$32` reads as XMIT_HDR_CNT six words low. `FINDINGS.md` C247. */
+      const uint16_t command_lane = (uint16_t)(value & 0xFF00u);
+      const bool wants_transmit =
+          command_lane == 0x0200u || command_lane == 0x0600u;
+      const bool rising = wants_transmit && !w->xmit_enabled;
+      if (second_window) {
+        w->xmit_enabled = wants_transmit;
+      }
       bool queued_this_command = false;
-      if (second_window && ctl->station != NULL &&
-          (value == 0x0200u || value == 0x0600u)) {
+      /* **And the station must be on the ring.** `[MAC]` §3.5's bypass relay:
+       * a card whose `nct` is clear is physically out of the cable and cannot
+       * put a frame on it, which is the same fact MISC_STAT's bit 15 and
+       * XMIT_STAT's `nct` already report to the host. The ring ROM's
+       * `$21`-`$26` group runs after `000512 move.b #$0,$400(a4)`, whose high
+       * byte clears `nct` as well as `lpb`, so its transmits are the internal
+       * DMA loop and nothing else -- which is why subtest `$32` expects
+       * XMIT_HDR_CNT untouched. Domain/OS connects first (`$0800`), so its
+       * transmits do reach the wire. */
+      if (second_window && ctl->station != NULL && !w->loopback_enabled &&
+          w->connected && rising) {
         queued_this_command = ring_ctl_queue_from_buffer(ctl);
       }
       /* **`PROVISIONAL`: a `6` command completes an operation, and clears the

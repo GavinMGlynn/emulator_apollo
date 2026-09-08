@@ -499,6 +499,17 @@ typedef struct {
    * requires `B0` once a `$6` command has been taken, so bit 6 goes with the
    * operation. Held per window because it changes. */
   uint16_t command_402_status;
+  /* Whether `ten` is currently set, so a transmit is queued on its **rising
+   * edge** and not on every write that carries it.
+   *
+   * p. 12-32 makes `ten` a level -- "Set `ten` to 0 to abort an enabled
+   * transmit" -- and `fen` "a **modifier** to Transmit Enable, **not a separate
+   * command**". So a `$6` written while `ten` is already set is the same
+   * transmit forced, not a second one. Measured: with the queue taken on every
+   * `$2` and `$6`, the ring ROM's subtest `$32` reads XMIT_HDR_CNT at `FDFA`
+   * against its expected `FE00` -- an 8254 counts down, so **six words too
+   * many**, which is exactly one 12-byte header (`FINDINGS.md` C247). */
+  bool xmit_enabled;
 
   /* **XMIT_STAT's high byte, which is status and not an echo of the command.**
    * `002398-04` p. 12-31 tabulates `59402`'s read as sixteen status bits: `pe`

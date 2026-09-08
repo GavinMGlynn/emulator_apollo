@@ -921,11 +921,32 @@ static void test_only_the_transmit_command_values_queue_a_frame(void) {
     ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 2u, quiet[c]);
     TEST_ASSERT_FALSE(w.station[0].tx_armed);
   }
-  /* Both transmit values do arm it: `$0200` and the forced `$0600`. */
   static const uint16_t sends[] = {0x0200u, 0x0600u};
+
+  /* **And neither does a transmit from a card that is off the ring.**
+   * `[MAC]` §3.5's bypass relay: `nct` clear is a station physically out of the
+   * cable, which is what MISC_STAT bit 15 and XMIT_STAT's `nct` report to the
+   * host, and it cannot put a frame on a ring it is not in. The ring ROM's
+   * `$21`-`$26` subtest group runs after `move.b #$0,$400(a4)` -- which clears
+   * `nct` with everything else in that byte -- so its transmits are the
+   * internal DMA loop, and subtest `$32` reads XMIT_HDR_CNT expecting no words
+   * to have gone out. Queueing without this sent one 6-word header too many
+   * and the firmware said so (`FINDINGS.md` C247). */
   for (unsigned c = 0; c < sizeof sends / sizeof sends[0]; c++) {
     wired_build(&w);
     ap_ring_station_attach_tx(&w.station[0], txbuf, sizeof txbuf);
+    ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 2u, sends[c]);
+    TEST_ASSERT_FALSE(w.station[0].tx_armed);
+  }
+
+  /* Both transmit values arm it once the card is **on** the ring: `$0200` and
+   * the forced `$0600`. `MISC_CMD`'s `nct` is what closes the relay, and it is
+   * the same write Domain/OS makes before it transmits. */
+  for (unsigned c = 0; c < sizeof sends / sizeof sends[0]; c++) {
+    wired_build(&w);
+    ap_ring_station_attach_tx(&w.station[0], txbuf, sizeof txbuf);
+    ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS,
+                        AP_RING_CTL_MISC_CMD_NCT);
     ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 2u, sends[c]);
     TEST_ASSERT_TRUE(w.station[0].tx_armed);
   }
