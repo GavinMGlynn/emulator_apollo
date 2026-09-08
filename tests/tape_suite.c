@@ -405,6 +405,47 @@ static void test_an_exception_survives_until_its_figure_completes(void) {
  * Written against the image the drive is holding, so it fails if the block is
  * assembled but never handed over, and fails differently if it is handed over
  * misaligned. */
+/* **The command byte goes on the bus before REQUEST rises, and this core
+ * required the opposite.**
+ *
+ * `[SC499]` §1.13.2 numbers the steps of all three command transfers, and each
+ * opens the same way — Figure 1-8, the exception entry a just-reset drive takes:
+ *
+ *     T1 - Bus Data Valid
+ *     T2 - Controller Asserts REQUEST     0 us. < T1 -> T2
+ *     T3 - Device Deasserts EXCEPTION
+ *
+ * `ap_tape_write` took a data-register write as a command only when REQUEST was
+ * **already** set, so a host following the figure had its byte stored in the
+ * controller's data register and executed by nothing. The SR10.4 boot
+ * cartridge's firmware follows the figure: it writes `C0` to the data register
+ * at one instruction and `40` to the control register at the next, and this
+ * core answered by handing `C0` straight back (`FINDINGS.md` C262).
+ *
+ * The suite's own `issue` helper uses the other order, which is why every test
+ * here passed throughout — a harness that agreed with the model rather than
+ * with the manual. */
+static void test_a_command_byte_may_precede_the_request_that_takes_it(void) {
+  ap_tape_t t;
+  arm(&t);
+
+  /* T1 then T2, which is the figure's order and not `issue`'s. */
+  ap_tape_write(&t, AP_TAPE_ADDR + 0u, AP_QIC_CMD_SELECT);
+  ap_tape_write(&t, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST);
+  clock_now += ap_sc499_handshake_duration(AP_SC499_ENTRY_READY) +
+               ap_sc499_handshake_duration(AP_SC499_ENTRY_DIRECTION);
+  ap_tape_advance(&t, clock_now);
+  /* The drive took it: SELECT is what makes a drive report itself present. */
+  TEST_ASSERT_TRUE(t.drive.selected);
+
+  /* And READ STATUS the same way, whose effect is visible without reading a
+   * byte: the block becomes pending. */
+  ap_tape_write(&t, AP_TAPE_ADDR + 1u, 0u); /* T5/T6: REQUEST back down */
+  ap_tape_write(&t, AP_TAPE_ADDR + 0u, AP_QIC_CMD_READ_STATUS);
+  ap_tape_write(&t, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST);
+  TEST_ASSERT_TRUE(t.drive.status_pending);
+}
+
 /* **READ STATUS's six bytes come out of the data register, and nothing
  * delivered them.**
  *
@@ -513,6 +554,7 @@ int main(void) {
   RUN_TEST(test_the_registers_alias_on_an_eight_byte_period);
   RUN_TEST(test_nothing_outside_the_range_decodes);
   RUN_TEST(test_the_tape_raises_its_documented_interrupt);
+  RUN_TEST(test_a_command_byte_may_precede_the_request_that_takes_it);
   RUN_TEST(test_read_status_delivers_its_six_bytes_through_the_data_register);
   RUN_TEST(test_a_written_block_reaches_the_cartridge);
   RUN_TEST(test_a_partial_block_is_not_written);

@@ -14725,3 +14725,67 @@ legitimate: a predicate a test exercises against a manual's table is a
 recorded as **not** a useful check rather than added to the tooling, and the
 distinction that does matter is narrower: a function that *composes state for
 delivery* with nothing to deliver it.
+
+## C262 -- the command byte goes on the bus first, and `Tape C0` becomes `Tape 39`
+
+C261 fixed READ STATUS's delivery and said plainly that it was necessary rather
+than sufficient: the cartridge still reported `Tape C0`. One more instrument
+answered why.
+
+    watch read 00050000 -- read 13 time(s), **last C0**
+
+The firmware reads the data register thirteen times and gets back **`C0`**,
+which is the command byte it had just written. So `Tape C0` is MD printing what
+it read from the data port, and what it read was its own command echoed. That
+also settles C260's open question -- the first field of MD's tape error line is
+the byte it got back, which is why it was not in the status-code table.
+
+### Why the command was never executed
+
+`[SC499]` §1.13.2 numbers the steps of all three command transfers, and every
+one opens the same way. Figure 1-8, the exception entry a just-reset drive
+takes:
+
+    T1 - Bus Data Valid
+    T2 - Controller Asserts REQUEST     0 us. < T1 -> T2
+    T3 - Device Deasserts EXCEPTION
+    T4 - Device Asserts READY          10 us. < T3 -> T4
+
+**T1 before T2**: the byte is on the bus, then REQUEST rises. `ap_tape_write`
+took a data-register write as a command only when REQUEST was **already** set,
+so a host following the figure had its byte stored in the controller's data
+register and executed by nothing. The measurement matches exactly: `C0` written
+to `050000` at instruction 364,111,811 and `40` to `050001` at 364,111,812.
+
+Both orders are now accepted -- a control write that *raises* REQUEST issues the
+byte the data register holds.
+
+### The result, and it is a real move
+
+    before   Tape C0  000000  00  C
+    after    Tape 39  000000  00  C
+
+**`39` is in MD's own table**: `002398-04` p. 4-17, "drive not present". So the
+command transfer now works, the firmware's READ STATUS executes, it reads the
+status block, and it reports a *documented* condition instead of an echo.
+
+`39` is `USL` in the status block, and `ap_qic_exception_word` sets it because
+the drive is **deselected** -- which a reset does, and the guide says so:
+"The drive shall remain selected until changed by another SELECT command or
+RESET." The firmware issues READ STATUS *before* its SELECT, which is the
+documented way to clear the power-on condition, and this model answers "no
+drive" to it.
+
+*Whether a post-reset READ STATUS should report `USL` when no drive has been
+selected is genuinely ambiguous in the standard* -- §5.2 defines `USL` as the
+**selected** drive being absent, and with none selected there is no selected
+drive. The firmware's own sequence is evidence that real hardware does not
+report it, and that is the next question rather than a change made at the end of
+a long session.
+
+### And the suite agreed with the model rather than the manual
+
+`tape_suite`'s `issue` helper raises REQUEST *then* writes the byte -- the order
+the model required -- so every test here passed throughout while the firmware
+could not issue a command at all. The new test uses the figure's order and would
+have caught it.

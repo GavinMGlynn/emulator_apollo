@@ -4947,10 +4947,19 @@ same number is what let them diverge once already.
       `[SC499]` §1.13.1 requires and **its only caller was `qic_suite`**, so the
       block reached no firmware ever. Now served through the data register;
       `tape_suite` 19 → 20 and the test fails on the old code.
-      **Necessary, not sufficient**: the cartridge still reports `Tape C0`. The
-      next instrument is one register along — what the firmware reads back from
-      `050000`, and what the ten bytes it then writes there
-      (`01 07 28 28 00 00 03 AA 01 01`, one PC, five instructions apart) are.
+      **A second defect found the same way and fixed** (`FINDINGS.md` C262):
+      the firmware reads the data register thirteen times and gets back **`C0`**
+      — its own command. `[SC499]` §1.13.2's figures put **T1 Bus Data Valid
+      before T2 Controller Asserts REQUEST**, and `ap_tape_write` took a byte as
+      a command only when REQUEST was *already* set, so a host following the
+      figure had its command executed by nothing. Both orders now work.
+      *And the error moved into the documented table*: `Tape C0` → **`Tape 39`**,
+      which p. 4-17 gives as *drive not present*. `tape_suite` 20 → 21.
+      **What is left**: `39` is `USL`, set because a reset deselects the drive
+      and the firmware reads status *before* selecting. §5.2 defines `USL` as the
+      **selected** drive being absent, so with none selected it is ambiguous —
+      and the firmware's own sequence is evidence that hardware does not report
+      it. That is the next question.
       **What it unblocks**: a cartridge boot on this core, and with it the SAU 14
       install that the DS5500 boot and the multi-node workloads item both want —
       without borrowing the oracle. *The media is confirmed held*: `019593-001`

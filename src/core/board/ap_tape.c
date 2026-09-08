@@ -190,6 +190,26 @@ static void accept_byte(ap_tape_t *tape, uint8_t value) {
   ap_sc499_block_boundary(&tape->controller);
 }
 
+/* One command transfer's effect, whichever order the host used to start it.
+ *
+ * A command the drive refuses raises Exception instead of failing silently --
+ * the status register is the only channel the controller has for saying no. */
+static void issue_command(ap_tape_t *tape, uint8_t command) {
+  if (!ap_qic_command(&tape->drive, command)) {
+    ap_sc499_set_exception(&tape->controller, true);
+    return;
+  }
+  /* Whichever of the three figures applies, its effects are the device's to
+   * apply, not the board's. */
+  ap_sc499_command_accepted(&tape->controller);
+  /* A new command invalidates whatever block was part-read, and whatever status
+   * block was part-delivered. */
+  tape->block_valid = false;
+  tape->offset = 0u;
+  tape->status_valid = false;
+  tape->status_offset = 0u;
+}
+
 void ap_tape_write(ap_tape_t *tape, uint32_t address, uint8_t value) {
   unsigned reg;
   if (!ap_tape_decode(address, &reg)) {
@@ -198,18 +218,39 @@ void ap_tape_write(ap_tape_t *tape, uint32_t address, uint8_t value) {
   if (reg == AP_SC499_DATA &&
       (tape->controller.control & AP_SC499_CTL_REQUEST) != 0u) {
     /* Control bit 6 is "Request to LSI chip", so a data-register write with it
-     * set is a command rather than data. A command the drive refuses raises
-     * Exception instead of failing silently -- the status register is the only
-     * channel the controller has for saying no. */
-    if (!ap_qic_command(&tape->drive, value)) {
-      ap_sc499_set_exception(&tape->controller, true);
-    } else {
-      /* Whichever of the three figures applies, its effects are the device's
-       * to apply, not the board's. */
-      ap_sc499_command_accepted(&tape->controller);
-      /* A new command invalidates whatever block was part-read. */
-      tape->block_valid = false;
-      tape->offset = 0u;
+     * already set is a command rather than data. */
+    issue_command(tape, value);
+    return;
+  }
+  /* **And the other order, which is the one the firmware uses.**
+   *
+   * `[SC499]` §1.13.2's figures number the steps, and every one of the three
+   * command transfers opens the same way -- Figure 1-8, the exception entry
+   * this machine's boot takes:
+   *
+   *     T1 - Bus Data Valid
+   *     T2 - Controller Asserts REQUEST     0 us. < T1 -> T2
+   *     T3 - Device Deasserts EXCEPTION
+   *
+   * So the byte is on the bus **before** REQUEST rises, and requiring REQUEST
+   * first meant the command was stored in the controller's data register and
+   * executed by nothing. Measured on the SR10.4 boot cartridge: the firmware
+   * writes `C0` (READ STATUS) to the data register at one instruction and `40`
+   * (REQUEST) to the control register at the next, then reads the data register
+   * thirteen times and gets its own `C0` back -- which is the `Tape C0` MD
+   * reports (`FINDINGS.md` C262).
+   *
+   * Both orders are accepted rather than one replaced: T1 before T2 is what the
+   * figures give, and a host that raised REQUEST first would still be issuing a
+   * command by the branch above. */
+  if (reg == AP_SC499_CONTROL_STATUS) {
+    const bool was_requesting =
+        (tape->controller.control & AP_SC499_CTL_REQUEST) != 0u;
+    ap_sc499_write(&tape->controller, reg, value);
+    if (!was_requesting &&
+        (tape->controller.control & AP_SC499_CTL_REQUEST) != 0u) {
+      /* T2, with the byte T1 left in the data register. */
+      issue_command(tape, tape->controller.data);
     }
     return;
   }
