@@ -426,6 +426,18 @@ typedef struct {
   /* `+400` and the two command registers beside it, kept because the firmware
    * writes them and reads them back -- not because their bits are known. */
   uint16_t status;
+  /* The last **command** written to `+400`, which is not what `+400` reads.
+   *
+   * p. 12-29 makes `59400` MISC_STAT when read and MISC_CMD when written, two
+   * different registers at one address, and `ap_board_write` is byte-wide, so a
+   * guest's `move.w` arrives as two byte writes. Merging the second of those
+   * against a **read** composes a command out of status: `FINDINGS.md` C246
+   * measured a `move.w #$0800` -- the driver connecting the ring -- becoming
+   * `0807` and then `7000`, the second half clearing the `nct` the first had
+   * set. Merging against this instead assembles the word the guest actually
+   * wrote, and still lets the ring ROM's lone `move.b #$1,$400(a4)` commit,
+   * which a hold-until-the-odd-half latch would not. */
+  uint16_t command_400;
   uint16_t command_402;
 
   /* ## How often MISC_CMD was written, and how often it carried `nct`

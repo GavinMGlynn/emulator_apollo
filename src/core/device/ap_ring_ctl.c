@@ -829,7 +829,20 @@ void ap_ring_ctl_write8(ap_ring_ctl_t *ctl, bool second_window, uint32_t offset,
           (uint16_t)(((uint16_t)w->port_write_high << 8) | value));
       return;
     }
-    const uint16_t held = ap_ring_ctl_read16(ctl, second_window, offset & ~1u);
+    /* **Merge against the last *command*, not against a read.**
+     *
+     * The read side of this bank is a different register from the write side
+     * (p. 12-29), and `ap_board_write` is byte-wide, so a guest word write
+     * arrives as two byte accesses. Merging the second against a status read
+     * composes a command out of status, which is how a `move.w #$0800`
+     * connecting the ring became `0807` then `7000` and disconnected it
+     * (`FINDINGS.md` C246). Only slot 0 is changed: `+402` and `+404` keep
+     * their own written command lanes and the ring ROM's self-test asserts
+     * their behaviour directly. */
+    const bool misc = (offset & AP_RING_CTL_SLOT_MASK) == 0u;
+    const uint16_t held =
+        misc ? w->command_400
+             : ap_ring_ctl_read16(ctl, second_window, offset & ~1u);
     const uint16_t merged =
         (offset & 1u) != 0u
             ? (uint16_t)((held & 0xFF00u) | value)
@@ -1193,6 +1206,7 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
       /* The connect state is taken from *this* write before the status is
        * recomputed from it: a driver that connects and then reads `nct` must
        * see the connection it just asked for, not the one before it. */
+      w->command_400 = value;
       w->connected = (value & AP_RING_CTL_MISC_CMD_NCT) != 0u;
       /* Counted here rather than at the register decode, so the count is of
        * writes that reached *this* meaning of the register. See the header. */

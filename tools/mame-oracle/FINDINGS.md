@@ -13406,3 +13406,73 @@ already masked with `& ~1`, so `@400` cannot by itself distinguish an even-lane
 write from an odd-lane one. The **merge direction** does: a high byte that is
 the guest's value and a low byte that is status means the even lane, which is
 what all eight show.
+
+## C246 -- FOUND: a word write to MISC_CMD is split into two byte writes, and the second one disconnects the ring
+
+C245 left two readings and named the instrument that separates them. It is
+`--boot-watch-write`, which this frontend has had all along, and it settles the
+question outright by recording what the **guest** does rather than what the
+device receives:
+
+    watch write  1 at 00059400 value 00000000 size 2 by PC 3C44FEB6 after 618157412
+    watch write  2 at 00059400 value 00000800 size 2 by PC 3C4AFB46 after 698660443
+    watch write  3 at 00059400 value 00000800 size 2 by PC 3C4AFA22 after 698660535
+    watch write  4 at 00059400 value 00000800 size 2 by PC 3C4AFB46 after 698661265
+    watch        00059400 written 4 time(s), last 0800 by PC 3C4AFB46
+
+**Four writes, all `size 2`, and the last is `$0800`.** Domain/OS writes words,
+writes `nct`, and leaves the card **connected**. It never writes `$70` at all.
+
+### Where `$70` came from
+
+`ap_board_write` takes a `uint8_t`: the board is byte-addressed and a word
+access reaches a device as two byte writes. `ap_ring_ctl_write8` handles the
+status bank by **read-modify-write** -- it reads the word, merges the byte,
+writes it back -- and `002398-04` p. 12-29 makes `59400` **MISC_STAT when read
+and MISC_CMD when written**. So one `move.w #$0800, $59400` becomes
+
+    write8(0x400, $08)  ->  (status & 00FF) | 0800  =  0807   connected = true
+    write8(0x401, $00)  ->  (status & FF00) | 0000  =  7000   connected = false
+
+and the second half of the connect destroys the first. `$70` was never a driver
+value: it is **MISC_STAT's high byte** coming back through a read of a register
+that is not the one being written. Every observation follows -- the eight byte
+writes against the guest's four word ones, the `0807`/`7000` pairing, the three
+`nct` writes that do not stick, the last value `7000`, MISC_STAT bit 15 set,
+`claims_made` zero, and `transmit failed (OS/network)`.
+
+### And this core already knew the rule
+
+The same file solves it twice for other registers. The ID bank has a
+`byte_latch` -- "the high byte of a word register written as two byte accesses,
+held until the odd half commits it" -- and the data port at `+406` has
+`port_write_high` for the same reason, with a comment saying read-modify-write
+there "would *read* the port -- advancing its pointer -- and then write it,
+twice over for one `move.w`". The header even says finding 61's rule "applies to
+these registers too". The status bank never got it.
+
+**The fix cannot be the latch as written, and the reason is a real constraint.**
+The ring ROM writes *single* bytes to the even lane and expects them to take
+effect -- `move.b #$1,$400(a4)`, `move.b #$2,$402(a4)`, `move.b #$8,$404(a4)`,
+and the self-test's subtests assert what follows. A latch that waited for an odd
+half would hold those for ever.
+
+What satisfies both is to merge against the **last written command** rather than
+against a status read: an even-lane byte sets the high half and keeps the low,
+an odd-lane byte sets the low half and keeps the high. The ROM's lone even-lane
+byte still commits, and the guest's two-access word assembles to exactly what it
+wrote --
+
+    write8(0x400, $08)  ->  (cmd & 00FF) | 0800  =  0800   connected = true
+    write8(0x401, $00)  ->  (cmd & FF00) | 0000  =  0800   still connected
+
+-- which is the value the watch says the guest asked for.
+
+*Method note, and it is the whole of this thread.* Five instruments in
+sequence, each the cheapest thing that could separate the readings then
+standing: a region total (the driver reached the card), two counters (`nct` is
+written and lost), a value log (connect paired with disconnect), a route split
+(the ROM's writes are not the OS's), and finally the guest's own bus writes --
+which showed that four of the eight "driver writes" were this core's own. Every
+step before the last was reasoning about values the device received, and the
+answer was only visible one level up.
