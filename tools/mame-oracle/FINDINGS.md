@@ -14814,3 +14814,63 @@ READY across those reads, which the same flag can show one register along.
 the model required -- so every test here passed throughout while the firmware
 could not issue a command at all. The new test uses the figure's order and would
 have caught it.
+
+## C263 -- two 4,096-poll timeouts, and DIRECTION is taken back by the command that needs it
+
+C262 left one question -- why the firmware reads a single status byte where READ
+STATUS transfers six -- and said the answer was an instrument rather than an
+inference. `--boot-log-watch-reads` printed every status-register read of the
+run, 8,201 of them, and they are two spins:
+
+    4097 x  57  at PC 39C0      EXC asserted, RDY negated
+       1 x  57  at PC 3888
+       5 x  57  at PC 39C0
+       1 x  37  at PC 39C0
+    4097 x  37  at PC 39E0      RDY asserted, no EXC, DONE set, DIR clear
+
+**4,097 is a 4096-iteration timeout and its exit**, twice. The firmware waits
+for READY, times out; the status then flips to `37`; and it waits again on
+something `37` does not give it and times out again.
+
+`37` is `IRQ|RDY` asserted, `EXC` negated, `DONE` set and **DIRECTION clear**.
+
+### What the figure says
+
+§1.13.2's data-transfer figure -- the one drawn with STATUS bytes on the DATA
+BUS -- numbers its steps, and DIRECTION is the **first**:
+
+    T1 - Device Changes Bus DIRECTION
+    T2 - Bus Data Valid                0 us. < T1 -> T2
+    T3 - Device Asserts READY          0 us. < T2 -> T3
+    T4 - Controller Asserts REQUEST    0 us. < T3 -> T4
+    T5 - Device Deasserts READY
+
+So a delivering command ends with DIRECTION *asserted*, which is how a host
+knows it may read -- and `ap_sc499`'s command completion deasserts it
+unconditionally, citing Figure **1-9**'s T4, "Device Deasserts DIRECTION,
+handing the bus back". That citation is right for the figure it names and wrong
+applied to every command: Figure 1-9 is the transfer entered *while the device
+already holds the bus*, whose T4 hands it back so a **new** command can proceed.
+Applied to a READ STATUS, it takes the bus away from the command about to use
+it.
+
+Fixed at the board, where the drive's intent and the controller's signals meet:
+after the controller advances, a pending delivery re-asserts DIRECTION. Not by
+suppressing the clear, because the clear is correct for its own figure -- the
+two conditions are different, "a command took the bus back" against "a command
+is about to deliver". `tape_suite` requires DIRECTION after a READ STATUS and
+before any byte is read, and fails without it.
+
+### And it does not fix the boot, which is said rather than implied
+
+`Tape 39` before and after. Three defects on this path are now fixed -- the
+undelivered status block (C261), the command/REQUEST order (C262) and this --
+each from a numbered step in the same section, each with a test that fails on
+the old code, and the boot error has not moved since C262 changed it from `C0`.
+
+**What is left is the rest of that same figure.** T3 and T5 make READY a
+*per-byte* signal in the data phase: the device asserts it when a byte is ready
+and deasserts it when the host has taken one. The status path asserts it never.
+`ap_sc499_block_boundary` already does exactly this per *block* for tape data,
+which is the shape the status path needs per byte -- so the next piece is
+building, not reading.

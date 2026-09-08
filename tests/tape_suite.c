@@ -446,6 +446,35 @@ static void test_a_command_byte_may_precede_the_request_that_takes_it(void) {
   TEST_ASSERT_TRUE(t.drive.status_pending);
 }
 
+/* **The device turns the bus round when it takes the command, not when its
+ * first byte is read.**
+ *
+ * `[SC499]` §1.13.2's data-transfer figure numbers the steps, and DIRECTION is
+ * the *first*:
+ *
+ *     T1 - Device Changes Bus DIRECTION
+ *     T2 - Bus Data Valid                0 us. < T1 -> T2
+ *     T3 - Device Asserts READY          0 us. < T2 -> T3
+ *     T4 - Controller Asserts REQUEST    0 us. < T3 -> T4
+ *
+ * This core set `direction` as it handed a byte over, so a host that polls for
+ * DIRECTION before reading waited for a signal only its own read would produce.
+ * Measured on the SR10.4 boot cartridge: after READ STATUS the firmware polls
+ * the status register **4,097 times** at one PC -- a 4096-iteration timeout and
+ * its exit -- seeing `37` every time, which is READY asserted, no exception,
+ * DONE set and DIRECTION **clear** (`FINDINGS.md` C263). */
+static void test_a_status_command_turns_the_bus_round_before_any_byte(void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_SELECT);
+  TEST_ASSERT_FALSE(t.controller.direction);
+
+  issue(&t, AP_QIC_CMD_READ_STATUS);
+  /* T1, and nothing has been read yet. */
+  TEST_ASSERT_TRUE(t.controller.direction);
+  TEST_ASSERT_TRUE(t.drive.status_pending);
+}
+
 /* **READ STATUS's six bytes come out of the data register, and nothing
  * delivered them.**
  *
@@ -555,6 +584,7 @@ int main(void) {
   RUN_TEST(test_nothing_outside_the_range_decodes);
   RUN_TEST(test_the_tape_raises_its_documented_interrupt);
   RUN_TEST(test_a_command_byte_may_precede_the_request_that_takes_it);
+  RUN_TEST(test_a_status_command_turns_the_bus_round_before_any_byte);
   RUN_TEST(test_read_status_delivers_its_six_bytes_through_the_data_register);
   RUN_TEST(test_a_written_block_reaches_the_cartridge);
   RUN_TEST(test_a_partial_block_is_not_written);

@@ -4967,11 +4967,23 @@ same number is what let them diverge once already.
       right for a just-reset drive holding a cartridge at block zero. Before the
       command-order fix the same watch showed thirteen reads ending in the echoed
       `C0`.
-      *What is left is precise*: READ STATUS transfers **six** bytes and the
-      firmware reads one. §1.13.1's data phase gives each byte its own READY
-      handshake, so a model that does not drop and re-assert READY per byte would
-      strand a host after the first — a hypothesis, and the next instrument is
-      READY across those reads.
+      **A third defect, measured and fixed** (`FINDINGS.md` C263). The new
+      `--boot-log-watch-reads` printed all 8,201 status reads: **two
+      4096-iteration timeouts**, `57` (exception, not ready) then `37` (ready,
+      no exception, DONE set, **DIRECTION clear**). §1.13.2's data figure makes
+      `T1 Device Changes Bus DIRECTION` the *first* step, so a delivering command
+      ends with the bus turned round — and `ap_sc499`'s completion deasserted it
+      unconditionally, citing Figure **1-9**'s T4, which is the transfer entered
+      *while the device already holds the bus*. Right for its figure, wrong for
+      every command. `tape_suite` 21 → 22.
+      **And it does not fix the boot**: `Tape 39` before and after. Three defects
+      on this path are fixed, each from a numbered step in one section, each with
+      a test that fails on the old code.
+      *What is left is the rest of that figure*: T3 and T5 make READY a
+      **per-byte** signal, asserted when a byte is ready and deasserted when the
+      host takes one, and the status path asserts it never.
+      `ap_sc499_block_boundary` already does this per *block* for tape data — so
+      the next piece is building rather than reading.
       **What it unblocks**: a cartridge boot on this core, and with it the SAU 14
       install that the DS5500 boot and the multi-node workloads item both want —
       without borrowing the oracle. *The media is confirmed held*: `019593-001`

@@ -37,6 +37,37 @@ void ap_tape_reset(ap_tape_t *tape) {
 
 void ap_tape_advance(ap_tape_t *tape, ap_time_t now) {
   ap_sc499_advance(&tape->controller, now);
+  /* **A command that will deliver to the host ends with the bus turned round,
+   * and this core turned it back.**
+   *
+   * `ap_sc499`'s completion deasserts DIRECTION on Figure 1-9's T4, "Device
+   * Deasserts DIRECTION, handing the bus back" -- and Figure **1-9** is the
+   * command transfer entered *while the device already holds the bus*, whose T4
+   * hands it back so that new command can proceed. Applying it to every
+   * command's completion takes the bus away from the command that was about to
+   * use it.
+   *
+   * §1.13.2's data-transfer figure has the other order, and DIRECTION is its
+   * first step:
+   *
+   *     T1 - Device Changes Bus DIRECTION
+   *     T2 - Bus Data Valid                0 us. < T1 -> T2
+   *     T3 - Device Asserts READY          0 us. < T2 -> T3
+   *     T4 - Controller Asserts REQUEST    0 us. < T3 -> T4
+   *
+   * So a READ or a READ STATUS finishes with DIRECTION *asserted*, which is how
+   * a host knows it may read. Re-asserted here rather than by suppressing the
+   * completion's clear, because the clear is right for the figure it cites and
+   * the two conditions are different: one is "a command took the bus back", the
+   * other "a command is about to deliver".
+   *
+   * Measured (`FINDINGS.md` C263): after READ STATUS the SR10.4 boot firmware
+   * polls the status register **4,097 times** at one PC -- a 4096-iteration
+   * timeout and its exit -- reading `37` every time, which is READY asserted,
+   * no exception, DONE set and **DIRECTION clear**. */
+  if (tape->drive.status_pending || tape->drive.reading) {
+    tape->controller.direction = true;
+  }
 }
 
 bool ap_tape_load(ap_tape_t *tape, uint8_t *data, size_t size,
