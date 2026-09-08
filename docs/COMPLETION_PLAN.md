@@ -4417,9 +4417,16 @@ discipline throughout.
       from `ap_cpu_t`. Detail in `PROJECT_STATUS.md`.*
       **And given a disk, `Drive 0  passed.`** — the firmware's own Winchester
       test against a real image — then `Could not load /SAU14/SELF_TEST.`
-      **14 is the DS5500's SAU number** and the volume is a DN3500 installation
-      carrying *sau7*, so that is a **media** fact and the next step is an
-      install under SAU 14, not a core change.
+      **`/sau14` is the DN5500**, `008860-A03` Table 1-1, and the volume is a
+      DN3500 installation carrying `/sau7`: checked on the machine, whose root
+      directory lists `sau7` and no `sau14` (`FINDINGS.md` C259). A **media**
+      fact, not a core one.
+      *And the short route is closed*: `config` + `install` would add a SAU from
+      an Authorized Area with no media, but `/install/ri` is "name not found" on
+      this volume, so the AA was not kept. The specification is `distaa` from the
+      SR10.4 cartridges in `media/domainos/` into an AA, then `config`/`install`
+      — the recorded MINST route. Not blocked, and now costed rather than
+      guessed.
       **What is left in the core**: the caches the invalidation should act on
       are a complete module attached to no CPU, so the instruction is correctly
       a no-op; and a 68040 **MMU**, which the `.mmu` item also waits on.

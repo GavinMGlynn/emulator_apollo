@@ -434,6 +434,42 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## What SAU 14 needs, settled on the machine (2026-09-09)
+
+C256 left the DS5500's boot needing a volume installed under **SAU 14**, from one
+firmware message. Checked from the manual and from the machine.
+
+**`/sau14` is the DN5500**, `008860-A03` Table 1-1 — `/sau7` is
+DN3500/3550/4000/4500 and their DSP variants. So `Could not load
+/SAU14/SELF_TEST.` asks for exactly what the manual says that machine type needs.
+
+**And the volume says the same.** Booted to a shell through `tools/md-shell.sh`:
+the root directory holds `install`, **`sau7`**, `sau_sys`, `sysboot`,
+`sysboot.m68k` and eighteen more — 22 entries, 97 blocks — and **no `sau14`**.
+
+**The short route is closed, which is the useful part.** `008860-A03` §1 admits
+one needing no media: `config` "presents you with a series of configuration
+questions defined in the product's release index file" — and the SAU list is one
+of them, present verbatim on this volume — after which `install` installs a
+configuration "**from an Authorized Area**". If the AA were still there, adding
+`/sau14` would be two commands. It is not:
+
+    $ /com/ld /install/ri
+    ?(ld)   "/install/ri" - name not found (OS/naming server)
+
+*So the specification is*: `distaa` from the SR10.4 cartridges into an Authorized
+Area, then `config`/`install` — the recorded MINST route with media this project
+already holds in `media/domainos/`. Not blocked; costed rather than guessed.
+
+*Two harness mistakes on the way, both mine and both covered by a memory I did
+not apply.* The first run produced **zero console bytes**: I hand-rolled the
+frontend flags instead of using `tools/md-shell.sh` and left out the **knock** —
+120 carriage returns paced into the console election — with the port and channel.
+The second reached the shell and ran nothing: trimming `md-shell.script` left
+**two consecutive `expect $`**, and the second waits for a prompt only a
+completed command produces. Each cost a 45-minute run. Detail in `FINDINGS.md`
+C259.
+
 ## The DN5500 goes from two instructions to its own memory self-test
 ## (2026-09-09)
 

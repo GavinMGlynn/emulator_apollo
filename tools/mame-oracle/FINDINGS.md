@@ -14529,3 +14529,75 @@ So the negative result is the finding: **the 68040 MMU becomes necessary when
 Domain/OS runs on a DS5500**, and that waits on a volume installed under **SAU
 14** (C256), not on the core. The register values are recorded here and printed
 by the boot report so the next attempt does not have to re-measure them.
+
+## C259 -- what SAU 14 actually needs, settled on the machine in three runs
+
+C256 left the DS5500's boot needing a volume installed under **SAU 14**, and
+that was an inference from one firmware message. It is now checked, from the
+manual and from the machine.
+
+### `/sau14` is the DN5500, from Apollo's own table
+
+`008860-A03` *Installing Domain Software* Table 1-1, "Machine Types Supported by
+SR10.4": `/sau7` is DN3500/3550/4000/4500 and their DSP variants, and **`/sau14`
+is DN5500**. So the firmware's `Could not load /SAU14/SELF_TEST.` is asking for
+exactly what the manual says its machine type needs, and the DN3500 volume it
+was given carries the wrong one.
+
+### The volume says the same
+
+Booted to a shell through `tools/md-shell.sh` and listed:
+
+    Directory "/":
+    dir   install
+    dir   sau7
+    dir   sau_sys
+    file  sysboot        (boot type)
+    file  sysboot.m68k
+    22 entries, 97 blocks used.
+
+`/sau7` present, **`/sau14` absent**. That is the whole of the DS5500's
+complaint, confirmed from the other side.
+
+### And the short route is closed, which is the useful part
+
+`008860-A03` §1 describes the tool architecture, and it admits a route that
+needs no media at all: `config` "presents you with a series of configuration
+questions defined in the product's release index file" -- and the SAU list is
+one of them, present verbatim on this volume as `.*.sau.all.sau7.sau8.sau9.
+sau10.sau11.sau12.sau14.MACHINE-SPECIFIC SUPPORT` -- after which `install`
+"installs an operational configuration of one or more products **from an
+Authorized Area** to one or more nodes". So if the AA were still on the volume,
+adding `/sau14` would be two commands.
+
+It is not:
+
+    $ /com/ld /install/ri
+    ?(ld)   "/install/ri" - name not found (OS/naming server)
+
+`/install` survives at one block, but the release index does not. **So the
+Authorized Area was not kept**, and `config`/`install` cannot add a SAU that
+nothing holds.
+
+*The specification, therefore*: SAU 14 needs `distaa` from the SR10.4
+distribution cartridges into an Authorized Area, then `config`/`install` -- which
+is the recorded MINST route (`sr10-3-install-route`) with the media this project
+already holds in `media/domainos/`. Not blocked, and now costed rather than
+guessed.
+
+### Two harness mistakes on the way, both mine, both already in a memory
+
+The first run produced **zero console bytes**. I hand-rolled the frontend flags
+instead of using `tools/md-shell.sh`, and left out the **knock** -- 120 carriage
+returns paced into the console election -- along with `--boot-input-port` and
+`--boot-input-channel`. That is the silent-console trap this project has
+recorded twice, and the memory that covers it says in its title: *check the route
+before the obstacle; the proven route was scripted on disk.*
+
+The second reached the shell and ran nothing. Building the script by trimming
+`md-shell.script` left **two consecutive `expect $`**, and the second waits for a
+prompt that only a completed command produces. A console script's `expect` is
+edge-triggered on arriving bytes, so a doubled one is a deadlock rather than a
+no-op.
+
+Each cost a 45-minute run. The third was right and answered the question.
