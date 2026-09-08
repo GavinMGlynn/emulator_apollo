@@ -5730,6 +5730,19 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
     if (board->dma_first_write_seen) {
       printf("  dma first    wrote %08X\n", board->dma_first_write);
     }
+    if (board->dma_write_run_count > 0u) {
+      /* One address per run of contiguous writes: where each block of a
+       * scattered transfer landed. A transfer through a translation map the
+       * host reprograms per block is scattered by construction. */
+      printf("  dma runs    ");
+      for (unsigned i = 0; i < board->dma_write_run_count; i++) {
+        printf(" %08X", board->dma_write_runs[i]);
+      }
+      if (board->dma_write_run_overflow > 0u) {
+        printf(" (+%u more)", board->dma_write_run_overflow);
+      }
+      printf("\n");
+    }
   }
   printf("  blit cycles  %u, %u plane write(s)\n", board->graphics_cycles,
          board->graphics_planes_written);

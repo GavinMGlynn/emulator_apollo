@@ -751,6 +751,20 @@ typedef struct ap_board {
    * poses. Diagnostic, not machine state: not hashed. */
   bool dma_first_write_seen;
   uint32_t dma_first_write;
+  /* **Where each run of DMA writes began.** The first and last addresses bound
+   * a transfer's destination and say nothing about the sixteen in between, and
+   * a DMA whose destination comes from a translation map the host reprograms
+   * per block does not write one contiguous stretch -- it writes a run per
+   * block, and whether two runs land on each other is exactly the cartridge
+   * boot's open question (`FINDINGS.md` C268).
+   *
+   * An address is recorded when it is not one past the previous one, so a
+   * contiguous transfer costs one entry and a scattered one costs an entry per
+   * piece. Twenty-four holds a sixteen-block file with room to show that there
+   * were more. Diagnostic, not machine state: not hashed. */
+  uint32_t dma_write_runs[24];
+  unsigned dma_write_run_count;
+  unsigned dma_write_run_overflow;
   /* The first distinct addresses a program wrote in the DMA range. Which
    * controller a run programmed is not visible from the registers alone once
    * two decodes are in play -- the addresses are the fact. */
