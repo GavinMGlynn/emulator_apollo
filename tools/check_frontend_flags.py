@@ -338,6 +338,23 @@ def main() -> int:
             source_check("the two-node runner paces at --boot-input-interval: "
                          "%s" % what, fragment in main_c)
 
+        # The two-node runner reports where a transmit stopped, not only that
+        # nothing crossed. `claims 0` has more readings than "nothing asked":
+        # with `/com/lcnode` running on both nodes the operating system answered
+        # `transmit failed (OS/network)` and the station still never claimed the
+        # ring, so the question is whether the driver reached the card at all.
+        # `run_ring_selftest` has printed the region counts since it existed;
+        # the runner where the question is asked did not.
+        for fragment, what in (
+                ("board[i].region_reads[AP_BOARD_REGION_RING]",
+                 "the controller's read count"),
+                ("board[i].region_writes[AP_BOARD_REGION_RING]",
+                 "its write count"),
+                ("board[i].ring.a2.xmit_status",
+                 "and the status words the card was reporting")):
+            source_check("a two-node run says where a transmit stopped: %s"
+                         % what, fragment in main_c)
+
         # ---- the model table's fields must be consulted, not just declared ----
         #
         # `model/`'s own rule is "all machine variance lives here, and every

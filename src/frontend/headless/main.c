@@ -2011,6 +2011,27 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
             (unsigned long long)board[i].ring_station.claims_made,
             (unsigned long long)board[i].ring_station.frames_seen,
             (unsigned long long)board[i].ring_station.frames_copied);
+    /* **Where a transmit stopped, which the line above cannot say.**
+     *
+     * `claims 0` has more readings than "nothing asked": with `/com/lcnode`
+     * running on both nodes the operating system answered
+     * `transmit failed (OS/network)` and the station still never claimed the
+     * ring, so the question became *whether the driver reached the card at
+     * all*. The register traffic answers it -- a driver that wrote a transmit
+     * command and got nothing is a different fault from one that never wrote
+     * -- and the status words say what the card was reporting when it did.
+     *
+     * `run_ring_selftest` has printed the region counts since it existed; the
+     * two-node runner, which is where the question is actually asked, did not.
+     * `RING.md` 111 and `002398-04` p. 12-30/12-31 name the three status
+     * registers' bits. */
+    fprintf(out,
+            "  node %u  ring  ctl %u read(s) %u write(s)  misc %04X  "
+            "xmit %04X  rcv %04X\n",
+            i, board[i].region_reads[AP_BOARD_REGION_RING],
+            board[i].region_writes[AP_BOARD_REGION_RING],
+            board[i].ring.a2.status, board[i].ring.a2.xmit_status,
+            board[i].ring.a2.rcv_status);
   }
   fprintf(out, "  ring     hash %016llX\n",
           (unsigned long long)ap_ring_sched_hash(&sched));
