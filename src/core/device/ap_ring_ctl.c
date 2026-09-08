@@ -938,7 +938,22 @@ uint16_t ap_ring_ctl_read16(ap_ring_ctl_t *ctl, bool second_window,
        * to read **zero** at the one point it checks it (subtest 23's `$00B0`,
        * after an internal loopback with no addressed receiver -- which is
        * exactly what real status reads there too). */
-      return (uint16_t)((w->xmit_status & 0xFF00u) | w->command_402_status);
+      /* **`nct` follows the connection, and it was a constant.**
+       *
+       * p. 12-31's low byte is status, and its polarity is the manual's own:
+       * "network connect <= 0", so the bit reads **0** when the station is on
+       * the ring. `AP_RING_CTL_COMMAND_STATUS_IDLE` set it at reset and nothing
+       * ever cleared it, so a driver that connected the card and then read
+       * XMIT_STAT was told it was still bypassed -- which is what Domain/OS
+       * does: `FINDINGS.md` C246 measured it writing `ine` three times, never
+       * `ten`, and reporting `transmit failed (OS/network)` without ever
+       * commanding a transmit. MISC_STAT's bit 15 has been derived from
+       * `connected` since finding 40; this is the same fact in the other
+       * register. */
+      return (uint16_t)(
+          (w->xmit_status & 0xFF00u) |
+          ((w->command_402_status & (uint16_t)~AP_RING_CTL_XMIT_NCT) |
+           (w->connected ? 0u : AP_RING_CTL_XMIT_NCT)));
     case 4u:
       /* The same shape one register along: subtest 15 requires
        * `(+404) & $F8 == $E0` after the firmware has written only the command

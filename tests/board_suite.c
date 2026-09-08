@@ -1856,12 +1856,21 @@ static void test_two_boards_on_one_ring_segment_exchange_a_frame(void) {
       ap_ring_ctl_read16(&a.ring, true, AP_RING_CTL_BANK_STATUS + 2u);
   TEST_ASSERT_TRUE((xmit & AP_RING_CTL_XMIT_CPD) != 0u);
   TEST_ASSERT_EQUAL_HEX16(0u, xmit & AP_RING_CTL_XMIT_WAK);
-  /* And the low byte is undisturbed by the new high half: it reads `B0`, which
-   * is the ROM's own subtest 23 value after a completed transmit -- `xen` has
-   * cleared with the operation while `nct`, `iby` and `xby` stay set. Asserting
-   * the *idle* `F0` here was wrong and the suite said so; the completion is the
-   * point of the test. */
-  TEST_ASSERT_EQUAL_HEX16(0x00B0u, xmit & 0x00FFu);
+  /* And the low byte is undisturbed by the new high half. It reads **`30`**:
+   * `xen` has cleared with the operation, `iby` and `xby` stay set, and `nct`
+   * is **clear because this board is connected** -- the test writes
+   * `AP_RING_CTL_MISC_CMD_NCT` to both cards forty lines up, and p. 12-31's
+   * polarity is the manual's own, "network connect <= 0".
+   *
+   * *This asserted `B0` until 2026-09-08*, calling `nct` one of the bits that
+   * "stay set" -- which was the model's constant restated as an expectation,
+   * the failure mode `CLAUDE.md` names. `AP_RING_CTL_COMMAND_STATUS_IDLE` set
+   * that bit at reset and nothing ever cleared it, so a driver that connected
+   * the card and read XMIT_STAT was told it was still bypassed; Domain/OS is
+   * such a driver (`FINDINGS.md` C246). `B0` remains right for an *unconnected*
+   * board, which is what the ROM's subtest 23 measures and why its self-test is
+   * byte-identical across the change. */
+  TEST_ASSERT_EQUAL_HEX16(0x0030u, xmit & 0x00FFu);
 
   /* And B, the receiver, reports the copy in p. 12-30's RCV_STAT bit 14. */
   TEST_ASSERT_TRUE((ap_ring_ctl_read16(&b.ring, true,
