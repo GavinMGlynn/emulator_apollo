@@ -4422,8 +4422,16 @@ discipline throughout.
       install under SAU 14, not a core change.
       **What is left in the core**: the caches the invalidation should act on
       are a complete module attached to no CPU, so the instruction is correctly
-      a no-op; and a 68040 **MMU**, which the `.mmu` item also waits on. Neither
-      is blocked on a document.
+      a no-op; and a 68040 **MMU**, which the `.mmu` item also waits on.
+      **The MMU is measured as not-yet-needed** (`FINDINGS.md` C258): its parts
+      are all built — search, ATC, registers, descriptors — and what is missing
+      is the join. §3.1.3 makes the TTRs live even with translation off, so the
+      boot report now prints them, and the firmware writes `dtt0 0000C040` /
+      `dtt1 00FFC040` — both enabled, one matching every address, **`W` clear on
+      both**. The only attribute this core could act on is write protection and
+      nothing sets it, so wiring it today would be unexercised code in the
+      hottest path. It becomes necessary when Domain/OS runs on a DS5500, which
+      waits on the SAU 14 install above.
 - [ ] **Table 4-6's added line, which cannot be implemented from what is held.**
       `PROVISIONAL`. The addendum says "On page 4-19, add the following line to
       Table 4-6: `PC ON/OFF — Physical Cache (DS4500 Only)`", and page 4-19 is

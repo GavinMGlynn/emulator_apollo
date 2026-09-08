@@ -485,6 +485,17 @@ ITT0/1, DTT0/1, MMUSR, URP, SRP — **and takes CAAR away**, footnoted "For the
 MC68020 and MC68030 only". A model that took only the additions would accept a
 register the manual says the part has not got.
 
+**And the MMU is measured as not-yet-needed** (`FINDINGS.md` C258). The
+MC68040 manual §3.1.3 makes the TTRs live even with paged translation off —
+"they operate independently of the E-bit in the TCR" — so a DN5500 running with
+`translation off` still has four live registers. The boot report now prints
+them, and what the firmware writes is `dtt0 0000C040` and `dtt1 00FFC040`: both
+enabled, `dtt1` matching every address, and **`W` clear on both**. The one
+attribute a TTR carries that this core could act on is write protection, and the
+firmware sets it nowhere — so wiring them today would be unexercised code in the
+hottest path in the core. The MMU becomes necessary when Domain/OS runs on a
+DS5500, which waits on a SAU 14 install.
+
 **It is not stalled, and the first reading of this was mine and wrong.**
 `00002940` is `BTST #2,$2(A5)` / `BEQ.S -8`, a poll of channel B's `SRB` waiting
 for `TxRDY`, and the machine sits there because the console runs at about **1200

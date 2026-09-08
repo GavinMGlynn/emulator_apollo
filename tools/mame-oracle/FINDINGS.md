@@ -14490,3 +14490,42 @@ register and so `.mmu` has something to select". The first half is answered: a
 DN5500 now runs and prints its self-test. The second needs a 68040 **MMU**,
 which is the next increment of the 68040 item rather than a separate wait -- so
 the item now names that.
+
+## C258 -- the 68040's MMU is not reached yet, and the firmware's own registers say so
+
+The `.mmu` item and the rest of the 68040 core both point at the same next
+piece: a 68040 MMU. Its parts are already built -- `ap_m68040_search` walks the
+three-level tables and decides, `ap_m68040_atc` is a complete ATC,
+`ap_m68040_regs` decodes TC, the four TTRs and MMUSR, `ap_m68040_descriptor`
+decodes descriptors. What is missing is the **join**, and the access path is
+where it would go.
+
+**Measured before building it, and the measurement says not yet.** The MC68040
+manual §3.1.3 is explicit that one half of that join is live even with paged
+translation off -- "The TTRs operate independently of the E-bit in the TCR and
+the state of the MDIS signal" -- and §3.1.2 gives the default attributes when
+translation is disabled and no TTR matches. So a DN5500 running with
+`translation off` still has four live registers, and the boot PROM writes them.
+
+What it writes, read off a 5 M-instruction boot:
+
+    68040 mmu    tc 00000000  itt 00000000 00000000  dtt 0000C040 00FFC040
+                 urp 00000000  srp 00000000  mmusr 00000000  cache ops 1
+
+- `tc 0` -- paged translation disabled, 4-Kbyte pages.
+- **Both instruction TTRs are zero**, so `E` is clear and neither matches.
+- `dtt0 0000C040`: base `00`, mask `00`, `E` set, `S` = 2, `CM` = 2, **`W`
+  clear** -- addresses `00000000`-`00FFFFFF`, no write protection.
+- `dtt1 00FFC040`: the same with mask `FF`, so it matches **every** address.
+
+**The one attribute a TTR carries that this core could act on is write
+protection, and the firmware sets it nowhere.** Wiring the TTRs into the access
+path today would therefore be unexercised code in the hottest path in the core,
+verified by nothing -- which is the shape `check_what_is_called_by_nobody`
+exists to catch, and this project has now removed one such function and tested
+two more in the same session.
+
+So the negative result is the finding: **the 68040 MMU becomes necessary when
+Domain/OS runs on a DS5500**, and that waits on a volume installed under **SAU
+14** (C256), not on the core. The register values are recorded here and printed
+by the boot report so the next attempt does not have to re-measure them.

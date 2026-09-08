@@ -2908,7 +2908,25 @@ static void report_state(ap_machine_t *machine) {
      * machine whose page tables cannot matter, and that is not visible from any
      * other number here. */
     const ap_m68030_cpu_t *cpu = &machine->cpu;
-    printf("  translation  %s", cpu->tc.enable ? "enabled" : "off");
+    /* **The MC68040's MMU registers, when the part has them.**
+   *
+   * `M68000PRM`'s MOVEC table gives a 68040 eight the 68030 has not, and the
+   * DN5500's boot PROM writes ITT0 two instructions in. Printed because the
+   * manual makes one of them live even before paged translation is: §3.1.3,
+   * "The TTRs operate independently of the E-bit in the TCR" -- so a TTR's
+   * write-protect bit applies on a machine whose `translation` line below says
+   * off, and knowing what the firmware put there is the difference between
+   * wiring that and guessing at it. */
+  if (machine->cpu.has_68040_mmu_registers) {
+    printf("  68040 mmu    tc %08X  itt %08X %08X  dtt %08X %08X\n",
+           machine->cpu.tc_040, machine->cpu.ittr_040[0],
+           machine->cpu.ittr_040[1], machine->cpu.dttr_040[0],
+           machine->cpu.dttr_040[1]);
+    printf("               urp %08X  srp %08X  mmusr %08X  cache ops %llu\n",
+           machine->cpu.urp_040, machine->cpu.srp_040, machine->cpu.mmusr_040,
+           (unsigned long long)machine->cpu.cache_maintenance_operations);
+  }
+  printf("  translation  %s", cpu->tc.enable ? "enabled" : "off");
     for (unsigned t = 0; t < 2u; t++) {
       const ap_m68030_tt_t *tt = t == 0u ? &cpu->tt0 : &cpu->tt1;
       if (!tt->enabled) {
