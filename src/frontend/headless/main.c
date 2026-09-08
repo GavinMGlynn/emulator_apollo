@@ -5655,6 +5655,36 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
              c->channel[ch].base_count);
     }
   }
+  /* The cartridge drive, when one is loaded. The DMA block above says a
+   * transfer ran and how far its count got; it cannot say whether the *drive*
+   * still had tape to give, which is the other half of every question about a
+   * stalled read -- and `FINDINGS.md` C265's `Tape read error: FF` is exactly
+   * that question. The drive's own position, its latched conditions and the
+   * exception word a READ STATUS would compose, so a run says which of the two
+   * ends of the transfer stopped first. */
+  if (board->tape.drive.loaded) {
+    const ap_qic_t *drive = &board->tape.drive;
+    const ap_sc499_t *card = &board->tape.controller;
+    printf("  tape drive   block %llu of %llu%s%s%s%s\n",
+           (unsigned long long)drive->position,
+           (unsigned long long)ap_ct_blocks(&drive->image),
+           drive->selected ? ", selected" : ", not selected",
+           drive->reading ? ", reading" : "",
+           drive->writing ? ", writing" : "",
+           drive->soft_lock ? ", locked" : "");
+    /* The status byte through the part's own composition rather than rebuilt
+     * here, so a report cannot disagree with what a driver reads -- and on a
+     * copy, because this function holds the board `const` and a register read
+     * is allowed to be a mutation even where this one is not. */
+    ap_sc499_t sampled = *card;
+    printf("  tape card    status %02X, control %02X%s%s%s%s, exs %04X\n",
+           ap_sc499_read(&sampled, AP_SC499_CONTROL_STATUS),
+           card->control, card->ready ? ", ready" : "",
+           card->exception ? ", exception" : "", card->done ? ", done" : "",
+           card->direction ? ", to host" : "",
+           ap_qic_exception_word(drive));
+  }
+
   /* `010200` is read through the register rather than printed from the stored
    * field. On a DS5500 the two disagree by construction: `019411-A00`
    * §4.2.1.14 makes that address a read-only *status* register whose bits are
