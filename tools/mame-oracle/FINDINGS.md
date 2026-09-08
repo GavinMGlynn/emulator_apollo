@@ -15874,3 +15874,58 @@ nowhere to come from either. Both are plan items.
 tape transfers and every one of them was healthy -- `base 01FF`, terminal count
 reached -- with 67,353 more dropped. The measurement is being retaken against
 the failing shape.
+
+## C272a -- WITHDRAWN: the post-reset exception was already implemented
+
+C272's last section said "`ap_sc499_reset` asserts neither: `memset` clears
+READY, `set_exception` is not called, and nothing schedules either". **The first
+two clauses are true and the third is false**, and the third is the one the
+claim rested on.
+
+`ap_sc499_advance` has carried the post-reset exception since before this
+session:
+
+    if (tape->reset_arming) {
+      tape->reset_arming = false;
+      tape->reset_pending = true;
+      tape->exception_at = tape->now + AP_SC499_T_RESET_TO_EXCEPTION;
+    } else if (tape->reset_pending && tape->now >= tape->exception_at) {
+      tape->reset_pending = false;
+      tape->exception = true;
+    }
+
+`reset_arming` is set from **two** sites in `ap_sc499_write` -- the control
+register's release of RSTSAC, and a RSTDMA issued while RSTSAC is held, which
+§1.12 makes a release too -- both gated on the 25 us minimum hold. Its comment
+already names the mechanism as "the POC test that ends in an exception", and
+`sc499_suite` asserts it at seven places. So Figure 1-23's `CALL HOST DONE`
+returns on this core, and has all along.
+
+**How the wrong claim was reached, since that is the reusable part.** I read
+`ap_sc499_reset`, saw `memset` and an explicit `ready = false`, and grepped for
+`ready = true` to see what might restore it. Every one of those hits was in the
+command completion or the reopen, so I concluded nothing did. **I never grepped
+for `exception = true`** -- the other half of the disjunction the figure states,
+and the half the document says is the right one. A search that covers one branch
+of an "A or B" answers a different question from the one asked.
+
+`reference-search-is-not-a-code-check` says "grep `src/` before writing 'gap'".
+I did grep, and it was still not a code check, because the grep was for the
+wrong symbol. **The check that would have worked is the one CLAUDE.md already
+names**: `check_what_is_called_by_nobody` run the other way -- ask what *does*
+call `ap_sc499_set_exception` and what *does* write `exception`, rather than
+what fails to.
+
+### What survives
+
+The narrower claim, which is what `ap_tape_reset`'s "Open:" comment is actually
+about: **a cold power-on arms nothing.** `ap_tape_init` and `ap_tape_reset` call
+`ap_sc499_reset`, which `memset`s `reset_arming` to false, and there is no
+RSTSAC hold at power-on to set it. §1.8.1 says the POC runs at power-up and
+reports success "by the assertion of `EXC-` **within five seconds**", so a
+cold-started card should assert it and this one does not. That is one item, not
+the two C272 opened, and it is the open question the comment records rather than
+a new one.
+
+The rest of C272 stands: §1.11 step 5's per-block range, and Figures 1-12, 1-14,
+1-15, 1-23 and 1-24 as specification. None of it rested on this.

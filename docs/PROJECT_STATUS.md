@@ -666,21 +666,23 @@ and 1-12 both give the read loop as `SET UP DMA FOR NEXT 512 BYTE TRANSFER` →
 `READY?` → `START DMA` → `DMA DONE?`, Figure 1-15 mirrors it for writes, and
 Figures 1-23 and 1-24 give RESET and DONE.
 
-**The gap those last two name together**: RESET ends by calling HOST DONE, and
-DONE loops on `READY?`/`EXCEPTION?` for ever. A part that comes out of RSTSAC
-asserting neither hangs its own driver — and `ap_sc499_reset` asserts neither.
-This settles the question `ap_tape_reset` records as open, from the part's own
-guide rather than from the oracle: that comment declined MAME's commented-out
-line, correctly, and Figure 1-23 is about **RSTSAC** where the comment's
-citation was RSTDMA. Which of the two, is not a choice either — the drive comes
-out of reset holding `POR` (`QIC-02` §5.2), §1.8.1 reports the power-on
-confidence test "by the assertion of **EXC-** within five seconds", and DONE
-ends by calling READ STATUS, the one sequence that reports POR and clears it.
+**The gap those last two name together** — *and the first statement of it was
+wrong; the correction is what survives.* RESET ends by calling HOST DONE, and
+DONE loops on `READY?`/`EXCEPTION?` for ever, so a part that comes out of RSTSAC
+asserting neither hangs its own driver. **This core asserts the exception, and
+always has**: `ap_sc499_write`'s two release sites set `reset_arming`, and
+`ap_sc499_advance` raises EXCEPTION `AP_SC499_T_RESET_TO_EXCEPTION` later, with
+seven assertions in `sc499_suite`. I read `ap_sc499_reset`, grepped for `ready =
+true`, found nothing that restored it, and wrote "asserts neither" — never
+grepping for `exception = true`, which is the other branch of the figure's own
+disjunction and the one the document prefers.
 
-**Named, not implemented**: it changes behaviour on a path the SR10.4 boot
-takes, so it lands as its own item with its test and its identity measurement.
-A second gap comes with it — this core does not model the POC at all, so
-§1.8.1's five-second `EXC-` has nowhere to come from. Both are plan items.
+*What survives is narrower*: **a cold power-on arms nothing.** `ap_sc499_reset`
+`memset`s the arm away and a cold start has no RSTSAC hold to set it, so a card
+that has only been powered on asserts nothing — where §1.8.1 has the POC report
+success "by the assertion of `EXC-` **within five seconds**". That is the
+question `ap_tape_reset`'s "Open:" comment records, and one plan item rather
+than the two first opened. `FINDINGS.md` C272a.
 
 *Not an explanation of `28001E`.* The first census pass recorded 2,048 tape
 transfers, every one healthy (`base 01FF`, terminal count reached), and dropped
