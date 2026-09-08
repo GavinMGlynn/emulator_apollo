@@ -587,6 +587,70 @@ cause.
 each instrument — plus the two-node run. `FINDINGS.md` C243–C245.*
 
 
+## FOUND: a word write to MISC_CMD disconnected the ring with its own low half
+## (2026-09-08, FIXED)
+
+`--boot-watch-write` records what the **guest** does rather than what the device
+receives, and it settled in one run what four earlier instruments could only
+narrow:
+
+    watch write  2 at 00059400 value 00000800 size 2 by PC 3C4AFB46
+    watch        00059400 written 4 time(s), last 0800 by PC 3C4AFB46
+
+Four writes, all `size 2`, last `$0800`. **Domain/OS writes words, writes
+`nct`, and leaves the card connected.** It never wrote the `$70` this core kept
+seeing.
+
+`ap_board_write` is byte-wide, so a guest word reaches a device as two byte
+writes, and `ap_ring_ctl_write8` handled the status bank by read-modify-write —
+while `002398-04` p. 12-29 makes `59400` **MISC_STAT when read and MISC_CMD
+when written**, two different registers at one address. One `move.w #$0800`
+therefore became
+
+    write8(0x400, $08)  ->  (status & 00FF) | 0800  =  0807   connected = true
+    write8(0x401, $00)  ->  (status & FF00) | 0000  =  7000   connected = false
+
+and the second half of the connect destroyed the first. `$70` was **MISC_STAT's
+high byte** coming back through a read of a register that is not the one being
+written.
+
+**The fix merges against the last written command instead**, which also lets the
+ring ROM's lone `move.b #$1,$400(a4)` commit — the ROM writes single even-lane
+bytes whose effects its own subtests assert, so a hold-until-the-odd-half latch
+(what the ID bank and the data port use) would have held them for ever. Only
+slot 0 changes; `+402` and `+404` keep their own written command lanes.
+
+Measured on a booted Domain/OS with the card fitted, before and after:
+
+    before  cmds 0007 F000 0807 7000 0807 7000 0807 7000  last 7000  misc F007  3 nct
+    after   cmds 0000 0000 0800 0800 0800 0800 0800 0800  last 0800  misc 7007  6 nct
+
+The eight byte writes now assemble into the guest's four word ones, both halves
+of each connect carry `nct`, and **MISC_STAT bit 15 — `present && !connected` —
+is clear**: the station is joined to the ring where it was bypassed.
+
+*Verification: the ring firmware's own self-test is **byte-identical** across the
+change — `d0 0`, 7,263,778 steps, 1,321,914 reads and 927,828 writes, the
+figures this file already records — the identity boot is `FE2BB02AEF1F4624`
+unchanged, and `ctest` is 140/140 on both presets.*
+
+**`lcnode` still reports `transmit failed`, so this was necessary and not
+sufficient.** That is the next question and it is a different one; the single
+machine's report now prints the station's `claims`/`frames seen`/`copied`, which
+the two-node runner has always printed and which says whether a station joined
+to a ring then claims it — a lone station on its own segment can, so the
+question costs fifty minutes rather than nine hours.
+
+*The thread that found it, because the shape is worth keeping.* Five
+instruments, each the cheapest thing that could separate the readings then
+standing: a region total (the driver reached the card), two counters (`nct` is
+written and lost), a value log (connect paired with disconnect), a route split
+(the ROM's writes are not the operating system's), and finally the guest's own
+bus writes — which showed that four of the eight "driver writes" were this
+core's own. Every step before the last reasoned about values the *device*
+received, and the answer was only visible one level up.
+
+
 ## The keyboard gap named a counter that did not exist (2026-09-08)
 
 `002398-04` ch. 12's opening sentence has the keyboard performing "power-up and

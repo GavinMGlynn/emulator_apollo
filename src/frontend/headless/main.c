@@ -5515,6 +5515,16 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
      * MISC_CMD write carrying `nct`. A card written a million times with that
      * bit never set is a driver's choice; one never written at all is a decode
      * gap, and the region total cannot tell them apart (`FINDINGS.md` C243). */
+    /* **And what the station did with the ring it is joined to.**
+     * `run_ring_two_node` has reported these since it existed; the single
+     * machine did not, and the single machine is where the question is now
+     * asked -- a lone station on its own segment can still claim the ring and
+     * strip its own frame, so `claims 0` here is as informative as it is with
+     * two nodes and costs eighteen times less to obtain. */
+    printf("  ring station claims %llu  frames seen %llu  copied %llu\n",
+           (unsigned long long)board->ring_station.claims_made,
+           (unsigned long long)board->ring_station.frames_seen,
+           (unsigned long long)board->ring_station.frames_copied);
     printf("  ring connect a2 MISC_CMD %u write(s), %u with nct; "
            "a1 %u write(s), %u with nct\n",
            board->ring.a2.misc_cmd_writes, board->ring.a2.misc_cmd_nct,
