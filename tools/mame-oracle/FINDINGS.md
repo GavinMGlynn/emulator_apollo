@@ -13330,3 +13330,69 @@ lost, and the sequence said the loss is not a driver's last act but twenty-two
 writes that should not be MISC_CMD values at all. None of them was a guess
 about the answer; each was the cheapest thing that could separate the readings
 then standing.
+
+## C245 -- isolating Domain/OS from the ROM: eight MISC_CMD writes, and they pair connect with disconnect
+
+C244's 44 writes and its twenty-two `000F`s were **the ring ROM's self-test**,
+not the operating system. The autoboot runs SELF_TEST and the MD route does
+not, so the two routes separate them, and the difference is not small:
+
+    autoboot (ROM + OS)   44 write(s), 3 with nct
+      0107@400b 0007@400b 000F@400b x22 ...            last 3000
+    MD route (OS alone)    8 write(s), 3 with nct
+      0007@400b F000@400b 0807@400b 7000@400b
+      0807@400b 7000@400b 0807@400b 7000@400b          last 7000
+
+**A fix aimed at the twenty-two would have been aimed at the firmware.** The
+ROM's own listing writes `move.b #$1,$400(a4)` and four `move.b #$0,$400(a4)`,
+which is exactly what those values are.
+
+### What the operating system does, which is legible
+
+Every write is a **byte** write to the even lane, so the high byte is the
+guest's and the low byte is whatever `write8`'s read-modify-write picked up from
+a MISC_STAT read. Discounting that low byte, the eight are:
+
+    00, F0, then three times: 08, 70
+
+**`$08` in the high lane is `$0800`, which is `nct` alone -- the exact value
+`RING.md` 103c records `RING_PROC` writing to connect.** So this core's
+high-lane reading of `+400` is confirmed from the kernel driver's side, and the
+driver *is* connecting the station: three times, matching the three `nct`
+writes counted.
+
+And each connect is immediately followed by `$70` -- `$7000`, no `nct`. This
+core derives `connected` from bit 11 of **every** write to `+400`, so every
+connect is undone by the write after it, and the last write of the run is
+`7000`. That is why MISC_STAT's bit 15 is set at the end, why `claims_made` is
+zero, and why `lcnode` gets `transmit failed (OS/network)`.
+
+### What `$7000` is, and why nothing is changed yet
+
+Under `002398-04` p. 12-32 -- the **DN3000's** MISC_CMD -- bits 15, 14 and 13
+are defined `0` and bit 12 is `bpm`, so `$7000` sets `bpm` and two bits that
+page says do not exist. Our card is the **two-board AT** version, which that
+page's own notes distinguish from the single-board one in three places, so the
+layout it gives may not be this board's.
+
+Two readings, and neither is established:
+
+  - The AT board's MISC_CMD differs from p. 12-32's, `$7000` sets fields this
+    core does not model, and `nct` is **latched** rather than re-derived --
+    in which case the model is wrong and the driver is fine.
+  - The layouts are the same, `$7000` really does clear `nct`, and Domain/OS
+    connects and disconnects three times -- in which case the driver is waiting
+    on something else and the disconnection is a symptom, not the cause.
+
+**The next step is documentary, not another run**: an AT-board MISC_CMD layout,
+or `RING_PROC` disassembled around the `$800` write to see what it does with
+`$7000`. `tools/kernel_symbols.py --build domain_os11` resolves the addresses
+and the driver is extractable, which is how 103c got the `$800` in the first
+place.
+
+*Instrument caveat, recorded rather than left to be over-read*: the offset in
+these lines is the one `ap_ring_ctl_write16` receives, which `write8` has
+already masked with `& ~1`, so `@400` cannot by itself distinguish an even-lane
+write from an odd-lane one. The **merge direction** does: a high byte that is
+the guest's value and a low byte that is status means the even lane, which is
+what all eight show.

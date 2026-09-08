@@ -513,6 +513,72 @@ driving each node's Mnemonic Debugger to a shell; three single-node runs
 `FINDINGS.md` C243.*
 
 
+## Why the ring transmit fails: every connect is undone by the write after it
+## (2026-09-08)
+
+`/com/lcnode` on two booted nodes gives `transmit failed (OS/network)` and
+`ring claims 0`, and the card ends with MISC_STAT bit 15 set — `present &&
+!connected`, so the station was never joined to the ring. Four instruments, each
+answering its own question and each producing a reading the one before could not
+hold, narrowed that to eight writes.
+
+**The confound, caught before it sent a fix at the wrong code.** MISC_CMD's
+write count on an autoboot is 44, and twenty-two of them are `000F`. Those are
+the **ring ROM's self-test**, whose own listing writes `move.b #$1,$400(a4)` and
+four `move.b #$0,$400(a4)`. The MD route skips SELF_TEST, so it isolates the
+operating system:
+
+    autoboot (ROM + OS)   44 write(s), 3 with nct
+    MD route (OS alone)    8 write(s), 3 with nct
+      0007@400b F000@400b 0807@400b 7000@400b
+      0807@400b 7000@400b 0807@400b 7000@400b        last 7000
+
+**Domain/OS's eight writes are legible.** All are byte writes to the even lane,
+so the high byte is the guest's and the low byte is what `write8`'s
+read-modify-write picked up from a MISC_STAT read. Discounting that: `00`, `F0`,
+then three times `08`, `70`.
+
+`$08` in the high lane is `$0800` — `nct` alone, the exact value `RING.md` 103c
+records `RING_PROC` writing to connect. So this core's high-lane reading of
+`+400` is confirmed from the kernel driver's side, and **the driver is
+connecting the station**, three times, matching the three `nct` writes counted.
+
+Each connect is immediately followed by `$70` — `$7000`, no `nct` — and this
+core derives `connected` from bit 11 of **every** write to `+400`. So every
+connect is undone by the write after it, the run's last write is `7000`, and the
+station is bypassed when `lcnode` runs.
+
+### What is not established, and why nothing has changed
+
+Under `002398-04` p. 12-32 — the **DN3000's** MISC_CMD — bits 15, 14 and 13 are
+defined `0` and bit 12 is `bpm`, so `$7000` sets `bpm` and two bits that page
+says do not exist. This card is the **two-board AT** version, which that page's
+own notes distinguish from the single-board one in three places.
+
+- Either the AT board's MISC_CMD differs, `$7000` sets fields this core does not
+  model, and `nct` is **latched** rather than re-derived — the model is wrong
+  and the driver is fine; or
+- the layouts are the same, `$7000` really clears `nct`, and Domain/OS connects
+  and disconnects three times — the driver is waiting on something else and the
+  disconnection is a symptom.
+
+The next step is documentary rather than another run: an AT-board MISC_CMD
+layout, or `RING_PROC` disassembled around the `$800` write.
+`tools/kernel_symbols.py --build domain_os11` resolves the addresses, which is
+how `RING.md` 103c recovered the `$800` in the first place.
+
+*A second defect is established on the way and is real regardless*: `+400` is
+MISC_STAT when read and MISC_CMD when written (p. 12-29), two different
+registers at one address, and `ap_ring_ctl_write8` read-modify-writes the bank —
+so every byte write composes a command out of a status read and injects
+MISC_STAT's low bits into a field p. 12-32 defines as zero. It does not clear
+`nct`, which lives in the byte the guest supplies, so it is not this failure's
+cause.
+
+*Verification: four single-node runs — autoboot and MD route, before and after
+each instrument — plus the two-node run. `FINDINGS.md` C243–C245.*
+
+
 ## The keyboard gap named a counter that did not exist (2026-09-08)
 
 `002398-04` ch. 12's opening sentence has the keyboard performing "power-up and
