@@ -439,6 +439,21 @@ typedef struct {
    * which a hold-until-the-odd-half latch would not. */
   uint16_t command_400;
   uint16_t command_402;
+  /* The last word written to `+402` and `+404`, kept **only** as the merge
+   * source for a byte write, and never cleared.
+   *
+   * `command_402` and `command_404` cannot serve: `ring_ctl_complete_operation`
+   * zeroes both when a command is taken -- subtest 23 requires the command lane
+   * to read back zero -- so merging a later byte against them loses what
+   * subtest 22 depends on, measured as `d0 E0000022`. These carry the same
+   * value with none of that meaning, so a guest's `move.w`, which
+   * `ap_board_write` delivers as two byte accesses, assembles into what it
+   * wrote instead of into a status read. Domain/OS's `move.w #$0800` to
+   * RCV_CMD was enabling the receiver with its first byte and disabling it with
+   * its second, which is why two nodes exchanged 573 frames, addressed every
+   * one of them, and copied none (`FINDINGS.md` C248). */
+  uint16_t last_write_402;
+  uint16_t last_write_404;
 
   /* ## How often MISC_CMD was written, and how often it carried `nct`
    *
@@ -628,6 +643,18 @@ typedef struct {
    * `rx_copied_seen`: the station holds its acknowledge until the next frame is
    * queued, so a level test would refold it on every poll. */
   bool tx_ack_seen;
+
+  /* The first header this card ever handed the station, kept verbatim.
+   *
+   * Acceptance is `[MAC]` §2.2.2.2 -- broadcast, or the frame's destination
+   * equal to the station's address -- and the station's address is this board's
+   * node ID. The suite's two-station tests **build** the header they send, so
+   * they prove the comparison and not the layout; the runner takes whatever
+   * Domain/OS wrote into the transmit buffer. With frames crossing between two
+   * booted nodes and `copied 0` on both (`FINDINGS.md` C248), what those twelve
+   * bytes actually contain is the thing no test can tell us. */
+  uint8_t first_tx_header[AP_RING_CTL_XMIT_HEADER_BYTES];
+  bool first_tx_captured;
 } ap_ring_ctl_t;
 
 /* Join a controller to a station on a medium. Both pointers are borrowed and

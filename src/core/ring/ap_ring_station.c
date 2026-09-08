@@ -531,8 +531,12 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
                                   ((uint32_t)s->rx_header[1] << 16) |
                                   ((uint32_t)s->rx_header[2] << 8) |
                                   (uint32_t)s->rx_header[3];
-            const uint16_t type = (uint16_t)(((uint16_t)s->rx_header[4] << 8) |
-                                             s->rx_header[5]);
+            /* Low byte first, as `ap_ring_header_type` reads it -- see there
+             * for the captured header that settled the order. This composed it
+             * big-endian and turned every `BROADCAST | PLEASE` into `9000`,
+             * which matches no type bit, so no broadcast was ever accepted. */
+            const uint16_t type = (uint16_t)(((uint16_t)s->rx_header[5] << 8) |
+                                             s->rx_header[4]);
             /* "receivers ignore the destination address field" when the
              * broadcast bit is set -- so it is checked first and the address
              * comparison is not reached. */

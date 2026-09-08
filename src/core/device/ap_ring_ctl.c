@@ -67,6 +67,14 @@ static bool ring_ctl_queue_from_buffer(ap_ring_ctl_t *ctl) {
       .data_bytes = 0u,
       .late_acknowledge = 0u,
   };
+  if (!ctl->first_tx_captured) {
+    /* Before the queue, so a refused frame is still recorded: what the driver
+     * asked for is the question, not what the station accepted. */
+    for (unsigned i = 0; i < sizeof header; i++) {
+      ctl->first_tx_header[i] = header[i];
+    }
+    ctl->first_tx_captured = true;
+  }
   if (!ap_ring_station_queue_frame(ctl->station, &fields)) {
     return false;
   }
@@ -839,10 +847,20 @@ void ap_ring_ctl_write8(ap_ring_ctl_t *ctl, bool second_window, uint32_t offset,
      * (`FINDINGS.md` C246). Only slot 0 is changed: `+402` and `+404` keep
      * their own written command lanes and the ring ROM's self-test asserts
      * their behaviour directly. */
-    const bool misc = (offset & AP_RING_CTL_SLOT_MASK) == 0u;
+    /* Every register in this bank reads a different register from the one it
+     * writes (p. 12-29), so none of them may be byte-merged against a read.
+     * Slot 0 keeps its command word; slots 2 and 4 use the shadow copies that
+     * completion does not clear -- see the header for why the command fields
+     * themselves cannot be used. */
+    const uint32_t cmd_slot = offset & AP_RING_CTL_SLOT_MASK;
+    const bool command_slot =
+        cmd_slot == 0u || cmd_slot == 2u || cmd_slot == 4u;
+    const uint16_t last_written = cmd_slot == 0u   ? w->command_400
+                                  : cmd_slot == 2u ? w->last_write_402
+                                                   : w->last_write_404;
     const uint16_t held =
-        misc ? w->command_400
-             : ap_ring_ctl_read16(ctl, second_window, offset & ~1u);
+        command_slot ? last_written
+                     : ap_ring_ctl_read16(ctl, second_window, offset & ~1u);
     const uint16_t merged =
         (offset & 1u) != 0u
             ? (uint16_t)((held & 0xFF00u) | value)
@@ -1334,6 +1352,7 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
        * Transmit Enable, not a separate command", so a `$6` after a `$2` is the
        * same transmit forced. Queueing on both sent one frame too many, which
        * subtest `$32` reads as XMIT_HDR_CNT six words low. `FINDINGS.md` C247. */
+      w->last_write_402 = value;
       const uint16_t command_lane = (uint16_t)(value & 0xFF00u);
       const bool wants_transmit =
           command_lane == 0x0200u || command_lane == 0x0600u;
@@ -1399,6 +1418,7 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
       }
       return;
     case 4u:
+      w->last_write_404 = value;
       w->command_404 = value;
       /* **`RCV_CMD`'s `rcv` drives `RCV_STAT`'s `ren`**, which is the two
        * halves of one register naming the same thing: p. 12-32 gives the write

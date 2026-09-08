@@ -105,9 +105,31 @@ uint32_t ap_ring_header_source(const uint8_t *header) {
   return read_be32(header + AP_RING_HDR_SOURCE);
 }
 
+/* **The type word is stored low byte first, and Domain/OS is the witness.**
+ *
+ * `[MAC]` §2.2.2 gives the field as "a 16-bit word: bits 15:8 reserved, bits
+ * 7:1 the type field proper", and `002398-04` p. 7-31's `TMASK` names those
+ * seven as a **byte** -- `80 broadcast, 40 hardware diagnostic, 20 thank you,
+ * 10 please, ...`. Neither says which half of the word goes first, and this
+ * read it big-endian like the two address fields either side of it.
+ *
+ * The driver settles it. Captured from a real transmit on two booted nodes
+ * (`FINDINGS.md` C248), the twelve header bytes are
+ *
+ *     00 00 00 00  90 00  00 00  00 01 23 45
+ *
+ * whose source field at 8 is `00012345`, exactly the node's own ID, so the
+ * layout and the offsets are right. That makes the type bytes `90 00`, and
+ * big-endian they are `9000` -- **entirely reserved bits and no type at all**.
+ * Low byte first they are `0090`: `BROADCAST | PLEASE`, which is precisely what
+ * `lcnode` sends, a broadcast request that other nodes answer with `THANK_YOU`.
+ *
+ * Read big-endian, every broadcast on the ring failed
+ * `ap_ring_header_addressed_to`'s test and was dropped: two nodes exchanged 115
+ * and 122 frames and copied none of them. */
 uint16_t ap_ring_header_type(const uint8_t *header) {
-  return (uint16_t)(((uint16_t)header[AP_RING_HDR_TYPE] << 8) |
-                    header[AP_RING_HDR_TYPE + 1u]);
+  return (uint16_t)(((uint16_t)header[AP_RING_HDR_TYPE + 1u] << 8) |
+                    header[AP_RING_HDR_TYPE]);
 }
 
 uint8_t ap_ring_header_early_ack(const uint8_t *header) {
@@ -123,8 +145,12 @@ void ap_ring_header_set_source(uint8_t *header, uint32_t address) {
 }
 
 void ap_ring_header_set_type(uint8_t *header, uint16_t type) {
-  header[AP_RING_HDR_TYPE] = (uint8_t)(type >> 8);
-  header[AP_RING_HDR_TYPE + 1u] = (uint8_t)type;
+  /* Low byte first, matching the reader above and the driver it was derived
+   * from. The two stay a pair: a round trip through them is what every frame
+   * test asserts, so the endianness is only observable against a header this
+   * core did not write -- which is why it took a captured one to find. */
+  header[AP_RING_HDR_TYPE] = (uint8_t)type;
+  header[AP_RING_HDR_TYPE + 1u] = (uint8_t)(type >> 8);
 }
 
 void ap_ring_header_set_early_ack(uint8_t *header, uint8_t field) {

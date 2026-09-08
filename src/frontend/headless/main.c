@@ -2047,6 +2047,19 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
             (uint16_t)((board[i].ring.a2.rcv_status & 0xFF00u) |
                        board[i].ring.a2.command_404_status),
             (unsigned long long)board[i].ring_station.forced_tokens);
+    if (board[i].ring.first_tx_captured) {
+      /* The twelve bytes the driver asked to send, verbatim. `[MAC]` §2.2.2.2
+       * takes the destination from the first four and the type from the next
+       * two, and the station's own address is this node's ID -- so a frame that
+       * crosses and is never copied is answered here or nowhere. */
+      fprintf(out, "  node %u  ring  first tx header", i);
+      for (unsigned b = 0; b < AP_RING_CTL_XMIT_HEADER_BYTES; b++) {
+        fprintf(out, " %02X", board[i].ring.first_tx_header[b]);
+      }
+      fprintf(out, "   (station address %08X, addressed %llu)\n",
+              board[i].ring_station.address,
+              (unsigned long long)board[i].ring_station.frames_addressed);
+    }
   }
   fprintf(out, "  ring     hash %016llX\n",
           (unsigned long long)ap_ring_sched_hash(&sched));
