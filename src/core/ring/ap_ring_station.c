@@ -209,6 +209,22 @@ void ap_ring_station_drive(ap_ring_station_t *s, ap_ring_medium_t *m) {
     s->wants_ring = false;
     s->forced_tokens++;
     s->bits_since_token = 0u;
+    /* **And stripping, which this path did not start and the claim path does.**
+     *
+     * §2.1 step 3 is one event, not two: acquiring the ring "breaks ring
+     * recirculation" *and* "begins to transmit its packet", which is why the
+     * claim above sets `stripping` in the same breath. Forcing a token acquires
+     * the ring by the other route §2.2.1.1 allows, so it owes the same, and
+     * without it the transmit below -- gated on `stripping` -- never runs: the
+     * station held the ring, kept its queued frame, and emitted nothing.
+     *
+     * Measured before this: the ring ROM's own self-test forces exactly one
+     * token and then reports `frames seen 0 copied 0` with the controller's
+     * completion still deferred (`FINDINGS.md` C247). Every station that has to
+     * *start* a ring took that path, which is every station on a segment this
+     * core assembles. */
+    s->stripping = true;
+    s->bits_stripping = 0u;
   }
 
   const ap_ring_cell_t cell = ap_ring_biphase_encode(bit, s->tx_level);

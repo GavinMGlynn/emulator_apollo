@@ -13563,9 +13563,45 @@ was about to be *implemented*, with a new counter and a new timeout, when
 constant. Both reports now print `forced` beside `claims`.
 
 **So the remaining layer is in `ap_ring_station`'s transmit path**, not in the
-register decode: a station that holds the ring with a queued frame emits
-nothing that comes back. That is its own investigation and it now has a
-thirty-second harness.
+register decode, and comparing the two ways onto the ring finds it in one
+reading:
+
+  - the **claim** path sets `holds_ring`, `claims_made++`, **`stripping = true`**
+    and `bits_stripping = 0`;
+  - the **forced** path sets `holds_ring`, `forced_tokens++`,
+    `bits_since_token = 0` -- and **not** `stripping`.
+
+The transmit runs under `if (s->stripping && ...)`, which is §2.1 step 3,
+"begins to transmit its packet". §2.1 makes that one event with breaking
+recirculation, which is why the claim path sets both in the same breath; the
+forced path acquires the ring by §2.2.1.1's other route and owed the same.
+**Fixed**, and it is *inert on its own* -- nothing forces a token while the
+queue trigger still rejects the command, so the self-test is byte-identical and
+`ctest` is 140/140 either way.
+
+### And with both together, a frame crosses the ring for the first time
+
+    trigger masked + stripping on a forced token:
+      station claims 0  forced 1  frames seen 1  copied 1
+      d0 E0000014  (subtest 20, differing bit 1 = RI)
+
+`frames seen 1  copied 1` where every run before it read zero: the station
+starts the ring, transmits, and its own frame comes back. **The transmit path
+works.** What then fails is *earlier* than before -- subtest 20 rather than 22 --
+on `RI`, the receive interrupt, which fires because a frame genuinely arrived.
+
+*That is the honest state, and the trigger fix is not kept for it.* The ROM's
+subtest expectations in this core were fitted against a model where **no frame
+ever circulated**, and the harness attaches a medium on purpose ("a node with
+none is not a ring"). Which of the two is wrong -- our reading of subtest 20, or
+a receive interrupt that should not fire for a station's own stripped frame --
+needs the ROM's expectations re-derived from `r3500.lst` rather than another
+attempt. Three have been made; that is the budget.
+
+**What is landed**: the forced-token stripping, document-grounded and
+measurably inert. **What is not**: the command-lane comparison, which is
+correct by this file's own account of the register and regresses the firmware's
+self-test until subtest 20 is understood.
 
 *The model is left in its proven state*: slot 0 merged against the last command,
 XMIT_STAT's `nct` derived from the connection, ring self-test byte-identical
