@@ -452,13 +452,19 @@ of the SR10.4 set and SR10.3 predates it.
     >
 
 The drive *is* reached — 8,208 reads and 17 writes to the cartridge tape region
-— so this is the controller answering rather than a decode gap. `C0` decodes
-against `ap_sc499.h`'s own table, three of whose four bits are **active low**:
-IRQ negated, **RDY negated**, **EXC clear = EXCEPTION asserted**, DONE clear. So
-*not ready, exception asserted*. The header already records that the drive
-"asserts EXCEPTION to report the power-on-reset condition" and that the firmware
-waits "for status `57` ... and cannot proceed without it", so an exception
-belongs somewhere in this sequence and the question is where.
+— so this is the controller answering rather than a decode gap.
+
+**`C0` is MD's status code and it is not in MD's own table.** *This paragraph
+first decoded it against `ap_sc499.h`'s controller-status bits — "not ready,
+exception asserted" — and that was the **wrong table**, corrected within the
+hour.* `002398-04` p. 4-17 gives the line as
+`disk init error <SC> <RCD> <UNIT> <W/F/S/C>`, and the trailing `C` is that
+qualifier: Cartridge Tape. Its Disk/Tape Status Codes are `11`–`1F`, `21`–`29`,
+`30`–`3A` and `FF`; **`C0` is in none of them**, nor is the `C8` the same PROM
+prints on the disk path. Either this PROM's code set is wider than the Jan87
+handbook's, or the high bits carry something it does not describe —
+**undecodable from what is held**, and the route in is the register traffic
+rather than the code.
 
 *It is a named plan item and not blocked*: all three tape manuals are walked
 whole and the firmware is the authority. What it unblocks is a cartridge boot on

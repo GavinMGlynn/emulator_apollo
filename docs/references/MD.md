@@ -176,6 +176,61 @@ Worth having before a floppy or Winchester capture rather than after: the line i
 the only place MD reports *why* a transfer failed, and without the format it
 reads as four unlabelled numbers.
 
+## MD's *boot* error line, which is a different line with a different table
+
+`002398-04` p. 4-17, "BOOT ERRORS (PROM)" — read as a page image 2026-09-09 and
+**not the same line as the sense-code one above**, which is a running driver's
+report of a failed transfer. This one is the boot path's:
+
+```
+error: boot not found - The SYSBOOT read from records 2 thru B did not have a
+                        good boot header.
+
+disk init error  <SC> <RCD> <UNIT> <W/F/S/C>
+disk read error  <SC> <RCD> <UNIT> <W/F/S/C>
+
+    SC   = Status Code
+    RCD  = Record Address
+    Unit = Disk Unit No.
+    W/F/S/C = Winchester/Floppy/SMD/Cartridge Tape
+```
+
+**The observed lines carry the same four fields under a different leader.** This
+core's runs print `Disk C8  FFFCFF  00  W` and `Tape C0  000000  00  C`, so the
+qualifier letter and the field order are confirmed even though the leader is not
+the page's.
+
+Three status-code tables follow. Winchester's five (`1` not responding, `2` not
+ready, `11` seek not complete, `12` CRC/timeout/buserr/overrun, `13` drive
+faults) and the floppy's twelve are on the left and right; the **Disk/Tape**
+table is the one a tape capture needs:
+
+| | | | |
+| --- | --- | --- | --- |
+| `11` controller diagnostic failed | `1E` disk still busy | `21` seek did not complete | `26` drive not ready |
+| `12` controller timed out | `1F` controller still busy | `22` write fault | `27` no track 0 on restore |
+| `13` illegal controller command | | `23` unit not present | `28` address mark not found |
+| `15` memory parity during dma | | `24` sector not found | `29` ECC error in sector ID field |
+| `16` dma overrun/underrun | | `25` no index pulse | |
+| `17` dma not at end of range | | | |
+
+and the tape's own range, which is `QIC-02 Rev D` §5.3 a third time (`RING.md`
+records the same rows reached from the standard and from Domain/OS module `28`):
+
+`30` illegal tape command, `31` filemark encountered, `32` and `33` read error —
+no data and BOM *(both rows read the same; §5.3 makes one of them EOM and the
+page does not say which)*, `34` no data, `35` filler block transfer, `36` bad
+block transferred, `37` read or write abort, `38` end of media, `39` drive not
+present, `3A` no cartridge in drive. Then one on its own: **`FF` timeout waiting
+for controller done**.
+
+**What the table does *not* contain is the code this core provokes.** `C0` on
+the tape path and `C8` on the disk path are outside every range above, so either
+these PROMs' code set is wider than the Rev 4 handbook's or the two high bits
+carry something it does not describe. Recorded here so the next reader does not
+spend the search twice: **a status code above `FF`'s row is not decodable from
+anything held**, and the way into such a failure is the register traffic.
+
 ## `A` is not the display command
 
 From the Engineering Handbook (`002398-04`, "MNEMONIC DEBUGGER (PROM)"), the

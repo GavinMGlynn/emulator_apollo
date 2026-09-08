@@ -14626,21 +14626,30 @@ MD's own first step in the recorded install route is `DI C` then `EX DOMAIN_OS`
     >
 
 **The drive was reached**: 8,208 reads and 17 writes to the cartridge tape
-region, so this is the controller answering rather than a decode gap. And `C0`
-decodes against `ap_sc499.h`'s own bit table, where three of the four are
-**active low**:
+region, so this is the controller answering rather than a decode gap.
 
-    0x80 IRQ  active low -- set means *not* asserted
-    0x40 RDY  active low -- set means *not ready*
-    0x20 EXC  active low -- clear means **EXCEPTION asserted**
-    0x10 DONE active high -- clear
+### `C0` is MD's status code, and it is not in MD's own table
 
-So `C0` is *not ready, exception asserted, no interrupt*. The header already
-records that the drive "asserts EXCEPTION to report the power-on-reset
-condition" and that the firmware waits "for status `57`, which is EXCEPTION
-asserted, and cannot proceed without it" -- so an exception is expected at some
-point in the sequence, and what this run shows is the firmware giving up on one
-it did not expect *here*.
+*This section first decoded `C0` against `ap_sc499.h`'s controller-status bits
+-- "not ready, exception asserted, no interrupt" -- and **that was the wrong
+table**, corrected within the hour.* `002398-04` p. 4-17 gives MD's line as
+`disk init error <SC> <RCD> <UNIT> <W/F/S/C>`, and the trailing `C` in
+`Tape C0  000000  00  C` is that qualifier: **Cartridge Tape**. So `C0` is the
+**Status Code** field, not a register image, and reading it as one was the
+`read-the-drivers-own-error-first` mistake with the memory loaded.
+
+The page's Disk/Tape Status Codes are `11`-`17`, `1E`, `1F` (controller), `21`-`29`
+(drive), `30`-`3A` (tape, which are QIC-02 Rev D §5.3 again -- `39` drive not
+present, `3A` no cartridge in drive), and **`FF` timeout waiting for controller
+done**.
+
+**`C0` is in none of those ranges.** Nor is `C8`, which is what the same PROM
+prints for the *disk* path (`Disk C8  FFFCFF  00  W`) on a boot that then says
+`error: sysboot not found`. So either this PROM's code set is wider than the
+Rev 4 handbook's table -- the handbook is Jan87 and these PROMs are later -- or
+the two high bits carry something the table does not describe. **Undecodable
+from what is held**, and saying so is the finding rather than inventing a
+meaning for it.
 
 ### What that changes
 
@@ -14650,8 +14659,11 @@ The SAU 14 install has two routes and this settles which is which:
    (`sr10-3-install-route`) -- available today, and the media is confirmed.
 2. **On this core**, which needs the tape boot path to work first. That is a
    *core* item and an unblocked one: `[SC499]`, `[08845]` and `[QIC-36]` are all
-   walked whole, the firmware is the authority, and the symptom is one status
-   byte at a named point.
+   walked whole and the firmware is the authority. **But the route into it is
+   the register traffic, not the status code**: 8,208 reads and 17 writes passed
+   between the firmware and this controller, and what they were is a measurement
+   this core can take. Decoding `C0` is not available and chasing it further
+   would be reading a table that does not contain it.
 
 Route 2 is the better one to spend on, because it is a defect in this core
 rather than a job for somebody else's emulator -- and because a cartridge boot

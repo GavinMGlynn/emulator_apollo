@@ -4929,16 +4929,17 @@ same number is what let them diverge once already.
       first install step is `DI C` / `EX DOMAIN_OS`, and this core answers
       `Tape C0  000000  00  C` and returns to `>`.
       **The drive is reached** — 8,208 reads and 17 writes to the cartridge tape
-      region — so it is the controller answering, not a decode gap. `C0` decodes
-      against `ap_sc499.h`'s own table, three of whose four bits are **active
-      low**: IRQ negated, **RDY negated (not ready)**, **EXC clear = EXCEPTION
-      asserted**, DONE clear.
+      region — so it is the controller answering, not a decode gap.
+      **`C0` is MD's status code and is not in MD's own table**: `002398-04`
+      p. 4-17 gives the line as `disk init error <SC> <RCD> <UNIT> <W/F/S/C>`,
+      whose Disk/Tape codes are `11`–`1F`, `21`–`29`, `30`–`3A` and `FF`. `C0`
+      is in none of them, nor is the `C8` the same PROM prints on the disk path.
+      *A first version of this item decoded `C0` against `ap_sc499.h`'s
+      controller-status bits; that was the wrong table and is withdrawn.*
       **Not blocked on anything**: `[SC499]`, `[08845]` and `[QIC-36]` are all
-      walked whole, the firmware is the authority, and the symptom is one status
-      byte at a named point. `ap_sc499.h` already records that the drive
-      "asserts EXCEPTION to report the power-on-reset condition" and that the
-      firmware waits "for status `57` ... and cannot proceed without it", so the
-      sequence is partly understood already.
+      walked whole and the firmware is the authority — but **the route in is the
+      register traffic, not the code**, since the code cannot be decoded from
+      what is held.
       **What it unblocks**: a cartridge boot on this core, and with it the SAU 14
       install that the DS5500 boot and the multi-node workloads item both want —
       without borrowing the oracle. *The media is confirmed held*: `019593-001`
