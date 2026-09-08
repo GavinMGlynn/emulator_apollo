@@ -4962,18 +4962,26 @@ same number is what let them diverge once already.
       drive`, then `bad acquire tape - trying normal shell -- 280011` and `bad
       rewind - trying normal shell -- 280002`, and the environment comes up
       without its tape.
-      **`00280011` is module `28`, the cartridge tape manager, code `0011`**,
-      which `002398-04` p. 4-14 gives as *No drive* — the same condition p.
-      4-17's `39` names. `002398-04` p. 12-5's summary row for it is byte 0
-      `11110000`, and `ap_qic_exception_word` composes exactly that when
-      `!selected`. **So the drive is being deselected**, and the only thing in
-      this model that deselects it is a SELECT naming a drive other than
-      `AP_QIC_THIS_DRIVE`'s `0000 0001`.
+      **`00280011` is module `28`, the cartridge tape manager, code `0011`.**
+      `002398-04` p. 82 gives it as *"drive does not exist"* and the walk record
+      pairs it with `QIC-02` §5.3 **row 2**, "No drive"; p. 12-5 prints that row
+      as byte 0 `11110000`; and the same page's module-28 warning band has
+      *"tape unit is offline"* for the unselected condition. Three statements of
+      one thing, and `ap_qic_exception_word` composes byte 0 `F0` in exactly one
+      circumstance — `!selected`, where `USL` comes from.
+      **So the drive is being deselected.** The only thing in this model that
+      does that is a SELECT naming a drive other than `AP_QIC_THIS_DRIVE`'s
+      `0000 0001`, which is the code `[SC499]` §1.13.1 gives this card — and
+      selecting another drive is *refused*, leaving the selection alone, unless
+      the tape is at BOT (§5.2 cause e). So the sequence has to be a probe at
+      BOT, and what it does afterwards is the question.
       *What it needs*: a watch on `050000` through the kernel phase, to see
-      which drive number Domain/OS selects. If it selects drive 0 or 2 then
-      either the nibble's meaning or this card's drive number is wrong, and
-      `QIC-02` §4.1's `0000 0001` SELECT DRIVE 1 is what that has to be read
-      against.
+      which drive number Domain/OS selects and what it does after. The boot
+      phase's own sequence is already measured and is orderly — `C0` READ
+      STATUS, `80` READ, `C0`, **`A0` READ FILE MARK**, `80` — which is the
+      firmware using the file-mark command this session implemented, so the
+      kernel's traffic is the part still unseen. The run reaching it costs the
+      4.29 G ceiling.
       *Verification: the environment comes up with its tape acquired.*
 
 - [ ] **Three ring timeout status bits are defined and set by nobody.**
