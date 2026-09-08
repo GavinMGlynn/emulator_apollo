@@ -2027,14 +2027,15 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
      * registers' bits. */
     fprintf(out,
             "  node %u  ring  ctl %u read(s) %u write(s)  misc %04X  "
-            "xmit %04X  rcv %04X\n",
+            "xmit %04X  rcv %04X  forced %llu\n",
             i, board[i].region_reads[AP_BOARD_REGION_RING],
             board[i].region_writes[AP_BOARD_REGION_RING],
             board[i].ring.a2.status,
             (uint16_t)((board[i].ring.a2.xmit_status & 0xFF00u) |
                        board[i].ring.a2.command_402_status),
             (uint16_t)((board[i].ring.a2.rcv_status & 0xFF00u) |
-                       board[i].ring.a2.command_404_status));
+                       board[i].ring.a2.command_404_status),
+            (unsigned long long)board[i].ring_station.forced_tokens);
   }
   fprintf(out, "  ring     hash %016llX\n",
           (unsigned long long)ap_ring_sched_hash(&sched));
@@ -5536,8 +5537,14 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
      * asked -- a lone station on its own segment can still claim the ring and
      * strip its own frame, so `claims 0` here is as informative as it is with
      * two nodes and costs eighteen times less to obtain. */
-    printf("  ring station claims %llu  frames seen %llu  copied %llu\n",
+    /* `forced` beside `claims`, for the reason the self-test report already
+     * carries it: they are two ways onto the ring and reading `claims 0` as
+     * "never got it" is wrong on any segment that had to be started, which is
+     * every segment this core assembles (`FINDINGS.md` C247). */
+    printf("  ring station claims %llu  forced %llu  frames seen %llu  "
+           "copied %llu\n",
            (unsigned long long)board->ring_station.claims_made,
+           (unsigned long long)board->ring_station.forced_tokens,
            (unsigned long long)board->ring_station.frames_seen,
            (unsigned long long)board->ring_station.frames_copied);
     printf("  ring connect a2 MISC_CMD %u write(s), %u with nct; "
