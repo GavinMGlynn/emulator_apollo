@@ -651,6 +651,74 @@ core's own. Every step before the last reasoned about values the *device*
 received, and the answer was only visible one level up.
 
 
+## Domain/OS puts frames on the ring: four defects, and the firmware found three
+## of them (2026-09-08)
+
+    $ /com/lcnode
+    ?(lcnode)  List may not be complete - waited too long for more nodes to respond
+     The node ID of this node is 12345.
+     No other nodes responded.
+    Node ID      Boot time           Current time         Entry Directory
+    12345   2002/11/28 12:01:56   2002/11/28 12:03:13  //node_12345
+
+    ring card    misc 300F  xmit 00B0  rcv 00A0
+    ring station claims 0  frames seen 61  copied 0
+
+**Sixty-one frames on the ring**, where every run before this read zero. On a
+lone node "No other nodes responded" is the right answer, and it is what C164
+recorded from the oracle.
+
+Four defects, each fixed and each verified against the ring firmware's own
+self-test — the hardware's test suite, for free.
+
+**1. A word write to MISC_CMD disconnected the ring with its own low half.**
+`ap_board_write` is byte-wide, the status bank read-modify-wrote, and p. 12-29
+makes `+400` MISC_STAT when read and MISC_CMD when written. So `move.w #$0800`
+became `0807` then `7000`, the second half clearing the `nct` the first had set.
+Merging against the last written command fixes it.
+
+**2. XMIT_STAT's `nct` was a constant**, so a driver that connected the card was
+told it was still bypassed. p. 12-31's "network connect <= 0" makes it follow
+the connection, as MISC_STAT's bit 15 already did.
+
+**3. A station that *forces* a token never began stripping.** §2.2.1.1's route
+onto a ring with no token — which is every segment this core assembles — and
+§2.1 step 3 makes acquiring the ring and beginning to transmit **one event**,
+which the claim path already honoured.
+
+**4. The transmit trigger matched the whole word** against `$0200`/`$0600`,
+where the command is the high lane — so none of Domain/OS's sixty-five `ten`
+commands reached the station.
+
+### The exact match was hiding three conditions, and the firmware named each
+
+Correcting 4 alone regressed the self-test, and re-deriving each failing subtest
+from `r3500.lst` produced a condition with a document behind it. The firmware
+walked forward as they went in — `$22` → `$14` → `$32` → pass:
+
+- **`lpb` clear.** The ROM's `$11`–`$16` group runs after `move.b #$1,$400(a4)`
+  — `$0100`, p. 12-32's bit 8 — so it is a loopback group, where the transmit
+  loops inside the board and nothing is on the wire. Subtest `$14`.
+- **`ten` rising.** p. 12-32 makes `ten` a level ("set `ten` to 0 to abort an
+  enabled transmit") and `fen` "a **modifier** to Transmit Enable, not a
+  separate command", so a `$6` after a `$2` is one transmit, not two.
+- **`nct` set.** `[MAC]` §3.5's bypass relay: a card off the ring cannot put a
+  frame on it. The ROM's `$21`–`$26` group runs after `move.b #$0,$400(a4)`,
+  which clears `nct`, so its transmits are the internal DMA loop — and subtest
+  `$32` reads XMIT_HDR_CNT expecting no words to have gone out. Without it we
+  sent one 6-word header too many and it read `FDFA` against `FE00`: an 8254
+  counts down, so exactly one 12-byte header.
+
+*Verification: ring ROM self-test **byte-identical** (`d0 0`, 7,263,778 steps,
+1,321,914 reads / 927,828 writes), identity boot `FE2BB02AEF1F4624` unchanged,
+`ctest` 140/140 both presets. `ring_ctl_suite` gained the assertion that an
+unconnected card does not transmit; `board_suite`'s two-board exchange had
+`nct`'s old constant baked into an expectation and was corrected.*
+
+*What this leaves*: the two-node run, which is the item's actual verification —
+two booted nodes each reporting the other. It is launched.
+
+
 ## The keyboard gap named a counter that did not exist (2026-09-08)
 
 `002398-04` ch. 12's opening sentence has the keyboard performing "power-up and
