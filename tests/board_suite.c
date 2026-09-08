@@ -5,6 +5,8 @@
 #include <string.h>
 
 #include "board/ap_board.h"
+#include "board/ap_board_state.h"
+#include "state/ap_hash.h"
 #include "board/ap_nodeid.h"
 #include "device/ap_i8237.h"
 #include "device/ap_3c505.h"
@@ -2053,6 +2055,39 @@ static void test_two_boards_exchange_a_frame_on_a_scheduled_ring(void) {
  * Asserted at the board, not at the station, because the station suite can
  * always set a cable length by hand; what this checks is that a *machine*
  * joining a ring gets one. */
+/* **`ap_board_bus_ticks(board, n)` must equal n calls of one, and that is the
+ * whole licence for its batching.**
+ *
+ * The function short-circuits a run of clocks into one arbiter tick when it can
+ * "prove the ticks identical" -- no DMA able to ask, an idle arbiter, and a
+ * refresh counter that will not reach zero inside the batch. Every caller
+ * depends on that equivalence, and two of them use *different shapes*: the
+ * instruction-stepped machine delivers an instruction's clocks in the groups
+ * `ap_m68030_charge` recorded, and `ap_machine_tick` delivers them one at a
+ * time. If the shortcut is not exact the two schedules diverge for no reason
+ * anyone would look for -- which is why this is asserted rather than trusted.
+ *
+ * Swept across the refresh boundary deliberately: the interval is the one
+ * quantity the batch is bounded by, so a batch that straddles it is the case
+ * the guard exists for. */
+static void test_a_batch_of_bus_ticks_equals_that_many_single_ticks(void) {
+  static ap_board_t batched;
+  static ap_board_t singly;
+  for (unsigned n = 1u; n <= 40u; n++) {
+    init(&batched);
+    init(&singly);
+    ap_board_bus_ticks(&batched, n);
+    for (unsigned i = 0; i < n; i++) {
+      ap_board_bus_ticks(&singly, 1u);
+    }
+    ap_hash_t a = ap_hash_begin();
+    ap_hash_t b = ap_hash_begin();
+    ap_board_hash(&a, &batched);
+    ap_board_hash(&b, &singly);
+    TEST_ASSERT_EQUAL_HEX64(ap_hash_end(&a), ap_hash_end(&b));
+  }
+}
+
 static void test_a_board_joining_a_ring_makes_it_long_enough_for_a_token(void) {
   static ap_ring_sched_t sched;
   static ap_board_t a;
@@ -2802,6 +2837,7 @@ int main(void) {
   RUN_TEST(test_two_boards_on_one_ring_segment_exchange_a_frame);
   RUN_TEST(test_a_frame_crosses_the_ring_under_board_time);
   RUN_TEST(test_two_boards_exchange_a_frame_on_a_scheduled_ring);
+  RUN_TEST(test_a_batch_of_bus_ticks_equals_that_many_single_ticks);
   RUN_TEST(test_a_board_joining_a_ring_makes_it_long_enough_for_a_token);
   RUN_TEST(test_only_the_ds5500_places_the_memory_present_register);
   RUN_TEST(test_the_ds5500_has_no_task_alias_register);

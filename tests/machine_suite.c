@@ -2342,6 +2342,62 @@ static void test_the_timer_follows_the_instant_not_the_instruction_count(void) {
 /* A machine with no board keeps its own time and advances nothing, which is
  * what the probes depend on: a probe on flat RAM has no device to advance and
  * must produce exactly the numbers it produced before any of this existed. */
+/* **The cycle-stepped loop is the same machine, where nothing can reorder it.**
+ *
+ * `ap_machine_tick` runs one instruction ahead and hands its clocks out one at
+ * a time; `ap_machine_run` runs the instruction and delivers them in the groups
+ * `ap_m68030_charge` recorded. On a **boardless** machine there is no arbiter
+ * to stall against and nothing to deliver clocks *to*, so the two must agree
+ * exactly -- state hash included -- and any difference is the loop itself.
+ *
+ * It is asserted here because nothing in this suite drove `ap_machine_tick` at
+ * all: the only caller was `--cycle-stepped`, a frontend flag no test and no CI
+ * job runs. That is `check_what_is_called_by_nobody`'s pattern with a whole
+ * scheduling mode inside it, and it is how the equivalence this path exists to
+ * provide came to be broken without anything going red (`FINDINGS.md` C254). */
+static void test_the_tick_loop_and_the_run_loop_are_the_same_machine(void) {
+  static const uint16_t program[] = {
+      0x7005u,             /* moveq #5,d0    */
+      0xD080u,             /* add.l  d0,d0   */
+      0x4E71u,             /* nop            */
+      0xE288u,             /* lsr.l  #1,d0   */
+      0x4E71u,             /* nop            */
+  };
+  static ap_machine_t stepped;
+  static ap_machine_t ticked;
+
+  blank();
+  ap_machine_init(&stepped, ram, RAM_BYTES);
+  ap_machine_reset(&stepped, PROGRAM, STACK);
+  load(&stepped, program, sizeof program / sizeof program[0]);
+  const ap_machine_run_t run = ap_machine_run(&stepped, 5u);
+  TEST_ASSERT_EQUAL_UINT64(5u, run.executed);
+
+  blank();
+  ap_machine_init(&ticked, ram, RAM_BYTES);
+  ap_machine_reset(&ticked, PROGRAM, STACK);
+  load(&ticked, program, sizeof program / sizeof program[0]);
+  /* Ticked until the same five instructions have run and their cycles are all
+   * handed out -- a tick with cycles pending runs no instruction, so the loop
+   * has to count instructions rather than ticks. */
+  uint64_t executed = 0u;
+  unsigned guard = 0u;
+  while (executed < 5u && guard++ < 10000u) {
+    const ap_machine_run_t out = ap_machine_tick(&ticked);
+    executed += out.executed;
+  }
+  TEST_ASSERT_EQUAL_UINT64(5u, executed);
+  /* And drain the last instruction's cycles, so both machines sit at the same
+   * point rather than one of them mid-delivery. */
+  while (ticked.pending_cycles > 0u && guard++ < 10000u) {
+    (void)ap_machine_tick(&ticked);
+  }
+
+  TEST_ASSERT_EQUAL_HEX32(stepped.cpu.regs.pc, ticked.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_UINT64(stepped.cpu.clocks, ticked.cpu.clocks);
+  TEST_ASSERT_EQUAL_HEX64(ap_machine_hash(&stepped), ap_machine_hash(&ticked));
+}
+
 static void test_a_boardless_machine_advances_nothing(void) {
   static const uint16_t spin[] = {0x4E71u, 0x4E71u, 0x4E72u, 0x2700u};
   blank();
@@ -2496,6 +2552,7 @@ int main(void) {
   RUN_TEST(test_two_devices_are_serviced_in_the_controllers_order);
   RUN_TEST(test_a_timer_reaches_terminal_count_with_no_program_touching_it);
   RUN_TEST(test_the_timer_follows_the_instant_not_the_instruction_count);
+  RUN_TEST(test_the_tick_loop_and_the_run_loop_are_the_same_machine);
   RUN_TEST(test_a_boardless_machine_advances_nothing);
   RUN_TEST(test_two_interrupts_at_once_are_serviced_in_priority_order);
   RUN_TEST(test_a_dma_transfer_costs_the_processor_clocks);

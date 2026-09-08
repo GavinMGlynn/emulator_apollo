@@ -126,6 +126,18 @@ typedef struct {
    * instruction-stepped loop is byte-for-byte what it was. */
   unsigned pending_cycles;
   bool defer_cycle_delivery;
+  /* **And whether the instruction whose cycles are being handed out held the
+   * bus for an indivisible read-modify-write.**
+   *
+   * `ap_machine_run` asserts `RMC` to the board around its own clock walk --
+   * `[030]` §7.7.1 has the arbitration state machine ignore bus requests during
+   * one, and §11.9 says the processor "does not relinquish the physical bus
+   * while it is performing a read-modify-write operation". The tick path
+   * defers that walk and so skipped the assertion with it, which made a
+   * cycle-stepped machine grant the bus away inside a `TAS` where an
+   * instruction-stepped one would not. The lock has to span the drain, so the
+   * fact that it is needed has to survive the run that discovered it. */
+  bool pending_rmc;
 
   /* **Which of the two device schedules this machine runs.**
    *

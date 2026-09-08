@@ -1136,16 +1136,55 @@ ap_machine_run_t ap_machine_tick(ap_machine_t *machine) {
     /* Run the instruction but keep its clocks: they are handed out below, one
      * per tick, so the bus sees them spread across the cycles the processor
      * actually spent rather than in one batch at the end. */
+    const unsigned before_rmc = machine->cpu.rmc_operations;
     machine->defer_cycle_delivery = true;
     out = ap_machine_run(machine, 1u);
     machine->defer_cycle_delivery = false;
-    machine->pending_cycles = (unsigned)machine->last_instruction_clocks;
+    /* **The timeline's sum, not the instruction's whole clock count** -- and
+     * the difference is a defect this path carried since it was built.
+     *
+     * `last_instruction_clocks` is `cpu.clocks` across the step, and the
+     * arbitration stall above adds to `cpu.clocks` while calling
+     * `ap_board_bus_tick` for each one, so those clocks have **already reached
+     * the board**. `ap_machine_run` delivers `clock_events` precisely because
+     * they are the clocks the *processor* charged and not the ones the stall
+     * already paid; handing out `last_instruction_clocks` here delivered the
+     * stall's clocks a second time.
+     *
+     * Measured: a cycle-stepped identity boot charged 1,411,551,920 clocks
+     * against the instruction-stepped 1,408,661,906 and diverged at
+     * **instruction 86**, six clocks against seven, on an identical instruction
+     * stream (`FINDINGS.md` C254). The fallback is `ap_machine_run`'s, for the
+     * one case the timeline cannot represent. */
+    unsigned delivered = 0u;
+    if (machine->cpu.clock_events_dropped == 0u) {
+      for (unsigned e = 0; e < machine->cpu.clock_event_count; e++) {
+        delivered += machine->cpu.clock_events[e];
+      }
+    } else {
+      delivered = (unsigned)machine->last_instruction_clocks;
+    }
+    machine->pending_cycles = delivered;
+    /* **And whether the bus is locked for the drain**, which this path did not
+     * carry. `ap_machine_run` holds `RMC` across its own clock walk and the
+     * deferral skipped the assertion along with the walk, so a cycle-stepped
+     * machine granted the bus away inside an indivisible read-modify-write
+     * where an instruction-stepped one refused. `[030]` §7.7.1 and §11.9. */
+    machine->pending_rmc = machine->cpu.rmc_operations != before_rmc;
+    if (machine->board != NULL && machine->pending_rmc) {
+      ap_board_set_processor_rmc(machine->board, true);
+    }
   }
   if (machine->pending_cycles > 0u) {
     if (machine->board != NULL) {
       ap_board_bus_ticks(machine->board, 1u);
     }
     machine->pending_cycles--;
+    if (machine->pending_cycles == 0u && machine->board != NULL &&
+        machine->pending_rmc) {
+      ap_board_set_processor_rmc(machine->board, false);
+      machine->pending_rmc = false;
+    }
   }
   return out;
 }

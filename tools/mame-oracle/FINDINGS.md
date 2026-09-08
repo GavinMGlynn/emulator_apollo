@@ -14168,3 +14168,74 @@ ring.
 **The ring path itself is finished and says so in its own numbers**: node 0
 `forced 0` against 71 claims, 134 million free tokens seen, every frame it
 copied delivered, every delivery interrupting.
+
+## C254 -- the cycle-stepped machine stopped being the same machine, and nothing ran the check
+
+The per-cycle item's central claim is recorded as measured: "`--cycle-stepped`
+runs the boot one machine cycle at a time through the tick instead of one
+instruction at a time, and the two produce **byte-identical state**:
+`A354786119A3931D` over the full 350 M boot". Re-run today against the same
+harness:
+
+    default          state hash FE2BB02AEF1F4624  final PC 0000269E  clocks 1408661906
+    --cycle-stepped  state hash A21DA60368011CC1  final PC 00002698  clocks 1411551920
+
+**Different hash, different final PC, and 2,890,014 clocks apart.** The recorded
+figure is stale by an unknown number of commits, because **nothing runs the
+A/B**: `ap_machine_tick` has exactly one caller, the `--cycle-stepped` frontend
+flag, and no test and no CI job passes it. A whole scheduling mode inside
+`check_what_is_called_by_nobody`'s pattern.
+
+### Reproducible in milliseconds, which is what made it findable
+
+Bisecting the limit: identical through instruction 85, first divergent at **86**
+-- six clocks against seven -- on a **byte-identical instruction stream**, PCs
+and registers the same through a three-instruction loop at `654E`/`6550`/`6552`.
+So execution is unaffected and the difference is in what reaches the board.
+
+### Two defects, both in the tick path, both fixed
+
+**1. The tick path never asserted `RMC`.** `ap_machine_run` wraps its clock walk
+in `ap_board_set_processor_rmc` -- `[030]` §7.7.1 has the arbitration state
+machine ignore bus requests during an indivisible read-modify-write, and §11.9
+says the processor "does not relinquish the physical bus" while performing one.
+`defer_cycle_delivery` skips that whole block, so it skipped the assertion with
+the walk: a cycle-stepped machine granted the bus away inside a `TAS` where an
+instruction-stepped one refused. The lock now spans the drain.
+
+**2. The tick path delivered the arbitration stall's clocks twice.** It handed
+out `last_instruction_clocks`, which is `cpu.clocks` across the step -- and the
+stall above the step does `ap_board_bus_tick(board); machine->cpu.clocks++`, so
+those clocks **have already reached the board**. `ap_machine_run` delivers
+`clock_events` precisely because they are what the *processor* charged, not what
+the stall already paid. The tick now delivers the same sum, with
+`ap_machine_run`'s own fallback for a dropped timeline.
+
+### And one difference that is structural, named rather than patched
+
+The two still diverge, and the cause is now exact rather than suspected.
+`ap_machine_run`'s order is: stall, step, **deliver the timeline**, advance
+`now`, `ap_board_advance`. Deferring the delivery moves it *after* the board
+advance, so a cycle-stepped machine advances its devices to the instruction's
+end instant **before** that instruction's bus cycles reach the arbiter, and an
+instruction-stepped one does the reverse. That changes the refresh counter's
+phase against device state, which changes when `ap_board_processor_may_run` is
+false, which changes how often the stall fires -- and the stall charges clocks.
+
+Closing it means deferring the board advance with the delivery, which contradicts
+`ap_board_advance`'s own stated contract ("after the step, so a device sees the
+effect of an instruction that programmed it before it counts"). That is a design
+decision, not a patch, and it belongs to the per-cycle item.
+
+### What is now checked rather than remembered
+
+`machine_suite` drives `ap_machine_tick` for the first time: on a **boardless**
+machine, where there is no arbiter to stall against and nothing to deliver
+clocks to, the tick loop and the run loop must agree exactly -- PC, clocks and
+state hash. And `board_suite` sweeps `ap_board_bus_ticks(board, n)` against n
+calls of one across the refresh boundary, which is the whole licence for its
+batching shortcut and which nothing asserted; it is exact, so the batching is
+eliminated as a cause rather than assumed innocent.
+
+*The default path is untouched throughout*: `FE2BB02AEF1F4624`, clocks
+1,408,661,906, `ctest` 140/140.
