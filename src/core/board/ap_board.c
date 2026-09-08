@@ -965,38 +965,35 @@ static void dma_device_write(void *context, unsigned channel, uint8_t value) {
 }
 
 void ap_board_bus_ticks(ap_board_t *board, uint64_t n) {
-  if (n == 0u) {
-    return;
-  }
-  /* **The batch may not step over a refresh.** `ap_arbiter_idle` proves the
-   * ticks are identical to one *as far as arbitration goes*, and §2.4.6's
-   * refresh is not arbitration -- it is a cycle the memory controller inserts
-   * on its own count. So the equivalence holds only while the counter does not
-   * reach zero inside the batch, and the bound is the counter itself.
+  /* **n clocks, one at a time, and the loop is the point.**
    *
-   * This is the reason the interval is kept in **ticks** rather than in time: a
-   * batch can be bounded by a count it shares units with, and could only be
-   * bounded by an instant if this function carried one. */
-  if (board->refresh_interval_ticks != 0u &&
-      n >= (uint64_t)board->refresh_ticks_left) {
-    for (uint64_t i = 0; i < n; i++) {
-      ap_board_bus_tick(board);
-    }
-    return;
-  }
-  if (!board->dma_possible && ap_arbiter_idle(&board->arbiter)) {
-    board->bus_ticks += (unsigned)n;
-    if (board->refresh_interval_ticks != 0u) {
-      board->refresh_ticks_left -= (uint32_t)n;
-    }
-    /* Once, not none: the tick still lowers the processor's request line, and
-     * doing it once is the whole of what doing it `n` times would do. */
-    ap_arbiter_tick(&board->arbiter);
-    /* The master contends on the same clock the arbiter resolves. */
-    ap_master_tick(&board->master, &board->dma.controller[0],
-                   &board->arbiter);
-    return;
-  }
+   * This used to collapse a run of clocks into one arbiter tick whenever
+   * `ap_arbiter_idle` said nobody was asking and nobody held the bus, on the
+   * claim that "doing it once is the whole of what doing it n times would do".
+   * That is true of the request line and **false of the two state machines
+   * behind it**: the 68030's arbitration sequencer walks states through
+   * synchronisers, and the AT master port is a sequencer of its own, and a
+   * batch left both somewhere the loop would not have.
+   *
+   * It was not a theoretical difference. A cycle-stepped boot delivers its
+   * clocks one at a time and an instruction-stepped one delivers them in
+   * groups, and the two diverged at instruction **86** -- six clocks against
+   * seven on a byte-identical instruction stream -- with the whole delta being
+   * an arbitration stall firing in one and not the other. Making the grouped
+   * path deliver singly made them byte-identical, which is what localised it
+   * here (`FINDINGS.md` C254).
+   *
+   * Restoring the shortcut with a complete guard would mean enumerating every
+   * sub-machine's idle condition here, and re-establishing that proof every
+   * time one is added -- a proof this project has now had fail twice. The loop
+   * is correct **by construction**, which is the property every caller was
+   * already relying on.
+   *
+   * **Cost, measured**: the 350 M reference boot goes 37.8 s -> 44.0 s, 1.16x,
+   * with the state hash unmoved at `FE2BB02AEF1F4624`. `CLAUDE.md` settles that
+   * trade in one line -- "Never weaken the reference core to chase speed" --
+   * and this is the run loop, so the shortcut was buying 16% by making the two
+   * schedules disagree. */
   for (uint64_t i = 0; i < n; i++) {
     ap_board_bus_tick(board);
   }

@@ -144,6 +144,14 @@ static bool sync_advance(uint8_t *shift, bool pin) {
   return (*shift & (1u << (SYNC_DEPTH - 1u))) != 0u;
 }
 
+/* The state in which a tick provably does nothing: state 0, both pins low
+ * and both synchronisers empty. Named rather than inlined so the guard below
+ * reads as the claim it is. */
+static bool tick_is_a_no_op(const ap_m68030_arb_t *arb) {
+  return arb->state == AP_M68030_ARB_STATE_0 && !arb->br && !arb->bgack &&
+         arb->br_sync == 0u && arb->bgack_sync == 0u;
+}
+
 void ap_m68030_arb_tick(ap_m68030_arb_t *arb) {
   /* ## The idle state, skipped because it is provably a no-op
    *
@@ -167,8 +175,7 @@ void ap_m68030_arb_tick(ap_m68030_arb_t *arb) {
    * no-op state rather than guessing that a tick "probably" does nothing.
    * Anything less than provable belongs nowhere near the reference core, and
    * the boot state hash is the check. */
-  if (arb->state == AP_M68030_ARB_STATE_0 && !arb->br && !arb->bgack &&
-      arb->br_sync == 0u && arb->bgack_sync == 0u) {
+  if (tick_is_a_no_op(arb)) {
     return;
   }
 

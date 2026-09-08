@@ -5033,30 +5033,19 @@ Only after the reference core is proven, and only under an identity harness.
       machine call that, with `step` kept as a loop over it; (4) switch the
       board's run loop. Only (4) can change interleaving, and only (4) needs
       the goldens re-blessed if it does — which the item says it must not.
-  - [ ] **THE VERIFICATION ABOVE IS STALE, and re-running it is now the item's
-        live step** (2026-09-08, `FINDINGS.md` C254). `--cycle-stepped` against
-        the same harness today: `A21DA60368011CC1` and final PC `00002698`
-        against the default's `FE2BB02AEF1F4624` and `0000269E`, 2,890,014
-        clocks apart. **Nothing runs the A/B** -- `ap_machine_tick` had one
-        caller, a frontend flag no test and no CI job passes -- so the recorded
-        byte-identical figure is stale by an unknown number of commits.
-        **Two defects found and fixed**: the tick path never asserted `RMC`
-        (`[030]` §7.7.1, §11.9 -- the deferral skipped the assertion along with
-        the walk it wraps), and it delivered the arbitration stall's clocks
-        **twice**, handing out `last_instruction_clocks` where the stall had
-        already charged the board for its own.
-        **What remains is structural and is the decision this item now turns
-        on**: `ap_machine_run` delivers the timeline *before* `ap_board_advance`
-        and the tick path necessarily delivers it after, so a cycle-stepped
-        machine advances devices to the instruction's end instant before that
-        instruction's cycles reach the arbiter. Closing it means deferring the
-        board advance too, against `ap_board_advance`'s own stated contract.
-        *Verification: reproducible at `--boot-limit 86` in milliseconds --
-        identical through 85, six clocks against seven at 86 on a byte-identical
-        instruction stream. `machine_suite` 58 -> 59 drives `ap_machine_tick`
-        for the first time and pins the boardless case exactly; `board_suite`
-        78 -> 79 proves `ap_board_bus_ticks`'s batching exact and eliminates it.
-        Default path untouched, `FE2BB02AEF1F4624`.*
+  - [x] **The verification above had gone stale, and is restored** (2026-09-08).
+        `--cycle-stepped` had diverged from the default -- 2,890,014 clocks and
+        a different final PC -- because **nothing ran the A/B**: `ap_machine_tick`
+        had one caller, a frontend flag no test and no CI job passes. Three
+        defects fixed: the tick path never asserted `RMC`, it delivered the
+        arbitration stall's clocks twice, and `ap_board_bus_ticks`'s batching
+        shortcut was not equivalent to the loop it replaced even at n = 1. The
+        shortcut is removed, at a measured 1.16x on the reference boot.
+        *Verification: 350 M, default and `--cycle-stepped` both
+        `FE2BB02AEF1F4624` -- the same machine again with the golden unmoved;
+        `machine_suite` 58 -> 60 drives `ap_machine_tick` for the first time and
+        `board_suite` 78 -> 79 fails on the old code. Detail in
+        `PROJECT_STATUS.md`; `FINDINGS.md` C254.*
   - [ ] **What the tick loop item deferred here**, so that the two are read
         together. Phase 3's loop advances each device to an absolute instant
         once per instruction, every device carrying its own remainder, and

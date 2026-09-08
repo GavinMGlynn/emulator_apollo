@@ -835,6 +835,28 @@ ap_m68030_step_result_t ap_machine_step(ap_machine_t *machine) {
  * the 8237 and the arbiter all inlined into one another already. A
  * compiler-specific attribute that buys nothing is complexity without a
  * reason. */
+/* The device advance that follows an instruction's cycles, factored out because
+ * `ap_machine_tick` has to perform it at the same point in the same order --
+ * after the delivery, not before it. See its call site for why. */
+static void machine_advance_devices(ap_machine_t *machine) {
+  if (machine->board == NULL) {
+    return;
+  }
+  ap_board_advance(machine->board, machine->now);
+
+  /* An F-line taken while the coprocessor is held off is the FP trap the
+   * status register reports. Counted rather than signalled, because the step
+   * result carries no vector and a count is the observable this core already
+   * keeps. */
+  const unsigned line_f = machine->cpu.exceptions_taken[AP_M68030_VECTOR_LINE_F];
+  if (line_f != machine->last_line_f_exceptions &&
+      ap_boardreg_fpu_trapped(&machine->board->registers)) {
+    ap_boardreg_latch_status(&machine->board->registers,
+                             AP_BOARDREG_STATUS_FP_TRAP);
+  }
+  machine->last_line_f_exceptions = line_f;
+}
+
 ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
   ap_machine_run_t out = {.status = AP_M68030_STEP_EXECUTED};
 
@@ -1002,22 +1024,21 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
      * step, so a device sees the effect of an instruction that programmed it
      * before it counts; before the next iteration's interrupt sample, so
      * anything it raises is seen on the next instruction rather than the one
-     * after. */
-    if (machine->board != NULL) {
-      ap_board_advance(machine->board, machine->now);
-
-      /* An F-line taken while the coprocessor is held off is the FP trap the
-       * status register reports. Counted rather than signalled, because the
-       * step result carries no vector and a count is the observable this core
-       * already keeps. */
-      const unsigned line_f =
-          machine->cpu.exceptions_taken[AP_M68030_VECTOR_LINE_F];
-      if (line_f != machine->last_line_f_exceptions &&
-          ap_boardreg_fpu_trapped(&machine->board->registers)) {
-        ap_boardreg_latch_status(&machine->board->registers,
-                                 AP_BOARDREG_STATUS_FP_TRAP);
-      }
-      machine->last_line_f_exceptions = line_f;
+     * after.
+     *
+     * **And after the instruction's bus cycles have been delivered**, which is
+     * the order this loop has always had and which the tick path could not
+     * reproduce while it deferred only the delivery. So the advance is deferred
+     * with it and `ap_machine_tick` performs both, in this order -- the two
+     * loops are then structurally the same and not merely equal.
+     *
+     * *Behaviour-neutral, and that is a measurement rather than an aim*: this
+     * ordering was tried as the fix for the cycle-stepped divergence and
+     * changed **nothing** (`FINDINGS.md` C254). The cause was inside
+     * `ap_board_bus_ticks`. Kept because the parallel is worth having and the
+     * refactor is free, not because it fixed anything. */
+    if (!machine->defer_cycle_delivery) {
+      machine_advance_devices(machine);
     }
     out.status = result.status;
     out.instruction = result.instruction;
@@ -1180,10 +1201,15 @@ ap_machine_run_t ap_machine_tick(ap_machine_t *machine) {
       ap_board_bus_ticks(machine->board, 1u);
     }
     machine->pending_cycles--;
-    if (machine->pending_cycles == 0u && machine->board != NULL &&
-        machine->pending_rmc) {
-      ap_board_set_processor_rmc(machine->board, false);
-      machine->pending_rmc = false;
+    if (machine->pending_cycles == 0u) {
+      if (machine->board != NULL && machine->pending_rmc) {
+        ap_board_set_processor_rmc(machine->board, false);
+        machine->pending_rmc = false;
+      }
+      /* The delivery is finished, so the devices advance -- the same point
+       * `ap_machine_run` advances them at, which is what makes the two loops
+       * the same machine rather than two schedules that happen to agree. */
+      machine_advance_devices(machine);
     }
   }
   return out;

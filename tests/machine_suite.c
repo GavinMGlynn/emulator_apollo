@@ -2398,6 +2398,61 @@ static void test_the_tick_loop_and_the_run_loop_are_the_same_machine(void) {
   TEST_ASSERT_EQUAL_HEX64(ap_machine_hash(&stepped), ap_machine_hash(&ticked));
 }
 
+/* **And on a machine with a board, which is where it actually broke.**
+ *
+ * The boardless case above cannot see the failure: with no arbiter there is no
+ * arbitration stall, and the stall was the whole of the divergence. This one
+ * runs the same program on a real board through both loops and requires the
+ * same state -- clocks, PC and the full machine hash, board included.
+ *
+ * It is the check that was missing. `--cycle-stepped` was verified once by hand
+ * and then diverged silently over an unknown number of commits, because the
+ * only thing that ran it was a frontend flag (`FINDINGS.md` C254). A hundred
+ * instructions here cost microseconds and would have caught it at instruction
+ * 86. */
+static void test_the_tick_loop_matches_the_run_loop_on_a_real_board(void) {
+  /* **A `TAS` in the loop, and it is the whole reason this test discriminates.**
+   *
+   * The divergence was an arbitration stall, and the stall only fires while the
+   * 68030's arbitration sequencer is off its idle state. Ordinary instructions
+   * never move it: a first version of this test ran a `subq`/`bne` loop, passed
+   * with the defect present, and proved nothing. `TAS` is an indivisible
+   * read-modify-write, so `ap_machine_run` asserts `RMC` to the board around
+   * its clock walk (`[030]` §7.7.1, §11.9) and the sequencer walks -- which is
+   * exactly the state the batching shortcut mis-stepped. */
+  static const uint16_t program[] = {
+      0x207Cu, (uint16_t)(BOARD_STACK >> 16), (uint16_t)(BOARD_STACK & 0xFFFFu),
+      0x4AD0u,                   /* tas   (a0)     */
+      0x4E71u,                   /* nop            */
+      0x60F8u,                   /* bra.s -6       */
+  };
+  enum { COUNT = sizeof program / sizeof program[0] };
+  static ap_machine_t stepped;
+  static ap_machine_t ticked;
+  const uint64_t instructions = 100u;
+
+  build_board_machine(&stepped, &first_board, ram, program, COUNT);
+  const ap_machine_run_t run = ap_machine_run(&stepped, instructions);
+  TEST_ASSERT_EQUAL_UINT64(instructions, run.executed);
+
+  build_board_machine(&ticked, &second_board, ram, program, COUNT);
+  uint64_t executed = 0u;
+  unsigned guard = 0u;
+  while (executed < instructions && guard++ < 1000000u) {
+    executed += ap_machine_tick(&ticked).executed;
+  }
+  TEST_ASSERT_EQUAL_UINT64(instructions, executed);
+  while (ticked.pending_cycles > 0u && guard++ < 1000000u) {
+    (void)ap_machine_tick(&ticked);
+  }
+
+  TEST_ASSERT_EQUAL_HEX32(stepped.cpu.regs.pc, ticked.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_UINT64(stepped.cpu.clocks, ticked.cpu.clocks);
+  /* The board's own state too -- the divergence was an arbitration stall, which
+   * shows in the clocks and in the arbiter and nowhere in the registers. */
+  TEST_ASSERT_EQUAL_UINT64(ap_machine_hash(&stepped), ap_machine_hash(&ticked));
+}
+
 static void test_a_boardless_machine_advances_nothing(void) {
   static const uint16_t spin[] = {0x4E71u, 0x4E71u, 0x4E72u, 0x2700u};
   blank();
@@ -2553,6 +2608,7 @@ int main(void) {
   RUN_TEST(test_a_timer_reaches_terminal_count_with_no_program_touching_it);
   RUN_TEST(test_the_timer_follows_the_instant_not_the_instruction_count);
   RUN_TEST(test_the_tick_loop_and_the_run_loop_are_the_same_machine);
+  RUN_TEST(test_the_tick_loop_matches_the_run_loop_on_a_real_board);
   RUN_TEST(test_a_boardless_machine_advances_nothing);
   RUN_TEST(test_two_interrupts_at_once_are_serviced_in_priority_order);
   RUN_TEST(test_a_dma_transfer_costs_the_processor_clocks);

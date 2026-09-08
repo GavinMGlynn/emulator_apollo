@@ -159,6 +159,7 @@ void ap_m68030_arb_set_cycle_committed(ap_m68030_arb_t *arb, bool committed);
  * signal is valid" -- valid first, acted on next. */
 void ap_m68030_arb_tick(ap_m68030_arb_t *arb);
 
+
 /* BG, the pin. Negated whenever the bus is locked, whatever the state:
  * Figure 7-61's own note is "The BG output will not be asserted while RMC is
  * asserted." */

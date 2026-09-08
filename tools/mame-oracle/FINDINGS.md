@@ -14211,31 +14211,62 @@ those clocks **have already reached the board**. `ap_machine_run` delivers
 the stall already paid. The tick now delivers the same sum, with
 `ap_machine_run`'s own fallback for a dropped timeline.
 
-### And one difference that is structural, named rather than patched
+### And the third, which was the actual cause
 
-The two still diverge, and the cause is now exact rather than suspected.
-`ap_machine_run`'s order is: stall, step, **deliver the timeline**, advance
-`now`, `ap_board_advance`. Deferring the delivery moves it *after* the board
-advance, so a cycle-stepped machine advances its devices to the instruction's
-end instant **before** that instruction's bus cycles reach the arbiter, and an
-instruction-stepped one does the reverse. That changes the refresh counter's
-phase against device state, which changes when `ap_board_processor_may_run` is
-false, which changes how often the stall fires -- and the stall charges clocks.
+Two hypotheses were tried and refuted before the right one, and both are worth
+keeping because each looked sufficient. **The board-advance ordering**: deferring
+the delivery moves it after `ap_board_advance`, so the tick path advances devices
+to the instruction's end instant before its cycles reach the arbiter. Deferring
+the advance too changed **nothing**. **The arbitration sequencer**:
+`ap_arbiter_idle` proves only that the *board* has no requester and says nothing
+about the 68030's own arbitration state machine, so a batch could mis-step it --
+except that on this boot nothing ever requests the bus, so that machine is parked
+and the batch is right about it. Tightening the predicate moved the hash and did
+not close the gap.
 
-Closing it means deferring the board advance with the delivery, which contradicts
-`ap_board_advance`'s own stated contract ("after the step, so a device sees the
-effect of an instruction that programmed it before it counts"). That is a design
-decision, not a patch, and it belongs to the per-cycle item.
+**What closed it**: making the instruction-stepped path deliver its clocks one at
+a time made the two **byte-identical**. So the difference was inside
+`ap_board_bus_ticks` itself, and it is not equivalent to the loop it stands in for
+-- **not even at n == 1**. The shortcut does `refresh_ticks_left -= n` in its own
+body instead of going through `ap_board_bus_tick`, which orders §2.4.6's refresh
+steal differently from the loop; one call of one and one `ap_board_bus_tick` are
+different operations.
+
+**The shortcut is removed.** Restoring it with a complete guard would mean
+enumerating every sub-machine's idle condition at the call site and
+re-establishing that proof whenever one is added -- a proof that has now failed
+twice. The loop is correct by construction, which is what every caller was
+already relying on.
+
+**Cost, measured before deciding**: the 350 M reference boot goes 37.8 s -> 44.0 s,
+**1.16x**, and the state hash does not move -- `FE2BB02AEF1F4624` either way.
+`CLAUDE.md` settles that trade in one line, "Never weaken the reference core to
+chase speed", and this is the run loop: the shortcut was buying 16% by making two
+schedules disagree.
+
+### And the verification is restored
+
+    350 M: default FE2BB02AEF1F4624   --cycle-stepped FE2BB02AEF1F4624
+
+The cycle-stepped machine is the same machine again, and the reference golden did
+not move to make it so.
 
 ### What is now checked rather than remembered
 
-`machine_suite` drives `ap_machine_tick` for the first time: on a **boardless**
-machine, where there is no arbiter to stall against and nothing to deliver
-clocks to, the tick loop and the run loop must agree exactly -- PC, clocks and
-state hash. And `board_suite` sweeps `ap_board_bus_ticks(board, n)` against n
-calls of one across the refresh boundary, which is the whole licence for its
-batching shortcut and which nothing asserted; it is exact, so the batching is
-eliminated as a cause rather than assumed innocent.
+`machine_suite` drives `ap_machine_tick` for the first time -- twice, boardless
+and on a real board -- requiring the tick loop and the run loop to agree on PC,
+clocks and the full state hash. And `board_suite` requires
+`ap_board_bus_ticks(board, n)`, n calls of one, and n calls of
+`ap_board_bus_tick` to be three names for the same thing.
+
+**That test took two attempts and the first one lied.** Swept over length alone
+on a fresh board it passes *with the defect present*, and it was cited here as
+evidence that the batching was innocent -- of a divergence it was causing. A
+fresh board is always at the start of its refresh interval, and the refresh
+interval is the one quantity the equivalence turns on. Swept over the **phase**
+as well, it fails on the old code and passes on the new. The same trap caught a
+`machine_suite` attempt on the way: a `subq`/`bne` loop passes either way,
+because ordinary instructions never move the sequencer the stall depends on.
 
 *The default path is untouched throughout*: `FE2BB02AEF1F4624`, clocks
 1,408,661,906, `ctest` 140/140.

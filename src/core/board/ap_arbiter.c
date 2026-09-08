@@ -45,10 +45,6 @@ bool ap_arbiter_processor_may_run(const ap_arbiter_t *arbiter) {
          arbiter->master == AP_ARBITER_PROCESSOR;
 }
 
-bool ap_arbiter_idle(const ap_arbiter_t *arbiter) {
-  return arbiter->request == 0u && arbiter->master == AP_ARBITER_PROCESSOR;
-}
-
 void ap_arbiter_set_processor_rmc(ap_arbiter_t *arbiter, bool locked) {
   ap_m68030_arb_set_rmc(&arbiter->cpu,
                         locked ? AP_M68030_RMC_LOCKED : AP_M68030_RMC_NONE);

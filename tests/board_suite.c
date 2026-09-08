@@ -2055,36 +2055,58 @@ static void test_two_boards_exchange_a_frame_on_a_scheduled_ring(void) {
  * Asserted at the board, not at the station, because the station suite can
  * always set a cable length by hand; what this checks is that a *machine*
  * joining a ring gets one. */
-/* **`ap_board_bus_ticks(board, n)` must equal n calls of one, and that is the
- * whole licence for its batching.**
+/* **`ap_board_bus_ticks(board, n)` must equal n calls of one, and one call of
+ * one must equal `ap_board_bus_tick`.**
  *
- * The function short-circuits a run of clocks into one arbiter tick when it can
- * "prove the ticks identical" -- no DMA able to ask, an idle arbiter, and a
- * refresh counter that will not reach zero inside the batch. Every caller
- * depends on that equivalence, and two of them use *different shapes*: the
- * instruction-stepped machine delivers an instruction's clocks in the groups
- * `ap_m68030_charge` recorded, and `ap_machine_tick` delivers them one at a
- * time. If the shortcut is not exact the two schedules diverge for no reason
- * anyone would look for -- which is why this is asserted rather than trusted.
+ * The function used to short-circuit a run of clocks whenever nothing was
+ * asking for the bus, on the claim that it could "prove the ticks identical".
+ * The claim was false, and false **even at n == 1**: the shortcut decremented
+ * the refresh counter itself instead of going through `ap_board_bus_tick`, so
+ * it ordered the refresh steal differently from the loop it stood in for.
  *
- * Swept across the refresh boundary deliberately: the interval is the one
- * quantity the batch is bounded by, so a batch that straddles it is the case
- * the guard exists for. */
+ * That is not a theoretical difference. A cycle-stepped boot delivers its
+ * clocks one at a time and an instruction-stepped one delivers them in groups;
+ * the two diverged at instruction **86** -- six clocks against seven on a
+ * byte-identical instruction stream -- and making the grouped path deliver
+ * singly made them byte-identical (`FINDINGS.md` C254).
+ *
+ * Swept across a **refresh phase** as well as a length, because the refresh
+ * interval is the one quantity the equivalence turns on and a fresh board is
+ * always at the start of it. The first version of this test swept `n` alone on
+ * a fresh board, passed with the defect present, and was cited as evidence that
+ * the batching was not the cause of a divergence it was in fact causing. */
 static void test_a_batch_of_bus_ticks_equals_that_many_single_ticks(void) {
   static ap_board_t batched;
   static ap_board_t singly;
-  for (unsigned n = 1u; n <= 40u; n++) {
-    init(&batched);
-    init(&singly);
-    ap_board_bus_ticks(&batched, n);
-    for (unsigned i = 0; i < n; i++) {
-      ap_board_bus_ticks(&singly, 1u);
+  static ap_board_t primitive;
+  for (unsigned phase = 370u; phase <= 380u; phase++) {
+    for (unsigned n = 1u; n <= 12u; n++) {
+      init(&batched);
+      init(&singly);
+      init(&primitive);
+      /* All three taken to the same phase the same way, so the comparison is of
+       * the deliveries and not of three histories. */
+      for (unsigned i = 0; i < phase; i++) {
+        ap_board_bus_tick(&batched);
+        ap_board_bus_tick(&singly);
+        ap_board_bus_tick(&primitive);
+      }
+      ap_board_bus_ticks(&batched, n);
+      for (unsigned i = 0; i < n; i++) {
+        ap_board_bus_ticks(&singly, 1u);
+      }
+      for (unsigned i = 0; i < n; i++) {
+        ap_board_bus_tick(&primitive);
+      }
+      ap_hash_t a = ap_hash_begin();
+      ap_hash_t b = ap_hash_begin();
+      ap_hash_t c = ap_hash_begin();
+      ap_board_hash(&a, &batched);
+      ap_board_hash(&b, &singly);
+      ap_board_hash(&c, &primitive);
+      TEST_ASSERT_EQUAL_HEX64(ap_hash_end(&c), ap_hash_end(&b));
+      TEST_ASSERT_EQUAL_HEX64(ap_hash_end(&c), ap_hash_end(&a));
     }
-    ap_hash_t a = ap_hash_begin();
-    ap_hash_t b = ap_hash_begin();
-    ap_board_hash(&a, &batched);
-    ap_board_hash(&b, &singly);
-    TEST_ASSERT_EQUAL_HEX64(ap_hash_end(&a), ap_hash_end(&b));
   }
 }
 
