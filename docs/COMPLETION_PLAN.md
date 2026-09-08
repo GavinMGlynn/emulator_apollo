@@ -109,13 +109,13 @@ everywhere the file is read.)
         cartridge — brings up the kernel and the Phase II environment, `user`
         logs in over the serial console, and `bldt` reports
         `**** Node 12345 **** "//node_12345"`.*
-        - Artifact: `media/dn3500-sr10.4-installed.awd`, gitignored, pinned by
-          SHA-256 in `docs/references/DOMAINOS_IMAGE.md` together with all five
-          source cartridges.
-        - Procedure: `tools/mame-oracle/install-domainos.cmds`, replayable, plus
-          INVOL first on a blank image.
-        - Told in full in `FINDINGS.md` C47-C58 and summarised in
-          `PROJECT_STATUS.md`; needs the `ext/mame` SC-499 edit of C56.
+    - Artifact: `media/dn3500-sr10.4-installed.awd`, gitignored, pinned by
+      SHA-256 in `docs/references/DOMAINOS_IMAGE.md` together with all five
+      source cartridges.
+    - Procedure: `tools/mame-oracle/install-domainos.cmds`, replayable, plus
+      INVOL first on a blank image.
+    - Told in full in `FINDINGS.md` C47-C58 and summarised in
+      `PROJECT_STATUS.md`; needs the `ext/mame` SC-499 edit of C56.
   - This also pulls `.ct` cartridge support (Phase 4) forward in importance: it
     is the format the first boot depends on, not merely a storage item.
   - [x] **Answered: the 68040 path does have an oracle.**
@@ -1195,46 +1195,46 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         machine this core builds and every F-line instruction took the line 1111
         trap. That is also why no floating-point probe existed — there was
         nothing to probe.
-        - [x] **The part is attached and two probes cover it.** `fpu` runs a ROM
-              constant, an add and a store conversion; `fpu-transfer` runs both
-              operand directions and an `FMOVEM` of the register file. Both
-              appear in `probes.txt` with a state hash, and **no existing probe
-              line changed**, so attaching the coprocessor perturbed nothing.
-              Release and debug agree bit for bit.
-        - [x] **The oracle comparison is running and has produced its first
-              divergence class.** Six campaigns, `FINDINGS.md` C59-C64: the
-              coprocessor was not attached at all (C59); the rounding mode is
-              honoured and the constant ROM has its first external witness
-              (C60); a double-precision comparison cannot separate two
-              conforming transcendentals and an extended one can (C61, C62);
-              five functions swept and adjudicated against 140-digit truth
-              (C63); and the difference diagnosed (C64).
-        - [x] **The transcendental difference is settled, and it is not a
-              defect.** Four candidate sites were each eliminated -- the
-              argument reduction bounded by arithmetic, the series and the
-              `1 + expm1(r)` addition each compensated and measured, the final
-              rounding exact by construction. Compensating any one leaves the
-              total where it was, because every site loses a fraction of a unit
-              and none loses a whole one: the ordinary behaviour of arithmetic
-              done at the destination's own width, which §3.4 says the part
-              avoids by carrying 67 bits. One unit in the last place is inside
-              the accuracy suite's 3.1 ceiling and far inside §4.3.2's 64.
-              Reclassified `sub-poll-slack` in `FINDINGS.md` C70, with the
-              standing `PROVISIONAL` unchanged and its benefit now priced --
-              along with the finding that no cheaper subset of it buys
-              anything.
-        - [x] **The sweep is widened and the divergence class is drawn.**
-              Seven functions split along the line §4.3.2 itself draws: the
-              bounded transcendentals, where every difference the campaign found
-              lies, and the exactly specified operations, where there is none —
-              `FSQRT` of 10 and `FINT` of pi both agree exactly on both sides
-              against 140-digit truth. The sweep flags a differing
-              exact-operation row as a defect, so the distinction is enforced
-              rather than remembered.
-              *Verification: `FINDINGS.md` C71. The class is one unit in the
-              last place, transcendentals only, three of five at argument 1.0,
-              oracle closer, cause understood, inside both the accuracy suite's
-              ceiling and §4.3.2's bound.*
+    - [x] **The part is attached and two probes cover it.** `fpu` runs a ROM
+          constant, an add and a store conversion; `fpu-transfer` runs both
+          operand directions and an `FMOVEM` of the register file. Both
+          appear in `probes.txt` with a state hash, and **no existing probe
+          line changed**, so attaching the coprocessor perturbed nothing.
+          Release and debug agree bit for bit.
+    - [x] **The oracle comparison is running and has produced its first
+          divergence class.** Six campaigns, `FINDINGS.md` C59-C64: the
+          coprocessor was not attached at all (C59); the rounding mode is
+          honoured and the constant ROM has its first external witness
+          (C60); a double-precision comparison cannot separate two
+          conforming transcendentals and an extended one can (C61, C62);
+          five functions swept and adjudicated against 140-digit truth
+          (C63); and the difference diagnosed (C64).
+    - [x] **The transcendental difference is settled, and it is not a
+          defect.** Four candidate sites were each eliminated -- the
+          argument reduction bounded by arithmetic, the series and the
+          `1 + expm1(r)` addition each compensated and measured, the final
+          rounding exact by construction. Compensating any one leaves the
+          total where it was, because every site loses a fraction of a unit
+          and none loses a whole one: the ordinary behaviour of arithmetic
+          done at the destination's own width, which §3.4 says the part
+          avoids by carrying 67 bits. One unit in the last place is inside
+          the accuracy suite's 3.1 ceiling and far inside §4.3.2's 64.
+          Reclassified `sub-poll-slack` in `FINDINGS.md` C70, with the
+          standing `PROVISIONAL` unchanged and its benefit now priced --
+          along with the finding that no cheaper subset of it buys
+          anything.
+    - [x] **The sweep is widened and the divergence class is drawn.**
+          Seven functions split along the line §4.3.2 itself draws: the
+          bounded transcendentals, where every difference the campaign found
+          lies, and the exactly specified operations, where there is none —
+          `FSQRT` of 10 and `FINT` of pi both agree exactly on both sides
+          against 140-digit truth. The sweep flags a differing
+          exact-operation row as a defect, so the distinction is enforced
+          rather than remembered.
+          *Verification: `FINDINGS.md` C71. The class is one unit in the
+          last place, transcendentals only, three of five at argument 1.0,
+          oracle closer, cause understood, inside both the accuracy suite's
+          ceiling and §4.3.2's bound.*
   - [x] **The programming model** (`src/core/cpu/m68882/ap_m68882_regs.c`),
         `[68881]` §2 and Figures 2-2 to 2-7: the three control registers, the
         eight extended-precision data registers, Table 2-1's condition codes and
@@ -1496,9 +1496,9 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         forms -- and that every difference is the 68020 accepting what the
         68030 refuses, never the reverse. `m68020_decode_suite`, 8 tests.
 
-        The item's stated verification, "`dn3000` boots", has moved to Phase 4:
-        a boot needs a board, boards are Phase 3's subject and a first boot is
-        Phase 4's. Nothing in the part's own work waits on it.
+      The item's stated verification, "`dn3000` boots", has moved to Phase 4:
+      a boot needs a board, boards are Phase 3's subject and a first boot is
+      Phase 4's. Nothing in the part's own work waits on it.
   - [x] What the 68030 refuses, it refuses by **taking vector 4** rather than
         stopping -- `[030]` §8.1.5. Narrow by design: only a word positively
         identified as another family member's removed instruction traps, so an
@@ -1582,8 +1582,8 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         "clears the BPE bit; the skip count field is not", so a reset does not
         silently rearm every breakpoint. `m68851_suite` grows to 38 tests.
 
-        As with the 68020 item, the "`dn3000` boots" verification has moved to
-        Phase 4, where the board it needs is now an item of its own.
+      As with the 68020 item, the "`dn3000` boots" verification has moved to
+      Phase 4, where the board it needs is now an item of its own.
 - [x] 68040 for DN5500: different pipeline, caches, and MMU descriptor format;
       integrated FPU. *Verification: `MC68040 User's Manual 1993` cited;
       `dn5500` oracle diff, expecting to exceed the oracle's FPU coverage.*
@@ -2481,12 +2481,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   - [x] **And the PROM is silent** — 300000 instructions, nothing transmitted on
         either port or channel. That is now a fact about the firmware, and the
         next question. Possibilities, none yet established:
-        - it polls for a console character *before* announcing itself, and the
-          announcement is behind the branch we never take;
-        - it has decided neither port is the console, having found something it
-          did not expect while probing;
-        - its console is not a DUART port at all on this configuration.
-        Detail in `PROJECT_STATUS.md`.
+    - it polls for a console character *before* announcing itself, and the
+      announcement is behind the branch we never take;
+    - it has decided neither port is the console, having found something it
+      did not expect while probing;
+    - its console is not a DUART port at all on this configuration.
+    Detail in `PROJECT_STATUS.md`.
   - [x] Per-region access counts on the board, reported by the frontend. The
         completion of C33: a count of *failures* cannot answer "what did the
         firmware want", because the interesting case is usually a device that
@@ -2726,12 +2726,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   - [x] **Address error (vector 3)**, which shares these frames and was defined
         but never raised. §8.1.3: "An address error exception occurs when the
         processor attempts to prefetch an instruction from an odd address."
-        - Only a *prefetch*. Misaligned data is legal on this part — §7.2.1
-          transfers a long word to an odd address in three bus cycles — so the
-          check is on the program counter alone. Applying it to operands would
-          fault programs the hardware runs, and there is a test for exactly that
-          so the 68000's rule cannot creep back in.
-        Detail in `PROJECT_STATUS.md`.
+    - Only a *prefetch*. Misaligned data is legal on this part — §7.2.1
+      transfers a long word to an odd address in three bus cycles — so the
+      check is on the program counter alone. Applying it to operands would
+      fault programs the hardware runs, and there is a test for exactly that
+      so the 68000's rule cannot creep back in.
+    Detail in `PROJECT_STATUS.md`.
   - [x] **A write to a read-only memory is absorbed, not refused** — a defect
         introduced when the store path gained the ability to fault, and caught
         by asking the oracle rather than by reasoning. `ap_board_write` returned
@@ -3408,12 +3408,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         *Verification: the command census naming `1E`, and the crash moving to
         `00080012` once it was implemented.*
 
-        **Both closed as diagnostic items.** Each names a status, traces it to a
-        cause and states the fix; both fixes landed and both verification lines
-        record the crash *moving*, which is what they asked for. They stayed
-        open because the boot still failed -- but the boot is the parent item
-        and these are not it. The chain continues below: `00080012` (`0F`) → the
-        sense codes → §5.4 in full → `17 Write Protected`, which cleared it.
+      **Both closed as diagnostic items.** Each names a status, traces it to a
+      cause and states the fix; both fixes landed and both verification lines
+      record the crash *moving*, which is what they asked for. They stayed
+      open because the boot still failed -- but the boot is the parent item
+      and these are not it. The chain continues below: `00080012` (`0F`) → the
+      sense codes → §5.4 in full → `17 Write Protected`, which cleared it.
 
   - [x] **`1E READ DATA TO BUFFER` implemented.** §5.4.19: "reads data from the
         disk to the controller's buffer ... **does not transfer the data to the
@@ -3475,66 +3475,66 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         cylinder 1941 asserted across all three bytes, which is where a
         one-byte answer would look right and be wrong.*
   - [x] **Audit every other device the same way.** Done, bar the keyboard, which has no manual to audit against.
-        - [x] **8259 PIC: complete.** All eight OCW2 combinations are
-              enumerated, including the one the datasheet never names, marked
-              "by elimination". ICW1-4, OCW1-3, special mask, poll, rotate,
-              level and edge triggering, cascade. No gap.
-        - [x] **8237 DMA: complete.** All eight command registers `08`-`0F`
-              decoded, both read and write sides. No gap.
-        - [x] **QIC-02 tape: two commands recovered and added.** `FINDINGS.md`
-              C25 recorded ERASE and SELECT Q11 FORMAT as codes "the scan lost"
-              -- read off §1.13's summary table, which is exactly where a
-              previous owner's pen sits. §1.13.1's numbered descriptions two
-              pages on give both in clean binary. Detail in
-              `PROJECT_STATUS.md`.
-              *Verification: `qic_suite` 18 -- both codes recognised, the format
-              select shown to be one switch with two settings, ERASE refused as
-              WRITE is, and the codes between them still nobody's.*
-        - [x] **OMTI floppy half: complete.** All ten of §6.1's commands reach
-              a case, and there is no eleventh -- neither our §6.3 nor the
-              sibling 8640's §5.3 lists a WRITE DATA.
-        - [x] **MC146818 calendar: complete, with two named declines.** Every
-              Register B control bit is acted on except `SQWE` and `DSE`, and
-              both are already declared deliberate in the header with a reason:
-              nothing on the board is wired to the square-wave pin, and the
-              daylight-savings shift applies on two calendar days. Stored and
-              inert, and *said* to be -- which is the distinction the audit is
-              looking for.
-        - [x] **Bt458: complete.** All four address-space slots and all four
-              control sub-addresses -- read mask, blink mask, command, test --
-              both read and write.
-        - [x] **Keyboard: cannot be audited this way.** There is no Apollo
-              keyboard manual in `docs/references/`; its command set was
-              recovered by measurement (`FINDINGS.md` C46). Auditing it means
-              sweeping the oracle for codes the firmware never sends, which is
-              a different and more expensive exercise than reading a list.
-        - [x] **MC68681 DUART: three commands dropped, three status bits
-              backwards.** There was no datasheet on disk; it is on bitsavers
-              and now in `docs/references/motorola/`. §4.2.7.2's miscellaneous
-              field has eight values and four were handled -- and
-              `CR_MISC_RESET_BREAK` was *defined* and never used, which is the
-              tell. The same paragraph gives three statements about TxRDY and
-              TxEMT and this core had all three wrong, setting on reset where
-              the datasheet clears. **Nothing failed before or after**: no test
-              asked, because the firmware never resets its transmitter
-              mid-session. Detail in `PROJECT_STATUS.md`.
-              *Verification: `mc68681_suite` 37 -- the reset/enable/disable
-              triple asserted as three statements that only work together, the
-              break pair with its documented enable condition, and the
-              break-change clear shown to be per channel.*
-        - [x] **MC6840 timer: complete.** All four of the mode set --
-              continuous, single shot, pulse-width measurement and period
-              measurement -- are selected from bits 3, 4 and 5 and each is
-              implemented with its section cited, and every control-register
-              bit including CR1's timer preset, CR2's register select and CR3's
-              prescale is acted on.
-              A correction went with it: this entry previously said the part
-              had no manual on disk. It has two. Detail in
-              `PROJECT_STATUS.md`.
-        What the sweep found, and the withdrawn claim it had to correct, are in
-        `PROJECT_STATUS.md`.
-        *Verification: one table per device of accepted-versus-modelled, and the
-        gaps either closed or named as deliberate with a reason.*
+    - [x] **8259 PIC: complete.** All eight OCW2 combinations are
+          enumerated, including the one the datasheet never names, marked
+          "by elimination". ICW1-4, OCW1-3, special mask, poll, rotate,
+          level and edge triggering, cascade. No gap.
+    - [x] **8237 DMA: complete.** All eight command registers `08`-`0F`
+          decoded, both read and write sides. No gap.
+    - [x] **QIC-02 tape: two commands recovered and added.** `FINDINGS.md`
+          C25 recorded ERASE and SELECT Q11 FORMAT as codes "the scan lost"
+          -- read off §1.13's summary table, which is exactly where a
+          previous owner's pen sits. §1.13.1's numbered descriptions two
+          pages on give both in clean binary. Detail in
+          `PROJECT_STATUS.md`.
+          *Verification: `qic_suite` 18 -- both codes recognised, the format
+          select shown to be one switch with two settings, ERASE refused as
+          WRITE is, and the codes between them still nobody's.*
+    - [x] **OMTI floppy half: complete.** All ten of §6.1's commands reach
+          a case, and there is no eleventh -- neither our §6.3 nor the
+          sibling 8640's §5.3 lists a WRITE DATA.
+    - [x] **MC146818 calendar: complete, with two named declines.** Every
+          Register B control bit is acted on except `SQWE` and `DSE`, and
+          both are already declared deliberate in the header with a reason:
+          nothing on the board is wired to the square-wave pin, and the
+          daylight-savings shift applies on two calendar days. Stored and
+          inert, and *said* to be -- which is the distinction the audit is
+          looking for.
+    - [x] **Bt458: complete.** All four address-space slots and all four
+          control sub-addresses -- read mask, blink mask, command, test --
+          both read and write.
+    - [x] **Keyboard: cannot be audited this way.** There is no Apollo
+          keyboard manual in `docs/references/`; its command set was
+          recovered by measurement (`FINDINGS.md` C46). Auditing it means
+          sweeping the oracle for codes the firmware never sends, which is
+          a different and more expensive exercise than reading a list.
+    - [x] **MC68681 DUART: three commands dropped, three status bits
+          backwards.** There was no datasheet on disk; it is on bitsavers
+          and now in `docs/references/motorola/`. §4.2.7.2's miscellaneous
+          field has eight values and four were handled -- and
+          `CR_MISC_RESET_BREAK` was *defined* and never used, which is the
+          tell. The same paragraph gives three statements about TxRDY and
+          TxEMT and this core had all three wrong, setting on reset where
+          the datasheet clears. **Nothing failed before or after**: no test
+          asked, because the firmware never resets its transmitter
+          mid-session. Detail in `PROJECT_STATUS.md`.
+          *Verification: `mc68681_suite` 37 -- the reset/enable/disable
+          triple asserted as three statements that only work together, the
+          break pair with its documented enable condition, and the
+          break-change clear shown to be per channel.*
+    - [x] **MC6840 timer: complete.** All four of the mode set --
+          continuous, single shot, pulse-width measurement and period
+          measurement -- are selected from bits 3, 4 and 5 and each is
+          implemented with its section cited, and every control-register
+          bit including CR1's timer preset, CR2's register select and CR3's
+          prescale is acted on.
+          A correction went with it: this entry previously said the part
+          had no manual on disk. It has two. Detail in
+          `PROJECT_STATUS.md`.
+    What the sweep found, and the withdrawn claim it had to correct, are in
+    `PROJECT_STATUS.md`.
+    *Verification: one table per device of accepted-versus-modelled, and the
+    gaps either closed or named as deliberate with a reason.*
   - [x] **`17 Write Protected`, and a disk the machine was not allowed to
         write.** `--boot-stop-on-disk-refusal` named the first refusal:
         `1F` to cylinder 0, head 0, sector 1 -- the second sector of the disk --
@@ -5874,33 +5874,33 @@ same number is what let them diverge once already.
       (glossed `timeout_rs`) appear in `ap_ring_ctl.h` and in no `.c` file, so a
       driver polling for a hung transfer waits for a bit that can never arrive.
       **Two published durations are now in hand, one per direction.**
-      - *Receive*: `002398-04` p. 8-39, for the DN4xx's controller — `TIMOUT` is
-        "the last message received started but didn't finish in **2\*\*12 byte
-        times**". 4096 is exactly `AP_RING_DATA_MAX_BYTES`: the longest a legal
-        packet could take, which is a derivation and not a round number.
-      - *Transmit*: `[MAC]` §2.1 step 7 — "until a **10.9 msec (2\*\*14 byte)
-        timeout** occurs", the transmitting node giving up on stripping a frame
-        that never came back. `AP_RING_STRIP_TIMEOUT`, finding 139 in
-        `RING.md`, asserted in `ring_phy_suite`. This item previously said no
-        published figure existed for the transmit side; `010005-00` is on disk
-        and had not been asked.
-      **Still not wired to a bit**, and deliberately: what the DS3000's gate
-      array times is not established, and naming `XMIT_TMO` from a
-      protocol-layer figure would be inferring the register from the wire.
-      **The route this item named is now checked, and it is spent** (2026-09-08,
-      `RING.md` findings 131-131b). It said "the ring firmware's own timeout
-      handling — the ROMs are on disk". They are: `MISC_STAT` is read four times
-      across the DS3500 and DS4500 ring ROMs and only bits 15, 13, 2 and 1 are
-      ever tested — **bit 14 never**; `RCV_STAT` is read as a **byte**, so bit 15
-      is in the half never fetched; and `XMIT_STAT`'s `pe` is tested only to
-      print "ring: transmit error" without decoding which error. `RING_PROC`'s
-      five `btst #$e` are on a 20-byte-record array in memory, not on the
-      registers, so the kernel driver is eliminated too.
-      *What would settle it now is a **consumer***: a Domain/OS ring diagnostic
-      that reports a timeout, or hardware. Nothing held reads these bits, so
-      setting them could not be checked and choosing when to set them would be
-      invention. Verification would still be a receive that stalls mid-packet
-      and a status read that finds `TMO`.
+  - *Receive*: `002398-04` p. 8-39, for the DN4xx's controller — `TIMOUT` is
+    "the last message received started but didn't finish in **2\*\*12 byte
+    times**". 4096 is exactly `AP_RING_DATA_MAX_BYTES`: the longest a legal
+    packet could take, which is a derivation and not a round number.
+  - *Transmit*: `[MAC]` §2.1 step 7 — "until a **10.9 msec (2\*\*14 byte)
+    timeout** occurs", the transmitting node giving up on stripping a frame
+    that never came back. `AP_RING_STRIP_TIMEOUT`, finding 139 in
+    `RING.md`, asserted in `ring_phy_suite`. This item previously said no
+    published figure existed for the transmit side; `010005-00` is on disk
+    and had not been asked.
+  **Still not wired to a bit**, and deliberately: what the DS3000's gate
+  array times is not established, and naming `XMIT_TMO` from a
+  protocol-layer figure would be inferring the register from the wire.
+  **The route this item named is now checked, and it is spent** (2026-09-08,
+  `RING.md` findings 131-131b). It said "the ring firmware's own timeout
+  handling — the ROMs are on disk". They are: `MISC_STAT` is read four times
+  across the DS3500 and DS4500 ring ROMs and only bits 15, 13, 2 and 1 are
+  ever tested — **bit 14 never**; `RCV_STAT` is read as a **byte**, so bit 15
+  is in the half never fetched; and `XMIT_STAT`'s `pe` is tested only to
+  print "ring: transmit error" without decoding which error. `RING_PROC`'s
+  five `btst #$e` are on a 20-byte-record array in memory, not on the
+  registers, so the kernel driver is eliminated too.
+  *What would settle it now is a **consumer***: a Domain/OS ring diagnostic
+  that reports a timeout, or hardware. Nothing held reads these bits, so
+  setting them could not be checked and choosing when to set them would be
+  invention. Verification would still be a receive that stalls mid-packet
+  and a status read that finds `TMO`.
 
 - [x] **`010005-00` walked whole — 29 of 29 pages, finished 2026-08-21.** The
       coverage record is `docs/references/010005-00_WALK.md`; every numbered
@@ -6603,44 +6603,44 @@ same number is what let them diverge once already.
       implemented and one resolved as *must not be implemented*, which is the
       interesting one. *Verification: `afd_suite` 46 → 48.* Detail in
       `PROJECT_STATUS.md`.
-      - [x] **`ST0` bit 3 `NR` — resolved as "do not wire this", no code.**
-        The obvious move is `ap_omti_fdc_at_speed` → `AP_OMTI_ST0_NOT_READY`,
-        and it would be wrong. `[765]` p. 17 defines `NR` by **the FDD's
-        not-ready state**, which the part learns from its dedicated `RDY` pin
-        (p. 3, pin 35) — *not* from whether a motor happens to be turning. And
-        the same pin-multiplexing argument that settled `ST3` applies here: the
-        PC/AT 34-pin interface carries no READY line, so `RDY` is tied on this
-        board and `[OMTI]` §6.4.1's "`ST0` bit 3 not used - always zero" is
-        **honest about this card** exactly as its `ST3` bits were.
-        So neither `ST3` bit 5 nor `ST0` bit 3 can report a stopped spindle
-        here, and `fdc_not_ready()` returning zero is right. Driving it from
-        the spindle timer would report a condition the cabling cannot produce.
-        *What is left of the question is physical and undocumented* — a motor
-        that never spins yields no index pulses and no address marks, and no
-        document on this shelf says what the part does then. Recorded on the
-        spindle item below; nothing is implemented on this.
-      - [x] **The seek-completion interrupt — done 2026-08-22.**
-        `ap_omti_fdc_irq` raised only on the result phase, with a comment
-        arguing that SEEK and RECALIBRATE "raise nothing, which is correct".
-        Both halves of that were true and the conclusion did not follow:
-        `[765]` p. 16 lists four causes and the third is "End of Seek or
-        Recalibrate Command", while the same page explains that those two have
-        no result phase and so *require* a SENSE INTERRUPT STATUS — which the
-        interrupt is what prompts. Driven from `fdc_seek_done`, the flag the
-        line and the sense command already share.
-      - [x] **The forced-invalid state — done 2026-08-22.** `[765]` p. 16: a
-        Seek or Recalibrate interrupt not collected makes the **next command
-        invalid**. So a finished seek blocks the command stream rather than
-        merely waiting. **A test encoded the old behaviour and had to be
-        fixed**: `test_a_seek_costs_one_step_a_cylinder_and_a_single_settle`
-        issued a second SEEK without collecting the first, which now never
-        moves the head — the second such test this session.
-      *Verification: `afd_suite` 46 → 48.* Detail in `PROJECT_STATUS.md`.
-      **Not measured against the identity boot, and the reasoning is stated
-      rather than hidden**: both paths require a floppy *command*, and the boot
-      PROM's floppy path writes three registers and issues none (`003266`), so
-      neither can execute on that workload. No golden covers the board hash, so
-      there is nothing to re-baseline.
+  - [x] **`ST0` bit 3 `NR` — resolved as "do not wire this", no code.**
+    The obvious move is `ap_omti_fdc_at_speed` → `AP_OMTI_ST0_NOT_READY`,
+    and it would be wrong. `[765]` p. 17 defines `NR` by **the FDD's
+    not-ready state**, which the part learns from its dedicated `RDY` pin
+    (p. 3, pin 35) — *not* from whether a motor happens to be turning. And
+    the same pin-multiplexing argument that settled `ST3` applies here: the
+    PC/AT 34-pin interface carries no READY line, so `RDY` is tied on this
+    board and `[OMTI]` §6.4.1's "`ST0` bit 3 not used - always zero" is
+    **honest about this card** exactly as its `ST3` bits were.
+    So neither `ST3` bit 5 nor `ST0` bit 3 can report a stopped spindle
+    here, and `fdc_not_ready()` returning zero is right. Driving it from
+    the spindle timer would report a condition the cabling cannot produce.
+    *What is left of the question is physical and undocumented* — a motor
+    that never spins yields no index pulses and no address marks, and no
+    document on this shelf says what the part does then. Recorded on the
+    spindle item below; nothing is implemented on this.
+  - [x] **The seek-completion interrupt — done 2026-08-22.**
+    `ap_omti_fdc_irq` raised only on the result phase, with a comment
+    arguing that SEEK and RECALIBRATE "raise nothing, which is correct".
+    Both halves of that were true and the conclusion did not follow:
+    `[765]` p. 16 lists four causes and the third is "End of Seek or
+    Recalibrate Command", while the same page explains that those two have
+    no result phase and so *require* a SENSE INTERRUPT STATUS — which the
+    interrupt is what prompts. Driven from `fdc_seek_done`, the flag the
+    line and the sense command already share.
+  - [x] **The forced-invalid state — done 2026-08-22.** `[765]` p. 16: a
+    Seek or Recalibrate interrupt not collected makes the **next command
+    invalid**. So a finished seek blocks the command stream rather than
+    merely waiting. **A test encoded the old behaviour and had to be
+    fixed**: `test_a_seek_costs_one_step_a_cylinder_and_a_single_settle`
+    issued a second SEEK without collecting the first, which now never
+    moves the head — the second such test this session.
+  *Verification: `afd_suite` 46 → 48.* Detail in `PROJECT_STATUS.md`.
+  **Not measured against the identity boot, and the reasoning is stated
+  rather than hidden**: both paths require a floppy *command*, and the boot
+  PROM's floppy path writes three registers and issues none (`003266`), so
+  neither can execute on that workload. No golden covers the board hash, so
+  there is nothing to re-baseline.
 
 - [x] **Walk `[2681]`, the Signetics SCN2681 datasheet, whole — done 2026-08-22,
       19/19.** Opened because `ap_mc68681.h` builds the DN3500's DUART from
@@ -6691,126 +6691,126 @@ same number is what let them diverge once already.
       images for every register and timing table, a coverage record naming what
       each page yielded, and every fact either implemented with a test or named
       as a `PROVISIONAL` gap.
-      - [x] **`[8259]` to 24/24 — done 2026-08-22.** Yield: the edge/level rule
-            stated a second way from the pin table; `INTA` independent of `CS`;
-            the default-IR7 rule restated; the cascade slave-ID note; **an
-            indeterminacy the part declines to specify** (INT's inactive time
-            between INTA pulses when a higher-priority request arrives, and the
-            revision review dates that paragraph to this printing); and
-            **`TJLJH`, a 100 ns minimum IR low time to re-arm the edge latch**,
-            which this core does not enforce — named below. The coverage row
-            also called page 15 unread while the table above it recorded page 15
-            walked; corrected in place.
-      - [x] **`TJLJH`: an IR line must be low 100 ns to present a fresh edge —
-            measured 2026-09-08, and this item's stated reason was wrong.**
-            `[8259]` p. 21 Note 1; `ap_i8259` re-arms on any observed low. This
-            said "a filter fitted to no observation would be invention" — but
-            the filter is **stated by the datasheet**, not fitted. The right
-            reason is a number: one instrumented identity boot timing every
-            low→high edge found **two lines ever producing one** in 350 M
-            instructions, and a **shortest low of 2.48 µs against a 100 ns
-            minimum — 24.8×**. Zero lows under 100 ns.
-            **Deliberately not implemented, with the cost stated**: enforcing it
-            needs an `ap_time_t` threaded through 54 call sites on the machine's
-            hottest path plus sixteen per-line timestamps in the identity hash,
-            for a rule nothing here can reach. The approximation `CLAUDE.md`
-            allows — documented, with reason and cost. *What would make it
-            matter*: a device pulsing an IRQ shorter than 100 ns. Detail and the
-            probe in `PROJECT_STATUS.md`.
+  - [x] **`[8259]` to 24/24 — done 2026-08-22.** Yield: the edge/level rule
+        stated a second way from the pin table; `INTA` independent of `CS`;
+        the default-IR7 rule restated; the cascade slave-ID note; **an
+        indeterminacy the part declines to specify** (INT's inactive time
+        between INTA pulses when a higher-priority request arrives, and the
+        revision review dates that paragraph to this printing); and
+        **`TJLJH`, a 100 ns minimum IR low time to re-arm the edge latch**,
+        which this core does not enforce — named below. The coverage row
+        also called page 15 unread while the table above it recorded page 15
+        walked; corrected in place.
+  - [x] **`TJLJH`: an IR line must be low 100 ns to present a fresh edge —
+        measured 2026-09-08, and this item's stated reason was wrong.**
+        `[8259]` p. 21 Note 1; `ap_i8259` re-arms on any observed low. This
+        said "a filter fitted to no observation would be invention" — but
+        the filter is **stated by the datasheet**, not fitted. The right
+        reason is a number: one instrumented identity boot timing every
+        low→high edge found **two lines ever producing one** in 350 M
+        instructions, and a **shortest low of 2.48 µs against a 100 ns
+        minimum — 24.8×**. Zero lows under 100 ns.
+        **Deliberately not implemented, with the cost stated**: enforcing it
+        needs an `ap_time_t` threaded through 54 call sites on the machine's
+        hottest path plus sixteen per-line timestamps in the identity hash,
+        for a rule nothing here can reach. The approximation `CLAUDE.md`
+        allows — documented, with reason and cost. *What would make it
+        matter*: a device pulsing an IRQ shorter than 100 ns. Detail and the
+        probe in `PROJECT_STATUS.md`.
 
-      - [x] **`[8237]` to 19/19 — done 2026-08-22, and the premise was wrong
-            twice over.** The record called pages 1 and 11-19 "electrical and
-            mechanical"; **p. 11 is a PROGRAMMING section and p. 19 is DESIGN
-            CONSIDERATIONS**. p. 11 answers a question this record had recorded
-            as unanswered — the Mode registers are *undefined* after reset and
-            "an invalid mode may force all control signals to go active at the
-            same time", so this core's zeroing is the inert choice rather than
-            an inference. p. 19's first rule, "cascading from channel zero", is
-            exactly the AT arrangement `008778-03` §3.5 describes. Also the
-            400 ns host recovery time, and confirmation that only the 5 MHz
-            `8237A-5` remained, so `TCY` = 200 ns is this part's.
-            **Second time in one session** a "nothing but electrical" range hid
-            behaviour, after `[8259]`'s `TJLJH`: *a page range cannot be
-            characterised without opening it.*
-      - [x] **`[146818]` MC146818A — done 2026-08-22, 21/21.** One defect
-            (`UIE` must clear when `SET` goes high, and this core stored
-            Register B verbatim), two typos in the datasheet itself (the `RESET`
-            list duplicates `AIE` and omits `UIE`; the 32.768 kHz update time is
-            printed as both 1948 and 1984 µs), and a confirmation that matters —
-            "the `RESET` pin does not affect the clock, calendar, or RAM
-            functions", which is why `ap_board_reset_devices` excludes it.
-            *Verification: `mc146818_suite` 32 → 35.* Record:
-            `docs/references/MC146818A_WALK.md`.
-      - [x] **`UIP` and its 244 µs lead — modelled 2026-09-07.** The bit
-            pulses for Table 6's `tBUC + tUC` ending at the update, and `SET`
-            or a held divider clears it where it stands; Table 4's divider
-            codes are transcribed with it. The update stays atomic, so the
-            bytes a driver reads mid-window are valid — permissive, and named.
-            *Verification: `mc146818_suite` 35 → 39, four probes.* Detail in
-            `PROJECT_STATUS.md`.
-      - [x] **The half second after a divider release — done 2026-09-07.**
-            Found while modelling `UIP`: `[146818]` states twice that the first
-            update cycle after a release is one-half second later, and this core
-            resumed on the old cadence. The periodic tap restarts with it. The
-            walk's rows for both pages cited their tables and missed the
-            sentence beside them. *Verification: `mc146818_suite` 39 → 42, two
-            probes.* Detail in `PROJECT_STATUS.md`.
-      - [x] **The calendar's two booleans reach the state hash — 2026-09-07.**
-            `divider_held` and `dst_shifted` are state the registers cannot
-            reconstruct and neither was hashed nor in `board_state_suite`'s
-            sweep. Reference hash moves to `C0C008BB82E7BD70` with clocks and
-            final PC unmoved — the two bytes the stream gains, measured on its
-            own after the two behavioural changes. *Verification:
-            `board_state_suite`, one probe.* Detail in `PROJECT_STATUS.md`.
-      - [x] **`[6840]` MC6840 PTM — both documents walked whole, 2026-08-23**:
-            datasheet 14/14, user manual 56/56. The item's premise ("no record")
-            was wrong — a citation audit found sixteen `[6840UM]` sections
-            already derived. Yield: two "special time-out conditions" shown
-            emergent and pinned by tests; the hardware/software reset
-            distinction confirmed; and three documentary errors recorded — the
-            contents page promises two appendices the scan does not contain, and
-            `$FFFF` is glossed as "65,536" twice. *Verification: `mc6840_suite`
-            34 → 36.* Record: `docs/references/MC6840_WALK.md`.
-      - [x] **`[Bt458]` — walked whole 2026-08-22, 24/24.** Extracted from the
-            1991 databook (PDF 393-416) onto the shelf; picked out of the batch
-            by a citation audit that put it at **one** cited section against
-            `[3c505]`'s 22 and `[QIC]`'s 16. Table 1, the `ADDRa,b` counter and
-            both address-advance rules were already derived; the control
-            registers were not, and measuring them (below) showed decoding would
-            change no pixel. The rest confirms, with three corrections to *our*
-            comments: doc 4-113 states outright that the address does not
-            advance on control-register access, where `ap_bt458.c` had inferred
-            it; doc 4-128 shows the firmware's blink configuration is
-            Brooktree's own recommendation; and doc 4-116's output levels
-            contradict a justification in `ap_graphics.h`, opened as its own
-            item below. Record: `docs/references/BT458_WALK.md`.
-            **A method note the audit earned**: `ap_bt458.h` cites the databook
-            by "Table 1" and by quotation, not by `§`, so the `§`-shaped grep
-            saw nothing. Counting sections is a first pass, not a verdict.
-      - [x] **`[8640]` — walked whole 2026-08-23, 61/61.** Both halves of the
-            old one-line warning confirmed rather than assumed: §4 is the **AT
-            task file** (`1F0`-`1F7`, `3F6`/`3F7`, Table 4.2's own command set)
-            and shares nothing with the 862X's CDB protocol, while §5's floppy
-            chapter confirms throughout. **Its real value is a third witness for
-            the `WRITE DATA` finding** — §1.2.1 repeats "host has direct access
-            to floppy disk controller chip (NEC 765 or equivalent)" and Figure
-            1.1 draws buffered host data reaching a discrete `FDC 765` with the
-            Z8 on the Winchester branch, on a board designed three years after
-            `[8000]`. Also `-I/O CH CK` omitted from §2.3 a **third** time.
-      - [x] **`[3c505]` — both walked whole 2026-08-25**, `[DEV]` 77/77 and
-            `[HIS]` 84/84. **The pair document different firmware revisions**,
-            proved by their bodies rather than their appendices — `[HIS]` says
-            "maximum 32767 ticks" everywhere `[DEV]` says 127, and its high-res
-            timer interrupts every 0.98 s against 1.6 s, which is 65536 × 15 µs
-            against 65536 × 25 µs and exactly appendix F's Rev 2.0 change. So
-            `[DEV]` is the Rev 1.0 manual and `[HIS]` the Rev 2.0+, which is why
-            the sibling-manual step once found a register-map defect between
-            them. Also confirmed: `LPBK` is active low (this core has it right),
-            and PCB `41H` returns the ROM revision level, so the revision is
-            host-readable. Record: `docs/references/3C505_WALK.md`.
-      *Every peripheral datasheet on the shelf is now walked whole.* The
-      processor manuals are not, and are the far larger job — see the batch
-      below.
+  - [x] **`[8237]` to 19/19 — done 2026-08-22, and the premise was wrong
+        twice over.** The record called pages 1 and 11-19 "electrical and
+        mechanical"; **p. 11 is a PROGRAMMING section and p. 19 is DESIGN
+        CONSIDERATIONS**. p. 11 answers a question this record had recorded
+        as unanswered — the Mode registers are *undefined* after reset and
+        "an invalid mode may force all control signals to go active at the
+        same time", so this core's zeroing is the inert choice rather than
+        an inference. p. 19's first rule, "cascading from channel zero", is
+        exactly the AT arrangement `008778-03` §3.5 describes. Also the
+        400 ns host recovery time, and confirmation that only the 5 MHz
+        `8237A-5` remained, so `TCY` = 200 ns is this part's.
+        **Second time in one session** a "nothing but electrical" range hid
+        behaviour, after `[8259]`'s `TJLJH`: *a page range cannot be
+        characterised without opening it.*
+  - [x] **`[146818]` MC146818A — done 2026-08-22, 21/21.** One defect
+        (`UIE` must clear when `SET` goes high, and this core stored
+        Register B verbatim), two typos in the datasheet itself (the `RESET`
+        list duplicates `AIE` and omits `UIE`; the 32.768 kHz update time is
+        printed as both 1948 and 1984 µs), and a confirmation that matters —
+        "the `RESET` pin does not affect the clock, calendar, or RAM
+        functions", which is why `ap_board_reset_devices` excludes it.
+        *Verification: `mc146818_suite` 32 → 35.* Record:
+        `docs/references/MC146818A_WALK.md`.
+  - [x] **`UIP` and its 244 µs lead — modelled 2026-09-07.** The bit
+        pulses for Table 6's `tBUC + tUC` ending at the update, and `SET`
+        or a held divider clears it where it stands; Table 4's divider
+        codes are transcribed with it. The update stays atomic, so the
+        bytes a driver reads mid-window are valid — permissive, and named.
+        *Verification: `mc146818_suite` 35 → 39, four probes.* Detail in
+        `PROJECT_STATUS.md`.
+  - [x] **The half second after a divider release — done 2026-09-07.**
+        Found while modelling `UIP`: `[146818]` states twice that the first
+        update cycle after a release is one-half second later, and this core
+        resumed on the old cadence. The periodic tap restarts with it. The
+        walk's rows for both pages cited their tables and missed the
+        sentence beside them. *Verification: `mc146818_suite` 39 → 42, two
+        probes.* Detail in `PROJECT_STATUS.md`.
+  - [x] **The calendar's two booleans reach the state hash — 2026-09-07.**
+        `divider_held` and `dst_shifted` are state the registers cannot
+        reconstruct and neither was hashed nor in `board_state_suite`'s
+        sweep. Reference hash moves to `C0C008BB82E7BD70` with clocks and
+        final PC unmoved — the two bytes the stream gains, measured on its
+        own after the two behavioural changes. *Verification:
+        `board_state_suite`, one probe.* Detail in `PROJECT_STATUS.md`.
+  - [x] **`[6840]` MC6840 PTM — both documents walked whole, 2026-08-23**:
+        datasheet 14/14, user manual 56/56. The item's premise ("no record")
+        was wrong — a citation audit found sixteen `[6840UM]` sections
+        already derived. Yield: two "special time-out conditions" shown
+        emergent and pinned by tests; the hardware/software reset
+        distinction confirmed; and three documentary errors recorded — the
+        contents page promises two appendices the scan does not contain, and
+        `$FFFF` is glossed as "65,536" twice. *Verification: `mc6840_suite`
+        34 → 36.* Record: `docs/references/MC6840_WALK.md`.
+  - [x] **`[Bt458]` — walked whole 2026-08-22, 24/24.** Extracted from the
+        1991 databook (PDF 393-416) onto the shelf; picked out of the batch
+        by a citation audit that put it at **one** cited section against
+        `[3c505]`'s 22 and `[QIC]`'s 16. Table 1, the `ADDRa,b` counter and
+        both address-advance rules were already derived; the control
+        registers were not, and measuring them (below) showed decoding would
+        change no pixel. The rest confirms, with three corrections to *our*
+        comments: doc 4-113 states outright that the address does not
+        advance on control-register access, where `ap_bt458.c` had inferred
+        it; doc 4-128 shows the firmware's blink configuration is
+        Brooktree's own recommendation; and doc 4-116's output levels
+        contradict a justification in `ap_graphics.h`, opened as its own
+        item below. Record: `docs/references/BT458_WALK.md`.
+        **A method note the audit earned**: `ap_bt458.h` cites the databook
+        by "Table 1" and by quotation, not by `§`, so the `§`-shaped grep
+        saw nothing. Counting sections is a first pass, not a verdict.
+  - [x] **`[8640]` — walked whole 2026-08-23, 61/61.** Both halves of the
+        old one-line warning confirmed rather than assumed: §4 is the **AT
+        task file** (`1F0`-`1F7`, `3F6`/`3F7`, Table 4.2's own command set)
+        and shares nothing with the 862X's CDB protocol, while §5's floppy
+        chapter confirms throughout. **Its real value is a third witness for
+        the `WRITE DATA` finding** — §1.2.1 repeats "host has direct access
+        to floppy disk controller chip (NEC 765 or equivalent)" and Figure
+        1.1 draws buffered host data reaching a discrete `FDC 765` with the
+        Z8 on the Winchester branch, on a board designed three years after
+        `[8000]`. Also `-I/O CH CK` omitted from §2.3 a **third** time.
+  - [x] **`[3c505]` — both walked whole 2026-08-25**, `[DEV]` 77/77 and
+        `[HIS]` 84/84. **The pair document different firmware revisions**,
+        proved by their bodies rather than their appendices — `[HIS]` says
+        "maximum 32767 ticks" everywhere `[DEV]` says 127, and its high-res
+        timer interrupts every 0.98 s against 1.6 s, which is 65536 × 15 µs
+        against 65536 × 25 µs and exactly appendix F's Rev 2.0 change. So
+        `[DEV]` is the Rev 1.0 manual and `[HIS]` the Rev 2.0+, which is why
+        the sibling-manual step once found a register-map defect between
+        them. Also confirmed: `LPBK` is active low (this core has it right),
+        and PCB `41H` returns the ROM revision level, so the revision is
+        host-readable. Record: `docs/references/3C505_WALK.md`.
+  *Every peripheral datasheet on the shelf is now walked whole.* The
+  processor manuals are not, and are the far larger job — see the batch
+  below.
 
 - [ ] **Walk the processor manuals whole — the second batch.**
       ***All six documents are walked whole as of 2026-09-07: 2,633 pages***
@@ -6838,150 +6838,150 @@ same number is what let them diverge once already.
       *Order is by what this machine actually runs*: `[030]` first, then
       `[PRM]`; the 68020 and 68040 are Phase 2b/7 parts that do not exist yet
       and come last.
-      - [x] **`[030]` `MC68030_Users_Manual_3ed_1990.pdf`, 608 pages — walked
-            whole, 608/608, 2026-09-06.** The audit halved the job by
-            attribution: §7-§9 and §11 held 88 of 90 citations and were
-            verification, §2, §3 and §5 were unread. Yield: **an addressing-mode
-            refusal on a coprocessor instruction is an F-line, not a protocol
-            violation** (Table 10-6, five sites corrected); `RESET` costs its
-            **518 clocks**; a **traced `STOP` must not stop**; `[PRM]` Table
-            2-4's Alterable column is wrong and `[030]` Table 2-2 settles it;
-            and `MC68030EC/D` was found by §13 naming it, opening the item
-            below. Every section walked including §12-§14 and Appendix A, on the
-            rule that a range dismissed as electrical is where `[8259]` hid
-            `TJLJH`. Detail in `PROJECT_STATUS.md`.
-            Record: `docs/references/M68030_WALK.md`.
-      - [ ] **`AP_M68030_RMC_FIRST_READ` is modelled and never placed.** The
-            arbiter has three RMC states because `[030]` §7.7.4 distinguishes
-            the first read cycle --- a bus request arriving during it still
-            walks the machine to its grant states, one arriving after is
-            ignored --- and the machine can only assert `AP_M68030_RMC_LOCKED`,
-            because the whole sequence happens inside one `ap_m68030_step` and
-            the clocks are delivered afterwards. So the lock is one instruction
-            wide where the hardware's is narrower.
-            **What would unblock it**: the per-cycle processor (Phase 8), which
-            is the item that makes a bus cycle addressable from outside the
-            step. Until then the wider lock is the conservative direction ---
-            it refuses a grant the hardware would allow, rather than allowing
-            one it forbids.
-      - [ ] **A translation table search is an extended read-modify-write and
-            this core does not lock the bus for one.** `[030]` §11.9: "Since the
-            address translation search is an extended read-modify-write
-            operation, the no-cache-case latency is incurred by the longest
-            address translation search required by the system." §12.1.2 gives
-            the pins --- "the MC68030 asserts `RMC` but not `CIOUT`" --- and
-            §11.7's own table counts "an RMC cycle to set the U bit ... as one
-            read and one write". `ap_m68030_walk.h` already cites the rule from
-            §9; what is missing is the *bus*: the walk reads descriptors through
-            a plain callback (`machine_table_fetch`) with no bus object, so
-            there is no cycle on which to assert anything.
-            **What would unblock it**: the same per-cycle processor item. The
-            observable difference is a DMA grant landing inside a table search,
-            which the identity boot does not exhibit.
-      - [x] **`MC68030EC.pdf` walked whole, 19/19, 2026-09-07.** The document
-            `[030]` §13 names, opened on the rule that a document naming another
-            document is not finished until the named one is on the list. A range
-            dismissed as electrical carried behavioural facts for the third time
-            in this project: five AC specifications are in **clock units**, and
-            three corroborate work landed the day before — spec 56's `RESET`
-            Pulse Width of 512 Clks, spec 35's grant timing qualified "(RMC Not
-            Asserted)", and Figure 8's timings for `MMUDIS`, `CDIS`, `STATUS`
-            and `REFILL`. *Verification: no code change; all three corroborate
-            changes already landed and tested.* Record:
-            `docs/references/MC68030EC_WALK.md`. Detail in `PROJECT_STATUS.md`.
-      - [x] **`[PRM]` `M68000_Family_Programmers_Reference_Manual_1992.pdf`,
-            646 pages — walked whole, 646/646, 2026-09-06.** The one
-            born-digital document in the batch: `pdfimages -list` shows small
-            figures only, so `pdftotext -layout` is authoritative here and the
-            page-image rule is relaxed **for this document alone**. That test,
-            not `pdffonts`, is what separates it from `[851]` — an OCR layer can
-            be typeset in Helvetica. Yield: the **bit-field span shapes** every
-            bit-field page prints as a note, which found this core reading one
-            byte *per bit*; the `RESET` page's "512 clock periods"; the `CALLM`
-            citation corrected to `[020]` Appendix D; and **Table 2-4's
-            Alterable column is a documentary error**, now with four witnesses
-            against it. Detail in `PROJECT_STATUS.md`.
-            Record: `docs/references/PRM_WALK.md`.
-      - [x] **`[881]`/`[882]`
-            `MC68881_MC68882_Floating-Point_Coprocessor_Users_Manual_1ed_1987.pdf`
-            — walked whole, 396/396, 2026-09-07.** Scanned, so page images
-            throughout; the audit reversed the item's premise a fourth time
-            (fifty citations, not eleven). **Twelve defects fixed**, each with a
-            discriminating test: five coprocessor-EA refusals corrected to
-            F-line, the unnormalized fold, `FSAVE`/`FRESTORE`'s `EXC PEND`
-            record, the idle frame's reserved word and BIU flags, `FCMP`'s
-            `N`-on-equal, `FMOVE`'s rounding against `FABS`/`FNEG`'s, `FSCALE`'s
-            `INEX2`, and a predicate's bit 5 — that last one asserted by the
-            test as well. Instruction timing now charged from Table 8-3;
-            concurrency still not. Four `PROVISIONAL`s closed, including the
-            4096-ULP question and the microcode version. Eight documentary
-            errors recorded where the code is right.
-            Detail in `PROJECT_STATUS.md`.
-            Record: `docs/references/M68881_WALK.md`.
-      - [x] **The 68882's instruction timing and its concurrency — done
-            2026-09-07.** Opened as "no instruction execution timing", which was
-            true until `[881]` §8 was walked; the totals landed first and the
-            overlap now with them. §8.5.1.3's rule is the 68030's `min` over
-            different quantities, with one difference that matters: Table 8-3
-            prints `T = *` for every `FMOVE`, which has no tail and merges its
-            head into the next instruction's, so the accumulator needs a
-            lookahead a copy of `ap_m68030_overlap` does not have — and the
-            first version, which lacked it, lost 14 clocks a pair. Checked by
-            composing **Table 8-5's own example**, which it reproduces at 331
-            for a sequence totalling 470, and applied in the step across
-            consecutive floating-point instructions. **Table 8-5 carries four
-            arithmetic slips**, none of which changes its answer, and a probe
-            found the `min` rule written twice. Detail in `PROJECT_STATUS.md`.
-            *Verification: `m68882_timing_suite` 8, plus a `step_suite` test.*
-      - [x] **`[851]` `MC68851_PMMU_Users_Manual_3ed_1988.pdf`, 356 pages —
-            walked whole, 356/356, 2026-09-06.** It is where the **method error
-            was found**: `pdffonts` had been used to judge a text layer's
-            trustworthiness, and this manual's OCR is typeset in plain Helvetica
-            over a 400 dpi scan. `pdfimages -list` is the test, and both
-            affected walk records were corrected. Yield: `ACC_STATUS`
-            protection accumulation, the root pointer table/task alias, the
-            ATC's `B`-bit denial caching, and the **end-to-end specification of
-            the protection gap** below (from §5.1.6, Figures 5-24/5-27,
-            §4.2.3.3's six `BERR` conditions and §6.1.8's PSR bits). Two
-            documentary errors recorded where the code is right: §6.1.1.4's
-            root-`DT=$1` limit check, and §8's transposed figure captions.
-            Detail in `PROJECT_STATUS.md`.
-            Record: `docs/references/M68851_WALK.md`.
-      - [x] **The `m68851` protection mechanism — done 2026-09-07.** The
-            search decoded `RAL`, `WAL` and `S` from every long-format
-            descriptor and discarded all three; §5.1.6 and Figures 5-24/5-27
-            specify the accumulation end to end, so this was transcription
-            rather than design. `ACC_STATUS` now accumulates by minimum and OR,
-            §6.3.1.3/§6.3.1.4/§6.3.1.5's three denials are evaluated with the
-            division the ATC's own bits force, §4.2.3.3's condition (6) is
-            enforced, and `PSR`'s `S`, `A` and `W` are reportable. **Three
-            further defects fell out**: a short *indirect* descriptor's address
-            bit 2 read as a write protect, `SG` assigned where Figure 5-27 ORs
-            it, and the ATC entry's `M` copying the descriptor's pre-write bit.
-            No in-scope machine affected.
-            *Verification: `m68851_suite` 43 -> 52, each behaviour probed by
-            removing it alone.* Detail in `PROJECT_STATUS.md`.
-      - [x] **`M68000_Family_Reference_1988.pdf`, 608 pages — walked whole,
-            608/608, 2026-09-07.** A databook: abridged summaries of manuals
-            already walked, plus datasheets for Motorola peripherals this
-            machine does not have. The citation audit came back **genuinely
-            empty**, the only document in this batch where it did.
-            **Zero implementable facts, which is the correct outcome** — and
-            more value than that predicted. It **names the MC68681/MC2681
-            differences**, closing `SCN2681_WALK.md`'s opening finding; states
-            this session's `[881]` handler work as a three-item list;
-            cross-checks `ap_m68882_timing.c` against a differently typeset
-            printing; witnesses `RESET`'s 512 clocks and the `RMC` lock again;
-            and demonstrates the CIR-footnote failure `ap_m68882_cir.h` warns
-            about. Detail in `PROJECT_STATUS.md`.
-            Record: `docs/references/M68000_FAMILY_REFERENCE_WALK.md`.
-      - [ ] **`[020]` `MC68020_32-Bit_Microprocessor_Users_Manual_1984.pdf`,
-            452 pages**, and `[040]`'s two manuals (256 + 463). Phase 2b and
-            Phase 7 parts; cited once between them. Deferred until those
-            processors are built, and named here so the deferral is deliberate.
-      *Verification, per document: a coverage record in `docs/references/`, page
-      by page, saying what each yielded — and every fact either implemented with
-      a test or named as a `PROVISIONAL` gap.*
+  - [x] **`[030]` `MC68030_Users_Manual_3ed_1990.pdf`, 608 pages — walked
+        whole, 608/608, 2026-09-06.** The audit halved the job by
+        attribution: §7-§9 and §11 held 88 of 90 citations and were
+        verification, §2, §3 and §5 were unread. Yield: **an addressing-mode
+        refusal on a coprocessor instruction is an F-line, not a protocol
+        violation** (Table 10-6, five sites corrected); `RESET` costs its
+        **518 clocks**; a **traced `STOP` must not stop**; `[PRM]` Table
+        2-4's Alterable column is wrong and `[030]` Table 2-2 settles it;
+        and `MC68030EC/D` was found by §13 naming it, opening the item
+        below. Every section walked including §12-§14 and Appendix A, on the
+        rule that a range dismissed as electrical is where `[8259]` hid
+        `TJLJH`. Detail in `PROJECT_STATUS.md`.
+        Record: `docs/references/M68030_WALK.md`.
+  - [ ] **`AP_M68030_RMC_FIRST_READ` is modelled and never placed.** The
+        arbiter has three RMC states because `[030]` §7.7.4 distinguishes
+        the first read cycle --- a bus request arriving during it still
+        walks the machine to its grant states, one arriving after is
+        ignored --- and the machine can only assert `AP_M68030_RMC_LOCKED`,
+        because the whole sequence happens inside one `ap_m68030_step` and
+        the clocks are delivered afterwards. So the lock is one instruction
+        wide where the hardware's is narrower.
+        **What would unblock it**: the per-cycle processor (Phase 8), which
+        is the item that makes a bus cycle addressable from outside the
+        step. Until then the wider lock is the conservative direction ---
+        it refuses a grant the hardware would allow, rather than allowing
+        one it forbids.
+  - [ ] **A translation table search is an extended read-modify-write and
+        this core does not lock the bus for one.** `[030]` §11.9: "Since the
+        address translation search is an extended read-modify-write
+        operation, the no-cache-case latency is incurred by the longest
+        address translation search required by the system." §12.1.2 gives
+        the pins --- "the MC68030 asserts `RMC` but not `CIOUT`" --- and
+        §11.7's own table counts "an RMC cycle to set the U bit ... as one
+        read and one write". `ap_m68030_walk.h` already cites the rule from
+        §9; what is missing is the *bus*: the walk reads descriptors through
+        a plain callback (`machine_table_fetch`) with no bus object, so
+        there is no cycle on which to assert anything.
+        **What would unblock it**: the same per-cycle processor item. The
+        observable difference is a DMA grant landing inside a table search,
+        which the identity boot does not exhibit.
+  - [x] **`MC68030EC.pdf` walked whole, 19/19, 2026-09-07.** The document
+        `[030]` §13 names, opened on the rule that a document naming another
+        document is not finished until the named one is on the list. A range
+        dismissed as electrical carried behavioural facts for the third time
+        in this project: five AC specifications are in **clock units**, and
+        three corroborate work landed the day before — spec 56's `RESET`
+        Pulse Width of 512 Clks, spec 35's grant timing qualified "(RMC Not
+        Asserted)", and Figure 8's timings for `MMUDIS`, `CDIS`, `STATUS`
+        and `REFILL`. *Verification: no code change; all three corroborate
+        changes already landed and tested.* Record:
+        `docs/references/MC68030EC_WALK.md`. Detail in `PROJECT_STATUS.md`.
+  - [x] **`[PRM]` `M68000_Family_Programmers_Reference_Manual_1992.pdf`,
+        646 pages — walked whole, 646/646, 2026-09-06.** The one
+        born-digital document in the batch: `pdfimages -list` shows small
+        figures only, so `pdftotext -layout` is authoritative here and the
+        page-image rule is relaxed **for this document alone**. That test,
+        not `pdffonts`, is what separates it from `[851]` — an OCR layer can
+        be typeset in Helvetica. Yield: the **bit-field span shapes** every
+        bit-field page prints as a note, which found this core reading one
+        byte *per bit*; the `RESET` page's "512 clock periods"; the `CALLM`
+        citation corrected to `[020]` Appendix D; and **Table 2-4's
+        Alterable column is a documentary error**, now with four witnesses
+        against it. Detail in `PROJECT_STATUS.md`.
+        Record: `docs/references/PRM_WALK.md`.
+  - [x] **`[881]`/`[882]`
+        `MC68881_MC68882_Floating-Point_Coprocessor_Users_Manual_1ed_1987.pdf`
+        — walked whole, 396/396, 2026-09-07.** Scanned, so page images
+        throughout; the audit reversed the item's premise a fourth time
+        (fifty citations, not eleven). **Twelve defects fixed**, each with a
+        discriminating test: five coprocessor-EA refusals corrected to
+        F-line, the unnormalized fold, `FSAVE`/`FRESTORE`'s `EXC PEND`
+        record, the idle frame's reserved word and BIU flags, `FCMP`'s
+        `N`-on-equal, `FMOVE`'s rounding against `FABS`/`FNEG`'s, `FSCALE`'s
+        `INEX2`, and a predicate's bit 5 — that last one asserted by the
+        test as well. Instruction timing now charged from Table 8-3;
+        concurrency still not. Four `PROVISIONAL`s closed, including the
+        4096-ULP question and the microcode version. Eight documentary
+        errors recorded where the code is right.
+        Detail in `PROJECT_STATUS.md`.
+        Record: `docs/references/M68881_WALK.md`.
+  - [x] **The 68882's instruction timing and its concurrency — done
+        2026-09-07.** Opened as "no instruction execution timing", which was
+        true until `[881]` §8 was walked; the totals landed first and the
+        overlap now with them. §8.5.1.3's rule is the 68030's `min` over
+        different quantities, with one difference that matters: Table 8-3
+        prints `T = *` for every `FMOVE`, which has no tail and merges its
+        head into the next instruction's, so the accumulator needs a
+        lookahead a copy of `ap_m68030_overlap` does not have — and the
+        first version, which lacked it, lost 14 clocks a pair. Checked by
+        composing **Table 8-5's own example**, which it reproduces at 331
+        for a sequence totalling 470, and applied in the step across
+        consecutive floating-point instructions. **Table 8-5 carries four
+        arithmetic slips**, none of which changes its answer, and a probe
+        found the `min` rule written twice. Detail in `PROJECT_STATUS.md`.
+        *Verification: `m68882_timing_suite` 8, plus a `step_suite` test.*
+  - [x] **`[851]` `MC68851_PMMU_Users_Manual_3ed_1988.pdf`, 356 pages —
+        walked whole, 356/356, 2026-09-06.** It is where the **method error
+        was found**: `pdffonts` had been used to judge a text layer's
+        trustworthiness, and this manual's OCR is typeset in plain Helvetica
+        over a 400 dpi scan. `pdfimages -list` is the test, and both
+        affected walk records were corrected. Yield: `ACC_STATUS`
+        protection accumulation, the root pointer table/task alias, the
+        ATC's `B`-bit denial caching, and the **end-to-end specification of
+        the protection gap** below (from §5.1.6, Figures 5-24/5-27,
+        §4.2.3.3's six `BERR` conditions and §6.1.8's PSR bits). Two
+        documentary errors recorded where the code is right: §6.1.1.4's
+        root-`DT=$1` limit check, and §8's transposed figure captions.
+        Detail in `PROJECT_STATUS.md`.
+        Record: `docs/references/M68851_WALK.md`.
+  - [x] **The `m68851` protection mechanism — done 2026-09-07.** The
+        search decoded `RAL`, `WAL` and `S` from every long-format
+        descriptor and discarded all three; §5.1.6 and Figures 5-24/5-27
+        specify the accumulation end to end, so this was transcription
+        rather than design. `ACC_STATUS` now accumulates by minimum and OR,
+        §6.3.1.3/§6.3.1.4/§6.3.1.5's three denials are evaluated with the
+        division the ATC's own bits force, §4.2.3.3's condition (6) is
+        enforced, and `PSR`'s `S`, `A` and `W` are reportable. **Three
+        further defects fell out**: a short *indirect* descriptor's address
+        bit 2 read as a write protect, `SG` assigned where Figure 5-27 ORs
+        it, and the ATC entry's `M` copying the descriptor's pre-write bit.
+        No in-scope machine affected.
+        *Verification: `m68851_suite` 43 -> 52, each behaviour probed by
+        removing it alone.* Detail in `PROJECT_STATUS.md`.
+  - [x] **`M68000_Family_Reference_1988.pdf`, 608 pages — walked whole,
+        608/608, 2026-09-07.** A databook: abridged summaries of manuals
+        already walked, plus datasheets for Motorola peripherals this
+        machine does not have. The citation audit came back **genuinely
+        empty**, the only document in this batch where it did.
+        **Zero implementable facts, which is the correct outcome** — and
+        more value than that predicted. It **names the MC68681/MC2681
+        differences**, closing `SCN2681_WALK.md`'s opening finding; states
+        this session's `[881]` handler work as a three-item list;
+        cross-checks `ap_m68882_timing.c` against a differently typeset
+        printing; witnesses `RESET`'s 512 clocks and the `RMC` lock again;
+        and demonstrates the CIR-footnote failure `ap_m68882_cir.h` warns
+        about. Detail in `PROJECT_STATUS.md`.
+        Record: `docs/references/M68000_FAMILY_REFERENCE_WALK.md`.
+  - [ ] **`[020]` `MC68020_32-Bit_Microprocessor_Users_Manual_1984.pdf`,
+        452 pages**, and `[040]`'s two manuals (256 + 463). Phase 2b and
+        Phase 7 parts; cited once between them. Deferred until those
+        processors are built, and named here so the deferral is deliberate.
+  *Verification, per document: a coverage record in `docs/references/`, page
+  by page, saying what each yielded — and every fact either implemented with
+  a test or named as a `PROVISIONAL` gap.*
 
 - [x] **This core's 3c505 hardware and firmware revisions are now stated —
       done 2026-09-08.** Both were chosen by implication and neither was written
@@ -6998,23 +6998,23 @@ same number is what let them diverge once already.
       side, which is the mode `ap_i8259`'s edge model produces.
       Detail in `PROJECT_STATUS.md`.
 
-      - [ ] **`[82586]`**, the LAN coprocessor behind the 3c505 — **not on the
-            shelf, and lower value than it looks.** Checked 2026-08-22 against
-            the `[765]`/`[2681]` pattern and it does *not* fit: that pattern
-            needs the host's own bus cycles to reach the part, and `ap_3c505.h`
-            says plainly "**the host never touches the 82586**". Its datasheet
-            describes a part no host cycle can address. Worth reading only if
-            the adapter's firmware is ever emulated rather than replaced.
-            *The discriminator, since it will recur*: is there a processor
-            between the host and the chip? If yes, the board protocol governs.
-      - [x] **`[SC-499]` and `[QIC-36]` — both walked whole 2026-08-25**,
-            42/42 and 44/44. `[08845]` is the more interesting: it is *Apollo's*
-            specification of the vendor's board, so it states what a vendor
-            guide cannot — the Apollo jumper configuration (base `0200`, DMA 1,
-            **IRQ 5**), §11.6's three interrupt causes, and §6.3's performance
-            figures. Its §12.3 timeouts were already derived.
-            **One tension found and deliberately not acted on** — see the item
-            below. Record: `docs/references/TAPE_WALK.md`.
+  - [ ] **`[82586]`**, the LAN coprocessor behind the 3c505 — **not on the
+        shelf, and lower value than it looks.** Checked 2026-08-22 against
+        the `[765]`/`[2681]` pattern and it does *not* fit: that pattern
+        needs the host's own bus cycles to reach the part, and `ap_3c505.h`
+        says plainly "**the host never touches the 82586**". Its datasheet
+        describes a part no host cycle can address. Worth reading only if
+        the adapter's firmware is ever emulated rather than replaced.
+        *The discriminator, since it will recur*: is there a processor
+        between the host and the chip? If yes, the board protocol governs.
+  - [x] **`[SC-499]` and `[QIC-36]` — both walked whole 2026-08-25**,
+        42/42 and 44/44. `[08845]` is the more interesting: it is *Apollo's*
+        specification of the vendor's board, so it states what a vendor
+        guide cannot — the Apollo jumper configuration (base `0200`, DMA 1,
+        **IRQ 5**), §11.6's three interrupt causes, and §6.3's performance
+        figures. Its §12.3 timeouts were already derived.
+        **One tension found and deliberately not acted on** — see the item
+        below. Record: `docs/references/TAPE_WALK.md`.
 
 - [ ] **`RDY` raises `IRQF` here, and Apollo's own spec straps that off.**
       Found 2026-08-25 walking `[08845]`. `ap_sc499.c`'s `interrupt_flag` sets

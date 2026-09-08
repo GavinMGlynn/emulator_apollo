@@ -158,6 +158,50 @@ def check_item_length(problems: list[str]) -> int:
     return checked
 
 
+def check_list_nesting(problems: list[str]) -> int:
+    """Sub-items indented too far to be sub-items at all.
+
+    A nested list has to start within four spaces of its parent item's *content*
+    column, and a top-level `- [x] ` item's content column is **2**, not 6 --
+    the `[x] ` is content, not part of the marker. So the sub-lists in this file
+    written at six spaces were four past their parent, which CommonMark reads as
+    an indented code block after a blank line and as literal paragraph text
+    without one. Neither is a list.
+
+    Forty-nine sub-items were rendering that way on GitHub when this was
+    written, in blocks up to ninety lines long: a reader saw a wall of
+    monospaced text, or a paragraph with `- [x]` typed into the middle of it,
+    where the document meant a checklist. Nothing caught it because every
+    *claim* those items made was true; what was wrong was the shape.
+
+    The rule is mechanical and needs no renderer: walk the list markers keeping
+    a stack of open items' content columns, and flag any marker four or more
+    spaces past its innermost open parent.
+    """
+    marker = re.compile(r"^( *)- ")
+    checked = 0
+    for doc in (STATUS, PLAN):
+        if not doc.is_file():
+            continue
+        stack: list[int] = []
+        for number, line in enumerate(doc.read_text().splitlines(), start=1):
+            found = marker.match(line)
+            if found is None:
+                continue
+            checked += 1
+            indent = len(found.group(1))
+            while stack and indent < stack[-1]:
+                stack.pop()
+            if stack and indent >= stack[-1] + 4:
+                problems.append(
+                    f"{doc.name}:{number}: list item indented {indent}, "
+                    f"{indent - stack[-1]} past its parent's content column "
+                    f"{stack[-1]} -- renders as a code block, not a list")
+            # A `- ` marker is two columns wide, so its content starts here.
+            stack.append(indent + 2)
+    return checked
+
+
 def check_stray_items(problems: list[str]) -> int:
     """Items adrift of the document's structure.
 
@@ -672,6 +716,7 @@ def main() -> int:
 
     checked += check_references(problems)
     checked += check_item_length(problems)
+    checked += check_list_nesting(problems)
     checked += check_stray_items(problems)
     checked += check_parent_residue(problems)
     checked += check_parent_subject(problems)
