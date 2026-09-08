@@ -398,6 +398,28 @@
 #define AP_RING_CTL_XMIT_HEADER_BYTES 12u
 #define AP_RING_CTL_XMIT_HEADER_WORDS (AP_RING_CTL_XMIT_HEADER_BYTES / 2u)
 
+/* ## The frame's real extent, which the driver programs and this used to guess
+ *
+ * `ring_ctl_queue_from_buffer` sent the `[MAC]` §2.2.2 **minimum** header and no
+ * data, and said so: "a longer header needs a source that says where its length
+ * comes from, and is a named gap rather than a guess". The source is on the
+ * card. `[EH]` p. 12-29 gives the transmit buffer as "1k bytes of header and 1k
+ * bytes of data", and finding 100 recovered the two counters' names and units
+ * from `ring8a.drvr`'s own descriptor table: `XMT_HDR` is "Transmitter Header
+ * Word" and `XMT_PKT` "Transmitter Total Word", both in **words**.
+ *
+ * Measured, not assumed: with `/com/lcnode` running on two booted nodes the
+ * driver loads both with `002D` -- **45 words, 90 bytes**, header and total
+ * equal, so its broadcast request is a header-only control packet. Sending the
+ * first twelve bytes of it gave the far node something it could copy and not
+ * parse (`FINDINGS.md` C249). Both figures sit inside §2.2.2's limits: header
+ * 12 to 1024 and even, data 0 to 4096 and even.
+ *
+ * A zero header count means nothing has programmed them -- the ring ROM's own
+ * self-test transmits without touching these -- and the minimum above is used,
+ * so that path is unchanged. */
+#define AP_RING_CTL_XMIT_HEADER_MAX_BYTES 1024u
+
 /* Finding 39: the only two values init accepts. ASCII `'6'` and `'7'`, which
  * with `[ROM3500]`'s revision string ` 3.6` and `[ROM4500]`'s ` 4.0` looks like
  * a board revision -- but the ROM only ever compares, so that reading is not
@@ -654,6 +676,18 @@ typedef struct {
    * booted nodes and `copied 0` on both (`FINDINGS.md` C248), what those twelve
    * bytes actually contain is the thing no test can tell us. */
   uint8_t first_tx_header[AP_RING_CTL_XMIT_HEADER_BYTES];
+  /* And the two transmit counters as they stood when that frame was handed
+   * over. `ring_ctl_queue_from_buffer` sends the §2.2.2 **minimum** header and
+   * no data at all, because its own comment could not source a longer length --
+   * so the far node copies a bare header and has nothing to answer, which is
+   * where `lcnode` stops (`FINDINGS.md` C249). Finding 100 recovered the
+   * lengths' home from `ring8a.drvr`'s descriptor table: `XMT_HDR` is
+   * "Transmitter Header Word" and `XMT_PKT` "Transmitter Total Word", both in
+   * **words**, and the driver programs them before it transmits. Captured
+   * rather than assumed, because the units and the loading order are exactly
+   * what a guess would get wrong. */
+  uint16_t first_tx_hdr_count;
+  uint16_t first_tx_pkt_count;
   bool first_tx_captured;
 } ap_ring_ctl_t;
 

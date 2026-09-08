@@ -54,25 +54,70 @@ static bool ring_ctl_queue_from_buffer(ap_ring_ctl_t *ctl) {
   if ((size_t)base + AP_RING_CTL_XMIT_HEADER_WORDS > AP_RING_CTL_BUFFER_WORDS) {
     return false;
   }
-  uint8_t header[AP_RING_CTL_XMIT_HEADER_BYTES];
-  for (unsigned i = 0; i < AP_RING_CTL_XMIT_HEADER_WORDS; i++) {
+  /* **The extent the driver programmed**, from the two counters `[EH]`
+   * p. 12-29 names and finding 100 gave units to -- `XMT_HDR` header words and
+   * `XMT_PKT` total words. See `ap_ring_ctl.h`. A zero header count is a card
+   * nothing has programmed, which is the ring ROM's own self-test, and the
+   * §2.2.2 minimum is used there exactly as before. */
+  unsigned header_words =
+      ctl->a2.timer_b.counter[AP_RING_CTL_XMIT_HDR_CNT].counter;
+  unsigned total_words =
+      ctl->a2.timer_b.counter[AP_RING_CTL_XMIT_PKT_CNT].counter;
+  if (header_words == 0u) {
+    header_words = AP_RING_CTL_XMIT_HEADER_WORDS;
+    total_words = AP_RING_CTL_XMIT_HEADER_WORDS;
+  }
+  if (header_words * 2u > AP_RING_CTL_XMIT_HEADER_MAX_BYTES ||
+      total_words < header_words) {
+    return false;
+  }
+  const unsigned data_words = total_words - header_words;
+  if (data_words * 2u > AP_RING_DATA_MAX_BYTES) {
+    return false;
+  }
+  if ((size_t)base + header_words > AP_RING_CTL_BUFFER_WORDS) {
+    return false;
+  }
+
+  static uint8_t header[AP_RING_CTL_XMIT_HEADER_MAX_BYTES];
+  for (unsigned i = 0; i < header_words; i++) {
     const uint16_t word = ctl->buffer[base + i];
     header[i * 2u] = (uint8_t)(word >> 8);
     header[i * 2u + 1u] = (uint8_t)(word & 0xFFu);
   }
+
+  /* The data half of the message, which p. 12-29 puts a **kilobyte** past the
+   * header: "7 rcv msg buffers (each 1k bytes of header and 1k bytes of data)
+   * and 1 xmit msg buffer of the same size". */
+  static uint8_t data[AP_RING_DATA_MAX_BYTES];
+  const size_t data_base = (size_t)base + (1024u / 2u);
+  if (data_words > 0u &&
+      data_base + data_words > AP_RING_CTL_BUFFER_WORDS) {
+    return false;
+  }
+  for (unsigned i = 0; i < data_words; i++) {
+    const uint16_t word = ctl->buffer[data_base + i];
+    data[i * 2u] = (uint8_t)(word >> 8);
+    data[i * 2u + 1u] = (uint8_t)(word & 0xFFu);
+  }
+
   const ap_ring_frame_fields_t fields = {
       .header = header,
-      .header_bytes = sizeof header,
-      .data = NULL,
-      .data_bytes = 0u,
+      .header_bytes = header_words * 2u,
+      .data = data_words > 0u ? data : NULL,
+      .data_bytes = data_words * 2u,
       .late_acknowledge = 0u,
   };
   if (!ctl->first_tx_captured) {
     /* Before the queue, so a refused frame is still recorded: what the driver
      * asked for is the question, not what the station accepted. */
-    for (unsigned i = 0; i < sizeof header; i++) {
+    for (unsigned i = 0; i < AP_RING_CTL_XMIT_HEADER_BYTES; i++) {
       ctl->first_tx_header[i] = header[i];
     }
+    ctl->first_tx_hdr_count =
+        ctl->a2.timer_b.counter[AP_RING_CTL_XMIT_HDR_CNT].counter;
+    ctl->first_tx_pkt_count =
+        ctl->a2.timer_b.counter[AP_RING_CTL_XMIT_PKT_CNT].counter;
     ctl->first_tx_captured = true;
   }
   if (!ap_ring_station_queue_frame(ctl->station, &fields)) {

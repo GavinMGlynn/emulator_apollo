@@ -13747,3 +13747,47 @@ units finding 100 established, from registers this core already models.
 *That is the next piece of work and it is specified rather than open*: size the
 frame from `XMT_HDR_CNT` and `XMT_PKT_CNT` instead of from the §2.2.2 minimum,
 and the data at the buffer's 1 KB offset goes on the wire with it.
+
+## C250 -- the frame's extent comes from the driver's counters, and the last gap is the receive capture
+
+C249 said the next piece was "specified rather than open": size the frame from
+`XMT_HDR_CNT` and `XMT_PKT_CNT` instead of from the §2.2.2 minimum. Captured
+rather than assumed, with `/com/lcnode` running on two booted nodes:
+
+    first tx header 00 00 00 00 90 00 00 00 00 01 23 45   xmt_hdr 002D xmt_pkt 002D
+
+**`002D` is 45 words, 90 bytes**, and header equals total -- so `lcnode`'s
+broadcast request is a header-only control packet of ninety bytes, and this core
+was sending the first **twelve** of them. Both figures sit inside §2.2.2's
+limits (header 12-1024 and even, data 0-4096 and even), and finding 100's units
+-- both counters in **words** -- are confirmed by the arithmetic working out.
+
+Implemented: the header is `XMT_HDR_CNT` words from `XMIT_ADDR`, the data is
+`XMT_PKT_CNT - XMT_HDR_CNT` words from a kilobyte past it, which is p. 12-29's
+"1k bytes of header and 1k bytes of data". A **zero** header count is a card
+nothing has programmed -- the ring ROM's own self-test never touches these -- so
+that path keeps the minimum and its self-test stays byte-identical.
+
+### And the far node still cannot answer, because it is handed eight bytes
+
+Full-length frames now cross and are copied, and `lcnode` still reports "No
+other nodes responded". The receive deposit says why, in a comment that has been
+there all along:
+
+> A frame longer than its first eight bytes is **not** deposited, because the
+> station does not capture one: §2.2.2.2's receive *decision* needs six bytes
+> and the station stops there rather than parsing a frame it is only
+> forwarding. Capturing a whole frame is a station change, and a named gap --
+> `RING.md` 105b.
+
+So the addressee copies a ninety-byte request and its driver receives eight
+bytes of it. **That is the last link in the chain**, it is one change in
+`ap_ring_station`, and the storage for it already exists --
+`ap_ring_station_attach_rx` gives the station a board-owned receive buffer, and
+what stops at eight bytes is the capture loop, not the room to put it.
+
+*The chain as it now stands, every link measured*: the driver connects the card
+(C246), sees the connection in XMIT_STAT (C247), commands a transmit that
+reaches the station (C247), the station starts a ring and strips (C247), the
+frame is sized as the driver asked (here), it crosses (C248), it is addressed
+(C249), it is copied (C249) -- and eight bytes of it are delivered.
