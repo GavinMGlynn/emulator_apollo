@@ -4066,8 +4066,21 @@ discipline throughout.
       `Apollo Token Ring test passed.`, and ends with the same bit set.
       **And it is now a fifty-minute question, not a ten-hour one**:
       `tools/md-shell.sh <copy> --ring --configure --ring-rom ...` reproduces it
-      on one node, because `lcnode` fails while talking to itself. Detail in
-      `PROJECT_STATUS.md`; `FINDINGS.md` C243.
+      on one node, because `lcnode` fails while talking to itself.
+      **Narrowed to eight writes, 2026-09-08** (`FINDINGS.md` C245). Isolating
+      Domain/OS from the ring ROM — the MD route skips SELF_TEST, whose own
+      listing writes `move.b #$0,$400(a4)` four times — cuts 44 MISC_CMD writes
+      to **8**, and they pair: `$08` (`nct` alone, connect) immediately followed
+      by `$70` (no `nct`), three times, last write `7000`. This core re-derives
+      `connected` from every write to `+400`, so each connect is undone by the
+      write after it.
+      **Two readings, neither established**: the AT board's MISC_CMD differs
+      from `002398-04` p. 12-32's DN3000 layout and `nct` is latched — our
+      defect — or the layouts agree and the driver is waiting on something else.
+      *What separates them* is which routine issues `$70`, and it is in reach
+      rather than blocked: `--boot-watch-write 59400 --boot-log-watch-writes`
+      records the writing PC, and `tools/kernel_symbols.py --build domain_os11`
+      names it. Detail in `PROJECT_STATUS.md`; `FINDINGS.md` C243–C245.
       **The verification was rewritten on 2026-08-19, and the reason matters.**
       It read "`lcnode` on each node lists the other", which is an *operating
       system* check standing in for a *ring* one: it needs a shell, a shell
