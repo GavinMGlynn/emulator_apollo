@@ -1899,8 +1899,19 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
        * knock is typing into the operating system. So the knock is bounded by
        * *where the machine is*, which is the condition it was always really
        * about. */
+      /* **The PC directly, not through `ap_machine_state`.**
+       *
+       * That function computes a full state hash, and the hash walks the whole
+       * of RAM -- `ap_hash_bytes(&st, machine->ram, machine->ram_bytes)`, 16 MB.
+       * This asked it for one scalar, once per node per 4096-instruction slice,
+       * and the two `now` reads below did the same, so a two-node run hashed
+       * about **64 MB per slice** to read a program counter and two clocks.
+       * Profiling the running job put 86% of its samples inside
+       * `machine_hash_into`; the single-machine boot loop reads
+       * `machine.cpu.regs.pc` directly, which is why it ran eighteen times
+       * faster per node. */
       const bool in_firmware =
-          ap_board_region(&board[i], ap_machine_state(&machine[i]).pc) ==
+          ap_board_region(&board[i], machine[i].cpu.regs.pc) ==
           AP_BOARD_REGION_PROM;
       const bool script_waiting = script[i].steps > 0u && script[i].at == 0u &&
                                   script[i].sent == 0u && in_firmware;
@@ -1946,9 +1957,9 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
         }
       }
     }
-    ap_time_t earliest = ap_machine_state(&machine[0]).now;
+    ap_time_t earliest = ap_machine_now(&machine[0]);
     for (unsigned i = 1; i < NODES; i++) {
-      const ap_time_t t = ap_machine_state(&machine[i]).now;
+      const ap_time_t t = ap_machine_now(&machine[i]);
       if (t < earliest) {
         earliest = t;
       }
