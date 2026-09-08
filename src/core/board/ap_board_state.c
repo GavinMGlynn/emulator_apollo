@@ -478,6 +478,26 @@ void ap_board_hash_tape(ap_hash_t *st, const ap_tape_t *tape) {
   if (tape->block_valid) {
     ap_hash_bytes(st, tape->block, AP_CT_BLOCK_SIZE);
   }
+
+  /* ## The board's half of a transfer, which was not in this
+   *
+   * The controller's registers and the drive's latches were both hashed and the
+   * *board's* own transfer state was not, though it is the same kind of thing.
+   * Two machines differing only in how many of a status block's six bytes the
+   * host has taken are two different machines: one will hand over byte 3 next
+   * and the other byte 0. Likewise for the card's outstanding repeat of the
+   * first block -- one machine owes it and the other does not.
+   *
+   * Found the same way the display controller's hole and the drive's latches
+   * were: by adding a latch and asking what would notice it. The status offset
+   * is hashed only while a block is in flight, for the reason the data block
+   * above is: an idle offset keeps whatever the last transfer left. */
+  hash_bool(st, tape->status_valid);
+  if (tape->status_valid) {
+    ap_hash_u32(st, (uint32_t)tape->status_offset);
+    ap_hash_bytes(st, tape->status_block, AP_QIC_STATUS_BYTES);
+  }
+  hash_bool(st, tape->first_block_pending);
 }
 
 void ap_board_hash_graphics(ap_hash_t *st, const ap_graphics_t *graphics) {

@@ -138,6 +138,40 @@ typedef struct {
    * gets the same answer. Not hashed, for the same reason `ap_sc499_t`'s
    * `ready_at` is not: a scheduled instant rather than a fact about the tape. */
   ap_time_t next_byte_at;
+  /* **The first block of a tape is handed to the host twice, and nothing
+   * explains why.**
+   *
+   * Measured on this machine from the firmware's own DMA programming rather
+   * than from any guess about the drive: for `EX DOMAIN_OS` the SR10.4 boot
+   * PROM sets up sixteen transfers and the **first two name the same
+   * destination** -- translation-map page `43F6` with 8237 base `0000`, twice
+   * in a row, at `010FD800` -- with no BOT and no second READ between them.
+   * Blocks 1 to 15 then land end to end from that same address, so the second
+   * transfer is where block 0 of the image belongs: the host asks for block 0
+   * twice. `FINDINGS.md` C268.
+   *
+   * **A second implementation needed exactly this.** MAME's `sc499.cpp` carries
+   * a flag armed at reset and spent on one block, with its own comment -- "we
+   * must read first block twice (in MD for 'di c' and 'ld' or 'ex ...') // why
+   * is this necessary???". So the oracle reproduces the requirement and does
+   * not explain it either.
+   *
+   * **And no document does.** `[SC499]`'s only mention of the card's 16K RAM
+   * buffer in forty-two pages is the power-on test's LED assignment; `QIC-02
+   * Rev D` §4.2.8 says a READ "following cartridge insertion or RESET shall
+   * commence at BOT" and nothing about a second transfer within one READ;
+   * Apollo's two tape documents defer to that standard.
+   *
+   * So this is a **deliberate approximation** in `CLAUDE.md`'s sense, with its
+   * reason and cost to close on the record. It lives on the *card* rather than
+   * the drive because the card is what holds a buffer -- `[SC499]` §1.8.1's
+   * 16K RAM -- and because the drive's own contract, one block per
+   * `ap_qic_read_block`, is worth keeping clean: putting it there made five
+   * `qic_suite` tests count a block they had no reason to know about. That
+   * placement is a modelling choice and not a claim about which chip repeats
+   * the block. A document describing the card's buffer, or a probe of real
+   * hardware, closes it. */
+  bool first_block_pending;
 } ap_tape_t;
 
 /* First use. See `ap_qic_init`: the drive's reset keeps its media, so it cannot

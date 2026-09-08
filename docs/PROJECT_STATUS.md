@@ -588,6 +588,55 @@ are `C0` and `80`. So the oracle is fourth and now due: `sc499.cpp` logging the
 tape block index against each DMAGO answers it directly, and it is a question
 about the *card*. Detail in `FINDINGS.md` C268.
 
+## The first block is handed over twice, and the boot gets past `EX DOMAIN_OS`
+## (2026-09-09)
+
+The measured fact from the section below had no mechanism: the SR10.4 boot PROM
+sets up sixteen transfers and **the first two name the same destination** — map
+page `43F6` with 8237 base `0000`, twice in a row, at `010FD800` — with no BOT
+and no second READ between them. The host asks for block 0 twice.
+
+**The oracle, fourth and due, reproduces it and does not explain it.**
+`sc499.cpp` carries a flag armed at reset, spent on one block and cleared by the
+rewind family, whose body reads *"FIXME: we must read first block twice (in MD
+for 'di c' and 'ld' or 'ex ...') — why is this necessary???"*. A second
+implementation, written independently against the same firmware, needed exactly
+what this core's measurement demands, and its author did not know why either.
+Two observations from opposite directions of the same requirement.
+
+**And no document says why.** `[SC499]`'s only mention of the card's 16K RAM
+buffer in forty-two pages is the power-on test's LED assignment; `QIC-02` §4.2.8
+says a READ "following cartridge insertion or RESET shall commence at BOT" and
+nothing about a second transfer within one READ; Apollo's `08845` and
+`002398-04` defer to that standard. All four were read for this.
+
+So it is modelled as a **deliberate approximation**: `first_block_pending`,
+armed at init and reset, spent on the first block a READ hands over, cleared by
+BOT or RETENSION — what is doubled is the first block after a *reset*, not after
+every rewind. It sits on the **card** rather than the drive because the card is
+what holds a buffer and because the drive's contract, one block per
+`ap_qic_read_block`, is worth keeping clean. Putting it on the drive was tried
+first and made five `qic_suite` tests count a block they had no reason to know
+about, which is the tell that it was in the wrong place. The placement is a
+modelling choice, not a claim about which chip repeats the block.
+
+**`error: sysboot not found` is gone.** The run reaches its 900 M instruction
+limit with no error of any kind, `final PC 000037F2` in the tape read loop:
+
+    tape drive   block 31997 of 104841, selected, reading
+    dma1 ch1     mode 45, address 0125 (base 0000), count 00DA (base 01FF)
+
+The boot header check passed and the firmware is streaming the tape — 31,997
+blocks in, with a transfer in flight, having crossed the file marks at 16 and 22
+by issuing successive READs. **The first time this core has got past `EX
+DOMAIN_OS`.**
+
+*Verification: `tape_suite`, `dma_suite` and `board_suite` updated for the extra
+block, each saying why. Reference hash `1AE206D37D8A8D1F` → `5AF8B16F9BA4B7D0`,
+the board's half of a transfer joining the hashed state, with the report either
+side identical apart from two lines the new instruments print. Detail in
+`FINDINGS.md` C269.*
+
 ## A card cannot transfer a byte the drive never sent (2026-09-09)
 
 C266's fixes moved the cartridge boot's error from `FF` to **`36`**, which is a
@@ -5014,9 +5063,10 @@ is inline. Whether any executes on some *other* path is not settled by this, and
 does not need to be: what the boot shows is that giving them their documented
 effect changes nothing the reference run does.
 
-**`1AE206D37D8A8D1F` is the current reference hash** (2026-09-09; the table
-below is the lineage, and this line has named `4EAC44B176697CE7` and
-`FE2BB02AEF1F4624` in turn while rows were appended beneath it). Produced by
+**`5AF8B16F9BA4B7D0` is the current reference hash** (2026-09-09; the table
+below is the lineage, and this line has named `4EAC44B176697CE7`,
+`FE2BB02AEF1F4624` and `1AE206D37D8A8D1F` in turn while rows were appended
+beneath it). Produced by
 `tools/identity-boot.sh` on the release build. It differs from the hashes
 recorded earlier in this document because several commits have added or moved
 hashed state — the display controller's registers and palettes, the tape drive's
@@ -5042,7 +5092,20 @@ E577E1BC3A1071F8   + §2.4.6's refresh cycles, stolen from the processor
 C0C008BB82E7BD70   + `divider_held` and `dst_shifted` in the hash
 FE2BB02AEF1F4624   + the DUART's input-port change filter -- **and the clocks move**
 1AE206D37D8A8D1F   + the tape drive's `FIL` latch in the hash
+5AF8B16F9BA4B7D0   + the **board's** half of a tape transfer in the hash
 ```
+
+**The last row is the same kind of move as the one above it**, and checked the
+same way. The controller's registers and the drive's latches were hashed and the
+board's own transfer state was not — `status_valid`, the status block and its
+offset while one is in flight, and the card's outstanding repeat of the first
+block. Two machines differing only in how many of six status bytes the host has
+taken are two different machines. On the reference boot, which fits no
+cartridge, `status_valid` is false throughout and `first_block_pending` is true
+throughout, so the change adds two constant bytes to the stream; the report
+either side is **identical apart from two lines the new instruments themselves
+print** — the widened DMA register census showing the two addresses the
+twelve-entry version had been truncating, and the new `dma runs`.
 
 **The last row moves the number and nothing else, and that is checkable rather
 than arguable.** The identity boot fits no cartridge, so `file_mark` is false

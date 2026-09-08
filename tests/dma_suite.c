@@ -591,13 +591,18 @@ static void test_the_request_line_gates_a_block_not_a_word(void) {
 
   /* A byte costs about 278 bus ticks, so a whole cartridge of 1,024 of them
    * costs rather more than 4,096. */
-  for (unsigned i = 0; i < sizeof cartridge * 300u; i++) {
+  for (unsigned i = 0; i < (sizeof cartridge + AP_CT_BLOCK_SIZE) * 300u; i++) {
     dma_bus_tick(&dma_board);
   }
 
   /* It moved the cartridge and stopped: the count never reached terminal, and
    * the channel is still armed waiting for a line that has gone away. */
-  TEST_ASSERT_EQUAL_UINT(sizeof cartridge, dma_board.dma_transfers);
+  /* The cartridge plus one block: the first is handed over twice, which is
+   * `ap_tape_t::first_block_pending` -- measured from the firmware's own DMA
+   * programming, needed by a second implementation, and explained by no
+   * document. */
+  TEST_ASSERT_EQUAL_UINT(sizeof cartridge + AP_CT_BLOCK_SIZE,
+                         dma_board.dma_transfers);
   TEST_ASSERT_FALSE(ap_tape_dma_request(&dma_board.tape));
   TEST_ASSERT_EQUAL_UINT(0u, (unsigned)(dma_board.dma.controller[0].status &
                                         (1u << AP_DMA_TAPE_CHANNEL)));

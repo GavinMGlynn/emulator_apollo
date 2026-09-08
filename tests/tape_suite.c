@@ -332,7 +332,9 @@ static void test_a_read_the_drive_ends_also_ends_the_dma(void) {
   /* Run the two blocks of this cartridge out. `arm` builds no file mark, so
    * this is the end-of-tape half of the same event -- one signal to a host,
    * told apart by the status block. */
-  for (unsigned i = 1; i < AP_CT_BLOCK_SIZE * 2u; i++) {
+  /* Three blocks, not two: the cartridge holds two and the first is handed over
+   * twice. See `ap_tape_t::first_block_pending`. */
+  for (unsigned i = 1; i < AP_CT_BLOCK_SIZE * 3u; i++) {
     clock_now += ap_sc499_handshake_duration(AP_SC499_ENTRY_DATA_BLOCK);
     ap_tape_advance(&t, clock_now);
     (void)ap_tape_dma_read(&t);
@@ -441,7 +443,11 @@ static void test_running_off_the_end_raises_exception(void) {
   issue(&t, AP_QIC_CMD_SELECT);
   issue(&t, AP_QIC_CMD_READ);
 
-  for (unsigned i = 0; i < sizeof cartridge; i++) {
+  /* One block more than the cartridge holds, because the **first block is
+   * handed over twice** -- see `ap_tape_t::first_block_pending`, measured from
+   * the firmware's own DMA programming and needed by a second implementation,
+   * with no document explaining it. */
+  for (unsigned i = 0; i < sizeof cartridge + AP_CT_BLOCK_SIZE; i++) {
     (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u);
   }
   /* One past the end. `[SC499]`'s EXC comes "from LSI chip", and the end of a
@@ -456,7 +462,8 @@ static void test_ready_and_exception_are_never_both_asserted(void) {
   arm(&t);
   issue(&t, AP_QIC_CMD_SELECT);
   issue(&t, AP_QIC_CMD_READ);
-  for (unsigned i = 0; i < sizeof cartridge; i++) {
+  /* The cartridge plus the doubled first block; see the test above. */
+  for (unsigned i = 0; i < sizeof cartridge + AP_CT_BLOCK_SIZE; i++) {
     (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u);
   }
   (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u); /* past the end */

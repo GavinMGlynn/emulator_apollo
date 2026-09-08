@@ -15580,3 +15580,69 @@ from. **So the oracle is now fourth and due.** MAME boots this cartridge;
 `sc499.cpp` logging the tape block index against each DMAGO would say directly
 whether the real model delivers block 0 twice -- and that is a question about
 the *card*, which is exactly what the oracle is for.
+
+## C269 -- the first block is handed over twice, and the boot gets past `EX DOMAIN_OS`
+
+C268 ended with a measured fact and no mechanism: the SR10.4 boot PROM sets up
+sixteen transfers for `EX DOMAIN_OS` and **the first two name the same
+destination** -- translation-map page `43F6` with 8237 base `0000`, twice in a
+row, at `010FD800` -- with no BOT and no second READ between them. Blocks 1 to
+15 then land end to end from that address, so the second transfer is where block
+0 of the image belongs. *The host asks for block 0 twice.*
+
+### The oracle, fourth and due, reproduces it and does not explain it
+
+`sc499.cpp` carries `m_first_block_hack`, armed at reset and at `do_reset`,
+spent on one block, and cleared by the rewind-family commands. Its body:
+
+    if (m_first_block_hack)
+    {
+        // FIXME: we must read first block twice (in MD for 'di c' and 'ld' or 'ex ...')
+        // why is this necessary???
+        m_tape_pos = 0;
+    }
+
+So a second implementation, written independently and against the same firmware,
+needed exactly the behaviour this core's measurement demands -- and its author
+did not know why either. That is what raises this from a guess to a behaviour:
+two observations, from opposite directions, of the same requirement.
+
+### And no document says why
+
+`[SC499]`'s **only** mention of the card's 16K RAM buffer in forty-two pages is
+the power-on test's LED assignment, "DS2 - 16K RAM buffer logic". `QIC-02 Rev D`
+§4.2.8 says a READ "following cartridge insertion or RESET shall commence at
+BOT" and nothing about a second transfer within one READ. Apollo's `08845` and
+`002398-04` both defer to that standard. All four were read for this.
+
+### Modelled as a deliberate approximation, on the card
+
+`ap_tape_t::first_block_pending`: armed at init and reset, spent on the first
+block a READ hands over, and cleared by BOT or RETENSION -- so what is doubled
+is the first block after a *reset*, not after every rewind.
+
+It sits on the **card** rather than the drive for two reasons, and the placement
+is a modelling choice rather than a claim about which chip repeats the block.
+The card is what holds a buffer; and the drive's contract -- one block per
+`ap_qic_read_block` -- is worth keeping clean. Putting it on the drive was tried
+first and made **five `qic_suite` tests** count a block they had no reason to
+know about, which is the tell that it was in the wrong place.
+
+### What it does to the boot
+
+`error: sysboot not found` is **gone**. The run reaches its 900 M instruction
+limit with no error of any kind, `final PC 000037F2` in the tape read loop, and:
+
+    tape drive   block 31997 of 104841, selected, reading
+    dma1 ch1     mode 45, address 0125 (base 0000), count 00DA (base 01FF)
+
+**The boot header check passed** and the firmware is streaming the tape --
+31,997 blocks in, with a transfer in flight, having crossed the file marks at
+16 and 22 by issuing successive READs. That is the first time this core has got
+past `EX DOMAIN_OS`.
+
+*Verification: `tape_suite`, `dma_suite` and `board_suite` updated for the extra
+block, each saying why. The reference hash moves to `5AF8B16F9BA4B7D0` because
+the board's half of a transfer joins the hashed state -- `status_valid`, the
+status block while one is in flight, and this latch -- and the report either side
+is identical apart from two lines the new instruments print.*

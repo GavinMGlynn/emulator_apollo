@@ -6,6 +6,9 @@ void ap_tape_init(ap_tape_t *tape) {
   memset(tape, 0, sizeof *tape);
   ap_sc499_reset(&tape->controller);
   ap_qic_init(&tape->drive);
+  /* The same arming the reset gives, for the same reason: a drive that has just
+   * come up is at BOT. The two must not differ. */
+  tape->first_block_pending = true;
 }
 
 void ap_tape_reset(ap_tape_t *tape) {
@@ -18,6 +21,8 @@ void ap_tape_reset(ap_tape_t *tape) {
   tape->status_offset = 0u;
   tape->status_valid = false;
   tape->next_byte_at = 0u;
+  /* Armed by the reset, which is where the tape is at BOT. */
+  tape->first_block_pending = true;
 
   /* **Open: whether the controller asserts EXCEPTION at reset.** The drive
    * does hold a condition -- `ap_qic_reset` sets "power on/reset occurred",
@@ -101,6 +106,17 @@ bool ap_tape_load(ap_tape_t *tape, uint8_t *data, size_t size,
  * it here keeps the drive's interface honest about what a tape transfers. */
 static bool ensure_block(ap_tape_t *tape) {
   if (!needs_block(tape)) {
+    return true;
+  }
+  /* **The first block is handed over twice**, from the buffer rather than from
+   * the tape: the host asks for it twice and this is where a card with a buffer
+   * would answer the second time. See `ap_tape_t::first_block_pending` for the
+   * measurement, for the second implementation that needed the same thing, and
+   * for the fact that neither it nor any document says why. */
+  if (tape->first_block_pending && tape->block_valid) {
+    tape->first_block_pending = false;
+    tape->offset = 0u;
+    ap_sc499_block_boundary(&tape->controller);
     return true;
   }
   if (!ap_qic_read_block(&tape->drive, tape->block)) {
@@ -349,6 +365,12 @@ static void issue_command(ap_tape_t *tape, uint8_t command) {
    * two halves that disagree are worse than either answer. */
   if (command != AP_QIC_CMD_READ_STATUS) {
     tape->drive.status_pending = false;
+  }
+  /* A command that puts the tape back at BOT spends the duplicate rather than
+   * re-arming it: what is doubled is the first block after a *reset*, not the
+   * first block after every rewind. See `ap_tape_t::first_block_pending`. */
+  if (command == AP_QIC_CMD_BOT || command == AP_QIC_CMD_RETENSION) {
+    tape->first_block_pending = false;
   }
 }
 

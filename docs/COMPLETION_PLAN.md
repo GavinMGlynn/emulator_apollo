@@ -5129,32 +5129,26 @@ same number is what let them diverge once already.
       *last*, sixteen times, and `ap_i8237` honours the mask on pin requests —
       so no byte can move before the map and the address are set, with or
       without pacing, and the race described above does not exist.
-      *What is left, now measured to one boundary*: the board records the start
-      of every run of contiguous DMA writes, and the boot gives **`dma runs
-      010FD800 010FD800`** — two runs at the same address. 7,680 bytes is
-      fifteen blocks, so the second run is blocks 1–15 laid down contiguously
-      and the first is block 0 alone, overwritten by block 1. Blocks 1–15 end to
-      end require pages `F6 F6 F7 F7 … FC FC FD` with the base alternating,
-      which is exactly map writes 2–16 — so write 1 is an extra `F6` and **MD
-      programmed the same destination twice**, once for its first transfer and
-      once for block 0 of the load. Not a race and not an off-by-one here: the
-      host asked for the same address twice and this core's drive answered with
-      two different blocks, because a READ streams and nothing rewound.
-      **And the documents end here.** `[SC499]`'s only mention of the 16K RAM
-      buffer in 42 pages is the power-on test's LED; `QIC-02` §4.2.8 says only
-      that a READ "following cartridge insertion or RESET shall commence at
-      BOT". Neither says whether a real SC-499 hands the same block to two
-      consecutive DMAGOs, and **no BOT is issued** — the only command-register
-      writes in the run are `C0` and `80`. *So the oracle is fourth and now
-      due*: `sc499.cpp` logging the tape block index against each DMAGO answers
-      it directly, and it is a question about the card.
-      **What it unblocks**: a cartridge boot on this core, and with it the SAU 14
-      install that the DS5500 boot and the multi-node workloads item both want —
-      without borrowing the oracle. *The media is confirmed held*: `019593-001`
-      announces `VOL1SR10.4`, and `019594-002` carries `sau14` where every SR10.3
-      cartridge carries none.
-      *Verification: `DI C` / `EX DOMAIN_OS` reaches the install environment on
-      this core rather than reporting a tape status.*
+      **Closed by the oracle, fourth and due** (`FINDINGS.md` C269). The
+      firmware asks for block 0 **twice** — its first two transfers name the
+      same destination, `43F6`+`0000` at `010FD800`, with no BOT between them —
+      and `sc499.cpp` carries the same requirement as `m_first_block_hack` with
+      its own *"why is this necessary???"*. No document explains it: `[SC499]`'s
+      only mention of the 16K buffer in 42 pages is a POC LED, and `QIC-02`
+      §4.2.8 covers only a READ after insertion or RESET. Modelled as a
+      **deliberate approximation** on the card, `first_block_pending`, armed at
+      reset and spent on one block; putting it on the *drive* was tried first
+      and made five `qic_suite` tests count a block they had no reason to know
+      about.
+      **`error: sysboot not found` is gone.** 900 M instructions with no error
+      of any kind, `final PC 000037F2` in the tape read loop, `tape drive block
+      31997 of 104841, selected, reading` — the header check passed and the
+      firmware is streaming the tape, having crossed the file marks at 16 and 22
+      with successive READs. *The first time this core has got past `EX
+      DOMAIN_OS`.* Reference hash `1AE206D37D8A8D1F` → `5AF8B16F9BA4B7D0`, the
+      board's half of a transfer joining the hashed state, report otherwise
+      identical.
+      *What is left*: whether it finishes. A 4.29 G run is in flight.
 
 - [ ] **Three ring timeout status bits are defined and set by nobody.**
       `AP_RING_CTL_STATUS_TMO`, `AP_RING_CTL_XMIT_TMO` and `AP_RING_CTL_RCV_PE`
