@@ -4402,18 +4402,28 @@ discipline throughout.
       `M68000PRM` page images — and `CINVA BC` decodes to **`F4D8`**, the exact
       word in the ROM, so the page and the firmware agree. The same table takes
       **CAAR** away, which is modelled too.
-      *Result: 2 instructions and a dead handler become **50 M instructions**
-      and `Self tests in progress. / CPU Test # 7 started. / Memory Module 1
-      Test # 0 started.` — the firmware's own diagnostic suite, printing.*
-      **And it stalls somewhere useful**: Memory Module 2's test at `00002940`,
-      which is `019411-A00` §4.2.1.18's Memory Present Register — the *other*
-      open item that was waiting on this one, now reachable.
+      *Result: 2 instructions and a dead handler become **558 M instructions**
+      and the **whole** self-test suite — CPU, both memory modules, both
+      Winchester tests, `network driver search started...`, `--- Load paths
+      tested.` and `Loading SELF_TEST diagnostics from boot device.`, ending at
+      `Could not load /SAU14/SELF_TEST.` because the run was given no disk.*
+      **It is not stalled, and that first reading was mine and wrong**: `2940`
+      is `BTST #2,$2(A5)` / `BEQ.S -8`, a poll of channel B's `SRB` for `TxRDY`,
+      and the console runs at about **1200 baud** — ~52,000 instructions a
+      character. Runs at 5 M and 50 M print progressively more, which settled it
+      in one command. A final PC inside a wait loop is not a static machine.
       *Verification: `step_suite` 310 → 312; identity boot `FE2BB02AEF1F4624`
       and the ring ROM self-test byte-identical, since all three flags derive
       from `ap_cpu_t`. Detail in `PROJECT_STATUS.md`.*
-      **What is left**: the caches the invalidation should act on are a complete
-      module attached to no CPU, so the instruction is correctly a no-op; and
-      everything past the memory test. Neither is blocked on a document.
+      **And given a disk, `Drive 0  passed.`** — the firmware's own Winchester
+      test against a real image — then `Could not load /SAU14/SELF_TEST.`
+      **14 is the DS5500's SAU number** and the volume is a DN3500 installation
+      carrying *sau7*, so that is a **media** fact and the next step is an
+      install under SAU 14, not a core change.
+      **What is left in the core**: the caches the invalidation should act on
+      are a complete module attached to no CPU, so the instruction is correctly
+      a no-op; and a 68040 **MMU**, which the `.mmu` item also waits on. Neither
+      is blocked on a document.
 - [ ] **Table 4-6's added line, which cannot be implemented from what is held.**
       `PROVISIONAL`. The addendum says "On page 4-19, add the following line to
       Table 4-6: `PC ON/OFF — Physical Cache (DS4500 Only)`", and page 4-19 is
@@ -4751,9 +4761,8 @@ Only after the reference core is proven, and only under an identity harness.
       other side.
       **What would unblock it**: a 68040 **MMU**, so `.mmu` has something to
       select. The execution-core half is no longer the blocker — a DN5500 now
-      runs 50 M instructions and prints its firmware self-test
-      (`FINDINGS.md` C256) — so this is the next increment of the 68040 item
-      rather than a separate wait.
+      runs and prints its firmware self-test (`FINDINGS.md` C256) — so this is
+      the next increment of the 68040 item rather than a separate wait.
 
 - [ ] Real multi-node Domain workloads: distributed single-level store across
       nodes, `lcnode`, remote file access. *Verification: content finds what

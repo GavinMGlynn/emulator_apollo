@@ -14366,19 +14366,65 @@ a register the manual says it has not got.
 ### The result
 
     before   2 instructions, then vector 11, dead at 137
-    after    50,000,000 instructions, and:
+    after    558,352,817 instructions, and the **whole** self-test suite:
 
         Self tests in progress.
            CPU              Test # 7 started.
            Memory Module 1  Test # 0 started.
-           Memory Module 2  Test # 0 starte...
+           Memory Module 2  Test # 0 started.
+           Winchester Disk  Test # 0 started.
+           Winchester Disk  Test # 1 started.
+             Drive 0  (not found).
+             Drive 1  (not found).
+           CPU              Test # 8 started.
+           network driver search started...
+           above driver type loaded.
+           --- Load paths tested.
+           Loading SELF_TEST diagnostics from boot device.
+        Disk C8  FFFCFF  00  W
+
+           Could not load /SAU14/SELF_TEST.
+
+`(not found)` and `Could not load` are correct for a run given no disk. The
+firmware runs its CPU, memory and Winchester tests, loads a network driver,
+tests its load paths and reaches the boot loader -- on a machine that managed
+two instructions.
+
+**And given a disk it goes further, correctly.** The same PROM with
+`--disk media/dn3500-sr10.4-installed.awd`:
+
+    Winchester Disk  Test # 1 started.
+      Drive 0  passed.
+      Drive 1  (not found).
+    ...
+    Loading SELF_TEST diagnostics from boot device.
+    error: sysboot not found
+       Could not load /SAU14/SELF_TEST.
+
+**`Drive 0 passed.`** -- the firmware's own Winchester test runs against a real
+image and passes. What it then cannot find is `/SAU14/`, and that is a *media*
+fact rather than a core one: **14 is the DS5500's SAU number** and the volume it
+was given is a DN3500 installation, which carries **sau7**. This project already
+has the shape on record -- `sr10-3-bootable-cartridge` notes that only one
+cartridge has "both the block-0 descriptor and sau7".
+
+So the firmware is doing exactly the right thing with the media it has, and the
+step from here to a Domain/OS boot on a DS5500 is an **install under SAU 14**,
+not a core change. The strings `sau14` are present in the SR10.4 media, so the
+route exists.
 
 **A machine that could execute two instructions now runs its firmware's own
-diagnostic suite and prints it.** It stalls inside Memory Module 2's test at
-`00002940`, which is the next question and belongs to a *different* open item --
-`019411-A00` §4.2.1.18's DS5500 Memory Present Register, "each consecutive pair
-of bits identifying a slot". That item was recorded as waiting on a 68040 core;
-it is now reachable.
+diagnostic suite and prints it.**
+
+*This paragraph first said it "stalls inside Memory Module 2's test at
+`00002940`", and that was **my misreading**, corrected the same day.* `00002940`
+is `BTST #2,$2(A5)` / `BEQ.S -8` -- a poll of channel B's `SRB` waiting for
+`TxRDY` -- and the machine sits there because the console runs at about **1200
+baud**, roughly **52,000 instructions per character**. A final PC inside the
+transmit poll is what a machine printing slowly looks like, not a stall, and the
+discriminator took one command: the same run at 5 M and 50 M instructions prints
+`Memory ` and then two further complete lines. A static final PC is not evidence
+of a static machine when that PC is a wait loop.
 
 ### What is modelled, and the gap that is named rather than hidden
 
@@ -14441,6 +14487,6 @@ code first and then "confirming" it against the manual -- cannot fail.
 
 The item said "a 68040 execution core, so a DS5500 runs far enough to read a
 register and so `.mmu` has something to select". The first half is answered: a
-DN5500 now runs 50 M instructions and prints its self-test. The second needs a
-68040 **MMU**, which is the next increment of the 68040 item rather than a
-separate wait -- so the item now names that.
+DN5500 now runs and prints its self-test. The second needs a 68040 **MMU**,
+which is the next increment of the 68040 item rather than a separate wait -- so
+the item now names that.

@@ -438,12 +438,35 @@ summarised, with their reasoning moved to the end of this file.
 ## (2026-09-09)
 
     before   2 instructions, then vector 11, dead at 137
-    after    50,000,000 instructions, and:
+    after    558,352,817 instructions, and the whole self-test suite:
 
         Self tests in progress.
            CPU              Test # 7 started.
            Memory Module 1  Test # 0 started.
-           Memory Module 2  Test # 0 starte...
+           Memory Module 2  Test # 0 started.
+           Winchester Disk  Test # 0 started.
+           Winchester Disk  Test # 1 started.
+             Drive 0  (not found).
+             Drive 1  (not found).
+           CPU              Test # 8 started.
+           network driver search started...
+           above driver type loaded.
+           --- Load paths tested.
+           Loading SELF_TEST diagnostics from boot device.
+        Disk C8  FFFCFF  00  W
+
+           Could not load /SAU14/SELF_TEST.
+
+`(not found)` and `Could not load` are what a run given no disk should say.
+
+**And given one it goes further, correctly.** With
+`--disk media/dn3500-sr10.4-installed.awd` the Winchester test reports
+**`Drive 0  passed.`** — the firmware's own disk diagnostic running against a
+real image — and then `error: sysboot not found` / `Could not load
+/SAU14/SELF_TEST.` **14 is the DS5500's SAU number**, and the volume is a DN3500
+installation carrying *sau7*: a media fact, not a core one, and the same shape
+this project already records for the SR10.3 cartridge. The step from here to a
+Domain/OS boot on a DS5500 is an **install under SAU 14**.
 
 The first increment of the 68040 instruction core: the two instruction groups
 the DN5500's boot PROM reaches before anything else. `src/core/cpu/m68040/` was
@@ -462,9 +485,14 @@ ITT0/1, DTT0/1, MMUSR, URP, SRP — **and takes CAAR away**, footnoted "For the
 MC68020 and MC68030 only". A model that took only the additions would accept a
 register the manual says the part has not got.
 
-**Where it stalls is the useful part**: inside Memory Module 2's test at
-`00002940`, which is `019411-A00` §4.2.1.18's DS5500 Memory Present Register —
-a *different* open item, recorded as waiting on a 68040 core and now reachable.
+**It is not stalled, and the first reading of this was mine and wrong.**
+`00002940` is `BTST #2,$2(A5)` / `BEQ.S -8`, a poll of channel B's `SRB` waiting
+for `TxRDY`, and the machine sits there because the console runs at about **1200
+baud** — roughly **52,000 instructions per character**. The same run at 5 M and
+50 M prints `Memory ` and then two further complete lines, which settled it in
+one command. *A final PC inside a wait loop is not evidence of a static
+machine*, and the corrected claim is kept here because the mistake is the
+transferable part.
 
 *Verification: `step_suite` 310 → 312 — the control registers both ways with
 CAAR refused, and `CINV` executing only on a part that has it, privileged, with
