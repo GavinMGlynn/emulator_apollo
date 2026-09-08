@@ -4969,19 +4969,28 @@ same number is what let them diverge once already.
       *"tape unit is offline"* for the unselected condition. Three statements of
       one thing, and `ap_qic_exception_word` composes byte 0 `F0` in exactly one
       circumstance — `!selected`, where `USL` comes from.
-      **So the drive is being deselected.** The only thing in this model that
-      does that is a SELECT naming a drive other than `AP_QIC_THIS_DRIVE`'s
-      `0000 0001`, which is the code `[SC499]` §1.13.1 gives this card — and
-      selecting another drive is *refused*, leaving the selection alone, unless
-      the tape is at BOT (§5.2 cause e). So the sequence has to be a probe at
-      BOT, and what it does afterwards is the question.
-      *What it needs*: a watch on `050000` through the kernel phase, to see
-      which drive number Domain/OS selects and what it does after. The boot
-      phase's own sequence is already measured and is orderly — `C0` READ
-      STATUS, `80` READ, `C0`, **`A0` READ FILE MARK**, `80` — which is the
-      firmware using the file-mark command this session implemented, so the
-      kernel's traffic is the part still unseen. The run reaching it costs the
-      4.29 G ceiling.
+      **"So the drive is being deselected" — WITHDRAWN 2026-09-09, by the
+      measurement it asked for.** Watching every write to `050000` through
+      1.78 G instructions gives five commands from the PROM — `C0`, `80`, `C0`,
+      `A0`, `80` — and then three more `C0` READ STATUS, the last two from PCs
+      `3C4A4FB2` and `3C4A4AE2`, which is Domain/OS rather than the PROM.
+      **No SELECT is issued at any point.** Nothing else in this model clears
+      `selected`, and both `ap_qic_init` and `ap_qic_reset` set it, so the drive
+      cannot be deselected and byte 0 cannot be `F0` that way.
+      *The reading that replaces it, and it is a hypothesis rather than a
+      finding*: the kernel issues READ STATUS and does not receive the block, so
+      it reads the board's undriven `FF` — whose bits include `CNI`, `USL` and
+      `WRP`, the three that make §5.3 row 2's `11110000`. A host that gets `FF`
+      decodes "drive does not exist" from a drive that is present. The status
+      path is served on REQUEST edges (`FINDINGS.md` C264), and whether the
+      Domain/OS driver clocks it out the same way MD does is exactly what has
+      not been measured.
+      *What it needs*: a watch on `050000` **reads** through the kernel phase,
+      to see what the driver actually gets back — six status bytes or `FF`. The
+      write side is now measured and the PROM's own sequence is orderly, `C0`,
+      `80`, `C0`, **`A0` READ FILE MARK**, `80`, which is the firmware using the
+      file-mark command this session implemented and so corroborating it from
+      the machine rather than only from the media.
       *Verification: the environment comes up with its tape acquired.*
 
 - [ ] **Three ring timeout status bits are defined and set by nobody.**

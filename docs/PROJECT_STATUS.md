@@ -638,8 +638,22 @@ and one open question closed by walking §3.6.5 and §3.6.6 event by event.
 
 **What is not done**: the kernel's own tape driver cannot acquire the drive.
 `bad acquire tape … 280011` is module `28`, the cartridge tape manager, code
-`0011` — *No drive* — and `ap_qic_exception_word` composes that row exactly when
-`!selected`, so something is deselecting the drive. It has its own plan item.
+`0011` — *"drive does not exist"* on `002398-04` p. 82, `QIC-02` §5.3 row 2,
+byte 0 `11110000`.
+
+*The first reading of that was wrong and is withdrawn.* `ap_qic_exception_word`
+composes byte 0 `F0` only when `!selected`, so I said the drive was being
+deselected — and the watch that was meant to show which drive number Domain/OS
+selects shows that **no SELECT is issued at all**, through 1.78 G instructions.
+Nothing else clears `selected` and both the init and the reset set it, so the
+drive cannot be deselected and that cannot be the cause.
+
+What replaces it is a hypothesis, not a finding: the driver issues READ STATUS
+and does not receive the block, so it reads the board's undriven `FF` — whose
+bits include `CNI`, `USL` and `WRP`, exactly the three that make row 2's
+`11110000`. The status path is served on REQUEST edges, and whether the
+Domain/OS driver clocks it out the way MD does has not been measured. It has its
+own plan item.
 
 ## The first block is handed over twice, and the boot gets past `EX DOMAIN_OS`
 ## (2026-09-09)
