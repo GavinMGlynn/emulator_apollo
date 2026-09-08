@@ -43484,3 +43484,640 @@ diskless node's PROM broadcasts a partnership request, and a partner
 running `netman` with the client listed in `/sys/net/diskless_list`
 answers with `netboot` and then the OS image. That is a protocol project,
 but it is no longer an unnamed one.
+
+
+## A per-cycle processor
+## (moved from COMPLETION_PLAN.md on completion, 2026-09-08)
+
+The item's own record, kept verbatim: the scoping that found half of it already
+built, the increments in the order they landed, the two schedules' A/B, the
+`MOVEM` measurement that put a figure on the one approximation left, and every
+refuted hypothesis along the way. The outcome and its verification are
+summarised in the plan; the 2026-09-08 entries above carry the last of it.
+
+**A per-cycle processor.** `ap_m68030_step` runs a whole instruction, so
+Phase 3's tick advances every *device* against absolute time while the CPU
+is stepped by instruction — exact in device state, quantised in when a
+change is noticed, bounded by the longest instruction. "One `tick()` per
+machine cycle" read literally wants the processor split the same way.
+It is here rather than in Phase 3 because it is a rewrite of the run loop
+under everything already built on it, and this phase is the one that
+begins "only under an identity harness". Rewriting first and checking
+afterwards is the mistake the whole phase exists to avoid.
+*Verification: probe goldens and boot state hashes byte-identical across
+the change, which is this phase's standard and not a weaker one.*
+**Scoped 2026-08-17, and the shape is not what the item assumes.** The
+**bus is already cycle-accurate**: `ap_m68030_bus_t` carries S0-S5,
+`advancing_to_s4`, and ECS/OCS/AS/DS/DBEN as `[030]` §7.3 names them,
+plus burst and RMC, and `ap_m68030_bus_tick()` advances **one clock**.
+What is instruction-granular is the *sequencer*, not the bus.
+**The obstacle is that the bus runs inline.** `ap_m68030_access.c:334` and
+`ap_m68030_cache.c:317` each construct a **local** bus (`&write_bus`,
+`&bus`) and tick it to completion inside one access, so its cycles are
+invisible to the machine's tick. Per-cycle stepping therefore means
+hoisting bus ownership into `ap_m68030_cpu_t` and letting the machine
+drive `bus_tick`, not writing a cycle model — that part exists.
+**Increment 1 is ALREADY BUILT, and this text was describing it as work
+to do.** Checked in the source, not inferred: `ap_m68030_access.h:241`
+has `ap_m68030_bus_t bus` as a field of the access context,
+`ap_m68030_access.c:310` takes `&access->bus`,
+`ap_m68030_cache_read` already takes the bus as a parameter
+(`ap_m68030_cache.h:319`), and the machine owns two long-lived contexts
+set up once in `ap_machine_init` (`ap_machine.h:334-335`,
+`ap_machine.c:600`). `ap_m68030_bus_begin` still clears the bus per
+access, which is not a gap -- each access is a new bus cycle on the part,
+and the increment was about where the storage lives.
+**So the next increment is the real one**: `ap_m68030_access.c:329` and
+`ap_m68030_cache.c:313` both loop `while (ap_m68030_bus_active(...))` and
+tick to completion inside one access, so the machine cannot drive
+`bus_tick` until an instruction can *stop* inside an access. That is a
+resumable sequencer, and it is the rewrite this item is actually about.
+**And it has a prerequisite it did not know about** (`FINDINGS.md` C152):
+four parts -- disk, tape, keyboard, graphics -- date deadlines from a
+stored `now` that only `ap_board_advance` refreshes, so any schedule that
+stops advancing the board once per instruction must carry those cursors
+or the disk completes its commands early. Detail in `FINDINGS.md` C154.
+**Step 1a is DONE**: the write path's bus now lives in
+`ap_m68030_access_ctx_t` and `ap_m68030_access_write` uses it instead of a
+local. Behaviour-neutral by construction — `ap_m68030_bus_begin` assigns
+every field except `rmc`, which it documents as deliberately preserved and
+which the caller sets immediately before, so a persisting bus is identical
+to the fresh local it replaces. No signature changed.
+*Verification: `ctest` 138/138, identity boot `A354786119A3931D`
+unchanged.*
+**Step 1b's bundling is DONE, 2026-09-08, and option (b) was taken.**
+`ap_m68030_cache_read` took **ten parameters** across **twelve call sites**
+(`ap_m68030_access.c` and `tests/cache_suite.c`), so the eleventh this item
+needs would have been poor design rather than merely tedious. The argument
+list is now `ap_m68030_cache_request_t`, so the next parameter costs one
+field and no call site. It also removes a hazard the function's own comment
+records: `address` and `physical` were adjacent `uint32_t`s that are
+**equal whenever the MMU is off**, so transposing them is invisible to
+every test in `cache_suite` — which is how the read path once fetched from
+the logical address for real. Named fields cannot be transposed.
+*Verification: `ctest` 140/140 both presets and the identity boot
+**`FE2BB02AEF1F4624` unchanged** — behaviour-neutral by measurement, not
+by inspection.*
+**And 1b's other half was already done — checked, not assumed.** The
+sentence above first read "what remains is giving the read path the access
+context's persistent bus"; it has one. `ap_m68030_access.c` passes
+`&access->bus` to `ap_m68030_cache_read` and `write_bus` is
+`&access->bus` too, so **both paths already share the one bus field**
+§7.3.6's "the synchronous read-modify-write operation is **indivisible**"
+says is correct, and neither constructs a local. Step 1 is finished.
+*This is the fourth time in two sessions that an open item described work
+already done*, which is why the check came before the code.
+**And a correctness question with it**: whether the read path shares
+`ap_m68030_access_ctx_t`'s bus or gets its own field. They are never live
+simultaneously — a read-modify-write is a read *then* a write — so one bus
+is defensible and would match the hardware, which has one. **Settled from §7.3.6, page 7-54**: "Like the
+asynchronous operation, the synchronous read-modify-write operation is
+**indivisible**", and "the burst mode is never used during
+read-modify-write cycles". Indivisible means nothing interleaves between
+the read and the write, so the two are strictly sequential and never
+concurrent — **one bus field is correct**, shared by both paths, which is
+also what the hardware has. RMC then spans the pair naturally, since
+`ap_m68030_bus_begin` preserves it across a `begin`, and the explicit
+`rmc` copy in the write path becomes redundant rather than load-bearing.
+So 1b is: give `ap_m68030_cache_read` access to the same
+`ap_m68030_access_ctx_t` bus, and delete its local.
+**And the twelve call sites are one plus eleven**: exactly one is
+production — `ap_m68030_access.c:182` — and the other eleven are
+`tests/cache_suite.c`. So the behavioural change is a single line, and the
+churn is entirely in a suite that already constructs its own caches.
+**STEP 1 IS DONE.** `ap_m68030_cache_read` takes the bus as its second
+parameter, its local is gone, and the one production caller passes
+`&access->bus` — so both paths now share the single bus §7.3.6 requires,
+and **no `ap_m68030_bus_t` local remains in the core**. The eleven test
+sites pass a named `g_test_bus`.
+*Verification: `ctest` 138/138, identity boot `A354786119A3931D`
+unchanged — the criterion this increment exists to meet.*
+**Increment (2) is not achievable as written, and the scouting says so
+before anyone starts.** `ap_m68030_step` is the tail of a **6,966-line**
+`ap_m68030_step.c`, entered at `5946`, and it sequences an instruction in
+ordinary nested C — calls, loops, switches. "Give it a resumable state"
+means one of: rewriting it as an explicit state machine (the whole file);
+coroutines (not in C); a fiber or thread per CPU (heavyweight, and it
+trades a determinism guarantee this project is built on); or re-executing
+an instruction on resume (invalid — instructions have side effects before
+they commit).
+**The alternative that meets the item's actual purpose**: keep `step`
+atomic, but have it *report its cycle timeline* — the bus is already
+cycle-accurate and now owned by the access context, so the cycles exist —
+and let the machine distribute those cycles to devices at the instants
+they occurred. That gives per-cycle device visibility without a resumable
+CPU. **Its one limitation, stated rather than discovered**: it still
+cannot express a device output feeding back into an instruction *still
+executing*, which is the case the tick-loop item names as the reason to
+want a cycle-steppable CPU at all. So this is a real narrowing of the
+item, not a free win, and taking it is a decision to record explicitly.
+**And the alternative is smaller than it sounds, because the per-clock
+delivery already exists.** `ap_machine.c:839` calls
+`ap_board_bus_ticks(board, last_instruction_clocks)`, and that loops the
+arbiter **one clock at a time**, batching only where the board can prove
+the ticks identical — no DMA able to ask and an idle arbiter. So the
+machine is not quantised in *resolution*; it is quantised in *ordering*,
+because those clocks are charged **after** the instruction, as the comment
+there says: "clocks that already happened".
+That reframes increment (2)/(3): not "invent a cycle timeline" but "move
+the existing per-clock delivery from after the instruction to during it".
+The bus already knows when each cycle happened, and after step 1 it
+survives the access. What is missing is a record of *which* clock each
+cycle fell on, and a `bus_ticks` call sited to consume it.
+**Increment 2a is DONE: the one-instruction lag is gone.**
+`ap_board_bus_ticks` was charged with `last_instruction_clocks` *before*
+the step, so every bus cycle reached the arbiter **one instruction late**
+— the total right, the ordering wrong. It now runs after the step, for the
+instruction that just ran.
+*Verification: `ctest` 138/138, identity boot `A354786119A3931D`
+unchanged.* That the hash does not move is itself the measurement this
+item wanted: the two schedules agree on everything this boot exercises,
+which is what the tick-loop item asserted and had not shown.
+**What still blocks true intra-instruction delivery**: `bus_ticks`
+receives the instruction's **whole** clock count, internal cycles
+included, not just bus cycles. Delivering per access would change the
+total the arbiter sees unless the internal clocks are delivered too, and
+the CPU does not currently report when those elapse. So (3) needs the
+sequencer to emit a clock timeline, not merely the accesses to call back.
+**Scoped, and tractable.** 117 sites accumulate clocks across the CPU, but
+only **37 are `cpu->clocks`** directly; the rest are local accumulators
+(`out.clocks`, `result.clocks`, `bus->clocks`) folding into those. So the
+timeline is one helper `ap_m68030_charge(cpu, n, kind)` that accumulates
+*and* appends, one bounded per-instruction buffer on `ap_m68030_cpu_t`,
+and 37 mechanical replacements. The bound is the longest instruction — a
+`DIVS` at ~150 clocks — so a fixed array cannot overflow on a real
+program, and a dropped-entry counter proves that rather than assuming it.
+**3a is DONE.** `ap_m68030_charge(cpu, n)` is the single accumulation
+point — every site that wrote `cpu->clocks` directly now goes through it,
+so the timeline cannot drift from the total — and it appends to a
+256-entry per-instruction buffer on `ap_m68030_cpu_t`, reset at the top of
+`ap_m68030_step`. `clock_events_dropped` is run-long and deliberately not
+reset per instruction, since resetting it would hide the one case it
+exists to catch.
+*Verification: `ctest` 138/138, identity boot `A354786119A3931D`
+unchanged*, which is what "emits and consumes nothing" predicts.
+**3a emitted and consumed nothing, and was provably neutral**: a record
+nothing reads cannot change behaviour, so the identity hash must not move
+— and if it does, the helper changed something it should not have. The
+buffer is deliberately unhashed until 3b.
+**3b is DONE**: `ap_machine_run` walks the timeline, advancing the bus in
+the order the processor spent the clocks rather than in one lump at the
+end. The total is identical by construction — `ap_m68030_charge` is the
+only accumulator, so the entries sum to `clocks` — with a fallback to the
+batched call if `clock_events_dropped` is ever non-zero.
+**And the hash still does not move**: `A354786119A3931D`, clocks
+identical at 1,497,270,792, `ctest` 138/138. This was the increment where
+a moved golden would have been a *finding*, so an unmoved one is the
+finding instead — over a 350 M-instruction boot, per-charge ordering and
+end-of-instruction batching are **indistinguishable**. That is the
+tick-loop item's claim ("the two schedules agree on everything measured so
+far") demonstrated rather than assumed.
+**What is still not reached**: a device output feeding back into an
+instruction *still executing*.
+**But it does NOT need a resumable sequencer, and that is the finding.**
+Resumability is only wanted where an instruction *observes* the machine —
+a bus access — because between accesses the CPU is internal and can see
+nothing. And at an access the CPU need not suspend: what is required is
+that the **devices be advanced to that instant** before the access
+completes.
+**The hook already exists.** `ap_machine.c:594` sets
+`.wait_states = machine_wait_states` on the access context, and that
+callback is invoked *during* every access with the physical address. It
+takes a `const ap_machine_t *` today, so it cannot advance anything — but
+the mid-instruction instant is computable there, since `cpu.clocks` is
+live and 3a's timeline records how they were spent.
+So the remaining half is: drop the `const`, advance devices to
+`now + duration(clocks spent so far)` at that callback, and the processor
+observes an up-to-date machine mid-instruction. **No state machine, no
+coroutines, no threads, and no rewrite of the 6,966-line file.** **Both risks were checked and refuted from
+the source**: `ap_board.h` names neither `cpu` nor `m68030` and
+`ap_board_advance` takes only a board and a time, so devices cannot
+re-enter the CPU; and `ap_board_access_time` is `const`, deriving from
+`ap_atbus_timing` and the *address*, so advancing devices cannot change
+the answer that triggered the advance.
+**IMPLEMENTED, and the identity hash MOVED — which is the finding.**
+`A354786119A3931D` -> `27AAE57F4EF4E97E`, **clocks identical at
+1,497,270,792**, `ctest` 138/138. Identical clocks say execution timing is
+unperturbed; the difference is device *state*, because devices now advance
+to the instant each access happens rather than to the instruction
+boundary. That is exactly what this half of the item is for.
+**So the "byte-identical" criterion cannot apply to this increment, and
+that needs a decision rather than a silent re-bless.** It was written for
+the ordering half, where it held five times running. The options are to
+re-bless the goldens deliberately with this change named as the reason, or
+to keep the old schedule behind a flag and run the two as an A/B.
+**Resolved as an A/B rather than a re-bless.** The new schedule is behind
+`machine.devices_advance_mid_access`, **default off**, exposed as
+`--mid-access-devices`. So every golden stands unchanged — the default
+boot is `A354786119A3931D` again — and the new schedule is opt-in.
+A flag rather than a replacement because the two are *observably
+different* and this project does not know which matches the hardware:
+same boot, same clocks, different device state. Replacing the schedule
+would be choosing an answer where the oracle can measure one, and this
+core expects to out-accurate MAME on exactly that kind of question.
+**The A/B is now runnable in one command each**, which is what makes the
+oracle comparison a next step rather than a project.
+**And the A/B has a cost dimension, not only a correctness one.** The
+mid-access schedule calls `ap_board_advance` on *every access* rather than
+once per instruction, and the B run of the identity boot was still going
+well after the A run had finished. **RETRACTED: the >119x below was my own bug, not a cost.** The
+`--mid-access-devices` flag was added inside
+`for (int i = 1; i < argc;)` — a loop with **no increment in its header**,
+where every branch must advance `i` itself — and the new branch did
+`continue` without one. B never ran slowly; it **hung in argument
+parsing**. A `perf` profile said `__strcmp_avx2` **81.18%** with `main` as
+the caller, which is not a shape any emulation cost can have, and that is
+what found it.
+**The real figures, fixed and re-measured**: 50 M instructions in
+**4.9 s** default against **5.3 s** mid-access — **1.08x** — and the state
+hashes are *identical* at `80899FCE206623A1`. **And they agree at 350 M too**: the mid-access
+boot is `A354786119A3931D`, identical to the default, in 37 s against the
+default's ~35 s.
+**Which explains the earlier `27AAE57F4EF4E97E` and retires it.** That
+reading came from advancing *every* device at *every* access, RAM
+included. Advancing only the device an access actually reaches — what
+`ap_board_advance_one` does, and all the correctness argument ever
+licensed — is **indistinguishable from the boundary schedule** over 350 M
+instructions. The earlier divergence was devices being dragged forward by
+accesses that never touched them, which is not more accurate, only
+different.
+**So the feedback half is done, and its result is a negative one**: with
+the bus cycle-accurate, the timeline walked, and devices advanced at the
+instant an access reaches them, this machine's 350 M boot is byte-for-byte
+what instruction-boundary batching produced. The per-cycle item's premise
+— that the two schedules "do not agree in general" — remains true in
+principle and is **unobserved here**, which is worth more than another
+assertion of it.
+**Which also means `ap_board_advance_one` was built to fix a cost that did
+not exist.** It is correct and default-neutral, so it stays, but the plan
+no longer claims it was needed. Two lessons, both this project's own:
+profile before optimising, and a figure that extreme is a bug in the
+instrument before it is a fact about the program.
+**The superseded claim follows.** The
+default schedule runs 50 M instructions in **5.0 s**; the mid-access
+schedule **did not finish the same run in 595 s**, so the ratio is a lower
+bound rather than a figure. `ap_board_advance` walks every device, and
+calling it per *access* instead of per instruction is the whole cost.
+**So B as implemented cannot be a default, and probably cannot be a
+routine measurement either** — a 350 M identity boot would be days. If the
+oracle shows B is the truer schedule, the work is not "switch the flag"
+but "advance only the device being accessed, or advance lazily", which is
+a design item of its own — **and its correctness argument is already
+written, in `ap_board_advance`'s own comment**: *"Order does not matter
+and must not: two devices advanced to the same absolute time cannot
+influence each other through the advance itself, which is what makes this
+a tick rather than a schedule."*
+If devices cannot influence each other *through the advance*, then
+advancing **only the device being accessed** is equivalent for that
+access. The rest catch up at the instruction boundary exactly as now, and
+interrupts are unaffected because the 68030 samples them at instruction
+boundaries anyway — which this same item established rather than assumed.
+So the design is `ap_board_advance_one(board, address, now)`, dispatching
+by region to the per-device advances that already exist
+(`ap_timer_advance`, `ap_calendar_advance`, …), called from
+`machine_wait_states` in place of the whole-board walk. The >119x is paid
+per access across *every* device; this pays it on one.
+**IMPLEMENTED, and it did not help.** `ap_board_advance_one` dispatches by
+region — RAM and PROM advance nothing, `SIO`/`CALENDAR`/`DISK`/`TAPE` reach
+one device each, and the other thirteen regions are *listed* rather than
+defaulted so `-Wswitch-enum` makes a new region a compile error instead of
+a silent fallback. Default behaviour is unchanged (50 M in **5.7 s**, hash
+`80899FCE206623A1`, `ctest` 138/138), since it is only used on the
+mid-access path.
+**But B still does not finish 50 M in 590 s.** The lazy advance was
+supposed to be the fix and is not, so the cost is **not** the per-device
+walk — which was the assumption behind the whole optimisation.
+**Diagnose before optimising again**, and this time measure rather than
+reason: whether `machine_wait_states` is even reaching `advance_one` on
+the hot path, whether `ap_board_region`'s lookup is itself the cost at one
+call per access, and what `perf` says the profile actually is. The
+previous guess cost an implementation; the profile costs one run.
+That the figure is a lower bound is deliberate: the run was cut at 595 s
+rather than left to complete, because because `CLAUDE.md` allows the
+reference core to be slow but this is the run loop and the cost is paid on
+every access for the whole life of the project.
+**Three things the oracle comparison needs, then**: which schedule matches
+the hardware, what B costs, and whether any *probe* golden separates them
+— the boot hash does, but a probe that separates them would localise the
+difference to a device rather than leaving it as a whole-machine hash. The bus now advances mid-instruction, but
+the processor cannot yet observe it mid-instruction — that needs the
+resumable sequencer increment (2) showed to be a rewrite of a 6,966-line
+file.
+**But a cycle-steppable processor is buildable without any of those four,
+and 3a is why.** The timeline already records an instruction's clocks in
+order, so a machine-level tick entry point (to be added)
+can **run one instruction ahead and hand its cycles out one at a time** — draining `clock_events` — instead of
+suspending the sequencer.
+**Its approximation, named up front**: the CPU's *internal* state commits
+at the instruction's start rather than progressively across its cycles.
+Everything outside the CPU — bus, arbiter, devices, interrupts — sees a
+true per-cycle machine, which is what "one `tick()` per machine cycle" is
+written for. The 350 M A/B is evidence the distinction is unobservable
+here: advancing devices at access instants already gave a byte-identical
+boot.
+**Cost to build**: `ap_machine_run`'s body splits into "execute one
+instruction" and "consume one cycle", with `pending_cycles` and an index
+on `ap_machine_t`; `ap_machine_run` becomes a loop over that tick. The identity harness is the check and the goldens must
+not move — a tick loop that reorders nothing must reproduce
+`A354786119A3931D` exactly.
+**BUILT.** `ap_machine_tick` advances the machine by exactly one machine
+cycle: a tick with nothing pending runs one instruction ahead and then
+hands its clocks out one at a time, `pending_cycles` at a time, with
+`defer_cycle_delivery` telling `ap_machine_run` to leave that delivery to
+the caller.
+**Additive rather than a rewrite**, which is why it landed without
+breaking the core loop: both fields are inert unless the tick is used, so
+the instruction-stepped path is byte-for-byte what it was.
+*Verification: `ctest` 138/138 and identity boot `A354786119A3931D`
+unchanged.*
+**DRIVEN AND VERIFIED.** `--cycle-stepped` runs the boot one machine cycle
+at a time through the tick instead of one instruction at a time, and the
+two produce **byte-identical state**: `9E6CD6DA5B9DD8A8` at 20 M and
+**`A354786119A3931D` over the full 350 M boot**, `ctest` 138/138, all
+reachable frontend flags exercised.
+**So the machine now steps by machine cycle, and it is the same machine.**
+That is the item's central claim demonstrated rather than designed — and
+the path is exercised rather than merely present, which is what
+`check_what_is_called_by_nobody` warns about and what a hash from a flag
+nothing drove would have hidden.
+**The one approximation, named and unhidden**: the CPU's *internal* state
+commits at the instruction's start rather than progressively across its
+cycles. Everything outside the CPU — bus, arbiter, devices, interrupts —
+sees a true per-cycle machine. Closing that last gap is the 6,966-line
+sequencer rewrite, and the 350 M A/B says nothing on this machine can
+currently tell the difference.
+**And the case that *would* tell the difference is nameable**, which turns
+the approximation from vague into testable. Nothing inside the CPU is
+visible to anything else, so the only observer is a **second bus master
+taking the bus part-way through a multi-transfer instruction** — a DMA
+cycle landing between two of `MOVEM`'s writes would see half the registers
+stored on real hardware and either none or all of them here.
+**Two reasons it does not bite today, both already established**: `RMC`
+makes a read-modify-write indivisible and refuses arbitration for its
+duration (`[030]` §7.3.6, and `ap_m68030_arb` implements it), so the
+RMW case is closed by the hardware's own rule; and the 350 M boot's DMA
+never lands inside a `MOVEM`, which is why the A/B is byte-identical.
+**So the test to write before the rewrite** forces DMA to take the bus
+mid-`MOVEM` and asserts what memory holds — **and it cannot be a probe**.
+`ap_probe_run` executes over flat caller-owned RAM with **no board**, so
+there is no arbiter and no DMA controller to contend with; probes are a
+CPU-only harness by construction.
+**Nor does a suite host it yet.** `master_suite` covers the AT bus-master
+handshake at signal level — cascade, `MASTER_L`, `DACK`, `AEN` — and
+`arbiter_suite`/`dma_suite` likewise. None of them runs a *CPU
+instruction* while a master holds the bus, which is the whole of what this
+test needs.
+**And the scaffolding cannot be built as a test at all, because the board
+has no bus master to build it from.** `ap_board_t` owns an
+`ap_arbiter_t` and **no `ap_master_t`**: the master model exists, is
+tested at signal level by `master_suite`, and is **connected to no
+board**. So nothing in this core can currently make an external master
+contend with the processor, and the `MOVEM` test has nothing to assert
+against.
+That is the `check_what_is_called_by_nobody` pattern again — a complete,
+green-suited module wired to nothing — and it is a **core gap in its own
+right**, independent of the per-cycle item: a DN3500 with an AT bus master
+cannot presently take the bus from the CPU at all.
+**Step one is DONE**: `ap_board_t` now owns an `ap_master_t`, and it is
+ticked wherever the arbiter is — all three sites — against
+`board->dma.controller[0]`. A module that was complete, green-suited and
+**attached to nothing** is now attached, so a board finally has a second
+claimant for its bus.
+*Verification: `ctest` 138/138 and identity boot `A354786119A3931D`
+unchanged, which is what an **idle** master must do — it stays idle until
+something asserts `DRQ`, so a board with no card in a master-capable slot
+behaves exactly as before.*
+**And it is attached and exercised.** `ap_board_attach_master(board, unit,
+channel, drq)` records what a card announces — passed rather than fixed,
+because this board's DMA cascade wiring has not been measured and
+inventing a pairing would put a number in the core no document backs.
+`board_suite` then drives the wiring itself: idle before attach, idle
+after attach, and `REQUESTING` one board tick after `DRQ` — so the board's
+own clock is shown to reach the port, which is the whole of what the
+wiring claims.
+*Verification: `board_suite` 54 -> 55, `ctest` 138/138, identity boot
+`A354786119A3931D` unchanged.*
+**And it is acknowledged on the board's own clock.** With
+`board->dma.controller[0]`'s channel put in cascade mode and unmasked —
+`[8237]` Figure 6's register 11, then register 10 — the port reaches
+`ACKNOWLEDGED` under `ap_board_bus_ticks`. `board_suite` asserts the
+negative first: requesting is *not* winning, and a port that reached
+`ACKNOWLEDGED` without the channel programmed would be granting a bus
+nobody offered.
+**So a DN3500 now has a real second claimant for its bus**, which it did
+not before, and `ap_master_t` is exercised through a board rather than a
+rig of its own.
+*Verification: `board_suite` 55 -> 56, `ctest` 138/138, identity boot
+`A354786119A3931D` unchanged.*
+**What remains for the `MOVEM` test**: a master that *owns* the bus while
+the processor is mid-instruction.
+**And attempting it found a contradiction worth chasing.** `master_suite`
+is explicit that "acknowledged is not owned" — the adapter is *offered*
+the bus and takes it by asserting `MASTER.L` — and asserts
+`!ap_master_owns_bus` immediately after `ACKNOWLEDGED`. On a **board**,
+after `ap_board_bus_ticks(32)` with `DRQ` held, `ap_master_owns_bus` is
+already **true** with `MASTER.L` never asserted.
+**Read `ap_master.c`, and both readings are wrong — which makes the
+observation the interesting part.** `AP_MASTER_OWNS` is reached only by
+`if (port->master_l && in_cascade(port, dma))`, and `ap_master_init`
+**memsets the port**, so `master_l` is false after
+`ap_board_attach_master`. The model and `master_suite` agree with each
+other; the board observation agrees with neither.
+So something in the board path is not what it appears: either the port
+being ticked is not the one being asserted on, or `master_l` is set by
+something unlooked-for, or the run did not use the binary it appeared to.
+**RESOLVED: there was never an anomaly.** The failing line was the *last*
+assertion, not the first — `owns_bus` is correctly false at
+`ACKNOWLEDGED` and correctly true after `MASTER.L`. What failed was my own
+final assertion that *"releasing MASTER.L ends the tenure"*, which
+`ap_master.c` contradicts in a comment I had already read and not applied:
+**"until it releases the DRQx and MASTER.L signals" — both.** Dropping
+`MASTER.L` alone leaves the tenure standing, the mirror of
+`master_suite`'s `releasing_drq_alone_does_not_give_the_bus_back`.
+So the model, `master_suite` and `008778-03` §2.4.7 all agreed throughout;
+the wrong thing was a comment I wrote from assumption. **Step 4 is done**:
+a master attached to a board is acknowledged, takes the bus on `MASTER.L`,
+and holds it until *both* lines drop — asserted on the board's own clock.
+*Verification: `board_suite` 56 tests, `ctest` 138/138, identity boot
+`A354786119A3931D` unchanged.*
+**A real defect was found on the way, though**, and it was mine: `ap_master_tick` was inserted by string replacement, and
+`"  ap_arbiter_tick"` is a substring of `"    ap_arbiter_tick"`, so both
+replacements fired at the two indented sites and the master was **ticked
+twice per clock**. It compiled and every test passed, because an idle
+master does nothing twice as readily as once — which is exactly how a
+wiring defect hides behind a green suite.
+Collapsed to one call per arbiter tick, three sites, `ctest` 138/138,
+identity boot unchanged. **The `owns_bus` anomaly should now be re-tested
+against the fixed wiring before anything is concluded from it.**
+*(Original guidance, still sound:* — a two-assertion test
+that attaches, ticks, and prints the state — because an unexplained
+observation that contradicts both the source and an existing suite is
+more likely a fault in the experiment than a fault in the model, and this
+session has already produced one of those (the `>119x` that was an
+argument-parsing hang).
+The attempted test was reverted rather than adjusted: patching the
+assertion to match the behaviour would have buried exactly this.
+**Step 5, now unblocked and specified.** Build a machine with a board,
+attach a master, put its channel in cascade and unmask it, stage a
+`MOVEM.L` storing several registers to RAM, and make the master take the
+bus *while that instruction is executing*. Assert what memory holds.
+**The expected result is all-or-nothing**, and the test must be written so
+that this is a *finding* rather than a pass: our CPU runs whole
+instructions, and `ap_machine_run`'s arbitration stall is checked
+**between** instructions, so a master cannot land inside a `MOVEM`. On
+real hardware it can, and would leave some registers stored and others
+not.
+**The trap to avoid**: a test that merely runs a `MOVEM` with a master
+requesting will pass trivially, because the master never wins mid-
+instruction and memory is whole. It has to assert that the master *owned
+the bus* across the instruction boundary — `ap_master_owns_bus` true
+before and after — or it proves nothing. Run it under **both** stepping
+modes; if they agree, the approximation is consistent, and the number of
+registers stored is the figure the sequencer rewrite would change.
+**MEASURED, and both "defects" below were misreadings of my own test.**
+Probing `arbiter->master` either side of the run gives
+`owns=1 master=3 may_run=0` **before and after, unchanged**. So the
+master's claim *does* reach the arbiter, `ap_board_processor_may_run` *is*
+false, and the tenure *does* survive the run — (b) is simply wrong, and
+(a)'s premise ("nothing translates ownership into a claim") is wrong too.
+**What actually happens**: `ap_machine_run`'s stall is
+`while (!ap_board_processor_may_run(...) && stalled < AP_MACHINE_STALL_LIMIT)`
+— **bounded**. The processor waits, hits the limit, and proceeds anyway.
+So a held bus delays the CPU by a fixed cap rather than stopping it, which
+is a deliberate anti-hang measure and not a wiring gap.
+**That is a real and different finding**: a master can hold the bus
+indefinitely on this hardware, and this core will run the processor after
+`AP_MACHINE_STALL_LIMIT` clocks regardless. **And its own comment answers it**: "Not a
+timeout: a master that never releases the bus is a broken machine, and a
+reference core that spun forever inside a bounded run would turn that into
+a hung harness instead of a visible fault... Generous enough that no real
+transfer reaches it."
+So 4096 is a documented anti-hang guard, not a hardware figure — and **the
+test was the unrealistic thing, not the model**. It held the bus
+indefinitely, which is precisely the "broken machine" the guard exists to
+make visible.
+**So the `MOVEM` test asserts the hold, with a bounded tenure.** Take the
+bus, run the machine for well under 4096 clocks, assert the processor made
+no progress and memory is untouched; release both lines, run again, assert
+the whole transfer landed. That is a realistic transfer and it exercises
+the stall rather than the guard — and the all-or-nothing result it should
+then show is the per-cycle approximation this whole chain was built to
+measure.
+**Written, and it gets three assertions of four.** The tenure is real —
+`owns_bus` true and `processor_may_run` **false**, so the arbiter has
+genuinely granted mastership away — and a held bus costs the processor
+`>= AP_MACHINE_STALL_LIMIT` clocks for one instruction. The stall is
+*demonstrated*, which no earlier attempt in this thread managed.
+Two corrections on the way, both test-side: the handback takes clocks
+exactly as winning the bus did (two ticks is not enough, sixty-four is),
+and asserting the PC never moved would have been asserting the anti-hang
+guard rather than the stall.
+**And it passes.** The readback was the last obstacle and it was a
+harness question, as suspected: board tests read the **flat `ram[]`
+array**, not `ap_machine_read` at a mapped address — the pattern was
+already in `machine_suite` at line 263 and I had reached for the wrong
+one.
+**So the measurement is taken.** A cascaded AT master, taken to ownership
+on the board's own clock, makes `ap_board_processor_may_run` false and
+costs the processor `AP_MACHINE_STALL_LIMIT` clocks for a single
+instruction; with both lines dropped the bus returns and the `MOVEM.L`
+lands **whole** — all four registers, never part of the transfer.
+**That is the per-cycle approximation measured rather than asserted**, and
+the figure the sequencer rewrite would change is now on record: four
+registers of four. On real hardware a tenure beginning between two of the
+transfer's cycles would leave some subset stored; this core cannot express
+that, and now has a test that says so in those terms.
+*Verification: `machine_suite` 55 -> 56, `ctest` 138/138, identity boot
+`A354786119A3931D` unchanged.*
+**The superseded reading follows, kept because the route to it matters.**
+A `MOVEQ`/`MOVEA`/`MOVEM.L D0-D3,(A0)`/`STOP` program, with a cascaded
+master taken to `owns_bus` on the board's own clock, then run:
+**(a) an owning master does not stall the processor.** The PC advanced
+`01000100` -> `01000116` — the whole program — while the tenure stood.
+`ap_machine_run` has the stall ("the processor is the lowest-priority
+claimant of a bus somebody else is holding", `[030]` §7.7) and a master
+that owns the bus does not trigger it: `ap_master_owns_bus` is the port's
+own state and **nothing translates it into a claim the arbiter grants
+away**, so the CPU never loses.
+**(b) the tenure does not survive the run.** After
+`ap_machine_run(&machine, 32)` the master no longer owns the bus, with
+`DRQ` and `MASTER.L` both still asserted — so something in the board's
+own ticking drops it.
+**The test was reverted rather than bent to pass**, because a red suite is
+this project's stop-everything condition and an assertion trimmed to the
+observed behaviour would have buried both. Fix (a) and (b) first — they
+are wiring defects in the step-1-to-4 work, not the per-cycle
+approximation — then this test measures what it was written for.
+**Where (a) has to be fixed, traced**: the stall consults
+`ap_board_processor_may_run`, which is exactly
+`ap_arbiter_processor_may_run(&board->arbiter)`. So a master's tenure only
+stops the processor if it becomes **a claim the arbiter grants away**, and
+`ap_master_tick` does raise one — `holding = state == ACKNOWLEDGED ||
+state == OWNS`, passed to the arbiter on `port->drq`. The next read is
+therefore why that claim does not make `ap_arbiter_processor_may_run`
+false: whether the line needs enabling, whether the arbiter ranks it below
+the processor, or whether the DRQ number chosen by
+`ap_board_attach_master` is not a line the arbiter arbitrates. **Read, and it narrows to one question.**
+`ap_arbiter_processor_may_run` is
+`ap_m68030_arb_processor_is_master(&arbiter->cpu) && arbiter->master ==
+AP_ARBITER_PROCESSOR` — two conditions, and the manual's §7.7.3 window is
+why. So the processor stalls only when `arbiter->master` is **not** the
+processor.
+And the master *did* reach `ACKNOWLEDGED`, which `master_suite` says can
+only happen once arbitration has been won — so the arbiter granted, and
+then either handed mastership back during `ap_machine_run`'s own board
+ticking, or never set `arbiter->master` away from the processor in the
+first place. **Those two are distinguishable by printing `arbiter->master`
+either side of the run**, which is where this goes next and is a smaller
+question than any so far. It is also the same question as (b): a tenure
+that ends without either line dropping is one the arbiter took back.
+**Then the rest of the order**:
+*then* the `MOVEM`-versus-DMA test becomes writable; *then* it decides
+whether the sequencer rewrite is worth its cost. Three items, and the
+first was not previously known to be missing. If it passes under
+both stepping modes the approximation is invisible even to the case built
+to catch it; if it fails, that is the first evidence the sequencer rewrite
+is worth its cost — and better evidence than the item's own assertion.
+**Passed the bus explicitly at all twelve rather than defaulting a NULL to
+a local.** A NULL fallback would cost zero test edits and is the tempting
+shortcut, but from increment (3) the bus is *resumable state*, and a test
+that does not name the bus it ran on is a test that cannot check one.
+Better to pay the eleven edits now, while they are trivial, than to hide
+the parameter that the last increment depends on. Do it as its own
+commit with `ctest` and the identity boot before anything in (2).
+**Adding the field is hash-safe, checked**: `ap_m68030_hash_cpu`
+(`ap_m68030_state.c:234`) walks **named fields** — `regs`, `tc`, `crp`,
+`srp`, `tt0`, `tt1`, `mmusr` — not the struct's bytes, so a new member is
+invisible to the identity hash until deliberately hashed. **Which raises
+the design question step 1 must answer**: hash the hoisted bus, or not.
+While it is still ticked to completion inline it is always idle at an
+instruction boundary, so hashing it adds only zeros and cannot move a
+golden; from increment (3) the CPU can stop *mid-cycle*, and then the bus
+is real state a resumed run must agree on. Add it to the hash at (3), not
+before, and say so in that commit; (2) give `ap_m68030_step` a resumable state so it
+can return mid-access; (3) add `ap_m68030_cycle()` beside it and let the
+machine call that, with `step` kept as a loop over it; (4) switch the
+board's run loop. Only (4) can change interleaving, and only (4) needs
+the goldens re-blessed if it does — which the item says it must not.
+- [x] **The verification above had gone stale, and is restored** (2026-09-08).
+  `--cycle-stepped` had diverged from the default -- 2,890,014 clocks and
+  a different final PC -- because **nothing ran the A/B**: `ap_machine_tick`
+  had one caller, a frontend flag no test and no CI job passes. Three
+  defects fixed: the tick path never asserted `RMC`, it delivered the
+  arbitration stall's clocks twice, and `ap_board_bus_ticks`'s batching
+  shortcut was not equivalent to the loop it replaced even at n = 1. The
+  shortcut is removed, at a measured 1.16x on the reference boot.
+  *Verification: 350 M, default and `--cycle-stepped` both
+  `FE2BB02AEF1F4624` -- the same machine again with the golden unmoved;
+  `machine_suite` 58 -> 60 drives `ap_machine_tick` for the first time and
+  `board_suite` 78 -> 79 fails on the old code. Detail in
+  `PROJECT_STATUS.md`; `FINDINGS.md` C254.*
+- [ ] **What the tick loop item deferred here**, so that the two are read
+  together. Phase 3's loop advances each device to an absolute instant
+  once per instruction, every device carrying its own remainder, and
+  ticks the bus per clock. The two schedules agree on everything measured
+  so far — remainders are carried, and the 68030 samples interrupts at
+  instruction boundaries anyway — and they do **not** agree in general,
+  wherever a device's output would feed back into an instruction still
+  executing. That case is what a cycle-steppable CPU makes reachable, and
+  it is the reason to want one beyond speed.
