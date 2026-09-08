@@ -5665,6 +5665,7 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
   if (board->tape.drive.loaded) {
     const ap_qic_t *drive = &board->tape.drive;
     const ap_sc499_t *card = &board->tape.controller;
+    const ap_tape_t *tape = &board->tape;
     printf("  tape drive   block %llu of %llu%s%s%s%s\n",
            (unsigned long long)drive->position,
            (unsigned long long)ap_ct_blocks(&drive->image),
@@ -5677,6 +5678,26 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
      * copy, because this function holds the board `const` and a register read
      * is allowed to be a mutation even where this one is not. */
     ap_sc499_t sampled = *card;
+    /* **The board's half of the transfer**, which the two lines around it left
+     * out and which is what a stalled exchange turns on. `EXC` asserted with
+     * the drive's own `exs` at zero says the *controller* holds a condition the
+     * drive does not -- and whether a status block is still open decides
+     * whether the host's next rising REQUEST is read as a command or as a byte
+     * acknowledge, which is the difference between a command completing and one
+     * never being issued. `FINDINGS.md` C264 is what that costs when it is
+     * wrong, and this run could not tell the two apart. */
+    if (tape->status_valid) {
+      printf("  tape board   status block **open**, byte %u of %u:"
+             " %02X %02X %02X %02X %02X %02X; first block %s\n",
+             tape->status_offset, AP_QIC_STATUS_BYTES, tape->status_block[0],
+             tape->status_block[1], tape->status_block[2],
+             tape->status_block[3], tape->status_block[4],
+             tape->status_block[5],
+             tape->first_block_pending ? "still owed" : "spent");
+    } else {
+      printf("  tape board   no status block open; first block %s\n",
+             tape->first_block_pending ? "still owed" : "spent");
+    }
     printf("  tape card    status %02X, control %02X%s%s%s%s, exs %04X\n",
            ap_sc499_read(&sampled, AP_SC499_CONTROL_STATUS),
            card->control, card->ready ? ", ready" : "",
