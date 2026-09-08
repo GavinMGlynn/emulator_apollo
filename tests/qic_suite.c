@@ -305,9 +305,19 @@ static void test_writing_is_refused_rather_than_discarded(void) {
   TEST_ASSERT_TRUE(ap_qic_command(&locked, AP_QIC_CMD_SELECT));
   TEST_ASSERT_FALSE(ap_qic_command(&locked, AP_QIC_CMD_WRITE));
 
-  /* WRITE FILE MARK stays refused: a raw block image has no file marks in it,
-   * so there is nothing to write one into. */
-  TEST_ASSERT_FALSE(ap_qic_command(&q, AP_QIC_CMD_WRITE_FILE_MARK));
+  /* **WRITE FILE MARK writes one**, and the assertion it replaces -- "a raw
+   * block image has no file marks in it, so there is nothing to write one
+   * into" -- was founded on a measurement nobody had made. A mark is one whole
+   * block of `DEAFFAED`, and §3.6.7's figure says the controller generates it:
+   * "CONTROLLER WRITES **INTERNALLY GENERATED** FILE MARK ON TAPE". */
+  const uint64_t before = q.position;
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_WRITE_FILE_MARK));
+  TEST_ASSERT_EQUAL_UINT64(before + 1u, q.position);
+  TEST_ASSERT_TRUE(ap_ct_block_is_file_mark(&q.image, before));
+
+  /* And the read-only cartridge refuses it, exactly as it refuses a WRITE: the
+   * media is what cannot take it, not the command. */
+  TEST_ASSERT_FALSE(ap_qic_command(&locked, AP_QIC_CMD_WRITE_FILE_MARK));
 }
 
 /* The two "lost" opcodes, recovered from the same manual.
@@ -625,12 +635,108 @@ static void test_an_unimplemented_command_latches_illegal_until_read(void) {
   TEST_ASSERT_EQUAL_HEX16(
       0u, (uint16_t)(ap_qic_exception_word(&q) & AP_QIC_EXS_ILLEGAL));
 
-  /* And a *known* command that is merely refused is not illegal: WRITE FILE
-   * MARK is recognised and declined for want of file marks in a `.ct`, which
-   * §5.2 does not make a cause. */
-  TEST_ASSERT_FALSE(ap_qic_command(&q, AP_QIC_CMD_WRITE_FILE_MARK));
+  /* And a *known* command that is merely refused is not illegal: ERASE is
+   * recognised and declined because it would rewrite a distribution image,
+   * which §5.2 does not make a cause. (WRITE FILE MARK stood here until file
+   * marks were found in the format and it became implementable.) */
+  TEST_ASSERT_FALSE(ap_qic_command(&q, AP_QIC_CMD_ERASE));
   TEST_ASSERT_EQUAL_HEX16(
       0u, (uint16_t)(ap_qic_exception_word(&q) & AP_QIC_EXS_ILLEGAL));
+}
+
+/* **A READ ends at a file mark, and this format has them.**
+ *
+ * `ap_qic` said in four places that "a `.ct` is a raw block image with no file
+ * marks in it" and refused READ FILE MARK and WRITE FILE MARK on that ground.
+ * The marks are there: one whole 512-byte block of the repeated word
+ * `DEAFFAED`, on every cartridge in the distribution, at exactly the positions
+ * ANSI tape labelling requires. `image/ap_ct.h` carries the measurement.
+ *
+ * `QIC-02 Rev D` §3.6.6 T38 is the consequence -- "CONTROLLER SETS EXCEPTION"
+ * at the mark -- with §5.2 byte 0 bit 0, "FIL - File Mark Detected bit is set
+ * when a File Mark is detected during a Read Data or Read File Mark Sequence.
+ * The bit is reset by a Read Status Sequence."
+ *
+ * Without it a READ never ends, and the SR10.4 boot firmware read its 16-block
+ * boot image and ran straight on through the mark, the ANSI label group and the
+ * whole 104,815-block data file. `FINDINGS.md` C266. */
+static void test_a_read_ends_at_a_file_mark(void) {
+  ap_qic_t q;
+  uint8_t block[AP_CT_BLOCK_SIZE];
+  load(&q);
+  /* Block 1 of three is the mark, so there is a block of data either side of
+   * it and the position can be seen to land between them. */
+  for (unsigned i = 0; i < AP_CT_BLOCK_SIZE; i++) {
+    image[AP_CT_BLOCK_SIZE + i] =
+        (uint8_t)(AP_CT_FILE_MARK_WORD >> (8u * (3u - (i & 3u))));
+  }
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT));
+  /* Asked once already, which is the drive every row of §5.3's summary
+   * describes -- otherwise `POR` is still standing and the row cannot match. */
+  clear_power_on(&q);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ));
+
+  /* The first block is the file, and comes out. */
+  TEST_ASSERT_TRUE(ap_qic_read_block(&q, block));
+  TEST_ASSERT_EQUAL_HEX8(0x00u, block[0]);
+
+  /* The mark is not delivered -- it is structure, not data -- and it ends the
+   * read. A host given it would load 512 bytes of `DEAFFAED`. */
+  TEST_ASSERT_FALSE(ap_qic_read_block(&q, block));
+  TEST_ASSERT_FALSE(q.reading);
+  TEST_ASSERT_TRUE(q.file_mark);
+  /* Past it, so the next READ begins the next file. That is what makes a
+   * multi-file tape readable one file at a time. */
+  TEST_ASSERT_EQUAL_UINT64(2u, q.position);
+
+  /* And `FIL` travels alone: §5.3's "Filemark read" row is byte 0 `100X0001`
+   * with byte 1 `00000000`, unlike `NDT`, which brings `UDA` and `BNL`. */
+  check_summary("filemark read", ap_qic_exception_word(&q), 0x81u, 0x81u, 0x00u,
+                0xFFu);
+
+  /* Reported once. §5.2: "The bit is reset by a Read Status Sequence." */
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
+  uint8_t status[AP_QIC_STATUS_BYTES];
+  TEST_ASSERT_TRUE(ap_qic_read_status(&q, status));
+  TEST_ASSERT_TRUE((status[0] & (uint8_t)(AP_QIC_EXS_FILE_MARK >> 8)) != 0u);
+  TEST_ASSERT_FALSE(q.file_mark);
+
+  /* The next READ starts where the mark left the tape, so the third block --
+   * the second file -- comes out. */
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ));
+  TEST_ASSERT_TRUE(ap_qic_read_block(&q, block));
+  TEST_ASSERT_EQUAL_HEX8((uint8_t)((AP_CT_BLOCK_SIZE * 2u) & 0xFFu), block[0]);
+}
+
+/* **READ FILE MARK spaces forward to the next one.**
+ *
+ * `QIC-02 Rev D` §4.2.9 and §3.6.8: the drive "reads data blocks until file
+ * mark block found", then asserts EXCEPTION. So it moves the tape and delivers
+ * nothing, and what it leaves behind is `FIL` and a position past the mark.
+ *
+ * It was refused here on the same false premise the READ was: that the format
+ * has no marks to find. */
+static void test_read_file_mark_spaces_to_the_next_one(void) {
+  ap_qic_t q;
+  load(&q);
+  for (unsigned i = 0; i < AP_CT_BLOCK_SIZE; i++) {
+    image[AP_CT_BLOCK_SIZE + i] =
+        (uint8_t)(AP_CT_FILE_MARK_WORD >> (8u * (3u - (i & 3u))));
+  }
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT));
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_FILE_MARK));
+  TEST_ASSERT_EQUAL_UINT64(2u, q.position);
+  TEST_ASSERT_TRUE(q.file_mark);
+  /* No data phase: §3.6.8 delivers nothing, so nothing is armed to deliver. */
+  TEST_ASSERT_FALSE(q.reading);
+
+  /* And off the end without one is §5.4 item 8's "READ ERROR, NO DATA - No
+   * recorded data found on tape", not a refusal: the command was executed and
+   * what it found is in the status block. */
+  clear_power_on(&q);
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_FILE_MARK));
+  TEST_ASSERT_EQUAL_UINT64(3u, q.position);
+  TEST_ASSERT_TRUE(q.no_data);
 }
 
 /* ## `QIC-02 Rev D` §5.3 rows 8-10, the reads that find blank tape
@@ -785,6 +891,8 @@ int main(void) {
   RUN_TEST(test_reading_off_the_end_reports_end_of_media);
   RUN_TEST(test_every_reachable_status_summary_row_is_reproduced);
   RUN_TEST(test_an_unimplemented_command_latches_illegal_until_read);
+  RUN_TEST(test_a_read_ends_at_a_file_mark);
+  RUN_TEST(test_read_file_mark_spaces_to_the_next_one);
   RUN_TEST(test_a_read_past_the_last_block_reports_no_data_and_end_of_media);
   RUN_TEST(test_the_no_data_latch_is_reset_by_the_status_read);
   RUN_TEST(test_the_two_status_counters_are_cleared_by_the_status_read);

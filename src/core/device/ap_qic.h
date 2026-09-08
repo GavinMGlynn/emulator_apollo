@@ -44,10 +44,16 @@
  * successful on media that cannot take it would let an installation appear to
  * succeed, which is what refusing outright used to guard against.
  *
- * WRITE FILE MARK and ERASE are still refused, and for a reason that has not
- * changed: a `.ct` is a raw block image with no file marks in it, so there is
- * nothing to write one *into*, and ERASE is a whole-cartridge operation whose
- * effect a distribution image should not silently take.
+ * WRITE FILE MARK **is implemented**, on a writable cartridge. It was refused
+ * for a reason that turned out to be false -- "a `.ct` is a raw block image
+ * with no file marks in it" -- and a mark is one whole block of the repeated
+ * word `DEAFFAED`, measured on every cartridge in the distribution and sitting
+ * where ANSI tape labelling requires. `image/ap_ct.h` carries the measurement
+ * and states its limits.
+ *
+ * ERASE is still refused, and for a reason that has not changed: it is a
+ * whole-cartridge operation whose effect a distribution image should not
+ * silently take.
  */
 
 #ifndef APOLLO_DEVICE_AP_QIC_H
@@ -116,16 +122,28 @@ typedef enum {
  * Figure 1-10, which shows the *protocol* and not the payload, and the sentence
  * is on the command's own page instead.
  *
- * The layout is three 16-bit fields, **least significant byte first**, and that
- * comes from two implementations rather than from the conventional QIC-02
- * layout, which `COMPLETION_PLAN.md` explicitly refused as a source:
+ * **The layout is six numbered bytes, most significant half of each field
+ * first**, and this comment said the reverse until 2026-09-09. `QIC-02 Rev D`
+ * §5.1's STATUS BYTE SUMMARY numbers BYTE 0 and BYTE 1 and puts the counters in
+ * BYTE 2/3 and BYTE 4/5; `002398-04` p. 12-5 numbers the counters a line each,
+ * "Tape Status Byte 2 = high byte of data error counter" and so on.
+ *
+ * The old claim -- "three 16-bit fields, least significant byte first" -- came
+ * from two *implementations* rather than from either standard, and **the
+ * sentence does not survive the journey**:
  *
  *   - Linux `tpqic02.h`: `struct tpstatus { unsigned short exs, dec, urc; }`
  *     with `sizeof(short)==2, LSB first` -- exception flags, data error count
  *     ("nr of blocks rewritten/soft read errors"), underrun count ("nr of times
- *     streaming was interrupted").
+ *     streaming was interrupted"). Linux reads the wire into a little-endian
+ *     `unsigned short`, so **byte 0 arriving first lands in the low half** of
+ *     its `exs`. `ap_qic_exception_word` composes the opposite way round, so
+ *     copying the byte order across without the endianness reversed it.
  *   - The oracle's `sc499.cpp`, which keeps exactly these three as
  *     `m_tape_status`, `m_data_error_counter` and `m_underrun_counter`.
+ *
+ * The firmware settled it: reading `89` -- `ST1 | BOM | POR` -- as byte 0 gave
+ * `ST0 | EOM | FIL` and a boot error. `FINDINGS.md` C264.
  *
  * The exception word's bits are the oracle's transcription of the drive's two
  * status bytes, byte 0 in the high half and byte 1 in the low. Only the ones
@@ -240,6 +258,21 @@ typedef struct {
 
   /* A READ STATUS has been issued and its six bytes not yet taken. */
   bool status_pending;
+  /* `QIC-02 Rev D` §5.2, status byte 0 bit 0: "**FIL** - File Mark Detected bit
+   * is set when a File Mark is detected during a Read Data or Read File Mark
+   * Sequence. The bit is reset by a Read Status Sequence."
+   *
+   * `AP_QIC_EXS_FILE_MARK` was defined here and **set by nobody**, because this
+   * file said four times that "a `.ct` is a raw block image with no file marks
+   * in it". It is not: a mark is one whole block of the repeated word
+   * `DEAFFAED`, measured on every cartridge in the distribution and sitting at
+   * exactly the positions ANSI tape labelling requires. `image/ap_ct.h` carries
+   * the measurement and its limits.
+   *
+   * Latched rather than derived, like `power_on` and `illegal_command`, and for
+   * the same reason: the mark is an *event* on the tape, and the position has
+   * moved past it by the time a host asks. */
+  bool file_mark;
   /* "Power on/reset occurred", which survives until a status read reports it --
    * that is how a driver distinguishes a drive it has already talked to from
    * one that has just come up. */

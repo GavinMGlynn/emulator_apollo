@@ -58,6 +58,10 @@ void ap_qic_reset(ap_qic_t *qic) {
   /* Same rule, same reason: `NDT` reports the read that has just failed, and a
    * reset means there is no such read to report. */
   qic->no_data = false;
+  /* And `FIL`, in §5.2's own words for byte 0 bit 0: "The bit is reset by a
+   * Read Status Sequence." A mark reported twice would have a host believe it
+   * had reached the end of two files. */
+  qic->file_mark = false;
 
   /* `SC499_ST1_POR`, "power on/reset occurred". Set by the reset and cleared
    * only by the status read that reports it. */
@@ -260,10 +264,33 @@ bool ap_qic_command(ap_qic_t *qic, uint8_t command) {
     qic->status_pending = true;
     return true;
   case AP_QIC_CMD_READ_FILE_MARK:
-    /* Recognised, and refused: a file mark is a structure within the tape
-     * format, and a raw block image carries no marks to find. Answering
-     * "found one" or "reached the end" would both be inventions. */
-    return false;
+    /* **Implemented, and the refusal it replaces was founded on a measurement
+     * nobody made.** "A raw block image carries no marks to find" -- it carries
+     * three on the boot cartridge and up to forty-one on the others, each one
+     * whole block of `DEAFFAED`. `image/ap_ct.h` has the evidence.
+     *
+     * `QIC-02 Rev D` §4.2.9 and §3.6.8: the drive "reads data blocks until file
+     * mark block found", then asserts EXCEPTION. So the command *moves the
+     * tape* and delivers nothing, and what it leaves behind is `FIL` and a
+     * position past the mark. */
+    if (!qic->selected || !qic->loaded) {
+      return false;
+    }
+    qic->reading = false;
+    qic->writing = false;
+    while (qic->position < ap_ct_blocks(&qic->image)) {
+      const bool mark = ap_ct_block_is_file_mark(&qic->image, qic->position);
+      qic->position++;
+      if (mark) {
+        qic->file_mark = true;
+        return true;
+      }
+    }
+    /* Off the end without finding one, which §5.4 item 8 is the report for:
+     * "READ ERROR, NO DATA - No recorded data found on tape." The command was
+     * accepted and executed; what it found is in the status block. */
+    qic->no_data = true;
+    return true;
   case AP_QIC_CMD_WRITE:
     /* §1.13.1: "When the WRITE command is issued the device requests and
      * transfers data." A cartridge loaded writable takes it; a read-only one
@@ -274,11 +301,30 @@ bool ap_qic_command(ap_qic_t *qic, uint8_t command) {
     qic->writing = true;
     qic->reading = false;
     return true;
-  case AP_QIC_CMD_WRITE_FILE_MARK:
-    /* Still refused, and the reason has not changed: a `.ct` is a raw block
-     * image with no file marks in it, so there is nothing to write one into.
-     * Answering "written" would be inventing a structure the format lacks. */
-    return false;
+  case AP_QIC_CMD_WRITE_FILE_MARK: {
+    /* **Implemented**, for the same reason READ FILE MARK is: the format has
+     * marks, and one is a whole block of `DEAFFAED`. A read-only cartridge
+     * refuses, exactly as WRITE does -- the media, not the command, is what
+     * cannot take it.
+     *
+     * §3.6.7's own figure is why the mark is written and nothing else is:
+     * "CONTROLLER WRITES **INTERNALLY GENERATED** FILE MARK ON TAPE", so the
+     * host supplies no content and there is no data phase to arm. */
+    if (!qic->selected || !qic->loaded || !qic->image.writable) {
+      return false;
+    }
+    uint8_t mark[AP_CT_BLOCK_SIZE];
+    for (unsigned i = 0; i < AP_CT_BLOCK_SIZE; i++) {
+      mark[i] = (uint8_t)(AP_CT_FILE_MARK_WORD >> (8u * (3u - (i & 3u))));
+    }
+    if (!ap_ct_write_block(&qic->image, qic->position, mark)) {
+      return false;
+    }
+    qic->position++;
+    qic->reading = false;
+    qic->writing = false;
+    return true;
+  }
   }
   /* A code outside `[SC499]` §1.13's set entirely. The set has no holes left in
    * it, so reaching here means the host sent something the drive never had. */
@@ -287,6 +333,31 @@ bool ap_qic_command(ap_qic_t *qic, uint8_t command) {
 
 bool ap_qic_read_block(ap_qic_t *qic, uint8_t *out) {
   if (!qic->reading || !qic->loaded || !qic->selected) {
+    return false;
+  }
+  /* **A READ ends at a file mark**, which is `QIC-02 Rev D` §3.6.6's T38,
+   * "CONTROLLER SETS EXCEPTION", and §5.2 byte 0 bit 0, "FIL - File Mark
+   * Detected bit is set when a File Mark is detected during a Read Data or Read
+   * File Mark Sequence".
+   *
+   * The mark is not delivered as data: it is a structure, not a block of the
+   * file, and a host given it would put 512 bytes of `DEAFFAED` into whatever
+   * it was loading. The position moves past it so the *next* READ starts at the
+   * next file, which is what makes a multi-file tape readable one file at a
+   * time.
+   *
+   * Returning false is what the caller turns into EXCEPTION -- `ap_tape_read`
+   * already does that for the end of the tape, and the two are the same signal
+   * to a host, distinguished by the status block: `FIL` here, `NDT` there.
+   *
+   * **This is what the SR10.4 boot cartridge was failing on.** With no marks,
+   * a READ never ended: the firmware read the 16-block boot image and ran
+   * straight on through the mark at block 16, the ANSI label group, and the
+   * whole 104,815-block data file. `FINDINGS.md` C266. */
+  if (ap_ct_block_is_file_mark(&qic->image, qic->position)) {
+    qic->file_mark = true;
+    qic->position++;
+    qic->reading = false;
     return false;
   }
   if (!ap_ct_read_block(&qic->image, qic->position, out)) {
@@ -388,6 +459,13 @@ latches:
      * supplied. */
     exs |= AP_QIC_EXS_NO_DATA | AP_QIC_EXS_DATA_ERROR | AP_QIC_EXS_NO_BLOCK;
   }
+  if (qic->file_mark) {
+    /* §5.3's "Filemark read" row, byte 0 `100X0001` and byte 1 `00000000`: the
+     * mark travels **alone**, unlike `NDT`. It is not an error -- it is the
+     * structure the tape is made of -- and the row prints no byte-1 bit beside
+     * it. */
+    exs |= AP_QIC_EXS_FILE_MARK;
+  }
 
   /* The two summary bits, and they follow **one** rule rather than two.
    * `QIC-02 Rev D` §5.2: each byte's bit 7 "is set if any other bit in" that
@@ -450,6 +528,10 @@ bool ap_qic_read_status(ap_qic_t *qic, uint8_t out[AP_QIC_STATUS_BYTES]) {
    * brings with it -- `UDA` and `BNL` -- are each reset by a status read too. */
   qic->illegal_command = false;
   qic->no_data = false;
+  /* And `FIL`, in §5.2's own words for byte 0 bit 0: "The bit is reset by a
+   * Read Status Sequence." A mark reported twice would have a host believe it
+   * had reached the end of two files. */
+  qic->file_mark = false;
   /* And so are the two counters. §5.2 says it once for each: of `DEC`, "These
    * bytes shall be cleared by a Read Status Sequence", and of `URC` the same
    * sentence again. They read as zero here either way; clearing them is what

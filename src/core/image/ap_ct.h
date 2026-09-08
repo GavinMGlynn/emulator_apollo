@@ -118,6 +118,52 @@ typedef struct {
 
 [[nodiscard]] uint64_t ap_ct_blocks(const ap_ct_t *ct);
 
+/* ## File marks, which this format was said not to have
+ *
+ * `ap_qic.h` and `ap_qic.c` asserted in four places that "a `.ct` is a raw
+ * block image with no file marks in it", and refused READ FILE MARK and WRITE
+ * FILE MARK on that ground. **The marks are there.** Measured 2026-09-09 across
+ * every cartridge in `media/domainos/`: a file mark is one whole 512-byte block
+ * of the repeated big-endian word `DEAFFAED`, and nothing else in 562,616
+ * blocks matches it.
+ *
+ * The boot cartridge's three sit exactly where ANSI tape labelling puts them,
+ * which is what turns a magic number into a structure:
+ *
+ *     0-15        SYSBOOT boot image (block 0's header gives 7,868 bytes)
+ *     16          FILE MARK
+ *     17-21       VOL1 / UVL1 / HDR1 / HDR2 / UHL1
+ *     22          FILE MARK
+ *     23-104837   the data file, records 00000001 .. 0001996F
+ *     104838      FILE MARK
+ *     104839-40   EOF1 / EOF2
+ *
+ * and the four software cartridges carry the same convention with no SYSBOOT in
+ * front, so their label group is blocks 0-4 and their first mark is block 5.
+ * They hold 11 to 41 marks each, separating the files of the distribution.
+ *
+ * **The value is measured, not documented.** `QIC-02 Rev D` §2 defines a file
+ * mark as "an identification mark following the last block in a file" and never
+ * says what is recorded; the mark's *representation* is a property of the media
+ * and of whoever wrote it. What makes the reading safe is not the pattern but
+ * its placement: three blocks in 104,841, at the three positions an ANSI
+ * labelled tape requires, on five images. A `.ct` written by some other tool
+ * with another convention would have its marks unrecognised here, and that is
+ * the honest limit of this.
+ *
+ * The consequence is not cosmetic. `QIC-02` §3.6.6's T38 has the controller
+ * assert EXCEPTION at a file mark and §5.2 byte 0 bit 0 is `FIL`, "File Mark
+ * Detected" -- so a READ *ends* at a mark. Without them a READ never ends, and
+ * the SR10.4 boot firmware read the boot image, ran straight through the mark
+ * at block 16 into the labels and the whole data file, and timed out
+ * (`FINDINGS.md` C266). */
+#define AP_CT_FILE_MARK_WORD 0xDEAFFAEDu
+
+/* Whether the block at `index` is a file mark. False for a block past the end,
+ * which is not a mark and is not data either -- the caller's own bounds check
+ * is what tells those two apart. */
+[[nodiscard]] bool ap_ct_block_is_file_mark(const ap_ct_t *ct, uint64_t index);
+
 /* Copy one block out. False for a block past the end -- never a short read, and
  * never a partial copy, so a caller cannot act on half a block. */
 [[nodiscard]] bool ap_ct_read_block(const ap_ct_t *ct, uint64_t index,

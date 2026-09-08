@@ -180,7 +180,7 @@ void ap_tape_write(ap_tape_t *tape, uint32_t address, uint8_t value);
  * that says a transfer is over: the card counts bytes through a FIFO and has no
  * length of its own. Forwarded to the controller, whose DONE bit is the thing
  * the firmware waits on. */
-void ap_tape_dma_terminal_count(ap_tape_t *tape);
+void ap_tape_dma_ended(ap_tape_t *tape);
 void ap_tape_dma_write(ap_tape_t *tape, uint8_t value);
 
 #endif /* APOLLO_BOARD_AP_TAPE_H */

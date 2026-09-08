@@ -511,8 +511,16 @@ void ap_sc499_advance(ap_sc499_t *tape, ap_time_t now);
  * is ready for the next one. `[SC499]` §1.13.1 and Figure 1-5. */
 void ap_sc499_block_boundary(ap_sc499_t *tape);
 
-/* **The DMA transfer this card was told to run has ended**: the `EOP` the 8237
- * drives at its terminal count, which the card latches as DONE.
+/* **The DMA transfer this card was told to run has ended**, and DONE comes back.
+ *
+ * Two things end one, and the part cannot tell them apart because DONE means
+ * only that the sequencer has nothing in flight. The first is the `EOP` the
+ * 8237 drives at its terminal count. The second is the **drive** running out:
+ * a READ ends at a file mark or at the end of the tape, and the last DMAGO of
+ * every file is therefore short by construction -- a file mark can fall
+ * anywhere in a block. If DONE did not come back on a short transfer, no host
+ * could ever read a file to its end, so this is what the part must do rather
+ * than a choice among readings.
  *
  * `[SC499]` §1.9 names the bit's source rather than its meaning -- bit 4,
  * "Done, **from DMA logic**" -- and §1.11 supplies the meaning in two halves.
@@ -530,7 +538,7 @@ void ap_sc499_block_boundary(ap_sc499_t *tape);
  * host: `FF`, "timeout waiting for controller done", which is what the SR10.4
  * boot cartridge reports the moment it gets as far as READ DATA
  * (`FINDINGS.md` C264). */
-void ap_sc499_dma_terminal_count(ap_sc499_t *tape);
+void ap_sc499_dma_ended(ap_sc499_t *tape);
 
 /* The host has taken the byte the device was holding on the bus: `QIC-02` §3.6.1
  * T11 -> T12, "T11->T12 < 1 U sec". READY goes down at once and stays down --

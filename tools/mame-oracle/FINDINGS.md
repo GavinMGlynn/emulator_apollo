@@ -15112,3 +15112,129 @@ tape data under its own DMA.
 write-to-memory transfer on the tape's channel and requiring DONE back at its
 terminal count -- on the board, because the line that was missing is the board's.
 It fails on the old code. Identity boot `FE2BB02AEF1F4624` unchanged.*
+
+## C266 -- the `.ct` format has file marks, and this core said four times that it does not
+
+C265 left the cartridge streaming and the run ending on its instruction limit a
+third of the way through a 104,841-block image. The longer run finishes the
+sentence: **`Tape read error: FF  000002  00  C`** -- p. 4-17's *read* line now,
+not its init line, and `FF` is still "timeout waiting for controller done".
+
+And the register watch says the firmware issues **two commands and no more**:
+
+    write C0 @3894    READ STATUS
+    write 80 @3968    READ DATA
+
+One READ, and then 34,780 DMAGOs and counting. **The firmware expects the drive
+to stop.**
+
+### What stops a READ
+
+`QIC-02 Rev D` §3.6.6, T38: `CONTROLLER SETS EXCEPTION`, drawn at the file mark,
+with §5.2 byte 0 bit 0 for the report -- "**FIL** - File Mark Detected bit is
+set when a File Mark is detected during a Read Data or Read File Mark Sequence.
+The bit is reset by a Read Status Sequence." §4.2.9's READ FILE MARK "reads data
+blocks until file mark block found", then the same exception.
+
+`ap_qic` had `AP_QIC_EXS_FILE_MARK` defined and **set by nobody**, because the
+module said in four places -- its header twice, its READ FILE MARK arm and its
+WRITE FILE MARK arm -- that "a `.ct` is a raw block image with no file marks in
+it", and refused both commands on that ground.
+
+### It is not, and the media says so in one pass
+
+A file mark is **one whole 512-byte block of the repeated big-endian word
+`DEAFFAED`**. Measured across every cartridge in `media/domainos/`:
+
+    019593-001 boot         104,841 blocks    3 marks: 16, 22, 104838
+    019594-001 software 1   114,069 blocks   35 marks: 5, 19168, 19171, ...
+    019594-002 software 2   120,244 blocks   41 marks: 5, 12517, 12520, ...
+    019594-003 software 3   110,485 blocks   41 marks: 5, 2413, 2416, ...
+    019594-004 software 4   112,977 blocks   11 marks: 5, 43707, 43710, ...
+
+**What makes it a structure rather than a magic number is where the three sit.**
+The boot cartridge decomposes exactly as ANSI tape labelling prescribes:
+
+    0-15        SYSBOOT boot image     (block 0's header gives 7,868 bytes)
+    16          FILE MARK
+    17-21       VOL1 / UVL1 / HDR1 / HDR2 / UHL1
+    22          FILE MARK
+    23-104837   the data file, records 00000001 .. 0001996F
+    104838      FILE MARK
+    104839-40   EOF1 / EOF2
+
+and the four software cartridges carry the same convention with no SYSBOOT in
+front, so their label group is blocks 0-4 and their first mark is block 5. Three
+exact matches in 104,841 blocks, at the three positions the structure requires,
+on five images: the pattern is not what settles it, the placement is.
+
+**The value is measured, not documented.** `QIC-02` §2 defines a file mark as
+"an identification mark following the last block in a file" and never says what
+is recorded; the representation belongs to the media and to whoever wrote it. A
+`.ct` written by another tool with another convention would have its marks
+unrecognised here, and `image/ap_ct.h` says so.
+
+### What changed
+
+- `ap_ct_block_is_file_mark`, comparing **every** word of the block: a data
+  block that happened to open with the pattern is data.
+- A READ **ends** at a mark: `FIL` latched, the position moved past it so the
+  next READ begins the next file, `reading` cleared, and the block *not*
+  delivered -- a host given it would load 512 bytes of `DEAFFAED`. The caller
+  turns that into EXCEPTION exactly as it already did for the end of tape; the
+  two are one signal to a host, told apart by the status block.
+- **READ FILE MARK implemented**: spaces forward to the next mark, or off the
+  end with §5.4 item 8's `NDT`.
+- **WRITE FILE MARK implemented** on writable media, writing the block the
+  controller generates -- §3.6.7's "CONTROLLER WRITES **INTERNALLY GENERATED**
+  FILE MARK ON TAPE" is why the host supplies no content and there is no data
+  phase.
+- `FIL` in the exception word, travelling **alone** as §5.3's "Filemark read"
+  row prints it (byte 0 `100X0001`, byte 1 `00000000`), cleared by a status read
+  as §5.2 requires, and hashed.
+
+**Three tests in the suite asserted the refusals** -- `qic_suite`'s WRITE FILE
+MARK refusal and its "a known command merely refused is not illegal" example,
+and `tape_suite`'s three uses of WRITE FILE MARK as its refused command. All
+four rewritten; ERASE is the refused command now, and it is refused for a reason
+that survives: it would rewrite a whole distribution image.
+
+*Verification: `qic_suite` 27 -> 29, `tape_suite` 24, `ct_suite`. The new tests
+walk a three-block image with the mark in the middle and require the block
+either side of it to come out of two separate READs.*
+
+### And a read the drive ends also ends the DMA
+
+With the marks in, the boot's read stops exactly where it should and the report
+says so in two lines:
+
+    tape drive   block 17 of 104841, selected
+    tape card    status 4F, control 40, exception, to host, exs 8100
+    dma1 ch1     mode 45, address 0201 (base 0200), count 01FE (base 01FF)
+    dma          8193 transfer(s)
+
+Block 17 is one past the mark at 16. `exs 8100` is `ST0 | FIL`. **8,193 is
+16 x 512 + 1**: sixteen whole blocks of boot image moved, and the seventeenth
+transfer got one byte before the mark stopped it.
+
+And the error did not move: `Tape read error: FF  000002  00  C`, still
+"timeout waiting for controller done" -- because DONE is still clear. The
+transfer is stalled one byte into a 512-byte count with EXCEPTION asserted, and
+nothing will ever finish it.
+
+**The 8237's terminal count is one of two ways a transfer ends; the drive
+running out is the other.** `[SC499]` §1.9 calls DONE "Done, **from DMA
+logic**" and §1.11 makes DMAGO the start of a transfer, so DONE up is a
+sequencer with nothing in flight -- and a drive that has stopped feeding it has
+left it with nothing in flight.
+
+This is not a choice among readings. A READ ends at a file mark; a mark falls
+where the tape's structure puts it; so **the last DMAGO of every file is short
+by construction**. A card that raised DONE only at the host's byte count could
+never let a host read a file to its end, and `002398-04` p. 4-17 has the code a
+host prints when it does not: `FF`.
+
+*Verification: `tape_suite` 24 -> 25, running a two-block cartridge out under
+DMA and requiring DONE back at the byte past the end -- the end-of-tape half of
+the same event, which a host tells from the file-mark half by the status block.
+It fails on the old code.*

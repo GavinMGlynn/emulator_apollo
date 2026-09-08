@@ -228,6 +228,33 @@ static void test_a_header_larger_than_its_cartridge_is_refused(void) {
   TEST_ASSERT_FALSE(ap_ct_boot_image(&ct, &boot));
 }
 
+static void test_a_file_mark_is_a_whole_block_of_the_marker_word(void) {
+  uint8_t image[AP_CT_BLOCK_SIZE * 3u];
+  ap_ct_t ct;
+  memset(image, 0x5Au, sizeof image);
+  for (unsigned i = 0; i < AP_CT_BLOCK_SIZE; i++) {
+    image[AP_CT_BLOCK_SIZE + i] =
+        (uint8_t)(AP_CT_FILE_MARK_WORD >> (8u * (3u - (i & 3u))));
+  }
+  TEST_ASSERT_TRUE(ap_ct_open(&ct, image, sizeof image, true));
+  TEST_ASSERT_FALSE(ap_ct_block_is_file_mark(&ct, 0u));
+  TEST_ASSERT_TRUE(ap_ct_block_is_file_mark(&ct, 1u));
+  TEST_ASSERT_FALSE(ap_ct_block_is_file_mark(&ct, 2u));
+  /* Past the end is not a mark. A caller's own bounds check is what tells
+   * "no more tape" from "a mark here". */
+  TEST_ASSERT_FALSE(ap_ct_block_is_file_mark(&ct, 3u));
+
+  /* **Every word, not the first.** A data block that happens to open with the
+   * pattern is data, and a mark that stopped a read on its first four bytes
+   * would truncate a file at the first coincidence. */
+  memcpy(image + AP_CT_BLOCK_SIZE * 2u, image + AP_CT_BLOCK_SIZE, 8u);
+  TEST_ASSERT_FALSE(ap_ct_block_is_file_mark(&ct, 2u));
+  /* And a mark with one byte wrong is not one. */
+  image[AP_CT_BLOCK_SIZE + AP_CT_BLOCK_SIZE - 1u] ^= 0x01u;
+  TEST_ASSERT_FALSE(ap_ct_block_is_file_mark(&ct, 1u));
+}
+
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_boot_image_names_what_the_code_confirms);
@@ -241,6 +268,22 @@ int main(void) {
   RUN_TEST(test_the_words_are_returned_unnamed);
   RUN_TEST(test_a_bootable_cartridge_announces_itself);
   RUN_TEST(test_a_data_cartridge_parses_and_says_it_is_not_bootable);
+/* **A file mark is one whole block of `DEAFFAED`**, and this format was said
+ * not to have any.
+ *
+ * `ap_qic` refused READ FILE MARK and WRITE FILE MARK in four places on the
+ * ground that "a `.ct` is a raw block image with no file marks in it". Measured
+ * 2026-09-09 across every cartridge in the distribution: the boot cartridge has
+ * exactly three marks in 104,841 blocks, at 16, 22 and 104,838 — which is where
+ * ANSI tape labelling puts them, with the SYSBOOT image before the first, the
+ * VOL1/HDR label group between the first two, and the EOF1/EOF2 trailer after
+ * the third. The four software cartridges carry 11 to 41 apiece.
+ *
+ * The pattern is not what makes it a structure; the placement is. `QIC-02
+ * Rev D` §2 defines a file mark as "an identification mark following the last
+ * block in a file" and never says what is recorded, so the representation
+ * belongs to the media. `FINDINGS.md` C266. */
   RUN_TEST(test_the_identification_is_matched_past_its_embedded_nuls);
+  RUN_TEST(test_a_file_mark_is_a_whole_block_of_the_marker_word);
   return UNITY_END();
 }

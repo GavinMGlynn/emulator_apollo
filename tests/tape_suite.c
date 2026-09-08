@@ -291,11 +291,60 @@ static void test_a_refused_command_raises_exception(void) {
   /* The status register is the only channel the controller has for saying no,
    * so a command the drive refuses must show there rather than vanish. WRITE is
    * refused because there is no write-back path. */
-  /* WRITE FILE MARK, not WRITE: WRITE now places a block on a writable
-   * cartridge, so it is no longer an example of a refused command. A raw block
-   * image has no file marks, so this one still is. */
-  issue(&t, AP_QIC_CMD_WRITE_FILE_MARK);
+  /* ERASE, not WRITE and no longer WRITE FILE MARK: WRITE places a block on a
+   * writable cartridge and WRITE FILE MARK writes a mark, now that the format
+   * is known to have them. ERASE is still refused, because it would rewrite a
+   * whole distribution image. */
+  issue(&t, AP_QIC_CMD_ERASE);
   TEST_ASSERT_TRUE(exception_asserted(&t));
+}
+
+/* **A read the drive ends also ends the DMA transfer.**
+ *
+ * `[SC499]` §1.9 calls DONE "Done, from DMA logic" and §1.11 makes DMAGO the
+ * start of a transfer, so DONE up is a sequencer with nothing in flight. The
+ * 8237's terminal count is one way a transfer ends; the **drive** running out
+ * is the other, and this core modelled only the first.
+ *
+ * It cannot be otherwise. A READ ends at a file mark, a mark falls where the
+ * tape's structure puts it, and so the last DMAGO of every file is short by
+ * construction -- a card that only raised DONE at the host's byte count could
+ * never let a host read a file to its end.
+ *
+ * Measured on the SR10.4 boot cartridge: with the file mark stopping the read
+ * at block 16 the transfer stalled one byte into its seventeenth block --
+ * `dma1 ch1 count 01FE (base 01FF)` -- with EXCEPTION asserted, `exs 8100`
+ * (`ST0 | FIL`), and DONE still clear. `002398-04` p. 4-17's `FF`, "timeout
+ * waiting for controller done", is what the firmware printed.
+ * `FINDINGS.md` C266. */
+static void test_a_read_the_drive_ends_also_ends_the_dma(void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_SELECT);
+  issue(&t, AP_QIC_CMD_READ);
+
+  /* A transfer is in flight: DMAGO down, and the drive feeding it. */
+  ap_tape_write(&t, AP_TAPE_ADDR + 2u, 0u);
+  TEST_ASSERT_FALSE(t.controller.done);
+  (void)ap_tape_dma_read(&t);
+  TEST_ASSERT_FALSE(t.controller.done);
+
+  /* Run the two blocks of this cartridge out. `arm` builds no file mark, so
+   * this is the end-of-tape half of the same event -- one signal to a host,
+   * told apart by the status block. */
+  for (unsigned i = 1; i < AP_CT_BLOCK_SIZE * 2u; i++) {
+    clock_now += ap_sc499_handshake_duration(AP_SC499_ENTRY_DATA_BLOCK);
+    ap_tape_advance(&t, clock_now);
+    (void)ap_tape_dma_read(&t);
+  }
+  TEST_ASSERT_FALSE(t.controller.done);
+
+  /* And the byte past the end ends it: nothing is in flight any more. */
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_tape_dma_read(&t));
+  TEST_ASSERT_TRUE(t.controller.done);
+  TEST_ASSERT_TRUE(t.controller.exception);
+  TEST_ASSERT_TRUE((ap_tape_read(&t, AP_TAPE_ADDR + 1u) & AP_SC499_ST_DONE) !=
+                   0u);
 }
 
 static void test_running_off_the_end_raises_exception(void) {
@@ -335,7 +384,7 @@ static void test_a_command_clears_an_exception(void) {
   ap_tape_t t;
   arm(&t);
   issue(&t, AP_QIC_CMD_SELECT);
-  issue(&t, AP_QIC_CMD_WRITE_FILE_MARK); /* refused, raises exception */
+  issue(&t, AP_QIC_CMD_ERASE); /* refused, raises exception */
   TEST_ASSERT_TRUE(exception_asserted(&t));
 
   /* Figure 1-8: on a command issued while EXCEPTION is up the device deasserts
@@ -402,7 +451,7 @@ static void test_an_exception_survives_until_its_figure_completes(void) {
   ap_tape_t t;
   arm(&t);
   issue(&t, AP_QIC_CMD_SELECT);
-  issue(&t, AP_QIC_CMD_WRITE_FILE_MARK); /* refused, raises exception */
+  issue(&t, AP_QIC_CMD_ERASE); /* refused, raises exception */
   TEST_ASSERT_TRUE(exception_asserted(&t));
 
   ap_tape_write(&t, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST);
@@ -725,6 +774,7 @@ int main(void) {
   RUN_TEST(test_the_tape_is_read_through_the_data_register);
   RUN_TEST(test_a_refused_command_raises_exception);
   RUN_TEST(test_running_off_the_end_raises_exception);
+  RUN_TEST(test_a_read_the_drive_ends_also_ends_the_dma);
   RUN_TEST(test_the_measured_dump_is_reproduced);
   RUN_TEST(test_the_write_only_commands_are_reachable_by_writing);
   RUN_TEST(test_the_upper_half_of_each_block_is_not_the_part);

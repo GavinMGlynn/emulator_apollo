@@ -5027,9 +5027,40 @@ same number is what let them diverge once already.
       blocks**, one DMAGO apiece, with **no tape error at all**; the run ends on
       its instruction limit a third of the way through a 104,841-block
       cartridge. `board_suite` 80 → 81.
-      *What is left*: whether it boots. The firmware is still looping when the
-      limit arrives, so nothing beyond "tape data moves under its own DMA" is
-      established. The next run is the same one with room to finish.
+      **An eighth and ninth defect: the format has file marks and this core said
+      four times that it does not** (`FINDINGS.md` C266). The longer run gave
+      `Tape read error: FF  000002  00  C` — p. 4-17's *read* line — and the
+      watch showed the firmware issuing **two commands and no more**, `C0` and
+      `80`. One READ, then 34,780 DMAGOs: *the firmware expects the drive to
+      stop*. `QIC-02` §3.6.6 T38 is what stops it, EXCEPTION at a file mark,
+      with §5.2 byte 0 bit 0 `FIL` for the report — and
+      `AP_QIC_EXS_FILE_MARK` was defined and set by nobody, because `ap_qic`
+      said "a `.ct` is a raw block image with no file marks in it". **A mark is
+      one whole block of `DEAFFAED`**, measured on all five cartridges; the boot
+      cartridge's three sit at 16, 22 and 104,838, which is exactly where ANSI
+      labelling puts them around the SYSBOOT image, the `VOL1` label group, the
+      data file and the `EOF1`/`EOF2` trailer. READ now ends at a mark, READ
+      FILE MARK spaces to the next, WRITE FILE MARK writes one. **Three tests
+      asserted the refusals** and were rewritten.
+      Then the read stopped exactly right — `tape drive block 17 of 104841`,
+      `exs 8100` (`ST0 | FIL`), `dma 8193 transfer(s)` = 16 × 512 + 1 — and the
+      error did not move, because **DONE was still clear**: the transfer stalled
+      one byte into a 512-byte count. The 8237's terminal count is one of two
+      ways a transfer ends and the drive running out is the other; a mark falls
+      where the tape's structure puts it, so the last DMAGO of every file is
+      short by construction and a card that raised DONE only at the host's byte
+      count could never read a file to its end. Fixed; **the error moved again,
+      `FF` → `36`**, which is p. 4-17's "bad block transferred".
+      `qic_suite` 27 → 29, `tape_suite` 24 → 25, `ct_suite` 12 → 13.
+      **The identity hash moves**, `FE2BB02AEF1F4624` → `1AE206D37D8A8D1F`,
+      because the `FIL` latch joins the hashed state; the two runs are
+      byte-identical with the hash line removed.
+      *What is left*: `36` is not the row this drive's status composes. At the
+      mark the exception word is `8100`, which is §5.3's *Filemark read* row
+      (byte 0 `100X0001`, byte 1 `00000000`) and p. 4-17's code **`31`**, not
+      `36`. Either the firmware reads the block at a moment when the drive holds
+      something else, or its decode is not §5.3's. That is the next measurement,
+      and the report now prints the drive's own word beside the card's status.
       **What it unblocks**: a cartridge boot on this core, and with it the SAU 14
       install that the DS5500 boot and the multi-node workloads item both want —
       without borrowing the oracle. *The media is confirmed held*: `019593-001`

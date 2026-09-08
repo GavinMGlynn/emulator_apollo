@@ -34,6 +34,26 @@ uint64_t ap_ct_digest_of(const uint8_t *data, size_t size) {
 
 uint64_t ap_ct_blocks(const ap_ct_t *ct) { return ct->blocks; }
 
+bool ap_ct_block_is_file_mark(const ap_ct_t *ct, uint64_t index) {
+  if (ct->data == NULL || index >= ct->blocks) {
+    return false;
+  }
+  /* Every word, not the first: a data block that happened to open with the
+   * pattern is data, and the mark is the whole block. Compared as bytes so the
+   * answer does not depend on the host's word order -- the value is what is
+   * recorded on the tape, and the tape is big-endian. */
+  static const uint8_t word[4] = {
+      (uint8_t)(AP_CT_FILE_MARK_WORD >> 24), (uint8_t)(AP_CT_FILE_MARK_WORD >> 16),
+      (uint8_t)(AP_CT_FILE_MARK_WORD >> 8), (uint8_t)AP_CT_FILE_MARK_WORD};
+  const uint8_t *block = ct->data + (size_t)(index * AP_CT_BLOCK_SIZE);
+  for (unsigned i = 0; i < AP_CT_BLOCK_SIZE; i++) {
+    if (block[i] != word[i & 3u]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool ap_ct_read_block(const ap_ct_t *ct, uint64_t index, uint8_t *out) {
   if (ct->data == NULL || index >= ct->blocks) {
     return false;

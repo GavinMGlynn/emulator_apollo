@@ -462,6 +462,11 @@ void ap_board_hash_tape(ap_hash_t *st, const ap_tape_t *tape) {
    * is a latch a driver reads out of the status block, so two drives differing
    * only in whether their last read found tape are two different machines. */
   hash_bool(st, drive->no_data);
+  /* And `FIL`, by the same reasoning and found the same way -- by implementing
+   * a latch and asking what would notice it. Two drives differing only in
+   * whether their last read ended at a file mark are two different machines:
+   * one has finished a file and the other has not. */
+  hash_bool(st, drive->file_mark);
   ap_hash_u16(st, drive->data_errors);
   ap_hash_u16(st, drive->underruns);
 

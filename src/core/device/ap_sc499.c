@@ -114,7 +114,7 @@ void ap_sc499_block_boundary(ap_sc499_t *tape) {
   tape->ready_at = tape->now + ap_sc499_handshake_duration(tape->entry);
 }
 
-void ap_sc499_dma_terminal_count(ap_sc499_t *tape) {
+void ap_sc499_dma_ended(ap_sc499_t *tape) {
   /* The card's sequencer is idle again and DONE is up. Not gated on
    * `dma_active`: a terminal count on this channel with no DMAGO outstanding
    * finds DONE already up, so the guard would only hide the case rather than
@@ -402,7 +402,7 @@ void ap_sc499_write(ap_sc499_t *tape, unsigned reg, uint8_t value) {
      * part does not have.
      *
      * DONE goes down with it, and comes back at the 8237's terminal count:
-     * `ap_sc499_dma_terminal_count`, which the board carries here from the
+     * `ap_sc499_dma_ended`, which the board carries here from the
      * cycle that produced it. Until 2026-09-09 this line had no counterpart and
      * DONE, once lowered, stayed down for the life of the machine. */
     tape->dma_active = true;

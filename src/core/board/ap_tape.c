@@ -139,6 +139,25 @@ uint8_t ap_tape_read(ap_tape_t *tape, uint32_t address) {
      * running off the end of a cartridge is such a condition. */
     if (!ensure_block(tape)) {
       ap_sc499_set_exception(&tape->controller, true);
+      /* **And the DMA transfer is over**, which is the other half of the same
+       * event and was missing until 2026-09-09.
+       *
+       * `[SC499]` §1.9 calls DONE "Done, **from DMA logic**" and §1.11 makes
+       * DMAGO the start of a transfer, so DONE up is a sequencer with nothing
+       * in flight -- and a drive that has stopped feeding it has left it with
+       * nothing in flight. The 8237's terminal count is the *other* way a
+       * transfer ends, not the only one.
+       *
+       * It cannot be otherwise: a READ ends at a file mark, a mark falls where
+       * the tape's structure puts it, and so the last DMAGO of every file is
+       * short. A card that only raised DONE at the host's byte count could
+       * never let a host read a file to its end -- and `002398-04` p. 4-17's
+       * `FF`, "timeout waiting for controller done", is the code a host prints
+       * when it does not. Measured: with the file mark stopping the read at
+       * block 16 the transfer stalled one byte into its seventeenth block,
+       * `count 01FE (base 01FF)`, with EXCEPTION up and DONE still clear
+       * (`FINDINGS.md` C266). */
+      ap_sc499_dma_ended(&tape->controller);
       return 0xFFu;
     }
     /* Figures 1-6 and 1-10 both open with "Device Changes DIRECTION": the
@@ -393,8 +412,8 @@ uint8_t ap_tape_dma_read(ap_tape_t *tape) {
   return ap_tape_read(tape, AP_TAPE_ADDR + AP_SC499_DATA);
 }
 
-void ap_tape_dma_terminal_count(ap_tape_t *tape) {
-  ap_sc499_dma_terminal_count(&tape->controller);
+void ap_tape_dma_ended(ap_tape_t *tape) {
+  ap_sc499_dma_ended(&tape->controller);
 }
 
 void ap_tape_dma_write(ap_tape_t *tape, uint8_t value) {

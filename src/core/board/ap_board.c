@@ -1163,7 +1163,7 @@ void ap_board_bus_tick(ap_board_t *board) {
        * so the SR10.4 boot cartridge's READ DATA reported `002398-04` p. 4-17's
        * `FF`, "timeout waiting for controller done". */
       case DMA_PERIPHERAL_TAPE:
-        ap_tape_dma_terminal_count(&board->tape);
+        ap_tape_dma_ended(&board->tape);
         break;
       case DMA_PERIPHERAL_FLOPPY:
       case DMA_PERIPHERAL_WINCHESTER:
