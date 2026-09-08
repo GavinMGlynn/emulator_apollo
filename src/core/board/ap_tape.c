@@ -268,6 +268,21 @@ static void issue_command(ap_tape_t *tape, uint8_t command) {
   tape->offset = 0u;
   tape->status_valid = false;
   tape->status_offset = 0u;
+  /* **Including the drive's arming**, which is the other half of the same
+   * abandonment. `ap_qic_command` sets `status_pending` for a READ STATUS and
+   * no command clears it, so a host that armed one and then issued something
+   * else would have the *next* release of REQUEST open a delivery for a block
+   * nobody asked for -- and every REQUEST after that read as a byte
+   * acknowledge rather than a command, which is the failure `FINDINGS.md` C264
+   * fixed coming back by another door.
+   *
+   * No figure describes a host abandoning a status sequence; `[SC499]` Figure
+   * 1-25 always takes all six bytes. So this is a choice among undefined
+   * behaviours, taken because the board already abandons its own half here and
+   * two halves that disagree are worse than either answer. */
+  if (command != AP_QIC_CMD_READ_STATUS) {
+    tape->drive.status_pending = false;
+  }
 }
 
 void ap_tape_write(ap_tape_t *tape, uint32_t address, uint8_t value) {

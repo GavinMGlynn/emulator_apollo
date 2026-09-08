@@ -630,6 +630,41 @@ static void test_read_status_delivers_its_six_bytes_through_the_data_register(
   TEST_ASSERT_EQUAL_HEX8_ARRAY(expected, block, AP_QIC_STATUS_BYTES);
 }
 
+/* **A command abandons a status block nobody took.**
+ *
+ * `ap_qic_command` arms `status_pending` for a READ STATUS and no command
+ * clears it. The board abandons its own half of an unfinished transfer when a
+ * new command arrives -- the part-read block, the part-delivered status offset
+ * -- and left the drive's arming standing, so the *next* release of REQUEST
+ * opened a delivery for a block nobody asked for. Every REQUEST after that
+ * would then read as a byte acknowledge instead of a command, which is
+ * `FINDINGS.md` C264's failure arriving by another door.
+ *
+ * No figure describes a host abandoning a status sequence: Figure 1-25 always
+ * takes all six bytes. So this is a choice among undefined behaviours, and the
+ * one that keeps the board's half and the drive's half saying the same thing. */
+static void test_a_new_command_abandons_a_status_block_nobody_took(void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_SELECT);
+
+  /* Armed and then walked away from: the command byte and REQUEST, and no
+   * release, so the delivery never opens. */
+  ap_tape_write(&t, AP_TAPE_ADDR + 0u, AP_QIC_CMD_READ_STATUS);
+  ap_tape_write(&t, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST);
+  clock_now += ap_sc499_handshake_duration(AP_SC499_ENTRY_READY);
+  ap_tape_advance(&t, clock_now);
+  TEST_ASSERT_TRUE(t.drive.status_pending);
+
+  /* Something else entirely, in the figures' own order. */
+  issue(&t, AP_QIC_CMD_BOT);
+  TEST_ASSERT_FALSE(t.drive.status_pending);
+  /* And the release that ends it opens no delivery, so the bus stays the
+   * host's and the next REQUEST is a command. */
+  TEST_ASSERT_FALSE(t.status_valid);
+  TEST_ASSERT_FALSE(t.controller.direction);
+}
+
 static void test_a_written_block_reaches_the_cartridge(void) {
   ap_tape_t t;
   arm(&t);
@@ -700,6 +735,7 @@ int main(void) {
   RUN_TEST(test_a_status_command_turns_the_bus_round_before_any_byte);
   RUN_TEST(test_releasing_request_takes_ready_down_and_brings_it_back);
   RUN_TEST(test_read_status_delivers_its_six_bytes_through_the_data_register);
+  RUN_TEST(test_a_new_command_abandons_a_status_block_nobody_took);
   RUN_TEST(test_a_written_block_reaches_the_cartridge);
   RUN_TEST(test_a_partial_block_is_not_written);
   return UNITY_END();
