@@ -2030,8 +2030,11 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
             "xmit %04X  rcv %04X\n",
             i, board[i].region_reads[AP_BOARD_REGION_RING],
             board[i].region_writes[AP_BOARD_REGION_RING],
-            board[i].ring.a2.status, board[i].ring.a2.xmit_status,
-            board[i].ring.a2.rcv_status);
+            board[i].ring.a2.status,
+            (uint16_t)((board[i].ring.a2.xmit_status & 0xFF00u) |
+                       board[i].ring.a2.command_402_status),
+            (uint16_t)((board[i].ring.a2.rcv_status & 0xFF00u) |
+                       board[i].ring.a2.command_404_status));
   }
   fprintf(out, "  ring     hash %016llX\n",
           (unsigned long long)ap_ring_sched_hash(&sched));
@@ -5491,9 +5494,22 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
    * Printed only when a card is fitted: an unfitted slot's zeros would read as
    * a card reporting all-clear, which is the opposite of what they mean. */
   if (board->ring.present) {
+    /* **What a driver reading these registers gets**, which is not the same as
+     * the fields behind them and printing the fields would have sent the next
+     * reader after the wrong number. `ap_ring_ctl_read16` composes `+402` and
+     * `+404` from *two* stores -- the status field supplies the high byte and
+     * `command_402_status`/`command_404_status` the low -- so `xmit_status`
+     * alone omits `nct`, `xen`, `iby`, `xby` and both transmit tags, which is
+     * the whole of the low byte and most of what a transmit failure would say.
+     * Composed here rather than read through the accessor because a read has
+     * side effects on this part and a report must not have any. */
     printf("  ring card    misc %04X  xmit %04X  rcv %04X  (a1 misc %04X)\n",
-           board->ring.a2.status, board->ring.a2.xmit_status,
-           board->ring.a2.rcv_status, board->ring.a1.status);
+           board->ring.a2.status,
+           (uint16_t)((board->ring.a2.xmit_status & 0xFF00u) |
+                      board->ring.a2.command_402_status),
+           (uint16_t)((board->ring.a2.rcv_status & 0xFF00u) |
+                      board->ring.a2.command_404_status),
+           board->ring.a1.status);
   }
   /* Which serial registers, not just how many. A transmit that never happened
    * and one dropped at the register look identical from a total. */
