@@ -15929,3 +15929,84 @@ a new one.
 
 The rest of C272 stands: §1.11 step 5's per-block range, and Figures 1-12, 1-14,
 1-15, 1-23 and 1-24 as specification. None of it rested on this.
+
+## C273 -- `28001E` measured: the driver reads the 8237's status, sees nothing, and masks the channel
+
+C271 asked for one pass capturing the whole exchange. Four passes were needed
+because each one showed the previous filter was looking in the wrong place, and
+that progression is worth recording:
+
+1. **First 2,048 transfers**: all healthy, `base 01FF`, terminal count reached.
+   67,353 dropped. *The census was a prefix and the failure is at the end.*
+2. **Filtered to the failing shape** (`current_count != FFFF` or no TC): 69,401
+   transfers, **69,398 healthy**, three listed. So the DMA path is right 99.996%
+   of the time and the whole question is three transfers.
+3. **Ordered against the console** by writing the trace to stderr, where
+   `--boot-progress` goes: the two `28001E` land *after* the kernel banner, in a
+   read that moved six bytes -- so the two anomalies before the banner are not
+   them.
+4. **Everything the tape and the 8237 do, from the kernel's own READ**, bounded
+   by triggering on the third `read BEGINS` of the boot.
+
+### The exchange, as measured
+
+    [tape] rd +0 = 09  blk 24 off 77          the host takes byte 77 by PIO
+    [tape] rd +1 = 3F                         ready, no exception, DONE, DIR
+    [tape] wr +2 = 00                         DMAGO -- and DONE goes down
+    [tape] wr +1 = 30                         IEN | DNIEN
+    [tape] wr +1 = 00                         and off again
+    [tape] rd +0 = 46  blk 24 off 78          another byte by PIO
+    [tape] rd +1 = 2F                         not done
+    [dma ] wr 010C02 = 00                     channel 1 address, low
+    [dma ] wr 010C02 = 00                       ... and high
+    [dma ] wr 010C0C = 00                     clear the byte-pointer flip-flop
+    [dma ] wr 010C03 = FF                     channel 1 count, low
+    [dma ] wr 010C03 = 7F                       ... and high -- 7FFF, 32 KB
+    [dma ] wr 010C0B = 45                     single, increment, write, ch 1
+    [dma ] wr 010C0A = 01                     unmask channel 1
+    [tape] rd +0 = 00  blk 24 off 82          a byte by PIO; DMA took 79-81
+    [tape] rd +1 = 2F
+    [dma ] rd 010C08 = 00                     **the 8237's status: nothing**
+    [dma ] wr 010C0A = 05                     mask channel 1 again
+    [dma ] rd 010C03 = F9                     current count, low
+    [dma ] rd 010C03 = 7F                       ... and high -- 7FF9
+
+    bad tape read - trying normal shell -- 28001E
+
+Then the identical sequence again for block 25, then `E0007` and the Phase II
+shell. **The error is exactly what its name says**: the driver masks the channel
+and reads back `7FF9` against a base of `7FFF`, which is six of 32,768.
+
+### Three facts this establishes, and one it does not
+
+**The host writes DMAGO before it programs the 8237** -- `[SC499]` §1.11's step
+3 before its step 2. Not a fault: Figure 1-15's margin annotations map the `SET
+UP DMA` box to "write to DMAGO" and the `START DMA` box to "clear mask", which
+is this order exactly, and step 2's "leave the mask bit set" is what makes it
+safe. `ap_tape_dma_request`'s refusal to gate on DMAGO is what lets it work.
+
+**The host reads bytes 1-77 of the block by programmed I/O** before it sets up
+any DMA at all, alternating `+0` and `+1`, with no REQUEST handshake -- so on
+this card a read of `+0` during a data transfer *does* advance the byte, which
+is what `ap_tape_read` implements, and the status-block rule from C264 is not
+this rule.
+
+**The 8237 status read returns `00`** -- no TC on any channel, and no channel
+requesting service. Channel 1 *was* unmasked and the drive *was* reading, but
+this core paces DRQ at one byte per `AP_SC499_T_BYTE` (11.1 us), so the request
+line is low between bytes and a single sample lands in a gap far more often than
+not.
+
+**What is not established** is why the driver expects a 32 KB transfer to be
+finished 66 us after unmasking -- 496 MB/s, which no tape does. Either it is
+waiting on something this core satisfies too early, or the byte it reads at
+`010C08` is meant to tell it something this core does not put there. Naming a
+mechanism now would be the fifth guess this item has attracted. **The next step
+is the PC**: with it, `tools/kernel_symbols.py --build domain_os11` names the
+routine, and a routine's name settles what it was waiting for.
+
+*Resolution order first, though*: `002398-04` ch. 12 is **Apollo's own**
+description of this controller, and this is Apollo's driver. `[SC499]` is
+Archive's guide to the same card, and where the two describe the same registers
+the driver was written against the Apollo one. That is the page to read before
+any more instrumentation.

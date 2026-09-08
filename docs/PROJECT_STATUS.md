@@ -645,6 +645,34 @@ Apollo Phase II Environment   Revision 10.4   Jan 25, 1992  12:59:03 pm
 and `bad rewind … 280002` are all gone: **the kernel acquires the drive and
 rewinds it.** What is left is a later failure with a different name.
 
+## Ten items closed under the documentation-absent rule (2026-09-09)
+
+A standing rule, now in `CLAUDE.md`: **an item whose only remaining blocker is a
+document established not to exist is closed, not carried, provided the machine
+demonstrably works without it** — and likewise where the blocker is a *consumer*
+rather than a document. Each closure records both halves: what was searched, and
+what the execution evidence is. The open plan goes from 23 items to 13.
+
+| Item | The blocker, established | Execution |
+| --- | --- | --- |
+| Table 4-6's added line | `007861` exists in three catalogued forms and is **scanned nowhere**; bitsavers' `pdf/apollo/` index lists no file beginning `007861` | DN3500 boots with no DS4500 physical cache; nothing held reads one |
+| Three ring timeout status bits | Both durations published and asserted; **what the DS3000's gate array times is in no document held**, and the ring ROMs never test the bits | Ring ROM self-test passes; two nodes boot Domain/OS and exchange frames |
+| `IO_CH_CK.L` and the AT bus's NMI | Bit found and named at bit 9; **no source names a driver** of the signal — `[OMTI]` §3.3 omits it, every AT-bus manual here checked and silent | NMI path implemented at `ap_parity`; nothing asserts a channel check |
+| Status-register bit 15 | The DN3500's own status page **does not exist publicly** — all 57 bitsavers Apollo documents held and diffed | The probed value is what this machine returns, and the reference boots on it |
+| Three `MASTER.L` timings | Figures implemented with citations; **no caller** — §16.2 makes the PC Coprocessor the only asserter and it is unmapped | No modelled configuration asserts the signal |
+| The 2681's modem-control signals | The part is complete; the **board-level pin naming** is exhausted at reference, web and oracle | Domain/OS serves `/dev/sio1`; console and `md-shell.sh` both work |
+| `CHECK TRACK FORMAT`'s second `1A` | The datum is **on the platter**; an `.awd` is decoded sector data with no per-track record | Unreachable on 18-sector drives, as the range check already is |
+| `RDY` raising `IRQF` | `[08845]`'s contrary strap is a **DN3000** board at base `0200`; **no DN3500-era Apollo tape specification exists here** | The cartridge boots to the Phase II environment on the vendor default |
+| The video A/D's scale | The wrong *reason* is corrected in place; the numbers need a **schematic or hardware**, neither of which exists here | Values satisfy the firmware's `[52, 70)` check |
+| The keyboard's self-diagnostics | ch. 12 names the capability and defines **no command and no result**; no Apollo keyboard protocol document here | **Measured**: `kbd refused 0` over a 1.5 G boot — nothing asks |
+
+**What this does not do.** It does not weaken *finish the module*: a register
+nobody has walked is still unwalked, and every item blocked on **work** rather
+than on evidence stays open — SCSI, the 68040 core, the resumable sequencer,
+exact-skip, the model table's `.mmu`, DMA bus time, the Series 4000 cache, the
+live tape defect. Each closure reopens on contact: if the document turns up, or
+something starts driving the signal, the item comes back with its file intact.
+
 ## The DMA range is one block, and a reset must leave the part answering (2026-09-09)
 
 The resolution order puts the documents before the oracle, and `[SC499]`'s

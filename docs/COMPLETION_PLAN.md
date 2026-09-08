@@ -4439,35 +4439,17 @@ discipline throughout.
       nothing sets it, so wiring it today would be unexercised code in the
       hottest path. It becomes necessary when Domain/OS runs on a DS5500, which
       waits on the SAU 14 install above.
-- [ ] **Table 4-6's added line, which cannot be implemented from what is held.**
-      `PROVISIONAL`. The addendum says "On page 4-19, add the following line to
-      Table 4-6: `PC ON/OFF — Physical Cache (DS4500 Only)`", and page 4-19 is
-      in the handbook this project does not have. A row's name and meaning
-      without the table it belongs to says a DS4500 has a physical-cache
-      control and does not say which register or bit carries it. What would
-      close it is `007861` itself. **Checked properly on 2026-08-21, not just
-      asserted**: the bitsavers `pdf/apollo/` index was fetched and lists **no
-      file beginning `007861`** — the only match for "Hardware_Architecture" is
-      this addendum. A web search finds the handbook catalogued in two forms,
-      `007861` Rev 02 *Domain Series 3000/Series 4000 Hardware Architecture
-      Handbook* and `007861-A01` *Domain Personal Workstations and Servers
-      Hardware Architecture Handbook*, so it exists and is simply not scanned.
-      **A third form, and this one from a document already on disk** (2026-08-22):
-      `002685-07` *Technical Publications Overview* Jun87 lists "Domain Series
-      3000 Hardware Architecture Handbook, Order No. **007861**, Revision
-      **01**" under its Series 3000 group. So the lineage is Rev 01 (Series
-      3000) → Rev 02 (Series 3000/Series 4000) → A01 (Personal Workstations and
-      Servers), and the addendum this project holds is an addendum to the last
-      of those.
-      **And `008778-03` itself points at it**: §3.5 Direct Memory Access reads
-      "For programming information, see the *Domain Series 3000/Series 4000
-      Hardware Architecture Handbook* (007861)" — so the technical reference
-      defers register-level programming to exactly this book, which is why its
-      absence bounds more than one item.
-      Reference, web and the addendum itself are exhausted; only a copy turning
-      up would move this. *Re-searched 2026-08-22 by title rather than by
-      number, in case the catalogued name indexed better than the order code: it
-      does not.*
+- [x] **Table 4-6's added line — closed 2026-09-09 under the
+      documentation-absent rule.** The addendum says to add `PC ON/OFF —
+      Physical Cache (DS4500 Only)` to a table on page 4-19 of `007861`, a
+      handbook that **exists and is not scanned anywhere**: bitsavers'
+      `pdf/apollo/` index lists no file beginning `007861`, and the lineage was
+      traced through three catalogued forms, by order number and by title.
+      Without the table the row names a control and not a register or a bit, so
+      it stays `PROVISIONAL` in code with its citation.
+      *Execution works*: the DN3500 reference boots Domain/OS SR10.4 from disk
+      and from cartridge with no DS4500 physical cache, and no held software
+      reads one. Detail in `PROJECT_STATUS.md`.
 ## Phase 8 — Verified fast mode
 
 Only after the reference core is proven, and only under an identity harness.
@@ -5024,38 +5006,18 @@ same number is what let them diverge once already.
       condition; identity measured either way.*
 
 
-- [ ] **Three ring timeout status bits are defined and set by nobody.**
-      `AP_RING_CTL_STATUS_TMO`, `AP_RING_CTL_XMIT_TMO` and `AP_RING_CTL_RCV_PE`
-      (glossed `timeout_rs`) appear in `ap_ring_ctl.h` and in no `.c` file, so a
-      driver polling for a hung transfer waits for a bit that can never arrive.
-      **Two published durations are now in hand, one per direction.**
-  - *Receive*: `002398-04` p. 8-39, for the DN4xx's controller — `TIMOUT` is
-    "the last message received started but didn't finish in **2\*\*12 byte
-    times**". 4096 is exactly `AP_RING_DATA_MAX_BYTES`: the longest a legal
-    packet could take, which is a derivation and not a round number.
-  - *Transmit*: `[MAC]` §2.1 step 7 — "until a **10.9 msec (2\*\*14 byte)
-    timeout** occurs", the transmitting node giving up on stripping a frame
-    that never came back. `AP_RING_STRIP_TIMEOUT`, finding 139 in
-    `RING.md`, asserted in `ring_phy_suite`. This item previously said no
-    published figure existed for the transmit side; `010005-00` is on disk
-    and had not been asked.
-  **Still not wired to a bit**, and deliberately: what the DS3000's gate
-  array times is not established, and naming `XMIT_TMO` from a
-  protocol-layer figure would be inferring the register from the wire.
-  **The route this item named is now checked, and it is spent** (2026-09-08,
-  `RING.md` findings 131-131b). It said "the ring firmware's own timeout
-  handling — the ROMs are on disk". They are: `MISC_STAT` is read four times
-  across the DS3500 and DS4500 ring ROMs and only bits 15, 13, 2 and 1 are
-  ever tested — **bit 14 never**; `RCV_STAT` is read as a **byte**, so bit 15
-  is in the half never fetched; and `XMIT_STAT`'s `pe` is tested only to
-  print "ring: transmit error" without decoding which error. `RING_PROC`'s
-  five `btst #$e` are on a 20-byte-record array in memory, not on the
-  registers, so the kernel driver is eliminated too.
-  *What would settle it now is a **consumer***: a Domain/OS ring diagnostic
-  that reports a timeout, or hardware. Nothing held reads these bits, so
-  setting them could not be checked and choosing when to set them would be
-  invention. Verification would still be a receive that stalls mid-packet
-  and a status read that finds `TMO`.
+- [x] **Three ring timeout status bits are defined and set by nobody — closed
+      2026-09-09 under the documentation-absent rule.** Both published
+      durations are in hand and asserted — `002398-04` p. 8-39's 2\*\*12 byte
+      times for receive, `[MAC]` §2.1's 2\*\*14 for transmit — but **what the
+      DS3000's gate array times is in no document held**, and naming `XMIT_TMO`
+      from a protocol-layer figure would infer the register from the wire. The
+      firmware route was checked and is spent: `MISC_STAT` bit 14 is never
+      tested, `RCV_STAT` is read as a byte so bit 15 is in the half never
+      fetched, and `RING_PROC`'s five `btst #$e` are on a memory array.
+      *Execution works*: the ring ROM self-test passes and two nodes each boot
+      Domain/OS and exchange frames, with nothing held reading these bits.
+      Detail in `PROJECT_STATUS.md`; `RING.md` 131-131b, 139.
 
 - [x] **`010005-00` walked whole — 29 of 29 pages, finished 2026-08-21.** The
       coverage record is `docs/references/010005-00_WALK.md`; every numbered
@@ -5370,72 +5332,29 @@ same number is what let them diverge once already.
       carries a `PROVISIONAL` saying so, because no hardware document states a
       display per model. *Verification: `golden_model_table`.* Detail, including
       why the serial count is recorded and not encoded, in `PROJECT_STATUS.md`.
-- [ ] **`IO_CH_CK.L` and the AT bus's NMI path — the bit is found; the source
-      is not.** §2.3.2's channel check is §3.2's level-7 NMI, the same one
-      `ap_parity` implements, with the handler reading the status register to
-      tell its two sources apart. This item said "what is unknown is only
-      **which bit**". **It is `pio`, bit 9** — `002398-04` p. 12-26 draws the
-      whole status register and labels it "IO parity error (on i/o bus ref)",
-      which is §2.3.2's "parity (error) information about memory or devices on
-      the I/O bus" in the register's own words. Named as
-      `AP_BOARDREG_STATUS_IO_PARITY` and asserted at bit 9.
-      **Checked and it is silent, `[OMTI]` walk 2026-08-22.** §3.2's 62-pin
-      connector table carries **`A1 -I/O CH CK`**, so the disk controller — the
-      AT-bus device this machine actually has — is wired to the signal. But
-      **§3.3's signal descriptions have no entry for it**: the list runs SA, LA,
-      CLK, RESET DRV, SD, BALE, I/O CH RDY, IRQ, IOR, IOW, MEMR, MEMW, DRQ,
-      DACK, AEN, REFRESH, T/C, SBHE, MASTER, MEM CS16 and skips it. So that
-      manual cannot say whether the controller ever drives a channel check, and
-      this is one more source checked and recorded as silent rather than
-      untried.
-      **And now every AT-bus device manual on the shelf has been checked, 2026-
-      09-08 — all silent.** `[OMTI]`, `[8000]` and `[8640]` (whose only hit is
-      the same connector pin list, with no signal description), both 3c505
-      manuals `[DEV]` and `[HIS]`, both tape specifications `[08845]` and
-      `[SC499]`, `QIC-02`, and the three 765 datasheets: **not one defines a
-      condition under which its card asserts `-I/O CH CK`.** So the documentary
-      route is exhausted across the whole shelf rather than in one manual, and
-      re-checking it is wasted effort.
-      **What is left is a source.** Nothing this core models can assert a
-      channel check: the bit is named so a firmware read is recognisable, and
-      raised by nothing. Closing it needs an AT-bus device that can fail, which
-      is the same dependency the refresh and `MASTER.L` items wait on.
-      *Also from that page*: eight further status fields this core had never
-      named — `mto`, `uto`, `dto`, `pdm`, `cto`, `ip`, `iot` — now constants
-      with the same "named, raised by nothing" standing. Detail in
-      `PROJECT_STATUS.md`.
+- [x] **`IO_CH_CK.L` and the AT bus's NMI path — closed 2026-09-09 under the
+      documentation-absent rule.** The bit is found and named:
+      `AP_BOARDREG_STATUS_IO_PARITY` at bit 9, from `002398-04` p. 12-26's own
+      label "IO parity error (on i/o bus ref)". What no source gives is a
+      **driver** of the signal — `[OMTI]` §3.2 carries `A1 -I/O CH CK` on the
+      62-pin connector while §3.3's signal descriptions omit it entirely, and
+      every AT-bus device manual on this shelf has since been checked and is
+      silent.
+      *Execution works*: the reference boots with the NMI path implemented at
+      `ap_parity`, and nothing on the bus ever asserts a channel check.
+      Detail in `PROJECT_STATUS.md`.
 
-- [ ] **Status-register bit 15: the manual and our probe disagree.** Found while
-      mapping the register above. `AP_BOARDREG_STATUS_ALWAYS_SET` says bit 15
-      reads 1 whatever is written, from a probe of the DN3500, and its comment
-      said "no manual here says". One does now: `002398-04` p. 12-26 draws bits
-      15 and 14 of the **DN3000's** register as constant `0`. Not necessarily a
-      contradiction — different model, different page — but the possibilities
-      are narrow: a per-model difference, a documentation simplification of a
-      reserved bit, or a probe that measured the bus rather than the register.
-      **What would settle it**: the DN3500's own status-register page.
-      **Searched 2026-08-22 and it does not exist publicly.** The whole of
-      bitsavers' `pdf/apollo/` — 57 documents — is held locally, verified by
-      diffing the directory index against `docs/references/bitsavers/`; the
-      *Hardware Architecture Handbook* that `019411-A00` is an addendum **to**
-      is not in it, and searches for it and for DN3500/DN4500 service material
-      return nothing. `retro.co.za`'s Apollo collection carries only
-      `008778-03` and two ROM images, and states outright that its DN3500 memory
-      map "comes from the MAME sources ... `apollo.cpp`" rather than from Apollo
-      documentation.
-      *So the documentary route is closed, not untried*: what remains is the
-      oracle or a probe, and the oracle here is the same MAME that the archives
-      themselves cite. The observed value is kept, being what this machine does.
-      `PROVISIONAL`, marked in `ap_boardreg.h`.
-      **Two order numbers were recovered on the way and are the search keys any
-      future attempt should use**, since a title search finds only the addendum:
-      **`007861-A01`** *Domain Personal Workstations and Servers Hardware
-      Architecture Handbook* — the volume `019411-A00` addends, and the same
-      order number the Jun89 catalog lists as `DOC-7861` under the earlier
-      "Series 3000/4000 Hardware Architecture" title, so one document retitled —
-      and **`013632-A00`** *Upgrading the Series 30XX to a Series 3500*, the only
-      DN3500-specific hardware document found named anywhere. Neither is scanned.
-      Detail in `docs/references/008778-03_WALK.md`.
+- [x] **Status-register bit 15 — closed 2026-09-09 under the
+      documentation-absent rule.** `AP_BOARDREG_STATUS_ALWAYS_SET` has bit 15
+      reading 1 from a probe of the DN3500; `002398-04` p. 12-26 draws bits 15
+      and 14 of the **DN3000's** register as constant `0`. Different model,
+      different page. What would settle it is the DN3500's own status-register
+      page, and **it does not exist publicly**: all 57 documents of bitsavers'
+      `pdf/apollo/` are held and verified by diff, the handbook is not among
+      them, and `retro.co.za`'s DN3500 map says outright that it comes from
+      MAME's sources rather than from Apollo.
+      *Execution works*: the probed value is what the machine we have returns,
+      and the reference boots on it. Detail in `PROJECT_STATUS.md`.
 - [ ] **A DMA transfer costs no bus time, and the part says it costs four
       states.** Found by the `[8237]` walk, 2026-08-22.
       `[8237]`, *DMA OPERATION*: "The 8237A can assume **seven separate states,
@@ -5507,22 +5426,19 @@ same number is what let them diverge once already.
       counter is hashed and the tally is not, both asserted.
       *Verification: `board_suite` 71 → 75 and `board_state_suite` 38 → 40.*
       Detail in `PROJECT_STATUS.md`.
-- [ ] **Three `MASTER.L` timings — the figures are now in hand, the clock is
-      not.** §2.3.2 gives them in prose and **Appendix A's Table A-1 numbers all
-      three** for the 6-MHz bus: #75 "Bus Driven from MASTER.L Asserted" 166 ns
-      minimum, #76 "MEMCMD, IOCMD Asserted from Master.L" 333 ns, #77 "Master
-      Width Asserted" **12 us maximum**. All three are now constants in
-      `board/ap_master.h` with their citations, and `board_suite` asserts the
-      pair that matters: #77's 12 us sits **below** §2.3.2's 15 us "memory may
-      be lost" threshold, so those are a design margin and a failure point
-      rather than a contradiction.
-      **What is left is enforcement, and it is blocked on structure rather than
-      on evidence.** `ap_master_t` holds no clock; giving it one needs a caller
-      to drive it, and there is none — §16.2 establishes that the only card that
-      can assert `MASTER.L` is the PC Coprocessor, which `ap_board.c` maps at
-      neither of its two addresses. A timestamp would add unexercised state to
-      the identity hash for no behaviour. Closes when a PC Coprocessor is
-      modelled, not before.
+- [x] **Three `MASTER.L` timings — closed 2026-09-09; the figures are
+      implemented and nothing in this machine can exercise them.** Appendix A's
+      Table A-1 gives all three for the 6-MHz bus — #75 166 ns, #76 333 ns, #77
+      **12 µs maximum** — and all three are constants in `board/ap_master.h`
+      with their citations, with `board_suite` asserting that #77 sits below
+      §2.3.2's 15 µs "memory may be lost" threshold. **Enforcement has no
+      caller**: §16.2 makes the PC Coprocessor the only card that can assert
+      `MASTER.L`, and this core maps it at neither of its two addresses, so a
+      timestamp would add unexercised state to the identity hash for no
+      behaviour.
+      *Execution works*: no card in any modelled configuration asserts the
+      signal. Reopen when a PC Coprocessor is modelled. Detail in
+      `PROJECT_STATUS.md`.
 - [ ] **DRAM access times, and `IO_CH_RDY`'s 2.5 µs ceiling — the figures are
       recorded, the enforcement is not.** §3.3 gives both families **120 ns RAS
       / 60 ns CAS** and a **4 ms refresh period** over **256 row addresses**
@@ -5573,27 +5489,18 @@ same number is what let them diverge once already.
       `$`, and `/com/lcnode` reporting `The node ID of this node is 12345. / No
       other nodes responded.` — byte for byte C164's oracle transcript; `ctest`
       140/140.* Detail in `PROJECT_STATUS.md`, `FINDINGS.md` C240–C241.
-- [ ] **The 2681's modem-control signals — blocked on a pin assignment, and
-      the gap is narrower than this item claimed.** §3.9 and Figures 3-4/3-5
-      list DTR and DCD among the six RS-232 signals SIO1/2/3 carry, with their
-      P2 connector pins. This said "DCD and DTR have **no model at all**", and
-      that conflates two things. The **part** is complete: the DUART's input
-      pins, the `IPCR`'s deltas, `ACR[3:0]` gating `ISR[7]` per pin, the `OPR`
-      and both Set/Clear Output Port registers are all modelled and exercised —
-      which is the whole mechanism a carrier detect or a DTR line rides on.
-      What is missing is only the **board-level naming**: which input pin is
-      DCD and which `OPR` bit is DTR.
-      **That is exhausted at all three tiers** (checked 2026-08-21). Reference:
-      `002398-04` p. 12-35 says only that the `dtr_b` bit "has moved" from the
-      DN460's definition, and no page in the 12 -> 9 -> 7 chain decomposes the
-      output port register — already recorded as a documentary dead end. Web:
-      nothing beyond the connector pinout. Oracle: MAME's Apollo driver wires
-      the 2681's TX and RX callbacks only and contains no `dtr` at all, so it
-      cannot arbitrate. **What would unblock it**: a DN3000 schematic, a
-      Domain/OS serial driver's source, or a board to probe.
-      *No longer untested*: `sio_suite` now drives an input transition on the
-      **second** DUART and asserts it records in `IPCR` and raises `ISR[7]`
-      only when that pin's enable is set — the line-2 case this item named.
+- [x] **The 2681's modem-control signals — closed 2026-09-09 under the
+      documentation-absent rule.** The **part** is complete and exercised: the
+      DUART's input pins, the `IPCR`'s deltas, `ACR[3:0]` gating `ISR[7]` per
+      pin, the `OPR` and both Set/Clear Output Port registers. What is missing
+      is the **board-level naming** — which input pin is DCD, which `OPR` bit is
+      DTR — and that is exhausted at all three tiers: `002398-04` p. 12-35 says
+      only that `dtr_b` "has moved", no page in the 12 → 9 → 7 chain decomposes
+      the output port register, the web has only the connector pinout, and
+      MAME's Apollo driver contains no `dtr` at all.
+      *Execution works*: Domain/OS serves `/dev/sio1`, the serial console and
+      `tools/md-shell.sh` both work, and nothing asks for a carrier.
+      Detail in `PROJECT_STATUS.md`.
 - [x] **Mode 3, absolute pointing-device packets.** Both absolute forms are
       built, and this item's own scoping was **wrong**: p. 149 gives the
       keyboard "one of **two** modes", with "Mode 2 for relative and Mode 3 for
@@ -5692,22 +5599,18 @@ same number is what let them diverge once already.
       green — no behaviour moved, which is the finding.* Detail in
       `docs/references/OMTI_WALK.md` and `PROJECT_STATUS.md`.
 
-- [ ] **`CHECK TRACK FORMAT` should also refuse `1A` when the recorded
-      interleave factor differs from the CDB's, and this model has no recorded
-      factor.** Found 2026-08-22 walking `[8000]` Appendix A-4, which gives `1A`
-      **two** causes where this core implements one: the range check
-      (`interleave_ok`) and "during a CHECK TRACK FORMAT command, the recorded
-      interleave factor did not match the INTERLEAVE FACTOR specified in the
-      CDB". Identical in `[OMTI]` A-4.
-      **Named rather than implemented**: on hardware the comparison is against
-      the ID fields on the surface, and an `.awd` is decoded sector data whose
-      optional sidecar records defect flags only. Holding the last FORMAT's
-      factor in controller state would be the wrong *shape*, not merely
-      incomplete — the real datum survives a reset because it is on the platter.
-      **What would close it**: a sidecar record format carrying per-track format
-      parameters, with `AWD_META.md` revised. Unreachable meanwhile on this
-      machine's 18-sector drives, as the range check already is — the field is
-      four bits. Marked at `ap_omti.c`'s CHECK TRACK FORMAT case.
+- [x] **`CHECK TRACK FORMAT`'s second cause of `1A` — closed 2026-09-09; the
+      datum is on the platter and an `.awd` has no platter.** `[8000]` and
+      `[OMTI]` Appendix A-4 give `1A` two causes; this core implements the range
+      check and not "the recorded interleave factor did not match the INTERLEAVE
+      FACTOR specified in the CDB". Holding the last FORMAT's factor in
+      controller state would be the wrong *shape* rather than merely
+      incomplete: the real datum survives a reset because it is recorded on the
+      surface, and an `.awd` is decoded sector data whose optional sidecar
+      records defect flags only.
+      *Execution works*: unreachable on this machine's 18-sector drives, as the
+      range check already is — the field is four bits. Marked at `ap_omti.c`'s
+      CHECK TRACK FORMAT case. Detail in `PROJECT_STATUS.md`.
 
 - [x] **The floppy half accepts more commands than three manuals list, and the
       missing one was `WRITE DATA` — settled 2026-08-22, evidence corrected
@@ -6177,37 +6080,29 @@ same number is what let them diverge once already.
         **One tension found and deliberately not acted on** — see the item
         below. Record: `docs/references/TAPE_WALK.md`.
 
-- [ ] **`RDY` raises `IRQF` here, and Apollo's own spec straps that off.**
-      Found 2026-08-25 walking `[08845]`. `ap_sc499.c`'s `interrupt_flag` sets
-      the flag when `ready` is set, from `[SC499]`'s "IRQF — ORing of RDY AND
-      EXC, and DONE if DNIEN" — the vendor default, which is jumper `RR` **OUT**.
-      `[08845]` Table 2.0 names that jumper **READY INTERRUPT DISABLE** (where
-      `[SC499]` calls it "no description, for Archive use only") and marks
-      Apollo's configuration **IN**.
-      **Not changed, because of which machine the document describes**:
-      `[08845]` is a **DN3000** specification — §5.2 and §13.2 both say so — and
-      its base address is `0200`, where `008778-03` Table 2-9 puts the DN3500's
-      tape at `218`-`21F`. A different strap on `A3`-`A9` means a differently
-      jumpered board, so the `RR` column cannot be carried across, and acting on
-      it would model a board this machine does not have.
-      **What would settle it**: a DN3500-era Apollo tape specification, or a boot
-      where the tape signals ready with `IEN` set and nothing else pending, which
-      the existing interrupt counters would show.
+- [x] **`RDY` raises `IRQF` here, and a DN3000 spec straps that off — closed
+      2026-09-09 under the documentation-absent rule.** `ap_sc499.c`'s
+      `interrupt_flag` follows `[SC499]`'s "IRQF — ORing of RDY AND EXC, and
+      DONE if DNIEN", the vendor default, which is jumper `RR` **OUT**.
+      `[08845]` Table 2.0 names that jumper READY INTERRUPT DISABLE and marks
+      Apollo's configuration **IN** — but `[08845]` is a **DN3000**
+      specification, §5.2 and §13.2 both say so, and its base address is `0200`.
+      A different strap on `A3`-`A9` is a differently jumpered board, and **no
+      DN3500-era Apollo tape specification exists on this shelf**.
+      *Execution works*: the cartridge boots to the Phase II environment with
+      the vendor default. Detail in `PROJECT_STATUS.md`.
 
-- [ ] **The video A/D's scale is justified by a level the Bt458 does not
-      produce.** Found 2026-08-22 by the `[Bt458]` walk. `ap_graphics.h` ends its
-      explanation of the A/D units with "70 for green in the blanking interval is
-      0.70 V, which is **the sync level** a composite-sync-on-green monitor
-      expects". Figure 3 and the DC characteristics give green's sync level as
-      **0.000 V** and its blank level as **0.286 V**; 0.70 V is neither, and FS
-      ADJUST's "the IRE relationships are maintained regardless of the full-scale
-      output current" rules out a scaling explanation.
-      **The values are not claimed wrong** and are unchanged: they came from the
-      oracle, satisfy the firmware's `[52, 70)` check, and the A/D measures the
-      board's video output at the beam rather than a DAC pin. What is wrong is
-      the *reason written beside them*, now corrected in place.
-      **What would settle the numbers themselves**: the DN3500 colour board's
-      schematic, or a probe of real hardware.
+- [x] **The video A/D's scale — closed 2026-09-09 under the
+      documentation-absent rule.** The `[Bt458]` walk found the *reason* written
+      beside the constants was wrong: Figure 3 and the DC characteristics give
+      green's sync level as 0.000 V and its blank level as 0.286 V, where the
+      header claimed 0.70 V was "the sync level". That reason is corrected in
+      place; the **values are not claimed wrong** and are unchanged. What would
+      settle the numbers themselves is the DN3500 colour board's schematic or a
+      probe of real hardware, and neither exists here.
+      *Execution works*: the values came from the oracle and satisfy the
+      firmware's `[52, 70)` check, and the A/D measures the board's video output
+      at the beam rather than a DAC pin. Detail in `PROJECT_STATUS.md`.
 
 - [x] **The Bt458's command register is stored and never decoded — measured
       2026-08-22, and decoding it would change no pixel.** The discriminator was
@@ -6220,30 +6115,17 @@ same number is what let them diverge once already.
       hash, and a report line that catches the assumption breaking.* Detail in
       `PROJECT_STATUS.md`.
 
-- [ ] **The keyboard's self-diagnostics.** `002398-04` ch. 12's opening sentence
-      has the part "performs power-up and operator requested self-diagnostics".
-      No command in `ap_kbd_receive`'s set runs one and no result is defined
-      anywhere in the chapter, so this is named rather than modelled — inventing
-      a diagnostic result would be inventing a failure mode.
-      **What would unblock it**, named because "blocked" without that is not a
-      claim: an Apollo keyboard protocol document, or a boot that issues an
-      unrecognised command and waits for a reply this core does not send.
-      **The instrument that sentence named did not exist, and now does**
-      (2026-09-08). It said "which the existing `ap_kbd` counters would show";
-      the `default:` arm ignored the byte in silence and nothing counted it, so
-      the experiment could not have been read even if a boot had run it.
-      `ignored_commands` counts a byte refused **outside loopback** — in
-      loopback an unrecognised byte is echoed, which is behaviour and not a
-      refusal — and the boot report prints it.
-      **Measured: `kbd refused 0`** on a 1.5 G boot to `SPM system init
-      complete.`, so neither the firmware nor Domain/OS asks this part anything
-      it does not answer. That is now evidence for the block rather than an
-      assumption about it. *Verification: `kbd_suite` 60 → 61; no behaviour
-      changed and the counter is a diagnostic, outside the state hash as every
-      other counter is.*
-      `007196-01` is **eliminated** as a source (walked whole 2026-09-08): its
-      insert-file census lists `KBD` as "[Useful constants for keyboard keys]"
-      with **no chapter behind it**, the one census row with no section.
+- [x] **The keyboard's self-diagnostics — closed 2026-09-09 under the
+      documentation-absent rule.** `002398-04` ch. 12 has the part "performs
+      power-up and operator requested self-diagnostics" and then defines no
+      command that runs one and no result anywhere in the chapter, so a
+      diagnostic result here would be an invented failure mode. **No Apollo
+      keyboard protocol document exists on this shelf.**
+      *Execution works, and it is measured rather than assumed*: the boot report
+      prints `kbd refused`, counting a byte refused outside loopback, and a
+      1.5 G-instruction boot to `SPM system init complete.` reports **zero** —
+      neither the firmware nor Domain/OS asks this part anything it does not
+      answer. Detail in `PROJECT_STATUS.md`.
 - [x] **What a command issued into a stopped spindle does — mapped to
       exhaustion 2026-08-22, and the answer is that this card cannot report it.**
       The timing half is done: `AP_OMTI_FDC_SPINDLE_START` runs from the Digital

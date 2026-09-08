@@ -138,6 +138,21 @@ reference core to chase speed** — that is the classic mistake.
   detail they had never moved.
 - **Deliberate approximations are fine** — documented, with reason and cost to
   close.
+- **Documentation genuinely absent + working execution = done.** Standing rule,
+  2026-09-09. An item whose only remaining blocker is a document that has been
+  established not to exist — searched at all three tiers and recorded as
+  searched, not merely unfound — is **closed**, not carried, provided the
+  machine demonstrably works without it. Close it with both halves written down:
+  what was searched and why the absence is established, and the execution
+  evidence that the gap costs nothing. The same applies where the blocker is a
+  *consumer* rather than a document: no card that can assert the signal, no
+  software that reads the bit. Say which of the two it was.
+  This does not weaken **FINISH THE MODULE** — a module with a register nobody
+  has walked is still unfinished, and an item blocked on work rather than on
+  evidence stays open. It closes the items that were never closable, so the plan
+  is read forwards rather than as a list of things that cannot be done.
+  **Reopen on contact**: if the document turns up, or something starts driving
+  the signal, the item comes back with its file still on the record.
 - **Temporary instrumentation is always reverted** before commit, in our core
   *and* in the oracle's checkout. Edit-revert-restore; never `git checkout
   <file>` over uncommitted work.
