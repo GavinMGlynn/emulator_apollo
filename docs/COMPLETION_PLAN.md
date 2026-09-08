@@ -4174,14 +4174,26 @@ discipline throughout.
       stopped at three, and killing it produced no report at all, because the
       ring counters printed only at the end. The runner now reports a frame
       crossing when it happens.
-      **And the rate is now measured rather than estimated, 2026-09-08: 46 k
-      instructions/s per node**, at 99% of one core with the ring card fitted
-      and a console script running. The number that matters beside it is what
-      the *same build* does with one machine — **about 830 k/s** — so the
+      **And the rate was a defect, not a property of the workload — 2026-09-08.**
+      A 20 M-per-node run took **347.89 s** before and **5.45 s** after, with
+      the ring hash `1E2AAD222E42DD06` identical on both binaries: `sixty-four
+      times`. `ap_machine_state()` computes a full state hash and the hash walks
+      the whole of RAM, and the slice loop called it three times per
+      4096-instruction slice to read a program counter and two clocks — about
+      **64 MB hashed per slice**. So a 1.6 G-per-node run is about **nine
+      minutes**, not ten hours, and this item's "a run to launch deliberately"
+      no longer applies.
+      *What this item said until then, kept because it is the mistake worth
+      remembering*: "the rate is now measured rather than estimated: 46 k
+      instructions/s per node ... about **830 k/s** with one machine — so the
       two-node runner is roughly **eighteen times slower per node**, not two.
-      That is the shared cable being stepped at its own 12 Mbit/s bit rate
-      between slices, and it makes a 1.6 G-per-node run about **ten hours**. A
-      run to launch deliberately, which is what this item has always said.
+      **That is the shared cable being stepped at its own 12 Mbit/s bit rate
+      between slices**". The measurement was right and the explanation was
+      **invented** — the cable had nothing to do with it, and `perf record -p`
+      on the running job put 86% of its samples in `machine_hash_into` in
+      minutes. Eighteen times has no physical story; two nodes should cost
+      twice. The anomaly was recorded as a characteristic and given a plausible
+      cause, which is exactly how it survived several multi-hour runs.
       **This was recorded as "a media question with no route". It has a route,
       and it was in the oracle's source rather than in any manual.** `apollo_ni`
       is a `device_image_interface`, so the node ID is a **loadable 32-byte ROM
