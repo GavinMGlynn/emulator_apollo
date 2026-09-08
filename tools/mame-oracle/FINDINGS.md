@@ -13355,11 +13355,21 @@ a MISC_STAT read. Discounting that low byte, the eight are:
 
     00, F0, then three times: 08, 70
 
-**`$08` in the high lane is `$0800`, which is `nct` alone -- the exact value
-`RING.md` 103c records `RING_PROC` writing to connect.** So this core's
-high-lane reading of `+400` is confirmed from the kernel driver's side, and the
-driver *is* connecting the station: three times, matching the three `nct`
-writes counted.
+**`$08` in the high lane is `$0800`, which is `nct` alone.** The witness for
+that reading is on the same card: `RING.md` 103c records the AT firmware's
+`move.b #$8,$404` being "the same `$0800`", so a byte `$8` at an **even command
+offset** means bit 11 on this board, and `$08` at `+400` is `nct`. The driver
+*is* connecting the station: three times, matching the three `nct` writes
+counted.
+
+*Not `RING_PROC`, and that citation was wrong when this finding first used it.*
+103c also records `RING_PROC` writing `$800` to MISC_CMD, but its instructions
+are `move.w #$800, $5000(a4)` and `move.w #$800, $5004(a4)` -- the **DN3xx**
+window at `+5000`, not the AT card's `+400`, and words rather than bytes. So
+`RING_PROC` is a different board's driver and cannot speak to this decode. The
+AT driver's own `$08`/`$70` writes appear as immediates in none of the four
+extracted listings (`drvr`, `drvr2`, `ring8b`, `rp_full`), so the module that
+issues them is not yet identified -- which is the first half of the next step.
 
 And each connect is immediately followed by `$70` -- `$7000`, no `nct`. This
 core derives `connected` from bit 11 of **every** write to `+400`, so every
