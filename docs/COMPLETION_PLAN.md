@@ -5076,22 +5076,28 @@ same number is what let them diverge once already.
       error at all, but p. 4-17's other line — "The SYSBOOT read from records 2
       thru B did not have a good boot header". Identity `1AE206D37D8A8D1F`
       unchanged throughout.
-      *What is left, and it is now outside the tape*: **the sixteen blocks
-      arrive and one of them lands on another**. `dma 8192 transfer(s)` is 16 ×
-      512 exactly, but `dma first wrote 010FD800` and `last wrote 010FF5FF`
-      span `1E00` — **fifteen** blocks. A dump of that window shows cartridge
-      block **1** at `010FD800` with the 512 bytes in front of it zero, so
-      blocks 0 and 1 both went to `010FD800` and the second overwrote the first.
-      The boot header the firmware is looking for is block 0's, and it is the
-      block that was overwritten.
-      The destination runs through the AT address translation map, which the
-      host reprograms per block (`translation map` 34 writes for 16 blocks, and
-      `dma writes 010C02 010C03` — the channel's address register — beside
-      them), so the next measurement is the map entry and the 8237 base address
-      against each block: watch `010C02`/`010C03` and the map, and see which
-      pair of blocks shares a destination. Nothing on the tape path is implicated
-      — the drive delivers sixteen blocks, stops at the mark, and the firmware
-      reads and clears the status (`exs 0000`).
+      *What is left is one timing fact, and it is measured* (`FINDINGS.md`
+      C268). Sixteen blocks arrive and one lands on another: `dma 8192
+      transfer(s)` is 16 × 512 exactly, but `dma first wrote 010FD800` and
+      `last wrote 010FF5FF` span `1E00` — **fifteen** blocks — and a dump shows
+      cartridge block **1** at `010FD800` with the 512 bytes in front of it
+      zero. Three watches say why. The translation map's entry 512 takes sixteen
+      word writes at PC `37AC` — `43F6` **three times**, every other page twice
+      — and DMAGO takes sixteen at PC `3796`, each **six instructions before**
+      its map write. **MD writes DMAGO and then the map**, which it can afford
+      because a real drive is 11.1 µs from its first byte at `008778-03` Table
+      9-1's 90,000 bytes/second. This core hands the whole block over first: the
+      DRQ is a level held for all 512 bytes, the arbiter grants the bus, and 512
+      cycles run back to back with the processor stalled — 20 µs in which MD
+      executes no instruction. Every block is placed through the *previous* map
+      entry, and the one that loses is block 0, which carries `SYSBOOT REV`.
+      **The fix is the drive's byte rate**: one byte is `AP_TIME_BASE_HZ /
+      90000` = 239,360,000 base units exactly, and `ap_tape_dma_request` becomes
+      a paced level. `ap_sc499_block_boundary` must change with it — with the
+      media paid byte by byte, Figure 1-5's T14→T15 is the interface turnaround
+      it was first read as, `100 us. <`. A reference-core *timing* change, so it
+      wants its own measurement pass: the identity boot fits no cartridge and
+      cannot move, but every `tape_suite` DMA test times blocks explicitly.
       **What it unblocks**: a cartridge boot on this core, and with it the SAU 14
       install that the DS5500 boot and the multi-node workloads item both want —
       without borrowing the oracle. *The media is confirmed held*: `019593-001`

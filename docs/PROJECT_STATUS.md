@@ -434,6 +434,48 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## The tape hands over a block 280x too fast, and the host loses a race it
+## cannot see (2026-09-09)
+
+C267 left the boot at `error: sysboot not found` with the tape healthy and one
+block landing on another. Three watches say why, and the answer is a *timing*
+one.
+
+The AT translation map's entry 512 takes sixteen word writes at PC `37AC`,
+evenly spaced 15,370 instructions apart — `43F6 43F6 43F6 43F7 43F7 43F8 43F8
+43F9 43F9 43FA 43FA 43FB 43FB 43FC 43FC 43FD`. Two per page is what a 1024-byte
+page holding two 512-byte blocks needs; **`43F6` appears three times** and
+`43FD` once, and `43F6 << 10` is `010FD800`, exactly `dma first wrote`.
+
+DMAGO takes sixteen writes at PC `3796`, each **six instructions before** its
+map write. So MD's order per block is **DMAGO, then the map entry** — and it can
+afford that, because a real drive delivers 90,000 bytes a second (`008778-03`
+Table 9-1, already carried here as `AP_SC499_DRIVE_BYTES_PER_SEC`), so the first
+byte is 11.1 µs away and six instructions is nothing.
+
+**This core hands the whole block over first.** `ap_tape_dma_request` is a level
+that stays up for all 512 bytes, the arbiter gives the DMA the bus, and 512
+cycles run back to back with the processor stalled — 20 µs of emulated time in
+which MD executes no instruction at all. The map write then lands *after* the
+block has gone, so every block is placed through the previous entry, `43F6`
+covers three of them, and two collide. The block that loses is block 0, which is
+the one carrying `SYSBOOT REV` and the four header words.
+
+*The fix is the drive's byte rate*, and it is arithmetic this file already has:
+512 bytes at 90,000 a second is 5.69 ms, and one byte is
+`AP_TIME_BASE_HZ / 90000` = **239,360,000** base units exactly, no rounding.
+`ap_tape_dma_request` becomes a paced level, true only when the next byte is
+due. **And the block boundary must change with it**: `ap_sc499_block_duration`
+is currently the whole media time imposed as the *gap* after a block, and with
+the media paid byte by byte, Figure 1-5's T14→T15 is the interface turnaround it
+was first read as — `100 us. <`, which is `AP_SC499_T_BLOCK_TO_READY_MIN`. The
+two move together or a block costs its media time twice.
+
+That is a change to the reference core's *timing* rather than to a register, so
+it wants its own measurement: the identity boot fits no cartridge and cannot
+move, but every one of `tape_suite`'s DMA tests times blocks explicitly and each
+needs re-reading against the new rate. Detail in `FINDINGS.md` C268.
+
 ## A card cannot transfer a byte the drive never sent (2026-09-09)
 
 C266's fixes moved the cartridge boot's error from `FF` to **`36`**, which is a

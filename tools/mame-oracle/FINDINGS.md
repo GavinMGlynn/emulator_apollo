@@ -15359,3 +15359,70 @@ map entry and the 8237 base address against each block**, to see which pair
 shares a destination and why. Nothing on the tape path is implicated: the drive
 delivers sixteen blocks, stops at the mark, and the firmware reads and clears
 the status.
+
+## C268 -- the tape hands over a block 280x too fast, and the host loses a race it cannot see
+
+C267 left the boot at `error: sysboot not found` with the tape healthy and one
+block landing on another. Three watches say why, and the answer is a timing one.
+
+**The translation map, entry 512 (`017400`), word writes at PC `37AC`:**
+
+    43F6  43F6  43F6  43F7  43F7  43F8  43F8  43F9
+    43F9  43FA  43FA  43FB  43FB  43FC  43FC  43FD
+
+Sixteen writes for sixteen blocks, evenly spaced 15,370 instructions apart. Two
+per page is what a 1024-byte page holding two 512-byte blocks needs -- and
+**`43F6` appears three times** while `43FD` appears once. `43F6 << 10` is
+`010FD800`, which is exactly `dma first wrote 010FD800`.
+
+**DMAGO (`050002`), sixteen writes at PC `3796`:**
+
+    365467743   365483135   365498503   365513871   ...
+
+Each is **six instructions before** its map write at `37AC`:
+
+    DMAGO #1  365467743      map #1  365467749
+    DMAGO #2  365483135      map #2  365483141
+
+So MD's order per block is **DMAGO first, then the map entry**. It can afford
+that because a real drive delivers 90,000 bytes a second -- `008778-03` Table
+9-1's nominal rate, which this core already carries as
+`AP_SC499_DRIVE_BYTES_PER_SEC` -- so the first byte of a block is **11.1 µs**
+away and six instructions is nothing.
+
+**This core hands the whole block over first.** `ap_tape_dma_request` is a level
+that stays up for all 512 bytes, the arbiter gives the DMA the bus, and 512
+cycles run back to back with the processor stalled: 20 µs of emulated time in
+which MD executes **no instruction at all**. By the time the map write at `37AC`
+runs, the block has already gone -- through the *previous* entry. Every block
+lands one map write late, which is why `43F6` covers three of them and two of
+those collide.
+
+The block that loses is block 0, and block 0 is the one carrying `SYSBOOT REV`
+and the four header words. `error: sysboot not found` is the firmware reporting
+exactly that.
+
+### What the fix is
+
+The drive's byte rate. 512 bytes at 90,000 a second is **5.69 ms**, which is
+the figure `ap_sc499_block_duration` already computes and `ap_sc499_block_boundary`
+already imposes *between* blocks -- and nothing paces the bytes *within* one. A
+byte costs `AP_TIME_BASE_HZ / 90000` = **239,360,000** base units exactly, no
+rounding.
+
+So `ap_tape_dma_request` becomes a paced level: true only when the next byte is
+due. With that, a block takes 5.69 ms to cross the interface instead of 20 µs,
+the processor runs between bytes as it does on the machine, and MD's map write
+lands 6 instructions after DMAGO and 11 µs before the first byte.
+
+**And the block boundary then has to change with it.** `ap_sc499_block_duration`
+is currently the whole media time for a block, imposed as the *gap* after one;
+with the media time paid byte by byte, Figure 1-5's T14->T15 is the interface
+turnaround it was originally read as -- `100 us. <`, which is
+`AP_SC499_T_BLOCK_TO_READY_MIN`. The two must move together or a block will cost
+its media time twice.
+
+That is a change to the reference core's timing rather than to a register, so it
+wants its own measurement: the identity boot fits no cartridge and cannot move,
+but `tape_suite`'s DMA tests time blocks explicitly and every one of them will
+need re-reading against the new rate.
