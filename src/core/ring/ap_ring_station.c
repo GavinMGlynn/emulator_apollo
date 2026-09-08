@@ -277,11 +277,29 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
         s->tx_seen_own_frame_start = true;
         s->tx_stripped_own = 0u;
       }
-    } else if (++s->tx_stripped_own >= s->tx_bit_count) {
-      /* Step 8: "When a node stops stripping, recirculation resumes." */
+    } else if (s->tx_stripped_own + AP_RING_OOB_BITS >= s->tx_bit_count) {
+      /* Step 8: "When a node stops stripping, recirculation resumes."
+       *
+       * **Counted from the frame start's *last* bit, so the frame start's own
+       * nine belong to the frame already received.** The frame begins with the
+       * frame start character (`ap_ring_frame_emit` step 1), and the arm above
+       * fires on the window ending with that character -- so at that moment
+       * `AP_RING_OOB_BITS` of `tx_bit_count` have arrived and `tx_bit_count`
+       * more would strip nine bits too many.
+       *
+       * Nine bits is exactly one out-of-band character, and step 6 has put one
+       * there: "sends out a new free token to follow the frame". So the
+       * over-strip destroyed the free token the station had just emitted, every
+       * time it transmitted. Measured on a two-node segment: the token
+       * circulated 443 times over 4,000 bit times on a quiet ring and exactly
+       * twice once a frame was sent, after which no station could claim the
+       * ring again and every later transmission waited for §2.2.1.1's 10.9 ms
+       * token-loss timeout (`FINDINGS.md` C251). */
       s->stripping = false;
       s->holds_ring = false;
       s->tx_seen_own_frame_start = false;
+    } else {
+      s->tx_stripped_own++;
     }
   }
 

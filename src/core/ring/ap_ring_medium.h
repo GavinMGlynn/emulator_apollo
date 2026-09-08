@@ -161,6 +161,22 @@ void ap_ring_medium_advance(ap_ring_medium_t *m);
 [[nodiscard]] unsigned ap_ring_medium_circumference_bits(
     const ap_ring_medium_t *m);
 
+/* The segment's length in bit times counting **every attached slot and its
+ * cable, bypassed or not** -- the cable plant rather than the signal's current
+ * path.
+ *
+ * The two differ, and the difference matters exactly once: choosing how much
+ * cable a joining node needs. A ring card bypasses itself until its driver
+ * writes `nct`, so at the moment a board joins, `circumference_bits` reports
+ * the *other* nodes only -- often zero -- and a length chosen from it would
+ * depend on which nodes happened to be connected at the time. Plant does not
+ * come and go with a relay, so this is what a cable length is chosen against.
+ *
+ * `circumference_bits` remains the right measure of the ring the signal is
+ * actually going round, which is what §3.3's integral-bit-time condition and
+ * the token's own recirculation are about. */
+[[nodiscard]] unsigned ap_ring_medium_plant_bits(const ap_ring_medium_t *m);
+
 /* Whether that total is a whole number of bit-times, which is `[MAC]` §3.3's
  * stability condition stated directly. */
 [[nodiscard]] bool ap_ring_medium_stable(const ap_ring_medium_t *m,

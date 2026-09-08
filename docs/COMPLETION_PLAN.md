@@ -4137,17 +4137,37 @@ discipline throughout.
       receiver's business; the two are exclusive, and the acceptance test alone
       is unconditionally true for a broadcast. Fixed — node 1's received frame
       goes from its own ID to node 0's.
-      **What is left is two questions of a different kind from the nine fixed.**
-      *A node with the other's request does not reply*: the ninety bytes are
-      captured and never decoded, and a reply is a `THANK_YOU` (p. 7-31's type
-      `20`) — this is Domain/OS **protocol**, where every defect so far was "the
-      core does what the documents say it should not". And *node 0 never sees
-      node 1's frame at all* (`frames seen 1 copied 0`, its own only, where node
-      1 sees two) — a one-way segment, which is a medium or timing question and
-      separate. `ring_medium_suite` circulates a token across three stations, so
-      what differs is two running machines transmitting into it.
-      **And the run costs about fifteen minutes now**, not ten hours. Detail in
-      `PROJECT_STATUS.md`; `FINDINGS.md` C243–C248.
+      **The one-way segment is answered, and it was not the segment**
+      (`FINDINGS.md` C251). The runner now reports each card's bypass relay on
+      the same timeline as the frames, and node 1 broadcast **618,496
+      instructions before node 0's relay closed**: its frame had nowhere to go
+      and it heard itself, which is what a station alone on a ring hears. Node
+      0's frame, sent once both relays were closed, crossed and was copied — and
+      node 0 read that back out of its own returning frame, `ack 4A cpd icopy`,
+      §2.2.2.5 working between two machines for the first time. **One direction
+      is demonstrated end to end; the other needs the two transmits to overlap.**
+      **Two ring defects were found on the way and are fixed**: a transmitter
+      stripped nine bits too many and destroyed the free token it had just
+      emitted, and every segment this core assembled was shorter than its own
+      nine-bit token. Measured in the machine: `tokens 193654419` where the token
+      used to die on its first lap.
+      **A second `/com/lcnode` is not the way to make them overlap.** Measured,
+      2 G instructions per node: it answers in full and **transmits nothing** —
+      `frames seen` unchanged, 258 more writes to the card, no frame to the
+      station. The harness step was reverted.
+      *The live question*: those 258 writes. `+402` fires on a **rising** `ten`
+      (p. 12-32 makes `ten` a level) and nothing here clears `xmit_enabled` when
+      an operation completes, so a driver that leaves `ten` set would never arm a
+      second frame. Checkable, and not yet checked: the report logs MISC_CMD's
+      writes and values since `FINDINGS.md` C243 and logs nothing for XMIT_CMD.
+      **And a node with the other's request still does not reply**: the ninety
+      bytes are captured and never decoded, and a reply is a `THANK_YOU`
+      (p. 7-31's type `20`) — Domain/OS **protocol**, where every defect so far
+      was "the core does what the documents say it should not".
+      **The run costs about twenty-five minutes now**, not ten hours, and two
+      runs on their own disk pairs are **byte-identical**, which is this item's
+      determinism clause. Detail in `PROJECT_STATUS.md`; `FINDINGS.md`
+      C243–C248, C251.
       **The verification was rewritten on 2026-08-19, and the reason matters.**
       It read "`lcnode` on each node lists the other", which is an *operating
       system* check standing in for a *ring* one: it needs a shell, a shell
@@ -5825,6 +5845,29 @@ same number is what let them diverge once already.
       byte-identical either way, state hash `717289781987BD4A` as it then stood
       and the same console, so the reference path does not depend on it. Detail
       in `PROJECT_STATUS.md`.
+
+- [ ] **A bypassed node's cable is skipped, so bypassing a node shortens the
+      ring.** `PROVISIONAL` in `ap_ring_medium.c`'s `driver_upstream_of`, found
+      2026-09-08 while giving segments enough length to carry a token
+      (`FINDINGS.md` C251). `[MAC]` §3.5's own sentence is that the relays
+      "connect a node's input coaxial cable to its output coaxial cable" --
+      both cables stay in the loop, and no relay has ever shortened a cable
+      plant. This model walks past a bypassed slot entirely, cable included, so
+      `ap_ring_medium_circumference_bits` and `_delay_centibits` both drop it.
+      *What it costs, measured rather than guessed*: on a two-node segment where
+      the padded node is the bypassed one, the live circumference is one bit,
+      which cannot carry a nine-bit token -- so the connected node **forces** a
+      token where it should have claimed a circulating one. It changes which of
+      §2.2.1.1's two routes onto the ring is taken while a segment is
+      half-connected, and nothing once every node is in the ring.
+      *What it needs*: a bypassed node's delay line fed from the previous line's
+      output within the same bit time, which is a cascade of shift registers and
+      wants a read-all-then-write-all pass rather than `advance`'s single loop.
+      No existing test combines cable with bypass, so the change is invisible to
+      the suite until one does -- which is the test it lands with.
+      *Verification: a bypassed node with cable delays the ring by that cable's
+      length, and a two-node segment keeps its circumference when either node
+      bypasses.*
 
 - [ ] **Three ring timeout status bits are defined and set by nobody.**
       `AP_RING_CTL_STATUS_TMO`, `AP_RING_CTL_XMIT_TMO` and `AP_RING_CTL_RCV_PE`

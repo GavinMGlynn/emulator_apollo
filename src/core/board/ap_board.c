@@ -740,6 +740,46 @@ static void board_ring_step(void *context, ap_time_t now) {
   ap_ring_ctl_poll_ring(&board->ring);
 }
 
+/* Give a joining node enough cable that the segment can carry its own token.
+ *
+ * **A ring physically shorter than its token cannot recirculate one**, and
+ * that is a property of the plant, not of this model. A station originating a
+ * nine-bit free token drives it over nine bit times; on a segment two bit
+ * times around, the token's head arrives back while the originator is still
+ * driving its tail, and an originating station is not forwarding, so the head
+ * is lost. What circulates afterwards is not a token.
+ *
+ * **Apollo says so and supplies the remedy in one bit.** `002398-04` p. 8-41
+ * documents a `DELAY` bit in the transmit command register: "Enable an
+ * additional 7 bit delay into the length of the network. This may be required
+ * to support the recirculation of the token, which is 9 bits." The criterion is
+ * the token's own length, and that is the criterion applied here.
+ *
+ * `PROVISIONAL` in one respect, named rather than left implicit: p. 8-41 is the
+ * DN4xx controller's register, and whether the DS3000's gate array carries the
+ * same switch is not established (`ap_ring_medium.h` says the same). So the
+ * delay is modelled as *cable* -- which every real segment has, and which
+ * `[MAC]` §3.4 bounds at 1 km between nodes, 51 bit times -- rather than as a
+ * register bit this board is not known to have. The cost to close it is one
+ * page of a DS3000 ring document, which this project does not hold
+ * (`apollo-documentary-universe-is-exhausted`).
+ *
+ * Only the node that finds the segment too short pads it, so the first to join
+ * carries the delay and every later one adds its own bit of retiming. Nothing
+ * is running when a board joins, so setting the delay line here cannot disturb
+ * a ring in flight. */
+static void board_pad_ring_for_token(ap_ring_medium_t *medium, int slot) {
+  /* Measured against the **plant**, not the live circumference: a ring card
+   * bypasses itself until its driver writes `nct`, so at join time the signal
+   * path may be empty and a length chosen from it would depend on which nodes
+   * happened to be connected. `ap_ring_medium_plant_bits` says why. */
+  const unsigned plant = ap_ring_medium_plant_bits(medium);
+  if (plant >= AP_RING_OOB_BITS) {
+    return;
+  }
+  ap_ring_medium_set_cable_bits(medium, slot, AP_RING_OOB_BITS - plant);
+}
+
 int ap_board_join_ring_sched(ap_board_t *board, ap_ring_sched_t *sched) {
   if (board == NULL || sched == NULL) {
     return -1;
@@ -754,6 +794,7 @@ int ap_board_join_ring_sched(ap_board_t *board, ap_ring_sched_t *sched) {
   }
   ap_ring_station_init(&board->ring_station, slot);
   board_lend_ring_buffers(board);
+  board_pad_ring_for_token(&sched->medium, slot);
   ap_ring_ctl_attach_ring(&board->ring, &board->ring_station, &sched->medium);
   board->ring_scheduled = true;
   return slot;
@@ -776,6 +817,7 @@ void ap_board_join_ring(ap_board_t *board, ap_ring_medium_t *medium) {
   }
   ap_ring_station_init(&board->ring_station, slot);
   board_lend_ring_buffers(board);
+  board_pad_ring_for_token(medium, slot);
   /* Attach *after* the reset in `ap_board_attach_ring`, never before: that
    * reset is also the controller's initialiser and clears the attachment
    * (`RING.md` 104d). */

@@ -658,6 +658,150 @@ static void test_a_transmitter_reads_back_a_wait_acknowledge(void) {
   TEST_ASSERT_TRUE(ap_ring_ack_parity_ok(ack));
 }
 
+/* **Step 6's free token has to survive step 7's stripping, and it did not.**
+ *
+ * §2.1 step 6 puts "a new free token to follow the frame"; step 7 bounds the
+ * transmitter's stripping at "until it finishes receiving its own frame". Its
+ * own frame *begins* with the frame start character, so by the time a station
+ * recognises that character coming back, nine of the frame's bits have already
+ * arrived -- and counting the whole frame from there strips nine bits too many.
+ * Nine bits is exactly one out-of-band character, and the character sitting
+ * there is the free token the same station emitted a moment earlier.
+ *
+ * The consequence is not subtle: after any transmission the ring had no token,
+ * so no station could claim it and every later transmit waited out §2.2.1.1's
+ * 10.9 ms token-loss timeout. Both arms are asserted -- the token still
+ * circulating, and it circulating *many* times rather than once -- because a
+ * single sighting is what a token that dies immediately also produces. */
+static void test_the_free_token_after_a_frame_keeps_circulating(void) {
+  ring_t r;
+  build(&r, 2u);
+  /* Long enough to carry its own nine-bit token: see
+   * `test_a_ring_shorter_than_its_token_cannot_recirculate_one`. */
+  ap_ring_medium_set_cable_bits(&r.medium, 0, 4u);
+  ap_ring_medium_set_cable_bits(&r.medium, 1, 3u);
+  static uint8_t txbuf[2048];
+  uint8_t header[12] = {0};
+  ap_ring_header_set_destination(header, 0x00010001u);
+  ap_ring_header_set_type(header, AP_RING_TYPE_USER);
+  ap_ring_header_set_source(header, 0x00010000u);
+  ap_ring_station_attach_tx(&r.station[0], txbuf, sizeof txbuf);
+  const ap_ring_frame_fields_t fields = {
+      .header = header, .header_bytes = sizeof header,
+      .data = NULL, .data_bytes = 0u, .late_acknowledge = 0u};
+  TEST_ASSERT_TRUE(ap_ring_station_queue_frame(&r.station[0], &fields));
+  ap_ring_station_originate_token(&r.station[0], AP_RING_OOB_FREE_TOKEN);
+  for (unsigned i = 0; i < 4000u; i++) {
+    step(&r);
+  }
+
+  /* The frame was sent, so step 6 ran. */
+  TEST_ASSERT_TRUE(ap_ring_station_transmitted(&r.station[0]));
+  /* And the ring still has a token, seen over and over. A frame is 189 bits
+   * and the ring nine, so 4,000 bit times leave room for hundreds of laps;
+   * this asserts far fewer than that, and far more than the two the
+   * over-strip left. */
+  TEST_ASSERT_TRUE(r.station[0].tokens_seen > 100u);
+  TEST_ASSERT_TRUE(r.station[1].tokens_seen > 100u);
+  /* Nobody had to force one, which is the failure this replaced: with the
+   * token destroyed the only way back onto the ring was the loss timeout. */
+  TEST_ASSERT_EQUAL_UINT64(0u, r.station[0].forced_tokens);
+  TEST_ASSERT_EQUAL_UINT64(0u, r.station[1].forced_tokens);
+}
+
+/* **Two stations transmitting in turn, which is what a two-node segment is
+ * for.** Every frame test above sends one frame one way; this sends one each
+ * way, the second queued only after the first has been delivered, so the
+ * second transmitter has to acquire a token the first one released.
+ *
+ * That is the ring half of the plan's "two nodes see each other over the ring":
+ * each station ends having seen two frames -- its own coming back and the
+ * other's going past -- and having copied exactly the one addressed to it. */
+static void test_two_stations_exchange_a_frame_each_in_turn(void) {
+  ring_t r;
+  build(&r, 2u);
+  ap_ring_medium_set_cable_bits(&r.medium, 0, 4u);
+  ap_ring_medium_set_cable_bits(&r.medium, 1, 3u);
+  static uint8_t txbuf[2][2048];
+  for (unsigned i = 0; i < 2u; i++) {
+    ap_ring_station_set_address(&r.station[i], 0x00010000u + i);
+    ap_ring_station_set_receive_enabled(&r.station[i], true);
+    ap_ring_station_attach_tx(&r.station[i], txbuf[i], sizeof txbuf[i]);
+  }
+
+  for (unsigned turn = 0; turn < 2u; turn++) {
+    const unsigned from = turn;
+    const unsigned to = 1u - turn;
+    uint8_t header[12] = {0};
+    ap_ring_header_set_destination(header, 0x00010000u + to);
+    ap_ring_header_set_type(header, AP_RING_TYPE_USER);
+    ap_ring_header_set_source(header, 0x00010000u + from);
+    const ap_ring_frame_fields_t fields = {
+        .header = header, .header_bytes = sizeof header,
+        .data = NULL, .data_bytes = 0u, .late_acknowledge = 0u};
+    TEST_ASSERT_TRUE(ap_ring_station_queue_frame(&r.station[from], &fields));
+    if (turn == 0u) {
+      /* One token to start the ring; the second turn must find the token the
+       * first turn's transmitter released, which is the point of the test. */
+      ap_ring_station_originate_token(&r.station[0], AP_RING_OOB_FREE_TOKEN);
+    }
+    for (unsigned i = 0; i < 4000u; i++) {
+      step(&r);
+    }
+    TEST_ASSERT_TRUE(ap_ring_station_transmitted(&r.station[from]));
+  }
+
+  for (unsigned i = 0; i < 2u; i++) {
+    TEST_ASSERT_EQUAL_UINT64(2u, r.station[i].frames_seen);
+    TEST_ASSERT_EQUAL_UINT64(1u, r.station[i].frames_copied);
+    TEST_ASSERT_EQUAL_UINT64(0u, r.station[i].frames_wacked);
+    /* And each read back that the other took its frame -- §2.2.2.5, so both
+     * ends can say a frame crossed. */
+    uint8_t ack = 0u;
+    TEST_ASSERT_TRUE(ap_ring_station_transmit_ack(&r.station[i], &ack));
+    TEST_ASSERT_TRUE((ack & AP_RING_LATE_COPIED) != 0u);
+  }
+}
+
+/* **A ring shorter than its own token cannot carry one, and that is physics
+ * rather than a limit of this model.**
+ *
+ * A station originating a nine-bit free token drives it over nine bit times.
+ * On a segment fewer than nine bit times around, the token's head arrives back
+ * while the originator is still driving its tail -- and an originating station
+ * is not forwarding, so the head is discarded. What circulates afterwards is
+ * not a token, and nothing on the ring can ever claim one again.
+ *
+ * `002398-04` p. 8-41 is Apollo saying the same thing and selling the cure in
+ * one bit: a `DELAY` bit that adds "an additional 7 bit delay into the length
+ * of the network", which "may be required to support the recirculation of the
+ * token, which is 9 bits". `ap_board_join_ring` applies the same criterion as
+ * cable, which is why a segment a *board* joins never has this shape.
+ *
+ * The boundary is measured, not assumed: eight bit times is enough, because a
+ * bit arriving in the same bit time as the last originated one is still
+ * forwarded. */
+static void test_a_ring_shorter_than_its_token_cannot_recirculate_one(void) {
+  for (unsigned circumference = 2u; circumference <= 10u; circumference++) {
+    ring_t r;
+    build(&r, 2u);
+    ap_ring_medium_set_cable_bits(&r.medium, 0, (circumference - 2u + 1u) / 2u);
+    ap_ring_medium_set_cable_bits(&r.medium, 1, (circumference - 2u) / 2u);
+    TEST_ASSERT_EQUAL_UINT(circumference,
+                           ap_ring_medium_circumference_bits(&r.medium));
+    ap_ring_station_originate_token(&r.station[0], AP_RING_OOB_FREE_TOKEN);
+    for (unsigned i = 0; i < 2000u; i++) {
+      step(&r);
+    }
+    if (circumference < AP_RING_OOB_BITS - 1u) {
+      /* Seen once as it was driven out, and never again. */
+      TEST_ASSERT_EQUAL_UINT64(1u, r.station[1].tokens_seen);
+    } else {
+      TEST_ASSERT_TRUE(r.station[1].tokens_seen > 100u);
+    }
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_stripping_timeout_matches_both_forms_the_manual_gives);
@@ -681,5 +825,8 @@ int main(void) {
   RUN_TEST(test_a_wacking_receiver_still_sets_intend_to_copy);
   RUN_TEST(test_a_transmitter_reads_back_that_its_frame_was_copied);
   RUN_TEST(test_a_transmitter_reads_back_a_wait_acknowledge);
+  RUN_TEST(test_a_ring_shorter_than_its_token_cannot_recirculate_one);
+  RUN_TEST(test_the_free_token_after_a_frame_keeps_circulating);
+  RUN_TEST(test_two_stations_exchange_a_frame_each_in_turn);
   return UNITY_END();
 }

@@ -2034,6 +2034,64 @@ static void test_two_boards_exchange_a_frame_on_a_scheduled_ring(void) {
   TEST_ASSERT_EQUAL_HEX64(hashes[0], hashes[1]);
 }
 
+/* **A segment a board joins is long enough to carry its own token, and it was
+ * not.**
+ *
+ * A ring shorter than its nine-bit free token destroys it: the originator is
+ * still driving the tail when the head returns, and an originating station is
+ * not forwarding, so the head is lost. Two boards with no cable between them
+ * are two bit times around, which is the shortest ring there is -- and every
+ * segment this core assembled was exactly that, so no token ever survived its
+ * first lap and every transmit waited out §2.2.1.1's 10.9 ms loss timeout.
+ *
+ * `002398-04` p. 8-41 is the hardware's own statement of the problem and its
+ * cure: a `DELAY` bit adding "an additional 7 bit delay into the length of the
+ * network", "required to support the recirculation of the token, which is 9
+ * bits". `ap_board_join_ring_sched` applies that criterion as cable -- see
+ * `board_pad_ring_for_token` for why cable rather than a register bit.
+ *
+ * Asserted at the board, not at the station, because the station suite can
+ * always set a cable length by hand; what this checks is that a *machine*
+ * joining a ring gets one. */
+static void test_a_board_joining_a_ring_makes_it_long_enough_for_a_token(void) {
+  static ap_ring_sched_t sched;
+  static ap_board_t a;
+  static ap_board_t b;
+
+  ap_ring_sched_init(&sched);
+  init(&a);
+  init(&b);
+  ap_board_attach_ring(&a, true);
+  ap_board_attach_ring(&b, true);
+  TEST_ASSERT_EQUAL_INT(0, ap_board_join_ring_sched(&a, &sched));
+  /* One node is already enough plant for the token: a card that finds itself
+   * alone on a segment pads it, so it cannot end up on a ring it could not
+   * start. */
+  TEST_ASSERT_TRUE(ap_ring_medium_plant_bits(&sched.medium) >=
+                   AP_RING_OOB_BITS);
+  TEST_ASSERT_EQUAL_INT(1, ap_board_join_ring_sched(&b, &sched));
+  TEST_ASSERT_TRUE(ap_ring_medium_plant_bits(&sched.medium) >=
+                   AP_RING_OOB_BITS);
+
+  /* `nct` closes the bypass relays, so from here the signal path is the plant
+   * and `circumference_bits` can be asked the same question. */
+  ap_ring_ctl_write16(&a.ring, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  ap_ring_ctl_write16(&b.ring, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  TEST_ASSERT_TRUE(ap_ring_medium_circumference_bits(&sched.medium) >=
+                   AP_RING_OOB_BITS);
+
+  /* And the token really does keep going round, which is the property the
+   * length is for. Four thousand bit times is hundreds of laps. */
+  ap_ring_station_originate_token(&a.ring_station, AP_RING_OOB_FREE_TOKEN);
+  ap_ring_sched_run_until(&sched, (ap_time_t)4000u * AP_RING_BIT_CELL_TICKS);
+  TEST_ASSERT_TRUE(a.ring_station.tokens_seen > 100u);
+  TEST_ASSERT_TRUE(b.ring_station.tokens_seen > 100u);
+  TEST_ASSERT_EQUAL_UINT64(0u, a.ring_station.forced_tokens);
+  TEST_ASSERT_EQUAL_UINT64(0u, b.ring_station.forced_tokens);
+}
+
 /* **The Series 2500's own register block, which its firmware needs before it
  * executes anything else.** `2500_BOOT_16182_8` resets to `0001F040` and does
  *
@@ -2744,6 +2802,7 @@ int main(void) {
   RUN_TEST(test_two_boards_on_one_ring_segment_exchange_a_frame);
   RUN_TEST(test_a_frame_crosses_the_ring_under_board_time);
   RUN_TEST(test_two_boards_exchange_a_frame_on_a_scheduled_ring);
+  RUN_TEST(test_a_board_joining_a_ring_makes_it_long_enough_for_a_token);
   RUN_TEST(test_only_the_ds5500_places_the_memory_present_register);
   RUN_TEST(test_the_ds5500_has_no_task_alias_register);
   RUN_TEST(test_the_ds5500_address_space_holds_a_fourth_memory_bank);

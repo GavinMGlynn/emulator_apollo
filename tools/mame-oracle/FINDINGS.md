@@ -13887,3 +13887,163 @@ the candidates are all above it and none is yet tested:
     lines rather than of the schedule.
 
 *Recorded before either is tried, for the reason C229 and C230 were.*
+
+## C251 -- the ring had no token, twice over: a nine-bit over-strip and a segment shorter than the token itself
+
+C250's recorded next step was the medium's delay lines on a two-slot segment,
+"whether a cell driven at slot 1 survives the wrap to slot 0". It does. The
+measurement went somewhere else and found two defects, one of ours and one a
+configuration this core has never set.
+
+### The instrument: two stations, no machine
+
+The two-node boot costs fifteen minutes; the property in question is a station
+property, so it was measured on bare stations instead. Both stations addressed,
+both receive-enabled, one frame each way, and the second frame queued only after
+the first had been delivered -- *in turn*, which is what two nodes running
+`lcnode` do and what every existing ring test does not: they all send one frame
+one way on a three-station ring.
+
+    nodes=2 in turn   n0 seen 1 copied 0 txpos 189/189 | n1 seen 1 copied 1 txpos 0/189
+
+`txpos 0/189` is the whole finding: station 1's frame was **assembled and never
+driven**. It never acquired the ring. And the same shape appears on three and
+four stations, so it was never about two slots.
+
+### One: a free token laps a quiet ring exactly once
+
+    quiet ring nodes=2:  n0 tok 1  n1 tok 1   (expected laps ~363)
+    quiet ring nodes=3:  n0 tok 1  n1 tok 1  n2 tok 1
+    quiet ring nodes=4:  n0 tok 1 ... n3 tok 1
+
+Four thousand bit times, a ring nine bits around, and each station sees the free
+token **once**. Traced bit by bit, the stream after the token's single lap
+degenerates to `...1010101010...` -- there is no token on the ring at all.
+
+The cause is the ring's length. A station originating a nine-bit free token
+drives it over nine bit times; on a segment fewer than nine bit times around,
+the head arrives back while the originator is still driving the tail, and an
+originating station is not forwarding, so the head is discarded. **A ring
+shorter than its own token cannot carry one.**
+
+`ap_ring_medium.h` has said so since cables existed here -- "a ring of fewer
+than nine stations is shorter than its own nine-bit token, which is not a limit
+any physical ring has" -- and quotes Apollo's own remedy, `002398-04` p. 8-41's
+`DELAY` bit: "Enable an additional **7 bit delay** into the length of the
+network. This may be required to support the recirculation of the token,
+**which is 9 bits**." What nothing did was *apply* it: `ap_board_join_ring` and
+`ap_board_join_ring_sched` never gave a link any length, so every segment this
+core assembled was two bit times around and no token ever survived its first
+lap. Every transmit therefore reached the ring by §2.2.1.1's 10.9 ms token-loss
+timeout, which is why every two-node run reports `forced 1  claims 0`.
+
+Now a joining board pads its own link to the token's length. The criterion is
+Apollo's -- the network must be long enough to recirculate a nine-bit token --
+and it is applied as **cable** rather than as a register bit, `PROVISIONAL` and
+labelled so: p. 8-41 is the DN4xx controller's register and whether the DS3000's
+gate array carries the same switch is not established. The length is measured
+against the **plant**, every attached slot and its cable, not against the live
+circumference, because a card bypasses itself until its driver writes `nct` and
+a length chosen from the signal path would depend on which nodes happened to be
+connected.
+
+The boundary is measured, not assumed: **eight** bit times is enough, not nine,
+because a bit arriving in the same bit time as the last originated one is still
+forwarded.
+
+### Two: a transmitter strips the free token it just emitted
+
+With the ring long enough the token circulates -- 443 laps in 4,000 bit times --
+until somebody transmits. Then it dies again, and the trace names the bit:
+
+    t=220 n1 FREE_TOKEN  |  t=224 n0 FREE_TOKEN  |  nothing, ever again
+
+§2.1 step 6 puts "a new free token to follow the frame"; step 7 bounds the
+transmitter's stripping at "until it finishes receiving its own frame". This
+core recognised its own frame start coming back and then counted `tx_bit_count`
+**more** bits. But the frame *begins* with the frame start character
+(`ap_ring_frame_emit` step 1), so nine of its bits have already arrived at that
+moment, and counting the whole frame from there strips nine bits too many.
+
+Nine bits is exactly one out-of-band character, and the character sitting there
+is the free token the same station emitted a moment earlier. The arithmetic is
+exact: node 0 saw its own frame start at bit 35, its frame is 189 bits, stripping
+ended at 35 + 189 = 224, and the token occupied bits 216-224 -- so eight of its
+nine bits were replaced by the padding Zeros of §2.1 step 4, and only the last
+one was forwarded.
+
+So after **any** transmission the ring had no token, no station could claim one,
+and the next transmitter waited out the loss timeout. Counted from the frame
+start's last bit instead, and both arms of the station-level verification now
+hold:
+
+    in turn n=2 circ= 9:  n0 seen 2 copied 1 txpos 189/189 | n1 seen 2 copied 1 txpos 189/189
+
+Each station sees two frames -- its own coming back and the other's going past --
+copies exactly the one addressed to it, and reads `copied` back out of its own
+returning frame. Three tests land with it, and the two that are about the strip
+fail on the old code and pass on the new.
+
+### What it did not explain
+
+The two-node Domain/OS run is **byte-identical across both fixes** -- same
+counters, same crossing instruction counts, same ring hash `A26942427F8F072E`.
+That is a real result and it narrows the remaining question rather than
+answering it: on that route neither node ever claims a circulating token, both
+force one, and the asymmetry (`node 0 frames seen 1 copied 0`, `node 1 seen 2
+copied 1`) survives untouched.
+
+*Pre-registered before the next run, for the reason C229 and C230 were.* Node 1
+transmits at 399,556,608 instructions and node 0 sees nothing; node 0 transmits
+at 404,971,520 and node 1 sees it. `ap_ring_medium`'s upstream walk goes
+**straight past a bypassed slot**, so on a two-slot segment a station that
+transmits while the other is bypassed hears only itself -- `frames seen 1
+copied 0`, which is exactly what node 1 reported at 399.5 M. Reading 1: the two
+cards close their relays at different instants and node 1's `lcnode` broadcast
+falls in the gap, in which case the ring is not at fault and the item needs the
+two transmits to overlap. Reading 2: both were joined and the frame genuinely
+did not cross, which is a medium or station fault after all. The runner now
+reports the relay's edges on the same timeline as the frames, which is what
+tells them apart -- and prints `tokens`, `wacked` and §2.2.2.5's read-back,
+which the plan item's verification names and no report could state.
+
+### Reading 1, and the run says so in one line
+
+    node 1  ring  joined the ring after 399548416 instruction(s)
+    node 1  ring  claims 0  frames seen 1  copied 0  after 399556608
+    node 0  ring  joined the ring after 400166912 instruction(s)
+    node 0  ring  claims 0  frames seen 1  copied 0  after 404971520
+    node 1  ring  claims 0  frames seen 2  copied 1  after 404971520
+
+Node 1 broadcast **618,496 instructions before node 0's card closed its bypass
+relay**. Its frame had nowhere to go and it heard itself, which is what a
+station on a one-node ring is supposed to hear. The segment is not one-way and
+the medium is not at fault: node 0's frame, sent after both relays were closed,
+crossed and was copied -- and node 0 read that back out of its own returning
+frame, `ack 4A cpd icopy`, which is §2.2.2.5 working end to end between two
+machines for the first time.
+
+**And the two fixes above are visible in the machine, not only in the suite**:
+`tokens 193654419` and `193654420` over a 2 G-per-node run, where the token used
+to die on its first lap. Both nodes still show `claims 0  forced 1`, and that is
+consistent rather than contradictory -- each forced its *first* token while the
+ring was still half-connected and had none, and neither transmitted again.
+
+### And neither did, because `lcnode` does not ask twice
+
+The obvious way to make the two transmits overlap is a second `/com/lcnode`
+after both relays are closed. Measured, on two nodes, 2 G instructions each:
+**it produces a full answer and no frame at all.** `frames seen` is unchanged
+at 1 and 2, `MISC_CMD 8 write(s), 6 with nct` is unchanged, and the card is
+touched 154 times more and written 258 times more than the single-`lcnode` run.
+So the operating system answered the second `lcnode` without broadcasting, and
+the harness step was reverted: a step that changes nothing is worse than no step.
+
+*What that leaves, stated as the next question rather than a hypothesis with a
+fix attached*: 258 writes reached the card and no frame reached the station.
+`+402`'s transmit trigger fires on a **rising** `ten` (p. 12-32 makes `ten` a
+level), so a driver that leaves `ten` set and never writes a non-transmit
+command would never arm a second frame -- and nothing in this core clears
+`xmit_enabled` when an operation completes. That is checkable and is not yet
+checked: the report logs MISC_CMD's writes and values (C243) and logs nothing at
+all for XMIT_CMD, which is the same instrument gap one register along.

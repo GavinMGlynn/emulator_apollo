@@ -1798,6 +1798,9 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
   uint64_t last_seen[NODES] = {0};
   uint64_t last_copied[NODES] = {0};
   uint64_t last_claims[NODES] = {0};
+  /* False to start, which is where `ap_ring_ctl_attach_ring` leaves the relay:
+   * a card comes up bypassed, §3.5's "powered off" clause. */
+  bool last_connected[NODES] = {false};
   uint64_t ran[NODES] = {0};
   ap_m68030_step_status_t status[NODES] = {AP_M68030_STEP_EXECUTED};
   uint16_t instruction[NODES] = {0};
@@ -1976,6 +1979,23 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
      * nothing crosses stays silent and a run where something does says so
      * within a slice. */
     for (unsigned i = 0; i < NODES; i++) {
+      /* **When each card closed its bypass relay, on the same timeline as the
+       * frames.** §3.5's relay is what puts a node *in* the ring, and a node
+       * outside it neither carries its neighbour's traffic nor is carried:
+       * `ap_ring_medium`'s upstream walk goes straight past a bypassed slot, so
+       * on a two-node segment a station that transmits while the other is
+       * bypassed hears only itself. That is indistinguishable, in the counters
+       * alone, from a frame that crossed and was ignored -- which is why the
+       * relay's edges are reported here beside the frames rather than left to
+       * the end-of-run `misc` word, which says only where it finished. */
+      const bool connected = board[i].ring.a2.connected;
+      if (connected != last_connected[i]) {
+        fprintf(out, "  node %u  ring  %s after %llu instruction(s)\n", i,
+                connected ? "joined the ring" : "bypassed",
+                (unsigned long long)done);
+        (void)fflush(out);
+        last_connected[i] = connected;
+      }
       const uint64_t seen = board[i].ring_station.frames_seen;
       const uint64_t copied = board[i].ring_station.frames_copied;
       /* **Claims are reported beside them, because a zero has three readings
@@ -2047,6 +2067,69 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
             (uint16_t)((board[i].ring.a2.rcv_status & 0xFF00u) |
                        board[i].ring.a2.command_404_status),
             (unsigned long long)board[i].ring_station.forced_tokens);
+    /* **The token, and the read-back -- the two things this item's
+     * verification names that the report could not state.**
+     *
+     * `tokens` is how many free tokens went past. A ring that carries one
+     * reports hundreds of thousands over a boot; a ring whose token was
+     * destroyed reports a handful and every transmit after that waited out
+     * §2.2.1.1's 10.9 ms loss timeout, which `forced` counts. The two together
+     * separate "the ring is running" from "each node is starting it again".
+     *
+     * `ack` is §2.2.2.5's late acknowledge as it came back round on this
+     * node's *own* frame, which is the only way a sender ever learns whether
+     * anybody took its packet -- so it is what lets **both** ends say a frame
+     * crossed, which is what the plan item asks for. `cpd` is p. 7-28's
+     * `copy`, `wak` its `wack`. */
+    {
+      uint8_t ack = 0u;
+      const bool have_ack =
+          ap_ring_station_transmit_ack(&board[i].ring_station, &ack);
+      fprintf(out,
+              "  node %u  ring  tokens %llu  wacked %llu  ack ",
+              i, (unsigned long long)board[i].ring_station.tokens_seen,
+              (unsigned long long)board[i].ring_station.frames_wacked);
+      if (have_ack) {
+        fprintf(out, "%02X%s%s%s\n", ack,
+                (ack & AP_RING_LATE_COPIED) ? " cpd" : "",
+                (ack & AP_RING_LATE_WAIT_ACK) ? " wak" : "",
+                (ack & AP_RING_LATE_INTEND_TO_COPY) ? " icopy" : "");
+      } else {
+        fprintf(out, "none\n");
+      }
+    }
+    /* **And the MISC_CMD sequence, which the single-machine report has printed
+     * since `FINDINGS.md` C243 and this one did not.** That is now three
+     * separate things the two-node runner lacked and the single machine had --
+     * `--boot-input-rate`, `--boot-input-interval` and the interrupt state were
+     * the others -- so this is a deliberate pass over the difference rather
+     * than one more addition.
+     *
+     * It earns its place here more than there: the relay is what puts a node
+     * *in* the ring, and on a two-node segment a station transmitting while its
+     * neighbour is bypassed hears only itself. The counts separate "connected
+     * and stayed" from "connected and was disconnected again", and the values
+     * say which write did it. `a1 misc` is the first window's own status word,
+     * printed for the same reason it is on one machine. */
+    fprintf(out,
+            "  node %u  ring  a1 misc %04X  MISC_CMD %u write(s), %u with "
+            "nct\n",
+            i, board[i].ring.a1.status, board[i].ring.a2.misc_cmd_writes,
+            board[i].ring.a2.misc_cmd_nct);
+    if (board[i].ring.a2.misc_cmd_logged > 0u) {
+      fprintf(out, "  node %u  ring  cmds", i);
+      for (unsigned k = 0; k < board[i].ring.a2.misc_cmd_logged; k++) {
+        fprintf(out, " %04X@%X%s", board[i].ring.a2.misc_cmd_first[k],
+                board[i].ring.a2.misc_cmd_offset[k],
+                board[i].ring.a2.misc_cmd_byte[k] ? "b" : "w");
+      }
+      fprintf(out, "%s  last %04X\n",
+              board[i].ring.a2.misc_cmd_writes >
+                      board[i].ring.a2.misc_cmd_logged
+                  ? " ..."
+                  : "",
+              board[i].ring.a2.misc_cmd_last);
+    }
     if (board[i].ring.first_tx_captured) {
       /* The twelve bytes the driver asked to send, verbatim. `[MAC]` §2.2.2.2
        * takes the destination from the first four and the type from the next

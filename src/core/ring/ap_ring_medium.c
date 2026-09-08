@@ -121,6 +121,23 @@ ap_ring_cell_t ap_ring_medium_receive(const ap_ring_medium_t *m, int slot) {
  * `ap_ring_medium_delay_centibits` either. So the signal crosses any run of
  * them within one bit time and the search walks past them.
  *
+ * **`PROVISIONAL`, and the gap is named rather than implied: walking past a
+ * bypassed node also walks past its *cable*, so bypassing a node shortens the
+ * ring.** §3.5's own sentence is that the relays "connect a node's input
+ * coaxial cable to its output coaxial cable" -- both cables stay in the loop,
+ * and no relay has ever shortened a cable plant. Modelling the outgoing cable
+ * of a bypassed node needs its delay line fed from the previous line's output
+ * within the same bit time, which is a cascade of shift registers and wants a
+ * read-all-then-write-all pass rather than the single loop below.
+ *
+ * Measured consequence, so the cost is stated rather than guessed: on a
+ * two-node segment where the padded node is the bypassed one, the live
+ * circumference is one bit, which cannot carry a nine-bit token -- so the
+ * connected node forces one where it should have claimed a circulating one
+ * (`FINDINGS.md` C251). It changes which of §2.2.1.1's two routes onto the ring
+ * is taken while a segment is half-connected, and nothing once every node is
+ * in the ring. A named plan item.
+ *
  * The walk runs a full lap, so a ring with exactly one driving node finds that
  * node as its own upstream -- which is right: its signal goes round the
  * bypassed nodes and comes back. */
@@ -217,6 +234,19 @@ unsigned ap_ring_medium_circumference_bits(const ap_ring_medium_t *m) {
     /* One bit for the station's own retiming, plus the cable it drives. A
      * bypassed node contributes neither, for the same reason it contributes no
      * delay: its relays are cable with no length of their own here. */
+    total += 1u + m->node[i].cable_bits;
+  }
+  return total;
+}
+
+unsigned ap_ring_medium_plant_bits(const ap_ring_medium_t *m) {
+  unsigned total = 0u;
+  for (unsigned i = 0; i < m->slots; i++) {
+    /* Bypass is not consulted: a relay does not shorten the cable it is
+     * spliced into. See the header for the one question this answers. */
+    if (!m->node[i].attached) {
+      continue;
+    }
     total += 1u + m->node[i].cable_bits;
   }
   return total;
