@@ -108,10 +108,30 @@ drive mask made the state reachable. What remains:
 - **FATAL vs CONTINUABLE.** §5.4 classifies all fourteen exceptions and neither
   `ap_qic` nor `ap_sc499` carries the distinction. Whether the SC-499 acts on it
   is a question for `[SC499]`, not for this document.
-- **The byte handshake of §3.6.5 and §3.6.6.** 79 numbered events across the two
-  diagrams, with figures down to 40 ns. `ap_sc499` models the XFER/ACK protocol
-  from `[SC499]`'s own figures; whether the two disagree anywhere has not been
-  walked event by event, and that is a comparison rather than a gap.
+- ~~**The byte handshake of §3.6.5 and §3.6.6.**~~ **CLOSED 2026-09-09, walked
+  event by event, and the two cannot disagree because they are different
+  wires.** §3.6.6's 39 events and §3.6.5's 40 move each data byte on **XFER and
+  ACK** — the controller puts a byte up and sets ACK (T12), the host sets XFER
+  to take it (T13), ACK falls 0.5–3 µs later (T15), XFER falls (T17), next byte
+  — and the mirror for a write. **Neither line has a bit in the SC-499's host
+  registers**: `002398-04` p. 12-5 and `[SC499]` §1.9 give the status register
+  `irq rdy exc don dir` and the control register `rst req ien dni`, and there is
+  no XFER and no ACK among them. So XFER/ACK is the *card-to-drive* cable, run
+  by the card's own sequencer, and what a host sees of a data transfer is DMA —
+  which is what the SR10.4 boot firmware uses, one DMAGO per 512-byte block
+  (`FINDINGS.md` C265).
+  What **is** host-visible in these two figures is modelled: READY marks the
+  *block* boundary (§3.6.6 T10/T11 "1ST DATA BLOCK READY", T24 for the next;
+  §3.6.5's "READY FOR 1st BLOCK"/"2nd BLOCK"/"NEXT BLOCK"), which is
+  `ap_sc499_block_boundary`; DIRC turns at T9 and back at T39 on a read and
+  never moves on a write, which is `ap_tape`'s bus direction; and T38
+  "CONTROLLER SETS EXCEPTION" at a file mark is the end-of-read condition
+  `ap_tape_read` raises when the cartridge is spent.
+  **One documented behaviour with no route to it**, recorded rather than
+  implemented: §3.6.5 ends "CONTROLLER WILL AUTOMATICALLY WRITE FILE MARK AND
+  REWIND TO HUB (MECHANICAL DELAY)", triggered by the host dropping **ONLINE**
+  at T138 — and ONLINE is pin 28 of the drive cable with no host register
+  either, so nothing a driver writes to this card can reach it.
 - **`AP_SC499_T_RESET_TO_EXCEPTION`.** §3.6.2 gives < 3 µs for the *drive*; the
   constant models the *card*, whose self-test `[SC499]` §1.8.1 bounds at five
   seconds and times nowhere. Still PROVISIONAL, and now with the two ends of the
