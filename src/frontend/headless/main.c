@@ -5478,6 +5478,23 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
            ap_board_region_name((ap_board_region_t)r), board->region_reads[r],
            board->region_writes[r]);
   }
+  /* **And what the ring card was reporting**, which the region total cannot
+   * say and which is now the live question.
+   *
+   * Driven to `/com/lcnode` through the Mnemonic Debugger, Domain/OS answers
+   * `transmit failed (OS/network)` with the card touched 460 times and written
+   * 506 -- so the driver reached it and the transmit still failed, which is a
+   * different fault from a driver that never wrote. The three status words say
+   * what the card told it; `002398-04` p. 12-30/12-31 name their bits, and
+   * `RING.md` 111 names MISC_STAT's.
+   *
+   * Printed only when a card is fitted: an unfitted slot's zeros would read as
+   * a card reporting all-clear, which is the opposite of what they mean. */
+  if (board->ring.present) {
+    printf("  ring card    misc %04X  xmit %04X  rcv %04X  (a1 misc %04X)\n",
+           board->ring.a2.status, board->ring.a2.xmit_status,
+           board->ring.a2.rcv_status, board->ring.a1.status);
+  }
   /* Which serial registers, not just how many. A transmit that never happened
    * and one dropped at the register look identical from a total. */
   for (unsigned unit = 0; unit < 2u; unit++) {
