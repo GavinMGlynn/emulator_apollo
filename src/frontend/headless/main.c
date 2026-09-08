@@ -5519,6 +5519,22 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
            "a1 %u write(s), %u with nct\n",
            board->ring.a2.misc_cmd_writes, board->ring.a2.misc_cmd_nct,
            board->ring.a1.misc_cmd_writes, board->ring.a1.misc_cmd_nct);
+    /* And the values in order, because the counts produced a reading they
+     * cannot separate: 44 writes of which 3 carry `nct` means the station is
+     * connected and then disconnected, and whether that is the driver's own
+     * choice or an unrelated write clearing a bit it should not touch is a
+     * question about the sequence. */
+    if (board->ring.a2.misc_cmd_logged > 0u) {
+      printf("  ring cmds   ");
+      for (unsigned k = 0; k < board->ring.a2.misc_cmd_logged; k++) {
+        printf(" %04X", board->ring.a2.misc_cmd_first[k]);
+      }
+      printf("%s  last %04X\n",
+             board->ring.a2.misc_cmd_writes > board->ring.a2.misc_cmd_logged
+                 ? " ..."
+                 : "",
+             board->ring.a2.misc_cmd_last);
+    }
   }
   /* Which serial registers, not just how many. A transmit that never happened
    * and one dropped at the register look identical from a total. */

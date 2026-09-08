@@ -169,6 +169,10 @@
 #define AP_RING_CTL_XMIT_PKT_CNT 1u
 #define AP_RING_CTL_BAD_PKT_CNT 2u
 
+/* How many MISC_CMD writes are kept in order. Enough to cover a driver's
+ * whole initialisation without making the report a trace. */
+#define AP_RING_CTL_CMD_LOG 24u
+
 #define AP_RING_CTL_STATUS_ESB 0x0200u     /* sticky elastic-store error */
 #define AP_RING_CTL_STATUS_BPE 0x0100u     /* sticky bi-phase error */
 #define AP_RING_CTL_STATUS_GPS 0x0008u     /* sticky good packet seen */
@@ -436,6 +440,18 @@ typedef struct {
    * respectively, and 928,108 writes to the card do not tell them apart. */
   unsigned misc_cmd_writes;
   unsigned misc_cmd_nct;
+  /* The first few values written, in order, and the last one whatever it was.
+   *
+   * The counts above answered their question and produced a third reading the
+   * totals cannot separate: Domain/OS writes MISC_CMD **44** times and **3** of
+   * those carry `nct`, so it connects the station and something later
+   * disconnects it -- and whether that is the driver's own choice or an
+   * unrelated write clearing a bit it should not touch is a question about the
+   * *sequence*. `nct` is modelled as a level, p. 12-32's "1 => network
+   * connect", so in this core every write re-derives the connection. */
+  uint16_t misc_cmd_first[AP_RING_CTL_CMD_LOG];
+  unsigned misc_cmd_logged;
+  uint16_t misc_cmd_last;
 
   /* `+402`'s low lane, which is status rather than the constant finding 63
    * first modelled: subtest 13 requires `F0` on an idle register and subtest 23
