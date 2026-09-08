@@ -5129,10 +5129,15 @@ same number is what let them diverge once already.
       *last*, sixteen times, and `ap_i8237` honours the mask on pin requests —
       so no byte can move before the map and the address are set, with or
       without pacing, and the race described above does not exist.
-      *What is left*: the arithmetic puts the collision at the **end** — sixteen
-      blocks from `010FD800` at 512 apiece end at `010FF7FF` and `last wrote` is
-      `010FF5FF` — and settling it needs the physical address each *transfer*
-      starts at, which is a new instrument rather than another register watch.
+      *What is left, now measured to one boundary*: the board records the start
+      of every run of contiguous DMA writes, and the boot gives **`dma runs
+      010FD800 010FD800`** — two runs at the same address. 7,680 bytes is
+      fifteen blocks, so the second run is blocks 1–15 laid down contiguously
+      and the first is block 0 alone, overwritten by block 1. **A shift of
+      exactly one block, and only after the first**: 1 through 15 are correct
+      relative to each other, end to end, with no gap. Why block 0 and block 1
+      share a destination is **not yet known**, and the obvious explanation is
+      refuted above.
       **What it unblocks**: a cartridge boot on this core, and with it the SAU 14
       install that the DS5500 boot and the multi-node workloads item both want —
       without borrowing the oracle. *The media is confirmed held*: `019593-001`

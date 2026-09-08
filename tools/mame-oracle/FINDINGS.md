@@ -15524,7 +15524,27 @@ is at the **end** rather than the beginning: sixteen blocks from `010FD800` at
 the fifteenth slot, not the sixteenth.
 
 **What would settle it** is the one thing none of these watches can give: the
-physical address each *transfer* starts at. `dma_first_write` gives the run's
-first and `dma_last_write` its last, and the sixteen in between are exactly what
-is in question -- so the next instrument is a log of each transfer's first
-destination, not another register watch.
+physical address each *transfer* starts at. So the board now records the start
+of every run of contiguous DMA writes -- an address whenever one is not one past
+the last -- and the cartridge boot gives:
+
+    dma runs     010FD800 010FD800
+    dma first    wrote 010FD800
+    dma          last wrote 010FF5FF, 8192 transfer(s)
+
+**Two runs, both beginning at `010FD800`.** `010FF5FF - 010FD800 + 1` is 7,680,
+which is fifteen blocks, so the second run is blocks 1 to 15 laid down
+contiguously from `010FD800` -- and the first run is block 0 alone, at the same
+address, overwritten by block 1.
+
+That is a *shift of exactly one block*, and only after the first: blocks 1
+through 15 are placed correctly relative to each other, end to end, with no gap
+anywhere. Whatever is wrong is wrong once, at the boundary between the first
+block and the second, and it moves everything after it one slot early.
+
+**And the obvious explanation is already refuted.** MD unmasks last (`37E0`,
+after the map at `37AC` and the address at `37BE`/`37C4`) and masks after the
+block (`3806`), and `ap_i8237` masks itself at terminal count, so exactly one
+block moves per window and each window's programming is complete before it
+opens. Why block 0 and block 1 share a destination is not yet known, and is
+recorded as not known.

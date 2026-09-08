@@ -560,12 +560,20 @@ unmasks *last*, sixteen times, and `ap_i8237` honours the mask on pin requests �
 so no byte can move before the map and the address are set, with or without
 pacing. The race I described does not exist.
 
-What places two blocks together is still unknown, and the arithmetic puts it at
-the **end**: sixteen blocks from `010FD800` at 512 apiece end at `010FF7FF`, and
-`last wrote` is `010FF5FF`. Settling it needs the physical address each
-*transfer* starts at — the sixteen in between the run's first and last — which
-is a new instrument rather than another register watch. Detail in `FINDINGS.md`
-C268.
+The board now records the start of every run of contiguous DMA writes, and the
+cartridge boot gives **`dma runs 010FD800 010FD800`** — two runs, both at the
+same address. `010FF5FF − 010FD800 + 1` is 7,680, fifteen blocks, so the second
+run is blocks 1 to 15 laid down contiguously and the first is block 0 alone, at
+the same address, overwritten by block 1.
+
+*A shift of exactly one block, and only after the first.* Blocks 1 through 15
+are placed correctly relative to each other, end to end, with no gap anywhere.
+Whatever is wrong is wrong once, at the boundary between the first block and the
+second. Why block 0 and block 1 share a destination **is not yet known**, and
+the obvious explanation is already refuted: MD unmasks last and masks after the
+block, and the 8237 masks itself at terminal count, so exactly one block moves
+per window and each window's programming is complete before it opens. Detail in
+`FINDINGS.md` C268.
 
 ## A card cannot transfer a byte the drive never sent (2026-09-09)
 
