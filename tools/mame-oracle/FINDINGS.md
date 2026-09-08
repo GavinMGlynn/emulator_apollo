@@ -15238,3 +15238,94 @@ host prints when it does not: `FF`.
 DMA and requiring DONE back at the byte past the end -- the end-of-tape half of
 the same event, which a host tells from the file-mark half by the status block.
 It fails on the old code.*
+
+## C267 -- a card cannot transfer a byte the drive never sent
+
+C266's two fixes moved the error from `FF` to **`36`**, and `36` is a row of
+`002398-04` p. 4-17's own table: **"bad block transferred"**. The report says
+why in one line:
+
+    dma1 ch1     mode 45, address 0201 (base 0200), count 01FE (base 01FF)
+    dma          8193 transfer(s)
+    tape drive   block 17 of 104841, selected
+    tape card    status 5F, control 40, exception, done, to host, exs 8100
+
+**8,193 is 16 x 512 + 1.** Sixteen whole blocks of boot image, and then *one
+byte* of a seventeenth: `count` went `01FF` -> `01FE` and stopped. MD saw DONE
+with the count not exhausted and called it what it is -- a block that arrived
+short.
+
+And the byte was invented. `ap_tape_read`'s failure path returns `0xFF`, so the
+DMA cycle that discovered the file mark also *delivered* something, and what it
+delivered went into the host's buffer.
+
+### The ending belongs to the tape, not to the demand
+
+`QIC-02 Rev D` §3.6.6's T38 asserts EXCEPTION at the file mark, and the drive
+asserts it **because the tape passed one**. Modelled as a failed read, the
+ending only happened when something demanded data -- and under DMA a demand
+costs a bus cycle and produces a byte.
+
+So the ending moves to where the machine's clock reaches it:
+
+- `ap_qic_read_exhausted` is a **pure question** -- is the next block a mark, or
+  is there no next block -- and `ap_qic_end_read` the action that answers it,
+  latching `FIL` and stepping past the mark, or latching `NDT` and staying where
+  the tape ended.
+- `ap_tape_dma_request` asks that question **before** raising DRQ, so the line
+  goes down at the end of the file rather than answering a cycle with a fill
+  byte.
+- `ap_tape_advance` performs the ending: EXCEPTION up, `FIL` or `NDT` latched,
+  and the DMA sequencer with nothing in flight.
+
+The two failure arms inside `ap_qic_read_block` become one call to the same
+pair, so the programmed path and the DMA path cannot end a read differently.
+
+### And a block boundary was lifting the exception
+
+Stopping the DRQ put the error back to `FF`, then the trailing-DMAGO rule below
+put it back to `36`. The status-poll log says why neither was the end of it.
+Watching every read of the status register through the sixteen blocks:
+
+    1 x FF @37EC, 3825 x FF @39C0, 1 x 3F @39C0     -- per block, sixteen times
+    1 x 5F @37EC, 3825 x 5F @39C0, 1 x 3F @39C0     -- the last
+
+`FF` is not-ready with DONE and DIRECTION up; `3F` is the same with **READY**;
+`5F` is `3F` with **EXCEPTION**. So the firmware waits at `39C0` for READY
+between blocks -- which is `[SC499]` §1.13.1's "The READY line is activated when
+the device is ready for a data block transfer", the edge
+`ap_sc499_block_boundary` exists to make -- and on the last block it sees the
+file mark's EXCEPTION for 3,825 polls and then **watches it go away**.
+
+`ap_sc499_advance`'s completion deasserted EXCEPTION unconditionally, citing
+Figure 1-8's T3, "Device Deasserts EXCEPTION". That is right for Figure 1-8 --
+the entry a *command* takes when there is an exception to lift -- and
+`AP_SC499_ENTRY_DATA_BLOCK` is not a command at all: it is Figure 1-5's gap
+between one data block and the next. The last block armed that gap before the
+mark was reached, its deadline arrived 5.69 ms later, and it took away an
+exception nothing had answered.
+
+**The same shape as C263's DIRECTION, one figure further on**: a completion that
+undoes the entry condition must undo *its own* entry's, and this one undid every
+entry's. With the guard, the completion also stops asserting READY over a
+standing exception -- Figure 1-6, "READY shall not be asserted for an EXCEPTION
+condition", the rule `ap_sc499_set_exception` already enforced from the other
+side.
+
+### And the ending has to survive the host's next move
+
+Stopping the DRQ alone put the error *back* to `FF`, which is the finding rather
+than a setback. A driver reading a file by repeating §1.11's steps 2 to 5 issues
+one DMAGO per block and only learns the file has ended when one of them comes
+back short -- so **there is always one DMAGO after the last block**. It lowers
+DONE, and with the read already over nothing raised it again.
+
+So the same sentence a third time: a sequencer with no transfer in front of it
+has nothing in flight. A DMAGO the drive cannot answer ends at once.
+
+*Verification: `tape_suite` 25 -> 26. The new test reads a one-block file under
+DMA with a mark behind it, requires `ap_tape_dma_request` to go down with the
+mark **untouched** -- the drive still reading, no byte taken -- the ending to
+arrive on the next advance, and the DMAGO that follows it to complete rather
+than hang. It fails on the old request line, and its last three lines fail
+without the trailing-DMAGO rule.*

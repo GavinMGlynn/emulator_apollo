@@ -35,6 +35,13 @@ void ap_tape_reset(ap_tape_t *tape) {
    * pending interrupt. Settled by a driver that reads status after a reset. */
 }
 
+/* Whether the data path needs a block it does not have in hand. Shared by
+ * `ensure_block`, which fetches one, and by the DMA request line, which must not
+ * ask for a bus cycle to fetch a block that is not there. */
+static bool needs_block(const ap_tape_t *tape) {
+  return !(tape->block_valid && tape->offset < AP_CT_BLOCK_SIZE);
+}
+
 void ap_tape_advance(ap_tape_t *tape, ap_time_t now) {
   /* Nothing here but the controller's own clock. **The bus direction used to be
    * put back here**, on every advance, because `ap_sc499`'s completion cleared
@@ -44,6 +51,43 @@ void ap_tape_advance(ap_tape_t *tape, ap_time_t now) {
    * a command issued while the device still holds the bus), and the delivery
    * that needs the bus takes it where `QIC-02` §3.6.1 puts it, at T8. */
   ap_sc499_advance(&tape->controller, now);
+
+  /* **A READ ends when the tape reaches the end of the file, not when a host
+   * asks for a byte it cannot have.** `QIC-02 Rev D` §3.6.6's T38 asserts
+   * EXCEPTION at the file mark, and the drive asserts it because the tape
+   * passed one.
+   *
+   * Modelled as a failed read, the ending only happened when something demanded
+   * data -- and under DMA a demand costs a bus cycle and delivers a byte. The
+   * SR10.4 boot's seventeenth transfer moved one invented `FF` into the host's
+   * buffer before the mark stopped it (`dma1 ch1 count 01FE (base 01FF)`), and
+   * MD reported `002398-04` p. 4-17's `36`, "bad block transferred", which is
+   * exactly what a short block is. A card cannot transfer a byte the drive
+   * never sent. `FINDINGS.md` C267.
+   *
+   * So the ending lands here, where the machine's clock reaches it: the drive
+   * latches `FIL` or `NDT`, the controller raises EXCEPTION, and the DMA
+   * sequencer has nothing left in flight. */
+  if (needs_block(tape) && ap_qic_read_exhausted(&tape->drive)) {
+    ap_qic_end_read(&tape->drive);
+    ap_sc499_set_exception(&tape->controller, true);
+    ap_sc499_dma_ended(&tape->controller);
+  }
+
+  /* **And a DMAGO the drive cannot answer ends at once**, which is the same
+   * sentence again: DONE is "from DMA logic" and a sequencer with no transfer
+   * in front of it has nothing in flight.
+   *
+   * Without this the ending above is undone by the host's next move. A driver
+   * that reads a file by repeating §1.11's steps 2 to 5 issues one DMAGO per
+   * block and only discovers the end when one of them comes back short -- so
+   * there is always one DMAGO *after* the last block, and it lowers DONE.
+   * Nothing would raise it again, and `002398-04` p. 4-17's `FF`, "timeout
+   * waiting for controller done", is what a host prints then. */
+  if (tape->controller.dma_active && !tape->drive.reading &&
+      !tape->drive.writing) {
+    ap_sc499_dma_ended(&tape->controller);
+  }
 }
 
 bool ap_tape_load(ap_tape_t *tape, uint8_t *data, size_t size,
@@ -55,7 +99,7 @@ bool ap_tape_load(ap_tape_t *tape, uint8_t *data, size_t size,
  * and the controller in bytes, so the boundary has to live somewhere; putting
  * it here keeps the drive's interface honest about what a tape transfers. */
 static bool ensure_block(ap_tape_t *tape) {
-  if (tape->block_valid && tape->offset < AP_CT_BLOCK_SIZE) {
+  if (!needs_block(tape)) {
     return true;
   }
   if (!ap_qic_read_block(&tape->drive, tape->block)) {
@@ -399,9 +443,16 @@ bool ap_tape_dma_request(const ap_tape_t *tape) {
    * across that window precisely because the card is already asking, so gating
    * the request on DMAGO would make step 2's instruction pointless. */
   /* Bytes left in the block in hand, or another block to fetch. The request is
-   * a level and stays up across the whole of it. */
-  return (tape->block_valid && tape->offset < AP_CT_BLOCK_SIZE) ||
-         tape->drive.position < ap_ct_blocks(&tape->drive.image);
+   * a level and stays up across the whole of it.
+   *
+   * **And it goes down at the end of the file, before the cycle rather than
+   * after it.** A DRQ the drive cannot answer buys a bus cycle whose only
+   * product is an invented byte in the host's buffer; the drive knows it has
+   * nothing before the sequencer asks, so it says so. */
+  if (!needs_block(tape)) {
+    return true;
+  }
+  return !ap_qic_read_exhausted(&tape->drive);
 }
 
 uint8_t ap_tape_dma_read(ap_tape_t *tape) {

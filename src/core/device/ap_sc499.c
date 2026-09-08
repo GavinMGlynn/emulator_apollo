@@ -163,8 +163,21 @@ void ap_sc499_advance(ap_sc499_t *tape, ap_time_t now) {
      * lifts an exception, and the lifting lands with the completion rather than
      * with the acceptance. A driver that reads status in between sees the
      * exception still up, which is the truth: the device has not finished with
-     * it. */
-    tape->exception = false;
+     * it.
+     *
+     * **And only Figure 1-8's**, which is the entry a command takes when there
+     * is an exception to lift. 1-7 and 1-9 have none, and `AP_SC499_ENTRY_DATA_
+     * BLOCK` is not a command at all -- it is Figure 1-5's gap between one data
+     * block and the next. Clearing unconditionally meant *a block boundary
+     * lifted an exception nothing had answered*: the SR10.4 boot's read ended
+     * at a file mark with EXCEPTION up, the last boundary's deadline arrived
+     * 5.69 ms later and took it away, and the firmware -- which polls for READY
+     * between blocks and had been shown one -- read on. Measured in the poll
+     * log as `5F` (exception, not ready) turning into `3F` (ready, no
+     * exception) at the end of the file. `FINDINGS.md` C267. */
+    if (tape->entry == AP_SC499_ENTRY_EXCEPTION) {
+      tape->exception = false;
+    }
     /* Figure 1-9, T4: "Device Deasserts DIRECTION", handing the bus back --
      * **and only Figure 1-9's**, which is the entry taken by a command issued
      * while the device still holds the bus. Applied to every completion it took
@@ -176,8 +189,12 @@ void ap_sc499_advance(ap_sc499_t *tape, ap_time_t now) {
       tape->direction = false;
     }
     /* And in all three figures the device ends by asserting READY: 1-7's T5,
-     * 1-8's T4, 1-9's T6. */
-    tape->ready = true;
+     * 1-8's T4, 1-9's T6 -- but never over a standing exception. Figure 1-6:
+     * "READY shall not be asserted for an EXCEPTION condition", which is the
+     * same guard the reopen below carries and for the same reason. */
+    if (!tape->exception) {
+      tape->ready = true;
+    }
     tape->executing = false;
   }
 

@@ -409,6 +409,26 @@ void ap_qic_eject(ap_qic_t *qic);
  * point of the command: `[SC499]` §1.12 has the drive report end of media "by
  * means of an EXCEPTION and READ STATUS", and a drive whose exception survived
  * being read would re-report it forever. */
+/* Whether a READ in progress has run out of file: the next block is a file mark
+ * or there is no next block.
+ *
+ * **A pure question, asked by the board every tick.** `QIC-02 Rev D` §3.6.6's
+ * T38 has the controller assert EXCEPTION at the mark, and it does so because
+ * the tape passed one -- not because a host asked for a byte. Modelling it as a
+ * *failed read* meant the failure only happened when someone demanded data, and
+ * under DMA that demand costs a bus cycle and a byte: the SR10.4 boot's
+ * seventeenth transfer moved one invented `FF` into the host's buffer before
+ * the mark stopped it, `count 01FE (base 01FF)`, and MD reported it as p.
+ * 4-17's `36`, "bad block transferred". A card cannot transfer a byte the drive
+ * never sent. `FINDINGS.md` C267. */
+[[nodiscard]] bool ap_qic_read_exhausted(const ap_qic_t *qic);
+
+/* End a READ that `ap_qic_read_exhausted` says has run out: latch `FIL` and
+ * step past the mark, or latch `NDT` and stay where the tape ended, and clear
+ * the read either way. Does nothing if the read has not run out, so a caller
+ * that asks on every tick is asking a question rather than taking an action. */
+void ap_qic_end_read(ap_qic_t *qic);
+
 [[nodiscard]] bool ap_qic_read_status(ap_qic_t *qic,
                                       uint8_t out[AP_QIC_STATUS_BYTES]);
 

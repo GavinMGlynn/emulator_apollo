@@ -5055,12 +5055,34 @@ same number is what let them diverge once already.
       **The identity hash moves**, `FE2BB02AEF1F4624` → `1AE206D37D8A8D1F`,
       because the `FIL` latch joins the hashed state; the two runs are
       byte-identical with the hash line removed.
-      *What is left*: `36` is not the row this drive's status composes. At the
-      mark the exception word is `8100`, which is §5.3's *Filemark read* row
-      (byte 0 `100X0001`, byte 1 `00000000`) and p. 4-17's code **`31`**, not
-      `36`. Either the firmware reads the block at a moment when the drive holds
-      something else, or its decode is not §5.3's. That is the next measurement,
-      and the report now prints the drive's own word beside the card's status.
+      **Three more, and the tape error is gone** (`FINDINGS.md` C267). `36` is
+      "bad block transferred" and the report said why: `dma 8193 transfer(s)` =
+      16 × 512 + **1**, `count 01FE (base 01FF)`. The seventeenth transfer moved
+      one *invented* `FF`, because `ap_tape_read`'s failure path returns a byte
+      and under DMA the cycle that discovered the mark also delivered something.
+      §3.6.6's T38 asserts EXCEPTION *because the tape passed a mark*, not
+      because a host asked, so the ending moved to the clock:
+      `ap_qic_read_exhausted` is a pure question and `ap_qic_end_read` the
+      action, the DRQ asks it **before** raising, and `ap_tape_advance` performs
+      it. Then a **DMAGO with nothing to move ends at once** — a driver
+      repeating §1.11 steps 2-5 always issues one DMAGO after the last block, it
+      lowers DONE, and nothing raised it again. And the poll log showed the last
+      piece: sixteen blocks of `FF…3F` at PC 39C0 and then `5F…3F` — the
+      firmware **watching the file mark's exception go away**, because a block
+      boundary's completion deasserted EXCEPTION on Figure 1-8's authority when
+      `AP_SC499_ENTRY_DATA_BLOCK` is not a command at all. The same shape as the
+      DIRECTION defect one figure further on. `tape_suite` 25 → 26.
+      **`Tape read error: 36` → `error: sysboot not found`**: no longer a tape
+      error at all, but p. 4-17's other line — "The SYSBOOT read from records 2
+      thru B did not have a good boot header". Identity `1AE206D37D8A8D1F`
+      unchanged throughout.
+      *What is left*: the boot header check. The firmware reads records **2
+      through B** and looks for a header there, and this cartridge carries
+      `SYSBOOT REV` in block **0** with the image spanning blocks 0-15
+      (`0013D800`-`0013F6BC`, 7,868 bytes). Whether the firmware wants a
+      different part of the tape, or the image landed somewhere it did not
+      expect, is the next measurement — the DMA's destination runs through the
+      AT address translation map, which the run programs 69,562 times.
       **What it unblocks**: a cartridge boot on this core, and with it the SAU 14
       install that the DS5500 boot and the multi-node workloads item both want —
       without borrowing the oracle. *The media is confirmed held*: `019593-001`

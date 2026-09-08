@@ -331,6 +331,31 @@ bool ap_qic_command(ap_qic_t *qic, uint8_t command) {
   return false;
 }
 
+bool ap_qic_read_exhausted(const ap_qic_t *qic) {
+  if (!qic->reading || !qic->loaded || !qic->selected) {
+    return false;
+  }
+  return ap_ct_block_is_file_mark(&qic->image, qic->position) ||
+         qic->position >= ap_ct_blocks(&qic->image);
+}
+
+void ap_qic_end_read(ap_qic_t *qic) {
+  if (!ap_qic_read_exhausted(qic)) {
+    return;
+  }
+  if (ap_ct_block_is_file_mark(&qic->image, qic->position)) {
+    /* Past it, so the *next* READ starts at the next file. That is what makes a
+     * multi-file tape readable one file at a time. */
+    qic->file_mark = true;
+    qic->position++;
+  } else {
+    /* Off the end. The position does not advance, so a driver that keeps
+     * reading keeps failing rather than wrapping to the beginning. */
+    qic->no_data = true;
+  }
+  qic->reading = false;
+}
+
 bool ap_qic_read_block(ap_qic_t *qic, uint8_t *out) {
   if (!qic->reading || !qic->loaded || !qic->selected) {
     return false;
@@ -354,21 +379,17 @@ bool ap_qic_read_block(ap_qic_t *qic, uint8_t *out) {
    * a READ never ended: the firmware read the 16-block boot image and ran
    * straight on through the mark at block 16, the ANSI label group, and the
    * whole 104,815-block data file. `FINDINGS.md` C266. */
-  if (ap_ct_block_is_file_mark(&qic->image, qic->position)) {
-    qic->file_mark = true;
-    qic->position++;
-    qic->reading = false;
+  /* Both endings go through `ap_qic_end_read`, which is also what the *board*
+   * calls when the tape reaches one with no host asking -- see
+   * `ap_tape_advance`. The two arms differ only in what they latch: `FIL` for a
+   * mark, and §5.4 item 8's `NDT`, "READ ERROR, NO DATA - No recorded data
+   * found on tape", for the end of the medium. See `ap_qic_t::no_data` for why
+   * that is the one read fault this model can report without inventing one. */
+  if (ap_qic_read_exhausted(qic)) {
+    ap_qic_end_read(qic);
     return false;
   }
   if (!ap_ct_read_block(&qic->image, qic->position, out)) {
-    /* Past the end of the tape. The position does not advance, so a driver that
-     * keeps reading keeps failing rather than wrapping to the beginning.
-     *
-     * And the drive now **says why**. `QIC-02 Rev D` §5.4 item 8: "READ ERROR,
-     * NO DATA - No recorded data found on tape." See `ap_qic_t::no_data` for
-     * why this is the one read fault the model can report without inventing
-     * one, and for the three Domain/OS status codes that decode it. */
-    qic->no_data = true;
     return false;
   }
   qic->position++;

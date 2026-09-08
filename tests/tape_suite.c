@@ -347,6 +347,85 @@ static void test_a_read_the_drive_ends_also_ends_the_dma(void) {
                    0u);
 }
 
+/* **The drive stops asking before the cycle, not after it.**
+ *
+ * `QIC-02 Rev D` §3.6.6's T38 asserts EXCEPTION at the file mark, and the drive
+ * asserts it because the tape passed one -- not because a host asked for a byte
+ * it cannot have. Modelled as a *failed read*, the ending only happened when
+ * something demanded data, and under DMA a demand costs a bus cycle and
+ * delivers a byte: the SR10.4 boot's seventeenth transfer moved one invented
+ * `FF` into the host's buffer before the mark stopped it, `dma1 ch1 count 01FE
+ * (base 01FF)`, and MD reported `002398-04` p. 4-17's `36`, "bad block
+ * transferred" -- which is what a short block is.
+ *
+ * A card cannot transfer a byte the drive never sent. `FINDINGS.md` C267. */
+static void test_the_drive_stops_asking_at_a_file_mark(void) {
+  ap_tape_t t;
+  arm(&t);
+  /* The second of the two blocks is a mark, so the first is a whole file. */
+  for (unsigned i = 0; i < AP_CT_BLOCK_SIZE; i++) {
+    cartridge[AP_CT_BLOCK_SIZE + i] =
+        (uint8_t)(AP_CT_FILE_MARK_WORD >> (8u * (3u - (i & 3u))));
+  }
+  issue(&t, AP_QIC_CMD_SELECT);
+  issue(&t, AP_QIC_CMD_READ);
+  ap_tape_write(&t, AP_TAPE_ADDR + 2u, 0u); /* DMAGO */
+  TEST_ASSERT_FALSE(t.controller.done);
+
+  /* The whole first block comes out under DMA, and the line stays up for it. */
+  for (unsigned i = 0; i < AP_CT_BLOCK_SIZE; i++) {
+    TEST_ASSERT_TRUE(ap_tape_dma_request(&t));
+    TEST_ASSERT_EQUAL_HEX8(cartridge[i], ap_tape_dma_read(&t));
+  }
+
+  /* And then it goes down, **without a byte having been taken from the mark**.
+   * A request the drive cannot answer is a bus cycle whose only product is an
+   * invented byte. */
+  TEST_ASSERT_FALSE(ap_tape_dma_request(&t));
+  TEST_ASSERT_TRUE(t.drive.reading);
+
+  /* The ending lands with the clock, where the tape reaches the mark: `FIL`
+   * latched, EXCEPTION up, and the sequencer with nothing in flight.
+   *
+   * One tick, deliberately: the block boundary the last fetch armed is **still
+   * in flight**, and the next assertion is about what its completion does. */
+  clock_now += 1u;
+  ap_tape_advance(&t, clock_now);
+  TEST_ASSERT_TRUE(ap_sc499_executing(&t.controller));
+  TEST_ASSERT_FALSE(t.drive.reading);
+  TEST_ASSERT_TRUE(t.drive.file_mark);
+  TEST_ASSERT_TRUE(t.controller.exception);
+  TEST_ASSERT_TRUE(t.controller.done);
+  /* Past the mark, so the next READ begins the next file. */
+  TEST_ASSERT_EQUAL_UINT64(2u, t.drive.position);
+
+  /* **And the exception survives the block boundary still in flight.** The last
+   * block armed Figure 1-5's gap before the mark was reached, and that gap's
+   * completion used to deassert EXCEPTION -- Figure 1-8's T3 applied to a
+   * figure that is not a command. The firmware polls for READY between blocks,
+   * was shown one, and read on: measured as `5F` turning into `3F` at the end
+   * of the file. */
+  clock_now += ap_sc499_handshake_duration(AP_SC499_ENTRY_DATA_BLOCK) * 2u;
+  ap_tape_advance(&t, clock_now);
+  TEST_ASSERT_TRUE(t.controller.exception);
+  /* And READY stays down under it, which is Figure 1-6's rule. */
+  TEST_ASSERT_FALSE(t.controller.ready);
+
+  /* **And the host's next DMAGO does not hang.** A driver that reads a file by
+   * repeating `[SC499]` §1.11's steps 2 to 5 issues one DMAGO per block and
+   * only learns the file has ended when one comes back short -- so there is
+   * always one DMAGO after the last block. It lowers DONE, and if nothing
+   * raised it again the driver would wait for ever, which is `002398-04`
+   * p. 4-17's `FF`. A sequencer with no transfer in front of it has nothing in
+   * flight. */
+  ap_tape_write(&t, AP_TAPE_ADDR + 2u, 0u);
+  TEST_ASSERT_FALSE(t.controller.done);
+  TEST_ASSERT_FALSE(ap_tape_dma_request(&t));
+  clock_now += 1u;
+  ap_tape_advance(&t, clock_now);
+  TEST_ASSERT_TRUE(t.controller.done);
+}
+
 static void test_running_off_the_end_raises_exception(void) {
   ap_tape_t t;
   arm(&t);
@@ -775,6 +854,7 @@ int main(void) {
   RUN_TEST(test_a_refused_command_raises_exception);
   RUN_TEST(test_running_off_the_end_raises_exception);
   RUN_TEST(test_a_read_the_drive_ends_also_ends_the_dma);
+  RUN_TEST(test_the_drive_stops_asking_at_a_file_mark);
   RUN_TEST(test_the_measured_dump_is_reproduced);
   RUN_TEST(test_the_write_only_commands_are_reachable_by_writing);
   RUN_TEST(test_the_upper_half_of_each_block_is_not_the_part);
