@@ -15422,6 +15422,30 @@ turnaround it was originally read as -- `100 us. <`, which is
 `AP_SC499_T_BLOCK_TO_READY_MIN`. The two must move together or a block will cost
 its media time twice.
 
+### The third watch: MD's side is correct, and it programs last
+
+Channel 1's address register (`010C02`) takes **two byte writes per block**, low
+half at PC `37BE` and high half at `37C4`, and the high half alternates:
+
+    37BE 00   37C4 00     base 0000
+    37BE 00   37C4 02     base 0200
+    37BE 00   37C4 00     base 0000   ...
+
+Sixteen pairs, alternating exactly as two 512-byte blocks in a 1024-byte page
+require. **MD's side is right.** What the PCs say is the order:
+
+    3796  DMAGO
+    37AC  translation map entry          +6 instructions
+    37BE  8237 address, low half        +40
+    37C4  8237 address, high half       +46
+
+**MD writes DMAGO first and the destination last**, forty-six instructions
+later, because on the machine the first byte is 11.1 µs away and forty-six
+instructions are not. This core has moved all 512 bytes before the second of
+those writes, so every block is placed through the *previous* block's entry and
+base -- which is why the map's `43F6` covers three blocks, two of them collide,
+and the one overwritten is block 0.
+
 ### And it is blocked on a clock, which was found by trying it
 
 The pacing was implemented and reverted the same hour, because it does not work

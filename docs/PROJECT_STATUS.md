@@ -461,6 +461,14 @@ block has gone, so every block is placed through the previous entry, `43F6`
 covers three of them, and two collide. The block that loses is block 0, which is
 the one carrying `SYSBOOT REV` and the four header words.
 
+A third watch closes it. Channel 1's address register takes two byte writes per
+block, low half at PC `37BE` and high half at `37C4`, and the high half
+alternates `00`/`02` — base `0000` and `0200`, exactly what two 512-byte blocks
+in a 1024-byte page require. **MD's side is right**, and the PCs give the order:
+DMAGO at `3796`, the map entry at `37AC` six instructions later, and the 8237's
+address at `37BE`/`37C4` **forty-six** instructions later. MD writes the
+destination last because on the machine the first byte is 11.1 µs away.
+
 *The fix is the drive's byte rate*, and it is arithmetic this file already has:
 512 bytes at 90,000 a second is 5.69 ms, and one byte is
 `AP_TIME_BASE_HZ / 90000` = **239,360,000** base units exactly, no rounding.
