@@ -4487,6 +4487,38 @@ Only after the reference core is proven, and only under an identity harness.
       second bus master taking the bus mid-instruction, which `machine_suite`
       measures -- a `MOVEM.L` lands whole, four of four. That is the item below.
 
+- [ ] **A device consulted while the processor is stalled is consulted at a
+      stale time.** Found 2026-09-09 by implementing a fix that could not work,
+      and it is the named blocker of the cartridge-boot item above
+      (`FINDINGS.md` C268).
+      `ap_machine_tick`'s stall loop is `while (!ap_board_processor_may_run())
+      { ap_board_bus_tick(); cpu.clocks++; }` — bus ticks and a clock count,
+      and **no `ap_board_advance`**. The board's `now` is reconciled after the
+      stall, so a device whose *deadlines* matter is unharmed: it sees the
+      elapsed time in one jump. A device whose **output is consulted during the
+      stall** is not, and two are: `ap_board_processor_may_run` and every DMA
+      request line, both read on every bus tick of the stall while the devices
+      behind them still hold the time the stall began at.
+      **Measured cost, on the one path that exercises it.** The tape's request
+      line cannot be paced at the drive's 90,000 bytes a second
+      (`AP_SC499_T_BYTE`, exact on the time base) because a paced line against a
+      frozen clock delivers one byte and then spins to
+      `AP_MACHINE_STALL_LIMIT` — `dma_suite`, `board_suite` and `tape_suite`
+      showed it at once, four failures. So the cartridge's sixteen blocks cross
+      the interface in 20 µs apiece instead of 5.69 ms, the SR10.4 firmware's
+      DMAGO and its translation-map entry are six instructions apart and its
+      8237 address forty-six, and every block is placed through the previous
+      block's setup.
+      **What it would change is every device's timing, not the tape's**, which
+      is why it is here and not folded into the tape item: it wants a
+      before/after identity boot and a console diff, exactly as the DMA
+      transfer-cost item below budgets for.
+      *Verification: the tape's request line paced at `AP_SC499_T_BYTE` with
+      `ap_sc499_block_boundary` reduced to Figure 1-5's `100 us. <` interface
+      turnaround — the two move together or a block costs its media time twice
+      — and the cartridge boot's sixteen blocks landing at sixteen distinct
+      addresses.*
+
 - [ ] **A resumable sequencer, which is the last of the per-cycle item.**
       `ap_m68030_step` sequences an instruction in ordinary nested C across a
       6,966-line file, so it cannot stop inside an access; the alternatives are

@@ -488,13 +488,18 @@ is why the cartridge run's `dma 8192 transfer(s)` being exactly 16 × 512 is
 evidence that no disk transfer ran in it and the first write recorded is the
 tape's.
 
-**And it is blocked on a clock, which was found by trying it.**
+**And it is blocked on a clock, which was found by trying it — now its own plan
+item, and marked in `ap_machine.c` at the loop it lives in.**
 `ap_machine_tick`'s stall loop calls `ap_board_bus_tick` and increments the
 CPU's clock count *without* an `ap_board_advance`, so while the processor is
-stalled the board's devices see no time pass — `tape->controller.now` is frozen
-for the whole burst and reconciled only afterwards. A paced request line against
-a frozen clock delivers one byte and then spins to `AP_MACHINE_STALL_LIMIT`;
-four suites showed it at once. The dependency is a real change with its own
+stalled the board's devices see no time pass. A device whose **deadlines**
+matter is unharmed — it sees the elapsed time in one jump when the stall ends.
+A device whose **output is consulted inside the loop** is not, and two are:
+`ap_board_processor_may_run` itself and every DMA request line the arbiter polls
+on each of those ticks. Here that means `tape->controller.now` is frozen for the
+whole burst and reconciled only afterwards, so a paced request line delivers one
+byte, never sees its deadline arrive, and spins to `AP_MACHINE_STALL_LIMIT` —
+`dma_suite`, `board_suite` and `tape_suite` showed it at once, four failures. The dependency is a real change with its own
 identity measurement — devices seeing time pass while the processor is stalled
 is what a core whose claim is emergent contention should do, and it moves every
 device's timing rather than the tape's — so it belongs beside the exact-skip and

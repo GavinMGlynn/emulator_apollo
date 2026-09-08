@@ -938,6 +938,23 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
        * a broken machine, and spinning forever inside a bounded `ap_machine_run`
        * would turn that into a hung harness rather than a visible fault -- the
        * same reason the run takes a limit at all. */
+      /* **Devices are consulted here at the time the stall began**, and that
+       * is a known gap with a named plan item rather than an oversight.
+       *
+       * This loop ticks the bus and counts the clock; it does not call
+       * `ap_board_advance`, so `now` is reconciled after the stall. A device
+       * whose *deadlines* matter is unharmed -- it sees the elapsed time in one
+       * jump. A device whose **output is consulted inside the loop** is not,
+       * and two are: `ap_board_processor_may_run` itself, and every DMA request
+       * line the arbiter polls on each of these ticks.
+       *
+       * `FINDINGS.md` C268 is the measured cost. The tape's request line cannot
+       * be paced at the drive's 90,000 bytes a second, because a paced line
+       * against a clock that does not move delivers one byte and then spins to
+       * the limit below -- so the cartridge's blocks cross the interface in
+       * 20 us apiece instead of 5.69 ms, and the SR10.4 firmware, which writes
+       * DMAGO forty-six instructions before the 8237 address it belongs to,
+       * loses the race every time. */
       unsigned stalled = 0;
       while (!ap_board_processor_may_run(machine->board) &&
              stalled < AP_MACHINE_STALL_LIMIT) {
