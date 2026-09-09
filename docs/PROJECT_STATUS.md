@@ -911,6 +911,58 @@ one observable. The next step is one pass capturing the whole exchange — the
 8237 programming for channel 1, the command bytes, the transfer counts —
 not another single-register inference. `FINDINGS.md` C271.
 
+## The SR10.4 cartridge boot has an invocation, and the `E0007` has a cause
+## (2026-09-09)
+
+**The run below had no recorded command line.** This section printed its console
+and `COMPLETION_PLAN.md`'s `E0007` item turned on it, and neither said how to
+produce it — so measuring the failure meant rebuilding the invocation from a
+transcript, which is the thing `tools/e0007-boot.sh` exists because of after it
+cost an hour, and which `tools/identity-boot.sh` states as a rule. It is now
+`tools/cartridge-boot.sh` with `tools/cartridge-boot.script`, and it reproduces
+the transcript exactly.
+
+*Recovering it cost three wrong runs, all the same mistake.* The `>` in the
+transcript is the **Mnemonic Debugger's** prompt, not the boot PROM's — the PROM
+never prints one — so the run needs MD's knock, MD's 2400 baud and MD's entry
+address, every one of which was already written down in `tools/md-shell.script`
+next door. A disk-less machine left alone runs its self test, prints `Could not
+load /SAU7/SELF_TEST.` and **sits at PC `78E`**, which is exactly the address
+`--boot-input-after-pc` holds the knock for: a machine "stuck" there is a machine
+waiting to be knocked at. And a **disk must be attached** even though
+`EX DOMAIN_OS` loads the *tape's* SYSBOOT — without one the kernel starts and
+never reaches the environment.
+
+**And the failure has a mechanism, printed on the console, which this section
+never carried.** Immediately after the `E0007`:
+
+```
+Seq out of order: expected 1, read 46C70E00
+tape error: UID in block header does not match those read from earlier blocks.
+correct uid = 5741E3.CF937400, uid read = 571F92.7A243B00, seq=5F325200
+tape error: UID in block header does not match those read from earlier blocks.
+correct uid = 5741E3.CF937400, uid read = 552A4820.6DFFEC20, seq=56FFFC48
+```
+
+So it is **not a search that runs out of tape**; it is a block-header parse that
+rejects what it is handed, on the two fields the medium was characterised by the
+same day: the 32-bit sequence number and the 8-byte UID at bytes 4–11 of every
+file-3 block. *The kernel's expectation is right and its reading is not.* It
+expects sequence **1** — exactly what image block 23 carries — and reads
+`46C70E00`; and its own `correct uid` of `5741E3.CF937400` is not the
+cartridge's `57515AD6.A0027288` either, which is on every data block and in
+`UHL1`.
+
+**With `ap_qic` proved byte-exact over the real cartridge, that localises it**
+to the path between the drive's block interface and the kernel's buffer, where a
+one-block anomaly is already on record: the cartridge boot's `dma runs 010FD800
+010FD800`, two runs at one address, the first being block 0 alone overwritten by
+block 1. A shift of exactly one block puts the wrong header where the kernel
+looks.
+
+*The next measurement is now small*: capture the 512 bytes the kernel parses as
+file 3's first block and compare them with image block 23.
+
 ## The SR10.4 cartridge boots (2026-09-09)
 
 ```

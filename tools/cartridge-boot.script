@@ -1,0 +1,25 @@
+# Reach the Mnemonic Debugger on the serial console and boot the SR10.4
+# cartridge from it. The cartridge counterpart of `tools/md-shell.script`, which
+# takes the same route to the same prompt and then says `DI W` for the
+# Winchester where this says `DI C` for the cartridge.
+#
+# `DI C` selects the boot device; `EX DOMAIN_OS` then loads the **tape's**
+# SYSBOOT -- 1.1 MB at `01002000`, entry `01002024`. `DOMAIN_OS` is not a PROM
+# command and appears nowhere in the PROM image; it is a name on the cartridge.
+#
+# **`>` is MD's prompt, not the PROM's**, and that is the thing to know before
+# reconstructing this dialogue. The PROM never prints it: left alone, a
+# disk-less machine runs its self test, prints `Could not load /SAU7/SELF_TEST.`
+# and sits at PC `78E` for as long as it is given -- 1.2 G instructions, in the
+# run that established this. `78E` is exactly the address `--boot-input-after-pc`
+# holds the knock for, so a machine "stuck" there is a machine waiting to be
+# knocked at.
+#
+# The banner-then-prompt rule is `md-shell.script`'s and applies unchanged: MD
+# prints `\r\n>` *after* its sign-on and discards what is typed while it is
+# still printing, so waiting on the banner alone loses the first character.
+expect MD7C
+expect >
+send DI C\r
+expect >
+send EX DOMAIN_OS\r

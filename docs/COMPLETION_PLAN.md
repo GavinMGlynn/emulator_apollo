@@ -5185,11 +5185,39 @@ same number is what let them diverge once already.
       `SR10.4 Boot Volum`, **not** a path, so the kernel cannot be resolving
       `bscom/rbak_shell` from the label: it must scan the backup stream, where
       the name sits 685 blocks in.
-      **So the next measurement is sharper still**: not "did the bytes arrive"
-      — they do — but *how far into file 3 the kernel actually reads before it
-      gives up*. The boot's 69,398 blocks is `16 + 5 + 69,377`, so **some**
-      read goes far past block 708; whether the *search* does is the open
-      question, and a counter on the kernel's read loop answers it.
+      **2026-09-09, measured — and the kernel says why, on the console, in
+      lines this item never recorded.** The run now has an invocation:
+      `tools/cartridge-boot.sh` and `tools/cartridge-boot.script`, which
+      reproduce `PROJECT_STATUS.md`'s transcript exactly. Immediately after the
+      `E0007` the kernel prints:
+
+          Seq out of order: expected 1, read 46C70E00
+          tape error: UID in block header does not match those read from earlier blocks.
+          correct uid = 5741E3.CF937400, uid read = 571F92.7A243B00, seq=5F325200
+          tape error: UID in block header does not match those read from earlier blocks.
+          correct uid = 5741E3.CF937400, uid read = 552A4820.6DFFEC20, seq=56FFFC48
+
+      **So it is not a search that runs out of tape. It is a block-header parse
+      that rejects what it is handed**, and the two fields it rejects on are
+      exactly the two this item characterised offline the same day: the 32-bit
+      sequence number and the 8-byte UID at bytes 4–11 of every file-3 block.
+      *The kernel's expectation is right and its reading is not.* It expects
+      sequence **1**, which is precisely what block 23 carries; it reads
+      `46C70E00`. Its `correct uid` is `5741E3.CF937400` — and the cartridge's
+      UID is **`57515AD6.A0027288`**, on every data block and in `UHL1`. So even
+      the value it thinks is correct is not the medium's.
+      **Taken with the layer below being proved byte-exact, that localises it.**
+      `ap_qic` was driven over the real cartridge and hands out block 708
+      unaltered, so the corruption is **between the drive's block interface and
+      the kernel's buffer** — the DMA path — and there is already a recorded
+      one-block anomaly there: *"the cartridge boot gives `dma runs 010FD800
+      010FD800` — two runs, both at the same address … the first run is block 0
+      alone, at the same address, overwritten by block 1"*. A shift of exactly
+      one block would put the wrong header where the kernel looks.
+      *Next measurement, and it is now a small one*: capture the 512 bytes the
+      kernel actually parses as file 3's first block and compare them with image
+      block 23. One buffer, one comparison — not a search, not a boot-long
+      counter.
 
 - [x] **A cold power-on runs the confidence test — done 2026-09-09.**
       `[SC499]` §1.8.1's POC reports success "by the assertion of `EXC-`
