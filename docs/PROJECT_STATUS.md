@@ -645,6 +645,34 @@ Apollo Phase II Environment   Revision 10.4   Jan 25, 1992  12:59:03 pm
 and `bad rewind … 280002` are all gone: **the kernel acquires the drive and
 rewinds it.** What is left is a later failure with a different name.
 
+## `BFINS` set its condition codes from the value it destroyed (2026-09-09)
+
+Found by the `[020]` walk, Appendix A. **Table A-1 gives `BFINS` a row of its
+own**, and that is the finding: the other seven bit-field instructions are
+`N = Dm`, `Z = /Dm ^ … ^ /D0` over the **destination** field, and `BFINS` is
+`N = Sm`, `Z = /Sm ^ … ^ /S0` over the **source** — the legend reading
+"Sm = Source Operand" against "Dm = Destination Operand".
+
+This core computed all eight the same way, from the field as *found*, before
+the write. So `BFINS` reported the bits it had just overwritten, and the
+comment beside it asserted the wrong rule outright: "the condition codes have
+already been set from the field this overwrites — which is what the other seven
+do too".
+
+**`[PRM]` settles it independently, and its own two halves only agree under the
+correct reading.** The description is "the instruction sets the condition codes
+according to the **inserted value**"; the condition-code list says "the most
+significant bit of *the field*". Those are the same statement only because after
+the insert the field *is* the inserted value — which is exactly what computing
+them beforehand gets wrong.
+
+*Verification: `step_suite` 312 → 314, and both fail on the old code at the
+assertion the manuals settle — one with a negative non-zero destination and a
+zero source, where the old code sets N and clears Z and the hardware does the
+reverse; one the mirror, so neither direction passes by accident. `ctest`
+140/140. Identity `9A8188D5AC393BFD` with the report **byte-identical**, so the
+reference boot executes no `BFINS`. `M68020_WALK.md`, Appendix A.*
+
 ## The card runs a confidence test at power-on (2026-09-09)
 
 Two rows above `RR` on the same page: `[08845]` Table 2.0's `KK`, POWER-ON
@@ -12921,7 +12949,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 state hash (the identity harness's CPU half) | working: every architectural register, the MMU and cache control registers, the pipe, both caches, the ATC, and the accumulated clock — host pointers excluded by construction, since `ap_hash.h` has no pointer helper | `state_suite`, 16 tests sweeping every field; `step_suite`'s same-program-twice check |
 | 68030 addressing mode categories (Data / Memory / Control / Alterable) | working; derived from §2.3's definitions rather than transcribed from Table 2-4, whose Alterable column is exchanged between two row pairs in the scan | `category_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §2.3 |
 | 68030 operand access (read/write through an effective address) | working; a sub-long-word operand is selected from the long word by position, and one straddling two long words is split into a bus cycle per long word in address order | `operand_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` |
-| 68030 instruction step (fetch → decode → execute → advance) | **complete**: the `RESET` instruction costs its **518 clocks** as of 2026-09-07 -- `[030]` §11.6.17's `518(0/0/0)` and `[PRM]`'s "Asserts the RSTO signal for 512 ... clock periods", two independent documents for a figure the arm was charging zero for. The boot PROM does not execute one in the identity window, which the byte-identical clock total proves rather than assumes: **a bit field accesses only the bytes it spans as of 2026-09-06** -- `[PRM]`'s note on every bit field page gives the shapes (byte, word, 3-byte, long word, and long word with byte for a five-byte span) and `[030]` §11.6.14 prices them at one operand read under five bytes and two at five. This core read **one byte per bit** -- thirty-two accesses for a 32-bit field, and a read-modify-write per bit on the write path, so a field written across a device register read and rewrote it eight times a byte. The values were always right, which is why every existing test passed. Measured at 2 and 3 bus reads after, against 33 and 33 before: every one of the 65,536 opcode words executes, and **no word in the space reports `UNIMPLEMENTED`** — a swept property, not a list. The sweep extends through the coprocessor extension space and the MMU extension word, where *which instruction a word is* lives in the extension rather than the opcode; both found real gaps (664 coprocessor forms, 94,316 MMU forms) that an opcode-only sweep could not see. This row used to enumerate the dozen families that worked and end "everything else reports unimplemented, including divide-by-zero", which was stale by the whole instruction set | `step_suite`, 312 tests -- the two newest being the **MC68040's** control registers through `MOVEC` and its `CINV`/`CPUSH`, gated on the part having them |
+| 68030 instruction step (fetch → decode → execute → advance) | **complete**: the `RESET` instruction costs its **518 clocks** as of 2026-09-07 -- `[030]` §11.6.17's `518(0/0/0)` and `[PRM]`'s "Asserts the RSTO signal for 512 ... clock periods", two independent documents for a figure the arm was charging zero for. The boot PROM does not execute one in the identity window, which the byte-identical clock total proves rather than assumes: **a bit field accesses only the bytes it spans as of 2026-09-06** -- `[PRM]`'s note on every bit field page gives the shapes (byte, word, 3-byte, long word, and long word with byte for a five-byte span) and `[030]` §11.6.14 prices them at one operand read under five bytes and two at five. This core read **one byte per bit** -- thirty-two accesses for a 32-bit field, and a read-modify-write per bit on the write path, so a field written across a device register read and rewrote it eight times a byte. The values were always right, which is why every existing test passed. Measured at 2 and 3 bus reads after, against 33 and 33 before: every one of the 65,536 opcode words executes, and **no word in the space reports `UNIMPLEMENTED`** — a swept property, not a list. The sweep extends through the coprocessor extension space and the MMU extension word, where *which instruction a word is* lives in the extension rather than the opcode; both found real gaps (664 coprocessor forms, 94,316 MMU forms) that an opcode-only sweep could not see. This row used to enumerate the dozen families that worked and end "everything else reports unimplemented, including divide-by-zero", which was stale by the whole instruction set | `step_suite`, 314 tests -- the two newest being the **MC68040's** control registers through `MOVEC` and its `CINV`/`CPUSH`, gated on the part having them |
 | 68030 instruction prefetch (pipe driven from memory) | working | `fetch_suite`, 5 tests, `MC68030 User's Manual 3ed` §11.2.2 and §6.1 |
 | 68030 logical memory access path (cache → MMU → bus) | working, reads and writes. **The read half of a read-modify-write is forced to miss the data cache** — `[030]` §6.1.2.2, "always forced to miss", and §11.4's note says it again from the timing end. This core passed a literal `false` for the RMC flag into the cache, so a `TAS` or `CAS` whose operand was already cached answered from the line: no external cycle, and a semaphore read that could not see another master's write. The same constant also hid the RMC from `CBREQ` suppression and *cleared* `bus->rmc` on the read cycle of the indivisible pair. Corrected 2026-09-06 | `access_suite`, 18 tests, `MC68030 User's Manual 3ed` §6.1 |
 | 68030 effective address calculation (with register side effects) | working; memory-indirect modes report the pending indirection | `addr_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` §2.2 |
@@ -12936,7 +12964,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 family 0100 `$4E` control group (TRAP/LINK/UNLK/MOVE USP/RESET/NOP/STOP/RTE/RTD/RTS/TRAPV/RTR/JSR/JMP) | **complete**, and so is the rest of family 0100 — the row said "the rest of family 0100 not yet decoded", which the exhaustive sweep above has contradicted since it was written | `control_suite`, 11 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 |
 | 68030 family 0101 (ADDQ/SUBQ/Scc/DBcc/TRAPcc) decode | working | `quick_suite`, 10 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and each instruction page |
 | 68030 branch family (Bcc/BSR/BRA) decode | working | `branch_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and the Bcc/BRA/BSR pages |
-| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 312 tests -- the two newest being the **MC68040's** control registers through `MOVEC` and its `CINV`/`CPUSH`, gated on the part having them, and the per-subsystem suites |
+| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 314 tests -- the two newest being the **MC68040's** control registers through `MOVEC` and its `CINV`/`CPUSH`, gated on the part having them, and the per-subsystem suites |
 | 68030 operation code map (top-level instruction family) | working | `opcode_suite`, 6 tests, `M68000 Family Programmer's Reference Manual 1992` Table 8-2 |
 | 68030 conditional tests (the 16 Bcc/Scc/DBcc/TRAPcc conditions) | working | `cond_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-19 |
 | 68030 effective address decode (modes, extension words, lengths) | decode and extension-word counts working; address *calculation* needs the instruction unit | `ea_suite`, 17 tests, `M68000 Family Programmer's Reference Manual 1992` §2, Tables 2-1, 2-2, 2-4 |

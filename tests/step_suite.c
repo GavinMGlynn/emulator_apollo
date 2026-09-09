@@ -5576,6 +5576,68 @@ static void test_a_bit_field_insert_spans_every_byte_the_field_touches(void) {
   TEST_ASSERT_EQUAL_HEX32(0x11EB9AE6u, read_ram_long(&m, 0x00005000u));
 }
 
+/* **`BFINS` sets its flags from what it inserts, not from what it overwrites**,
+ * which is the one place the eight bit-field instructions part company.
+ *
+ * `[020]` Table A-1 gives `BFINS` a row of its own for exactly this: the other
+ * seven are `N = Dm`, `Z = /Dm ^ ... ^ /D0` over the *destination* field, and
+ * `BFINS` is `N = Sm`, `Z = /Sm ^ ... ^ /S0` over the **source**, the legend
+ * reading "Sm = Source Operand" against "Dm = Destination Operand". `[PRM]`'s
+ * page agrees in prose -- "the instruction sets the condition codes according
+ * to the **inserted value**" -- and its condition-code list, which says "the
+ * field", is consistent only under that reading, because after the insert the
+ * field *is* the inserted value.
+ *
+ * This core set them from the field as found until 2026-09-09, so it reported
+ * the bits `BFINS` had just destroyed. The test uses a destination whose old
+ * field is negative and non-zero and a source that is zero, so the two readings
+ * disagree on both N and Z: the old code sets N and clears Z, the hardware
+ * clears N and sets Z. */
+static void test_a_bit_field_insert_takes_its_flags_from_the_source(void) {
+  /* BFINS D6,(A2){0:8} */
+  static const uint16_t program[] = {0xEFD2u, 0x0000u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  write_ram_word(&m, PROGRAM_BASE + 2u, bitfield_extension(6, 0, 0, 0, 8));
+  write_ram_byte(&m, 0x00005000u, 0xFFu); /* the field being overwritten */
+  m.cpu.regs.a[2] = 0x00005000u;
+  m.cpu.regs.d[6] = 0u; /* the value being inserted */
+  ap_m68030_write_ccr(&m.cpu.regs, 0u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX8(0x00u, read_ram_byte(&m, 0x00005000u));
+
+  const uint16_t ccr = ap_m68030_read_ccr(&m.cpu.regs);
+  /* Z set and N clear, from the zero source -- not the other way round, which
+   * is what the destination's `FF` would have given. */
+  TEST_ASSERT_TRUE((ccr >> AP_M68030_SR_Z_BIT) & 1u);
+  TEST_ASSERT_FALSE((ccr >> AP_M68030_SR_N_BIT) & 1u);
+  /* V and C are always cleared, X untouched -- the rest of Table A-1's row. */
+  TEST_ASSERT_FALSE((ccr >> AP_M68030_SR_V_BIT) & 1u);
+  TEST_ASSERT_FALSE((ccr >> AP_M68030_SR_C_BIT) & 1u);
+}
+
+/* And the mirror, so neither direction passes by accident: a source whose top
+ * bit is set reports N even though the field it replaces is zero. */
+static void test_a_bit_field_insert_reports_a_negative_source(void) {
+  /* BFINS D6,(A2){0:8} */
+  static const uint16_t program[] = {0xEFD2u, 0x0000u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 3);
+  write_ram_word(&m, PROGRAM_BASE + 2u, bitfield_extension(6, 0, 0, 0, 8));
+  write_ram_byte(&m, 0x00005000u, 0x00u);
+  m.cpu.regs.a[2] = 0x00005000u;
+  m.cpu.regs.d[6] = 0x80u;
+  ap_m68030_write_ccr(&m.cpu.regs, 0u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX8(0x80u, read_ram_byte(&m, 0x00005000u));
+
+  const uint16_t ccr = ap_m68030_read_ccr(&m.cpu.regs);
+  TEST_ASSERT_TRUE((ccr >> AP_M68030_SR_N_BIT) & 1u);
+  TEST_ASSERT_FALSE((ccr >> AP_M68030_SR_Z_BIT) & 1u);
+}
+
 /* The read half of the same pair, and the reason the insert has anything to
  * insert: `BFEXTU $0C00(A2){1:31},D6` takes the whole longword bar its top bit,
  * which for `00047AE6` is the block number itself. */
@@ -9662,6 +9724,8 @@ int main(void) {
   RUN_TEST(test_a_data_register_bit_field_wraps_around);
   RUN_TEST(test_the_bit_field_operations_each_touch_only_their_field);
   RUN_TEST(test_a_bit_field_insert_spans_every_byte_the_field_touches);
+  RUN_TEST(test_a_bit_field_insert_takes_its_flags_from_the_source);
+  RUN_TEST(test_a_bit_field_insert_reports_a_negative_source);
   RUN_TEST(test_a_bit_field_extract_over_a_displaced_address_register);
   RUN_TEST(test_movep_writes_alternate_bytes_high_order_first);
   RUN_TEST(test_movep_word_preserves_the_upper_half_and_the_flags);

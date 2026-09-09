@@ -2131,16 +2131,36 @@ static bool execute_bitfield(ap_m68030_cpu_t *cpu,
   }
 
   /* "N - Set if the most significant bit of the field is set", "Z - Set if all
-   * bits of the field are zero", V and C always cleared, X not affected. The
-   * flags come from the field as *found*, before any modification -- these are
-   * "test bit field and ..." instructions. */
+   * bits of the field are zero", V and C always cleared, X not affected. For
+   * seven of the eight the flags come from the field as *found*, before any
+   * modification -- these are "test bit field and ..." instructions.
+   *
+   * **`BFINS` is the eighth and it is different**, which this code had wrong
+   * until 2026-09-09. `[020]` Table A-1 gives it a **row of its own** for
+   * exactly this reason: where the other seven are `N = Dm` and
+   * `Z = /Dm ^ ... ^ /D0` over the *destination* field, `BFINS` is `N = Sm` and
+   * `Z = /Sm ^ ... ^ /S0` over the **source** -- the table's legend being
+   * "Sm = Source Operand" against "Dm = Destination Operand".
+   *
+   * `[PRM]`'s BFINS page says the same thing in prose, and its two halves only
+   * agree under this reading: the description is "the instruction sets the
+   * condition codes **according to the inserted value**", while the condition
+   * code list says "the most significant bit of *the field*" -- which is the
+   * inserted value, because by then the field holds it. Setting them from the
+   * field as found reports the bits `BFINS` just destroyed. */
+  const uint32_t flag_source =
+      (shift->bitfield == AP_M68030_BF_INS)
+          ? (spec.width == 32u
+                 ? cpu->regs.d[spec.reg]
+                 : (cpu->regs.d[spec.reg] & ((UINT32_C(1) << spec.width) - 1u)))
+          : field;
   uint16_t ccr = ap_m68030_read_ccr(&cpu->regs);
   ccr &= (uint16_t)~((1u << AP_M68030_SR_N_BIT) | (1u << AP_M68030_SR_Z_BIT) |
                      (1u << AP_M68030_SR_V_BIT) | (1u << AP_M68030_SR_C_BIT));
-  if ((field >> (spec.width - 1u)) & 1u) {
+  if ((flag_source >> (spec.width - 1u)) & 1u) {
     ccr |= (uint16_t)(1u << AP_M68030_SR_N_BIT);
   }
-  if (field == 0u) {
+  if (flag_source == 0u) {
     ccr |= (uint16_t)(1u << AP_M68030_SR_Z_BIT);
   }
   ap_m68030_write_ccr(&cpu->regs, ccr);
@@ -2200,10 +2220,9 @@ static bool execute_bitfield(ap_m68030_cpu_t *cpu,
                           clocks);
 
   case AP_M68030_BF_INS:
-    /* The source is the *low* `width` bits of Dn, and the condition codes have
-     * already been set from the field this overwrites -- which is what the
-     * other seven do too, and is why the flags are computed before the switch.
-     */
+    /* The source is the *low* `width` bits of Dn, and the condition codes came
+     * from **that** rather than from the field it overwrites -- see the flag
+     * computation above, and `[020]` Table A-1's separate row. */
     return bitfield_write(cpu, shift, &spec, base_address,
                           cpu->regs.d[spec.reg], clocks);
   }
