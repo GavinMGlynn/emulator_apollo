@@ -328,6 +328,45 @@ static void test_the_buffer_impedances_of_the_two_drive_modes(void) {
   TEST_ASSERT_EQUAL_UINT(25u, AP_M68040_SMALL_BUFFER_OHMS);
 }
 
+static void test_the_large_buffer_impedance_is_not_one_number(void) {
+  /* §7.11.1 gives "6 ohms for both high and low drive". §11.9's worked example
+   * uses 6 ohms low and 12 high, and Figure 11-8 labels the large buffer
+   * "TYPICAL Z0 = 4-12 ohms" against the small buffer's flat 25. §7.11.1's
+   * single symmetric figure is the loosest of the three, and reading §7 alone
+   * would leave it standing. */
+  TEST_ASSERT_EQUAL_UINT(6u, AP_M68040_LARGE_BUFFER_OHMS);
+  TEST_ASSERT_EQUAL_UINT(12u, AP_M68040_LARGE_BUFFER_HIGH_OHMS);
+  TEST_ASSERT_EQUAL_UINT(4u, AP_M68040_LARGE_BUFFER_OHMS_MIN);
+  TEST_ASSERT_EQUAL_UINT(12u, AP_M68040_LARGE_BUFFER_OHMS_MAX);
+  /* The small buffer is the one §7 and §11 agree about. */
+  TEST_ASSERT_EQUAL_UINT(25u, AP_M68040_SMALL_BUFFER_OHMS);
+}
+
+static void test_the_speed_grades_of_the_three_parts(void) {
+  /* §11.5 rates the MC68040 at 25, 33 and 40 MHz; Table 11-4 rates the
+   * MC68LC040 and MC68EC040 at 20, 25 and 33. The two sets overlap in the
+   * middle and differ at both ends. */
+  TEST_ASSERT_TRUE(ap_m68040_is_rated_frequency(25000000u, false));
+  TEST_ASSERT_TRUE(ap_m68040_is_rated_frequency(33000000u, false));
+  TEST_ASSERT_TRUE(ap_m68040_is_rated_frequency(40000000u, false));
+  TEST_ASSERT_FALSE(ap_m68040_is_rated_frequency(20000000u, false));
+
+  TEST_ASSERT_TRUE(ap_m68040_is_rated_frequency(20000000u, true));
+  TEST_ASSERT_TRUE(ap_m68040_is_rated_frequency(25000000u, true));
+  TEST_ASSERT_TRUE(ap_m68040_is_rated_frequency(33000000u, true));
+  TEST_ASSERT_FALSE(ap_m68040_is_rated_frequency(40000000u, true));
+}
+
+static void test_nothing_runs_below_twenty_megahertz(void) {
+  /* §11.5's "Frequency of Operation" minimum is 20 MHz in all three columns.
+   * That floor is what makes §1.1's claim about the MC68040V -- "a 3.3 volt
+   * static microprocessor that operates down to 0 MHz" -- a distinction rather
+   * than a restatement. */
+  TEST_ASSERT_EQUAL_UINT(20000000u, AP_M68040_MIN_FREQUENCY_HZ);
+  TEST_ASSERT_FALSE(ap_m68040_is_rated_frequency(16000000u, false));
+  TEST_ASSERT_FALSE(ap_m68040_is_rated_frequency(0u, true));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_fourth_size_encoding_is_a_line_not_three_bytes);
@@ -354,5 +393,8 @@ int main(void) {
   RUN_TEST(test_a_burst_inhibited_line_costs_three_extra_clocks);
   RUN_TEST(test_five_kinds_of_access_never_allocate_a_line);
   RUN_TEST(test_the_buffer_impedances_of_the_two_drive_modes);
+  RUN_TEST(test_the_large_buffer_impedance_is_not_one_number);
+  RUN_TEST(test_the_speed_grades_of_the_three_parts);
+  RUN_TEST(test_nothing_runs_below_twenty_megahertz);
   return UNITY_END();
 }

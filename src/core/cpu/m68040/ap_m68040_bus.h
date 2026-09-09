@@ -271,10 +271,37 @@ ap_m68040_arbitration_state(bool bg, bool drives_bb, bool bus_driven,
 #define AP_M68040_LINE_BURST_CLOCKS 5u
 #define AP_M68040_LINE_BURST_INHIBITED_CLOCKS 8u
 
-/* §7.11.1: "large buffers have a nominal output impedance of 6 ohms ... small
- * buffers have a nominal impedance of 25 ohms." */
+/* §7.11.1: "large buffers have a nominal output impedance of 6 ohms **for both
+ * high and low drive** ... small buffers have a nominal impedance of 25 ohms
+ * for high and low drive."
+ *
+ * **§11 does not agree about the large buffer.** Its worked example in §11.9
+ * computes the low case as "(49.6 mA)^2 x 6 ohms" and the high case as
+ * "(50.8 mA)^2 x **12** ohms", and Figure 11-8 labels the large buffer
+ * "TYPICAL Z0 = 4-12 ohms" against the small buffer's flat 25. So §7.11.1's
+ * single symmetric figure is the loosest of the three statements: the large
+ * buffer is asymmetric, roughly 6 ohms pulling low and 12 pulling high, inside
+ * a 4-12 ohm spread. The constants below keep §7.11.1's nominal values because
+ * that is what §7 states and what a model of the *mode selection* needs; the
+ * asymmetry is recorded here rather than in a number, since nothing in this
+ * core computes a drive current. */
 #define AP_M68040_LARGE_BUFFER_OHMS 6u
 #define AP_M68040_SMALL_BUFFER_OHMS 25u
+/* §11.9's high-drive figure for the large buffer, and Figure 11-8's range. */
+#define AP_M68040_LARGE_BUFFER_HIGH_OHMS 12u
+#define AP_M68040_LARGE_BUFFER_OHMS_MIN 4u
+#define AP_M68040_LARGE_BUFFER_OHMS_MAX 12u
+
+/* §11.5's frequency of operation: 20 MHz minimum at every speed grade, and
+ * three grades for the MC68040. The MC68040V is the exception and §1.1 says so
+ * -- it "operates down to 0 MHz", which is only a distinction because the base
+ * part has a floor. */
+#define AP_M68040_MIN_FREQUENCY_HZ 20000000u
+
+/* Table 11-3 rates the MC68040 at 25 and 33 MHz and §11.5 adds 40; Table 11-4
+ * rates the MC68LC040 and MC68EC040 at 20, 25 and 33 -- a different range,
+ * reaching lower and stopping earlier. */
+[[nodiscard]] bool ap_m68040_is_rated_frequency(unsigned hz, bool ec_or_lc);
 
 /* §7.5.1: "an interrupt request that is held constant for two consecutive
  * clock periods is considered a valid input." */

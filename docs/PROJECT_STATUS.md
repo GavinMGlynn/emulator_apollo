@@ -10957,7 +10957,41 @@ that adding two of them is not a rounding question.
 No new module: §10's job was to check the five timing modules already in the
 core, and they check out. `m68040_iu_timing_suite` gains the two anomalies as
 tests (99 -> 101) and `ap_m68040_cache_timing.h` gains the interruptibility
-note. Also
+note.
+
+**§11's electrical section contradicts §7 about the large output buffer.**
+§7.11.1 says large buffers have "a nominal output impedance of **6 ohms for both
+high and low drive**". §11.9's worked example computes the low case as "(49.6
+mA)^2 x 6 ohms" and the high case as "(50.8 mA)^2 x **12** ohms", and Figure
+11-8 labels the large buffer "TYPICAL Z0 = **4-12** ohms" against the small
+buffer's flat 25. So the large buffer is *asymmetric* -- roughly 6 ohms pulling
+low and 12 pulling high, inside a 4-12 ohm spread -- and §7.11.1's single
+symmetric figure is the loosest of the three statements. Reading §7 alone would
+have left it standing. The constants keep §7's nominal values, since that is
+what §7 states and what a model of the mode *selection* needs, and the asymmetry
+is recorded beside them.
+
+**Three speed grades, and a 20 MHz floor that makes §1.1's claim mean
+something.** §11.5 rates the MC68040 at **25, 33 and 40 MHz** with a "Frequency
+of Operation" minimum of **20 MHz** in all three columns; Table 11-4 rates the
+MC68LC040 and MC68EC040 at **20, 25 and 33** -- a different range, reaching
+lower and stopping earlier. That floor is what makes §1.1's "the MC68040V is a
+3.3 volt static microprocessor that operates down to 0 MHz" a distinction rather
+than a restatement. `model_suite` now asserts that every table entry with
+`.cpu = AP_CPU_M68040` runs at a grade the manual rates, which catches a
+`cpu_hz` typo that no boot would notice -- the emulated clock would simply be
+wrong everywhere at once. The DN5500's 25 MHz passes.
+
+Two more from §11 worth having. **The advertised frequency is the `BCLK`**: §11.8
+speaks of "the MC68040 ... with a 50 MHz processor clock" for a part §11.5 rates
+at 25 MHz, which is §7.1's `PCLK = 2 x BCLK` seen from the marketing side, and
+§10.1's "all timings are related to BCLK cycles" confirms the instruction tables
+are in the advertised unit. And **`PCLK` to `BCLK` skew is specified only at 25
+MHz** (9 ns max); the 33 and 40 MHz columns read "n/a".
+
+The rest of §11 is thermal engineering -- junction-to-case resistance, heat-sink
+attachment, forced-air tables -- with nothing an emulator can hold. Read whole
+and recorded as read; `m68040_bus_suite` 24 -> 27 tests, `model_suite` 22 -> 23. Also
 captured: Table 9-9's nine vectors, with the unimplemented *instruction* sharing
 vector 11 with the F-line illegal instruction and the handler distinguishing
 them by stack frame format (`$0` or `$2`); Table 9-10's unimplemented
@@ -13436,7 +13470,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Subsystem | Status | Verification |
 | --- | --- | --- |
 | Build system, presets, CI | working | 4-platform matrix green on first run, plus the `-O0` vs `-O3` output-identity job |
-| Model table (`model/`) | working, 12 models | `model_suite`, 22 tests |
+| Model table (`model/`) | working, 12 models | `model_suite`, 23 tests |
 | Time base (`time/`) | working | `time_suite`, 17 tests |
 | State hash (`state/`) | primitive working | `hash_suite`, 13 tests, incl. published FNV-1a 64 vectors |
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 40 tests sweeping every device field by field |

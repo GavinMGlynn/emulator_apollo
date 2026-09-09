@@ -251,3 +251,17 @@ const char *ap_m68040_nonallocating_name(ap_m68040_nonallocating_t which) {
   }
   return names[which];
 }
+
+bool ap_m68040_is_rated_frequency(unsigned hz, bool ec_or_lc) {
+  /* §11.5's three columns for the MC68040, and Table 11-4's three rows for the
+   * MC68LC040 and MC68EC040. The two sets overlap at 25 and 33 and differ at
+   * both ends: only the derivatives are rated at 20, and only the MC68040 at
+   * 40. */
+  if (hz < AP_M68040_MIN_FREQUENCY_HZ) {
+    return false;
+  }
+  if (ec_or_lc) {
+    return hz == 20000000u || hz == 25000000u || hz == 33000000u;
+  }
+  return hz == 25000000u || hz == 33000000u || hz == 40000000u;
+}

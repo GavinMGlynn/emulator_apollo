@@ -1670,6 +1670,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         print. §10.3 adds that `CINV` and `CPUSH` **sample `IPLx` every clock**,
         so a `CPUSHA` is interruptible. `m68040_iu_timing_suite` 99 -> 101
         tests. Detail in `PROJECT_STATUS.md`.
+  - [x] `[040]` §11's electrical and thermal characteristics, all 22 pages.
+        **It contradicts §7 about the large output buffer** -- §7.11.1 says 6
+        ohms "for both high and low drive", §11.9's example uses 6 low and 12
+        high, and Figure 11-8 says 4-12 typical. Three speed grades (25/33/40
+        for the MC68040, 20/25/33 for the LC and EC parts) and a **20 MHz
+        floor**, which is what makes §1.1's "operates down to 0 MHz" a
+        distinction. `model_suite` now asserts every 68040 model's `cpu_hz` is a
+        rated grade. `m68040_bus_suite` 24 -> 27, `model_suite` 22 -> 23. Detail
+        in `PROJECT_STATUS.md`.
   - [x] The two ATCs: 16 sets of four ways each, tagged with `FC2` alone and no
         task alias -- `G` is the 68040's substitute, overriding a nonglobal
         flush rather than being one more criterion. The manual states the tag

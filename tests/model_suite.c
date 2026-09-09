@@ -7,6 +7,7 @@
 #include "model/ap_model.h"
 #include "time/ap_time.h"
 #include "unity.h"
+#include "cpu/m68040/ap_m68040_bus.h"
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -349,6 +350,27 @@ static void test_a_headless_variant_is_its_workstation_in_every_board_respect(
   TEST_ASSERT_EQUAL_UINT(5u, derived);
 }
 
+static void test_every_68040_model_runs_at_a_rated_frequency(void) {
+  /* `[040]` §11.5 rates the MC68040 at 25, 33 and 40 MHz with a 20 MHz floor,
+   * and Table 11-4 rates the MC68LC040 and MC68EC040 at 20, 25 and 33. A model
+   * table entry outside those sets would be a part Motorola never sold, so this
+   * catches a typo in `cpu_hz` that no boot would notice -- the emulated clock
+   * would simply be wrong everywhere at once. */
+  unsigned checked = 0;
+  for (unsigned i = 0; i < AP_MODEL_COUNT; i++) {
+    const ap_model_t *model = ap_model_by_id((ap_model_id_t)i);
+    if (model == NULL || model->cpu != AP_CPU_M68040) {
+      continue;
+    }
+    checked++;
+    TEST_ASSERT_TRUE_MESSAGE(
+        ap_m68040_is_rated_frequency(model->cpu_hz, false),
+        model->description);
+  }
+  /* And there is at least one, so a rename cannot quietly empty this test. */
+  TEST_ASSERT_TRUE(checked > 0u);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_dn2500_main_memory_matches_its_boot_proms_sizing_code);
@@ -373,5 +395,6 @@ int main(void) {
   RUN_TEST(test_every_models_mmu_agrees_with_its_cpus_features);
   RUN_TEST(test_every_board_is_a_model_and_a_workstation_is_its_own);
   RUN_TEST(test_a_headless_variant_is_its_workstation_in_every_board_respect);
+  RUN_TEST(test_every_68040_model_runs_at_a_rated_frequency);
   return UNITY_END();
 }
