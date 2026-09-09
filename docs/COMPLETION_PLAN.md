@@ -4544,6 +4544,26 @@ discipline throughout.
       SR10.3 route did through `mdsession.py`, and let this core boot the volume
       it produces. What was "is the install even possible" is answered — it is,
       and this core drives it correctly as far as one run reaches.
+      **And on the oracle side it is not an expedition — it is a replay.**
+      `tools/mame-oracle/install-domainos.cmds` is "the Domain/OS SR10.4
+      install, as it was actually driven, end to end", with its invocation at
+      the top, the four `019594-00N` swaps scripted, `ext/mame/apollo` built,
+      and the ending that cost a session written into it: `!raw \x04`, then
+      `shut`, then `Shutdown successful` — not `!exit`, which leaves a volume
+      with its objects and not its links.
+      **And the media carries SAU 14**, checked 2026-09-09 rather than assumed:
+      `019594-002` holds `install/ri.apollo.os.v.10.4/**sau14**/…`, a release
+      installation tree, under the ANSI label `HDR1/base_unix_sau14` — 16,934
+      mentions against `sau7`'s 5,783, `sau8`'s 3,589 and `sau12`'s 12,963. So
+      the earlier note that "`/install/ri` is name not found" was about the
+      *installed volume*, which did not keep the AA; the **cartridge** has it.
+      **So Phase A reduces to one changed answer in a recorded script**: MINST's
+      SAU selection, where the run that produced `dn3500-sr10.4-installed.awd`
+      took the DN3500's `sau7`. *The one thing not established here* is MINST's
+      exact selection interface at that step — the script sends `select` and
+      waits for `RAI MINST has completed`, and which prompt offers the SAU list
+      has to be read off a running MINST. That is a procedure question, not a
+      documentary one, and everything around it is now scripted.
       **What is left in the core**: the caches the invalidation should act on
       are a complete module attached to no CPU, so the instruction is correctly
       a no-op; and a 68040 **MMU**, which the `.mmu` item also waits on.
