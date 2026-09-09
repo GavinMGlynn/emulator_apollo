@@ -1263,26 +1263,63 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, uint64_t limit) {
      * status register selects, which is the one that matters: a supervisor
      * stack running out is not visible in the user one. */
     {
+      /* **Per 64 KB region, so a stack keeps its history across excursions.**
+       * The epoch version restarted whenever `A7` moved far, which threw away
+       * everything a stack had spent before each PROM service call -- see
+       * `AP_MACHINE_STACK_REGIONS`. The common case is one compare: the region
+       * has not changed. */
       const uint32_t a7 = ap_m68030_read_a7(&machine->cpu.regs);
-      const uint32_t far = a7 > machine->stack_low_water
-                               ? a7 - machine->stack_low_water
-                               : machine->stack_low_water - a7;
-      if (!machine->stack_low_water_seen || far > AP_MACHINE_STACK_EPOCH) {
-        /* A different stack, not a deeper push: start again on it, and count
-         * the switch so a reader knows the numbers describe the last one. */
-        if (machine->stack_low_water_seen) {
+      const uint32_t key = a7 >> AP_MACHINE_STACK_REGION_SHIFT;
+      if (!machine->stack_region_current_valid ||
+          machine->stack_region[machine->stack_region_current].key != key) {
+        unsigned slot = AP_MACHINE_STACK_REGIONS;
+        for (unsigned r = 0; r < AP_MACHINE_STACK_REGIONS; r++) {
+          if (machine->stack_region[r].used &&
+              machine->stack_region[r].key == key) {
+            slot = r;
+            break;
+          }
+          if (!machine->stack_region[r].used &&
+              slot == AP_MACHINE_STACK_REGIONS) {
+            slot = r;
+          }
+        }
+        if (slot == AP_MACHINE_STACK_REGIONS) {
+          /* The table is full. Counted rather than evicted -- a stack quietly
+           * dropped is worse than a number saying one was -- **and the current
+           * region is invalidated**, which is the whole of this branch's
+           * correctness. Leaving it valid meant the next line updated whichever
+           * slot happened to be current with an `A7` from a different region
+           * entirely: one entry then claimed a 1.28 MB span whose low address
+           * was not even inside it. A full table must stop measuring, not
+           * measure the wrong thing. */
+          machine->stack_region_current_valid = false;
+          machine->stack_regions_dropped++;
+        } else {
+          if (!machine->stack_region[slot].used) {
+            machine->stack_region[slot] = (ap_machine_stack_region_t){
+                .key = key,
+                .high = a7,
+                .low = a7,
+                .low_pc = machine->cpu.regs.pc,
+                .entry_pc = machine->cpu.regs.pc,
+                .used = true};
+          }
+          machine->stack_region[slot].entries++;
+          machine->stack_region_current = slot;
+          machine->stack_region_current_valid = true;
           machine->stack_switches++;
         }
-        machine->stack_high_water = a7;
-        machine->stack_low_water = a7;
-        machine->stack_low_water_pc = machine->cpu.regs.pc;
-        machine->stack_base_pc = machine->cpu.regs.pc;
-        machine->stack_low_water_seen = true;
-      } else if (a7 < machine->stack_low_water) {
-        machine->stack_low_water = a7;
-        machine->stack_low_water_pc = machine->cpu.regs.pc;
-      } else if (a7 > machine->stack_high_water) {
-        machine->stack_high_water = a7;
+      }
+      if (machine->stack_region_current_valid) {
+        ap_machine_stack_region_t *r =
+            &machine->stack_region[machine->stack_region_current];
+        if (a7 < r->low) {
+          r->low = a7;
+          r->low_pc = machine->cpu.regs.pc;
+        } else if (a7 > r->high) {
+          r->high = a7;
+        }
       }
     }
     out.executed++;

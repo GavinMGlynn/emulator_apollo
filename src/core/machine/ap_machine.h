@@ -99,6 +99,38 @@ typedef struct {
   bool write;
 } ap_mmu_fault_site_t;
 
+/* Stacks are tracked **per 64 KB region**, not per epoch.
+ *
+ * The epoch version -- restart the mark whenever `A7` moves more than 64 KB --
+ * was better than a global minimum and still wrong for the question it was
+ * built for. A boot leaves and re-enters the same stack: Domain/OS calls a PROM
+ * service routine, `A7` jumps to the firmware's stack in low physical memory
+ * and back, and each return started a fresh epoch. The kernel's stack showed as
+ * 382 bytes used because that is all it used *since the last PROM call*, and
+ * everything it had spent before was thrown away.
+ *
+ * Keyed by `A7 >> 16` so a stack keeps its history across excursions.
+ *
+ * **Sixty-four slots, because eight filled before the interesting stack
+ * appeared.** A DS5500 running Domain/OS put the firmware's three stacks and
+ * five of the kernel's into the table and then met `7A40xxxx` -- the one that
+ * faults -- with nowhere to put it, so the stack the whole investigation was
+ * about was the one not measured. The cost is a linear scan **only on a region
+ * change**; the common case is still one compare, and the scan runs about half
+ * a million times in a 1.6 G-instruction boot. */
+#define AP_MACHINE_STACK_REGION_SHIFT 16u
+#define AP_MACHINE_STACK_REGIONS 64u
+
+typedef struct {
+  uint32_t key; /* `A7 >> AP_MACHINE_STACK_REGION_SHIFT` */
+  uint32_t high;
+  uint32_t low;
+  uint32_t low_pc;   /* where it got deepest */
+  uint32_t entry_pc; /* where it was first entered */
+  uint64_t entries;  /* how many times execution came back to it */
+  bool used;
+} ap_machine_stack_region_t;
+
 typedef struct {
   uint8_t *ram;
   uint32_t ram_bytes;
@@ -342,13 +374,7 @@ typedef struct {
   } mmu_reads[AP_MACHINE_MMU_WRITES];
   unsigned mmu_read_count;
 
-/* A move larger than this is a different stack rather than a deep push. 64 KB:
- * bigger than any single instruction's stack use -- a 30-word frame is 60 bytes
- * and `MOVEM` of sixteen registers is 64 -- and smaller than the distance
- * between the stacks a boot actually uses, which here is a whole address
- * region. Named rather than inlined because it is a judgement, and a reader
- * should be able to see it is one. */
-#define AP_MACHINE_STACK_EPOCH 0x10000u
+
 
 
   /* The two caches are separate objects because the part has two, and a machine
@@ -378,6 +404,13 @@ typedef struct {
    * So a jump of more than `AP_MACHINE_STACK_EPOCH` starts a new epoch, and
    * what is reported is the *current* stack's high and low. That answers "this
    * stack ran from here to here", which is the question. */
+  ap_machine_stack_region_t stack_region[AP_MACHINE_STACK_REGIONS];
+  unsigned stack_region_current;
+  bool stack_region_current_valid;
+  /* Regions seen past the eighth, so a full table says so rather than quietly
+   * dropping a stack. */
+  uint32_t stack_regions_dropped;
+
   uint32_t stack_high_water;
   uint32_t stack_low_water;
   uint32_t stack_low_water_pc;

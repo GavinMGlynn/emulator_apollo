@@ -5439,18 +5439,30 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
   }
   printf("  executed     %llu instruction(s)\n",
          (unsigned long long)run.executed);
-  if (machine.stack_low_water_seen) {
+  if (machine.stack_region[0].used) {
     /* Where the stack got to and what put it there. A stack that ends far below
      * where it started is the first thing to know about a machine that faulted
      * while pushing, and the PC says which code was running when it got
      * there. */
-    printf("  stack        %08X down to %08X (%u byte(s)), lowest at PC "
-           "%08X\n",
-           machine.stack_high_water, machine.stack_low_water,
-           machine.stack_high_water - machine.stack_low_water,
-           machine.stack_low_water_pc);
-    printf("               switched to at PC %08X, %u switch(es)\n",
-           machine.stack_base_pc, machine.stack_switches);
+    /* One line per stack, because a boot uses several and the interesting one
+     * is rarely the last: the firmware's, the operating system's, and whatever
+     * a service call switches to are different stacks with different
+     * histories. */
+    for (unsigned r = 0; r < AP_MACHINE_STACK_REGIONS; r++) {
+      const ap_machine_stack_region_t *sr = &machine.stack_region[r];
+      if (!sr->used) {
+        continue;
+      }
+      printf("  stack %04X   %08X down to %08X (%u byte(s)), lowest at PC "
+             "%08X\n",
+             sr->key, sr->high, sr->low, sr->high - sr->low, sr->low_pc);
+      printf("               entered at PC %08X, %llu time(s)\n", sr->entry_pc,
+             (unsigned long long)sr->entries);
+    }
+    if (machine.stack_regions_dropped > 0u) {
+      printf("  stack        %u region(s) past the table, not recorded\n",
+             machine.stack_regions_dropped);
+    }
   }
   if (machine.stopped_clocks > 0u) {
     /* Not instructions: `STOP` executes once and then nothing does. A machine
@@ -6649,18 +6661,30 @@ static int boot_from_tape(const char *path, uint64_t limit) {
   ap_machine_run_t run = ap_machine_run(&machine, limit);
   printf("  executed     %llu instruction(s)\n",
          (unsigned long long)run.executed);
-  if (machine.stack_low_water_seen) {
+  if (machine.stack_region[0].used) {
     /* Where the stack got to and what put it there. A stack that ends far below
      * where it started is the first thing to know about a machine that faulted
      * while pushing, and the PC says which code was running when it got
      * there. */
-    printf("  stack        %08X down to %08X (%u byte(s)), lowest at PC "
-           "%08X\n",
-           machine.stack_high_water, machine.stack_low_water,
-           machine.stack_high_water - machine.stack_low_water,
-           machine.stack_low_water_pc);
-    printf("               switched to at PC %08X, %u switch(es)\n",
-           machine.stack_base_pc, machine.stack_switches);
+    /* One line per stack, because a boot uses several and the interesting one
+     * is rarely the last: the firmware's, the operating system's, and whatever
+     * a service call switches to are different stacks with different
+     * histories. */
+    for (unsigned r = 0; r < AP_MACHINE_STACK_REGIONS; r++) {
+      const ap_machine_stack_region_t *sr = &machine.stack_region[r];
+      if (!sr->used) {
+        continue;
+      }
+      printf("  stack %04X   %08X down to %08X (%u byte(s)), lowest at PC "
+             "%08X\n",
+             sr->key, sr->high, sr->low, sr->high - sr->low, sr->low_pc);
+      printf("               entered at PC %08X, %llu time(s)\n", sr->entry_pc,
+             (unsigned long long)sr->entries);
+    }
+    if (machine.stack_regions_dropped > 0u) {
+      printf("  stack        %u region(s) past the table, not recorded\n",
+             machine.stack_regions_dropped);
+    }
   }
   if (machine.stopped_clocks > 0u) {
     /* Not instructions: `STOP` executes once and then nothing does. A machine

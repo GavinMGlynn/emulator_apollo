@@ -2270,6 +2270,41 @@ exists and can never be **entered**: taking the exception needs sixty bytes of
 frame and the stack has two. The first fault is an ordinary page fault the
 kernel is equipped to service, and it dies on the way in.
 
+### Per-region stack tracking, and what it shows
+
+The low-water mark went through four versions before it measured this machine.
+A **global minimum** reported the boot PROM's stack. **Per epoch** — restart
+when `A7` moves far — was better but could not survive a PROM service call.
+**Per 64 KB region** keeps a stack's history across excursions, and its first
+table of eight slots **filled before the interesting stack appeared**, so the
+one the whole investigation was about was the one not measured — while a full
+table also let the code keep updating whichever slot was current with an `A7`
+from elsewhere, so one entry claimed a 1.28 MB span whose low address was not
+inside it. A full table must stop measuring, not measure the wrong thing.
+
+At sixty-four slots, with nothing dropped:
+
+    stack 7A33   7A33F000 down to 7A330000 (61440 byte(s))  entered at 7A40F9B0
+    stack 7A34   7A34F000 down to 7A34AEA8 (16728 byte(s))  entered at 7A44233C
+    stack 7A54   7A546FE4 down to 7A543570 (14964 byte(s))  entered at 7A44233C
+    stack 7A40   7A400180 down to 7A400002 (  382 byte(s))  entered at 7FF4092E
+
+**Every other kernel stack is kilobytes with a plausible top.** `7A400180` is
+not a stack top; it is a frame-pointer value, and its region was **entered once**
+— at the PROM's `movea.l a6, a7` — and never seen higher. So this is not a stack
+the kernel established and overflowed. It is a value that instruction produced,
+run on until it hit the floor 382 bytes later. *The "misplaced, not exhausted"
+reading is confirmed by the better instrument rather than overturned by it.*
+
+**And the value is not arbitrary.** This run's own header says
+`reset SSP 01000180` — the boot PROM's stack base. The failing base is
+`7A400180`: **the same `$180` offset on a different 64 KB base.** The firmware,
+mapped at `7FF40000` in the operating system's address space, is computing its
+stack from a base of `7A400000` where its own is `01000000`.
+
+*That is the next thing to look at, and it is one constant rather than a
+region.*
+
 *Recorded without the tempting arithmetic.* A `$7` frame is 60 bytes and six
 would fill a 384-byte stack exactly, against 132 bus errors in the run — but 131
 of those happen during the firmware's self-test, long before Domain/OS loads, so

@@ -4716,11 +4716,19 @@ discipline throughout.
       where the stack has two. (An earlier reading here said the firmware was
       handling it; that was inferred from the ROM's code layout and the vector
       table refutes it.)
-      **The question worth the next session**: why the kernel's stack is 384
-      bytes above a hole it invalidated itself — which is a question about the
-      code that runs before this, and needs a low-water mark kept per *region*
-      rather than per epoch, since a PROM service call resets the epoch and
-      hides the descent that preceded it.
+      **And per-region stack tracking now names the constant to look at.**
+      Every other kernel stack is kilobytes with a plausible top — `7A33F000`
+      down 61,440 bytes, `7A34F000` down 16,728 — while `7A40`'s base is
+      `7A400180`, its region **entered once**, at the PROM's `movea.l a6, a7`,
+      and never seen higher. Not a stack the kernel established and overflowed:
+      a value that instruction produced.
+      *And the value is not arbitrary*: this core's own boot header says
+      `reset SSP 01000180`, the firmware's stack base, and the failing base is
+      `7A400180` — **the same `$180` offset on a different 64 KB base**. The
+      PROM, mapped at `7FF40000` in the operating system's address space, is
+      computing its stack from `7A400000` where its own is `01000000`.
+      **That is the next thing to look at, and it is one constant rather than a
+      region.** Detail in `PROJECT_STATUS.md`.
       **Five candidates are eliminated by measurement rather than argument**:
       the stack-pointer selection, the mapping, the register state, the fault
       kind, and the frame balance. Detail in `PROJECT_STATUS.md`.
