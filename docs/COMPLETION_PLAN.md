@@ -5363,8 +5363,33 @@ same number is what let them diverge once already.
       to a block boundary. The kernel's own expectation says it must — it parses
       every buffer as a block — but no document held here states it, so this is
       a `PROVISIONAL` choice to be made explicitly rather than slipped in.
-      Finding *which* transfer ends short is the other half, and is now a
-      bounded search: one probe on any DMAGO whose read count is not 512.
+      **And the short transfer is found — the bounded search took one run.** A
+      probe reporting only DMAGOs whose read count is not 512, over the whole
+      boot rather than the first forty:
+
+          dmago  69399:     0 read(s), offset  0, valid 0
+          dmago  69400:    77 read(s), offset 77, valid 1
+          dmago  69401: 32773 read(s), offset 82, valid 1
+          dmago  69402: 32773 read(s), offset 87, valid 1
+          dmago  69403: 32773 read(s), offset 92, valid 1
+
+      **DMAGO 69,400 transfers exactly 77 bytes**, off a freshly-fetched block —
+      69,399 shows `offset 0, valid 0`, a block boundary just crossed. That is
+      where the 77 comes from, and it is the *only* short transfer in the run.
+      **Everything after it is 32,773 bytes** — `0x8005`, and `32773 mod 512` is
+      **5**, which is exactly why the offset walks 77 → 82 → 87 → 92.
+      *So Domain/OS's driver does not read this tape the way the boot firmware
+      does at all.* `[SC499]` §1.11's one-DMAGO-per-512-byte-block is the
+      **firmware's** loop; the kernel reads a 77-byte header and then 32 KB
+      chunks, and neither is block-aligned. The document was never describing
+      this path, which is the whole reason quoting it refuted nothing.
+      *What remains is one decision and it is a real one*: whether a DMAGO
+      resynchronises to a block boundary. Our model streams bytes continuously,
+      which is why the 77 persists. But resynchronising is **not obviously
+      right** either — it would put the 32 KB read at block 24 and the kernel
+      wants sequence **1**, which is block 23. So the answer is not "discard the
+      remainder"; something about the 77-byte read is meant to leave the tape
+      where it started. That is the next question, and it is now precise.
 
 - [x] **A cold power-on runs the confidence test — done 2026-09-09.**
       `[SC499]` §1.8.1's POC reports success "by the assertion of `EXC-`
