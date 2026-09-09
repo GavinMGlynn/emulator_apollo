@@ -4526,8 +4526,8 @@ discipline throughout.
       **The MMU is measured as not-yet-needed** (`FINDINGS.md` C258): its parts
       are all built — search, ATC, registers, descriptors — and what is missing
       is the join.
-      **~~Not-yet-needed~~ — that claim is in doubt as of 2026-09-09, and the
-      doubt is static and cheap to see.** The DN5500 boot PROM contains a
+      **Doubted and re-confirmed 2026-09-09** — the doubt static, the answer a
+      run. The DN5500 boot PROM contains a
       routine that **enables 68040 translation**: at `002A12`,
       `MOVEC TC,D1` / `BSET #15,D1` / `MOVEC D1,TC` — bit 15 is the `E` bit —
       and at `002A28` the mirror, `BCLR #15,D1`, to turn it off again. The same
@@ -4541,11 +4541,27 @@ discipline throughout.
       **not** establish that the routine is reached on the boot this project
       runs — presence is not execution, and the original claim came from a run
       that reported the `TTR`s.
-      *The decisive measurement is small*: a probe on `MOVEC` to `TC` during a
-      DN5500 boot, reporting whether bit 15 is ever written set. If it is,
-      translation is on and this core is ignoring it; if it is not, the original
-      claim stands and now has evidence rather than an argument from the `TTR`s
-      alone. §3.1.3 makes the TTRs live even with translation off, so the
+      **Measured, and the doubt was wrong: the original claim stands.** A DN5500
+      boot to 400 M instructions — `Drive 0  passed.`, `Could not load
+      /SAU14/SELF_TEST.` — reports
+
+          68040 mmu  tc 00000000  itt 00000000 00000000  dtt 0000C040 00FFC040
+                     urp 00000000  srp 00000000  mmusr 00000000
+          translation  off
+
+      **`TC` is zero and so are `SRP` and `URP`.** Only the two data
+      transparent-translation registers are written, which is exactly what
+      `FINDINGS.md` C258 recorded. The enable routine at `002A12` is *present*
+      and *not reached*: nothing on this boot turns paged translation on, so
+      wiring the join today really would be unexercised code.
+      *And that makes the dependency precise rather than vague.* The routine
+      would be reached by the **loaded operating system**, which is what
+      `Could not load /SAU14/SELF_TEST.` is the absence of — so the 68040 MMU
+      join and the SCSI item share **one** gate, the SAU 14 install, and
+      neither is a knowledge gap. That is a cost to spend, not a fact to find.
+      *Recorded as a doubt raised and settled*, because the static evidence for
+      it was real: the PROM does contain `BSET #15` on `TC`. Presence is not
+      execution, and this is the run that told them apart. §3.1.3 makes the TTRs live even with translation off, so the
       boot report now prints them, and the firmware writes `dtt0 0000C040` /
       `dtt1 00FFC040` — both enabled, one matching every address, **`W` clear on
       both**. The only attribute this core could act on is write protection and
