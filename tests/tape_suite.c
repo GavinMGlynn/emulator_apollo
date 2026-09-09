@@ -140,7 +140,7 @@ static void test_the_registers_alias_on_an_eight_byte_period(void) {
   ap_tape_init(&t);
 
   ap_tape_write(&t, AP_TAPE_ADDR + 8u, 0x5A); /* the data register again */
-  TEST_ASSERT_EQUAL_HEX8(0x5A, ap_tape_read(&t, AP_TAPE_ADDR + 0u));
+  TEST_ASSERT_EQUAL_HEX8(0x5A, ap_tape_dma_read(&t));
   TEST_ASSERT_EQUAL_HEX8(0x5A, ap_tape_read(&t, AP_TAPE_ADDR + 0xF8u));
 }
 
@@ -272,7 +272,7 @@ static void test_ready_drops_and_returns_at_each_data_block(void) {
 
   /* The first byte of a block pulls a block from the drive, so READY drops.
    * `RDY` is **active low**, so the line being down is the bit reading 1. */
-  (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u);
+  (void)ap_tape_dma_read(&t);
   TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_RDY,
                          ap_tape_read(&t, AP_TAPE_ADDR + 1u) &
                              AP_SC499_ST_RDY);
@@ -294,7 +294,7 @@ static void test_ready_drops_and_returns_at_each_data_block(void) {
    * block, not the byte. That is the distinction §1.13.1 draws and the one this
    * core had wrong in its own header. */
   for (unsigned i = 0; i < 8u; i++) {
-    (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u);
+    (void)ap_tape_dma_read(&t);
   }
   TEST_ASSERT_EQUAL_HEX8(0u, ap_tape_read(&t, AP_TAPE_ADDR + 1u) &
                                  AP_SC499_ST_RDY);
@@ -307,7 +307,7 @@ static void test_an_idle_controller_still_reads_as_measured(void) {
   /* With a cartridge loaded but no transfer running, the data register is the
    * controller's own and reads `00` -- the measured value. The drive only fills
    * it during a READ, and conflating the two made this dump stop reproducing. */
-  TEST_ASSERT_EQUAL_HEX8(0x00, ap_tape_read(&t, AP_TAPE_ADDR + 0u));
+  TEST_ASSERT_EQUAL_HEX8(0x00, ap_tape_dma_read(&t));
 }
 
 static void test_a_command_reaches_the_drive_through_the_registers(void) {
@@ -323,7 +323,13 @@ static void test_a_command_reaches_the_drive_through_the_registers(void) {
   TEST_ASSERT_TRUE(t.drive.reading);
 }
 
-static void test_the_tape_is_read_through_the_data_register(void) {
+/* **Renamed 2026-09-09, because the old name was the defect.** This was
+ * `test_the_tape_is_read_through_the_data_register`, and the tape is not: it is
+ * read through `DACK`. A programmed read of `BASE+0` returns the card's own
+ * data register -- the status block, when one is open -- and takes nothing off
+ * the tape. See `ap_tape.c`, and `test_a_programmed_read_takes_no_tape_byte`
+ * below for the half this one used to assert backwards. */
+static void test_the_tape_is_read_a_byte_at_a_time_through_dack(void) {
   ap_tape_t t;
   arm(&t);
   issue(&t, AP_QIC_CMD_SELECT);
@@ -333,7 +339,7 @@ static void test_the_tape_is_read_through_the_data_register(void) {
    * -- the controller transfers bytes and the drive blocks, so the join has to
    * carry the difference. */
   for (unsigned i = 0; i < AP_CT_BLOCK_SIZE + 4u; i++) {
-    TEST_ASSERT_EQUAL_HEX8(cartridge[i], ap_tape_read(&t, AP_TAPE_ADDR + 0u));
+    TEST_ASSERT_EQUAL_HEX8(cartridge[i], ap_tape_dma_read(&t));
   }
 }
 
@@ -514,12 +520,12 @@ static void test_running_off_the_end_raises_exception(void) {
    * the firmware's own DMA programming and needed by a second implementation,
    * with no document explaining it. */
   for (unsigned i = 0; i < sizeof cartridge + AP_CT_BLOCK_SIZE; i++) {
-    (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u);
+    (void)ap_tape_dma_read(&t);
   }
   /* One past the end. `[SC499]`'s EXC comes "from LSI chip", and the end of a
    * cartridge is exactly such a condition -- a driver reading on gets an
    * exception rather than the tape silently wrapping. */
-  (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u);
+  (void)ap_tape_dma_read(&t);
   TEST_ASSERT_TRUE(exception_asserted(&t));
 }
 
@@ -530,9 +536,9 @@ static void test_ready_and_exception_are_never_both_asserted(void) {
   issue(&t, AP_QIC_CMD_READ);
   /* The cartridge plus the doubled first block; see the test above. */
   for (unsigned i = 0; i < sizeof cartridge + AP_CT_BLOCK_SIZE; i++) {
-    (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u);
+    (void)ap_tape_dma_read(&t);
   }
-  (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u); /* past the end */
+  (void)ap_tape_dma_read(&t); /* past the end */
 
   /* `[SC499]` Figure 1-6: "READY shall not be asserted for an EXCEPTION
    * condition." The two are exclusive by specification, so a driver polling
@@ -565,7 +571,7 @@ static void test_reading_the_tape_makes_the_device_hold_the_bus(void) {
   /* Figures 1-6 and 1-10 both open with the device changing DIRECTION to
    * deliver data. It holds the bus afterwards, which is precisely the state
    * Figure 1-9's command transfer exists to resolve. */
-  (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u);
+  (void)ap_tape_dma_read(&t);
   TEST_ASSERT_EQUAL_UINT(AP_SC499_ENTRY_DIRECTION,
                          ap_sc499_command_entry(&t.controller));
 
@@ -806,8 +812,8 @@ static void test_read_status_delivers_its_six_bytes_through_the_data_register(
   issue(&t, AP_QIC_CMD_READ_STATUS);
 
   /* Reading without taking gets the same byte again, which is what a bus does. */
-  TEST_ASSERT_EQUAL_HEX8(ap_tape_read(&t, AP_TAPE_ADDR + 0u),
-                         ap_tape_read(&t, AP_TAPE_ADDR + 0u));
+  TEST_ASSERT_EQUAL_HEX8(ap_tape_dma_read(&t),
+                         ap_tape_dma_read(&t));
 
   uint8_t block[AP_QIC_STATUS_BYTES];
   for (unsigned i = 0; i < AP_QIC_STATUS_BYTES; i++) {
@@ -879,7 +885,7 @@ static void test_the_controller_reset_resets_the_drive_too(void) {
   /* Move the tape off load point and spend the power-on condition, so neither
    * is true by accident when the reset is asked for. */
   for (unsigned i = 0; i < AP_CT_BLOCK_SIZE * 2u; i++) {
-    (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u);
+    (void)ap_tape_dma_read(&t);
   }
   TEST_ASSERT_TRUE(t.drive.position > 0u);
   issue(&t, AP_QIC_CMD_READ_STATUS);
@@ -973,6 +979,45 @@ static void test_a_partial_block_is_not_written(void) {
   TEST_ASSERT_EQUAL_HEX8(0x40u, cartridge[0]);
 }
 
+/* **Tape data leaves this card through `DACK` and through nothing else**, which
+ * is what a programmed read of `BASE+0` must not do: take a byte.
+ *
+ * This is the `E0007` defect pinned. A programmed read used to hand over a tape
+ * byte whenever a READ was armed, and on the SR10.4 cartridge boot **94 bytes**
+ * went out that way against 35,662,848 through `DACK` -- exactly the drift that
+ * left every block header 77 bytes out of place, so the kernel rejected every
+ * one and could not find `bscom/rbak_shell`. With this the same boot reaches
+ * `RBAK_BS reloading system software from cartridge tape....`
+ *
+ * `[SC499]` does not describe the pattern -- Figures 1-12 and 1-14 have the
+ * host poll *status* and never data across a transfer -- so the oracle settled
+ * it: MAME's `sc499_device` loads its `m_data` register from the six
+ * status-block bytes alone and its `read_data_port()` never touches the block
+ * index, where `dack_r()` is the one path that advances it. */
+static void test_a_programmed_read_takes_no_tape_byte(void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_SELECT);
+  issue(&t, AP_QIC_CMD_READ);
+
+  /* Twenty reads by address move the tape not at all, and answer `00` -- the
+   * idle value this port was measured to return. */
+  for (unsigned i = 0; i < 20u; i++) {
+    TEST_ASSERT_EQUAL_HEX8(0x00u, ap_tape_read(&t, AP_TAPE_ADDR + 0u));
+  }
+  TEST_ASSERT_EQUAL_UINT(0u, t.offset);
+
+  /* And the stream is still at its first byte for the path that owns it. */
+  TEST_ASSERT_EQUAL_HEX8(cartridge[0], ap_tape_dma_read(&t));
+  TEST_ASSERT_EQUAL_UINT(1u, t.offset);
+
+  /* Interleaving them changes nothing: only `DACK` advances. */
+  for (unsigned i = 0; i < 5u; i++) {
+    (void)ap_tape_read(&t, AP_TAPE_ADDR + 0u);
+  }
+  TEST_ASSERT_EQUAL_HEX8(cartridge[1], ap_tape_dma_read(&t));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_cold_power_on_runs_the_confidence_test_and_asserts_exception);
@@ -985,7 +1030,8 @@ int main(void) {
   RUN_TEST(test_ready_drops_and_returns_at_each_data_block);
   RUN_TEST(test_an_idle_controller_still_reads_as_measured);
   RUN_TEST(test_a_command_reaches_the_drive_through_the_registers);
-  RUN_TEST(test_the_tape_is_read_through_the_data_register);
+  RUN_TEST(test_the_tape_is_read_a_byte_at_a_time_through_dack);
+  RUN_TEST(test_a_programmed_read_takes_no_tape_byte);
   RUN_TEST(test_a_refused_command_raises_exception);
   RUN_TEST(test_running_off_the_end_raises_exception);
   RUN_TEST(test_a_read_the_drive_ends_also_ends_the_dma);

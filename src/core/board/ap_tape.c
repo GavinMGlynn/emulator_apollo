@@ -167,7 +167,12 @@ bool ap_tape_decode(uint32_t address, unsigned *reg) {
   return true;
 }
 
-uint8_t ap_tape_read(ap_tape_t *tape, uint32_t address) {
+/* The data path both entry points share. `via_dack` tells them apart, and they
+ * are different pins on the card: the DMA sequencer reaches this register
+ * through `DACK`, the processor through an address. Until 2026-09-09 they were
+ * one call and indistinguishable. */
+static uint8_t tape_read_impl(ap_tape_t *tape, uint32_t address,
+                              bool via_dack) {
   unsigned reg;
   /* **READ STATUS's six bytes come out of the same register a data block
    * does**, and until 2026-09-09 they came out of nowhere.
@@ -217,6 +222,36 @@ uint8_t ap_tape_read(ap_tape_t *tape, uint32_t address) {
      * Exception is asserted when the tape runs out, which is how a driver
      * learns it has ended: `[SC499]`'s status carries EXC "from LSI chip", and
      * running off the end of a cartridge is such a condition. */
+    /* **Tape data leaves this card through `DACK` and through nothing else.**
+     *
+     * A *programmed* read of `BASE+0` used to hand over a tape byte here
+     * whenever a READ was armed, and that is what desynchronised the stream:
+     * measured on the SR10.4 cartridge boot, **94 bytes** went out this way
+     * against 35,662,848 through `DACK`, and 94 is exactly the drift that left
+     * every block header 77 bytes out of place and made the kernel print
+     * `E0007`.
+     *
+     * **The oracle is what settled it**, the documents having genuinely run
+     * out: `[SC499]` Figures 1-12 and 1-14 have the host poll *status* and
+     * never data across a transfer, so this driver's pattern is outside the
+     * flow the card documents. MAME's `sc499_device` keeps a `m_data` register
+     * loaded **only** by the six status-block bytes -- `m_data = m_tape_status
+     * >> 8`, and so on -- and its `read_data_port()` returns that register and
+     * touches the block index not at all, where `dack_r()` is the one path that
+     * advances it. Read, not copied.
+     *
+     * The status block is delivered above, which is that register's real
+     * traffic. What is left here is a read with nothing armed to answer it, and
+     * `00` is the measured idle value this port returns -- the same measurement
+     * the comment above records against an idle controller reading `FF`.
+     *
+     * *Two narrower remedies were tried first and both were refuted by the
+     * boot*: pacing this path at the drive's byte rate (drift 77 -> 13, then
+     * the host stalls) and suppressing it only while `dma_active` (no change at
+     * all, which is how the reads were shown to fall *between* transfers). */
+    if (!via_dack) {
+      return 0x00u;
+    }
     if (!ensure_block(tape)) {
       ap_sc499_set_exception(&tape->controller, true);
       /* **And the DMA transfer is over**, which is the other half of the same
@@ -541,12 +576,16 @@ bool ap_tape_dma_request(const ap_tape_t *tape) {
   return !ap_qic_read_exhausted(&tape->drive);
 }
 
+uint8_t ap_tape_read(ap_tape_t *tape, uint32_t address) {
+  return tape_read_impl(tape, address, false);
+}
+
 uint8_t ap_tape_dma_read(ap_tape_t *tape) {
   /* The data register, reached through `DACK` instead of through an address --
    * which is why this defers to the same path rather than reaching into the
    * block itself. Anything the programmed read does about running off the end
    * of the cartridge, this does too. */
-  return ap_tape_read(tape, AP_TAPE_ADDR + AP_SC499_DATA);
+  return tape_read_impl(tape, AP_TAPE_ADDR + AP_SC499_DATA, true);
 }
 
 void ap_tape_dma_ended(ap_tape_t *tape) {
