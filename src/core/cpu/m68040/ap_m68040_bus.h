@@ -29,6 +29,16 @@
  * has nothing to decode here. See `ap_m68040_signals.h` for what became of the
  * function code.
  *
+ * **A third one exists, on the V parts only.** Appendix C's Table C-2 gives the
+ * `LPSTOP` broadcast cycle `A31-A0` = **`$FFFFFFFE`**, `TT = $3`, `TM = $0`,
+ * `R/W` = write and **`SIZ = $2`, a word** -- the only acknowledge-type cycle
+ * that is not a byte, carrying the new status register value on `D15-D0`. So
+ * all three fixed addresses are one apart at the top of memory or at zero:
+ * `$FFFFFFFF` interrupt, `$FFFFFFFE` LPSTOP, `$00000000` breakpoint. "Either
+ * TA or TEA terminates the LPSTOP broadcast cycle. By withholding the assertion
+ * of TA or TEA, external logic can extend the cycle, controlling the beginning
+ * of the low-power stop mode."
+ *
  * And a `BKPT` on this part always ends the same way: §7.5.2, "when the
  * external device terminates the cycle with either TA or TEA, the processor
  * takes an **illegal instruction exception**". The data returned is not used.
@@ -160,6 +170,9 @@ typedef enum {
   AP_M68040_ACCESS_ALTERNATE,
   AP_M68040_ACCESS_INTERRUPT_ACK,
   AP_M68040_ACCESS_BREAKPOINT_ACK,
+  /* Appendix C, Table C-2. Only the MC68040V and MC68EC040V issue it, and it
+   * is a third fixed-address cycle sharing `TT = 11` with the other two. */
+  AP_M68040_ACCESS_LPSTOP_BROADCAST,
   AP_M68040_ACCESS_COUNT
 } ap_m68040_access_t;
 

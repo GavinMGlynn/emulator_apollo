@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "cpu/m68040/ap_m68040_family.h"
+#include "cpu/m68040/ap_m68040_bus.h"
 #include "cpu/m68040/ap_m68040_signals.h"
 #include "unity.h"
 
@@ -129,18 +130,28 @@ static void test_the_low_power_stop_belongs_to_both_v_parts(void) {
   TEST_ASSERT_FALSE(ap_m68040_pst_is_classified(AP_M68040_PST_LOW_POWER_STOP));
 }
 
-static void test_two_properties_of_the_ec040v_are_unstated(void) {
+static void test_appendix_c_answers_what_section_one_left_unstated(void) {
   /* §1.1.2's last bullet names the MC68040V -- word for word §1.1.1's closing
-   * sentence -- in a subsection about the EC parts, so this part's voltage and
-   * static operation are not stated. Nor is its pin compatibility: §1.1.2 says
-   * the MC68EC040 is compatible and says nothing about the other. Recorded as
-   * unstated rather than inferred from the MC68040V; Appendix C covers both V
-   * parts and is where the answer would be. */
+   * sentence -- in a subsection about the EC parts, leaving the MC68EC040V's
+   * voltage and static operation unstated, and its pin compatibility with it.
+   * Appendix C states both: "the MC68040V and MC68EC040V are Motorola's 3.3
+   * volt, static versions", "both devices operate to 0 Hz", "there is no PCLK
+   * or TRST pin on either device", and three new pins. A part missing two pins
+   * and gaining three is not pin compatible. */
   const ap_m68040_family_member_t *ec040v =
       ap_m68040_family(AP_M68040_MC68EC040V);
-  TEST_ASSERT_EQUAL_INT(AP_M68040_FEATURE_UNSTATED, ec040v->three_volt_static);
-  TEST_ASSERT_EQUAL_INT(AP_M68040_FEATURE_UNSTATED,
+  TEST_ASSERT_EQUAL_INT(AP_M68040_FEATURE_PRESENT, ec040v->three_volt_static);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_FEATURE_ABSENT,
                         ec040v->pin_compatible_with_mc68040);
+  /* Nothing in the table is left unstated any more -- the appendices closed
+   * both gaps, so a value that reads UNSTATED would now be a new one. */
+  for (unsigned p = 0; p < (unsigned)AP_M68040_FAMILY_COUNT; p++) {
+    const ap_m68040_family_member_t *m =
+        ap_m68040_family((ap_m68040_family_part_t)p);
+    TEST_ASSERT_NOT_EQUAL_INT(AP_M68040_FEATURE_UNSTATED, m->three_volt_static);
+    TEST_ASSERT_NOT_EQUAL_INT(AP_M68040_FEATURE_UNSTATED,
+                              m->pin_compatible_with_mc68040);
+  }
   /* The MC68040V's own bullet is stated twice, so it is not in doubt. */
   TEST_ASSERT_EQUAL_INT(AP_M68040_FEATURE_PRESENT,
                         ap_m68040_family(AP_M68040_MC68040V)->three_volt_static);
@@ -163,6 +174,91 @@ static void test_only_the_mc68040v_is_not_pin_compatible(void) {
       ap_m68040_family(AP_M68040_MC68040V)->pin_compatible_with_mc68040);
 }
 
+static void test_ptest_and_pflush_fail_differently(void) {
+  /* B.6 separates them where §1.1.2 merges them: "execution of the PTEST
+   * instruction causes random bus cycles to occur. Execution of the PFLUSH
+   * instruction produces indeterminate results. Neither instruction causes the
+   * MC68EC040 to generate an exception." A model that traps either one is
+   * wrong, and a model that treats them alike is wrong in a smaller way. */
+  const ap_m68040_family_member_t *ec = ap_m68040_family(AP_M68040_MC68EC040);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_INSTRUCTION_RANDOM_BUS_CYCLES,
+                        ec->ptest_effect);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_INSTRUCTION_INDETERMINATE,
+                        ec->pflush_effect);
+  TEST_ASSERT_NOT_EQUAL_INT(ec->ptest_effect, ec->pflush_effect);
+  /* And on a part with an MMU both simply work. */
+  const ap_m68040_family_member_t *lc = ap_m68040_family(AP_M68040_MC68LC040);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_INSTRUCTION_WORKS, lc->ptest_effect);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_INSTRUCTION_WORKS, lc->pflush_effect);
+}
+
+static void test_the_ec_parts_have_four_kilobyte_pages_only(void) {
+  /* B.6: "a page is defined as a 4-Kbyte block of external memory ... The
+   * MC68EC040 does not support 8-Kbyte pages." So CPUSHP and CINVP always act
+   * on 4 Kbytes there, and the TCR page-size bit has nothing to select. */
+  TEST_ASSERT_FALSE(ap_m68040_family(AP_M68040_MC68EC040)->supports_8k_pages);
+  TEST_ASSERT_FALSE(ap_m68040_family(AP_M68040_MC68EC040V)->supports_8k_pages);
+  TEST_ASSERT_TRUE(ap_m68040_family(AP_M68040_MC68040)->supports_8k_pages);
+  TEST_ASSERT_TRUE(ap_m68040_family(AP_M68040_MC68LC040)->supports_8k_pages);
+  /* Exactly the parts with no MMU. */
+  for (unsigned p = 0; p < (unsigned)AP_M68040_FAMILY_COUNT; p++) {
+    const ap_m68040_family_member_t *m =
+        ap_m68040_family((ap_m68040_family_part_t)p);
+    TEST_ASSERT_EQUAL_INT(m->has_mmu ? 1 : 0, m->supports_8k_pages ? 1 : 0);
+  }
+}
+
+static void test_only_the_base_part_lacks_the_format_four_frame(void) {
+  /* A.5.1 and B.5.1 give the derivatives an eight-word format $4 frame for an
+   * unimplemented floating-point instruction, and say "the MC68040 cannot
+   * generate or read this stack" frame. The one part with an FPU is the one
+   * part that never needs the frame. */
+  TEST_ASSERT_EQUAL_UINT(8u, AP_M68040_FORMAT_4_FRAME_WORDS);
+  for (unsigned p = 0; p < (unsigned)AP_M68040_FAMILY_COUNT; p++) {
+    const ap_m68040_family_member_t *m =
+        ap_m68040_family((ap_m68040_family_part_t)p);
+    TEST_ASSERT_EQUAL_INT(m->has_fpu ? 0 : 1,
+                          m->has_format_4_stack_frame ? 1 : 0);
+  }
+}
+
+static void test_the_v_parts_scan_register_is_larger_and_unpublished(void) {
+  /* C.6.2: "the five bidirectional/three-state control cells, their boundary
+   * scan register bit positions, and the 188 boundary scan bit definitions are
+   * not currently available." A gap the manual declares outright, which is why
+   * §6 excludes these parts -- and no further reading of this document closes
+   * it. */
+  TEST_ASSERT_EQUAL_UINT(184u, AP_M68040_BOUNDARY_SCAN_BITS);
+  TEST_ASSERT_EQUAL_UINT(188u, AP_M68040_V_BOUNDARY_SCAN_BITS);
+  for (unsigned p = 0; p < (unsigned)AP_M68040_FAMILY_COUNT; p++) {
+    const ap_m68040_family_member_t *m =
+        ap_m68040_family((ap_m68040_family_part_t)p);
+    /* The larger register is exactly the unpublished one. */
+    TEST_ASSERT_EQUAL_INT(
+        m->boundary_scan_bits == AP_M68040_V_BOUNDARY_SCAN_BITS ? 0 : 1,
+        m->boundary_scan_published ? 1 : 0);
+  }
+}
+
+static void test_the_v_parts_hold_reset_for_a_different_count(void) {
+  /* §7.10 gives the MC68040 "another 128 clock cycles"; C.4 gives the V parts
+   * "another 124 clocks maximum" -- a bound, not a count, which fits a static
+   * part whose clock may stop -- while Appendix C's own Figure C-3 labels the
+   * same interval 128. The 124 is the print, read at 600 dpi. The manual does
+   * not settle it; the difference is carried rather than averaged. */
+  TEST_ASSERT_EQUAL_UINT(128u,
+                         ap_m68040_family(AP_M68040_MC68040)->internal_reset_clocks);
+  TEST_ASSERT_EQUAL_UINT(
+      128u, ap_m68040_family(AP_M68040_MC68LC040)->internal_reset_clocks);
+  TEST_ASSERT_EQUAL_UINT(
+      124u, ap_m68040_family(AP_M68040_MC68040V)->internal_reset_clocks);
+  TEST_ASSERT_EQUAL_UINT(
+      124u, ap_m68040_family(AP_M68040_MC68EC040V)->internal_reset_clocks);
+  /* And the base part's count is what ap_m68040_bus.h carries from §7.10. */
+  TEST_ASSERT_EQUAL_UINT(AP_M68040_RESET_INTERNAL_CLOCKS,
+                         ap_m68040_family(AP_M68040_MC68040)->internal_reset_clocks);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_family_has_five_members);
@@ -174,7 +270,12 @@ int main(void) {
   RUN_TEST(test_the_dle_pin_is_renamed_not_removed);
   RUN_TEST(test_mdis_is_renamed_on_the_ec_parts_alone);
   RUN_TEST(test_the_low_power_stop_belongs_to_both_v_parts);
-  RUN_TEST(test_two_properties_of_the_ec040v_are_unstated);
+  RUN_TEST(test_appendix_c_answers_what_section_one_left_unstated);
   RUN_TEST(test_only_the_mc68040v_is_not_pin_compatible);
+  RUN_TEST(test_ptest_and_pflush_fail_differently);
+  RUN_TEST(test_the_ec_parts_have_four_kilobyte_pages_only);
+  RUN_TEST(test_only_the_base_part_lacks_the_format_four_frame);
+  RUN_TEST(test_the_v_parts_scan_register_is_larger_and_unpublished);
+  RUN_TEST(test_the_v_parts_hold_reset_for_a_different_count);
   return UNITY_END();
 }

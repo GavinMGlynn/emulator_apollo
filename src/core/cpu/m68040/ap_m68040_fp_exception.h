@@ -27,6 +27,18 @@
  * instead. The 68882 this core models *does* handle denormals, which is exactly
  * why the difference has to be written down rather than inherited.
  *
+ * **Appendix E's Table E-3 refines this and Table 9-2 flattens it.** The same
+ * grid appears twice in the manual with different keys: §9's has two markers,
+ * Appendix E's has three, and the third is "supported by M68040FPSP **after
+ * being converted to extended precision by the MC68040 FPU**". Under it,
+ * denormalized *single* and *double* are `‡` -- the hardware widens them and
+ * the software then operates -- while denormalized *extended* is plain
+ * software, because there is nothing wider to convert it to. That distinction
+ * is what §9.4's prose describes ("if the external operand is a denormalized
+ * number, the number is normalized before an operation is performed") and it
+ * is invisible in Table 9-2. This module follows Table E-3, the finer of the
+ * two.
+ *
  * Two qualifications from §9.4 and §9.6.2, both easy to get backwards:
  *
  *   - A denormalized operand is normalized before an *operation*, but "an
@@ -104,10 +116,15 @@ typedef enum {
 } ap_m68040_fp_type_t;
 
 typedef enum {
-  AP_M68040_FP_UNSUPPORTED, /* blank in Table 9-2: the combination does not
-                             * exist -- an integer has no NAN */
-  AP_M68040_FP_HARDWARE,    /* `*`, on-chip MC68040 FPU hardware */
-  AP_M68040_FP_SOFTWARE     /* `+`, M68040FPSP */
+  AP_M68040_FP_UNSUPPORTED, /* blank: the combination does not exist -- an
+                             * integer has no NAN */
+  AP_M68040_FP_HARDWARE,    /* on-chip MC68040 FPU hardware */
+  AP_M68040_FP_SOFTWARE,    /* M68040FPSP */
+  /* Table E-3's third marker, which Table 9-2 does not have: "supported by
+   * M68040FPSP **after being converted to extended precision by the MC68040
+   * FPU**". The hardware does the conversion and the software does the
+   * arithmetic, so the operand crosses the boundary twice. */
+  AP_M68040_FP_SOFTWARE_AFTER_CONVERSION
 } ap_m68040_fp_support_t;
 
 [[nodiscard]] ap_m68040_fp_support_t

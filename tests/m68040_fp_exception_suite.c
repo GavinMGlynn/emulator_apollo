@@ -23,14 +23,24 @@ static void test_no_denormal_is_handled_in_hardware(void) {
    * hardware, so a 68040 FPU that inherited that behaviour would compute where
    * the part traps. */
   TEST_ASSERT_EQUAL_INT(
-      AP_M68040_FP_SOFTWARE,
+      AP_M68040_FP_SOFTWARE_AFTER_CONVERSION,
       ap_m68040_fp_support(AP_M68040_FP_SINGLE, AP_M68040_FP_DENORMALIZED));
   TEST_ASSERT_EQUAL_INT(
-      AP_M68040_FP_SOFTWARE,
+      AP_M68040_FP_SOFTWARE_AFTER_CONVERSION,
       ap_m68040_fp_support(AP_M68040_FP_DOUBLE, AP_M68040_FP_DENORMALIZED));
+  /* Extended is plain software: there is nothing wider to widen it to. */
   TEST_ASSERT_EQUAL_INT(
       AP_M68040_FP_SOFTWARE,
       ap_m68040_fp_support(AP_M68040_FP_EXTENDED, AP_M68040_FP_DENORMALIZED));
+  /* All three still raise the unsupported data type exception -- Table E-3's
+   * distinction is about how the FPSP receives the operand, not whether the
+   * exception is taken. §9.6.2 names all three together. */
+  TEST_ASSERT_TRUE(ap_m68040_fp_operand_unsupported(AP_M68040_FP_SINGLE,
+                                                    AP_M68040_FP_DENORMALIZED));
+  TEST_ASSERT_TRUE(ap_m68040_fp_operand_unsupported(AP_M68040_FP_DOUBLE,
+                                                    AP_M68040_FP_DENORMALIZED));
+  TEST_ASSERT_TRUE(ap_m68040_fp_operand_unsupported(
+      AP_M68040_FP_EXTENDED, AP_M68040_FP_DENORMALIZED));
 }
 
 static void test_packed_decimal_is_entirely_software(void) {

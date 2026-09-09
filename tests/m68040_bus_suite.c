@@ -367,6 +367,39 @@ static void test_nothing_runs_below_twenty_megahertz(void) {
   TEST_ASSERT_FALSE(ap_m68040_is_rated_frequency(0u, true));
 }
 
+static void test_the_lpstop_broadcast_is_the_third_fixed_address_cycle(void) {
+  /* Appendix C's Table C-2. The V parts issue it when LPSTOP reaches the
+   * execute stage; §5.3.1 and §5.3.2 both mention it in passing without giving
+   * the encoding, and Appendix C is where it lands. All three fixed-address
+   * cycles share TT = $3 and sit one apart at the top of memory, or at zero. */
+  const ap_m68040_access_info_t *lpstop =
+      ap_m68040_access(AP_M68040_ACCESS_LPSTOP_BROADCAST);
+  TEST_ASSERT_TRUE(lpstop->address_is_fixed);
+  TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFEu, lpstop->address);
+  TEST_ASSERT_EQUAL_UINT(3u, lpstop->transfer_type);
+  TEST_ASSERT_EQUAL_HEX32(
+      0xFFFFFFFFu,
+      ap_m68040_access(AP_M68040_ACCESS_INTERRUPT_ACK)->address);
+  TEST_ASSERT_EQUAL_HEX32(
+      0x00000000u,
+      ap_m68040_access(AP_M68040_ACCESS_BREAKPOINT_ACK)->address);
+}
+
+static void test_the_lpstop_broadcast_is_a_word_write(void) {
+  /* "SIZ1, SIZ0 = $2" and "R/W = 0", carrying the new status register value on
+   * D15-D0. Every other acknowledge-type cycle is a byte read, so this one is
+   * doubly the exception. */
+  const ap_m68040_access_info_t *lpstop =
+      ap_m68040_access(AP_M68040_ACCESS_LPSTOP_BROADCAST);
+  TEST_ASSERT_EQUAL_UINT(1u << AP_M68040_SIZE_WORD, lpstop->sizes);
+  TEST_ASSERT_FALSE(lpstop->read_only);
+  TEST_ASSERT_TRUE(
+      ap_m68040_access(AP_M68040_ACCESS_INTERRUPT_ACK)->read_only);
+  TEST_ASSERT_EQUAL_UINT(
+      1u << AP_M68040_SIZE_BYTE,
+      ap_m68040_access(AP_M68040_ACCESS_INTERRUPT_ACK)->sizes);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_fourth_size_encoding_is_a_line_not_three_bytes);
@@ -396,5 +429,7 @@ int main(void) {
   RUN_TEST(test_the_large_buffer_impedance_is_not_one_number);
   RUN_TEST(test_the_speed_grades_of_the_three_parts);
   RUN_TEST(test_nothing_runs_below_twenty_megahertz);
+  RUN_TEST(test_the_lpstop_broadcast_is_the_third_fixed_address_cycle);
+  RUN_TEST(test_the_lpstop_broadcast_is_a_word_write);
   return UNITY_END();
 }

@@ -21,6 +21,14 @@ static const ap_m68040_family_member_t members[AP_M68040_FAMILY_COUNT] = {
             .three_volt_static = AP_M68040_FEATURE_ABSENT,
             .dle_pin_name = NULL,
             .mdis_pin_name = NULL,
+            .ptest_effect = AP_M68040_MMU_INSTRUCTION_WORKS,
+            .pflush_effect = AP_M68040_MMU_INSTRUCTION_WORKS,
+            .supports_8k_pages = true,
+            /* "The MC68040 cannot generate or read this stack" frame. */
+            .has_format_4_stack_frame = false,
+            .boundary_scan_bits = AP_M68040_BOUNDARY_SCAN_BITS,
+            .boundary_scan_published = true,
+            .internal_reset_clocks = 128u,
         },
     [AP_M68040_MC68040V] =
         {
@@ -42,6 +50,16 @@ static const ap_m68040_family_member_t members[AP_M68040_FAMILY_COUNT] = {
             .three_volt_static = AP_M68040_FEATURE_PRESENT,
             .dle_pin_name = "JS0",
             .mdis_pin_name = NULL,
+            .ptest_effect = AP_M68040_MMU_INSTRUCTION_WORKS,
+            .pflush_effect = AP_M68040_MMU_INSTRUCTION_WORKS,
+            .supports_8k_pages = true,
+            .has_format_4_stack_frame = true,
+            /* C.6.2: 188 bits, and the definitions "are not currently
+             * available" -- a gap the manual declares rather than leaves. */
+            .boundary_scan_bits = AP_M68040_V_BOUNDARY_SCAN_BITS,
+            .boundary_scan_published = false,
+            /* C.4's "124 clocks maximum", against its own Figure C-3's 128. */
+            .internal_reset_clocks = 124u,
         },
     [AP_M68040_MC68LC040] =
         {
@@ -58,6 +76,13 @@ static const ap_m68040_family_member_t members[AP_M68040_FAMILY_COUNT] = {
             .three_volt_static = AP_M68040_FEATURE_ABSENT,
             .dle_pin_name = "JS0",
             .mdis_pin_name = NULL,
+            .ptest_effect = AP_M68040_MMU_INSTRUCTION_WORKS,
+            .pflush_effect = AP_M68040_MMU_INSTRUCTION_WORKS,
+            .supports_8k_pages = true,
+            .has_format_4_stack_frame = true,
+            .boundary_scan_bits = AP_M68040_BOUNDARY_SCAN_BITS,
+            .boundary_scan_published = true,
+            .internal_reset_clocks = 128u,
         },
     [AP_M68040_MC68EC040] =
         {
@@ -77,6 +102,19 @@ static const ap_m68040_family_member_t members[AP_M68040_FAMILY_COUNT] = {
             .three_volt_static = AP_M68040_FEATURE_ABSENT,
             .dle_pin_name = "JS0",
             .mdis_pin_name = "JS1",
+            /* B.6: "execution of the PTEST instruction causes random bus
+             * cycles to occur. Execution of the PFLUSH instruction produces
+             * indeterminate results. Neither instruction causes the MC68EC040
+             * to generate an exception." Two different failures. */
+            .ptest_effect = AP_M68040_MMU_INSTRUCTION_RANDOM_BUS_CYCLES,
+            .pflush_effect = AP_M68040_MMU_INSTRUCTION_INDETERMINATE,
+            /* "A page is defined as a 4-Kbyte block of external memory ... The
+             * MC68EC040 does not support 8-Kbyte pages." */
+            .supports_8k_pages = false,
+            .has_format_4_stack_frame = true,
+            .boundary_scan_bits = AP_M68040_BOUNDARY_SCAN_BITS,
+            .boundary_scan_published = true,
+            .internal_reset_clocks = 128u,
         },
     [AP_M68040_MC68EC040V] =
         {
@@ -92,15 +130,25 @@ static const ap_m68040_family_member_t members[AP_M68040_FAMILY_COUNT] = {
              * mentions only the MC68040V -- that subsection is not about this
              * part. */
             .has_low_power_stop = true,
-            /* §1.1.2 says the MC68EC040 is pin compatible and says nothing
-             * about this one. Unstated, not inferred from the MC68040V. */
-            .pin_compatible_with_mc68040 = AP_M68040_FEATURE_UNSTATED,
-            /* §1.1.2's last bullet names the MC68040V where every other bullet
-             * in the subsection names the EC parts -- see the header. So this
-             * part's voltage and static operation are unstated in §1. */
-            .three_volt_static = AP_M68040_FEATURE_UNSTATED,
+            /* §1 left this unstated; Appendix C settles it. "There is no
+             * PCLK or TRST pin on either device" and both gain SCD, LFO and
+             * LOC, so neither V part is pin compatible -- and §12.2.4 gives
+             * them their own pinout, with JS2 where PCLK was. */
+            .pin_compatible_with_mc68040 = AP_M68040_FEATURE_ABSENT,
+            /* Also settled by Appendix C: "the MC68040V and MC68EC040V are
+             * Motorola's 3.3 volt, static versions of the MC68040" and "both
+             * devices operate to 0 Hz". §1.1.2's last bullet should have named
+             * the pair and named only the MC68040V. */
+            .three_volt_static = AP_M68040_FEATURE_PRESENT,
             .dle_pin_name = "JS0",
             .mdis_pin_name = "JS1",
+            .ptest_effect = AP_M68040_MMU_INSTRUCTION_RANDOM_BUS_CYCLES,
+            .pflush_effect = AP_M68040_MMU_INSTRUCTION_INDETERMINATE,
+            .supports_8k_pages = false,
+            .has_format_4_stack_frame = true,
+            .boundary_scan_bits = AP_M68040_V_BOUNDARY_SCAN_BITS,
+            .boundary_scan_published = false,
+            .internal_reset_clocks = 124u,
         },
 };
 

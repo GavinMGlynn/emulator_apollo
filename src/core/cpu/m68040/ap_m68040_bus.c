@@ -163,6 +163,24 @@ static const ap_m68040_access_info_t accesses[AP_M68040_ACCESS_COUNT] = {
             .may_lock = false,
             .read_only = true,
         },
+    [AP_M68040_ACCESS_LPSTOP_BROADCAST] =
+        {
+            .name = "LPSTOP Broadcast",
+            /* Table C-2: TT1,TT0 = $3, the same acknowledge type as the other
+             * two fixed-address cycles. */
+            .transfer_type = 3u,
+            .address_is_fixed = true,
+            .address = 0xFFFFFFFEu,
+            .upa = AP_M68040_SIGNAL_NEGATED,
+            .ciout = AP_M68040_SIGNAL_NEGATED,
+            /* "SIZ1, SIZ0 = $2" -- a word, carrying the new SR on D15-D0. The
+             * only acknowledge-type cycle that is not a byte. */
+            .sizes = 1u << (unsigned)AP_M68040_SIZE_WORD,
+            .tln_defined = false,
+            .may_lock = false,
+            /* "R/W = 0": a write, unlike both other acknowledge cycles. */
+            .read_only = false,
+        },
 };
 
 #undef S

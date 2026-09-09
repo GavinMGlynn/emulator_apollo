@@ -12,6 +12,7 @@
 #define H AP_M68040_FP_HARDWARE
 #define S AP_M68040_FP_SOFTWARE
 #define X AP_M68040_FP_UNSUPPORTED
+#define C AP_M68040_FP_SOFTWARE_AFTER_CONVERSION
 
 /* Rows are types, columns are formats, in the manual's order. Transcribed from
  * the page image: the extraction lost most of the marks. */
@@ -22,8 +23,11 @@ static const ap_m68040_fp_support_t
         [AP_M68040_FP_ZERO] = {H, H, H, S, H, H, H},
         [AP_M68040_FP_INFINITY] = {H, H, H, S, X, X, X},
         [AP_M68040_FP_NAN] = {H, H, H, S, X, X, X},
-        /* Every cell software: the hardware handles no denormal at all. */
-        [AP_M68040_FP_DENORMALIZED] = {S, S, S, S, X, X, X},
+        /* No denormal is *operated on* in hardware. Table E-3 splits them
+         * further than Table 9-2 does: single and double are widened to
+         * extended by the FPU and then handled in software, extended has
+         * nothing wider to be widened to. */
+        [AP_M68040_FP_DENORMALIZED] = {C, C, S, S, X, X, X},
         /* Only the two formats with an explicit integer bit or a digit string
          * can represent one. */
         [AP_M68040_FP_UNNORMALIZED] = {X, X, S, S, X, X, X},
@@ -32,6 +36,7 @@ static const ap_m68040_fp_support_t
 #undef H
 #undef S
 #undef X
+#undef C
 
 ap_m68040_fp_support_t ap_m68040_fp_support(ap_m68040_fp_format_t format,
                                             ap_m68040_fp_type_t type) {
@@ -48,7 +53,12 @@ bool ap_m68040_fp_operand_unsupported(ap_m68040_fp_format_t format,
    * unnormalized (for extended-precision operands), or either the source or
    * destination data format is packed decimal real". A combination the table
    * leaves blank cannot arise as an operand and is not an exception. */
-  return ap_m68040_fp_support(format, type) == AP_M68040_FP_SOFTWARE;
+  const ap_m68040_fp_support_t how = ap_m68040_fp_support(format, type);
+  /* Both software categories raise it: §9.6.2 names denormalized single,
+   * double and extended together, and Table E-3's distinction is about *how*
+   * the FPSP gets the operand, not about whether the exception is taken. */
+  return how == AP_M68040_FP_SOFTWARE ||
+         how == AP_M68040_FP_SOFTWARE_AFTER_CONVERSION;
 }
 
 /* ---------------------------------------------------------------------------

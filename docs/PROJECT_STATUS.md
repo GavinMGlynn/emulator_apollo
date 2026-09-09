@@ -10991,7 +10991,103 @@ MHz** (9 ns max); the 33 and 40 MHz columns read "n/a".
 
 The rest of §11 is thermal engineering -- junction-to-case resistance, heat-sink
 attachment, forced-air tables -- with nothing an emulator can hold. Read whole
-and recorded as read; `m68040_bus_suite` 24 -> 27 tests, `model_suite` 22 -> 23. Also
+and recorded as read; `m68040_bus_suite` 24 -> 27 tests, `model_suite` 22 -> 23.
+
+**§12 and Appendices A-E finish the manual: 463 of 463 pages.** They are the
+part of the book that describes the four derivatives, and between them they
+answer two questions the main text left open and raise four more.
+
+**Appendix C settles what §1.1.2's copy-paste error left unstated.** It opens
+"the MC68040V and MC68EC040V are Motorola's 3.3 volt, static versions of the
+MC68040" and lists "both devices operate to 0 Hz and can accept 3.3V or 5V
+input" -- so the bullet that named only the MC68040V should have named the pair.
+And on pin compatibility it is decisive without using the words: "there is no
+`PCLK` or `TRST` pin on either device", plus three new pins, `SCD`, `LFO` and
+`LOC`. A part missing two pins and gaining three is not pin compatible. §12.2.4
+agrees by giving the V parts their own pinout, with `TRST` shown as N/C and
+`PCLK`'s position occupied by a **`JS2`** that §1.1 never mentions. Both
+properties are now stated in `ap_m68040_family.c` rather than carried as
+unknowns.
+
+**A third fixed-address bus cycle, on the V parts only.** Appendix C's Table C-2
+gives the `LPSTOP` broadcast cycle `A31-A0` = **`$FFFFFFFE`**, `TT = $3`, `TM =
+$0`, `R/W` = write and **`SIZ = $2`, a word** -- the only acknowledge-type cycle
+that is not a byte read, carrying the new status register value on `D15-D0`. So
+the three fixed addresses are `$FFFFFFFF` (interrupt), `$FFFFFFFE` (LPSTOP) and
+`$00000000` (breakpoint). §5.3.1 and §5.3.2 both mention the broadcast cycle
+without giving its encoding; Appendix C is where it lands.
+
+**Appendix E's Table E-3 is Table 9-2 with a third marker, and the third one
+matters.** The same grid appears twice in the manual with different keys: §9's
+has hardware and software, Appendix E's adds "supported by M68040FPSP **after
+being converted to extended precision by the MC68040 FPU**". Under it,
+denormalized *single* and *double* are that third category -- the hardware
+widens them and the software then operates -- while denormalized *extended* is
+pure software, because there is nothing wider to convert it to. That is exactly
+what §9.4's prose describes and it is invisible in Table 9-2. The module now
+follows Table E-3, the finer of the two, and still raises the unsupported data
+type exception for all three, since §9.6.2 names them together.
+
+**Appendices A and B sharpen four of §1.1's summaries.** The unimplemented
+floating-point exception uses **stack frame format `$4`, eight words**, carrying
+the calculated effective address so the emulation routine need not recompute it,
+and "the MC68040 cannot generate or read this stack" frame -- the one part with
+an FPU is the one part without the frame. **`PTEST` and `PFLUSH` fail
+differently** on the EC parts: B.6 says `PTEST` "causes **random bus cycles** to
+occur" and `PFLUSH` "produces **indeterminate results**", and "neither
+instruction causes the MC68EC040 to generate an exception", where §1.1.2 merges
+both into one phrase. **The EC parts have 4-Kbyte pages only** -- "the MC68EC040
+does not support 8-Kbyte pages" -- so `CPUSHP` and `CINVP` always act on 4
+Kbytes and the `TCR` page-size bit has nothing to select. And **the EC parts
+sample no reset straps at all** (B.4), which confirms the model already built
+from §1.1.
+
+Three findings against the manual itself:
+
+- **Appendix A.1's first bullet contradicts its own third.** It reads "the
+  MC68LC040 does not implement the **small** output buffer impedance selection
+  mode", while the third bullet says the part's drive capabilities "are
+  equivalent to those of the MC68040 in **small** output buffer impedance mode"
+  and §1.1.1 says the derivatives "implement only the small output buffer mode".
+  Dropping the word "small" from the first bullet makes it consistent with
+  everything else. Verified at 600 dpi.
+- **Appendix C disagrees with itself about the reset length.** §7.10 gives the
+  MC68040 "another 128 clock cycles" after `RSTI` negates; C.4 gives the V parts
+  "another **124 clocks maximum**" -- a bound rather than a count, which fits a
+  static part whose clock may stop -- and Figure C-3 on the facing page labels
+  the same interval **128**. The 124 is the print, read at 600 dpi. Both numbers
+  are carried, per part, and the difference is flagged rather than averaged.
+- **Appendix D contradicts itself on the function code, and §5 is right.** Its
+  Function Code/Address Space table lists the MC68040 in the row "FC2-FC0 = 7 Is
+  CPU Space" and then, one row later, gives the MC68040's address spaces as
+  "User, Supervisor, and Acknowledge". Both cannot hold. §5's Table 5-3 settles
+  it -- transfer modifier 7 is Reserved and acknowledge is `TT = 11` -- so the
+  first row is wrong and the second is right. **That is the third independent
+  confirmation of §5's function-code finding**, after §7's fixed acknowledge
+  addresses.
+
+**And a gap the manual declares outright.** C.6.2: "the five
+bidirectional/three-state control cells, their boundary scan register bit
+positions, and the **188** boundary scan bit definitions are not currently
+available." The V parts have a 188-bit register against the MC68040's 184, and
+Motorola states it is not publishing the layout. That is why §6 excludes those
+parts, and no further reading of this document can close it -- it is recorded as
+a stated absence rather than an open question.
+
+Two smaller confirmations. **§12.1's ordering table has no 40 MHz row** -- PGA
+and 184-pin QFP at 20, 25 and 33 MHz only -- although §11.5 specifies a 40 MHz
+column and §11.4 gives its power figures; and it lists no `MC68040V` or
+`MC68EC040V` part number at all despite naming both in its opening sentence. That
+is the fourth place the V parts are named in a scope statement and then absent
+from the content, after §5's stale notes, §1.1.2's bullet and §6's exclusion --
+converging support for the reading §5's walk reached first. And **the MC68EC040's
+access control register is bit-identical to the MC68040's TTR**: Figure B-4's
+fields sum to `0xFFFFE364`, exactly the mask `ap_m68040_regs.h` already carries,
+so the EC part's "different" register is the same register renamed.
+
+`ap_m68040_family.*` gains six fields, `ap_m68040_bus.*` the LPSTOP access, and
+`ap_m68040_fp_exception.*` the third support state. `m68040_family_suite` 11 ->
+16, `m68040_bus_suite` 27 -> 29. Also
 captured: Table 9-9's nine vectors, with the unimplemented *instruction* sharing
 vector 11 with the F-line illegal instruction and the handler distinguishing
 them by stack frame format (`$0` or `$2`); Table 9-10's unimplemented
