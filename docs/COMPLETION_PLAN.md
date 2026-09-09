@@ -4879,7 +4879,7 @@ Only after the reference core is proven, and only under an identity harness.
       neither exists — and the DN5500 stops at `cinva`, its second instruction,
       which is the **68040 execution core** item. Detail in `PROJECT_STATUS.md`.
 
-- [ ] **The model table's `.mmu`, which the machine does not honour.** *Four of the six divergences closed 2026-09-09. The two that remain — the control-register count and the `.mmu` declaration itself — are exactly this item's stated blocker, a 68040 MMU, and nothing else.*
+- [ ] **The model table's `.mmu`, which the machine does not honour.** *Five of the six divergences closed 2026-09-09 — the control-register count last, by measuring the firmware. The one that remains is the `.mmu` declaration itself, which is this item's stated blocker, a 68040 MMU, and nothing else.*
       *Retitled 2026-09-09: this was "the DS5500's three addendum registers, and
       the model table's `.mmu`", and **two of the three registers were already
       built**.* Checked in the source rather than inferred, which is the rule
@@ -4915,11 +4915,27 @@ Only after the reference core is proven, and only under an identity harness.
       through `ap_m68030_coproc.h` and `ap_m68030_step.c`. So the parts exist
       and are joined; what a 68020 row does not get is a machine built to use
       them, `ap_machine` constructing an `ap_m68030_cpu_t` unconditionally.
-      *Recorded rather than resolved*: this is a flag for whoever picks the item
-      up, not a new conclusion — the exact shape of the control-register
-      divergence has not been traced against those modules. It is written down
-      because two blockers on this plan were found false today, both by looking
-      instead of asserting, and this one had not been looked at.
+      **And the control-register half is now CLOSED, by measuring the firmware
+      rather than reasoning about the parts.** The divergence is that a 68020
+      row gets the 68030's on-chip MMU registers where a real 68020 has none —
+      they belong to the 68851, whose set is a *superset*: `DRP`, `CAL`, `VAL`,
+      `SCC`, `AC`, `BAD0-7`, `BAC0-7`. So the reachable question is whether any
+      software held here touches a register the two parts differ on.
+      *It does not.* Both DN3000 boot PROMs were scanned for `PMOVE`-shaped
+      F-line instructions at coprocessor id 000 and the P-register field
+      decoded: `3000_BOOT_8475_7` uses **TC 11 times and CRP 6**,
+      `3000_BOOT_8475_4` **TC 12 and CRP 6**, and **neither touches a single
+      68851-only register**. TC and CRP are the common subset — the 68030 has
+      both. The instrument works: it found 17 and 18 `PMOVE`s respectively out
+      of 536 and 519 F-line words, so it is not reading silence.
+      *Execution works*: the DN3000 differential passes **29 of 29 CPU fields**
+      against the oracle, and no firmware on this shelf asks for a register the
+      68030 model cannot supply.
+      **So what remains of this item is the `.mmu` declaration alone**, which
+      does wait on a 68040 MMU. *Scope of the scan, stated rather than glossed*:
+      `PMOVE` at cpid 000 only. `PTEST`'s result register is the 68030's
+      `MMUSR`/68851's `PSR`, which both parts have, but `PFLUSH` and `PLOAD`
+      forms were not enumerated.
       **And it is not only the MMU — the processor walks are finding
       registers, 2026-09-09.** **Five** so far, each a case where a row
       declaring a part other than the 68030 gets 68030 behaviour, because
