@@ -292,12 +292,51 @@ void ap_sc499_reset(ap_sc499_t *tape) {
  * The conjunction was not merely a different guess: it made an interrupt
  * impossible to raise in the one state a drive spends its life in. READY
  * asserted with no exception is a completed command, which is precisely when a
- * driver expects to be interrupted, and a conjunction stays silent for it. */
+ * driver expects to be interrupted, and a conjunction stays silent for it.
+ *
+ * ## And the `RR` strap gates READY out of the list while DNIEN is set
+ *
+ * That list is `[SC499]`'s, and `[SC499]` is Archive's guide to a board
+ * shipped with jumper `RR` **OUT**. **Apollo ships it IN.** `[08845]` -- drawing
+ * 008845, *Apollo Specification for QIC-36 Tape Controller* -- Table 2.0's last
+ * row is `READY INTERRUPT DISABLE`, `RR`, with the vendor dot on `OUT` and
+ * Apollo's asterisk on `IN`, and a previous reader has written the two meanings
+ * beside it: "READY ENA" against OUT, and against IN "READY DISABLED - NOT ON
+ * INT. **- OR - READY ENA - WHEN DONE INT DISABLED**". So with `RR` IN, READY
+ * raises the flag only while the DONE interrupt is *not* enabled:
+ *
+ *     IRQ = EXC OR (DONE AND DNIEN) OR (RDY AND NOT DNIEN)
+ *
+ * **This project held that row and refused it**, on the grounds that `[08845]`
+ * describes a DN3000 board at base `0200` where this machine's tape was
+ * believed to be at `218`, so "a different strap on `A3`-`A9` means a
+ * differently jumpered board". **The same document refutes that.** §5.3 lists
+ * the three settings Apollo requires -- base address `0200`, DMA channel 1,
+ * interrupt request level 5 -- and Table 2.0's own address row is `A3 THRU A8 =
+ * OUT*`, `A9 = IN*`, which is `0200`. All three are this machine: `ap_tape.h`
+ * settles the ISA address as `200` from `002398-04` p. 12-1, `008778-03`
+ * Table 2-4 gives DRQ1 and Table 2-3 gives IRQ5. The strap that was said to
+ * differ is the strap that agrees.
+ *
+ * **Measured, and the two wrong forms bracket it.** With the vendor list, the
+ * SR10.4 cartridge boot prints `bad tape read ... 28001E` twice --
+ * `002398-04` p. 4-14's *"dma not at end of range"* -- because the driver sets
+ * DNIEN for a data transfer, READY interrupts anyway, its wait returns before
+ * the transfer has moved anything, and it finds the 8237's count six of 32,768
+ * (`FINDINGS.md` C273). With READY dropped *unconditionally* -- the printed row
+ * read alone -- the errors go and the kernel hangs instead: 2.4 G instructions
+ * in one two-instruction loop with the Phase II banner never printed, because
+ * the driver's other waits are on READY. The conditional form above is the one
+ * between them, and it is the one the annotation gives. `FINDINGS.md` C274. */
 static bool interrupt_flag(const ap_sc499_t *tape) {
-  if (tape->ready || tape->exception) {
+  const bool dnien = (tape->control & AP_SC499_CTL_DNIEN) != 0u;
+  if (tape->exception) {
     return true;
   }
-  return tape->done && (tape->control & AP_SC499_CTL_DNIEN) != 0u;
+  if (tape->done && dnien) {
+    return true;
+  }
+  return tape->ready && !dnien;
 }
 
 ap_time_t ap_sc499_interrupt_next_change(const ap_sc499_t *tape) {

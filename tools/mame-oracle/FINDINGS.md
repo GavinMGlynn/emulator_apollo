@@ -16010,3 +16010,119 @@ description of this controller, and this is Apollo's driver. `[SC499]` is
 Archive's guide to the same card, and where the two describe the same registers
 the driver was written against the Apollo one. That is the page to read before
 any more instrumentation.
+
+## C274 -- `RR` IN, and the objection that closed the item is refuted by its own document
+
+C273 left `28001E` measured and unexplained: the driver unmasks channel 1, reads
+the 8237's status once, gets `00`, masks the channel again and reports the range
+short. What it does *not* do is wait. So the question was what ended its wait.
+
+### The PC says which routine, and the two PCs say it plainly
+
+Watching reads of `010C08`, the 8237's status port, through the whole boot:
+
+    watch read   69398 at 00010C08 value 00000002 by PC 00003802
+    ... 69,398 of them, every one `02`, every one from PC 3802 ...
+    watch read   69399 at 00010C08 value 00000000 by PC 3C40EE10
+    bad tape read - trying normal shell -- 28001E
+
+**The boot PROM polls that port 69,398 times and sees `02` every time** -- status
+bit 1, channel 1's terminal count. It loops until TC. **Domain/OS reads it once,
+sees `00`, and errors.** So the kernel's wait had already returned when it
+looked, and the PROM's had not.
+
+And the tape's own status at that instant, from C273's trace, is `2F`: `irq`
+asserted (active low), `rdy` asserted, `exc` clear, **`don` clear**. With DONE
+and EXCEPTION both absent, **READY is the sole source of that interrupt flag**.
+Measured, not inferred -- the three other terms are visibly zero.
+
+### `[08845]` Table 2.0, and §5.3 beside it
+
+`ap_sc499.c`'s `interrupt_flag` returns true for `ready || exception`, from
+`[SC499]`'s "IRQF -- ORing of RDY AND EXC, and DONE if DNIEN". That is the
+**vendor** default, jumper `RR` **OUT**. Apollo's own specification straps it the
+other way: Table 2.0's last row, `READY INTERRUPT DISABLE`, `RR`, vendor `OUT`
+and **Apollo `IN`**. A previous reader has written the two meanings beside it in
+pen -- "READY ENA" against OUT, "READY DISABLED - NOT ON INT." against IN.
+
+**This project already had that row and refused it**, on the grounds that
+`[08845]` is a DN3000 specification whose base address is `0200` where the
+DN3500's tape was believed to be at `218`, so "a different strap on `A3`-`A9`
+means a differently jumpered board". The item was closed under the
+documentation-absent rule an hour before this measurement.
+
+**The objection is refuted by the same document, and by this project's own later
+finding.** §5.3 lists the three settings Apollo requires:
+
+    5.3.1  Device Address (Base Address)   -0200 (HEX)
+    5.3.2  DMA Channel                     - 1
+    5.3.3  Interrupt Request Level         - 5
+
+and Table 2.0's own address row is `A3 THRU A8 = OUT*`, `A9 = IN*` -- which *is*
+`0200`. All three are this machine exactly: `ap_tape.h` establishes the ISA
+address as **`200`** from `002398-04` p. 12-1's own table (the `218` in
+`008778-03` being contradicted by its own physical column), `008778-03`
+Table 2-4 gives DRQ1, and Table 2-3 gives IRQ5, which is `AP_TAPE_IRQ`.
+So the strap the objection said must differ is the strap that agrees, and it
+agrees on all three of the settings Apollo names.
+
+**Reopened under the rule's own reopen-on-contact clause**, which the closure
+text carries: the item said "**What would settle it**: a DN3500-era Apollo tape
+specification, **or a boot where the tape signals ready with `IEN` set and
+nothing else pending**". That boot has now been run.
+
+### Measured, and honestly incomplete
+
+With the READY term dropped from `interrupt_flag` -- `RR` IN -- the cartridge
+boot's console loses **both** `bad tape read ... 28001E` **and** `can't find
+bscom/rbak_shell on tape ... E0007`. It goes from `EX DOMAIN_OS` to the kernel
+banner with no tape error at all.
+
+**It also does not reach the `)` prompt inside 1.9 G instructions**, where the
+old code did, and no third `read BEGINS` appears. Two readings fit that and they
+are not yet separated: the driver is now doing work that takes longer than the
+budget, or the driver is now waiting for an interrupt that never comes -- which
+is exactly what dropping an interrupt source can cause. A longer run is the
+discriminator and is running. **Nothing is landed on this until it answers.**
+
+### One more row from the same table, for a different item
+
+`KK`, POWER-ON CONFIDENCE TEST: Apollo's configuration is **IN = TEST AT
+POWER-ON *or reset***. That is a second source for the open POC item, and it
+confirms the shape this core already has on the reset path -- the arming is
+right, and the cold start is what is missing.
+
+### The conditional form is the one, and the two wrong forms bracket it
+
+The annotation, read at 600 dpi rather than guessed at, is:
+
+    RR  OUT   READY ENA
+    RR  IN*   READY DISABLED - NOT ON INT.
+              - OR - READY ENA - WHEN DONE INT DISABLED
+
+`DISABLED` is written in beneath a struck `ENA`, which is the correction that
+makes the sentence mean something. So `RR` IN does not remove READY from the
+list; it **gates** it:
+
+    IRQ = EXC OR (DONE AND DNIEN) OR (RDY AND NOT DNIEN)
+
+Three boots of the same cartridge, and the outer two bracket the middle one:
+
+| `interrupt_flag` | Console |
+| --- | --- |
+| `RDY OR EXC OR (DONE AND DNIEN)` — the vendor list | `bad tape read ... 28001E` **twice**, `E0007`, then the Phase II prompt |
+| `EXC OR (DONE AND DNIEN)` — the printed row alone | no tape error at all, and **no prompt**: 2.4 G instructions in one two-instruction loop, the Phase II banner never printed |
+| `EXC OR (DONE AND DNIEN) OR (RDY AND NOT DNIEN)` | **no `28001E`**, and the Phase II prompt |
+
+The middle row is why the row could not be applied as printed, and it is worth
+keeping: **dropping an interrupt source is not a safe simplification of gating
+one.** The driver's data-transfer wait is on DONE and its command waits are on
+READY, and only a rule that can tell those apart works for both.
+
+`E0007`, `can't find bscom/rbak_shell on tape`, **remains** — once, where it used
+to be preceded by two `28001E`. That is a different question and gets its own
+item; this one is the interrupt.
+
+*Verification: `sc499_suite` 28 → 29 — READY raises the flag with DNIEN clear
+and does not with it set, and EXCEPTION is ungated either way. It fails on the
+old code at the second assertion, which is the one the boot was failing on.*

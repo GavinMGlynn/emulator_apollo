@@ -4955,34 +4955,26 @@ same number is what let them diverge once already.
       otherwise byte-identical.* Detail in `PROJECT_STATUS.md`; `FINDINGS.md`
       C270.
 
-- [ ] **The tape read leaves the DMA channel short of its range: `28001E`.**
-      Found 2026-09-09, the moment `280011` was fixed. The console now prints
-      `bad tape read - trying normal shell -- 28001E` **twice**, then `can't
-      find bscom/rbak_shell on tape - trying normal shell -- E0007`, and the
-      Phase II environment comes up on its own shell rather than the tape's.
-      **`0028001E` is module `28` code `001E`, `002398-04` p. 4-14:
-      *"dma not at end of range"***, sitting between `unrecognized drive status`
-      and `dma underrun/overrun`. Its neighbours give the shape: after a tape
-      read the driver interrogates the **8237's own registers** and requires the
-      channel to have reached the end of the range it programmed.
-      *One register reading, offered as a lead and not as a diagnosis*: the
-      end-of-run report has `dma1 ch1 mode 45, address 0006 (base 0000), count
-      7FF9 (base 7FFF)` — 32,768 transfers programmed, **six moved** — with mode
-      `45` being single, increment, no autoinit, write-to-memory on DRQ1, which
-      `008778-03` Table 2-4 gives as the tape. But that snapshot is taken at the
-      1.9 G instruction limit, long after the `)` prompt, with the drive reset
-      and at load point (`exs 8188` = `ST0 | FIL | ST1 | BOM | POR`), so it is
-      *consistent with* the failing read and is not evidence of it.
-      **The predecessor item spent four readings taken from one observable and
-      withdrew all four.** The next step is therefore one pass capturing the
-      whole exchange around the failure — the 8237 programming for channel 1,
-      the command bytes, the block boundaries and the transfer counts — not
-      another single-register inference.
-      *Already walked, so this is not a table gap*: `[8237]` is 19 of 19 pages
-      confirmed (`INTEL_WALK.md`), and `QIC-02` §3.6.5/§3.6.6 and `[SC499]`
-      §1.11 were walked event by event this session.
+- [ ] **`E0007`: the kernel searches the tape for `bscom/rbak_shell` and does
+      not find it.** What is left of the `28001E` item after 2026-09-09.
+      **`28001E` is fixed and measured gone** — it was the `RR` strap, above:
+      the driver sets DNIEN for a data transfer, this card interrupted it on
+      READY anyway, and its wait returned with the 8237's count at six of
+      32,768. The console now goes from `EX DOMAIN_OS` to the Phase II prompt
+      with one error instead of three.
+      *What that leaves*: `can't find bscom/rbak_shell on tape - trying normal
+      shell -- E0007`, module `0E` code `0007`, "name not found". Not yet
+      distinguished: whether the search itself still fails, or whether this
+      cartridge — `019593-001`, `CRTG_STD_SFW_BOOT_1` — simply does not carry
+      that member. **Its structure is now known**: exactly three file marks, at
+      blocks 16, 22 and 104,838, so file 3 is blocks 23-104,837, and the kernel
+      reads it from block 23.
+      *Already measured and not to be re-measured*: the DMA path itself is
+      right — 69,401 transfers in one boot, 69,398 of them a 512-byte range
+      ending at terminal count, which is `[SC499]` §1.11 step 5's per-block unit
+      exactly. `FINDINGS.md` C271, C273, C274.
       *Verification: the environment comes up running the tape's `rbak_shell`,
-      with no `28001E` and no `E0007`.*
+      or the cartridge is shown not to carry it.*
 
 - [ ] **A cold power-on runs no confidence test, so nothing asserts `EXC-` --
       `[SC499]` §1.8.1.** The POC checks microprocessor RAM, the LSI controller,
@@ -6080,17 +6072,21 @@ same number is what let them diverge once already.
         **One tension found and deliberately not acted on** — see the item
         below. Record: `docs/references/TAPE_WALK.md`.
 
-- [x] **`RDY` raises `IRQF` here, and a DN3000 spec straps that off — closed
-      2026-09-09 under the documentation-absent rule.** `ap_sc499.c`'s
-      `interrupt_flag` follows `[SC499]`'s "IRQF — ORing of RDY AND EXC, and
-      DONE if DNIEN", the vendor default, which is jumper `RR` **OUT**.
-      `[08845]` Table 2.0 names that jumper READY INTERRUPT DISABLE and marks
-      Apollo's configuration **IN** — but `[08845]` is a **DN3000**
-      specification, §5.2 and §13.2 both say so, and its base address is `0200`.
-      A different strap on `A3`-`A9` is a differently jumpered board, and **no
-      DN3500-era Apollo tape specification exists on this shelf**.
-      *Execution works*: the cartridge boots to the Phase II environment with
-      the vendor default. Detail in `PROJECT_STATUS.md`.
+- [x] **`RDY` raises `IRQF` here, and Apollo's own spec straps that off —
+      *implemented* 2026-09-09.** Closed an hour earlier under the
+      documentation-absent rule and **reopened by that rule's own
+      reopen-on-contact clause**, which the closure text named: "or a boot where
+      the tape signals ready with `IEN` set and nothing else pending". That boot
+      ran. The objection — `[08845]` is a DN3000 board at base `0200` where this
+      machine's tape was believed to be at `218` — is refuted by the same
+      document: §5.3 requires base `0200`, DMA channel 1 and IRQ 5, and this
+      machine is all three. `RR` IN **gates** READY rather than removing it:
+      `IRQ = EXC OR (DONE AND DNIEN) OR (RDY AND NOT DNIEN)`.
+      *Verification: `sc499_suite` 28 → 29, failing on the old code; and the
+      SR10.4 cartridge boot loses both `bad tape read … 28001E`. The two wrong
+      forms bracket it — the vendor list errors, the printed row read alone
+      hangs the kernel for 2.4 G instructions.* Detail in `PROJECT_STATUS.md`;
+      `FINDINGS.md` C274.
 
 - [x] **The video A/D's scale — closed 2026-09-09 under the
       documentation-absent rule.** The `[Bt458]` walk found the *reason* written

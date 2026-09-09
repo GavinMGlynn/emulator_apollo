@@ -64,8 +64,28 @@ and — the one that matters — a jumper `[SC499]` does not name at all:
     RR   READY INTERRUPT DISABLE    Apollo: IN
 
 `[SC499]`'s Table 1-1 lists `RR` under "No Description — For Archive use only".
-Apollo names it and **straps it IN**, which the annotator glosses "READY
-DISABLED - NOT ON INT".
+Apollo names it and **straps it IN**.
+
+**CORRECTED 2026-09-09, and now implemented.** This row recorded the annotator's
+gloss as "READY DISABLED - NOT ON INT" and stopped there. **There is a second
+line to it**, read at 600 dpi where 300 was not enough:
+
+    RR  OUT   READY ENA
+    RR  IN*   READY DISABLED - NOT ON INT.
+              - OR - READY ENA - WHEN DONE INT DISABLED
+
+with `DISABLED` written in beneath a struck `ENA`. That second line is the whole
+of what makes the row usable: `RR` IN **gates** READY rather than removing it —
+`IRQ = EXC OR (DONE AND DNIEN) OR (RDY AND NOT DNIEN)` — and `ap_sc499.c`'s
+`interrupt_flag` now implements exactly that, with `sc499_suite` asserting both
+halves. Recording half an annotation cost this row a plan item that stood for
+two weeks and a boot that read the printed row alone and hung. `FINDINGS.md`
+C274.
+
+*And the row's own §5.3 refutes the objection that kept it out*: the item said
+`[08845]`'s DN3000 base address `0200` meant a differently jumpered board. The
+three settings above **are** this machine — `ap_tape.h` settles the ISA address
+as `200` from `002398-04` p. 12-1, and `008778-03` gives DRQ1 and IRQ5.
 
 **2. §12.3's command maximum timings** — already derived. `AP_SC499_MAX_RESET`,
 `MAX_BOT`, `MAX_RETENSION` and `MAX_ERASE` carry 5 s, 1 min 20 s, 241 s and

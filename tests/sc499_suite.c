@@ -209,6 +209,41 @@ static void test_the_interrupt_flag_reads_through_the_masks(void) {
   TEST_ASSERT_EQUAL_HEX8(0xF7u, ap_sc499_read(&t, AP_SC499_CONTROL_STATUS));
 }
 
+static void test_ready_stops_interrupting_once_the_done_interrupt_is_enabled(void) {
+  ap_sc499_t t;
+  ap_sc499_reset(&t);
+  t.exception = false;
+  t.done = false;
+  t.ready = true;
+
+  /* `[08845]` Table 2.0's last row: `READY INTERRUPT DISABLE`, jumper `RR`,
+   * shipped by the vendor **OUT** and marked by Apollo **IN** -- with a
+   * previous reader's note beside it giving the two meanings, "READY ENA"
+   * against OUT and against IN "READY DISABLED - NOT ON INT. - OR - READY ENA -
+   * WHEN DONE INT DISABLED".
+   *
+   * So with the DONE interrupt *not* enabled, READY still raises the flag: that
+   * is a completed command, which is the state a driver waits in. */
+  ap_sc499_write(&t, AP_SC499_CONTROL_STATUS, AP_SC499_CTL_IEN);
+  TEST_ASSERT_TRUE(ap_sc499_irq(&t));
+
+  /* And with DNIEN set it does not, which is the whole of this row. A driver
+   * that has enabled the DONE interrupt is waiting for a *transfer*, and a
+   * card that interrupts it on READY instead returns it to the 8237 before a
+   * byte has moved -- `002398-04` p. 4-14's `28001E`, "dma not at end of
+   * range", which is what the SR10.4 cartridge boot printed twice until this
+   * row was applied. */
+  ap_sc499_write(&t, AP_SC499_CONTROL_STATUS,
+                 (uint8_t)(AP_SC499_CTL_IEN | AP_SC499_CTL_DNIEN));
+  TEST_ASSERT_FALSE(ap_sc499_irq(&t));
+
+  /* EXCEPTION is ungated either way -- the row names READY and nothing else,
+   * and a device that could not report an exception during a transfer could not
+   * report a bad block at all. */
+  t.exception = true;
+  TEST_ASSERT_TRUE(ap_sc499_irq(&t));
+}
+
 static void test_done_contributes_to_the_flag_only_when_enabled(void) {
   ap_sc499_t t;
   ap_sc499_reset(&t);
@@ -722,6 +757,7 @@ int main(void) {
   RUN_TEST(test_the_reset_handshake_bytes_are_reachable_without_a_latch);
   RUN_TEST(test_the_flag_is_a_list_and_either_source_alone_raises_it);
   RUN_TEST(test_the_interrupt_flag_reads_through_the_masks);
+  RUN_TEST(test_ready_stops_interrupting_once_the_done_interrupt_is_enabled);
   RUN_TEST(test_done_contributes_to_the_flag_only_when_enabled);
   RUN_TEST(test_holding_the_reset_bit_holds_the_controller);
   RUN_TEST(test_the_unused_low_bits_read_as_one);
