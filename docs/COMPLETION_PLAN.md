@@ -1615,6 +1615,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         and `CINV` loses dirty data -- and Table 4-1's misprinted sink cell,
         resolved from two other passages in the same manual.
         `m68040_cache_suite`, 34 tests. Detail in `PROJECT_STATUS.md`.
+  - [x] `[040]` §5's signal encodings: Tables 5-2 through 5-7, including the
+        forty-row signal summary. **The function code is gone from the bus** --
+        `TT1-TT0` and `TM2-TM0` replace `FC2-FC0`, the four program-selectable
+        codes keep their numbers, the three the earlier parts left undefined now
+        name a cache push and the two halves of a table search, and CPU space is
+        Reserved. Three pins are reset straps (`CDIS`, `MDIS`, `IPL2-IPL0`),
+        `MI` is the one output reset does not negate, and there is no `HALT`
+        pin. `m68040_signals_suite`, 22 tests. Detail in `PROJECT_STATUS.md`.
   - [x] The two ATCs: 16 sets of four ways each, tagged with `FC2` alone and no
         task alias -- `G` is the 68040's substitute, overriding a nonglobal
         flush rather than being one more criterion. The manual states the tag

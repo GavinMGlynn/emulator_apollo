@@ -10558,6 +10558,82 @@ master, the fill and push rows need §7's bus controller, and the CPU rows need 
 a finished specification and a transition nobody calls is still one nobody has
 to derive later. `m68040_cache_suite`, 17 -> 34 tests.
 
+**§5's signal encodings are in, and the function code is gone from the bus.**
+This is the finding of `[040]` §5 and it is a divergence from both earlier parts
+in this core. A 68020 or 68030 drives `FC2-FC0` on every cycle; the 68040 drives
+`TT1-TT0` (Table 5-2, what kind of transfer) and `TM2-TM0` (Table 5-3, what the
+transfer is for), and between them they carry what one field used to:
+
+| FC | 68020/68030 | 68040, `TT` = 00 or 01, `TM2-TM0` |
+| --- | --- | --- |
+| 0 | (undefined, reserved) | Data Cache Push Access |
+| 1 | User Data | User Data Access |
+| 2 | User Code | User Code Access |
+| 3 | (undefined, reserved) | MMU Table Search Data Access |
+| 4 | (undefined, reserved) | MMU Table Search Code Access |
+| 5 | Supervisor Data | Supervisor Data Access |
+| 6 | Supervisor Code | Supervisor Code Access |
+| 7 | **CPU Space** | **Reserved** |
+
+The four codes a program can select keep their numbers, which is what makes the
+rest easy to model wrongly: the three the earlier parts left undefined now name
+real internal activity -- so a 68040 bus trace shows transfers no instruction
+asked for -- and **CPU space no longer exists as a transfer modifier**. Interrupt
+and breakpoint acknowledge moved to `TT = 11`, with "the TMx signals carry the
+interrupt level being acknowledged", and `MOVES` to function codes 0, 3, 4 and 7
+moved to `TT = 10` with Table 5-4's separate encoding, whose four valid rows are
+exactly the four codes a normal access cannot reach. For this core the
+consequence is at the board rather than in the CPU: a DN-series board decodes an
+interrupt acknowledge out of FC7 plus the address and a 68040 board cannot. Read
+on the page image at 600 dpi, since this is the table a misread would be
+expensive in.
+
+**Three pins are strapping options at reset**, meaning something else entirely
+from what they mean afterwards -- a class of trap this part has now supplied
+three of. `CDIS` low selects **multiplexed bus mode**, address and data
+physically tied together (§5.1, §5.2, §5.7.1); `MDIS` low selects **DLE mode**,
+in which the memory interface says when to latch read data instead of the
+processor latching on `BCLK` (§5.10); and `IPL2-IPL0` are not an interrupt level
+at all but **output buffer sizing**, one pin per signal group, "high input level
+= small buffers enabled; low input level = large buffers enabled" (Table 5-5).
+
+Two more §5 facts a model gets backwards by default. **`MI` is the one output
+reset does not negate**: §5.7.2 negates "all outputs, except MI", and §5.5.2 says
+why -- "MI is asserted during reset preventing external memory from responding"
+-- so a part held in reset keeps alternate masters away from memory it may hold
+dirty lines for. And **there is no `HALT` pin**: neither Table 5-1 nor Table 5-7
+lists one, where the 68020 and 68030 both have a bidirectional `HALT` the
+processor drives on a double bus fault. The condition is still reported, as
+Table 5-6's PST encoding 5 "Halted State (Double Bus Fault)", but off four
+status pins rather than one dedicated one.
+
+**Table 5-6's own classification is short by two.** §5.9.1 splits the sixteen
+status encodings into a class that persists (0, 8, 4, 5, C, D, E, F) and a class
+that lasts one `BCLK` and is mutually exclusive (1, 2, 3, 9, A, B). That is
+fourteen; encoding 6 (Low-Power Stop Mode, on the MC68040V and MC68EC040V) and
+encoding 7 (Reserved) appear in the table and in neither list. 6 is a state the
+processor stays in, so it is modelled as persisting and the manual's silence is
+recorded next to it.
+
+**And Table 5-7's notes were not revised for the V parts.** Two signals are
+described twice with different scopes -- `DLE` is "only available on the
+MC68040" in Table 5-1 and §5.11's heading but "not available on the MC68LC040
+and MC68EC040" in Table 5-7; `MDIS` is "not available on the MC68EC040 and the
+MC68EC040V" in Table 5-1 but "not available on the MC68EC040" in Table 5-7 and
+in §5.10's heading. Each disagreement is about the MC68040V and MC68EC040V and
+in each the shorter statement omits them. Those parts are demonstrably later
+additions to this edition: Table 5-6's encoding 6 is "MC68040V and MC68EC040V
+only", Table 5-2's acknowledge access carries "LPSTOP broadcast cycles on the
+MC68040V and MC68EC040V", and Table 5-1 alone carries a fourth note for them. So
+Table 5-1 is the revised text, the other two are stale, and the module follows
+Table 5-1. Settled from inside the document without reaching for a second
+manual -- the `omti-manuals-share-source-text` rule used the way it was written.
+
+`ap_m68040_signals.*` carries Tables 5-2 through 5-7 including the forty-row
+signal summary; `m68040_signals_suite`, 22 tests. One thing §5 does *not* settle
+and §7's walk owes: §5.3.6 gives `SIZ1-SIZ0` no encoding table, saying only
+"refer to Section 7 Bus Operation".
+
 **The two ATCs are in, and the manual contradicts itself about the tag width.**
 
 §3.3's `Logical Address` field definition reads -- in the page image, not merely

@@ -13,6 +13,7 @@ add_library(apollo_core STATIC
   cpu/m68851/ap_m68851_tc.c
   cpu/m68040/ap_m68040_atc.c
   cpu/m68040/ap_m68040_cache.c
+  cpu/m68040/ap_m68040_signals.c
   cpu/m68040/ap_m68040_timing.c
   cpu/m68040/ap_m68040_cache_timing.c
   cpu/m68040/ap_m68040_misc_timing.c
