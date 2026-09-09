@@ -4790,8 +4790,14 @@ Only after the reference core is proven, and only under an identity harness.
       against `$24`**, the **data output buffer at `$28`** where the 68030
       keeps it at `$18` in *both* frames, and no version field where this core
       has one at `$36`; and
-      **vectors 48-63 are all unassigned** (`[020]` Table 6-2) where this core
-      defines `VECTOR_MMU_CONFIGURATION` at 56.
+      **vector 56 is not this part's** — `[020]` Table 6-2 leaves 48-63
+      unassigned and `[040]` Table 8-1 says of 56 "Defined for MC68030 and
+      MC68851, **not used by M68040**", where this core defines
+      `VECTOR_MMU_CONFIGURATION` there for every part. *Refined 2026-09-09*:
+      the neighbouring 48-55 are **not** a divergence — `[040]` assigns them to
+      floating-point exceptions and this core already names 48-54 from `[881]`,
+      so the 68020's "unassigned" is the processor leaving them for a
+      coprocessor to define.
       **And the fifth is that same first register a third time**: `[040]`
       §2.2.2.5 gives the 68040's CACR as **two** enable bits, and every `MOVEC`
       to `CACR` goes through the 68030's eleven-bit `ap_m68030_cacr_write`
