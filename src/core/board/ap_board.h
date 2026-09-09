@@ -391,6 +391,13 @@ typedef struct {
    * same part. Zero means the Series 3000/4000 count. */
   unsigned translation_map_entries;
 
+  /* Whether this board decodes the Series 2500's control block at `020200`.
+   * Its 256 bytes are live state -- the firmware writes and reads them back --
+   * and the hasher must walk them on a board that has one and not on the eight
+   * that do not. A property of the map for the same reason the row is in
+   * `DS2500_PLACEMENT` alone. */
+  bool has_s2500_control;
+
   /* Whether this board decodes Table 2-5's I/O protection map at `07000000`.
    * A property of the *map* and not of the model table, because that is where
    * this fact comes from: no feature flag distinguishes a DS5500 from a DS3500
@@ -502,6 +509,19 @@ typedef struct ap_board {
    * firmware reaches into. Storage, `PROVISIONAL`, for the reasons at the
    * region's declaration. */
   uint8_t s2500_control[0x100];
+  /* How many of those bytes this board *has*: `sizeof s2500_control` on a
+   * Series 2500 and **zero** on every other model. The array is one array for
+   * every board, so this is what says whether the block exists -- the idiom
+   * `ap_atmap_t::entries`, `ap_cacheram_t::entries` and `ap_ioprot_t::size` all
+   * use, and the reason is the same: the hasher walks the machine's own count,
+   * so a board without the block contributes nothing to the digest rather than
+   * 256 zero bytes.
+   *
+   * **It was not hashed at all until 2026-09-10.** Two Series 2500s differing
+   * only in this storage hashed identically, which is precisely the hole an
+   * identity harness exists to close. Found by adding a storage region beside
+   * it, not by reading the hasher. */
+  unsigned s2500_control_bytes;
 
   /* Table 2-5's I/O protection map. Present on the DS5500 and empty on every
    * other board, which is a property of the structure rather than of a

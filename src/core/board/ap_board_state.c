@@ -1057,6 +1057,16 @@ void ap_board_hash(ap_hash_t *st, const ap_board_t *board) {
   ap_board_hash_translation_map(st, &board->translation_map);
   ap_board_hash_cache(st, &board->cache);
   ap_board_hash_io_protection(st, &board->io_protection);
+  /* The Series 2500's control block: 256 bytes the firmware writes and reads
+   * back, and in no hash at all until 2026-09-10. Walked on the board's own
+   * count, so the eight models without the block contribute nothing. */
+  ap_hash_scope(st, "s2500_control");
+  ap_hash_note_u32(st, "bytes", (uint32_t)board->s2500_control_bytes);
+  ap_hash_group_begin(st, "bytes");
+  if (board->s2500_control_bytes != 0u) {
+    ap_hash_bytes(st, board->s2500_control, board->s2500_control_bytes);
+  }
+  ap_hash_group_end(st);
   ap_board_hash_interrupts(st, &board->interrupts);
   ap_board_hash_timer(st, &board->timer);
   ap_board_hash_calendar(st, &board->calendar);

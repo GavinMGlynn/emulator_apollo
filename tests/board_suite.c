@@ -3352,6 +3352,44 @@ static void test_the_cache_reaches_the_boards_state_hash_only_where_it_exists(
   TEST_ASSERT_EQUAL_HEX64(dn3500_before, ap_board_state_hash(&dn3500));
 }
 
+/* The same test for the Series 2500's control block, which had **no** hasher at
+ * all until 2026-09-10 — so two DS2500s differing only in that storage hashed
+ * identically. `020200` is one page of live state: `1F060` writes `#$1` to
+ * `0202D4`, reads it back, masks `$0F` and spins for ever unless it gets `$1`.
+ *
+ * The write goes **through the bus**, so a block that reached the hash but not
+ * the decode would still fail. */
+static void test_the_s2500_control_block_reaches_the_hash_only_where_it_exists(
+    void) {
+  ap_board_t s2500;
+  ap_board_t dn3500;
+  TEST_ASSERT_TRUE(ap_board_init_model(&s2500, ram, sizeof ram, &START,
+                                       0x012345u, AP_MODEL_DN2500));
+  TEST_ASSERT_TRUE(ap_board_init_model(&dn3500, ram, sizeof ram, &START,
+                                       0x012345u, AP_MODEL_DN3500));
+  TEST_ASSERT_EQUAL_UINT(0x100u, s2500.s2500_control_bytes);
+  TEST_ASSERT_EQUAL_UINT(0u, dn3500.s2500_control_bytes);
+
+  const uint64_t s2500_before = ap_board_state_hash(&s2500);
+  const uint64_t dn3500_before = ap_board_state_hash(&dn3500);
+
+  bool ok = false;
+  ap_board_write(&s2500, 0x0202D4u, 0x01u, &ok);
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_NOT_EQUAL_UINT64(s2500_before, ap_board_state_hash(&s2500));
+
+  /* And a DN3500's digest does not depend on the array at all -- the half that
+   * keeps 256 zero bytes out of every other model's identity hash.
+   *
+   * Poked directly rather than written through the bus, and the difference
+   * matters: `020200` is unmapped on a DN3500, and a *refused* write is itself
+   * recorded on the board, so driving this half through the bus measures the
+   * unmapped-write record instead of the hasher. The cache's test pokes its
+   * storage for the same reason. */
+  dn3500.s2500_control[0xD4u] = 0x01u;
+  TEST_ASSERT_EQUAL_HEX64(dn3500_before, ap_board_state_hash(&dn3500));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_ethernet_card_is_absent_until_it_is_fitted);
@@ -3454,6 +3492,7 @@ int main(void) {
   RUN_TEST(test_clearing_the_condition_code_window_invalidates_the_cache);
   RUN_TEST(test_a_board_without_the_cache_never_reports_a_hit);
   RUN_TEST(test_the_cache_reaches_the_boards_state_hash_only_where_it_exists);
+  RUN_TEST(test_the_s2500_control_block_reaches_the_hash_only_where_it_exists);
 
   RUN_TEST(test_a_board_with_no_clock_is_charged_nothing);
   return UNITY_END();

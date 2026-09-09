@@ -368,6 +368,7 @@ static const ap_board_map_t DS2500_MAP = {
     .name = "DS2500",
     .placement = DS2500_PLACEMENT,
     .placements = sizeof DS2500_PLACEMENT / sizeof DS2500_PLACEMENT[0],
+    .has_s2500_control = true,
     .ram_base = 0x04000000u,
     .ram_limit = 0x04FFFFFFu,
     .prom_size = 0x020000u,
@@ -1651,6 +1652,13 @@ bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
      * declaration gives: no feature distinguishes a DS5500 from a DS3500. */
     ap_ioprot_init(&board->io_protection,
                    board->map != NULL && board->map->has_io_protection_map);
+    /* And the Series 2500's control block, the same way. Zero on every other
+     * board is what keeps 256 bytes of a structure they do not have out of
+     * their digests. */
+    board->s2500_control_bytes =
+        (board->map != NULL && board->map->has_s2500_control)
+            ? (unsigned)sizeof board->s2500_control
+            : 0u;
     /* "a graphics device is in the HSI connector". A DSP5500 is this board
      * without a display, which is exactly what the bit reports. */
     ap_boardreg_set_hsi_graphics(&board->registers,
