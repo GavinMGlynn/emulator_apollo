@@ -2204,12 +2204,36 @@ at `7A400144`: `7A400000`–`7A400180` is **a genuine 384-byte stack in active u
 with a proper frame chain**, not a corrupted pointer someone jumped to. It is
 small, and it overflowed by two bytes.
 
-*That is as far as this goes without tracing back to where `7FF4092E` got the
-value*, which is a fresh investigation rather than another turn of this one.
-Recorded because the shape of the question has changed three times under
-measurement — a paging fault, then an exhausted stack, now an undersized one —
-and each change came from building the instrument rather than from thinking
-harder about the previous number.
+### And `7FF4092E` is the boot PROM, mapped by Domain/OS
+
+`--dump-logical 7FF40910` — which only answers correctly because the observer
+was fixed above — gives **`logical 7FF40910 -> 00000910`**, and the bytes there
+are the PROM's own banner string, `991/03/08.16:20:14`. Domain/OS has the boot
+PROM mapped at logical `7FF40000` and is **calling into it**.
+
+Disassembling the ROM at that offset names the instruction exactly:
+
+    00000924  movea.l  $e6(a6), a4
+    00000928  bsr.w    $d6a
+    0000092C  movea.l  a6, a7      <- stack_base_pc is the PC after this
+    0000092E  bsr.w    $2478
+
+`MOVEA.L A6,A7` is the ordinary unwind-to-frame-pointer idiom, so the 384-byte
+stack is not something that instruction chose — `A6` already held `7A400180`.
+The code running when the machine dies is the **firmware's**, executing in the
+operating system's address space on a stack the operating system provided.
+
+*That is a precisely located next step rather than an answer*: what set `A6`,
+and whether 384 bytes is what a real DS5500 gives a PROM service call or a
+consequence of this core taking faults it should not. The 132 bus errors are
+worth weighing there — a `$7` frame is 60 bytes and six of them would fill that
+stack exactly.
+
+**The shape of this question has now changed four times under measurement** — a
+paging fault, an exhausted stack, an undersized one, and now firmware running
+under the operating system — and every change came from building the instrument
+rather than from thinking harder about the previous number. Two of the four
+overturned conclusions already committed.
 
 That is where this thread stops: not "an MMU fault we may be getting wrong", and
 not "the kernel stack ran out" either, but **a stack pointer 384 bytes above an

@@ -4695,6 +4695,16 @@ discipline throughout.
       the boot PROM's stack at `010000C4`, because a boot moves between
       unrelated stacks and the smallest number across all of them is whichever
       sat lowest. It now starts a new epoch on a move of more than 64 KB.
+      **And the code running when it dies is the boot PROM's.**
+      `--dump-logical 7FF40910` gives `-> 00000910` and the PROM's own banner
+      string: Domain/OS has the firmware mapped at logical `7FF40000` and is
+      calling into it. The instruction that set the stack is `0000092C
+      movea.l a6, a7`, an ordinary unwind-to-frame-pointer — so `A6` already
+      held `7A400180` and the 384 bytes came from further back.
+      *The located next step*: what set `A6`, and whether 384 bytes is what a
+      real DS5500 gives a PROM service call or a consequence of this core
+      taking faults it should not — a `$7` frame is 60 bytes and six would fill
+      that stack exactly, against 132 bus errors in the run.
       **Five candidates are eliminated by measurement rather than argument**:
       the stack-pointer selection, the mapping, the register state, the fault
       kind, and the frame balance. Detail in `PROJECT_STATUS.md`.
