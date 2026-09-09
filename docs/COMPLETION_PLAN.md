@@ -5968,19 +5968,34 @@ same number is what let them diverge once already.
       or 440 µs with both select lines high). The second: `[765A]` p.3 "1-25 ms
       later", `[765AB]` p.2 "within 1.024 ms" — two revisions, two figures,
       recorded as printed.
-      **Both wait on the same fact: what this board connects the 765's `RDY`
-      pin to.** All four editions describe every `ST3` bit as "the status of the
-      <signal> from the FDD" — the register is a **mirror of eight pins** and
-      holds no state — so the OMTI manuals' five constants are a statement about
-      this board's *drive cabling*, not about its silicon, and that reconciles
-      them with Figure 1.1's direct host access to a real 765 (see
-      `ap_omti.h`). **No document on this shelf says how `RDY` is wired**, and
-      it decides both behaviours: tied deasserted, neither can ever fire; tied
-      asserted, every reset raises an interrupt. Modelling either way without
-      knowing is inventing a machine.
-      *What would close them*: a board schematic or a driver that depends on the
-      answer. Not "not modelled" — **not decidable from what is held**, which is
-      a different item and a shorter one.
+      ~~**Both wait on the same fact: what this board connects the 765's `RDY`
+      pin to. No document on this shelf says how it is wired.**~~ **That blocker
+      was false, and `OMTI_WALK.md` had already refuted it — struck 2026-09-09.**
+      Its own pin-table row, written the same day, says it outright: **"Pin 35
+      `RDY` is dedicated — but the PC/AT 34-pin floppy interface carries no
+      READY line, so on an AT board it is tied."** The answer was in a walk
+      record here while this item claimed no document had it, which is the
+      grep-before-naming-a-blocker rule broken again.
+      **`RDY` is tied *asserted***, on three independent grounds: the AT
+      interface has no READY line to drive it; the oracle wires the part
+      `UPD765A(config, m_fdc, 48_MHz_XTAL / 6, false, false)` and never calls
+      `ready_w`, so its `get_ready()` returns `!external_ready` = **true**
+      always; and functionally it must be, or every read and write would
+      terminate `NR` and no floppy would work at all.
+      *The same line settles a `PROVISIONAL` beside it*: `48 MHz / 6` is
+      **8 MHz**, the column `AP_OMTI_FDC_SRT_MS` already uses, so the 4 MHz
+      "mini-floppy" alternative the datasheet walk recorded is not this board's.
+      **So the polling feature is CLOSED under the documentation-absent rule's
+      consumer clause**: it interrupts on a *change* of the Ready line, and a
+      tied line never changes, so nothing on this board can assert it. The
+      execution evidence is the floppy working — `Drive 0 passed.` and a booted
+      volume — with nothing reading it.
+      **And the reset-with-`RDY`-high interrupt is unblocked**, not
+      undecidable: RDY is held high, so `[765A]`'s "FDC will generate interrupt
+      1-25 ms later" applies. What is left is choosing between two published
+      figures — that bracket and `[765AB]`'s "within **1.024 ms**", the later
+      revision's, which is also exactly that document's polling period and so a
+      derived value rather than a bracket. A `PROVISIONAL` with a reason.
       **MFM's refusal of 128-byte sectors** (`N = 00`, `[765A]` p.14 note 3) and
       **"no other command could be issued for as long as FDC is in process of
       sending Step Pulses to any drive"** (`[765A]` p.15). Both state that the
