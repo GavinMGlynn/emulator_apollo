@@ -5383,13 +5383,29 @@ same number is what let them diverge once already.
       **firmware's** loop; the kernel reads a 77-byte header and then 32 KB
       chunks, and neither is block-aligned. The document was never describing
       this path, which is the whole reason quoting it refuted nothing.
-      *What remains is one decision and it is a real one*: whether a DMAGO
-      resynchronises to a block boundary. Our model streams bytes continuously,
-      which is why the 77 persists. But resynchronising is **not obviously
-      right** either — it would put the 32 KB read at block 24 and the kernel
-      wants sequence **1**, which is block 23. So the answer is not "discard the
-      remainder"; something about the 77-byte read is meant to leave the tape
-      where it started. That is the next question, and it is now precise.
+      **And the decision turns out not to be needed: the transfers are simply
+      the wrong length, and that is ours.** A ring of the last twelve count
+      programmings, dumped at the failure, shows what the host actually asks
+      channel 1 for:
+
+          ch1 count=511   -> 512 byte(s)      x8
+          ch1 count=32767 -> 32768 byte(s)    x4   (the four most recent)
+
+      **512 and 32,768. Never 77, never 32,773.** So the host programs a
+      512-byte read and gets **77** bytes out of us, then programs 32,768-byte
+      reads and gets **32,773** — five too many, every time, which is exactly
+      the `+5` that walks the offset 77 → 82 → 87 → 92 (`32773 mod 512 = 5`).
+      *So this is not a question about block resynchronisation at all.* Our tape
+      transfer does not honour the 8237's terminal count: it under-delivers once
+      and then over-delivers by five for ever. A card that stopped where the
+      host said would leave the stream aligned and none of this would arise.
+      **The `PROVISIONAL` decision named above is withdrawn** — there is nothing
+      to choose, because the documented rule (`[SC499]` §1.11: the host sets up
+      the count and the transfer ends on it) is the one this core is breaking.
+      *What is left is a defect with a location and a signature*: find why the
+      channel delivers 77 where 512 was programmed and 32,773 where 32,768 was,
+      in `ap_tape`/`ap_i8237`'s terminal-count path. Both numbers are exact and
+      reproducible, and `tools/cartridge-boot.sh` reproduces them on demand.
 
 - [x] **A cold power-on runs the confidence test — done 2026-09-09.**
       `[SC499]` §1.8.1's POC reports success "by the assertion of `EXC-`

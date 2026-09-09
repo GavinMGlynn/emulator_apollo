@@ -1009,6 +1009,19 @@ fetches only when a block is exhausted, and only a *new command* resets it — s
 the next DMAGO, into a different buffer, resumed mid-block, and every block
 after it is 77 bytes late.
 
+**And the cause is located: our transfers are the wrong length.** A ring of the
+last twelve count programmings, dumped at the failure, shows the host asking
+channel 1 for `count=511` → **512 bytes** (eight times) and then `count=32767` →
+**32,768 bytes** (the four most recent). It never asks for 77 or 32,773 — but
+that is what this core delivers: 77 where 512 was programmed, then 32,773 where
+32,768 was, five too many every time, which is exactly the `+5` that walks the
+offset 77 → 82 → 87 → 92 since `32773 mod 512 = 5`.
+
+So the tape transfer does not honour the 8237's terminal count. It under-delivers
+once and then over-delivers by five for ever, and a card stopping where the host
+said would leave the stream aligned. There is no modelling choice to make here —
+the documented rule is the one being broken.
+
 ***And that is the lead this work refuted earlier in the day, wrongly.***
 `[SC499]` §1.11 step 5 describes the **firmware's steady-state read loop**, one
 DMAGO per block. It does not forbid a short transfer on some other path, and the
