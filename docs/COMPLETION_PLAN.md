@@ -4971,6 +4971,27 @@ same number is what let them diverge once already.
       otherwise byte-identical.* Detail in `PROJECT_STATUS.md`; `FINDINGS.md`
       C270.
 
+- [ ] **Two coprocessor interface register maps are modelled and nothing
+      reaches them — `[020]` §8.** Found 2026-09-09 by the `[020]` walk.
+      `ap_m68882_cir.*` and `ap_m68851_cir.*` are complete: Table 7-2's
+      don't-care select bits, the all-ones read of a write-only register, the
+      two CIRs the part does not implement. **Their only callers are their own
+      test suites** — `check_what_is_called_by_nobody`'s exact signature, which
+      CLAUDE.md names as its first audit check. **And nothing could call them**:
+      `ap_machine.c`'s bus callbacks take a `function_code` and discard it,
+      `(void)function_code;` twice, so the machine cannot tell a CPU-space cycle
+      from a data cycle, and a `MOVES` with `SFC`/`DFC` = 7 — `[030]` §7.4.3's
+      only route to a CIR outside the protocol — lands on ordinary memory.
+      *Not a defect in what runs*: family 1111 is dispatched functionally and
+      every host that **executes** coprocessor instructions is served. §8.5's
+      defaults confirm both IDs this core uses — `000` the MC68851, which "must
+      be coprocessor 0", and `001` the MC68881, which is
+      `AP_M68882_DEFAULT_CPID`.
+      *Verification: the function code reaches the board, a CPU-space read at
+      `A19:A16` = `0010` with `Cp-Id` 1 returns the 68882's response CIR rather
+      than memory, and the two suites' wiring comes from the machine.*
+
+
 - [ ] **`E0007`: the kernel searches the tape for `bscom/rbak_shell` and does
       not find it.** What is left of the `28001E` item after 2026-09-09.
       **`28001E` is fixed and measured gone** — it was the `RR` strap, above:
@@ -6041,7 +6062,7 @@ same number is what let them diverge once already.
         about. Detail in `PROJECT_STATUS.md`.
         Record: `docs/references/M68000_FAMILY_REFERENCE_WALK.md`.
   - [ ] **`[020]` `MC68020_32-Bit_Microprocessor_Users_Manual_1984.pdf`,
-        452 pages — started 2026-09-09; §1-§4, §6, §7, §9-§11 and Appendices A, D-E done, **147 of 452**; **one defect found and fixed** (`BFINS`'s condition codes).** Record:
+        452 pages — started 2026-09-09; §1-§4, §6-§11 and Appendices A, D-E done, **185 of 452**; **one defect found and fixed** (`BFINS`'s condition codes).** Record:
         `docs/references/M68020_WALK.md`.
         **The deferral this item carried was false and is withdrawn.** It read
         "Phase 2b and Phase 7 parts ... deferred until those processors are
