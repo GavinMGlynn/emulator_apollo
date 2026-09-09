@@ -10615,24 +10615,80 @@ encoding 7 (Reserved) appear in the table and in neither list. 6 is a state the
 processor stays in, so it is modelled as persisting and the manual's silence is
 recorded next to it.
 
-**And Table 5-7's notes were not revised for the V parts.** Two signals are
-described twice with different scopes -- `DLE` is "only available on the
-MC68040" in Table 5-1 and §5.11's heading but "not available on the MC68LC040
-and MC68EC040" in Table 5-7; `MDIS` is "not available on the MC68EC040 and the
-MC68EC040V" in Table 5-1 but "not available on the MC68EC040" in Table 5-7 and
-in §5.10's heading. Each disagreement is about the MC68040V and MC68EC040V and
-in each the shorter statement omits them. Those parts are demonstrably later
-additions to this edition: Table 5-6's encoding 6 is "MC68040V and MC68EC040V
-only", Table 5-2's acknowledge access carries "LPSTOP broadcast cycles on the
-MC68040V and MC68EC040V", and Table 5-1 alone carries a fourth note for them. So
-Table 5-1 is the revised text, the other two are stale, and the module follows
-Table 5-1. Settled from inside the document without reaching for a second
-manual -- the `omti-manuals-share-source-text` rule used the way it was written.
+**And two signals are scoped three different ways.** `DLE` is "only available
+on the MC68040" in Table 5-1 and §5.11's heading but "not available on the
+MC68LC040 and MC68EC040" in Table 5-7; `MDIS` is "not available on the MC68EC040
+and the MC68EC040V" in Table 5-1 but "not available on the MC68EC040" in Table
+5-7 and in §5.10's heading. Each disagreement is about the MC68040V and
+MC68EC040V, and in each the shorter statement omits them. **Table 5-1 is the one
+to follow**, and the module does.
+
+*Why, corrected once §1 was walked.* §1.1 gives the mechanism: **the pins are
+renamed, not removed.** "The DLE pin name has been changed to JS0 on both the
+MC68040V and MC68LC040", and on the EC parts "the DLE and MDIS pin names have
+been changed to JS0 and JS1, respectively". The pin is physically present on all
+five members; what is MC68040-only is `DLE` *the function*, exactly as Table 5-1
+and §5.11's heading say. The reasoning this replaces -- that the V parts were
+later additions (Table 5-6's encoding 6, Table 5-2's LPSTOP note, Table 5-1's
+fourth note) and Table 5-7 had gone unrevised -- reached the right table by
+inference about the book's editing rather than from a statement in it. It is
+kept in `ap_m68040_signals.h` because it is why the module was written that way,
+but it is a different claim: not that Table 5-7 is stale, but that it describes
+a pin still present under another name. **Reading §5 in isolation would have
+left the weaker answer standing**, which is the whole-document rule earning its
+keep within a single manual.
 
 `ap_m68040_signals.*` carries Tables 5-2 through 5-7 including the forty-row
 signal summary; `m68040_signals_suite`, 22 tests. One thing §5 does *not* settle
 and §7's walk owes: §5.3.6 gives `SIZ1-SIZ0` no encoding table, saying only
 "refer to Section 7 Bus Operation".
+
+**§1.1's five family members, and they revoke §5's reset straps on four of
+them.** §1 names the MC68040, MC68040V, MC68LC040, MC68EC040 and MC68EC040V and
+spends §1.1 on nothing but their differences, because "unless otherwise noted,
+all references to M68040 ... will apply to" all five. The consequential sentence
+is said twice, once of the MC68040V and MC68LC040 and once of the EC parts: they
+"do not implement the data latch enable (DLE), multiplexed, or output buffer
+impedance selection modes of operation. They implement only the small output
+buffer mode of operation." Those three modes are precisely what `CDIS`, `MDIS`
+and `IPL2-IPL0` select at reset, so **all three straps are live on one member of
+the family**. A model built from §5 alone would give four parts three
+configuration options they do not have.
+
+Three more from §1.1, each sharper than the summary table that also states it:
+
+- **The EC parts have an access control unit, not an MMU** -- "the ACU has two
+  data and two instruction registers that are called data and instruction
+  transparent translation registers in the MC68040", so the four TTRs survive
+  under another name and nothing else of §3 does.
+- **`PTEST` and `PFLUSH` on those parts are hazardous, not absent**: "cause an
+  undetermined number of bus cycles; the user should not execute these
+  instructions". Table 1-4's note 8 says only "not available", which reads as a
+  trap and is not one. §1.1.2 is the statement to model against.
+- **The low-power stop belongs to both V parts**, not just the MC68040V that
+  §1.1.1 names -- Table 1-4's note 6 and Table 5-6's PST encoding 6 both say
+  "MC68040V and MC68EC040V".
+
+**§1.1.2's last bullet is a copy-paste error.** Every bullet in that subsection
+names "the MC68EC040 and MC68EC040V" except the last, which reads "The MC68040V
+is a 3.3 volt static microprocessor that operates down to 0 MHz" -- word for
+word the sentence that closes §1.1.1, about a part §1.1.2 is not describing.
+Read on the page image at 600 dpi, so it is the print. Whether the MC68EC040V is
+also 3.3 V and static cannot be answered from §1, and neither can whether it is
+pin compatible with the MC68040 (§1.1.2 states that only of the MC68EC040). Both
+are recorded as **unstated** rather than inferred from the MC68040V, and both
+are questions for Appendix C, which covers the two V parts together.
+
+§1 also confirms §4.7 from a second direction: Table 1-4's own entry for `CPUSH`
+reads "if data cache push selected dirty data cache lines; **invalidate selected
+cache lines**", which is Table 4-4's D8 said again in the instruction summary.
+And §1.5's three processing states line up with §5's status encodings -- the
+processor "halts when it receives an access error or generates an address error
+while in the exception processing state" (PST 5), while `STOP` leaves it "in a
+special type of normal processing state, one without bus cycles. The processor
+stops, but it does not halt" (PST D).
+
+`ap_m68040_family.*`; `m68040_family_suite`, 11 tests.
 
 **The two ATCs are in, and the manual contradicts itself about the tag width.**
 

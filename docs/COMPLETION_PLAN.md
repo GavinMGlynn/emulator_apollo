@@ -1623,6 +1623,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         Reserved. Three pins are reset straps (`CDIS`, `MDIS`, `IPL2-IPL0`),
         `MI` is the one output reset does not negate, and there is no `HALT`
         pin. `m68040_signals_suite`, 22 tests. Detail in `PROJECT_STATUS.md`.
+  - [x] `[040]` §1's five family members and their differences. **§1.1 revokes
+        §5's three reset straps on four parts of five** -- all but the MC68040
+        "implement only the small output buffer mode of operation" -- the EC
+        parts have an access control unit rather than an MMU, and `PTEST` and
+        `PFLUSH` there cause "an undetermined number of bus cycles" rather than
+        trapping. §1.1.2's last bullet is a copy-paste error, leaving two
+        MC68EC040V properties unstated and owed to Appendix C.
+        `m68040_family_suite`, 11 tests. Detail in `PROJECT_STATUS.md`.
   - [x] The two ATCs: 16 sets of four ways each, tagged with `FC2` alone and no
         task alias -- `G` is the 68040's substitute, overriding a nonglobal
         flush rather than being one more criterion. The manual states the tag

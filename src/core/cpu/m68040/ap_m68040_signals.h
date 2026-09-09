@@ -41,6 +41,11 @@
  * Sampled at reset and meaning something else entirely from what they mean
  * afterwards, which is a class of trap this core has met before:
  *
+ * **On one part of five.** §1.1 says of the other four that they "do not
+ * implement the data latch enable (DLE), multiplexed, or output buffer
+ * impedance selection modes of operation" -- which is all three of these. See
+ * `ap_m68040_family.h`.
+ *
  *   - `CDIS`  high = normal bus, low = **multiplexed bus mode** (address and
  *             data physically tied together), §5.1, §5.2, §5.7.1.
  *   - `MDIS`  high = normal, low = **DLE mode**, in which the memory interface
@@ -70,12 +75,26 @@
  *           Table 5-7 note 3 "not available on the MC68EC040"
  *
  * Each disagreement is about the MC68040V and MC68EC040V, and in each the
- * *shorter* statement omits them. Those parts are demonstrably later additions
- * to this edition -- Table 5-6's encoding 6 is "MC68040V and MC68EC040V only",
- * Table 5-2's acknowledge access carries "LPSTOP broadcast cycles on the
- * MC68040V and MC68EC040V", and Table 5-1 alone carries a fourth note for them.
- * So Table 5-1 is the revised text and the other two are stale, and this module
- * follows Table 5-1. Settled from inside the document, without a second manual.
+ * *shorter* statement omits them. **Table 5-1 is the one to follow**, and this
+ * module does.
+ *
+ * **Why, corrected once §1 was walked.** `ap_m68040_family.h` carries §1.1's
+ * mechanism: the pins are **renamed**, not removed. "The DLE pin name has been
+ * changed to JS0 on both the MC68040V and MC68LC040", and on the EC parts "the
+ * DLE and MDIS pin names have been changed to JS0 and JS1, respectively". The
+ * pin is physically present on all five members; what is MC68040-only is `DLE`
+ * *the function*, which is what Table 5-1 and §5.11's heading both say and what
+ * Table 5-7's note is merely incomplete about.
+ *
+ * *The reasoning this replaces, kept because it is why the module was written
+ * this way:* that the V parts were demonstrably later additions to the edition
+ * -- Table 5-6's encoding 6 is "MC68040V and MC68EC040V only", Table 5-2's
+ * acknowledge access carries "LPSTOP broadcast cycles on the MC68040V and
+ * MC68EC040V", and Table 5-1 alone carries a fourth note for them -- so Table
+ * 5-7 had gone unrevised. That reached the right table by inference about the
+ * book's editing. §1.1 states the mechanism outright, and it is a different
+ * claim: not that Table 5-7 is stale, but that it is describing a pin that is
+ * still there under another name.
  *
  * ## There is no `HALT` pin
  *
