@@ -1190,6 +1190,38 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, uint64_t limit) {
     out.status = result.status;
     out.instruction = result.instruction;
 
+    /* **A stopped processor with a board is idle, not wedged.** `STOP` "stops
+     * fetching and executing instructions" until an interrupt or a reset --
+     * which is what an operating system with nothing to do executes, and what
+     * a timer ends a few hundred microseconds later. Returning here reported
+     * that machine as having given up.
+     *
+     * *The distinction is whether anything could ever wake it.* With no board
+     * there is no interrupt source, so a stopped processor stays stopped for
+     * ever and a probe wants to be told rather than spin to its limit -- which
+     * is the case the original comment was written for, and it is kept below.
+     * With a board, time is exactly what it is waiting for.
+     *
+     * Found because Domain/OS on a DS5500 ran 1.6 G instructions, took 120 of
+     * its own interrupts, executed `STOP` while waiting for the tape, and was
+     * reported as `STOPPED` -- a machine idling correctly, described as one
+     * that had stopped working. The clock is advanced a CPU period at a time so
+     * every device reaches its deadlines in the order it would have; nothing
+     * here jumps to the next event, because a device that raises a line partway
+     * through must be seen then and not at the end.
+     *
+     * These iterations are not instructions and are not counted as executed.
+     * They are bounded by the same `limit`, so a run that asks for N gets at
+     * most N of anything. */
+    if (result.status == AP_M68030_STEP_STOPPED && machine->board != NULL) {
+      machine->stopped_clocks++;
+      out.idled++;
+      ap_board_bus_ticks(machine->board, 1u);
+      machine->now += ap_clock_duration(&machine->cpu_clock, 1u);
+      machine_advance_devices(machine);
+      continue;
+    }
+
     /* An exception is progress: the handler runs next. Everything else that is
      * not EXECUTED is the processor declining to go on, and a probe wants to
      * know that rather than spin to its limit. */

@@ -4643,6 +4643,18 @@ discipline throughout.
       pages)`, **2,427 descriptor fetches**, 1,549 `PFLUSH`es and **no MMU
       faults**, taking 120 of the operating system's own interrupts on vectors
       `A0` and `A1`.
+      **And it now wakes from idle, 2026-09-10.** `ap_machine_run` returned the
+      moment a step came back `STOPPED`, so an operating system with nothing to
+      do was reported as one that had stopped working. With a board attached the
+      clock now advances while the processor waits: `idle 10,347,706 CPU
+      period(s)`, 5.4 M more instructions, `atc fills` 2427 → 4181, and
+      **Domain/OS printed to the console for the first time**. It ends `FAULT on
+      2F3C` with three MMU faults, two of them a `MOVE.L -(A7)` two bytes below
+      a page boundary — a fault an operating system grows a stack from, and this
+      one does not recover. *Whether the fault is reported to the part correctly
+      is the open question*: a 68040's access-fault frame is not the 68030's and
+      this core builds the 68030's, which is a hypothesis to check rather than a
+      diagnosis. Detail in `PROJECT_STATUS.md`.
       *It ends idle rather than broken*: `STOPPED` is the processor having
       executed `STOP`, and what it waits for is the tape —
       `cartridge tape 248065610 read(s)`, `first block still owed`,

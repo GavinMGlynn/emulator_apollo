@@ -214,6 +214,36 @@ static void test_the_ds5500_translates_from_the_68040s_own_control(void) {
   TEST_ASSERT_FALSE(m.cpu.tc.enable);
 }
 
+/* **A stopped processor with a board is idle, and time must pass.**
+ *
+ * `STOP` "stops fetching and executing instructions" until an interrupt or a
+ * reset. `ap_machine_run` used to return the moment it saw one, on the reading
+ * that anything but EXECUTED is "the processor declining to go on" -- true of a
+ * probe on flat RAM, where nothing could ever wake it, and false of a machine
+ * with a timer.
+ *
+ * Domain/OS on a DS5500 found it: 1.6 G instructions, 120 of its own interrupts
+ * taken, then `STOP` while waiting for the tape -- and a machine idling
+ * correctly was reported as one that had stopped working.
+ *
+ * The discriminator is the board, so this asserts both sides of it. */
+static void test_a_stopped_processor_with_no_board_ends_the_run(void) {
+  /* STOP #$2700, then a NOP that must never execute. */
+  static const uint16_t program[] = {0x4E72u, 0x2700u, 0x4E71u, 0x4E71u};
+  blank();
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+  ap_machine_reset(&m, PROGRAM, STACK);
+  load(&m, program, 4);
+
+  const ap_machine_run_t run = ap_machine_run(&m, 10000u);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_STOPPED, run.status);
+  /* One instruction -- the `STOP` itself -- and then the run ends rather than
+   * spinning to ten thousand, because nothing here can raise an interrupt. */
+  TEST_ASSERT_EQUAL_UINT64(1u, run.executed);
+  TEST_ASSERT_EQUAL_UINT64(0u, m.stopped_clocks);
+}
+
 /* **`.mmu` selects the translation path**, which is the field being honoured
  * rather than merely declared.
  *
@@ -1323,6 +1353,27 @@ static void build_board_machine(ap_machine_t *machine, ap_board_t *board,
   /* Attached after the program is laid down, because the operator's write is
    * flat and the board's is mapped. */
   ap_machine_set_board(machine, board);
+}
+
+/* And the other side of it: **with a board, time passes while the processor is
+ * stopped**, because a device can end the wait. Same program, same limit, and
+ * the run keeps going instead of returning at the `STOP`.
+ *
+ * This is the half that matters -- a machine with no board is a probe, and a
+ * probe is not what Domain/OS runs on. */
+static void test_a_stopped_processor_with_a_board_lets_time_pass(void) {
+  static const uint16_t program[] = {0x4E72u, 0x2700u, 0x4E71u, 0x4E71u};
+  static ap_board_t board;
+  static uint8_t memory[RAM_BYTES];
+  ap_machine_t m;
+  build_board_machine(&m, &board, memory, program, 4);
+
+  const ap_machine_run_t run = ap_machine_run(&m, 1000u);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_STOPPED, run.status);
+  TEST_ASSERT_EQUAL_UINT64(1u, run.executed);
+  /* The remaining 999 iterations are spent waiting, not thrown away. */
+  TEST_ASSERT_EQUAL_UINT64(999u, run.idled);
+  TEST_ASSERT_EQUAL_UINT64(999u, m.stopped_clocks);
 }
 
 /* ## What a bus master costs the processor, and what it cannot yet do to it
@@ -2841,6 +2892,8 @@ int main(void) {
   RUN_TEST(test_a_probe_can_set_up_run_and_read_back);
   RUN_TEST(test_the_ds5500_translates_from_the_68040s_own_control);
   RUN_TEST(test_the_model_tables_mmu_selects_the_translation_path);
+  RUN_TEST(test_a_stopped_processor_with_no_board_ends_the_run);
+  RUN_TEST(test_a_stopped_processor_with_a_board_lets_time_pass);
   RUN_TEST(test_a_run_bound_above_two_to_the_thirty_two_is_not_truncated);
   RUN_TEST(test_the_executed_count_can_hold_more_than_a_32_bit_run);
   RUN_TEST(test_every_transcribed_row_matches_both_published_columns);

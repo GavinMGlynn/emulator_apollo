@@ -346,6 +346,13 @@ typedef struct {
    * that shared one would hide every instruction/data interaction. */
   ap_m68030_cache_t instruction_cache;
   ap_m68030_cache_t data_cache;
+  /* CPU periods spent with the processor stopped, waiting for an interrupt.
+   * Not instructions -- `STOP` executes once and then nothing does -- so they
+   * are counted apart from `executed` and reported apart from it: a machine
+   * that idles for a millisecond and one that never got there are different
+   * machines, and the instruction count cannot tell them apart. */
+  uint64_t stopped_clocks;
+
   ap_m68030_atc_t atc;
   /* **The 68040's, and there are two**: §3.3 gives the part "four-way
    * set-associative caches" plural, one for instructions and one for data,
@@ -508,6 +515,15 @@ typedef struct {
    * operation. The count is a result rather than machine state -- nothing
    * hashes it -- so widening it moves no golden. */
   uint64_t executed;
+  /* CPU periods spent stopped, waiting for an interrupt. **Not instructions**,
+   * and reported apart from them for that reason -- `STOP` executes once and
+   * then nothing does, so a machine idling for a millisecond and one that never
+   * reached the `STOP` have the same `executed`.
+   *
+   * A caller that bounds its own loop must bound on `executed + idled`: idle
+   * periods are work the run did, and a loop counting only instructions would
+   * never terminate against a machine that is waiting. */
+  uint64_t idled;
   ap_m68030_step_status_t status; /* why it ended */
   /* And on what word. A run that ends `ILLEGAL` or `UNIMPLEMENTED` is a report
    * that some opcode is missing, and the opcode is the only part of that a

@@ -4672,7 +4672,12 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
       printf("# step pc a7 a6 a0 instruction status%s\n",
              watch != 0u ? " watched" : "");
     }
-    for (unsigned i = 0; i < limit; i++) {
+    /* `uint64_t`, because `limit` is: this was `unsigned` and would have capped
+     * the per-step path at 2^32 while the chunked one honoured its bound --
+     * the ceiling removed from the core, put back by a loop counter. Each
+     * iteration is one `ap_machine_run(&machine, 1u)`, so an idle period costs
+     * one `i` and the bound covers waiting as well as executing. */
+    for (uint64_t i = 0; i < limit; i++) {
       /* The timed input-pin change, if `--sio-input-at` asked for one. Before
        * the step, so the instruction numbered `N` is the first to run with the
        * new level -- `i` is the count of instructions already executed. */
@@ -4728,7 +4733,7 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
          * arrive at different absolute counts must sample the same deltas for
          * their PCs to be comparable at all. */
         progress_started = true;
-        progress_base = i;
+        progress_base = (unsigned)i;
       }
       if (progress_every != 0u && (progress_from == 0u || progress_started) &&
           i > progress_base && ((i - progress_base) % progress_every) == 0u) {
@@ -4736,7 +4741,8 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
         uint32_t physical = here;
         const bool mapped =
             ap_machine_translate(&machine, here, 6u, &physical);
-        fprintf(stderr, "  progress     %u instruction(s), pc %08X", i, here);
+        fprintf(stderr, "  progress     %llu instruction(s), pc %08X",
+                (unsigned long long)i, here);
         if (mapped && physical != here) {
           fprintf(stderr, " -> %08X", physical);
         }
@@ -5015,7 +5021,7 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
             printf(" --------");
           }
         }
-        printf("  at %u\n", i);
+        printf("  at %llu\n", (unsigned long long)i);
       }
       /* One instruction through the *machine*, not through the processor.
        *
@@ -5092,7 +5098,8 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
        * addresses that are not even adjacent, and a chain of reasoning was
        * built on the wrong one. */
       if (trace_last > 0u) {
-        ap_trace_record(&trace_ring[trace_ring_used % trace_last], i, step_pc,
+        ap_trace_record(&trace_ring[trace_ring_used % trace_last], (unsigned)i,
+                        step_pc,
                         &machine.cpu, r.instruction, r.status);
         trace_ring_used++;
       }
@@ -5127,10 +5134,10 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
          * sat silent for a minute with an empty log. The size is printed as a
          * value instead, where it cannot become a length. */
         printf("  watch write  %u at %08X value %08X size %u by PC %08X "
-               "after %u\n",
+               "after %llu\n",
                machine.watch_writes, machine.watch_write_address,
                machine.watch_write_value, machine.watch_write_size,
-               machine.watch_write_pc, i);
+               machine.watch_write_pc, (unsigned long long)i);
       }
       /* **The read side of the same instrument**, and it was missing for a
        * reason worth stating: a watched read reports only its *last* value, so
@@ -5140,27 +5147,29 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
        * those bytes were rather than printing them (`FINDINGS.md` C262). */
       if (g_log_watch_reads && machine.watch_reads != logged_watch_reads) {
         logged_watch_reads = machine.watch_reads;
-        printf("  watch read   %u at %08X value %08X by PC %08X after %u\n",
+        printf("  watch read   %u at %08X value %08X by PC %08X after "
+               "%llu\n",
                machine.watch_reads, machine.watch_read_address,
-               machine.watch_read_value, machine.watch_read_pc, i);
+               machine.watch_read_value, machine.watch_read_pc,
+               (unsigned long long)i);
       }
       if (stop_on_watch_read != 0u && machine.watch_reads >= stop_on_watch_read) {
-        printf("  stopped on   read %u of %08X after %u instruction(s)\n",
-               machine.watch_reads, machine.watch_read_address, i);
+        printf("  stopped on   read %u of %08X after %llu instruction(s)\n",
+               machine.watch_reads, machine.watch_read_address, (unsigned long long)i);
         run.executed++;
         break;
       }
       if (stop_on_watch != 0u && machine.watch_writes >= stop_on_watch) {
-        printf("  stopped on   write %u to %08X, after %u instruction(s)\n",
-               machine.watch_writes, machine.watch_write_address, i);
+        printf("  stopped on   write %u to %08X, after %llu instruction(s)\n",
+               machine.watch_writes, machine.watch_write_address, (unsigned long long)i);
         run.executed++;
         break;
       }
       if (stop_on_refusal &&
           ap_omti_refusals(&board->disk.controller) > 0u) {
         printf("  stopped on   the disk controller refusing an address, after "
-               "%u instruction(s)\n",
-               i);
+               "%llu instruction(s)\n",
+               (unsigned long long)i);
         run.executed++;
         break;
       }
@@ -5174,16 +5183,16 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
         if (ap_machine_translate(&machine, step_pc, 6u, &physical) &&
             physical >= stop_physical_pc &&
             physical < stop_physical_pc + stop_physical_length) {
-          printf("  stopped at   PC %08X -> %08X after %u instruction(s)\n",
-                 step_pc, physical, i);
+          printf("  stopped at   PC %08X -> %08X after %llu instruction(s)\n",
+                 step_pc, physical, (unsigned long long)i);
           run.executed++;
           break;
         }
       }
       if (machine.exception_stopped) {
-        printf("  stopped on   vector %u taken from PC %08X, after %u "
+        printf("  stopped on   vector %u taken from PC %08X, after %llu "
                "instruction(s)\n",
-               stop_vector, machine.exception_stop_pc, i);
+               stop_vector, machine.exception_stop_pc, (unsigned long long)i);
         run.executed++;
         break;
       }
@@ -5195,16 +5204,16 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
           stop_pc_armed = true;
         } else {
           printf(
-              "  stopped on   the MMU refusing %08X, after %u instruction(s)\n",
-              machine.mmu_fault_stop_address, i);
+              "  stopped on   the MMU refusing %08X, after %llu instruction(s)\n",
+              machine.mmu_fault_stop_address, (unsigned long long)i);
           run.executed++;
           break;
         }
       }
       if (stop_pc_countdown > 0u && --stop_pc_countdown == 0u) {
-        printf("  stopped      %u instruction(s) after %s, at %u\n",
+        printf("  stopped      %u instruction(s) after %s, at %llu\n",
                stop_pc_then,
-               stop_mmu_fault_at != 0u ? "the MMU refusal" : "the stop PC", i);
+               stop_mmu_fault_at != 0u ? "the MMU refusal" : "the stop PC", (unsigned long long)i);
         run.executed++;
         break;
       }
@@ -5227,7 +5236,7 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
          *
          * The run ends here so a ring kept alongside it holds the steps that
          * led to this rather than the ones that came after. */
-        printf("  stopped at   PC %08X after %u instruction(s)\n", step_pc, i);
+        printf("  stopped at   PC %08X after %llu instruction(s)\n", step_pc, (unsigned long long)i);
         run.executed++;
         break;
         }
@@ -5235,11 +5244,20 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
       if (!trace && trace_last == 0u) {
         run.status = r.status;
         run.instruction = r.instruction;
+        run.idled += one.idled;
+        /* `STOPPED` is a machine waiting, not a machine finished -- see the
+         * copy at the end of this loop. **Three copies of this exit exist**
+         * and the first patch went to the wrong one, which is why a DS5500
+         * kept reporting `idle 1`: the fast path here is the one a run with
+         * no trace takes. */
         if (r.status != AP_M68030_STEP_EXECUTED &&
-            r.status != AP_M68030_STEP_EXCEPTION) {
+            r.status != AP_M68030_STEP_EXCEPTION &&
+            r.status != AP_M68030_STEP_STOPPED) {
           break;
         }
-        run.executed++;
+        if (r.status != AP_M68030_STEP_STOPPED) {
+          run.executed++;
+        }
         continue;
       }
       if (trace_last > 0u) {
@@ -5247,14 +5265,24 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
          * billion instructions in cannot be reached by printing every step. */
         run.status = r.status;
         run.instruction = r.instruction;
+        run.idled += one.idled;
+        /* `STOPPED` is a machine waiting, not a machine finished -- see the
+         * copy at the end of this loop. **Three copies of this exit exist**
+         * and the first patch went to the wrong one, which is why a DS5500
+         * kept reporting `idle 1`: the fast path here is the one a run with
+         * no trace takes. */
         if (r.status != AP_M68030_STEP_EXECUTED &&
-            r.status != AP_M68030_STEP_EXCEPTION) {
+            r.status != AP_M68030_STEP_EXCEPTION &&
+            r.status != AP_M68030_STEP_STOPPED) {
           break;
         }
-        run.executed++;
+        if (r.status != AP_M68030_STEP_STOPPED) {
+          run.executed++;
+        }
         continue;
       }
-      printf("%u %08X %08X %08X %08X %04X %s\n", i, step_pc,
+      printf("%llu %08X %08X %08X %08X %04X %s\n", (unsigned long long)i,
+             step_pc,
              ap_m68030_read_a7(&machine.cpu.regs), machine.cpu.regs.a[6],
              machine.cpu.regs.a[0], r.instruction,
              ap_probe_status_name(r.status));
@@ -5282,11 +5310,22 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
       }
       run.status = r.status;
       run.instruction = r.instruction;
+      run.idled += one.idled;
+      /* **`STOPPED` is a machine waiting, not a machine finished**, and this
+       * loop steps one instruction at a time -- so the core spends its single
+       * iteration idling and hands back `idled = 1`. Breaking here reported an
+       * operating system with nothing to do as one that had stopped working,
+       * and it is why a DS5500 running Domain/OS showed `idle 1` however long
+       * it was given. Every other non-EXECUTED status is still a reason to
+       * stop. */
       if (r.status != AP_M68030_STEP_EXECUTED &&
-          r.status != AP_M68030_STEP_EXCEPTION) {
+          r.status != AP_M68030_STEP_EXCEPTION &&
+          r.status != AP_M68030_STEP_STOPPED) {
         break;
       }
-      run.executed++;
+      if (r.status != AP_M68030_STEP_STOPPED) {
+        run.executed++;
+      }
     }
   } else if (typed_length > 0u || typed_phase[1] != NULL) {
     /* ## Typed input does not need a step loop, and paying for one made it
@@ -5308,15 +5347,25 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
      * far finer than the condition it samples and far coarser than the cost it
      * was paying. */
     run = (ap_machine_run_t){.status = AP_M68030_STEP_EXECUTED};
-    while (run.executed < limit) {
-      const uint64_t remaining = limit - run.executed;
+    /* **Bounded on `executed + idled`, not on instructions.** A stopped
+     * processor waiting for a timer executes nothing while time passes, so a
+     * loop counting only instructions never terminates against a machine that
+     * is idling -- and one that broke out instead would report an operating
+     * system with nothing to do as an operating system that had stopped. Both
+     * were true here before `ap_machine_run` learned to wait. */
+    while (run.executed + run.idled < limit) {
+      const uint64_t remaining = limit - (run.executed + run.idled);
       const uint64_t chunk = remaining < AP_BOOT_TYPE_CHUNK ? remaining
                                                             : AP_BOOT_TYPE_CHUNK;
       const ap_machine_run_t part = ap_machine_run(&machine, chunk);
       run.executed += part.executed;
+      run.idled += part.idled;
       run.status = part.status;
+      /* `STOPPED` is not a reason to stop: see the bound above. Every other
+       * non-EXECUTED status still is. */
       if (part.status != AP_M68030_STEP_EXECUTED &&
-          part.status != AP_M68030_STEP_EXCEPTION) {
+          part.status != AP_M68030_STEP_EXCEPTION &&
+          part.status != AP_M68030_STEP_STOPPED) {
         break;
       }
       /* Arm this phase, then move to the next once it is spent. The gate is
@@ -5390,6 +5439,15 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
   }
   printf("  executed     %llu instruction(s)\n",
          (unsigned long long)run.executed);
+  if (machine.stopped_clocks > 0u) {
+    /* Not instructions: `STOP` executes once and then nothing does. A machine
+     * that idles for a millisecond waiting for a device and one that never
+     * reached the `STOP` are different machines, and the instruction count
+     * cannot tell them apart. */
+    printf("  idle         %llu CPU period(s) stopped, waiting for an "
+           "interrupt\n",
+           (unsigned long long)machine.stopped_clocks);
+  }
   printf("  stopped      %s", ap_probe_status_name(run.status));
   /* And on which word, when the word is the point. A run that ends `ILLEGAL` is
    * a report that an opcode is missing, and the opcode is the one part of that
@@ -6578,6 +6636,15 @@ static int boot_from_tape(const char *path, uint64_t limit) {
   ap_machine_run_t run = ap_machine_run(&machine, limit);
   printf("  executed     %llu instruction(s)\n",
          (unsigned long long)run.executed);
+  if (machine.stopped_clocks > 0u) {
+    /* Not instructions: `STOP` executes once and then nothing does. A machine
+     * that idles for a millisecond waiting for a device and one that never
+     * reached the `STOP` are different machines, and the instruction count
+     * cannot tell them apart. */
+    printf("  idle         %llu CPU period(s) stopped, waiting for an "
+           "interrupt\n",
+           (unsigned long long)machine.stopped_clocks);
+  }
   printf("  stopped      %s", ap_probe_status_name(run.status));
   /* And on which word, when the word is the point. A run that ends `ILLEGAL` is
    * a report that an opcode is missing, and the opcode is the one part of that
