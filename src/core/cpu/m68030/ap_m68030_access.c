@@ -174,7 +174,8 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
    * a byte of a page it had just successfully read. */
   if (board_inhibits && access->read_sized != NULL && size < 4u) {
     uint32_t narrow = 0;
-    if (!access->read_sized(access->context, physical, size, &narrow)) {
+    if (!access->read_sized(access->context, physical, function_code, size,
+                            &narrow)) {
       out.fault = true;
       return out;
     }

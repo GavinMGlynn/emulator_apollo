@@ -94,8 +94,13 @@ static bool inhibits_device(void *context, uint32_t address) {
   return (address & 0xFFF00000u) == (PAGE_FRAME & 0xFFF00000u);
 }
 
-static bool device_read_sized(void *context, uint32_t address, unsigned size,
+static bool device_read_sized(void *context, uint32_t address,
+                              uint8_t function_code, unsigned size,
                               uint32_t *out) {
+  /* The function code reaches a device now -- CPU space is not memory. This
+   * fake is memory, so it ignores it; `machine_suite` is where the CPU-space
+   * decode is exercised. */
+  (void)function_code;
   memory_t *memory = (memory_t *)context;
   memory->narrow_reads++;
   memory->last_narrow_address = address;

@@ -25,6 +25,7 @@
 #include "machine/ap_machine.h"
 #include "model/ap_model.h"
 #include "unity.h"
+#include "cpu/m68882/ap_m68882_cir.h"
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -2601,6 +2602,84 @@ static void test_the_interval_timer_agrees_with_the_machines_own_clock(void) {
   TEST_ASSERT_TRUE(instructions > 100u);
 }
 
+/* ---------------------------------------------------------------------------
+ * CPU space reaches the coprocessor, not memory.
+ * ------------------------------------------------------------------------- */
+
+/* `[030]` §7.4.3: function code 7 is CPU space, and `A19:A16` says what kind --
+ * `0010` is coprocessor communication, with the cpID in `A15:A13`. Both CIR
+ * maps have been complete for a while and **nothing could reach them**, because
+ * the machine's bus callbacks took a function code and discarded it: a `MOVES`
+ * with `SFC`/`DFC` = 7 landed on ordinary memory at the same number.
+ *
+ * This is `check_what_is_called_by_nobody`'s exact signature -- a green suite
+ * hiding a disconnected path, because the tests supplied the wiring the machine
+ * did not. */
+static void test_a_cpu_space_read_reaches_the_coprocessor(void) {
+  blank();
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+  ap_machine_reset(&m, PROGRAM, STACK);
+
+  /* CPU space, type field `0010`, cpID 1 -- the 68882's default. The type
+   * field puts every CIR above $20000, which is past this fixture's RAM, and
+   * that is the point: a cycle here must not be answered by memory at all. */
+  const uint32_t cir_address = 0x00022000u;
+  TEST_ASSERT_TRUE(ap_m68882_cir_selected(AP_M68030_FC_CPU_SPACE, cir_address,
+                                          AP_M68882_DEFAULT_CPID));
+
+  uint32_t value = 0u;
+  TEST_ASSERT_TRUE(m.cpu.data->read_sized(m.cpu.data->context, cir_address,
+                                          AP_M68030_FC_CPU_SPACE, 2u, &value));
+  /* It was answered, and by the coprocessor: an address this far outside RAM
+   * with no board fitted would otherwise fail outright. */
+  TEST_ASSERT_EQUAL_UINT(1u, m.coprocessor_cir_reads);
+  /* `[020]` Table 7-2: a register that cannot be read "always returns all
+   * ones", never zero, because zero is a legal value for most of these -- and
+   * all ones **at the register's own width**, which for the response CIR at
+   * $00 is sixteen bits. A flat 32-bit mask would be wrong for exactly the
+   * registers Table 7-2 gives as 16-bit. */
+  const ap_m68882_cir_t cir = ap_m68882_cir_select(cir_address);
+  TEST_ASSERT_EQUAL_UINT(16u, ap_m68882_cir_width(cir));
+  TEST_ASSERT_EQUAL_HEX32(0x0000FFFFu, value);
+  TEST_ASSERT_EQUAL_HEX32(ap_m68882_cir_unreadable_value(cir), value);
+}
+
+static void test_the_same_address_as_data_is_not_the_coprocessor(void) {
+  /* The address alone must not select it -- that is the whole reason the
+   * function code has to be carried. Read as supervisor *data*, the identical
+   * number is an ordinary access, which with no board fitted and no RAM there
+   * simply fails; what matters is that it did not reach a CIR. */
+  blank();
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+  ap_machine_reset(&m, PROGRAM, STACK);
+
+  const uint32_t cir_address = 0x00022000u;
+  TEST_ASSERT_FALSE(ap_m68882_cir_selected(AP_M68030_FC_SUPERVISOR_DATA,
+                                           cir_address,
+                                           AP_M68882_DEFAULT_CPID));
+
+  uint32_t value = 0u;
+  (void)m.cpu.data->read_sized(m.cpu.data->context, cir_address,
+                               AP_M68030_FC_SUPERVISOR_DATA, 2u, &value);
+  TEST_ASSERT_EQUAL_UINT(0u, m.coprocessor_cir_reads);
+}
+
+static void test_cpu_space_for_another_coprocessor_is_not_the_68882(void) {
+  /* The type field and the cpID both have to match. A breakpoint acknowledge
+   * shares the function code and another coprocessor shares the type field, so
+   * neither alone is enough -- which is what `ap_m68882_cir_selected` says and
+   * what the machine now relies on. */
+  TEST_ASSERT_FALSE(ap_m68882_cir_selected(AP_M68030_FC_CPU_SPACE, 0x00000000u,
+                                           AP_M68882_DEFAULT_CPID));
+  TEST_ASSERT_FALSE(ap_m68882_cir_selected(AP_M68030_FC_CPU_SPACE, 0x00020000u,
+                                           AP_M68882_DEFAULT_CPID));
+  /* cpID 0 is the 68851's, not the 68882's. */
+  TEST_ASSERT_FALSE(ap_m68882_cir_selected(AP_M68030_FC_CPU_SPACE, 0x00020000u,
+                                           AP_M68882_DEFAULT_CPID));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_interval_timer_agrees_with_the_machines_own_clock);
@@ -2664,5 +2743,8 @@ int main(void) {
   RUN_TEST(test_the_state_report_carries_the_clock_and_the_pc);
   RUN_TEST(test_a_bus_master_costs_the_processor_a_stall);
   RUN_TEST(test_a_machine_derives_its_cpu_features_from_its_model);
+  RUN_TEST(test_a_cpu_space_read_reaches_the_coprocessor);
+  RUN_TEST(test_the_same_address_as_data_is_not_the_coprocessor);
+  RUN_TEST(test_cpu_space_for_another_coprocessor_is_not_the_68882);
   return UNITY_END();
 }

@@ -335,9 +335,18 @@ typedef unsigned (*ap_m68030_wait_states_fn)(void *context, uint32_t physical,
 typedef bool (*ap_m68030_cache_inhibit_fn)(void *context, uint32_t address);
 
 /* A read of exactly `size` bytes at exactly `address`. See
- * `ap_m68030_access.h` for why a device needs one and memory does not. */
+ * `ap_m68030_access.h` for why a device needs one and memory does not.
+ *
+ * The **function code** is carried because a bus cycle is not addressed by its
+ * address alone. `[030]` §7.4.3: function code 7 is CPU space, and what the
+ * cycle then means comes from `A19:A16` -- `0000` breakpoint acknowledge,
+ * `0010` coprocessor communication, `1111` interrupt acknowledge. A board given
+ * only the address cannot tell a coprocessor interface register from ordinary
+ * memory at the same number, so it answers with memory, and the two CIR maps
+ * this core carries become unreachable. */
 typedef bool (*ap_m68030_read_sized_fn)(void *context, uint32_t address,
-                                        unsigned size, uint32_t *value);
+                                        uint8_t function_code, unsigned size,
+                                        uint32_t *value);
 
 typedef struct {
   ap_m68030_term_t termination; /* STERM, DSACK or BERR */

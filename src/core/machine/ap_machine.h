@@ -236,6 +236,10 @@ typedef struct {
   unsigned mmu_fault_site_count;
   unsigned mmu_fault_sites_dropped;
   unsigned mmu_faults;
+  /* CPU-space reads that reached a coprocessor interface register rather than
+   * memory. Diagnostic, and the observable that says the function code is
+   * being carried: before it was, this could only ever be zero. */
+  unsigned coprocessor_cir_reads;
 
   /* One logical address to watch for a *refusal* of, and whether it has
    * happened. An instruction that faults on one address, recovers, and faults

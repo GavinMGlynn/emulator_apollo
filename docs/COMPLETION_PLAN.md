@@ -5097,26 +5097,22 @@ same number is what let them diverge once already.
       otherwise byte-identical.* Detail in `PROJECT_STATUS.md`; `FINDINGS.md`
       C270.
 
-- [ ] **Two coprocessor interface register maps are modelled and nothing
-      reaches them — `[020]` §8.** Found 2026-09-09 by the `[020]` walk.
-      `ap_m68882_cir.*` and `ap_m68851_cir.*` are complete: Table 7-2's
-      don't-care select bits, the all-ones read of a write-only register, the
-      two CIRs the part does not implement. **Their only callers are their own
-      test suites** — `check_what_is_called_by_nobody`'s exact signature, which
-      CLAUDE.md names as its first audit check. **And nothing could call them**:
-      `ap_machine.c`'s bus callbacks take a `function_code` and discard it,
-      `(void)function_code;` twice, so the machine cannot tell a CPU-space cycle
-      from a data cycle, and a `MOVES` with `SFC`/`DFC` = 7 — `[030]` §7.4.3's
-      only route to a CIR outside the protocol — lands on ordinary memory.
-      *Not a defect in what runs*: family 1111 is dispatched functionally and
-      every host that **executes** coprocessor instructions is served. §8.5's
-      defaults confirm both IDs this core uses — `000` the MC68851, which "must
-      be coprocessor 0", and `001` the MC68881, which is
-      `AP_M68882_DEFAULT_CPID`.
-      *Verification: the function code reaches the board, a CPU-space read at
-      `A19:A16` = `0010` with `Cp-Id` 1 returns the 68882's response CIR rather
-      than memory, and the two suites' wiring comes from the machine.*
-
+- [x] **Two coprocessor interface register maps are modelled and nothing
+      reaches them — `[020]` §8. Done 2026-09-09: the function code now crosses
+      the bus.** Both maps were complete and unreachable, because the machine's
+      `read_sized` callback took an address and a size and no function code —
+      `check_what_is_called_by_nobody`'s exact signature, the tests supplying
+      the wiring the machine did not. `[030]` §7.4.3 makes function code 7 CPU
+      space and `A19:A16` the kind of cycle, so a board given only the address
+      cannot tell a CIR from memory at the same number. The callback now carries
+      it, and `ap_machine.c` decodes CPU space before deciding a cycle is
+      memory. *Verification: a CPU-space read at type field `0010` with cpID 1 reaches
+      the 68882 and is answered; the same address as supervisor **data** is not;
+      `coprocessor_cir_reads` counts what got through — met.* What is answered
+      is `PROVISIONAL`: this core executes coprocessor instructions
+      functionally, so every register returns all ones **at its own width**.
+      This closes the addressing, not the protocol. `machine_suite` 60 → 63.
+      Detail in `PROJECT_STATUS.md`.
 
 - [ ] **`E0007`: the kernel searches the tape for `bscom/rbak_shell` and does
       not find it.** What is left of the `28001E` item after 2026-09-09.

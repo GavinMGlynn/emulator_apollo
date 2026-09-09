@@ -7,6 +7,7 @@
 #include "cpu/m68030/ap_m68030_state.h"
 #include "board/ap_board.h"
 #include "board/ap_board_state.h"
+#include "cpu/m68882/ap_m68882_cir.h"
 
 /* Big endian throughout, matching the operand layer, so a long word written by
  * the operator reads back through an instruction as the same number. */
@@ -302,14 +303,51 @@ static bool machine_cache_inhibited(void *context, uint32_t address) {
   return ap_board_cache_inhibited(machine->board, address);
 }
 
+/* A read of one of the 68882's coprocessor interface registers.
+ *
+ * The part answers every cycle addressed to it, including the ones it cannot
+ * satisfy: `[020]` Table 7-2 makes a read of a write-only register "always
+ * return all ones", and the two CIRs this part does not implement read the same
+ * way. All ones rather than zero matters because zero is a legal value for most
+ * of these -- a driver could not tell it from data. */
+static bool machine_read_coprocessor_cir(ap_machine_t *machine,
+                                         uint32_t address, unsigned size,
+                                         uint32_t *value) {
+  const ap_m68882_cir_t cir = ap_m68882_cir_select(address);
+  machine->coprocessor_cir_reads++;
+  (void)size;
+  /* This core executes coprocessor instructions **functionally** rather than
+   * through the protocol, so there is no live CIR state to report: every
+   * register answers with the unreadable value. That is the honest answer for
+   * a part that is not driving the protocol, and it is `PROVISIONAL` -- a host
+   * that drove the protocol would need the real sequence, which is the
+   * coprocessor-protocol item and not this one. What this closes is the
+   * *addressing*: a CPU-space cycle now reaches the coprocessor instead of
+   * reading memory that happens to sit at the same number. */
+  *value = ap_m68882_cir_unreadable_value(cir);
+  return true;
+}
+
 /* A read of exactly `size` bytes at exactly `address`, for a device.
  *
  * Straight to the board, byte at a time, which is the only width its devices
  * have -- and *not* through the long-word helper the fill path uses, because
  * the whole point is not to touch the bytes either side. */
-static bool machine_read_sized(void *context, uint32_t address, unsigned size,
+static bool machine_read_sized(void *context, uint32_t address,
+                               uint8_t function_code, unsigned size,
                                uint32_t *value) {
   ap_machine_t *machine = (ap_machine_t *)context;
+
+  /* **CPU space is not memory, and the function code is the only thing that
+   * says so.** `[030]` §7.4.3 gives function code 7 to CPU space and then
+   * `A19:A16` to what kind: `0010` is coprocessor communication, and the cpID
+   * in `A15:A13` picks which coprocessor. Both maps are modelled -- see
+   * `cpu/m68882/ap_m68882_cir.h` and `cpu/m68851/ap_m68851_cir.h` -- and until
+   * the function code reached here nothing could select them, so a `MOVES`
+   * with `SFC`/`DFC` = 7 landed on ordinary memory at the same number. */
+  if (ap_m68882_cir_selected(function_code, address, AP_M68882_DEFAULT_CPID)) {
+    return machine_read_coprocessor_cir(machine, address, size, value);
+  }
   if (machine->board == NULL) {
     return false;
   }
