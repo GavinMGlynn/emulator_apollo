@@ -6062,21 +6062,15 @@ same number is what let them diverge once already.
         about. Detail in `PROJECT_STATUS.md`.
         Record: `docs/references/M68000_FAMILY_REFERENCE_WALK.md`.
   - [x] **`[020]` `MC68020_32-Bit_Microprocessor_Users_Manual_1984.pdf` —
-        walked whole, 452/452, 2026-09-09.** Record:
-        `docs/references/M68020_WALK.md`. The deferral this item carried was
-        false — three model rows declare `AP_CPU_M68020` and `ap_model.h` cites
-        this manual for values live in that table.
-        **Yield: one defect fixed and four divergences named.** `BFINS` set its
-        condition codes from the value it destroyed, found by Table A-1's
-        separate row and confirmed by `[PRM]` and Appendix B (`step_suite`
-        312 → 314). And four places where a row declaring a 68020 gets 68030
-        behaviour: the **CACR is four bits** not eleven; there are **five**
-        control registers not ten; the **long bus fault frame is 44 words** and
-        differently laid out; **vectors 48-63 are unassigned**.
-        *Also*: Appendix C settled `[PRM]` Table 2-4's mangled Alterable column
-        in favour of what this core had derived; Table 6-4's thirteen privileged
-        instructions all enforced; and Table 5-5's port-size cycle counts give
-        `ap_m68030_bus.c` a number to be checked against.
+        walked whole, 452/452, 2026-09-09.** The deferral this item carried was
+        false: three model rows declare `AP_CPU_M68020`. **One defect fixed** —
+        `BFINS` set its condition codes from the value it destroyed
+        (`step_suite` 312 → 314) — and **four divergences named**, all the same
+        shape: the CACR is four bits not eleven, there are five control
+        registers not ten, the long bus fault frame is 44 words and differently
+        laid out, and vectors 48-63 are unassigned. All four join the model
+        table's `.mmu` item. Record: `docs/references/M68020_WALK.md`; detail in
+        `PROJECT_STATUS.md`.
         *`[040]`'s two manuals (256 + 463) stay deferred: no 68040 core exists,
         and that is its own open item.*
   *Verification, per document: a coverage record in `docs/references/`, page

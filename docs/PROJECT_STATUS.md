@@ -645,6 +645,57 @@ Apollo Phase II Environment   Revision 10.4   Jan 25, 1992  12:59:03 pm
 and `bad rewind … 280002` are all gone: **the kernel acquires the drive and
 rewinds it.** What is left is a later failure with a different name.
 
+## `[020]` walked whole — 452 pages, one defect, four divergences (2026-09-09)
+
+Started because the plan's deferral was false. It read "Phase 2b and Phase 7
+parts … deferred until those processors are built" — and the 68020 *is* in the
+model table: `ap_model.c` has **three** rows `.cpu = AP_CPU_M68020`, and
+`ap_model.h` cites this manual's §7.1.1 and §1 for cache values live in that
+table. A part with rows in the model table is not a future part.
+
+**The citation audit set the expectation and was right.** `src/` mentions the
+68020 473 times and **six** cite this book with a place, so unlike `[030]` —
+where §7-§9 held 88 of 90 citations and were verification — there was almost
+nothing to lean on.
+
+**One defect, found and fixed.** `BFINS` set its condition codes from the field
+it overwrote rather than the value it inserted. Table A-1 gives it a row of its
+own for exactly that reason; `[PRM]` and Appendix B each say it independently.
+`step_suite` 312 → 314, both tests failing on the old code.
+
+**Four divergences, all the same shape** — a row declaring a 68020 gets 68030
+behaviour, because `ap_machine` builds an `ap_m68030_cpu_t` unconditionally:
+
+| | 68020 | this core |
+| --- | --- | --- |
+| CACR | 4 bits (`C`, `CE`, `F`, `E`) | 11 |
+| Control registers | 5 | 10 |
+| Long bus fault frame | 44 words, different layout | 46 |
+| Vectors 48-63 | all unassigned | `VECTOR_MMU_CONFIGURATION = 56` |
+
+All four sit on the model table's `.mmu` item, which is four registers wider
+than its title suggests.
+
+**A table settled that this core had deliberately refused to transcribe.**
+`ap_m68030_category.h` derived the addressing-mode categories from §2.3's prose
+because `[PRM]` Table 2-4's Alterable column "does not survive the scan".
+Appendix C's Table C-2 is that table from a different printing, its column is
+clean, and **it gives exactly what the derivation produced** — while carrying an
+error of its own (PC Indirect with Displacement as register `101` where Table
+2-3 and this core give `010`). Neither printing is transcribable whole, and the
+derivation was the right method.
+
+**One item opened**: two coprocessor interface register models,
+`ap_m68882_cir.*` and `ap_m68851_cir.*`, are complete and **nothing calls them**
+— `check_what_is_called_by_nobody`'s exact signature — because `ap_machine.c`'s
+bus callbacks discard the function code.
+
+*Two method notes worth carrying*: proving a page blank by pixel count recovered
+**two content pages** (§10's foldouts, bound 220 pages from §10) that both the
+text layer and the section ranges called empty; and the front matter's **List of
+Tables** is the coverage checklist every other walk record here uses and this one
+opened last. Record: `docs/references/M68020_WALK.md`.
+
 ## `BFINS` set its condition codes from the value it destroyed (2026-09-09)
 
 Found by the `[020]` walk, Appendix A. **Table A-1 gives `BFINS` a row of its
