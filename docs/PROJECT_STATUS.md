@@ -11181,7 +11181,54 @@ give an effective-address figure they agree.
 
 `ap_m68040_fp_exception.*` gains Table 3-3's operand errors, the `FSGLDIV`/
 `FSGLMUL` mapping and the transcendental divergence; `m68040_fp_exception_suite`
-16 -> 19. Also
+16 -> 19.
+
+**The first of the model table's six divergences is closed: the `CACR` is now
+the part's own width.** The `.mmu` item lists six places where a row declaring a
+68020 or a 68040 gets 68030 behaviour, because `ap_machine` builds an
+`ap_m68030_cpu_t` unconditionally. The fifth was the `CACR`: every `MOVEC` to it
+went through the 68030's eleven-bit `ap_m68030_cacr_write` whatever the part.
+The register is a different width on each of the three:
+
+| part | bits | layout | source |
+| --- | --- | --- | --- |
+| 68020 | 4 | `C`, `CE`, `F`, `E` at 3-0 | `[020]` Figure 7-2 |
+| 68030 | 11 | `WA`, `DBE`, `CD`, `CED`, `FD`, `ED`, `IBE`, `CI`, `CEI`, `FI`, `EI` | `[030]` Figure 6-3 |
+| 68040 | 2 | `DE` at **31**, `IE` at **15** | `[040]` Figure 4-4 |
+
+The 68020's four are the instruction cache's, which is the only cache it has;
+the 68030 adds a data-cache set at 13-8 and a burst enable at 4 and renames the
+low four with an `I`. The 68040 keeps neither set -- **two enable bits and
+nothing else**, no clear and no freeze, because `CINV` and `CPUSH` do that work.
+That is why §4.2 says "the `CINV` instruction must clear the caches before
+enabling them", and why §2.2.2.5 can say "setting an enable bit enables the
+associated cache **without affecting the state of any lines within the cache**"
+where the 68030's same register clears lines *during* the write.
+
+Two things about finding the 68040's layout. **§2.2.2.5 introduces the register
+and gives no bit positions** -- "the CACR contains two enable bits" and no
+figure. The positions are in **Figure 4-4, two sections away in §4.2**, which
+§2.2.2.5 does not cross-reference. And they are at **31 and 15**, not at the
+68030's 8 and 0, so the 68040's mapping onto this core's `ap_m68030_cacr_t` is
+by *meaning* rather than by position -- the one place in that file where that is
+true, and it is called out there.
+
+The mechanism was already expressible, which is what made this the divergence to
+take first: `CAAR` is refused on a 68040 from the same `MOVEC` page's footnotes,
+using `has_68040_mmu_registers`. The `CACR` needed a *variant* rather than a
+flag, because the register is resized and not gained or lost, with the 68030 as
+the zero value so a zero-initialised CPU stays the reference superset -- the
+same convention `has_68040_mmu_registers` follows, and for the reason
+`ap_m68030_step.h` already gives: "a flag whose safe default is the opposite of
+its siblings' is the shape that gets set wrong."
+
+`ap_cpu_features_t` gains `cacr_implemented_mask`, `ap_m68030_cpu_t` gains
+`cacr_variant`, and `ap_machine` derives the second from the first so the two
+cannot drift. `cache_suite` 30 -> 35 tests, including that a 68030 written
+through the variant path and through the plain one agree exactly -- the
+reference part must not have moved. **Five of the six divergences remain**, and
+the item stays open: the frame layout, the control-register count, vector 56 and
+the F-line-in-both-modes rule are still 68030 behaviour on every row. Also
 captured: Table 9-9's nine vectors, with the unimplemented *instruction* sharing
 vector 11 with the F-line illegal instruction and the handler distinguishing
 them by stack frame format (`$0` or `$2`); Table 9-10's unimplemented
@@ -13670,7 +13717,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
 | 68030 bus cycle state machine | working, including burst line fills | `bus_suite`, 25 tests, each citing `MC68030 User's Manual 3ed` ch. 7 (read, write and burst cycles) |
 | 68030 bus arbitration control unit | working: the five-state machine of `[030]` §7.7.4, the processor at lowest priority, both documented deferrals (a committed bus cycle, and a locked read-modify-write) and the single-wire BGACK-alone path. Figure 7-61 did not survive the scan and the states are recovered from the prose walking it; one edge is marked `INFERRED` in code against the two passages supporting it. The input synchroniser is `PROVISIONAL` | `arb_suite`, 16 tests, `MC68030 User's Manual 3ed` §7.7 |
-| 68030 on-chip instruction and data caches | working, including the bus-timing join: a hit costs 0 clocks, a burst line fill 5 | `cache_suite`, 30 tests and `bus_suite`, 25 tests, `MC68030 User's Manual 3ed` §6, §7.3.7 |
+| 68030 on-chip instruction and data caches | working, including the bus-timing join: a hit costs 0 clocks, a burst line fill 5 | `cache_suite`, 35 tests and `bus_suite`, 25 tests, `MC68030 User's Manual 3ed` §6, §7.3.7 |
 | 68030 integer ALU (results and condition codes) | working: ADD, SUB, CMP, AND, OR, EOR, NEG, NOT, and the shifts and rotates | `alu_suite`, 20 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-18; the byte space verified exhaustively |
 | 68030 exception taking (stack the frame, fetch the vector through the VBR, load the PC) | working for the four- and six-word frames and the throwaway frame, wired to divide-by-zero, `TRAP #N`, `TRAPV`, `CHK`, `ILLEGAL`, privilege violations, MMU configuration errors, **interrupts** and **trace**; **the fault frames now build and return**, wired to bus error (vector 2) on any faulted access -- **an instruction fetch included**, which `[030]` §7.5.1 defers until "it attempts to use that instruction word" and this core used to defer for ever -- and address error (vector 3) on a prefetch from an odd program counter; **the coprocessor mid-instruction frame (`$9`) now builds too**, wired to the main-detected protocol violation the source operand transfer raises, with its four INTERNAL REGISTER words written as zero and marked `PROVISIONAL`; **the interrupt M-bit second frame builds too** -- §8.1's throwaway frame, with the M bit cleared *before* A7 is read so the frame lands on the interrupt stack and not the master's, and with the stacked status register carrying S set as the manual specifies; only reset declines rather than approximating, which is correct, since reset stacks nothing | `step_suite` (10 of its tests), `exception_suite`, 16 tests, `[030]` §8.1 and Table 8-6 |
 | 68030 family `0000` size-11 escape (`CMP2`/`CHK2`/`CAS`/`CAS2`) | decoded; the opcode map now has no holes. Semantics open: `CAS`/`CAS2` need an indivisible read-modify-write | `bounds_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` |

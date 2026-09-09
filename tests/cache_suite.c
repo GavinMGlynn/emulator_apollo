@@ -9,6 +9,8 @@
  * indistinguishable, and those cost very different numbers of bus cycles.
  */
 
+#include <string.h>
+
 #include "cpu/m68030/ap_m68030_cache.h"
 #include "unity.h"
 
@@ -689,6 +691,124 @@ static void test_a_bus_error_on_a_fill_caches_nothing(void) {
       ap_m68030_cache_lookup(&cache, ADDRESS, FC_SUPERVISOR_DATA, &value));
 }
 
+/* ---------------------------------------------------------------------------
+ * The CACR is a different width on each of the three parts.
+ * ------------------------------------------------------------------------- */
+
+static void test_the_three_parts_implement_different_cacr_widths(void) {
+  /* `[020]` Figure 7-2: four bits, C/CE/F/E at 3-0, zero above. `[030]`
+   * Figure 6-3: eleven. `[040]` Figure 4-4: two, DE at 31 and IE at 15.
+   * This core ran all three through the 68030's eleven-bit write, which is the
+   * fifth divergence the model table's `.mmu` item lists. */
+  TEST_ASSERT_EQUAL_HEX32(0x0000000Fu, AP_M68030_CACR_MASK_68020);
+  TEST_ASSERT_EQUAL_HEX32(0x00003F1Fu, AP_M68030_CACR_MASK_68030);
+  TEST_ASSERT_EQUAL_HEX32(0x80008000u, AP_M68030_CACR_MASK_68040);
+  TEST_ASSERT_EQUAL_HEX32(
+      AP_M68030_CACR_MASK_68030,
+      ap_m68030_cacr_variant_mask(AP_M68030_CACR_VARIANT_68030));
+  /* The 68030 is the zero value, so a zero-initialised CPU is the superset. */
+  TEST_ASSERT_EQUAL_INT(0, (int)AP_M68030_CACR_VARIANT_68030);
+}
+
+static void test_a_68020_cannot_set_a_data_cache_bit_it_does_not_have(void) {
+  /* The 68020 has one cache. Writing all ones must leave only C, CE, F and E,
+   * and in particular must not enable a data cache the part lacks. */
+  ap_m68030_cacr_t cacr;
+  ap_m68030_cache_t icache;
+  ap_m68030_cache_t dcache;
+  memset(&cacr, 0, sizeof cacr);
+  memset(&icache, 0, sizeof icache);
+  memset(&dcache, 0, sizeof dcache);
+  ap_m68030_cacr_write_variant(&cacr, 0xFFFFFFFFu, &icache, &dcache, 0u,
+                               AP_M68030_CACR_VARIANT_68020);
+  TEST_ASSERT_TRUE(cacr.enable_instruction);
+  TEST_ASSERT_TRUE(cacr.freeze_instruction);
+  TEST_ASSERT_FALSE(cacr.enable_data);
+  TEST_ASSERT_FALSE(cacr.freeze_data);
+  TEST_ASSERT_FALSE(cacr.write_allocate);
+  TEST_ASSERT_FALSE(cacr.data_burst_enable);
+  TEST_ASSERT_FALSE(cacr.instruction_burst_enable);
+  /* And it reads back as four bits, not eleven. */
+  TEST_ASSERT_EQUAL_HEX32(
+      0x3u, ap_m68030_cacr_pack_variant(&cacr, AP_M68030_CACR_VARIANT_68020));
+}
+
+static void test_a_68030_still_gets_all_eleven(void) {
+  /* The reference superset is unchanged: this is the case the whole existing
+   * suite exercises, and the variant must not have narrowed it. */
+  ap_m68030_cacr_t cacr;
+  ap_m68030_cache_t icache;
+  ap_m68030_cache_t dcache;
+  memset(&cacr, 0, sizeof cacr);
+  memset(&icache, 0, sizeof icache);
+  memset(&dcache, 0, sizeof dcache);
+  ap_m68030_cacr_write_variant(&cacr, 0xFFFFFFFFu, &icache, &dcache, 0u,
+                               AP_M68030_CACR_VARIANT_68030);
+  TEST_ASSERT_TRUE(cacr.enable_instruction);
+  TEST_ASSERT_TRUE(cacr.enable_data);
+  TEST_ASSERT_TRUE(cacr.write_allocate);
+  TEST_ASSERT_TRUE(cacr.data_burst_enable);
+  TEST_ASSERT_TRUE(cacr.instruction_burst_enable);
+  /* Writing all ones through the variant path and through the plain one must
+   * agree for a 68030, or the variant has changed the reference part. */
+  ap_m68030_cacr_t direct;
+  ap_m68030_cache_t i2;
+  ap_m68030_cache_t d2;
+  memset(&direct, 0, sizeof direct);
+  memset(&i2, 0, sizeof i2);
+  memset(&d2, 0, sizeof d2);
+  ap_m68030_cacr_write(&direct, 0xFFFFFFFFu, &i2, &d2, 0u);
+  TEST_ASSERT_EQUAL_HEX32(ap_m68030_cacr_pack(&direct),
+                          ap_m68030_cacr_pack(&cacr));
+}
+
+static void test_a_68040_has_two_enable_bits_and_no_freeze(void) {
+  /* `[040]` Figure 4-4, and §2.2.2.5's "setting an enable bit enables the
+   * associated cache **without affecting the state of any lines within the
+   * cache**" -- so there is nothing to clear, and the freeze bits the 68030
+   * write acts on do not exist. */
+  ap_m68030_cacr_t cacr;
+  ap_m68030_cache_t icache;
+  ap_m68030_cache_t dcache;
+  memset(&cacr, 0, sizeof cacr);
+  memset(&icache, 0, sizeof icache);
+  memset(&dcache, 0, sizeof dcache);
+  ap_m68030_cacr_write_variant(&cacr, 0xFFFFFFFFu, &icache, &dcache, 0u,
+                               AP_M68030_CACR_VARIANT_68040);
+  TEST_ASSERT_TRUE(cacr.enable_instruction);
+  TEST_ASSERT_TRUE(cacr.enable_data);
+  TEST_ASSERT_FALSE(cacr.freeze_instruction);
+  TEST_ASSERT_FALSE(cacr.freeze_data);
+  TEST_ASSERT_FALSE(cacr.write_allocate);
+  /* And it reads back at 31 and 15, not at 8 and 0 -- the mapping is by
+   * meaning, not by position. */
+  TEST_ASSERT_EQUAL_HEX32(
+      0x80008000u,
+      ap_m68030_cacr_pack_variant(&cacr, AP_M68030_CACR_VARIANT_68040));
+}
+
+static void test_the_68040_enable_bits_are_independent(void) {
+  /* "Two enable bits that allow the instruction and data caches to be
+   * independently enabled or disabled." */
+  ap_m68030_cacr_t cacr;
+  ap_m68030_cache_t icache;
+  ap_m68030_cache_t dcache;
+  memset(&cacr, 0, sizeof cacr);
+  memset(&icache, 0, sizeof icache);
+  memset(&dcache, 0, sizeof dcache);
+  ap_m68030_cacr_write_variant(&cacr, UINT32_C(1) << AP_M68040_CACR_IE_BIT,
+                               &icache, &dcache, 0u,
+                               AP_M68030_CACR_VARIANT_68040);
+  TEST_ASSERT_TRUE(cacr.enable_instruction);
+  TEST_ASSERT_FALSE(cacr.enable_data);
+
+  ap_m68030_cacr_write_variant(&cacr, UINT32_C(1) << AP_M68040_CACR_DE_BIT,
+                               &icache, &dcache, 0u,
+                               AP_M68030_CACR_VARIANT_68040);
+  TEST_ASSERT_FALSE(cacr.enable_instruction);
+  TEST_ASSERT_TRUE(cacr.enable_data);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_address_splits_into_tag_line_and_long_word);
@@ -721,5 +841,10 @@ int main(void) {
   RUN_TEST(test_a_disabled_cache_pays_for_every_access);
   RUN_TEST(test_a_frozen_cache_fetches_but_does_not_keep);
   RUN_TEST(test_a_bus_error_on_a_fill_caches_nothing);
+  RUN_TEST(test_the_three_parts_implement_different_cacr_widths);
+  RUN_TEST(test_a_68020_cannot_set_a_data_cache_bit_it_does_not_have);
+  RUN_TEST(test_a_68030_still_gets_all_eleven);
+  RUN_TEST(test_a_68040_has_two_enable_bits_and_no_freeze);
+  RUN_TEST(test_the_68040_enable_bits_are_independent);
   return UNITY_END();
 }

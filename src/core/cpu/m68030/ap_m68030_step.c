@@ -3514,9 +3514,14 @@ static bool execute_control(ap_m68030_cpu_t *cpu,
         return true;
       case AP_M68030_CONTROL_CACR:
         /* The clears happen "at the time a MOVEC instruction loads a one into"
-         * the bit, so they are part of this write and use the CAAR index. */
-        ap_m68030_cacr_write(&cpu->cacr, value, cpu->fetch.access->cache,
-                             cpu->data->cache, cpu->caar);
+         * the bit, so they are part of this write and use the CAAR index --
+         * on the parts that *have* clears. The variant decides: a 68020's four
+         * bits are the 68030's instruction set at the same positions, and a
+         * 68040 has two enable bits and no clear or freeze at all. */
+        ap_m68030_cacr_write_variant(&cpu->cacr, value,
+                                     cpu->fetch.access->cache,
+                                     cpu->data->cache, cpu->caar,
+                                     cpu->cacr_variant);
         return true;
       case AP_M68030_CONTROL_USP:
         cpu->regs.usp = value;
@@ -3594,7 +3599,7 @@ static bool execute_control(ap_m68030_cpu_t *cpu,
       value = cpu->regs.dfc;
       break;
     case AP_M68030_CONTROL_CACR:
-      value = ap_m68030_cacr_pack(&cpu->cacr);
+      value = ap_m68030_cacr_pack_variant(&cpu->cacr, cpu->cacr_variant);
       break;
     case AP_M68030_CONTROL_USP:
       value = cpu->regs.usp;

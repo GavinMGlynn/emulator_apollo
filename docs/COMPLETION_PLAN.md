@@ -4898,13 +4898,18 @@ Only after the reference core is proven, and only under an identity harness.
       supervisor and **privilege violation** from user —
       `ap_m68030_coproc.h` documents that distinction and
       `ap_m68030_step.c` applies it unconditionally.
-      **And the fifth is that same first register a third time**: `[040]`
-      §2.2.2.5 gives the 68040's CACR as **two** enable bits, and every `MOVEC`
-      to `CACR` goes through the 68030's eleven-bit `ap_m68030_cacr_write`
-      whatever the part — so the register is wrong on a 68020 row *and* on a
-      68040 row. The neighbouring case shows the part-dependence is already
-      expressible: `CAAR` **is** refused on a 68040, from the same `MOVEC`
-      page's footnotes.
+      **The fifth is that same first register a third time — and it is now
+      CLOSED, 2026-09-09.** `[040]` §2.2.2.5 gives the 68040's CACR as **two**
+      enable bits and every `MOVEC` to `CACR` went through the 68030's
+      eleven-bit `ap_m68030_cacr_write` whatever the part. Fixed: the register
+      now takes a **variant** — four bits on a 68020 (`[020]` Figure 7-2),
+      eleven on a 68030, two on a 68040 (`[040]` **Figure 4-4**, which §2.2.2.5
+      does not cross-reference and which puts `DE` at **31** and `IE` at **15**,
+      so the mapping is by meaning not position). `ap_cpu_features_t` carries
+      the mask, `ap_machine` derives the variant from it, `cache_suite` 30 → 35
+      tests. Taken first because the part-dependence was already expressible —
+      `CAAR` **is** refused on a 68040, from the same `MOVEC` page's footnotes.
+      Detail in `PROJECT_STATUS.md`.
       Records: `docs/references/M68020_WALK.md`, `M68040_WALK.md`.
 
 - [ ] Real multi-node Domain workloads: distributed single-level store across

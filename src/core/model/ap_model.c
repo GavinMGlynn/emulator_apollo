@@ -1,6 +1,7 @@
 #include "model/ap_model.h"
 
 #include <string.h>
+#include "cpu/m68030/ap_m68030_cache.h"
 
 /* Sources for this table:
  *
@@ -354,6 +355,9 @@ ap_cpu_features_t ap_cpu_features(ap_cpu_t cpu) {
         .has_cache_maintenance = false,
         .has_68040_mmu_registers = false,
         .has_cache_address_register = true,
+        /* `[020]` Figure 7-2: C, CE, F, E at 3-0 and zero above. The four
+         * actions of the one cache this part has. */
+        .cacr_implemented_mask = AP_M68030_CACR_MASK_68020,
     };
   case AP_CPU_M68030:
     return (ap_cpu_features_t){
@@ -369,6 +373,9 @@ ap_cpu_features_t ap_cpu_features(ap_cpu_t cpu) {
         .has_cache_maintenance = false,
         .has_68040_mmu_registers = false,
         .has_cache_address_register = true,
+        /* `[030]` Figure 6-3: the 68020's four with an `I` suffix, plus a
+         * data-cache set at 13-8 and a burst enable at 4. */
+        .cacr_implemented_mask = AP_M68030_CACR_MASK_68030,
     };
   case AP_CPU_M68040:
     return (ap_cpu_features_t){
@@ -387,6 +394,10 @@ ap_cpu_features_t ap_cpu_features(ap_cpu_t cpu) {
         /* Lost, not gained: `M68000PRM`'s MOVEC table footnotes CAAR "For the
          * MC68020 and MC68030 only". */
         .has_cache_address_register = false,
+        /* `[040]` Figure 4-4: `DE` at 31 and `IE` at 15, everything else
+         * undefined. No clear and no freeze -- `CINV` and `CPUSH` do that,
+         * which is why §4.2 says the caches must be cleared before enabling. */
+        .cacr_implemented_mask = AP_M68030_CACR_MASK_68040,
     };
   }
   /* Unreachable for a valid `ap_cpu_t`; the 68030 is the reference superset. */

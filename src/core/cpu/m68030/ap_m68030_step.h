@@ -385,6 +385,12 @@ typedef struct {
    * gets that far. Diagnostic, and outside the state hash as every counter
    * here is. */
   uint64_t cache_maintenance_operations;
+  /* Which part's `CACR` this is. Not a `has_` flag because the register is not
+   * gained or lost but *resized*: four bits on a 68020, eleven on a 68030, two
+   * on a 68040. The 68030 is the zero value, so a zero-initialised CPU stays
+   * the reference superset. See `ap_m68030_cache.h` for the three layouts and
+   * for why the 68040's mapping is by meaning rather than by position. */
+  ap_m68030_cacr_variant_t cacr_variant;
   /* And the register the 68040 **lost** needs no third flag: `MOVEC` code
    * `$802` is CAAR on a 68020 and a 68030 and an illegal instruction on a
    * 68040, and it is the *same table* that adds the eight above and footnotes

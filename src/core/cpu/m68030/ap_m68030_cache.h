@@ -168,6 +168,53 @@ typedef struct {
   bool enable_instruction;       /* EI */
 } ap_m68030_cacr_t;
 
+/* Which part's `CACR` this is. The register is a different width on each of
+ * the three, and this core runs all three through `ap_m68030_cacr_write`:
+ *
+ *     68020  four bits   C, CE, F, E at 3-0        `[020]` Figure 7-2
+ *     68030  eleven bits WA, DBE, CD, CED, FD, ED, `[030]` Figure 6-3
+ *                        IBE, CI, CEI, FI, EI
+ *     68040  two bits    DE at 31, IE at 15        `[040]` Figure 4-4
+ *
+ * The 68020's four are the *instruction* cache's, which is the only cache it
+ * has; the 68030 adds a data-cache set at 13-8 and a burst enable at 4, and
+ * renames the low four with an `I` suffix. The 68040 keeps neither set: it has
+ * two enable bits and nothing else, and no clear or freeze at all -- `CINV` and
+ * `CPUSH` do that work, which is why §4.2 says "the CINV instruction must clear
+ * the caches before enabling them".
+ *
+ * `[040]` §2.2.2.5 introduces the register and gives no bit positions; Figure
+ * 4-4, two sections away in §4.2, is where they are. Read on the page image.
+ *
+ * The 68030 is the zero value so that a zero-initialised CPU is the reference
+ * superset, which is the same convention `has_68040_mmu_registers` follows and
+ * for the same reason: a flag whose safe default is the opposite of its
+ * siblings' is the shape that gets set wrong. */
+typedef enum {
+  AP_M68030_CACR_VARIANT_68030 = 0,
+  AP_M68030_CACR_VARIANT_68020,
+  AP_M68030_CACR_VARIANT_68040
+} ap_m68030_cacr_variant_t;
+
+/* The bits a write can set and a read can return, per part. */
+#define AP_M68030_CACR_MASK_68020 0x0000000Fu
+#define AP_M68030_CACR_MASK_68030 0x00003F1Fu
+#define AP_M68030_CACR_MASK_68040 0x80008000u
+
+/* `[040]` Figure 4-4. */
+#define AP_M68040_CACR_DE_BIT 31u
+#define AP_M68040_CACR_IE_BIT 15u
+
+/* `[020]` Figure 7-2: the same four actions as the 68030's instruction set,
+ * at the same bit positions, without the `I` suffix the 68030 adds once it has
+ * two caches to distinguish. */
+#define AP_M68020_CACR_C_BIT 3u
+#define AP_M68020_CACR_CE_BIT 2u
+#define AP_M68020_CACR_F_BIT 1u
+#define AP_M68020_CACR_E_BIT 0u
+
+[[nodiscard]] uint32_t ap_m68030_cacr_variant_mask(ap_m68030_cacr_variant_t v);
+
 [[nodiscard]] uint32_t ap_m68030_cacr_pack(const ap_m68030_cacr_t *cacr);
 
 /* Write CACR, performing the clear actions the write requests.
@@ -180,6 +227,25 @@ typedef struct {
 void ap_m68030_cacr_write(ap_m68030_cacr_t *cacr, uint32_t word,
                           ap_m68030_cache_t *instruction,
                           ap_m68030_cache_t *data, uint32_t caar);
+
+/* The same write, for a part whose `CACR` is not the 68030's. The value is
+ * masked to the variant's implemented bits before anything acts on it, so a
+ * 68020 cannot set a data-cache bit it does not have and a 68040 cannot set a
+ * freeze bit that does not exist on it.
+ *
+ * The 68040's two bits map onto `enable_instruction` and `enable_data`, which
+ * are the only two of the seven it has. Its `DE` and `IE` sit at 31 and 15
+ * rather than the 68030's 8 and 0, so the mapping is by *meaning*, not by
+ * position -- the one place in this file where that is true. */
+void ap_m68030_cacr_write_variant(ap_m68030_cacr_t *cacr, uint32_t word,
+                                  ap_m68030_cache_t *instruction,
+                                  ap_m68030_cache_t *data, uint32_t caar,
+                                  ap_m68030_cacr_variant_t variant);
+
+/* Pack for a part: the 68030's layout for the 68030 and 68020, and the 68040's
+ * two-bit layout for the 68040. */
+[[nodiscard]] uint32_t ap_m68030_cacr_pack_variant(
+    const ap_m68030_cacr_t *cacr, ap_m68030_cacr_variant_t variant);
 
 /* Whether the processor asserts CBREQ for this access — that is, whether a miss
  * asks the memory system for a whole line rather than one long word.

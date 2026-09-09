@@ -169,6 +169,37 @@ static uint32_t bit_at(bool set, unsigned position) {
   return set ? (UINT32_C(1) << position) : UINT32_C(0);
 }
 
+uint32_t ap_m68030_cacr_variant_mask(ap_m68030_cacr_variant_t v) {
+  switch (v) {
+  case AP_M68030_CACR_VARIANT_68020:
+    return AP_M68030_CACR_MASK_68020;
+  case AP_M68030_CACR_VARIANT_68040:
+    return AP_M68030_CACR_MASK_68040;
+  case AP_M68030_CACR_VARIANT_68030:
+    return AP_M68030_CACR_MASK_68030;
+  }
+  return AP_M68030_CACR_MASK_68030;
+}
+
+uint32_t ap_m68030_cacr_pack_variant(const ap_m68030_cacr_t *cacr,
+                                     ap_m68030_cacr_variant_t variant) {
+  if (variant == AP_M68030_CACR_VARIANT_68040) {
+    /* Two bits, by meaning rather than position: the 68040 has no freeze, no
+     * burst enable and no write allocate to report. */
+    uint32_t value = 0u;
+    if (cacr->enable_data) {
+      value |= UINT32_C(1) << AP_M68040_CACR_DE_BIT;
+    }
+    if (cacr->enable_instruction) {
+      value |= UINT32_C(1) << AP_M68040_CACR_IE_BIT;
+    }
+    return value;
+  }
+  /* The 68020's four bits are a subset of the 68030's layout at the same
+   * positions, so masking the 68030 pack gives the right answer for both. */
+  return ap_m68030_cacr_pack(cacr) & ap_m68030_cacr_variant_mask(variant);
+}
+
 uint32_t ap_m68030_cacr_pack(const ap_m68030_cacr_t *cacr) {
   /* CD, CED, CI and CEI are "always read as zero", so they are absent here
    * rather than stored and masked. */
@@ -207,6 +238,27 @@ void ap_m68030_cacr_write(ap_m68030_cacr_t *cacr, uint32_t word,
   if (instruction != NULL && ((word >> AP_M68030_CACR_CEI_BIT) & 1u) != 0u) {
     ap_m68030_cache_clear_entry(instruction, caar);
   }
+}
+
+void ap_m68030_cacr_write_variant(ap_m68030_cacr_t *cacr, uint32_t word,
+                                  ap_m68030_cache_t *instruction,
+                                  ap_m68030_cache_t *data, uint32_t caar,
+                                  ap_m68030_cacr_variant_t variant) {
+  if (variant == AP_M68030_CACR_VARIANT_68040) {
+    /* `[040]` §2.2.2.5: "setting an enable bit enables the associated cache
+     * **without affecting the state of any lines within the cache**." So there
+     * is nothing to clear and no cache to touch -- the opposite of the 68030,
+     * where the same register's clear bits act during the write. */
+    cacr->enable_data = (word & (UINT32_C(1) << AP_M68040_CACR_DE_BIT)) != 0u;
+    cacr->enable_instruction =
+        (word & (UINT32_C(1) << AP_M68040_CACR_IE_BIT)) != 0u;
+    return;
+  }
+  /* A 68020 write reaches the 68030 path with the bits it does not have masked
+   * away, which is what makes the clears and freezes it *does* have behave
+   * identically -- they are the same four bits at the same positions. */
+  ap_m68030_cacr_write(cacr, word & ap_m68030_cacr_variant_mask(variant),
+                       instruction, data, caar);
 }
 
 bool ap_m68030_cache_enabled(bool enable_bit, bool cache_disable,

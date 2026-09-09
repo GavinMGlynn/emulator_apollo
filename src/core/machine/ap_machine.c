@@ -593,6 +593,15 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
                                        features.has_cache_maintenance;
   machine->cpu.has_68040_mmu_registers =
       machine->model != NULL && features.has_68040_mmu_registers;
+  /* The `CACR` is *resized* by part rather than gained or lost, so it takes a
+   * variant and not a flag. Derived from the feature table's mask so the two
+   * cannot drift: `model_suite` asserts the mapping both ways. */
+  machine->cpu.cacr_variant =
+      features.cacr_implemented_mask == AP_M68030_CACR_MASK_68020
+          ? AP_M68030_CACR_VARIANT_68020
+          : (features.cacr_implemented_mask == AP_M68030_CACR_MASK_68040
+                 ? AP_M68030_CACR_VARIANT_68040
+                 : AP_M68030_CACR_VARIANT_68030);
   ap_m68882_reset(&machine->fpu);
   /* **Every model in the table has a coprocessor**, so attaching one is not the
    * approximation it was once recorded as. `ap_m68882.h` says "a DN3500 has a

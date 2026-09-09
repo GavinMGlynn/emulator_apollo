@@ -224,6 +224,12 @@ typedef struct {
    * flag rather than derived from the part, because it is the only entry in
    * that table that goes the other way and a reader will look for it. */
   bool has_cache_address_register;
+  /* The `CACR` bits this part implements. Not a `has_` flag: the register is
+   * resized rather than gained or lost -- four bits on a 68020, eleven on a
+   * 68030, two on a 68040 -- and `ap_m68030_cache.h` carries the three
+   * layouts. A model row declaring a part other than the 68030 was getting the
+   * 68030's eleven, which is what the `.mmu` item calls the fifth divergence. */
+  uint32_t cacr_implemented_mask;
 } ap_cpu_features_t;
 
 /* Derive the features of a CPU family. Total: every `ap_cpu_t` has an entry. */
