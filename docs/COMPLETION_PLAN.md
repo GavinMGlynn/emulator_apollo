@@ -4733,17 +4733,20 @@ discipline throughout.
       $7a400180.l, a6` on the not-equal path), and at `02B60` it tests
       `cmpa.l #$7a400000, a7` to ask whether it is running under the operating
       system's mapping. So 384 bytes is deliberate and not a value this core
-      produced — and the routine **fits**, using 382 of them.
-      *What does not fit is the sixty-byte access-error frame for a page fault
-      the firmware did not expect*, at `7A38139C`, whose pointer descriptor is
-      resident. **So the thing to explain is no longer the stack**: it is why
-      code running on the firmware's 384-byte stack touches a page the kernel
-      has not made resident.
-      *And control reaches the firmware by a call, not a vector*: the whole
-      256-entry table was read and **exactly one** entry points into the PROM's
-      mapping — vector 1, the reset PC. Domain/OS calls a service entry
-      directly, which is what `002398-04`'s thirteen entry points at ROM offset
-      `$100` are for. Detail in `PROJECT_STATUS.md`.
+      produced.
+      **Two claims recorded here are withdrawn**, both contradicted by the run's
+      own report: the routine does *not* fit (all 382 bytes are spent, and
+      `2F3C` = `MOVE.L #<data>,-(A7)` at `7A42D77A` with `A7` at `7A400002` runs
+      off the bottom), and *201* of the 256 vector entries point into the PROM,
+      not one — the one was a loose regex over the hex dump.
+      **Control reaches the firmware through `TRAP #15`.** The table is the
+      PROM's own 1 KB image relocated by `7FF40000`, with 55 entries taken by
+      Domain/OS; the kernel took `TRAP #0`–`#14` and left `#15` holding the
+      PROM's `7FF4041C`. `1 x vector 47` in the run, and the 384-byte stack
+      entered once at `7FF4092E`. `VBR+$100` is the service table, not vectors.
+      **So the open question is one question**: how kernel code (`7A40C1EC`)
+      comes to be running on the firmware's stack when it takes an ordinary
+      demand-paging fault. Detail in `PROJECT_STATUS.md`.
       **Five candidates are eliminated by measurement rather than argument**:
       the stack-pointer selection, the mapping, the register state, the fault
       kind, and the frame balance. Detail in `PROJECT_STATUS.md`.

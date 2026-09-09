@@ -2320,32 +2320,90 @@ stack from a base of `7A400000` where its own is `01000000`.
 and `7A400180` is the stack it uses when it is. So the 384-byte area is not a
 mistake and not a value this core produced — it is in the ROM, deliberately.
 
-*Which inverts the question one more time.* The routine **fits**: it used 382 of
-those 384 bytes. What does not fit is the sixty-byte access-error frame for a
-page fault the firmware did not expect to take — at `7A38139C`, whose pointer
-descriptor is resident, so the fault is at the page level.
+### Two claims of the previous entry are withdrawn, and the run report says why
 
-**So the thing to explain is no longer the stack at all.** It is why code
-running on the firmware's 384-byte stack touches a page the kernel has not made
-resident — and that is a question about the call, not about the 68040, the MMU,
-or the frame.
+Both were written from a summary rather than from the numbers, and the run's own
+report contradicts both. They are corrected here rather than deleted, because
+what makes them wrong is the interesting part.
 
-*And control reaches the firmware by a call, not by a vector.* The whole 256
-entry vector table was read at `--dump-logical 7A401000:0x400`, and **exactly
-one** entry points into the PROM's mapping: vector 1, the reset PC, at
-`7FF40000`. No exception the operating system installed routes into the
-firmware. So Domain/OS calls a PROM service entry directly — which is what
-`002398-04`'s thirteen named entry points at ROM offset `$100` are for — the
-firmware switches to its designated logical stack, and the fault happens with
-that stack current.
+**Withdrawn: "the routine fits, using 382 of those 384 bytes."** It does not
+fit. The report's last four lines are one sentence when read together:
 
-**That is where this session leaves it**, and the shape of the question changed
-five times getting here: a paging fault this core might be getting wrong, an
-exhausted stack, a misplaced stack, firmware running under the operating system,
-and finally a stack that is correct by design with a fault that should not
-happen inside it. *Every one of those transitions came from building an
-instrument rather than from reasoning further about the previous number, and
-three of them overturned conclusions already committed.*
+```
+stack 7A40   7A400180 down to 7A400002 (382 byte(s)), lowest at PC 7A42D77A
+stopped      FAULT on 2F3C
+final PC     7A42D77A
+a0-a7        ... 7A400002
+mmu faults   PC 7A42D77A  2 time(s)  7A3FFFFE-7A3FFFC6  invalid on write
+```
+
+`2F3C` is `MOVE.L #<data>,-(A7)`. With `A7` at `7A400002` that push writes
+`7A3FFFFE` — four bytes below the page the stack lives in, and that page is not
+resident. The processor then pushes the sixty-byte access-error frame, from
+`7A3FFFFE` down to `7A3FFFC6` — `7A400002 - 7A3FFFC6` is `$3C`, sixty exactly —
+and every byte of it is on the same absent page. **So the stack was spent, not
+sufficient**: all 382 bytes went, and the next four-byte push ran off the
+bottom. The frame is what the *second* fault is made of, not the first.
+
+*The `7A38139C` fault is a different fault and an earlier one.* `PC 7A40C1EC`,
+one time, invalid on write — an operating-system PC, not a firmware one. That is
+an ordinary demand-paging fault of the kind the kernel takes 132 times in this
+run and services. It is not the failure; it is plausibly what *starts* the
+failure, because servicing it is what spends the stack.
+
+**Withdrawn: "exactly one entry points into the PROM's mapping."** The dump
+holds **201**. The one came from a summary script matching a loose pattern
+against the hex rows and silently keeping a fraction of each — the trap
+`parse-hex-dumps-by-fixed-width` records, walked into with that note loaded. Re
+parsed by fixed column, the 1 KB at `01003000` reads as follows.
+
+### The live vector table is the boot PROM's own, relocated, with 55 entries taken
+
+Every longword of ROM `$000`–`$3FF` appears at `VBR+0` with `7FF40000` added,
+**except** the machine-type longword at `$100`, which is copied verbatim. 201 of
+the 256 entries still hold that relocated ROM value. Domain/OS replaced 55:
+vectors 0–11, 14, 24, 31–46, 48–55, 64 and 160–175.
+
+*What it kept is the finding.* The operating system took **TRAP #0 through
+TRAP #14** — vectors 32–46, all fifteen — and left **TRAP #15** holding the
+PROM's `7FF4041C`. One trap out of sixteen is not an oversight; it is the call
+gate. The run takes `1 x vector 47`, and the 384-byte stack region is entered
+`1 time(s)`, at PC `7FF4092E`. **So control reaches the firmware by a vector
+after all**, and by that one.
+
+The rest of the division of labour reads off the same diff:
+
+| entries | held by | what it means |
+| --- | --- | --- |
+| 2–11, 14, 24, 31 | Domain/OS | every processor exception the kernel can service |
+| 25–30 (autovectors 1–6) | the PROM, `7FF40418` | an autovectored interrupt lands in firmware |
+| 32–46 (`TRAP #0`–`#14`) | Domain/OS | the system-call gates |
+| **47 (`TRAP #15`)** | **the PROM, `7FF4041C`** | **the firmware call gate** |
+| 48–55 | Domain/OS | the floating-point exceptions |
+| 160–175 | Domain/OS | the vectored device interrupts actually taken |
+| all 183 others | the PROM, `7FF40418` | one catch-all |
+
+`$418` and `$41C` are both `bsr.b $44e`: two entry points two bytes apart into
+one dispatcher, which tells them apart by the return address it was called
+with — which is why a catch-all can serve 183 vectors and still name them.
+
+**And `VBR+$100` is not vectors at all.** It is the PROM service table, byte for
+byte the one at ROM offset `$100` with the base added to every entry:
+`000E000F`, then `7FF423B0 7FF4236E 7FF42C4E 7FF42DDE 7FF45112 7FF423C8
+7FF4059E 7FF42DEE 7FF427D0 7FF427EC 7FF427A8 7FF41C86 7FF40592`, then
+`7FF40000 7FF41790 7FF41CB8`. The machine-type word is `000E` — **14**, the SAU
+number that also names `/sau14` and the `MD14` banner. The vector table and the
+service table share a page because the ROM image they are both cut from is one
+1 KB block.
+
+**So the question is now sharp and it is one question**: the operating system
+calls the firmware through `TRAP #15`, the firmware switches `A7` to its own
+384-byte stack at `7FF4092C` (`movea.l a6, a7`, then `bsr.w $2478`), and while
+that stack is current, operating-system code at `7A40C1EC` takes a demand-paging
+fault — whose servicing needs more than the 382 bytes left. What has not been
+measured is *how* kernel code comes to run on that stack: the firmware calling
+back out, or a device interrupt arriving on it. Vectors 160 and 161 fire 151
+times in this run and nothing yet says none of them landed there.
 
 *Recorded without the tempting arithmetic.* A `$7` frame is 60 bytes and six
 would fill a 384-byte stack exactly, against 132 bus errors in the run — but 131
