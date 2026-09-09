@@ -4775,9 +4775,11 @@ Only after the reference core is proven, and only under an identity harness.
       select. The execution-core half is no longer the blocker — a DN5500 now
       runs and prints its firmware self-test (`FINDINGS.md` C256) — so this is
       the next increment of the 68040 item rather than a separate wait.
-      **And it is not only the MMU — the `[020]` walk is finding registers,
-      2026-09-09.** Three so far, each a case where a row declaring
-      `AP_CPU_M68020` would get 68030 behaviour: the **CACR is four bits**
+      **And it is not only the MMU — the processor walks are finding
+      registers, 2026-09-09.** **Five** so far, each a case where a row
+      declaring a part other than the 68030 gets 68030 behaviour, because
+      `ap_machine` builds an `ap_m68030_cpu_t` unconditionally. Four from
+      `[020]`: the **CACR is four bits**
       (`C`, `CE`, `F`, `E`) where the 68030's has eleven (`[020]` §7.1.2.1);
       there are **five** control registers, not ten, the 68030's five MMU
       registers being absent (`[020]` §1, Figure 1-3); and the **long bus
@@ -4790,7 +4792,14 @@ Only after the reference core is proven, and only under an identity harness.
       has one at `$36`; and
       **vectors 48-63 are all unassigned** (`[020]` Table 6-2) where this core
       defines `VECTOR_MMU_CONFIGURATION` at 56.
-      Record: `docs/references/M68020_WALK.md`.
+      **And the fifth is that same first register a third time**: `[040]`
+      §2.2.2.5 gives the 68040's CACR as **two** enable bits, and every `MOVEC`
+      to `CACR` goes through the 68030's eleven-bit `ap_m68030_cacr_write`
+      whatever the part — so the register is wrong on a 68020 row *and* on a
+      68040 row. The neighbouring case shows the part-dependence is already
+      expressible: `CAAR` **is** refused on a 68040, from the same `MOVEC`
+      page's footnotes.
+      Records: `docs/references/M68020_WALK.md`, `M68040_WALK.md`.
 
 - [ ] Real multi-node Domain workloads: distributed single-level store across
       nodes, `lcnode`, remote file access. *Verification: content finds what
@@ -6071,8 +6080,22 @@ same number is what let them diverge once already.
         laid out, and vectors 48-63 are unassigned. All four join the model
         table's `.mmu` item. Record: `docs/references/M68020_WALK.md`; detail in
         `PROJECT_STATUS.md`.
-        *`[040]`'s two manuals (256 + 463) stay deferred: no 68040 core exists,
-        and that is its own open item.*
+  - [ ] **`[040]` `MC68040_Users_Manual_1993.pdf` (463) and
+        `MC68040_Designers_Handbook_1990.pdf` (256) — started 2026-09-09, and
+        the deferral this item carried was false twice over.** It read "no
+        68040 core exists", which I repeated several times before checking.
+        `src/core/cpu/m68040/` holds **26 files** — registers, ATC, cache,
+        descriptors, FPU, FP pipeline and six timing modules — with **14 test
+        suites**, every header citing `MC68040 User's Manual (1993)` by section
+        and figure, several "transcribed from the page images". Two model rows
+        declare `.cpu = AP_CPU_M68040`. What does *not* exist is an instruction
+        **stepper**, which is the separate DN5500 item; the manual is already
+        being derived from.
+        *The citation audit, done first as this item requires*: 72 citations,
+        and **§10 Instruction Timings holds 56 of them** — so that section is
+        verification, the same shape `[030]`'s audit found, and §1, §2, §5, §6,
+        §7, §8, §12 and Appendices A-E are the unread part.
+        Record: `docs/references/M68040_WALK.md`.
   *Verification, per document: a coverage record in `docs/references/`, page
   by page, saying what each yielded — and every fact either implemented with
   a test or named as a `PROVISIONAL` gap.*
