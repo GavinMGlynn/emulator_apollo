@@ -1831,11 +1831,21 @@ SAU is 5 or 11, the tag **` M68K_4K `** eight bytes further on.
 
 The run agrees: `08/4@0`, then `08/4@8 @12 @16 … @44` — records 2..11 at **LBA
 4N, four 1056-byte sectors each** — where the DN3500 PROM on the *same volume*
-issues `08/1@2` … `08/1@11`. `--dump-mem 010FA800:0x1000` shows `010FB000`
-holding sector 8's offset `$20`, so the signature test lands in the middle of a
-DN3500 SYSBOOT. A DN3500 boot area is ten 1056-byte sectors with the Domain
-block header on each, signature at `+$30`, tag ` M68K    `; a DS5500's is ten
-raw 4096-byte pages at sectors 8..47, signature at `+$10`, tag ` M68K_4K `.
+issues `08/1@2` … `08/1@11`.
+
+**The record format is the same on both, and the first write-up of this said it
+was not.** `--dump-mem 010FA800:0x1000` shows `010FAFE0`–`010FAFFF` still
+holding the address-fill pattern and `010FB000` holding sector 8's offset `$20`:
+what reaches the record buffer is the sector's **payload**, past the 32-byte
+Domain block header. So both machines want the boot header at payload `+$00`,
+`SYSBOOT REV ` at payload `+$10` and the processor tag at payload `+$20`, and a
+DN3500 sector 2 carries all three at exactly those offsets.
+
+**The difference is the record-to-sector scale**: record N is sector N on a
+DN3500 and sector **4N** on a DS5500, so its record 2 is sector 8 — the fifth
+sector of this volume's ten-sector boot file, SYSBOOT's code rather than its
+header. And the tag differs, ` M68K_4K ` against ` M68K    `, so even placed
+correctly this boot file would be rejected — with the other message.
 
 **The 4K SYSBOOT is on the shelf** — on `019593-001`, on `019594-001`, and twice
 inside `dn3500-sr10.4-aa-kept.awd` itself, which is carrying the DS5500's

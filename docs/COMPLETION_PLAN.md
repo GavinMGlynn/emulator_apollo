@@ -4652,10 +4652,12 @@ discipline throughout.
       records from record 2 with a **page** of stride, and the page size is the
       machine's SAU number — `$200` for SAU 5, `$800` for SAU 11, **`$1000` for
       14** — so "records 2 thru B" is sectors **8..47, four sectors to a record**
-      where a DN3500 volume's SYSBOOT is sectors 2..11 of one sector each. It
-      then wants the signature at record 2 + `$10` (a DN3500 record has the
-      Domain block header first and carries it at `+$30`) and the processor tag
-      **` M68K_4K `** where a DN3500 install writes ` M68K    `. Measured three
+      where a DN3500 volume's SYSBOOT is sectors 2..11 of one sector each. The
+      record *format* is the same on both — what reaches the buffer is the
+      sector's payload, past the 32-byte Domain block header, so both want the
+      signature at payload `+$10` and the tag at payload `+$20`; the scale is
+      the difference, and so is the tag, **` M68K_4K `** where a DN3500 install
+      writes ` M68K    `. Measured three
       ways: the PROM disassembled at `0017F8`-`01958`, the run's own
       `08/4@0 @8 @12 … @44` against the DN3500's `08/1@2 … @11` on the *same*
       volume, and `--dump-mem 010FA800:0x1000` showing sector 8 where the check

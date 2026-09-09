@@ -16275,19 +16275,30 @@ is **sector 8 at its offset `0x20`**. The signature test at `010FB010` is
 therefore reading sector 8 + `0x30`, and sector 8 is the middle of a DN3500
 SYSBOOT rather than the start of a DS5500 one.
 
-### So the DS5500's boot area is a different area, and the tag is a different tag
+### So the boot area is the same shape and a different *place*, and the tag differs
 
-A DN3500 volume's SYSBOOT is ten **1056-byte** sectors, 2..11, each carrying the
-32-byte Domain block header, so its four header longwords are at `+$20` and
-`SYSBOOT REV ` at `+$30`:
+**The record format is not the difference, and a first reading of this said it
+was.** What lands at the record buffer is the sector's **payload**, past the
+32-byte Domain block header -- `010FAFE0`-`010FAFFF` still hold the address-fill
+pattern in the dump, so nothing was written below `010FB000` and the header was
+not transferred there. Both machines therefore want the four boot-header
+longwords at payload `+$00` and `SYSBOOT REV ` at payload `+$10`, which is what
+a DN3500 volume's sector 2 already carries:
 
-    block 2   a45a a7cd 3001 2345 ... 0013 d800 0013 d82a 0013 fe98 5075 d95e
-              5359 5342 4f4f 5420 5245 5620 0000 0000 204d 3638 4b20 2020 2000
-                          S Y S B O O T   R E V                M 6 8 K
+    sector 2  a45a a7cd 3001 2345 ...                      <- 32-byte block header
+      +$20    0013 d800 0013 d82a 0013 fe98 5075 d95e      <- payload +$00
+      +$30    5359 5342 4f4f 5420 5245 5620 0000 0000      <- payload +$10, "SYSBOOT REV "
+      +$40    204d 3638 4b20 2020 2000                     <- payload +$20, " M68K    "
 
-A DS5500's is ten **4096-byte** pages at sectors 8..47, raw, so the header
-longwords are at `+$00` and the signature at `+$10` -- which is exactly where
-`010FB010` points. And the tag it must carry is **` M68K_4K `**, not ` M68K    `.
+**The difference is the record-to-sector scale.** The DN3500 maps record N to
+sector N; the DS5500 maps record N to sector **4N** and reads four sectors. So
+its record 2 is sector **8** -- the *fifth* sector of this volume's ten-sector
+boot file, which is SYSBOOT's code and not its header -- and the signature test
+fails there.
+
+**And the tag differs too**, at payload `+$20`: the DS5500 requires
+**` M68K_4K `** where a DN3500 install writes ` M68K    `. So even placed
+correctly, this volume's boot file would be rejected -- with the *other* message.
 
 **That SYSBOOT exists and is on the shelf**, so this is procedure and not a
 missing artefact. ` M68K_4K ` appears with a full `SYSBOOT REV ` header on

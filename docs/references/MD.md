@@ -209,11 +209,15 @@ by the machine's SAU number — `5500_BOOT_A1631-80046_1-30-92.bin` at `0018BE`:
 | anything else, **14 included** | `$1000` | 10 |
 
 So on a DS5500 "records 2 thru B" is sectors **8 through 47**, four 1056-byte
-sectors to a record, and the good boot header the page speaks of is checked at
-record 2 + `$10` rather than + `$30` — the DS5500's boot area is raw pages with
-no Domain block header on them. The DN3500 PROM reads the same ten records as
-ten single sectors, 2..11. **Both are "records 2 thru B" and they are disjoint
-after sector 11.**
+sectors to a record, where the DN3500 PROM reads the same ten records as ten
+single sectors, 2..11. **Both are "records 2 thru B" and they are disjoint after
+sector 11.**
+
+The *format* of a record is the same on both, and a first reading of this said
+it was not: what reaches the record buffer is the sector's payload, past the
+32-byte Domain block header — measured, `010FAFE0`–`010FAFFF` is still unwritten
+after the read — so the good boot header the page speaks of is at payload `+$00`
+and the signature at payload `+$10` either way.
 
 The header must also carry a processor tag eight bytes past the signature, and
 on a machine that is not SAU 5 or SAU 11 the PROM requires **` M68K_4K `** where
