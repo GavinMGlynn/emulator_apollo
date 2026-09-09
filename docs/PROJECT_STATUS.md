@@ -1787,6 +1787,39 @@ The second reached the shell and ran nothing: trimming `md-shell.script` left
 completed command produces. Each cost a 45-minute run. Detail in `FINDINGS.md`
 C259.
 
+## §4.3's SELECTION state: the walk asked and nobody answered (2026-09-10)
+
+`OMTI_WALK.md` said of `[OMTI]` §4.3's six logical states — RESET, IDLE,
+SELECTION, COMMAND, DATA, STATUS — that *"whether the model represents these
+explicitly or implicitly is not yet checked, and should be, since the protocol
+is what the boot drives"*. Checked, and the answer is **five explicit and one
+implicit, on purpose**.
+
+`ap_omti_phase_t` has `IDLE`, `COMMAND`, `DATA_IN`, `DATA_OUT`, `STATUS` and
+`RESET` — DATA split by direction because Table 4-1 gives the two directions
+different ports — plus `EXECUTING`, which is not one of the six and is the drive
+positioning. **SELECTION is deliberately not a state**: the `SELECT (Function)`
+write does the whole of what §4.3 says happens in it, in one step, and §4.3
+gives selection no duration and no register value of its own, so there is
+nothing a host could observe while the controller sat in it. RESET fails that
+argument, which is why it *is* a state: p. 4-3 prints "The host must wait 100
+usec after a -RESET before issuing a SELECT" twice on one page.
+
+**The check found two untested behaviours, both of which the code's own comments
+argue for.** `ap_omti.c` says a model asserting only `BSY` "leaves the host
+waiting for a request that never comes" — and asserting only `BSY` was all
+`test_selecting_the_controller_makes_it_busy` measured. And §4.3's "The IDLE
+STATE is the only time the controller will respond to a select request" was
+tested only in its reset-window special case, not as the general rule, though
+the code implements the general rule and says why: a stray select part way
+through a descriptor block must not restart the sequence.
+
+*Verification: `omti_suite` 45 → 47. The first asserts `BSY`, `C/D` and `REQ`
+set with `I/O` clear and the phase COMMAND; the second sends two bytes of a
+six-byte block, a stray select, then the remaining four, and requires the block
+to complete on its original count.* The walk record now carries the answer above
+its original question.
+
 ## The Series 2500's control block was live state in no hash (2026-09-10)
 
 Found while adding a storage region beside it, and that is the whole story of

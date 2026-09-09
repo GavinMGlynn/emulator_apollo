@@ -304,10 +304,29 @@ address where the code holds an offset — exactly why it was recorded as
   register."
 
 **§4.3's six logical states** — RESET, IDLE, SELECTION, COMMAND, DATA, STATUS —
-are named as the sequence a host steps through. A grep for a matching state
-enumeration in `ap_omti.h` found none; **whether the model represents these
-explicitly or implicitly is not yet checked** and should be, since the protocol
-is what the boot drives.
+are named as the sequence a host steps through.
+
+**CHECKED 2026-09-10, and the answer is five explicit and one implicit.**
+`ap_omti_phase_t` has `IDLE`, `COMMAND`, `DATA_IN`, `DATA_OUT`, `STATUS` and
+`RESET` — §4.3's DATA split by direction, since Table 4-1 gives the two
+directions different ports — plus `EXECUTING`, which is not one of the six and
+is the drive positioning. **`SELECTION` is deliberately not a state.** The
+`SELECT (Function)` write does the whole of what §4.3 says happens in it, in one
+step and with the passage quoted at the site: assert `BSY`, set `C/D`, set
+`REQ`, leave `I/O` clear, enter COMMAND — and §4.3 gives selection **no
+duration and no register value of its own**, so there is nothing a host could
+observe while the controller sat in it. That is exactly the argument RESET
+fails: p. 4-3 prints "The host must wait 100 usec after a -RESET before issuing
+a SELECT" *twice on one page*, so RESET is a state with a length and needed
+somewhere to hang `AP_OMTI_RESET_TIME`. §4.3's other rule is modelled too —
+"The IDLE STATE is the only time the controller will respond to a select
+request", so a select in any other phase returns without effect.
+
+*Original text, kept because it is what the row asked:* “A grep for a matching
+state enumeration in `ap_omti.h` found none; **whether the model represents
+these explicitly or implicitly is not yet checked** and should be, since the
+protocol is what the boot drives.” — the grep was for the *word*, and the enum
+was `ap_omti_phase_t`, named for Table 4-2's `C/D` bit rather than for §4.3.
 
 Two things to carry forward:
 

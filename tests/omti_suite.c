@@ -86,6 +86,57 @@ static void test_selecting_the_controller_makes_it_busy(void) {
                              AP_OMTI_ST_BSY);
 }
 
+/* `[OMTI]` §4.3's SELECTION STATE in full, and the reason the test above is not
+ * enough: "the controller responds to a selection request by asserting the BSY
+ * bit ... First, the C/D bit of the STATUS register is set. Then the REQ bit is
+ * set, asking for the first command byte to be written to the DATA OUT register
+ * in BYTE mode."
+ *
+ * `ap_omti.c` says in as many words that "a model asserting only `BSY` leaves
+ * the host waiting for a request that never comes" -- and asserting only `BSY`
+ * is all the test above measured. `I/O` must stay clear: the transfer is *to*
+ * the controller. */
+static void test_selecting_the_controller_asks_for_the_first_command_byte(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+  wait_out_reset(&o);
+
+  ap_omti_disk_write(&o, AP_OMTI_DISK_CONFIG, 0x00);
+  const uint8_t status = ap_omti_disk_read(&o, AP_OMTI_DISK_STATUS);
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_ST_BSY, status & AP_OMTI_ST_BSY);
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_ST_CD, status & AP_OMTI_ST_CD);
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_ST_REQ, status & AP_OMTI_ST_REQ);
+  TEST_ASSERT_EQUAL_HEX8(0u, status & AP_OMTI_ST_IO);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_COMMAND, ap_omti_disk_phase(&o));
+}
+
+/* "The IDLE STATE is the only time the controller will respond to a select
+ * request" -- §4.3, and the general rule of which the reset-window refusal
+ * below is one case. A stray select part way through a descriptor block must
+ * not restart the sequence, or a driver's spurious write would silently discard
+ * a command it had half sent and the next byte would land at offset one. */
+static void test_a_select_part_way_through_a_command_is_ignored(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+  wait_out_reset(&o);
+
+  ap_omti_disk_write(&o, AP_OMTI_DISK_CONFIG, 0x00);
+  /* Two bytes of a six-byte descriptor block, then the stray select. */
+  ap_omti_disk_write(&o, AP_OMTI_DISK_DATA, 0x08u); /* READ */
+  ap_omti_disk_write(&o, AP_OMTI_DISK_DATA, 0x00u);
+  ap_omti_disk_write(&o, AP_OMTI_DISK_CONFIG, 0x00);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_COMMAND, ap_omti_disk_phase(&o));
+
+  /* And the block still completes on its original byte count: four more bytes
+   * finish it. If the select had restarted the sequence the controller would
+   * still be collecting here. */
+  ap_omti_disk_write(&o, AP_OMTI_DISK_DATA, 0x00u);
+  ap_omti_disk_write(&o, AP_OMTI_DISK_DATA, 0x00u);
+  ap_omti_disk_write(&o, AP_OMTI_DISK_DATA, 0x01u);
+  ap_omti_disk_write(&o, AP_OMTI_DISK_DATA, 0x00u);
+  TEST_ASSERT_NOT_EQUAL_INT(AP_OMTI_PHASE_COMMAND, ap_omti_disk_phase(&o));
+}
+
 static void test_the_reset_port_is_a_function_not_a_store(void) {
   ap_omti_t fresh;
   ap_omti_t used;
@@ -1382,6 +1433,8 @@ int main(void) {
   RUN_TEST(test_the_measured_fixed_disk_ports_are_reproduced);
   RUN_TEST(test_the_status_bits_seven_and_six_cannot_be_cleared);
   RUN_TEST(test_selecting_the_controller_makes_it_busy);
+  RUN_TEST(test_selecting_the_controller_asks_for_the_first_command_byte);
+  RUN_TEST(test_a_select_part_way_through_a_command_is_ignored);
   RUN_TEST(test_a_reset_controller_is_not_idle_for_one_hundred_microseconds);
   RUN_TEST(test_a_select_inside_the_reset_window_is_refused);
   RUN_TEST(test_writing_the_reset_register_restarts_the_hundred_microseconds);
