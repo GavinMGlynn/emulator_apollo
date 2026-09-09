@@ -4191,6 +4191,49 @@ static void test_the_68040s_control_registers_are_reached_by_movec(void) {
   TEST_ASSERT_EQUAL_HEX32(0u, n.cpu.caar);
 }
 
+/* **Does a faulted push leave `A7` decremented?** The two parts answer
+ * differently, and the difference is the whole reason the 68040 has a 30-word
+ * frame where the 68030 has a 46-word one.
+ *
+ * `[040]`: the part **restarts** a faulted access, so the registers must look
+ * as they did before the instruction. `[030]`: it **continues** one, and the
+ * long frame carries the half-done instruction's internal state instead -- so
+ * a decremented `A7` is correct there and the handler resumes into it.
+ *
+ * This core is a 68030 sequencer. The question this test asks is what it
+ * actually does, on the machine that now takes `$7` frames. */
+static void test_a_faulted_push_and_what_it_leaves_in_a7(void) {
+  /* MOVE.L D0,-(A7) */
+  static const uint16_t program[] = {0x2F00u, 0x4E71u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_BUS_ERROR, HANDLER);
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.frame_variant = AP_M68030_FRAME_VARIANT_68040;
+
+  /* A7 four bytes above the bus-error boundary, so the push is the first
+   * access that cannot complete. The exception's own frame push is below it
+   * and would fault too, which is the double fault a DS5500 ends on -- so the
+   * vector is planted and the stack pointer for the *frame* is elsewhere. */
+  m.memory.berr_from = 0x0000C000u;
+  ap_m68030_write_a7(&m.cpu.regs, 0x0000C004u);
+
+  const ap_m68030_step_result_t r = ap_m68030_step(&m.cpu);
+  (void)r;
+  /* **Unchanged, which is the 68040-correct answer.** The predecrement is not
+   * committed when the write faults, so a handler taking a `$7` frame sees the
+   * registers the instruction started with -- the restart contract that frame
+   * implies is kept, and this core did not have to be changed to keep it.
+   *
+   * *Recorded as a candidate eliminated by measurement.* A DS5500 running
+   * Domain/OS double-faults pushing an access-error frame onto the page it just
+   * faulted on, and "the registers are stale because a 68030 sequencer
+   * continues where a 68040 restarts" was the standing explanation for it. It
+   * is wrong: `A7` is right, and the double fault is what pushing sixty bytes
+   * into an unmapped page does on either part. */
+  TEST_ASSERT_EQUAL_HEX32(0x0000C004u, ap_m68030_read_a7(&m.cpu.regs));
+}
+
 /* **`PFLUSHA`, the first 68040 instruction Domain/OS asks this core for.**
  *
  * A DS5500 loading `/sau14/domain_os` off the SR10.4 cartridge executes `F518`
@@ -9923,6 +9966,7 @@ int main(void) {
   RUN_TEST(test_the_68040s_control_registers_are_reached_by_movec);
   RUN_TEST(test_the_68040s_cache_instructions_execute_only_on_a_68040);
   RUN_TEST(test_the_68040s_pflush_executes_only_where_it_has_an_mmu);
+  RUN_TEST(test_a_faulted_push_and_what_it_leaves_in_a7);
   RUN_TEST(test_movec_is_privileged);
   RUN_TEST(test_stop_loads_the_status_register_and_then_halts_fetching);
   RUN_TEST(test_a_traced_stop_loads_the_sr_but_never_stops);
