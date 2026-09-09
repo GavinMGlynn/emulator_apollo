@@ -6906,6 +6906,18 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
      * identification (CpID) as the corresponding instructions of the
      * MC68851", so the 68030's own MMU sits at cpID 0 in family 1111. */
     if (coproc->is_mmu && coproc->type == AP_M68030_CP_GENERAL) {
+      /* **On a 68040 there is no privilege distinction and no execution.**
+       * `[040]` §3.7.3: "All MMU opcodes for the MC68030 and MC68851 cause
+       * F-line unimplemented instruction exceptions if executed in **either
+       * supervisor or user mode** by the M68040." That part reaches its MMU
+       * through `MOVEC`, not through this opcode family, so the family is
+       * simply unimplemented on it -- and unimplemented in a way a *user*
+       * program can observe, which is the only one of the model table's six
+       * divergences that is visible from user state. */
+      if (cpu->has_68040_mmu_registers) {
+        cpu->pending_vector = AP_M68030_VECTOR_LINE_F;
+        break;
+      }
       /* Every MMU instruction is privileged, and the vector an *unsupported*
        * one takes depends on the privilege state: F-line from supervisor,
        * privilege violation from user. Reporting F-line in both would let a

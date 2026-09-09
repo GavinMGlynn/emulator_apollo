@@ -4553,6 +4553,96 @@ static void test_a_reserved_displacement_size_is_not_a_null_one(void) {
  * is added to PS and IS. The total must be 32." */
 #define CONSISTENT_TC 0x80808880u
 
+/* **On a 68040 the whole MMU opcode family is F-line, in either mode.**
+ *
+ * `[040]` §3.7.3: "All MMU opcodes for the MC68030 and MC68851 cause F-line
+ * unimplemented instruction exceptions if executed in **either supervisor or
+ * user mode** by the M68040." That part reaches its MMU through `MOVEC`, so
+ * this family is simply unimplemented on it.
+ *
+ * This is the one of the model table's six divergences a **user program** can
+ * observe: the same word takes vector 8 on a 68030 row and vector 11 on a
+ * 68040 row, and nothing privileged is needed to tell them apart. */
+static void test_a_68040_takes_f_line_for_pmove_from_supervisor_state(void) {
+  /* PMOVE (A0),TC -- valid on a 68030, unimplemented here. */
+  static const uint16_t program[] = {0xF010u, 0x4000u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.has_68040_mmu_registers = true;
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.a[0] = 0x00005000u;
+  write_ram_long(&m, 0x00005000u, CONSISTENT_TC);
+  plant_vector(&m, AP_M68030_VECTOR_LINE_F, HANDLER);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION,
+                        ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  /* And it did not execute: the TC is untouched, where the 68030 test above
+   * writes it from the same word. */
+  TEST_ASSERT_FALSE(m.cpu.tc.enable);
+}
+
+static void test_a_68040_takes_f_line_for_pmove_from_user_state_too(void) {
+  /* The same word from user state. A 68030 answers with a privilege violation
+   * -- vector 8 -- and a 68040 with F-line, and that difference is the whole
+   * point of §3.7.3's "either supervisor or user mode". */
+  static const uint16_t program[] = {0xF010u, 0x4000u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.has_68040_mmu_registers = true;
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.sr = 0u; /* user state */
+  m.cpu.regs.a[0] = 0x00005000u;
+  plant_vector(&m, AP_M68030_VECTOR_LINE_F, HANDLER);
+  plant_vector(&m, AP_M68030_VECTOR_PRIVILEGE_VIOLATION, HANDLER + 0x100u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION,
+                        ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+
+  /* The same program on a 68030 takes the *other* vector, which is what makes
+   * this observable rather than a distinction without a difference. */
+  machine_t n = {0};
+  load(&n, program, 4);
+  n.cpu.regs.sr = 0u;
+  n.cpu.regs.isp = SUPERVISOR_STACK;
+  n.cpu.regs.a[0] = 0x00005000u;
+  plant_vector(&n, AP_M68030_VECTOR_LINE_F, HANDLER);
+  plant_vector(&n, AP_M68030_VECTOR_PRIVILEGE_VIOLATION, HANDLER + 0x100u);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION,
+                        ap_m68030_step(&n.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER + 0x100u, n.cpu.regs.pc);
+}
+
+static void test_vector_56_is_unreachable_on_a_68040(void) {
+  /* `[040]` Table 8-1 says of vector 56: "Defined for MC68030 and MC68851,
+   * **not used by M68040**". This core defines it for every part, which the
+   * model table's `.mmu` item lists as the fourth divergence.
+   *
+   * It is closed by the F-line rule above rather than by a second check: the
+   * only two sites that raise vector 56 are inside `execute_pmove`, and a
+   * 68040 never reaches `execute_mmu` at all. So the vector is unreachable
+   * **by construction**, which is a better closure than a guard would be --
+   * there is no path left to guard. */
+  static const uint16_t program[] = {0xF010u, 0x4C00u, 0x4E71u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  m.cpu.has_68040_mmu_registers = true;
+  m.cpu.regs.isp = SUPERVISOR_STACK;
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.a[0] = 0x00005000u;
+  /* An inconsistent TC is what raises vector 56 on a 68030. */
+  write_ram_long(&m, 0x00005000u, 0x80000000u);
+  plant_vector(&m, AP_M68030_VECTOR_LINE_F, HANDLER);
+  plant_vector(&m, AP_M68030_VECTOR_MMU_CONFIGURATION, HANDLER + 0x200u);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION,
+                        ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, m.cpu.regs.pc);
+  TEST_ASSERT_NOT_EQUAL_HEX32(HANDLER + 0x200u, m.cpu.regs.pc);
+}
+
 /* "PMOVE <ea>,MRn" then "PMOVE MRn,<ea>": the round trip, because a write to
  * the wrong register and a read from the same wrong one agree with each other
  * and with nothing else. */
@@ -9744,6 +9834,9 @@ int main(void) {
   RUN_TEST(test_ptest_at_level_zero_reports_whether_the_atc_has_it);
   RUN_TEST(test_a_level_zero_ptest_cannot_ask_for_a_descriptor_address);
   RUN_TEST(test_a_table_search_ptest_leaves_the_atc_alone);
+  RUN_TEST(test_a_68040_takes_f_line_for_pmove_from_supervisor_state);
+  RUN_TEST(test_a_68040_takes_f_line_for_pmove_from_user_state_too);
+  RUN_TEST(test_vector_56_is_unreachable_on_a_68040);
   RUN_TEST(test_pmove_writes_and_reads_the_translation_control_register);
   RUN_TEST(test_a_root_pointer_reads_back_the_type_that_was_written);
   RUN_TEST(test_the_same_p_register_field_names_two_different_registers);

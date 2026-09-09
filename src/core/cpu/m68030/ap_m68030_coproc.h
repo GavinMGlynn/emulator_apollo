@@ -116,4 +116,20 @@ typedef struct {
 [[nodiscard]] unsigned ap_m68030_coproc_unsupported_vector(
     const ap_m68030_coproc_t *coproc, bool supervisor);
 
+/* The same question for a part whose MMU is not reached this way at all.
+ *
+ * `[040]` §3.7.3: "All MMU opcodes for the MC68030 and MC68851 cause F-line
+ * unimplemented instruction exceptions if executed in **either supervisor or
+ * user mode** by the M68040." So on that part the privilege distinction above
+ * does not exist -- the 68040 reaches its MMU through `MOVEC` and this opcode
+ * family is unimplemented on it, in both modes.
+ *
+ * That makes it the one divergence in the model table's list that a **user
+ * program** can observe: on a 68030 row a user-mode `PMOVE` takes vector 8, on
+ * a 68040 row it takes vector 11, and nothing privileged is needed to tell
+ * them apart. */
+[[nodiscard]] unsigned ap_m68030_coproc_unsupported_vector_for_part(
+    const ap_m68030_coproc_t *coproc, bool supervisor,
+    bool mmu_reached_by_movec);
+
 #endif /* APOLLO_CPU_M68030_AP_M68030_COPROC_H */

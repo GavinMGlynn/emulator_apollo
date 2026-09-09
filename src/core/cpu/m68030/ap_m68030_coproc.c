@@ -49,3 +49,19 @@ unsigned ap_m68030_coproc_unsupported_vector(const ap_m68030_coproc_t *coproc,
   return supervisor ? AP_M68030_VECTOR_LINE_F
                     : AP_M68030_VECTOR_PRIVILEGE_VIOLATION;
 }
+
+unsigned ap_m68030_coproc_unsupported_vector_for_part(
+    const ap_m68030_coproc_t *coproc, bool supervisor,
+    bool mmu_reached_by_movec) {
+  if (!mmu_reached_by_movec) {
+    return ap_m68030_coproc_unsupported_vector(coproc, supervisor);
+  }
+  /* A part that reaches its MMU through `MOVEC` -- the 68040. `[040]` §3.7.3
+   * makes the whole MC68030/MC68851 opcode family F-line "in either supervisor
+   * or user mode", so the privilege state stops mattering. A non-MMU
+   * coprocessor is unaffected: it was already F-line in both modes. */
+  if (!coproc->is_mmu) {
+    return ap_m68030_coproc_unsupported_vector(coproc, supervisor);
+  }
+  return AP_M68030_VECTOR_LINE_F;
+}

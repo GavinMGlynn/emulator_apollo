@@ -4841,7 +4841,7 @@ Only after the reference core is proven, and only under an identity harness.
       neither exists — and the DN5500 stops at `cinva`, its second instruction,
       which is the **68040 execution core** item. Detail in `PROJECT_STATUS.md`.
 
-- [ ] **The model table's `.mmu`, which the machine does not honour.**
+- [ ] **The model table's `.mmu`, which the machine does not honour.** *Three of the six divergences closed 2026-09-09; three remain.*
       *Retitled 2026-09-09: this was "the DS5500's three addendum registers, and
       the model table's `.mmu`", and **two of the three registers were already
       built**.* Checked in the source rather than inferred, which is the rule
@@ -4885,19 +4885,25 @@ Only after the reference core is proven, and only under an identity harness.
       has one at `$36`; and
       **vector 56 is not this part's** — `[020]` Table 6-2 leaves 48-63
       unassigned and `[040]` Table 8-1 says of 56 "Defined for MC68030 and
-      MC68851, **not used by M68040**", where this core defines
-      `VECTOR_MMU_CONFIGURATION` there for every part. *Refined 2026-09-09*:
+      MC68851, **not used by M68040**", where this core defined
+      `VECTOR_MMU_CONFIGURATION` there for every part. **CLOSED 2026-09-09 by
+      the sixth divergence below**, not on its own: a 68040 no longer reaches
+      `execute_pmove`, which holds both of the vector's raisers. *Refined 2026-09-09*:
       the neighbouring 48-55 are **not** a divergence — `[040]` assigns them to
       floating-point exceptions and this core already names 48-54 from `[881]`,
       so the 68020's "unassigned" is the processor leaving them for a
       coprocessor to define.
-      **A sixth, and the first a *user program* could observe**: `[040]`
-      §3.7.3 says the 68030's and 68851's MMU instructions "cause F-line
-      unimplemented instruction exceptions if executed in **either supervisor
-      or user mode** by the M68040", where the 68030 takes F-line from
-      supervisor and **privilege violation** from user —
-      `ap_m68030_coproc.h` documents that distinction and
-      `ap_m68030_step.c` applies it unconditionally.
+      **A sixth, the first a *user program* could observe — CLOSED 2026-09-09,
+      and it closed the fourth with it.** `[040]` §3.7.3: the 68030's and
+      68851's MMU instructions "cause F-line unimplemented instruction
+      exceptions if executed in **either supervisor or user mode** by the
+      M68040", where the 68030 takes F-line from supervisor and **privilege
+      violation** from user. The gate now refuses the whole opcode family on a
+      68040 before `execute_mmu` runs, and `step_suite` runs the identical
+      program on both rows and asserts vector 11 against vector 8. **Vector 56
+      fell out of it**: its only two raisers are inside `execute_pmove`, which a
+      68040 no longer reaches, so it is unreachable by construction rather than
+      by a second guard. `step_suite` 314 → 317. Detail in `PROJECT_STATUS.md`.
       **The fifth is that same first register a third time — and it is now
       CLOSED, 2026-09-09.** `[040]` §2.2.2.5 gives the 68040's CACR as **two**
       enable bits and every `MOVEC` to `CACR` went through the 68030's
