@@ -4441,6 +4441,20 @@ discipline throughout.
       core**, so a SCSI subsystem would be written against no boot and no
       oracle. *It becomes worth starting when the DN5500 runs*, which is the
       68040 item's dependency, and not before.
+      **The gate has moved twice and the sentence above is stale, kept because
+      it is what the decision was made on.** The DS5500 no longer stops at its
+      second instruction: the 68040 increment took it through its whole
+      self-test suite (2026-09-09), and placing Table 2-5's I/O protection map
+      took it to **`MD14 REV 2.00` at its own prompt** and through
+      `DI C` / `EX INVOL` — a stand-alone utility loaded off cartridge and
+      *executing*, with `translation off` (2026-09-10). So "written against no
+      boot and no oracle" is no longer true of the boot half.
+      *What is still true is the useful part*: nothing here is a knowledge gap,
+      and the thing that would make a SCSI subsystem checkable is software that
+      drives it. The firmware's own Winchester test reaches the AT-bus disk, not
+      SCSI, and `/sau14/scsi14.drvr` is a **Domain/OS** driver — so the exerciser
+      is still the operating system, which still waits on a DS5500-bootable
+      volume. Detail in `PROJECT_STATUS.md`.
 
 - [x] **The DS5500's address translation map is 4 KB — implemented 2026-08-22.**
       `019411-A00` Table 2-5 gives `017000`-`017FFF` against `[S3K]` §2.5's
