@@ -16514,6 +16514,39 @@ and the image arrives with the RBAK restore -- `install-domainos.cmds`'s
 `TFP: Skipping over SYSBOOT found at beginning of volume` is the restore
 stepping over the one it is about to replace.
 
+### Option 8, and a default that is not the DN3500's
+
+Third run, chained again. INVOL reads back what option 1 built before asking
+anything:
+
+    Option: 8
+    Select disk: [w=Winch|f=Floppy|q=Quit][ctrl#:][unit#] w
+
+    Volume built by Invol version "revision 10.4"  on  Nov. 28, 2002
+
+    Physical volume "dn5500".  Logical volumes:
+
+     #  size (kB)    name
+     1  326956(d)    dn5500
+
+    Enter logical volume number:  1
+    Size in kB for the OS paging file (CR for default value = 1000) 640
+
+    Done.
+
+**`default value = 1000`, where C50's DN3500 offered 640.** The first attempt
+typed `640` -- C50's recorded answer rather than the value this machine
+published -- which is the exact trap C50's own note warns against from the other
+side: "a prompt that publishes its default does not need a blank line to accept
+it", and the corollary is that the *published* default is the one to take, not
+the one another machine published. Re-run with `1000` so the artifact does not
+carry a second machine's answer.
+
+`media/dn5500-invol-done.awd` is the result: a DS5500 physical volume named
+`dn5500`, one logical volume of 326,956 kB, an OS paging file, and the boot-file
+records at four sectors each -- the DS5500's counterpart to
+`media/dn3500-invol-done.awd`, and the same stage in the route.
+
 ### What that leaves, stated as a cost and not as a mystery
 
 The DS5500 volume *layout* is now producible on this core, which was the

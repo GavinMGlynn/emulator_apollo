@@ -1814,6 +1814,16 @@ volumes have `55 55 …` in every boot record and zero occurrences of `SYSBOOT`
 anywhere. So this volume is at exactly the stage `dn3500-invol-done.awd` is at,
 and the image arrives with the RBAK restore.
 
+**Option 8 completes the stage, and its default is not the DN3500's.** INVOL
+reads back what option 1 built — `Physical volume "dn5500"`, one logical volume
+of 326,956 kB — and then offers `Size in kB for the OS paging file (CR for
+default value = **1000**)` where C50's DN3500 offered 640. The first attempt
+typed 640, C50's recorded answer rather than the value this machine published,
+which is the same trap C50's own note warns about from the other side: the
+*published* default is the one to take, not the one another machine published.
+Re-run with 1000 so `media/dn5500-invol-done.awd` does not carry a second
+machine's answer.
+
 **What that leaves is a cost, not a mystery.** The restore and MINST on this
 volume is ~15 G instructions against a 4,294,967,295-instruction single-run
 ceiling; the disk-chaining that made INVOL work does not transfer, because INVOL
