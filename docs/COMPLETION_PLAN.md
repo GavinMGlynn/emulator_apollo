@@ -5332,12 +5332,39 @@ same number is what let them diverge once already.
       probe at 900 M, and **neither printed the `E0007`**; both measured the
       bulk file-3 read. `0113CC00` is that read's buffer, and its being the
       search's too was and remains an inference.
-      *So the next step is to bound the run at the failure rather than at an
-      instruction count*: the console prints `Seq out of order` the moment it
-      happens, so a probe that fires on the first header mismatch — or a
-      `--boot-stop-pc` on the routine that prints it — captures the right buffer
-      instead of a plausible one. Every measurement so far has been of the read
-      that works.
+      **DIAGNOSED, 2026-09-09.** A probe fired on the console's own
+      `Seq out of order` — bounding the run at the failure instead of at an
+      instruction count — and dumped a ring of the most recent DMA run starts.
+      The newest is **`0133F800`**, and its first 24 bytes are
+
+          46 C7 0E 00 00 57 41 E3 CF 93 74 00 00 57 48 B8 87 6C 74 00 00 52 16 B5
+
+      which is **image block 23 from byte 77**, byte for byte. So the failing
+      buffer holds the right block, starting 77 bytes in.
+      *Two anchors were eliminated getting there, and both had been asserted*:
+      `0113CC00` is the **bulk** read's buffer and holds no block header at the
+      failure, and `dma_last_write` (`0135F7FF`) is another channel's — it
+      contains ASCII program text. Only a ring of run starts found the tape's.
+      **So the mechanism is a transfer that ended 77 bytes into a block, and a
+      card that never resynchronised.** `ap_tape` carries `offset` across DMA
+      transfers — `needs_block` fetches only when a block is exhausted, and only
+      a *new command* resets it — so the next DMAGO, into a different buffer,
+      resumed mid-block and every block after it is 77 bytes late.
+      ***That is the lead this item refuted three commits ago, and the
+      refutation was wrong.*** `[SC499]` §1.11 step 5 describes the **firmware's
+      steady-state read loop**, one DMAGO per block; it does not forbid a short
+      transfer on some other path, and the search evidently does one. The
+      512-reads-per-DMAGO probe that seemed to close it **only covered the first
+      40 DMAGOs**, every one of them in the bulk read — it never observed the
+      failing path at all. A bound chosen for convenience decided a question it
+      could not see.
+      *What is left is the fix, and it needs one decision*: whether the real card
+      discards the remainder of a partially-transferred block and resynchronises
+      to a block boundary. The kernel's own expectation says it must — it parses
+      every buffer as a block — but no document held here states it, so this is
+      a `PROVISIONAL` choice to be made explicitly rather than slipped in.
+      Finding *which* transfer ends short is the other half, and is now a
+      bounded search: one probe on any DMAGO whose read count is not 512.
 
 - [x] **A cold power-on runs the confidence test — done 2026-09-09.**
       `[SC499]` §1.8.1's POC reports success "by the assertion of `EXC-`

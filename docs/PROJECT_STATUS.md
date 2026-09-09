@@ -989,9 +989,34 @@ the kernel parses some other structure — is eliminated.
 
 **So the whole item is now one sentence: the tape's data reaches the kernel 77
 bytes into each block.** Every layer above is right — the medium, the drive, the
-block order — and `ap_qic` hands the block out byte-exact, so the 77 bytes go
-missing between the drive's block interface and the buffer. What is left is
-finding where, which is a search of the tape DMA path rather than of the tape.
+block order — and `ap_qic` hands the block out byte-exact.
+
+**Diagnosed the same day.** A probe fired on the console's own `Seq out of
+order` — bounding the run at the failure instead of at an instruction count —
+and dumped a ring of the most recent DMA run starts. The newest, `0133F800`,
+holds `46 C7 0E 00 00 57 41 E3 CF 93 74 00 …`, which is **image block 23 from
+byte 77**, byte for byte. The failing buffer holds the right block, starting
+77 bytes in.
+
+Two anchors were eliminated getting there and both had been asserted:
+`0113CC00` is the *bulk* read's buffer and holds no block header at the failure,
+and `dma_last_write` is another channel's — it contains ASCII program text. Only
+a ring of run starts found the tape's.
+
+**The mechanism**: a transfer ended 77 bytes into a block, and the card never
+resynchronised. `ap_tape` carries `offset` across DMA transfers — `needs_block`
+fetches only when a block is exhausted, and only a *new command* resets it — so
+the next DMAGO, into a different buffer, resumed mid-block, and every block
+after it is 77 bytes late.
+
+***And that is the lead this work refuted earlier in the day, wrongly.***
+`[SC499]` §1.11 step 5 describes the **firmware's steady-state read loop**, one
+DMAGO per block. It does not forbid a short transfer on some other path, and the
+search evidently does one. The 512-reads-per-DMAGO probe that seemed to close
+the question **only covered the first 40 DMAGOs**, every one in the bulk read —
+it never observed the failing path. *A bound chosen for convenience decided a
+question it could not see*, which is the method lesson worth more than the
+finding.
 
 ## The SR10.4 cartridge boots (2026-09-09)
 
