@@ -6025,9 +6025,21 @@ same number is what let them diverge once already.
         about. Detail in `PROJECT_STATUS.md`.
         Record: `docs/references/M68000_FAMILY_REFERENCE_WALK.md`.
   - [ ] **`[020]` `MC68020_32-Bit_Microprocessor_Users_Manual_1984.pdf`,
-        452 pages**, and `[040]`'s two manuals (256 + 463). Phase 2b and
-        Phase 7 parts; cited once between them. Deferred until those
-        processors are built, and named here so the deferral is deliberate.
+        452 pages — started 2026-09-09, §7 done (4/4).** Record:
+        `docs/references/M68020_WALK.md`.
+        **The deferral this item carried was false and is withdrawn.** It read
+        "Phase 2b and Phase 7 parts ... deferred until those processors are
+        built" — and the 68020 is in the model table *now*: `ap_model.c` has
+        **three** rows `.cpu = AP_CPU_M68020`, and `ap_model.h` cites this
+        manual's §7.1.1 and §1 for cache values live in that table.
+        *The audit is the opposite of `[030]`'s and the walk is planned against
+        it*: 473 mentions of the 68020 in `src/`, and **six** citing this book
+        with a place, so there is almost no verification to lean on.
+        **§7 already found one**: the 68020's CACR is four bits where the
+        68030's has eleven, and `ap_machine` builds a 68030 unconditionally —
+        the model table's `.mmu` item with a second register behind it.
+        *`[040]`'s two manuals (256 + 463) stay deferred and the reason still
+        holds: no 68040 core exists, and that is its own open item.*
   *Verification, per document: a coverage record in `docs/references/`, page
   by page, saying what each yielded — and every fact either implemented with
   a test or named as a `PROVISIONAL` gap.*
