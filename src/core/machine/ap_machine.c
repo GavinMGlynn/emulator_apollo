@@ -920,10 +920,12 @@ static void machine_advance_devices(ap_machine_t *machine) {
   machine->last_line_f_exceptions = line_f;
 }
 
-ap_machine_run_t ap_machine_run(ap_machine_t *machine, unsigned limit) {
+ap_machine_run_t ap_machine_run(ap_machine_t *machine, uint64_t limit) {
   ap_machine_run_t out = {.status = AP_M68030_STEP_EXECUTED};
 
-  for (unsigned i = 0; i < limit; i++) {
+  /* 64-bit, so a run is bounded by what the caller asked for and not by the
+   * width of this counter. See `ap_machine_run_t::executed`. */
+  for (uint64_t i = 0; i < limit; i++) {
     const uint64_t before = machine->cpu.clocks;
     machine->instruction_start_clocks = before;
     if (machine->board != NULL) {

@@ -4739,6 +4739,19 @@ discipline throughout.
       `MACHINE_NOT_WORKING`, so the oracle route that carried the DN3500 install
       cannot carry this one. *Not "is the install possible" — that is answered —
       but "raise the ceiling or fix the oracle".* Detail in `PROJECT_STATUS.md`.
+      **And the ceiling is raised, 2026-09-10.** `ap_machine_run`'s limit and
+      `ap_machine_run_t::executed` are `uint64_t`, so a single run is bounded by
+      what the caller asks for and not by the width of a counter. That was the
+      cheaper half of the two, and it was one type change plus the five
+      narrowings `-Wshorten-64-to-32 -Werror` found. *Verification:
+      `machine_suite` 63 → 65 — the discriminating test costs **one instruction
+      rather than four billion**, because `0x100000000` narrowed to `unsigned`
+      is *zero* and a `MOVEQ`+`STOP` separates "honoured" from "truncated";
+      `check_frontend_flags` 25 → 26; identity `6DF967A63D3D4DA9` unmoved;
+      `ctest` 145/145 both presets.*
+      *So what is left of the gate is the wall clock, not the counter*: ~15 G
+      instructions is now a legal single run, and how long it takes is the next
+      thing to measure.
       **The shared gate is now named exactly, and it is not the SAU install.**
       2026-09-10: the DS5500's boot area is not the DN3500's. Its PROM reads ten
       records from record 2 with a **page** of stride, and the page size is the

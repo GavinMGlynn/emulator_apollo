@@ -9,6 +9,7 @@
  * cycles, dump state, --dump-mem, screenshots, scripted input, ring trace) are
  * added alongside the subsystems they observe. */
 
+#include <errno.h>
 #include <inttypes.h>
 #include <limits.h>
 #include <stdio.h>
@@ -829,7 +830,8 @@ static int run_probe_file(FILE *out, ap_model_id_t model,
 
     const ap_machine_run_t run = ap_machine_run(&board_machine, limit);
     result = (ap_probe_result_t){
-        .executed = run.executed,
+        /* Safe by construction: `limit` is the probe's own `unsigned`. */
+        .executed = (unsigned)run.executed,
         .status = run.status,
         .d0 = board_machine.cpu.regs.d[0],
         .pc = board_machine.cpu.regs.pc,
@@ -3793,7 +3795,7 @@ static void report_input_path(ap_board_t *board, unsigned unit,
                                                         : AP_MC68681_CR_B]);
 }
 
-static int boot_from_prom(const char *path, unsigned limit, bool trace,
+static int boot_from_prom(const char *path, uint64_t limit, bool trace,
                           uint32_t watch, const char *input, unsigned input_unit,
                           unsigned input_channel, uint8_t input_rate,
                           unsigned input_interval_us,
@@ -5234,8 +5236,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
      * was paying. */
     run = (ap_machine_run_t){.status = AP_M68030_STEP_EXECUTED};
     while (run.executed < limit) {
-      const unsigned remaining = limit - run.executed;
-      const unsigned chunk = remaining < AP_BOOT_TYPE_CHUNK ? remaining
+      const uint64_t remaining = limit - run.executed;
+      const uint64_t chunk = remaining < AP_BOOT_TYPE_CHUNK ? remaining
                                                             : AP_BOOT_TYPE_CHUNK;
       const ap_machine_run_t part = ap_machine_run(&machine, chunk);
       run.executed += part.executed;
@@ -5313,7 +5315,8 @@ static int boot_from_prom(const char *path, unsigned limit, bool trace,
       printf(" %04X %s\n", e->instruction, ap_probe_status_name(e->status));
     }
   }
-  printf("  executed     %u instruction(s)\n", run.executed);
+  printf("  executed     %llu instruction(s)\n",
+         (unsigned long long)run.executed);
   printf("  stopped      %s", ap_probe_status_name(run.status));
   /* And on which word, when the word is the point. A run that ends `ILLEGAL` is
    * a report that an opcode is missing, and the opcode is the one part of that
@@ -6324,7 +6327,7 @@ static int report_tape(const char *path) {
   return read == ap_ct_blocks(&drive.image) ? 0 : 1;
 }
 
-static int boot_from_tape(const char *path, unsigned limit) {
+static int boot_from_tape(const char *path, uint64_t limit) {
   FILE *file = fopen(path, "rb");
   if (file == NULL) {
     fprintf(stderr, "apollo: cannot open cartridge %s\n", path);
@@ -6500,7 +6503,8 @@ static int boot_from_tape(const char *path, unsigned limit) {
   printf("  stack        %08X (chosen, not from the cartridge)\n", stack);
 
   ap_machine_run_t run = ap_machine_run(&machine, limit);
-  printf("  executed     %u instruction(s)\n", run.executed);
+  printf("  executed     %llu instruction(s)\n",
+         (unsigned long long)run.executed);
   printf("  stopped      %s", ap_probe_status_name(run.status));
   /* And on which word, when the word is the point. A run that ends `ILLEGAL` is
    * a report that an opcode is missing, and the opcode is the one part of that
@@ -6666,7 +6670,7 @@ int main(int argc, char **argv) {
   const char *battery_path = NULL;
   const char *dump_spec = NULL;
   uint32_t node_id = 0x012345u;
-  unsigned boot_limit = 100000u;
+  uint64_t boot_limit = 100000u;
 
   for (int i = 1; i < argc;) {
     if (strcmp(argv[i], "--volume") == 0 && i + 1 < argc) {
@@ -6808,28 +6812,36 @@ int main(int argc, char **argv) {
      * instruction produced it -- a wild PC looks the same however far back the
      * mistake was made. */
     if (strcmp(argv[i], "--boot-limit") == 0 && i + 1 < argc) {
-      /* **Refused rather than wrapped.** This parsed with `strtoul` into an
-       * `unsigned`, so `--boot-limit 6000000000` silently became 1,705,032,704
-       * -- `6e9 mod 2^32` -- and three runs that asked for six billion
-       * instructions stopped at 1.7 billion while reporting the bound they were
-       * given as if it had been honoured. A bound is part of an experiment, and
-       * one that quietly becomes a different bound is worse than one that is
-       * rejected.
+      /* **Refused rather than wrapped, and the ceiling is now the type's.**
+       * This parsed with `strtoul` into an `unsigned`, so
+       * `--boot-limit 6000000000` silently became 1,705,032,704 -- `6e9 mod
+       * 2^32` -- and three runs that asked for six billion instructions stopped
+       * at 1.7 billion while reporting the bound they were given as if it had
+       * been honoured. A bound is part of an experiment, and one that quietly
+       * becomes a different bound is worse than one that is rejected.
        *
-       * The ceiling is the *core's*: `ap_machine_run` takes an `unsigned` limit
-       * and `ap_machine_run_t.executed` counts in one, so 2^32-1 instructions is
-       * as far as a single run goes. Widening that is a core change with its own
-       * verification and is not smuggled in here. */
+       * **The 2^32-1 ceiling is gone as of 2026-09-10.** It was
+       * `ap_machine_run`'s `unsigned` limit and `ap_machine_run_t::executed`
+       * counting in one, and it had stopped being an inconvenience and become a
+       * project blocker: the SR10.4 restore on a DS5500 is around 15 G
+       * instructions, MAME's `dn5500` is `MACHINE_NOT_WORKING` so the oracle
+       * cannot take it, and the disk-chaining that carried INVOL one option at a
+       * time does not work across a single long operation. Both are `uint64_t`
+       * now. The refusal stays, because `strtoull` still saturates at
+       * `ULLONG_MAX` on overflow and a bound that silently became a different
+       * bound is what this comment exists about. */
       {
-        const unsigned long long asked = strtoull(argv[i + 1], NULL, 0);
-        if (asked > UINT_MAX) {
-          fprintf(stderr,
-                  "%s: --boot-limit %llu exceeds this core's %u-instruction "
-                  "ceiling for one run\n",
-                  program_name, asked, UINT_MAX);
+        errno = 0;
+        char *end = NULL;
+        const unsigned long long asked = strtoull(argv[i + 1], &end, 0);
+        if (errno == ERANGE || end == argv[i + 1] || *end != '\0') {
+          fprintf(stderr, "%s: --boot-limit %s is not a number this core can\n"
+                          "  represent; the bound would not be the one asked "
+                          "for\n",
+                  program_name, argv[i + 1]);
           return 2;
         }
-        boot_limit = (unsigned)asked;
+        boot_limit = (uint64_t)asked;
       }
       i += 2;
       continue;

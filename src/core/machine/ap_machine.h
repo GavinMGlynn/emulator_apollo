@@ -485,7 +485,15 @@ bool ap_machine_write(ap_machine_t *machine, uint32_t address, unsigned size,
  * reaches a program: nothing computes a delay, and the processor is simply the
  * lowest-priority claimant of a bus somebody else has. */
 typedef struct {
-  unsigned executed;
+  /* **64-bit, and it was `unsigned` until 2026-09-10.** A single run's ceiling
+   * was therefore 2^32-1 instructions, which the frontend refused past rather
+   * than wrapping -- and that ceiling became a *project* blocker rather than an
+   * inconvenience: the SR10.4 restore on a DS5500 is around 15 G instructions,
+   * MAME's `dn5500` is `MACHINE_NOT_WORKING` so the oracle cannot take it, and
+   * the disk-chaining that carried INVOL does not work across one long
+   * operation. The count is a result rather than machine state -- nothing
+   * hashes it -- so widening it moves no golden. */
+  uint64_t executed;
   ap_m68030_step_status_t status; /* why it ended */
   /* And on what word. A run that ends `ILLEGAL` or `UNIMPLEMENTED` is a report
    * that some opcode is missing, and the opcode is the only part of that a
@@ -497,7 +505,7 @@ typedef struct {
 } ap_machine_run_t;
 
 [[nodiscard]] ap_machine_run_t ap_machine_run(ap_machine_t *machine,
-                                              unsigned limit);
+                                              uint64_t limit);
 
 /* Advance the machine by exactly one machine cycle.
  *

@@ -16542,10 +16542,21 @@ it", and the corollary is that the *published* default is the one to take, not
 the one another machine published. Re-run with `1000` so the artifact does not
 carry a second machine's answer.
 
-`media/dn5500-invol-done.awd` is the result: a DS5500 physical volume named
-`dn5500`, one logical volume of 326,956 kB, an OS paging file, and the boot-file
-records at four sectors each -- the DS5500's counterpart to
-`media/dn3500-invol-done.awd`, and the same stage in the route.
+**And option 8 has two dialogues, which the menu's own wording predicts.** It is
+"create **or modify** an os paging file", and on a volume that already has one
+it asks first:
+
+    Enter logical volume number:  1
+    Do you wish to change its size?
+
+Re-running it with the size as the next answer sends `1000` into a yes/no
+prompt and gets `Please answer "yes" or "no".` -- so a script that walks the
+create path cannot be reused for the modify path. Take the create path once,
+with the machine's published default, rather than correcting afterwards.
+
+`media/dn5500-invol-done.awd` is the DS5500's counterpart to
+`media/dn3500-invol-done.awd`: a physical volume named `dn5500`, one logical
+volume of 326,956 kB, and the boot-file records at four sectors each.
 
 ### What that leaves, stated as a cost and not as a mystery
 

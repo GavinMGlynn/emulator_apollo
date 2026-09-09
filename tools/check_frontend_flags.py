@@ -130,19 +130,31 @@ def main() -> int:
               ["--ram", "nonsense", "--list-models"],
               r"--ram wants a size in megabytes", want_ok=False)
 
-        # A bound above the core's 32-bit instruction counter is **refused**, not
-        # wrapped. `--boot-limit 6000000000` used to parse into an `unsigned` and
-        # become 1,705,032,704 -- `6e9 mod 2^32` -- so runs that asked for six
-        # billion instructions stopped at 1.7 billion and reported the bound they
-        # were given as if it had been honoured. Three measurements were taken
-        # that way before the identical instruction counts gave it away.
+        # `--boot-limit 6000000000` used to parse into an `unsigned` and become
+        # 1,705,032,704 -- `6e9 mod 2^32` -- so runs that asked for six billion
+        # instructions stopped at 1.7 billion and reported the bound they were
+        # given as if it had been honoured. Three measurements were taken that
+        # way before the identical instruction counts gave it away. It was then
+        # refused; as of 2026-09-10 it is **accepted**, because
+        # `ap_machine_run`'s limit and `ap_machine_run_t::executed` are both
+        # `uint64_t`.
         #
-        # No second flag: `--list-models` is handled in an earlier pass and
-        # would exit 0 before the argument loop ran, so a check that paired them
-        # would pass whatever the guard did.
-        check("--boot-limit refuses a bound the core cannot count to",
+        # Six billion is deliberately the number that used to wrap. With no
+        # `--boot-prom` the run falls through the argument loop to "cannot run
+        # dn3500 yet", so *that* message is the witness that the bound was
+        # parsed and accepted -- a guard that refused it would print its own
+        # message instead and never reach this one. No second flag, for the
+        # reason below: `--list-models` is handled in an earlier pass and would
+        # exit before the argument loop ran.
+        check("--boot-limit accepts a bound past the old 2^32 ceiling",
               ["--boot-limit", "6000000000"],
-              r"exceeds this core's \d+-instruction ceiling", want_ok=False)
+              r"cannot run dn3500 yet", want_ok=False)
+
+        # And a bound that is not a number at all is still refused, because a
+        # bound that quietly becomes a different bound is the whole point.
+        check("--boot-limit refuses a bound that is not a number",
+              ["--boot-limit", "nonsense"],
+              r"is not a number this core can", want_ok=False)
 
         # ---- flags that need a machine, which `board 1` builds with no ROM ----
         # `moveq` is the first probe the suite reports; matching a probe's own

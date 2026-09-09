@@ -219,7 +219,11 @@ ap_probe_result_t ap_probe_run(const ap_probe_t *probe, uint8_t *ram,
 
   const ap_machine_run_t run = ap_machine_run(&machine, probe->limit);
 
-  out.executed = run.executed;
+  /* Narrowed deliberately, and it cannot lose a bit: `ap_machine_run` stops at
+   * `probe->limit`, which is an `unsigned`, so the count it returns is one too.
+   * A probe is a short measurement whose result is a golden -- widening its
+   * field would rewrite every golden for a range no probe can reach. */
+  out.executed = (unsigned)run.executed;
   out.status = run.status;
   out.clocks = machine.cpu.clocks;
   out.bus_errors = machine.bus_errors;

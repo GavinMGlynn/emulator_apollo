@@ -179,6 +179,50 @@ static void test_a_probe_can_set_up_run_and_read_back(void) {
   TEST_ASSERT_EQUAL_UINT(0u, m.bus_errors);
 }
 
+/* A bound above 2^32 is honoured rather than truncated.
+ *
+ * `ap_machine_run`'s limit and `ap_machine_run_t::executed` were `unsigned`
+ * until 2026-09-10, so a single run could not exceed 4,294,967,295
+ * instructions -- and that had stopped being an inconvenience: the SR10.4
+ * restore on a DS5500 is around 15 G instructions, and neither the oracle
+ * (`dn5500` is `MACHINE_NOT_WORKING`) nor the disk-chaining that carried INVOL
+ * one option at a time can take a single long operation.
+ *
+ * **Tested in one instruction rather than four billion.** `0x100000000` is
+ * exactly 2^32, so a limit that narrowed to `unsigned` would be **zero** and
+ * the run would execute nothing. A program of one `MOVEQ` followed by `STOP`
+ * therefore separates the two: honoured, it executes and halts; truncated, it
+ * executes nothing at all. */
+static void test_a_run_bound_above_two_to_the_thirty_two_is_not_truncated(void) {
+  /* MOVEQ #$42,D0 ; STOP #$2700 */
+  static const uint16_t program[] = {0x7042u, 0x4E72u, 0x2700u};
+  blank();
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+  ap_machine_reset(&m, PROGRAM, STACK);
+  load(&m, program, 3);
+
+  const ap_machine_run_t run = ap_machine_run(&m, 0x100000000ull);
+
+  /* Not zero is the whole assertion: zero is what a truncated bound gives. */
+  TEST_ASSERT_TRUE(run.executed > 0u);
+  TEST_ASSERT_EQUAL_HEX32(0x42u, m.cpu.regs.d[0]);
+  /* And it stopped because the program stopped, not because the bound was hit
+   * -- a run that reached `0x100000000` would have taken rather longer. */
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_STOPPED, run.status);
+}
+
+/* The count is the same width as the bound, so a run that *did* pass 2^32 could
+ * report it. Asserted on the type rather than by running, because running it is
+ * the thing this width exists to make possible and not something a unit test
+ * should do. */
+static void test_the_executed_count_can_hold_more_than_a_32_bit_run(void) {
+  ap_machine_run_t run = {0};
+  run.executed = 0x1'0000'0001ull;
+  TEST_ASSERT_TRUE(run.executed > 0xFFFFFFFFull);
+  TEST_ASSERT_EQUAL_UINT(8u, (unsigned)sizeof run.executed);
+}
+
 /* "Supervisor state with interrupts masked at 7, which is what reset leaves."
  * A probe assuming user state would find every privileged instruction trapping,
  * and one assuming an open interrupt mask would be interrupted by anything a
@@ -2714,6 +2758,8 @@ int main(void) {
   RUN_TEST(test_no_opcode_reports_an_unimplemented_instruction);
   RUN_TEST(test_a_warm_reset_restores_the_documented_state_but_not_the_atc);
   RUN_TEST(test_a_probe_can_set_up_run_and_read_back);
+  RUN_TEST(test_a_run_bound_above_two_to_the_thirty_two_is_not_truncated);
+  RUN_TEST(test_the_executed_count_can_hold_more_than_a_32_bit_run);
   RUN_TEST(test_every_transcribed_row_matches_both_published_columns);
   RUN_TEST(test_the_footnoted_memory_forms_compose_to_the_manuals_total);
   RUN_TEST(test_the_unfootnoted_memory_moves_match_both_columns);
