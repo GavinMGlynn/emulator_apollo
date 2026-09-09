@@ -167,3 +167,73 @@ bool ap_m68040_fp_is_conditional(const char *mnemonic) {
   }
   return false;
 }
+
+/* ---------------------------------------------------------------------------
+ * Operand errors and instruction mapping, `[040DH]` §3.
+ * ------------------------------------------------------------------------- */
+
+const char *ap_m68040_mapped_instruction(const char *mnemonic) {
+  if (mnemonic == NULL) {
+    return NULL;
+  }
+  /* Table 3-3's note: "FSGLDIV and FSGLMUL are mapped as FMUL and FDIV for
+   * performance reasons." On the 68881/68882 these are distinct single-
+   * precision operations, so the mapping changes results and not only speed. */
+  if (strcmp(mnemonic, "FSGLDIV") == 0) {
+    return "FDIV";
+  }
+  if (strcmp(mnemonic, "FSGLMUL") == 0) {
+    return "FMUL";
+  }
+  return mnemonic;
+}
+
+ap_m68040_operr_t ap_m68040_hardware_operand_error(const char *mnemonic) {
+  const char *actual = ap_m68040_mapped_instruction(mnemonic);
+  if (actual == NULL) {
+    return AP_M68040_OPERR_NONE;
+  }
+  /* Table 3-3, "Operand Errors Handled by the MC68040". Anything not listed is
+   * either impossible or the FPSP's business (Table 3-4). */
+  if (strcmp(actual, "FADD") == 0 || strcmp(actual, "FSUB") == 0) {
+    return AP_M68040_OPERR_INFINITY_MINUS_INFINITY;
+  }
+  if (strcmp(actual, "FMUL") == 0) {
+    return AP_M68040_OPERR_ZERO_TIMES_INFINITY;
+  }
+  if (strcmp(actual, "FDIV") == 0) {
+    return AP_M68040_OPERR_ZERO_OVER_ZERO;
+  }
+  if (strcmp(actual, "FMOVE") == 0) {
+    /* "FMOVE.BWL: integer overflow, source is NaN, or source is infinity." */
+    return AP_M68040_OPERR_INTEGER_OVERFLOW;
+  }
+  if (strcmp(actual, "FSQRT") == 0) {
+    /* "Source < 0, source = -infinity." */
+    return AP_M68040_OPERR_SQRT_OF_NEGATIVE;
+  }
+  return AP_M68040_OPERR_NONE;
+}
+
+bool ap_m68040_differs_from_68882(const char *mnemonic) {
+  /* §3.7.3: "the FPSP transcendental calculation results are not the same as
+   * for the MC68881/MC68882 ... All other calculations are identical." The
+   * transcendentals are Table 9-10's unimplemented list minus the four that are
+   * not transcendental at all -- FINT, FINTRZ, FGETEXP, FGETMAN, FMOVECR,
+   * FMOD, FREM and FSCALE are exact operations the FPSP reproduces. */
+  static const char *const transcendentals[] = {
+      "FACOS", "FASIN",  "FATAN",   "FATANH", "FCOS",    "FCOSH",
+      "FETOX", "FETOXM1", "FLOG10", "FLOGN",  "FLOGNP1", "FLOG2",
+      "FSIN",  "FSINCOS", "FSINH",  "FTAN",   "FTANH",   "FTENTOX",
+      "FTWOTOX"};
+  if (mnemonic == NULL) {
+    return false;
+  }
+  for (unsigned i = 0; i < sizeof transcendentals / sizeof transcendentals[0];
+       i++) {
+    if (strcmp(transcendentals[i], mnemonic) == 0) {
+      return true;
+    }
+  }
+  return false;
+}

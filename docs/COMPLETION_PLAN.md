@@ -1692,6 +1692,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         available": a stated absence, not an open question.
         `m68040_family_suite` 11 -> 16, `m68040_bus_suite` 27 -> 29. Detail in
         `PROJECT_STATUS.md`.
+  - [x] `[040DH]` the `MC68040 Designer's Handbook` (1990), all 256 pages —
+        **the `[040]` document set is finished, 719 of 719.** §3 carries the
+        FPSP's software specification: **`FSGLDIV`/`FSGLMUL` are mapped to
+        `FMUL`/`FDIV`**, and **the FPSP's transcendentals do not match the
+        68881/68882's** because those use CORDIC — a difference in *results*
+        between two otherwise object-code-compatible parts. §7's 80-page
+        68040-to-68030 bus adapter documents the divergence in board terms and
+        names **five 68030 signals a 68040 cannot produce**. Three cross-edition
+        table comparisons agree; the JTAG instruction encoding does not, and
+        §6.6's BSDL revision list documents the change between them.
+        `m68040_fp_exception_suite` 16 -> 19. Detail in `PROJECT_STATUS.md`.
   - [x] The two ATCs: 16 sets of four ways each, tagged with `FC2` alone and no
         task alias -- `G` is the 68040's substitute, overriding a nonglobal
         flush rather than being one more criterion. The manual states the tag

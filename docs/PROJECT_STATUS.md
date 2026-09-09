@@ -11087,7 +11087,101 @@ so the EC part's "different" register is the same register renamed.
 
 `ap_m68040_family.*` gains six fields, `ap_m68040_bus.*` the LPSTOP access, and
 `ap_m68040_fp_exception.*` the third support state. `m68040_family_suite` 11 ->
-16, `m68040_bus_suite` 27 -> 29. Also
+16, `m68040_bus_suite` 27 -> 29.
+
+**The `MC68040 Designer's Handbook` (1990) is read whole, 256 pages, and the
+`[040]` document set is finished: 719 of 719.** The handbook is three years
+older than the User's Manual and mostly board design -- transmission lines,
+SPICE, thermal management, PAL equations, a reprinted oscillator article. What
+it adds is a *second edition* of material the User's Manual also carries, and
+one applications chapter with no counterpart there.
+
+**§3 carries the FPSP's own software specification, and two of its statements
+change results rather than packaging.** Table 3-3's note says **`FSGLDIV` and
+`FSGLMUL` are mapped as `FMUL` and `FDIV` "for performance reasons"** -- on the
+68881/68882 they are distinct, faster, single-precision-only operations, so the
+mapping changes what the instructions *compute*, not just how long they take.
+And §3.7.3 says outright that **the FPSP's transcendentals do not match the
+68881/68882's**: "the algorithms used by the MC68881/MC68882 (**CORDIC**) cannot
+be effectively implemented in software. All other calculations are identical.
+The error bound is equivalent or superior." This core models the 68882's CORDIC
+path in `cpu/m68882/ap_m68882_transcendental.c`; a 68040 model must not reuse it
+and call the answer right. That is the sharpest cross-part divergence in the
+whole floating-point story, because it is a difference in *results* between two
+parts that are otherwise object-code compatible. The handbook also gives the
+accuracy bounds the User's Manual omits -- half an ulp for arithmetic in
+round-to-nearest, **under 0.6 ulp of double precision** for transcendentals, and
+0.97 or 1.47 units in the last digit for decimal conversions -- and Table 3-3's
+list of the operand errors the hardware raises, against Table 3-4's list the
+FPSP raises for the rounding variants.
+
+**§7's bus adapter is the chapter with no counterpart, and it is about this
+machine's problem.** "MC68040 to MC68020/MC68030 Bus Adapter Design", eighty
+pages of turning 68040 bus cycles into 68030 ones. Its signal tables document
+the divergence in board terms: **`TIP` stands in for `RMC`** ("as long as `TIP`
+is asserted, the `030_BG` is not asserted to the MC68030 system"); the 68030's
+bidirectional `RESET` is rebuilt by wiring `RSTO` back to `RSTI` through an open
+collector; the 68030 clock "must be the **inverse** of `BCLK`"; `CBREQ` is tied
+high "since bursting is not supported"; and **five 68030 signals have no 68040
+source at all** -- `OCS`, `ECS`, `DBEN`, `REFILL` and `STATUS` -- so "designs
+that rely on these signals may not work properly". `HALT` is one more: the
+adapter never drives it, and to signal a double bus fault "the MC68040 processor
+status signals may be decoded" and an open collector used. That is §5's
+missing-`HALT` finding arriving from the board side, three years earlier.
+
+§7 also confirms three User's Manual rules by working around them. The adapter
+must do dynamic bus sizing because the part does none (§7.2). It must issue
+**burst-inhibited** line transfers so it can retry, "because the MC68040
+recognizes a retry only on the first long-word bus access" -- §7.6.2's rule
+turned into a design constraint. And it cannot let the bus go mid-line, because
+"an MC68040 line transfer is considered as one bus translation tenure" (§7.4.2).
+
+**Three cross-edition comparisons, all agreeing.** The handbook's Table 9-1 is
+the User's Manual's Table 7-1 -- the same `SIZ`/`A1`/`A0` byte-lane mapping,
+1990 and 1993. Its Table 2-8 is Table 10-4 exactly: `CPUSHL` 6 and 6 + line +
+idle, `CPUSHP`/`CPUSHA` **267** and 11 + 256 x line + idle, sharing one row in
+both editions -- and the handbook supplies the mechanism our header had to
+reason out, "the EU generates an index each clock which references one of the
+256 cache lines". Its Table 2-5's `MOVE Dy,Dx` is one clock, as ours is.
+
+**And one comparison that disagrees, which is the point of reading both.** The
+handbook's §8 gives a *different* JTAG instruction encoding from the User's
+Manual's Table 6-1:
+
+| Code | 1990, Table 8-1 | 1993, Table 6-1 |
+| --- | --- | --- |
+| 000 | EXTEST | EXTEST |
+| 001 | HI-Z | HIGHZ |
+| 010 | SAMPLE/PRELOAD | SAMPLE/PRELOAD |
+| 011 | **SAMPLE/PRELOAD** (`01X`) | **DRVCTL.T** |
+| 100 | SHUTDOWN | SHUTDOWN |
+| 101 | **SHUTDOWN** (`10X`) | **PRIVATE** |
+| 110 | **RESERVED** | **DRVCTL.S** |
+| 111 | BYPASS | BYPASS |
+
+The 1990 part decoded `SAMPLE/PRELOAD` and `SHUTDOWN` on two bits with a
+don't-care, leaving 110 reserved. §6.6's BSDL revision list documents exactly
+that change -- "instruction opcodes changed for SAMPLE, SHUTDOWN, and BYPASS.
+New instructions DRVCTL.T, DRVCTL.S and PRIVATE added" -- so the two editions
+and the BSDL agree about a revision that happened between them. **The hazard is
+concrete**: opcode 011 was `SAMPLE/PRELOAD`, which is transparent to system
+operation and requires the clocks to keep running, and became `DRVCTL.T`, which
+asserts internal reset, takes the pins from the system logic and licenses
+stopping the clocks. A test fixture written against the handbook and run on a
+later part asserts internal reset where it meant to sample. The boundary scan
+register is 184 bits in both.
+
+§2's own timing tables are a superseded draft and say so: "some of the timing
+specifications are incomplete due to pending completion of timing evaluation",
+and `CAS`, `CAS2`, `CHK` and `CHK2` have empty rows. It uses a four-stage model
+-- EA calculate, EA fetch, EU, write-back -- where §10 gives two columns and
+declines write-back as "system dependent", so the handbook is the only place
+with a **write-back column**, a Y/- flag per instruction. Where both editions
+give an effective-address figure they agree.
+
+`ap_m68040_fp_exception.*` gains Table 3-3's operand errors, the `FSGLDIV`/
+`FSGLMUL` mapping and the transcendental divergence; `m68040_fp_exception_suite`
+16 -> 19. Also
 captured: Table 9-9's nine vectors, with the unimplemented *instruction* sharing
 vector 11 with the F-line illegal instruction and the handler distinguishing
 them by stack frame format (`$0` or `$2`); Table 9-10's unimplemented

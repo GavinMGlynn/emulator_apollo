@@ -263,6 +263,72 @@ static void test_the_two_exception_frames_and_their_sizes(void) {
                         ap_m68040_fp_save_frame(true, true, true));
 }
 
+static void test_the_single_precision_multiply_and_divide_are_not_distinct(void) {
+  /* `[040DH]` Table 3-3's note: "FSGLDIV and FSGLMUL are mapped as FMUL and
+   * FDIV for performance reasons." On the 68881/68882 they are distinct,
+   * faster, single-precision-only operations, so the mapping changes results
+   * and not only speed -- a model that inherits the 68882's FSGLMUL and calls
+   * it a 68040's is wrong twice. */
+  TEST_ASSERT_EQUAL_STRING("FMUL", ap_m68040_mapped_instruction("FSGLMUL"));
+  TEST_ASSERT_EQUAL_STRING("FDIV", ap_m68040_mapped_instruction("FSGLDIV"));
+  /* Everything else passes through unchanged. */
+  TEST_ASSERT_EQUAL_STRING("FADD", ap_m68040_mapped_instruction("FADD"));
+  TEST_ASSERT_NULL(ap_m68040_mapped_instruction(NULL));
+  /* And they inherit the mapped instruction's operand error, not their own. */
+  TEST_ASSERT_EQUAL_INT(ap_m68040_hardware_operand_error("FMUL"),
+                        ap_m68040_hardware_operand_error("FSGLMUL"));
+  TEST_ASSERT_EQUAL_INT(ap_m68040_hardware_operand_error("FDIV"),
+                        ap_m68040_hardware_operand_error("FSGLDIV"));
+}
+
+static void test_the_operand_errors_the_hardware_raises(void) {
+  /* `[040DH]` Table 3-3. Table 3-4 lists a second set the FPSP raises, for the
+   * single- and double-rounding variants the hardware does not execute. */
+  TEST_ASSERT_EQUAL_INT(AP_M68040_OPERR_INFINITY_MINUS_INFINITY,
+                        ap_m68040_hardware_operand_error("FADD"));
+  TEST_ASSERT_EQUAL_INT(AP_M68040_OPERR_INFINITY_MINUS_INFINITY,
+                        ap_m68040_hardware_operand_error("FSUB"));
+  TEST_ASSERT_EQUAL_INT(AP_M68040_OPERR_ZERO_TIMES_INFINITY,
+                        ap_m68040_hardware_operand_error("FMUL"));
+  TEST_ASSERT_EQUAL_INT(AP_M68040_OPERR_ZERO_OVER_ZERO,
+                        ap_m68040_hardware_operand_error("FDIV"));
+  TEST_ASSERT_EQUAL_INT(AP_M68040_OPERR_INTEGER_OVERFLOW,
+                        ap_m68040_hardware_operand_error("FMOVE"));
+  TEST_ASSERT_EQUAL_INT(AP_M68040_OPERR_SQRT_OF_NEGATIVE,
+                        ap_m68040_hardware_operand_error("FSQRT"));
+  /* An instruction the hardware does not execute raises no hardware OPERR. */
+  TEST_ASSERT_EQUAL_INT(AP_M68040_OPERR_NONE,
+                        ap_m68040_hardware_operand_error("FSADD"));
+  TEST_ASSERT_EQUAL_INT(AP_M68040_OPERR_NONE,
+                        ap_m68040_hardware_operand_error("FSIN"));
+}
+
+static void test_the_transcendentals_do_not_match_the_68882(void) {
+  /* `[040DH]` §3.7.3: "the FPSP transcendental calculation results are not the
+   * same as for the MC68881/MC68882. This is because the algorithms used by
+   * the MC68881/MC68882 (CORDIC) cannot be effectively implemented in
+   * software. All other calculations are identical."
+   *
+   * This core models the 68882's CORDIC path in
+   * cpu/m68882/ap_m68882_transcendental.c. A 68040 model must not reuse it and
+   * call the answer right -- which makes this the sharpest cross-part
+   * divergence in the whole floating-point story, because it is a difference in
+   * *results* on a machine that is otherwise object-code compatible. */
+  TEST_ASSERT_TRUE(ap_m68040_differs_from_68882("FSIN"));
+  TEST_ASSERT_TRUE(ap_m68040_differs_from_68882("FCOS"));
+  TEST_ASSERT_TRUE(ap_m68040_differs_from_68882("FATAN"));
+  TEST_ASSERT_TRUE(ap_m68040_differs_from_68882("FETOX"));
+  TEST_ASSERT_TRUE(ap_m68040_differs_from_68882("FLOG2"));
+  /* "All other calculations are identical" -- including the exact operations
+   * the FPSP also emulates, which reproduce the same values. */
+  TEST_ASSERT_FALSE(ap_m68040_differs_from_68882("FADD"));
+  TEST_ASSERT_FALSE(ap_m68040_differs_from_68882("FSQRT"));
+  TEST_ASSERT_FALSE(ap_m68040_differs_from_68882("FINT"));
+  TEST_ASSERT_FALSE(ap_m68040_differs_from_68882("FGETEXP"));
+  TEST_ASSERT_FALSE(ap_m68040_differs_from_68882("FMOD"));
+  TEST_ASSERT_FALSE(ap_m68040_differs_from_68882(NULL));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_no_denormal_is_handled_in_hardware);
@@ -281,5 +347,8 @@ int main(void) {
   RUN_TEST(test_a_conditional_instruction_leaves_a_null_state_frame);
   RUN_TEST(test_the_five_conditional_instructions);
   RUN_TEST(test_the_two_exception_frames_and_their_sizes);
+  RUN_TEST(test_the_single_precision_multiply_and_divide_are_not_distinct);
+  RUN_TEST(test_the_operand_errors_the_hardware_raises);
+  RUN_TEST(test_the_transcendentals_do_not_match_the_68882);
   return UNITY_END();
 }

@@ -73,6 +73,34 @@
  * MC68040 generates the first seven exceptions in hardware and the eighth only
  * in software."
  *
+ * ## `[040DH]` §3: two facts about the FPSP that change results
+ *
+ * The Designer's Handbook (1990) carries the FPSP's own software specification,
+ * which the User's Manual's Appendix E only summarises. Two of its statements
+ * are about output, not packaging:
+ *
+ *   - **`FSGLDIV` and `FSGLMUL` are mapped as `FMUL` and `FDIV`** -- the note
+ *     under Table 3-3, "for performance reasons". On the 68881/68882 they are
+ *     distinct, faster, single-precision-only operations; here they are the
+ *     full-precision instructions under another name, so their *results* differ
+ *     from the earlier parts' as well as their timing.
+ *   - **The FPSP's transcendentals do not match the 68881/68882's.** §3.7.3:
+ *     "the FPSP transcendental calculation results are **not the same** as for
+ *     the MC68881/MC68882. This is because the algorithms used by the
+ *     MC68881/MC68882 (**CORDIC**) cannot be effectively implemented in
+ *     software. All other calculations are identical. The error bound is
+ *     equivalent or superior." So a 68040 running the FPSP and a 68030 with a
+ *     68882 disagree bit for bit on `FSIN` and its relatives and agree
+ *     everywhere else. This core models the 68882's CORDIC path in
+ *     `cpu/m68882/ap_m68882_transcendental.c`; a 68040 model must not reuse it
+ *     and call the answer right.
+ *
+ * The handbook also gives the FPSP's accuracy bounds, which the User's Manual
+ * does not: **one-half ulp** for arithmetic in round-to-nearest and one ulp in
+ * the other modes, **less than 0.6 ulp of double precision** for
+ * transcendentals, and 0.97 (round-to-nearest) or 1.47 (otherwise) units in the
+ * last digit for decimal conversions.
+ *
  * ## An `FSAVE` after only conditional instructions differs from the 68882
  *
  * §9.8: the null state frame "is generated until the first nonconditional
@@ -221,5 +249,36 @@ ap_m68040_fp_save_frame(bool executed_nonconditional,
 /* The five instructions §9.8 counts as conditional, which therefore leave a
  * reset FPU in the null state. */
 [[nodiscard]] bool ap_m68040_fp_is_conditional(const char *mnemonic);
+
+/* ---------------------------------------------------------------------------
+ * Operand errors, `[040DH]` Table 3-3.
+ * ------------------------------------------------------------------------- */
+
+/* The conditions the **hardware** raises `OPERR` for. Table 3-4 lists a
+ * second set the FPSP raises for the single- and double-rounding variants
+ * (`FSADD`, `FDADD`, `FSSUB`, ...), which are the same conditions on
+ * instructions the hardware does not execute. */
+typedef enum {
+  AP_M68040_OPERR_NONE,
+  AP_M68040_OPERR_INFINITY_MINUS_INFINITY, /* FADD, FSUB */
+  AP_M68040_OPERR_ZERO_TIMES_INFINITY,     /* FMUL */
+  AP_M68040_OPERR_ZERO_OVER_ZERO,          /* FDIV, and infinity/infinity */
+  AP_M68040_OPERR_INTEGER_OVERFLOW,        /* FMOVE.BWL */
+  AP_M68040_OPERR_SQRT_OF_NEGATIVE         /* FSQRT */
+} ap_m68040_operr_t;
+
+/* Whether the hardware raises `OPERR` for this instruction at all, or leaves it
+ * to the FPSP. `FSGLDIV` and `FSGLMUL` answer as `FDIV` and `FMUL` because the
+ * part maps them there -- see the header. */
+[[nodiscard]] ap_m68040_operr_t
+ap_m68040_hardware_operand_error(const char *mnemonic);
+
+/* "FSGLDIV and FSGLMUL are mapped as FMUL and FDIV for performance reasons."
+ * Returns the instruction actually executed, or the mnemonic unchanged. */
+[[nodiscard]] const char *ap_m68040_mapped_instruction(const char *mnemonic);
+
+/* §3.7.3: the FPSP's transcendentals differ from the 68881/68882's because
+ * those use CORDIC. Everything else is identical. */
+[[nodiscard]] bool ap_m68040_differs_from_68882(const char *mnemonic);
 
 #endif /* APOLLO_CPU_M68040_AP_M68040_FP_EXCEPTION_H */
