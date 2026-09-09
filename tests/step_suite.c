@@ -4191,6 +4191,74 @@ static void test_the_68040s_control_registers_are_reached_by_movec(void) {
   TEST_ASSERT_EQUAL_HEX32(0u, n.cpu.caar);
 }
 
+/* **`PFLUSHA`, the first 68040 instruction Domain/OS asks this core for.**
+ *
+ * A DS5500 loading `/sau14/domain_os` off the SR10.4 cartridge executes `F518`
+ * at `0100424A` and took vector 11 for it, MD printing `D 100424A 2704 2C`.
+ * That is the operating system's own loader rather than the firmware, which is
+ * what makes this an instruction *demanded* rather than anticipated.
+ *
+ * `M68000PRM`'s PFLUSH page, headed "(MC68040, MC68LC040)":
+ * `1111 0101 000 OPMODE REGISTER`, opmode at bits 4-3 -- `00` PFLUSHN (An),
+ * `01` PFLUSH (An), `10` PFLUSHAN, `11` PFLUSHA. `F518` is opmode `11`, so the
+ * word in the image and the word derived from the page agree.
+ *
+ * What is *not* asserted is an effect on an ATC entry, and that is the named
+ * gap: `ap_m68040_atc.*` has all four variants written and is attached to no
+ * CPU, so a no-op is the correct effect. */
+static void test_the_68040s_pflush_executes_only_where_it_has_an_mmu(void) {
+  static const uint16_t pflusha[] = {0xF518u, 0x4E71u, 0x4E71u, 0x4E71u};
+
+  /* On a part without the MMU registers it stays F-line, which is right on a
+   * 68030: `F5xx` is coprocessor ID `010`, and nobody answers there. */
+  machine_t without = {0};
+  load(&without, pflusha, 4);
+  without.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  without.cpu.regs.isp = SUPERVISOR_STACK;
+  plant_vector(&without, AP_M68030_VECTOR_LINE_F, HANDLER);
+  TEST_ASSERT_TRUE(ap_m68030_step(&without.cpu).status !=
+                   AP_M68030_STEP_EXECUTED);
+  TEST_ASSERT_EQUAL_UINT64(0u, without.cpu.atc_flush_operations);
+
+  /* On a 68040 it executes and moves the PC by the two bytes it occupies --
+   * the failure an earlier increment had, where the DN5500 executed the same
+   * word three thousand times without leaving its address. */
+  machine_t with = {0};
+  load(&with, pflusha, 4);
+  with.cpu.has_68040_mmu_registers = true;
+  with.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  const uint32_t before = with.cpu.regs.pc;
+  const ap_m68030_step_result_t ran = ap_m68030_step(&with.cpu);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ran.status);
+  TEST_ASSERT_EQUAL_HEX32(before + 2u, with.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_UINT64(1u, with.cpu.atc_flush_operations);
+
+  /* "If Supervisor State ... Else TRAP", the page's own first line. */
+  machine_t user = {0};
+  load(&user, pflusha, 4);
+  user.cpu.has_68040_mmu_registers = true;
+  user.cpu.regs.isp = SUPERVISOR_STACK;
+  plant_vector(&user, AP_M68030_VECTOR_PRIVILEGE_VIOLATION, HANDLER);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION,
+                        ap_m68030_step(&user.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, user.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_UINT64(0u, user.cpu.atc_flush_operations);
+
+  /* All four opmodes are the instruction, not just the one the loader uses --
+   * a mask that caught `F518` alone would leave `PFLUSH (An)` F-line. */
+  for (uint16_t opmode = 0u; opmode < 4u; opmode++) {
+    const uint16_t word = (uint16_t)(0xF500u | ((unsigned)opmode << 3u));
+    const uint16_t program[] = {word, 0x4E71u, 0x4E71u, 0x4E71u};
+    machine_t each = {0};
+    load(&each, program, 4);
+    each.cpu.has_68040_mmu_registers = true;
+    each.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                          ap_m68030_step(&each.cpu).status);
+    TEST_ASSERT_EQUAL_UINT64(1u, each.cpu.atc_flush_operations);
+  }
+}
+
 /* **`CINVA BC`, the second instruction a DN5500 executes.**
  *
  * `M68000PRM`'s CINV page (page image, PDF p. 458) gives
@@ -9854,6 +9922,7 @@ int main(void) {
   RUN_TEST(test_the_control_register_codes_are_not_a_dense_index);
   RUN_TEST(test_the_68040s_control_registers_are_reached_by_movec);
   RUN_TEST(test_the_68040s_cache_instructions_execute_only_on_a_68040);
+  RUN_TEST(test_the_68040s_pflush_executes_only_where_it_has_an_mmu);
   RUN_TEST(test_movec_is_privileged);
   RUN_TEST(test_stop_loads_the_status_register_and_then_halts_fetching);
   RUN_TEST(test_a_traced_stop_loads_the_sr_but_never_stops);

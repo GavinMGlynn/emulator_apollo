@@ -2932,6 +2932,12 @@ static void report_state(ap_machine_t *machine) {
     printf("               urp %08X  srp %08X  mmusr %08X  cache ops %llu\n",
            machine->cpu.urp_040, machine->cpu.srp_040, machine->cpu.mmusr_040,
            (unsigned long long)machine->cpu.cache_maintenance_operations);
+    /* `PFLUSH` executions. Beside the cache count and for the same reason: with
+     * the ATC attached to no CPU there is nothing to flush, so the number is
+     * how a run says it *reached* the instruction. Domain/OS's DS5500 loader
+     * executes `PFLUSHA` early, and until 2026-09-10 that was an F-line trap. */
+    printf("               atc flushes %llu PFLUSH(es)\n",
+           (unsigned long long)machine->cpu.atc_flush_operations);
   }
     /* **What the model declares against what the machine translates with**, and
      * it is printed on every run because the two do not always agree.

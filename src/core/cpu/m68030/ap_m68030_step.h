@@ -386,6 +386,12 @@ typedef struct {
    * gets that far. Diagnostic, and outside the state hash as every counter
    * here is. */
   uint64_t cache_maintenance_operations;
+  /* `PFLUSH` executions, on the same terms and for the same reason: the ATC it
+   * would flush is a complete module (`cpu/m68040/ap_m68040_atc.*`, with all
+   * four of the instruction's variants already written) attached to no CPU, so
+   * the count is how a run says it *reached* the instruction. Diagnostic, and
+   * outside the state hash as every counter here is. */
+  uint64_t atc_flush_operations;
   /* Which part's `CACR` this is. Not a `has_` flag because the register is not
    * gained or lost but *resized*: four bits on a 68020, eleven on a 68030, two
    * on a 68040. The 68030 is the zero value, so a zero-initialised CPU stays

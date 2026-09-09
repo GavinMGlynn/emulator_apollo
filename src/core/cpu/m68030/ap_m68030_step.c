@@ -6695,10 +6695,55 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       cpu->cache_maintenance_operations++;
     }
   }
+  /* **The MC68040's `PFLUSH`, and it is demanded by software rather than
+   * anticipated.**
+   *
+   * A DS5500 loading `/sau14/domain_os` off the SR10.4 cartridge executes
+   * **`F518`** at `0100424A` and took vector 11 for it -- MD caught the fault
+   * and printed `D 100424A 2704 2C`. That is the operating system's own loader,
+   * not the firmware, and it is the first 68040 instruction this core has been
+   * asked for by Domain/OS.
+   *
+   * `M68000PRM`'s PFLUSH page, headed "(MC68040, MC68LC040)", read as a page
+   * image: `1111 0101 000 OPMODE REGISTER`, opmode two bits at 4-3 --
+   * `00` PFLUSHN (An), `01` PFLUSH (An), `10` PFLUSHAN, `11` PFLUSHA. `F518` is
+   * opmode `11`, so the loader is flushing the whole ATC.
+   *
+   * **Gated on the MMU registers, not on cache maintenance.** §3's opening note
+   * scopes the MMU to the parts that have one -- "this section does not apply
+   * to the MC68EC040 and MC68EC040V" -- and `has_68040_mmu_registers` is the
+   * flag that already carries exactly that. On a 68030 `F5xx` is coprocessor id
+   * **2**, which must stay F-line, and this gate is what keeps it so.
+   *
+   * **The named gap is the same one `CINV`/`CPUSH` have**: there is nothing to
+   * flush. `ap_m68040_atc.*` is a complete module -- `flush_all`,
+   * `flush_nonglobal` and `flush_page`, all four of the instruction's variants
+   * -- attached to no CPU, so a no-op is the *correct* effect rather than a
+   * convenient one, and joining it is the 68040 MMU item this is an increment
+   * of. `ap_m68040_regs.h` already carries the rule that matters when it is
+   * joined: "`PFLUSH` can be executed successfully despite the state of the
+   * E-bit", so it must work with translation off.
+   *
+   * **No clocks, and that is `PROVISIONAL` rather than zero-because-easy.**
+   * Neither `M68000PRM`'s page nor `[040]`'s timing section publishes a figure
+   * for `PFLUSH`; what the manual says about cost is "an undetermined number of
+   * bus cycles", and that is about the *EC* parts, which have no MMU. Inventing
+   * a point number is what this project's timing rule forbids. */
+  const bool mmu_flush =
+      cpu->has_68040_mmu_registers && (word & 0xFFE0u) == 0xF500u;
+  if (mmu_flush) {
+    if (!ap_m68030_supervisor(&cpu->regs)) {
+      /* "If Supervisor State ... Else TRAP", the page's own first line. */
+      cpu->pending_vector = AP_M68030_VECTOR_PRIVILEGE_VIOLATION;
+    } else {
+      cpu->atc_flush_operations++;
+    }
+  }
 
   out.kind = decoded.kind;
 
-  if (!cache_maintenance && decoded.kind == AP_M68030_DECODED_ILLEGAL) {
+  if (!cache_maintenance && !mmu_flush &&
+      decoded.kind == AP_M68030_DECODED_ILLEGAL) {
     /* `[030]` §8.1.5, p. 8-9: "An illegal instruction is an instruction that
      * contains any bit pattern in its first word that does not correspond to
      * the bit pattern of the first word of a valid MC68030 instruction ... An
@@ -6911,7 +6956,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
      * 68040, where `CINV` and `CPUSH` live at exactly that encoding. Handled
      * above, where the part's own flag decides; this breaks out to the tail for
      * the PC advance and any vector it set. */
-    if (cache_maintenance) {
+    if (cache_maintenance || mmu_flush) {
       break;
     }
     const ap_m68030_coproc_t *coproc = &decoded.as.coproc;

@@ -4622,6 +4622,21 @@ discipline throughout.
       running machine in one sitting*: the rest of CALENDAR's, and MINST's SAU
       selection. Everything between them is scripted, the media is confirmed to
       carry `sau14`, and this core is confirmed to drive the restore itself.
+      **A second increment, 2026-09-10, and this one was *demanded*.**
+      `EX DOMAIN_OS` on a DS5500 loads — `low: 01004000  high: 01118BFF`, 1.1 MB
+      against INVOL's 515 KB — and then executes **`F518`** at `0100424A` and
+      takes vector 11. That is `PFLUSHA`, from the operating system's own
+      loader rather than from a PROM: the first 68040 instruction this core has
+      been asked for by Domain/OS. `M68000PRM`'s PFLUSH page gives
+      `1111 0101 000 OPMODE REGISTER` and `F518` is opmode `11`, so the ROM and
+      the page agree. Landed on the `CINV`/`CPUSH` precedent — gated on
+      `has_68040_mmu_registers` (§3's own scope note), privilege-checked, and a
+      **no-op correctly rather than conveniently**, because `ap_m68040_atc.*`
+      has all four variants written and is attached to no CPU. No clocks, and
+      `PROVISIONAL` for the honest reason: no manual publishes a figure for
+      `PFLUSH`.
+      *Verification: `step_suite` 317 → 318, all four opmodes rather than the
+      one the loader uses. Detail in `PROJECT_STATUS.md`.*
       **What is left in the core**: the caches the invalidation should act on
       are a complete module attached to no CPU, so the instruction is correctly
       a no-op; and a 68040 **MMU**, which the `.mmu` item also waits on.
