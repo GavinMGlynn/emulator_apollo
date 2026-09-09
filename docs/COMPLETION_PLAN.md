@@ -4520,6 +4520,30 @@ discipline throughout.
       SR10.4 cartridges in `media/domainos/` into an AA, then `config`/`install`
       — the recorded MINST route. Not blocked, and now costed rather than
       guessed.
+      **De-risked 2026-09-09 by running it, and the first step works.** The
+      `E0007` fix earlier the same day is what made this reachable at all: the
+      cartridge used to fall back to a normal shell, so the install environment
+      never came up. `tools/cartridge-install.script` now answers `RBAK_BS`'s
+      own prompt and the restore runs —
+
+          Do you wish to proceed? (Y/N): Y
+          Retensioning cartridge tape... Please wait.
+          TFP:  Skipping over SYSBOOT found at beginning of volume.
+          Volume ID: SR10.4   Owner ID: apollo   File ID: SR10.4 Boot Volum
+          (file) "bscom/rbak_shell" restored.   … 126 entries …
+
+      — **126 entries restored, no errors, tape at block 31,524 of 104,841**,
+      stopping only at the instruction bound. The route is `sr10-3-install-route`
+      step 2 behaving exactly as recorded, `TFP: Skipping over SYSBOOT` included.
+      **And the measurement names the real constraint, which is not knowledge.**
+      126 entries cost 4.2 G instructions, and the SR10.3 restore was **474** —
+      so a full restore is ~15 G, against this core's **4,294,967,295-instruction
+      ceiling for one run**. *The install cannot be completed on this core in a
+      single run*, and there is no checkpoint/resume to span several.
+      *So the gate is now precise*: run the install **under the oracle**, as the
+      SR10.3 route did through `mdsession.py`, and let this core boot the volume
+      it produces. What was "is the install even possible" is answered — it is,
+      and this core drives it correctly as far as one run reaches.
       **What is left in the core**: the caches the invalidation should act on
       are a complete module attached to no CPU, so the instruction is correctly
       a no-op; and a 68040 **MMU**, which the `.mmu` item also waits on.

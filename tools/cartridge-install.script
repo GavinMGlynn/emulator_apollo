@@ -1,0 +1,26 @@
+# Drive the SR10.4 cartridge's install environment one step further than
+# `tools/cartridge-boot.script`: past `RBAK_BS`'s own prompt, so the restore
+# actually starts.
+#
+# Kept separate from `cartridge-boot.script` on purpose. That file is a
+# *reference* — it reproduces the transcript `PROJECT_STATUS.md` prints, and
+# answering a prompt it never answered would make it reproduce something else.
+# This one is the install route's first step.
+#
+# The `Y` is the answer to
+#
+#     *** This program will replace system software on your disk.
+#     Do you wish to proceed? (Y/N):
+#
+# which is why the disk this runs against **must be a copy**. RBAK writes to it.
+#
+# `tools/md-shell.script`'s banner rule applies unchanged: MD prints `\r\n>`
+# after its sign-on and discards what is typed while it is still printing, so
+# wait for the prompt and not for the banner.
+expect MD7C
+expect >
+send DI C\r
+expect >
+send EX DOMAIN_OS\r
+expect Do you wish to proceed
+send Y\r
