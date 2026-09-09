@@ -5283,9 +5283,24 @@ same number is what let them diverge once already.
       over twice** from the buffer, which `ap_tape.h` records as measured and
       says "neither it nor any document says why" — an unexplained duplicate in
       exactly the accounting this now turns on.
-      *So the next step is a count, not a dump*: how many reads of `BASE+0` occur
-      per DMAGO on this boot. 512 every time and the offset is elsewhere;
-      anything else names it.
+      *The count was taken, and it refutes this candidate too.* Temporary
+      instrumentation on `ap_tape`'s data-register read and on DMAGO, run over
+      the cartridge boot and reverted: **39 of 40 DMAGOs are exactly 512 data
+      reads**, with `offset` at 512 and `block_valid` set at each one. The
+      fortieth is DMAGO 0, issued before any data. The block-mark boundary shows
+      as the one DMAGO with `offset 0, block_valid 0`, exactly where file 1's
+      sixteen blocks end.
+      **So the card's byte stream is right: one aligned block per DMAGO, all the
+      way through.** With the medium, the drive, the block order, the transfer
+      length and now the byte accounting all eliminated, **the 77 bytes are
+      introduced downstream of the card** — in the 8237 and AT-translation-map
+      placement, or in what Domain/OS does with the buffer afterwards. The
+      recorded `dma runs 010FD800 010FD800` anomaly lives in exactly that path,
+      though a one-*block* placement shift does not by itself produce a
+      77-*byte* one.
+      *What is left is the address, and only the address*: find where the kernel's
+      file-3 buffer is and compare its first 512 bytes with image block 23. Every
+      cheaper question has now been asked and answered.
 
 - [x] **A cold power-on runs the confidence test — done 2026-09-09.**
       `[SC499]` §1.8.1's POC reports success "by the assertion of `EXC-`
