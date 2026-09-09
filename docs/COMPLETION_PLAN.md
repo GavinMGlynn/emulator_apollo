@@ -5122,18 +5122,24 @@ same number is what let them diverge once already.
       32,768. The console now goes from `EX DOMAIN_OS` to the Phase II prompt
       with one error instead of three.
       *What that leaves*: `can't find bscom/rbak_shell on tape - trying normal
-      shell -- E0007`, module `0E` code `0007`, "name not found". Not yet
-      distinguished: whether the search itself still fails, or whether this
-      cartridge — `019593-001`, `CRTG_STD_SFW_BOOT_1` — simply does not carry
-      that member. **Its structure is now known**: exactly three file marks, at
-      blocks 16, 22 and 104,838, so file 3 is blocks 23-104,837, and the kernel
-      reads it from block 23.
+      shell -- E0007`, module `0E` code `0007`, "name not found". **Narrowed
+      2026-09-09, and one of the two alternatives is dead**: the cartridge
+      **does** carry it. `019593-001` holds `rbak_shell` nineteen times and the
+      first is the complete path `bscom/rbak_shell` at byte 362,616 — **block
+      708**, inside file 3 — with the other eighteen in six triples further in.
+      **Its structure is known**: three file marks at blocks 16, 22 and 104,838,
+      so file 3 is blocks 23-104,837 and the kernel reads it from block 23.
+      So the name is on the tape, 685 blocks into the file, and the boot reads
+      **69,398** blocks — far past it. The bytes reach the machine and the search
+      is what fails.
       *Already measured and not to be re-measured*: the DMA path itself is
       right — 69,401 transfers in one boot, 69,398 of them a 512-byte range
       ending at terminal count, which is `[SC499]` §1.11 step 5's per-block unit
       exactly. `FINDINGS.md` C271, C273, C274.
-      *Verification: the environment comes up running the tape's `rbak_shell`,
-      or the cartridge is shown not to carry it.*
+      *Verification: the environment comes up running the tape's `rbak_shell`.*
+      The second alternative this item offered — "or the cartridge is shown not
+      to carry it" — is spent. **Next measurement**: what the kernel holds at
+      block 708, not whether it got there.
 
 - [x] **A cold power-on runs the confidence test — done 2026-09-09.**
       `[SC499]` §1.8.1's POC reports success "by the assertion of `EXC-`

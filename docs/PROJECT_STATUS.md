@@ -5501,8 +5501,8 @@ C0C008BB82E7BD70   + `divider_held` and `dst_shifted` in the hash
 FE2BB02AEF1F4624   + the DUART's input-port change filter -- **and the clocks move**
 1AE206D37D8A8D1F   + the tape drive's `FIL` latch in the hash
 5AF8B16F9BA4B7D0   + the **board's** half of a tape transfer in the hash
-9A8188D5AC393BFD   (measured 2026-09-09 at `5c8902c`; the step between this and
-                   the row above was not recorded when it happened)
+9A8188D5AC393BFD   + the tape card's power-on confidence test, which gives a
+                   cold-started card a starting state it did not have
 77B60315440826A6   + the DMA transfer's four states in the hash
 ```
 
@@ -11375,10 +11375,13 @@ of them had changed the reference part's behaviour while claiming to change
 another part's.
 
 *And the hash this document recorded as current, `5AF8B16F9BA4B7D0`, no longer
-reproduces* -- `5c8902c` gives `9A8188D5AC393BFD`, so something between the
-recording and that commit moved it and was not written down. The lineage below
-is corrected to the measured value rather than left claiming one that a run does
-not produce.
+reproduces*: `5c8902c` gives `9A8188D5AC393BFD`. **It was recorded, and this
+section is where it was missing.** The cold power-on confidence test closed the
+same day with "Identity `5AF8B16F9BA4B7D0` -> `9A8188D5AC393BFD`, the hash being
+the **only** line of the report that differs" -- written into its plan item and
+never carried into the lineage here. So the step is attributed, not mysterious,
+and the omission was this document's rather than the measurement's. The lineage
+below now carries both.
 
 **Console byte-identical, clock total identical to the digit, refresh count
 identical.** The hash moves only because `dma_transfer_ticks` and
@@ -11427,7 +11430,40 @@ would put unexercised state in the identity hash -- which is exactly the choice
 `ap_master.h` made for `MASTER.L`'s 12 µs, for the same reason.
 
 *Execution works*: the reference boots to a `login:` prompt with main memory
-answering at zero and nothing on the bus stalling it. `atbus_suite` 14 -> 16. `cache_suite` 30 -> 35 tests, including that a 68030 written
+answering at zero and nothing on the bus stalling it. `atbus_suite` 14 -> 16.
+
+**`E0007`: the cartridge does carry `bscom/rbak_shell`, so the search is what
+fails.** The item allowed either answer -- "the environment comes up running the
+tape's `rbak_shell`, **or the cartridge is shown not to carry it**" -- and the
+second is now ruled out. `019593-001` holds the string **nineteen times**, and
+the first is a complete path:
+
+```
+00058868  ... 57 1f 90 02 a0 02 72 0d 00 00  |..............W.....r.....bscom/|
+00058888  72 62 61 6b 5f 73 68 65 6c 6c 00   |rbak_shell..........W.....r.....|
+```
+
+Byte 362,616, which is **block 708** -- inside file 3, whose extent this item
+already established as blocks 23 to 104,837. The other eighteen occurrences fall
+in six triples at 18.3, 24.2, 30.0, 34.9, 38.5 and 42.0 MB, so the isolated
+first one has the shape of a directory entry and the triples the shape of the
+members themselves.
+
+**That puts the name 685 blocks into the file the kernel reads, and the boot
+reads far past it**: 69,398 block transfers, measured, against the 708 needed.
+So the bytes reach the machine and the failure is in what happens to them.
+
+Two candidates are *not* it, both already measured and not to be re-measured:
+the DMA path is right to the block (69,398 transfers of exactly a 512-byte range
+ending at terminal count, `[SC499]` §1.11 step 5's unit), and the first block's
+doubling is deliberate -- the SR10.4 PROM programs two transfers naming the same
+destination, MAME's `sc499.cpp` carries the same flag with its own "why is this
+necessary???", and the second write lands where the first did, so memory ends up
+correct.
+
+What is left is narrower than the item was: **the name is on the tape, in the
+region read, and the machine still reports "name not found"** -- so the next
+measurement is what the kernel holds at block 708, not whether it got there. `cache_suite` 30 -> 35 tests, including that a 68030 written
 through the variant path and through the plain one agree exactly -- the
 reference part must not have moved. **Five of the six divergences remain**, and
 the item stays open: the frame layout, the control-register count, vector 56 and
