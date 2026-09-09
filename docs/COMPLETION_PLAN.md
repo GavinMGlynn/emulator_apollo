@@ -4781,8 +4781,11 @@ Only after the reference core is proven, and only under an identity harness.
       (`C`, `CE`, `F`, `E`) where the 68030's has eleven (`[020]` §7.1.2.1);
       there are **five** control registers, not ten, the 68030's five MMU
       registers being absent (`[020]` §1, Figure 1-3); and the **long bus
-      fault frame is 44 words**, not 46 (`[020]` Figure 6-9), so a 68020's
-      bus fault pushes two words fewer and its `RTE` pops two fewer; and
+      fault frame is **laid out differently**, not merely two words shorter
+      (`[020]` Figures 6-8 and 6-9): 44 words against 46, with the **stage B
+      address at `$20` against `$24`**, the **data output buffer at `$28`
+      against `$18`**, and no version field where this core has one at `$36`;
+      and
       **vectors 48-63 are all unassigned** (`[020]` Table 6-2) where this core
       defines `VECTOR_MMU_CONFIGURATION` at 56.
       Record: `docs/references/M68020_WALK.md`.
@@ -6036,7 +6039,7 @@ same number is what let them diverge once already.
         about. Detail in `PROJECT_STATUS.md`.
         Record: `docs/references/M68000_FAMILY_REFERENCE_WALK.md`.
   - [ ] **`[020]` `MC68020_32-Bit_Microprocessor_Users_Manual_1984.pdf`,
-        452 pages — started 2026-09-09; §1-§4 and §7 done, §6 in progress, **58 of 452**.** Record:
+        452 pages — started 2026-09-09; §1-§4 and §7 done, §6 in progress, **60 of 452**.** Record:
         `docs/references/M68020_WALK.md`.
         **The deferral this item carried was false and is withdrawn.** It read
         "Phase 2b and Phase 7 parts ... deferred until those processors are
