@@ -5958,8 +5958,10 @@ same number is what let them diverge once already.
       trap `stale-comments-outlive-the-walk` records.
       *Verification: `omti_suite` 41 → 43, `afd_suite` 48.* Detail in
       `PROJECT_STATUS.md`.
-- [ ] **Three µPD765 behaviours still open, and two of them are blocked on the
-      same thing: the document states a prohibition and not its consequence.**
+- [ ] **One µPD765 behaviour left: the reset-with-`RDY`-high interrupt.** *Of
+      the three this item opened with, two are closed under the
+      documentation-absent rule and the third — the polling feature — is closed
+      by its consumer clause; see below. What remains is work, not evidence.*
       **The polling feature** and **the reset-with-`RDY`-high interrupt**, which
       share one blocker and it is now named precisely. The first: after
       `SPECIFY` the part polls every drive for a Ready-line change and
@@ -5998,14 +6000,28 @@ same number is what let them diverge once already.
       derived value rather than a bracket. A `PROVISIONAL` with a reason.
       **MFM's refusal of 128-byte sectors** (`N = 00`, `[765A]` p.14 note 3) and
       **"no other command could be issued for as long as FDC is in process of
-      sending Step Pulses to any drive"** (`[765A]` p.15). Both state that the
-      thing must not be done and **neither says what the part does if it is**.
-      Inventing a failure code is the one thing this project does not do, so
-      both are recorded rather than modelled — `ap_omti.c` says so where
-      `fdc_seeking()` used to live. *What would close them*: a source that
-      states the consequence, or a driver on this machine that tries it. The
-      `N = 00` case is unreachable today in any case — the image geometry is
-      fixed at 512-byte sectors.
+      sending Step Pulses to any drive"** (`[765A]` p.15) — **both CLOSED
+      2026-09-09 under the documentation-absent rule.** Each states that the
+      thing must not be done and **neither says what the part does if it is**,
+      and that consequence is now established absent at all three tiers:
+      *reference*, all four datasheet editions carry the prohibition and none
+      the outcome; *web*, searched, and what comes back is those same datasheets;
+      *oracle*, which implements **neither** — MAME's `upd765` computes
+      `128 << size` with no MFM refusal, and its `start_command` has no
+      seek-busy guard at all.
+      *And the consumer clause covers `N = 00` outright*: this core's image
+      geometry is fixed at 512-byte sectors, so a 128-byte sector cannot be
+      presented to the part by any medium it can be given.
+      *Execution works*: the firmware's own `Drive 0 passed.`, a floppy read
+      through the modelled command set, and a booted volume, with nothing on
+      this machine issuing either forbidden form. Inventing a failure code to
+      fill the gap is the one thing that would not be an improvement.
+      **What is left of this item is one piece of *work*, not evidence**: the
+      reset-with-`RDY`-high interrupt, now that `RDY` is known to be tied
+      asserted. It is fully specified — `[765A]` Table 5's `SE=0, bit6=1,
+      bit7=1` is "Ready Line changed state, either polarity", so `ST0` reads
+      `IC = 11`, and `SENSE INTERRUPT STATUS` clears it — and needs only the
+      `PROVISIONAL` choice between the two published delays.
 - [ ] **Walk the processor manuals whole — the second batch.**
       ***All six documents are walked whole as of 2026-09-07: 2,633 pages***
       — `[030]` 608/608, `[PRM]` 646/646, `[851]` 356/356, `[881]` 396/396,
