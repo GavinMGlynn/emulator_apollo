@@ -4597,6 +4597,44 @@ Only after the reference core is proven, and only under an identity harness.
       *Verification: a master taking the bus mid-`MOVEM` leaves a partial store,
       and the identity harness's goldens are re-blessed with that named as the
       reason.*
+
+      **The two things waiting on this, moved here 2026-09-09 from the
+      processor-manual walk item.** They were listed under that walk because it
+      found them, which kept a *reading* item open on work that is this one's —
+      and the walk's reading is finished. Both are conservative today and
+      neither is exhibited by the identity boot; verbatim, with their own
+      reasoning:
+  - [ ] **`AP_M68030_RMC_FIRST_READ` is modelled and never placed.** The
+        arbiter has three RMC states because `[030]` §7.7.4 distinguishes
+        the first read cycle --- a bus request arriving during it still
+        walks the machine to its grant states, one arriving after is
+        ignored --- and the machine can only assert `AP_M68030_RMC_LOCKED`,
+        because the whole sequence happens inside one `ap_m68030_step` and
+        the clocks are delivered afterwards. So the lock is one instruction
+        wide where the hardware's is narrower.
+        **What would unblock it**: Phase 8's **resumable sequencer**. The
+        per-cycle processor item closed 2026-09-08 and does not unblock this
+        one: it makes a bus cycle addressable from *outside* the step, and the
+        first read cycle of an RMC is inside it. Until then the wider lock is the conservative direction ---
+        it refuses a grant the hardware would allow, rather than allowing
+        one it forbids.
+  - [ ] **A translation table search is an extended read-modify-write and
+        this core does not lock the bus for one.** `[030]` §11.9: "Since the
+        address translation search is an extended read-modify-write
+        operation, the no-cache-case latency is incurred by the longest
+        address translation search required by the system." §12.1.2 gives
+        the pins --- "the MC68030 asserts `RMC` but not `CIOUT`" --- and
+        §11.7's own table counts "an RMC cycle to set the U bit ... as one
+        read and one write". `ap_m68030_walk.h` already cites the rule from
+        §9; what is missing is the *bus*: the walk reads descriptors through
+        a plain callback (`machine_table_fetch`) with no bus object, so
+        there is no cycle on which to assert anything.
+        **What would unblock it**: the same **resumable sequencer** item, not
+        the per-cycle processor one, which closed 2026-09-08 without reaching
+        inside an instruction. The
+        observable difference is a DMA grant landing inside a table search,
+        which the identity boot does not exhibit.
+
 - [x] **Where the time goes, measured** — and the first thing the measurement
       found was that the profile was measuring the instrument. A stepped boot
       read one instruction word back per step to fill a trace column; with the
@@ -5975,35 +6013,22 @@ same number is what let them diverge once already.
       *Verification: `omti_suite` 43 → 45; identity `6DF967A63D3D4DA9`, clocks
       and every counter unmoved.* Detail in `PROJECT_STATUS.md`.
 
-- [ ] **Walk the processor manuals whole — the second batch.**
-      ***All six documents are walked whole as of 2026-09-07: 2,633 pages***
-      — `[030]` 608/608, `[PRM]` 646/646, `[851]` 356/356, `[881]` 396/396,
-      `MC68030EC` 19/19 and `M68000_Family_Reference` 608/608. **The reading is
-      finished**, and so is every tail it found that can be finished now. **Two
-      remain and both name the same blocker**: `AP_M68030_RMC_FIRST_READ` is
-      modelled and never placed, and a translation table search does not lock
-      the bus — each needs a bus cycle to be addressable from **inside** an
-      instruction, which is Phase 8's **resumable sequencer** item and not the
-      per-cycle processor one, closed 2026-09-08. The distinction is the whole
-      of what that closure established: everything *outside* the CPU now sees a
-      per-cycle machine, and these two are inside it. The other two closed
-      2026-09-07: the `m68851` protection fields and the 68882's concurrency.
-      `[020]` and `[040]` are a deliberate deferral to Phase 2b/7 and not part
-      of this batch.
-      Opened 2026-08-25, once the peripheral batch closed and an inventory
-      showed the shelf holds 133 PDFs against 14 walk records. Most of the
-      remainder is Domain/OS *software* documentation and out of scope; these
-      six are not. **Every one of them is the shape this project keeps finding
-      to be `derived` rather than `walked`** — heavily cited, never passed over
-      field by field — which is what `[OMTI]` §5, `[6840UM]` ch. 3 and
-      `[8259]`'s "whole programming model" each turned out to be.
-      **Do the citation audit first, per document.** It is one grep, it cost
-      nothing the last three times, and it is what turns "render 600 pages" into
-      "chapter N is already derived, verify it and read the rest". `[6840]`'s
-      item had its own premise reversed by exactly this check.
-      *Order is by what this machine actually runs*: `[030]` first, then
-      `[PRM]`; the 68020 and 68040 are Phase 2b/7 parts that do not exist yet
-      and come last.
+- [x] **Walk the processor manuals whole — the second batch. Done; the
+      reading is finished.** All six walked whole by 2026-09-07, 2,633 pages:
+      `[030]` 608/608, `[PRM]` 646/646, `[851]` 356/356, `[881]` 396/396,
+      `MC68030EC` 19/19 and `M68000_Family_Reference` 608/608 — each with a
+      record in `docs/references/`.
+      **And the deferral this item recorded is spent**: `[020]` and `[040]`
+      were "a deliberate deferral to Phase 2b/7 and not part of this batch",
+      and both have since been walked whole too — `[020]` 452/452 and the
+      `[040]` set 719/719, on 2026-09-09. Every processor document on the shelf
+      is now derived rather than queried.
+      *The two tails that are not finished have moved to the item that gates
+      them*, Phase 8's resumable sequencer: `AP_M68030_RMC_FIRST_READ` never
+      placed, and a translation table search not locking the bus. Keeping them
+      here held a **reading** item open on someone else's work.
+      Detail, per document and per finding, in `PROJECT_STATUS.md`.
+
   - [x] **`[030]` `MC68030_Users_Manual_3ed_1990.pdf`, 608 pages — walked
         whole, 608/608, 2026-09-06.** The audit halved the job by
         attribution: §7-§9 and §11 held 88 of 90 citations and were
@@ -6017,36 +6042,6 @@ same number is what let them diverge once already.
         rule that a range dismissed as electrical is where `[8259]` hid
         `TJLJH`. Detail in `PROJECT_STATUS.md`.
         Record: `docs/references/M68030_WALK.md`.
-  - [ ] **`AP_M68030_RMC_FIRST_READ` is modelled and never placed.** The
-        arbiter has three RMC states because `[030]` §7.7.4 distinguishes
-        the first read cycle --- a bus request arriving during it still
-        walks the machine to its grant states, one arriving after is
-        ignored --- and the machine can only assert `AP_M68030_RMC_LOCKED`,
-        because the whole sequence happens inside one `ap_m68030_step` and
-        the clocks are delivered afterwards. So the lock is one instruction
-        wide where the hardware's is narrower.
-        **What would unblock it**: Phase 8's **resumable sequencer**. The
-        per-cycle processor item closed 2026-09-08 and does not unblock this
-        one: it makes a bus cycle addressable from *outside* the step, and the
-        first read cycle of an RMC is inside it. Until then the wider lock is the conservative direction ---
-        it refuses a grant the hardware would allow, rather than allowing
-        one it forbids.
-  - [ ] **A translation table search is an extended read-modify-write and
-        this core does not lock the bus for one.** `[030]` §11.9: "Since the
-        address translation search is an extended read-modify-write
-        operation, the no-cache-case latency is incurred by the longest
-        address translation search required by the system." §12.1.2 gives
-        the pins --- "the MC68030 asserts `RMC` but not `CIOUT`" --- and
-        §11.7's own table counts "an RMC cycle to set the U bit ... as one
-        read and one write". `ap_m68030_walk.h` already cites the rule from
-        §9; what is missing is the *bus*: the walk reads descriptors through
-        a plain callback (`machine_table_fetch`) with no bus object, so
-        there is no cycle on which to assert anything.
-        **What would unblock it**: the same **resumable sequencer** item, not
-        the per-cycle processor one, which closed 2026-09-08 without reaching
-        inside an instruction. The
-        observable difference is a DMA grant landing inside a table search,
-        which the identity boot does not exhibit.
   - [x] **`MC68030EC.pdf` walked whole, 19/19, 2026-09-07.** The document
         `[030]` §13 names, opened on the rule that a document naming another
         document is not finished until the named one is on the list. A range
