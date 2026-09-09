@@ -25,6 +25,28 @@
  * addressing-mode enumeration. They are kept apart deliberately: merging them
  * would mean inventing a `(BR,Xn)` column for `MOVE` that the manual does not
  * print.
+ *
+ * ## Two cells of §10.6 are printed wrong, and this table keeps the print
+ *
+ * Found by comparing every cell of this table against the page, not by reading
+ * the pages alone. Both were verified at 600 dpi, so they are the print and not
+ * an extraction artefact:
+ *
+ *   - **`MULU` at `(d16,PC)` is missing its lead.** The execute cell reads
+ *     `14/20` where `MULS` at the same mode reads `2L + 16/2L + 20`. Every
+ *     other row of the pair shares its lead exactly and differs only in the
+ *     word figure (16 against 14), so this one should read `2L + 14/2L + 20`.
+ *   - **`MOVE to SR` has no `(BR,Xn)` row.** Both its columns print an em dash,
+ *     while `(bd,BR,Xn)` directly below is 14 / 1L + 13 and the two neighbouring
+ *     instructions on the same page give 6 / 1L + 6 for that mode. `MOVE
+ *     <ea>,SR` takes any data addressing mode, so the mode is legal and the
+ *     dash is a gap in the table rather than a statement about the part.
+ *
+ * Both are transcribed **as printed**. A query for either returns the manual's
+ * answer -- the missing lead, or no data at all -- rather than an interpolation,
+ * because a reference core that quietly fills a gap in its source cannot be
+ * checked against that source afterwards.
+ *
  */
 
 #ifndef APOLLO_CPU_M68040_AP_M68040_IU_TIMING_H

@@ -7,6 +7,16 @@
  * Every other timing section gives clocks. This one gives clocks plus two free
  * parameters, and says why:
  *
+ * ## Both instructions are interruptible
+ *
+ * §10.3: "these two instructions sample interrupt request (IPLx) signals on
+ * **every clock** instead of at instruction boundaries." A `CPUSHA` can run for
+ * "11 + 256 x Line + Idle" clocks, which at any plausible `Line` is thousands;
+ * making it uninterruptible would add that to the machine's worst-case
+ * interrupt latency. So the part checks on every clock, and a model that
+ * treats a cache instruction as atomic gets latency wrong by three orders of
+ * magnitude even though it gets the total right.
+ *
  *   - **`Idle`** -- "the number of clocks required for all pending writes and
  *     instruction prefetches to complete". It depends on what ran *before*:
  *     "the total time required to execute a cache invalidate instruction is

@@ -1661,6 +1661,15 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         idle. §9.4.2's `$00FF` range-control exponent is a misprint three
         manuals share verbatim -- one witness, not three.
         `m68040_fp_exception_suite`, 16 tests. Detail in `PROJECT_STATUS.md`.
+  - [x] `[040]` §10's instruction timings, all 38 pages — **verification, and it
+        held.** Every table compared against the code cell by cell: all 46
+        groups of §10.6 (17 modes each), Tables 10-3 and 10-4, §10.5's rows,
+        §10.7.1's six rows and §10.7.3's pipeline stages. **Every comparison
+        matched exactly.** Two cells are misprinted (`MULU` at `(d16,PC)` lacks
+        its lead; `MOVE to SR` has no `(BR,Xn)` row) and the table keeps the
+        print. §10.3 adds that `CINV` and `CPUSH` **sample `IPLx` every clock**,
+        so a `CPUSHA` is interruptible. `m68040_iu_timing_suite` 99 -> 101
+        tests. Detail in `PROJECT_STATUS.md`.
   - [x] The two ATCs: 16 sets of four ways each, tagged with `FC2` alone and no
         task alias -- `G` is the 68040's substitute, overriding a nonglobal
         flush rather than being one more criterion. The manual states the tag

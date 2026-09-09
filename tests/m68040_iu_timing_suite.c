@@ -1917,6 +1917,50 @@ static void test_section_10_6_is_fully_transcribed(void) {
   }
 }
 
+static void test_multiply_unsigned_keeps_the_manuals_missing_lead(void) {
+  /* §10.6 prints MULU at (d16,PC) as "14/20" where MULS at the same mode reads
+   * "2L + 16/2L + 20". Every other row of the pair shares its lead and differs
+   * only in the word figure, so the lead is missing from the print -- verified
+   * at 600 dpi. Transcribed as printed: a reference core that quietly repairs
+   * its source cannot be checked against that source afterwards. */
+  const ap_m68040_iu_cell_t mulu =
+      ap_m68040_iu_timing("MULU", AP_M68040_IU_PC_DISPLACEMENT);
+  const ap_m68040_iu_cell_t muls =
+      ap_m68040_iu_timing("MULS", AP_M68040_IU_PC_DISPLACEMENT);
+  TEST_ASSERT_TRUE(mulu.valid);
+  TEST_ASSERT_TRUE(muls.valid);
+  TEST_ASSERT_EQUAL_UINT(0u, mulu.execute.lead);
+  TEST_ASSERT_EQUAL_UINT(14u, mulu.execute.base);
+  TEST_ASSERT_EQUAL_UINT(2u, muls.execute.lead);
+  TEST_ASSERT_EQUAL_UINT(16u, muls.execute.base);
+  /* And the two agree everywhere the print is consistent -- (An) differs by
+   * two in the base and shares the lead, which is the pattern (d16,PC) breaks. */
+  const ap_m68040_iu_cell_t mulu_an =
+      ap_m68040_iu_timing("MULU", AP_M68040_IU_INDIRECT);
+  const ap_m68040_iu_cell_t muls_an =
+      ap_m68040_iu_timing("MULS", AP_M68040_IU_INDIRECT);
+  TEST_ASSERT_EQUAL_UINT(muls_an.execute.lead, mulu_an.execute.lead);
+  TEST_ASSERT_EQUAL_UINT(muls_an.execute.base - 2u, mulu_an.execute.base);
+}
+
+static void test_move_to_sr_has_no_timing_for_one_legal_mode(void) {
+  /* §10.6 prints both columns of MOVE to SR's (BR,Xn) row as em dashes, while
+   * (bd,BR,Xn) below is 14 / 1L + 13 and MOVE to CCR and MOVE from SR both give
+   * 6 / 1L + 6 for that mode. MOVE <ea>,SR takes any data addressing mode, so
+   * the mode is legal and the dash is a gap in the table. Reported as no data
+   * rather than interpolated. */
+  const ap_m68040_iu_cell_t gap =
+      ap_m68040_iu_timing("MOVE to SR", AP_M68040_IU_BASE_INDEXED);
+  TEST_ASSERT_FALSE(gap.valid);
+  /* The mode is timed for the neighbours and for the very next mode. */
+  TEST_ASSERT_TRUE(
+      ap_m68040_iu_timing("MOVE to CCR", AP_M68040_IU_BASE_INDEXED).valid);
+  TEST_ASSERT_TRUE(
+      ap_m68040_iu_timing("MOVE from SR", AP_M68040_IU_BASE_INDEXED).valid);
+  TEST_ASSERT_TRUE(
+      ap_m68040_iu_timing("MOVE to SR", AP_M68040_IU_BASE_DISPLACEMENT).valid);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_instructions_sharing_a_column_share_a_group);
@@ -2018,5 +2062,7 @@ int main(void) {
   RUN_TEST(test_a_decreasing_calculate_only_appears_in_a_qualified_column);
   RUN_TEST(test_section_10_6_is_fully_transcribed);
   RUN_TEST(test_the_rotates_calculate_an_address_sooner_than_the_shifts);
+  RUN_TEST(test_multiply_unsigned_keeps_the_manuals_missing_lead);
+  RUN_TEST(test_move_to_sr_has_no_timing_for_one_legal_mode);
   return UNITY_END();
 }

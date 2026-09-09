@@ -10905,7 +10905,59 @@ with the arithmetic beside it and **not** silently corrected: there is no
 range-control code on the 68040 side to correct, and inventing `$007F` in a
 document would be a guess dressed as a citation.
 
-`ap_m68040_fp_exception.*`; `m68040_fp_exception_suite`, 16 tests. Also
+`ap_m68040_fp_exception.*`; `m68040_fp_exception_suite`, 16 tests.
+
+**§10 was the audit's one confident call, and it held: 38 pages of pure
+verification.** The citation audit predicted this section was already derived on
+56 citations, and it was right. Every table in §10 was compared against the
+code **cell by cell**, not sampled: all 46 groups of §10.6's addressing-mode
+matrix (17 modes each), §10.3's Tables 10-3 and 10-4, §10.5's miscellaneous
+rows, §10.7.1's six floating-point support rows, and §10.7.3's pipeline stages.
+**Every comparison matched exactly.** A parser over the manual's text layer
+confirmed 14 groups automatically and the remaining 32 were read against the
+page directly, because those are the columns printing two figures per cell,
+which the parser was not built for.
+
+The transcription preserves asymmetries a careless one would smooth away, and
+those are the evidence it was read rather than inferred: `ADDA` costs 1/2 at
+`Dn` where `SUBA` costs 1/1; `NBCD` costs 3 at `Dn` and 2 at every memory mode;
+`JSR` at `([bd,BR,Xn],od)` is one clock dearer than `JMP` at the same mode;
+`BCHG` prints **two** calculate figures at some modes (`2/1`, for a `#<xxx>`
+against a `Dn` bit number) and the table carries both.
+
+**Two cells of §10.6 are printed wrong, and the table keeps the print.** Both
+verified at 600 dpi, and both found by the cell-by-cell comparison rather than
+by reading:
+
+- **`MULU` at `(d16,PC)` is missing its lead**, printing `14/20` where `MULS` at
+  the same mode prints `2L + 16/2L + 20`. Every other row of the pair shares its
+  lead and differs only in the word figure, so this should read `2L + 14/2L +
+  20`.
+- **`MOVE to SR` has no `(BR,Xn)` row** -- both columns are em dashes, while
+  `(bd,BR,Xn)` directly below is 14 / 1L + 13 and `MOVE to CCR` and `MOVE from
+  SR` both give 6 / 1L + 6 for that mode. `MOVE <ea>,SR` takes any data
+  addressing mode, so the mode is legal and the dash is a gap in the table.
+
+Both are transcribed as printed. A query returns the manual's answer -- the
+missing lead, or no data at all -- rather than an interpolation, because a
+reference core that quietly repairs its source cannot afterwards be checked
+against it.
+
+Three things §10 adds outright. **`CINV` and `CPUSH` are interruptible**: §10.3
+says they "sample interrupt request (IPLx) signals on **every clock** instead of
+at instruction boundaries", which matters because a `CPUSHA` runs for "11 + 256
+x Line + Idle" clocks -- thousands at any plausible `Line` -- so treating a cache
+instruction as atomic gets interrupt latency wrong by three orders of magnitude
+while getting the total right. **A `RESET` instruction takes 521 clocks**, which
+squares with §7.10's 512-clock `RSTO` pulse plus nine. And §10.7.3's floating-
+point pipeline prints **fractional clock counts** -- `FDIV` extended executes in
+37.5 -- which `ap_m68040_fp_pipeline.*` already holds in half-cycle integers so
+that adding two of them is not a rounding question.
+
+No new module: §10's job was to check the five timing modules already in the
+core, and they check out. `m68040_iu_timing_suite` gains the two anomalies as
+tests (99 -> 101) and `ap_m68040_cache_timing.h` gains the interruptibility
+note. Also
 captured: Table 9-9's nine vectors, with the unimplemented *instruction* sharing
 vector 11 with the F-line illegal instruction and the handler distinguishing
 them by stack frame format (`$0` or `$2`); Table 9-10's unimplemented
