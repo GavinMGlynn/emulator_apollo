@@ -10731,6 +10731,102 @@ sections do not contradict each other anywhere.
 
 `ap_m68040_jtag.*`; `m68040_jtag_suite`, 14 tests.
 
+**§7's bus operation is in, and it is what §4, §5 and §6 were all owing.** Each
+of those defers to §7 by name -- §4.6 three times for the fill and push
+protocol, §5.3.6 for the one encoding table it declines to print, §6.2.7 for a
+reset cycle it names without giving. All three are now closed.
+
+**`SIZ = 11` is a line transfer, not three bytes.** Table 7-1: `01` byte, `10`
+word, `00` long word, `11` **line**. The 68020 and 68030 put a *three-byte*
+transfer on that fourth encoding -- `ap_m68030_bus.h` carries it as
+`AP_M68030_SIZE_THREE` -- so a board that decoded `SIZ` for one of those parts
+and met a 68040 would read every 16-byte burst as three bytes. There is no
+three-byte transfer on this part at all: §7.2 says it "does not support dynamic
+bus sizing and expects the referenced device to accept the requested access
+width", where the earlier parts resize the transfer to fit the port.
+
+**The two acknowledge cycles have fixed addresses.** An interrupt acknowledge
+drives `A31-A0` = **`$FFFFFFFF`** with the level on `TM2-TM0` (the inverted
+`IPLx`); a breakpoint acknowledge drives **`$00000000`** with `TM2-TM0` = `$0`.
+Both are `TT = 11`. On the earlier parts both are CPU-space cycles whose
+*address* carries the level and the type, so a DN-series board that decodes an
+acknowledge out of `FC7` and the address has nothing to decode on a 68040 --
+the second half of the finding §5's Table 5-3 opened. And a `BKPT` here always
+ends the same way: §7.5.2, "when the external device terminates the cycle with
+either `TA` or `TEA`, the processor takes an **illegal instruction exception**".
+The data returned is not used, where on the earlier parts it is a replacement
+opcode.
+
+**Reset is 10 clocks in and 128 clocks after** (§7.10), and these are the
+numbers §5 and §6 kept pointing at. `RSTI` must be asserted at least **10
+`BCLK`s**; it is internally synchronised for **two**; once it negates the part
+is held in reset for **another 128 clocks**, and `CDIS`, `MDIS` and `IPL2-IPL0`
+"should be driven to their normal levels before the end of the 128-clock
+internal reset period" -- so the strapping window closes there, not at `RSTI`
+negation. A `RESET` *instruction* drives `RSTO` for **512 `BCLK`s** and leaves
+the internal registers alone. `MI` is asserted throughout reset and stays
+asserted "during and after reset until the first bus cycle of the M68040", which
+is the end point §5.5.2 never gives.
+
+**Table 7-6's key columns are not a key**, and the module does not use them.
+§7.8.1 says what separates the five arbitration states: "whether the three-state
+logic determines if the M68040 drives the bus **and how the M68040 drives BB**".
+Table 7-6 then keys them on the *levels* of `BB` and `BG`, which cannot work --
+**Park** and **Alternate Bus Master Ownership** both read asserted/asserted and
+differ only in who drives `BB`. Worse, the **Active Bus Cycle** row prints `BG`
+"Negated" in its column and "arbiter asserts `BG`" in its own Conditions cell,
+three words apart. The body text settles that one: the processor asserts `BB`
+and starts the cycle *after* being granted the bus, and "as long as `BG` is
+asserted, `BB` remains asserted", so the column is wrong and the cell is right.
+`ap_m68040_arbitration_state()` therefore takes what §7.8.1 names -- does the
+part drive the bus, does it drive `BB`, are the values defined -- rather than
+the two pin levels.
+
+Four more behaviours a model would otherwise get wrong:
+
+- **A locked sequence is divisible.** "The read and write portions of a locked
+  read-modify-write sequence are divisible in the M68040, allowing the bus to be
+  arbitrated away during the locked sequence." `LOCK` is a request to the
+  arbiter, not a hold on the bus. And §7.8.2.1's corollary: a system supporting
+  relinquish-and-retry on the last write of a locked transfer **cannot use
+  `LOCKE` at all**, because the arbiter would hand the bus over between the retry
+  and the write.
+- **`CAS` and `CAS2` write even when the compare fails.** §7.4.5: this "differs
+  from those used by previous members of the M68000 family. If an operand does
+  not match ... the M68040 still executes a single write transfer to terminate
+  the locked sequence" -- writing back the value it read for `CAS`, the second
+  operand for `CAS2`. A failed compare is still a bus write and still dirties a
+  cache line.
+- **`NOP` is a synchronising instruction.** Writes can be deferred indefinitely
+  and reads can pass them -- "reordering only occurs with writes relative to
+  reads" -- and "the `NOP` instruction forces instruction and bus
+  synchronization because it freezes instruction execution until all pending bus
+  cycles have completed". That is why `NOP` appears in §5.9.1's list of
+  instructions ending with a branch-taken status encoding, which read as an
+  oddity when §5 was walked. A page marked **serialized noncachable** does the
+  same for reads only: "the definition of a page as noncachable versus serialized
+  noncachable only affects read accesses".
+- **Five kinds of access never allocate a cache line**: table searches, table
+  updates, exception vector fetches, exception stacking, and the stack
+  deallocation of an `RTE`.
+
+Also captured: the burst line transfer costs **5 clocks** and a burst-inhibited
+one **8**; a bus error on the second, third or fourth long word of a line read
+raises an exception only if the execution unit specifically wanted that long
+word; a retry is only honoured on the *initial* transfer of a line, and is read
+as a bus error on the other three; a **relinquish and retry** is `BG` negated
+with `TA` and `TEA` both asserted; a retried cycle "does not constitute a bus
+error or contribute to a double bus fault"; `UPAx` are wired to the `SCx` inputs
+of snooping processors, which is how a page descriptor selects the snoop
+operation §4 tabulates; and a snoop with no intervention costs "the equivalent
+of two wait states", with up to two more if the cache lookup is slow.
+
+`ap_m68040_bus.*`; `m68040_bus_suite`, 24 tests. §7 is 72 pages and this is its
+tables and stated constants, not a cycle-by-cycle state machine: there is no
+68040 stepper to drive one and no memory system attached to this part, so a
+state machine would be a model of nothing. `ap_m68030_bus.*` is what a real one
+looks like once the rest of the machine exists to justify it.
+
 **The two ATCs are in, and the manual contradicts itself about the tag width.**
 
 §3.3's `Logical Address` field definition reads -- in the page image, not merely

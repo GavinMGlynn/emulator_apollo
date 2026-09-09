@@ -1639,6 +1639,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         no internal power-up reset circuit** -- and because stopping the system
         clocks under the wrong instruction can destroy the part.
         `m68040_jtag_suite`, 14 tests. Detail in `PROJECT_STATUS.md`.
+  - [x] `[040]` §7's bus operation, all 72 pages: Tables 7-1 through 7-6 and the
+        stated constants. Closes what §4, §5 and §6 each defer to §7 for.
+        **`SIZ = 11` is a line transfer where the 68020 and 68030 make it three
+        bytes**; the two acknowledge cycles drive fixed addresses `$FFFFFFFF`
+        and `$00000000` rather than CPU space; reset is 10 clocks in, 2 to
+        synchronise, **128 held after**, 512 of `RSTO` for a `RESET`
+        instruction; a locked sequence is divisible; `CAS`/`CAS2` write even
+        when the compare fails; `NOP` is a bus-synchronising instruction. **Table
+        7-6's key columns are not a key** and the module keys the arbitration
+        states as §7.8.1 says instead. `m68040_bus_suite`, 24 tests. Detail in
+        `PROJECT_STATUS.md`.
   - [x] The two ATCs: 16 sets of four ways each, tagged with `FC2` alone and no
         task alias -- `G` is the 68040's substitute, overriding a nonglobal
         flush rather than being one more criterion. The manual states the tag
