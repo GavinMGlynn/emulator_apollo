@@ -1905,12 +1905,17 @@ default value = **1000**)` where C50's DN3500 offered 640. The first attempt
 typed 640, C50's recorded answer rather than the value this machine published,
 which is the same trap C50's own note warns about from the other side: the
 *published* default is the one to take, not the one another machine published.
-Take the create path once with 1000, rather than
-correcting afterwards — because **option 8 has two dialogues**, which the menu's
-own wording predicts ("create *or modify* an os paging file"): on a volume that
-already has one it asks `Do you wish to change its size?` first, so a script
-that walks the create path sends the size into a yes/no prompt and gets
+Taken again on the create path with 1000, rather
+than corrected afterwards — because **option 8 has two dialogues**, which the
+menu's own wording predicts ("create *or modify* an os paging file"): on a
+volume that already has one it asks `Do you wish to change its size?` first, so
+a script that walks the create path sends the size into a yes/no prompt and gets
 `Please answer "yes" or "no".`
+
+**The artifact is complete.** `media/dn5500-invol-done.awd` carries the badspot
+list, the logical volume and a 1000 kB OS paging file — 15,691 bytes changed by
+option 8 — with the boot area intact: sector 8 is record `0002`, sector 44 is
+record `000B`, sector 48 is clear.
 
 **What that leaves is a cost, not a mystery.** The restore and MINST on this
 volume is ~15 G instructions against a 4,294,967,295-instruction single-run
