@@ -4676,9 +4676,20 @@ discipline throughout.
       *The DS5500 goes 4.8 M instructions further and still ends `FAULT on
       2F3C`* — `7A3FFFFE`-`7A3FFFC6` is `$3C` bytes, exactly the thirty-word
       frame, below a stack pointer two bytes above a page boundary: the push
-      faults, the frame push runs into the same page, double fault. **Whether
-      this core is right to fault that page is the next question and is not
-      guessed at.** Detail in `PROJECT_STATUS.md`.
+      faults, the frame push runs into the same page, double fault.
+      **And the tables were walked by hand to check whether this core is right
+      to fault there. It is.** For `7A3FFFFE` the supervisor root descriptor at
+      `010020F4` is `011A5202` — resident — and the pointer descriptor at
+      `011A523C` is **`00000000`, invalid**. That entry covers 256 KB, so
+      `7A3C0000`-`7A3FFFFF` is unmapped entire while everything from `7A400000`
+      up is resident: `A7` is **two bytes above the bottom of the mapped
+      region**. *The kernel stack is exhausted*, the MMU is reporting it
+      correctly, and an unbalanced `RTE` is eliminated as the cause — it pops
+      exactly the sixty bytes the frame pushed. **What consumed the stack is
+      upstream of anything instrumented here**, and that is the next question.
+      Four candidates have been eliminated by measurement rather than argument:
+      the stack-pointer selection, the mapping, the register state and the fault
+      kind. Detail in `PROJECT_STATUS.md`.
       *It ends idle rather than broken*: `STOPPED` is the processor having
       executed `STOP`, and what it waits for is the tape —
       `cartridge tape 248065610 read(s)`, `first block still owed`,

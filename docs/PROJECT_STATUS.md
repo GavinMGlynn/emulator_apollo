@@ -2130,8 +2130,34 @@ deliberately, expecting to fault, map and retry. So the fault is one Domain/OS
 asked for, and what it cannot do is service it: the handler's own frame push
 lands on the same invalid page.
 
-That is where this stops, and the remaining question is a fresh one — why the
-supervisor stack is sixty bytes above a page the kernel has marked invalid.
+### The tables walked by hand: the stack is exhausted, and the MMU is right
+
+The descriptors were read out of memory and followed by hand, because "our walk
+says invalid" is a claim about our walk. For `7A3FFFFE` at 4 KB pages the
+indices are `RI 0x3D`, `PI 0x0F`, `PGI 0x3F`, and the supervisor root is
+`01002000`:
+
+    root descriptor    010020F4 = 011A5202   UDT 10, resident -> table 011A5200
+    pointer descriptor 011A523C = 00000000   UDT 00, INVALID
+
+**Invalid at the *pointer table*, not at the page.** That entry covers 256 KB,
+so `7A3C0000`–`7A3FFFFF` is unmapped entire — not a guard page below a growing
+stack but a hole with nothing in it. The next entry, `011A5240 = 0118D002`, is
+resident: everything from `7A400000` up is mapped.
+
+So `A7` at `7A400002` is **two bytes above the bottom of the mapped region**.
+This is not a demand-paging fault the kernel would service. **The supervisor
+stack is exhausted**, and this core's MMU is reporting that correctly — the
+hand walk and the join agree descriptor for descriptor.
+
+*And the obvious way this core could have caused it is eliminated too*: an
+unbalanced `RTE` would leak stack on every exception, and `RTE` pops
+`ap_m68030_frame_words(format) * 2` — sixty bytes for `$7`, exactly what
+`take_bus_fault_with` pushed.
+
+That is where this thread stops, and it stops somewhere much better defined than
+it started: not "an MMU fault we may be getting wrong" but "the kernel stack ran
+out, and what consumed it is upstream of anything instrumented here".
 
 **And `--dump-walk` is still 68030-only**, now named as such in
 `ap_machine_walk`'s declaration rather than left for a reader to discover: it
