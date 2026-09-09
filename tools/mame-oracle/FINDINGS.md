@@ -16421,3 +16421,38 @@ pass. So the DS5500's own initialiser, running on this core, is the tool C276
 named as the remaining step: a volume INVOLed by it should carry the 4K boot
 area at four sectors to a record that `5500_BOOT` looks for. That is a long run
 to attempt, not a fact to find.
+
+### Running it: one option per run, and C50's dialogue is missing a prompt
+
+Attempted 2026-09-10 against a blank 348 MB image, with C50's option 7 / 1 / 8
+dialogue scripted and `--disk-writeback` to keep the result. **Option 7
+completed and the run ended there**, at the 4.2 G instruction bound:
+
+    Option: 7
+    WARNING: this option could destroy all data on the disk. ...
+    Select disk: [w=Winch|f=Floppy|q=Quit][ctrl#:][unit#] w
+    Use automated badspot entry? n
+    Enter badspots to be ADDED between physical disk addresses 0 and 14014 (hex)
+    ...
+    Terminate badspot entry with a blank line.
+    :
+    Is the badspot information you entered correct? y
+
+    Done.
+
+    Anything more to do?
+
+**`Anything more to do?` is not in C50's table**, which goes straight from the
+badspot confirmation to the next `Option:`. That table was written from a MAME
+session and is otherwise exact; this is one prompt it omits, and a script built
+from it stalls there. Corrected here rather than in C50, whose text is the log
+of what was answered.
+
+**And the cost is the operational fact.** Loading INVOL off the cartridge takes
+**1.55 G instructions** on its own -- measured, `--boot-stop-pc` reported
+`stopped at PC 01080890 after 1553953980` -- and option 7 consumed the remaining
+2.6 G. So on this core, with its **4,294,967,295-instruction ceiling for one
+run**, the DS5500 INVOL route is **one option per run**, chained through
+`--disk-writeback`: the *disk* carries the state between runs even though the
+utility does not. Option 7's badspot list survived as 65,721 changed bytes in
+the written-back image, which is what makes the chain sound rather than hopeful.

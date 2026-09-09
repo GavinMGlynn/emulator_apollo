@@ -4703,6 +4703,18 @@ discipline throughout.
       INVOLed by the DS5500's own initialiser should carry the 4K boot area at
       four sectors to a record. That is a long run to attempt, not a fact to
       find, and it is the next thing on this item.
+      **Attempted, and it is one option per run.** Against a blank 348 MB image
+      with C50's option 7 / 1 / 8 dialogue scripted, **option 7 completed** —
+      `Select disk: w`, `Use automated badspot entry? n`, a blank badspot line,
+      `Is the badspot information you entered correct? y`, `Done.` — and the run
+      ended there at the 4.2 G bound. Loading INVOL costs **1.55 G instructions**
+      by itself (measured), so against this core's 4,294,967,295-instruction
+      ceiling each option needs its own run, **chained through
+      `--disk-writeback`**: the disk carries the state between runs even though
+      the utility does not, and option 7's badspot list survived as 65,721
+      changed bytes. *And C50's dialogue is missing a prompt*: INVOL asks
+      `Anything more to do?` after an option, where that table goes straight to
+      the next `Option:`. Corrected in `FINDINGS.md` C277.
       **The shared gate is now named exactly, and it is not the SAU install.**
       2026-09-10: the DS5500's boot area is not the DN3500's. Its PROM reads ten
       records from record 2 with a **page** of stride, and the page size is the
