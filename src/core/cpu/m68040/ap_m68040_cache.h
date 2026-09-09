@@ -47,6 +47,51 @@
  * "Both caches should be explicitly cleared after a hardware reset of the
  * processor since reset does not invalidate the cache lines." The third reset
  * trap in this part, after the `TCR` page size and the ATCs.
+ *
+ * ## The line state machine is a table, so it is encoded as one
+ *
+ * §4.7's Table 4-3 (instruction cache, six operations x two states) and Table
+ * 4-4 (data cache, thirteen operations x three states) give every transition
+ * with its actions, including the cells that cannot occur. `ap_m68040_cache_
+ * transition` returns a row of them rather than scattering the rules through
+ * whatever eventually drives the cache, because the tables are the
+ * specification and a table is checkable against the page.
+ *
+ * Three of its rows are the ones a plausible model gets wrong:
+ *
+ *   - **`CPUSH` invalidates.** Table 4-4 D8 is "write dirty data to memory; go
+ *     to invalid state", and V8 and I8 also end invalid. On this part a push is
+ *     a push *and* an invalidate; a model that only writes back leaves a line
+ *     the manual says is gone.
+ *   - **A clean line hit by a sinking snoop write does not sink.** V12 and V13
+ *     are both "no action; go to invalid state"; only a *dirty* line takes the
+ *     alternate master's data (D12). So the sink path is reachable from one
+ *     state out of three.
+ *   - **`CINV` on a dirty line loses the data**, in as many words: "no action
+ *     (dirty data lost)". That is the whole difference between the two
+ *     instructions and it is the reason `CINV` is not a cheap `CPUSH`.
+ *
+ * ## Table 4-1's write column is misprinted, and the manual corrects itself
+ *
+ * The `SC1-SC0 = 01` write cell reads "Sink Byte/Word/Long/Long Word" -- read
+ * on the page image at 600 dpi, so this is the print and not an extraction.
+ * The four transfer sizes of this part are byte, word, long word and line, so
+ * "Long/Long Word" is a duplication with `Line` lost out of it. Two other
+ * passages in the same manual give the partition unambiguously: Table 4-4
+ * splits the sinking rows into "Size != Line" (D12, sink into the line, stay
+ * dirty) and "Size = Line" (D13, go invalid), and §4.4 says "for snooped writes
+ * of byte, word, or long-word size that hit a dirty line, the processor inhibits
+ * memory and responds to the alternate bus master as a slave, sinking the data".
+ * Encoded from those.
+ *
+ * ## Nothing drives this yet
+ *
+ * The snoop transitions need an alternate bus master and the fill and push
+ * transitions need the bus controller of §7; this part has neither in this core
+ * yet, and there is no 68040 stepper to issue the CPU cases. The table is
+ * modelled anyway because it is what the module is *for*: `[040]` §4 is a
+ * finished specification, and a transition nobody calls is still one nobody has
+ * to derive later.
  */
 
 #ifndef APOLLO_CPU_M68040_AP_M68040_CACHE_H
@@ -145,5 +190,85 @@ void ap_m68040_cache_mark_dirty(ap_m68040_cache_t *cache, unsigned way,
  * changed. */
 [[nodiscard]] unsigned
 ap_m68040_cache_writeback_mask(const ap_m68040_cache_line_t *line);
+
+/* ---------------------------------------------------------------------------
+ * Snoop control, `[040]` Table 4-1.
+ * ------------------------------------------------------------------------- */
+
+/* What the alternate bus master is asking for, decoded from the two snoop
+ * control pins. The read and write columns of Table 4-1 name different
+ * operations for the same encoding, so the decode takes the direction. */
+typedef enum {
+  AP_M68040_SNOOP_INHIBIT,             /* both columns of SC = 00 and 11 */
+  AP_M68040_SNOOP_SUPPLY_LEAVE_DIRTY,  /* read, SC = 01 */
+  AP_M68040_SNOOP_SUPPLY_MARK_INVALID, /* read, SC = 10 */
+  AP_M68040_SNOOP_SINK,                /* write, SC = 01 */
+  AP_M68040_SNOOP_INVALIDATE,          /* write, SC = 10 */
+} ap_m68040_snoop_request_t;
+
+/* `sc` is SC1-SC0 as a two-bit value. "Reserved (Snoop Inhibited)" for 11, so
+ * it decodes to the same request as 00 rather than to an error: the pins are an
+ * input from another master and the part does not fault on them. */
+[[nodiscard]] ap_m68040_snoop_request_t ap_m68040_snoop_request(unsigned sc,
+                                                                bool write);
+
+/* ---------------------------------------------------------------------------
+ * Line state transitions, `[040]` Tables 4-3 and 4-4.
+ * ------------------------------------------------------------------------- */
+
+/* The rows of Table 4-4. Hit and miss are part of the operation because the
+ * tables make them so -- "CPU Read Miss" and "CPU Read Hit" are separate rows
+ * with different actions -- and the snoop rows carry their snoop control
+ * encoding and transfer size for the same reason. Table 4-3's six rows are the
+ * same enumeration with the dirty-only cases unreachable. */
+typedef enum {
+  AP_M68040_CACHE_OP_CPU_READ_MISS,                /* 1 */
+  AP_M68040_CACHE_OP_CPU_READ_HIT,                 /* 2 */
+  AP_M68040_CACHE_OP_CPU_WRITE_MISS_COPYBACK,      /* 3 */
+  AP_M68040_CACHE_OP_CPU_WRITE_MISS_WRITE_THROUGH, /* 4 */
+  AP_M68040_CACHE_OP_CPU_WRITE_HIT_COPYBACK,       /* 5 */
+  AP_M68040_CACHE_OP_CPU_WRITE_HIT_WRITE_THROUGH,  /* 6 */
+  AP_M68040_CACHE_OP_CINV,                         /* 7 */
+  AP_M68040_CACHE_OP_CPUSH,                        /* 8 */
+  AP_M68040_CACHE_OP_SNOOP_READ_LEAVE_DIRTY,       /* 9, SC = 01 */
+  AP_M68040_CACHE_OP_SNOOP_READ_INVALIDATE,        /* 10, SC = 10 */
+  AP_M68040_CACHE_OP_SNOOP_WRITE_INVALIDATE,       /* 11, SC = 10 */
+  AP_M68040_CACHE_OP_SNOOP_WRITE_SINK_PARTIAL,     /* 12, SC = 01, size != line */
+  AP_M68040_CACHE_OP_SNOOP_WRITE_SINK_LINE,        /* 13, SC = 01, size  = line */
+} ap_m68040_cache_op_t;
+
+/* One cell of Table 4-3 or 4-4: the state the line ends in, and each action the
+ * cell names. Separate flags rather than an action enum because several cells
+ * name three or four at once -- D1 buffers the dirty line, reads a new one,
+ * supplies the CPU, updates the cache and writes the buffer back. */
+typedef struct {
+  /* False for the cells that read "Not Possible" or "Not possible; not
+   * snooped". Every other field is then meaningless and `next` holds `state`. */
+  bool possible;
+  ap_m68040_line_state_t next;
+  bool read_line;       /* "read line from memory" */
+  bool supply_to_cpu;   /* "supply data to CPU" */
+  bool write_to_cache;  /* "write data to cache" */
+  bool set_dirty;       /* "set Dn bits of modified long words" */
+  bool write_to_memory; /* "write data to memory" */
+  bool buffer_dirty;    /* "buffer dirty cache line ... write buffered dirty
+                         * data to memory" -- the push buffer of §4.6.2 */
+  bool push_dirty;      /* "write dirty data to memory", `CPUSH` */
+  bool dirty_data_lost; /* "no action (dirty data lost)", `CINV` on D7 */
+  bool inhibit_memory;  /* "inhibit memory", the slave response */
+  bool source_data;     /* "source data" to the alternate master */
+  bool sink_data;       /* "sink data" from the alternate master */
+  /* Table 4-4's NOTE: "dirty state transitions D4 and D6 are the result of a
+   * system programming error and should be avoided even though they are
+   * technically valid". Reported, not refused -- the manual calls them valid. */
+  bool programming_error;
+} ap_m68040_cache_transition_t;
+
+/* Look up one cell. `has_dirty_state` picks the table: false is Table 4-3, the
+ * instruction cache, where the dirty state never occurs and the two snoop write
+ * encodings share a row (V6). */
+[[nodiscard]] ap_m68040_cache_transition_t
+ap_m68040_cache_transition(bool has_dirty_state, ap_m68040_line_state_t state,
+                           ap_m68040_cache_op_t op);
 
 #endif /* APOLLO_CPU_M68040_AP_M68040_CACHE_H */

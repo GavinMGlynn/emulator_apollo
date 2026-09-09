@@ -1609,7 +1609,12 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
   - [x] The instruction and data caches: 64 sets of four 16-byte lines, four-way
         set associative, **physically** tagged, with a dirty bit *per long word*
         in the data cache. The "pseudo-random" replacement is a 2-bit counter
-        per cache and entirely deterministic. `m68040_cache_suite`, 17 tests.
+        per cache and entirely deterministic. §4.7's two line-state tables are
+        encoded cell by cell, including the three rows a plausible model gets
+        wrong -- `CPUSH` invalidates, a clean line never sinks a snooped write,
+        and `CINV` loses dirty data -- and Table 4-1's misprinted sink cell,
+        resolved from two other passages in the same manual.
+        `m68040_cache_suite`, 34 tests. Detail in `PROJECT_STATUS.md`.
   - [x] The two ATCs: 16 sets of four ways each, tagged with `FC2` alone and no
         task alias -- `G` is the 68040's substitute, overriding a nonglobal
         flush rather than being one more criterion. The manual states the tag

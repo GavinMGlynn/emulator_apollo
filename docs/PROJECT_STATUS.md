@@ -10509,6 +10509,55 @@ The tests caught two of my own errors, both in constants rather than code: a tag
 that lost a hex digit, and a pair of addresses I had assumed were in different
 sets when the index is bits 9-4 and they differ only above it.
 
+**§4.7's two state tables are now encoded, and three of their rows are traps.**
+Tables 4-3 (instruction cache, six operations x two states) and 4-4 (data cache,
+thirteen x three) give every transition with its actions and mark the cells that
+cannot occur. `ap_m68040_cache_transition()` returns one cell -- next state plus
+a flag for each action the cell names -- and `m68040_cache_suite` walks all
+fifty-one against a transcription of the next-state column, so a row can be
+checked against the page rather than inferred from prose. Three rows are ones a
+plausible model gets wrong:
+
+- **`CPUSH` invalidates.** D8 is "write dirty data to memory; go to invalid
+  state", and V8 and I8 also end invalid. A push on this part is a push *and* an
+  invalidate; a model that only writes back leaves a line the manual says is
+  gone.
+- **A clean line hit by a sinking snoop write does not sink.** V12 and V13 are
+  both "no action; go to invalid state"; only a *dirty* line takes the alternate
+  master's data (D12, "set Dn bits of modified long words; remain in current
+  state"). The sink path is reachable from one state out of three.
+- **`CINV` on a dirty line loses the data**, in as many words: "no action (dirty
+  data lost)". Same end state as a push, different bus history -- which is the
+  entire difference between the two instructions.
+
+Table 4-4's own NOTE names two more: "dirty state transitions D4 and D6 are the
+result of a system programming error and should be avoided even though they are
+technically valid" -- a write-through access to a line made dirty under
+copyback, which is §4.5's changed-page-attribute-without-a-flush. They are
+reported through a `programming_error` flag rather than refused, because the
+manual calls them valid. D6 also reads "write data into cache (no change to Dn
+bits)", so it is the one write that does *not* set a dirty bit.
+
+**Table 4-1's write column is misprinted, and the manual corrects itself.** The
+`SC1-SC0 = 01` write cell reads "Sink Byte/Word/Long/Long Word" -- read on the
+page image at 600 dpi, so this is the print and not an extraction artefact. The
+four transfer sizes of this part are byte, word, long word and line, so
+"Long/Long Word" is a duplication with `Line` lost out of it. Two other passages
+in the same manual settle it without leaving the document: Table 4-4 splits the
+sinking rows into "Size != Line" (D12, merge and stay dirty) and "Size = Line"
+(D13, go invalid), and §4.4 says "for snooped writes of byte, word, or long-word
+size that hit a dirty line, the processor inhibits memory and responds to the
+alternate bus master as a slave, sinking the data". This is the
+`omti-manuals-share-source-text` rule paying off in the direction it was written
+for: another passage in the *same* manual, not a second manual agreeing with the
+first.
+
+Nothing drives these transitions yet. The snoop rows need an alternate bus
+master, the fill and push rows need §7's bus controller, and the CPU rows need a
+68040 stepper; this core has none of the three. They are modelled because §4 is
+a finished specification and a transition nobody calls is still one nobody has
+to derive later. `m68040_cache_suite`, 17 -> 34 tests.
+
 **The two ATCs are in, and the manual contradicts itself about the tag width.**
 
 §3.3's `Logical Address` field definition reads -- in the page image, not merely

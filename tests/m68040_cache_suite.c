@@ -251,6 +251,272 @@ static void test_a_whole_line_is_filled_at_once(void) {
   }
 }
 
+/* ---------------------------------------------------------------------------
+ * Snoop control, `[040]` Table 4-1.
+ * ------------------------------------------------------------------------- */
+
+static void test_the_snoop_control_pins_decode_to_five_requests(void) {
+  /* Table 4-1, both columns. Four encodings x two directions, and the read and
+   * write columns differ for 01 and 10. */
+  TEST_ASSERT_EQUAL_INT(AP_M68040_SNOOP_INHIBIT,
+                        ap_m68040_snoop_request(0u, false));
+  TEST_ASSERT_EQUAL_INT(AP_M68040_SNOOP_INHIBIT,
+                        ap_m68040_snoop_request(0u, true));
+  TEST_ASSERT_EQUAL_INT(AP_M68040_SNOOP_SUPPLY_LEAVE_DIRTY,
+                        ap_m68040_snoop_request(1u, false));
+  TEST_ASSERT_EQUAL_INT(AP_M68040_SNOOP_SINK,
+                        ap_m68040_snoop_request(1u, true));
+  TEST_ASSERT_EQUAL_INT(AP_M68040_SNOOP_SUPPLY_MARK_INVALID,
+                        ap_m68040_snoop_request(2u, false));
+  TEST_ASSERT_EQUAL_INT(AP_M68040_SNOOP_INVALIDATE,
+                        ap_m68040_snoop_request(2u, true));
+}
+
+static void test_the_reserved_snoop_encoding_inhibits_rather_than_faults(void) {
+  /* "Reserved (Snoop Inhibited)" in both columns, so 11 behaves as 00. The pins
+   * are driven by another master and the part has no way to complain. */
+  TEST_ASSERT_EQUAL_INT(AP_M68040_SNOOP_INHIBIT,
+                        ap_m68040_snoop_request(3u, false));
+  TEST_ASSERT_EQUAL_INT(AP_M68040_SNOOP_INHIBIT,
+                        ap_m68040_snoop_request(3u, true));
+}
+
+/* ---------------------------------------------------------------------------
+ * Line state transitions, `[040]` Tables 4-3 and 4-4.
+ * ------------------------------------------------------------------------- */
+
+/* The next-state column of Table 4-4, transcribed. `X` marks the cells the
+ * manual prints as "Not Possible". Rows are in the enum's order, which is the
+ * table's order; columns are invalid, valid, dirty. */
+#define X (-1)
+static const int data_next_state[13][3] = {
+    /* 1  CPU Read Miss                 */ {1, 1, 1},
+    /* 2  CPU Read Hit                  */ {X, 1, 2},
+    /* 3  CPU Write Miss (Copyback)     */ {2, 2, 2},
+    /* 4  CPU Write Miss (Write-thru)   */ {0, 1, 2},
+    /* 5  CPU Write Hit (Copyback)      */ {X, 2, 2},
+    /* 6  CPU Write Hit (Write-thru)    */ {X, 1, 2},
+    /* 7  Cache Invalidate              */ {0, 0, 0},
+    /* 8  Cache Push                    */ {0, 0, 0},
+    /* 9  Snoop Read, leave dirty       */ {X, 1, 2},
+    /* 10 Snoop Read, invalidate        */ {X, 0, 0},
+    /* 11 Snoop Write, invalidate       */ {X, 0, 0},
+    /* 12 Snoop Write, sink, size != ln */ {X, 0, 2},
+    /* 13 Snoop Write, sink, size  = ln */ {X, 0, 0},
+};
+
+/* Table 4-3, the same shape. The instruction cache has no dirty column, and
+ * rows 3 and 7/8 are one row in the manual, as are 11, 12 and 13. */
+static const int instruction_next_state[13][3] = {
+    /* 1  CPU Read Miss           I1/V1 */ {1, 1, X},
+    /* 2  CPU Read Hit            I2/V2 */ {X, 1, X},
+    /* 3  no such row                   */ {X, X, X},
+    /* 4  no such row                   */ {X, X, X},
+    /* 5  no such row                   */ {X, X, X},
+    /* 6  no such row                   */ {X, X, X},
+    /* 7  CINV                    I3/V3 */ {0, 0, X},
+    /* 8  CPUSH                   I3/V3 */ {0, 0, X},
+    /* 9  Snoop Read leave dirty  I4/V4 */ {X, X, X},
+    /* 10 Snoop Read invalidate   I5/V5 */ {X, 0, X},
+    /* 11 Snoop Write invalidate  I6/V6 */ {X, 0, X},
+    /* 12 Snoop Write sink != ln  I6/V6 */ {X, 0, X},
+    /* 13 Snoop Write sink  = ln  I6/V6 */ {X, 0, X},
+};
+
+static void check_table(bool has_dirty_state, const int expected[13][3]) {
+  for (int op = 0; op < 13; op++) {
+    for (int state = 0; state < 3; state++) {
+      const ap_m68040_cache_transition_t t = ap_m68040_cache_transition(
+          has_dirty_state, (ap_m68040_line_state_t)state,
+          (ap_m68040_cache_op_t)op);
+      if (expected[op][state] == X) {
+        TEST_ASSERT_FALSE(t.possible);
+        /* "Not Possible" leaves the line where it was. */
+        TEST_ASSERT_EQUAL_INT(state, (int)t.next);
+        continue;
+      }
+      TEST_ASSERT_TRUE(t.possible);
+      TEST_ASSERT_EQUAL_INT(expected[op][state], (int)t.next);
+    }
+  }
+}
+
+static void test_every_cell_of_the_data_cache_table(void) {
+  /* All thirty-nine cells of Table 4-4, next state only; the actions are
+   * checked one trap at a time below. */
+  check_table(true, data_next_state);
+}
+
+static void test_every_cell_of_the_instruction_cache_table(void) {
+  /* Table 4-3. Its absent rows -- every write, and the leave-dirty read
+   * snoop -- report impossible rather than guessing a data-cache answer. */
+  check_table(false, instruction_next_state);
+}
+#undef X
+
+static void test_an_instruction_cache_line_is_never_dirty(void) {
+  /* Table 4-3 has no dirty column, so the state itself is unreachable. */
+  const ap_m68040_cache_transition_t t = ap_m68040_cache_transition(
+      false, AP_M68040_LINE_DIRTY, AP_M68040_CACHE_OP_CPU_READ_HIT);
+  TEST_ASSERT_FALSE(t.possible);
+}
+
+static void test_a_push_invalidates_as_well_as_writing_back(void) {
+  /* D8: "write dirty data to memory; go to invalid state". The write-back is
+   * the obvious half; the invalidate is the half a model forgets. */
+  const ap_m68040_cache_transition_t t = ap_m68040_cache_transition(
+      true, AP_M68040_LINE_DIRTY, AP_M68040_CACHE_OP_CPUSH);
+  TEST_ASSERT_TRUE(t.push_dirty);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_LINE_INVALID, (int)t.next);
+}
+
+static void test_an_invalidate_loses_the_dirty_data(void) {
+  /* D7: "no action (dirty data lost); go to invalid state". Same end state as
+   * a push and a different bus history, which is the whole difference between
+   * the two instructions. */
+  const ap_m68040_cache_transition_t t = ap_m68040_cache_transition(
+      true, AP_M68040_LINE_DIRTY, AP_M68040_CACHE_OP_CINV);
+  TEST_ASSERT_TRUE(t.dirty_data_lost);
+  TEST_ASSERT_FALSE(t.push_dirty);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_LINE_INVALID, (int)t.next);
+}
+
+static void test_only_a_dirty_line_sinks_a_snooped_write(void) {
+  /* V12 is "no action; go to invalid state" and D12 sinks. A clean line is
+   * discarded rather than merged, so the sink path is reachable from one state
+   * out of three. */
+  const ap_m68040_cache_transition_t clean = ap_m68040_cache_transition(
+      true, AP_M68040_LINE_VALID, AP_M68040_CACHE_OP_SNOOP_WRITE_SINK_PARTIAL);
+  TEST_ASSERT_FALSE(clean.sink_data);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_LINE_INVALID, (int)clean.next);
+
+  const ap_m68040_cache_transition_t dirty = ap_m68040_cache_transition(
+      true, AP_M68040_LINE_DIRTY, AP_M68040_CACHE_OP_SNOOP_WRITE_SINK_PARTIAL);
+  TEST_ASSERT_TRUE(dirty.sink_data);
+  TEST_ASSERT_TRUE(dirty.inhibit_memory);
+  TEST_ASSERT_TRUE(dirty.set_dirty);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_LINE_DIRTY, (int)dirty.next);
+}
+
+static void test_a_line_sized_snooped_write_never_sinks(void) {
+  /* D13, the row that resolves Table 4-1's misprinted cell: at line size there
+   * is nothing to merge, so the line goes invalid whatever its state. */
+  const ap_m68040_cache_transition_t t = ap_m68040_cache_transition(
+      true, AP_M68040_LINE_DIRTY, AP_M68040_CACHE_OP_SNOOP_WRITE_SINK_LINE);
+  TEST_ASSERT_FALSE(t.sink_data);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_LINE_INVALID, (int)t.next);
+}
+
+static void test_a_dirty_line_sources_data_to_the_alternate_master(void) {
+  /* D9: "inhibit memory and source data; remain in current state". D10 does
+   * the same and then invalidates -- the difference between the two read
+   * encodings is only what happens to our copy. */
+  const ap_m68040_cache_transition_t leave = ap_m68040_cache_transition(
+      true, AP_M68040_LINE_DIRTY, AP_M68040_CACHE_OP_SNOOP_READ_LEAVE_DIRTY);
+  TEST_ASSERT_TRUE(leave.inhibit_memory);
+  TEST_ASSERT_TRUE(leave.source_data);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_LINE_DIRTY, (int)leave.next);
+
+  const ap_m68040_cache_transition_t mark = ap_m68040_cache_transition(
+      true, AP_M68040_LINE_DIRTY, AP_M68040_CACHE_OP_SNOOP_READ_INVALIDATE);
+  TEST_ASSERT_TRUE(mark.source_data);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_LINE_INVALID, (int)mark.next);
+}
+
+static void test_a_clean_line_lets_memory_answer_a_read_snoop(void) {
+  /* V9: "no action; remain in current state". Only dirty data is worth
+   * intervening for. */
+  const ap_m68040_cache_transition_t t = ap_m68040_cache_transition(
+      true, AP_M68040_LINE_VALID, AP_M68040_CACHE_OP_SNOOP_READ_LEAVE_DIRTY);
+  TEST_ASSERT_FALSE(t.inhibit_memory);
+  TEST_ASSERT_FALSE(t.source_data);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_LINE_VALID, (int)t.next);
+}
+
+static void test_replacing_a_dirty_line_buffers_it(void) {
+  /* D1 and D3: "buffer dirty cache line; read new line from memory; ... write
+   * buffered dirty data to memory". The push buffer of §4.6.2, and the order
+   * matters -- the new line is fetched first to cut the requested data's
+   * latency. */
+  const ap_m68040_cache_transition_t read = ap_m68040_cache_transition(
+      true, AP_M68040_LINE_DIRTY, AP_M68040_CACHE_OP_CPU_READ_MISS);
+  TEST_ASSERT_TRUE(read.buffer_dirty);
+  TEST_ASSERT_TRUE(read.read_line);
+  /* The new line is clean, so a dirty line ends valid on a read miss -- the
+   * only state change a read causes. */
+  TEST_ASSERT_EQUAL_INT(AP_M68040_LINE_VALID, (int)read.next);
+
+  const ap_m68040_cache_transition_t write = ap_m68040_cache_transition(
+      true, AP_M68040_LINE_DIRTY, AP_M68040_CACHE_OP_CPU_WRITE_MISS_COPYBACK);
+  TEST_ASSERT_TRUE(write.buffer_dirty);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_LINE_DIRTY, (int)write.next);
+}
+
+static void test_a_write_through_miss_does_not_allocate(void) {
+  /* I4: "write data to memory; remain in current state" -- no read, no fill.
+   * A copyback write miss (I3) reads the line first, which is the difference
+   * that costs a bus transfer. */
+  const ap_m68040_cache_transition_t wt = ap_m68040_cache_transition(
+      true, AP_M68040_LINE_INVALID,
+      AP_M68040_CACHE_OP_CPU_WRITE_MISS_WRITE_THROUGH);
+  TEST_ASSERT_FALSE(wt.read_line);
+  TEST_ASSERT_TRUE(wt.write_to_memory);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_LINE_INVALID, (int)wt.next);
+
+  const ap_m68040_cache_transition_t cb = ap_m68040_cache_transition(
+      true, AP_M68040_LINE_INVALID, AP_M68040_CACHE_OP_CPU_WRITE_MISS_COPYBACK);
+  TEST_ASSERT_TRUE(cb.read_line);
+  TEST_ASSERT_FALSE(cb.write_to_memory);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_LINE_DIRTY, (int)cb.next);
+}
+
+static void test_a_write_through_hit_on_a_dirty_line_is_flagged(void) {
+  /* The NOTE under Table 4-4: "dirty state transitions D4 and D6 are the result
+   * of a system programming error and should be avoided even though they are
+   * technically valid" -- a page whose attributes changed without a flush. They
+   * are reported, not refused, and D6 leaves the D-bits alone: "write data into
+   * cache (no change to Dn bits)". */
+  const ap_m68040_cache_transition_t d6 = ap_m68040_cache_transition(
+      true, AP_M68040_LINE_DIRTY, AP_M68040_CACHE_OP_CPU_WRITE_HIT_WRITE_THROUGH);
+  TEST_ASSERT_TRUE(d6.programming_error);
+  TEST_ASSERT_TRUE(d6.write_to_cache);
+  TEST_ASSERT_TRUE(d6.write_to_memory);
+  TEST_ASSERT_FALSE(d6.set_dirty);
+
+  const ap_m68040_cache_transition_t d4 = ap_m68040_cache_transition(
+      true, AP_M68040_LINE_DIRTY,
+      AP_M68040_CACHE_OP_CPU_WRITE_MISS_WRITE_THROUGH);
+  TEST_ASSERT_TRUE(d4.programming_error);
+
+  /* V4 and V6 are the same operations on a clean line and are ordinary. */
+  TEST_ASSERT_FALSE(
+      ap_m68040_cache_transition(true, AP_M68040_LINE_VALID,
+                                 AP_M68040_CACHE_OP_CPU_WRITE_HIT_WRITE_THROUGH)
+          .programming_error);
+}
+
+static void test_the_instruction_cache_is_not_read_snooped(void) {
+  /* I4/V4: "not possible; not snooped". It is invalidated by the other three
+   * snoop rows, so "not snooped" applies to the leave-dirty read alone. */
+  TEST_ASSERT_FALSE(
+      ap_m68040_cache_transition(false, AP_M68040_LINE_VALID,
+                                 AP_M68040_CACHE_OP_SNOOP_READ_LEAVE_DIRTY)
+          .possible);
+  TEST_ASSERT_TRUE(
+      ap_m68040_cache_transition(false, AP_M68040_LINE_VALID,
+                                 AP_M68040_CACHE_OP_SNOOP_READ_INVALIDATE)
+          .possible);
+}
+
+static void test_a_push_to_the_instruction_cache_writes_nothing_back(void) {
+  /* Table 4-3 merges `CINV` and `CPUSH` into one row because there is no dirty
+   * data: both are "no action", and neither pushes. */
+  const ap_m68040_cache_transition_t push = ap_m68040_cache_transition(
+      false, AP_M68040_LINE_VALID, AP_M68040_CACHE_OP_CPUSH);
+  TEST_ASSERT_FALSE(push.push_dirty);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_LINE_INVALID, (int)push.next);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_geometry_accounts_for_four_kilobytes);
@@ -270,5 +536,21 @@ int main(void) {
   RUN_TEST(test_only_the_data_cache_has_dirty_state);
   RUN_TEST(test_an_invalid_line_writes_nothing_back);
   RUN_TEST(test_a_whole_line_is_filled_at_once);
+  RUN_TEST(test_the_snoop_control_pins_decode_to_five_requests);
+  RUN_TEST(test_the_reserved_snoop_encoding_inhibits_rather_than_faults);
+  RUN_TEST(test_every_cell_of_the_data_cache_table);
+  RUN_TEST(test_every_cell_of_the_instruction_cache_table);
+  RUN_TEST(test_an_instruction_cache_line_is_never_dirty);
+  RUN_TEST(test_a_push_invalidates_as_well_as_writing_back);
+  RUN_TEST(test_an_invalidate_loses_the_dirty_data);
+  RUN_TEST(test_only_a_dirty_line_sinks_a_snooped_write);
+  RUN_TEST(test_a_line_sized_snooped_write_never_sinks);
+  RUN_TEST(test_a_dirty_line_sources_data_to_the_alternate_master);
+  RUN_TEST(test_a_clean_line_lets_memory_answer_a_read_snoop);
+  RUN_TEST(test_replacing_a_dirty_line_buffers_it);
+  RUN_TEST(test_a_write_through_miss_does_not_allocate);
+  RUN_TEST(test_a_write_through_hit_on_a_dirty_line_is_flagged);
+  RUN_TEST(test_the_instruction_cache_is_not_read_snooped);
+  RUN_TEST(test_a_push_to_the_instruction_cache_writes_nothing_back);
   return UNITY_END();
 }
