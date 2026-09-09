@@ -1,0 +1,31 @@
+# INVOL option 1 on a DS5500: initialise the virgin physical volume.
+#
+# `1 -f` -- "don't re-format disk". The medium is a file with no defects to
+# find, and the format is what makes this option cost a run of its own.
+#
+# `Enter verification option: 1` is "no verification"; 2 and 3 write and re-read
+# every block to find media defects, which is a long no-op against a file.
+#
+# `Select disk:` is asked here too, which C50's table lists under option 7
+# alone -- it cost a run. `FINDINGS.md` C277.
+expect MD14
+expect >
+send DI C\r
+expect >
+send EX INVOL\r
+expect Option:
+send 1 -f\r
+expect q=Quit
+send w\r
+expect Physical volume name
+send dn5500\r
+expect verification option
+send 1\r
+expect average file size
+send 5\r
+expect volume 1:
+send all, dn5500\r
+expect pre-recorded badspot
+send y\r
+expect Anything more to do
+send n\r

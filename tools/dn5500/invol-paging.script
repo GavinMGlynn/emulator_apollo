@@ -1,0 +1,23 @@
+# INVOL option 8 on a DS5500: create the OS paging file.
+#
+# **The create path.** The menu says "create *or modify*", and on a volume that
+# already has a paging file INVOL asks `Do you wish to change its size?` before
+# the size -- so this script cannot be reused to correct one.
+#
+# **1000, not the DN3500's 640.** This machine publishes `default value = 1000`;
+# taking another machine's default is what a script copied from C50 does.
+expect MD14
+expect >
+send DI C\r
+expect >
+send EX INVOL\r
+expect Option:
+send 8\r
+expect q=Quit
+send w\r
+expect logical volume number
+send 1\r
+expect paging file
+send 1000\r
+expect Anything more to do
+send n\r

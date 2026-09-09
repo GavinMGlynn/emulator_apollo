@@ -1,0 +1,26 @@
+# INVOL option 7 on a DS5500: initialise the physical badspot list.
+#
+# `MD14`, not `MD7C` -- the banner's digits are the SAU number.
+#
+# `Use automated badspot entry? n` is C50's answer and its reason still holds:
+# MAME's own driver notes list Winchester bad-track formatting as a known gap,
+# so automated entry asks the emulated controller for the one thing its author
+# does not vouch for. The medium is a file and cannot have defects, so the
+# badspot list is terminated with a blank line.
+expect MD14
+expect >
+send DI C\r
+expect >
+send EX INVOL\r
+expect Option:
+send 7\r
+expect q=Quit
+send w\r
+expect automated badspot
+send n\r
+expect Terminate badspot entry
+send \r
+expect correct?
+send y\r
+expect Anything more to do
+send n\r
