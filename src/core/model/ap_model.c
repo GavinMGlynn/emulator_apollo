@@ -2,6 +2,7 @@
 
 #include <string.h>
 #include "cpu/m68030/ap_m68030_cache.h"
+#include "cpu/m68030/ap_m68030_ssw.h"
 
 /* Sources for this table:
  *
@@ -358,6 +359,9 @@ ap_cpu_features_t ap_cpu_features(ap_cpu_t cpu) {
         /* `[020]` Figure 7-2: C, CE, F, E at 3-0 and zero above. The four
          * actions of the one cache this part has. */
         .cacr_implemented_mask = AP_M68030_CACR_MASK_68020,
+        /* `[020]` Figure 6-8 and Figure 6-9's summary: "1011  MC68020 Long Bus
+         * Fault (44 Words)". */
+        .long_bus_fault_frame_words = 44u,
     };
   case AP_CPU_M68030:
     return (ap_cpu_features_t){
@@ -376,6 +380,7 @@ ap_cpu_features_t ap_cpu_features(ap_cpu_t cpu) {
         /* `[030]` Figure 6-3: the 68020's four with an `I` suffix, plus a
          * data-cache set at 13-8 and a burst enable at 4. */
         .cacr_implemented_mask = AP_M68030_CACR_MASK_68030,
+        .long_bus_fault_frame_words = 46u,
     };
   case AP_CPU_M68040:
     return (ap_cpu_features_t){
@@ -398,6 +403,10 @@ ap_cpu_features_t ap_cpu_features(ap_cpu_t cpu) {
          * undefined. No clear and no freeze -- `CINV` and `CPUSH` do that,
          * which is why §4.2 says the caches must be cleared before enabling. */
         .cacr_implemented_mask = AP_M68030_CACR_MASK_68040,
+        /* The 68040 has no format $A or $B at all -- `[040]` §8 gives it an
+         * access error frame of its own. Carried as the 68030's until the
+         * 68040 exception item reaches it, and stated rather than implied. */
+        .long_bus_fault_frame_words = 46u,
     };
   }
   /* Unreachable for a valid `ap_cpu_t`; the 68030 is the reference superset. */

@@ -140,4 +140,55 @@ ap_m68030_bus_fault_frame(const ap_m68030_ssw_t *ssw,
 #define AP_M68030_BUS_FAULT_DATA_INPUT 0x2Cu      /* long */
 #define AP_M68030_BUS_FAULT_VERSION 0x36u
 
+/* ---------------------------------------------------------------------------
+ * The 68020's long frame is laid out differently, not merely shorter.
+ * ------------------------------------------------------------------------- */
+
+/* `[020]` Figure 6-8, Format $B, **44 words** against the 68030's 46 -- and the
+ * two words are not simply missing from the end. Read against `[030]` Table
+ * 8-6, three named fields move:
+ *
+ *     field                68020   68030
+ *     stage B address      $20     $24
+ *     data output buffer   $28     $18
+ *     data input buffer    $2C     $2C
+ *     version              --      $36
+ *
+ * The data *input* buffer is at `$2C` on both, which is what makes this a
+ * relayout rather than a shift: one field moved down, one moved up, and one is
+ * absent. The 68020's `$30`-`$56` is twenty words of internal register with no
+ * version field in it, where the 68030 names one at `$36`.
+ *
+ * The **short** frame agrees at every offset this core models, so only the long
+ * one takes a variant. */
+#define AP_M68020_BUS_FAULT_STAGE_B_ADDRESS 0x20u
+#define AP_M68020_BUS_FAULT_DATA_OUTPUT 0x28u
+#define AP_M68020_BUS_FAULT_DATA_INPUT 0x2Cu
+
+/* Which part's fault frames these are. The 68030 is the zero value, so a
+ * zero-initialised CPU is the reference superset -- the same convention the
+ * `CACR` variant follows. */
+typedef enum {
+  AP_M68030_FRAME_VARIANT_68030 = 0,
+  AP_M68030_FRAME_VARIANT_68020
+} ap_m68030_frame_variant_t;
+
+/* The long frame's word count: 46 on a 68030, 44 on a 68020. Visible to any
+ * handler, because it is what the stack pointer moved by. */
+[[nodiscard]] unsigned
+ap_m68030_long_frame_words(ap_m68030_frame_variant_t variant);
+
+/* Where the data output buffer sits in a *long* frame. The 68030 keeps it at
+ * `$18` in both frames; the 68020 moves it to `$28` in the long one only. */
+[[nodiscard]] uint32_t
+ap_m68030_long_frame_data_output(ap_m68030_frame_variant_t variant);
+
+[[nodiscard]] uint32_t
+ap_m68030_long_frame_stage_b_address(ap_m68030_frame_variant_t variant);
+
+/* Whether the long frame carries a version field at all. False on a 68020,
+ * where `$30`-`$56` is undifferentiated internal register. */
+[[nodiscard]] bool
+ap_m68030_long_frame_has_version(ap_m68030_frame_variant_t variant);
+
 #endif /* APOLLO_CPU_M68030_AP_M68030_SSW_H */

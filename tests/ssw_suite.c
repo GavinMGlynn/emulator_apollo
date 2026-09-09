@@ -6,6 +6,7 @@
  * and address space needed to redo the access. Demand paging is built on it.
  */
 
+#include "cpu/m68030/ap_m68030_exception.h"
 #include "cpu/m68030/ap_m68030_ssw.h"
 
 #include "unity.h"
@@ -233,6 +234,70 @@ static void test_every_short_frame_field_falls_inside_the_short_frame(void) {
   TEST_ASSERT_TRUE(AP_M68030_BUS_FAULT_VERSION + 2u <= long_bytes);
 }
 
+/* ---------------------------------------------------------------------------
+ * The 68020's long fault frame is laid out differently, not merely shorter.
+ * ------------------------------------------------------------------------- */
+
+static void test_the_long_frame_is_forty_four_words_on_a_68020(void) {
+  /* `[020]` Figure 6-8's caption and Figure 6-9's summary both say it:
+   * "1011  MC68020 Long Bus Fault (44 Words)". The 68030's Table 8-6 gives 46.
+   * This is the observable difference -- it is what the stack pointer moves by,
+   * so every offset a handler computes from A7 shifts with it. */
+  TEST_ASSERT_EQUAL_UINT(44u,
+                         ap_m68030_long_frame_words(AP_M68030_FRAME_VARIANT_68020));
+  TEST_ASSERT_EQUAL_UINT(46u,
+                         ap_m68030_long_frame_words(AP_M68030_FRAME_VARIANT_68030));
+  /* The 68030 is the zero value, so a zero-initialised CPU is the superset. */
+  TEST_ASSERT_EQUAL_INT(0, (int)AP_M68030_FRAME_VARIANT_68030);
+  /* And it agrees with the format table for the reference part. */
+  TEST_ASSERT_EQUAL_UINT(
+      ap_m68030_frame_words(AP_M68030_FRAME_LONG_BUS_FAULT),
+      ap_m68030_long_frame_words(AP_M68030_FRAME_VARIANT_68030));
+}
+
+static void test_two_fields_move_in_opposite_directions(void) {
+  /* This is what makes it a relayout rather than a truncation: the data output
+   * buffer moves *down* the frame and the stage B address moves *up*, while the
+   * data input buffer stays where it is. A model that only shortened the frame
+   * would put both in the wrong place and the third in the right one. */
+  TEST_ASSERT_EQUAL_HEX32(
+      0x28u, ap_m68030_long_frame_data_output(AP_M68030_FRAME_VARIANT_68020));
+  TEST_ASSERT_EQUAL_HEX32(
+      0x18u, ap_m68030_long_frame_data_output(AP_M68030_FRAME_VARIANT_68030));
+  TEST_ASSERT_EQUAL_HEX32(
+      0x20u,
+      ap_m68030_long_frame_stage_b_address(AP_M68030_FRAME_VARIANT_68020));
+  TEST_ASSERT_EQUAL_HEX32(
+      0x24u,
+      ap_m68030_long_frame_stage_b_address(AP_M68030_FRAME_VARIANT_68030));
+  /* The data input buffer is at $2C on both, which is the fixed point the other
+   * two move around. */
+  TEST_ASSERT_EQUAL_HEX32(AP_M68030_BUS_FAULT_DATA_INPUT,
+                          AP_M68020_BUS_FAULT_DATA_INPUT);
+}
+
+static void test_a_68020_long_frame_has_no_version_field(void) {
+  /* `[020]` Figure 6-8 fills $30-$56 with "Internal Registers, 20 Words" and
+   * names nothing in it, where `[030]` Table 8-6 puts a version field at $36.
+   * A handler that read $36 on a 68020 would get an internal register. */
+  TEST_ASSERT_FALSE(
+      ap_m68030_long_frame_has_version(AP_M68030_FRAME_VARIANT_68020));
+  TEST_ASSERT_TRUE(
+      ap_m68030_long_frame_has_version(AP_M68030_FRAME_VARIANT_68030));
+}
+
+static void test_the_short_frame_agrees_on_both_parts(void) {
+  /* The divergence is confined to the long frame. The short one -- Format $A,
+   * sixteen words -- has the same size and the same offsets on both, which is
+   * why only the long frame takes a variant. */
+  TEST_ASSERT_EQUAL_UINT(16u,
+                         ap_m68030_frame_words(AP_M68030_FRAME_SHORT_BUS_FAULT));
+  TEST_ASSERT_EQUAL_HEX32(0x0Au, AP_M68030_BUS_FAULT_SSW);
+  TEST_ASSERT_EQUAL_HEX32(0x0Cu, AP_M68030_BUS_FAULT_STAGE_C);
+  TEST_ASSERT_EQUAL_HEX32(0x0Eu, AP_M68030_BUS_FAULT_STAGE_B);
+  TEST_ASSERT_EQUAL_HEX32(0x10u, AP_M68030_BUS_FAULT_ADDRESS);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_each_flag_lands_on_the_bit_figure_8_9_gives_it);
@@ -247,5 +312,9 @@ int main(void) {
   RUN_TEST(test_a_data_and_an_instruction_fault_can_stand_together);
   RUN_TEST(test_the_internal_use_bits_are_not_reported);
   RUN_TEST(test_every_short_frame_field_falls_inside_the_short_frame);
+  RUN_TEST(test_the_long_frame_is_forty_four_words_on_a_68020);
+  RUN_TEST(test_two_fields_move_in_opposite_directions);
+  RUN_TEST(test_a_68020_long_frame_has_no_version_field);
+  RUN_TEST(test_the_short_frame_agrees_on_both_parts);
   return UNITY_END();
 }

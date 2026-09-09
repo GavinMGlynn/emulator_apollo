@@ -11248,11 +11248,42 @@ all -- so the vector is unreachable on that part with no second guard added.
 That is a better closure than a guard: there is no path left to guard, and a
 test drives an inconsistent `TC` at a 68040 to prove the F-line arrives instead.
 
-**Three of the six divergences are now closed and three remain**: the long fault
-frame's layout, the control-register count, and the `.mmu` declaration itself.
-The last two are the ones that need a 68040 MMU before they mean anything, which
-is the blocker the item already names; the frame layout does not, and is the
-next one to take. `cache_suite` 30 -> 35 tests, including that a 68030 written
+**A fourth is closed: the 68020's long fault frame is laid out differently, not
+merely shorter.** `[020]` Figure 6-8 gives Format `$B` as **44 words** against
+`[030]` Table 8-6's 46, and the two words are not missing from the end:
+
+| field | 68020 | 68030 |
+| --- | --- | --- |
+| stage B address | `$20` | `$24` |
+| data output buffer | `$28` | `$18` |
+| data input buffer | `$2C` | `$2C` |
+| version | *absent* | `$36` |
+
+One field moves **down** the frame, one moves **up**, and the third stays put --
+which is what makes it a relayout. A model that only shortened the frame would
+put two of the three in the wrong place and the third in the right one, and
+would look nearly correct while doing it. The 68020's `$30`-`$56` is twenty
+words of undifferentiated internal register with no version field in it.
+
+Two of those are behaviourally visible here and are now part-dependent: the
+**word count**, which is what the stack pointer moves by and so shifts every
+offset a handler computes from A7, and the **data output buffer**, which this
+model writes. The stage B address and version field are in the region this model
+zero-fills -- it has no microsequencer state to save, which `ap_m68030_step.c`
+already records as a stated `PROVISIONAL` -- so their offsets are carried as
+constants and asserted rather than written. The short frame agrees at every
+offset on both parts, so only the long one takes a variant.
+
+`ap_cpu_features_t` gains `long_bus_fault_frame_words`, `ap_m68030_cpu_t` gains
+`frame_variant`, and `ap_machine` derives the second from the first. The 68040's
+row carries the 68030's value with a note: that part has no format `$A` or `$B`
+at all -- `[040]` §8 gives it an access error frame of its own -- and that
+belongs to the 68040 exception item rather than here. `ssw_suite` 12 -> 16 tests.
+
+**Four of the six are now closed and two remain**: the control-register count
+and the `.mmu` declaration itself. Both are the ones that need a 68040 MMU
+before they mean anything, which is the blocker the item already names -- so
+what is left of this item is exactly its stated blocker, and nothing else. `cache_suite` 30 -> 35 tests, including that a 68030 written
 through the variant path and through the plain one agree exactly -- the
 reference part must not have moved. **Five of the six divergences remain**, and
 the item stays open: the frame layout, the control-register count, vector 56 and
@@ -13781,7 +13812,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 effective address decode (modes, extension words, lengths) | decode and extension-word counts working; address *calculation* needs the instruction unit | `ea_suite`, 17 tests, `M68000 Family Programmer's Reference Manual 1992` §2, Tables 2-1, 2-2, 2-4 |
 | 68030 programming model (registers, SR, three stack pointers) | working | `regs_suite`, 10 tests, `MC68030 User's Manual 3ed` §1.3 and `M68000 Family Programmer's Reference Manual 1992` §1.3.2 |
 | 68030 exception vectors, priority and stack frames | working; taking an exception needs the instruction unit | `exception_suite`, 16 tests, `MC68030 User's Manual 3ed` §8, Tables 8-1, 8-5, 8-6 |
-| 68030 special status word and bus fault frame layout | working: Figure 8-9's bits, the SIZ1/SIZ0 size code that counts bytes *remaining*, FC2-FC0, and Table 8-6's field offsets for both fault frames. The encoder enforces "a rerun bit is always set when the corresponding fault bit is set", while leaving a rerun *without* a fault expressible because that is how an address error is told from a bus error. The frame is chosen **from the SSW**, not passed in: §8.2.2's "data read faults only generate the long bus fault frame" is structural, since the short frame has no data input buffer for the handler to write the faulted read's value into. Fields Table 8-6 labels INTERNAL REGISTER are deliberately unnamed — this model has no source for them. **Wired into the taker**: `ap_m68030_take_bus_fault()` builds whichever frame the SSW selects, and `RTE` returns from both. Two `PROVISIONAL` approximations, marked in the code: the long frame's INTERNAL REGISTER fields are stacked as **zero** because this model has no microsequencer state, and `RTE` **re-executes** the faulted instruction from the start rather than resuming mid-instruction, where `[030]` §8.2.2 and §8.2.3 both *continue* the faulted bus cycle. The second is exact only while the instruction has committed nothing, so a faulted access now **rolls the register file back** to where the instruction found it (`entry_regs`) — without which a postincrement applied before the fault is applied again by the restart, which is how Domain/OS's first process came to be started on a null entry point | `ssw_suite`, 12 tests, `step_suite`, `[030]` §8.2.1, Figure 8-9, Table 8-6, Table 7-3 |
+| 68030 special status word and bus fault frame layout | working: Figure 8-9's bits, the SIZ1/SIZ0 size code that counts bytes *remaining*, FC2-FC0, and Table 8-6's field offsets for both fault frames. The encoder enforces "a rerun bit is always set when the corresponding fault bit is set", while leaving a rerun *without* a fault expressible because that is how an address error is told from a bus error. The frame is chosen **from the SSW**, not passed in: §8.2.2's "data read faults only generate the long bus fault frame" is structural, since the short frame has no data input buffer for the handler to write the faulted read's value into. Fields Table 8-6 labels INTERNAL REGISTER are deliberately unnamed — this model has no source for them. **Wired into the taker**: `ap_m68030_take_bus_fault()` builds whichever frame the SSW selects, and `RTE` returns from both. Two `PROVISIONAL` approximations, marked in the code: the long frame's INTERNAL REGISTER fields are stacked as **zero** because this model has no microsequencer state, and `RTE` **re-executes** the faulted instruction from the start rather than resuming mid-instruction, where `[030]` §8.2.2 and §8.2.3 both *continue* the faulted bus cycle. The second is exact only while the instruction has committed nothing, so a faulted access now **rolls the register file back** to where the instruction found it (`entry_regs`) — without which a postincrement applied before the fault is applied again by the restart, which is how Domain/OS's first process came to be started on a null entry point | `ssw_suite`, 16 tests, `step_suite`, `[030]` §8.2.1, Figure 8-9, Table 8-6, Table 7-3 |
 | 68030 ATC (22-entry, fully associative) | working; a translating hit marks the entry recently used, a `PTEST` probe does not, and a flush by function code and effective address applies the `MASK` operand — a zero mask flushes the address in **every** function code, which is the only masked form Domain/OS issues and used to invalidate nothing. Replacement `PROVISIONAL` only in its victim choice | `atc_suite`, 24 tests, `MC68030 User's Manual 3ed` §9.4, `[PRM]` `PFLUSH` |
 | 68030 descriptors + search protection state | working | `desc_suite`, 23 tests, `MC68030 User's Manual 3ed` §9.5.1.1 |
 | 68030 translation control (TC) + address split | working | `tc_suite`, 15 tests, `MC68030 User's Manual 3ed` §9.7.2 |

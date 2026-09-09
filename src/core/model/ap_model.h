@@ -230,6 +230,11 @@ typedef struct {
    * layouts. A model row declaring a part other than the 68030 was getting the
    * 68030's eleven, which is what the `.mmu` item calls the fifth divergence. */
   uint32_t cacr_implemented_mask;
+  /* The long bus fault frame's word count. `[020]` Figure 6-8 gives 44 and
+   * `[030]` Table 8-6 gives 46, and the difference is a relayout rather than a
+   * truncation -- see `ap_m68030_ssw.h`. The 68040 has neither frame format;
+   * its access error frame is its own and belongs to the 68040 item. */
+  unsigned long_bus_fault_frame_words;
 } ap_cpu_features_t;
 
 /* Derive the features of a CPU family. Total: every `ap_cpu_t` has an entry. */

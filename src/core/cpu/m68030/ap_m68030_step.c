@@ -2658,7 +2658,13 @@ static ap_m68030_exception_result_t take_exception_with(
   /* Step three. "on the active supervisor stack" -- read after S is set, so a
    * user-state exception builds its frame on ISP or MSP and not on the USP it
    * came from. */
-  const uint32_t bytes = ap_m68030_frame_words(format) * 2u;
+  /* The long frame is 44 words on a 68020 and 46 on a 68030, so its size is the
+   * part's and not the format's. The short frame agrees on both parts. */
+  const uint32_t bytes =
+      (format == AP_M68030_FRAME_LONG_BUS_FAULT
+           ? ap_m68030_long_frame_words(cpu->frame_variant)
+           : ap_m68030_frame_words(format)) *
+      2u;
   const uint32_t frame = ap_m68030_read_a7(&cpu->regs) - bytes;
 
   bool wrote = write_frame_field(cpu, frame + 0u, 2u, saved_sr, &out.clocks);
@@ -2843,9 +2849,17 @@ take_bus_fault_with(ap_m68030_cpu_t *cpu, unsigned vector,
                                      2u, cpu->fetch.pipe.b.word, &out.clocks);
   wrote = wrote && write_frame_field(cpu, frame + AP_M68030_BUS_FAULT_ADDRESS,
                                      4u, fault_address, &out.clocks);
-  wrote = wrote && write_frame_field(cpu,
-                                     frame + AP_M68030_BUS_FAULT_DATA_OUTPUT,
-                                     4u, data_output, &out.clocks);
+  /* And its offset moves with the part in the long frame: `$18` on a 68030,
+   * which keeps it there in both frames, and `$28` on a 68020, which does not.
+   * A short frame is `$18` on either. */
+  wrote = wrote &&
+          write_frame_field(
+              cpu,
+              frame + (format == AP_M68030_FRAME_LONG_BUS_FAULT
+                           ? ap_m68030_long_frame_data_output(
+                                 cpu->frame_variant)
+                           : AP_M68030_BUS_FAULT_DATA_OUTPUT),
+              4u, data_output, &out.clocks);
   if (!wrote) {
     /* A fault while stacking is a double fault, which halts the real part. As
      * elsewhere, this reports failure with the status register already changed

@@ -113,3 +113,32 @@ ap_m68030_bus_fault_frame(const ap_m68030_ssw_t *ssw,
   }
   return AP_M68030_FRAME_SHORT_BUS_FAULT;
 }
+
+/* ---------------------------------------------------------------------------
+ * The 68020's long frame layout, `[020]` Figure 6-8.
+ * ------------------------------------------------------------------------- */
+
+unsigned ap_m68030_long_frame_words(ap_m68030_frame_variant_t variant) {
+  /* Figure 6-8's caption says 44 words and Figure 6-9's summary repeats it:
+   * "1011  MC68020 Long Bus Fault (44 Words)". The 68030's is 46. */
+  return variant == AP_M68030_FRAME_VARIANT_68020 ? 44u : 46u;
+}
+
+uint32_t ap_m68030_long_frame_data_output(ap_m68030_frame_variant_t variant) {
+  return variant == AP_M68030_FRAME_VARIANT_68020
+             ? AP_M68020_BUS_FAULT_DATA_OUTPUT
+             : AP_M68030_BUS_FAULT_DATA_OUTPUT;
+}
+
+uint32_t
+ap_m68030_long_frame_stage_b_address(ap_m68030_frame_variant_t variant) {
+  return variant == AP_M68030_FRAME_VARIANT_68020
+             ? AP_M68020_BUS_FAULT_STAGE_B_ADDRESS
+             : AP_M68030_BUS_FAULT_STAGE_B_ADDRESS;
+}
+
+bool ap_m68030_long_frame_has_version(ap_m68030_frame_variant_t variant) {
+  /* `[020]` Figure 6-8 fills `$30`-`$56` with "Internal Registers, 20 Words"
+   * and names nothing in it. */
+  return variant != AP_M68030_FRAME_VARIANT_68020;
+}

@@ -4841,7 +4841,7 @@ Only after the reference core is proven, and only under an identity harness.
       neither exists — and the DN5500 stops at `cinva`, its second instruction,
       which is the **68040 execution core** item. Detail in `PROJECT_STATUS.md`.
 
-- [ ] **The model table's `.mmu`, which the machine does not honour.** *Three of the six divergences closed 2026-09-09; three remain.*
+- [ ] **The model table's `.mmu`, which the machine does not honour.** *Four of the six divergences closed 2026-09-09. The two that remain — the control-register count and the `.mmu` declaration itself — are exactly this item's stated blocker, a 68040 MMU, and nothing else.*
       *Retitled 2026-09-09: this was "the DS5500's three addendum registers, and
       the model table's `.mmu`", and **two of the three registers were already
       built**.* Checked in the source rather than inferred, which is the rule
@@ -4876,7 +4876,7 @@ Only after the reference core is proven, and only under an identity harness.
       (`C`, `CE`, `F`, `E`) where the 68030's has eleven (`[020]` §7.1.2.1);
       there are **five** control registers, not ten, the 68030's five MMU
       registers being absent (`[020]` §1, Figure 1-3); and the **long bus
-      fault frame is **laid out differently**, not merely two words shorter
+      fault frame is **laid out differently**, not merely two words shorter — **CLOSED 2026-09-09**: the word count and the data output buffer are now part-dependent and the two zero-filled offsets are asserted, `ssw_suite` 12 → 16 —
       (`[020]` Figures 6-7, 6-8 and 6-9) — and the difference is confined to
       the **long** frame, the short one agreeing at every offset this core
       models. 44 words against 46, with the **stage B address at `$20`

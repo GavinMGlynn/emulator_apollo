@@ -602,6 +602,11 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
           : (features.cacr_implemented_mask == AP_M68030_CACR_MASK_68040
                  ? AP_M68030_CACR_VARIANT_68040
                  : AP_M68030_CACR_VARIANT_68030);
+  /* And the fault frame's layout, from the same table and for the same
+   * reason: the word count is the observable, and the field offsets follow it. */
+  machine->cpu.frame_variant = features.long_bus_fault_frame_words == 44u
+                                   ? AP_M68030_FRAME_VARIANT_68020
+                                   : AP_M68030_FRAME_VARIANT_68030;
   ap_m68882_reset(&machine->fpu);
   /* **Every model in the table has a coprocessor**, so attaching one is not the
    * approximation it was once recorded as. `ap_m68882.h` says "a DN3500 has a

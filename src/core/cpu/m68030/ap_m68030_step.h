@@ -64,6 +64,7 @@
 #include "cpu/m68030/ap_m68030_cache.h"
 #include "cpu/m68030/ap_m68030_decode.h"
 #include "cpu/m68030/ap_m68030_fetch.h"
+#include "cpu/m68030/ap_m68030_ssw.h"
 #include "cpu/m68030/ap_m68030_tc.h"
 #include "cpu/m68030/ap_m68030_tt.h"
 #include "cpu/m68030/ap_m68030_walk.h"
@@ -391,6 +392,11 @@ typedef struct {
    * the reference superset. See `ap_m68030_cache.h` for the three layouts and
    * for why the 68040's mapping is by meaning rather than by position. */
   ap_m68030_cacr_variant_t cacr_variant;
+  /* Which part's bus fault frames these are. `[020]` Figure 6-8's long frame is
+   * 44 words with the data output buffer at `$28`; the 68030's is 46 with it at
+   * `$18`. The short frame agrees on both, so only the long one varies. Zero is
+   * the 68030, as with `cacr_variant`. */
+  ap_m68030_frame_variant_t frame_variant;
   /* And the register the 68040 **lost** needs no third flag: `MOVEC` code
    * `$802` is CAAR on a 68020 and a 68030 and an illegal instruction on a
    * 68040, and it is the *same table* that adds the eight above and footnotes
