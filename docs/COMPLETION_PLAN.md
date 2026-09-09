@@ -5256,6 +5256,36 @@ same number is what let them diverge once already.
       the 77 bytes go missing between the drive's block interface and the
       buffer. *What is left is to find where*, which is a search of the tape
       DMA path rather than of the tape.
+      **A named lead, with the arithmetic and the site, not yet a diagnosis.**
+      `ap_tape` streams bytes across block boundaries and carries `offset`
+      between DMA transfers: `needs_block` fetches only when a block is
+      exhausted, and **only a new command** resets `offset` (`ap_tape.c`'s
+      command path clears `block_valid`/`offset`; the 8237's terminal count does
+      not). So a host DMAGO that ends **mid-block** leaves the next one resuming
+      inside the same block — and `512 − 77 = **435**`, so a transfer that
+      stopped 435 bytes into a block would put every subsequent block 77 bytes
+      out, permanently, exactly as measured.
+      *The document question was asked and answered, and it **refutes** that
+      lead.* `[SC499]` §1.11 step 5 — "**Repeat above from step 2 for each
+      subsequent block**" — and Figures 1-12 and 1-14, `SET UP DMA FOR NEXT
+      **512** BYTE TRANSFER`, make **every DMA transfer exactly one block,
+      reprogrammed per block**, which `TAPE_WALK.md` already records and
+      `QIC-02_WALK.md` confirms as what this firmware does. There are no short
+      DMAGOs in the steady state, so a partial transfer cannot be where the 77
+      bytes go.
+      **Which moves the candidate to byte accounting.** `ap_tape`'s data-register
+      read consumes a byte on **any** read of `BASE+0` while a READ is armed —
+      `reg == AP_SC499_DATA && tape->drive.reading` — not only while a transfer
+      is in flight. With the host programming exactly 512 bytes per block, a
+      stream that has slipped 77 bytes has had **77 bytes taken from it outside
+      a transfer**, or has delivered 77 too few inside one. The related quirk to
+      look at first is `first_block_pending`, the first block being **handed
+      over twice** from the buffer, which `ap_tape.h` records as measured and
+      says "neither it nor any document says why" — an unexplained duplicate in
+      exactly the accounting this now turns on.
+      *So the next step is a count, not a dump*: how many reads of `BASE+0` occur
+      per DMAGO on this boot. 512 every time and the offset is elsewhere;
+      anything else names it.
 
 - [x] **A cold power-on runs the confidence test — done 2026-09-09.**
       `[SC499]` §1.8.1's POC reports success "by the assertion of `EXC-`
