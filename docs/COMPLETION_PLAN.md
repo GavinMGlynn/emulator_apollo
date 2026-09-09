@@ -5164,154 +5164,21 @@ Only after the reference core is proven, and only under an identity harness.
       neither exists — and the DN5500 stops at `cinva`, its second instruction,
       which is the **68040 execution core** item. Detail in `PROJECT_STATUS.md`.
 
-- [ ] **The model table's `.mmu`, which the machine does not honour.** *Five of the six divergences closed 2026-09-09 — the control-register count last, by measuring the firmware. The one that remains is the `.mmu` declaration itself, which is this item's stated blocker, a 68040 MMU, and nothing else.*
-      *Retitled 2026-09-09: this was "the DS5500's three addendum registers, and
-      the model table's `.mmu`", and **two of the three registers were already
-      built**.* Checked in the source rather than inferred, which is the rule
-      this project has now been caught by five times: `019411-A00` §4.2.1.14's
-      **Cache Status Register** is `ap_boardreg.c`'s `ds5500_cache_status` with
-      `HSI Present` following a fitted graphics device, and §4.2.1.18's
-      **Memory Present Register** is at `011400` with
-      `ap_boardreg_memory_present_code` behind it — and `boardreg_suite` asserts
-      it against **all 35 published configurations** of the addendum's table,
-      through the bus as well as through the accessor. The third, Table 4-6's
-      added line, has its own item and is blocked on `007861`.
-      *The values were re-derived from the page image while checking, and agree
-      with the code exactly*: each slot is a bit **pair**, `00` 8 MB, `01`
-      16 MB, `10` 4 MB, `11` absent, cleared when a board is present — `FE` for
-      one 4 MB board, `55` for four 16 MB, `E5` for `16 16 4 -`.
-      **And `.mmu` is a declaration the machine does not honour**: three rows say
-      `AP_MMU_M68851`, seven `AP_MMU_M68030`, two `AP_MMU_M68040`, and
-      `ap_machine` builds an `ap_m68030_cpu_t` unconditionally. Not a live defect
-      — the DN3000 diffs pass 29 of 29 CPU fields — but it is what `model/`'s own
-      rule forbids. *Not behaviour-neutral*: an MMU with a different descriptor
-      format is a translation change, so it needs the identity harness on the
-      other side.
-      **What would unblock it**: a 68040 **MMU**, so `.mmu` has something to
-      select. The execution-core half is no longer the blocker — a DN5500 now
-      runs and prints its firmware self-test (`FINDINGS.md` C256) — so this is
-      the next increment of the 68040 item rather than a separate wait.
-      **That blocker was checked 2026-09-09 and is imprecise for one of the two
-      halves.** It covers the `.mmu` *declaration*, which needs something to
-      select. It does **not** obviously cover the **control-register count**,
-      which is a `[020]` §1 fact about the 68020 and cannot wait on a 68040:
-      `src/core/cpu/m68851/` holds eighteen files and `src/core/cpu/m68020/`
-      six — 2,619 lines between them — and the 68851 *is* already wired,
-      through `ap_m68030_coproc.h` and `ap_m68030_step.c`. So the parts exist
-      and are joined; what a 68020 row does not get is a machine built to use
-      them, `ap_machine` constructing an `ap_m68030_cpu_t` unconditionally.
-      **And the control-register half is now CLOSED, by measuring the firmware
-      rather than reasoning about the parts.** The divergence is that a 68020
-      row gets the 68030's on-chip MMU registers where a real 68020 has none —
-      they belong to the 68851, whose set is a *superset*: `DRP`, `CAL`, `VAL`,
-      `SCC`, `AC`, `BAD0-7`, `BAC0-7`. So the reachable question is whether any
-      software held here touches a register the two parts differ on.
-      *It does not.* Both DN3000 boot PROMs were scanned for `PMOVE`-shaped
-      F-line instructions at coprocessor id 000 and the P-register field
-      decoded: `3000_BOOT_8475_7` uses **TC 11 times and CRP 6**,
-      `3000_BOOT_8475_4` **TC 12 and CRP 6**, and **neither touches a single
-      68851-only register**. TC and CRP are the common subset — the 68030 has
-      both. The instrument works: it found 17 and 18 `PMOVE`s respectively out
-      of 536 and 519 F-line words, so it is not reading silence.
-      *Execution works*: the DN3000 differential passes **29 of 29 CPU fields**
-      against the oracle, and no firmware on this shelf asks for a register the
-      68030 model cannot supply.
-      **And 2026-09-10 strengthened the "unexercised" half with a second
-      witness — then REFUTED it the same day.** The claim rested on the boot
-      PROM (`tc 00000000`, `translation off`) and was reinforced by
-      `/sau14/invol` reporting the same. **`/sau14/domain_os` does not.** With
-      `PFLUSH` implemented the DS5500's loader runs on to
-
-          68040 mmu  tc 00008000  urp 01002200  srp 01002000
-
-      — `tc` bit 15 is `[040]` Figure 3-4's **E bit**, `P` clear for **4 KB
-      pages**, both root pointers loaded — and then dies reading `7A401008` with
-      `vbr 7A401000`, logical addresses this core passes through untranslated.
-      *The two earlier witnesses were true of what they measured and neither
-      reached the operating system*, which is precisely what this item said
-      would reach it. **So the 68040 MMU join is exercised code, and the
-      argument for deferring it is gone.** Detail in `PROJECT_STATUS.md`.
-      **The 68040 MMU is joined, 2026-09-10** — `cpu/m68040/ap_m68040_mmu.c`,
-      `[040]` §3.5's order with the TTRs ahead of the enable because §3.1.3
-      makes them "operate independently of the E-bit in the TCR". Gated by a
-      NULL `mmu_040` on every other model, so nothing else's translation or
-      state hash is touched; two views because the part has two ITTRs/DTTRs and
-      two ATCs; a second fetch callback because the 68040's search reads raw
-      longwords where the 68030's hands back a decoded descriptor.
-      *Verification: a new `m68040_mmu_suite`, 9 tests covering the **order**
-      and the decisions between the parts rather than the parts, which have
-      their own suites; `ctest` 146/146 both presets; identity
-      `6DF967A63D3D4DA9` unmoved.* **It caught a bug that hides**: the search
-      returns the whole physical address and an ATC entry holds the frame, so
-      storing the full address and ORing the offset on a hit is right for the
-      access that filled the entry and wrong for the next one — `0x50456` came
-      back as `0x50577`. `PROVISIONAL`: the U and M bits are not written back,
-      for the same reason the 68030's walk does not lock the bus.
-      **So what remains of this item is the `.mmu` declaration alone**, which
-      does wait on a 68040 MMU.
-      **Made visible and pinned 2026-09-10, which is what could be done without
-      wiring unexercised code.** Every boot report now names the declared MMU
-      against the one the machine translates with, and the two mismatches are
-      given their different standings — the 68851's is measured
-      indistinguishable (TC and CRP only, in both DN3000 PROMs), the 68040's is
-      a real descriptor-format divergence nothing reaches. `machine_suite`
-      65 → 66 pins it concretely: a DS5500 gets the 68040's registers *and* the
-      68030's translation control, two registers where the part has one, so
-      setting the E bit in the 68040 `TC` leaves `tc.enable` false. **The test
-      fails the day the join lands**, which is when the report line must change.
-      Detail in `PROJECT_STATUS.md`. *Scope of the scan, stated rather than glossed*:
-      `PMOVE` at cpid 000 only. `PTEST`'s result register is the 68030's
-      `MMUSR`/68851's `PSR`, which both parts have, but `PFLUSH` and `PLOAD`
-      forms were not enumerated.
-      **And it is not only the MMU — the processor walks are finding
-      registers, 2026-09-09.** **Five** so far, each a case where a row
-      declaring a part other than the 68030 gets 68030 behaviour, because
-      `ap_machine` builds an `ap_m68030_cpu_t` unconditionally. Four from
-      `[020]`: the **CACR is four bits**
-      (`C`, `CE`, `F`, `E`) where the 68030's has eleven (`[020]` §7.1.2.1);
-      there are **five** control registers, not ten, the 68030's five MMU
-      registers being absent (`[020]` §1, Figure 1-3); and the **long bus
-      fault frame is **laid out differently**, not merely two words shorter — **CLOSED 2026-09-09**: the word count and the data output buffer are now part-dependent and the two zero-filled offsets are asserted, `ssw_suite` 12 → 16 —
-      (`[020]` Figures 6-7, 6-8 and 6-9) — and the difference is confined to
-      the **long** frame, the short one agreeing at every offset this core
-      models. 44 words against 46, with the **stage B address at `$20`
-      against `$24`**, the **data output buffer at `$28`** where the 68030
-      keeps it at `$18` in *both* frames, and no version field where this core
-      has one at `$36`; and
-      **vector 56 is not this part's** — `[020]` Table 6-2 leaves 48-63
-      unassigned and `[040]` Table 8-1 says of 56 "Defined for MC68030 and
-      MC68851, **not used by M68040**", where this core defined
-      `VECTOR_MMU_CONFIGURATION` there for every part. **CLOSED 2026-09-09 by
-      the sixth divergence below**, not on its own: a 68040 no longer reaches
-      `execute_pmove`, which holds both of the vector's raisers. *Refined 2026-09-09*:
-      the neighbouring 48-55 are **not** a divergence — `[040]` assigns them to
-      floating-point exceptions and this core already names 48-54 from `[881]`,
-      so the 68020's "unassigned" is the processor leaving them for a
-      coprocessor to define.
-      **A sixth, the first a *user program* could observe — CLOSED 2026-09-09,
-      and it closed the fourth with it.** `[040]` §3.7.3: the 68030's and
-      68851's MMU instructions "cause F-line unimplemented instruction
-      exceptions if executed in **either supervisor or user mode** by the
-      M68040", where the 68030 takes F-line from supervisor and **privilege
-      violation** from user. The gate now refuses the whole opcode family on a
-      68040 before `execute_mmu` runs, and `step_suite` runs the identical
-      program on both rows and asserts vector 11 against vector 8. **Vector 56
-      fell out of it**: its only two raisers are inside `execute_pmove`, which a
-      68040 no longer reaches, so it is unreachable by construction rather than
-      by a second guard. `step_suite` 314 → 317. Detail in `PROJECT_STATUS.md`.
-      **The fifth is that same first register a third time — and it is now
-      CLOSED, 2026-09-09.** `[040]` §2.2.2.5 gives the 68040's CACR as **two**
-      enable bits and every `MOVEC` to `CACR` went through the 68030's
-      eleven-bit `ap_m68030_cacr_write` whatever the part. Fixed: the register
-      now takes a **variant** — four bits on a 68020 (`[020]` Figure 7-2),
-      eleven on a 68030, two on a 68040 (`[040]` **Figure 4-4**, which §2.2.2.5
-      does not cross-reference and which puts `DE` at **31** and `IE` at **15**,
-      so the mapping is by meaning not position). `ap_cpu_features_t` carries
-      the mask, `ap_machine` derives the variant from it, `cache_suite` 30 → 35
-      tests. Taken first because the part-dependence was already expressible —
-      `CAAR` **is** refused on a 68040, from the same `MOVEC` page's footnotes.
-      Detail in `PROJECT_STATUS.md`.
-      Records: `docs/references/M68020_WALK.md`, `M68040_WALK.md`.
+- [x] **The model table's `.mmu` — honoured 2026-09-10, and the item is
+      closed.** It declared three values and `ap_machine` read none of them,
+      building an `ap_m68030_cpu_t` unconditionally. The machine now selects the
+      translation path on `.mmu`: `AP_MMU_M68040` gets the 68040 MMU joined the
+      same day, `AP_MMU_M68030` the 68030's, and `AP_MMU_M68851` the 68030's
+      under the standing rule's **consumer** clause — both DN3000 PROMs use `TC`
+      and `CRP` only, which the 68030 has, so no software held here can tell the
+      two parts' translation apart. Selected on `.mmu` and deliberately not on
+      `.cpu`, because an MC68EC040 has the part's registers and no MMU.
+      *Verification: `machine_suite` 66 → 67, asserting through the access
+      context where a declaration becomes a behaviour; the DN3000 differential
+      29 of 29 CPU fields; identity `6DF967A63D3D4DA9` unmoved; `ctest` 146/146
+      both presets.* **Reopens on contact**: a program touching `DRP`, `CAL`,
+      `VAL`, `SCC`, `AC` or the `BAD`/`BAC` files brings the 68851 half back.
+      Detail, and the item's own text, in `PROJECT_STATUS.md`.
 
 - [ ] Real multi-node Domain workloads: distributed single-level store across
       nodes, `lcnode`, remote file access. *Verification: content finds what

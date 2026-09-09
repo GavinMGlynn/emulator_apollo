@@ -179,21 +179,21 @@ static void test_a_probe_can_set_up_run_and_read_back(void) {
   TEST_ASSERT_EQUAL_UINT(0u, m.bus_errors);
 }
 
-/* The model table's `.mmu` is a declaration `ap_machine` does not honour, and
- * this pins it so the day it *is* honoured the test says so.
+/* The 68040's `TC` and the 68030's are two registers where the part has one,
+ * and this pins which of them the machine reads.
  *
- * `ap_machine` builds an `ap_m68030_cpu_t` for every row. A DS5500 declares
- * `AP_MMU_M68040` and gets the 68040's *registers* -- `M68000PRM`'s MOVEC table
- * gives it eight the 68030 has not -- alongside the 68030's translation
- * control. **Two registers where the part has one** is what "the declaration is
- * not honoured" means concretely: a program that enables paged translation
- * through the 68040 `TC` sets a field nothing walks tables from.
+ * **This test used to assert the opposite and it was wrong to.** It was written
+ * while `.mmu` was a declaration nothing honoured, said "declares a 68040 MMU
+ * and is given the 68030's", and claimed in its own comment that it would fail
+ * the day the join landed. It did not fail: it asserted that setting `tc_040`
+ * leaves `tc.enable` alone, which is true of two separate fields whatever the
+ * machine does with them. **A test that pins a gap has to assert the
+ * behaviour, not the storage** -- this one could not tell the gap from its
+ * fix.
  *
- * Not a live defect. The DS5500's boot PROM and `/sau14/invol` both report
- * `translation off`, so nothing reaches it -- which is why it is `PROVISIONAL`
- * and why wiring the join today would be unexercised code in the hottest path.
- * `docs/COMPLETION_PLAN.md`'s `.mmu` item. */
-static void test_the_ds5500_declares_a_68040_mmu_and_is_given_the_68030s(void) {
+ * What it asserts now is the fact that outlives the join: the registers are
+ * separate, and the 68040 row translates from its own. */
+static void test_the_ds5500_translates_from_the_68040s_own_control(void) {
   blank();
   ap_machine_t m;
   ap_machine_init_model(&m, ram, RAM_BYTES, AP_MODEL_DN5500);
@@ -202,19 +202,62 @@ static void test_the_ds5500_declares_a_68040_mmu_and_is_given_the_68030s(void) {
   TEST_ASSERT_EQUAL_INT(AP_MMU_M68040, m.model->mmu);
   TEST_ASSERT_TRUE(m.cpu.has_68040_mmu_registers);
 
-  /* The E bit in the 68040's TC, set the way its firmware sets it. On the part
-   * that is *the* translation control; here it is a second one, and the
-   * 68030's -- which is what the table walk reads -- is untouched. */
+  /* The MMU view reads `tc_040`, so the E bit the operating system sets is the
+   * one translation is decided by. `[040]` Figure 3-4: `E` at 15. */
+  TEST_ASSERT_TRUE(m.instruction_access.mmu_040->tc == &m.cpu.tc_040);
+  TEST_ASSERT_TRUE(m.data_access.mmu_040->tc == &m.cpu.tc_040);
+
+  /* And they really are two registers: writing one leaves the other alone,
+   * which is why reading the wrong one reported `translation off` on a machine
+   * whose operating system had just turned it on. */
   m.cpu.tc_040 = 0x8000u;
   TEST_ASSERT_FALSE(m.cpu.tc.enable);
+}
 
-  /* And a DN3500 declares the MMU it is given, so the divergence is the
-   * DS5500's rather than something every row has. */
+/* **`.mmu` selects the translation path**, which is the field being honoured
+ * rather than merely declared.
+ *
+ * It is deliberately not `.cpu`: the model table declares the *part*, which
+ * decides the `MOVEC` register set, and the *MMU*, which decides what
+ * translates. They coincide on every row here and would not on an MC68EC040 --
+ * `[040]` §3's own scope note, "this section does not apply to the MC68EC040
+ * and MC68EC040V" -- which has the registers and no MMU.
+ *
+ * Asserted through the access context because that is where a declaration
+ * becomes a behaviour: `mmu_040` NULL is the gate that keeps every 68030 row
+ * out of the 68040's path, and a row that declared `AP_MMU_M68040` and got
+ * NULL would translate with the wrong descriptor format in silence. */
+static void test_the_model_tables_mmu_selects_the_translation_path(void) {
+  blank();
+  ap_machine_t ds5500;
+  ap_machine_init_model(&ds5500, ram, RAM_BYTES, AP_MODEL_DN5500);
+  TEST_ASSERT_EQUAL_INT(AP_MMU_M68040, ds5500.model->mmu);
+  TEST_ASSERT_NOT_NULL(ds5500.instruction_access.mmu_040);
+  TEST_ASSERT_NOT_NULL(ds5500.data_access.mmu_040);
+  /* Two ATCs, not one shared: §3.3 gives the part "caches" plural, and an
+   * instruction fetch must not evict a data translation. */
+  TEST_ASSERT_TRUE(ds5500.instruction_access.mmu_040->atc !=
+                   ds5500.data_access.mmu_040->atc);
+  /* And each side sees its own transparent registers. */
+  TEST_ASSERT_TRUE(ds5500.instruction_access.mmu_040->ttr !=
+                   ds5500.data_access.mmu_040->ttr);
+
+  /* Every 68030 row is left out of the path entirely. */
   blank();
   ap_machine_t dn3500;
   ap_machine_init_model(&dn3500, ram, RAM_BYTES, AP_MODEL_DN3500);
   TEST_ASSERT_EQUAL_INT(AP_MMU_M68030, dn3500.model->mmu);
-  TEST_ASSERT_FALSE(dn3500.cpu.has_68040_mmu_registers);
+  TEST_ASSERT_NULL(dn3500.instruction_access.mmu_040);
+  TEST_ASSERT_NULL(dn3500.data_access.mmu_040);
+
+  /* As is the 68851 row, whose translation is the 68030's -- measured
+   * indistinguishable, since both DN3000 boot PROMs use `TC` and `CRP` only
+   * and those are the subset the 68030 has. */
+  blank();
+  ap_machine_t dn3000;
+  ap_machine_init_model(&dn3000, ram, RAM_BYTES, AP_MODEL_DN3000);
+  TEST_ASSERT_EQUAL_INT(AP_MMU_M68851, dn3000.model->mmu);
+  TEST_ASSERT_NULL(dn3000.instruction_access.mmu_040);
 }
 
 /* A bound above 2^32 is honoured rather than truncated.
@@ -2796,7 +2839,8 @@ int main(void) {
   RUN_TEST(test_no_opcode_reports_an_unimplemented_instruction);
   RUN_TEST(test_a_warm_reset_restores_the_documented_state_but_not_the_atc);
   RUN_TEST(test_a_probe_can_set_up_run_and_read_back);
-  RUN_TEST(test_the_ds5500_declares_a_68040_mmu_and_is_given_the_68030s);
+  RUN_TEST(test_the_ds5500_translates_from_the_68040s_own_control);
+  RUN_TEST(test_the_model_tables_mmu_selects_the_translation_path);
   RUN_TEST(test_a_run_bound_above_two_to_the_thirty_two_is_not_truncated);
   RUN_TEST(test_the_executed_count_can_hold_more_than_a_32_bit_run);
   RUN_TEST(test_every_transcribed_row_matches_both_published_columns);

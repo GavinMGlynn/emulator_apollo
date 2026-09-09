@@ -713,7 +713,18 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
    * registers are pointers into the CPU so a `MOVEC` to `TC` takes effect on
    * the next access without anyone re-publishing a copy -- the same reason the
    * 68030's `tc` and `root` are pointers here. */
-  if (machine->cpu.has_68040_mmu_registers) {
+  /* **`.mmu`, not `.cpu`, and the distinction is the point of the field.**
+   * The model table declares two separate things: which *part* this is, which
+   * decides the `MOVEC` register set, and which *MMU* the board has, which
+   * decides what translates. They coincide on every row here and would not on
+   * an MC68EC040, which has the part's registers and no MMU at all -- §3's own
+   * scope note, "this section does not apply to the MC68EC040".
+   *
+   * Until the 68040 MMU was joined this field had nothing to select and
+   * `ap_machine` ignored it, which `docs/COMPLETION_PLAN.md` recorded as "a
+   * declaration the machine does not honour". This is the machine honouring
+   * it. */
+  if (machine->model != NULL && machine->model->mmu == AP_MMU_M68040) {
     ap_m68040_atc_init(&machine->atc_040_instruction);
     ap_m68040_atc_init(&machine->atc_040_data);
     machine->mmu_040_instruction = (ap_m68040_mmu_t){

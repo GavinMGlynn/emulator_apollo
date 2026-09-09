@@ -1787,6 +1787,212 @@ The second reached the shell and ran nothing: trimming `md-shell.script` left
 completed command produces. Each cost a 45-minute run. Detail in `FINDINGS.md`
 C259.
 
+## `.mmu` is honoured: the model table selects the translation path (2026-09-10)
+
+### The item as it stood, moved here when it was ticked
+
+`docs/COMPLETION_PLAN.md` carries a pointer and this carries the reasoning —
+`tools/check_docs.py` enforces the split at sixteen lines, and this item had
+reached a hundred and fifty. Everything below is the item's own text, kept
+because it is what the work was done from and because five of its six
+divergences were closed by reasoning that is not repeated anywhere else.
+
+**The model table's `.mmu`, which the machine does not honour.** *Five of the six divergences closed 2026-09-09 — the control-register count last, by measuring the firmware. The one that remains is the `.mmu` declaration itself, which is this item's stated blocker, a 68040 MMU, and nothing else.*
+*Retitled 2026-09-09: this was "the DS5500's three addendum registers, and
+the model table's `.mmu`", and **two of the three registers were already
+built**.* Checked in the source rather than inferred, which is the rule
+this project has now been caught by five times: `019411-A00` §4.2.1.14's
+**Cache Status Register** is `ap_boardreg.c`'s `ds5500_cache_status` with
+`HSI Present` following a fitted graphics device, and §4.2.1.18's
+**Memory Present Register** is at `011400` with
+`ap_boardreg_memory_present_code` behind it — and `boardreg_suite` asserts
+it against **all 35 published configurations** of the addendum's table,
+through the bus as well as through the accessor. The third, Table 4-6's
+added line, has its own item and is blocked on `007861`.
+*The values were re-derived from the page image while checking, and agree
+with the code exactly*: each slot is a bit **pair**, `00` 8 MB, `01`
+16 MB, `10` 4 MB, `11` absent, cleared when a board is present — `FE` for
+one 4 MB board, `55` for four 16 MB, `E5` for `16 16 4 -`.
+**And `.mmu` is a declaration the machine does not honour**: three rows say
+`AP_MMU_M68851`, seven `AP_MMU_M68030`, two `AP_MMU_M68040`, and
+`ap_machine` builds an `ap_m68030_cpu_t` unconditionally. Not a live defect
+— the DN3000 diffs pass 29 of 29 CPU fields — but it is what `model/`'s own
+rule forbids. *Not behaviour-neutral*: an MMU with a different descriptor
+format is a translation change, so it needs the identity harness on the
+other side.
+**What would unblock it**: a 68040 **MMU**, so `.mmu` has something to
+select. The execution-core half is no longer the blocker — a DN5500 now
+runs and prints its firmware self-test (`FINDINGS.md` C256) — so this is
+the next increment of the 68040 item rather than a separate wait.
+**That blocker was checked 2026-09-09 and is imprecise for one of the two
+halves.** It covers the `.mmu` *declaration*, which needs something to
+select. It does **not** obviously cover the **control-register count**,
+which is a `[020]` §1 fact about the 68020 and cannot wait on a 68040:
+`src/core/cpu/m68851/` holds eighteen files and `src/core/cpu/m68020/`
+six — 2,619 lines between them — and the 68851 *is* already wired,
+through `ap_m68030_coproc.h` and `ap_m68030_step.c`. So the parts exist
+and are joined; what a 68020 row does not get is a machine built to use
+them, `ap_machine` constructing an `ap_m68030_cpu_t` unconditionally.
+**And the control-register half is now CLOSED, by measuring the firmware
+rather than reasoning about the parts.** The divergence is that a 68020
+row gets the 68030's on-chip MMU registers where a real 68020 has none —
+they belong to the 68851, whose set is a *superset*: `DRP`, `CAL`, `VAL`,
+`SCC`, `AC`, `BAD0-7`, `BAC0-7`. So the reachable question is whether any
+software held here touches a register the two parts differ on.
+*It does not.* Both DN3000 boot PROMs were scanned for `PMOVE`-shaped
+F-line instructions at coprocessor id 000 and the P-register field
+decoded: `3000_BOOT_8475_7` uses **TC 11 times and CRP 6**,
+`3000_BOOT_8475_4` **TC 12 and CRP 6**, and **neither touches a single
+68851-only register**. TC and CRP are the common subset — the 68030 has
+both. The instrument works: it found 17 and 18 `PMOVE`s respectively out
+of 536 and 519 F-line words, so it is not reading silence.
+*Execution works*: the DN3000 differential passes **29 of 29 CPU fields**
+against the oracle, and no firmware on this shelf asks for a register the
+68030 model cannot supply.
+**And 2026-09-10 strengthened the "unexercised" half with a second
+witness — then REFUTED it the same day.** The claim rested on the boot
+PROM (`tc 00000000`, `translation off`) and was reinforced by
+`/sau14/invol` reporting the same. **`/sau14/domain_os` does not.** With
+`PFLUSH` implemented the DS5500's loader runs on to
+
+    68040 mmu  tc 00008000  urp 01002200  srp 01002000
+
+— `tc` bit 15 is `[040]` Figure 3-4's **E bit**, `P` clear for **4 KB
+pages**, both root pointers loaded — and then dies reading `7A401008` with
+`vbr 7A401000`, logical addresses this core passes through untranslated.
+*The two earlier witnesses were true of what they measured and neither
+reached the operating system*, which is precisely what this item said
+would reach it. **So the 68040 MMU join is exercised code, and the
+argument for deferring it is gone.** Detail in `PROJECT_STATUS.md`.
+**The 68040 MMU is joined, 2026-09-10** — `cpu/m68040/ap_m68040_mmu.c`,
+`[040]` §3.5's order with the TTRs ahead of the enable because §3.1.3
+makes them "operate independently of the E-bit in the TCR". Gated by a
+NULL `mmu_040` on every other model, so nothing else's translation or
+state hash is touched; two views because the part has two ITTRs/DTTRs and
+two ATCs; a second fetch callback because the 68040's search reads raw
+longwords where the 68030's hands back a decoded descriptor.
+*Verification: a new `m68040_mmu_suite`, 9 tests covering the **order**
+and the decisions between the parts rather than the parts, which have
+their own suites; `ctest` 146/146 both presets; identity
+`6DF967A63D3D4DA9` unmoved.* **It caught a bug that hides**: the search
+returns the whole physical address and an ATC entry holds the frame, so
+storing the full address and ORing the offset on a hit is right for the
+access that filled the entry and wrong for the next one — `0x50456` came
+back as `0x50577`. `PROVISIONAL`: the U and M bits are not written back,
+for the same reason the 68030's walk does not lock the bus.
+**So what remains of this item is the `.mmu` declaration alone**, which
+does wait on a 68040 MMU.
+**Made visible and pinned 2026-09-10, which is what could be done without
+wiring unexercised code.** Every boot report now names the declared MMU
+against the one the machine translates with, and the two mismatches are
+given their different standings — the 68851's is measured
+indistinguishable (TC and CRP only, in both DN3000 PROMs), the 68040's is
+a real descriptor-format divergence nothing reaches. `machine_suite`
+65 → 66 pins it concretely: a DS5500 gets the 68040's registers *and* the
+68030's translation control, two registers where the part has one, so
+setting the E bit in the 68040 `TC` leaves `tc.enable` false. **The test
+fails the day the join lands**, which is when the report line must change.
+Detail in `PROJECT_STATUS.md`. *Scope of the scan, stated rather than glossed*:
+`PMOVE` at cpid 000 only. `PTEST`'s result register is the 68030's
+`MMUSR`/68851's `PSR`, which both parts have, but `PFLUSH` and `PLOAD`
+forms were not enumerated.
+**And it is not only the MMU — the processor walks are finding
+registers, 2026-09-09.** **Five** so far, each a case where a row
+declaring a part other than the 68030 gets 68030 behaviour, because
+`ap_machine` builds an `ap_m68030_cpu_t` unconditionally. Four from
+`[020]`: the **CACR is four bits**
+(`C`, `CE`, `F`, `E`) where the 68030's has eleven (`[020]` §7.1.2.1);
+there are **five** control registers, not ten, the 68030's five MMU
+registers being absent (`[020]` §1, Figure 1-3); and the **long bus
+fault frame is **laid out differently**, not merely two words shorter — **CLOSED 2026-09-09**: the word count and the data output buffer are now part-dependent and the two zero-filled offsets are asserted, `ssw_suite` 12 → 16 —
+(`[020]` Figures 6-7, 6-8 and 6-9) — and the difference is confined to
+the **long** frame, the short one agreeing at every offset this core
+models. 44 words against 46, with the **stage B address at `$20`
+against `$24`**, the **data output buffer at `$28`** where the 68030
+keeps it at `$18` in *both* frames, and no version field where this core
+has one at `$36`; and
+**vector 56 is not this part's** — `[020]` Table 6-2 leaves 48-63
+unassigned and `[040]` Table 8-1 says of 56 "Defined for MC68030 and
+MC68851, **not used by M68040**", where this core defined
+`VECTOR_MMU_CONFIGURATION` there for every part. **CLOSED 2026-09-09 by
+the sixth divergence below**, not on its own: a 68040 no longer reaches
+`execute_pmove`, which holds both of the vector's raisers. *Refined 2026-09-09*:
+the neighbouring 48-55 are **not** a divergence — `[040]` assigns them to
+floating-point exceptions and this core already names 48-54 from `[881]`,
+so the 68020's "unassigned" is the processor leaving them for a
+coprocessor to define.
+**A sixth, the first a *user program* could observe — CLOSED 2026-09-09,
+and it closed the fourth with it.** `[040]` §3.7.3: the 68030's and
+68851's MMU instructions "cause F-line unimplemented instruction
+exceptions if executed in **either supervisor or user mode** by the
+M68040", where the 68030 takes F-line from supervisor and **privilege
+violation** from user. The gate now refuses the whole opcode family on a
+68040 before `execute_mmu` runs, and `step_suite` runs the identical
+program on both rows and asserts vector 11 against vector 8. **Vector 56
+fell out of it**: its only two raisers are inside `execute_pmove`, which a
+68040 no longer reaches, so it is unreachable by construction rather than
+by a second guard. `step_suite` 314 → 317. Detail in `PROJECT_STATUS.md`.
+**The fifth is that same first register a third time — and it is now
+CLOSED, 2026-09-09.** `[040]` §2.2.2.5 gives the 68040's CACR as **two**
+enable bits and every `MOVEC` to `CACR` went through the 68030's
+eleven-bit `ap_m68030_cacr_write` whatever the part. Fixed: the register
+now takes a **variant** — four bits on a 68020 (`[020]` Figure 7-2),
+eleven on a 68030, two on a 68040 (`[040]` **Figure 4-4**, which §2.2.2.5
+does not cross-reference and which puts `DE` at **31** and `IE` at **15**,
+so the mapping is by meaning not position). `ap_cpu_features_t` carries
+the mask, `ap_machine` derives the variant from it, `cache_suite` 30 → 35
+tests. Taken first because the part-dependence was already expressible —
+`CAAR` **is** refused on a 68040, from the same `MOVEC` page's footnotes.
+Detail in `PROJECT_STATUS.md`.
+Records: `docs/references/M68020_WALK.md`, `M68040_WALK.md`.
+
+
+The field declared three values and `ap_machine` read none of them, building an
+`ap_m68030_cpu_t` unconditionally — "a declaration the machine does not honour",
+and the last of the `.mmu` item's six divergences. Its stated blocker was "a
+68040 MMU, so `.mmu` has something to select". It has one now.
+
+**The machine selects on `.mmu`, deliberately not on `.cpu`.** The table
+declares two separate things: which *part* this is, which decides the `MOVEC`
+register set, and which *MMU* the board has, which decides what translates. They
+coincide on every row here and would not on an **MC68EC040**, which has the
+part's registers and no MMU at all — `[040]` §3's own scope note, "this section
+does not apply to the MC68EC040 and MC68EC040V". Keying the path off the part
+would be right by accident today and wrong the first time an EC row is added.
+
+**Where each of the three values now lands:**
+
+| `.mmu` | rows | what translates |
+| --- | --- | --- |
+| `AP_MMU_M68040` | 2 | the 68040's MMU, joined today |
+| `AP_MMU_M68030` | 7 | the 68030's on-chip MMU |
+| `AP_MMU_M68851` | 3 | the 68030's, and **measured indistinguishable** |
+
+The third is closed under the standing rule's *consumer* clause rather than by
+implementing a separate 68851 translation path. Both DN3000 boot PROMs were
+scanned for `PMOVE` at coprocessor id 000 and use **`TC` and `CRP` only** — 11
+and 6 on one, 12 and 6 on the other, out of 536 and 519 F-line words, so the
+instrument was not reading silence — and those two are exactly the subset the
+68030 has. No software this project holds can tell the two parts' translation
+apart, and the execution evidence is the DN3000 differential passing **29 of 29
+CPU fields** against the oracle. Reopens on contact: a program that touches
+`DRP`, `CAL`, `VAL`, `SCC`, `AC` or the `BAD`/`BAC` files brings it back.
+
+*Verification: `machine_suite` 66 → 67. The new test asserts through the access
+context, because that is where a declaration becomes a behaviour — `mmu_040`
+non-NULL on the DS5500 with **two** ATCs and **two** TTR pairs, NULL on the
+DN3500 and on the DN3000. Identity `6DF967A63D3D4DA9` unmoved.*
+
+**And a test of mine was replaced because its premise had become false.** The
+one written when the divergence was first made visible said the DS5500 "declares
+a 68040 MMU and is given the 68030's", and claimed in its own comment that it
+would fail the day the join landed. **It did not fail.** It asserted that
+setting `tc_040` leaves `tc.enable` alone, which is true of two separate fields
+whatever the machine does with them — so it could not tell the gap from its fix.
+A test that pins a gap has to assert the *behaviour*, not the storage. What
+replaces it asserts the fact that outlives the join: the registers are separate,
+and the 68040 row translates from its own.
+
 ## The 68040 MMU is joined (2026-09-10)
 
 Every part of it was built and none of them was connected. `ap_m68040_regs.*`
@@ -14759,7 +14965,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Time base (`time/`) | working | `time_suite`, 17 tests |
 | State hash (`state/`) | primitive working | `hash_suite`, 13 tests, incl. published FNV-1a 64 vectors |
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 40 tests sweeping every device field by field |
-| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 66 tests -- two of them driving `ap_machine_tick`, which no test drove at all before 2026-09-08, one boardless and one on a real board, incl. the same workload run twice on two boards agreeing at every step |
+| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 67 tests -- two of them driving `ap_machine_tick`, which no test drove at all before 2026-09-08, one boardless and one on a real board, incl. the same workload run twice on two boards agreeing at every step |
 | Ring protocol stack (`ring/ap_ring_{mac,frame,framer,phy,medium,station}.*`) | **JOINED TO THE CONTROLLER, and two boards on one segment exchange a frame; not yet reachable from a *booting* machine.** `ap_ring_ctl_attach_ring` is the wire `RING.md` 85e opened and 104 closed: a transmit command assembles the frame in the board's buffer and hands it to the station, MISC_CMD's `nct` drives §3.5's bypass relay and RCV_CMD's `rcv` the receiver, and the board's node ID becomes the station's ring address. The medium now has a home: `ap_board_t` owns the **station** (the card) and `ap_board_join_ring` lends it a **shared segment** (the cable), because a board that owned a medium would make every ring single-node by construction. `board_suite` drives two boards through their register interfaces and the header arrives in the other's buffer. `--ring` now owns a **segment** and joins the card to it, `ap_board_advance` polls the ring when the card has a cable, and the card's **interrupt line is wired** — master IRQ 2, documented at last (`RING.md` 107). **A frame now crosses under `ap_board_advance`** — the ring's 12 Mbit/s bit clock is driven from board time, with only the segment's lowest attached slot stepping the shared cable, and `board_suite` advances two boards' *clocks* and requires the frame to arrive. **And `ap_ring_sched` is wired**: `ap_board_join_ring_sched` registers a board as a ring participant at the medium's own bit rate, so nodes of different models can share one segment against `AP_TIME_BASE_HZ` — `board_suite` runs a real exchange through it and asserts the scheduler's phase hash is identical across two runs. **And a segment now crosses process boundaries**: `frontend/common/ap_ring_link.*` carries the cable's cells between two emulator instances in strict lock-step, batched a cable-length at a time — which `[MAC]` §3.4 makes free, since a bit cannot reach the next node for 64 bit times anyway. **The DMA question is answered and it was the wrong question**: `002398-04` p. 12-23 enumerates the DN3000's DMA Channel Usage in full — SDLC, floppy, cascade, the rest available — and the ring is not among them, so there is no host channel to model. The host reaches the buffer through `RAM_ADDR`/`RAM_DATA`, which is what this core does; finding 79's "loop xmit DMA to rcv DMA" is the gate array's own internal DMA. **And `--ring-two-node [N]` runs two whole machines on one segment** — two boards with distinct node IDs on one `ap_ring_sched`, each machine run a slice at a time with the ring advanced only to the time *both* have reached, reporting each node's PC and the ring's phase hash, reproducibly and without needing firmware. **Domain/OS now accepts the card** (`RING.md` 119): with a sealed configuration table, the device bits set from what is fitted, register `2B` = 2 and a ring option ROM, the SR10.4 diagnostic runs `network driver search` and an Apollo Token Ring test — and fails on `Expected= 0000FC03, Actual= 0000FC00, Address= 00059800`, which is SUBTEST 32's number reached by a second, independent path. **What is still missing**: that one count, and 80c's loopback residual. *The clause that used to follow -- "so the plan's `lcnode` check needs a booted Domain/OS per node, a disk question rather than a ring one" -- was answered on 2026-08-19*: both nodes now boot Domain/OS from their own installed volumes on one segment, each reaching `Domain/OS kernel(7)` with `Apollo Token Ring test passed.` and its driver loaded. `lcnode` itself moved to the multi-node workloads item, because it needs a *shell*, which needs `siologin`, which is a separate open thread (`FINDINGS.md` C222); this item's verification was rewritten to the ring property it is actually about -- two booted nodes exchanging frames, which the runner now reports as it happens. What else is done, and audited line by line against `[MAC]` chapters 1-3 and Appendix A (findings 85-94): bit stuffing and the four out-of-band characters, the three separators, all five framing sequences and the CRC, the bi-phase physical layer with both clock domains, §3.5's bypass relay in both halves, per-hop cable delay, and the station's §2.1 transmit sequence, §2.2.2.2 destination and broadcast matching, and both acknowledge fields modified in flight. **The buffer defect was NOT what held `claims_made` at zero, and that is now measured.** The first two-node run with both buffers lent (`fr4`, 2026-08-19, `--ring-two-node 1200000000`) took **both** nodes to `Domain/OS kernel(7) revision 10.4`, `Apollo Token Ring test passed.`, `SPM system init complete.` and `siomonit` started, with distinct node IDs — `Node ID = 12345` and `Node ID = 22222` — on one segment. **And `ring claims` stayed at zero for both — confirmed at the end of the run, not merely mid-run.** The full budget completed: `node 0 pc 3C43F5A8 ran 1200000000 executed (op 60FA) ring claims 0 frames seen 0 copied 0` and the identical line for node 1, with `ring hash 3BC182783938C47C`. Both nodes ended at the **same PC executing the same branch**, which is what two idle booted nodes in the same wait loop look like, and the last console line was `MBX_HELPER not running. Starting one.` — ordinary Domain/OS startup, not a hang. That is `FINDINGS.md` C229's pre-registered **reading 1, "nothing asked"**: the operating system never armed a transmit, so no frame was ever offered to the station. It is not reading 2 (a ring defect) and not reading 3 (success). The honest conclusion about the buffer fix is that it repaired a real and separate defect — transmit was *impossible* before it — and repairing it changed nothing here, which **locates the remaining problem above the station entirely**. C222 predicted exactly this: two booted nodes sitting idle exchange no frames at all, because "responded" is the language of a request and a reply. The item's verification needs *traffic*, which needs `lcnode`, which needs a shell. **And the station's two buffers are now lent by the board, which nothing was doing.** `ap_ring_station` allocates nothing, so both the transmit bit stream and the received frame live in caller storage — and `ap_ring_station_attach_tx` was called by **tests only** while `ap_ring_station_attach_rx` was called by **nothing at all**. On a running machine `ap_ring_station_queue_frame` therefore returned false on its first line (`tx_bits == NULL`), so a booting node could never transmit, and every received byte was discarded without even setting the overrun flag, which needs a non-NULL buffer to report against. Every ring suite passed throughout, because each one attached its own buffer — the failure mode where the test supplies the wiring the board does not. Found by sweeping `src/core`'s exported functions for ones nothing calls. The board owns the storage now, sized from `[EH]` p. 12-29's 1 KB header plus 1 KB data, and the three board tests that used to attach their own no longer do — so they exercise the machine's wiring rather than their own. **And a transmit now completes when the ring has carried it, not when the command was written.** `RING.md` 73b parked the completion *duration* "until `ap_ring_station` drives it" — and the station could not drive anything while nothing lent it a transmit buffer, so that blocker was the one above. A frame that genuinely goes onto a cable now finishes the operation when it has been driven, and the duration is **emergent** from the frame's own length at 12 Mbit/s: nothing here chooses a number, which is what 73a's refusal to pick a value inside its 8–85 µs bracket required. **The change is confined to the path where a frame is really on a wire**, which is `RING.md` 108a's rule expressed in code rather than as a blanket approximation — the deferral needs a queued frame, an attached medium, and digital loopback off. So the ring firmware's own self-test, which loops transmit DMA to receive DMA with no medium at all, keeps finding 66's immediate completion, and is **byte-identical** across the change: 7,263,778 steps, same registers, same elapsed, same 1,321,914 reads and 927,828 writes, checked by running it either side. Findings 66, 69 and 73's self-test bracket are therefore untouched and still open; what closed is 73b's blocker, not 69. The row said "not started", which was stale by six modules | `ring_mac_suite`, 11 tests; `ring_frame_suite`, 9 tests; `ring_framer_suite`, 12 tests; `ring_phy_suite`, 10 tests; `ring_medium_suite`, 13 tests, including a three-station ring circulating a token and a **bypassed node still carrying its cable** -- §3.5's relays join input coax to output coax, so a relay shortens no ring; `ring_station_suite`, 24 tests, including a frame delivered to its addressee with a bystander required *not* to accept it, and a **transmitter reading back the acknowledge its own frame returned with** -- `[MAC]` §2.2.2.5, the only way a sender ever learns whether anybody took its packet (`RING.md` 137), and **the pairing `002398-04` p. 7-29 publishes** -- `icopy|copy` on a copy and `icopy|wack` on a WACK, the second of which this core could not produce until 2026-09-08; `ring_sched_suite`, 7 tests |
 | Ring controller (`device/ap_ring_ctl.*`) | **register interface working**, wired into the AT decode: a unit's two windows, the ID register, the presence gate and its two Intel 8254 timers, all from the firmware disassembly that is this board's only specification. Fitted only on request -- an empty slot reads `FF`, which `RING.md` finding 40 makes the successful outcome of the firmware's probe. The dual-ported RAM buffer is **64 KB reached through the `+406` data port**, not a memory window -- findings 46, 46a and 47, which correct finding 42. **Nothing is blocked on a source any more**: `+400` MISC_STAT, `+402` XMIT_STAT and `+404` RCV_STAT are named bit for bit from `002398-04` pp. 12-30/12-31, and `ring8a.drvr` corroborates them from the board's own driver (`RING.md` 93, 97). The row said the meanings were blocked, which was stale by two findings | `ring_ctl_suite`, 26 tests -- one requiring a **second** transmit command to arm a second frame, which needed the harness to poll the controller as a board does before the deferred-completion path was reachable from this suite at all, and one requiring the card's own delivery count to agree with the station's `frames_copied` and its type census to carry the type the sender wrote, one of which is the firmware's own 64 KB memory test, one of which decomposes all three idle words into their named bits, one of which walks the first window's eight write-only registers, one of which reads that window as the node ID PROM it is -- four ID lanes, eleven unused slots and a checksum (`RING.md` 136) -- and one of which resets the board through `BOARD_RESET` at `59000`; the three receive counters are clocked individually since `[EH]` pp. 12-30/12-31 show header and data are separate phases on this board (`RING.md` 95a-95c); `i8254_suite`, 8 tests -- the newest driving the **GATE** pin, which no board wires and no test exercised until 2026-09-08; `board_suite` 38 -> 40 |
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 14 tests, `MC68030 User's Manual 3ed` §11.2.2 |
@@ -14771,7 +14977,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 family `0000` size-11 escape (`CMP2`/`CHK2`/`CAS`/`CAS2`) | decoded; the opcode map now has no holes. Semantics open: `CAS`/`CAS2` need an indivisible read-modify-write | `bounds_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` |
 | Per-instruction timing report (`--time-instructions`) | bus and cache time only, pinned as a golden; the 0/2 alternation is the cache holding register serving two instruction words per fetch | `tests/goldens/timing.txt`; oracle side by `tools/mame-oracle/steptime.lua` |
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
-| Constructed machine (`machine/`) | **An indivisible read-modify-write holds the bus as of 2026-09-06** -- `[030]` §7.7.1 has the arbitration state machine "ignore bus requests" during one, §11.9 and Appendix A restate it. Two failures compounded: `ap_m68030_arb_set_rmc` modelled the lock in full, three states because §7.7.4 distinguishes the first read cycle, and was called by `arb_suite` and by **nothing in `src/`** -- so a DMA channel asking during a semaphore operation was granted the bus; and `TAS`, the one instruction the architecture provides for semaphores, never asserted `RMC` at all, only `CAS` and `CAS2` did. Both fixed. The lock is held for the whole instruction where the hardware allows arbitration during the first read cycle -- narrowing it needs the per-cycle processor and is a named plan item. A 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and **stalls while another master holds the bus** — demonstrated rather than asserted: a cascaded AT master taken to ownership makes `ap_board_processor_may_run` false and costs the processor `AP_MACHINE_STALL_LIMIT` clocks for one instruction — and advances the devices that keep time | `machine_suite`, 66 tests -- two of them driving `ap_machine_tick`, which no test drove at all before 2026-09-08, one boardless and one on a real board |
+| Constructed machine (`machine/`) | **An indivisible read-modify-write holds the bus as of 2026-09-06** -- `[030]` §7.7.1 has the arbitration state machine "ignore bus requests" during one, §11.9 and Appendix A restate it. Two failures compounded: `ap_m68030_arb_set_rmc` modelled the lock in full, three states because §7.7.4 distinguishes the first read cycle, and was called by `arb_suite` and by **nothing in `src/`** -- so a DMA channel asking during a semaphore operation was granted the bus; and `TAS`, the one instruction the architecture provides for semaphores, never asserted `RMC` at all, only `CAS` and `CAS2` did. Both fixed. The lock is held for the whole instruction where the hardware allows arbitration during the first read cycle -- narrowing it needs the per-cycle processor and is a named plan item. A 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and **stalls while another master holds the bus** — demonstrated rather than asserted: a cascaded AT master taken to ownership makes `ap_board_processor_may_run` false and costs the processor `AP_MACHINE_STALL_LIMIT` clocks for one instruction — and advances the devices that keep time | `machine_suite`, 67 tests -- two of them driving `ap_machine_tick`, which no test drove at all before 2026-09-08, one boardless and one on a real board |
 | 68030 published timings (§11.6) | 59 rows from §11.6.6, §11.6.8, §11.6.9, §11.6.11, §11.6.12, §11.6.15 and §11.6.16, scheduled into the step as exposed microcode + measured operand bus + prefetch exposure, since the tables show a prefetch overlaps execution while an operand the operation consumes cannot (plain `max(microcode, bus)` was the retired first model — see above and `M68030_TIMING.md`). Branches are reached through their run-time outcome rather than by opcode. Seven instructions agree with the oracle (`FINDINGS.md` C8). Rows footnoted "Add Fetch Effective Address Time" are **declined**, not part-priced: their published figure is a component and the composition is open (C9). The four divides carry the manual's data-dependent marker and are `PROVISIONAL` | `timing_table_suite`, 16 tests; both published columns checked on a running machine by `machine_suite` |
 | 68030 ATC replacement | the history bit now means *recently used*, per `MC68851 PMMU User's Manual` §5.2.1.3 — a translating hit marks it, a `PTEST` probe does not. `PROVISIONAL` narrowed to victim choice among clear-history entries | `atc_suite`, 24 tests |
 | 68030 prefetch marginal cost | `NCC − CC` over the published prefetch count, computed in code across every row; the two rows where it is not integral are named in the test rather than rounded away | `timing_table_suite`, 16 tests |
