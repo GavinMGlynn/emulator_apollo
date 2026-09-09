@@ -5439,6 +5439,17 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
   }
   printf("  executed     %llu instruction(s)\n",
          (unsigned long long)run.executed);
+  if (machine.stack_low_water_seen) {
+    /* Where the stack got to and what put it there. A stack that ends far below
+     * where it started is the first thing to know about a machine that faulted
+     * while pushing, and the PC says which code was running when it got
+     * there. */
+    printf("  stack        %08X down to %08X (%u byte(s)), lowest at PC "
+           "%08X, %u switch(es)\n",
+           machine.stack_high_water, machine.stack_low_water,
+           machine.stack_high_water - machine.stack_low_water,
+           machine.stack_low_water_pc, machine.stack_switches);
+  }
   if (machine.stopped_clocks > 0u) {
     /* Not instructions: `STOP` executes once and then nothing does. A machine
      * that idles for a millisecond waiting for a device and one that never
@@ -6636,6 +6647,17 @@ static int boot_from_tape(const char *path, uint64_t limit) {
   ap_machine_run_t run = ap_machine_run(&machine, limit);
   printf("  executed     %llu instruction(s)\n",
          (unsigned long long)run.executed);
+  if (machine.stack_low_water_seen) {
+    /* Where the stack got to and what put it there. A stack that ends far below
+     * where it started is the first thing to know about a machine that faulted
+     * while pushing, and the PC says which code was running when it got
+     * there. */
+    printf("  stack        %08X down to %08X (%u byte(s)), lowest at PC "
+           "%08X, %u switch(es)\n",
+           machine.stack_high_water, machine.stack_low_water,
+           machine.stack_high_water - machine.stack_low_water,
+           machine.stack_low_water_pc, machine.stack_switches);
+  }
   if (machine.stopped_clocks > 0u) {
     /* Not instructions: `STOP` executes once and then nothing does. A machine
      * that idles for a millisecond waiting for a device and one that never

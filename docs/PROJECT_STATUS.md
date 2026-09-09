@@ -2145,19 +2145,56 @@ so `7A3C0000`–`7A3FFFFF` is unmapped entire — not a guard page below a growi
 stack but a hole with nothing in it. The next entry, `011A5240 = 0118D002`, is
 resident: everything from `7A400000` up is mapped.
 
-So `A7` at `7A400002` is **two bytes above the bottom of the mapped region**.
-This is not a demand-paging fault the kernel would service. **The supervisor
-stack is exhausted**, and this core's MMU is reporting that correctly — the
-hand walk and the join agree descriptor for descriptor.
+So `A7` at `7A400002` is **two bytes above the bottom of the mapped region**,
+and this core's MMU is reporting that correctly — the hand walk and the join
+agree descriptor for descriptor.
 
-*And the obvious way this core could have caused it is eliminated too*: an
-unbalanced `RTE` would leak stack on every exception, and `RTE` pops
-`ap_m68030_frame_words(format) * 2` — sixty bytes for `$7`, exactly what
-`take_bus_fault_with` pushed.
+**"The supervisor stack is exhausted" was the conclusion drawn here, and it is
+wrong.** It was an inference from one number — `A7` sitting at the base of a
+mapped region looks like a stack that descended to it — and the measurement says
+otherwise:
 
-That is where this thread stops, and it stops somewhere much better defined than
-it started: not "an MMU fault we may be getting wrong" but "the kernel stack ran
-out, and what consumed it is upstream of anything instrumented here".
+    stack  7A400180 down to 7A400002 (382 byte(s)), lowest at PC 7A42D77A,
+           95 switch(es)
+
+**382 bytes.** The stack never descended 256 KB or anything like it: Domain/OS
+set `A7` to `7A400180`, which is **384 bytes above the hole**, and ran out of it
+almost immediately. The stack is not exhausted; it is *misplaced*. What has to
+be explained is the base, not the descent.
+
+*And an unbalanced `RTE` is eliminated as well* — it would leak stack on every
+exception, and `RTE` pops `ap_m68030_frame_words(format) * 2`, sixty bytes for
+`$7`, exactly what `take_bus_fault_with` pushed. With 382 bytes used in total it
+could not have been that anyway.
+
+### The instrument had to be fixed twice before it said anything
+
+There was no cheap way to see a stack's extent: a trace would step 1.6 G
+instructions from the frontend, which `main.c` records as turning a ten-minute
+run into a two-hour one. A **low-water mark** costs two compares per
+instruction, so that is what was added.
+
+**Its first version took a global minimum of `A7` and was useless.** A boot moves
+between unrelated stacks — the PROM's in low physical memory, then the operating
+system's in its own mapped region — and the smallest number across all of them is
+whichever stack sat lowest, not how far any of them descended. It reported
+`010000C4` at a PC in the boot PROM while the stack in question was at
+`7A400002`.
+
+It now starts a new epoch when `A7` moves more than 64 KB, which is bigger than
+any single instruction's stack use — a `$7` frame is 60 bytes and a sixteen
+register `MOVEM` is 64 — and smaller than the distance between the stacks a boot
+actually uses. What it reports is the **current** stack's high and low, which is
+the question. The DN3500 reference boot reads `01002000 down to 01000168 (7832
+byte(s)), 3 switch(es)`, which is a stack behaving normally.
+
+*So the next question is not "what consumed the stack" but "why is its base
+`7A400180`", and those are different investigations.*
+
+That is where this thread stops: not "an MMU fault we may be getting wrong", and
+not "the kernel stack ran out" either, but **a stack pointer 384 bytes above an
+unmapped hole** — which is a question about the value in `A7` and where it came
+from.
 
 **And `--dump-walk` is still 68030-only**, now named as such in
 `ap_machine_walk`'s declaration rather than left for a reader to discover: it

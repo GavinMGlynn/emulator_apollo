@@ -1258,6 +1258,32 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, uint64_t limit) {
         result.status != AP_M68030_STEP_EXCEPTION) {
       return out;
     }
+    /* The low-water mark, sampled after the instruction so it sees the push
+     * that made it rather than the state before. `A7` is whichever stack the
+     * status register selects, which is the one that matters: a supervisor
+     * stack running out is not visible in the user one. */
+    {
+      const uint32_t a7 = ap_m68030_read_a7(&machine->cpu.regs);
+      const uint32_t far = a7 > machine->stack_low_water
+                               ? a7 - machine->stack_low_water
+                               : machine->stack_low_water - a7;
+      if (!machine->stack_low_water_seen || far > AP_MACHINE_STACK_EPOCH) {
+        /* A different stack, not a deeper push: start again on it, and count
+         * the switch so a reader knows the numbers describe the last one. */
+        if (machine->stack_low_water_seen) {
+          machine->stack_switches++;
+        }
+        machine->stack_high_water = a7;
+        machine->stack_low_water = a7;
+        machine->stack_low_water_pc = machine->cpu.regs.pc;
+        machine->stack_low_water_seen = true;
+      } else if (a7 < machine->stack_low_water) {
+        machine->stack_low_water = a7;
+        machine->stack_low_water_pc = machine->cpu.regs.pc;
+      } else if (a7 > machine->stack_high_water) {
+        machine->stack_high_water = a7;
+      }
+    }
     out.executed++;
   }
   return out;

@@ -4683,13 +4683,21 @@ discipline throughout.
       `011A523C` is **`00000000`, invalid**. That entry covers 256 KB, so
       `7A3C0000`-`7A3FFFFF` is unmapped entire while everything from `7A400000`
       up is resident: `A7` is **two bytes above the bottom of the mapped
-      region**. *The kernel stack is exhausted*, the MMU is reporting it
-      correctly, and an unbalanced `RTE` is eliminated as the cause — it pops
-      exactly the sixty bytes the frame pushed. **What consumed the stack is
-      upstream of anything instrumented here**, and that is the next question.
-      Four candidates have been eliminated by measurement rather than argument:
-      the stack-pointer selection, the mapping, the register state and the fault
-      kind. Detail in `PROJECT_STATUS.md`.
+      region**, and the MMU is reporting that correctly.
+      **"The kernel stack is exhausted" was concluded from that and is wrong.**
+      A stack low-water mark — two compares an instruction, where a trace would
+      turn a ten-minute run into a two-hour one — says
+      `stack 7A400180 down to 7A400002 (382 byte(s)), 95 switch(es)`. **382
+      bytes**: Domain/OS set `A7` to `7A400180`, which is 384 bytes above the
+      hole. The stack is not exhausted, it is *misplaced*, and what needs
+      explaining is the base rather than the descent.
+      *The instrument was wrong twice first*: a global minimum of `A7` reported
+      the boot PROM's stack at `010000C4`, because a boot moves between
+      unrelated stacks and the smallest number across all of them is whichever
+      sat lowest. It now starts a new epoch on a move of more than 64 KB.
+      **Five candidates are eliminated by measurement rather than argument**:
+      the stack-pointer selection, the mapping, the register state, the fault
+      kind, and the frame balance. Detail in `PROJECT_STATUS.md`.
       *It ends idle rather than broken*: `STOPPED` is the processor having
       executed `STOP`, and what it waits for is the tape —
       `cartridge tape 248065610 read(s)`, `first block still owed`,

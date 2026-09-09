@@ -342,10 +342,48 @@ typedef struct {
   } mmu_reads[AP_MACHINE_MMU_WRITES];
   unsigned mmu_read_count;
 
+/* A move larger than this is a different stack rather than a deep push. 64 KB:
+ * bigger than any single instruction's stack use -- a 30-word frame is 60 bytes
+ * and `MOVEM` of sixteen registers is 64 -- and smaller than the distance
+ * between the stacks a boot actually uses, which here is a whole address
+ * region. Named rather than inlined because it is a judgement, and a reader
+ * should be able to see it is one. */
+#define AP_MACHINE_STACK_EPOCH 0x10000u
+
+
   /* The two caches are separate objects because the part has two, and a machine
    * that shared one would hide every instruction/data interaction. */
   ap_m68030_cache_t instruction_cache;
   ap_m68030_cache_t data_cache;
+  /* **The deepest the stack pointer went, and where it was when it got there.**
+   * Two compares per instruction, which is what makes this affordable in the
+   * hot loop where a trace is not: reaching a fault 1.6 G instructions in by
+   * printing every step turns a ten-minute run into a two-hour one, and that is
+   * recorded in `main.c` as the reason typed input stopped using a step loop.
+   *
+   * It exists because a DS5500 running Domain/OS ends with `A7` two bytes above
+   * the bottom of its mapped region -- an exhausted kernel stack -- and nothing
+   * could say how it got there. A low-water mark answers the first question
+   * about any stack that ran out: how far down, and from where.
+   *
+   * Counters, so outside the state hash as every counter here is. */
+  /* **Per stack, not per run.** The first version took a global minimum of `A7`
+   * and was useless for the question it was built for: a boot moves between
+   * unrelated stacks -- the PROM's in low physical memory, then the operating
+   * system's in its own mapped region -- and the smallest number across all of
+   * them is whichever stack happened to sit lowest, not how far any of them
+   * descended. On a DS5500 it reported the PROM's `010000C4` while the stack
+   * that had actually run out was at `7A400002`.
+   *
+   * So a jump of more than `AP_MACHINE_STACK_EPOCH` starts a new epoch, and
+   * what is reported is the *current* stack's high and low. That answers "this
+   * stack ran from here to here", which is the question. */
+  uint32_t stack_high_water;
+  uint32_t stack_low_water;
+  uint32_t stack_low_water_pc;
+  uint32_t stack_switches;
+  bool stack_low_water_seen;
+
   /* CPU periods spent with the processor stopped, waiting for an interrupt.
    * Not instructions -- `STOP` executes once and then nothing does -- so they
    * are counted apart from `executed` and reported apart from it: a machine
