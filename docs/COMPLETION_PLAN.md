@@ -4637,6 +4637,20 @@ discipline throughout.
       `PFLUSH`.
       *Verification: `step_suite` 317 → 318, all four opmodes rather than the
       one the loader uses. Detail in `PROJECT_STATUS.md`.*
+      **A third increment, and the machine now runs Domain/OS.** With `PFLUSH`
+      and the 68040 MMU joined (both 2026-09-10), `EX DOMAIN_OS` executes
+      **1,631,880,850 instructions** with `translation enabled (68040, 4 KB
+      pages)`, **2,427 descriptor fetches**, 1,549 `PFLUSH`es and **no MMU
+      faults**, taking 120 of the operating system's own interrupts on vectors
+      `A0` and `A1`.
+      *It ends idle rather than broken*: `STOPPED` is the processor having
+      executed `STOP`, and what it waits for is the tape —
+      `cartridge tape 248065610 read(s)`, `first block still owed`,
+      `exs 0089` = `BYTE_1 | BEGINNING_OF_MEDIA | POWER_ON`, the card's normal
+      cold-start exception (`FINDINGS.md` C275). **So the next step on this item
+      is the tape's power-on handshake on the SAU 14 path**, on a machine whose
+      DN3500 counterpart drives the same cartridge through a whole restore.
+      Detail in `PROJECT_STATUS.md`.
       **What is left in the core**: the caches the invalidation should act on
       are a complete module attached to no CPU, so the instruction is correctly
       a no-op; and a 68040 **MMU**, which the `.mmu` item also waits on.

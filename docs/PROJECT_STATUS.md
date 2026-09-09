@@ -2040,10 +2040,34 @@ walking real tables built by Domain/OS, and **no translation faults**. Vectors
 `A0` and `A1` are the operating system's own, fired 120 times between them. It
 had been dying at `0100428A` on its first translated address.
 
-It ends `STOPPED` at `7A443AC0` on a zero word, which is not yet diagnosed — and
-the report's "unmapped" beside that PC is *logical*, so it says nothing about
-where the page went. **The console has printed nothing since MD's banner**, so
-this is the loader running rather than the restore starting, and `Do you wish to
+### Where it stops, and it is not a crash
+
+`STOPPED` is `ap_m68030_step`'s report that **the processor executed `STOP`** —
+"nothing executes until an interrupt or a reset", and the zero word beside it is
+the absence of a fetch rather than an instruction. Domain/OS is **idle, waiting
+for an interrupt**. It had already taken 120 of its own: 48 on vector `A0` and
+72 on `A1`.
+
+**What it is waiting for is the tape.** The device census at the stop:
+
+    cartridge tape   248065610 read(s)   60349 write(s)
+    tape drive       block 0 of 104841, selected
+    tape board       no status block open; first block still owed
+    tape card        status 57, control 00, exception, done, exs 0089
+
+248 million register reads is the driver polling hard, and `exs 0089` decodes
+through `ap_qic.h` as `BYTE_1 | BEGINNING_OF_MEDIA | POWER_ON` — **the card's
+normal cold-start exception**, which is `FINDINGS.md` C275, landed the same
+morning. So the operating system opens the tape, sees the power-on exception at
+beginning of media, and stops with the first block still owed.
+
+*That is the next step, and it is well localised*: the power-on exception
+handshake on this path, on a machine whose DN3500 counterpart drives the same
+cartridge through a whole restore. Either the SAU 14 driver differs from SAU 7's
+or the interrupt does not reach it — and the report already says the controller
+has `IRQ1 unmasked, master IRR 40 IMR F4, nothing pending`.
+
+**The console has printed nothing since MD's banner**, so `Do you wish to
 proceed? (Y/N)` has not been reached. Recorded as how far it gets, not as a
 success.
 
