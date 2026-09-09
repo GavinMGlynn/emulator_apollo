@@ -4525,7 +4525,27 @@ discipline throughout.
       a no-op; and a 68040 **MMU**, which the `.mmu` item also waits on.
       **The MMU is measured as not-yet-needed** (`FINDINGS.md` C258): its parts
       are all built — search, ATC, registers, descriptors — and what is missing
-      is the join. §3.1.3 makes the TTRs live even with translation off, so the
+      is the join.
+      **~~Not-yet-needed~~ — that claim is in doubt as of 2026-09-09, and the
+      doubt is static and cheap to see.** The DN5500 boot PROM contains a
+      routine that **enables 68040 translation**: at `002A12`,
+      `MOVEC TC,D1` / `BSET #15,D1` / `MOVEC D1,TC` — bit 15 is the `E` bit —
+      and at `002A28` the mirror, `BCLR #15,D1`, to turn it off again. The same
+      PROM writes `SRP` and reads `MMUSR`, which is translation-tree setup and
+      not a machine leaving the MMU alone. Counted across it: `TC` written 3
+      and read 3, `SRP` written 1 and read 4, `MMUSR` read 1, with 35 `TTR`
+      writes.
+      *What this does and does not establish.* It establishes that **the code
+      to exercise the join is present in the firmware**, so "wiring it today
+      would be unexercised code in the hottest path" cannot be assumed. It does
+      **not** establish that the routine is reached on the boot this project
+      runs — presence is not execution, and the original claim came from a run
+      that reported the `TTR`s.
+      *The decisive measurement is small*: a probe on `MOVEC` to `TC` during a
+      DN5500 boot, reporting whether bit 15 is ever written set. If it is,
+      translation is on and this core is ignoring it; if it is not, the original
+      claim stands and now has evidence rather than an argument from the `TTR`s
+      alone. §3.1.3 makes the TTRs live even with translation off, so the
       boot report now prints them, and the firmware writes `dtt0 0000C040` /
       `dtt1 00FFC040` — both enabled, one matching every address, **`W` clear on
       both**. The only attribute this core could act on is write protection and
