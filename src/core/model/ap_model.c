@@ -408,10 +408,14 @@ ap_cpu_features_t ap_cpu_features(ap_cpu_t cpu) {
          * undefined. No clear and no freeze -- `CINV` and `CPUSH` do that,
          * which is why §4.2 says the caches must be cleared before enabling. */
         .cacr_implemented_mask = AP_M68030_CACR_MASK_68040,
-        /* The 68040 has no format $A or $B at all -- `[040]` §8 gives it an
-         * access error frame of its own. Carried as the 68030's until the
-         * 68040 exception item reaches it, and stated rather than implied. */
-        .long_bus_fault_frame_words = 46u,
+        /* **Zero, because the 68040 has no format `$A` or `$B` at all** --
+         * `[040]` §8.1 gives it five formats against the 68020/68030's six, and
+         * §8.3/§8.4 give it a **format `$7` access error frame** instead. This
+         * row carried the 68030's 46 "until the 68040 exception item reaches
+         * it"; it has. Zero is what selects the 68040's frame set, and a
+         * caller that asks a 68040 for a long frame's size gets an answer that
+         * says the question was wrong. */
+        .long_bus_fault_frame_words = 0u,
     };
   }
   /* Unreachable for a valid `ap_cpu_t`; the 68030 is the reference superset. */

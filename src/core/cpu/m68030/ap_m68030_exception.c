@@ -120,6 +120,8 @@ unsigned ap_m68030_frame_words(ap_m68030_frame_format_t format) {
     return 16;
   case AP_M68030_FRAME_LONG_BUS_FAULT:
     return 46;
+  case AP_M68030_FRAME_ACCESS_ERROR:
+    return AP_M68030_ACCESS_ERROR_WORDS;
   }
   return 0;
 }
@@ -140,15 +142,24 @@ uint32_t ap_m68030_frame_vector_offset_of(uint16_t format_word) {
   return (uint32_t)(format_word & 0x0FFFu);
 }
 
-bool ap_m68030_frame_format_defined(uint16_t format_word) {
+bool ap_m68030_frame_format_defined(uint16_t format_word,
+                                    ap_m68030_frame_variant_t variant) {
+  const bool is_68040 = variant == AP_M68030_FRAME_VARIANT_68040;
   switch (ap_m68030_frame_format_of(format_word)) {
   case AP_M68030_FRAME_SHORT:
   case AP_M68030_FRAME_THROWAWAY:
   case AP_M68030_FRAME_SIX_WORD:
+    /* The three every member of the family has. */
+    return true;
   case AP_M68030_FRAME_COPROCESSOR_MID:
   case AP_M68030_FRAME_SHORT_BUS_FAULT:
   case AP_M68030_FRAME_LONG_BUS_FAULT:
-    return true;
+    /* `$9`, `$A` and `$B` are the 68020/68030's. `[040]` §8.1 gives that part
+     * five formats and none of these is among them. */
+    return !is_68040;
+  case AP_M68030_FRAME_ACCESS_ERROR:
+    /* And `$7` is the 68040's alone: a format error on the earlier parts. */
+    return is_68040;
   }
   return false;
 }

@@ -101,7 +101,56 @@ typedef enum {
   AP_M68030_FRAME_COPROCESSOR_MID = 0x9, /* 10 words */
   AP_M68030_FRAME_SHORT_BUS_FAULT = 0xA, /* 16 words */
   AP_M68030_FRAME_LONG_BUS_FAULT = 0xB,  /* 46 words */
+  /* **The MC68040's access error frame, 30 words.** `[040]` §8.3/§8.4, and the
+   * only fault frame that part has: §8.1 gives it five formats and `$9`, `$A`
+   * and `$B` are not among them.
+   *
+   * The layout, from the figure captioned "ACCESS ERROR STACK FRAME (30
+   * WORDS)-FORMAT $7":
+   *
+   *     +$00  status register        +$18  write-back 3 address
+   *     +$02  program counter        +$1C  write-back 3 data
+   *     +$06  vector offset          +$20  write-back 2 address
+   *     +$08  effective address      +$24  write-back 2 data
+   *     +$0C  special status word    +$28  write-back 1 address
+   *     +$0E  write-back 3 status    +$2C  write-back 1 data / push data 0
+   *     +$10  write-back 2 status    +$30  push data 1
+   *     +$12  write-back 1 status    +$34  push data 2
+   *     +$14  fault address          +$38  push data 3
+   *
+   * **It carries work, not only state.** §8.4.6.3: the write-back fields hold
+   * "pending write-backs that could be pending after the faulted access", and
+   * the handler must complete them. A frame that reports none to a handler
+   * whose write faulted mid-flight loses that write -- which is why this core
+   * writes them as zero and says so rather than leaving the question open. */
+  AP_M68030_FRAME_ACCESS_ERROR = 0x7,
 } ap_m68030_frame_format_t;
+
+/* Which part's fault frames these are. The 68030 is the zero value, so a
+ * zero-initialised CPU is the reference superset -- the same convention the
+ * `CACR` variant follows. */
+typedef enum {
+  AP_M68030_FRAME_VARIANT_68030 = 0,
+  AP_M68030_FRAME_VARIANT_68020,
+  /* **The 68040 has neither bus-fault frame.** `[040]` §8.1: "the processor
+   * creates one of **five** exception stack frame formats", against the
+   * 68020/68030's six, and `$9`, `$A` and `$B` are absent from it. What it has
+   * instead is a **format `$7` access error frame**, §8.3/§8.4 -- and the
+   * reason is architectural rather than editorial: a 68040 **restarts** the
+   * faulted access where the 68030 continues it, so it needs no 46-word
+   * continuation frame. */
+  AP_M68030_FRAME_VARIANT_68040
+} ap_m68030_frame_variant_t;
+
+
+/* Format `$7`'s named fields, at the offsets the figure gives. */
+#define AP_M68030_ACCESS_ERROR_EFFECTIVE_ADDRESS 0x08u
+#define AP_M68030_ACCESS_ERROR_SSW 0x0Cu
+#define AP_M68030_ACCESS_ERROR_WB3_STATUS 0x0Eu
+#define AP_M68030_ACCESS_ERROR_WB2_STATUS 0x10u
+#define AP_M68030_ACCESS_ERROR_WB1_STATUS 0x12u
+#define AP_M68030_ACCESS_ERROR_FAULT_ADDRESS 0x14u
+#define AP_M68030_ACCESS_ERROR_WORDS 30u
 
 /* Size in 16-bit words, from the names Table 8-6 gives each frame. */
 [[nodiscard]] unsigned ap_m68030_frame_words(ap_m68030_frame_format_t format);
@@ -122,7 +171,14 @@ ap_m68030_frame_format_of(uint16_t format_word);
 
 /* Whether the MC68030 defines this format at all. RTE "determines if it is a
  * valid frame"; an undefined format is a format error, vector 14. */
-[[nodiscard]] bool ap_m68030_frame_format_defined(uint16_t format_word);
+/* Whether this **part** defines that format. Part-aware because the family does
+ * not agree: `$7` is the 68040's access error frame and is a **format error**
+ * on a 68030, exactly as `$9`, `$A` and `$B` are on a 68040. A check that
+ * accepted the union would let an `RTE` silently import another processor's
+ * frame -- which is what `exception_suite` says in as many words, and what it
+ * caught when this took no variant. */
+[[nodiscard]] bool ap_m68030_frame_format_defined(
+    uint16_t format_word, ap_m68030_frame_variant_t variant);
 
 /* Which frame Table 8-6 gives this exception. The table lists the exception
  * *types* against each frame, so this is a transcription of that column:

@@ -4660,9 +4660,25 @@ discipline throughout.
       *The walk gives the shape too*: a 68040 **restarts** the access rather
       than continuing it, so it needs no 46-word continuation frame, and the
       `$7` frame "contains pending write-backs that the access error exception
-      handler must complete" — it carries work, not only state. **So the next
-      increment on this item is the format `$7` access-fault frame, and its
-      specification is already read.** Detail in `PROJECT_STATUS.md`.
+      handler must complete" — it carries work, not only state.
+      **Landed the same day.** Thirty words at §8.4.6's offsets, with the
+      68040's own SSW (`CP CU CT CM MA ATC LK RW X | SIZE | TT | TM`, which
+      shares no layout with the 68030's), and the model row's
+      `.long_bus_fault_frame_words` moved from 46 to **zero** — the value that
+      selects the 68040's frame set, where the row had said "carried as the
+      68030's until the 68040 exception item reaches it". *`exception_suite`'s
+      existing test caught the first attempt importing another processor's
+      frame*: the format check took no part, so adding `$7` made a 68030 accept
+      it. It now takes the variant and both sets are asserted.
+      *Verification: `exception_suite` 16 → 17; `ctest` 146/146 both presets;
+      identity `6DF967A63D3D4DA9` unmoved.* `PROVISIONAL`: the `ATC` bit and the
+      write-back fields, both stated in code where they are paid.
+      *The DS5500 goes 4.8 M instructions further and still ends `FAULT on
+      2F3C`* — `7A3FFFFE`-`7A3FFFC6` is `$3C` bytes, exactly the thirty-word
+      frame, below a stack pointer two bytes above a page boundary: the push
+      faults, the frame push runs into the same page, double fault. **Whether
+      this core is right to fault that page is the next question and is not
+      guessed at.** Detail in `PROJECT_STATUS.md`.
       *It ends idle rather than broken*: `STOPPED` is the processor having
       executed `STOP`, and what it waits for is the tape —
       `cartridge tape 248065610 read(s)`, `first block still owed`,

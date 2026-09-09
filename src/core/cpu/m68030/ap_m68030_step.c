@@ -2793,8 +2793,19 @@ take_bus_fault_with(ap_m68030_cpu_t *cpu, unsigned vector,
    * has begun executing. A faulted extension word belongs to an instruction
    * already in progress, and so does every faulted operand. */
   const bool at_instruction_boundary = (fault_address == instruction_address);
+  /* **A 68040 has one fault frame and it is neither of the 68030's.** `[040]`
+   * §8.3/§8.4: "exception processing for access error exceptions creates a
+   * format `$7` stack frame", and §8.1 gives that part five formats with `$9`,
+   * `$A` and `$B` not among them. So the choice above -- short frame at an
+   * instruction boundary, long frame in the middle of one -- is a 68020/68030
+   * question that does not arise here: the part **restarts** the access instead
+   * of continuing it, which is exactly why it needs no continuation frame. */
+  const bool access_error_frame =
+      cpu->frame_variant == AP_M68030_FRAME_VARIANT_68040;
   const ap_m68030_frame_format_t format =
-      ap_m68030_bus_fault_frame(&ssw, at_instruction_boundary);
+      access_error_frame
+          ? AP_M68030_FRAME_ACCESS_ERROR
+          : ap_m68030_bus_fault_frame(&ssw, at_instruction_boundary);
 
   /* Table 8-6 gives the two frames different PC meanings, and it is not a
    * detail: the short frame is "Execution Unit at Instruction Boundary" and
@@ -2805,6 +2816,12 @@ take_bus_fault_with(ap_m68030_cpu_t *cpu, unsigned vector,
    * Every data fault this model detects is the second case -- the operand
    * access failed partway through an instruction that has not completed -- so
    * the instruction's own address is stacked and the handler can retry it. */
+  /* Format `$7` stacks the **next** instruction, which the frame figure states
+   * under "Stacked PC Points To" for "Data or Instruction Access Fault (ATC
+   * Fault or Bus Error)". That is consistent with the part's own model rather
+   * than surprising for a restartable fault: the handler completes the pending
+   * write-backs the frame carries and returns past the instruction, instead of
+   * re-executing it. */
   const uint32_t stacked_pc = (format == AP_M68030_FRAME_LONG_BUS_FAULT)
                                   ? instruction_address
                                   : cpu->regs.pc;
@@ -2839,6 +2856,66 @@ take_bus_fault_with(ap_m68030_cpu_t *cpu, unsigned vector,
   wrote = wrote && write_frame_field(
                        cpu, frame + 6u, 2u,
                        ap_m68030_frame_format_word(format, vector), &out.clocks);
+  if (access_error_frame) {
+    /* **Format `$7`'s own fields.** `[040]` §8.4.6 and the figure captioned
+     * "ACCESS ERROR STACK FRAME (30 WORDS)-FORMAT $7".
+     *
+     * The special status word is the 68040's and shares no layout with the
+     * 68030's: Figure 8-7 is `CP CU CT CM MA ATC LK RW X | SIZE | TT | TM`
+     * where the 68030's is `FC FB RC RM DF RW SIZE FC2-FC0`. Encoded here
+     * rather than through `ap_m68030_ssw_encode`, which would put the wrong
+     * part's word at the right offset -- the failure that is hardest to see,
+     * because the frame would still look well formed.
+     *
+     * Filled honestly: `RW`, `LK` and `SIZE` come from the access, and `TM`
+     * carries the function code. **`ATC` is left clear and that is
+     * `PROVISIONAL`**: it distinguishes a translation fault from a bus error,
+     * and this core reaches here without being told which. What would settle it
+     * is the fault's origin plumbed through `take_bus_fault_with`, which is a
+     * change to every caller and not to this frame.
+     *
+     * `CP`, `CU`, `CT` and `CM` are the continuation flags for a faulted
+     * `MOVEM` or a pending trace or floating-point exception, and this model
+     * has no partially-executed instruction to continue -- so they are zero,
+     * and so is the effective address they qualify. §8.4.6.1 ties the two
+     * together: the effective address "contains address information when one of
+     * the continuation flags CM, CT, CU, or CP in the SSW is set". */
+    const uint16_t ssw_040 =
+        (uint16_t)((ssw.read ? 0x0100u : 0u) |
+                   (ssw.read_modify_write ? 0x0200u : 0u) |
+                   (((unsigned)ssw.size & 3u) << 5u) |
+                   ((unsigned)ssw.function_code & 7u));
+    wrote = wrote && write_frame_field(
+                         cpu, frame + AP_M68030_ACCESS_ERROR_EFFECTIVE_ADDRESS,
+                         4u, 0u, &out.clocks);
+    wrote = wrote && write_frame_field(cpu, frame + AP_M68030_ACCESS_ERROR_SSW,
+                                       2u, ssw_040, &out.clocks);
+    /* **The write-back fields, and they are the honest gap in this frame.**
+     * §8.4.6.3: they hold "status information for the three possible
+     * write-backs that could be pending after the faulted access", and the
+     * handler must complete them. This core's write either happens or faults --
+     * there is no write-back queue to report -- so all three status words are
+     * zero, which §8.4.6.3 gives as *invalid*: "for a data cache line-push
+     * fault or a MOVE16 write fault, WB1S is zero (invalid)".
+     *
+     * **What that costs, said plainly**: a handler told there is nothing
+     * pending will not finish a write that faulted mid-flight, and that write
+     * is lost. Zero is the truthful report of what this model has rather than a
+     * convenient one, and closing it needs the write-back queue the part keeps.
+     * `PROVISIONAL`. */
+    wrote = wrote &&
+            write_frame_field(cpu, frame + AP_M68030_ACCESS_ERROR_WB3_STATUS,
+                              2u, 0u, &out.clocks);
+    wrote = wrote &&
+            write_frame_field(cpu, frame + AP_M68030_ACCESS_ERROR_WB2_STATUS,
+                              2u, 0u, &out.clocks);
+    wrote = wrote &&
+            write_frame_field(cpu, frame + AP_M68030_ACCESS_ERROR_WB1_STATUS,
+                              2u, 0u, &out.clocks);
+    wrote = wrote &&
+            write_frame_field(cpu, frame + AP_M68030_ACCESS_ERROR_FAULT_ADDRESS,
+                              4u, fault_address, &out.clocks);
+  } else {
   wrote = wrote && write_frame_field(cpu, frame + AP_M68030_BUS_FAULT_SSW, 2u,
                                      ap_m68030_ssw_encode(&ssw), &out.clocks);
   /* The pipe images, so a handler can repair the instruction stream. These are
@@ -2860,6 +2937,7 @@ take_bus_fault_with(ap_m68030_cpu_t *cpu, unsigned vector,
                                  cpu->frame_variant)
                            : AP_M68030_BUS_FAULT_DATA_OUTPUT),
               4u, data_output, &out.clocks);
+  }
   if (!wrote) {
     /* A fault while stacking is a double fault, which halts the real part. As
      * elsewhere, this reports failure with the status register already changed
@@ -3139,7 +3217,8 @@ static bool execute_rte(ap_m68030_cpu_t *cpu, uint32_t *clocks) {
     if (!read_stack(cpu, 6u, 2u, clocks, &format_word)) {
       return false;
     }
-    if (!ap_m68030_frame_format_defined((uint16_t)format_word)) {
+    if (!ap_m68030_frame_format_defined((uint16_t)format_word,
+                                        cpu->frame_variant)) {
       cpu->pending_vector = AP_M68030_VECTOR_FORMAT_ERROR;
       return true;
     }

@@ -151,8 +151,15 @@ static void test_the_format_word_round_trips(void) {
 
 /* The MC68030 defines six formats. The rest are a format error, vector 14 --
  * $3, $4 and $7 among them, which other members of the family do define, so
- * accepting them would silently import another processor's frame. */
-static void test_only_the_six_defined_formats_are_valid(void) {
+ * accepting them would silently import another processor's frame.
+ *
+ * **That last clause was tested and then nearly broken.** When the 68040's
+ * format `$7` access error frame landed, the check accepted `$7`
+ * unconditionally -- so a 68030 would have taken another processor's frame as
+ * valid. This test caught it, and the answer was to make the check know which
+ * part is asking. The two parts are asserted together below, because the
+ * property is that the sets are *different*, not that either one is right. */
+static void test_only_the_six_defined_formats_are_valid_on_a_68030(void) {
   const unsigned defined[] = {0x0, 0x1, 0x2, 0x9, 0xA, 0xB};
   bool is_defined[16] = {false};
   for (unsigned i = 0; i < sizeof(defined) / sizeof(defined[0]); i++) {
@@ -161,8 +168,43 @@ static void test_only_the_six_defined_formats_are_valid(void) {
   for (unsigned format = 0; format < 16; format++) {
     const uint16_t word = (uint16_t)(format << 12);
     TEST_ASSERT_EQUAL_INT(is_defined[format],
-                          ap_m68030_frame_format_defined(word));
+                          ap_m68030_frame_format_defined(
+                              word, AP_M68030_FRAME_VARIANT_68030));
   }
+}
+
+/* `[040]` §8.1: "the processor creates one of **five** exception stack frame
+ * formats", against the 68020/68030's six -- and they are not a subset. `$9`,
+ * `$A` and `$B` go away and `$7` arrives, because the part **restarts** a
+ * faulted access instead of continuing it and needs no continuation frame. */
+static void test_the_68040_defines_a_different_set(void) {
+  const unsigned defined[] = {0x0, 0x1, 0x2, 0x3, 0x7};
+  bool is_defined[16] = {false};
+  for (unsigned i = 0; i < sizeof(defined) / sizeof(defined[0]); i++) {
+    is_defined[defined[i]] = true;
+  }
+  for (unsigned format = 0; format < 16; format++) {
+    const uint16_t word = (uint16_t)(format << 12);
+    const bool got = ap_m68030_frame_format_defined(
+        word, AP_M68030_FRAME_VARIANT_68040);
+    /* `$3` is the floating-point post-instruction frame, which `[040]` §8.1
+     * names and this core does not build yet -- so it is *not* asserted as
+     * defined here, and this test says which of the five are modelled rather
+     * than claiming all of them. */
+    if (format == 0x3u) {
+      continue;
+    }
+    TEST_ASSERT_EQUAL_INT(is_defined[format], got);
+  }
+  /* The three the part does not have, stated on their own because they are the
+   * regression this guards: accepting them would let an `RTE` on a 68040 take a
+   * 68030 frame. */
+  TEST_ASSERT_FALSE(ap_m68030_frame_format_defined(
+      0x9000u, AP_M68030_FRAME_VARIANT_68040));
+  TEST_ASSERT_FALSE(ap_m68030_frame_format_defined(
+      0xA000u, AP_M68030_FRAME_VARIANT_68040));
+  TEST_ASSERT_FALSE(ap_m68030_frame_format_defined(
+      0xB000u, AP_M68030_FRAME_VARIANT_68040));
 }
 
 /* ---------------------------------------------------------------------------
@@ -277,7 +319,8 @@ int main(void) {
   RUN_TEST(test_each_frame_format_has_its_documented_size);
   RUN_TEST(test_the_format_word_carries_the_offset_not_the_vector_number);
   RUN_TEST(test_the_format_word_round_trips);
-  RUN_TEST(test_only_the_six_defined_formats_are_valid);
+  RUN_TEST(test_only_the_six_defined_formats_are_valid_on_a_68030);
+  RUN_TEST(test_the_68040_defines_a_different_set);
   RUN_TEST(test_a_masked_level_is_recognised_only_above_the_mask);
   RUN_TEST(test_level_zero_is_never_an_interrupt);
   RUN_TEST(test_level_seven_is_not_masked_by_a_mask_of_seven);

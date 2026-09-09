@@ -1993,6 +1993,74 @@ A test that pins a gap has to assert the *behaviour*, not the storage. What
 replaces it asserts the fact that outlives the join: the registers are separate,
 and the 68040 row translates from its own.
 
+## The MC68040's format `$7` access error frame (2026-09-10)
+
+A DS5500 taking an access fault was handed a **68030** bus-fault frame. `[040]`
+§8.1 gives that part five formats where the 68020/68030 have six, and they are
+not a subset: `$9`, `$A` and `$B` go away, `$7` arrives — because a 68040
+**restarts** a faulted access where the 68030 continues it, so it needs no
+46-word continuation frame.
+
+Thirty words, at the offsets the figure captioned "ACCESS ERROR STACK FRAME (30
+WORDS)-FORMAT $7" gives: SR, PC, vector offset, **effective address**, **special
+status word**, three **write-back status** words, **fault address**, three
+write-back address/data pairs and four push-data longwords.
+
+**The special status word is the 68040's and shares no layout with the
+68030's** — Figure 8-7 is `CP CU CT CM MA ATC LK RW X | SIZE | TT | TM` against
+the 68030's `FC FB RC RM DF RW SIZE FC2-FC0`. Encoded directly rather than
+through `ap_m68030_ssw_encode`, which would have put the wrong part's word at
+the right offset: the failure hardest to see, because the frame would still look
+well formed.
+
+**The model row already predicted this and deferred it.** `.long_bus_fault_frame_words`
+for the 68040 read 46 under a comment saying "the 68040 has no format `$A` or
+`$B` at all — `[040]` §8 gives it an access error frame of its own. Carried as
+the 68030's until the 68040 exception item reaches it, and stated rather than
+implied." It reached it. The row is now **zero**, which is what selects the
+68040's frame set, and a caller asking a 68040 for a long frame's size gets an
+answer that says the question was wrong.
+
+### The test caught me importing another processor's frame
+
+`ap_m68030_frame_format_defined` took a format word and nothing else, so adding
+`$7` to it made a **68030** accept the 68040's frame. `exception_suite`'s
+existing test failed immediately, and its comment had said exactly why three
+weeks earlier: *"$3, $4 and $7 among them, which other members of the family do
+define, so accepting them would silently import another processor's frame."*
+
+The check now takes the part. Both sets are asserted, because the property is
+that they **differ** rather than that either is right — and the three the 68040
+does not have are asserted on their own, since accepting those would let an
+`RTE` on a 68040 take a 68030 frame.
+
+*Verification: `exception_suite` 16 → 17, `ctest` 146/146 both presets, identity
+`6DF967A63D3D4DA9` unmoved — no other part reaches the frame.*
+
+**Two fields are `PROVISIONAL` and both are stated where they are paid.** The
+`ATC` bit, which distinguishes a translation fault from a bus error, is left
+clear because this core reaches the frame builder without being told which. And
+the **write-back fields are zero**: §8.4.6.3 makes them "pending write-backs
+that the access error exception handler must complete", and this core's write
+either happens or faults — there is no write-back queue to report. A handler
+told there is nothing pending will not finish a write that faulted mid-flight,
+and that write is lost. Zero is the truthful report of what this model has, not
+a convenient one.
+
+### Where the DS5500 goes with it
+
+`executed 1,642,039,700` — 4.8 M further than before. It still ends `FAULT on
+2F3C`, and the fault range says why: `PC 7A42D77A → 7A3FFFFE-7A3FFFC6`, which is
+`$3C` bytes — **exactly the thirty-word frame** — below a stack pointer two
+bytes above a page boundary. The faulting write is a stack push, the exception's
+own frame push runs into the same unmapped page, and that is a double fault.
+
+*The open question is whether this core is right to fault that page.* A stack
+crossing into an unmapped page is an ordinary event an operating system grows
+from, and this one cannot because its handler cannot stack. Either Domain/OS
+expects that page to be resident and our table walk disagrees, or it expects to
+take the fault on a different stack. Not diagnosed, and not guessed at.
+
 ## A stopped processor was reported as a stopped machine (2026-09-10)
 
 `ap_machine_run` returned the moment a step came back `STOPPED`, on the reading
@@ -12036,7 +12104,7 @@ with the arithmetic beside it and **not** silently corrected: there is no
 range-control code on the 68040 side to correct, and inventing `$007F` in a
 document would be a guess dressed as a citation.
 
-`ap_m68040_fp_exception.*`; `m68040_fp_exception_suite`, 16 tests.
+`ap_m68040_fp_exception.*`; `m68040_fp_exception_suite`, 17 tests.
 
 **§10 was the audit's one confident call, and it held: 38 pages of pure
 verification.** The citation audit predicted this section was already derived on
@@ -15086,7 +15154,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 bus arbitration control unit | working: the five-state machine of `[030]` §7.7.4, the processor at lowest priority, both documented deferrals (a committed bus cycle, and a locked read-modify-write) and the single-wire BGACK-alone path. Figure 7-61 did not survive the scan and the states are recovered from the prose walking it; one edge is marked `INFERRED` in code against the two passages supporting it. The input synchroniser is `PROVISIONAL` | `arb_suite`, 16 tests, `MC68030 User's Manual 3ed` §7.7 |
 | 68030 on-chip instruction and data caches | working, including the bus-timing join: a hit costs 0 clocks, a burst line fill 5 | `cache_suite`, 35 tests and `bus_suite`, 25 tests, `MC68030 User's Manual 3ed` §6, §7.3.7 |
 | 68030 integer ALU (results and condition codes) | working: ADD, SUB, CMP, AND, OR, EOR, NEG, NOT, and the shifts and rotates | `alu_suite`, 20 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-18; the byte space verified exhaustively |
-| 68030 exception taking (stack the frame, fetch the vector through the VBR, load the PC) | working for the four- and six-word frames and the throwaway frame, wired to divide-by-zero, `TRAP #N`, `TRAPV`, `CHK`, `ILLEGAL`, privilege violations, MMU configuration errors, **interrupts** and **trace**; **the fault frames now build and return**, wired to bus error (vector 2) on any faulted access -- **an instruction fetch included**, which `[030]` §7.5.1 defers until "it attempts to use that instruction word" and this core used to defer for ever -- and address error (vector 3) on a prefetch from an odd program counter; **the coprocessor mid-instruction frame (`$9`) now builds too**, wired to the main-detected protocol violation the source operand transfer raises, with its four INTERNAL REGISTER words written as zero and marked `PROVISIONAL`; **the interrupt M-bit second frame builds too** -- §8.1's throwaway frame, with the M bit cleared *before* A7 is read so the frame lands on the interrupt stack and not the master's, and with the stacked status register carrying S set as the manual specifies; only reset declines rather than approximating, which is correct, since reset stacks nothing | `step_suite` (10 of its tests), `exception_suite`, 16 tests, `[030]` §8.1 and Table 8-6 |
+| 68030 exception taking (stack the frame, fetch the vector through the VBR, load the PC) | working for the four- and six-word frames and the throwaway frame, wired to divide-by-zero, `TRAP #N`, `TRAPV`, `CHK`, `ILLEGAL`, privilege violations, MMU configuration errors, **interrupts** and **trace**; **the fault frames now build and return**, wired to bus error (vector 2) on any faulted access -- **an instruction fetch included**, which `[030]` §7.5.1 defers until "it attempts to use that instruction word" and this core used to defer for ever -- and address error (vector 3) on a prefetch from an odd program counter; **the coprocessor mid-instruction frame (`$9`) now builds too**, wired to the main-detected protocol violation the source operand transfer raises, with its four INTERNAL REGISTER words written as zero and marked `PROVISIONAL`; **the interrupt M-bit second frame builds too** -- §8.1's throwaway frame, with the M bit cleared *before* A7 is read so the frame lands on the interrupt stack and not the master's, and with the stacked status register carrying S set as the manual specifies; only reset declines rather than approximating, which is correct, since reset stacks nothing | `step_suite` (10 of its tests), `exception_suite`, 17 tests, `[030]` §8.1 and Table 8-6 |
 | 68030 family `0000` size-11 escape (`CMP2`/`CHK2`/`CAS`/`CAS2`) | decoded; the opcode map now has no holes. Semantics open: `CAS`/`CAS2` need an indivisible read-modify-write | `bounds_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` |
 | Per-instruction timing report (`--time-instructions`) | bus and cache time only, pinned as a golden; the 0/2 alternation is the cache holding register serving two instruction words per fetch | `tests/goldens/timing.txt`; oracle side by `tools/mame-oracle/steptime.lua` |
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
@@ -15119,7 +15187,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 conditional tests (the 16 Bcc/Scc/DBcc/TRAPcc conditions) | working | `cond_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-19 |
 | 68030 effective address decode (modes, extension words, lengths) | decode and extension-word counts working; address *calculation* needs the instruction unit | `ea_suite`, 17 tests, `M68000 Family Programmer's Reference Manual 1992` §2, Tables 2-1, 2-2, 2-4 |
 | 68030 programming model (registers, SR, three stack pointers) | working | `regs_suite`, 10 tests, `MC68030 User's Manual 3ed` §1.3 and `M68000 Family Programmer's Reference Manual 1992` §1.3.2 |
-| 68030 exception vectors, priority and stack frames | working; taking an exception needs the instruction unit | `exception_suite`, 16 tests, `MC68030 User's Manual 3ed` §8, Tables 8-1, 8-5, 8-6 |
+| 68030 exception vectors, priority and stack frames | working; taking an exception needs the instruction unit | `exception_suite`, 17 tests, `MC68030 User's Manual 3ed` §8, Tables 8-1, 8-5, 8-6 |
 | 68030 special status word and bus fault frame layout | working: Figure 8-9's bits, the SIZ1/SIZ0 size code that counts bytes *remaining*, FC2-FC0, and Table 8-6's field offsets for both fault frames. The encoder enforces "a rerun bit is always set when the corresponding fault bit is set", while leaving a rerun *without* a fault expressible because that is how an address error is told from a bus error. The frame is chosen **from the SSW**, not passed in: §8.2.2's "data read faults only generate the long bus fault frame" is structural, since the short frame has no data input buffer for the handler to write the faulted read's value into. Fields Table 8-6 labels INTERNAL REGISTER are deliberately unnamed — this model has no source for them. **Wired into the taker**: `ap_m68030_take_bus_fault()` builds whichever frame the SSW selects, and `RTE` returns from both. Two `PROVISIONAL` approximations, marked in the code: the long frame's INTERNAL REGISTER fields are stacked as **zero** because this model has no microsequencer state, and `RTE` **re-executes** the faulted instruction from the start rather than resuming mid-instruction, where `[030]` §8.2.2 and §8.2.3 both *continue* the faulted bus cycle. The second is exact only while the instruction has committed nothing, so a faulted access now **rolls the register file back** to where the instruction found it (`entry_regs`) — without which a postincrement applied before the fault is applied again by the restart, which is how Domain/OS's first process came to be started on a null entry point | `ssw_suite`, 16 tests, `step_suite`, `[030]` §8.2.1, Figure 8-9, Table 8-6, Table 7-3 |
 | 68030 ATC (22-entry, fully associative) | working; a translating hit marks the entry recently used, a `PTEST` probe does not, and a flush by function code and effective address applies the `MASK` operand — a zero mask flushes the address in **every** function code, which is the only masked form Domain/OS issues and used to invalidate nothing. Replacement `PROVISIONAL` only in its victim choice | `atc_suite`, 24 tests, `MC68030 User's Manual 3ed` §9.4, `[PRM]` `PFLUSH` |
 | 68030 descriptors + search protection state | working | `desc_suite`, 23 tests, `MC68030 User's Manual 3ed` §9.5.1.1 |

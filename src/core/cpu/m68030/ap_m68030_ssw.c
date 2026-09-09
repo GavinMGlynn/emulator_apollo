@@ -120,8 +120,18 @@ ap_m68030_bus_fault_frame(const ap_m68030_ssw_t *ssw,
 
 unsigned ap_m68030_long_frame_words(ap_m68030_frame_variant_t variant) {
   /* Figure 6-8's caption says 44 words and Figure 6-9's summary repeats it:
-   * "1011  MC68020 Long Bus Fault (44 Words)". The 68030's is 46. */
-  return variant == AP_M68030_FRAME_VARIANT_68020 ? 44u : 46u;
+   * "1011  MC68020 Long Bus Fault (44 Words)". The 68030's is 46.
+   *
+   * **Zero on a 68040, which has no long frame to size.** Not a missing case:
+   * `[040]` §8.1 gives that part five formats and `$B` is not among them. A
+   * caller reaching here for a 68040 has chosen the wrong frame, and zero is
+   * the answer that makes that visible rather than plausible. */
+  switch (variant) {
+  case AP_M68030_FRAME_VARIANT_68020: return 44u;
+  case AP_M68030_FRAME_VARIANT_68040: return 0u;
+  case AP_M68030_FRAME_VARIANT_68030: break;
+  }
+  return 46u;
 }
 
 uint32_t ap_m68030_long_frame_data_output(ap_m68030_frame_variant_t variant) {
