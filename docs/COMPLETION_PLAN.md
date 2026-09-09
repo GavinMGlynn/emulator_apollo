@@ -5422,14 +5422,35 @@ same number is what let them diverge once already.
       the block order is right, the 8237's counts are right, the placement is
       right — and the byte stream is short by exactly the number of times the
       driver touched the data register by address while DMA was running.
-      **The remaining question is what a programmed read should do there**, and
-      it is a real one: in non-DMA mode that read *is* how a host takes a byte,
-      so it cannot simply stop consuming. The distinction the fix needs is
-      between a transfer in flight and one that is not — the same distinction
-      `ap_tape_read`'s own comment already draws for an idle controller, which
-      answers `00` rather than reaching for the drive. That is a bounded change
-      with a measurable check: the 94 goes to zero and the kernel finds
-      `bscom/rbak_shell`.
+      **The obvious fix was tried and is REFUTED, by the boot rather than by
+      argument.** `ap_tape_dma_request` refuses a cycle before `next_byte_at`,
+      so the DMA path is paced at the drive's byte rate while a programmed read
+      is not — and `ap_tape.c` already says the rule it half-implements: *"the
+      rate belongs to the drive and not to how the host asked"*. Gating the
+      programmed read the same way, and returning the byte the device is still
+      holding (`QIC-02` §3.6.1 T15/T16: the next byte goes up only after the
+      host takes this one and releases REQUEST), **moves the failure and does
+      not fix it**:
+
+          Seq out of order: expected 1, read 1E000900     <- drift 77 -> 13
+          Seq out of order: expected 901, read 900        <- then repeating
+
+      The drift falls from 77 bytes to 13 — `1E 00 09 00` is image block 23 at
+      offset 13 — and then the host **stalls**, re-reading the held byte for
+      ever because nothing advances it. So a programmed read cannot simply
+      return the previous byte; the host is taking bytes this way and expects to
+      make progress. Four `tape_suite` tests also fail on it, and they are not
+      wrong to: `test_the_tape_is_read_through_the_data_register` asserts "a
+      byte per access, in order" across a block boundary, which is a contract,
+      not an artefact.
+      *So the mechanism is confirmed and the remedy is not this one.* What is
+      established: 94 bytes leave through the programmed path, that is exactly
+      the drift, and pacing alone does not account for them. What is open: what
+      the card really does when the host reads that register while a DMA
+      transfer is armed. `[SC499]` Figures 1-12 and 1-14 have the host polling
+      **status** and never data during a transfer, so the driver's 94 reads are
+      outside anything the figures describe — which is where the next reading
+      has to start, not in another change to the byte path.
 
 - [x] **A cold power-on runs the confidence test — done 2026-09-09.**
       `[SC499]` §1.8.1's POC reports success "by the assertion of `EXC-`

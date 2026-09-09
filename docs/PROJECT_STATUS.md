@@ -1032,9 +1032,18 @@ kernel gives up.
 So the chain is closed: the medium, the drive, the block order, the 8237's
 counts and the placement are all right, and the stream is short by exactly the
 number of times the driver touched the data register by address while DMA was
-running. What the fix must decide is what a programmed read should do there — in
-non-DMA mode that read *is* how a host takes a byte — which is the distinction
-`ap_tape_read`'s own comment already draws for an idle controller.
+running.
+
+**And the obvious fix is refuted by the boot.** Pacing the programmed read at
+the drive's byte rate, as the DMA path already is, and returning the byte the
+device still holds, moves the drift from 77 bytes to 13 and then **stalls the
+host** — `Seq out of order: expected 901, read 900`, repeating, because nothing
+advances it. Four `tape_suite` tests fail on it too, rightly: "a byte per
+access, in order" across a block boundary is a contract. So the host really is
+taking bytes through that register and expects progress; the remedy is not
+pacing. `[SC499]` Figures 1-12 and 1-14 have the host polling *status* and never
+data during a transfer, so those 94 reads are outside anything the figures
+describe, and that is where the next reading starts.
 
 ***And that is the lead this work refuted earlier in the day, wrongly.***
 `[SC499]` §1.11 step 5 describes the **firmware's steady-state read loop**, one
