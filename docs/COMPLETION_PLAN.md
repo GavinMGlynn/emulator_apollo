@@ -6041,7 +6041,7 @@ same number is what let them diverge once already.
         about. Detail in `PROJECT_STATUS.md`.
         Record: `docs/references/M68000_FAMILY_REFERENCE_WALK.md`.
   - [ ] **`[020]` `MC68020_32-Bit_Microprocessor_Users_Manual_1984.pdf`,
-        452 pages — started 2026-09-09; §1-§4 and §7 done, §6 in progress, **62 of 452**.** Record:
+        452 pages — started 2026-09-09; §1-§4, §6 and §7 done, **78 of 452**.** Record:
         `docs/references/M68020_WALK.md`.
         **The deferral this item carried was false and is withdrawn.** It read
         "Phase 2b and Phase 7 parts ... deferred until those processors are
