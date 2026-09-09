@@ -1,0 +1,132 @@
+# The SR10.4 install with the WHOLE SAU set, as it was actually driven on
+# 2026-09-10, end to end. Produces `media/dn3500-sr10.4-aa-kept.awd`.
+#
+# This is `install-domainos.cmds` with the two things that file leaves open
+# filled in from a running machine: the CALENDAR preamble it assumes but does
+# not perform, and MINST's SAU selection, where the run that produced
+# `dn3500-sr10.4-installed.awd` took the DN3500's `sau7` alone.
+#
+# Replayable with:
+#
+#   cp media/dn3500-invol-done.awd media/sau14.awd
+#   python3 tools/mame-oracle/mdsession.py --stage prompt \
+#       --disk media/sau14.awd \
+#       --ctape media/domainos/019593-001.CRTG_STD_SFW_BOOT_1-REV.A.ct \
+#       --rundir tools/mame-oracle/out/sau14 --keep-rundir \
+#       --commands-timeout 0 --commands tools/mame-oracle/install-sau14.cmds \
+#       --log sau14.log
+#
+# **The SAU selection is a template number, not a list.** MINST asks for a
+# configuration template and `11` is the whole SAU set; the AA it leaves behind
+# then holds `sau7 sau8 sau9 sau11 sau12 sau14` and the volume root holds
+# `/sau14` with `domain_os` and `self_test` in it.
+#
+# **The calendar aborts and the set still takes.** `y` at the confirmation ends
+# with `10200E6: 6100` on the console; the RTC has been written by then, which
+# is what gets past "The calendar is more than a minute slow."
+#
+# **Swap cartridges only at a prompt, with the drive idle** -- C56, and it cost
+# a run here: a swap queued behind a bare `!wait 8` raced the drive into
+# `?(rbak) (open_input_volume) Unable to open backup file. - controller
+# timeout`. Recovered by swapping back to 019594-001 and answering `yes` to the
+# retry, which is why the tail of this file re-walks the four cartridges.
+#
+# **The ending is `!raw \x04` then `shut`, never `!exit`** -- `sr10-3-install-route`,
+# and `!exit` leaves a volume with its objects and not its links.
+
+di c
+!expect \n\n>
+ex calendar
+!expect enter none
+w
+!expect reset it
+n
+!wait 20
+n
+!wait 15
+2002/11/28
+!wait 15
+12:00
+!wait 20
+y
+!wait 25
+di c
+!expect \n\n>
+ex domain_os
+!expect \(Y/N\)
+Y
+!wait 30
+sh
+!expect login:
+user
+!expect Password:
+!cr
+!expect \$
+/install/tools/minst
+!wait 40
+!cr
+!wait 20
+continue
+!expect MINST>
+novice
+!wait 25
+!cr
+!wait 20
+!cr
+!wait 20
+!cr
+!wait 20
+yes
+!wait 25
+ct
+!expect key when ready:
+!wait 8
+!swap ctape media/domainos/019594-001.CRTG_STD_SFW_1.ct
+!cr
+!wait 40
+!cr
+!wait 30
+11
+yes
+!wait 8
+!swap ctape media/domainos/019594-002.CRTG_STD_SFW_2.ct
+!cr
+!wait 8
+!swap ctape media/domainos/019594-003.CRTG_STD_SFW_3.ct
+!cr
+!wait 8
+!swap ctape media/domainos/019594-004.CRTG_STD_SFW_4.ct
+!cr
+!cr
+!wait 60
+!swap ctape media/domainos/019594-001.CRTG_STD_SFW_1.ct
+!wait 5
+yes
+!wait 90
+!wait 6
+!swap ctape media/domainos/019594-002.CRTG_STD_SFW_2.ct
+!wait 4
+!cr
+!wait 60
+!wait 6
+!swap ctape media/domainos/019594-003.CRTG_STD_SFW_3.ct
+!wait 4
+!cr
+!wait 60
+!wait 6
+!swap ctape media/domainos/019594-004.CRTG_STD_SFW_4.ct
+!wait 4
+!cr
+!wait 60
+!cr
+!wait 30
+select
+!wait 40
+ld /install/ri.apollo.os.v.10.4
+!wait 20
+!raw \x04
+!wait 20
+shut
+!expect Shutdown successful
+!wait 30
+!exit

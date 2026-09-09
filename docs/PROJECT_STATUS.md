@@ -1787,6 +1787,69 @@ The second reached the shell and ran nothing: trimming `md-shell.script` left
 completed command produces. Each cost a 45-minute run. Detail in `FINDINGS.md`
 C259.
 
+## The SAU 14 install runs, and it refutes the reason recorded above (2026-09-10)
+
+The install was re-driven under the oracle with MINST's SAU template **11**
+instead of the DN3500's `sau7`, giving `media/dn3500-sr10.4-aa-kept.awd`. It
+settles the two questions the section above left open, and then contradicts it.
+
+**The Authorized Area is kept.** On the running machine,
+`ld /install/ri.apollo.os.v.10.4` lists twenty entries including `sau11 sau12
+sau14 sau7 sau8 sau9`, and the SAU 14 release tree arrives under the ANSI label
+`HDR1/base_unix_sau14` — 64 files, `scsi14.drvr` among them. `"/install/ri" -
+name not found` was a property of **that run's SAU selection**, not of MINST:
+MINST prunes the SAUs it was not asked for. Root-directory block `165649`,
+distinct names, is `sau7 sau8 sau9 sau11 sau12 sau14` here against `sau7` alone
+on `dn3500-sr10.4-installed.awd`.
+
+**`/sau14` is in the root and the volume is sound.** RBAK restores
+`sau14/{calendar,chuvol,config,dex,domain_os,domain_os.map,invol,rwvol,salvol,self_test}`,
+and the DN3500 reference PROM boots the volume to `Loaded: SELF_TEST Revision:
+2.4` and runs the diagnostic.
+
+**And the DS5500 prints exactly what it printed before.** Same PROM, same core,
+400 M instructions, the two volumes side by side — `error: sysboot not found` /
+`Could not load /SAU14/SELF_TEST.`, **byte-identical consoles**. A volume that
+*has* `/sau14/self_test` fails the same way as one that does not, because the
+firmware never reaches the filesystem. **The claim above — "what it then cannot
+find is `/SAU14/`" — is withdrawn**: it read the second line of a two-line
+failure. The first line is the failure.
+
+*Kept because it explains the shape of the work that followed*: `/sau14` really
+is the DS5500's directory and the volume really did lack it, so the reading was
+consistent with everything then on the record. What it never had was a control —
+and the control was one install away.
+
+### What the failure actually is, from the PROM
+
+`5500_BOOT_A1631-80046_1-30-92.bin` at `0017F8`–`01958` reads ten records from
+record 2 into `010FB000`, advancing the buffer by a **page** per record, and the
+page size comes from the machine's SAU number in `$174(a6)`: `$200` for SAU 5,
+`$800` for SAU 11, and **`$1000` for everything else, the DS5500's 14 included**.
+It then requires `SYSBOOT ` at `010FB010` — record 2 + `$10` — and, unless the
+SAU is 5 or 11, the tag **` M68K_4K `** eight bytes further on.
+
+The run agrees: `08/4@0`, then `08/4@8 @12 @16 … @44` — records 2..11 at **LBA
+4N, four 1056-byte sectors each** — where the DN3500 PROM on the *same volume*
+issues `08/1@2` … `08/1@11`. `--dump-mem 010FA800:0x1000` shows `010FB000`
+holding sector 8's offset `$20`, so the signature test lands in the middle of a
+DN3500 SYSBOOT. A DN3500 boot area is ten 1056-byte sectors with the Domain
+block header on each, signature at `+$30`, tag ` M68K    `; a DS5500's is ten
+raw 4096-byte pages at sectors 8..47, signature at `+$10`, tag ` M68K_4K `.
+
+**The 4K SYSBOOT is on the shelf** — on `019593-001`, on `019594-001`, and twice
+inside `dn3500-sr10.4-aa-kept.awd` itself, which is carrying the DS5500's
+SYSBOOT as a file while its boot area holds the DN3500's. So what remains is to
+write the boot area with it, using the `/sau14/invol` and `/sau14/chuvol` this
+same run restored to the volume root. Not a knowledge gap and not a core change,
+and the next run discriminates on its own output: `error: incorrect sysboot
+installed` if the tag is wrong, a loaded SELF_TEST if it is right.
+
+*Nothing here implicates this core*: all 85 disk commands completed, `Drive 0
+passed.`, and record 0 → LBA 0 with record 2 → LBA 8 is the firmware's own
+arithmetic. Detail in `FINDINGS.md` C276; the record/page distinction is in
+`docs/references/MD.md`.
+
 ## The DN5500 goes from two instructions to its own memory self-test
 ## (2026-09-09)
 

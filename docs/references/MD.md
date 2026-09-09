@@ -195,6 +195,45 @@ disk read error  <SC> <RCD> <UNIT> <W/F/S/C>
     W/F/S/C = Winchester/Floppy/SMD/Cartridge Tape
 ```
 
+### "records 2 thru B" is ten *records*, and a record is a page
+
+Added 2026-09-10 (`FINDINGS.md` C276), because the page's phrase is exact and its
+unit is not the sector. The boot PROM reads ten records starting at record 2 and
+places each one a **page** further into its buffer, and the page size is chosen
+by the machine's SAU number — `5500_BOOT_A1631-80046_1-30-92.bin` at `0018BE`:
+
+| SAU number in `$174(a6)` | buffer stride | records read |
+| --- | --- | --- |
+| `5` | `$200` | — |
+| `$B` (11) | `$800` | 5 |
+| anything else, **14 included** | `$1000` | 10 |
+
+So on a DS5500 "records 2 thru B" is sectors **8 through 47**, four 1056-byte
+sectors to a record, and the good boot header the page speaks of is checked at
+record 2 + `$10` rather than + `$30` — the DS5500's boot area is raw pages with
+no Domain block header on them. The DN3500 PROM reads the same ten records as
+ten single sectors, 2..11. **Both are "records 2 thru B" and they are disjoint
+after sector 11.**
+
+The header must also carry a processor tag eight bytes past the signature, and
+on a machine that is not SAU 5 or SAU 11 the PROM requires **` M68K_4K `** where
+a DN3500 volume carries ` M68K    `.
+
+### The DS5500 PROM's wording, and a second message the page does not list
+
+`002398-04` p. 4-17 prints the message as `error: boot not found`. The DS5500's
+PROM spells it **`error: sysboot not found`** (string at `0196C`), and carries a
+second one the page has no row for:
+
+```
+error: incorrect sysboot installed
+```
+
+at `01988`, reached when the signature matched but the processor tag did not.
+The distinction is worth having before a capture: *not found* is the boot area
+in the wrong place or the wrong shape, *incorrect* is the right area with the
+wrong SYSBOOT in it.
+
 **The observed lines carry the same four fields under a different leader.** This
 core's runs print `Disk C8  FFFCFF  00  W` and `Tape C0  000000  00  C`, so the
 qualifier letter and the field order are confirmed even though the leader is not

@@ -16190,3 +16190,119 @@ exception**". Until now there was no power-on exception for it to be answering.
 deadline and not before, inside §1.8.1's five-second bound; and the machine's
 own reset re-runs it, so a driver that resets twice sees two exceptions rather
 than one that never went away.*
+
+## C276 -- the SAU 14 install works, and it refutes the reason this project had recorded for `Could not load /SAU14/SELF_TEST.`
+
+The SR10.4 install was re-run under the oracle on 2026-09-09/10 with MINST's SAU
+template **11** instead of the DN3500's `sau7`, producing
+`media/dn3500-sr10.4-aa-kept.awd` (364,904,448 bytes). Two things it was run to
+establish, and a third that was not expected.
+
+**One: the Authorized Area is kept.** `ld /install/ri.apollo.os.v.10.4` on the
+running machine lists twenty entries including **`sau11 sau12 sau14 sau7 sau8
+sau9`**, and the restore log shows the whole SAU 14 release tree arriving under
+`HDR1/base_unix_sau14` -- 64 files, `scsi14.drvr` and `win14a/b.drvr` among them.
+The plan item's *"`/install/ri` is name not found on this volume, so the AA was
+not kept"* was true of `dn3500-sr10.4-installed.awd` and is a property of **that
+run's SAU selection**, not of MINST.
+
+**Two: `/sau14` is in the root, and the volume is good.** RBAK restores
+`sau14/{calendar,chuvol,config,dex,domain_os,domain_os.map,invol,rwvol,salvol,self_test}`
+to the volume root. Root-directory block `165649`, distinct names, against the
+volume this project has been booting:
+
+    dn3500-sr10.4-aa-kept     sau7 sau8 sau9 sau11 sau12 sau14  (+ usr, install, ...)
+    dn3500-sr10.4-installed   sau7
+
+So MINST **prunes** the SAUs it was not asked for -- C188's `sr10.4 osrestored
+(RBAK) 20` already had all six, and `sr10.4 installed 27` had one. And the
+volume boots: the DN3500 reference PROM reaches `Loaded: SELF_TEST Revision:
+2.4` off it and runs the diagnostic.
+
+**Three, and this is the one that matters: it changes nothing on the DN5500.**
+Same PROM, same core, 400 M instructions, the two volumes side by side:
+
+    Loading SELF_TEST diagnostics from boot device.
+    error: sysboot not found
+       Could not load /SAU14/SELF_TEST.
+
+**Byte-identical consoles.** A volume that *has* `/sau14/self_test` produces the
+same output as one that does not, because the firmware never reaches the
+filesystem. `PROJECT_STATUS.md`'s *"what it then cannot find is `/SAU14/`, and
+that is a media fact"* read the **second** line and skipped the first. The
+finding is withdrawn; what replaces it is below, and is still a media fact --
+a different one.
+
+### What `error: sysboot not found` is, from the PROM rather than from a guess
+
+`5500_BOOT_A1631-80046_1-30-92.bin`, disassembled at `0017F8`-`01958`:
+
+    0181A  move.l  #$10FB000, $19A(a6)     ; buffer base
+    01822  move.l  #$2,       $19E(a6)     ; first record = 2
+    01882  move.l  $19E(a6), $180(a6)      ; record := 2
+    01888  move.l  $19A(a6), $184(a6)      ; buffer := 010FB000
+    0189A  jsr     (a4)                    ; read one record
+    018BE  cmpi.w  #$5, $174(a6)  -> addi.l #$200,  $184(a6)
+    018D0  cmpi.w  #$B, $174(a6)  -> addi.l #$800,  $184(a6) ; 5 records
+    018F8                            addi.l #$1000, $184(a6) ; 10 records
+    01914  movea.l #$10FB010, a1
+    0191A  cmpi.l  #'SYSB', (a1)+   -> bne "error: sysboot not found"
+    01922  cmpi.l  #'OOT ', (a1)+   -> bne "error: sysboot not found"
+    0192A  cmpi.w  #$B, $174(a6)    -> beq accept
+    01932  cmpi.w  #$5, $174(a6)    -> beq accept
+    0193A  addq.l  #8, a1
+    0193C  cmpi.l  #' M68', (a1)+   -> bne "error: incorrect sysboot installed"
+    01944  cmpi.l  #'K_4K', (a1)+   -> bne "error: incorrect sysboot installed"
+
+`$174(a6)` is the machine's SAU number -- `01866`-`0186A` loads it out of the
+configuration entry, and it is the same number that builds the string `/SAU14/`.
+The DS5500 is **14**, so it is neither of the two special cases: the buffer
+stride is **4096** and the count is **ten records, 2 through 11**.
+
+**The run agrees exactly.** `--boot-disk-reads` on the DS5500:
+
+    disk cmds  08/4@0:4224  08/4@8:4224  08/4@12  @16  @20  @24  @28  @32  @36  @40  @44
+
+Eleven commands: record 0, then records 2..11 -- **at LBA 4N, four 1056-byte
+sectors each**. The DN3500 PROM on the *same volume* issues `08/1@2` .. `08/1@11`,
+one sector each. A "record" is a **page**, and the two machines do not agree on
+how big a page is.
+
+**And the memory dump proves which block the check lands on.** `--dump-mem
+010FA800:0x1000` after the failure: everything below `010FAFE0` still holds the
+address-fill pattern, and `010FB000` holds `08 08 01 F8 42 80 30 2D ...`, which
+is **sector 8 at its offset `0x20`**. The signature test at `010FB010` is
+therefore reading sector 8 + `0x30`, and sector 8 is the middle of a DN3500
+SYSBOOT rather than the start of a DS5500 one.
+
+### So the DS5500's boot area is a different area, and the tag is a different tag
+
+A DN3500 volume's SYSBOOT is ten **1056-byte** sectors, 2..11, each carrying the
+32-byte Domain block header, so its four header longwords are at `+$20` and
+`SYSBOOT REV ` at `+$30`:
+
+    block 2   a45a a7cd 3001 2345 ... 0013 d800 0013 d82a 0013 fe98 5075 d95e
+              5359 5342 4f4f 5420 5245 5620 0000 0000 204d 3638 4b20 2020 2000
+                          S Y S B O O T   R E V                M 6 8 K
+
+A DS5500's is ten **4096-byte** pages at sectors 8..47, raw, so the header
+longwords are at `+$00` and the signature at `+$10` -- which is exactly where
+`010FB010` points. And the tag it must carry is **` M68K_4K `**, not ` M68K    `.
+
+**That SYSBOOT exists and is on the shelf**, so this is procedure and not a
+missing artefact. ` M68K_4K ` appears with a full `SYSBOOT REV ` header on
+`019593-001` (the boot cartridge) at `0x032CF751`, on `019594-001` at
+`0x00C52333`, and **twice inside `dn3500-sr10.4-aa-kept.awd` itself**, at
+`0x0A40BDE1` and `0x0A8C5021` -- the volume is carrying the DS5500's SYSBOOT as
+a *file* while its *boot area* holds the DN3500's.
+
+*What would close it*: write the boot area with the 4K SYSBOOT. `/sau14/invol`
+and `/sau14/chuvol` were both restored to the volume's root by this same run,
+which is the standard-alone utility pair that does it. Not a knowledge gap and
+not a core change -- and the two lines of console this predicts are
+`error: incorrect sysboot installed` if the tag is wrong and a loaded SELF_TEST
+if it is right, so the next run discriminates on its own output.
+
+*Nothing here implicates this core.* All 85 disk commands completed, `Drive 0
+passed.`, and the LBAs are the firmware's own arithmetic: record 0 at LBA 0 and
+record 2 at LBA 8 come out of the PROM, not out of `ap_omti`.

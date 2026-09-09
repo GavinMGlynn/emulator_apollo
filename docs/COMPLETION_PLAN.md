@@ -4520,6 +4520,17 @@ discipline throughout.
       SR10.4 cartridges in `media/domainos/` into an AA, then `config`/`install`
       — the recorded MINST route. Not blocked, and now costed rather than
       guessed.
+      **Both paragraphs above are REFUTED, 2026-09-10, and the text is kept
+      because it explains the shape of the work that followed.** The install was
+      re-run with MINST's SAU template **11**: the Authorized Area *is* kept —
+      `ld /install/ri.apollo.os.v.10.4` lists `sau11 sau12 sau14 sau7 sau8 sau9`
+      — so "the AA was not kept" was a property of the earlier run's SAU
+      selection and not of MINST, which simply prunes what it was not asked for.
+      And `/sau14` is in the new volume's root with `domain_os` and `self_test`
+      in it. **The DS5500 prints the same two lines anyway**, byte-identical
+      console against both volumes, because it fails one line earlier at
+      `error: sysboot not found` and never reaches the filesystem. Detail in
+      `PROJECT_STATUS.md`, `FINDINGS.md` C276.
       **De-risked 2026-09-09 by running it, and the first step works.** The
       `E0007` fix earlier the same day is what made this reachable at all: the
       cartridge used to fall back to a normal shell, so the install environment
@@ -4564,6 +4575,20 @@ discipline throughout.
       waits for `RAI MINST has completed`, and which prompt offers the SAU list
       has to be read off a running MINST. That is a procedure question, not a
       documentary one, and everything around it is now scripted.
+      **Phase A is DONE, 2026-09-10.** Both dialogues were read off the running
+      machine and both are now scripted in
+      `tools/mame-oracle/install-sau14.cmds`:
+      CALENDAR's preamble (`ex calendar`, `w`, time zone `n`, "Is the calendar
+      correct?" `n`, `2002/11/28`, `12:00`, `y` — it aborts `10200E6: 6100` and
+      the set still takes) and MINST's SAU selection, which is a **template
+      number**: `ct`, then `11` for the whole SAU set. `RAI install has
+      successfully completed` / `RAI MINST has completed`, ending EOT → `shut` →
+      `Shutdown successful`. The volume is `media/dn3500-sr10.4-aa-kept.awd`, and
+      the DN3500 reference PROM boots it to `Loaded: SELF_TEST Revision: 2.4`.
+      *One trap, and it is C56 in my own notes*: cartridge swaps queued behind a
+      bare `!wait 8` race the drive and give
+      `?(rbak) (open_input_volume) Unable to open backup file. - controller
+      timeout`. Swap only at a prompt, with the drive idle.
       **Two, in fact — the replay was started and found a second one first.**
       Run against `media/dn3500-invol-done.awd` under the oracle, it stops
       immediately after `ex domain_os`, before RBAK is reached:
@@ -4622,6 +4647,25 @@ discipline throughout.
       `Could not load /SAU14/SELF_TEST.` is the absence of — so the 68040 MMU
       join and the SCSI item share **one** gate, the SAU 14 install, and
       neither is a knowledge gap. That is a cost to spend, not a fact to find.
+      **The shared gate is now named exactly, and it is not the SAU install.**
+      2026-09-10: the DS5500's boot area is not the DN3500's. Its PROM reads ten
+      records from record 2 with a **page** of stride, and the page size is the
+      machine's SAU number — `$200` for SAU 5, `$800` for SAU 11, **`$1000` for
+      14** — so "records 2 thru B" is sectors **8..47, four sectors to a record**
+      where a DN3500 volume's SYSBOOT is sectors 2..11 of one sector each. It
+      then wants the signature at record 2 + `$10` (a DN3500 record has the
+      Domain block header first and carries it at `+$30`) and the processor tag
+      **` M68K_4K `** where a DN3500 install writes ` M68K    `. Measured three
+      ways: the PROM disassembled at `0017F8`-`01958`, the run's own
+      `08/4@0 @8 @12 … @44` against the DN3500's `08/1@2 … @11` on the *same*
+      volume, and `--dump-mem 010FA800:0x1000` showing sector 8 where the check
+      looks. **The 4K SYSBOOT is on the shelf** — on `019593-001`, `019594-001`,
+      and twice inside `dn3500-sr10.4-aa-kept.awd` itself, which carries it as a
+      file while its boot area holds the DN3500's. So the remaining step is to
+      write the boot area with it, using the `/sau14/invol` and `/sau14/chuvol`
+      the same install restored to the volume root — procedure, not knowledge,
+      and the next run discriminates on its own output (`error: incorrect
+      sysboot installed` if the tag is wrong, a loaded SELF_TEST if it is right).
       *Recorded as a doubt raised and settled*, because the static evidence for
       it was real: the PROM does contain `BSET #15` on `TC`. Presence is not
       execution, and this is the run that told them apart. §3.1.3 makes the TTRs live even with translation off, so the
