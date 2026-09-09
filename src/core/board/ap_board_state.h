@@ -70,6 +70,10 @@
  * and so the order below is visible rather than buried in one long function. */
 void ap_board_hash_registers(ap_hash_t *st, const ap_boardreg_t *registers);
 void ap_board_hash_translation_map(ap_hash_t *st, const ap_atmap_t *map);
+/* `[S3K]` §1.3.1's virtual cache, on the one model that has it. Walks
+ * `cache->entries`, not the constant, for the same reason the translation map
+ * does: a board without the structure has zero and contributes none of it. */
+void ap_board_hash_cache(ap_hash_t *st, const ap_cacheram_t *cache);
 void ap_board_hash_interrupts(ap_hash_t *st, const ap_intr_t *interrupts);
 void ap_board_hash_timer(ap_hash_t *st, const ap_timer_t *timer);
 void ap_board_hash_calendar(ap_hash_t *st, const ap_calendar_t *calendar);

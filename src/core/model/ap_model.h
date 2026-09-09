@@ -142,6 +142,26 @@ typedef struct {
    * hardware reference could overturn. */
   bool has_address_translation_map;
 
+  /* Whether the board carries `[S3K]` §1.3.1's **virtual cache** and §1.3.2's
+   * write buffer, and with them Table 2-8's two board-visible 8-KB windows at
+   * `012000` and `014000`.
+   *
+   * True for the DS4000 and nothing else, and derived from the part rather than
+   * stated per model. §1.3.2 puts the write buffer "on the virtual bus between
+   * the microprocessor and the PMMU", and §1.3.1's cache on that same bus: a
+   * **68030 has no such bus**, its MMU being on chip, so the position both
+   * structures occupy does not exist on a DS3500 or a DS4500, and a 68040's is
+   * on chip too. Of the models sharing Table 2-8's map -- `019411-A00`
+   * §4.2.1.4's "DS3500, DS4000, DS4500, DS5500" -- only the DS4000 is the
+   * 68020-plus-separate-68851 that Figure 1-2 draws them onto, and Figure 1-1's
+   * DS3000 has neither.
+   *
+   * So this is an argument from the block diagrams and the bus topology, not
+   * from a sentence naming models, and `ap_cacheram.h` carries it in full. What
+   * would overturn it is `007861-A01`, the DS3500's own handbook, which is
+   * unobtainable. */
+  bool has_virtual_cache;
+
   /* Whether the CPU control register's four parity-lane bits are **active
    * low**, so `08` means "force bad parity on all four lanes" rather than `F8`.
    *

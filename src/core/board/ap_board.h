@@ -38,6 +38,7 @@
 #include "board/ap_atbus.h"
 #include "board/ap_atmap.h"
 #include "board/ap_boardreg.h"
+#include "board/ap_cacheram.h"
 #include "board/ap_parity.h"
 #include "board/ap_calendar.h"
 #include "board/ap_disk.h"
@@ -312,6 +313,14 @@ typedef enum {
    * says which, and the day a DS5500 firmware touches it that is the difference
    * between a lead and a shrug. */
   AP_BOARD_REGION_DESKTOP_VISUALIZATION,
+  /* `[S3K]` Table 2-8's `012000`-`013FFF` CACHE RAM and `014000`-`015FFF`
+   * CACHE CONDITION CODE RAM -- the Series 4000 virtual cache made addressable.
+   * Two regions rather than one because they are two windows onto two different
+   * stores, and a trace that says which of them a firmware reached is the whole
+   * reason this core names regions at all. Only a board whose model has the
+   * cache places them; see `board/ap_cacheram.h`. */
+  AP_BOARD_REGION_CACHE_RAM,
+  AP_BOARD_REGION_CACHE_CC_RAM,
   AP_BOARD_REGION_RAM,
 } ap_board_region_t;
 
@@ -348,6 +357,19 @@ typedef struct {
   const char *name;
   const ap_board_placement_t *placement;
   unsigned placements;
+  /* Placements a *variant* of this map adds, scanned after the list above.
+   *
+   * One map serves the whole Series 4000 group -- `019411-A00` §4.2.1.4's
+   * "DS3500, DS4000, DS4500, DS5500", less the DS5500, which has its own table
+   * -- and exactly one member of it, the DS4000, decodes two windows the others
+   * do not: Table 2-8's cache RAM and cache condition-code RAM. Two extra rows
+   * hung off the shared map, rather than a third copy of its twenty, because a
+   * copy is a place for the two to drift apart and `board_suite` would have to
+   * assert they had not.
+   *
+   * Null and zero on every map that has no variant. */
+  const ap_board_placement_t *extra_placement;
+  unsigned extra_placements;
   uint32_t ram_base;
   uint32_t ram_limit;
   uint32_t prom_size;
@@ -392,6 +414,11 @@ typedef struct ap_board {
    * RAM with `ap_board_attach_parity`; see `board/ap_parity.h`. */
   ap_parity_t parity;
   ap_atmap_t translation_map;
+  /* `[S3K]` §1.3.1's virtual cache and the two windows Table 2-8 gives it.
+   * Present only on a DS4000 -- `entries` is zero elsewhere and the map places
+   * no window, so on every other model this is 16 KB of zeroes nothing can
+   * reach. See `board/ap_cacheram.h` for why it is a DS4000 alone. */
+  ap_cacheram_t cache;
   ap_intr_t interrupts;
   ap_timer_t timer;
   ap_calendar_t calendar;

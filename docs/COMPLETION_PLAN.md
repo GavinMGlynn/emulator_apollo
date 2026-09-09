@@ -5439,42 +5439,22 @@ same number is what let them diverge once already.
       *Verification: `ap_omti.h`'s `ST3` block against p. 6-7, and `afd_suite`
       36 after the matching `ST0` correction.* Detail in
       `docs/references/OMTI_WALK.md`.
-- [ ] **The Series 4000 virtual cache and write buffer, and their 16 KB of
-      board-visible RAM — a `dn4000` gap, and 2026-09-08 establishes that it is
-      *only* that.** §1.3.1: "an **8-KB, direct-mapped** cache ... 2048 4-byte
-      instruction and/or data entries ... **write-through with write-allocate**".
-      §1.3.2's write buffer "resides on the virtual bus **between the
-      microprocessor and the PMMU**". Neither is modelled. **Not merely
-      internal**: Table 2-8 gives `012000`-`013FFF` CACHE RAM and
-      `014000`-`015FFF` CACHE CONDITION CODE RAM, so firmware can read and write
-      the cache's data *and* its condition-code RAM.
-      **The open question — "whether a DS3500 carries the structure at all" — is
-      answered, and the answer is no.** §1.3.2 puts the write buffer *between the
-      microprocessor and the PMMU*, and a 68030 has no such bus: its MMU is on
-      chip, so the position the structure occupies does not exist on a DS3500.
-      §1.3.1's virtual cache sits on the same logical bus. Derived from the part
-      rather than measured, and marked as such. `008778-03` was never going to
-      settle it either way — §3.2 names "the DMMU in the DS3000, PMMU in the
-      DS4000" and the manual covers **no DS3500 at all**; that model's own
-      document is the *Hardware Architecture Handbook* `007861-A01`, already
-      recorded here as unobtainable.
-      **So this is scoped to `dn4000`**, which is in the model table, and stays
-      open for it.
-      *What would close it* was written as "a `dn4000` boot that reads
-      `012000`", and **2026-09-08 establishes that no such boot can be run
-      today**. `roms/firmware/` holds six boot PROMs across five models — 2500,
-      3000 (two revisions), 3500, 4500, 5500 — and **none of them is a DN4000's**;
-      the oracle has no DN4000 either, its driver declaring only dn3000, dn3500,
-      dn5500 and the three headless variants. So the blocker is a **DN4000 boot
-      PROM**, named as such rather than described.
-      **And the two PROMs from the right family do not reach the window.**
-      Searched for an aligned 32-bit `00012000` or `00014000` in the 4500's, the
-      3500's and the 3000's boot PROMs: **zero hits in all three**, where the
-      same search finds `00010400` (SIO 1) ten times in the 4500's and the
-      3500's, `00011000` (interrupt controller 1) once, and `00010800` twice —
-      so the instrument works and the answer is a clean negative. *Evidence, not
-      proof*: an address computed from a base register would evade it, which is
-      exactly how the DS2500's own map is written.
+- [x] **The Series 4000 virtual cache and write buffer, and their 16 KB of
+      board-visible RAM — landed 2026-09-09, and the stated blocker was never
+      on the route.** `[S3K]` §1.3.1's 8-KB direct-mapped cache of 2048 4-byte
+      entries, write-through with write-allocate; §1.3.2's write buffer; and
+      Table 2-8's `012000` CACHE RAM and `014000` CACHE CONDITION CODE RAM, the
+      last two rows of that table this core did not decode. `dn4000` alone has
+      them — §1.3.2 puts the write buffer between the microprocessor and the
+      PMMU and a 68030 has no such bus — so `has_virtual_cache` gates the map.
+      **The item said it was blocked on a DN4000 boot PROM**, and 2026-09-09
+      closed that at the web tier too: bitsavers' Apollo firmware directory
+      holds eighteen files across five models and **no 4000-series boot**, all
+      eighteen already on disk. But the blocker was answered by not needing it
+      — a boot was never what "implement Table 2-8's two rows" required.
+      **PROVISIONAL**: the condition-code word's bit layout, and no published
+      hit cost or write-buffer depth, which keeps the cache out of the timed
+      path. *Verification: `board_suite` 83 → 95.* Detail in `PROJECT_STATUS.md`.
 - [x] **The DS4000 is in the model table**, as `dn4000` — this table uses `dn`
       throughout and `019411-A00`'s DS3500 is `dn3500` here. 25-MHz 68020, 68851,
       68881, 4–32 MB from `002398-04` Figure 1-2 and §1; the **display is

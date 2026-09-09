@@ -14008,7 +14008,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 14 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
-| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none. **The DS5500 now has its own map**, from `019411-A00` Table 2-5 rather than the Series 4000 table it borrowed until that page was read: it places the memory present register at `011400` that no other model has, it does *not* place the task alias at `010300`, and its main memory is four 16 MB banks to `4FFFFFF` where Table 2-8 gives three. Table 2-5's 4 KB address translation map is **implemented as of 2026-08-22**: the entry count is a property of the map, the hasher walks it rather than `AP_ATMAP_ENTRIES`, and only the DS5500 gets the wider region — so no other model's state hash moved. The `PROVISIONAL` is lifted | `board_suite`, 83 tests -- one of them driving the **absolute** pointing packet onto the keyboard's wire, which nothing called and nothing tested, and one sweeping `ap_board_bus_ticks(board, n)` against n calls of one across the refresh boundary, which is the whole licence for its batching and was asserted by nothing, one carrying the 8237's `EOP` to the tape's DONE bit -- the ethernet's had that line and the tape's did not -- one of them the Series 2500's own register block -- storage, `PROVISIONAL`, and the only thing standing between that firmware and its second instruction; `atbus_suite`, 16 tests  **Main memory's extent is `1000000`–`2FFFFFF`, 32 MB, corrected from `3FFFFFF` on 2026-08-19**: `008778-03` §1.5.2 gives the DS4000's memory one module at a time — `$17FFFFF` with one 8-MB module, `$1FFFFFF` with two, `$27FFFFF` with three, `$2FFFFFF` with four — and `1000000`–`3FFFFFF` is **48 MB**, not 32. The old value was the oracle's `DN3500_RAM_END`, imported without checking the arithmetic; the same MAME file gives `DN5500_RAM_END 0x2ffffff` for the same 32 MB four lines away, so the oracle contradicts itself and the manual says which is the slip. The cost was exactly what that constant's own comment warns of — sixteen megabytes of unmapped space were being reported to a trace as "main memory". Identity hash unchanged, so the reference boot never reached there  **The DS3000 has one 2681, not two, and its kilobyte is aliased** — corrected 2026-08-19 during the `008778-03` walk. Table 2-6 gives the DS3000 a single `008400`-`0087FF` row named "SIO" where Table 2-8 gives the Series 4000 two 256-byte rows, and §1.5.1 says why: the DS3000 drives "two asynchronous serial lines, SIO0 and SIO1" and the DS4000 four. One 2681 has two channels. The oracle agrees independently — `dn3000_map` sends the whole range to `m_sio` and the DN3000 configuration does `config.device_remove(APOLLO_SIO2_TAG)`. This core had mapped `2 × AP_SIO_RANGE`, putting a second DUART at `008500` and leaving `008600`-`0087FF` unmapped. Now four placements folding onto `AP_SIO1_ADDR`. **Behaviourally invisible to the boot that exists**: both DN3000 revisions run 400,000 instructions to a byte-identical state hash either side, because the PROM never reaches into that kilobyte — so this is a latent error corrected, not a failure explained |
+| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none. **The DS5500 now has its own map**, from `019411-A00` Table 2-5 rather than the Series 4000 table it borrowed until that page was read: it places the memory present register at `011400` that no other model has, it does *not* place the task alias at `010300`, and its main memory is four 16 MB banks to `4FFFFFF` where Table 2-8 gives three. **And the DS4000 now has a map of its own**, as of 2026-09-09: Table 2-8's `012000` CACHE RAM and `014000` CACHE CONDITION CODE RAM, the only two rows in that table this core did not decode. They are the Series 4000 virtual cache made addressable, and they belong to the DS4000 alone -- the map is otherwise shared, so they hang off it as a *variant's* two rows rather than as a third copy of its twenty. Table 2-5's 4 KB address translation map is **implemented as of 2026-08-22**: the entry count is a property of the map, the hasher walks it rather than `AP_ATMAP_ENTRIES`, and only the DS5500 gets the wider region — so no other model's state hash moved. The `PROVISIONAL` is lifted | `board_suite`, 95 tests -- one of them driving the **absolute** pointing packet onto the keyboard's wire, which nothing called and nothing tested, and one sweeping `ap_board_bus_ticks(board, n)` against n calls of one across the refresh boundary, which is the whole licence for its batching and was asserted by nothing, one carrying the 8237's `EOP` to the tape's DONE bit -- the ethernet's had that line and the tape's did not -- one of them the Series 2500's own register block -- storage, `PROVISIONAL`, and the only thing standing between that firmware and its second instruction; `atbus_suite`, 16 tests  **Main memory's extent is `1000000`–`2FFFFFF`, 32 MB, corrected from `3FFFFFF` on 2026-08-19**: `008778-03` §1.5.2 gives the DS4000's memory one module at a time — `$17FFFFF` with one 8-MB module, `$1FFFFFF` with two, `$27FFFFF` with three, `$2FFFFFF` with four — and `1000000`–`3FFFFFF` is **48 MB**, not 32. The old value was the oracle's `DN3500_RAM_END`, imported without checking the arithmetic; the same MAME file gives `DN5500_RAM_END 0x2ffffff` for the same 32 MB four lines away, so the oracle contradicts itself and the manual says which is the slip. The cost was exactly what that constant's own comment warns of — sixteen megabytes of unmapped space were being reported to a trace as "main memory". Identity hash unchanged, so the reference boot never reached there  **The DS3000 has one 2681, not two, and its kilobyte is aliased** — corrected 2026-08-19 during the `008778-03` walk. Table 2-6 gives the DS3000 a single `008400`-`0087FF` row named "SIO" where Table 2-8 gives the Series 4000 two 256-byte rows, and §1.5.1 says why: the DS3000 drives "two asynchronous serial lines, SIO0 and SIO1" and the DS4000 four. One 2681 has two channels. The oracle agrees independently — `dn3000_map` sends the whole range to `m_sio` and the DN3000 configuration does `config.device_remove(APOLLO_SIO2_TAG)`. This core had mapped `2 × AP_SIO_RANGE`, putting a second DUART at `008500` and leaving `008600`-`0087FF` unmapped. Now four placements folding onto `AP_SIO1_ADDR`. **Behaviourally invisible to the boot that exists**: both DN3000 revisions run 400,000 instructions to a byte-identical state hash either side, because the PROM never reaches into that kilobyte — so this is a latent error corrected, not a failure explained |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
 | Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board runs transfers: controller 1's request cascaded onto controller 2's channel 0 and one request reaching the arbiter, the address through the translation map, and the processor stalled while a controller holds the bus. The cascade and the channel assignments are `008778-03` Table 2-4's, so the AT convention this module used to refuse is now cited rather than assumed. **The peripheral side is wired**: the tape drives its own request line and its cartridge reaches memory by DMA, and the disk's two data ports move under an acknowledge | `dma_suite`, 18 tests; `FINDINGS.md` C13 |
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 31 tests, `8237A` 231466 |
@@ -46401,3 +46401,107 @@ the goldens re-blessed if it does — which the item says it must not.
   wherever a device's output would feed back into an instruction still
   executing. That case is what a cycle-steppable CPU makes reachable, and
   it is the reason to want one beyond speed.
+
+
+## The Series 4000 virtual cache, its write buffer, and the 16 KB Table 2-8 makes addressable
+## (moved from COMPLETION_PLAN.md on completion, 2026-09-09)
+
+`008778-03` §1.3.1 gives the DS4000 "an **8-KB, direct-mapped** cache that
+contains **2048 4-byte** instruction and/or data entries", using "a
+**write-through with write-allocate** design that causes the cache to be updated
+(along with main memory) for every memory write placed in the cache". §1.3.2
+adds a write buffer "on the virtual bus **between the microprocessor and the
+PMMU**". Table 2-8 then makes both of them reachable by a program:
+`012000`-`013FFF` CACHE RAM and `014000`-`015FFF` CACHE CONDITION CODE RAM,
+8 KB each.
+
+That last sentence is why this was never an internal structure a model could
+omit. Firmware can read and write the cache's data **and** its condition codes,
+so the two windows are architecture, not implementation.
+
+**Which models have one, and it is derived rather than stated.** §1.3.2 puts the
+write buffer between the microprocessor and the PMMU, and §1.3.1's cache on that
+same virtual bus. A **68030 has no such bus** -- its MMU is on chip -- so the
+position both structures occupy does not exist on a DS3500 or a DS4500, and a
+68040's MMU is on chip too. Of the four models `019411-A00` §4.2.1.4 groups as
+sharing Table 2-8's map, only the DS4000 is the 68020-plus-separate-68851 that
+Figure 1-2 draws the cache and the write buffer onto, and Figure 1-1's DS3000
+has neither. So `ap_model_t::has_virtual_cache` is true for `dn4000` and nothing
+else, and `ap_board_map_for` asks the table rather than naming the model.
+
+**Whether a DS3500 nevertheless decodes `012000` is not knowable from this
+shelf**, and the core takes the conservative side. Table 2-8 is titled for the
+DS4000; the DS3500 borrows it only because that model's own document,
+`007861-A01`, is unobtainable. Placing the windows everywhere would have put
+16 KB of invented RAM on three models, answering silently; placing them only
+where the cache exists leaves an access reported unmapped and visible in a
+trace. If `007861-A01` turns up, this is the first thing to re-read.
+
+**What is implemented.** `board/ap_cacheram.*`: the two windows byte-addressed
+as the board decodes them, §1.3.1's geometry as the direct-mapped index and tag
+(2048 4-byte entries index on virtual address bits `<12:2>` and tag on
+`<31:13>`, which follows from the section's two numbers and from nothing else),
+the write-allocate fill, the lookup, and invalidation. The board owns one
+`ap_cacheram_t`; `entries` is zero on every model but the DS4000 and is what the
+hasher walks, so no other model's identity hash carries 16 KB of storage it does
+not have -- the rule `ap_atmap_t::entries` already followed.
+
+**PROVISIONAL: the condition-code word's bit layout.** 8 KB across 2048 entries
+is four bytes of condition code per entry, and what those 32 bits contain is
+stated nowhere in this manual, on this shelf, or in any transcription of it
+found on the web. A direct-mapped virtual cache needs a tag and a valid bit, and
+the nineteen tag bits fit a 32-bit word with room to spare -- but that is
+arithmetic, not a citation. `AP_CACHERAM_CC_VALID` and
+`AP_CACHERAM_CC_TAG_SHIFT` are therefore this core's layout. What is **not**
+provisional is the behaviour every plausible layout agrees on, and it is the one
+a diagnostic actually performs: a condition-code word of zero is an invalid
+entry, so clearing the window invalidates the cache. `board_suite` asserts that
+through the board's own write path, byte by byte across all 8 KB.
+
+**Deliberately not done: the cache does not sit in the CPU's read path**, and
+the reason is that it would be observationally identical if it did. The policy
+is write-through, so main memory is current after every write and a cache that
+is never stale cannot answer differently from memory. The one thing that would
+make it visible is *time* -- a hit costing fewer cycles than a memory cycle --
+and no source gives a hit cost, nor the write buffer's depth; `[S3K]` describes
+both structures qualitatively and publishes no figure for either. Intercepting
+the path would add a branch to the hottest loop in the core in exchange for a
+difference no probe could measure, and would need an invented number to become
+measurable. The lookup and the mapping are implemented and tested, so a timing
+model has them ready the day a figure appears.
+
+*Verification: `board_suite` 83 -> 95. Twelve tests: only the DS4000 decoding
+either window and neither hiding in the shared list; a variant's rows disjoint
+from the shared map and from each other; the windows' four addresses and two
+sizes against Table 2-8 as printed; both windows holding what a program writes
+through `ap_board_write`; a DS3500 reporting both as unmapped; the index and tag
+at the entry boundaries and across the 8 KB wrap; a filled entry found again
+with its bytes big-endian in the data window; a second tag displacing the first
+in one entry, which is what direct-mapped means; the whole condition-code window
+cleared through the board invalidating the cache while the data window keeps its
+bytes; a board without the structure never reporting a hit; and the cache
+reaching the board's state hash on a DS4000 while a DS3500's is unmoved by the
+same call. `ctest` 145/145.*
+
+**Identity harness: the hash did not move, and the prediction that it would was
+wrong.** `tools/identity-boot.sh`, 350 M instructions, RELEASE build:
+`77B60315440826A6` with `clocks 1408661906` -- the recorded reference to the
+digit, unchanged.
+
+The expectation had been that a new hasher must move it, since
+`ap_board_hash_cache` is called for every model. It does not, and the reason is
+worth writing down because it is the rule for every hasher added after this one:
+`ap_hash_scope`, `ap_hash_note_u32` and an `ap_hash_group` with nothing in it
+are **annotation for the dump and do not feed the digest**. A DN3500's cache has
+`entries == 0`, so the loop runs zero times and the whole call contributes
+nothing. The count is therefore recorded as a *note* rather than an
+`ap_hash_u32`, which is the choice `ap_board_hash_translation_map` already made
+and for the same reason -- hashing it explicitly would move nine models'
+reference hashes for a structure eight of them do not have.
+
+So the unmoved hash is the *expected* result here rather than a null one: it
+says the new state is reachable on a DS4000 and invisible everywhere else, which
+is what the model gate was for. That the DS4000 side is live is asserted
+separately, by `board_suite` filling an entry and requiring the board's state
+hash to move on a `dn4000` and to stay put on a `dn3500` under the identical
+call.

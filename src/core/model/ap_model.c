@@ -218,6 +218,11 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .has_ring = true,
         .has_address_translation_map = true,
         .has_active_low_parity_lanes = true,
+        /* The one model with `[S3K]` §1.3.1's virtual cache: Figure 1-2 draws
+         * it and the write buffer onto this machine's logical bus, beside the
+         * separate 68851 that a 68030 model does not have. See
+         * `ap_model.h`'s field and `board/ap_cacheram.h`. */
+        .has_virtual_cache = true,
         .provisional = "display resolution is a 1988 market report's, not a "
                        "manual's -- no hardware document states one per model",
     },

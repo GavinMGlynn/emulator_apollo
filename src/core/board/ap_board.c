@@ -119,8 +119,13 @@ static const ap_board_placement_t DS3000_PLACEMENT[] = {
  *
  * The DS5500 has since been split out -- `019411-A00` Table 2-5 replaces the
  * handbook's page wholesale for that model -- which leaves this serving the
- * DS3500, the DS4000 and the DS4500. The DS4000 itself is still absent from
- * `src/core/model/`; see `docs/COMPLETION_PLAN.md`. */
+ * DS3500, the DS4000 and the DS4500.
+ *
+ * ~~The DS4000 itself is still absent from `src/core/model/`.~~ **Closed**: it
+ * is `dn4000` in the model table, from Figure 1-2. The sentence is kept struck
+ * rather than deleted because it is what the name `DS4000_MAP` was wrong about,
+ * and it explains why this array is named for the architecture group. The one
+ * thing the DS4000 does *not* share with the rest of the group is below. */
 static const ap_board_map_t SERIES_4000_MAP = {
     .name = "Series 4000",
     .placement = SERIES_4000_PLACEMENT,
@@ -130,6 +135,38 @@ static const ap_board_map_t SERIES_4000_MAP = {
     .prom_size = AP_BOARD_PROM_SIZE,
     .has_translation_map = true,
     /* "The Series 4000 makes use of all virtual address bits." */
+    .address_mask = 0xFFFFFFFFu,
+};
+
+/* Table 2-8's two remaining rows, which only the DS4000 decodes.
+ *
+ * `[S3K]` §1.3.1's virtual cache **made addressable**: the board exposes the
+ * cache's data RAM and its condition-code RAM to the processor, so this is not
+ * an internal structure a model may omit -- firmware can read and write both.
+ * Why the DS4000 alone, when Table 2-8 is the map every Series 4000 model
+ * borrows, is argued in `board/ap_cacheram.h`: the cache and the write buffer
+ * sit on a virtual bus *between the microprocessor and the PMMU*, and a 68030
+ * or 68040 model has no such bus. */
+static const ap_board_placement_t DS4000_CACHE_PLACEMENT[] = {
+    {AP_CACHERAM_DATA_BASE, AP_CACHERAM_DATA_BYTES, AP_BOARD_REGION_CACHE_RAM,
+     AP_CACHERAM_DATA_BASE},
+    {AP_CACHERAM_CC_BASE, AP_CACHERAM_CC_BYTES, AP_BOARD_REGION_CACHE_CC_RAM,
+     AP_CACHERAM_CC_BASE},
+};
+
+/* The Series 4000 map plus those two rows. Everything else about a DS4000's
+ * decode is Table 2-8 exactly, which is what the group shares. */
+static const ap_board_map_t DS4000_MAP = {
+    .name = "DS4000",
+    .placement = SERIES_4000_PLACEMENT,
+    .placements = sizeof SERIES_4000_PLACEMENT / sizeof SERIES_4000_PLACEMENT[0],
+    .extra_placement = DS4000_CACHE_PLACEMENT,
+    .extra_placements =
+        sizeof DS4000_CACHE_PLACEMENT / sizeof DS4000_CACHE_PLACEMENT[0],
+    .ram_base = AP_BOARD_RAM_BASE,
+    .ram_limit = AP_BOARD_RAM_LIMIT,
+    .prom_size = AP_BOARD_PROM_SIZE,
+    .has_translation_map = true,
     .address_mask = 0xFFFFFFFFu,
 };
 
@@ -352,6 +389,13 @@ const ap_board_map_t *ap_board_map_for(ap_model_id_t model) {
   if (model == AP_MODEL_DN5500) {
     return &DS5500_MAP;
   }
+  /* And by model for the same reason again: a DS4000 has every flag a DS3500
+   * has. What separates them is the virtual cache, which the table does record
+   * -- so this asks the table rather than naming the model, and a second model
+   * that turns out to carry the structure needs no change here. */
+  if (entry != NULL && entry->has_virtual_cache) {
+    return &DS4000_MAP;
+  }
   if (entry != NULL && !entry->has_address_translation_map) {
     return &DS3000_MAP;
   }
@@ -365,6 +409,19 @@ static bool locate(const ap_board_t *board, uint32_t address,
   const ap_board_map_t *map = board->map;
   for (unsigned i = 0; i < map->placements; i++) {
     const ap_board_placement_t *p = &map->placement[i];
+    if (in(address, p->base, p->size)) {
+      *region = p->region;
+      *canonical = p->canonical + (address - p->base);
+      return true;
+    }
+  }
+  /* A variant's own rows, after the shared ones -- see `extra_placement`. The
+   * order does not matter, because `board_suite`'s
+   * `test_a_variants_own_rows_overlap_nothing_on_the_shared_map` asserts the
+   * two lists are disjoint; scanning them second keeps the common map's cost
+   * unchanged for every model that has no variant. */
+  for (unsigned i = 0; i < map->extra_placements; i++) {
+    const ap_board_placement_t *p = &map->extra_placement[i];
     if (in(address, p->base, p->size)) {
       *region = p->region;
       *canonical = p->canonical + (address - p->base);
@@ -1225,8 +1282,13 @@ void ap_board_advance_one(ap_board_t *board, uint32_t address, ap_time_t now) {
   case AP_BOARD_REGION_PROM:
   case AP_BOARD_REGION_S2500_CONTROL:
   case AP_BOARD_REGION_DESKTOP_VISUALIZATION:
+  case AP_BOARD_REGION_CACHE_RAM:
+  case AP_BOARD_REGION_CACHE_CC_RAM:
     /* Nothing to observe: none of them keeps time. The Series 2500 block is
-     * storage with no modelled behaviour at all (see its declaration). */
+     * storage with no modelled behaviour at all (see its declaration), and the
+     * cache windows are storage too -- `[S3K]` publishes no hit cost and no
+     * write-buffer depth, which is exactly why `ap_cacheram.h` keeps the
+     * structure out of the timed path. */
     return;
   case AP_BOARD_REGION_SIO:
     ap_sio_advance(&board->sio, now);
@@ -1472,6 +1534,14 @@ bool ap_board_cache_inhibited(const ap_board_t *board, uint32_t address) {
   case AP_BOARD_REGION_CORE_REGISTER:
   case AP_BOARD_REGION_S2500_CONTROL:
   case AP_BOARD_REGION_DESKTOP_VISUALIZATION:
+  /* The cache's own windows are **not cacheable**, which reads like a
+   * tautology and is not: they are the aperture onto the cache's storage, and
+   * a processor that cached a read of `012000` would be holding a copy of the
+   * thing it is looking at. Uncacheable is also what this switch's default
+   * direction gives them, so this is naming the answer rather than changing
+   * it. */
+  case AP_BOARD_REGION_CACHE_RAM:
+  case AP_BOARD_REGION_CACHE_CC_RAM:
   case AP_BOARD_REGION_SIO:
   case AP_BOARD_REGION_TIMER:
   case AP_BOARD_REGION_CALENDAR:
@@ -1509,6 +1579,8 @@ const char *ap_board_region_name(ap_board_region_t region) {
   case AP_BOARD_REGION_DESKTOP_VISUALIZATION:
     return "desktop visualization";
   case AP_BOARD_REGION_PROM: return "boot PROM";
+  case AP_BOARD_REGION_CACHE_RAM: return "cache RAM";
+  case AP_BOARD_REGION_CACHE_CC_RAM: return "cache condition code RAM";
   case AP_BOARD_REGION_CORE_REGISTER: return "core register";
   case AP_BOARD_REGION_SIO: return "serial";
   case AP_BOARD_REGION_TIMER: return "interval timer";
@@ -1559,6 +1631,11 @@ bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
      * and the register file is given the answer rather than deciding it. */
     ap_boardreg_set_ds5500_cache_status(&board->registers,
                                         model == AP_MODEL_DN5500);
+    /* `[S3K]` §1.3.1's virtual cache, on the one model that has it. The
+     * storage is cleared either way; `entries` is what says whether the
+     * structure exists, and it is what the hasher walks -- so a board without
+     * one contributes nothing, exactly as an absent translation map does. */
+    ap_cacheram_init(&board->cache, entry != NULL && entry->has_virtual_cache);
     /* "a graphics device is in the HSI connector". A DSP5500 is this board
      * without a display, which is exactly what the bit reports. */
     ap_boardreg_set_hsi_graphics(&board->registers,
@@ -1782,6 +1859,10 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     return (address & 1u) != 0u ? (uint8_t)(entry & 0xFFu)
                                 : (uint8_t)(entry >> 8);
   }
+  case AP_BOARD_REGION_CACHE_RAM:
+    return ap_cacheram_read_data(&board->cache, address);
+  case AP_BOARD_REGION_CACHE_CC_RAM:
+    return ap_cacheram_read_cc(&board->cache, address);
   case AP_BOARD_REGION_DISK:
     return ap_disk_read(&board->disk, address);
   case AP_BOARD_REGION_TAPE:
@@ -2019,6 +2100,17 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
     return;
   case AP_BOARD_REGION_GRAPHICS:
     ap_graphics_write(&board->graphics, address, value);
+    return;
+  case AP_BOARD_REGION_CACHE_RAM:
+    ap_cacheram_write_data(&board->cache, address, value);
+    return;
+  case AP_BOARD_REGION_CACHE_CC_RAM:
+    /* Writable, and this is the half that has a *consequence*: a condition-code
+     * word of zero is an invalid entry, so a diagnostic clearing this window
+     * invalidates the cache. That is the one behaviour every plausible bit
+     * layout agrees on, which is why `ap_cacheram.h` can mark the positions
+     * PROVISIONAL and still model this exactly. */
+    ap_cacheram_write_cc(&board->cache, address, value);
     return;
   case AP_BOARD_REGION_ETHERNET: {
     uint32_t offset = 0;

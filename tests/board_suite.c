@@ -141,6 +141,16 @@ static void test_no_device_placement_overlaps_the_memory_range(void) {
       TEST_ASSERT_TRUE_MESSAGE(last < map->ram_base || p->base > map->ram_limit,
                                map->name);
     }
+    /* A variant's own rows are placements like any other and get the same
+     * guarantee: the DS4000's two cache windows are decoded ahead of nothing
+     * and behind main memory's test, so one placed inside the memory range
+     * would be shadowed silently. */
+    for (unsigned i = 0; i < map->extra_placements; i++) {
+      const ap_board_placement_t *p = &map->extra_placement[i];
+      const uint32_t last = p->base + p->size - 1u;
+      TEST_ASSERT_TRUE_MESSAGE(last < map->ram_base || p->base > map->ram_limit,
+                               map->name);
+    }
 
     /* Both graphics decodes too: they are checked below the memory test as
      * well, and the frame buffers are the placements most plausibly mistaken
@@ -3006,6 +3016,238 @@ static void test_a_board_with_no_clock_is_charged_nothing(void) {
       0u, ap_atbus_dma_transfer_ticks(AP_ATBUS_SERIES_3000, 0u));
 }
 
+/* ## `[S3K]` §1.3.1's virtual cache and Table 2-8's two windows
+ *
+ * The cache itself is transparent -- write-through, and no published hit cost
+ * -- so everything observable about it is these two apertures and the geometry
+ * behind them. See `board/ap_cacheram.h`, including which bits of the
+ * condition-code word are PROVISIONAL and which behaviour is not. */
+
+/* Table 2-8 gives the rows; §1.3.1 and §1.3.2 give them to the Series 4000's
+ * virtual bus, which only the 68020-plus-68851 DS4000 has. */
+static void test_only_the_ds4000_decodes_the_cache_ram_windows(void) {
+  for (ap_model_id_t id = 0; id < AP_MODEL_COUNT; id++) {
+    const ap_board_map_t *map = ap_board_map_for(id);
+    TEST_ASSERT_NOT_NULL(map);
+    bool data = false;
+    bool cc = false;
+    for (unsigned i = 0; i < map->extra_placements; i++) {
+      if (map->extra_placement[i].base == AP_CACHERAM_DATA_BASE) {
+        data = true;
+      }
+      if (map->extra_placement[i].base == AP_CACHERAM_CC_BASE) {
+        cc = true;
+      }
+    }
+    /* And not hiding in the shared list either, which is the mistake that
+     * would give all four Series 4000 models a cache. */
+    for (unsigned i = 0; i < map->placements; i++) {
+      TEST_ASSERT_NOT_EQUAL_UINT32(AP_CACHERAM_DATA_BASE,
+                                   map->placement[i].base);
+      TEST_ASSERT_NOT_EQUAL_UINT32(AP_CACHERAM_CC_BASE, map->placement[i].base);
+    }
+    TEST_ASSERT_EQUAL_MESSAGE(id == AP_MODEL_DN4000, data, map->name);
+    TEST_ASSERT_EQUAL_MESSAGE(id == AP_MODEL_DN4000, cc, map->name);
+  }
+}
+
+/* A variant's rows are scanned after the shared ones, which is only safe while
+ * nothing claims an address twice. Named in `locate`. */
+static void test_a_variants_own_rows_overlap_nothing_on_the_shared_map(void) {
+  for (ap_model_id_t id = 0; id < AP_MODEL_COUNT; id++) {
+    const ap_board_map_t *map = ap_board_map_for(id);
+    TEST_ASSERT_NOT_NULL(map);
+    for (unsigned i = 0; i < map->extra_placements; i++) {
+      const ap_board_placement_t *e = &map->extra_placement[i];
+      const uint32_t e_last = e->base + e->size - 1u;
+      for (unsigned j = 0; j < map->placements; j++) {
+        const ap_board_placement_t *p = &map->placement[j];
+        const uint32_t p_last = p->base + p->size - 1u;
+        TEST_ASSERT_TRUE_MESSAGE(e_last < p->base || e->base > p_last,
+                                 map->name);
+      }
+      /* And not over each other. */
+      for (unsigned j = i + 1u; j < map->extra_placements; j++) {
+        const ap_board_placement_t *q = &map->extra_placement[j];
+        const uint32_t q_last = q->base + q->size - 1u;
+        TEST_ASSERT_TRUE_MESSAGE(e_last < q->base || e->base > q_last,
+                                 map->name);
+      }
+    }
+  }
+}
+
+/* `012000`-`013FFF` and `014000`-`015FFF`, 8 KB each, and §1.3.1's "2048
+ * 4-byte entries" is the same 8192 bytes counted the other way. */
+static void test_the_cache_windows_are_the_eight_kilobytes_table_2_8_gives(
+    void) {
+  TEST_ASSERT_EQUAL_UINT32(0x012000u, AP_CACHERAM_DATA_BASE);
+  TEST_ASSERT_EQUAL_UINT32(0x013FFFu, AP_CACHERAM_DATA_LIMIT);
+  TEST_ASSERT_EQUAL_UINT32(0x014000u, AP_CACHERAM_CC_BASE);
+  TEST_ASSERT_EQUAL_UINT32(0x015FFFu, AP_CACHERAM_CC_LIMIT);
+  TEST_ASSERT_EQUAL_UINT32(8192u, AP_CACHERAM_DATA_BYTES);
+  TEST_ASSERT_EQUAL_UINT32(8192u, AP_CACHERAM_CC_BYTES);
+  TEST_ASSERT_EQUAL_UINT(2048u, AP_CACHERAM_ENTRIES);
+}
+
+/* The point of the item: firmware can read and write the cache's data RAM. */
+static void test_the_cache_ram_window_holds_what_a_program_writes(void) {
+  ap_board_t dn4000;
+  TEST_ASSERT_TRUE(ap_board_init_model(&dn4000, ram, sizeof ram, &START,
+                                       0x012345u, AP_MODEL_DN4000));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_CACHE_RAM,
+                         ap_board_region(&dn4000, AP_CACHERAM_DATA_BASE));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_CACHE_RAM,
+                         ap_board_region(&dn4000, AP_CACHERAM_DATA_LIMIT));
+  bool ok = false;
+  ap_board_write(&dn4000, AP_CACHERAM_DATA_BASE, 0xA5u, &ok);
+  TEST_ASSERT_TRUE(ok);
+  ap_board_write(&dn4000, AP_CACHERAM_DATA_LIMIT, 0x5Au, &ok);
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_HEX8(0xA5u,
+                         ap_board_read(&dn4000, AP_CACHERAM_DATA_BASE, &ok));
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_HEX8(0x5Au,
+                         ap_board_read(&dn4000, AP_CACHERAM_DATA_LIMIT, &ok));
+  TEST_ASSERT_TRUE(ok);
+}
+
+/* And its condition-code RAM, which is the half with a consequence. */
+static void test_the_condition_code_window_holds_what_a_program_writes(void) {
+  ap_board_t dn4000;
+  TEST_ASSERT_TRUE(ap_board_init_model(&dn4000, ram, sizeof ram, &START,
+                                       0x012345u, AP_MODEL_DN4000));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_CACHE_CC_RAM,
+                         ap_board_region(&dn4000, AP_CACHERAM_CC_BASE));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_CACHE_CC_RAM,
+                         ap_board_region(&dn4000, AP_CACHERAM_CC_LIMIT));
+  bool ok = false;
+  ap_board_write(&dn4000, AP_CACHERAM_CC_BASE + 3u, 0x01u, &ok);
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_HEX8(
+      0x01u, ap_board_read(&dn4000, AP_CACHERAM_CC_BASE + 3u, &ok));
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_HEX32(0x00000001u, ap_cacheram_cc_word(&dn4000.cache, 0u));
+}
+
+/* The conservative reading of a table titled for one model: a DS3500 borrows
+ * Table 2-8's map because its own handbook is unobtainable, so this core places
+ * the cache windows only where the cache exists rather than inventing 16 KB of
+ * RAM that would answer silently. */
+static void test_a_model_without_the_cache_decodes_nothing_at_the_windows(
+    void) {
+  ap_board_t dn3500;
+  TEST_ASSERT_TRUE(ap_board_init_model(&dn3500, ram, sizeof ram, &START,
+                                       0x012345u, AP_MODEL_DN3500));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED,
+                         ap_board_region(&dn3500, AP_CACHERAM_DATA_BASE));
+  TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED,
+                         ap_board_region(&dn3500, AP_CACHERAM_CC_BASE));
+  TEST_ASSERT_FALSE(ap_cacheram_present(&dn3500.cache));
+}
+
+/* 2048 4-byte entries index on virtual address bits <12:2> and tag on <31:13>.
+ * Both follow from §1.3.1's two numbers and from nothing else. */
+static void test_a_direct_mapped_entry_is_chosen_by_address_bits_12_to_2(void) {
+  TEST_ASSERT_EQUAL_UINT(0u, ap_cacheram_index(0x00000000u));
+  TEST_ASSERT_EQUAL_UINT(0u, ap_cacheram_index(0x00000003u));
+  TEST_ASSERT_EQUAL_UINT(1u, ap_cacheram_index(0x00000004u));
+  TEST_ASSERT_EQUAL_UINT(2047u, ap_cacheram_index(0x00001FFCu));
+  /* Bit 13 is the first tag bit, so it wraps back to entry zero. */
+  TEST_ASSERT_EQUAL_UINT(0u, ap_cacheram_index(0x00002000u));
+  TEST_ASSERT_EQUAL_HEX32(0u, ap_cacheram_tag(0x00001FFCu));
+  TEST_ASSERT_EQUAL_HEX32(1u, ap_cacheram_tag(0x00002000u));
+}
+
+/* Write-allocate: a write that misses is placed in the cache, and §1.3.1 says
+ * the cache is updated for every memory write placed in it. */
+static void test_a_filled_entry_is_found_again_at_its_own_address(void) {
+  ap_cacheram_t cache;
+  ap_cacheram_init(&cache, true);
+  uint32_t got = 0u;
+  TEST_ASSERT_FALSE(ap_cacheram_lookup(&cache, 0x00012340u, &got));
+  ap_cacheram_fill(&cache, 0x00012340u, 0xDEADBEEFu);
+  TEST_ASSERT_TRUE(ap_cacheram_lookup(&cache, 0x00012340u, &got));
+  TEST_ASSERT_EQUAL_HEX32(0xDEADBEEFu, got);
+  /* And the data landed in the window a program reads, big-endian. */
+  TEST_ASSERT_EQUAL_HEX8(0xDEu,
+                         ap_cacheram_read_data(&cache,
+                                               AP_CACHERAM_DATA_BASE +
+                                                   ap_cacheram_index(
+                                                       0x00012340u) *
+                                                       4u));
+}
+
+/* Direct-mapped means one entry per index, so an address 8 KB away evicts
+ * rather than coexists. */
+static void test_a_second_tag_in_one_entry_displaces_the_first(void) {
+  ap_cacheram_t cache;
+  ap_cacheram_init(&cache, true);
+  uint32_t got = 0u;
+  ap_cacheram_fill(&cache, 0x00010000u, 0x11111111u);
+  TEST_ASSERT_EQUAL_UINT(ap_cacheram_index(0x00010000u),
+                         ap_cacheram_index(0x00012000u));
+  ap_cacheram_fill(&cache, 0x00012000u, 0x22222222u);
+  TEST_ASSERT_TRUE(ap_cacheram_lookup(&cache, 0x00012000u, &got));
+  TEST_ASSERT_EQUAL_HEX32(0x22222222u, got);
+  TEST_ASSERT_FALSE(ap_cacheram_lookup(&cache, 0x00010000u, &got));
+}
+
+/* The one behaviour that does not depend on the PROVISIONAL bit layout: a
+ * condition-code word of zero is an invalid entry, so a diagnostic clearing the
+ * window invalidates the cache. */
+static void test_clearing_the_condition_code_window_invalidates_the_cache(
+    void) {
+  ap_board_t dn4000;
+  TEST_ASSERT_TRUE(ap_board_init_model(&dn4000, ram, sizeof ram, &START,
+                                       0x012345u, AP_MODEL_DN4000));
+  uint32_t got = 0u;
+  ap_cacheram_fill(&dn4000.cache, 0x00040000u, 0xCAFEF00Du);
+  TEST_ASSERT_TRUE(ap_cacheram_lookup(&dn4000.cache, 0x00040000u, &got));
+  bool ok = false;
+  for (uint32_t a = AP_CACHERAM_CC_BASE; a <= AP_CACHERAM_CC_LIMIT; a++) {
+    ap_board_write(&dn4000, a, 0x00u, &ok);
+    TEST_ASSERT_TRUE(ok);
+  }
+  TEST_ASSERT_FALSE(ap_cacheram_lookup(&dn4000.cache, 0x00040000u, &got));
+  /* The data window keeps what was written to it: an invalid entry's data is
+   * not reachable through the lookup, and a diagnostic that clears condition
+   * codes and then reads the data window expects to see its own bytes. */
+  TEST_ASSERT_EQUAL_HEX8(
+      0xCAu, ap_cacheram_read_data(
+                 &dn4000.cache,
+                 AP_CACHERAM_DATA_BASE + ap_cacheram_index(0x00040000u) * 4u));
+}
+
+/* A board with no virtual cache cannot hit in one, whatever is asked of it. */
+static void test_a_board_without_the_cache_never_reports_a_hit(void) {
+  ap_cacheram_t cache;
+  ap_cacheram_init(&cache, false);
+  uint32_t got = 0u;
+  ap_cacheram_fill(&cache, 0x00012340u, 0xDEADBEEFu);
+  TEST_ASSERT_FALSE(ap_cacheram_lookup(&cache, 0x00012340u, &got));
+  TEST_ASSERT_EQUAL_UINT(0u, cache.entries);
+}
+
+/* The hasher walks the machine's own count, so the 16 KB of storage a model
+ * without the structure still carries stays out of its identity hash -- the
+ * same rule `ap_atmap_t::entries` follows. */
+static void test_the_cache_reaches_the_boards_state_hash_only_where_it_exists(
+    void) {
+  ap_board_t dn4000;
+  ap_board_t dn3500;
+  TEST_ASSERT_TRUE(ap_board_init_model(&dn4000, ram, sizeof ram, &START,
+                                       0x012345u, AP_MODEL_DN4000));
+  TEST_ASSERT_TRUE(ap_board_init_model(&dn3500, ram, sizeof ram, &START,
+                                       0x012345u, AP_MODEL_DN3500));
+  const uint64_t dn4000_before = ap_board_state_hash(&dn4000);
+  const uint64_t dn3500_before = ap_board_state_hash(&dn3500);
+  ap_cacheram_fill(&dn4000.cache, 0x00012340u, 0xDEADBEEFu);
+  ap_cacheram_fill(&dn3500.cache, 0x00012340u, 0xDEADBEEFu);
+  TEST_ASSERT_NOT_EQUAL_UINT64(dn4000_before, ap_board_state_hash(&dn4000));
+  TEST_ASSERT_EQUAL_HEX64(dn3500_before, ap_board_state_hash(&dn3500));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_ethernet_card_is_absent_until_it_is_fitted);
@@ -3091,6 +3333,19 @@ int main(void) {
   RUN_TEST(test_the_desktop_visualization_space_is_named_on_the_ds5500);
   RUN_TEST(test_no_other_model_has_a_desktop_visualization_space);
   RUN_TEST(test_a_dma_transfer_takes_four_controller_states);
+  RUN_TEST(test_only_the_ds4000_decodes_the_cache_ram_windows);
+  RUN_TEST(test_a_variants_own_rows_overlap_nothing_on_the_shared_map);
+  RUN_TEST(test_the_cache_windows_are_the_eight_kilobytes_table_2_8_gives);
+  RUN_TEST(test_the_cache_ram_window_holds_what_a_program_writes);
+  RUN_TEST(test_the_condition_code_window_holds_what_a_program_writes);
+  RUN_TEST(test_a_model_without_the_cache_decodes_nothing_at_the_windows);
+  RUN_TEST(test_a_direct_mapped_entry_is_chosen_by_address_bits_12_to_2);
+  RUN_TEST(test_a_filled_entry_is_found_again_at_its_own_address);
+  RUN_TEST(test_a_second_tag_in_one_entry_displaces_the_first);
+  RUN_TEST(test_clearing_the_condition_code_window_invalidates_the_cache);
+  RUN_TEST(test_a_board_without_the_cache_never_reports_a_hit);
+  RUN_TEST(test_the_cache_reaches_the_boards_state_hash_only_where_it_exists);
+
   RUN_TEST(test_a_board_with_no_clock_is_charged_nothing);
   return UNITY_END();
 }

@@ -108,6 +108,36 @@ static void hash_i8259(ap_hash_t *st, const ap_i8259_t *pic) {
   ap_hash_u8(st, pic->acknowledged_level);
 }
 
+void ap_board_hash_cache(ap_hash_t *st, const ap_cacheram_t *cache) {
+  ap_hash_scope(st, "cache");
+  /* **The machine's own count, not the constant**, exactly as the translation
+   * map does it: `entries` is zero on every model but the DS4000, so a board
+   * with no virtual cache contributes **nothing at all** to the digest. The
+   * 16 KB of storage is still there -- one structure serves every board -- and
+   * hashing it unconditionally would put 16,384 zero bytes into every model's
+   * identity hash for a structure they do not have.
+   *
+   * Nothing at all, and not "a zero": `ap_hash_scope`, `ap_hash_note_u32` and
+   * an empty `ap_hash_group` are all annotation for the dump and none of them
+   * feeds the digest. That is why the count below is a *note* rather than an
+   * `ap_hash_u32` -- hashing it explicitly would be self-evident and would move
+   * every model's reference hash by one word for a structure eight of the nine
+   * do not have. The translation map settled this the same way and this follows
+   * it. **Measured, not assumed**: the reference DN3500 boot is byte-identical
+   * and its hash unmoved at `77B60315440826A6` across this module landing.
+   *
+   * Both windows, because both are writable and a diagnostic writes both. The
+   * data window alone would miss the half that decides validity. */
+  ap_hash_note_u32(st, "entries", (uint32_t)cache->entries);
+  ap_hash_group_begin(st, "entries");
+  for (unsigned i = 0; i < cache->entries; i++) {
+    ap_hash_bytes(st, &cache->data[i * AP_CACHERAM_ENTRY_BYTES],
+                  AP_CACHERAM_ENTRY_BYTES);
+    ap_hash_u32(st, ap_cacheram_cc_word(cache, i));
+  }
+  ap_hash_group_end(st);
+}
+
 void ap_board_hash_interrupts(ap_hash_t *st, const ap_intr_t *interrupts) {
   ap_hash_scope(st, "interrupts");
   /* Master then slave, in that order, so a machine with the two exchanged does
@@ -988,6 +1018,7 @@ void ap_board_hash_ring_station(ap_hash_t *st, const ap_ring_station_t *s) {
 void ap_board_hash(ap_hash_t *st, const ap_board_t *board) {
   ap_board_hash_registers(st, &board->registers);
   ap_board_hash_translation_map(st, &board->translation_map);
+  ap_board_hash_cache(st, &board->cache);
   ap_board_hash_interrupts(st, &board->interrupts);
   ap_board_hash_timer(st, &board->timer);
   ap_board_hash_calendar(st, &board->calendar);
