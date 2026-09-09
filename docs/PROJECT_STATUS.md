@@ -1851,6 +1851,16 @@ a different bound. That is the failure the original guard was written about —
 three runs asked for six billion instructions, got 1,705,032,704, and reported
 the bound they were given as if it had been honoured.
 
+**What is not yet demonstrated, stated rather than glossed**: a single run that
+actually *executes* more than 2^32 instructions. The unit test proves the bound
+is honoured rather than truncated, and `check_frontend_flags` proves it is
+accepted — but an end-to-end run of that length takes about three quarters of an
+hour on this machine, and four attempts have been killed by the host's
+low-memory watchdog well before their bound. That is a property of the machine,
+not of the change: `free` reports 8.7 GB available with the run at ~400 MB RSS
+and no cgroup limit, and the kills correlate with a second background task being
+live rather than with any measured shortage.
+
 *Verification: `machine_suite` 63 → 65. The first test is the discriminating
 one and costs **one instruction rather than four billion**: `0x100000000` is
 exactly 2^32, so a limit that narrowed to `unsigned` would be **zero**, and a
