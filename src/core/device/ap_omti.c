@@ -119,6 +119,7 @@ void ap_omti_reset(ap_omti_t *omti) {
    * the motors, so no spindle is at speed and none is spinning up. */
   omti->fdc_spindle_at[0] = AP_TIME_NEVER;
   omti->fdc_spindle_at[1] = AP_TIME_NEVER;
+  omti->fdc_reset_interrupt_at = AP_TIME_NEVER;
 }
 
 bool ap_omti_disk_dma_request(const ap_omti_t *omti) {
@@ -148,6 +149,12 @@ ap_time_t ap_omti_interrupt_next_change(const ap_omti_t *omti) {
     if (omti->fdc_seek_at[unit] < next) {
       next = omti->fdc_seek_at[unit];
     }
+  }
+  /* And the reset's ready-change interrupt, which is a deadline like any other:
+   * a caller that scheduled to the soonest of the others would step over it and
+   * the line would come up late. `[765A]` p.3. */
+  if (omti->fdc_reset_interrupt_at < next) {
+    next = omti->fdc_reset_interrupt_at;
   }
   return next;
 }
@@ -616,6 +623,18 @@ void ap_omti_advance(ap_omti_t *omti, ap_time_t now) {
    * and what takes the Main Status Register's per-drive Seek bit down. §6.3
    * gives `SEEK` and `RECALIBRATE` no result phase, so nothing else marks the
    * moment. */
+  /* The reset's ready-change interrupt, `[765A]` p.3. `ST0` is the interrupt
+   * code alone: Table 5's `SE = 0, bit 6 = 1, bit 7 = 1` is "Ready Line changed
+   * state, either polarity", which is `AP_OMTI_ST0_IC_NOT_READY` with no
+   * `SEEK END`. It shares the pending-interrupt slot with a seek because a
+   * driver collects both the same way -- one `SENSE INTERRUPT STATUS`. */
+  if (omti->fdc_reset_interrupt_at != AP_TIME_NEVER &&
+      now >= omti->fdc_reset_interrupt_at) {
+    omti->fdc_reset_interrupt_at = AP_TIME_NEVER;
+    omti->fdc_seek_done[0] = true;
+    omti->fdc_seek_st0[0] = AP_OMTI_ST0_IC_NOT_READY;
+  }
+
   for (unsigned unit = 0u; unit < 2u; unit++) {
     if (omti->fdc_seek_at[unit] == AP_TIME_NEVER ||
         now < omti->fdc_seek_at[unit]) {
@@ -2425,8 +2444,24 @@ static void fdc_execute(ap_omti_t *omti) {
    *
    * SENSE INTERRUPT STATUS is the exception by definition: it is the command
    * that clears the condition, and refusing it would deadlock the part. */
-  if ((omti->fdc_seek_done[0] || omti->fdc_seek_done[1]) &&
-      opcode != AP_OMTI_FDC_SENSE_INTERRUPT) {
+  /* **A Seek or Recalibrate interrupt, and not any interrupt.** `[765]` p. 16
+   * names those two: "A Sense Interrupt Status Command must be sent after a
+   * **Seek or Recalibrate** Interrupt, otherwise the FDC will consider the next
+   * command to be an Invalid Command." The reset's ready-change interrupt is
+   * neither, and gating on it made the first command after every reset invalid
+   * -- which `afd_suite`'s scan test caught the moment that interrupt landed.
+   *
+   * Told apart by `SEEK END`, which a completed seek or recalibrate carries and
+   * a ready-change does not: `[765A]` Table 5 gives the two causes as
+   * `SE = 1` for both terminations and `SE = 0` for "Ready Line changed
+   * state". So the flag is the manual's own discriminator, not a marker
+   * invented here. */
+  const bool seek_interrupt_pending =
+      (omti->fdc_seek_done[0] &&
+       (omti->fdc_seek_st0[0] & AP_OMTI_ST0_SEEK_END) != 0u) ||
+      (omti->fdc_seek_done[1] &&
+       (omti->fdc_seek_st0[1] & AP_OMTI_ST0_SEEK_END) != 0u);
+  if (seek_interrupt_pending && opcode != AP_OMTI_FDC_SENSE_INTERRUPT) {
     omti->fdc_result[0] = AP_OMTI_ST0_IC_INVALID;
     omti->fdc_result_length = 1u;
     fdc_result(omti);
@@ -2966,6 +3001,11 @@ void ap_omti_fdc_write(ap_omti_t *omti, unsigned reg, uint8_t value) {
      * arms the command phase: before it, the data register is inert. */
     if (was_reset && !ap_omti_fdc_in_reset(omti)) {
       fdc_idle(omti);
+      /* "If RDY pin is held high during Reset, FDC will generate interrupt
+       * 1-25 ms later" -- `[765A]` p.3, and `RDY` is held high on this board.
+       * Armed on the way *out* of reset, because that is when the part starts
+       * running again and the figure dates the delay from the reset. */
+      omti->fdc_reset_interrupt_at = omti->now + AP_OMTI_FDC_RESET_INTERRUPT;
     } else if (!was_reset && ap_omti_fdc_in_reset(omti)) {
       omti->fdc_phase = AP_OMTI_PHASE_IDLE;
       omti->fdc_status = 0u;
@@ -2989,6 +3029,8 @@ void ap_omti_fdc_write(ap_omti_t *omti, unsigned reg, uint8_t value) {
       omti->fdc_seek_busy[1] = false;
       omti->fdc_seek_fail[0] = false;
       omti->fdc_seek_fail[1] = false;
+      /* A part held in reset has not finished one, so nothing is owed yet. */
+      omti->fdc_reset_interrupt_at = AP_TIME_NEVER;
     }
     return;
   }

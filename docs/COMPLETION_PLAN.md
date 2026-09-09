@@ -5958,70 +5958,23 @@ same number is what let them diverge once already.
       trap `stale-comments-outlive-the-walk` records.
       *Verification: `omti_suite` 41 → 43, `afd_suite` 48.* Detail in
       `PROJECT_STATUS.md`.
-- [ ] **One µPD765 behaviour left: the reset-with-`RDY`-high interrupt.** *Of
-      the three this item opened with, two are closed under the
-      documentation-absent rule and the third — the polling feature — is closed
-      by its consumer clause; see below. What remains is work, not evidence.*
-      **The polling feature** and **the reset-with-`RDY`-high interrupt**, which
-      share one blocker and it is now named precisely. The first: after
-      `SPECIFY` the part polls every drive for a Ready-line change and
-      interrupts on one, reported as `NR` through `SENSE INTERRUPT STATUS`
-      (`[765A]` p.11 gives 1.024 ms per drive, `[8272A]` Table 6 gives 220 µs,
-      or 440 µs with both select lines high). The second: `[765A]` p.3 "1-25 ms
-      later", `[765AB]` p.2 "within 1.024 ms" — two revisions, two figures,
-      recorded as printed.
-      ~~**Both wait on the same fact: what this board connects the 765's `RDY`
-      pin to. No document on this shelf says how it is wired.**~~ **That blocker
-      was false, and `OMTI_WALK.md` had already refuted it — struck 2026-09-09.**
-      Its own pin-table row, written the same day, says it outright: **"Pin 35
-      `RDY` is dedicated — but the PC/AT 34-pin floppy interface carries no
-      READY line, so on an AT board it is tied."** The answer was in a walk
-      record here while this item claimed no document had it, which is the
-      grep-before-naming-a-blocker rule broken again.
-      **`RDY` is tied *asserted***, on three independent grounds: the AT
-      interface has no READY line to drive it; the oracle wires the part
-      `UPD765A(config, m_fdc, 48_MHz_XTAL / 6, false, false)` and never calls
-      `ready_w`, so its `get_ready()` returns `!external_ready` = **true**
-      always; and functionally it must be, or every read and write would
-      terminate `NR` and no floppy would work at all.
-      *The same line settles a `PROVISIONAL` beside it*: `48 MHz / 6` is
-      **8 MHz**, the column `AP_OMTI_FDC_SRT_MS` already uses, so the 4 MHz
-      "mini-floppy" alternative the datasheet walk recorded is not this board's.
-      **So the polling feature is CLOSED under the documentation-absent rule's
-      consumer clause**: it interrupts on a *change* of the Ready line, and a
-      tied line never changes, so nothing on this board can assert it. The
-      execution evidence is the floppy working — `Drive 0 passed.` and a booted
-      volume — with nothing reading it.
-      **And the reset-with-`RDY`-high interrupt is unblocked**, not
-      undecidable: RDY is held high, so `[765A]`'s "FDC will generate interrupt
-      1-25 ms later" applies. What is left is choosing between two published
-      figures — that bracket and `[765AB]`'s "within **1.024 ms**", the later
-      revision's, which is also exactly that document's polling period and so a
-      derived value rather than a bracket. A `PROVISIONAL` with a reason.
-      **MFM's refusal of 128-byte sectors** (`N = 00`, `[765A]` p.14 note 3) and
-      **"no other command could be issued for as long as FDC is in process of
-      sending Step Pulses to any drive"** (`[765A]` p.15) — **both CLOSED
-      2026-09-09 under the documentation-absent rule.** Each states that the
-      thing must not be done and **neither says what the part does if it is**,
-      and that consequence is now established absent at all three tiers:
-      *reference*, all four datasheet editions carry the prohibition and none
-      the outcome; *web*, searched, and what comes back is those same datasheets;
-      *oracle*, which implements **neither** — MAME's `upd765` computes
-      `128 << size` with no MFM refusal, and its `start_command` has no
-      seek-busy guard at all.
-      *And the consumer clause covers `N = 00` outright*: this core's image
-      geometry is fixed at 512-byte sectors, so a 128-byte sector cannot be
-      presented to the part by any medium it can be given.
-      *Execution works*: the firmware's own `Drive 0 passed.`, a floppy read
-      through the modelled command set, and a booted volume, with nothing on
-      this machine issuing either forbidden form. Inventing a failure code to
-      fill the gap is the one thing that would not be an improvement.
-      **What is left of this item is one piece of *work*, not evidence**: the
-      reset-with-`RDY`-high interrupt, now that `RDY` is known to be tied
-      asserted. It is fully specified — `[765A]` Table 5's `SE=0, bit6=1,
-      bit7=1` is "Ready Line changed state, either polarity", so `ST0` reads
-      `IC = 11`, and `SENSE INTERRUPT STATUS` clears it — and needs only the
-      `PROVISIONAL` choice between the two published delays.
+- [x] **The µPD765's remaining behaviours — all closed 2026-09-09.**
+      **`RDY` is tied asserted**, which this item called undecidable while
+      `OMTI_WALK.md` already said it: the PC/AT 34-pin floppy interface carries
+      **no READY line**, so pin 35 is tied, and asserted or every access would
+      terminate `NR`. The oracle agrees and confirms **8 MHz**.
+      *Closed by that*: the **polling feature**, under the consumer clause — it
+      interrupts on a Ready-line *change* and a tied line never changes.
+      *Implemented*: the **reset ready-change interrupt** at `[765AB]`'s
+      1.024 ms, `PROVISIONAL` and reasoned in `ap_omti.h`. It does **not** gate
+      the command stream — `[765]` p.16 names *Seek or Recalibrate*, and Table 5
+      tells them apart by `SEEK END`.
+      *Closed under the documentation-absent rule*: MFM's refusal of 128-byte
+      sectors and "no other command while stepping" — prohibitions whose
+      consequence no tier states, the oracle included.
+      *Verification: `omti_suite` 43 → 45; identity `6DF967A63D3D4DA9`, clocks
+      and every counter unmoved.* Detail in `PROJECT_STATUS.md`.
+
 - [ ] **Walk the processor manuals whole — the second batch.**
       ***All six documents are walked whole as of 2026-09-07: 2,633 pages***
       — `[030]` 608/608, `[PRM]` 646/646, `[851]` 356/356, `[881]` 396/396,

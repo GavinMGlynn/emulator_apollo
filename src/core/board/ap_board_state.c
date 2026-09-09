@@ -427,6 +427,10 @@ void ap_board_hash_disk(ap_hash_t *st, const ap_disk_t *disk) {
   hash_bool(st, omti->fdc_seek_busy[1]);
   hash_bool(st, omti->fdc_seek_fail[0]);
   hash_bool(st, omti->fdc_seek_fail[1]);
+  /* When the reset's ready-change interrupt comes due. State, not a counter:
+   * two controllers alike but for it raise their interrupt at different
+   * instants. `[765A]` p.3; see `AP_OMTI_FDC_RESET_INTERRUPT`. */
+  ap_hash_u64(st, omti->fdc_reset_interrupt_at);
   hash_bool(st, omti->fdc_seek_done[0]);
   hash_bool(st, omti->fdc_seek_done[1]);
   ap_hash_u8(st, omti->fdc_seek_st0[0]);

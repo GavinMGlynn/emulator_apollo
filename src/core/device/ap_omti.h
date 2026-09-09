@@ -894,6 +894,29 @@ typedef enum {
 /* Table 7-1 and Table 7-4, twice each: "start time < 500 msec" from rest to
  * 360 rpm. Exact on the time base. */
 #define AP_OMTI_FDC_SPINDLE_START ((ap_time_t)AP_TIME_BASE_HZ * 500u / 1000u)
+
+/* How long after a reset the part raises its ready-change interrupt.
+ *
+ * `[765A]` p.3 of the `RST` pin: "If RDY pin is held high during Reset, FDC
+ * will generate interrupt **1-25 ms** later. To clear this interrupt use Sense
+ * Interrupt Status command." `[765AB]` p.2 says the same thing as "within
+ * **1.024 ms**".
+ *
+ * **`RDY` is held high on this board**, which is what makes the clause apply at
+ * all and was an open question until 2026-09-09: the PC/AT 34-pin floppy
+ * interface carries no READY line, so pin 35 is tied -- `OMTI_WALK.md`'s pin
+ * table -- and it must be tied *asserted* or every read and write would
+ * terminate `NR`. The oracle agrees independently, wiring the part with its
+ * ready line not connected and never driving it.
+ *
+ * **1.024 ms, and the choice between the two figures is reasoned rather than
+ * split.** `[765A]`'s "1-25 ms" is a bracket; `[765AB]`'s 1.024 ms is a point,
+ * it is the later revision's, and it is *exactly* that document's own polling
+ * period -- "each drive is polled every 1.024 ms" -- so it reads as the derived
+ * value the bracket was hiding rather than as a second measurement. `PROVISIONAL`
+ * nonetheless: two published figures and no way here to tell which silicon this
+ * board carries. See `PROJECT_STATUS.md`. */
+#define AP_OMTI_FDC_RESET_INTERRUPT ((ap_time_t)AP_TIME_BASE_HZ / 1000000u * 1024u)
 #define AP_OMTI_FDC_DRIVE_RPM 360u
 #define AP_OMTI_FDC_ROTATION_TIME \
   (AP_TIME_BASE_HZ * 60u / AP_OMTI_FDC_DRIVE_RPM)
@@ -1361,6 +1384,12 @@ typedef struct {
    * `SE`, `EC` and an abnormal code rather than a normal termination. See
    * `AP_OMTI_FDC_RECALIBRATE_STEPS` and `fdc_begin_recalibrate`. */
   bool fdc_seek_fail[2];
+
+  /* When the reset's ready-change interrupt comes due, or `AP_TIME_NEVER`.
+   * `[765A]`: the part raises one after a reset because `RDY` is held high, and
+   * `SENSE INTERRUPT STATUS` is what clears it. See
+   * `AP_OMTI_FDC_RESET_INTERRUPT`. */
+  ap_time_t fdc_reset_interrupt_at;
 
   /* The address a data command was refused for, and how many were.
    *

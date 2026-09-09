@@ -1305,6 +1305,68 @@ static void test_recalibrate_from_cylinder_seventy_seven_still_reaches_zero(
                          ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA));
 }
 
+/* **A reset raises a ready-change interrupt, because `RDY` is tied asserted on
+ * this board.** `[765A]` p.3: "If RDY pin is held high during Reset, FDC will
+ * generate interrupt 1-25 ms later. To clear this interrupt use Sense Interrupt
+ * Status command."; `[765AB]` p.2 gives the delay as "within 1.024 ms", which
+ * is what this core uses and why is in `AP_OMTI_FDC_RESET_INTERRUPT`.
+ *
+ * That the clause applies at all was the open question until 2026-09-09: the
+ * PC/AT 34-pin floppy interface carries no READY line, so pin 35 is tied, and
+ * it must be tied *asserted* or every read and write would terminate `NR`. */
+static void test_leaving_reset_raises_the_ready_change_interrupt(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+  ap_omti_advance(&o, 1u);
+
+  /* Held in reset, nothing is owed. */
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DOR, 0u);
+  ap_omti_advance(&o, AP_OMTI_FDC_RESET_INTERRUPT * 4u);
+  TEST_ASSERT_FALSE(o.fdc_seek_done[0]);
+
+  /* Out of reset, and the interrupt is not immediate. */
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DOR, AP_OMTI_DOR_NOT_RESET);
+  const ap_time_t armed = o.now;
+  ap_omti_advance(&o, armed + AP_OMTI_FDC_RESET_INTERRUPT - 1u);
+  TEST_ASSERT_FALSE(o.fdc_seek_done[0]);
+
+  ap_omti_advance(&o, armed + AP_OMTI_FDC_RESET_INTERRUPT);
+  TEST_ASSERT_TRUE(o.fdc_seek_done[0]);
+
+  /* Table 5's cause: `SE = 0` with the interrupt code `11` -- "Ready Line
+   * changed state, either polarity" -- so no `SEEK END`. */
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_ST0_IC_NOT_READY, o.fdc_seek_st0[0]);
+  TEST_ASSERT_EQUAL_HEX8(0u, o.fdc_seek_st0[0] & AP_OMTI_ST0_SEEK_END);
+
+  /* And `SENSE INTERRUPT STATUS` is what clears it. */
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SENSE_INTERRUPT);
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_ST0_IC_NOT_READY,
+                         ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA));
+  (void)ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA);
+  TEST_ASSERT_FALSE(o.fdc_seek_done[0]);
+}
+
+/* **And it does not gate the command stream**, which a seek's interrupt does.
+ * `[765]` p.16 names "a **Seek or Recalibrate** Interrupt" as what makes the
+ * next command invalid, and `[765A]` Table 5 tells the two apart by `SEEK END`.
+ * Gating on any pending interrupt made the first command after every reset
+ * invalid, which `afd_suite`'s scan test caught at once. */
+static void test_the_reset_interrupt_does_not_make_the_next_command_invalid(
+    void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DOR, AP_OMTI_DOR_NOT_RESET);
+  ap_omti_advance(&o, o.now + AP_OMTI_FDC_RESET_INTERRUPT);
+  TEST_ASSERT_TRUE(o.fdc_seek_done[0]);
+
+  /* A command that is not `SENSE INTERRUPT STATUS` is still accepted. */
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SENSE_DRIVE);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0x00u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_fdc_phase(&o));
+  TEST_ASSERT_NOT_EQUAL_HEX8(AP_OMTI_ST0_IC_INVALID,
+                             ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_two_floppy_control_registers_are_not_one_register);
@@ -1342,6 +1404,8 @@ int main(void) {
   RUN_TEST(test_specify_records_the_non_dma_bit);
   RUN_TEST(test_the_execution_mode_bit_follows_the_parts_own_nd_bit);
   RUN_TEST(test_a_reset_does_not_disturb_the_specify_timers);
+  RUN_TEST(test_leaving_reset_raises_the_ready_change_interrupt);
+  RUN_TEST(test_the_reset_interrupt_does_not_make_the_next_command_invalid);
   RUN_TEST(test_the_version_opcode_answers_as_a_765a_does);
   RUN_TEST(test_recalibrate_gives_up_after_seventy_seven_step_pulses);
   RUN_TEST(test_recalibrate_from_cylinder_seventy_seven_still_reaches_zero);

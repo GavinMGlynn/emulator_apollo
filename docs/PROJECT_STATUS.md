@@ -46900,3 +46900,67 @@ digit, same final PC, same exception census, and the console diffs clean on
 every line but the hash. The reference boot never touches the floppy, so this is
 coverage rather than a behavioural move; that the number changes at all is the
 evidence the new state is live.
+
+
+## The µPD765's `RDY` is tied asserted, and that closed the rest of the part
+## (2026-09-09)
+
+`COMPLETION_PLAN.md` carried three FDC behaviours as blocked, two of them on
+"what this board connects the 765's `RDY` pin to — **no document held here says
+how it is wired**". That was false, and `docs/references/OMTI_WALK.md` had
+already refuted it the same day, in its own pin-table row: **"Pin 35 `RDY` is
+dedicated — but the PC/AT 34-pin floppy interface carries no READY line, so on
+an AT board it is tied."**
+
+*The answer was in a walk record here while the item claimed no document had
+it.* That is the grep-before-naming-a-blocker rule broken, and it is the second
+time in one session — the same shape as `E0007`, where the note said the
+documents had run out and stopped rather than going on to the oracle.
+
+**Tied *asserted*, on three independent grounds**: the AT interface has no READY
+line to drive it; MAME wires the part `UPD765A(config, m_fdc, 48_MHz_XTAL / 6,
+false, false)` and never calls `ready_w`, so its `get_ready()` returns
+`!external_ready` = true always; and functionally it must be, or every read and
+write would terminate `NR` and no floppy would work. The same line retires a
+`PROVISIONAL` beside it: `48 MHz / 6` is **8 MHz**, the column
+`AP_OMTI_FDC_SRT_MS` already uses, so the datasheet walk's 4 MHz "mini-floppy"
+alternative is not this board's.
+
+**What that closed.** The **polling feature** goes under the
+documentation-absent rule's consumer clause: it interrupts on a *change* of the
+Ready line, and a tied line never changes, so nothing here can assert it.
+
+**What it made implementable, and is now implemented.** `[765A]` p.3: "If RDY
+pin is held high during Reset, FDC will generate interrupt 1-25 ms later. To
+clear this interrupt use Sense Interrupt Status command." `[765AB]` p.2 gives
+"within **1.024 ms**", and that is what this core uses — the later revision's, a
+point rather than a bracket, and *exactly* that document's own polling period,
+so it reads as the derived value the bracket was hiding. `PROVISIONAL`
+nonetheless, and reasoned in `ap_omti.h` rather than split.
+
+**And it does not gate the command stream — the first version did, and a test
+caught it.** Sharing the pending-interrupt slot with a seek made the first
+command after every reset invalid, which `afd_suite`'s scan test failed on
+immediately with `0x80`. `[765]` p.16 names "a **Seek or Recalibrate**
+Interrupt" as what makes the next command invalid, and `[765A]` Table 5 tells
+the two causes apart by `SEEK END` — `SE = 1` for both terminations, `SE = 0`
+for "Ready Line changed state". So the discriminator is the manual's own, not
+one invented to make a test pass.
+
+**The last two close under the rule.** MFM's refusal of 128-byte sectors
+(`N = 00`) and "no other command could be issued for as long as FDC is in
+process of sending Step Pulses to any drive" each state that the thing must not
+be done and **neither says what the part does if it is**. Searched at all three
+tiers and recorded as searched: *reference*, all four datasheet editions carry
+the prohibition and none the outcome; *web*, which returns those same
+datasheets; *oracle*, which implements **neither** — MAME's `upd765` computes
+`128 << size` with no MFM refusal and its `start_command` has no seek-busy
+guard. The consumer clause covers `N = 00` outright, since this core's image
+geometry is fixed at 512-byte sectors.
+
+*Verification: `omti_suite` 43 → 45 — the interrupt not immediate, due at
+1.024 ms, carrying `IC = 11` without `SEEK END`, cleared by `SENSE INTERRUPT
+STATUS`, and a following command still accepted. `ctest` 145/145. Identity
+`7F793C44586F263B` → `6DF967A63D3D4DA9` from the one new hashed deadline, with
+`clocks 1408661906`, the exception census, 42,579 ATC fills, 261 bus errors,
+1,041 unmapped reads and all 150 console lines unmoved.*
