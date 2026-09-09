@@ -2235,14 +2235,38 @@ that 256 KB deliberately, from code at `01006114` — a *physical* address in ma
 memory, which is the kernel running untranslated. This core did not lose a
 mapping: there was one and the operating system took it away.
 
-That eliminates the reading that would have made this a core defect. What is
-left is that Domain/OS calls a PROM service routine on a stack it sized at 384
-bytes, and the routine wants more — so either that is what a real DS5500 does
-and the call is expected to be shallower, or this core makes it deeper. The 132
-bus errors are the thing to weigh, and the arithmetic is suggestive rather than
-conclusive: a `$7` frame is 60 bytes and six would fill that stack exactly.
-*Suggestive is not a finding*, and the 131 of them that happen during the
-firmware's own self-test, long before Domain/OS loads, argue the other way.
+That eliminates the reading that would have made this a core defect.
+
+### The two faults are at different levels, so they are different phenomena
+
+They had been read as one thing. Walked against the pointer table already
+dumped:
+
+    first fault   7A38139C  PI=0x0E  ->  011A5238 = 0122CC0A  resident, W clear
+    second fault  7A3FFFFE  PI=0x0F  ->  011A523C = 00000000  invalid
+
+**The first fault's pointer entry is resident**, so that fault is at the *page*
+level — an ordinary demand-paging fault of the kind an operating system
+services. Only the second is the 256 KB hole. So the sequence is: a normal page
+fault, and then a second fault *while reporting or handling it*, on a stack with
+no room.
+
+**And the reporting is MD's.** The console's last line is `7A42D69E`, which is
+the same shape as the `D 100424A 2704 2C` MD printed earlier — a fault display,
+not operating-system output. The code at `092C` sits immediately after MD's
+banner string in the ROM. So the firmware's fault path is running, on
+Domain/OS's stack, which means **Domain/OS did not handle the first fault
+itself**.
+
+*That is the question worth the next session*: why an ordinary page fault
+reaches the firmware's handler rather than the kernel's. `vbr 7A401000 ->
+01003000` says the vector table is the operating system's own and translates, so
+it is not simply pointing at the ROM.
+
+*Recorded without the tempting arithmetic.* A `$7` frame is 60 bytes and six
+would fill a 384-byte stack exactly, against 132 bus errors in the run — but 131
+of those happen during the firmware's self-test, long before Domain/OS loads, so
+the coincidence argues against itself. Suggestive is not a finding.
 
 **The shape of this question has now changed four times under measurement** — a
 paging fault, an exhausted stack, an undersized one, and now firmware running

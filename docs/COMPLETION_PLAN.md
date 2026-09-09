@@ -4701,10 +4701,20 @@ discipline throughout.
       calling into it. The instruction that set the stack is `0000092C
       movea.l a6, a7`, an ordinary unwind-to-frame-pointer — so `A6` already
       held `7A400180` and the 384 bytes came from further back.
-      *The located next step*: what set `A6`, and whether 384 bytes is what a
-      real DS5500 gives a PROM service call or a consequence of this core
-      taking faults it should not — a `$7` frame is 60 bytes and six would fill
-      that stack exactly, against 132 bus errors in the run.
+      *And the two faults are at different levels, so they are two things.*
+      Walked against the dumped pointer table: the first, `7A38139C`, has
+      `PI=0x0E -> 011A5238 = 0122CC0A`, **resident** — an ordinary page-level
+      demand fault. Only the second, `7A3FFFFE`, is the 256 KB hole, and the
+      kernel invalidated that on purpose (`--boot-watch-write 011A523C`: written
+      twice, last write zero, by code at physical `01006114`). So the sequence
+      is a normal page fault and then a second fault while *reporting* it — and
+      the reporting is **MD's**, since the console's last line `7A42D69E` is the
+      firmware's fault-display shape and the code sits just after MD's banner
+      string in the ROM.
+      **The question worth the next session**: why an ordinary page fault reaches
+      the firmware's handler rather than the kernel's, when
+      `vbr 7A401000 -> 01003000` says the vector table is the operating system's
+      own and translates.
       **Five candidates are eliminated by measurement rather than argument**:
       the stack-pointer selection, the mapping, the register state, the fault
       kind, and the frame balance. Detail in `PROJECT_STATUS.md`.
