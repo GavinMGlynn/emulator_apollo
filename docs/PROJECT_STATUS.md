@@ -974,14 +974,24 @@ header's UID is constant on every data block, and whatever lives at `+82` is
 not. Its expectation is right — it wants sequence 1, which is what block 23
 carries at `+0`.
 
-*Two readings remain and this does not choose between them.* Either the block is
-placed about 77 bytes from where the kernel's header pointer looks, or the
-kernel parses a different structure than the 16-byte header derived here. The
-internal spacing argues against a pure shift — the two fields are 5 bytes apart
-in what it reads and 4 apart in the header — so the second is live. What decides
-it is dumping the 512 bytes the kernel holds as file 3's first block: identical
-to image block 23 means the structure is misread, offset means the placement
-is.
+**It is a pure 77-byte shift, and that is settled.** Reading the medium *as if
+the kernel's buffer offset 0 were the block's byte 77* reproduces all four
+printed fields exactly, on both blocks — `seq=46C70E00 uid=5741E3.CF937400` from
+block 23 and `seq=5F325200 uid=571F92.7A243B00` from block 24 — against a header
+at `+0` that reads `seq=00000001` and `seq=00000002` with the constant
+`uid=57515AD6.A0027288`. The kernel reads its sequence at its own `+0` and its
+UID at its own `+4`, exactly as the format says; its `+0` is the block's byte 77.
+
+*The "5 versus 4 spacing" that made an earlier note hedge was an error of mine.*
+The printed high half is formatted `%X`, so `0x005741E3` prints as `5741E3` and
+looks a byte short. Corrected, the shift is uniform and the alternative — that
+the kernel parses some other structure — is eliminated.
+
+**So the whole item is now one sentence: the tape's data reaches the kernel 77
+bytes into each block.** Every layer above is right — the medium, the drive, the
+block order — and `ap_qic` hands the block out byte-exact, so the 77 bytes go
+missing between the drive's block interface and the buffer. What is left is
+finding where, which is a search of the tape DMA path rather than of the tape.
 
 ## The SR10.4 cartridge boots (2026-09-09)
 
