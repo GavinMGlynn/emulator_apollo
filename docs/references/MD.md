@@ -176,6 +176,19 @@ Worth having before a floppy or Winchester capture rather than after: the line i
 the only place MD reports *why* a transfer failed, and without the format it
 reads as four unlabelled numbers.
 
+## The banner names the SAU, and the DS5500's is `MD14`
+
+A DN3500 prints `MD7C REV ...` and a DS5500 prints
+
+    MD14 REV 2.00, 1991/03/08.16:20:14
+
+— reached 2026-09-10, `PROJECT_STATUS.md`. The digits are the **SAU number**,
+`008860-A03` Table 1-1's, the same 7 and 14 that name `/sau7` and `/sau14`, so a
+capture's first line says which machine's monitor is talking before anything
+else does. Worth having when two consoles are open, and worth having in a script
+that waits for a prompt: `tools/md-shell.script`'s `expect MD7C` is a DN3500
+expectation and will not match a DS5500.
+
 ## MD's *boot* error line, which is a different line with a different table
 
 `002398-04` p. 4-17, "BOOT ERRORS (PROM)" — read as a page image 2026-09-09 and

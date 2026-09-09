@@ -46,6 +46,7 @@
 #include "board/ap_dmapage.h"
 #include "device/ap_matrox.h"
 #include "board/ap_intr.h"
+#include "board/ap_ioprot.h"
 #include "ring/ap_ring_sched.h"
 #include "board/ap_nodeid.h"
 #include "board/ap_sio.h"
@@ -321,6 +322,13 @@ typedef enum {
    * cache places them; see `board/ap_cacheram.h`. */
   AP_BOARD_REGION_CACHE_RAM,
   AP_BOARD_REGION_CACHE_CC_RAM,
+  /* **I/O PROTECTION MAP, `07000000`-`0700FFFF`, the DS5500's alone.**
+   * `019411-A00` Table 2-5. Storage, and the *meaning* of a byte is
+   * `PROVISIONAL` -- see `board/ap_ioprot.h` for what the table does and
+   * does not say, and for the four `clr.l` at reset that make declining
+   * the wrong answer here where it is the right one for DESKTOP
+   * VISUALIZATION SPACE. */
+  AP_BOARD_REGION_IO_PROTECTION_MAP,
   AP_BOARD_REGION_RAM,
 } ap_board_region_t;
 
@@ -382,6 +390,13 @@ typedef struct {
    * board because that is where the two documents disagree -- the part is the
    * same part. Zero means the Series 3000/4000 count. */
   unsigned translation_map_entries;
+
+  /* Whether this board decodes Table 2-5's I/O protection map at `07000000`.
+   * A property of the *map* and not of the model table, because that is where
+   * this fact comes from: no feature flag distinguishes a DS5500 from a DS3500
+   * -- `ap_board_map_for` says so in as many words -- and Table 2-5 is the one
+   * document that does. `board/ap_ioprot.h`. */
+  bool has_io_protection_map;
 
   /* Address bits this board's decode keeps. `008778-03` §1.3: "In the Series
    * 3000, the virtual address appears to 'wrap' at 26 bits, the five high-order
@@ -487,6 +502,11 @@ typedef struct ap_board {
    * firmware reaches into. Storage, `PROVISIONAL`, for the reasons at the
    * region's declaration. */
   uint8_t s2500_control[0x100];
+
+  /* Table 2-5's I/O protection map. Present on the DS5500 and empty on every
+   * other board, which is a property of the structure rather than of a
+   * conditional here. `board/ap_ioprot.h`. */
+  ap_ioprot_t io_protection;
 
   ap_matrox_t matrox;
 

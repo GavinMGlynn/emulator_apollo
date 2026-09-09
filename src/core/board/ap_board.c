@@ -237,6 +237,12 @@ static const ap_board_placement_t DS5500_PLACEMENT[] = {
     {AP_DISK_FLOPPY_ADDR, AP_DISK_FLOPPY_SIZE, AP_BOARD_REGION_DISK,
      AP_DISK_FLOPPY_ADDR},
     {AP_TAPE_ADDR, AP_TAPE_RANGE, AP_BOARD_REGION_TAPE, AP_TAPE_ADDR},
+    /* Table 2-5's I/O PROTECTION MAP, `07000000`-`0700FFFF`. Storage rather
+     * than a name, because the boot PROM writes into it four instructions
+     * after clearing the master request register and before it has a stack --
+     * see `board/ap_ioprot.h`. */
+    {AP_IOPROT_BASE, AP_IOPROT_BYTES, AP_BOARD_REGION_IO_PROTECTION_MAP,
+     AP_IOPROT_BASE},
     /* Table 2-5's DESKTOP VISUALIZATION SPACE. Placed so a trace can name it;
      * nothing answers there. See the region's declaration for why naming an
      * unimplemented range is worth a row. */
@@ -255,6 +261,7 @@ static const ap_board_map_t DS5500_MAP = {
     .prom_size = AP_BOARD_PROM_SIZE,
     .has_translation_map = true,
     .translation_map_entries = AP_ATMAP_ENTRIES_DS5500,
+    .has_io_protection_map = true,
     .address_mask = 0xFFFFFFFFu,
 };
 
@@ -1284,6 +1291,7 @@ void ap_board_advance_one(ap_board_t *board, uint32_t address, ap_time_t now) {
   case AP_BOARD_REGION_DESKTOP_VISUALIZATION:
   case AP_BOARD_REGION_CACHE_RAM:
   case AP_BOARD_REGION_CACHE_CC_RAM:
+  case AP_BOARD_REGION_IO_PROTECTION_MAP:
     /* Nothing to observe: none of them keeps time. The Series 2500 block is
      * storage with no modelled behaviour at all (see its declaration), and the
      * cache windows are storage too -- `[S3K]` publishes no hit cost and no
@@ -1534,6 +1542,7 @@ bool ap_board_cache_inhibited(const ap_board_t *board, uint32_t address) {
   case AP_BOARD_REGION_CORE_REGISTER:
   case AP_BOARD_REGION_S2500_CONTROL:
   case AP_BOARD_REGION_DESKTOP_VISUALIZATION:
+  case AP_BOARD_REGION_IO_PROTECTION_MAP:
   /* The cache's own windows are **not cacheable**, which reads like a
    * tautology and is not: they are the aperture onto the cache's storage, and
    * a processor that cached a read of `012000` would be holding a copy of the
@@ -1589,6 +1598,7 @@ const char *ap_board_region_name(ap_board_region_t region) {
   case AP_BOARD_REGION_INTERRUPT: return "interrupt controller";
   case AP_BOARD_REGION_NODE_ID: return "node ID PROM";
   case AP_BOARD_REGION_TRANSLATION_MAP: return "translation map";
+  case AP_BOARD_REGION_IO_PROTECTION_MAP: return "I/O protection map";
   case AP_BOARD_REGION_DMA_PAGE: return "DMA page register";
   case AP_BOARD_REGION_DISK: return "disk/floppy";
   case AP_BOARD_REGION_TAPE: return "cartridge tape";
@@ -1636,6 +1646,11 @@ bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
      * structure exists, and it is what the hasher walks -- so a board without
      * one contributes nothing, exactly as an absent translation map does. */
     ap_cacheram_init(&board->cache, entry != NULL && entry->has_virtual_cache);
+    /* Table 2-5's I/O protection map, on the one board whose map declares it.
+     * Off the *map* rather than the model table, for the reason the flag's
+     * declaration gives: no feature distinguishes a DS5500 from a DS3500. */
+    ap_ioprot_init(&board->io_protection,
+                   board->map != NULL && board->map->has_io_protection_map);
     /* "a graphics device is in the HSI connector". A DSP5500 is this board
      * without a display, which is exactly what the bit reports. */
     ap_boardreg_set_hsi_graphics(&board->registers,
@@ -1859,6 +1874,8 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     return (address & 1u) != 0u ? (uint8_t)(entry & 0xFFu)
                                 : (uint8_t)(entry >> 8);
   }
+  case AP_BOARD_REGION_IO_PROTECTION_MAP:
+    return ap_ioprot_read(&board->io_protection, address);
   case AP_BOARD_REGION_CACHE_RAM:
     return ap_cacheram_read_data(&board->cache, address);
   case AP_BOARD_REGION_CACHE_CC_RAM:
@@ -2127,6 +2144,9 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
   }
   case AP_BOARD_REGION_S2500_CONTROL:
     board->s2500_control[address & 0xFFu] = value;
+    return;
+  case AP_BOARD_REGION_IO_PROTECTION_MAP:
+    ap_ioprot_write(&board->io_protection, address, value);
     return;
   case AP_BOARD_REGION_RING: {
     /* Unit 1 is an empty slot, and a write into one goes nowhere. */

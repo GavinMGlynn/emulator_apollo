@@ -2971,6 +2971,110 @@ static void test_no_other_model_has_a_desktop_visualization_space(void) {
                             ap_board_region(&b, AP_BOARD_DESKTOP_VIS_BASE));
 }
 
+/* `019411-A00` Table 2-5's **I/O PROTECTION MAP**, `07000000`-`0700FFFF`,
+ * 64 KB, on the DS5500 alone -- and, unlike the region above, *modelled*.
+ *
+ * The difference is the firmware. `5500_BOOT_A1631-80046_1-30-92.bin` clears
+ * four longwords here at `000698`-`0006AA`, four instructions after clearing
+ * the master request register and **before it has a stack**: with the region
+ * unplaced the write bus-errors, the handler pushes to `FFFFFFFC` with `A7`
+ * zero, and the machine is dead at 137 instructions. Declining is the truthful
+ * answer for a range nothing touches and the wrong one here. */
+static void test_the_ds5500_places_the_io_protection_map(void) {
+  ap_board_t b;
+  static uint8_t ds5500_ram[4096];
+  TEST_ASSERT_TRUE(ap_board_init_model(&b, ds5500_ram, sizeof ds5500_ram,
+                                       &START, 0x012345u, AP_MODEL_DN5500));
+
+  TEST_ASSERT_EQUAL_INT(AP_BOARD_REGION_IO_PROTECTION_MAP,
+                        ap_board_region(&b, AP_IOPROT_BASE));
+  TEST_ASSERT_EQUAL_INT(AP_BOARD_REGION_IO_PROTECTION_MAP,
+                        ap_board_region(&b, AP_IOPROT_LIMIT));
+  TEST_ASSERT_EQUAL_STRING(
+      "I/O protection map",
+      ap_board_region_name(AP_BOARD_REGION_IO_PROTECTION_MAP));
+
+  /* One past each end is not it, so the extent is the table's 64 KB and not a
+   * range that happens to contain what is tested. */
+  TEST_ASSERT_NOT_EQUAL_INT(AP_BOARD_REGION_IO_PROTECTION_MAP,
+                            ap_board_region(&b, AP_IOPROT_BASE - 1u));
+  TEST_ASSERT_NOT_EQUAL_INT(AP_BOARD_REGION_IO_PROTECTION_MAP,
+                            ap_board_region(&b, AP_IOPROT_LIMIT + 1u));
+}
+
+/* The four longwords the PROM clears, driven through the bus rather than
+ * through `ap_ioprot` directly -- an accepted write is the whole measured
+ * requirement, and a module nothing routes to would pass a direct test. */
+static void test_the_io_protection_map_accepts_the_proms_reset_clears(void) {
+  ap_board_t b;
+  static uint8_t ds5500_ram[4096];
+  TEST_ASSERT_TRUE(ap_board_init_model(&b, ds5500_ram, sizeof ds5500_ram,
+                                       &START, 0x012345u, AP_MODEL_DN5500));
+
+  for (uint32_t offset = 0u; offset < 16u; offset++) {
+    bool ok = false;
+    ap_board_write(&b, AP_IOPROT_BASE + offset, 0xFFu, &ok);
+    TEST_ASSERT_TRUE(ok);
+  }
+  TEST_ASSERT_EQUAL_UINT(16u, b.region_writes[AP_BOARD_REGION_IO_PROTECTION_MAP]);
+}
+
+/* Storage across the whole documented extent. What a byte *means* is
+ * `PROVISIONAL` -- Table 2-5 gives the range a title and the specification is
+ * in `007861-A01`, which is not scanned anywhere -- so this asserts only that
+ * a map keeps what is written to it, at both ends of the range. */
+static void test_an_io_protection_map_byte_reads_back_what_was_written(void) {
+  ap_board_t b;
+  static uint8_t ds5500_ram[4096];
+  TEST_ASSERT_TRUE(ap_board_init_model(&b, ds5500_ram, sizeof ds5500_ram,
+                                       &START, 0x012345u, AP_MODEL_DN5500));
+
+  bool ok = false;
+  ap_board_write(&b, AP_IOPROT_BASE, 0x5Au, &ok);
+  TEST_ASSERT_TRUE(ok);
+  ap_board_write(&b, AP_IOPROT_LIMIT, 0xA5u, &ok);
+  TEST_ASSERT_TRUE(ok);
+
+  ok = false;
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_board_read(&b, AP_IOPROT_BASE, &ok));
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_HEX8(0xA5u, ap_board_read(&b, AP_IOPROT_LIMIT, &ok));
+  TEST_ASSERT_TRUE(ok);
+
+  /* Two ends of 64 KB are two bytes, not one aliased onto itself -- the
+   * failure a region sized by a mask narrower than the placement would give. */
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_board_read(&b, AP_IOPROT_BASE, &ok));
+}
+
+/* Table 2-5 is the **DS5500's** map, and this region is the reason the map is
+ * chosen by model: no feature flag tells a DS5500 from a DS3500. A DN3500 has
+ * no such range and must still refuse there. */
+static void test_no_other_model_has_an_io_protection_map(void) {
+  ap_board_t b;
+  init(&b);
+  TEST_ASSERT_NOT_EQUAL_INT(AP_BOARD_REGION_IO_PROTECTION_MAP,
+                            ap_board_region(&b, AP_IOPROT_BASE));
+  bool ok = true;
+  ap_board_write(&b, AP_IOPROT_BASE, 0x5Au, &ok);
+  TEST_ASSERT_FALSE(ok);
+}
+
+/* The structure is one structure for every board, so "absent" has to be a
+ * property of it rather than of the board's decode alone -- otherwise a hasher
+ * walking it would put 65,536 zero bytes into every model's digest. */
+static void test_a_board_without_the_region_has_no_io_protection_storage(void) {
+  ap_board_t b;
+  init(&b);
+  TEST_ASSERT_FALSE(ap_ioprot_present(&b.io_protection));
+
+  ap_board_t ds5500;
+  static uint8_t ds5500_ram[4096];
+  TEST_ASSERT_TRUE(ap_board_init_model(&ds5500, ds5500_ram, sizeof ds5500_ram,
+                                       &START, 0x012345u, AP_MODEL_DN5500));
+  TEST_ASSERT_TRUE(ap_ioprot_present(&ds5500.io_protection));
+  TEST_ASSERT_EQUAL_UINT(0x10000u, ds5500.io_protection.size);
+}
+
 /* ---------------------------------------------------------------------------
  * A DMA transfer costs four of the controller's states.
  * ------------------------------------------------------------------------- */
@@ -3332,6 +3436,11 @@ int main(void) {
   RUN_TEST(test_batched_and_stepped_ticks_steal_the_same_cycles);
   RUN_TEST(test_the_desktop_visualization_space_is_named_on_the_ds5500);
   RUN_TEST(test_no_other_model_has_a_desktop_visualization_space);
+  RUN_TEST(test_the_ds5500_places_the_io_protection_map);
+  RUN_TEST(test_the_io_protection_map_accepts_the_proms_reset_clears);
+  RUN_TEST(test_an_io_protection_map_byte_reads_back_what_was_written);
+  RUN_TEST(test_no_other_model_has_an_io_protection_map);
+  RUN_TEST(test_a_board_without_the_region_has_no_io_protection_storage);
   RUN_TEST(test_a_dma_transfer_takes_four_controller_states);
   RUN_TEST(test_only_the_ds4000_decodes_the_cache_ram_windows);
   RUN_TEST(test_a_variants_own_rows_overlap_nothing_on_the_shared_map);

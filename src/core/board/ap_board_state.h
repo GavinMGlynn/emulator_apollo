@@ -74,6 +74,7 @@ void ap_board_hash_translation_map(ap_hash_t *st, const ap_atmap_t *map);
  * `cache->entries`, not the constant, for the same reason the translation map
  * does: a board without the structure has zero and contributes none of it. */
 void ap_board_hash_cache(ap_hash_t *st, const ap_cacheram_t *cache);
+void ap_board_hash_io_protection(ap_hash_t *st, const ap_ioprot_t *map);
 void ap_board_hash_interrupts(ap_hash_t *st, const ap_intr_t *interrupts);
 void ap_board_hash_timer(ap_hash_t *st, const ap_timer_t *timer);
 void ap_board_hash_calendar(ap_hash_t *st, const ap_calendar_t *calendar);

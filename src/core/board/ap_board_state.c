@@ -108,6 +108,22 @@ static void hash_i8259(ap_hash_t *st, const ap_i8259_t *pic) {
   ap_hash_u8(st, pic->acknowledged_level);
 }
 
+/* Table 2-5's I/O protection map. Live state -- the boot PROM writes into it
+ * before it has a stack -- and hashed on the machine's own size, so a board
+ * without the region contributes **nothing at all** to the digest rather than
+ * 65,536 zero bytes. The cache and the translation map settled this idiom and
+ * this follows both; measured, not assumed: the reference DN3500 boot's hash is
+ * unmoved across this module landing. */
+void ap_board_hash_io_protection(ap_hash_t *st, const ap_ioprot_t *map) {
+  ap_hash_scope(st, "io_protection_map");
+  ap_hash_note_u32(st, "size", (uint32_t)map->size);
+  ap_hash_group_begin(st, "bytes");
+  if (map->size != 0u) {
+    ap_hash_bytes(st, map->bytes, map->size);
+  }
+  ap_hash_group_end(st);
+}
+
 void ap_board_hash_cache(ap_hash_t *st, const ap_cacheram_t *cache) {
   ap_hash_scope(st, "cache");
   /* **The machine's own count, not the constant**, exactly as the translation
@@ -1040,6 +1056,7 @@ void ap_board_hash(ap_hash_t *st, const ap_board_t *board) {
   ap_board_hash_registers(st, &board->registers);
   ap_board_hash_translation_map(st, &board->translation_map);
   ap_board_hash_cache(st, &board->cache);
+  ap_board_hash_io_protection(st, &board->io_protection);
   ap_board_hash_interrupts(st, &board->interrupts);
   ap_board_hash_timer(st, &board->timer);
   ap_board_hash_calendar(st, &board->calendar);

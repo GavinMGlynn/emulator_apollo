@@ -57,6 +57,7 @@ add_library(apollo_core STATIC
   board/ap_board_state.c
   board/ap_atmap.c
   board/ap_cacheram.c
+  board/ap_ioprot.c
   board/ap_calendar.c
   board/ap_disk.c
   board/ap_dma.c

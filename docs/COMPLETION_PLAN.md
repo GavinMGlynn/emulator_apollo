@@ -4647,6 +4647,22 @@ discipline throughout.
       `Could not load /SAU14/SELF_TEST.` is the absence of — so the 68040 MMU
       join and the SCSI item share **one** gate, the SAU 14 install, and
       neither is a knowledge gap. That is a cost to spend, not a fact to find.
+      **The DS5500 reaches its own monitor, 2026-09-10** — `MD14 REV 2.00,
+      1991/03/08.16:20:14` and a `>` prompt, from a machine that could execute
+      two of its instructions a day earlier. It cost **one address range**:
+      `--service-mode` died at 137 instructions because the PROM clears
+      `07000000`-`0700000F` at `000698`-`0006AA`, before it has a stack, and
+      `019411-A00` Table 2-5's **I/O PROTECTION MAP** was not on this core's
+      DS5500 map. `019411-A00_WALK.md` had recorded the check to do and nobody
+      did it. Now `AP_BOARD_REGION_IO_PROTECTION_MAP` / `board/ap_ioprot.h`,
+      modelled as storage with the *meaning* of a byte `PROVISIONAL`.
+      *Verification: `board_suite` 95 -> 100; identity `6DF967A63D3D4DA9`
+      unmoved, measured by removing the hasher call and rebuilding; the run
+      reports the region as `0 reads / 16 writes` under its own name. Detail in
+      `PROJECT_STATUS.md`.*
+      *And MD is where a stand-alone utility is loaded*, so `EX INVOL` off the
+      boot cartridge is now reachable on a DS5500 — the route to the boot area
+      the paragraph below shows this machine cannot read.
       **The shared gate is now named exactly, and it is not the SAU install.**
       2026-09-10: the DS5500's boot area is not the DN3500's. Its PROM reads ten
       records from record 2 with a **page** of stride, and the page size is the
@@ -4721,6 +4737,25 @@ Only after the reference core is proven, and only under an identity harness.
       should give. It unblocks the tape's byte rate, which is what found it.
       *Verification: identity boot and full report diffed before and after,
       `ctest` 140/140 both presets.* Detail in `PROJECT_STATUS.md`.
+
+- [ ] **The Series 2500 control block is live state and is not in the hash.**
+      Found 2026-09-10 while adding a storage region beside it.
+      `ap_board_t::s2500_control` is 256 bytes the firmware writes and reads
+      back — `1F060` writes `#$1` to `0202D4`, reads it, masks `$0F` and spins
+      for ever unless it gets `$1` — and `ap_board_hash` walks every other
+      device it owns and not this one. Two DS2500s differing in that storage
+      hash identically, which is exactly the hole an identity harness exists to
+      close.
+      *Why it is not a one-liner*: hashing it unconditionally puts 256 zero
+      bytes into every model's digest and moves the reference hash for a
+      structure eight of the nine models do not have. It needs the idiom
+      `ap_cacheram_t::entries`, `ap_atmap_t::entries` and now
+      `ap_ioprot_t::size` all use — a size the machine carries, walked by the
+      hasher, zero on a board without the block. Small, and the pattern is
+      settled three times over.
+      *Verification when it lands*: identity `6DF967A63D3D4DA9` unmoved, and a
+      test that a DS2500 with a written control block hashes differently from
+      one without — the assertion that would have caught this.
 
 - [ ] **A resumable sequencer, which is the last of the per-cycle item.**
       `ap_m68030_step` sequences an instruction in ordinary nested C across a

@@ -1,0 +1,13 @@
+# Reach MD on a DS5500 and hand it back at its prompt.
+#
+# **`MD14`, not `MD7C`.** The banner's digits are the machine's SAU number --
+# `008860-A03` Table 1-1, the same 7 and 14 that name `/sau7` and `/sau14` -- so
+# `tools/md-shell.script`'s `expect MD7C` is a DN3500 expectation and never
+# matches here. `docs/references/MD.md`.
+#
+# The knock, the input rate and the service-mode switch are in
+# `tools/dn5500-md.sh`; this file is only the dialogue. MD prints `\r\n>` after
+# its sign-on and discards what is typed while it is still printing, so wait for
+# the prompt and not for the banner -- `md-shell.script`'s rule, unchanged.
+expect MD14
+expect >
