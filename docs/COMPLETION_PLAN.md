@@ -5145,6 +5145,14 @@ Only after the reference core is proven, and only under an identity harness.
       *Execution works*: the DN3000 differential passes **29 of 29 CPU fields**
       against the oracle, and no firmware on this shelf asks for a register the
       68030 model cannot supply.
+      **And 2026-09-10 strengthens the "unexercised" half with a second
+      witness.** The claim that wiring the 68040 MMU today would be unexercised
+      code rested on the boot PROM: `tc 00000000`, `translation off`, only the
+      two data transparent registers written. A DS5500 now also loads and runs
+      **`/sau14/invol`**, a 68040 *program* off the SR10.4 cartridge, to its own
+      `Option:` prompt — and reports the same `tc 00000000` / `translation off`.
+      So neither the firmware nor the one stand-alone utility this core can run
+      turns paged translation on. Detail in `PROJECT_STATUS.md`.
       **So what remains of this item is the `.mmu` declaration alone**, which
       does wait on a 68040 MMU. *Scope of the scan, stated rather than glossed*:
       `PMOVE` at cpid 000 only. `PTEST`'s result register is the 68030's
