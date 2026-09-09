@@ -12,6 +12,30 @@
 # and INVOL first (FINDINGS.md C50) on a blank image. This file starts from a
 # volume that INVOL has already initialised and that was cleanly shut down.
 #
+# **It also assumes a calendar the kernel will accept, and does not set one.**
+# Replayed against `media/dn3500-invol-done.awd` on 2026-09-09 it stops at
+#
+#     The calendar is more than a minute slow.
+#     Switch to service mode, press reset and run CALENDAR.
+#
+# right after `ex domain_os`, before RBAK is reached at all. That is the 14-day
+# gate, and `001746-06` Procedure 2-7 is its remedy: run CALENDAR *first*. The
+# first two prompts of that preamble, read off the machine rather than guessed:
+#
+#     ex calendar
+#     "Please select the disk [w=Winch|s=Storage mod|f=Floppy|q=Quit]
+#        ... If you do not have a disk, enter none (N):"   -> w
+#     "The time-zone is set to 0:00 (UTC).  Would you like to reset it?"  -> ?
+#
+# The rest of the branch is in `sr10-3-install-route`: if the volume's recorded
+# time is *ahead* of the clock CALENDAR asks "Is the calendar correct?" and `n`
+# opens the date prompt; otherwise it offers to reset and `y` takes it. CALENDAR
+# then aborts on exit every time (`10200E6: 6100`) -- the set still takes.
+#
+# Not added to the sequence below, because this file is a record of what was
+# actually driven and a preamble nobody ran here would make it a record of
+# something else.
+#
 # Requires the ext/mame SC-499 edit of C56: without it a cartridge changed
 # while Domain/OS holds the drive crashes the machine.
 #

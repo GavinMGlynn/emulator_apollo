@@ -4564,6 +4564,25 @@ discipline throughout.
       waits for `RAI MINST has completed`, and which prompt offers the SAU list
       has to be read off a running MINST. That is a procedure question, not a
       documentary one, and everything around it is now scripted.
+      **Two, in fact — the replay was started and found a second one first.**
+      Run against `media/dn3500-invol-done.awd` under the oracle, it stops
+      immediately after `ex domain_os`, before RBAK is reached:
+
+          The calendar is more than a minute slow.
+          Switch to service mode, press reset and run CALENDAR.
+
+      That is the 14-day gate, and `install-domainos.cmds` **assumes a calendar
+      the kernel will accept and does not set one** — `sr10-3-install-route`
+      makes running CALENDAR *first* its step 1 and the recorded file omits it.
+      *The preamble's first two prompts are now read off the machine* rather
+      than guessed, and are noted in that file: `ex calendar`, then "Please
+      select the disk … enter none (N):" → **`w`**, then "The time-zone is set
+      to 0:00 (UTC). Would you like to reset it?". The branch after that is the
+      one `sr10-3-install-route` describes.
+      *So Phase A's remaining unknowns are two dialogues, both readable off a
+      running machine in one sitting*: the rest of CALENDAR's, and MINST's SAU
+      selection. Everything between them is scripted, the media is confirmed to
+      carry `sau14`, and this core is confirmed to drive the restore itself.
       **What is left in the core**: the caches the invalidation should act on
       are a complete module attached to no CPU, so the instruction is correctly
       a no-op; and a 68040 **MMU**, which the `.mmu` item also waits on.
