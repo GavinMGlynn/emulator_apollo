@@ -2223,11 +2223,26 @@ stack is not something that instruction chose — `A6` already held `7A400180`.
 The code running when the machine dies is the **firmware's**, executing in the
 operating system's address space on a stack the operating system provided.
 
-*That is a precisely located next step rather than an answer*: what set `A6`,
-and whether 384 bytes is what a real DS5500 gives a PROM service call or a
-consequence of this core taking faults it should not. The 132 bus errors are
-worth weighing there — a `$7` frame is 60 bytes and six of them would fill that
-stack exactly.
+### The hole is deliberate: the kernel invalidated it on purpose
+
+`--boot-watch-write 011A523C`, on the pointer descriptor the hand walk found
+zero:
+
+    watch  011A523C written 2 time(s), last 00000000 by PC 01006114
+
+**Written twice, and the last write is the zero.** So the kernel invalidated
+that 256 KB deliberately, from code at `01006114` — a *physical* address in main
+memory, which is the kernel running untranslated. This core did not lose a
+mapping: there was one and the operating system took it away.
+
+That eliminates the reading that would have made this a core defect. What is
+left is that Domain/OS calls a PROM service routine on a stack it sized at 384
+bytes, and the routine wants more — so either that is what a real DS5500 does
+and the call is expected to be shallower, or this core makes it deeper. The 132
+bus errors are the thing to weigh, and the arithmetic is suggestive rather than
+conclusive: a `$7` frame is 60 bytes and six would fill that stack exactly.
+*Suggestive is not a finding*, and the 131 of them that happen during the
+firmware's own self-test, long before Domain/OS loads, argue the other way.
 
 **The shape of this question has now changed four times under measurement** — a
 paging fault, an exhausted stack, an undersized one, and now firmware running
