@@ -16445,8 +16445,18 @@ completed and the run ended there**, at the 4.2 G instruction bound:
 **`Anything more to do?` is not in C50's table**, which goes straight from the
 badspot confirmation to the next `Option:`. That table was written from a MAME
 session and is otherwise exact; this is one prompt it omits, and a script built
-from it stalls there. Corrected here rather than in C50, whose text is the log
-of what was answered.
+from it stalls there.
+
+**And a second omission, found the same way: option 1 asks `Select disk:` too.**
+C50 lists that prompt under option 7 only, so a script that answers it once
+sends the volume name into it. `Option: 1 -f` is accepted -- the flag syntax
+works, and `f` is "don't re-format disk", which is what makes the option
+affordable on a file-backed medium -- and INVOL then prints
+`Select disk: [w=Winch|f=Floppy|q=Quit][ctrl#:][unit#]` before
+`Physical volume name:`.
+
+Both corrected here rather than in C50, whose text is the log of what was
+answered in that session.
 
 **And the cost is the operational fact.** Loading INVOL off the cartridge takes
 **1.55 G instructions** on its own -- measured, `--boot-stop-pc` reported
