@@ -5298,9 +5298,27 @@ same number is what let them diverge once already.
       recorded `dma runs 010FD800 010FD800` anomaly lives in exactly that path,
       though a one-*block* placement shift does not by itself produce a
       77-*byte* one.
-      *What is left is the address, and only the address*: find where the kernel's
-      file-3 buffer is and compare its first 512 bytes with image block 23. Every
-      cheaper question has now been asked and answered.
+      **The address is measured, and it needed no instrumentation — the report
+      already carries it.** `dma runs` on the cartridge boot: two runs at
+      `010FD800`, the SYSBOOT load, and then **every one of 68,059 further runs
+      at the single address `0113CC00`**. So the tape is read a block at a time
+      into one fixed buffer, each block overwriting the last, and placement is
+      neither scattered nor drifting.
+      *Which turns the 77 bytes into an address.* The kernel reads its header at
+      *its* `+0` and gets the block's byte 77, so the buffer it parses begins 77
+      bytes above the one this core writes: `0113CC00 + 77` = **`0113CC4D`**.
+      Either we place the block 77 bytes low, or the kernel's pointer is 77
+      bytes high.
+      *One limit on that identification, stated rather than glossed*: the run
+      that captured these addresses stopped at 1.5 G instructions and **did not
+      reach the `E0007`**, so `0113CC00` is the buffer of the bulk file-3 read
+      and its being the same buffer the failing search parses is an inference —
+      a good one, since the search's own two blocks are file 3's first two, but
+      an inference.
+      *Next, and it is now a comparison of two numbers*: what the host programs
+      into the 8237's address register and the AT translation map for the tape
+      channel, against `0113CC00`. If the programmed target is `0113CC4D` the
+      fault is this core's placement; if it is `0113CC00` the fault is above us.
 
 - [x] **A cold power-on runs the confidence test — done 2026-09-09.**
       `[SC499]` §1.8.1's POC reports success "by the assertion of `EXC-`
