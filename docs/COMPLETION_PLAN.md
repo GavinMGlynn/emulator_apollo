@@ -6186,22 +6186,18 @@ same number is what let them diverge once already.
         laid out, and vectors 48-63 are unassigned. All four join the model
         table's `.mmu` item. Record: `docs/references/M68020_WALK.md`; detail in
         `PROJECT_STATUS.md`.
-  - [ ] **`[040]` `MC68040_Users_Manual_1993.pdf` (463) and
-        `MC68040_Designers_Handbook_1990.pdf` (256) — started 2026-09-09, and
-        the deferral this item carried was false twice over.** It read "no
-        68040 core exists", which I repeated several times before checking.
-        `src/core/cpu/m68040/` holds **26 files** — registers, ATC, cache,
-        descriptors, FPU, FP pipeline and six timing modules — with **14 test
-        suites**, every header citing `MC68040 User's Manual (1993)` by section
-        and figure, several "transcribed from the page images". Two model rows
-        declare `.cpu = AP_CPU_M68040`. What does *not* exist is an instruction
-        **stepper**, which is the separate DN5500 item; the manual is already
-        being derived from.
-        *The citation audit, done first as this item requires*: 72 citations,
-        and **§10 Instruction Timings holds 56 of them** — so that section is
-        verification, the same shape `[030]`'s audit found, and §1, §2, §5, §6,
-        §7, §8, §12 and Appendices A-E are the unread part.
-        Record: `docs/references/M68040_WALK.md`.
+  - [x] **`[040]` `MC68040_Users_Manual_1993.pdf` (463) and
+        `MC68040_Designers_Handbook_1990.pdf` (256) — walked whole, 719/719,
+        2026-09-09.** The deferral this item carried ("no 68040 core exists")
+        was false: 26 files and 14 suites already existed. The audit's §10 call
+        held exactly; its §4 and §9 calls failed in two new ways, both invisible
+        to counting citations by section number. Yield: **the function code is
+        gone from the bus**, `SIZ = 11` is a line, three reset straps exist on
+        one part of five, four FP exceptions are **nonmaskable**, no denormal is
+        handled in hardware, `CPUSH` invalidates, and **the FPSP's
+        transcendentals do not match the 68882's**. Five new modules; nine
+        documentary defects recorded as printed rather than repaired. Detail in
+        `PROJECT_STATUS.md`; record in `docs/references/M68040_WALK.md`.
   *Verification, per document: a coverage record in `docs/references/`, page
   by page, saying what each yielded — and every fact either implemented with
   a test or named as a `PROVISIONAL` gap.*
