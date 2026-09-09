@@ -5203,7 +5203,18 @@ Only after the reference core is proven, and only under an identity harness.
       So neither the firmware nor the one stand-alone utility this core can run
       turns paged translation on. Detail in `PROJECT_STATUS.md`.
       **So what remains of this item is the `.mmu` declaration alone**, which
-      does wait on a 68040 MMU. *Scope of the scan, stated rather than glossed*:
+      does wait on a 68040 MMU.
+      **Made visible and pinned 2026-09-10, which is what could be done without
+      wiring unexercised code.** Every boot report now names the declared MMU
+      against the one the machine translates with, and the two mismatches are
+      given their different standings — the 68851's is measured
+      indistinguishable (TC and CRP only, in both DN3000 PROMs), the 68040's is
+      a real descriptor-format divergence nothing reaches. `machine_suite`
+      65 → 66 pins it concretely: a DS5500 gets the 68040's registers *and* the
+      68030's translation control, two registers where the part has one, so
+      setting the E bit in the 68040 `TC` leaves `tc.enable` false. **The test
+      fails the day the join lands**, which is when the report line must change.
+      Detail in `PROJECT_STATUS.md`. *Scope of the scan, stated rather than glossed*:
       `PMOVE` at cpid 000 only. `PTEST`'s result register is the 68030's
       `MMUSR`/68851's `PSR`, which both parts have, but `PFLUSH` and `PLOAD`
       forms were not enumerated.

@@ -2933,6 +2933,49 @@ static void report_state(ap_machine_t *machine) {
            machine->cpu.urp_040, machine->cpu.srp_040, machine->cpu.mmusr_040,
            (unsigned long long)machine->cpu.cache_maintenance_operations);
   }
+    /* **What the model declares against what the machine translates with**, and
+     * it is printed on every run because the two do not always agree.
+     *
+     * `ap_machine` builds an `ap_m68030_cpu_t` unconditionally, so a row saying
+     * `AP_MMU_M68040` gets the 68040's *registers* -- the block above -- and
+     * the 68030's table walk. That is a declaration the machine does not
+     * honour, and it has been one for as long as the model table has had the
+     * field: `docs/COMPLETION_PLAN.md`'s `.mmu` item, whose remaining work is
+     * exactly this.
+     *
+     * Named rather than left silent, which is the same argument this core makes
+     * for reporting an unclaimed address as **unmapped rather than zero**: a
+     * divergence nothing prints is one nobody finds. It costs one line and it
+     * turns "the DS5500 translates like a 68030" from something a reader has to
+     * know into something every report says. */
+    if (machine->model != NULL) {
+      const char *declared = ap_mmu_name(machine->model->mmu);
+      switch (machine->model->mmu) {
+      case AP_MMU_M68030:
+        printf("  mmu          %s\n", declared);
+        break;
+      case AP_MMU_M68851:
+        /* Not the same standing as the row below, and the difference is
+         * measured rather than assumed: both DN3000 boot PROMs were scanned for
+         * `PMOVE` at coprocessor id 000 and use **TC and CRP only** -- 11 and 6
+         * on one, 12 and 6 on the other -- which the 68030 has. No firmware held
+         * here asks for a 68851-only register, so the two parts are
+         * indistinguishable to everything this core can run. */
+        printf("  mmu          declares %s, translates with the 68030's "
+               "(TC and CRP are the subset every held firmware uses)\n",
+               declared);
+        break;
+      case AP_MMU_M68040:
+        /* This one is a real divergence: the descriptor format differs, so a
+         * machine that turned paged translation on would walk the wrong tables.
+         * Nothing does yet -- the DS5500's PROM and `/sau14/invol` both report
+         * `translation off` -- which is why it is `PROVISIONAL` and not a bug. */
+        printf("  mmu          declares %s, translates with the 68030's "
+               "-- a different descriptor format (PROVISIONAL)\n",
+               declared);
+        break;
+      }
+    }
   printf("  translation  %s", cpu->tc.enable ? "enabled" : "off");
     for (unsigned t = 0; t < 2u; t++) {
       const ap_m68030_tt_t *tt = t == 0u ? &cpu->tt0 : &cpu->tt1;

@@ -179,6 +179,44 @@ static void test_a_probe_can_set_up_run_and_read_back(void) {
   TEST_ASSERT_EQUAL_UINT(0u, m.bus_errors);
 }
 
+/* The model table's `.mmu` is a declaration `ap_machine` does not honour, and
+ * this pins it so the day it *is* honoured the test says so.
+ *
+ * `ap_machine` builds an `ap_m68030_cpu_t` for every row. A DS5500 declares
+ * `AP_MMU_M68040` and gets the 68040's *registers* -- `M68000PRM`'s MOVEC table
+ * gives it eight the 68030 has not -- alongside the 68030's translation
+ * control. **Two registers where the part has one** is what "the declaration is
+ * not honoured" means concretely: a program that enables paged translation
+ * through the 68040 `TC` sets a field nothing walks tables from.
+ *
+ * Not a live defect. The DS5500's boot PROM and `/sau14/invol` both report
+ * `translation off`, so nothing reaches it -- which is why it is `PROVISIONAL`
+ * and why wiring the join today would be unexercised code in the hottest path.
+ * `docs/COMPLETION_PLAN.md`'s `.mmu` item. */
+static void test_the_ds5500_declares_a_68040_mmu_and_is_given_the_68030s(void) {
+  blank();
+  ap_machine_t m;
+  ap_machine_init_model(&m, ram, RAM_BYTES, AP_MODEL_DN5500);
+
+  TEST_ASSERT_NOT_NULL(m.model);
+  TEST_ASSERT_EQUAL_INT(AP_MMU_M68040, m.model->mmu);
+  TEST_ASSERT_TRUE(m.cpu.has_68040_mmu_registers);
+
+  /* The E bit in the 68040's TC, set the way its firmware sets it. On the part
+   * that is *the* translation control; here it is a second one, and the
+   * 68030's -- which is what the table walk reads -- is untouched. */
+  m.cpu.tc_040 = 0x8000u;
+  TEST_ASSERT_FALSE(m.cpu.tc.enable);
+
+  /* And a DN3500 declares the MMU it is given, so the divergence is the
+   * DS5500's rather than something every row has. */
+  blank();
+  ap_machine_t dn3500;
+  ap_machine_init_model(&dn3500, ram, RAM_BYTES, AP_MODEL_DN3500);
+  TEST_ASSERT_EQUAL_INT(AP_MMU_M68030, dn3500.model->mmu);
+  TEST_ASSERT_FALSE(dn3500.cpu.has_68040_mmu_registers);
+}
+
 /* A bound above 2^32 is honoured rather than truncated.
  *
  * `ap_machine_run`'s limit and `ap_machine_run_t::executed` were `unsigned`
@@ -2758,6 +2796,7 @@ int main(void) {
   RUN_TEST(test_no_opcode_reports_an_unimplemented_instruction);
   RUN_TEST(test_a_warm_reset_restores_the_documented_state_but_not_the_atc);
   RUN_TEST(test_a_probe_can_set_up_run_and_read_back);
+  RUN_TEST(test_the_ds5500_declares_a_68040_mmu_and_is_given_the_68030s);
   RUN_TEST(test_a_run_bound_above_two_to_the_thirty_two_is_not_truncated);
   RUN_TEST(test_the_executed_count_can_hold_more_than_a_32_bit_run);
   RUN_TEST(test_every_transcribed_row_matches_both_published_columns);
