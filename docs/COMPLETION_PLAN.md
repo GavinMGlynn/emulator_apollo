@@ -4798,6 +4798,13 @@ Only after the reference core is proven, and only under an identity harness.
       floating-point exceptions and this core already names 48-54 from `[881]`,
       so the 68020's "unassigned" is the processor leaving them for a
       coprocessor to define.
+      **A sixth, and the first a *user program* could observe**: `[040]`
+      §3.7.3 says the 68030's and 68851's MMU instructions "cause F-line
+      unimplemented instruction exceptions if executed in **either supervisor
+      or user mode** by the M68040", where the 68030 takes F-line from
+      supervisor and **privilege violation** from user —
+      `ap_m68030_coproc.h` documents that distinction and
+      `ap_m68030_step.c` applies it unconditionally.
       **And the fifth is that same first register a third time**: `[040]`
       §2.2.2.5 gives the 68040's CACR as **two** enable bits, and every `MOVEC`
       to `CACR` goes through the 68030's eleven-bit `ap_m68030_cacr_write`
