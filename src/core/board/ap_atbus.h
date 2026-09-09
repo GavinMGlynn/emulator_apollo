@@ -373,4 +373,18 @@ typedef struct {
   (AP_ATBUS_DRAM_ROW_INTERVAL * AP_ATBUS_DRAM_ROWS_DS4000)
 #define AP_ATBUS_IO_CH_RDY_MAX ((ap_time_t)AP_TIME_BASE_HZ * 25u / 10000000u)
 
+/* Whether a device has held `IO_CH_RDY` low past §2.3.2's ceiling.
+ *
+ * The predicate and not a timestamp, deliberately -- the same choice
+ * `ap_master.h` made for `MASTER.L`'s 12 us. **No AT-bus card this core models
+ * can hold the line low**, so keeping a hold time on the board would add
+ * unexercised state to the identity hash for no behaviour. A pure function
+ * costs nothing and is what a later card would call on the clock it already
+ * has.
+ *
+ * `held` is in time-base units, as every duration in this core is. */
+[[nodiscard]] static inline bool ap_atbus_io_ch_rdy_exceeded(ap_time_t held) {
+  return held > AP_ATBUS_IO_CH_RDY_MAX;
+}
+
 #endif /* APOLLO_BOARD_AP_ATBUS_H */

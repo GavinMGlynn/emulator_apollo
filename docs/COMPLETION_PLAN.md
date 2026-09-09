@@ -5544,45 +5544,22 @@ same number is what let them diverge once already.
       *Execution works*: no card in any modelled configuration asserts the
       signal. Reopen when a PC Coprocessor is modelled. Detail in
       `PROJECT_STATUS.md`.
-- [ ] **DRAM access times, and `IO_CH_RDY`'s 2.5 µs ceiling — the figures are
-      recorded, the enforcement is not.** §3.3 gives both families **120 ns RAS
-      / 60 ns CAS** and a **4 ms refresh period** over **256 row addresses**
-      (DS3000) or **1000** (DS4000); §2.3.2 caps `IO_CH_RDY` low at **2.5 µs**.
-      All four are now constants in `board/ap_atbus.h` with their citations, and
-      all four land on the time base exactly — asserted, not assumed.
-      **Two of the three are enforced by nothing** — corrected 2026-09-08. No
-      access consumes RAS or CAS time, and a device holding `IO_CH_RDY` low for
-      ever is not detected. Naming is not modelling and the header says so.
-      **What would close each half**, named because "enforced by nothing" is not
-      a blocker on its own: RAS and CAS want the memory system to charge per
-      access, which is the same structural change the DMA-transfer item waits on
-      and inherits the **DS3500 bus-clock question** with it — a `PROVISIONAL`
-      number in the identity hash is the one thing this project must not guess.
-      `IO_CH_RDY` wants a **device that can hold it low**, which is the same
-      dependency `IO_CH_CK.L` names: no AT-bus card this core models can stall
-      the bus, so the ceiling has nothing to enforce against.
-      **The refresh clause was stale**: `ap_board.h`'s `refresh_interval_ticks`
-      implements §2.4.6's inserted cycles and the reference boot reports
-      3,756,431 of them. This item and `ap_atbus.h` both still claimed otherwise,
-      falsified by a later commit that had no reason to look at either.
-      *And the two intervals are not a contradiction*: the board refreshes every
-      **15 µs**, the 2681 counter's rate, while `AP_ATBUS_DRAM_ROW_INTERVAL` is
-      the part's **15.625 µs** guarantee. Refreshing faster than the DRAM
-      requires is correct hardware — the guarantee is a ceiling, not a target.
-      *What the figures did settle*: 4 ms over 256 rows is **15.625 µs** a row,
-      which is §2.4.6's "approximately 15 microseconds" and the fixed 15 µs
-      square wave already modelled on the 2681's `OP3`. That source was taken
-      from §3.9 alone; it is now confirmed to be the right interval for the
-      memory behind it.
-      **And one they opened, now closed** (2026-08-21). §3.3's 4 ms over the
-      DS4000's 1000 rows is 4 µs a row, 3.906× faster than the 15 µs source the
-      same section gives both families — so the section contradicts itself.
-      Micron TN-04-30 says which half is wrong: refresh time over cycles is
-      **15.6 µs for a standard-refresh device** and a **4 Meg × 1 is 16 ms /
-      1,024 cycles**, so the *rate* is the invariant and the *period* follows
-      the row count. §3.3 carried the DS3000's period into the DS4000's clause.
-      `ap_atbus.h` states the interval and derives both periods; `PROVISIONAL`
-      lifted. *Verification: `atbus_suite` 11 -> 14.*
+- [x] **DRAM access times, and `IO_CH_RDY`'s 2.5 µs ceiling — closed
+      2026-09-09 under the documentation-absent rule, both halves, for the two
+      different reasons the rule names.** §3.3's **120 ns RAS / 60 ns CAS** are
+      the **DRAM part's** access times; `ap_atbus_access_time` models the *bus*
+      cycle, a different thing, and **no source gives the memory controller's
+      cycle time** — the four-tier search on `at_bus_series` established that
+      `019411-A00` publishes no bus cycle times at all. *The blocker this item
+      named was wrong*: it said RAS/CAS waited on the DMA-transfer item and the
+      DS3500 bus clock; that item is closed and the bus clock was not its
+      blocker either. `atbus_suite` now asserts RAS is shorter than the Series
+      3000's memory cycle, so charging it as one would make main memory faster
+      than the bus by an unpublished factor.
+      **`IO_CH_RDY` closes on the *consumer* half**: no AT-bus card this core
+      models can hold the line low, as `IO_CH_CK.L` found. Added as a
+      *predicate* and not a timestamp — the choice `ap_master.h` made for
+      `MASTER.L`. `atbus_suite` 14 → 16. Detail in `PROJECT_STATUS.md`.
 - [x] **MD talks on the serial console, and a shell runs `/com/lcnode` — done
       2026-09-08.** Three things had to be true at once: the *offset* of the
       first scripted character rather than its spacing, **2400 baud** because

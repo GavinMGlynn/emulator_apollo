@@ -414,6 +414,40 @@ static void test_the_ds4000s_refresh_period_is_not_the_manuals_four_ms(void) {
       AP_ATBUS_DRAM_REFRESH_PERIOD_DS3000 * AP_ATBUS_DRAM_ROWS_DS4000);
 }
 
+/* §2.3.2 caps `IO_CH_RDY` held low at 2.5 us. Nothing on this bus can hold it,
+ * so the ceiling is a predicate rather than enforcement -- the choice
+ * `ap_master.h` made for `MASTER.L`, and for the same reason: a hold time kept
+ * on the board would be unexercised state in the identity hash. */
+static void test_the_io_ch_rdy_ceiling_is_two_and_a_half_microseconds(void) {
+  const ap_time_t ceiling = AP_ATBUS_IO_CH_RDY_MAX;
+  /* 2.5 us on the time base, exactly -- asserted rather than trusted. */
+  TEST_ASSERT_EQUAL_UINT64((ap_time_t)AP_TIME_BASE_HZ * 25u / 10000000u,
+                           ceiling);
+  TEST_ASSERT_EQUAL_UINT64(0u, ((ap_time_t)AP_TIME_BASE_HZ * 25u) % 10000000u);
+
+  TEST_ASSERT_FALSE(ap_atbus_io_ch_rdy_exceeded(0u));
+  TEST_ASSERT_FALSE(ap_atbus_io_ch_rdy_exceeded(ceiling));
+  TEST_ASSERT_TRUE(ap_atbus_io_ch_rdy_exceeded(ceiling + 1u));
+}
+
+static void test_the_dram_figures_are_the_parts_not_the_boards(void) {
+  /* §3.3's 120 ns RAS and 60 ns CAS are the **DRAM part's** access times.
+   * `ap_atbus_access_time` models the *bus* cycle, which is a different thing
+   * from the DRAM behind it, and no source on this shelf gives the memory
+   * controller's cycle time -- which is why main memory answers at the caller's
+   * minimum rather than at a number nobody published.
+   *
+   * The two are asserted here so the distinction survives: RAS is shorter than
+   * every AT bus cycle the board does charge, so charging it *as* a memory
+   * cycle would make main memory faster than the bus by a factor it has no
+   * source for. */
+  TEST_ASSERT_TRUE(AP_ATBUS_DRAM_RAS_TICKS > AP_ATBUS_DRAM_CAS_TICKS);
+  const ap_atbus_timing_t *series3000 = ap_atbus_timing(AP_ATBUS_SERIES_3000);
+  TEST_ASSERT_TRUE(AP_ATBUS_DRAM_RAS_TICKS <
+                   ap_atbus_access_time(series3000, AP_ATBUS_CYCLE_MEMORY,
+                                        true));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_each_appendix_runs_its_bus_at_half_its_clock);
@@ -430,5 +464,7 @@ int main(void) {
   RUN_TEST(test_the_dram_figures_land_exactly_on_the_time_base);
   RUN_TEST(test_both_families_refresh_a_row_every_fifteen_microseconds);
   RUN_TEST(test_the_ds4000s_refresh_period_is_not_the_manuals_four_ms);
+  RUN_TEST(test_the_io_ch_rdy_ceiling_is_two_and_a_half_microseconds);
+  RUN_TEST(test_the_dram_figures_are_the_parts_not_the_boards);
   return UNITY_END();
 }
