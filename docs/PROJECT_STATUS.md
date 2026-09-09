@@ -2052,11 +2052,35 @@ faults, two of them `cached fault on write` at `7A3FFFFE`–`7A3FFFE2`: a
 the lower one is not mapped. That is a fault an operating system grows a stack
 from, and this one does not recover from it.
 
-**Whether the fault is being *reported* to the part correctly is the open
-question and is not yet answered.** A 68040's access-fault stack frame is not
-the 68030's, and this core builds the 68030's frames; nothing in
-`docs/references/M68040_WALK.md` or here records a format-`$7` frame either way.
-That is the thing to check next, and it is a hypothesis rather than a diagnosis.
+**The fault is not being reported to the part correctly, and the reference
+already said so.** `docs/references/M68040_WALK.md`'s §8 row, walked 32 of 32
+pages:
+
+> **§8.3/§8.4 name a frame format this core has never had**: "exception
+> processing for access error exceptions creates a **format `$7`** stack frame",
+> and `ap_m68030_exception.h`'s enum holds `$0`, `$1`, `$2`, `$9`, `$A`, `$B` —
+> `$7` appears nowhere in either CPU tree.
+
+Checked in the code rather than taken on trust: `ap_m68030_frame_format_t` is
+`SHORT $0`, `THROWAWAY $1`, `SIX_WORD $2`, `COPROCESSOR_MID $9`,
+`SHORT_BUS_FAULT $A`, `LONG_BUS_FAULT $B`. No `$7`. So a DS5500 taking an access
+fault is handed a **68030 bus-fault frame**, and Domain/OS's handler is reading
+a layout the part it is running on would never produce.
+
+*The walk also gives the reason and the shape*, which makes this a specified
+increment rather than an investigation. A 68040 **restarts** the faulted access
+rather than continuing it, "which is why it has `$7` and the 68030 has `$B`" —
+no 46-word continuation frame is needed. And `$7` "contains pending write-backs
+that the access error exception handler must complete", so the frame carries
+*work* and not only state: presenting an empty one to a handler that faulted
+mid-write loses the write. `RTE` on a `$7` frame **mutates it** — with a pending
+trace or floating-point exception it "changes the access error stack frame to
+match the pending exception and fetches the vector for the exception".
+
+**That is the next increment on this item**, and its specification is already
+read. *Recorded here as a case of the reference answering a question I was about
+to go and measure* — the §8 row says "now recorded rather than implicit", and it
+was, for three weeks.
 
 ## The 68040 MMU is joined (2026-09-10)
 

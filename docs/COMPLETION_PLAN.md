@@ -4651,10 +4651,18 @@ discipline throughout.
       **Domain/OS printed to the console for the first time**. It ends `FAULT on
       2F3C` with three MMU faults, two of them a `MOVE.L -(A7)` two bytes below
       a page boundary — a fault an operating system grows a stack from, and this
-      one does not recover. *Whether the fault is reported to the part correctly
-      is the open question*: a 68040's access-fault frame is not the 68030's and
-      this core builds the 68030's, which is a hypothesis to check rather than a
-      diagnosis. Detail in `PROJECT_STATUS.md`.
+      one does not recover. **And the reference already answered why**:
+      `M68040_WALK.md`'s §8 row records that "exception processing for access
+      error exceptions creates a **format `$7`** stack frame" and that `$7`
+      "appears nowhere in either CPU tree" — confirmed in the code,
+      `ap_m68030_frame_format_t` has `$0 $1 $2 $9 $A $B` and no `$7`. So a
+      DS5500 taking an access fault is handed a **68030** bus-fault frame.
+      *The walk gives the shape too*: a 68040 **restarts** the access rather
+      than continuing it, so it needs no 46-word continuation frame, and the
+      `$7` frame "contains pending write-backs that the access error exception
+      handler must complete" — it carries work, not only state. **So the next
+      increment on this item is the format `$7` access-fault frame, and its
+      specification is already read.** Detail in `PROJECT_STATUS.md`.
       *It ends idle rather than broken*: `STOPPED` is the processor having
       executed `STOP`, and what it waits for is the tape —
       `cartridge tape 248065610 read(s)`, `first block still owed`,
