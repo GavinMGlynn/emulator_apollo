@@ -960,8 +960,28 @@ one-block anomaly is already on record: the cartridge boot's `dma runs 010FD800
 block 1. A shift of exactly one block puts the wrong header where the kernel
 looks.
 
-*The next measurement is now small*: capture the 512 bytes the kernel parses as
-file 3's first block and compare them with image block 23.
+**And the measurement is done, without a second boot.** Every value the kernel
+printed is an exact byte string in the cartridge, and all four are in the two
+blocks it should be reading first: `46C70E00` — the sequence it read where 1 was
+expected — at **block 23 offset 77**; its `correct uid` at **block 23 offset
+82**; and the second error's pair at the **same two offsets of block 24**.
+
+So the right blocks arrive in the right order and **the kernel is not reading
+the block header**. Its fields come from `+77` and `+82` where the header sits
+at `+0` and `+4`, and reading the same offsets in successive blocks is precisely
+why it reports a UID that "does not match those read from earlier blocks": the
+header's UID is constant on every data block, and whatever lives at `+82` is
+not. Its expectation is right — it wants sequence 1, which is what block 23
+carries at `+0`.
+
+*Two readings remain and this does not choose between them.* Either the block is
+placed about 77 bytes from where the kernel's header pointer looks, or the
+kernel parses a different structure than the 16-byte header derived here. The
+internal spacing argues against a pure shift — the two fields are 5 bytes apart
+in what it reads and 4 apart in the header — so the second is live. What decides
+it is dumping the 512 bytes the kernel holds as file 3's first block: identical
+to image block 23 means the structure is misread, offset means the placement
+is.
 
 ## The SR10.4 cartridge boots (2026-09-09)
 

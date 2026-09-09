@@ -5214,10 +5214,35 @@ same number is what let them diverge once already.
       010FD800` — two runs, both at the same address … the first run is block 0
       alone, at the same address, overwritten by block 1"*. A shift of exactly
       one block would put the wrong header where the kernel looks.
-      *Next measurement, and it is now a small one*: capture the 512 bytes the
-      kernel actually parses as file 3's first block and compare them with image
-      block 23. One buffer, one comparison — not a search, not a boot-long
-      counter.
+      **And the measurement is done, offline, by searching the cartridge for the
+      values the kernel printed.** Every one of them is an exact byte string in
+      the image, and they are all in the two blocks the kernel should be reading
+      first:
+
+      | printed | found at |
+      | --- | --- |
+      | `46C70E00`, the sequence read where 1 was expected | block **23**, offset **77** |
+      | `5741E3.CF937400`, its `correct uid` | block **23**, offset **82** |
+      | `5F325200`, the second error's sequence | block **24**, offset **77** |
+      | `571F92.7A243B00`, the second error's `uid read` | block **24**, offset **82** |
+
+      **So the right blocks arrive, in the right order, and the kernel is not
+      reading the block header.** Its fields come from **+77 and +82** of each
+      block where the header sits at **+0 and +4** — and reading the *same*
+      offsets in successive blocks is exactly why it reports "UID … does not
+      match those read from earlier blocks": the header's UID is constant across
+      every data block (`57515AD6.A0027288`), while whatever lives at +82 is
+      not. Its *expectation* is right — it wants sequence 1, which is what block
+      23 carries at +0.
+      *Two readings, and this does not choose between them*: either the block is
+      placed ~77 bytes from where the kernel's header pointer looks, or the
+      kernel is parsing a different structure than the 16-byte header derived
+      here. The internal spacing argues against a pure shift — the two fields
+      are 5 bytes apart in what it reads and 4 apart in the header — so the
+      second is live and the first is not settled.
+      *What decides it*: dump the 512 bytes the kernel holds as file 3's first
+      block and compare with image block 23. If they are identical, the
+      structure is misread; if they are offset, the placement is.
 
 - [x] **A cold power-on runs the confidence test — done 2026-09-09.**
       `[SC499]` §1.8.1's POC reports success "by the assertion of `EXC-`
