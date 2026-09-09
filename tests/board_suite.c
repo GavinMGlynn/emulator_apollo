@@ -3046,6 +3046,73 @@ static void test_an_io_protection_map_byte_reads_back_what_was_written(void) {
   TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_board_read(&b, AP_IOPROT_BASE, &ok));
 }
 
+/* `011500`-`0115FF`, which no document this project holds mentions at all.
+ * `019411-A00` Table 2-5, read as a page image, goes `011400` MEMORY PRESENT
+ * straight to `011600` MASTER REQUEST.
+ *
+ * What puts it on the map is Apollo's own software: `/sau14/invol`, loaded off
+ * the SR10.4 boot cartridge and executing on this core, writes `$FF` to eight
+ * bytes there -- `MOVE.B #$FF,($0500,A0,D1.W)` with `A0` the register block and
+ * a `DBRA` of 8 -- before it does anything else, and dies on the first write
+ * with the region unplaced. The oracle maps the same 256 bytes independently,
+ * under the comment "undocumented, what does it do?".
+ *
+ * So this test asserts the extent and the acceptance, and deliberately asserts
+ * nothing about meaning. */
+static void test_the_ds5500_places_the_undocumented_11500_block(void) {
+  ap_board_t b;
+  static uint8_t ds5500_ram[4096];
+  TEST_ASSERT_TRUE(ap_board_init_model(&b, ds5500_ram, sizeof ds5500_ram,
+                                       &START, 0x012345u, AP_MODEL_DN5500));
+
+  TEST_ASSERT_EQUAL_INT(AP_BOARD_REGION_DS5500_11500,
+                        ap_board_region(&b, 0x011500u));
+  TEST_ASSERT_EQUAL_INT(AP_BOARD_REGION_DS5500_11500,
+                        ap_board_region(&b, 0x0115FFu));
+
+  /* Its neighbours are the two rows Table 2-5 *does* print, so the block sits
+   * exactly in the gap between them and does not swallow either. */
+  TEST_ASSERT_EQUAL_INT(AP_BOARD_REGION_CORE_REGISTER,
+                        ap_board_region(&b, 0x0114FFu));
+  TEST_ASSERT_EQUAL_INT(AP_BOARD_REGION_CORE_REGISTER,
+                        ap_board_region(&b, 0x011600u));
+}
+
+/* The eight bytes INVOL writes, driven through the bus, in the loop's own
+ * order. An accepted write is the whole measured requirement; the read-back is
+ * this core's model and is `PROVISIONAL` -- the oracle answers a constant `FF`
+ * instead, and a single read of a written byte is what would separate them. */
+static void test_the_11500_block_accepts_invols_eight_bytes(void) {
+  ap_board_t b;
+  static uint8_t ds5500_ram[4096];
+  TEST_ASSERT_TRUE(ap_board_init_model(&b, ds5500_ram, sizeof ds5500_ram,
+                                       &START, 0x012345u, AP_MODEL_DN5500));
+
+  for (uint32_t i = 0u; i < 8u; i++) {
+    bool ok = false;
+    ap_board_write(&b, 0x011500u + i, 0xFFu, &ok);
+    TEST_ASSERT_TRUE(ok);
+  }
+  bool ok = false;
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_board_read(&b, 0x011507u, &ok));
+  TEST_ASSERT_TRUE(ok);
+  /* And the ninth byte is untouched, so the loop's bound is the model's too. */
+  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_board_read(&b, 0x011508u, &ok));
+}
+
+/* No other model has it, and a DN3500 must still refuse: an undocumented range
+ * placed everywhere would be an invention on eight machines to serve one. */
+static void test_no_other_model_has_the_11500_block(void) {
+  ap_board_t b;
+  init(&b);
+  TEST_ASSERT_NOT_EQUAL_INT(AP_BOARD_REGION_DS5500_11500,
+                            ap_board_region(&b, 0x011500u));
+  bool ok = true;
+  ap_board_write(&b, 0x011500u, 0xFFu, &ok);
+  TEST_ASSERT_FALSE(ok);
+  TEST_ASSERT_EQUAL_UINT(0u, b.ds5500_11500_bytes);
+}
+
 /* Table 2-5 is the **DS5500's** map, and this region is the reason the map is
  * chosen by model: no feature flag tells a DS5500 from a DS3500. A DN3500 has
  * no such range and must still refuse there. */
@@ -3479,6 +3546,9 @@ int main(void) {
   RUN_TEST(test_an_io_protection_map_byte_reads_back_what_was_written);
   RUN_TEST(test_no_other_model_has_an_io_protection_map);
   RUN_TEST(test_a_board_without_the_region_has_no_io_protection_storage);
+  RUN_TEST(test_the_ds5500_places_the_undocumented_11500_block);
+  RUN_TEST(test_the_11500_block_accepts_invols_eight_bytes);
+  RUN_TEST(test_no_other_model_has_the_11500_block);
   RUN_TEST(test_a_dma_transfer_takes_four_controller_states);
   RUN_TEST(test_only_the_ds4000_decodes_the_cache_ram_windows);
   RUN_TEST(test_a_variants_own_rows_overlap_nothing_on_the_shared_map);

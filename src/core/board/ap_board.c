@@ -237,6 +237,11 @@ static const ap_board_placement_t DS5500_PLACEMENT[] = {
     {AP_DISK_FLOPPY_ADDR, AP_DISK_FLOPPY_SIZE, AP_BOARD_REGION_DISK,
      AP_DISK_FLOPPY_ADDR},
     {AP_TAPE_ADDR, AP_TAPE_RANGE, AP_BOARD_REGION_TAPE, AP_TAPE_ADDR},
+    /* `011500`-`0115FF`, which is in no document -- see the region's
+     * declaration. Placed because `/sau14/invol` writes eight bytes there
+     * before it does anything else, and because the oracle maps the same 256
+     * bytes independently. */
+    {0x011500u, AP_BOARDREG_RANGE, AP_BOARD_REGION_DS5500_11500, 0x011500u},
     /* Table 2-5's I/O PROTECTION MAP, `07000000`-`0700FFFF`. Storage rather
      * than a name, because the boot PROM writes into it four instructions
      * after clearing the master request register and before it has a stack --
@@ -261,6 +266,7 @@ static const ap_board_map_t DS5500_MAP = {
     .prom_size = AP_BOARD_PROM_SIZE,
     .has_translation_map = true,
     .translation_map_entries = AP_ATMAP_ENTRIES_DS5500,
+    .has_ds5500_11500 = true,
     .has_io_protection_map = true,
     .address_mask = 0xFFFFFFFFu,
 };
@@ -1293,6 +1299,7 @@ void ap_board_advance_one(ap_board_t *board, uint32_t address, ap_time_t now) {
   case AP_BOARD_REGION_CACHE_RAM:
   case AP_BOARD_REGION_CACHE_CC_RAM:
   case AP_BOARD_REGION_IO_PROTECTION_MAP:
+  case AP_BOARD_REGION_DS5500_11500:
     /* Nothing to observe: none of them keeps time. The Series 2500 block is
      * storage with no modelled behaviour at all (see its declaration), and the
      * cache windows are storage too -- `[S3K]` publishes no hit cost and no
@@ -1544,6 +1551,7 @@ bool ap_board_cache_inhibited(const ap_board_t *board, uint32_t address) {
   case AP_BOARD_REGION_S2500_CONTROL:
   case AP_BOARD_REGION_DESKTOP_VISUALIZATION:
   case AP_BOARD_REGION_IO_PROTECTION_MAP:
+  case AP_BOARD_REGION_DS5500_11500:
   /* The cache's own windows are **not cacheable**, which reads like a
    * tautology and is not: they are the aperture onto the cache's storage, and
    * a processor that cached a read of `012000` would be holding a copy of the
@@ -1600,6 +1608,7 @@ const char *ap_board_region_name(ap_board_region_t region) {
   case AP_BOARD_REGION_NODE_ID: return "node ID PROM";
   case AP_BOARD_REGION_TRANSLATION_MAP: return "translation map";
   case AP_BOARD_REGION_IO_PROTECTION_MAP: return "I/O protection map";
+  case AP_BOARD_REGION_DS5500_11500: return "DS5500 011500 (undocumented)";
   case AP_BOARD_REGION_DMA_PAGE: return "DMA page register";
   case AP_BOARD_REGION_DISK: return "disk/floppy";
   case AP_BOARD_REGION_TAPE: return "cartridge tape";
@@ -1655,6 +1664,10 @@ bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
     /* And the Series 2500's control block, the same way. Zero on every other
      * board is what keeps 256 bytes of a structure they do not have out of
      * their digests. */
+    board->ds5500_11500_bytes =
+        (board->map != NULL && board->map->has_ds5500_11500)
+            ? (unsigned)sizeof board->ds5500_11500
+            : 0u;
     board->s2500_control_bytes =
         (board->map != NULL && board->map->has_s2500_control)
             ? (unsigned)sizeof board->s2500_control
@@ -1884,6 +1897,8 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
   }
   case AP_BOARD_REGION_IO_PROTECTION_MAP:
     return ap_ioprot_read(&board->io_protection, address);
+  case AP_BOARD_REGION_DS5500_11500:
+    return board->ds5500_11500[address & 0xFFu];
   case AP_BOARD_REGION_CACHE_RAM:
     return ap_cacheram_read_data(&board->cache, address);
   case AP_BOARD_REGION_CACHE_CC_RAM:
@@ -2155,6 +2170,9 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
     return;
   case AP_BOARD_REGION_IO_PROTECTION_MAP:
     ap_ioprot_write(&board->io_protection, address, value);
+    return;
+  case AP_BOARD_REGION_DS5500_11500:
+    board->ds5500_11500[address & 0xFFu] = value;
     return;
   case AP_BOARD_REGION_RING: {
     /* Unit 1 is an empty slot, and a write into one goes nowhere. */

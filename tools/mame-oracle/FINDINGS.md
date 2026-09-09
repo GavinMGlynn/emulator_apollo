@@ -16317,3 +16317,107 @@ if it is right, so the next run discriminates on its own output.
 *Nothing here implicates this core.* All 85 disk commands completed, `Drive 0
 passed.`, and the LBAs are the firmware's own arithmetic: record 0 at LBA 0 and
 record 2 at LBA 8 come out of the PROM, not out of `ap_omti`.
+
+## C277 -- `011500` is in no document, and Apollo's own INVOL is what put it on the map
+
+`019411-A00` Table 2-5 -- read as a page image on 2026-09-10, not as a summary
+-- goes **`011400` MEMORY PRESENT REGISTER** straight to **`011600` MASTER
+REQUEST REGISTER**. There is no row between them, and there is no other DS5500
+document: `007861-A01` is not scanned anywhere, which the `019411-A00` walk
+established by searching bitsavers' index directly and by title.
+
+**The DS5500 nevertheless writes there before it does anything else.** With the
+I/O protection map placed (C276's companion), the machine reaches `MD14`, and
+`DI C` / `EX INVOL` loads `/sau14/invol` off the SR10.4 boot cartridge --
+`low: 01020000  high: 0109DBFF  start: 010200E4`, 515,072 bytes -- and dies at
+once:
+
+    B    1080890       2704       A008
+    1080890: 11BC
+
+`--boot-stop-pc 1080890` with `--dump-mem` gives the code and the registers at
+the instruction, before it executes:
+
+    01080880  lea.l    $1080e98.l, a5
+    01080886  movea.l  #$11000, a0
+    0108088C  moveq    #$7, d0
+    0108088E  clr.w    d1
+    01080890  move.b   #$ff, $500(a0, d1.w)      <- 011000 + 500 + 0 = 011500
+    01080898  addq.w   #$1, d1
+    0108089A  dbra     d0, $1080890
+
+with `a0 00011000`, `d0 00000007`, `d1 00000000`. **Eight bytes, `011500`
+through `011507`, all `$FF`**, based off the register block with the
+displacement a constant in the instruction and the count a `DBRA` of 8. That is
+deliberate, not a stray pointer -- and the instruction lengths chain exactly
+into the `ADDQ` and the `DBRA`, so the decode is self-checking. Hand-decoded
+first and then confirmed with capstone, because the extension word is the whole
+argument: `1120` has **bit 8 set**, so it is the *full* format with a word base
+displacement, and the `0500` that follows is that displacement. Read as a brief
+extension word it would be `$20(a0,d1.w)` -- `011020`, and the wrong answer.
+
+**And the oracle found the same thing independently.** `ext/mame`'s `apollo.cpp`
+maps `0x011500`-`0x0115ff` on the DN5500 and on the DSP5500, under the comment
+
+    DN5500 11500 Registers at 0x11500-0x115ff (undocumented, what does it do?)
+
+Two parties, two routes -- a table walk plus a running program here, whatever
+MAME's author did there -- and one conclusion. That is what makes the **256-byte
+extent** defensible rather than invented: it is the size every other row in this
+block has, and it is what the only other model anyone has built uses.
+
+### What is modelled and what is `PROVISIONAL`
+
+`AP_BOARD_REGION_DS5500_11500`, on the DS5500's map alone, 256 bytes of storage
+on the board with the hasher walking the machine's own count -- the idiom the
+translation map, the virtual cache, the I/O protection map and the Series 2500
+control block all share.
+
+**Everything but the extent is `PROVISIONAL`.** Nothing here knows what a byte
+means. Storage is the model for two reasons: a program that initialises an
+address range with a `DBRA` loop is initialising something that holds, and
+storage invents **no constant**, where the oracle's "reads answer `FF`, writes
+are discarded" invents one. *The two models are distinguishable by a single
+read* -- of an unwritten byte, or of a written one -- and no run has produced
+either yet. If one does, that read decides it.
+
+**This is the second undocumented DS5500 range in one day and they are recorded
+differently on purpose.** The I/O protection map has a title and an extent in
+Table 2-5 and only its *contents* are unknown; `011500` has nothing at all, and
+its own flag on the map says so, so a reader can tell which is which without
+opening the addendum.
+
+### And with it placed, INVOL runs
+
+    invol (init_volume) - Offline(14), revision 10.4, December 2, 1991  9:07:01 pm
+
+    Options are:
+      0            - EXIT.
+      1 [-fnb5um]  - initialize virgin physical volume.
+      2 [-fnb5u]   - add a logical volume.
+      3 [-fnb5]    - re-initialize an existing logical volume.
+        The following flags apply to options 1 thru 3, as indicated:
+           f: don't re-format disk    u: don't prompt user - use defaults
+           n: make non-bootable volume
+      ...
+     12            - configure disk quota table
+
+    Option:
+
+**`Offline(14)` is the SAU number**, so the utility names the machine it is
+built for in its own banner. `final PC 010297A8 (main memory)` -- the run ends
+inside INVOL's code at the prompt, not in the PROM.
+
+*Three things the report settles.* `translation off` with `tc 00000000`
+throughout, so the 68040 MMU join is not needed by a 68040 **program** either --
+until now that claim rested on the boot PROM alone. The region reports
+**`0 reads, 8 writes`**, which is exactly the loop and nothing else, so the
+storage-versus-constant question really is unobserved rather than merely
+unexamined. And the I/O protection map's `0 reads, 16 writes` is unchanged.
+
+*What it unblocks.* Options 1 and 3 are what write a volume's boot area, and the
+`n` flag -- "make non-bootable volume" -- is the one this route must **not**
+pass. So the DS5500's own initialiser, running on this core, is the tool C276
+named as the remaining step: a volume INVOLed by it should carry the 4K boot
+area at four sectors to a record that `5500_BOOT` looks for. That is a long run
+to attempt, not a fact to find.

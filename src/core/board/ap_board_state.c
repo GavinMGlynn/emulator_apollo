@@ -1060,6 +1060,16 @@ void ap_board_hash(ap_hash_t *st, const ap_board_t *board) {
   /* The Series 2500's control block: 256 bytes the firmware writes and reads
    * back, and in no hash at all until 2026-09-10. Walked on the board's own
    * count, so the eight models without the block contribute nothing. */
+  /* The DS5500's undocumented `011500` block, on the same terms: live state on
+   * one board and absent on the rest. */
+  ap_hash_scope(st, "ds5500_11500");
+  ap_hash_note_u32(st, "bytes", (uint32_t)board->ds5500_11500_bytes);
+  ap_hash_group_begin(st, "bytes");
+  if (board->ds5500_11500_bytes != 0u) {
+    ap_hash_bytes(st, board->ds5500_11500, board->ds5500_11500_bytes);
+  }
+  ap_hash_group_end(st);
+
   ap_hash_scope(st, "s2500_control");
   ap_hash_note_u32(st, "bytes", (uint32_t)board->s2500_control_bytes);
   ap_hash_group_begin(st, "bytes");

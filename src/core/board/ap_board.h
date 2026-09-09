@@ -322,6 +322,44 @@ typedef enum {
    * cache places them; see `board/ap_cacheram.h`. */
   AP_BOARD_REGION_CACHE_RAM,
   AP_BOARD_REGION_CACHE_CC_RAM,
+  /* **`011500`-`0115FF`, the DS5500's alone, and in no document at all.**
+   *
+   * `019411-A00` Table 2-5 -- read as a page image, not a summary -- goes
+   * `011400` MEMORY PRESENT straight to `011600` MASTER REQUEST. There is no
+   * row here, and there is no other DS5500 document: `007861-A01` is not
+   * scanned anywhere, which the `019411-A00` walk established by search.
+   *
+   * **What put it on the map is Apollo's own software.** `/sau14/invol`, loaded
+   * off the SR10.4 boot cartridge and executing on this core, does
+   *
+   *     MOVEA.L #$00011000,A0
+   *     MOVEQ   #7,D0
+   *     CLR.W   D1
+   *     MOVE.B  #$FF,($0500,A0,D1.W)     ; 011000 + 500 -> 011500
+   *     ADDQ.W  #1,D1
+   *     DBRA    D0,-12
+   *
+   * -- eight bytes, `011500`-`011507`, all `FF`, based off the register block
+   * with the displacement a constant in the instruction. That is deliberate,
+   * not a stray pointer, and with the region unplaced INVOL dies on the first
+   * write.
+   *
+   * **And the oracle found the same thing independently**: `apollo.cpp` maps
+   * `0x011500`-`0x0115ff` on the DN5500 under the comment "undocumented, what
+   * does it do?". Two parties, two routes, one conclusion -- which is why the
+   * 256-byte extent is taken rather than the eight bytes measured: it is the
+   * size every other row in this block has, and the only other model anyone has
+   * built agrees.
+   *
+   * **`PROVISIONAL`, and what is provisional is everything but the extent.**
+   * Nothing here knows what a byte means. Storage is the model because a
+   * program that initialises an address range with a `DBRA` loop is
+   * initialising something that holds -- and because storage invents no
+   * constant, where the oracle's "reads answer `FF`, writes are discarded"
+   * invents one. **The two are distinguishable by a single read**: a read of an
+   * unwritten byte, or a read back of a written one. No run has produced either
+   * yet. */
+  AP_BOARD_REGION_DS5500_11500,
   /* **I/O PROTECTION MAP, `07000000`-`0700FFFF`, the DS5500's alone.**
    * `019411-A00` Table 2-5. Storage, and the *meaning* of a byte is
    * `PROVISIONAL` -- see `board/ap_ioprot.h` for what the table does and
@@ -397,6 +435,12 @@ typedef struct {
    * that do not. A property of the map for the same reason the row is in
    * `DS2500_PLACEMENT` alone. */
   bool has_s2500_control;
+
+  /* Whether this board decodes the undocumented `011500` block. Same board as
+   * the I/O protection map and kept as its own flag, because one is a titled
+   * row in Table 2-5 and the other is in no document -- a reader must be able
+   * to tell which is which from the map alone. */
+  bool has_ds5500_11500;
 
   /* Whether this board decodes Table 2-5's I/O protection map at `07000000`.
    * A property of the *map* and not of the model table, because that is where
@@ -522,6 +566,13 @@ typedef struct ap_board {
    * identity harness exists to close. Found by adding a storage region beside
    * it, not by reading the hasher. */
   unsigned s2500_control_bytes;
+
+  /* `AP_BOARD_REGION_DS5500_11500`'s bytes, and how many of them this board
+   * has -- 256 on a DS5500 and zero elsewhere, so the hasher walks the
+   * machine's own count. See the region's declaration for why an undocumented
+   * range is on the map at all. */
+  uint8_t ds5500_11500[0x100];
+  unsigned ds5500_11500_bytes;
 
   /* Table 2-5's I/O protection map. Present on the DS5500 and empty on every
    * other board, which is a property of the structure rather than of a

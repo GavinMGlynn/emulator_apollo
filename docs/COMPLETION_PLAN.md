@@ -4677,6 +4677,32 @@ discipline throughout.
       *And MD is where a stand-alone utility is loaded*, so `EX INVOL` off the
       boot cartridge is now reachable on a DS5500 — the route to the boot area
       the paragraph below shows this machine cannot read.
+      **And `EX INVOL` was run, 2026-09-10.** `/sau14/invol` loads off the
+      cartridge — `low: 01020000  high: 0109DBFF  start: 010200E4` — and
+      executes. Two things it settles:
+      *The 68040 MMU join is not the blocker, and this is the first evidence
+      from a **68040 program** rather than from the PROM.* The report reads
+      `tc 00000000` / `translation off` with only the two data transparent
+      registers written, exactly as `FINDINGS.md` C258 recorded for the boot.
+      *And it found a second undocumented DS5500 range*: INVOL writes `$FF` to
+      eight bytes at **`011500`**-`011507` before anything else —
+      `move.b #$ff, $500(a0,d1.w)` with `a0` the register block and a `DBRA` of
+      8 — where Table 2-5, read as a page image, goes `011400` straight to
+      `011600`. `ext/mame` maps the same 256 bytes independently under
+      "undocumented, what does it do?". Now
+      `AP_BOARD_REGION_DS5500_11500`, storage, everything but the extent
+      `PROVISIONAL`, and the discriminator against the oracle's constant-`FF`
+      model named: a single read. Detail in `PROJECT_STATUS.md`,
+      `FINDINGS.md` C277.
+      **With that placed, INVOL runs** — `invol (init_volume) - Offline(14),
+      revision 10.4`, its full thirteen-option menu and an `Option:` prompt,
+      ending at `final PC 010297A8 (main memory)` inside its own code.
+      *So the remaining step of the SYSBOOT finding below now has a tool*:
+      options 1 and 3 are what write a volume's boot area, and `n` — "make
+      non-bootable volume" — is the flag this route must not pass. A volume
+      INVOLed by the DS5500's own initialiser should carry the 4K boot area at
+      four sectors to a record. That is a long run to attempt, not a fact to
+      find, and it is the next thing on this item.
       **The shared gate is now named exactly, and it is not the SAU install.**
       2026-09-10: the DS5500's boot area is not the DN3500's. Its PROM reads ten
       records from record 2 with a **page** of stride, and the page size is the
