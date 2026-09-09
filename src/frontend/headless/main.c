@@ -2999,11 +2999,12 @@ static void report_state(ap_machine_t *machine) {
     /* `[040]` Figure 3-4: `E` at 15, `P` at 14, and nothing else implemented.
      * The page size matters here beyond the MMU -- a DS5500 volume's boot
      * records are four 1056-byte sectors, which is the same 4 KB page seen from
-     * the disk. **And it is not honoured**: this core walks the 68030's tables
-     * from the 68030's `TC`, so what follows this line is a machine running
-     * translated addresses untranslated. */
-    printf(" (68040, %s pages, PROVISIONAL -- this core walks the 68030's "
-           "tables)",
+     * the disk.
+     *
+     * *This line carried "PROVISIONAL -- this core walks the 68030's tables"
+     * for the few hours between the divergence being printed and the MMU being
+     * joined, which is exactly as long as it was true.* */
+    printf(" (68040, %s pages)",
            (machine->cpu.tc_040 & 0x4000u) != 0u ? "8 KB" : "4 KB");
   }
     for (unsigned t = 0; t < 2u; t++) {

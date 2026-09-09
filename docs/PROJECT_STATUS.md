@@ -1817,6 +1817,34 @@ the raw word is not recoverable from the decoded one and re-encoding a
 descriptor to feed a decoder is how a transcription error gets laundered into
 data.
 
+### What the DS5500 does with it
+
+`EX DOMAIN_OS`, 2 G instruction bound:
+
+    executed     1631880850 instruction(s)
+    68040 mmu    tc 00008000  itt 00000000 F807C040  dtt 00000000 F807C040
+                 atc flushes 1549 PFLUSH(es)
+    translation  enabled (68040, 4 KB pages)
+    atc fills    2427 descriptor fetch(es)
+    mmu faults   0
+    exceptions   131 x vector 2  48 x vector 160  72 x vector 161
+
+**2,427 descriptor fetches is the join working**: the 68040's table search is
+walking real tables built by Domain/OS, and **no translation faults**. Vectors
+`A0` and `A1` are the operating system's own, fired 120 times between them. It
+had been dying at `0100428A` on its first translated address.
+
+It ends `STOPPED` at `7A443AC0` on a zero word, which is not yet diagnosed — and
+the report's "unmapped" beside that PC is *logical*, so it says nothing about
+where the page went. **The console has printed nothing since MD's banner**, so
+this is the loader running rather than the restore starting, and `Do you wish to
+proceed? (Y/N)` has not been reached. Recorded as how far it gets, not as a
+success.
+
+*The `translation` line carried "PROVISIONAL — this core walks the 68030's
+tables" for the few hours between the divergence being printed and the MMU being
+joined, which is exactly as long as it was true.*
+
 ### The bug the new suite caught, which would otherwise have hidden
 
 `ap_m68040_search` returns the **whole** physical address, frame and page offset
