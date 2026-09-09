@@ -381,6 +381,11 @@ typedef struct {
   uint32_t stack_high_water;
   uint32_t stack_low_water;
   uint32_t stack_low_water_pc;
+  /* The PC at which this stack was switched to, which is the one that names the
+   * code that chose the base. A stack that is too small is a question about
+   * where its pointer came from, and the low-water PC answers the wrong half of
+   * that -- it says who ran out, not who decided how much there was. */
+  uint32_t stack_base_pc;
   uint32_t stack_switches;
   bool stack_low_water_seen;
 

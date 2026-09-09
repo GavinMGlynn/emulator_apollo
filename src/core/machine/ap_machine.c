@@ -1276,6 +1276,7 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, uint64_t limit) {
         machine->stack_high_water = a7;
         machine->stack_low_water = a7;
         machine->stack_low_water_pc = machine->cpu.regs.pc;
+        machine->stack_base_pc = machine->cpu.regs.pc;
         machine->stack_low_water_seen = true;
       } else if (a7 < machine->stack_low_water) {
         machine->stack_low_water = a7;

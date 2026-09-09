@@ -5445,10 +5445,12 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
      * while pushing, and the PC says which code was running when it got
      * there. */
     printf("  stack        %08X down to %08X (%u byte(s)), lowest at PC "
-           "%08X, %u switch(es)\n",
+           "%08X\n",
            machine.stack_high_water, machine.stack_low_water,
            machine.stack_high_water - machine.stack_low_water,
-           machine.stack_low_water_pc, machine.stack_switches);
+           machine.stack_low_water_pc);
+    printf("               switched to at PC %08X, %u switch(es)\n",
+           machine.stack_base_pc, machine.stack_switches);
   }
   if (machine.stopped_clocks > 0u) {
     /* Not instructions: `STOP` executes once and then nothing does. A machine
@@ -6653,10 +6655,12 @@ static int boot_from_tape(const char *path, uint64_t limit) {
      * while pushing, and the PC says which code was running when it got
      * there. */
     printf("  stack        %08X down to %08X (%u byte(s)), lowest at PC "
-           "%08X, %u switch(es)\n",
+           "%08X\n",
            machine.stack_high_water, machine.stack_low_water,
            machine.stack_high_water - machine.stack_low_water,
-           machine.stack_low_water_pc, machine.stack_switches);
+           machine.stack_low_water_pc);
+    printf("               switched to at PC %08X, %u switch(es)\n",
+           machine.stack_base_pc, machine.stack_switches);
   }
   if (machine.stopped_clocks > 0u) {
     /* Not instructions: `STOP` executes once and then nothing does. A machine

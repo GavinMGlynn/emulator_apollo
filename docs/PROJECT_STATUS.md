@@ -2191,6 +2191,26 @@ byte(s)), 3 switch(es)`, which is a stack behaving normally.
 *So the next question is not "what consumed the stack" but "why is its base
 `7A400180`", and those are different investigations.*
 
+### What the base says, and what it does not
+
+The mark now also records **where the stack was switched to**, because the
+low-water PC answers the wrong half: it names who ran out, not who decided how
+much there was. On the DS5500 that is `PC 7FF4092E` — a different region
+entirely from the `7A42D77A` that faulted.
+
+And the register file says what kind of stack it is. `A6` is `7A4000D4`, a frame
+pointer sitting just above `A7`'s `7A400002`, with `A1` at `7A4000CC` and `A2`
+at `7A400144`: `7A400000`–`7A400180` is **a genuine 384-byte stack in active use
+with a proper frame chain**, not a corrupted pointer someone jumped to. It is
+small, and it overflowed by two bytes.
+
+*That is as far as this goes without tracing back to where `7FF4092E` got the
+value*, which is a fresh investigation rather than another turn of this one.
+Recorded because the shape of the question has changed three times under
+measurement — a paging fault, then an exhausted stack, now an undersized one —
+and each change came from building the instrument rather than from thinking
+harder about the previous number.
+
 That is where this thread stops: not "an MMU fault we may be getting wrong", and
 not "the kernel stack ran out" either, but **a stack pointer 384 bytes above an
 unmapped hole** — which is a question about the value in `A7` and where it came
