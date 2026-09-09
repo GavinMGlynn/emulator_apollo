@@ -2961,6 +2961,51 @@ static void test_no_other_model_has_a_desktop_visualization_space(void) {
                             ap_board_region(&b, AP_BOARD_DESKTOP_VIS_BASE));
 }
 
+/* ---------------------------------------------------------------------------
+ * A DMA transfer costs four of the controller's states.
+ * ------------------------------------------------------------------------- */
+
+static void test_a_dma_transfer_takes_four_controller_states(void) {
+  /* `[8237]`, *Memory-to-Memory*: "four state transfers in Block Transfer
+   * mode", each state "one full clock period". `008778-03` Figure A-9 draws an
+   * internal `* 3MHz` beside the Series 3000's 6 MHz bus clock and Figure B-9
+   * an internal `* 4MHz` beside the Series 4000's 8 MHz -- half the bus clock
+   * on both families, and the only row of the three each figure draws that an
+   * **8237A-5** (§2.4.5, 5 MHz maximum) can take.
+   *
+   * So four states are 1.333 us on a Series 3000 board and 1 us on a Series
+   * 4000 one: 33 processor clocks at 25 MHz against 25. */
+  TEST_ASSERT_EQUAL_UINT(4u, AP_ATBUS_DMA_STATES);
+  TEST_ASSERT_EQUAL_UINT(
+      3000000u, ap_atbus_timing(AP_ATBUS_SERIES_3000)->dma_clock_hz);
+  TEST_ASSERT_EQUAL_UINT(
+      4000000u, ap_atbus_timing(AP_ATBUS_SERIES_4000)->dma_clock_hz);
+  /* Half the bus clock on each, which is what makes the figure scale. */
+  TEST_ASSERT_EQUAL_UINT(
+      ap_atbus_timing(AP_ATBUS_SERIES_3000)->bus_clock_hz / 2u,
+      ap_atbus_timing(AP_ATBUS_SERIES_3000)->dma_clock_hz);
+  TEST_ASSERT_EQUAL_UINT(
+      ap_atbus_timing(AP_ATBUS_SERIES_4000)->bus_clock_hz / 2u,
+      ap_atbus_timing(AP_ATBUS_SERIES_4000)->dma_clock_hz);
+
+  /* 25 MHz: 4 states at 3 MHz is 33 clocks and at 4 MHz is 25. */
+  TEST_ASSERT_EQUAL_UINT(
+      33u, ap_atbus_dma_transfer_ticks(AP_ATBUS_SERIES_3000, 25000000u));
+  TEST_ASSERT_EQUAL_UINT(
+      25u, ap_atbus_dma_transfer_ticks(AP_ATBUS_SERIES_4000, 25000000u));
+  /* 20 MHz, where the Series 3000 figure does not divide evenly: 26.67 clocks,
+   * truncated to 26. The remainder is the stated approximation. */
+  TEST_ASSERT_EQUAL_UINT(
+      26u, ap_atbus_dma_transfer_ticks(AP_ATBUS_SERIES_3000, 20000000u));
+}
+
+static void test_a_board_with_no_clock_is_charged_nothing(void) {
+  /* The refresh interval's rule, applied here too: a machine whose clock this
+   * core cannot say gets no charge rather than a guessed one. */
+  TEST_ASSERT_EQUAL_UINT(
+      0u, ap_atbus_dma_transfer_ticks(AP_ATBUS_SERIES_3000, 0u));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_ethernet_card_is_absent_until_it_is_fitted);
@@ -3045,5 +3090,7 @@ int main(void) {
   RUN_TEST(test_batched_and_stepped_ticks_steal_the_same_cycles);
   RUN_TEST(test_the_desktop_visualization_space_is_named_on_the_ds5500);
   RUN_TEST(test_no_other_model_has_a_desktop_visualization_space);
+  RUN_TEST(test_a_dma_transfer_takes_four_controller_states);
+  RUN_TEST(test_a_board_with_no_clock_is_charged_nothing);
   return UNITY_END();
 }

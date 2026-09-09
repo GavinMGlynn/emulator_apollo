@@ -303,7 +303,12 @@ static void test_the_processor_gets_the_bus_back_at_terminal_count(void) {
   arm_channel(&dma_board, 1u, (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (0u << 2)),
               0x0000u, 3u);
 
-  for (unsigned i = 0; i < 64u; i++) {
+  /* **Scaled by the transfer duration.** A transfer now occupies four of the
+   * controller's states rather than one bus tick, so a budget that used to buy
+   * sixty-four transfers buys two. The count is what the test is about; the
+   * ticks needed to reach it are not, so they are derived rather than
+   * hard-coded and stay right if the duration changes. */
+  for (unsigned i = 0; i < 64u * (dma_board.dma_transfer_ticks + 1u); i++) {
     ap_board_bus_tick(&dma_board);
   }
 
@@ -370,7 +375,7 @@ static void test_a_verify_transfer_is_not_an_unwired_one(void) {
   arm_channel(&dma_board, 2u, (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (0u << 2)),
               0x0000u, 2u);
 
-  for (unsigned i = 0; i < 64u; i++) {
+  for (unsigned i = 0; i < 64u * (dma_board.dma_transfer_ticks + 1u); i++) {
     ap_board_bus_tick(&dma_board);
   }
 
@@ -442,7 +447,7 @@ static void test_the_cascade_puts_controller_ones_channels_first(void) {
   const uint8_t floppy_bit = (uint8_t)(1u << AP_DMA_FLOPPY_CHANNEL);
   unsigned ticks = 0;
   while ((dma_board.dma.controller[0].mask & floppy_bit) == 0u &&
-         ticks < 64u) {
+         ticks < 64u * (dma_board.dma_transfer_ticks + 1u)) {
     ap_board_bus_tick(&dma_board);
     ticks++;
   }
@@ -462,7 +467,7 @@ static void test_the_cascade_puts_controller_ones_channels_first(void) {
    * of zero, so a finished channel reads `FFFF`, which is larger than where it
    * started. A count comparison here passes while the transfer is running and
    * fails once it succeeds. */
-  for (unsigned i = 0; i < 64u; i++) {
+  for (unsigned i = 0; i < 64u * (dma_board.dma_transfer_ticks + 1u); i++) {
     ap_board_bus_tick(&dma_board);
   }
   TEST_ASSERT_TRUE((dma_board.dma.controller[1].mask & 0x02u) != 0u);
@@ -591,7 +596,10 @@ static void test_the_request_line_gates_a_block_not_a_word(void) {
 
   /* A byte costs about 278 bus ticks, so a whole cartridge of 1,024 of them
    * costs rather more than 4,096. */
-  for (unsigned i = 0; i < (sizeof cartridge + AP_CT_BLOCK_SIZE) * 300u; i++) {
+  for (unsigned i = 0;
+       i < (sizeof cartridge + AP_CT_BLOCK_SIZE) * 300u *
+               (dma_board.dma_transfer_ticks + 1u);
+       i++) {
     dma_bus_tick(&dma_board);
   }
 

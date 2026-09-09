@@ -1985,12 +1985,12 @@ static void test_a_dma_transfer_costs_the_processor_clocks(void) {
 
   ap_machine_t quiet;
   build_board_machine(&quiet, &first_board, ram, idle_program, words);
-  const ap_machine_run_t quiet_run = ap_machine_run(&quiet, 9u);
+  const ap_machine_run_t quiet_run = ap_machine_run(&quiet, 9u * 40u);
 
   ap_machine_t busy;
   build_board_machine(&busy, &second_board, other_ram, idle_program, words);
   start_verify_channel(&second_board, 1u, 63u);
-  const ap_machine_run_t busy_run = ap_machine_run(&busy, 9u);
+  const ap_machine_run_t busy_run = ap_machine_run(&busy, 9u * 40u);
 
   /* Both ran the same program to the same end. */
   TEST_ASSERT_EQUAL_UINT(quiet_run.executed, busy_run.executed);
@@ -2006,13 +2006,25 @@ static void test_a_dma_transfer_costs_the_processor_clocks(void) {
   TEST_ASSERT_TRUE(second_board.dma_transfers > 0u);
   TEST_ASSERT_EQUAL_UINT(0u, first_board.dma_transfers);
 
-  /* The processor lost roughly one clock per transfer the controller ran --
-   * asserted as a bracket rather than a figure, because the exact count is the
-   * arbitration handshake's and a change to the synchroniser may move it. What
-   * must not happen is the cost being zero or unbounded. */
+  /* The processor lost roughly **one transfer's worth of bus** per transfer the
+   * controller ran -- asserted as a bracket rather than a figure, because the
+   * exact count is the arbitration handshake's and a change to the synchroniser
+   * may move it. What must not happen is the cost being zero or unbounded.
+   *
+   * The bracket is scaled by the transfer duration, which is the whole point of
+   * charging one: `[8237]` gives a transfer four of the controller's states and
+   * `008778-03`'s Figures A-9 and B-9 give that clock as half the bus clock, so
+   * a transfer holds the bus for tens of processor clocks rather than one. A
+   * bound of "four clocks per transfer" was right when a transfer was
+   * instantaneous and is wrong now. */
   const uint64_t lost = busy.cpu.clocks - quiet.cpu.clocks;
+  const uint64_t per_transfer = second_board.dma_transfer_ticks + 1u;
   TEST_ASSERT_TRUE(lost >= second_board.dma_transfers);
-  TEST_ASSERT_TRUE(lost <= second_board.dma_transfers * 4u + 16u);
+  TEST_ASSERT_TRUE(lost <=
+                   second_board.dma_transfers * (per_transfer + 4u) + 16u);
+  /* And the duration is the derived one, not one: this test would pass with a
+   * transfer that cost a single tick, so it says which it is measuring. */
+  TEST_ASSERT_TRUE(second_board.dma_transfer_ticks > 1u);
 }
 
 /* **An indivisible operation holds the bus, and this core let go of it.**

@@ -1028,6 +1028,16 @@ void ap_board_hash(ap_hash_t *st, const ap_board_t *board) {
    * comes from the model's clock, and two boards refreshing at different rates
    * are not the same board however alike their registers look. */
   ap_hash_u32(st, board->refresh_interval_ticks);
+
+  /* And how far through a DMA transfer the board is, for the same reason: a
+   * transfer now occupies four of the controller's states, so two boards
+   * identical but for the states remaining diverge on the next instruction
+   * that runs long enough to see it. The duration goes in beside it, as the
+   * refresh interval does -- it comes from the model's clock and the AT bus
+   * series, and two boards transferring at different rates are not the same
+   * board however alike their registers look. */
+  ap_hash_u32(st, board->dma_transfer_ticks);
+  ap_hash_u32(st, board->dma_transfer_ticks_left);
   ap_hash_u32(st, board->refresh_ticks_left);
   hash_bool(st, board->refresh_holding);
 

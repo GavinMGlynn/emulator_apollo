@@ -5471,7 +5471,7 @@ is inline. Whether any executes on some *other* path is not settled by this, and
 does not need to be: what the boot shows is that giving them their documented
 effect changes nothing the reference run does.
 
-**`5AF8B16F9BA4B7D0` is the current reference hash** (2026-09-09; the table
+**`77B60315440826A6` is the current reference hash** (2026-09-09, measured; the table
 below is the lineage, and this line has named `4EAC44B176697CE7`,
 `FE2BB02AEF1F4624` and `1AE206D37D8A8D1F` in turn while rows were appended
 beneath it). Produced by
@@ -5501,6 +5501,9 @@ C0C008BB82E7BD70   + `divider_held` and `dst_shifted` in the hash
 FE2BB02AEF1F4624   + the DUART's input-port change filter -- **and the clocks move**
 1AE206D37D8A8D1F   + the tape drive's `FIL` latch in the hash
 5AF8B16F9BA4B7D0   + the **board's** half of a tape transfer in the hash
+9A8188D5AC393BFD   (measured 2026-09-09 at `5c8902c`; the step between this and
+                   the row above was not recorded when it happened)
+77B60315440826A6   + the DMA transfer's four states in the hash
 ```
 
 **The last row is the same kind of move as the one above it**, and checked the
@@ -11317,7 +11320,82 @@ is a separate item.
 
 `machine_suite` 60 -> 63 tests, and `access_suite`'s device fake takes the
 function code and ignores it, which is the honest thing for a fixture that is
-memory. `cache_suite` 30 -> 35 tests, including that a 68030 written
+memory.
+
+**A DMA transfer now costs four of the controller's states -- and the item's
+premise about what that would cost was wrong.** `[8237]`'s *Memory-to-Memory*
+gives a transfer "four state transfers in Block Transfer mode", each state "one
+full clock period". `008778-03` supplies the clock, and it is in **both**
+appendices: Figure A-9 draws an internal `* 3MHz` beside the Series 3000's 6 MHz
+bus clock and Figure B-9 an internal `* 4MHz` beside the Series 4000's 8 MHz --
+**half the bus clock on each family**, and the only row of the three each figure
+draws that an **8237A-5** (§2.4.5, 5 MHz maximum) can take. So four states are
+**1.333 us** on a Series 3000 board and **1 us** on a Series 4000 one: 33
+processor clocks at 25 MHz against 25.
+
+Before this the controller ran one transfer per bus tick and a transfer was
+instantaneous, on a core whose claim is that contention is *emergent*.
+
+**The item said this could not be done for the reference machine without putting
+a `PROVISIONAL` number into the identity hash. That was stale.** Which series a
+DS3500 is remains provisional -- `ap_board.h`'s `at_bus_series` carries the
+four-tier search that established the answer is not published anywhere,
+including MAME's own `// FIXME: determine ISA bus clock` -- but that field is
+**already hashed** (`ap_board_state.c`) and **already sets every AT bus access
+time** (`ap_atbus_timing`). Deriving the transfer duration from the same field
+adds no new guess; it makes an existing one consistent. Both series' DMA clocks
+are documented, so only the DS3500's *membership* is in question, and that was
+in question already.
+
+**And the item's cost estimate was wrong, measured rather than argued.** It
+predicted "expect it to move the boot ... the reference boot performs millions of
+them". The reference boot performs **one**:
+
+```
+dma          1 transfer(s), 0 to an unwired channel, last read 01100000 wrote 01100800
+```
+
+One transfer in 350 M instructions. So the before-and-after the item asked for
+shows the change costing nothing at all:
+
+```
+5c8902c  9A8188D5AC393BFD   clocks 1408661906   before this session's four
+                                                behavioural commits
+021869d  9A8188D5AC393BFD   clocks 1408661906   after all four -- **unmoved**
++ DMA    77B60315440826A6   clocks 1408661906   the two new hashed state words
+```
+
+**Three 350 M boots, and the middle row is the one worth having.** The four
+commits between them -- the part-dependent `CACR`, the 68040's F-line rule for
+the MMU opcodes, the relaid-out 68020 fault frame and the function code crossing
+the bus -- leave the hash **exactly** where it was. That is the right answer and
+it is now measured rather than assumed: a DN3500 is a 68030, so it takes the
+68030 path in every one of the four, and a hash that moved would have meant one
+of them had changed the reference part's behaviour while claiming to change
+another part's.
+
+*And the hash this document recorded as current, `5AF8B16F9BA4B7D0`, no longer
+reproduces* -- `5c8902c` gives `9A8188D5AC393BFD`, so something between the
+recording and that commit moved it and was not written down. The lineage below
+is corrected to the measured value rather than left claiming one that a run does
+not produce.
+
+**Console byte-identical, clock total identical to the digit, refresh count
+identical.** The hash moves only because `dma_transfer_ticks` and
+`dma_transfer_ticks_left` join the hashed state -- which they must, for the
+reason `refresh_ticks_left` does: two boards identical but for how far through a
+transfer they are diverge on the next instruction long enough to see it.
+
+That the one transfer's extra 32 clocks did not reach the total is the same
+granularity the refresh measurement found: `ap_m68030_step` runs a whole
+instruction and the board is charged afterwards, so a stall is only observed at
+a boundary. At one transfer it is not a shortfall worth a number.
+
+`board_suite` 81 -> 83 tests, and five DMA tests were rescaled: they budgeted
+ticks assuming one transfer per tick, and now derive the budget from
+`dma_transfer_ticks` so they stay right if the duration changes. The bracket in
+`machine_suite`'s contention test moves with it -- "four clocks per transfer"
+was right when a transfer was instantaneous. `cache_suite` 30 -> 35 tests, including that a 68030 written
 through the variant path and through the plain one agree exactly -- the
 reference part must not have moved. **Five of the six divergences remain**, and
 the item stays open: the frame layout, the control-register count, vector 56 and
@@ -13862,7 +13940,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 14 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |
 | Intel 8259A interrupt controller (the part) | working: ICW1-4 sequence, all three OCWs, fully nested priority with rotation, edge and level triggering, special mask and special fully nested modes, poll, AEOI, and the spurious level 7. 8086-mode vectoring only — MCS-80/85's `CALL` sequence is refused rather than approximated, and this machine never uses it. The Apollo *pairing* is a separate module | `i8259_suite`, 28 tests, each citing `8259A` 231468-003 |
-| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none. **The DS5500 now has its own map**, from `019411-A00` Table 2-5 rather than the Series 4000 table it borrowed until that page was read: it places the memory present register at `011400` that no other model has, it does *not* place the task alias at `010300`, and its main memory is four 16 MB banks to `4FFFFFF` where Table 2-8 gives three. Table 2-5's 4 KB address translation map is **implemented as of 2026-08-22**: the entry count is a property of the map, the hasher walks it rather than `AP_ATMAP_ENTRIES`, and only the DS5500 gets the wider region — so no other model's state hash moved. The `PROVISIONAL` is lifted | `board_suite`, 81 tests -- one of them driving the **absolute** pointing packet onto the keyboard's wire, which nothing called and nothing tested, and one sweeping `ap_board_bus_ticks(board, n)` against n calls of one across the refresh boundary, which is the whole licence for its batching and was asserted by nothing, one carrying the 8237's `EOP` to the tape's DONE bit -- the ethernet's had that line and the tape's did not -- one of them the Series 2500's own register block -- storage, `PROVISIONAL`, and the only thing standing between that firmware and its second instruction; `atbus_suite`, 14 tests  **Main memory's extent is `1000000`–`2FFFFFF`, 32 MB, corrected from `3FFFFFF` on 2026-08-19**: `008778-03` §1.5.2 gives the DS4000's memory one module at a time — `$17FFFFF` with one 8-MB module, `$1FFFFFF` with two, `$27FFFFF` with three, `$2FFFFFF` with four — and `1000000`–`3FFFFFF` is **48 MB**, not 32. The old value was the oracle's `DN3500_RAM_END`, imported without checking the arithmetic; the same MAME file gives `DN5500_RAM_END 0x2ffffff` for the same 32 MB four lines away, so the oracle contradicts itself and the manual says which is the slip. The cost was exactly what that constant's own comment warns of — sixteen megabytes of unmapped space were being reported to a trace as "main memory". Identity hash unchanged, so the reference boot never reached there  **The DS3000 has one 2681, not two, and its kilobyte is aliased** — corrected 2026-08-19 during the `008778-03` walk. Table 2-6 gives the DS3000 a single `008400`-`0087FF` row named "SIO" where Table 2-8 gives the Series 4000 two 256-byte rows, and §1.5.1 says why: the DS3000 drives "two asynchronous serial lines, SIO0 and SIO1" and the DS4000 four. One 2681 has two channels. The oracle agrees independently — `dn3000_map` sends the whole range to `m_sio` and the DN3000 configuration does `config.device_remove(APOLLO_SIO2_TAG)`. This core had mapped `2 × AP_SIO_RANGE`, putting a second DUART at `008500` and leaving `008600`-`0087FF` unmapped. Now four placements folding onto `AP_SIO1_ADDR`. **Behaviourally invisible to the boot that exists**: both DN3000 revisions run 400,000 instructions to a byte-identical state hash either side, because the PROM never reaches into that kilobyte — so this is a latent error corrected, not a failure explained |
+| Core-board address maps (`board/ap_board.c`) | working: every device placed by `008778-03` Table 2-8 and by the measurement that confirmed it, main memory at `1000000`, and an unclaimed address reported **unmapped rather than zero** — the distinction flat RAM hid, which cost 5634 invisible accesses in the first firmware run. Regions are named, so a trace can say *what* the firmware reached for. The AT windows declare a cycle time and everything else answers at the minimum, and an access to the translation map's undescribed seven eighths is counted rather than silently aliased, and each of the two declined core registers is counted apart. The DMA page registers now map offset to channel from `002398-04` p. 12-25, the handbook that prints the table `008778-03` Table 2-6 omits — channel 4, the cascade, has none. **The DS5500 now has its own map**, from `019411-A00` Table 2-5 rather than the Series 4000 table it borrowed until that page was read: it places the memory present register at `011400` that no other model has, it does *not* place the task alias at `010300`, and its main memory is four 16 MB banks to `4FFFFFF` where Table 2-8 gives three. Table 2-5's 4 KB address translation map is **implemented as of 2026-08-22**: the entry count is a property of the map, the hasher walks it rather than `AP_ATMAP_ENTRIES`, and only the DS5500 gets the wider region — so no other model's state hash moved. The `PROVISIONAL` is lifted | `board_suite`, 83 tests -- one of them driving the **absolute** pointing packet onto the keyboard's wire, which nothing called and nothing tested, and one sweeping `ap_board_bus_ticks(board, n)` against n calls of one across the refresh boundary, which is the whole licence for its batching and was asserted by nothing, one carrying the 8237's `EOP` to the tape's DONE bit -- the ethernet's had that line and the tape's did not -- one of them the Series 2500's own register block -- storage, `PROVISIONAL`, and the only thing standing between that firmware and its second instruction; `atbus_suite`, 14 tests  **Main memory's extent is `1000000`–`2FFFFFF`, 32 MB, corrected from `3FFFFFF` on 2026-08-19**: `008778-03` §1.5.2 gives the DS4000's memory one module at a time — `$17FFFFF` with one 8-MB module, `$1FFFFFF` with two, `$27FFFFF` with three, `$2FFFFFF` with four — and `1000000`–`3FFFFFF` is **48 MB**, not 32. The old value was the oracle's `DN3500_RAM_END`, imported without checking the arithmetic; the same MAME file gives `DN5500_RAM_END 0x2ffffff` for the same 32 MB four lines away, so the oracle contradicts itself and the manual says which is the slip. The cost was exactly what that constant's own comment warns of — sixteen megabytes of unmapped space were being reported to a trace as "main memory". Identity hash unchanged, so the reference boot never reached there  **The DS3000 has one 2681, not two, and its kilobyte is aliased** — corrected 2026-08-19 during the `008778-03` walk. Table 2-6 gives the DS3000 a single `008400`-`0087FF` row named "SIO" where Table 2-8 gives the Series 4000 two 256-byte rows, and §1.5.1 says why: the DS3000 drives "two asynchronous serial lines, SIO0 and SIO1" and the DS4000 four. One 2681 has two channels. The oracle agrees independently — `dn3000_map` sends the whole range to `m_sio` and the DN3000 configuration does `config.device_remove(APOLLO_SIO2_TAG)`. This core had mapped `2 × AP_SIO_RANGE`, putting a second DUART at `008500` and leaving `008600`-`0087FF` unmapped. Now four placements folding onto `AP_SIO1_ADDR`. **Behaviourally invisible to the boot that exists**: both DN3000 revisions run 400,000 instructions to a byte-identical state hash either side, because the PROM never reaches into that kilobyte — so this is a latent error corrected, not a failure explained |
 | Shared bus arbitration point | working: the external priority encoder `[030]` §7.7 requires, DRQ0 through DRQ7 with the processor last, driving the CPU's own arbitration unit over the three-wire protocol. A grant and its acknowledgement are separate instants, so the processor stops driving the bus when it grants rather than when the grant is taken up; a master is never pre-empted mid-transfer | `arbiter_suite`, 9 tests, `MC68030 User's Manual 3ed` §7.7, `008778-03` §2.4.6 |
 | Apollo DMA controllers (`010C00`, `010D00`) | working: DMA 1 at **stride 1** and DMA 2 at **stride 2**, both measured, both aliased through their ranges. A read of a write-only register returns zero where the oracle returns `0F`; `[8237]` marks that read "Illegal", so neither is specified and ours does not invent a register value. The board runs transfers: controller 1's request cascaded onto controller 2's channel 0 and one request reaching the arbiter, the address through the translation map, and the processor stalled while a controller holds the bus. The cascade and the channel assignments are `008778-03` Table 2-4's, so the AT convention this module used to refuse is now cited rather than assumed. **The peripheral side is wired**: the tape drives its own request line and its cartridge reaches memory by DMA, and the disk's two data ports move under an acknowledge | `dma_suite`, 18 tests; `FINDINGS.md` C13 |
 | Intel 8237A DMA controller (the part) | **programming model and transfer cycle complete**: all sixteen register addresses, four channels with base and current address/count, the single shared first/last flip-flop, command/mode/request/mask/status/temporary, master clear, autoinitialise reload and the mask-on-terminal-count rule; and a service cycle that moves a byte either way, verifies without moving one, walks the address up or down, and ends on the borrow out of zero rather than at zero. Memory-to-memory is refused outright rather than half-run. The part drives sixteen bits of address and the board composes the rest — not yet wired to the board | `i8237_suite`, 31 tests, `8237A` 231466 |

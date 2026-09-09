@@ -18,6 +18,8 @@ static const ap_atbus_timing_t TIMING[] = {
             .memory_write_ns = 500u,
             .io_16_ns = 250u,
             .io_8_ns = 750u,
+            /* Figure A-9's internal `* 3MHz`, half the 6 MHz bus clock. */
+            .dma_clock_hz = 3000000u,
             /* 3 and 6 bus clocks at 166.67 ns -- §3.4's printed 500 ns and
              * 1 us exactly. */
             .io_16_cycle_ns = 500u,
@@ -35,6 +37,8 @@ static const ap_atbus_timing_t TIMING[] = {
             .memory_write_ns = 375u,
             .io_16_ns = 185u,
             .io_8_ns = 560u,
+            /* Figure B-9's internal `* 4MHz`, half the 8 MHz bus clock. */
+            .dma_clock_hz = 4000000u,
             /* The same 3 and 6 bus clocks at 125 ns. See the header on why the
              * count travels between the families and the nanoseconds do not. */
             .io_16_cycle_ns = 375u,
@@ -111,4 +115,24 @@ unsigned ap_atbus_centiclocks(const ap_atbus_timing_t *timing,
   const uint64_t ns = nanoseconds(timing, cycle, read);
   return (unsigned)((ns * (uint64_t)timing->bus_clock_hz * 100u + 500000000u) /
                     1000000000u);
+}
+
+uint32_t ap_atbus_dma_transfer_ticks(ap_atbus_series_t series,
+                                     uint32_t cpu_hz) {
+  const ap_atbus_timing_t *timing = ap_atbus_timing(series);
+  if (timing == nullptr || timing->dma_clock_hz == 0u || cpu_hz == 0u) {
+    return 0u;
+  }
+  /* Four controller states expressed in processor clocks, as
+   * `cpu_hz * states / dma_clock_hz`. Ordered so the multiply happens first:
+   * 25,000,000 x 4 / 3,000,000 is 33 and (25,000,000 / 3,000,000) x 4 is 32,
+   * and the second is wrong by a state and a third.
+   *
+   * It does not divide evenly on every model -- 4 states at 3 MHz is 1.333 us,
+   * which is 33.33 clocks at 25 MHz and 26.67 at 20 MHz. Truncation is the
+   * approximation, stated: an accumulator would carry the remainder and is
+   * what this wants if a boot ever shows the drift, which at a third of a clock
+   * per transfer would take some millions of them to reach one. */
+  return (uint32_t)(((uint64_t)cpu_hz * AP_ATBUS_DMA_STATES) /
+                    (uint64_t)timing->dma_clock_hz);
 }

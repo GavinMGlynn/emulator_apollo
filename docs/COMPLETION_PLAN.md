@@ -5499,61 +5499,22 @@ same number is what let them diverge once already.
       MAME's sources rather than from Apollo.
       *Execution works*: the probed value is what the machine we have returns,
       and the reference boots on it. Detail in `PROJECT_STATUS.md`.
-- [ ] **A DMA transfer costs no bus time, and the part says it costs four
-      states.** Found by the `[8237]` walk, 2026-08-22.
-      `[8237]`, *DMA OPERATION*: "The 8237A can assume **seven separate states,
-      each composed of one full clock period**", and *Memory-to-Memory* has the
-      device "using **four state transfers** in Block Transfer mode". Compressed
-      timing drops S3, making it three — "a transfer consists only of state S2
-      to change the address and state S4 to perform the read/write" — with S1
-      still occurring when `A8`–`A15` need updating.
-      **This core runs one `ap_i8237_transfer` per bus tick** and its memory
-      callbacks go through `ap_board_read`/`ap_board_write`, which charge
-      nothing. So a transfer is instantaneous in bus terms, on a core whose
-      claim is emergent contention — the same shape as the refresh gap above,
-      and worth more, because the reference boot performs millions of them.
-      **The unit was the trap and the reference has settled it, 2026-08-22.**
-      `008778-03` **Figure B-9, Bus DMA Cycles**, draws three clocks against the
-      DMA waveform: `* 16MHz`, `CLK (8MHz)` and `* 4MHz`, the starred two marked
-      "Internal signal on the CPU/Motherboard. Not available on the Bus". §2.4.5
-      names the part **8237A-5**, whose maximum clock is **5 MHz**, so of the
-      three only the 4 MHz row is one this controller can take.
-      So four states is **1 µs**, which on a 25 MHz DN3500 is exactly **25 CPU
-      clocks** — a whole number, so the same tick-counted approach the refresh
-      uses works without an accumulator. *It is not the AT bus clock, which is
-      what this item assumed before the figure was read; deriving from 125 ns
-      would have made a transfer 500 ns and mispriced it by half.*
-      **Settled by counting the figure.** At 500 dpi a gridline interval holds
-      four `* 16Mhz` cycles, two `CLK (8Mhz)` and one `* 4Mhz` — so the interval
-      *is* a 4 MHz period and the gridlines are the state boundaries; a transfer
-      spans four. (Table A-1's rows 58–71 were expected to confirm it and do
-      not: they are propagation delays, not durations.)
-      **The arithmetic caveat**: 1 µs is 25 clocks exactly on a 25 MHz DN3500,
-      but a 3 MHz DMA clock gives 1.333 µs = 26.67 clocks on a 20 MHz DN3000.
-      The duration wants holding in time-base units and converting per model, or
-      an accumulator.
-      **BLOCKED, and on an item already open — found 2026-08-22 when the
-      implementation was started and stopped.** Figure B-9 is the **Series
-      4000** appendix, so 4 MHz is settled for a DS4000 and **not** for the
-      DS3500, which is this project's reference machine. `ap_board.h`'s
-      `at_bus_series` is `PROVISIONAL` for exactly that reason: its own comment
-      retracts the justification for calling a DS3500 a Series 3000 board while
-      keeping the choice, because "neither manual states a DS3500's AT bus
-      clock". A DMA transfer duration inherits that question whole — Series 3000
-      would make it 1.333 µs and Series 4000 1 µs, a 33% difference on the
-      reference boot's most frequent bus event.
-      **So this cannot be implemented for the reference machine without putting
-      a `PROVISIONAL` number into the identity hash**, which is the one place
-      this project must not guess. It closes when the DS3500 bus-clock item
-      does, and is now a named dependency of it rather than an independent
-      piece of work.
-      *The Series 4000 models could be done today* — `dn4000`, `dn4500` — but a
-      timing change nothing exercises is a change nobody can check.
-      **Expect it to move the boot**, unlike the refresh cycles: the arbiter
-      already makes the processor wait while the DMA holds the bus, so
-      lengthening a transfer lengthens a real stall rather than adding an
-      invisible one. Budget a before/after identity boot and a console diff.
-
+- [x] **A DMA transfer costs four of the controller's states — landed
+      2026-09-09, and this item's own premise was wrong twice.** `[8237]` gives
+      a transfer "four state transfers in Block Transfer mode"; `008778-03`
+      Figure A-9 draws an internal `* 3MHz` beside the Series 3000's 6 MHz bus
+      clock and Figure B-9 a `* 4MHz` beside the Series 4000's 8 MHz — half the
+      bus clock on **both** families — so four states are 1.333 µs and 1 µs,
+      33 and 25 processor clocks at 25 MHz.
+      **First correction**: this item said it could not be done without putting a
+      `PROVISIONAL` number in the identity hash. `at_bus_series` is **already**
+      hashed and already sets every AT bus access time, so deriving the duration
+      from it adds no new guess. **Second**: it predicted "the reference boot
+      performs millions of them". It performs **one** — measured, `dma 1
+      transfer(s)` in 350 M instructions — so the before/after this item asked
+      for shows console byte-identical and clocks identical to the digit; only
+      the two new hashed state words move the hash. `board_suite` 81 → 83, five
+      DMA tests rescaled. Detail in `PROJECT_STATUS.md`.
 - [x] **Refresh cycles are inserted on the AT bus — landed 2026-08-22.**
       §2.4.6's state machine *inserts* a cycle, so it is stolen rather than
       arbitrated for: `ap_board_processor_may_run` answers with it directly,

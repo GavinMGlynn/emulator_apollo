@@ -1150,6 +1150,16 @@ void ap_board_bus_tick(ap_board_t *board) {
   }
   board->dma_bus_held++;
 
+  /* **A transfer occupies the bus for four of the controller's states, not for
+   * one tick.** While one is still running the bus is held and nothing new
+   * starts -- which is the whole point: the arbiter already makes the processor
+   * wait while the controller holds the bus, so lengthening a transfer
+   * lengthens a real stall rather than adding an invisible one. */
+  if (board->dma_transfer_ticks_left > 0u) {
+    board->dma_transfer_ticks_left--;
+    return;
+  }
+
   /* Whose transfer it is follows from which channel the second controller
    * selected. Its channel 0 in cascade mode is not a transfer at all -- the
    * part refuses one, and correctly -- it is the first controller's turn. */
@@ -1168,6 +1178,12 @@ void ap_board_bus_tick(ap_board_t *board) {
       ap_i8237_transfer(&board->dma.controller[unit], &bus);
   if (cycle.ran) {
     board->dma_transfers++;
+    /* The rest of this transfer's four states. Zero on a board whose DMA clock
+     * this core cannot say, which keeps the old one-tick behaviour rather than
+     * a guessed duration. */
+    if (board->dma_transfer_ticks > 1u) {
+      board->dma_transfer_ticks_left = board->dma_transfer_ticks - 1u;
+    }
     /* The `EOP` a peripheral sees. Only the controller knows the transfer is
      * over -- the card counts bytes through a FIFO and has no length -- so the
      * terminal count is carried to it here, where the cycle that produced it
@@ -1568,6 +1584,12 @@ bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
             : (ap_time_t)(AP_TIME_BASE_HZ / (uint64_t)entry->cpu_hz);
     board->refresh_ticks_left = board->refresh_interval_ticks;
     board->refresh_holding = false;
+    /* Four states of the DMA controller's clock, from the same table entry. */
+    board->dma_transfer_ticks =
+        entry == NULL
+            ? 0u
+            : ap_atbus_dma_transfer_ticks(board->at_bus_series, entry->cpu_hz);
+    board->dma_transfer_ticks_left = 0u;
   }
   {
     /* What `011400` reports, on the model that has it: which slots hold boards

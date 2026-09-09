@@ -593,6 +593,21 @@ typedef struct ap_board {
    * which is why that item is a named dependency of this one. */
   ap_atbus_series_t at_bus_series;
 
+  /* How long one DMA transfer holds the bus, and how much of that is left.
+   *
+   * `[8237]` gives a transfer four states of the controller's clock and
+   * `008778-03`'s Figures A-9 and B-9 give that clock as half the bus clock on
+   * each family, so a transfer is 1.333 us on a Series 3000 board and 1 us on a
+   * Series 4000 one. Before this the controller ran one transfer per bus tick
+   * and a transfer was instantaneous -- on a core whose claim is that
+   * contention is *emergent*, and over a boot that performs millions of them.
+   *
+   * `dma_transfer_ticks_left` is machine state and hashed, for the reason
+   * `refresh_ticks_left` is: two boards identical but for how far through a
+   * transfer they are diverge on the next instruction long enough to notice. */
+  uint32_t dma_transfer_ticks;
+  uint32_t dma_transfer_ticks_left;
+
   /* The boot PROM, caller-owned. NULL until one is loaded, and the region then
    * answers unmapped -- a machine with no PROM is a real configuration and must
    * not look like one with a blank PROM. */

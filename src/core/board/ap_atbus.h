@@ -212,10 +212,44 @@ typedef struct {
    * what the tables actually print. They are *not* the cycle; see below. */
   uint32_t io_16_ns;        /* #37 */
   uint32_t io_8_ns;         /* #48 */
+  /* The DMA controller's own clock, which is **half the bus clock on both
+   * families**: Figure A-9 draws an internal `* 3MHz` beside the 6 MHz bus
+   * clock and Figure B-9 an internal `* 4MHz` beside the 8 MHz one, both
+   * footnoted "Internal signal on the CPU/Motherboard. Not available on the
+   * Bus". §2.4.5 names the part **8237A-5**, whose datasheet maximum is 5 MHz,
+   * so of the three rows each figure draws only the slowest can be this
+   * controller's. Unlike Table B-1's `#77`, this figure *does* scale between
+   * the families. */
+  uint32_t dma_clock_hz;
   /* The **cycles**, which the appendices do not give and §3.4 does. */
   uint32_t io_16_cycle_ns;
   uint32_t io_8_cycle_ns;
 } ap_atbus_timing_t;
+
+/* `[8237]`, *Memory-to-Memory*: the device uses "**four state transfers** in
+ * Block Transfer mode", each state "one full clock period". Compressed timing
+ * drops S3 and makes it three -- "a transfer consists only of state S2 to
+ * change the address and state S4 to perform the read/write" -- with S1 still
+ * occurring when `A8`-`A15` need updating. Four is the uncompressed figure and
+ * the one this core charges, because nothing here selects compressed timing. */
+#define AP_ATBUS_DMA_STATES 4u
+
+/* How long one DMA transfer holds the bus, in **bus ticks** -- which are
+ * processor clocks, as the refresh interval's are.
+ *
+ * Four states of the controller's own clock: 1.333 us on a Series 3000 board
+ * and 1 us on a Series 4000 one, a 33% difference on the reference boot's most
+ * frequent bus event. Which of the two a DS3500 is remains the `PROVISIONAL`
+ * that `ap_board.h`'s `at_bus_series` records, with its four-tier search
+ * written out there -- but that choice is *already* hashed and already sets
+ * every AT bus access time, so deriving this from the same field adds no new
+ * guess; it makes an existing one consistent.
+ *
+ * Zero for a board whose clock this core cannot say, matching the refresh
+ * interval's rule: a machine with no recorded clock gets no charge rather than
+ * a guessed one. */
+[[nodiscard]] uint32_t ap_atbus_dma_transfer_ticks(ap_atbus_series_t series,
+                                                   uint32_t cpu_hz);
 
 [[nodiscard]] const ap_atbus_timing_t *ap_atbus_timing(ap_atbus_series_t series);
 
