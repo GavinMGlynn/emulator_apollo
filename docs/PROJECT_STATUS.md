@@ -2251,17 +2251,24 @@ services. Only the second is the 256 KB hole. So the sequence is: a normal page
 fault, and then a second fault *while reporting or handling it*, on a stack with
 no room.
 
-**And the reporting is MD's.** The console's last line is `7A42D69E`, which is
-the same shape as the `D 100424A 2704 2C` MD printed earlier — a fault display,
-not operating-system output. The code at `092C` sits immediately after MD's
-banner string in the ROM. So the firmware's fault path is running, on
-Domain/OS's stack, which means **Domain/OS did not handle the first fault
-itself**.
+**"The reporting is MD's, so Domain/OS did not handle the first fault" was
+written here and is wrong.** It was inferred from the code at `092C` sitting
+just after MD's banner string in the ROM. Reading the vector table settles it
+instead — `--dump-logical 7A401000`, which the fixed observer makes possible:
 
-*That is the question worth the next session*: why an ordinary page fault
-reaches the firmware's handler rather than the kernel's. `vbr 7A401000 ->
-01003000` says the vector table is the operating system's own and translates, so
-it is not simply pointing at the ROM.
+    01003000  FF F4 00 00  7F F4 00 00  7A 42 E2 F8  7A 42 DB 14
+              reset SSP    reset PC     vector 2     vector 3
+
+Vector 1 is `7FF40000`, the PROM mapped into the address space — which is why
+firmware code appears at all, and why a PROM service routine's
+`movea.l a6, a7` is the last thing to set the stack. But **vector 2 is
+`7A42E2F8`**, in the same `7A42xxxx` region as the kernel code that faults.
+Domain/OS *does* have its own access-fault handler.
+
+*So the failure is sharper than "the wrong handler ran".* The right handler
+exists and can never be **entered**: taking the exception needs sixty bytes of
+frame and the stack has two. The first fault is an ordinary page fault the
+kernel is equipped to service, and it dies on the way in.
 
 *Recorded without the tempting arithmetic.* A `$7` frame is 60 bytes and six
 would fill a 384-byte stack exactly, against 132 bus errors in the run — but 131

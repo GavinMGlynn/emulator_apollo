@@ -4708,13 +4708,19 @@ discipline throughout.
       kernel invalidated that on purpose (`--boot-watch-write 011A523C`: written
       twice, last write zero, by code at physical `01006114`). So the sequence
       is a normal page fault and then a second fault while *reporting* it — and
-      the reporting is **MD's**, since the console's last line `7A42D69E` is the
-      firmware's fault-display shape and the code sits just after MD's banner
-      string in the ROM.
-      **The question worth the next session**: why an ordinary page fault reaches
-      the firmware's handler rather than the kernel's, when
-      `vbr 7A401000 -> 01003000` says the vector table is the operating system's
-      own and translates.
+      the handler cannot be **entered**. The vector table, read at
+      `--dump-logical 7A401000`, has vector 1 = `7FF40000` — the PROM mapped,
+      which is why firmware code appears at all — and **vector 2 = `7A42E2F8`**,
+      in the same region as the kernel code that faults. *Domain/OS has its own
+      access-fault handler*, and taking the exception needs sixty bytes of frame
+      where the stack has two. (An earlier reading here said the firmware was
+      handling it; that was inferred from the ROM's code layout and the vector
+      table refutes it.)
+      **The question worth the next session**: why the kernel's stack is 384
+      bytes above a hole it invalidated itself — which is a question about the
+      code that runs before this, and needs a low-water mark kept per *region*
+      rather than per epoch, since a PROM service call resets the epoch and
+      hides the descent that preceded it.
       **Five candidates are eliminated by measurement rather than argument**:
       the stack-pointer selection, the mapping, the register state, the fault
       kind, and the frame balance. Detail in `PROJECT_STATUS.md`.
