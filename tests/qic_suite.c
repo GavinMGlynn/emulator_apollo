@@ -865,6 +865,80 @@ static void test_the_two_status_counters_are_cleared_by_the_status_read(void) {
  * needs a medium model rather than a status bit, and that is a statement about
  * the `.ct` format, not about `ap_qic`. */
 
+/* ## The property the `E0007` item rests on: the Nth block of file 3
+ *
+ * The cartridge this machine boots from is ANSI-labelled and three-filed --
+ * `SYSBOOT` (16 blocks), a `VOL1`/`UVL1`/`HDR1`/`HDR2`/`UHL1` label group (5),
+ * and a 104,815-block backup -- with the path `bscom/rbak_shell` **685 blocks
+ * into the third file**. `COMPLETION_PLAN.md`'s `E0007` item turns on whether a
+ * host that reads to each mark in turn is handed that block, unaltered and in
+ * position, which is a claim about *this* layer and was only ever reasoned.
+ *
+ * Measured against the real 53 MB cartridge on 2026-09-09 and it holds exactly
+ * -- 16, 5 and 104,815 blocks, and file 3's 686th block byte-identical to image
+ * block 708 with its `000002AE` sequence field intact. That run needed
+ * gitignored media, so what stands here is the same shape built by the test:
+ * three files at the same block offsets with a marker block at a known depth.
+ * The arithmetic that must not drift is `first block of file 3 = 23`, and it
+ * comes out of the two marks rather than being written down anywhere. */
+static uint8_t cartridge[AP_CT_BLOCK_SIZE * 64u];
+
+static void put_mark(unsigned block) {
+  for (unsigned i = 0; i < AP_CT_BLOCK_SIZE; i++) {
+    cartridge[block * AP_CT_BLOCK_SIZE + i] =
+        (uint8_t)(AP_CT_FILE_MARK_WORD >> (8u * (3u - (i & 3u))));
+  }
+}
+
+static void test_the_nth_block_of_the_third_file_arrives_in_position(void) {
+  /* Every block stamped with its own index, so a block delivered from the
+   * wrong place is caught by its content and not only by a count. */
+  for (unsigned b = 0; b < 64u; b++) {
+    for (unsigned i = 0; i < AP_CT_BLOCK_SIZE; i++) {
+      cartridge[b * AP_CT_BLOCK_SIZE + i] = (uint8_t)(b & 0xFFu);
+    }
+  }
+  /* The real cartridge's two interior marks, at the same block numbers. */
+  put_mark(16u);
+  put_mark(22u);
+  put_mark(63u);
+
+  ap_qic_t q;
+  ap_qic_init(&q);
+  TEST_ASSERT_TRUE(ap_qic_load(&q, cartridge, sizeof cartridge,
+                               AP_QIC_CARTRIDGE_DC600A, false));
+  TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_SELECT));
+  clear_power_on(&q);
+
+  uint8_t block[AP_CT_BLOCK_SIZE];
+  unsigned counts[3] = {0u, 0u, 0u};
+  uint8_t twentieth = 0xFFu;
+  for (unsigned file = 0; file < 3u; file++) {
+    TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ));
+    while (ap_qic_read_block(&q, block)) {
+      counts[file]++;
+      /* File 3's 21st block is image block 43 -- 23 + 20 -- and this is the
+       * cartridge's own arithmetic, not a constant restated. */
+      if (file == 2u && counts[file] == 21u) {
+        twentieth = block[0];
+      }
+    }
+    ap_qic_end_read(&q);
+    TEST_ASSERT_TRUE(q.file_mark);
+    TEST_ASSERT_TRUE(ap_qic_command(&q, AP_QIC_CMD_READ_STATUS));
+    uint8_t status[AP_QIC_STATUS_BYTES];
+    TEST_ASSERT_TRUE(ap_qic_read_status(&q, status));
+  }
+
+  /* The real cartridge's three file lengths, to the block. */
+  TEST_ASSERT_EQUAL_UINT(16u, counts[0]);
+  TEST_ASSERT_EQUAL_UINT(5u, counts[1]);
+  TEST_ASSERT_EQUAL_UINT(40u, counts[2]);
+  /* And the block itself came from where it lives, not merely in the right
+   * ordinal position: 23 + 20 = 43. */
+  TEST_ASSERT_EQUAL_HEX8(43u, twentieth);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_cartridge_type_must_be_supplied);
@@ -892,6 +966,7 @@ int main(void) {
   RUN_TEST(test_every_reachable_status_summary_row_is_reproduced);
   RUN_TEST(test_an_unimplemented_command_latches_illegal_until_read);
   RUN_TEST(test_a_read_ends_at_a_file_mark);
+  RUN_TEST(test_the_nth_block_of_the_third_file_arrives_in_position);
   RUN_TEST(test_read_file_mark_spaces_to_the_next_one);
   RUN_TEST(test_a_read_past_the_last_block_reports_no_data_and_end_of_media);
   RUN_TEST(test_the_no_data_latch_is_reset_by_the_status_read);

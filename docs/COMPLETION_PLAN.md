@@ -5164,9 +5164,32 @@ same number is what let them diverge once already.
       read; and `ap_qic_end_read` advances **past** the mark, so successive
       `READ`s start at blocks 0, 17 and 23 — which is exactly the file-3 start
       this item assumes. None of the three is the fault.
-      **So the next measurement is sharper**: with the byte stream established
-      correct end to end, ask whether the kernel *sees* sequence 686 at block
-      708 — a header check on delivered data, not a search for a string.
+      **And the tape stack is now exonerated by measurement, not by argument.**
+      `ap_qic` was driven over the real 53 MB cartridge outside the emulator —
+      seconds, not a boot — reading to each mark in turn: **16, 5 and 104,815
+      blocks**, and file 3's **686th block byte-identical to image block 708**,
+      carrying `bscom/rbak_shell` and its `000002AE` sequence field intact. So
+      every layer from the image to the drive's block interface hands the kernel
+      exactly the right bytes in exactly the right position. Taken with the DMA
+      path already measured right, **the whole of our side of this is clear**.
+      The property is now a permanent test — `qic_suite`'s
+      `test_the_nth_block_of_the_third_file_arrives_in_position`, on a
+      three-file cartridge of the same shape, since the real one is gitignored.
+      **The medium is fully characterised, which nothing here had recorded.**
+      It is ANSI-labelled in four files: `SYSBOOT REV … M68K` (0–15), mark, the
+      label group `VOL1`/`UVL1`/`HDR1`/`HDR2`/`UHL1` (17–21), mark, the backup
+      (23–104,837), mark, then `EOF1`/`EOF2` (104,839–104,840) whose block count
+      **104815 matches file 3 exactly**. `HDR2` gives `F 00512 00512` — fixed
+      512-byte records — and `UHL1`'s `57515AD6.A0027288` is the same identifier
+      every data block repeats at bytes 4–11. `HDR1`'s file identifier is
+      `SR10.4 Boot Volum`, **not** a path, so the kernel cannot be resolving
+      `bscom/rbak_shell` from the label: it must scan the backup stream, where
+      the name sits 685 blocks in.
+      **So the next measurement is sharper still**: not "did the bytes arrive"
+      — they do — but *how far into file 3 the kernel actually reads before it
+      gives up*. The boot's 69,398 blocks is `16 + 5 + 69,377`, so **some**
+      read goes far past block 708; whether the *search* does is the open
+      question, and a counter on the kernel's read loop answers it.
 
 - [x] **A cold power-on runs the confidence test — done 2026-09-09.**
       `[SC499]` §1.8.1's POC reports success "by the assertion of `EXC-`
