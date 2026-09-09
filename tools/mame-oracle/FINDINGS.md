@@ -16458,6 +16458,68 @@ affordable on a file-backed medium -- and INVOL then prints
 Both corrected here rather than in C50, whose text is the log of what was
 answered in that session.
 
+### Option 1 completes, and the layout it writes is the one `5500_BOOT` reads
+
+Second run, chained from the first through `--disk-writeback`:
+
+    Option: 1 -f
+    Select disk: [w=Winch|f=Floppy|q=Quit][ctrl#:][unit#] w
+    Physical volume name: dn5500
+    Enter verification option: 1
+    Expected average file size, in kB (CR for default, 5 kB):  5
+    There are 326956 kB  available.
+    volume 1:  all, dn5500
+    Use pre-recorded badspot info? y
+    The pre-recorded badspot list is empty.
+
+    Writing logical volume 1.
+
+    Initialization complete.
+
+    Anything more to do? n
+
+634,984 bytes changed. **And the on-disk layout is the discriminator, checked
+sector by sector against the DN3500's `media/dn3500-invol-done.awd`:**
+
+    object (block header UID / seq)   DN3500        DS5500
+    physical volume label 00000200    sector 0      sectors 0-3
+    logical volume label  00000201    sector 1      sectors 4-7
+    boot file record 2                sector 2      sectors 8-11
+    boot file record 3                sector 3      sectors 12-15
+    boot file record 11 (0B)          sector 11     sectors 44-47
+    first sector past the boot file   sector 12     sector 48
+
+**A record is a page, and a DS5500 page is four 1056-byte sectors.** The block
+header's sequence word at `+$1E` says so directly: sector 8 carries `0002`,
+sector 12 `0003`, sector 44 `000B`, and sector 48 is zero. That is exactly the
+`08/4@0`, then `08/4@8 @12 @16 ... @44` this core's DS5500 boot report shows the
+PROM issuing -- record 0 for the label, then records 2 through B -- and it is
+C276's "records 2 thru B is sectors 8..47" produced rather than inferred.
+
+**INVOL does not put a SYSBOOT image in the boot file**, on either machine: both
+volumes have `55 55 ...` in every boot record and zero occurrences of `SYSBOOT`
+anywhere. So this volume is at exactly the stage `dn3500-invol-done.awd` is at,
+and the image arrives with the RBAK restore -- `install-domainos.cmds`'s
+`TFP: Skipping over SYSBOOT found at beginning of volume` is the restore
+stepping over the one it is about to replace.
+
+### What that leaves, stated as a cost and not as a mystery
+
+The DS5500 volume *layout* is now producible on this core, which was the
+unknown. What remains is the SR10.4 restore and MINST **on that volume**, and
+that is a ceiling problem with no oracle behind it:
+
+- the SR10.4 restore alone was measured at **~15 G instructions** on this core
+  (126 entries cost 4.2 G, against 474 for the whole SR10.3 restore), against a
+  **4,294,967,295-instruction ceiling for one run**;
+- the disk-chaining that made INVOL work does **not** transfer here -- INVOL is
+  re-entrant one option at a time and a restore is not;
+- and MAME's `dn5500` is `MACHINE_NOT_WORKING`, so the oracle route that carried
+  the DN3500 install cannot carry this one.
+
+So the item is no longer "is the install possible" but "raise the ceiling or fix
+the oracle", which is a different and much better-defined piece of work.
+
 **And the cost is the operational fact.** Loading INVOL off the cartridge takes
 **1.55 G instructions** on its own -- measured, `--boot-stop-pc` reported
 `stopped at PC 01080890 after 1553953980` -- and option 7 consumed the remaining

@@ -4718,6 +4718,26 @@ discipline throughout.
       table lists under option 7 alone. `Option: 1 -f` is accepted, and `f` --
       "don't re-format disk" -- is what makes the option affordable on a
       file-backed medium. Corrected in `FINDINGS.md` C277.
+      **And option 1 completed — the DS5500 volume layout is producible on this
+      core.** `Writing logical volume 1.` / `Initialization complete.`, and the
+      layout is the one `5500_BOOT` reads, checked sector by sector against the
+      DN3500's `media/dn3500-invol-done.awd`: PV label sectors 0-3 against
+      sector 0, LV label 4-7 against 1, boot records 2..11 at **sectors 8..47**
+      against 2..11, nothing past sector 47. The block header's sequence word at
+      `+$1E` says it directly — sector 8 is `0002`, sector 44 is `000B` — so a
+      record is a page and a DS5500 page is four 1056-byte sectors. What the
+      firmware's `08/4@0 @8 @12 … @44` implied is now *produced*.
+      *INVOL puts no SYSBOOT image in the boot file*, on either machine, so this
+      volume is at exactly the stage `dn3500-invol-done.awd` is at and the image
+      arrives with the RBAK restore.
+      **So what is left is a ceiling, and it is now the item's real blocker.**
+      The restore and MINST on this volume is ~15 G instructions against this
+      core's 4,294,967,295-instruction single-run ceiling; the disk-chaining that
+      made INVOL work does not transfer, because INVOL is re-entrant one option
+      at a time and a restore is not; and MAME's `dn5500` is
+      `MACHINE_NOT_WORKING`, so the oracle route that carried the DN3500 install
+      cannot carry this one. *Not "is the install possible" — that is answered —
+      but "raise the ceiling or fix the oracle".* Detail in `PROJECT_STATUS.md`.
       **The shared gate is now named exactly, and it is not the SAU install.**
       2026-09-10: the DS5500's boot area is not the DN3500's. Its PROM reads ten
       records from record 2 with a **page** of stride, and the page size is the

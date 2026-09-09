@@ -1787,6 +1787,47 @@ The second reached the shell and ran nothing: trimming `md-shell.script` left
 completed command produces. Each cost a 45-minute run. Detail in `FINDINGS.md`
 C259.
 
+## The DS5500 volume layout is producible on this core (2026-09-10)
+
+INVOL options 7 and 1 run on the DS5500, driven through `--boot-script` and
+chained between runs with `--disk-writeback` — `Writing logical volume 1.` /
+`Initialization complete.`, 634,984 bytes changed. **And the layout it writes is
+the one `5500_BOOT` reads**, checked sector by sector against the DN3500's
+`media/dn3500-invol-done.awd`:
+
+    object (block header UID / seq)   DN3500        DS5500
+    physical volume label 00000200    sector 0      sectors 0-3
+    logical volume label  00000201    sector 1      sectors 4-7
+    boot file record 2                sector 2      sectors 8-11
+    boot file record 11 (0B)          sector 11     sectors 44-47
+    first sector past the boot file   sector 12     sector 48
+
+A record is a page and a DS5500 page is **four 1056-byte sectors**. The block
+header's sequence word at `+$1E` says so directly — sector 8 carries `0002`,
+sector 12 `0003`, sector 44 `000B`, sector 48 zero — and that is exactly the
+`08/4@0`, then `08/4@8 @12 … @44` the DS5500 boot report shows the PROM issuing.
+The section above inferred "records 2 thru B is sectors 8..47" from the
+firmware; this **produces** it.
+
+**INVOL puts no SYSBOOT image in the boot file**, on either machine: both
+volumes have `55 55 …` in every boot record and zero occurrences of `SYSBOOT`
+anywhere. So this volume is at exactly the stage `dn3500-invol-done.awd` is at,
+and the image arrives with the RBAK restore.
+
+**What that leaves is a cost, not a mystery.** The restore and MINST on this
+volume is ~15 G instructions against a 4,294,967,295-instruction single-run
+ceiling; the disk-chaining that made INVOL work does not transfer, because INVOL
+is re-entrant one option at a time and a restore is not; and MAME's `dn5500` is
+`MACHINE_NOT_WORKING`, so the oracle route that carried the DN3500 install
+cannot carry this one. The item is no longer "is the install possible" but
+"raise the ceiling or fix the oracle".
+
+*Two omissions in `FINDINGS.md` C50's recorded dialogue were found by scripts
+stalling on them and are corrected in C277*: INVOL asks `Anything more to do?`
+after an option, and **option 1 asks `Select disk:` too**, which C50 lists under
+option 7 alone. `Option: 1 -f` is accepted, and `f` — "don't re-format disk" —
+is what makes the option affordable on a file-backed medium.
+
 ## `011500` is in no document, and INVOL is what put it on the map (2026-09-10)
 
 `019411-A00` Table 2-5, **read as a page image**, goes `011400` MEMORY PRESENT
