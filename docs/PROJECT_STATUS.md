@@ -1043,7 +1043,21 @@ access, in order" across a block boundary is a contract. So the host really is
 taking bytes through that register and expects progress; the remedy is not
 pacing. `[SC499]` Figures 1-12 and 1-14 have the host polling *status* and never
 data during a transfer, so those 94 reads are outside anything the figures
-describe, and that is where the next reading starts.
+describe.
+
+**A second remedy was tried and is also refuted, and it settles when the reads
+happen.** Making a programmed read non-consuming only while `dma_active` — the
+DMAGO latch, which names a transfer in flight exactly — keeps all 145 tests
+green and changes the boot not at all. So those 94 reads happen with
+`dma_active` **false**: the driver takes those bytes *between* DMA transfers,
+which agrees with the 77 falling between DMAGO 69,399 and 69,400, and means a
+programmed read there is doing what a programmed read is for.
+
+One structural point worth keeping: `ap_tape_dma_read` delegates to
+`ap_tape_read`, so the `DACK` and address paths are one call and
+indistinguishable — the first version of that gate blocked DMA reads too, which
+two `tape_suite` tests caught immediately. They are different pins on the card
+and want to be different calls here whatever the eventual fix is.
 
 ***And that is the lead this work refuted earlier in the day, wrongly.***
 `[SC499]` §1.11 step 5 describes the **firmware's steady-state read loop**, one

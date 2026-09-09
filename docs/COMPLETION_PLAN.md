@@ -5443,14 +5443,33 @@ same number is what let them diverge once already.
       wrong to: `test_the_tape_is_read_through_the_data_register` asserts "a
       byte per access, in order" across a block boundary, which is a contract,
       not an artefact.
-      *So the mechanism is confirmed and the remedy is not this one.* What is
-      established: 94 bytes leave through the programmed path, that is exactly
-      the drift, and pacing alone does not account for them. What is open: what
-      the card really does when the host reads that register while a DMA
-      transfer is armed. `[SC499]` Figures 1-12 and 1-14 have the host polling
-      **status** and never data during a transfer, so the driver's 94 reads are
-      outside anything the figures describe — which is where the next reading
-      has to start, not in another change to the byte path.
+      **A second remedy was tried and is also refuted, and it settles *when* the
+      reads happen.** The distinction the first attempt should have used is
+      `dma_active` — the card's DMAGO latch, set at DMAGO and cleared at
+      terminal count, which names a transfer in flight exactly. Making a
+      programmed read non-consuming *only inside that window* leaves all 145
+      tests green (it is false for every read `tape_suite` makes) and **changes
+      the boot not at all**: `expected 1, read 46C70E00`, drift still 77.
+      *Which is itself the finding.* The 94 reads happen with `dma_active`
+      **false** — the driver takes those bytes **between** DMA transfers, not
+      during one. That agrees with the earlier count, where the 77 fell between
+      DMAGO 69,399 and 69,400, and it means a programmed read there is doing
+      what a programmed read is for. Consuming is not obviously wrong.
+      *One structural improvement came out of it and is worth keeping in mind
+      when this is picked up*: `ap_tape_dma_read` delegates to `ap_tape_read`,
+      so the `DACK` and address paths are **one call and indistinguishable** —
+      the first version of this gate blocked DMA reads as well, which two
+      `tape_suite` tests caught at once. They are different pins on the card and
+      want to be different calls here whatever the eventual fix is.
+      **So: mechanism confirmed, both obvious remedies refuted by the boot.**
+      What is established — 94 bytes leave by the programmed path, that is
+      exactly the drift, they are taken between transfers, and neither pacing
+      nor an in-flight gate accounts for them. What is open is what the card
+      does with the *rest of the block* when the host takes part of one by
+      programmed read and then starts a DMA transfer. `[SC499]` Figures 1-12 and
+      1-14 have the host poll status and never data across a transfer, so this
+      driver's pattern is outside the flow the card documents, and the next step
+      is a source describing it — not a third change to the byte path.
 
 - [x] **A cold power-on runs the confidence test — done 2026-09-09.**
       `[SC499]` §1.8.1's POC reports success "by the assertion of `EXC-`
