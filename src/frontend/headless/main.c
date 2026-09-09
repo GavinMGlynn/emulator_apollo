@@ -2982,7 +2982,30 @@ static void report_state(ap_machine_t *machine) {
         break;
       }
     }
-  printf("  translation  %s", cpu->tc.enable ? "enabled" : "off");
+  /* **Which `TC` this reads is the whole question on a 68040.** The 68030's
+   * `tc.enable` and the 68040's `tc_040` bit 15 are two registers where the
+   * part has one, which is the `.mmu` divergence the line above names -- so a
+   * report that read only the 68030's would say `off` on a machine whose
+   * operating system had just turned translation **on**. Domain/OS's DS5500
+   * loader does exactly that: `tc 00008000`, `urp 01002200`, `srp 01002000`,
+   * and then faults on logical addresses this core passes through untranslated.
+   * Saying `off` there was worse than saying nothing. */
+  const bool translating =
+      machine->cpu.has_68040_mmu_registers
+          ? (machine->cpu.tc_040 & 0x8000u) != 0u
+          : cpu->tc.enable;
+  printf("  translation  %s", translating ? "enabled" : "off");
+  if (machine->cpu.has_68040_mmu_registers && translating) {
+    /* `[040]` Figure 3-4: `E` at 15, `P` at 14, and nothing else implemented.
+     * The page size matters here beyond the MMU -- a DS5500 volume's boot
+     * records are four 1056-byte sectors, which is the same 4 KB page seen from
+     * the disk. **And it is not honoured**: this core walks the 68030's tables
+     * from the 68030's `TC`, so what follows this line is a machine running
+     * translated addresses untranslated. */
+    printf(" (68040, %s pages, PROVISIONAL -- this core walks the 68030's "
+           "tables)",
+           (machine->cpu.tc_040 & 0x4000u) != 0u ? "8 KB" : "4 KB");
+  }
     for (unsigned t = 0; t < 2u; t++) {
       const ap_m68030_tt_t *tt = t == 0u ? &cpu->tt0 : &cpu->tt1;
       if (!tt->enabled) {

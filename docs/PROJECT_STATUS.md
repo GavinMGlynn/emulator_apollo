@@ -1787,6 +1787,46 @@ The second reached the shell and ran nothing: trimming `md-shell.script` left
 completed command produces. Each cost a 45-minute run. Detail in `FINDINGS.md`
 C259.
 
+## The 68040 MMU join is no longer unexercised code (2026-09-10)
+
+**Twice today this document said wiring the 68040 MMU would be unexercised code
+in the hottest path, and both times the evidence was real: `translation off`,
+`tc 00000000`, on the DS5500's boot PROM and again on `/sau14/invol`. The
+operating system's loader refutes it.**
+
+With `PFLUSH` implemented, `EX DOMAIN_OS` on a DS5500 executes both of its
+`PFLUSHA`s and runs on to:
+
+    68040 mmu    tc 00008000  itt 0100C040 F807C040  dtt 0100C040 F807C040
+                 urp 01002200  srp 01002000  mmusr 00000000
+
+**`tc 00008000` is the E bit.** `[040]` Figure 3-4 gives the TCR sixteen bits
+with two implemented, `E` at 15 and `P` at 14 — so the loader has turned paged
+translation **on**, with `P` clear for **4 KB pages**, and has loaded both root
+pointers with real addresses. It then dies at `0100428A` reading `7A401008`,
+with `vbr 7A401000` — logical addresses this core passes through untranslated,
+which is what an unjoined MMU looks like from the outside.
+
+*And the page size agrees with the disk.* A DS5500 volume's boot records are
+four 1056-byte sectors, and the TCR says 4 KB pages: the same number reached
+from the medium and from the register.
+
+**The plan predicted this exactly** — "the routine would be reached by the
+**loaded operating system**, which is what `Could not load /SAU14/SELF_TEST.` is
+the absence of" — and what changed is that the operating system now loads far
+enough to do it. The dependency was stated as a cost to spend rather than a fact
+to find; the fact has now been found, and it says spend it.
+
+**The report was saying `off` while this happened**, because that line read the
+68030's `tc.enable` — two registers where the part has one, which is the `.mmu`
+divergence itself. It now reads the 68040's when the part has one, and says what
+is provisional about it:
+
+    translation  enabled (68040, 4 KB pages, PROVISIONAL -- this core walks
+                 the 68030's tables)
+
+Saying `off` there was worse than saying nothing.
+
 ## Domain/OS asks for a 68040 instruction: `PFLUSH` (2026-09-10)
 
 `EX DOMAIN_OS` on a DS5500 **loads** — `low: 01004000  high: 01118BFF

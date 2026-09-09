@@ -4676,6 +4676,13 @@ discipline throughout.
       `Could not load /SAU14/SELF_TEST.` is the absence of — so the 68040 MMU
       join and the SCSI item share **one** gate, the SAU 14 install, and
       neither is a knowledge gap. That is a cost to spend, not a fact to find.
+      **And the prediction came true on 2026-09-10.** `/sau14/domain_os` loads
+      on a DS5500 and turns paged translation on — `tc 00008000`, `urp
+      01002200`, `srp 01002000` — without needing the SAU 14 install at all,
+      because `EX DOMAIN_OS` loads the operating system off the *cartridge*.
+      So the gate this paragraph names was the wrong one for the MMU half: the
+      join is reachable now, and the item's own "unexercised code" argument for
+      deferring it no longer holds.
       **The DS5500 reaches its own monitor, 2026-09-10** — `MD14 REV 2.00,
       1991/03/08.16:20:14` and a `>` prompt, from a machine that could execute
       two of its instructions a day earlier. It cost **one address range**:
@@ -5209,14 +5216,21 @@ Only after the reference core is proven, and only under an identity harness.
       *Execution works*: the DN3000 differential passes **29 of 29 CPU fields**
       against the oracle, and no firmware on this shelf asks for a register the
       68030 model cannot supply.
-      **And 2026-09-10 strengthens the "unexercised" half with a second
-      witness.** The claim that wiring the 68040 MMU today would be unexercised
-      code rested on the boot PROM: `tc 00000000`, `translation off`, only the
-      two data transparent registers written. A DS5500 now also loads and runs
-      **`/sau14/invol`**, a 68040 *program* off the SR10.4 cartridge, to its own
-      `Option:` prompt — and reports the same `tc 00000000` / `translation off`.
-      So neither the firmware nor the one stand-alone utility this core can run
-      turns paged translation on. Detail in `PROJECT_STATUS.md`.
+      **And 2026-09-10 strengthened the "unexercised" half with a second
+      witness — then REFUTED it the same day.** The claim rested on the boot
+      PROM (`tc 00000000`, `translation off`) and was reinforced by
+      `/sau14/invol` reporting the same. **`/sau14/domain_os` does not.** With
+      `PFLUSH` implemented the DS5500's loader runs on to
+
+          68040 mmu  tc 00008000  urp 01002200  srp 01002000
+
+      — `tc` bit 15 is `[040]` Figure 3-4's **E bit**, `P` clear for **4 KB
+      pages**, both root pointers loaded — and then dies reading `7A401008` with
+      `vbr 7A401000`, logical addresses this core passes through untranslated.
+      *The two earlier witnesses were true of what they measured and neither
+      reached the operating system*, which is precisely what this item said
+      would reach it. **So the 68040 MMU join is exercised code, and the
+      argument for deferring it is gone.** Detail in `PROJECT_STATUS.md`.
       **So what remains of this item is the `.mmu` declaration alone**, which
       does wait on a 68040 MMU.
       **Made visible and pinned 2026-09-10, which is what could be done without
