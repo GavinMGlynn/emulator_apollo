@@ -2325,10 +2325,27 @@ those 384 bytes. What does not fit is the sixty-byte access-error frame for a
 page fault the firmware did not expect to take — at `7A38139C`, whose pointer
 descriptor is resident, so the fault is at the page level.
 
-**So the thing to explain is no longer the stack at all.** It is why firmware
-running under Domain/OS's mapping touches a page the kernel has not made
-resident — and that is a question about what the operating system was asked to
-do before it called in, not about the 68040, the MMU, or the frame.
+**So the thing to explain is no longer the stack at all.** It is why code
+running on the firmware's 384-byte stack touches a page the kernel has not made
+resident — and that is a question about the call, not about the 68040, the MMU,
+or the frame.
+
+*And control reaches the firmware by a call, not by a vector.* The whole 256
+entry vector table was read at `--dump-logical 7A401000:0x400`, and **exactly
+one** entry points into the PROM's mapping: vector 1, the reset PC, at
+`7FF40000`. No exception the operating system installed routes into the
+firmware. So Domain/OS calls a PROM service entry directly — which is what
+`002398-04`'s thirteen named entry points at ROM offset `$100` are for — the
+firmware switches to its designated logical stack, and the fault happens with
+that stack current.
+
+**That is where this session leaves it**, and the shape of the question changed
+five times getting here: a paging fault this core might be getting wrong, an
+exhausted stack, a misplaced stack, firmware running under the operating system,
+and finally a stack that is correct by design with a fault that should not
+happen inside it. *Every one of those transitions came from building an
+instrument rather than from reasoning further about the previous number, and
+three of them overturned conclusions already committed.*
 
 *Recorded without the tempting arithmetic.* A `$7` frame is 60 bytes and six
 would fill a 384-byte stack exactly, against 132 bus errors in the run — but 131

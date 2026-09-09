@@ -4737,8 +4737,13 @@ discipline throughout.
       *What does not fit is the sixty-byte access-error frame for a page fault
       the firmware did not expect*, at `7A38139C`, whose pointer descriptor is
       resident. **So the thing to explain is no longer the stack**: it is why
-      firmware running under Domain/OS's mapping touches a page the kernel has
-      not made resident. Detail in `PROJECT_STATUS.md`.
+      code running on the firmware's 384-byte stack touches a page the kernel
+      has not made resident.
+      *And control reaches the firmware by a call, not a vector*: the whole
+      256-entry table was read and **exactly one** entry points into the PROM's
+      mapping — vector 1, the reset PC. Domain/OS calls a service entry
+      directly, which is what `002398-04`'s thirteen entry points at ROM offset
+      `$100` are for. Detail in `PROJECT_STATUS.md`.
       **Five candidates are eliminated by measurement rather than argument**:
       the stack-pointer selection, the mapping, the register state, the fault
       kind, and the frame balance. Detail in `PROJECT_STATUS.md`.
