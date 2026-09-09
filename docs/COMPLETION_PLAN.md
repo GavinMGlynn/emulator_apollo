@@ -5140,6 +5140,33 @@ same number is what let them diverge once already.
       The second alternative this item offered — "or the cartridge is shown not
       to carry it" — is spent. **Next measurement**: what the kernel holds at
       block 708, not whether it got there.
+      **2026-09-09, narrowed again and entirely offline — three explanations
+      eliminated without a boot, and the medium's format now written down.**
+      *The cartridge, read directly*: 104,841 blocks, exactly three file marks
+      at blocks **16, 22 and 104,838**, so file 1 is 0–15, file 2 is 17–21 and
+      file 3 is 23–104,837. **File 1 is `SYSBOOT REV … M68K`**, the boot loader.
+      **File 2 is an ANSI label and nothing else** — `VOL1SR10.4 … apollo`
+      followed by `UVL157515AF0.B0027288` — so it holds no directory, and a
+      search that looked there would legitimately come back empty.
+      *Correction to this item's own figure*: the path is at byte **362,626**,
+      not 362,616 — block 708 **offset 130**. The block is right; the byte was
+      out by ten.
+      *File 3's format, which nothing here had recorded*: **one record per
+      512-byte block with a 16-byte header**, whose first field is a **32-bit
+      sequence number starting at 1** on block 23. Block 708 carries `000002AE`
+      = **686** = 708 − 23 + 1, and bytes 4–11 are a constant backup identifier
+      `57515AD6 A0027288`. So a reader can validate every block it is handed,
+      and *that* is the thing to check the kernel against.
+      *Three explanations eliminated by reading `ap_qic.c` rather than booting*:
+      file marks **are** modelled (a block of repeated `DEAFFAED`, measured on
+      every cartridge); the `FIL` latch **is** driven — set on detection during
+      both `READ` and `READ FILE MARK`, reported in status, cleared by a status
+      read; and `ap_qic_end_read` advances **past** the mark, so successive
+      `READ`s start at blocks 0, 17 and 23 — which is exactly the file-3 start
+      this item assumes. None of the three is the fault.
+      **So the next measurement is sharper**: with the byte stream established
+      correct end to end, ask whether the kernel *sees* sequence 686 at block
+      708 — a header check on delivered data, not a search for a string.
 
 - [x] **A cold power-on runs the confidence test — done 2026-09-09.**
       `[SC499]` §1.8.1's POC reports success "by the assertion of `EXC-`
