@@ -40881,7 +40881,7 @@ is now `589E8A3554349EC9`.
 *Verification: `tools/e0007-boot.sh --boot-disk-reads` for the command log and
 the screen; `[OMTI] AT Controller Series Jan87` §5.4.19 and §5.4.20 read as page
 images (that PDF has no text layer at all); `002398-04` p. 4-3 for both status
-codes; `awd_suite` 46 tests and `omti_suite` 24.*
+codes; `awd_suite` 46 tests and `omti_suite` 24 (41 as of 2026-09-09).*
 
 ## The data-out phase never asked for its bytes
 
@@ -46505,3 +46505,84 @@ is what the model gate was for. That the DS4000 side is live is asserted
 separately, by `board_suite` filling an entry and requiring the board's state
 hash to move on a `dn4000` and to stay put on a `dn3500` under the identical
 call.
+
+
+## The floppy controller's own datasheets, walked whole
+## (2026-09-09)
+
+Three documents, 67 pages: `[8272A]` `Intel_8272A_Datasheet_Nov86.pdf` 31/31,
+`[765A]` `NEC_uPD765A_Datasheet.pdf` 19/19, `[765AB]`
+`NEC_uPD765A_uPD765B_Datasheet.pdf` 17/17. With `[765]` (walked 2026-08-22) the
+part's documentation is complete at 87 pages across four editions. Record and
+every finding: `docs/references/OMTI_WALK.md`.
+
+**Why they were still shut.** The citation audit found `[8272A]` cited three
+times in `ap_omti.h`, all three about Table 4's opcode list, and `[765A]` cited
+nowhere at all. `OMTI_WALK.md`'s own row called the two NEC files "later
+revisions of the same part". That row is now struck and kept, because it is the
+reason they went unread: a document consulted about one question has not been
+read, which is exactly the failure `CLAUDE.md` names.
+
+**What changed in the code.**
+
+- **`SPECIFY`'s `ND` bit was being dropped**, and it has a consumer. The decode
+  was `fdc_hlt = (command[2] >> 1) & 0x7F` and nothing else, while `hut` and
+  `hlt` beside it were deliberately stored-and-unused so the bytes would not
+  vanish — bit 0 vanished. `[765A]` p.7 confines the Main Status Register's
+  execution-mode bit to "NON-DMA mode of operation" and p.16 says `ND` is what
+  selects that mode. Ours drove that bit from the **board's** Digital Output
+  Register enable instead, which is a different switch: `AP_OMTI_DOR_INT_DMA`
+  gates whether `IRQ6` and `DRQ2` reach the bus. The two agree while a driver
+  sets both consistently, which is why nothing caught it. `fdc_non_dma` is now
+  stored, hashed, and drives the bit; the DOR bit keeps the job it has.
+- **`HLT` and `HUT` ranges corrected** from the card manual's to the part's:
+  `HLT` **2 to 254 ms**, `HUT` **16 to 240 ms**, where `ap_omti.h` carried
+  `[8640]` §6.2's "2 to 256" and "0 to 240". `HLT` is seven bits, so 256 cannot
+  be produced. `[8272A]` p.21 prints its own version of that range
+  inconsistently — starting with field values and ending with a byte value —
+  and that is recorded rather than silently preferred.
+
+**What did *not* change, and this is the transferable part.** `[765A]` p.3 says
+of the `RST` pin "**Does not effect SRT, HUT or HLT in Specify command**";
+`[8272A]` and `[765AB]` say it too, and **`[765]`, the primary, is silent** — its
+`RST` row stops at "Resets output lines to FDD to '0' (low)". That read as a
+defect, because `ap_omti_reset` memsets the whole structure. It is not one: on
+this board the `RST` pin is the Digital Output Register's bit 2, that path never
+touched the three timers, and `ap_omti_reset` is reachable only from
+`ap_board_init_model` — power-on, where the fields are zero anyway.
+
+So the clause bought a citation and a test on behaviour that was previously
+correct *by omission*, with nothing saying so and nothing pinning it. **A
+datasheet clause is not a bug report**; the bug has to be established in the
+code. The sibling-manual step of the resolution order is what surfaced the
+clause, and the code is what settled it.
+
+**And a sixteenth command, which our fifteen-command model already answers
+correctly.** `[765AB]` Table 4 carries `VERSION` — `X X X 1 0 0 0 0`, one result
+byte, "90H indicates 765B, 80H indicates 765A / A-2" — and the Invalid row on
+the same page gives ST0 = 80H. On a µPD765 or µPD765A the two are the identical
+byte, so this core's INVALID path answers `0x10` exactly as those parts do. It
+is wrong only for a µPD765B, and `[OMTI]` §1.3.1 says only "NEC765 or
+equivalent". The same document says "16 commands" on p.1 and "15 different
+commands" on p.11; recorded as printed.
+
+**Named gaps carried, not closed** — each a row in `OMTI_WALK.md`: the polling
+feature and its Ready-change interrupt; the reset-with-`RDY`-high interrupt; the
+Main Status Register's drive-busy bits being cleared by `SENSE INTERRUPT STATUS`
+rather than by the seek finishing; `SENSE INTERRUPT STATUS` being mandatory
+after `SEEK`/`RECALIBRATE`; `RECALIBRATE`'s 77-step-pulse limit against our
+80-cylinder drive; and MFM's refusal of 128-byte sectors.
+
+*Verification: `omti_suite` 37 → 41. Four tests: `SPECIFY` recording `ND` in
+both states with the three timers unchanged; the execution-mode bit following
+the part's `ND` and not the board's DOR, asserted in the combination that used
+to disagree — non-DMA on the chip with the board's DMA enable set; a `RST`
+through the DOR leaving `SRT`, `HUT` and `HLT` standing on the way in and on the
+way out; and opcode `0x10` answering `0x80` as a 765A does. `ctest` 145/145.*
+
+**Identity harness**: `77B60315440826A6` → **`0B819E1E8DA12BD3`**, from the one
+new hashed bool. The run is otherwise **byte-identical** — `clocks 1408661906`
+to the digit, same final PC, same exception census, same 42,579 ATC descriptor
+fetches, and the console diffs clean against the previous run on every line but
+the hash. Which is what a hashed field with no behavioural change should look
+like: the number moves, nothing else does.

@@ -2671,6 +2671,11 @@ static void fdc_execute(ap_omti_t *omti) {
     omti->fdc_srt = (uint8_t)((omti->fdc_command[1] >> 4) & 0x0Fu);
     omti->fdc_hut = (uint8_t)(omti->fdc_command[1] & 0x0Fu);
     omti->fdc_hlt = (uint8_t)((omti->fdc_command[2] >> 1) & 0x7Fu);
+    /* Byte 2 bit 0, which this decode used to drop. `[765A]` p.16: "the choice
+     * of DMA or NON-DMA operation is made by the ND (NON-DMA) bit ... ND = 1
+     * the NON-DMA mode is selected". It drives the Main Status Register's
+     * execution-mode bit; see `ap_omti.h`. */
+    omti->fdc_non_dma = (omti->fdc_command[2] & 0x01u) != 0u;
     omti->fdc_step_rate_set = true;
     fdc_result(omti);
     return;
@@ -2799,13 +2804,22 @@ uint8_t ap_omti_fdc_read(ap_omti_t *omti, unsigned reg) {
      * defined and never set -- so a polled driver saw the same register as a
      * DMA one and had nothing to distinguish them.
      *
-     * Execution phase is the data phase, and "non-DMA" is the Digital Output
-     * Register's interrupt/DMA enable being clear -- the same bit that gates
-     * `IRQ6` and `DRQ2`. One switch, three consumers. */
+     * **From `SPECIFY`'s `ND` bit, corrected 2026-09-09.** `[765A]` p.7 says of
+     * this bit that it "is set only during execution phase in non-DMA mode ...
+     * **It operates only during NON-DMA mode of operation**", and p.16 says
+     * what selects that mode: `SPECIFY` byte 2 bit 0. This used to read the
+     * *board's* Digital Output Register enable instead -- "one switch, three
+     * consumers" -- which is a different mechanism: `AP_OMTI_DOR_INT_DMA` gates
+     * whether `IRQ6` and `DRQ2` reach the bus, where `ND` tells the chip which
+     * mode to run. They agree while a driver sets both consistently, and a
+     * driver that programmed one without the other saw the wrong register.
+     *
+     * The DOR bit keeps the job it actually has, gating the two lines; see
+     * `ap_omti_fdc_irq` and `ap_omti_fdc_dma_request`. */
     uint8_t status = omti->fdc_status;
     if ((omti->fdc_phase == AP_OMTI_PHASE_DATA_IN ||
          omti->fdc_phase == AP_OMTI_PHASE_DATA_OUT) &&
-        (omti->dor & AP_OMTI_DOR_INT_DMA) == 0u) {
+        omti->fdc_non_dma) {
       status |= AP_OMTI_MSR_NDMA;
     }
     /* Bits 0 and 1, "Drive A/B is in the Seek mode when 1". Composed here

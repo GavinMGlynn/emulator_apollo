@@ -7,8 +7,8 @@ Three manuals, and the DN3500's controller is an **8621**.
 | `[OMTI]` | `omti/OMTI_AT_Controller_Series_Jan87.pdf` | 88 | 800 ppi | **walked whole, 2026-09-07**; cited throughout `ap_omti.h` |
 | `[8640]` | `omti/OMTI_8640_Technical_Reference_Manual_Jun89.pdf` | 61 | 600 ppi | **walked whole, 61/61, 2026-08-23** |
 | `[765]` | `nec/NEC_uPD765_Floppy_Disk_Controller_Datasheet.pdf` | 20 | text layer | **the part on the board** — added and **walked whole, 2026-08-22**; the row said "walk owed" until 2026-09-07, four days after the walk landed |
-| `[765A]` | `nec/NEC_uPD765A_Datasheet.pdf`, `nec/NEC_uPD765A_uPD765B_Datasheet.pdf` | 19, 17 | image | later revisions of the same part |
-| `[8272A]` | `nec/Intel_8272A_Datasheet_Nov86.pdf` | 31 | image | Intel's licensed second source — independently typeset |
+| `[765A]` | `nec/NEC_uPD765A_Datasheet.pdf`, `nec/NEC_uPD765A_uPD765B_Datasheet.pdf` | 19, 17 | image | ~~later revisions of the same part~~ **WALKED WHOLE 2026-09-09, 19/19 and 17/17** — and "later revisions" is exactly the dismissal that kept them shut. Between them they carry the RST clause the primary omits, a whole *Differences between uPD765A and uPD765B* section, and a sixteenth command. The original wording is kept because it is why they went unread |
+| `[8272A]` | `nec/Intel_8272A_Datasheet_Nov86.pdf` | 31 | image | Intel's licensed second source — independently typeset. **WALKED WHOLE 2026-09-09, 31/31.** It had been *queried* three times, all about Table 4's opcodes, and derived nowhere else — the exact shape `CLAUDE.md` names: "a document that was wrong about one thing was never consulted about the rest" |
 | `[8000]` | `omti/OMTI_8000_Series_AT_Reference_Jun86.pdf` | 71 | 400 ppi | **walked whole, 71/71, 2026-08-22** |
 
 **220 pages total.** Coverage of `[OMTI]`, restated 2026-08-22 after the day's
@@ -2792,3 +2792,48 @@ the cache or BIOS machinery. Recorded so that a figure lifted from here is not
 mistaken for the DN3500's — the buffer size in particular, which is a live
 `PROVISIONAL` on the 8621 (`AP_OMTI_ID_BUFFER_32K`) and where **this manual's
 "32 Kbyte minimum" is about a different controller entirely**.
+
+
+## The three floppy datasheets, walked whole — 2026-09-09, 67 pages
+
+`[8272A]` 31/31, `[765A]` 19/19, `[765AB]` 17/17. `[765]`, the primary, was
+already walked whole on 2026-08-22, so the part's documentation is now complete
+at 87 pages across four editions.
+
+**Why they were opened.** The citation audit found `[8272A]` cited three times
+in `ap_omti.h`, every one of them about Table 4's opcode list, and `[765A]`
+cited nowhere. A document consulted about one question is not a document that
+has been read, and this record's own row called the two NEC files "later
+revisions of the same part" — a dismissal, not a reading.
+
+### What the three added that `[765]` does not contain
+
+| # | Finding | Where | Status |
+| --- | --- | --- | --- |
+| F1 | **`RESET` does not affect `SRT`, `HUT` or `HLT`.** `[765A]` p.3 names the three fields; `[8272A]` Table 1 says "does not clear the last specify command"; `[765AB]` p.2 a third time. **`[765]` is silent** — its RST row stops at "Resets output lines to FDD to '0' (low)" — so walking the primary alone could not have found it | `[765A]` p.3, `[8272A]` Tbl 1, `[765AB]` p.2 | **already correct, now cited and pinned.** On this board the RST pin is DOR bit 2, and that path never touched the three timers; `ap_omti_reset` is power-on only. Correct by omission before, by assertion now: `test_a_reset_does_not_disturb_the_specify_timers` |
+| F2 | A reset with `RDY` high raises an interrupt — "1-25 ms later" (`[765A]`), "within 1.024 ms" (`[765AB]`). Two revisions, two figures, recorded as printed | `[765A]` p.3, `[765AB]` p.2 | **GAP.** Ours raises nothing on reset |
+| F4 | **`SPECIFY`'s `ND` bit was dropped by our decode**, and it has a consumer: `[765A]` p.7 confines the Main Status Register's `EXM`/`NDM` bit to "NON-DMA mode of operation", which `ND` selects. Ours drove that bit from the *board's* DOR enable — a different switch, which gates `IRQ6` and `DRQ2` | `[765A]` pp.7, 16; `[8272A]` pp.5, 21 | **FIXED 2026-09-09.** `fdc_non_dma` stored, hashed, and driving the bit |
+| F14 | `HLT` is **2 to 254 ms** and `HUT` **16 to 240 ms**. Our header carried `[8640]` §6.2's "2 to 256" and "0 to 240"; the arithmetic settles it — `HLT` is seven bits, so 256 cannot be produced | `[765A]` pp.9, 16; `[8272A]` pp.14, 21 | **CORRECTED** in `ap_omti.h` |
+| F37 | **A sixteenth command.** `[765AB]` Table 4 carries `VERSION`, `X X X 1 0 0 0 0`, returning "90H indicates 765B, 80H indicates 765A / A-2" — and the Invalid row on the same page gives ST0 = 80H. **So on a 765 or 765A, `VERSION` and an invalid command are the same byte**, and our fifteen-command model is right for those parts and wrong only for a 765B. The same document says "16 commands" on p.1 and "15 different commands" on p.11 | `[765AB]` pp.1, 11, 16 | **no change needed, and now asserted**: `test_the_version_opcode_answers_as_a_765a_does` |
+| F40 | `[765AB]` p.5 is a whole **DIFFERENCES BETWEEN uPD765A AND uPD765B** section: the 765A does not set `OR` on an overrun of a sector's final byte; the 765A needs `DACK` to reset `DRQ` after an overrun, where the 765B resets it at R-phase entry; the 765B needs no CLK/WCLK synchronisation; and `VERSION` | `[765AB]` p.5 | recorded — the part-revision deltas, in one place |
+| F19 | The **polling feature**: after `SPECIFY` the part polls all four drives for a Ready-line change and raises an interrupt on one, reported as `NR` through `SENSE INTERRUPT STATUS`. `[765A]` gives the period as 1.024 ms per drive; `[8272A]` Table 6 gives 220 us, or 440 us with both select lines high | `[765A]` p.11, `[8272A]` p.15 | **GAP.** Not modelled |
+| F28 | The Main Status Register's per-drive busy bits are "**cleared by Sense Interrupt Status command**", not by the seek finishing. Ours composes them from the seek deadline | `[765A]` p.15 | **GAP.** Ours clears them earlier than the part |
+| F32 | `SENSE INTERRUPT STATUS` is **mandatory** after `SEEK`/`RECALIBRATE`, issuing it with no interrupt pending "is treated as an invalid command", and omitting it makes the *next* command invalid | `[765A]` p.16, `[8272A]` p.21 | **GAP** |
+| F33 | `RECALIBRATE` gives up after **77 step pulses**, setting `SE` and `EC`. `AP_OMTI_FDC_DRIVE_CYLINDERS` is **80**, so on this part a recalibrate from cylinder 78 or 79 cannot reach track 0 | `[765A]` p.16, `[8272A]` pp.20, 22 | **GAP**, and a real interaction with our own geometry |
+| F42 | "The 8272A Read and Write Commands **do not have implied Seeks**. Any R/W command should be preceded by: 1) Seek; 2) Sense Interrupt Status; 3) Read ID" | `[8272A]` p.20 | consistent with ours, which uses the head's actual cylinder |
+| F25 | MFM cannot do 128 bytes/sector (`N = 00`) | `[765A]` p.14 note 3 | **GAP**, not enforced |
+| F27 | Scan comparison is **ones-complement**, and `FF` from either side is a **mask byte** that always satisfies the compare | `[765A]` p.15, `[8272A]` p.19 | recorded |
+| F24 | Table 2 / Table 8, the eight rows of C/H/R/N when the processor terminates a command, with `LSB` meaning H's low bit is complemented. Both editions agree exactly | `[765A]` p.13, `[8272A]` p.17 | recorded |
+| F3 | The step-rate formula `16 - SRT` is **confirmed** by the symbol table's own worked values (`F = 1 ms, E = 2 ms`). All published intervals are the **8 MHz** figures and double at 4 MHz. And `[8272A]` p.26 note 3 resolves the apparent conflict with the AC table's 33 us minimum: that bound is for stepping *different* drives | `[765A]` pp.10, 16; `[8272A]` p.26 | **CONFIRMED**, no change |
+
+**Method note.** F1 is the transferable one. It looked like a defect for as long
+as it took to find which of our reset paths is the part's `RST` pin — and the
+answer was that the path that matters had been right all along, while the one
+that clears the fields (`ap_omti_reset`) is reachable only from
+`ap_board_init_model`. *A datasheet clause is not a bug report; the bug is
+established in the code, not in the manual.* What the clause did buy was a
+citation and a test on behaviour that was previously correct by omission, which
+is worth having on its own.
+
+The full page-by-page notes are in the session's scratch record; every finding
+above is either implemented, asserted, or carried as a named `GAP` row here.

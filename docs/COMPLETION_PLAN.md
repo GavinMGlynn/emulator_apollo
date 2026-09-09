@@ -5938,6 +5938,40 @@ same number is what let them diverge once already.
   processor manuals are not, and are the far larger job — see the batch
   below.
 
+- [x] **The floppy controller's own datasheets, walked whole — 2026-09-09,
+      67 pages.** `[8272A]` 31/31, `[765A]` 19/19, `[765AB]` 17/17; with
+      `[765]` (2026-08-22) the part is complete at 87 pages over four editions.
+      They were shut because `OMTI_WALK.md` called two of them "later revisions
+      of the same part" and the third was *queried* three times about one table
+      and derived nowhere else. **Landed**: `SPECIFY`'s `ND` bit, which the
+      decode dropped and which drives the Main Status Register's execution-mode
+      bit — that bit was being taken from the board's DOR enable, a different
+      switch; and `HLT`/`HUT` ranges corrected to the part's 2–254 ms and
+      16–240 ms. **Not a defect after all**: `RESET` preserving `SRT`/`HUT`/
+      `HLT`, which our DOR path already did — now cited and pinned rather than
+      correct by omission. *Verification: `omti_suite` 37 → 41; identity
+      `77B60315440826A6` → `0B819E1E8DA12BD3`, run otherwise byte-identical.*
+      Detail in `PROJECT_STATUS.md`; findings in `OMTI_WALK.md`.
+- [ ] **Six µPD765 behaviours the datasheet walk named and did not close.**
+      Each is a row in `docs/references/OMTI_WALK.md` with its citation:
+      the **polling feature** — after `SPECIFY` the part polls all four drives
+      and interrupts on a Ready-line change, reported as `NR` (`[765A]` p.11
+      gives 1.024 ms per drive, `[8272A]` Table 6 gives 220 µs, 440 µs with both
+      select lines high), which is how a driver learns a door opened and is not
+      modelled; the **reset-with-`RDY`-high interrupt** (`[765A]` "1-25 ms
+      later", `[765AB]` "within 1.024 ms" — two revisions, two figures);
+      the Main Status Register's **drive-busy bits being cleared by `SENSE
+      INTERRUPT STATUS`** rather than by the seek finishing, where ours composes
+      them from the seek deadline and so clears them earlier than the part;
+      **`SENSE INTERRUPT STATUS` being mandatory** after `SEEK`/`RECALIBRATE`,
+      with issuing it unprompted, or omitting it, both making a command invalid;
+      **`RECALIBRATE`'s 77-step-pulse limit**, which interacts with our own
+      `AP_OMTI_FDC_DRIVE_CYLINDERS` of 80 — a recalibrate from cylinder 78 or 79
+      cannot reach track 0 on this part; and **MFM's refusal of 128-byte
+      sectors** (`N = 00`), not enforced.
+      *None is blocked on evidence* — all six are cited and implementable — so
+      this is work, and stays open under the documentation-absent rule rather
+      than being closed by it.
 - [ ] **Walk the processor manuals whole — the second batch.**
       ***All six documents are walked whole as of 2026-09-07: 2,633 pages***
       — `[030]` 608/608, `[PRM]` 646/646, `[851]` 356/356, `[881]` 396/396,

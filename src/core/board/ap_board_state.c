@@ -401,8 +401,8 @@ void ap_board_hash_disk(ap_hash_t *st, const ap_disk_t *disk) {
   ap_hash_u64(st, omti->fdc_spindle_at[1]);
   ap_hash_u8(st, omti->fdc_cylinder[0]);
   ap_hash_u8(st, omti->fdc_cylinder[1]);
-  /* `SPECIFY`'s parameters, and the flag that says it has been issued. All four
-   * are hashed even though only `fdc_srt` is acted on: two controllers that
+  /* `SPECIFY`'s parameters, and the flag that says it has been issued. All five
+   * are hashed even though only `fdc_srt` and `fdc_non_dma` are acted on: two controllers that
    * were programmed differently are different machines whether or not this
    * model has yet found a use for the difference, and a value left out of the
    * hash is one a differential run cannot see drift. */
@@ -411,6 +411,11 @@ void ap_board_hash_disk(ap_hash_t *st, const ap_disk_t *disk) {
   ap_hash_u8(st, omti->fdc_srt);
   ap_hash_u8(st, omti->fdc_hut);
   ap_hash_u8(st, omti->fdc_hlt);
+  /* `SPECIFY`'s fourth field, and the one this used to be blind to because the
+   * decode dropped it: `ND` selects non-DMA mode and shows in the Main Status
+   * Register, so two controllers differing only in it answer `010204` (`MSR`)
+   * differently in a data phase. */
+  hash_bool(st, omti->fdc_non_dma);
   hash_bool(st, omti->fdc_step_rate_set);
   hash_bool(st, omti->fdc_seek_done);
   ap_hash_u8(st, omti->fdc_seek_st0);

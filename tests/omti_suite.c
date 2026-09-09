@@ -672,8 +672,9 @@ static void test_the_msr_reports_non_dma_mode_and_the_motors(void) {
   TEST_ASSERT_EQUAL_HEX8(0u, ap_omti_fdc_read(&o, AP_OMTI_FDC_MSR) &
                                  AP_OMTI_MSR_NDMA);
 
-  /* A command with a result phase enters it, and with the DOR's interrupt/DMA
-   * enable clear that is non-DMA mode. */
+  /* A command with a result phase enters it. `SENSE INTERRUPT STATUS` has no
+   * *execution* phase, so `NDMA` stays clear whatever the mode -- `[765A]` p.7
+   * confines the bit to the execution phase. */
   ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SENSE_INTERRUPT);
   TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_fdc_phase(&o));
   TEST_ASSERT_EQUAL_HEX8(0u, ap_omti_fdc_read(&o, AP_OMTI_FDC_MSR) &
@@ -1111,6 +1112,141 @@ static void test_sense_drive_status_does_not_report_the_unit(void) {
   }
 }
 
+/* ## `SPECIFY`'s fourth field, from the part's own datasheets
+ *
+ * `[765A]` `NEC_uPD765A_Datasheet.pdf` and `[8272A]`
+ * `Intel_8272A_Datasheet_Nov86.pdf`, walked whole 2026-09-09. The decode used
+ * to drop byte 2 bit 0. */
+
+/* `[765A]` p.16: "The choice of DMA or NON-DMA operation is made by the ND
+ * (NON-DMA) bit. When this bit is high (ND = 1) the NON-DMA mode is selected,
+ * and when ND = 0 the DMA mode is selected." */
+static void test_specify_records_the_non_dma_bit(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DOR, AP_OMTI_DOR_NOT_RESET);
+  TEST_ASSERT_FALSE(o.fdc_non_dma);
+
+  /* SRT = 8, HUT = 3, HLT = 0x40, ND = 1. */
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SPECIFY);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0x83u);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0x81u);
+  TEST_ASSERT_EQUAL_HEX8(0x08u, o.fdc_srt);
+  TEST_ASSERT_EQUAL_HEX8(0x03u, o.fdc_hut);
+  TEST_ASSERT_EQUAL_HEX8(0x40u, o.fdc_hlt);
+  TEST_ASSERT_TRUE(o.fdc_non_dma);
+
+  /* And ND = 0 selects DMA, with the same three timers. */
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SPECIFY);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0x83u);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0x80u);
+  TEST_ASSERT_EQUAL_HEX8(0x40u, o.fdc_hlt);
+  TEST_ASSERT_FALSE(o.fdc_non_dma);
+}
+
+/* `[765A]` p.7 on the Main Status Register's DB5: "This bit is set only during
+ * execution phase in non-DMA mode ... It operates only during NON-DMA mode of
+ * operation." So the *part's* `ND`, not the board's DOR enable, is what the bit
+ * follows -- the two used to be conflated. */
+static void test_the_execution_mode_bit_follows_the_parts_own_nd_bit(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DOR, AP_OMTI_DOR_NOT_RESET);
+
+  /* Non-DMA selected on the chip, and the board's DMA enable *set* -- the
+   * combination that told the old model "DMA" and the part "non-DMA". */
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SPECIFY);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0x00u);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0x01u);
+  TEST_ASSERT_TRUE(o.fdc_non_dma);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DOR,
+                    (uint8_t)(AP_OMTI_DOR_NOT_RESET | AP_OMTI_DOR_INT_DMA));
+
+  /* Drive it into a data phase and require the bit. */
+  o.fdc_phase = AP_OMTI_PHASE_DATA_IN;
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_MSR_NDMA,
+                         ap_omti_fdc_read(&o, AP_OMTI_FDC_MSR) &
+                             AP_OMTI_MSR_NDMA);
+
+  /* ND clear is DMA mode: the same data phase, the same DOR, and now the bit
+   * stays down -- which is the whole difference. A second controller rather
+   * than a second `SPECIFY`, because the one above is sitting in a data phase
+   * and would swallow the command bytes as data. */
+  ap_omti_t dma;
+  ap_omti_reset(&dma);
+  ap_omti_fdc_write(&dma, AP_OMTI_FDC_DOR, AP_OMTI_DOR_NOT_RESET);
+  ap_omti_fdc_write(&dma, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SPECIFY);
+  ap_omti_fdc_write(&dma, AP_OMTI_FDC_DATA, 0x00u);
+  ap_omti_fdc_write(&dma, AP_OMTI_FDC_DATA, 0x00u);
+  TEST_ASSERT_FALSE(dma.fdc_non_dma);
+  ap_omti_fdc_write(&dma, AP_OMTI_FDC_DOR,
+                    (uint8_t)(AP_OMTI_DOR_NOT_RESET | AP_OMTI_DOR_INT_DMA));
+  dma.fdc_phase = AP_OMTI_PHASE_DATA_IN;
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_omti_fdc_read(&dma, AP_OMTI_FDC_MSR) &
+                                 AP_OMTI_MSR_NDMA);
+}
+
+/* `[765A]` p.3, of the RST pin: "**Does not effect SRT, HUT or HLT in Specify
+ * command.**" `[8272A]` Table 1 says the same in different words -- "does not
+ * clear the last specify command" -- and `[765AB]` p.2 a third time. The
+ * part's *own* datasheet, `[765]`, is **silent**: its RST row stops at "Resets
+ * output lines to FDD to '0' (low)", which is why walking the primary alone
+ * could never have established this.
+ *
+ * On this board the RST pin is the Digital Output Register's bit 2, and that
+ * path already left the three timers alone -- but by omission, with nothing
+ * saying so and nothing pinning it. This is the citation and the pin. */
+static void test_a_reset_does_not_disturb_the_specify_timers(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DOR, AP_OMTI_DOR_NOT_RESET);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SPECIFY);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0xC5u); /* SRT = C, HUT = 5 */
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0x7Fu); /* HLT = 3F, ND = 1 */
+  TEST_ASSERT_EQUAL_HEX8(0x0Cu, o.fdc_srt);
+  TEST_ASSERT_EQUAL_HEX8(0x05u, o.fdc_hut);
+  TEST_ASSERT_EQUAL_HEX8(0x3Fu, o.fdc_hlt);
+  TEST_ASSERT_TRUE(o.fdc_non_dma);
+  TEST_ASSERT_TRUE(o.fdc_step_rate_set);
+
+  /* Bit 2 low is the RST pin asserted. */
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DOR, 0u);
+  TEST_ASSERT_TRUE(ap_omti_fdc_in_reset(&o));
+  TEST_ASSERT_EQUAL_HEX8(0x0Cu, o.fdc_srt);
+  TEST_ASSERT_EQUAL_HEX8(0x05u, o.fdc_hut);
+  TEST_ASSERT_EQUAL_HEX8(0x3Fu, o.fdc_hlt);
+  TEST_ASSERT_TRUE(o.fdc_step_rate_set);
+
+  /* And they are still there on the way back out, which is what a driver that
+   * resets the controller without reprogramming it depends on. */
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DOR, AP_OMTI_DOR_NOT_RESET);
+  TEST_ASSERT_FALSE(ap_omti_fdc_in_reset(&o));
+  TEST_ASSERT_EQUAL_HEX8(0x0Cu, o.fdc_srt);
+  TEST_ASSERT_EQUAL_HEX8(0x05u, o.fdc_hut);
+  TEST_ASSERT_EQUAL_HEX8(0x3Fu, o.fdc_hlt);
+  TEST_ASSERT_TRUE(o.fdc_non_dma);
+  TEST_ASSERT_TRUE(o.fdc_step_rate_set);
+}
+
+/* `[765AB]` Table 4, p.16, carries a **sixteenth** command the other three
+ * datasheets do not: `VERSION`, `X X X 1 0 0 0 0`, whose result is one byte --
+ * "90H indicates 765B, 80H indicates 765A / A-2". The Invalid row on the same
+ * page gives ST0 = 80H.
+ *
+ * So on a uPD765 or uPD765A, `VERSION` and an invalid command are
+ * **indistinguishable**, and this core's fifteen-command model answers `0x10`
+ * exactly as those parts do. It is wrong only for a 765B, and `[OMTI]` §1.3.1
+ * says only "NEC765 or equivalent". Asserted so the equivalence is a checked
+ * property rather than a coincidence. */
+static void test_the_version_opcode_answers_as_a_765a_does(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DOR, AP_OMTI_DOR_NOT_RESET);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0x10u);
+  TEST_ASSERT_EQUAL_INT(AP_OMTI_PHASE_STATUS, ap_omti_fdc_phase(&o));
+  TEST_ASSERT_EQUAL_HEX8(0x80u, ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_two_floppy_control_registers_are_not_one_register);
@@ -1145,6 +1281,11 @@ int main(void) {
   RUN_TEST(test_every_command_the_esdi_set_accepts_reaches_an_implementation);
   RUN_TEST(test_a_command_outside_the_esdi_set_reports_invalid_command);
   RUN_TEST(test_the_msr_reports_non_dma_mode_and_the_motors);
+  RUN_TEST(test_specify_records_the_non_dma_bit);
+  RUN_TEST(test_the_execution_mode_bit_follows_the_parts_own_nd_bit);
+  RUN_TEST(test_a_reset_does_not_disturb_the_specify_timers);
+  RUN_TEST(test_the_version_opcode_answers_as_a_765a_does);
+
   RUN_TEST(test_the_floppy_command_modifiers_are_read);
   RUN_TEST(test_the_floppy_drives_its_own_interrupt_and_dma_lines);
   RUN_TEST(test_a_completed_command_asks_for_an_interrupt_when_enabled);

@@ -1231,12 +1231,52 @@ typedef struct {
    *
    * `fdc_hut` and `fdc_hlt` are stored and unused. This core models no head
    * load or unload state for them to pace, and storing them is what makes that
-   * visible rather than making the bytes vanish -- §6.2 defines them in full
-   * (2 to 256 ms in 2 ms steps for `HLT`, 0 to 240 ms in 16 ms for `HUT`, on
-   * the 1.2 Mbyte drive this board has). */
+   * visible rather than making the bytes vanish -- §6.2 defines them in full,
+   * on the 1.2 Mbyte drive this board has.
+   *
+   * **The ranges are the part's, corrected 2026-09-09 from the card manual's.**
+   * This read "2 to 256 ms in 2 ms steps for `HLT`, 0 to 240 ms in 16 ms for
+   * `HUT`", from `[8640]` §6.2. The part's own datasheets give
+   * **`HLT` 2 to 254 ms** and **`HUT` 16 to 240 ms** -- `[765A]` p.9 and p.16,
+   * `[8272A]` p.14 and p.21, in the same words -- and the arithmetic settles
+   * it: `HLT` is seven bits, so 01-7F is 2-254 and 256 cannot be produced, and
+   * `HUT` is four bits whose 01 is 16 ms. The part's own manual is step 1 of
+   * the resolution order and the card's is not.
+   *
+   * *`[8272A]` p.21 prints its own version of the `HLT` range inconsistently* --
+   * "01 = 2 ms, 02 = 4 ms, 03 = 6 ms .... **FE** = 254 ms", which starts with
+   * field values and ends with a byte value. `[765A]` p.16's "... 7F = 254 ms"
+   * is self-consistent and is what this core follows. Recorded rather than
+   * silently preferred.
+   *
+   * All of these are the **8 MHz** figures: both datasheets add that "if the
+   * clock was reduced to 4 MHz (mini-floppy application) then all time
+   * intervals are increased by a factor of 2". */
   uint8_t fdc_srt;      /* `SPECIFY` byte 1 bits 7-4 */
   uint8_t fdc_hut;      /* `SPECIFY` byte 1 bits 3-0 */
   uint8_t fdc_hlt;      /* `SPECIFY` byte 2 bits 7-1 */
+  /* `SPECIFY` byte 2 bit **0**, and the part's own DMA switch.
+   *
+   * `[765A]` p.16 and `[8272A]` p.21, in identical words: "The choice of DMA or
+   * NON-DMA operation is made by the **ND** (NON-DMA) bit. When this bit is
+   * high (ND = 1) the NON-DMA mode is selected, and when ND = 0 the DMA mode is
+   * selected."
+   *
+   * This byte used to be decoded as `(command[2] >> 1) & 0x7F` and nothing
+   * else, so bit 0 was **dropped** -- while `hut` and `hlt` were deliberately
+   * stored-and-unused so that the bytes would not vanish. It was not unused: it
+   * has a consumer. `[765A]` p.7's Main Status Register table says of DB5 EXM
+   * that it "is set only during execution phase in non-DMA mode ... **It
+   * operates only during NON-DMA mode of operation**", and non-DMA mode is
+   * this bit.
+   *
+   * The Main Status Register's bit 5 was driven instead from the *board's*
+   * Digital Output Register enable (`AP_OMTI_DOR_INT_DMA`), which is a
+   * different mechanism: that bit gates whether `IRQ6` and `DRQ2` reach the
+   * bus, where `ND` tells the chip to run non-DMA. A driver normally sets both
+   * consistently, which is why the substitution went unnoticed, but they are
+   * not the same switch and only one of them is the part's. */
+  bool fdc_non_dma;
   bool fdc_step_rate_set;
 
   /* The address a data command was refused for, and how many were.
