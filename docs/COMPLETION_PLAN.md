@@ -1650,6 +1650,17 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         7-6's key columns are not a key** and the module keys the arbitration
         states as §7.8.1 says instead. `m68040_bus_suite`, 24 tests. Detail in
         `PROJECT_STATUS.md`.
+  - [x] `[040]` §9's floating-point unit, all 48 pages. §9.2's programming model
+        **verifies against `ap_m68882_regs.h` with no difference** -- the manual
+        says it is identical to the 68881/68882's, so a citation audit scoped to
+        one part's directory could not see it. §9.6-§9.8 diverge: **the hardware
+        handles no denormal in any format** (Table 9-2), **four arithmetic
+        exceptions are nonmaskable** where the 68882 has no such concept,
+        `INEX1` is a latch the hardware never sets, and an `FSAVE` after only
+        conditional instructions gives a null frame where the 68881/68882 give
+        idle. §9.4.2's `$00FF` range-control exponent is a misprint three
+        manuals share verbatim -- one witness, not three.
+        `m68040_fp_exception_suite`, 16 tests. Detail in `PROJECT_STATUS.md`.
   - [x] The two ATCs: 16 sets of four ways each, tagged with `FC2` alone and no
         task alias -- `G` is the 68040's substitute, overriding a nonglobal
         flush rather than being one more criterion. The manual states the tag
