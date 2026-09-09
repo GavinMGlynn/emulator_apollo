@@ -21,6 +21,7 @@ ap_m68040_mmu_result_t ap_m68040_mmu_translate(const ap_m68040_mmu_t *mmu,
      * can fault", and it faults the same way a page's does. */
     if (write && ttr.write_protect) {
       out.status = AP_M68040_MMU_FAULT;
+      out.reason = AP_M68040_MMU_FAULT_PROTECTION;
       return out;
     }
     out.status = AP_M68040_MMU_TRANSPARENT;
@@ -52,6 +53,7 @@ ap_m68040_mmu_result_t ap_m68040_mmu_translate(const ap_m68040_mmu_t *mmu,
     if (!entry->resident || (entry->supervisor && !supervisor) ||
         (write && entry->write_protect)) {
       out.status = AP_M68040_MMU_FAULT;
+      out.reason = AP_M68040_MMU_FAULT_CACHED;
       return out;
     }
     out.status = AP_M68040_MMU_TRANSLATED;
@@ -116,6 +118,15 @@ ap_m68040_mmu_result_t ap_m68040_mmu_translate(const ap_m68040_mmu_t *mmu,
       (search.supervisor && !supervisor) ||
       (write && search.write_protect)) {
     out.status = AP_M68040_MMU_FAULT;
+    /* Told apart because they mean different things to a reader: a bus error
+     * during the walk is a machine problem, an invalid descriptor is a page
+     * that is not there, and a resident page refusing the access is
+     * protection. */
+    out.reason = search.status == AP_M68040_SEARCH_BUS_ERROR
+                     ? AP_M68040_MMU_FAULT_SEARCH_BUS
+                     : (search.status != AP_M68040_SEARCH_RESIDENT
+                            ? AP_M68040_MMU_FAULT_NOT_RESIDENT
+                            : AP_M68040_MMU_FAULT_PROTECTION);
     return out;
   }
 

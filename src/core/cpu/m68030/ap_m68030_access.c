@@ -45,7 +45,8 @@ static ap_m68030_mmu_fault_t search_fault_reason(
 static bool translate_040(const ap_m68030_access_ctx_t *access,
                           uint32_t logical, unsigned function_code, bool write,
                           uint32_t *physical, bool *cache_inhibit,
-                          unsigned *fetches, bool *fault) {
+                          unsigned *fetches, bool *fault,
+                          ap_m68030_mmu_fault_t *reason) {
   if (access->mmu_040 == NULL) {
     return false;
   }
@@ -55,6 +56,26 @@ static bool translate_040(const ap_m68030_access_ctx_t *access,
   *fetches = r.fetches;
   if (r.status == AP_M68040_MMU_FAULT) {
     *fault = true;
+    /* The reason, mapped onto the report's existing vocabulary rather than
+     * reported as "cached" for everything -- which is what this did, and it
+     * made every 68040 fault read as an ATC entry that was already known bad
+     * even when the tables had just been walked. A diagnosis is only worth
+     * having if it can be wrong. */
+    switch (r.reason) {
+    case AP_M68040_MMU_FAULT_NOT_RESIDENT:
+      *reason = AP_M68030_MMU_FAULT_INVALID;
+      break;
+    case AP_M68040_MMU_FAULT_PROTECTION:
+      *reason = AP_M68030_MMU_FAULT_PROTECTION;
+      break;
+    case AP_M68040_MMU_FAULT_SEARCH_BUS:
+      *reason = AP_M68030_MMU_FAULT_SEARCH_BUS;
+      break;
+    case AP_M68040_MMU_FAULT_CACHED:
+    case AP_M68040_MMU_FAULT_NONE:
+      *reason = AP_M68030_MMU_FAULT_CACHED;
+      break;
+    }
     return true;
   }
   *physical = r.physical;
@@ -137,12 +158,12 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
 
   bool fault_040 = false;
   unsigned fetches_040 = 0u;
+  ap_m68030_mmu_fault_t reason_040 = AP_M68030_MMU_FAULT_CACHED;
   if (translate_040(access, logical, function_code, false, &physical,
-                    &cache_inhibit, &fetches_040, &fault_040)) {
+                    &cache_inhibit, &fetches_040, &fault_040, &reason_040)) {
     out.descriptor_fetches = fetches_040;
     if (fault_040) {
-      report_mmu_fault(access, logical, function_code, false,
-                       AP_M68030_MMU_FAULT_CACHED);
+      report_mmu_fault(access, logical, function_code, false, reason_040);
       out.fault = true;
       return out;
     }
@@ -300,12 +321,12 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
 
   bool fault_040 = false;
   unsigned fetches_040 = 0u;
+  ap_m68030_mmu_fault_t reason_040 = AP_M68030_MMU_FAULT_CACHED;
   if (translate_040(access, logical, function_code, true, &physical,
-                    &cache_inhibit, &fetches_040, &fault_040)) {
+                    &cache_inhibit, &fetches_040, &fault_040, &reason_040)) {
     out.descriptor_fetches = fetches_040;
     if (fault_040) {
-      report_mmu_fault(access, logical, function_code, true,
-                       AP_M68030_MMU_FAULT_CACHED);
+      report_mmu_fault(access, logical, function_code, true, reason_040);
       out.fault = true;
       return out;
     }

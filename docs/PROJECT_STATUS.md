@@ -2104,9 +2104,34 @@ keep it.
 *So the double fault is exactly what it looks like*: pushing sixty bytes into an
 unmapped page, which faults on either part. Three explanations have now been
 eliminated — the stack pointer selection, the mapping itself, and the register
-state — and what remains is why Domain/OS is running with its supervisor stack
-sixty bytes above unmapped memory in the first place. That is earlier than the
-fault and is a fresh question, recorded rather than answered.
+state.
+
+### And the report was mis-stating the fault, because I hardcoded it
+
+Every 68040 MMU fault was reported as `cached fault on write` — an ATC entry
+that was already known bad — because the join passed
+`AP_M68030_MMU_FAULT_CACHED` unconditionally. Three faults were being read that
+way while diagnosing them.
+
+`ap_m68040_mmu_result_t` now carries the reason and the join maps it onto the
+report's existing vocabulary, so the four cases are told apart: an entry that
+answered and said no, a search that found no valid page, a resident page
+refusing the access, and a descriptor fetch that went unanswered. **A diagnosis
+is only worth having if it can be wrong.**
+
+What it says with that fixed:
+
+    PC 7A40C1EC  1 time(s)  7A38139C            invalid on write
+    PC 7A42D77A  2 time(s)  7A3FFFFE-7A3FFFC6   invalid on write
+
+**Invalid, not protected and not stale.** The descriptors for those pages say
+the page is not there — which is what a demand-paged operating system writes
+deliberately, expecting to fault, map and retry. So the fault is one Domain/OS
+asked for, and what it cannot do is service it: the handler's own frame push
+lands on the same invalid page.
+
+That is where this stops, and the remaining question is a fresh one — why the
+supervisor stack is sixty bytes above a page the kernel has marked invalid.
 
 **And `--dump-walk` is still 68030-only**, now named as such in
 `ap_machine_walk`'s declaration rather than left for a reader to discover: it

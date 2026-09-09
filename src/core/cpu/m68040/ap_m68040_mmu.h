@@ -80,6 +80,17 @@ typedef struct {
   /* Whether this access filled an ATC entry, which is the other half of that
    * line: a search that faults still caches its outcome. */
   bool filled;
+  /* Why a `FAULT` faulted, so a report can say which rather than guessing. The
+   * three are distinguishable and the distinction is what a reader needs: an
+   * entry that was already known bad, a page the tables say is not there, and a
+   * page that is there and refuses this access. */
+  enum {
+    AP_M68040_MMU_FAULT_NONE,
+    AP_M68040_MMU_FAULT_CACHED,     /* an ATC entry answered, and said no */
+    AP_M68040_MMU_FAULT_NOT_RESIDENT, /* the search found no valid page */
+    AP_M68040_MMU_FAULT_PROTECTION, /* supervisor-only, or write-protected */
+    AP_M68040_MMU_FAULT_SEARCH_BUS, /* a descriptor fetch went unanswered */
+  } reason;
 } ap_m68040_mmu_result_t;
 
 /* Translate one access. `fetch` reads a descriptor longword and returns false
