@@ -16126,3 +16126,67 @@ item; this one is the interrupt.
 *Verification: `sc499_suite` 28 → 29 — READY raises the flag with DNIEN clear
 and does not with it set, and EXCEPTION is ungated either way. It fails on the
 old code at the second assertion, which is the one the boot was failing on.*
+
+## C275 -- the card runs a confidence test at power-on, and this one was born silent
+
+C274's page had a second row on it. `[08845]` Table 2.0, two above the `RR` one:
+
+    POWER-ON CONFIDENCE TEST   KK   IN = TEST AT POWER-ON* .
+                                         OR RESET
+                                    OUT = TEST DISABLED
+
+Apollo's asterisk is on **IN**, and so is the vendor's dot. `[SC499]` §1.8.1 says
+what the test does -- microprocessor RAM, the LSI controller, the 16K RAM, the
+data separator -- and how it reports: **"by the assertion of `EXC-` within five
+seconds"**, with five LEDs blinking once each.
+
+**This core ran the test on every *reset* and never at power-on.**
+`ap_sc499_write`'s two release sites set `reset_arming` and `ap_sc499_advance`
+raises EXCEPTION `AP_SC499_T_RESET_TO_EXCEPTION` later -- that is C272a's
+correction, and it is the "or reset" half of `KK`'s row. But `ap_sc499_reset`
+`memset`s the arm away, and a cold start has no RSTSAC pulse to set it, so a
+card that had only been powered on asserted **neither READY nor EXCEPTION** --
+which is the state `[SC499]` Figure 1-24's DONE routine loops in for ever.
+
+### The open comment was well posed and reasoning from the wrong page
+
+`ap_tape_reset` carried "**Open: whether the controller asserts EXCEPTION at
+reset**", and refused to settle it from MAME's commented-out
+`| SC499_STAT_EXC`: "raising it on the strength of a commented-out line in the
+oracle would be inferring hardware behaviour from someone else's source, which
+is the one route this project does not take." That refusal was right and is
+worth keeping in the record.
+
+**What it lacked was the page, and the citation it argued from was the wrong
+one.** It reasoned from **RSTDMA** -- which "initialises the DMA sequencer,
+clears the control register, sets DONE" and says nothing about EXCEPTION -- for
+an event that is a *power-on*. §1.8.1 addresses power-on directly. The oracle
+turns out to agree; that is recorded only because its evidence was the evidence
+deliberately refused, and the refusal stands: the reason is the document.
+
+### The tests said it was right, by not needing to change
+
+Arming the POC at `ap_tape_init` and `ap_tape_reset` broke **six** existing
+`tape_suite` tests, which is the number that decides whether a change is a fix
+or a bulldozer. The cause: the POC deadline is 200 ms and
+`AP_SC499_T_COMMAND_EXECUTION` is 500 ms, so the exception lands *inside* the
+first command every one of them issues.
+
+**Not one of their assertions was touched.** The shared `arm()` helper now lets
+the POC finish -- two advances, because the arm is dated at the first -- and
+**leaves the exception standing**, because clearing it by hand would be reaching
+into the part and the hardware's own way out is the next command:
+`[SC499]` Figure 1-8's "Device Deasserts EXCEPTION", the entry a command takes
+when there is one to lift, which every test's first `issue` already does. Six
+tests went green on a change to the card's starting state alone. A test that
+still passes once the part is put into the state the hardware puts it in was
+testing the right thing all along.
+
+*And it is what the firmware already expects*: C261 recorded that the SR10.4
+boot cartridge's firmware "issues READ STATUS (`C0`) **in answer to the power-on
+exception**". Until now there was no power-on exception for it to be answering.
+
+*Verification: `tape_suite` 27 -> 29 -- a cold power-on asserts `EXC-` at the
+deadline and not before, inside §1.8.1's five-second bound; and the machine's
+own reset re-runs it, so a driver that resets twice sees two exceptions rather
+than one that never went away.*

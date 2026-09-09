@@ -9,6 +9,50 @@
 void setUp(void) {}
 void tearDown(void) {}
 
+static void test_a_cold_power_on_runs_the_confidence_test_and_asserts_exception(void) {
+  ap_tape_t tape;
+  ap_tape_init(&tape);
+
+  /* `[SC499]` §1.8.1: the power-on confidence test checks microprocessor RAM,
+   * the LSI controller, the 16K RAM and the data separator, and reports success
+   * "by the assertion of `EXC-` within five seconds". `[08845]` Table 2.0's
+   * `KK` row is what says this card runs it -- Apollo's asterisk on "IN = TEST
+   * AT POWER-ON OR RESET", where OUT is TEST DISABLED.
+   *
+   * Before the deadline it asserts nothing, which is the state a driver polls
+   * through: `[SC499]` Figure 1-24's DONE loops on READY-or-EXCEPTION. */
+  ap_tape_advance(&tape, 1u);
+  TEST_ASSERT_FALSE(tape.controller.exception);
+
+  ap_tape_advance(&tape, 1u + AP_SC499_T_RESET_TO_EXCEPTION);
+  TEST_ASSERT_TRUE(tape.controller.exception);
+
+  /* And it is inside the published bound, which is the half of §1.8.1 that is a
+   * number rather than a behaviour. */
+  TEST_ASSERT_TRUE(AP_SC499_T_RESET_TO_EXCEPTION <= AP_SC499_US(5000000));
+}
+
+static void test_the_machines_reset_runs_the_confidence_test_too(void) {
+  ap_tape_t tape;
+  ap_tape_init(&tape);
+  ap_tape_advance(&tape, 1u);
+  ap_tape_advance(&tape, 1u + AP_SC499_T_RESET_TO_EXCEPTION);
+  TEST_ASSERT_TRUE(tape.controller.exception);
+
+  /* §1.12 makes the machine's own reset RESET DRV, "the power-on reset from the
+   * IBM PC power supply", and `[08845]`'s `KK` covers it with "or reset" -- so
+   * a reset re-runs the test rather than leaving the card silent. The exception
+   * is cleared by the reset itself and comes back at the deadline, so a driver
+   * that resets the card twice sees two of them rather than one that never
+   * went away. */
+  ap_tape_reset(&tape);
+  ap_tape_advance(&tape, 2u + AP_SC499_T_RESET_TO_EXCEPTION);
+  TEST_ASSERT_FALSE(tape.controller.exception);
+
+  ap_tape_advance(&tape, 2u + 2u * AP_SC499_T_RESET_TO_EXCEPTION);
+  TEST_ASSERT_TRUE(tape.controller.exception);
+}
+
 static void test_the_measured_dump_is_reproduced(void) {
   ap_tape_t t;
   ap_tape_init(&t);
@@ -147,6 +191,28 @@ static void arm(ap_tape_t *t) {
   ap_tape_init(t);
   TEST_ASSERT_TRUE(ap_tape_load(t, cartridge, sizeof cartridge,
                                 AP_QIC_CARTRIDGE_DC600A, true));
+
+  /* **Let the power-on confidence test finish**, which every test below wants
+   * and none of them used to say. `[SC499]` §1.8.1 has the card report its POC
+   * "by the assertion of `EXC-` within five seconds", and until 2026-09-09 this
+   * core ran no POC at all, so a card was born silent and these tests were
+   * written against that. It is not a detail that can be skipped: the POC
+   * deadline is 200 ms and `AP_SC499_T_COMMAND_EXECUTION` is 500 ms, so the
+   * exception lands *inside* the first command every one of them issues.
+   *
+   * Two advances, because the arm is dated at the first: `ap_sc499_reset`
+   * clears `now` along with everything else, so there is no instant to date
+   * from until a caller supplies one.
+   *
+   * The exception is deliberately **left standing**. Clearing it here would be
+   * reaching into the part; the hardware's own way out is the next command --
+   * `[SC499]` Figure 1-8's "Device Deasserts EXCEPTION", which is the entry a
+   * command takes when there is one to lift -- and every test's first `issue`
+   * does exactly that. */
+  ap_tape_advance(t, 1u);
+  clock_now = 1u + AP_SC499_T_RESET_TO_EXCEPTION;
+  ap_tape_advance(t, clock_now);
+  TEST_ASSERT_TRUE(t->controller.exception);
 }
 
 /* Issue a QIC command through the controller, as a driver would: set the
@@ -909,6 +975,8 @@ static void test_a_partial_block_is_not_written(void) {
 
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_cold_power_on_runs_the_confidence_test_and_asserts_exception);
+  RUN_TEST(test_the_machines_reset_runs_the_confidence_test_too);
   RUN_TEST(test_reading_the_tape_makes_the_device_hold_the_bus);
   RUN_TEST(test_a_command_is_not_finished_when_it_is_issued);
   RUN_TEST(test_an_exception_survives_until_its_figure_completes);

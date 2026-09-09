@@ -122,6 +122,14 @@ void ap_sc499_block_boundary(ap_sc499_t *tape) {
   tape->ready_at = tape->now + ap_sc499_handshake_duration(tape->entry);
 }
 
+void ap_sc499_power_on_test(ap_sc499_t *tape) {
+  /* Armed rather than asserted, for the reason the header gives and the reset
+   * path already relies on: `now` is zero on a card that has just been
+   * `memset`, so there is no instant to date the deadline from until the first
+   * advance. `ap_sc499_advance` dates it. */
+  tape->reset_arming = true;
+}
+
 void ap_sc499_dma_ended(ap_sc499_t *tape) {
   /* The card's sequencer is idle again and DONE is up. Not gated on
    * `dma_active`: a terminal count on this channel with no DMAGO outstanding

@@ -5,6 +5,13 @@
 void ap_tape_init(ap_tape_t *tape) {
   memset(tape, 0, sizeof *tape);
   ap_sc499_reset(&tape->controller);
+  /* `[SC499]` §1.8.1's power-on confidence test, which Apollo straps on --
+   * `[08845]` Table 2.0's `KK`, "IN = TEST AT POWER-ON OR RESET". The "or
+   * reset" half has been in `ap_sc499_write` all along; this is the half a cold
+   * start needs, and without it a card that has only been powered on asserts
+   * neither READY nor EXCEPTION, which is the state `[SC499]` Figure 1-24's
+   * DONE routine loops in for ever. */
+  ap_sc499_power_on_test(&tape->controller);
   ap_qic_init(&tape->drive);
   /* The same arming the reset gives, for the same reason: a drive that has just
    * come up is at BOT. The two must not differ. */
@@ -13,6 +20,10 @@ void ap_tape_init(ap_tape_t *tape) {
 
 void ap_tape_reset(ap_tape_t *tape) {
   ap_sc499_reset(&tape->controller);
+  /* The same test, for the same reason: this is the machine's own reset, which
+   * `[SC499]` §1.12 makes RESET DRV, "the power-on reset from the IBM PC power
+   * supply", and `[08845]`'s `KK` covers with "or reset". */
+  ap_sc499_power_on_test(&tape->controller);
   ap_qic_reset(&tape->drive);
   memset(tape->block, 0, sizeof tape->block);
   tape->offset = 0u;
@@ -24,21 +35,29 @@ void ap_tape_reset(ap_tape_t *tape) {
   /* Armed by the reset, which is where the tape is at BOT. */
   tape->first_block_pending = true;
 
-  /* **Open: whether the controller asserts EXCEPTION at reset.** The drive
-   * does hold a condition -- `ap_qic_reset` sets "power on/reset occurred",
-   * which a READ STATUS reports and clears -- and the oracle's controller comes
-   * up with EXC asserted, since `sc499.cpp` sets `m_status = SC499_STAT_RDY`
-   * with `| SC499_STAT_EXC` commented out and EXC is asserted *low*, so leaving
-   * the term out leaves the bit at zero.
+  /* **CLOSED 2026-09-09. The controller does assert EXCEPTION at reset, and
+   * the call above is where.** This comment stood as an open question, and the
+   * question was well posed -- it refused to infer hardware behaviour from
+   * MAME's commented-out `| SC499_STAT_EXC`, which is the right refusal. What
+   * it lacked was the page that answers it, and the citation it reasoned from
+   * was the wrong one: it argued from **RSTDMA**, which "initialises the DMA
+   * sequencer, clears the control register, sets DONE" and says nothing about
+   * EXCEPTION, where the event here is a *power-on*.
    *
-   * It is deliberately **not** modelled here. `[SC499]` describes what RSTDMA
-   * does -- initialise the DMA sequencer, clear the control register, set DONE
-   * -- and says nothing about EXCEPTION. Raising it on the strength of a
-   * commented-out line in the oracle would be inferring hardware behaviour from
-   * someone else's source, which is the one route this project does not take.
-   * It also has a visible consequence rather than a quiet one: EXC feeds the
-   * interrupt flag, so asserting it at reset makes an idle controller report a
-   * pending interrupt. Settled by a driver that reads status after a reset. */
+   * `[SC499]` §1.8.1 covers power-on directly: the confidence test checks
+   * microprocessor RAM, the LSI controller, the 16K RAM and the data separator,
+   * and reports success "by the assertion of **`EXC-` within five seconds**".
+   * `[08845]` Table 2.0's `KK` row says Apollo runs it -- "IN = TEST AT
+   * POWER-ON OR RESET", asterisked, against OUT = TEST DISABLED. And
+   * `[SC499]` Figure 1-23's RESET routine ends by calling HOST DONE, whose
+   * Figure 1-24 loops on READY-or-EXCEPTION for ever, so a card that comes up
+   * asserting neither hangs its own driver.
+   *
+   * The oracle turns out to agree, which is worth recording only because it was
+   * the evidence deliberately refused: its commented-out line would have
+   * asserted EXC at reset, and the document now says to. The refusal was still
+   * correct -- the reason is the document, and the oracle is the fourth
+   * source. `FINDINGS.md` C275. */
 }
 
 /* Whether the data path needs a block it does not have in hand. Shared by

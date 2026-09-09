@@ -513,6 +513,29 @@ typedef struct {
 
 void ap_sc499_reset(ap_sc499_t *tape);
 
+/* **The power-on confidence test**, `[SC499]` §1.8.1: the card checks its
+ * microprocessor RAM, the LSI controller, the 16K RAM and the data separator,
+ * and reports success "by the assertion of `EXC-` **within five seconds**",
+ * blinking each of five LEDs once.
+ *
+ * Separate from `ap_sc499_reset` on purpose, because the two are not the same
+ * event and the reset path already distinguishes them. `ap_sc499_write`'s RSTSAC
+ * arm belongs to the *release* of a pulse held for §1.12's 25 us, so arming
+ * inside the reset itself would fire on the set and on every runt pulse. This is
+ * the *board's* power-on, where there is no pulse to be wide enough.
+ *
+ * That the test runs at all is Apollo's configuration rather than an assumption:
+ * `[08845]` Table 2.0's `KK` row, POWER-ON CONFIDENCE TEST, is marked with
+ * Apollo's asterisk on **IN = TEST AT POWER-ON OR RESET**, where OUT is TEST
+ * DISABLED. The "or reset" half is what `ap_sc499_write` already implements; this
+ * is the other half, and until 2026-09-09 a cold-started card asserted nothing
+ * at all.
+ *
+ * The delay is `AP_SC499_T_RESET_TO_EXCEPTION`, the same `PROVISIONAL` constant
+ * the reset path uses, because it is the same test being timed. Its own item
+ * carries the provisionality. */
+void ap_sc499_power_on_test(ap_sc499_t *tape);
+
 /* Which figure a command issued now would follow. */
 [[nodiscard]] ap_sc499_entry_t ap_sc499_command_entry(const ap_sc499_t *tape);
 

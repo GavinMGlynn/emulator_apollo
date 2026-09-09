@@ -4976,26 +4976,19 @@ same number is what let them diverge once already.
       *Verification: the environment comes up running the tape's `rbak_shell`,
       or the cartridge is shown not to carry it.*
 
-- [ ] **A cold power-on runs no confidence test, so nothing asserts `EXC-` --
-      `[SC499]` §1.8.1.** The POC checks microprocessor RAM, the LSI controller,
-      the 16K RAM and the data separator, and reports success "by the assertion
-      of `EXC-` **within five seconds**", with five LEDs blinking once each.
-      This core arms that exception on a **reset** -- `ap_sc499_write`'s two
-      release sites set `reset_arming` and `ap_sc499_advance` raises EXCEPTION
-      `AP_SC499_T_RESET_TO_EXCEPTION` later -- but `ap_sc499_reset` `memset`s
-      the arm away and a cold start has no RSTSAC hold to set it, so a card that
-      has only been powered on asserts nothing. This is the question
-      `ap_tape_reset`'s "Open:" comment records; §1.8.1 answers it, where that
-      comment's citation was RSTDMA.
-      **Two wrong items were opened here first and are withdrawn** (`FINDINGS.md`
-      C272a): "a reset must leave the part asserting READY or EXCEPTION", which
-      is implemented and has seven assertions in `sc499_suite`, and "the POC is
-      not modelled at all", which is modelled on every reset path. The mistake
-      was grepping for `ready = true` and never for `exception = true` -- one
-      branch of the figure's own disjunction.
-      *Verification: a power-on that asserts `EXC-` within the published bound
-      with no reset written, and a READ STATUS that then reports the power-on
-      condition; identity measured either way.*
+- [x] **A cold power-on runs the confidence test — done 2026-09-09.**
+      `[SC499]` §1.8.1's POC reports success "by the assertion of `EXC-`
+      **within five seconds**"; `[08845]` Table 2.0's `KK` row is what says this
+      card runs it, Apollo's asterisk on "IN = TEST AT POWER-ON OR RESET". The
+      "or reset" half was already there; a cold start had no RSTSAC pulse to arm
+      it, so a powered-on card asserted **neither** READY nor EXCEPTION — the
+      state Figure 1-24's DONE routine loops in for ever. Also closes
+      `ap_tape_reset`'s "Open:" comment, which reasoned from RSTDMA.
+      *Verification: `tape_suite` 27 → 29. **Six existing tests broke and not
+      one assertion changed** — only the card's starting state. Identity
+      `5AF8B16F9BA4B7D0` → `9A8188D5AC393BFD`, the hash being the **only** line
+      of the report that differs; cartridge boot byte-identical.* Detail in
+      `PROJECT_STATUS.md`; `FINDINGS.md` C275.
 
 
 - [x] **Three ring timeout status bits are defined and set by nobody — closed
@@ -6054,13 +6047,16 @@ same number is what let them diverge once already.
       side, which is the mode `ap_i8259`'s edge model produces.
       Detail in `PROJECT_STATUS.md`.
 
-  - [ ] **`[82586]`**, the LAN coprocessor behind the 3c505 — **not on the
-        shelf, and lower value than it looks.** Checked 2026-08-22 against
-        the `[765]`/`[2681]` pattern and it does *not* fit: that pattern
-        needs the host's own bus cycles to reach the part, and `ap_3c505.h`
-        says plainly "**the host never touches the 82586**". Its datasheet
-        describes a part no host cycle can address. Worth reading only if
-        the adapter's firmware is ever emulated rather than replaced.
+  - [x] **`[82586]`**, the LAN coprocessor behind the 3c505 — **closed
+        2026-09-09 under the documentation-absent rule.** The datasheet is
+        **not on this shelf**, and it describes a part **no host cycle can
+        address**: `ap_3c505.h` says plainly "the host never touches the
+        82586", so the `[765]`/`[2681]` pattern — which needs the host's own
+        bus cycles to reach the part — does not apply. Both halves of the
+        rule are met, the second by construction.
+        *Execution works*: the adapter is driven by its board protocol and
+        the 3c505 model answers it. Reopen if the adapter's firmware is ever
+        emulated rather than replaced.
         *The discriminator, since it will recur*: is there a processor
         between the host and the chip? If yes, the board protocol governs.
   - [x] **`[SC-499]` and `[QIC-36]` — both walked whole 2026-08-25**,
@@ -6069,8 +6065,10 @@ same number is what let them diverge once already.
         guide cannot — the Apollo jumper configuration (base `0200`, DMA 1,
         **IRQ 5**), §11.6's three interrupt causes, and §6.3's performance
         figures. Its §12.3 timeouts were already derived.
-        **One tension found and deliberately not acted on** — see the item
-        below. Record: `docs/references/TAPE_WALK.md`.
+        **The one tension it found is now acted on** (2026-09-09): Table
+        2.0's `RR`, READY INTERRUPT DISABLE, strapped IN by Apollo and OUT by
+        the vendor — the item below, and `FINDINGS.md` C274.
+        Record: `docs/references/TAPE_WALK.md`.
 
 - [x] **`RDY` raises `IRQF` here, and Apollo's own spec straps that off —
       *implemented* 2026-09-09.** Closed an hour earlier under the
