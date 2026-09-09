@@ -1679,6 +1679,19 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         distinction. `model_suite` now asserts every 68040 model's `cpu_hz` is a
         rated grade. `m68040_bus_suite` 24 -> 27, `model_suite` 22 -> 23. Detail
         in `PROJECT_STATUS.md`.
+  - [x] `[040]` §12 and Appendices A-E, 102 pages — **the User's Manual is now
+        read whole, 463 of 463.** Appendix C settles both questions §1.1.2's
+        copy-paste error left open (the MC68EC040V *is* 3.3 V static, and is
+        *not* pin compatible) and adds a **third fixed-address bus cycle**, the
+        `LPSTOP` broadcast at `$FFFFFFFE` — a word write where the other two are
+        byte reads. Appendix E's Table E-3 refines Table 9-2 with a third
+        marker. A.1 contradicts its own third bullet, C.4 contradicts its own
+        Figure C-3 about the reset length (124 against 128), and **Appendix D
+        contradicts itself on the function code — confirming §5 a third time**.
+        C.6.2 declares the V parts' 188-bit scan definitions "not currently
+        available": a stated absence, not an open question.
+        `m68040_family_suite` 11 -> 16, `m68040_bus_suite` 27 -> 29. Detail in
+        `PROJECT_STATUS.md`.
   - [x] The two ATCs: 16 sets of four ways each, tagged with `FC2` alone and no
         task alias -- `G` is the 68040's substitute, overriding a nonglobal
         flush rather than being one more criterion. The manual states the tag
