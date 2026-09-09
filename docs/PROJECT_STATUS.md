@@ -1018,9 +1018,23 @@ that is what this core delivers: 77 where 512 was programmed, then 32,773 where
 offset 77 → 82 → 87 → 92 since `32773 mod 512 = 5`.
 
 So the tape transfer does not honour the 8237's terminal count. It under-delivers
-once and then over-delivers by five for ever, and a card stopping where the host
-said would leave the stream aligned. There is no modelling choice to make here —
-the documented rule is the one being broken.
+once and then over-delivers by five for ever.
+
+**And the reason is counted.** `ap_tape` has two entry points — `ap_tape_dma_read`
+through `DACK`, and `ap_tape_read` through the address — and the first "defers to
+the same path rather than reaching into the block itself", so a **programmed**
+read of `BASE+0` while a READ is armed takes a byte off the tape exactly as a DMA
+acknowledge does. Attributed at the failure: **35,662,848 bytes consumed via
+`DACK`, and 94 via the CPU**. Ninety-four is the drift — the 77 the stream starts
+out by plus the `+5` each 32 KB transfer adds, accumulated to the moment the
+kernel gives up.
+
+So the chain is closed: the medium, the drive, the block order, the 8237's
+counts and the placement are all right, and the stream is short by exactly the
+number of times the driver touched the data register by address while DMA was
+running. What the fix must decide is what a programmed read should do there — in
+non-DMA mode that read *is* how a host takes a byte — which is the distinction
+`ap_tape_read`'s own comment already draws for an idle controller.
 
 ***And that is the lead this work refuted earlier in the day, wrongly.***
 `[SC499]` §1.11 step 5 describes the **firmware's steady-state read loop**, one

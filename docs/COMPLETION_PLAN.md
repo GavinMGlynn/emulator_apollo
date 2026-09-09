@@ -5402,10 +5402,34 @@ same number is what let them diverge once already.
       **The `PROVISIONAL` decision named above is withdrawn** — there is nothing
       to choose, because the documented rule (`[SC499]` §1.11: the host sets up
       the count and the transfer ends on it) is the one this core is breaking.
-      *What is left is a defect with a location and a signature*: find why the
-      channel delivers 77 where 512 was programmed and 32,773 where 32,768 was,
-      in `ap_tape`/`ap_i8237`'s terminal-count path. Both numbers are exact and
-      reproducible, and `tools/cartridge-boot.sh` reproduces them on demand.
+      **FOUND, with an exact count. The tape's data register is consumed by
+      *programmed* reads as well as by `DACK`, and 94 bytes are stolen that
+      way.** `ap_tape` has two entry points — `ap_tape_dma_read`, reached through
+      `DACK`, and `ap_tape_read`, reached through the address — and the first
+      "defers to the same path rather than reaching into the block itself", so a
+      CPU read of `BASE+0` while a READ is armed takes a byte off the tape
+      exactly as a DMA acknowledge does. Counted at the failure, attributed by
+      entry point:
+
+          bytes consumed via DACK:  35,662,848
+          bytes consumed via CPU:           94
+
+      **94 is the drift.** It is the 77 the stream starts out by and the `+5`
+      each 32 KB transfer adds — 77, 82, 87, 92 — accumulated to the moment the
+      kernel gives up. The host asked for 512 and 32,768; it got 77 and 32,773
+      because ninety-four of its bytes went to programmed reads instead.
+      *So the whole chain is closed*: the medium is right, the drive is right,
+      the block order is right, the 8237's counts are right, the placement is
+      right — and the byte stream is short by exactly the number of times the
+      driver touched the data register by address while DMA was running.
+      **The remaining question is what a programmed read should do there**, and
+      it is a real one: in non-DMA mode that read *is* how a host takes a byte,
+      so it cannot simply stop consuming. The distinction the fix needs is
+      between a transfer in flight and one that is not — the same distinction
+      `ap_tape_read`'s own comment already draws for an idle controller, which
+      answers `00` rather than reaching for the drive. That is a bounded change
+      with a measurable check: the 94 goes to zero and the kernel finds
+      `bscom/rbak_shell`.
 
 - [x] **A cold power-on runs the confidence test — done 2026-09-09.**
       `[SC499]` §1.8.1's POC reports success "by the assertion of `EXC-`
