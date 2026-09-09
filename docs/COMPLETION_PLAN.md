@@ -5970,18 +5970,27 @@ same number is what let them diverge once already.
       `PROJECT_STATUS.md`.
 - [ ] **Three µPD765 behaviours still open, and two of them are blocked on the
       same thing: the document states a prohibition and not its consequence.**
-      **The polling feature.** After `SPECIFY` the part polls every drive for a
-      Ready-line change and interrupts on one, reported as `NR` through `SENSE
-      INTERRUPT STATUS` — `[765A]` p.11 gives 1.024 ms per drive, `[8272A]`
-      Table 6 gives 220 µs, or 440 µs with both select lines high. Fully
-      specified and implementable. *What it needs first*: a Ready line that can
-      change. Nothing in this core moves media at runtime and `ST3`'s `RDY` bit
-      is defined and never set, so the mechanism would be built with no trigger.
-      Do the drive's `RDY` first, then this.
-      **The reset-with-`RDY`-high interrupt.** `[765A]` p.3 says "1-25 ms
+      **The polling feature** and **the reset-with-`RDY`-high interrupt**, which
+      share one blocker and it is now named precisely. The first: after
+      `SPECIFY` the part polls every drive for a Ready-line change and
+      interrupts on one, reported as `NR` through `SENSE INTERRUPT STATUS`
+      (`[765A]` p.11 gives 1.024 ms per drive, `[8272A]` Table 6 gives 220 µs,
+      or 440 µs with both select lines high). The second: `[765A]` p.3 "1-25 ms
       later", `[765AB]` p.2 "within 1.024 ms" — two revisions, two figures,
-      recorded as printed. Same `RDY` dependency, and a figure would have to be
-      chosen between two published ones.
+      recorded as printed.
+      **Both wait on the same fact: what this board connects the 765's `RDY`
+      pin to.** All four editions describe every `ST3` bit as "the status of the
+      <signal> from the FDD" — the register is a **mirror of eight pins** and
+      holds no state — so the OMTI manuals' five constants are a statement about
+      this board's *drive cabling*, not about its silicon, and that reconciles
+      them with Figure 1.1's direct host access to a real 765 (see
+      `ap_omti.h`). **No document on this shelf says how `RDY` is wired**, and
+      it decides both behaviours: tied deasserted, neither can ever fire; tied
+      asserted, every reset raises an interrupt. Modelling either way without
+      knowing is inventing a machine.
+      *What would close them*: a board schematic or a driver that depends on the
+      answer. Not "not modelled" — **not decidable from what is held**, which is
+      a different item and a shorter one.
       **MFM's refusal of 128-byte sectors** (`N = 00`, `[765A]` p.14 note 3) and
       **"no other command could be issued for as long as FDC is in process of
       sending Step Pulses to any drive"** (`[765A]` p.15). Both state that the

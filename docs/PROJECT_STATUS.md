@@ -46645,10 +46645,24 @@ was **already implemented**, cited from `[765]` p.16, before the item named it.
 Checked by reading `fdc_execute`, not assumed. Naming a gap is a claim about the
 code and wants a `grep` like any other.
 
-**Still open, and two of them for the same reason**: the polling feature and the
-reset-with-`RDY`-high interrupt both need a Ready line that can change, and
-nothing in this core moves media at runtime — `ST3`'s `RDY` bit is defined and
-never set, so the mechanism would be built with no trigger. MFM's refusal of
+**Still open, and the two `RDY` ones now have a precise blocker instead of a
+vague one.** All four editions describe *every* bit of `ST3` as "the status of
+the <signal> from the FDD" — five in, three out. The register **holds no state:
+it is a mirror of eight pins**, which is the only register in the part described
+that way. That removes what looked like a contradiction between two settled
+conclusions in `ap_omti.h`: the command-set section has the host reaching a real
+765 directly, and the `ST3` section has five bits reading as constants. Both are
+true, because a constant there is an *unwired pin* read back faithfully, not a
+register bit the board overrides. The OMTI manuals' constants are a statement
+about this board's drive cabling.
+
+So the polling feature and the reset-with-`RDY`-high interrupt do not wait on
+"a Ready line that can change" — they wait on **what this board connects the
+765's `RDY` pin to**, which no document held here states and which decides both:
+tied deasserted, neither can ever fire; tied asserted, every reset raises an
+interrupt. Modelling either way without knowing invents a machine. That is a
+shorter item than the one it replaces, and a different kind: not unmodelled, but
+undecidable from what is held. MFM's refusal of
 128-byte sectors and "no other command while stepping" each state a
 **prohibition without its consequence**: the documents say the thing must not be
 done and not what the part does if it is, so both are recorded rather than

@@ -577,7 +577,47 @@ typedef enum {
  * it, because they are evidently one source text. **The documentary route is
  * closed**: what remains is a driver that reads the bit, or a machine to probe.
  * The modelling choice is unchanged and is the safe half of the contradiction,
- * since a wrong readiness report is the failure that propagates. */
+ * since a wrong readiness report is the failure that propagates.
+ *
+ * ## The part's own datasheets reconcile this with the command-set finding
+ *
+ * Added 2026-09-09, after `[765A]`, `[765AB]` and `[8272A]` were walked whole.
+ * They do **not** overturn anything above -- the argument from `ST0`'s moved
+ * bits stands -- but they remove what looked like a contradiction between two
+ * settled conclusions in this same header.
+ *
+ * The tension: the command-set section concludes that the host reaches a *real*
+ * 765 through buffers with no microprocessor in the path, and that "a host
+ * writing into a real 765's data register gets the 765's behaviour" -- which is
+ * why all fifteen commands are implemented. This section concludes that five
+ * `ST3` bits read as constants. If the part is real and directly addressed,
+ * where do the constants come from?
+ *
+ * **From the pins.** All four editions describe *every* bit of `ST3` the same
+ * way, and it is the only register they describe like this:
+ *
+ *     FT  "the status of the Fault signal **from the FDD**"
+ *     WP  "the status of the Write Protected signal **from the FDD**"
+ *     RDY "the status of the Ready signal **from the FDD**"
+ *     T0  "the status of the Track 0 signal **from the FDD**"
+ *     TS  "the status of the Two Side signal **from the FDD**"
+ *     HD  "the status of Side Select signal **to the FDD**"
+ *     US1 "the status of the Unit Select 1 signal **to the FDD**"
+ *     US0 "the status of the Unit Select 0 signal **to the FDD**"
+ *
+ * `[8272A]` Table 12 p. 23 and `[765A]` p. 18, in identical words. `ST3` holds
+ * no state of its own: it is a **mirror of eight pins**, five in and three out.
+ * A signal the board does not wire is therefore not a register bit the board
+ * "ties off" -- it is an input at whatever level the board leaves it, read back
+ * faithfully by a part that is behaving exactly as its datasheet says. Both
+ * conclusions are true at once, and the OMTI manuals' constants are a statement
+ * about **this board's drive cabling**, not about its silicon.
+ *
+ * *This sharpens what is missing rather than changing what is modelled.* The
+ * open question is no longer "which manual is right about `ST3`" -- it is
+ * **what this board connects the 765's `RDY` pin to**, which no document on
+ * this shelf states, and which is what the polling feature and the
+ * reset-with-`RDY`-high interrupt both wait on. See `COMPLETION_PLAN.md`. */
 #define AP_OMTI_ST3_WRITE_PROTECT 0x40u
 #define AP_OMTI_ST3_TRACK_0 0x10u
 #define AP_OMTI_ST3_HEAD 0x04u
