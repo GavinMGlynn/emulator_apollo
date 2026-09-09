@@ -417,8 +417,20 @@ void ap_board_hash_disk(ap_hash_t *st, const ap_disk_t *disk) {
    * differently in a data phase. */
   hash_bool(st, omti->fdc_non_dma);
   hash_bool(st, omti->fdc_step_rate_set);
-  hash_bool(st, omti->fdc_seek_done);
-  ap_hash_u8(st, omti->fdc_seek_st0);
+  /* Per-drive seek state that outlives the deadline: "in the Seek mode" is held
+   * until `SENSE INTERRUPT STATUS` acknowledges it (`[765A]` p.15), and a
+   * `RECALIBRATE` that will run out of step pulses is carrying a different
+   * ST0 to the one that arrives normally. Two controllers whose heads are in
+   * the same place but which differ in either of these answer `010204`
+   * differently on the very next read. */
+  hash_bool(st, omti->fdc_seek_busy[0]);
+  hash_bool(st, omti->fdc_seek_busy[1]);
+  hash_bool(st, omti->fdc_seek_fail[0]);
+  hash_bool(st, omti->fdc_seek_fail[1]);
+  hash_bool(st, omti->fdc_seek_done[0]);
+  hash_bool(st, omti->fdc_seek_done[1]);
+  ap_hash_u8(st, omti->fdc_seek_st0[0]);
+  ap_hash_u8(st, omti->fdc_seek_st0[1]);
   for (unsigned i = 0; i < AP_OMTI_FDC_COMMAND_MAX; i++) {
     ap_hash_u8(st, omti->fdc_command[i]);
   }

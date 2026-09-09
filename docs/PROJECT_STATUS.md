@@ -40881,7 +40881,7 @@ is now `589E8A3554349EC9`.
 *Verification: `tools/e0007-boot.sh --boot-disk-reads` for the command log and
 the screen; `[OMTI] AT Controller Series Jan87` §5.4.19 and §5.4.20 read as page
 images (that PDF has no text layer at all); `002398-04` p. 4-3 for both status
-codes; `awd_suite` 46 tests and `omti_suite` 24 (41 as of 2026-09-09).*
+codes; `awd_suite` 46 tests and `omti_suite` 24 (43 as of 2026-09-09).*
 
 ## The data-out phase never asked for its bytes
 
@@ -46586,3 +46586,84 @@ to the digit, same final PC, same exception census, same 42,579 ATC descriptor
 fetches, and the console diffs clean against the previous run on every line but
 the hash. Which is what a hashed field with no behavioural change should look
 like: the number moves, nothing else does.
+
+
+## The floppy's seek reporting, corrected against the part
+## (2026-09-09)
+
+Three of the six gaps the datasheet walk named, closed the same day; a fourth
+turned out never to have been open; and fixing the first exposed a fifth.
+
+**The Main Status Register's per-drive bits are held until acknowledged.**
+`[765A]` p.15: "Bits DB0-DB3 in Main Status Register are set during seek
+operation and are **cleared by Sense Interrupt Status command**." This core
+composed them from `fdc_seek_at[]` — the comment said "the deadline is the
+single source" — which takes them down the instant the head arrives, so a driver
+polling the register saw the drive go idle one acknowledge early. `fdc_seek_busy[]`
+now holds the report and `SENSE INTERRUPT STATUS` clears it for the unit it
+reports. The deadline is still the single source of *arrival*; when the
+controller stops saying so is a different event, and conflating them was the
+error. `fdc_seeking()` is deleted — the register was its only consumer.
+
+**Two `afd_suite` tests asserted the old rule** and were corrected. They are
+worth naming rather than quietly editing: both were written to pin behaviour
+that had never been checked against this page, so they encoded the same
+misreading as the code. That is the failure mode `CLAUDE.md` describes as "tests
+encode the same misreadings as the code, and three did", and it is why a green
+suite is not evidence of completeness.
+
+**`RECALIBRATE` gives up after 77 step pulses**, setting `SE` and `EC` and
+terminating abnormally — `[765A]` p.16, `[8272A]` p.20, and `[765]` too, so
+unlike the `SPECIFY` clause this was never a sibling-only finding; it was simply
+never implemented. The interest is that **77 is smaller than this drive**:
+`AP_OMTI_FDC_DRIVE_CYLINDERS` is 80, so a recalibrate from cylinder 78 or 79
+cannot reach track 0, and the head ends on `C - 77` with the failure status
+waiting. A driver's answer is to recalibrate twice, which is exactly the idiom
+the 80-cylinder drives needed, and `omti_suite` asserts both halves. The comment
+this replaced said Equipment Check is what a drive that never gets there
+reports "**and this one always does**" — true of the mechanism and false of the
+part, which is the distinction the number encodes.
+
+**One pending completion per drive, not one for the controller.** Found while
+fixing the first. `[765A]` p.15 gives the part "four independent Present
+Cylinder Registers for each drive" and parallel seeks "on up to 4 Drives at
+once", each ending in its own interrupt and its own acknowledge. This core had a
+single `fdc_seek_done`/`fdc_seek_st0`, so of two drives arriving in sequence the
+second overwrote the first: one acknowledge dropped the interrupt line and a
+driver waiting on the other drive waited for ever. Two slots now, with `SENSE
+INTERRUPT STATUS` reporting the lowest-numbered drive outstanding — a choice the
+manual does not make, recorded in the header rather than left to the reader.
+
+*It was unreachable until the first fix.* While the busy bits fell on arrival a
+driver could poll them instead of acknowledging, and the lost completion never
+mattered. One correction exposing the next is the ordinary case, and it is the
+argument for finishing a module rather than the finding that prompted the visit.
+
+**And one of the six was never a gap.** "`SENSE INTERRUPT STATUS` is mandatory
+after `SEEK`/`RECALIBRATE`, and issuing it with no interrupt pending is invalid"
+was **already implemented**, cited from `[765]` p.16, before the item named it.
+Checked by reading `fdc_execute`, not assumed. Naming a gap is a claim about the
+code and wants a `grep` like any other.
+
+**Still open, and two of them for the same reason**: the polling feature and the
+reset-with-`RDY`-high interrupt both need a Ready line that can change, and
+nothing in this core moves media at runtime — `ST3`'s `RDY` bit is defined and
+never set, so the mechanism would be built with no trigger. MFM's refusal of
+128-byte sectors and "no other command while stepping" each state a
+**prohibition without its consequence**: the documents say the thing must not be
+done and not what the part does if it is, so both are recorded rather than
+modelled, with `ap_omti.c` saying so where `fdc_seeking()` used to live.
+
+*Verification: `omti_suite` 41 → 43 — `RECALIBRATE` from cylinder 79 leaving the
+head on 2 with `SE`+`EC`+`IC=01` and a second one then reaching zero, and the
+boundary case from cylinder 77 succeeding. `afd_suite` 48, two of them rewritten
+to the documented rule and extended: both bits staying up while one drive is
+still stepping, then two `SENSE INTERRUPT STATUS` calls returning drive 0 and
+drive 1 in turn with their own cylinders. `ctest` 145/145.*
+
+**Identity harness**: `0B819E1E8DA12BD3` → **`7F793C44586F263B`**, from the six
+new hashed fields. **Byte-identical otherwise** — `clocks 1408661906` to the
+digit, same final PC, same exception census, and the console diffs clean on
+every line but the hash. The reference boot never touches the floppy, so this is
+coverage rather than a behavioural move; that the number changes at all is the
+evidence the new state is live.

@@ -903,6 +903,27 @@ typedef enum {
  * test that checks the composition against Table 7-7's published average. */
 #define AP_OMTI_FDC_DRIVE_CYLINDERS 80u
 
+/* How many step pulses `RECALIBRATE` gets before it gives up.
+ *
+ * `[765A]` p.16 and `[8272A]` p.20, in the same words: "If the Track 0 signal
+ * is still low after **77 Step Pulses** have been issued, the FDC sets the SE
+ * (SEEK END) and EC (EQUIPMENT CHECK) flags of Status Register 0 to both 1s,
+ * and terminates the command after bits 7 and 6 of Status Register 0 is set to
+ * 0 and 1 respectively." `[8272A]` Table 12 says it again from the `EC` side.
+ *
+ * **This is smaller than the drive**, and that is the whole interest of it:
+ * `AP_OMTI_FDC_DRIVE_CYLINDERS` is 80, so a `RECALIBRATE` issued with the head
+ * on cylinder 78 or 79 **cannot reach track 0** and must fail -- a real
+ * asymmetry between the part and the mechanism it drives, and one a driver
+ * works around by recalibrating twice. The number is the 8" medium's 77
+ * cylinders showing through into a part later sold for 5.25" drives; `[765]`
+ * and `[765A]` both still describe cylinder numbers as "0 through 76".
+ *
+ * `[765]`, the primary, carries the same 77 -- so unlike the `RESET`/`SPECIFY`
+ * clause this one is not a sibling-only finding; it was simply never
+ * implemented. */
+#define AP_OMTI_FDC_RECALIBRATE_STEPS 77u
+
 /* ## The sector buffer, and the one command that reads it whole
  *
  * A data command moves sectors **one at a time** through this buffer, whatever
@@ -1279,6 +1300,28 @@ typedef struct {
   bool fdc_non_dma;
   bool fdc_step_rate_set;
 
+  /* Per drive: "in the Seek mode", the Main Status Register's bits 0 and 1.
+   *
+   * **Held until acknowledged, not until the head arrives.** `[765A]` p.15:
+   * "Bits DB0-DB3 in Main Status Register are set during seek operation and are
+   * **cleared by Sense Interrupt Status command**." This core used to compose
+   * the bits from `fdc_seek_at[]` -- "the deadline is the single source" --
+   * which takes them down the instant the seek finishes, so a driver polling
+   * the register saw the drive go idle one `SENSE INTERRUPT STATUS` earlier
+   * than the part does.
+   *
+   * The deadline is still the single source of *when the head arrives*; this is
+   * the separate question of when the controller stops saying so, and the two
+   * are not the same event. Set by `fdc_begin_seek`, cleared by `SENSE
+   * INTERRUPT STATUS` for the unit it reports. */
+  bool fdc_seek_busy[2];
+
+  /* Per drive: this drive's outstanding seek is a `RECALIBRATE` that will run
+   * out of step pulses before it reaches track 0, so its interrupt carries
+   * `SE`, `EC` and an abnormal code rather than a normal termination. See
+   * `AP_OMTI_FDC_RECALIBRATE_STEPS` and `fdc_begin_recalibrate`. */
+  bool fdc_seek_fail[2];
+
   /* The address a data command was refused for, and how many were.
    *
    * Deliberately outside the state hash, like the machine's bus-error count and
@@ -1345,9 +1388,25 @@ typedef struct {
   unsigned recent_command_count;
   /* Set when SEEK and RECALIBRATE *arrive*, read and cleared by SENSE INTERRUPT
    * STATUS -- which is the only way a driver learns a seek finished. Arrival is
-   * `fdc_seek_at` below, not the instant the command was issued. */
-  bool fdc_seek_done;
-  uint8_t fdc_seek_st0;
+   * `fdc_seek_at` below, not the instant the command was issued.
+   *
+   * **One per drive, corrected 2026-09-09.** These were a single flag and a
+   * single byte, which cannot express what the part does: `[765A]` p.15 gives
+   * the FDC "**four independent Present Cylinder Registers** for each drive"
+   * and says "parallel seek operations may be done on up to 4 Drives at once",
+   * each ending in its own interrupt and its own `SENSE INTERRUPT STATUS`. With
+   * one slot, two drives arriving in sequence lost the first completion -- the
+   * second overwrote it, and a driver waiting on the first drive waited for
+   * ever. Two here because this board has two drives; the part has four.
+   *
+   * `SENSE INTERRUPT STATUS` reports the lowest-numbered drive with a
+   * completion outstanding, which is a choice the manual does not make: it says
+   * each seek ends in an interrupt and that the command identifies the unit,
+   * and not what order two simultaneous ones come back in. Lowest-first is
+   * deterministic and is the only property this core needs; recorded here
+   * rather than left to the reader. */
+  bool fdc_seek_done[2];
+  uint8_t fdc_seek_st0[2];
 
   /* ## The floppy's two deadlines
    *

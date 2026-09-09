@@ -885,7 +885,19 @@ static void test_the_status_register_shows_a_drive_in_the_seek_mode(void) {
   ap_omti_advance(&omti, omti.fdc_seek_at[0] - 1u);
   TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_SEEK_A) != 0u);
 
+  /* **Arrival does not take the bit down**, corrected 2026-09-09 from the
+   * part's own datasheet. `[765A]` p.15: "Bits DB0-DB3 in Main Status Register
+   * are set during seek operation and are **cleared by Sense Interrupt Status
+   * command**." This asserted `== 0` here, which is the deadline's event and
+   * not the controller's -- the bit is the controller still reporting a seek it
+   * has not been asked about. */
   ap_omti_advance(&omti, omti.fdc_seek_at[0]);
+  TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_SEEK_A) != 0u);
+
+  /* And the acknowledge is what clears it. */
+  ap_omti_fdc_write(&omti, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SENSE_INTERRUPT);
+  (void)ap_omti_fdc_read(&omti, AP_OMTI_FDC_DATA);
+  (void)ap_omti_fdc_read(&omti, AP_OMTI_FDC_DATA);
   TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_SEEK_A) == 0u);
   release_floppy();
 }
@@ -907,12 +919,37 @@ static void test_the_two_drives_seek_independently(void) {
   TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_SEEK_B) != 0u);
   TEST_ASSERT_TRUE(omti.fdc_seek_at[1] < omti.fdc_seek_at[0]);
 
-  /* B arrives; A is still moving. */
+  /* B arrives; A is still moving. Both bits stay up -- B's because nothing has
+   * acknowledged it yet, A's because it is still stepping. */
   ap_omti_advance(&omti, omti.fdc_seek_at[1]);
-  TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_SEEK_B) == 0u);
+  TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_SEEK_B) != 0u);
   TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_SEEK_A) != 0u);
   TEST_ASSERT_EQUAL_UINT8(5u, omti.fdc_cylinder[1]);
   TEST_ASSERT_EQUAL_UINT8(40u, omti.fdc_cylinder[0]);
+
+  /* **Both completions survive**, which one pending slot could not do:
+   * `[765A]` p.15 gives the part a present-cylinder register per drive and
+   * parallel seeks on up to four at once. A arrives second, and a first
+   * `SENSE INTERRUPT STATUS` still reports B -- the lowest-numbered drive with
+   * a completion outstanding is A, so A comes back first and B is still there
+   * for the second call. */
+  ap_omti_advance(&omti, omti.fdc_seek_at[0]);
+  TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_SEEK_A) != 0u);
+  TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_SEEK_B) != 0u);
+
+  ap_omti_fdc_write(&omti, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SENSE_INTERRUPT);
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_ST0_IC_NORMAL | AP_OMTI_ST0_SEEK_END | 0u,
+                         ap_omti_fdc_read(&omti, AP_OMTI_FDC_DATA));
+  TEST_ASSERT_EQUAL_UINT8(40u, ap_omti_fdc_read(&omti, AP_OMTI_FDC_DATA));
+  TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_SEEK_A) == 0u);
+  TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_SEEK_B) != 0u);
+
+  ap_omti_fdc_write(&omti, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SENSE_INTERRUPT);
+  TEST_ASSERT_EQUAL_HEX8(AP_OMTI_ST0_IC_NORMAL | AP_OMTI_ST0_SEEK_END | 1u,
+                         ap_omti_fdc_read(&omti, AP_OMTI_FDC_DATA));
+  TEST_ASSERT_EQUAL_UINT8(5u, ap_omti_fdc_read(&omti, AP_OMTI_FDC_DATA));
+  TEST_ASSERT_TRUE((status() & AP_OMTI_MSR_SEEK_B) == 0u);
+  TEST_ASSERT_FALSE(ap_omti_fdc_irq(&omti));
   release_floppy();
 }
 
@@ -1047,7 +1084,11 @@ static void test_a_reset_abandons_an_outstanding_seek(void) {
   TEST_ASSERT_TRUE(omti.fdc_seek_at[0] != AP_TIME_NEVER);
   ap_omti_fdc_write(&omti, AP_OMTI_FDC_DOR, 0u);
   TEST_ASSERT_EQUAL_UINT64(AP_TIME_NEVER, omti.fdc_seek_at[0]);
-  TEST_ASSERT_FALSE(omti.fdc_seek_done);
+  TEST_ASSERT_FALSE(omti.fdc_seek_done[0]);
+  TEST_ASSERT_FALSE(omti.fdc_seek_done[1]);
+  /* And the held report goes with it: a controller in reset is not saying a
+   * drive is seeking. */
+  TEST_ASSERT_FALSE(omti.fdc_seek_busy[0]);
   TEST_ASSERT_EQUAL_UINT64(AP_TIME_NEVER, ap_omti_interrupt_next_change(&omti));
   release_floppy();
 }

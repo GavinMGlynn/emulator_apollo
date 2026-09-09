@@ -2817,14 +2817,32 @@ revisions of the same part" — a dismissal, not a reading.
 | F37 | **A sixteenth command.** `[765AB]` Table 4 carries `VERSION`, `X X X 1 0 0 0 0`, returning "90H indicates 765B, 80H indicates 765A / A-2" — and the Invalid row on the same page gives ST0 = 80H. **So on a 765 or 765A, `VERSION` and an invalid command are the same byte**, and our fifteen-command model is right for those parts and wrong only for a 765B. The same document says "16 commands" on p.1 and "15 different commands" on p.11 | `[765AB]` pp.1, 11, 16 | **no change needed, and now asserted**: `test_the_version_opcode_answers_as_a_765a_does` |
 | F40 | `[765AB]` p.5 is a whole **DIFFERENCES BETWEEN uPD765A AND uPD765B** section: the 765A does not set `OR` on an overrun of a sector's final byte; the 765A needs `DACK` to reset `DRQ` after an overrun, where the 765B resets it at R-phase entry; the 765B needs no CLK/WCLK synchronisation; and `VERSION` | `[765AB]` p.5 | recorded — the part-revision deltas, in one place |
 | F19 | The **polling feature**: after `SPECIFY` the part polls all four drives for a Ready-line change and raises an interrupt on one, reported as `NR` through `SENSE INTERRUPT STATUS`. `[765A]` gives the period as 1.024 ms per drive; `[8272A]` Table 6 gives 220 us, or 440 us with both select lines high | `[765A]` p.11, `[8272A]` p.15 | **GAP.** Not modelled |
-| F28 | The Main Status Register's per-drive busy bits are "**cleared by Sense Interrupt Status command**", not by the seek finishing. Ours composes them from the seek deadline | `[765A]` p.15 | **GAP.** Ours clears them earlier than the part |
-| F32 | `SENSE INTERRUPT STATUS` is **mandatory** after `SEEK`/`RECALIBRATE`, issuing it with no interrupt pending "is treated as an invalid command", and omitting it makes the *next* command invalid | `[765A]` p.16, `[8272A]` p.21 | **GAP** |
-| F33 | `RECALIBRATE` gives up after **77 step pulses**, setting `SE` and `EC`. `AP_OMTI_FDC_DRIVE_CYLINDERS` is **80**, so on this part a recalibrate from cylinder 78 or 79 cannot reach track 0 | `[765A]` p.16, `[8272A]` pp.20, 22 | **GAP**, and a real interaction with our own geometry |
+| F28 | The Main Status Register's per-drive busy bits are "**cleared by Sense Interrupt Status command**", not by the seek finishing. Ours composed them from the seek deadline | `[765A]` p.15 | ~~**GAP.** Ours clears them earlier than the part~~ **FIXED 2026-09-09.** `fdc_seek_busy[]` is held until acknowledged; `fdc_seeking()` is gone, the MSR having been its only consumer. **Two `afd_suite` tests asserted the old rule** and were corrected — tests encoding the same misreading as the code, exactly as `CLAUDE.md` warns |
+| F32 | `SENSE INTERRUPT STATUS` is **mandatory** after `SEEK`/`RECALIBRATE`, issuing it with no interrupt pending "is treated as an invalid command", and omitting it makes the *next* command invalid | `[765A]` p.16, `[8272A]` p.21 | ~~**GAP**~~ **ALREADY IMPLEMENTED**, and this row was wrong to call it one — `fdc_execute` has carried both clauses, cited from `[765]` p.16, since before this walk. Found by reading the code rather than the row. Kept struck as the reminder to grep before naming a gap |
+| F33 | `RECALIBRATE` gives up after **77 step pulses**, setting `SE` and `EC`. `AP_OMTI_FDC_DRIVE_CYLINDERS` is **80**, so on this part a recalibrate from cylinder 78 or 79 cannot reach track 0 | `[765A]` p.16, `[8272A]` pp.20, 22 | **FIXED 2026-09-09.** `fdc_begin_recalibrate` spends the budget and stops where it runs out, so the head ends on `C - 77` and the interrupt carries `SE`+`EC`+`IC=01`. The comment it replaced said Equipment Check is what a drive that never gets there reports "**and this one always does**" — true of the mechanism, false of the part |
 | F42 | "The 8272A Read and Write Commands **do not have implied Seeks**. Any R/W command should be preceded by: 1) Seek; 2) Sense Interrupt Status; 3) Read ID" | `[8272A]` p.20 | consistent with ours, which uses the head's actual cylinder |
 | F25 | MFM cannot do 128 bytes/sector (`N = 00`) | `[765A]` p.14 note 3 | **GAP**, not enforced |
 | F27 | Scan comparison is **ones-complement**, and `FF` from either side is a **mask byte** that always satisfies the compare | `[765A]` p.15, `[8272A]` p.19 | recorded |
 | F24 | Table 2 / Table 8, the eight rows of C/H/R/N when the processor terminates a command, with `LSB` meaning H's low bit is complemented. Both editions agree exactly | `[765A]` p.13, `[8272A]` p.17 | recorded |
 | F3 | The step-rate formula `16 - SRT` is **confirmed** by the symbol table's own worked values (`F = 1 ms, E = 2 ms`). All published intervals are the **8 MHz** figures and double at 4 MHz. And `[8272A]` p.26 note 3 resolves the apparent conflict with the AC table's 33 us minimum: that bound is for stepping *different* drives | `[765A]` pp.10, 16; `[8272A]` p.26 | **CONFIRMED**, no change |
+
+### F45, found while fixing F28: one pending seek completion, not one per drive
+
+`[765A]` p.15 gives the FDC "**four independent Present Cylinder Registers** for
+each drive" and "parallel seek operations may be done on up to 4 Drives at
+once", each ending in its own interrupt and its own `SENSE INTERRUPT STATUS`.
+This core had **one** `fdc_seek_done` and **one** `fdc_seek_st0`, so two drives
+arriving in sequence lost the first: the second overwrote it, the interrupt fell
+after a single acknowledge, and a driver waiting on the other drive waited for
+ever. One slot each now, with `SENSE INTERRUPT STATUS` reporting the
+lowest-numbered drive outstanding.
+
+*It was invisible until F28.* While the Main Status Register's busy bits fell on
+arrival, a driver could poll them instead of acknowledging, and the lost
+completion never mattered. Holding the bits until acknowledged is what made the
+second `SENSE INTERRUPT STATUS` necessary and the missing slot reachable. **One
+correction exposing the next is the ordinary case** — and it is the argument for
+finishing a module rather than fixing the one finding that prompted the visit.
 
 **Method note.** F1 is the transferable one. It looked like a defect for as long
 as it took to find which of our reset paths is the part's `RST` pin — and the

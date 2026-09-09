@@ -5952,26 +5952,46 @@ same number is what let them diverge once already.
       correct by omission. *Verification: `omti_suite` 37 → 41; identity
       `77B60315440826A6` → `0B819E1E8DA12BD3`, run otherwise byte-identical.*
       Detail in `PROJECT_STATUS.md`; findings in `OMTI_WALK.md`.
-- [ ] **Six µPD765 behaviours the datasheet walk named and did not close.**
-      Each is a row in `docs/references/OMTI_WALK.md` with its citation:
-      the **polling feature** — after `SPECIFY` the part polls all four drives
-      and interrupts on a Ready-line change, reported as `NR` (`[765A]` p.11
-      gives 1.024 ms per drive, `[8272A]` Table 6 gives 220 µs, 440 µs with both
-      select lines high), which is how a driver learns a door opened and is not
-      modelled; the **reset-with-`RDY`-high interrupt** (`[765A]` "1-25 ms
-      later", `[765AB]` "within 1.024 ms" — two revisions, two figures);
-      the Main Status Register's **drive-busy bits being cleared by `SENSE
-      INTERRUPT STATUS`** rather than by the seek finishing, where ours composes
-      them from the seek deadline and so clears them earlier than the part;
-      **`SENSE INTERRUPT STATUS` being mandatory** after `SEEK`/`RECALIBRATE`,
-      with issuing it unprompted, or omitting it, both making a command invalid;
-      **`RECALIBRATE`'s 77-step-pulse limit**, which interacts with our own
-      `AP_OMTI_FDC_DRIVE_CYLINDERS` of 80 — a recalibrate from cylinder 78 or 79
-      cannot reach track 0 on this part; and **MFM's refusal of 128-byte
-      sectors** (`N = 00`), not enforced.
-      *None is blocked on evidence* — all six are cited and implementable — so
-      this is work, and stays open under the documentation-absent rule rather
-      than being closed by it.
+- [x] **Three of the six µPD765 gaps closed, and one of the six was never open
+      — 2026-09-09.** *Landed*: the Main Status Register's per-drive bits are
+      held until `SENSE INTERRUPT STATUS` acknowledges them rather than falling
+      on arrival (`[765A]` p.15), which two `afd_suite` tests had asserted the
+      other way round; `RECALIBRATE` gives up after **77 step pulses** with `SE`
+      and `EC` set, which on this **80**-cylinder drive means a recalibrate from
+      cylinder 78 or 79 genuinely fails and a driver's second one succeeds; and
+      a **completion per drive**, found while fixing the first — one pending
+      slot lost the earlier of two parallel seeks, so a driver waiting on the
+      first drive waited for ever.
+      **Overstated when written**: "`SENSE INTERRUPT STATUS` being mandatory
+      after `SEEK`/`RECALIBRATE`" was **already implemented**, cited from
+      `[765]` p.16, before the item named it. Checked, not assumed — the same
+      trap `stale-comments-outlive-the-walk` records.
+      *Verification: `omti_suite` 41 → 43, `afd_suite` 48.* Detail in
+      `PROJECT_STATUS.md`.
+- [ ] **Three µPD765 behaviours still open, and two of them are blocked on the
+      same thing: the document states a prohibition and not its consequence.**
+      **The polling feature.** After `SPECIFY` the part polls every drive for a
+      Ready-line change and interrupts on one, reported as `NR` through `SENSE
+      INTERRUPT STATUS` — `[765A]` p.11 gives 1.024 ms per drive, `[8272A]`
+      Table 6 gives 220 µs, or 440 µs with both select lines high. Fully
+      specified and implementable. *What it needs first*: a Ready line that can
+      change. Nothing in this core moves media at runtime and `ST3`'s `RDY` bit
+      is defined and never set, so the mechanism would be built with no trigger.
+      Do the drive's `RDY` first, then this.
+      **The reset-with-`RDY`-high interrupt.** `[765A]` p.3 says "1-25 ms
+      later", `[765AB]` p.2 "within 1.024 ms" — two revisions, two figures,
+      recorded as printed. Same `RDY` dependency, and a figure would have to be
+      chosen between two published ones.
+      **MFM's refusal of 128-byte sectors** (`N = 00`, `[765A]` p.14 note 3) and
+      **"no other command could be issued for as long as FDC is in process of
+      sending Step Pulses to any drive"** (`[765A]` p.15). Both state that the
+      thing must not be done and **neither says what the part does if it is**.
+      Inventing a failure code is the one thing this project does not do, so
+      both are recorded rather than modelled — `ap_omti.c` says so where
+      `fdc_seeking()` used to live. *What would close them*: a source that
+      states the consequence, or a driver on this machine that tries it. The
+      `N = 00` case is unreachable today in any case — the image geometry is
+      fixed at 512-byte sectors.
 - [ ] **Walk the processor manuals whole — the second batch.**
       ***All six documents are walked whole as of 2026-09-07: 2,633 pages***
       — `[030]` 608/608, `[PRM]` 646/646, `[851]` 356/356, `[881]` 396/396,

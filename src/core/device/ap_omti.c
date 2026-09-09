@@ -622,9 +622,17 @@ void ap_omti_advance(ap_omti_t *omti, ap_time_t now) {
       continue;
     }
     omti->fdc_seek_at[unit] = AP_TIME_NEVER;
-    omti->fdc_seek_done = true;
-    omti->fdc_seek_st0 =
-        (uint8_t)(AP_OMTI_ST0_IC_NORMAL | AP_OMTI_ST0_SEEK_END | (uint8_t)unit);
+    omti->fdc_seek_done[unit] = true;
+    /* A `RECALIBRATE` that ran out of step pulses arrives with `SE` and `EC`
+     * set and an abnormal interrupt code, not a normal termination --
+     * `[765A]` p.16. See `fdc_begin_recalibrate`. */
+    omti->fdc_seek_st0[unit] =
+        omti->fdc_seek_fail[unit]
+            ? (uint8_t)(AP_OMTI_ST0_IC_ABRUPT | AP_OMTI_ST0_SEEK_END |
+                        AP_OMTI_ST0_EQUIPMENT | (uint8_t)unit)
+            : (uint8_t)(AP_OMTI_ST0_IC_NORMAL | AP_OMTI_ST0_SEEK_END |
+                        (uint8_t)unit);
+    omti->fdc_seek_fail[unit] = false;
   }
 
   /* `>=` and not `>`: a deadline is the instant the completion is visible, and
@@ -1972,7 +1980,7 @@ bool ap_omti_fdc_irq(const ap_omti_t *omti) {
    * collected the answer. Corrected 2026-08-22 from the part's own datasheet;
    * no OMTI manual describes this, which is what `ap_omti.h` said and why it
    * was believed. */
-  return omti->fdc_seek_done;
+  return omti->fdc_seek_done[0] || omti->fdc_seek_done[1];
 }
 
 bool ap_omti_fdc_dma_request(const ap_omti_t *omti) {
@@ -2190,20 +2198,69 @@ static void fdc_begin_seek(ap_omti_t *omti, unsigned unit, uint8_t to) {
   const ap_time_t duration =
       fdc_seek_duration(omti, omti->fdc_cylinder[unit], to);
   omti->fdc_cylinder[unit] = to;
+  /* "set during seek operation", and taken down by `SENSE INTERRUPT STATUS`
+   * rather than by arrival -- `[765A]` p.15, and see `ap_omti.h`. Set even for
+   * a zero-length seek, because that still ends in an interrupt the driver has
+   * to acknowledge. */
+  omti->fdc_seek_busy[unit] = true;
   if (duration == 0u) {
-    omti->fdc_seek_done = true;
-    omti->fdc_seek_st0 = (uint8_t)(AP_OMTI_ST0_IC_NORMAL |
-                                   AP_OMTI_ST0_SEEK_END | (uint8_t)unit);
+    omti->fdc_seek_done[unit] = true;
+    omti->fdc_seek_st0[unit] = (uint8_t)(AP_OMTI_ST0_IC_NORMAL |
+                                         AP_OMTI_ST0_SEEK_END | (uint8_t)unit);
     return;
   }
   omti->fdc_seek_at[unit] = omti->now + duration;
 }
 
-/* Whether a drive is still moving, which is the Main Status Register's per-drive
- * "in the Seek mode" bit. */
-static bool fdc_seeking(const ap_omti_t *omti, unsigned unit) {
-  return omti->fdc_seek_at[unit] != AP_TIME_NEVER;
+/* `RECALIBRATE`, which is a seek to track 0 with a step budget.
+ *
+ * `[765A]` p.16: the part issues step pulses "as long as the Track 0 signal is
+ * low", and if it is still low after `AP_OMTI_FDC_RECALIBRATE_STEPS` of them it
+ * sets `SE` and `EC` and terminates abnormally. One pulse is one cylinder, so
+ * the head ends up 77 cylinders nearer the spindle and not at zero -- which is
+ * why this cannot be `fdc_begin_seek(omti, unit, 0)`: the failing case moves
+ * the head somewhere that is neither where it was nor where it was asked for,
+ * and a driver's second `RECALIBRATE` succeeds from there. That is exactly the
+ * two-recalibrate idiom the 80-cylinder drives needed. */
+static void fdc_begin_recalibrate(ap_omti_t *omti, unsigned unit) {
+  const uint8_t from = omti->fdc_cylinder[unit];
+  if (from <= (uint8_t)AP_OMTI_FDC_RECALIBRATE_STEPS) {
+    fdc_begin_seek(omti, unit, 0u);
+    return;
+  }
+  const uint8_t to = (uint8_t)(from - (uint8_t)AP_OMTI_FDC_RECALIBRATE_STEPS);
+  const ap_time_t duration = fdc_seek_duration(omti, from, to);
+  omti->fdc_cylinder[unit] = to;
+  omti->fdc_seek_busy[unit] = true;
+  /* The step pulses are issued and cost their time either way; what differs is
+   * the status waiting at the end of them. */
+  omti->fdc_seek_fail[unit] = true;
+  if (duration == 0u) {
+    omti->fdc_seek_done[unit] = true;
+    omti->fdc_seek_st0[unit] =
+        (uint8_t)(AP_OMTI_ST0_IC_ABRUPT | AP_OMTI_ST0_SEEK_END |
+                  AP_OMTI_ST0_EQUIPMENT | (uint8_t)unit);
+    omti->fdc_seek_fail[unit] = false;
+    return;
+  }
+  omti->fdc_seek_at[unit] = omti->now + duration;
 }
+
+/* `fdc_seeking()` lived here: "whether a drive is still moving, which is the
+ * Main Status Register's per-drive 'in the Seek mode' bit". It is gone because
+ * that was its only consumer and the bit no longer follows it -- `[765A]` p.15
+ * has those bits cleared by `SENSE INTERRUPT STATUS`, not by arrival, so
+ * `fdc_seek_busy[]` answers now and `fdc_seek_at[]` stays what it always was:
+ * when the head gets there.
+ *
+ * The same page carries "**No other command could be issued for as long as FDC
+ * is in process of sending Step Pulses to any drive**", which is the one rule
+ * that would still want this predicate. It is **not implemented, deliberately**:
+ * the sentence prohibits the driver from issuing the command and does not say
+ * what the part does if it does anyway, and inventing a failure mode is the
+ * thing this project does not do. A named gap in `COMPLETION_PLAN.md`; what
+ * would close it is a source that states the *consequence*, or a driver on this
+ * machine that tries it. */
 
 /* How long the command in `fdc_command` keeps the *controller* busy.
  *
@@ -2368,7 +2425,8 @@ static void fdc_execute(ap_omti_t *omti) {
    *
    * SENSE INTERRUPT STATUS is the exception by definition: it is the command
    * that clears the condition, and refusing it would deadlock the part. */
-  if (omti->fdc_seek_done && opcode != AP_OMTI_FDC_SENSE_INTERRUPT) {
+  if ((omti->fdc_seek_done[0] || omti->fdc_seek_done[1]) &&
+      opcode != AP_OMTI_FDC_SENSE_INTERRUPT) {
     omti->fdc_result[0] = AP_OMTI_ST0_IC_INVALID;
     omti->fdc_result_length = 1u;
     fdc_result(omti);
@@ -2582,10 +2640,14 @@ static void fdc_execute(ap_omti_t *omti) {
     return;
 
   case AP_OMTI_FDC_RECALIBRATE:
-    /* §6.3.6 steps to track 0. Equipment Check is what a drive that never gets
-     * there reports, and this one always does. It steps, so it costs one step
-     * per cylinder from wherever the head was. */
-    fdc_begin_seek(omti, unit, 0u);
+    /* §6.3.6 steps to track 0, and `[765A]` p.16 bounds how far it will step.
+     *
+     * This comment used to read "Equipment Check is what a drive that never
+     * gets there reports, **and this one always does**" -- which was true of
+     * the mechanism and false of the part. The 765 gives up after 77 pulses
+     * whatever the drive is doing, and this drive has 80 cylinders. See
+     * `fdc_begin_recalibrate`. */
+    fdc_begin_recalibrate(omti, unit);
     fdc_result(omti);
     return;
 
@@ -2599,11 +2661,19 @@ static void fdc_execute(ap_omti_t *omti) {
     /* §6.3.7 returns ST0 and the present cylinder. Issued with no seek
      * outstanding it is the invalid case -- that is how a driver ends the
      * polling loop after a reset, rather than by counting. */
-    if (omti->fdc_seek_done) {
-      omti->fdc_result[0] = omti->fdc_seek_st0;
-      omti->fdc_result[1] =
-          omti->fdc_cylinder[omti->fdc_seek_st0 & AP_OMTI_ST0_UNIT_MASK];
-      omti->fdc_seek_done = false;
+    if (omti->fdc_seek_done[0] || omti->fdc_seek_done[1]) {
+      /* Lowest-numbered drive with a completion outstanding. Two drives can
+       * have arrived, and each arrival is its own interrupt and its own call
+       * -- see `fdc_seek_done[]` in the header for why this is two slots. */
+      const unsigned reported = omti->fdc_seek_done[0] ? 0u : 1u;
+      omti->fdc_result[0] = omti->fdc_seek_st0[reported];
+      omti->fdc_result[1] = omti->fdc_cylinder[reported];
+      omti->fdc_seek_done[reported] = false;
+      /* "cleared by Sense Interrupt Status command" -- `[765A]` p.15. The unit
+       * this call reports, and only that one: parallel seeks are the point of
+       * having a bit each, so acknowledging drive A must not take drive B's
+       * bit down. */
+      omti->fdc_seek_busy[reported] = false;
     } else {
       omti->fdc_result[0] = AP_OMTI_ST0_IC_INVALID;
       omti->fdc_result[1] = 0u;
@@ -2822,16 +2892,25 @@ uint8_t ap_omti_fdc_read(ap_omti_t *omti, unsigned reg) {
         omti->fdc_non_dma) {
       status |= AP_OMTI_MSR_NDMA;
     }
-    /* Bits 0 and 1, "Drive A/B is in the Seek mode when 1". Composed here
-     * rather than stored in `fdc_status`, because a drive can be seeking while
-     * the controller is idle, busy on the other drive, or in a data phase --
-     * §6.3 releases the controller the moment a `SEEK` is accepted -- and a
-     * stored bit would have to be maintained at every one of those transitions.
-     * The deadline is the single source. */
-    if (fdc_seeking(omti, 0u)) {
+    /* Bits 0 and 1, "Drive A/B is in the Seek mode when 1". Kept out of
+     * `fdc_status` for the reason they always were: a drive can be seeking
+     * while the controller is idle, busy on the other drive, or in a data phase
+     * -- §6.3 releases the controller the moment a `SEEK` is accepted -- so a
+     * bit folded into the controller's own status word would have to be
+     * maintained at every one of those transitions.
+     *
+     * **From the held flag, not the deadline, corrected 2026-09-09.** This read
+     * `fdc_seeking()` and said "the deadline is the single source", which took
+     * the bits down the instant the head arrived. `[765A]` p.15: "Bits DB0-DB3
+     * in Main Status Register are set during seek operation and are **cleared
+     * by Sense Interrupt Status command**." The deadline is still the single
+     * source of *arrival*; this is the separate question of when the controller
+     * stops reporting the drive busy, and a driver polling the register saw
+     * that one acknowledge too early. */
+    if (omti->fdc_seek_busy[0]) {
       status |= AP_OMTI_MSR_SEEK_A;
     }
-    if (fdc_seeking(omti, 1u)) {
+    if (omti->fdc_seek_busy[1]) {
       status |= AP_OMTI_MSR_SEEK_B;
     }
     return status;
@@ -2899,8 +2978,17 @@ void ap_omti_fdc_write(ap_omti_t *omti, unsigned reg, uint8_t value) {
       omti->fdc_completion_at = 0u;
       omti->fdc_seek_at[0] = AP_TIME_NEVER;
       omti->fdc_seek_at[1] = AP_TIME_NEVER;
-      omti->fdc_seek_done = false;
-      omti->fdc_seek_st0 = 0u;
+      omti->fdc_seek_done[0] = false;
+      omti->fdc_seek_done[1] = false;
+      omti->fdc_seek_st0[0] = 0u;
+      omti->fdc_seek_st0[1] = 0u;
+      /* And the two held bits, which are the controller's report of a seek and
+       * go with it. `SRT`, `HUT` and `HLT` deliberately survive; see
+       * `omti_suite`'s `test_a_reset_does_not_disturb_the_specify_timers`. */
+      omti->fdc_seek_busy[0] = false;
+      omti->fdc_seek_busy[1] = false;
+      omti->fdc_seek_fail[0] = false;
+      omti->fdc_seek_fail[1] = false;
     }
     return;
   }

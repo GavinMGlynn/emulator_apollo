@@ -1247,6 +1247,64 @@ static void test_the_version_opcode_answers_as_a_765a_does(void) {
   TEST_ASSERT_EQUAL_HEX8(0x80u, ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA));
 }
 
+/* `[765A]` p.16 and `[8272A]` p.20: "If the Track 0 signal is still low after
+ * **77 Step Pulse** have been issued, the FDC sets the SE (SEEK END) and EC
+ * (EQUIPMENT CHECK) flags of Status Register 0 to both 1s, and terminates the
+ * command after bits 7 and 6 of Status Register 0 is set to 0 and 1
+ * respectively."
+ *
+ * The interest is that 77 is smaller than this drive: `[S3K]` Table 7-7 gives
+ * it 80 cylinders. So the part and the mechanism disagree, and a `RECALIBRATE`
+ * from the outer two cylinders has to fail. */
+static void test_recalibrate_gives_up_after_seventy_seven_step_pulses(void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DOR, AP_OMTI_DOR_NOT_RESET);
+
+  /* From cylinder 79, which only this drive's geometry makes reachable. */
+  o.fdc_cylinder[0] = 79u;
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_RECALIBRATE);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0x00u);
+  ap_omti_advance(&o, o.fdc_seek_at[0]);
+
+  /* 77 pulses from 79 leaves the head on 2, not on 0. */
+  TEST_ASSERT_EQUAL_UINT8(2u, o.fdc_cylinder[0]);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SENSE_INTERRUPT);
+  TEST_ASSERT_EQUAL_HEX8((uint8_t)(AP_OMTI_ST0_IC_ABRUPT |
+                                   AP_OMTI_ST0_SEEK_END |
+                                   AP_OMTI_ST0_EQUIPMENT),
+                         ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA));
+  TEST_ASSERT_EQUAL_UINT8(2u, ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA));
+
+  /* And the driver's answer is to recalibrate again, which now succeeds --
+   * the two-`RECALIBRATE` idiom the 80-cylinder drives needed. */
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_RECALIBRATE);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0x00u);
+  ap_omti_advance(&o, o.fdc_seek_at[0]);
+  TEST_ASSERT_EQUAL_UINT8(0u, o.fdc_cylinder[0]);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SENSE_INTERRUPT);
+  TEST_ASSERT_EQUAL_HEX8((uint8_t)(AP_OMTI_ST0_IC_NORMAL |
+                                   AP_OMTI_ST0_SEEK_END),
+                         ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA));
+}
+
+/* The boundary: 77 pulses is exactly enough from cylinder 77. */
+static void test_recalibrate_from_cylinder_seventy_seven_still_reaches_zero(
+    void) {
+  ap_omti_t o;
+  ap_omti_reset(&o);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DOR, AP_OMTI_DOR_NOT_RESET);
+  o.fdc_cylinder[0] = (uint8_t)AP_OMTI_FDC_RECALIBRATE_STEPS;
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_RECALIBRATE);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, 0x00u);
+  ap_omti_advance(&o, o.fdc_seek_at[0]);
+  TEST_ASSERT_EQUAL_UINT8(0u, o.fdc_cylinder[0]);
+  ap_omti_fdc_write(&o, AP_OMTI_FDC_DATA, AP_OMTI_FDC_SENSE_INTERRUPT);
+  TEST_ASSERT_EQUAL_HEX8((uint8_t)(AP_OMTI_ST0_IC_NORMAL |
+                                   AP_OMTI_ST0_SEEK_END),
+                         ap_omti_fdc_read(&o, AP_OMTI_FDC_DATA));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_two_floppy_control_registers_are_not_one_register);
@@ -1285,6 +1343,8 @@ int main(void) {
   RUN_TEST(test_the_execution_mode_bit_follows_the_parts_own_nd_bit);
   RUN_TEST(test_a_reset_does_not_disturb_the_specify_timers);
   RUN_TEST(test_the_version_opcode_answers_as_a_765a_does);
+  RUN_TEST(test_recalibrate_gives_up_after_seventy_seven_step_pulses);
+  RUN_TEST(test_recalibrate_from_cylinder_seventy_seven_still_reaches_zero);
 
   RUN_TEST(test_the_floppy_command_modifiers_are_read);
   RUN_TEST(test_the_floppy_drives_its_own_interrupt_and_dma_lines);
