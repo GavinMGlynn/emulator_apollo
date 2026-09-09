@@ -4727,8 +4727,18 @@ discipline throughout.
       `7A400180` — **the same `$180` offset on a different 64 KB base**. The
       PROM, mapped at `7FF40000` in the operating system's address space, is
       computing its stack from `7A400000` where its own is `01000000`.
-      **That is the next thing to look at, and it is one constant rather than a
-      region.** Detail in `PROJECT_STATUS.md`.
+      **And the ROM settles it: the small stack is by design.** `7A400180`
+      occurs five times as a literal there, `01000180` ten — the firmware
+      carries both bases and chooses (`005D0 bsr.w $2750`, then `lea.l
+      $7a400180.l, a6` on the not-equal path), and at `02B60` it tests
+      `cmpa.l #$7a400000, a7` to ask whether it is running under the operating
+      system's mapping. So 384 bytes is deliberate and not a value this core
+      produced — and the routine **fits**, using 382 of them.
+      *What does not fit is the sixty-byte access-error frame for a page fault
+      the firmware did not expect*, at `7A38139C`, whose pointer descriptor is
+      resident. **So the thing to explain is no longer the stack**: it is why
+      firmware running under Domain/OS's mapping touches a page the kernel has
+      not made resident. Detail in `PROJECT_STATUS.md`.
       **Five candidates are eliminated by measurement rather than argument**:
       the stack-pointer selection, the mapping, the register state, the fault
       kind, and the frame balance. Detail in `PROJECT_STATUS.md`.

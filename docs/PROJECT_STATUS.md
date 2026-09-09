@@ -2302,8 +2302,33 @@ reading is confirmed by the better instrument rather than overturned by it.*
 mapped at `7FF40000` in the operating system's address space, is computing its
 stack from a base of `7A400000` where its own is `01000000`.
 
-*That is the next thing to look at, and it is one constant rather than a
-region.*
+### The ROM carries both bases, and the small stack is by design
+
+`7A400180` occurs **five times as a literal in the ROM**, alongside ten of
+`01000180`. The firmware carries two stack bases and chooses between them:
+
+    005CA  lea.l   $1000180.l, a6     ; the physical base
+    005D0  bsr.w   $2750              ; a test
+    005D4  beq.b   $5e2
+    005D6  lea.l   $7a400180.l, a6    ; else the logical one
+
+    02B5A  lea.l   $1000180.l, a6
+    02B60  cmpa.l  #$7a400000, a7     ; "am I running under the OS's mapping?"
+    02B66  blt.w   $2b7e
+
+**`7A400000` is the firmware's own test for whether it is running translated**,
+and `7A400180` is the stack it uses when it is. So the 384-byte area is not a
+mistake and not a value this core produced — it is in the ROM, deliberately.
+
+*Which inverts the question one more time.* The routine **fits**: it used 382 of
+those 384 bytes. What does not fit is the sixty-byte access-error frame for a
+page fault the firmware did not expect to take — at `7A38139C`, whose pointer
+descriptor is resident, so the fault is at the page level.
+
+**So the thing to explain is no longer the stack at all.** It is why firmware
+running under Domain/OS's mapping touches a page the kernel has not made
+resident — and that is a question about what the operating system was asked to
+do before it called in, not about the 68040, the MMU, or the frame.
 
 *Recorded without the tempting arithmetic.* A `$7` frame is 60 bytes and six
 would fill a 384-byte stack exactly, against 132 bus errors in the run — but 131
