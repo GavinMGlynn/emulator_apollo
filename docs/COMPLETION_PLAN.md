@@ -1631,6 +1631,14 @@ Phase 2 is the DN3500's own processor and closes when the 68030 does.
         trapping. §1.1.2's last bullet is a copy-paste error, leaving two
         MC68EC040V properties unstated and owed to Appendix C.
         `m68040_family_suite`, 11 tests. Detail in `PROJECT_STATUS.md`.
+  - [x] `[040]` §6's test access port: Tables 6-1 and 6-2, all 184 boundary scan
+        bits transcribed, and the BSDL listing's mask-set caveat. Nothing here
+        drives JTAG; §6 is modelled for the two facts in it that are about
+        reset -- the drive control latches load from `IPL2-IPL0` at `RSTI`
+        negation after a **128-clock internal reset cycle**, and **the device has
+        no internal power-up reset circuit** -- and because stopping the system
+        clocks under the wrong instruction can destroy the part.
+        `m68040_jtag_suite`, 14 tests. Detail in `PROJECT_STATUS.md`.
   - [x] The two ATCs: 16 sets of four ways each, tagged with `FC2` alone and no
         task alias -- `G` is the 68040's substitute, overriding a nonglobal
         flush rather than being one more criterion. The manual states the tag

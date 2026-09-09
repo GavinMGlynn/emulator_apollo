@@ -10623,20 +10623,24 @@ and the MC68EC040V" in Table 5-1 but "not available on the MC68EC040" in Table
 MC68EC040V, and in each the shorter statement omits them. **Table 5-1 is the one
 to follow**, and the module does.
 
-*Why, corrected once §1 was walked.* §1.1 gives the mechanism: **the pins are
-renamed, not removed.** "The DLE pin name has been changed to JS0 on both the
-MC68040V and MC68LC040", and on the EC parts "the DLE and MDIS pin names have
-been changed to JS0 and JS1, respectively". The pin is physically present on all
-five members; what is MC68040-only is `DLE` *the function*, exactly as Table 5-1
-and §5.11's heading say. The reasoning this replaces -- that the V parts were
-later additions (Table 5-6's encoding 6, Table 5-2's LPSTOP note, Table 5-1's
-fourth note) and Table 5-7 had gone unrevised -- reached the right table by
-inference about the book's editing rather than from a statement in it. It is
-kept in `ap_m68040_signals.h` because it is why the module was written that way,
-but it is a different claim: not that Table 5-7 is stale, but that it describes
-a pin still present under another name. **Reading §5 in isolation would have
-left the weaker answer standing**, which is the whole-document rule earning its
-keep within a single manual.
+*Why -- and it took three sections to have the whole answer.* §5's own walk
+inferred that the V parts were later additions to the edition (Table 5-6's
+encoding 6 is "MC68040V and MC68EC040V only", Table 5-2's acknowledge access
+carries "LPSTOP broadcast cycles" for them, and Table 5-1 alone carries a fourth
+note) and that Table 5-7's shorter list was a survival of an earlier scope.
+**§1.1 then gave the mechanism**: the pins are *renamed*, not removed -- "the
+DLE pin name has been changed to JS0", and on the EC parts "the DLE and MDIS pin
+names have been changed to JS0 and JS1, respectively" -- so `DLE` the *function*
+is MC68040-only exactly as Table 5-1 says. **And §6 confirmed the first
+reading**: it opens "this section does not apply to the MC68040V and MC68EC040V
+... all references to M68040 in this section only, refer to the MC68040,
+MC68LC040, and MC68EC040", and its Table 6-2 note 5 then names *the identical
+pair as Table 5-7's note 1*. That pair is the pre-V-part family, stated openly.
+
+The three agree and answer different questions -- which scope is current, why
+the older notes name that particular pair, and what physically differs. **No one
+section carries the whole answer**, which is the whole-document rule earning its
+keep inside a single manual rather than across two.
 
 `ap_m68040_signals.*` carries Tables 5-2 through 5-7 including the forty-row
 signal summary; `m68040_signals_suite`, 22 tests. One thing §5 does *not* settle
@@ -10689,6 +10693,43 @@ special type of normal processing state, one without bus cycles. The processor
 stops, but it does not halt" (PST D).
 
 `ap_m68040_family.*`; `m68040_family_suite`, 11 tests.
+
+**§6's JTAG is modelled, and two of its facts are not about JTAG.** Nothing in
+this machine drives a test access port -- a DN-series board has none -- but §6
+is a finished specification with two tables in it, and it supplies two things
+§5 left open. The **drive control latches are loaded from `IPL2-IPL0` at the
+negation of `RSTI`**, "after RSTI has been negated, and the **128-clock internal
+reset cycle** has expired": §5's Table 5-5 says which pin sizes which group and
+§6.2.7 says when. And **the device has no internal power-up reset circuit** --
+§6.4 says so of `TRST`, which "should be treated similar to the RSTI signal for
+board design considerations concerning power-up conditions", so a board must
+drive both.
+
+Three more from §6. **Capture-IR loads the `HIGHZ` opcode on purpose**: the
+value captured is 001, which is `HIGHZ`, and §6.2.2 says the point is that
+"using only the TMS and TCK pins and the capture-IR and update-IR states invokes
+the HIGHZ instruction" -- a board can float every output driver with no `TDI`
+connection. **Stopping the system clocks can destroy the part**: they may be
+stopped only under `EXTEST`, `HIGHZ`, `DRVCTL.T` or `SHUTDOWN`, and even then
+only after "two additional BCLK periods" on entry; otherwise "potential internal
+damage to the device". **And one boundary-scan bit moved between mask sets** --
+§6.6's BSDL revision list opens with "LOCK and LOCKE controlled by io.1 vice
+io.0 (4D98D)", and that listing "is for the newer MC68040 mask sets of E26A and
+after ... It does not include the 0.8-um mask sets D43B, D50D, and D98D". Table
+6-2's newer arrangement is what is modelled and the older one is recorded.
+
+Table 6-2's 184 bits are transcribed rather than generated, because the scan
+order is not the pin order: A10-A31 alternate output and input cells, then all
+thirty-two data output cells precede all thirty-two data input cells, then A9
+down to A0 alternate again. The suite checks the transcription against its own
+structure -- every `control_bit` points at one of the five `IO.Ctl` cells, every
+bidirectional pin has exactly one input and one output cell naming the same
+control cell, and the drive control instructions reach exactly the `O.Latch`
+cells -- and **cross-checks it against §5's Table 5-7**, where every singular
+signal name in the scan register is found in the signal summary. The two
+sections do not contradict each other anywhere.
+
+`ap_m68040_jtag.*`; `m68040_jtag_suite`, 14 tests.
 
 **The two ATCs are in, and the manual contradicts itself about the tag width.**
 

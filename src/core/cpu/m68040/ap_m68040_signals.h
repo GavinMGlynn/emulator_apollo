@@ -86,15 +86,21 @@
  * *the function*, which is what Table 5-1 and §5.11's heading both say and what
  * Table 5-7's note is merely incomplete about.
  *
- * *The reasoning this replaces, kept because it is why the module was written
- * this way:* that the V parts were demonstrably later additions to the edition
- * -- Table 5-6's encoding 6 is "MC68040V and MC68EC040V only", Table 5-2's
- * acknowledge access carries "LPSTOP broadcast cycles on the MC68040V and
- * MC68EC040V", and Table 5-1 alone carries a fourth note for them -- so Table
- * 5-7 had gone unrevised. That reached the right table by inference about the
- * book's editing. §1.1 states the mechanism outright, and it is a different
- * claim: not that Table 5-7 is stale, but that it is describing a pin that is
- * still there under another name.
+ * **And §6 confirms the reading this walk reached first.** That reading was
+ * that the V parts are later additions to the edition -- Table 5-6's encoding 6
+ * is "MC68040V and MC68EC040V only", Table 5-2's acknowledge access carries
+ * "LPSTOP broadcast cycles on the MC68040V and MC68EC040V", and Table 5-1 alone
+ * carries a fourth note for them -- so Table 5-7's shorter list was a survival
+ * of an earlier scope. §6 opens by stating that scope outright: "this section
+ * does not apply to the MC68040V and MC68EC040V ... all references to M68040 in
+ * this section only, refer to the MC68040, MC68LC040, and MC68EC040", and its
+ * Table 6-2 note 5 then names **the identical pair as Table 5-7's note 1**.
+ *
+ * So all three passages agree and answer different questions: Table 5-1 says
+ * *which* scope is current, §6 shows *why that particular pair of parts* is the
+ * one the older notes name, and §1.1 says *what physically differs* -- the pin
+ * is renamed, not removed. Nothing here was wrong; the three are layers of one
+ * answer, and only reading all three produced it.
  *
  * ## There is no `HALT` pin
  *
