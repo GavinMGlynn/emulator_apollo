@@ -4782,7 +4782,9 @@ Only after the reference core is proven, and only under an identity harness.
       there are **five** control registers, not ten, the 68030's five MMU
       registers being absent (`[020]` §1, Figure 1-3); and the **long bus
       fault frame is 44 words**, not 46 (`[020]` Figure 6-9), so a 68020's
-      bus fault pushes two words fewer and its `RTE` pops two fewer.
+      bus fault pushes two words fewer and its `RTE` pops two fewer; and
+      **vectors 48-63 are all unassigned** (`[020]` Table 6-2) where this core
+      defines `VECTOR_MMU_CONFIGURATION` at 56.
       Record: `docs/references/M68020_WALK.md`.
 
 - [ ] Real multi-node Domain workloads: distributed single-level store across
@@ -6034,7 +6036,7 @@ same number is what let them diverge once already.
         about. Detail in `PROJECT_STATUS.md`.
         Record: `docs/references/M68000_FAMILY_REFERENCE_WALK.md`.
   - [ ] **`[020]` `MC68020_32-Bit_Microprocessor_Users_Manual_1984.pdf`,
-        452 pages — started 2026-09-09; §1-§4 and §7 done, §6 in progress, **56 of 452**.** Record:
+        452 pages — started 2026-09-09; §1-§4 and §7 done, §6 in progress, **58 of 452**.** Record:
         `docs/references/M68020_WALK.md`.
         **The deferral this item carried was false and is withdrawn.** It read
         "Phase 2b and Phase 7 parts ... deferred until those processors are
@@ -6044,13 +6046,15 @@ same number is what let them diverge once already.
         *The audit is the opposite of `[030]`'s and the walk is planned against
         it*: 473 mentions of the 68020 in `src/`, and **six** citing this book
         with a place, so there is almost no verification to lean on.
-          **Three divergences found so far**, all the same shape — the model
+          **Four divergences found so far**, all the same shape — the model
         table declares a 68020 and `ap_machine` builds a 68030
         unconditionally: §7's CACR is **four bits** where the 68030's has
         eleven; §1 counts **five** control registers where the 68030 has ten;
         and §6's Figure 6-9 gives the long bus fault frame as **44 words**
         where `ap_m68030_exception.h` has 46. Each belongs to the model
-        table's `.mmu` item, which is now three registers wide.
+        table's `.mmu` item, which is now four registers wide — the fourth
+        being Table 6-2's vectors **48-63 all unassigned** on the 68020, where
+        `ap_m68030_exception.h` defines `VECTOR_MMU_CONFIGURATION = 56`.
         *`[040]`'s two manuals (256 + 463) stay deferred and the reason still
         holds: no 68040 core exists, and that is its own open item.*
   *Verification, per document: a coverage record in `docs/references/`, page
