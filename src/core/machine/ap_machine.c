@@ -423,6 +423,22 @@ static bool table_read(ap_machine_t *machine, uint32_t physical,
   return true;
 }
 
+/* The 68040's descriptor fetch: a raw longword, where the 68030's callback
+ * hands back a decoded descriptor. Two callbacks rather than one adapter,
+ * because the raw word is not recoverable from the decoded one. Counted the
+ * same way, so `table fetches` in the report means the same thing on both
+ * parts. */
+static bool machine_table_fetch_040(void *context, uint32_t physical,
+                                    uint32_t *out) {
+  ap_machine_t *machine = (ap_machine_t *)context;
+  if (machine->probing) {
+    machine->probe_fetches++;
+  } else {
+    machine->table_fetches++;
+  }
+  return table_read(machine, physical, out);
+}
+
 static bool table_write(ap_machine_t *machine, uint32_t physical,
                         uint32_t value) {
   if (machine->board != NULL) {
@@ -687,6 +703,36 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
   };
   machine->data_access = machine->instruction_access;
   machine->data_access.cache = &machine->data_cache;
+
+  /* **The 68040's MMU, on the one part that declares one.** Left NULL
+   * everywhere else, which is what keeps every other model's translation --
+   * and its state hash -- untouched by the join existing.
+   *
+   * Two views because the part has two of everything on this path: §3.1.3's
+   * ITTRs against its DTTRs, and §3.3's separate instruction and data ATCs. The
+   * registers are pointers into the CPU so a `MOVEC` to `TC` takes effect on
+   * the next access without anyone re-publishing a copy -- the same reason the
+   * 68030's `tc` and `root` are pointers here. */
+  if (machine->cpu.has_68040_mmu_registers) {
+    ap_m68040_atc_init(&machine->atc_040_instruction);
+    ap_m68040_atc_init(&machine->atc_040_data);
+    machine->mmu_040_instruction = (ap_m68040_mmu_t){
+        .tc = &machine->cpu.tc_040,
+        .ttr = machine->cpu.ittr_040,
+        .urp = &machine->cpu.urp_040,
+        .srp = &machine->cpu.srp_040,
+        .atc = &machine->atc_040_instruction};
+    machine->mmu_040_data = (ap_m68040_mmu_t){
+        .tc = &machine->cpu.tc_040,
+        .ttr = machine->cpu.dttr_040,
+        .urp = &machine->cpu.urp_040,
+        .srp = &machine->cpu.srp_040,
+        .atc = &machine->atc_040_data};
+    machine->instruction_access.mmu_040 = &machine->mmu_040_instruction;
+    machine->instruction_access.table_fetch_040 = machine_table_fetch_040;
+    machine->data_access.mmu_040 = &machine->mmu_040_data;
+    machine->data_access.table_fetch_040 = machine_table_fetch_040;
+  }
 
   /* Installed unconditionally, like the wait-state callback and for the same
    * reason: one construction path. It is only ever consulted when a level is

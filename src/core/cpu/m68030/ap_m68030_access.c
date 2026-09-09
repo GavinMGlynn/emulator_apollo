@@ -34,6 +34,39 @@ static ap_m68030_mmu_fault_t search_fault_reason(
   return AP_M68030_MMU_FAULT_PROTECTION;
 }
 
+/* The 68040's MMU, when the part has one, in front of the 68030's whole
+ * translation path. Returns false when this part has no 68040 MMU, which is
+ * every model but the DS5500 -- and that is what keeps the 68030's translation,
+ * and its state hash, untouched by this file's existence.
+ *
+ * `[040]` §3.1.3 is why it runs even with paged translation disabled: the
+ * transparent translation registers "operate independently of the E-bit in the
+ * TCR", so a 68040 always has something to ask. */
+static bool translate_040(const ap_m68030_access_ctx_t *access,
+                          uint32_t logical, unsigned function_code, bool write,
+                          uint32_t *physical, bool *cache_inhibit,
+                          unsigned *fetches, bool *fault) {
+  if (access->mmu_040 == NULL) {
+    return false;
+  }
+  const ap_m68040_mmu_result_t r = ap_m68040_mmu_translate(
+      access->mmu_040, logical, function_code, write,
+      access->table_fetch_040, access->context);
+  *fetches = r.fetches;
+  if (r.status == AP_M68040_MMU_FAULT) {
+    *fault = true;
+    return true;
+  }
+  *physical = r.physical;
+  /* §3.2.2.3's four modes; this core's caches take one bit rather than the
+   * mode, so the two noncachable ones inhibit and the two cachable ones do not.
+   * Write-through against copyback is not distinguished because the 68040's
+   * caches are attached to no CPU -- the distinction has nowhere to land. */
+  *cache_inhibit = r.cache_mode == AP_M68040_CM_NONCACHABLE_SERIALIZED ||
+                   r.cache_mode == AP_M68040_CM_NONCACHABLE;
+  return true;
+}
+
 ap_m68030_access_result_t ap_m68030_access_read(ap_m68030_access_ctx_t *access,
                                                 uint32_t logical,
                                                 uint8_t function_code) {
@@ -102,7 +135,18 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
   const ap_m68030_tt_result_t transparent =
       ap_m68030_tt_translate(access->tt0, access->tt1, &tt_access);
 
-  if (transparent.transparent) {
+  bool fault_040 = false;
+  unsigned fetches_040 = 0u;
+  if (translate_040(access, logical, function_code, false, &physical,
+                    &cache_inhibit, &fetches_040, &fault_040)) {
+    out.descriptor_fetches = fetches_040;
+    if (fault_040) {
+      report_mmu_fault(access, logical, function_code, false,
+                       AP_M68030_MMU_FAULT_CACHED);
+      out.fault = true;
+      return out;
+    }
+  } else if (transparent.transparent) {
     out.transparent = true;
     physical = transparent.physical;
     cache_inhibit = transparent.cache_inhibit;
@@ -254,7 +298,18 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
   const ap_m68030_tt_result_t transparent =
       ap_m68030_tt_translate(access->tt0, access->tt1, &tt_access);
 
-  if (transparent.transparent) {
+  bool fault_040 = false;
+  unsigned fetches_040 = 0u;
+  if (translate_040(access, logical, function_code, true, &physical,
+                    &cache_inhibit, &fetches_040, &fault_040)) {
+    out.descriptor_fetches = fetches_040;
+    if (fault_040) {
+      report_mmu_fault(access, logical, function_code, true,
+                       AP_M68030_MMU_FAULT_CACHED);
+      out.fault = true;
+      return out;
+    }
+  } else if (transparent.transparent) {
     out.transparent = true;
     physical = transparent.physical;
     cache_inhibit = transparent.cache_inhibit;

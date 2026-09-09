@@ -47,6 +47,7 @@
 #include <stdint.h>
 
 #include "cpu/m68030/ap_m68030_atc.h"
+#include "cpu/m68040/ap_m68040_mmu.h"
 #include "cpu/m68030/ap_m68030_cache.h"
 #include "cpu/m68030/ap_m68030_step.h"
 #include "cpu/m68882/ap_m68882.h"
@@ -346,6 +347,19 @@ typedef struct {
   ap_m68030_cache_t instruction_cache;
   ap_m68030_cache_t data_cache;
   ap_m68030_atc_t atc;
+  /* **The 68040's, and there are two**: §3.3 gives the part "four-way
+   * set-associative caches" plural, one for instructions and one for data,
+   * where the 68030 has a single 22-entry ATC. Both are here on every model and
+   * both are empty on all but the DS5500 -- `mmu_040` on the access context is
+   * what decides whether anything reaches them.
+   *
+   * `cpu/m68040/ap_m68040_mmu.h` says why they are joined at all: Domain/OS's
+   * DS5500 loader enables paged translation and this core used to run its
+   * addresses untranslated. */
+  ap_m68040_atc_t atc_040_instruction;
+  ap_m68040_atc_t atc_040_data;
+  ap_m68040_mmu_t mmu_040_instruction;
+  ap_m68040_mmu_t mmu_040_data;
 
   ap_m68030_access_ctx_t instruction_access;
   ap_m68030_access_ctx_t data_access;

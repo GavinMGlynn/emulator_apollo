@@ -5231,6 +5231,22 @@ Only after the reference core is proven, and only under an identity harness.
       reached the operating system*, which is precisely what this item said
       would reach it. **So the 68040 MMU join is exercised code, and the
       argument for deferring it is gone.** Detail in `PROJECT_STATUS.md`.
+      **The 68040 MMU is joined, 2026-09-10** — `cpu/m68040/ap_m68040_mmu.c`,
+      `[040]` §3.5's order with the TTRs ahead of the enable because §3.1.3
+      makes them "operate independently of the E-bit in the TCR". Gated by a
+      NULL `mmu_040` on every other model, so nothing else's translation or
+      state hash is touched; two views because the part has two ITTRs/DTTRs and
+      two ATCs; a second fetch callback because the 68040's search reads raw
+      longwords where the 68030's hands back a decoded descriptor.
+      *Verification: a new `m68040_mmu_suite`, 9 tests covering the **order**
+      and the decisions between the parts rather than the parts, which have
+      their own suites; `ctest` 146/146 both presets; identity
+      `6DF967A63D3D4DA9` unmoved.* **It caught a bug that hides**: the search
+      returns the whole physical address and an ATC entry holds the frame, so
+      storing the full address and ORing the offset on a hit is right for the
+      access that filled the entry and wrong for the next one — `0x50456` came
+      back as `0x50577`. `PROVISIONAL`: the U and M bits are not written back,
+      for the same reason the 68030's walk does not lock the bus.
       **So what remains of this item is the `.mmu` declaration alone**, which
       does wait on a 68040 MMU.
       **Made visible and pinned 2026-09-10, which is what could be done without

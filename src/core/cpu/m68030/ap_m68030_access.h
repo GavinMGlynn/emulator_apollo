@@ -37,6 +37,7 @@
 #include <stdint.h>
 
 #include "cpu/m68030/ap_m68030_atc.h"
+#include "cpu/m68040/ap_m68040_mmu.h"
 #include "cpu/m68030/ap_m68030_cache.h"
 #include "cpu/m68030/ap_m68030_tt.h"
 #include "cpu/m68030/ap_m68030_walk.h"
@@ -127,6 +128,19 @@ typedef void (*ap_m68030_mmu_read_fn)(void *context,
 typedef struct {
   ap_m68030_cache_t *cache; /* the instruction or data cache, as appropriate */
   ap_m68030_atc_t *atc;
+  /* **The MC68040's MMU, on the one part that has one.** NULL everywhere else,
+   * and that is the whole gate: a 68030 or 68020 row never reaches the 68040
+   * path, so its translation and its state hash are untouched.
+   *
+   * It is consulted *before* `ap_m68030_translating`, because §3.1.3 makes the
+   * transparent translation registers answer "independently of the E-bit in the
+   * TCR" -- a 68040 with paged translation off still has TTRs, where a 68030
+   * with `TC` disabled has nothing to ask.
+   *
+   * `cpu/m68040/ap_m68040_mmu.h` says why this exists at all: every part of the
+   * 68040's MMU was built and none of it was joined, and Domain/OS's DS5500
+   * loader is what asked for the join. */
+  const ap_m68040_mmu_t *mmu_040;
   const ap_m68030_tt_t *tt0; /* either may be NULL: that register is absent */
   const ap_m68030_tt_t *tt1;
   const ap_m68030_tc_t *tc;
@@ -155,6 +169,14 @@ typedef struct {
    * shape `ap_m68030_walk` and `ap_m68030_cache_read` already use. */
   ap_m68030_fetch_fn table_fetch;
   ap_m68030_update_fn table_update;
+  /* The 68040's, which is a **different shape**: its search reads raw
+   * longwords and decodes them itself, where the 68030's callback hands back a
+   * decoded `ap_m68030_descriptor_t`. Two callbacks rather than one adapter
+   * because the raw word is not recoverable from the decoded one -- an adapter
+   * would have to re-encode, and re-encoding a descriptor to feed a decoder is
+   * how a transcription error gets laundered into data. NULL unless `mmu_040`
+   * is set. */
+  ap_m68040_fetch_fn table_fetch_040;
 
   /* Told whenever a `PMOVE` writes an MMU register. Optional; NULL is a
    * processor that does the same thing and reports nothing.

@@ -1787,6 +1787,67 @@ The second reached the shell and ran nothing: trimming `md-shell.script` left
 completed command produces. Each cost a 45-minute run. Detail in `FINDINGS.md`
 C259.
 
+## The 68040 MMU is joined (2026-09-10)
+
+Every part of it was built and none of them was connected. `ap_m68040_regs.*`
+decoded the TCR and the TTRs, `ap_m68040_atc.*` was a 64-entry four-way ATC with
+all four of `PFLUSH`'s variants, `ap_m68040_search.*` walked the tables — and
+`docs/COMPLETION_PLAN.md` said so in as many words: "its parts are all built —
+search, ATC, registers, descriptors — and what is missing is the join."
+
+`cpu/m68040/ap_m68040_mmu.c` is the join, in `[040]` §3.5's order.
+
+**The TTRs are checked before the enable, and that ordering is the one thing a
+reader should not "fix".** §3.1.3: the transparent translation registers
+"operate independently of the E-bit in the TCR". A version that tested `E` first
+would never reach them, and a 68040 whose paged translation is off still has
+transparent blocks — which is the state the DS5500 spends its whole reset in.
+
+**Gated by a NULL pointer, which is what keeps every other model untouched.**
+`ap_m68030_access_ctx_t::mmu_040` is set only where the model declares a 68040
+MMU, so a 68030 or 68020 row never enters the path. Identity
+`6DF967A63D3D4DA9` unmoved.
+
+**Two of everything, because the part has two**: §3.1.3's ITTRs against its
+DTTRs and §3.3's separate instruction and data ATCs, so the machine owns two
+views and hands each access the one belonging to its side. And a **second fetch
+callback**, because the 68040's search reads raw longwords where the 68030's
+hands back a decoded descriptor — two callbacks rather than one adapter, since
+the raw word is not recoverable from the decoded one and re-encoding a
+descriptor to feed a decoder is how a transcription error gets laundered into
+data.
+
+### The bug the new suite caught, which would otherwise have hidden
+
+`ap_m68040_search` returns the **whole** physical address, frame and page offset
+both — `m68040_search_suite` pins it, `0xFFF` translating to `0x50FFF`. An ATC
+entry holds the **frame**, because Figure 3-21 caches a page and a later access
+to a different word supplies its own offset.
+
+Storing the full address and ORing the offset on a hit gives the *right answer*
+for the access that filled the entry, because it ORs its own offset back on. It
+goes wrong only on a **second access to the same page at a different offset**:
+`0x50456` came back as `0x50577`, which is `0x50000 | 0x123 | 0x456`. An
+idempotent OR is a bug that passes every single-access test there is.
+
+*Verification: a new `m68040_mmu_suite`, 9 tests, `ctest` 145/145 → 146/146 both
+presets. What it covers is the **order** and the **decisions between** the
+parts, since the parts themselves already have suites: a TTR answering with
+translation disabled and an address outside the block not; write protection from
+a transparent block and from a table descriptor, each faulting a write while a
+read succeeds; the search filling the ATC and the second access to the same page
+reading no descriptor; a nonresident page faulting **and being cached**, so the
+second attempt faults without searching again; a bus error **not** being cached,
+because the search learned nothing; and two root pointers giving different
+answers for one address, which is the check that the function code reaches the
+root selection at all.*
+
+**What is still `PROVISIONAL`**: the U and M bits are not written back to the
+table. §3.2.2 makes that a locked read-modify-write and this core's search reads
+descriptors through a plain callback with no bus to lock — the same gap the
+plan records for the 68030's walk. The ATC entry's `M` is set, so a second write
+to a page behaves; the table does not see it.
+
 ## The 68040 MMU join is no longer unexercised code (2026-09-10)
 
 **Twice today this document said wiring the 68040 MMU would be unexercised code
