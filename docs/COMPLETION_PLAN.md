@@ -4906,6 +4906,20 @@ Only after the reference core is proven, and only under an identity harness.
       select. The execution-core half is no longer the blocker — a DN5500 now
       runs and prints its firmware self-test (`FINDINGS.md` C256) — so this is
       the next increment of the 68040 item rather than a separate wait.
+      **That blocker was checked 2026-09-09 and is imprecise for one of the two
+      halves.** It covers the `.mmu` *declaration*, which needs something to
+      select. It does **not** obviously cover the **control-register count**,
+      which is a `[020]` §1 fact about the 68020 and cannot wait on a 68040:
+      `src/core/cpu/m68851/` holds eighteen files and `src/core/cpu/m68020/`
+      six — 2,619 lines between them — and the 68851 *is* already wired,
+      through `ap_m68030_coproc.h` and `ap_m68030_step.c`. So the parts exist
+      and are joined; what a 68020 row does not get is a machine built to use
+      them, `ap_machine` constructing an `ap_m68030_cpu_t` unconditionally.
+      *Recorded rather than resolved*: this is a flag for whoever picks the item
+      up, not a new conclusion — the exact shape of the control-register
+      divergence has not been traced against those modules. It is written down
+      because two blockers on this plan were found false today, both by looking
+      instead of asserting, and this one had not been looked at.
       **And it is not only the MMU — the processor walks are finding
       registers, 2026-09-09.** **Five** so far, each a case where a row
       declaring a part other than the 68030 gets 68030 behaviour, because
