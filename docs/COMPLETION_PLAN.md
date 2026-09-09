@@ -4713,9 +4713,10 @@ discipline throughout.
       `--disk-writeback`**: the disk carries the state between runs even though
       the utility does not, and option 7's badspot list survived as 65,721
       changed bytes. *And C50's dialogue is missing two prompts*: INVOL asks
-      `Anything more to do?` after an option, where that table goes straight to
-      the next `Option:`, and **option 1 asks `Select disk:` too**, which the
-      table lists under option 7 alone. `Option: 1 -f` is accepted, and `f` --
+      `Anything more to do?` after an option, and it asks **`Select disk:` after
+      *every* option**, where the table lists that under option 7 alone — which
+      cost a run twice, once on option 1 and once on option 8, before the shape
+      was clear. `Option: 1 -f` is accepted, and `f` --
       "don't re-format disk" -- is what makes the option affordable on a
       file-backed medium. Corrected in `FINDINGS.md` C277.
       **And option 1 completed — the DS5500 volume layout is producible on this

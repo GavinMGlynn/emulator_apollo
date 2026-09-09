@@ -1823,10 +1823,14 @@ cannot carry this one. The item is no longer "is the install possible" but
 "raise the ceiling or fix the oracle".
 
 *Two omissions in `FINDINGS.md` C50's recorded dialogue were found by scripts
-stalling on them and are corrected in C277*: INVOL asks `Anything more to do?`
-after an option, and **option 1 asks `Select disk:` too**, which C50 lists under
-option 7 alone. `Option: 1 -f` is accepted, and `f` — "don't re-format disk" —
-is what makes the option affordable on a file-backed medium.
+stalling on them and are corrected in C277.* INVOL asks `Anything more to do?`
+after an option; and it asks **`Select disk:` after *every* option**, where C50
+lists that prompt under option 7 alone. The second cost a run twice — once
+sending the volume name into it on option 1, once the logical volume number on
+option 8 — before the shape was clear: it is not option 7 that asks, it is
+INVOL, every time an option number is entered. `Option: 1 -f` is accepted, and
+`f` — "don't re-format disk" — is what makes the option affordable on a
+file-backed medium.
 
 ## `011500` is in no document, and INVOL is what put it on the map (2026-09-10)
 
