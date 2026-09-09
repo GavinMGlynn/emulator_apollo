@@ -5315,10 +5315,29 @@ same number is what let them diverge once already.
       and its being the same buffer the failing search parses is an inference —
       a good one, since the search's own two blocks are file 3's first two, but
       an inference.
-      *Next, and it is now a comparison of two numbers*: what the host programs
-      into the 8237's address register and the AT translation map for the tape
-      channel, against `0113CC00`. If the programmed target is `0113CC4D` the
-      fault is this core's placement; if it is `0113CC00` the fault is above us.
+      **The two numbers were compared, and they agree.** Temporary
+      instrumentation on `dma_physical`, run and reverted: at the start of every
+      run into that buffer the 8237's address register reads **`0000`** and the
+      bus address is **`00000000`**, so the whole of `0113CC00` comes from the
+      AT translation map's page base and the host asked for **offset 0 within
+      it**. This core writes at page base + 0. *Placement matches instruction
+      exactly*, so the 77 bytes are not introduced by the 8237 or the map.
+      **Which leaves two possibilities and this does not choose between them.**
+      Either the kernel's record pointer reaches `+77` from its own parsing of
+      something delivered earlier — in which case the cause is upstream of the
+      block that fails — or the failing search uses a **different buffer** from
+      the bulk read.
+      *And the second is genuinely open, because neither address run reached the
+      failure.* The `dma runs` capture stopped at 1.5 G instructions and this
+      probe at 900 M, and **neither printed the `E0007`**; both measured the
+      bulk file-3 read. `0113CC00` is that read's buffer, and its being the
+      search's too was and remains an inference.
+      *So the next step is to bound the run at the failure rather than at an
+      instruction count*: the console prints `Seq out of order` the moment it
+      happens, so a probe that fires on the first header mismatch — or a
+      `--boot-stop-pc` on the routine that prints it — captures the right buffer
+      instead of a plausible one. Every measurement so far has been of the read
+      that works.
 
 - [x] **A cold power-on runs the confidence test — done 2026-09-09.**
       `[SC499]` §1.8.1's POC reports success "by the assertion of `EXC-`
