@@ -17,6 +17,7 @@ add_library(apollo_core STATIC
   cpu/m68040/ap_m68040_family.c
   cpu/m68040/ap_m68040_jtag.c
   cpu/m68040/ap_m68040_bus.c
+  cpu/m68040/ap_m68040_fp_exception.c
   cpu/m68040/ap_m68040_timing.c
   cpu/m68040/ap_m68040_cache_timing.c
   cpu/m68040/ap_m68040_misc_timing.c
