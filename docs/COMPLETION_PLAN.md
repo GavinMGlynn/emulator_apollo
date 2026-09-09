@@ -6061,28 +6061,24 @@ same number is what let them diverge once already.
         and demonstrates the CIR-footnote failure `ap_m68882_cir.h` warns
         about. Detail in `PROJECT_STATUS.md`.
         Record: `docs/references/M68000_FAMILY_REFERENCE_WALK.md`.
-  - [ ] **`[020]` `MC68020_32-Bit_Microprocessor_Users_Manual_1984.pdf`,
-        452 pages — started 2026-09-09; all eleven sections and all five appendices opened, **431 of 452**; Appendix B's 170 pages scanned and spot-checked rather than re-derived, with the reason recorded; **one defect found and fixed** (`BFINS`'s condition codes).** Record:
-        `docs/references/M68020_WALK.md`.
-        **The deferral this item carried was false and is withdrawn.** It read
-        "Phase 2b and Phase 7 parts ... deferred until those processors are
-        built" — and the 68020 is in the model table *now*: `ap_model.c` has
-        **three** rows `.cpu = AP_CPU_M68020`, and `ap_model.h` cites this
-        manual's §7.1.1 and §1 for cache values live in that table.
-        *The audit is the opposite of `[030]`'s and the walk is planned against
-        it*: 473 mentions of the 68020 in `src/`, and **six** citing this book
-        with a place, so there is almost no verification to lean on.
-          **Four divergences found so far**, all the same shape — the model
-        table declares a 68020 and `ap_machine` builds a 68030
-        unconditionally: §7's CACR is **four bits** where the 68030's has
-        eleven; §1 counts **five** control registers where the 68030 has ten;
-        and §6's Figure 6-9 gives the long bus fault frame as **44 words**
-        where `ap_m68030_exception.h` has 46. Each belongs to the model
-        table's `.mmu` item, which is now four registers wide — the fourth
-        being Table 6-2's vectors **48-63 all unassigned** on the 68020, where
-        `ap_m68030_exception.h` defines `VECTOR_MMU_CONFIGURATION = 56`.
-        *`[040]`'s two manuals (256 + 463) stay deferred and the reason still
-        holds: no 68040 core exists, and that is its own open item.*
+  - [x] **`[020]` `MC68020_32-Bit_Microprocessor_Users_Manual_1984.pdf` —
+        walked whole, 452/452, 2026-09-09.** Record:
+        `docs/references/M68020_WALK.md`. The deferral this item carried was
+        false — three model rows declare `AP_CPU_M68020` and `ap_model.h` cites
+        this manual for values live in that table.
+        **Yield: one defect fixed and four divergences named.** `BFINS` set its
+        condition codes from the value it destroyed, found by Table A-1's
+        separate row and confirmed by `[PRM]` and Appendix B (`step_suite`
+        312 → 314). And four places where a row declaring a 68020 gets 68030
+        behaviour: the **CACR is four bits** not eleven; there are **five**
+        control registers not ten; the **long bus fault frame is 44 words** and
+        differently laid out; **vectors 48-63 are unassigned**.
+        *Also*: Appendix C settled `[PRM]` Table 2-4's mangled Alterable column
+        in favour of what this core had derived; Table 6-4's thirteen privileged
+        instructions all enforced; and Table 5-5's port-size cycle counts give
+        `ap_m68030_bus.c` a number to be checked against.
+        *`[040]`'s two manuals (256 + 463) stay deferred: no 68040 core exists,
+        and that is its own open item.*
   *Verification, per document: a coverage record in `docs/references/`, page
   by page, saying what each yielded — and every fact either implemented with
   a test or named as a `PROVISIONAL` gap.*
