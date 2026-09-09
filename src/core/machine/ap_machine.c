@@ -859,6 +859,32 @@ bool ap_machine_translate(ap_machine_t *machine, uint32_t logical,
                                     .function_code = function_code,
                                     .read = true,
                                     .read_modify_write = false};
+  /* **The 68040's MMU answers first when the part has one**, and reading the
+   * 68030's `tc.enable` below would answer for it -- wrongly, and confidently.
+   * A DS5500 running Domain/OS has `tc_040` bit 15 set and `cpu->tc.enable`
+   * clear, so this reported *every* logical address as its own physical one:
+   * `--dump-walk` and `--dump-logical` were answering about a machine that was
+   * not the one running. The same shape as the boot report's `translation off`,
+   * found the same way -- by using the instrument on a 68040. */
+  if (machine->data_access.mmu_040 != NULL) {
+    /* **A probe must not perturb the ATC**, which is the rule the 68030 path
+     * below keeps by passing a null `update`. `ap_m68040_mmu_translate` fills
+     * on a miss, so the cache is saved and restored around it rather than the
+     * translation being reimplemented here -- an observer that answered from
+     * different code than the machine uses would be a second opinion, not an
+     * observation. */
+    ap_m68040_atc_t saved = *machine->mmu_040_data.atc;
+    const ap_m68040_mmu_result_t r = ap_m68040_mmu_translate(
+        &machine->mmu_040_data, logical, function_code, false,
+        machine->data_access.table_fetch_040, machine);
+    *machine->mmu_040_data.atc = saved;
+    if (r.status == AP_M68040_MMU_FAULT) {
+      return false;
+    }
+    *physical = r.physical;
+    return true;
+  }
+
   const ap_m68030_tt_result_t transparent =
       ap_m68030_tt_translate(&cpu->tt0, &cpu->tt1, &probe);
   if (transparent.transparent) {

@@ -2055,11 +2055,38 @@ a convenient one.
 bytes above a page boundary. The faulting write is a stack push, the exception's
 own frame push runs into the same unmapped page, and that is a double fault.
 
-*The open question is whether this core is right to fault that page.* A stack
-crossing into an unmapped page is an ordinary event an operating system grows
-from, and this one cannot because its handler cannot stack. Either Domain/OS
-expects that page to be resident and our table walk disagrees, or it expects to
-take the fault on a different stack. Not diagnosed, and not guessed at.
+### Answering it needed the observer fixed first
+
+*Was this core right to fault that page?* The instrument for it —
+`--dump-walk`, `--dump-logical`, and the report's `fault addr` line — all go
+through `ap_machine_translate`, and **that read the 68030's `tc.enable`**. On a
+DS5500 that bit is clear while `tc_040`'s is set, so the observer answered
+"every logical address is its own physical one" about a machine that was
+translating. The same shape as the boot report's `translation off`, and found
+the same way: by pointing the instrument at a 68040.
+
+Fixed, and it takes the 68040's path when the part has one — with the ATC saved
+and restored around the call, because a probe must not perturb it. That is the
+rule the 68030 path already keeps by passing a null `update`, and the reason to
+save-and-restore rather than reimplement is that an observer answering from
+different code than the machine uses is a second opinion, not an observation.
+
+**What it then says, and it is two facts.** `vbr 7A401000 -> 01003000 (main
+memory)` — the vector base **translates**, where the same line read "unmapped"
+before, so the walker is right about at least that address. And
+`fault addr 7A3FFFC6 -> no translation`: the faulting page genuinely has no
+mapping in the tables as this core reads them.
+
+So the fault is not obviously wrong. What is still open is why Domain/OS cannot
+recover from it — its handler stacks a thirty-word frame onto the same page it
+just faulted on. Not diagnosed, and not guessed at.
+
+**And `--dump-walk` is still 68030-only**, now named as such in
+`ap_machine_walk`'s declaration rather than left for a reader to discover: it
+returns `ap_m68030_walk_result_t` and walks `cpu->tc`/`cpu->crp`, so on a DS5500
+it reports "STOPPED after 0 level(s)" for every address — which reads as a
+diagnosis and is an artefact. Fixing it needs a 68040 result type, the two
+parts' walks not having the same shape. `PROVISIONAL`.
 
 ## A stopped processor was reported as a stopped machine (2026-09-10)
 

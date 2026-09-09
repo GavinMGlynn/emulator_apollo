@@ -600,6 +600,19 @@ typedef struct {
  * Returns the walk verbatim, including `levels_walked` and the address of the
  * last descriptor fetched, so a caller can say *where* the search stopped.
  * Charged to the observer's counters like every other probe. */
+/* **68030 only, and a 68040 gets a meaningless answer from it.** The result
+ * type is `ap_m68030_walk_result_t` -- the 68030's descriptor tree, levels and
+ * limits -- and this walks `cpu->tc`/`cpu->crp`, which are zero on a part whose
+ * translation lives in `tc_040`/`urp_040`/`srp_040`. On a DS5500 it reports
+ * "STOPPED after 0 level(s)" for every address, which reads as a diagnosis and
+ * is an artefact.
+ *
+ * `ap_machine_translate` **was** the same and is not any more, so
+ * `--dump-logical` and the report's `fault addr` line answer correctly on a
+ * 68040 while `--dump-walk` does not. Naming the split rather than leaving a
+ * reader to find it: what `--dump-walk` needs is a 68040 result type, since the
+ * two parts' walks do not have the same shape -- three levels against the
+ * 68030's four, and no limit fields. `PROVISIONAL`. */
 [[nodiscard]] ap_m68030_walk_result_t ap_machine_walk(ap_machine_t *machine,
                                                       uint32_t logical,
                                                       uint8_t function_code);
