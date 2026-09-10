@@ -2504,7 +2504,31 @@ JSR    (A0)          jump and push PC
 
 and the callee's entry begins `MOVE.L 6(A0),DB` — "load my data base from ECB".
 **That is `movea.l d(a5),a0; jsr (a0)` exactly**, with `A5` as the data base
-register. So `0091709C` is an **Entry Control Block** address — `[DP]`'s
+register. So `0091709C` is an **Entry Control Block** address
+
+**And this project's own register dump confirms it without a new run.** The
+current DS5500 boot ends with
+
+```
+a0-a7   0091709C 75D7FF24 0091E2C0 00856B44 0080317E 0083665C 75D7FF94 75D7FEDC
+```
+
+— **`A0` is `0091709C`**, the ECB address, still held across the call exactly as
+p. 7-8 requires, because the callee's first instruction is supposed to read
+`6(A0)`. The convention and the measurement agree, and the measurement was taken
+before the convention was known.
+
+*And Rev 1 chapter 8's CRASH ANALYSIS gives a procedure this project can run.*
+"Most fatal errors recognized by Aegis will be reported by the `crash_system`
+routine, which will point **address register 0 (A0)** at a standard error code
+... In either case, **A6 (SB) will probably point to the stack frame** ...
+**Refer to Stack Frame format to trace back the ECB addresses of the callers
+leading to the crash.**" The *pre-fix* death run ended with `A0 = 7A42D870` and
+`A6 = 7A4000D4`, so the long word at `7A42D870` should be `0012004B` and
+`7A4000D4` should be a frame whose `+00` chains to the caller's and whose `+04`
+names each caller's ECB. **A call-chain traceback, from data this project
+already has and with no new instrument** — which is the next thing to do on this
+item. — `[DP]`'s
 "transfer vector" under Apollo's own calling-convention name — and a call into a
 page of zeros hands the callee a **null data base**, which is a sharper failure
 than jumping into nothing.
