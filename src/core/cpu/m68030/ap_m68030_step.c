@@ -6826,14 +6826,41 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
    * flag that already carries exactly that. On a 68030 `F5xx` is coprocessor id
    * **2**, which must stay F-line, and this gate is what keeps it so.
    *
-   * **The named gap is the same one `CINV`/`CPUSH` have**: there is nothing to
-   * flush. `ap_m68040_atc.*` is a complete module -- `flush_all`,
-   * `flush_nonglobal` and `flush_page`, all four of the instruction's variants
-   * -- attached to no CPU, so a no-op is the *correct* effect rather than a
-   * convenient one, and joining it is the 68040 MMU item this is an increment
-   * of. `ap_m68040_regs.h` already carries the rule that matters when it is
-   * joined: "`PFLUSH` can be executed successfully despite the state of the
-   * E-bit", so it must work with translation off.
+   * **It flushes.** This was a counting no-op, justified by "there is nothing
+   * to flush -- `ap_m68040_atc.*` is a complete module attached to no CPU", and
+   * that justification expired the day `ap_m68040_mmu_translate` started
+   * filling and consulting those ATCs. **Domain/OS executed 3,515 of these on
+   * one DS5500 boot and every one of them did nothing**, so stale entries
+   * survived every flush the operating system asked for. Detail, and the
+   * doubled page fault that found it, in `PROJECT_STATUS.md`.
+   *
+   * `ap_m68040_regs.h` carries the rule that matters now that it is joined:
+   * "`PFLUSH` can be executed successfully **despite the state of the E-bit**",
+   * so this runs with translation off. Only the page size is read out of `TC`.
+   *
+   * **Both ATCs, every variant.** `[PRM]` p. 6-35, read as a page image:
+   * "Invalidates address translation cache entries in **both the instruction
+   * and data** address translation caches ... The `PFLUSH (An)` instruction
+   * invalidates the entry in **each** address translation cache which matches
+   * the logical address in `An` and the specified function code."
+   *
+   * **And the function code means something different here than it does in
+   * `PTEST`.** For `PTEST` the DFC picks *which ATC* to search. For `PFLUSH`
+   * both ATCs are flushed either way and the DFC picks the *space*:
+   * "Destination function code values of **1 or 2** will result in flushing of
+   * **user** address translation cache entries in both address translation
+   * caches; whereas, values of **5 or 6** will result in flushing of
+   * **supervisor** address translation cache entries." So `FC2` selects, and
+   * `FC1`/`FC0` do not choose a side. Getting these two instructions' use of
+   * the same register the same way round is the mistake this paragraph exists
+   * to prevent.
+   *
+   * "`PFLUSH` is **undefined** for destination function code values of 0, 3, 4,
+   * and 7 and **may cause flushing of an unexpected entry**." Unlike `PTEST`'s
+   * undefined codes -- where the undefined thing is a *value* and leaving
+   * `MMUSR` alone invents nothing -- the undefined thing here is *which entry*,
+   * and the manual says one is flushed. So `FC2` is honoured for all eight
+   * codes and the unexpected entry is exactly the one the encoding names.
    *
    * **No clocks, and that is `PROVISIONAL` rather than zero-because-easy.**
    * Neither `M68000PRM`'s page nor `[040]`'s timing section publishes a figure
@@ -6848,6 +6875,48 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       cpu->pending_vector = AP_M68030_VECTOR_PRIVILEGE_VIOLATION;
     } else {
       cpu->atc_flush_operations++;
+      /* Opmode, bits 4-3: `00` PFLUSHN (An), `01` PFLUSH (An), `10` PFLUSHAN,
+       * `11` PFLUSHA. Bit 4 is the "all entries" form and bit 3 is "global
+       * entries included", which is why both are read as flags rather than
+       * switched on as four cases. */
+      const unsigned opmode = (word >> 3) & 3u;
+      const bool all = (opmode & 2u) != 0u;
+      const bool nonglobal_only = (opmode & 1u) == 0u;
+      const ap_m68040_page_size_t page_size =
+          ap_m68040_tcr_decode((uint16_t)(cpu->tc_040 & 0xFFFFu)).page_size;
+      /* "FC2" -- one of 5 or 6 is supervisor, one of 1 or 2 is user. */
+      const bool supervisor_space = (cpu->regs.dfc & 4u) != 0u;
+      const uint32_t address = (word & 7u) == 7u
+                                   ? ap_m68030_read_a7(&cpu->regs)
+                                   : cpu->regs.a[word & 7u];
+      ap_m68040_atc_t *const sides[2] = {
+          cpu->fetch.access != NULL && cpu->fetch.access->mmu_040 != NULL
+              ? cpu->fetch.access->mmu_040->atc
+              : NULL,
+          cpu->data != NULL && cpu->data->mmu_040 != NULL
+              ? cpu->data->mmu_040->atc
+              : NULL};
+      for (unsigned side = 0; side < 2u; side++) {
+        ap_m68040_atc_t *const atc = sides[side];
+        if (atc == NULL) {
+          continue;
+        }
+        if (all) {
+          if (nonglobal_only) {
+            /* `PFLUSHAN` names no function code and the page's own example is
+             * about task swaps, so it is not qualified by privilege: both
+             * spaces, global entries spared. Two calls rather than a third
+             * entry point, because "all nonglobal" is exactly their union. */
+            ap_m68040_atc_flush_nonglobal(atc, false);
+            ap_m68040_atc_flush_nonglobal(atc, true);
+          } else {
+            ap_m68040_atc_flush_all(atc);
+          }
+        } else {
+          ap_m68040_atc_flush_page(atc, address, supervisor_space, page_size,
+                                   nonglobal_only);
+        }
+      }
     }
   }
 

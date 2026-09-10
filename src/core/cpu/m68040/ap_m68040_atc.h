@@ -134,9 +134,14 @@ void ap_m68040_atc_flush_all(ap_m68040_atc_t *atc);
  * bit an entry carries. */
 void ap_m68040_atc_flush_nonglobal(ap_m68040_atc_t *atc, bool supervisor);
 
-/* Invalidate the entry for one page, if present. */
+/* Invalidate the entry for one page, if present. `nonglobal_only` is
+ * `PFLUSHN`'s qualifier: "global entries are not invalidated by the PFLUSH
+ * instruction variants that specify nonglobal entries, even when all other
+ * selection criteria are satisfied". `PFLUSH (An)` passes false, and so does
+ * `PTEST`, whose page carries no global qualifier. */
 void ap_m68040_atc_flush_page(ap_m68040_atc_t *atc, uint32_t logical_address,
                               bool supervisor,
-                              ap_m68040_page_size_t page_size);
+                              ap_m68040_page_size_t page_size,
+                              bool nonglobal_only);
 
 #endif /* APOLLO_CPU_M68040_AP_M68040_ATC_H */

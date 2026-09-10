@@ -246,7 +246,7 @@ static void test_a_page_flush_takes_only_that_page(void) {
   ap_m68040_atc_fill(&atc, 1u, 0x11000u, AP_M68040_PAGE_4K,
                      mapping(0xA0000000u));
 
-  ap_m68040_atc_flush_page(&atc, 0x1800u, USER, AP_M68040_PAGE_4K);
+  ap_m68040_atc_flush_page(&atc, 0x1800u, USER, AP_M68040_PAGE_4K, false);
   /* Any address within the page names the page. */
   TEST_ASSERT_EQUAL_UINT(AP_M68040_ATC_WAYS,
                          ap_m68040_atc_lookup(&atc, 0x1000u, USER,

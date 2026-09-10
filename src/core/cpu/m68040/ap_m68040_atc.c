@@ -96,11 +96,19 @@ void ap_m68040_atc_flush_nonglobal(ap_m68040_atc_t *atc, bool supervisor) {
 
 void ap_m68040_atc_flush_page(ap_m68040_atc_t *atc, uint32_t logical_address,
                               bool supervisor,
-                              ap_m68040_page_size_t page_size) {
+                              ap_m68040_page_size_t page_size,
+                              bool nonglobal_only) {
   const unsigned way =
       ap_m68040_atc_lookup(atc, logical_address, supervisor, page_size);
-  if (way < AP_M68040_ATC_WAYS) {
-    atc->entry[ap_m68040_atc_set(logical_address, page_size)][way].valid =
-        false;
+  if (way >= AP_M68040_ATC_WAYS) {
+    return;
   }
+  ap_m68040_atc_entry_t *e =
+      &atc->entry[ap_m68040_atc_set(logical_address, page_size)][way];
+  /* `G` overrides the match rather than being one more criterion -- the same
+   * sentence `ap_m68040_atc_flush_nonglobal` quotes, and the same rule. */
+  if (nonglobal_only && e->global) {
+    return;
+  }
+  e->valid = false;
 }

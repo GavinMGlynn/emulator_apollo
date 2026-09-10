@@ -4304,6 +4304,203 @@ static void test_the_68040s_pflush_executes_only_where_it_has_an_mmu(void) {
   }
 }
 
+/* **`PFLUSH` flushes, and this is what says so.**
+ *
+ * The decode test above asserted the instruction *executed*; for two weeks that
+ * was the whole of it, because the ATCs were attached to nothing. They are
+ * attached now, and a DS5500 issued 3,515 flushes that did nothing --
+ * `PROJECT_STATUS.md` has the doubled page fault that found it.
+ *
+ * `[PRM]` p. 6-35, read as a page image: "Invalidates address translation cache
+ * entries in **both the instruction and data** address translation caches ...
+ * Destination function code values of 1 or 2 will result in flushing of **user**
+ * address translation cache entries in both address translation caches;
+ * whereas, values of 5 or 6 will result in flushing of **supervisor** address
+ * translation cache entries." So the DFC picks the *space* here, where in
+ * `PTEST` it picks the *side* -- and both ATCs are flushed either way. */
+static uint32_t pflush_tc;
+static uint32_t pflush_ttr[2];
+static uint32_t pflush_root;
+static ap_m68040_atc_t pflush_atc_instruction;
+static ap_m68040_atc_t pflush_atc_data;
+static ap_m68040_mmu_t pflush_mmu_instruction;
+static ap_m68040_mmu_t pflush_mmu_data;
+
+static void attach_pflush_mmus(machine_t *m, bool translation_enabled) {
+  /* Bit 15 is `E`, bit 14 `P`; 4-Kbyte pages either way. "`PFLUSH` can be
+   * executed successfully despite the state of the E-bit", so the disabled case
+   * is a real configuration and not a degenerate one. */
+  pflush_tc = translation_enabled ? 0x8000u : 0x0000u;
+  /* A transparent block over everything, so the instruction fetches that carry
+   * these tests translate without a table search: logical mask `$FF` in bits
+   * 23-16 ignores the whole base, `E` at bit 15, and `S` = `10` at bits 14-13
+   * is "Ignore FC2". The ATC is still the thing under test -- a TTR match is
+   * resolved before the ATC is consulted, so seeded entries survive to be
+   * flushed or spared on their own merits. */
+  pflush_ttr[0] = 0x00FF0000u | 0xC000u;
+  pflush_ttr[1] = 0u;
+  pflush_root = 0x800u;
+  ap_m68040_atc_init(&pflush_atc_instruction);
+  ap_m68040_atc_init(&pflush_atc_data);
+  pflush_mmu_instruction = (ap_m68040_mmu_t){.tc = &pflush_tc,
+                                             .ttr = pflush_ttr,
+                                             .urp = &pflush_root,
+                                             .srp = &pflush_root,
+                                             .atc = &pflush_atc_instruction};
+  pflush_mmu_data = (ap_m68040_mmu_t){.tc = &pflush_tc,
+                                      .ttr = pflush_ttr,
+                                      .urp = &pflush_root,
+                                      .srp = &pflush_root,
+                                      .atc = &pflush_atc_data};
+  m->access.mmu_040 = &pflush_mmu_instruction;
+  m->data_access.mmu_040 = &pflush_mmu_data;
+}
+
+static void seed_entry(ap_m68040_atc_t *atc, uint32_t logical, bool supervisor,
+                       bool global) {
+  const ap_m68040_atc_entry_t entry = {
+      .valid = true,
+      .global = global,
+      .supervisor_space = supervisor,
+      .logical_tag = ap_m68040_atc_tag(logical, AP_M68040_PAGE_4K),
+      .resident = true,
+      .physical_address = 0x5000u};
+  ap_m68040_atc_fill(
+      atc, ap_m68040_atc_select_way(atc, logical, AP_M68040_PAGE_4K), logical,
+      AP_M68040_PAGE_4K, entry);
+}
+
+static bool entry_present(const ap_m68040_atc_t *atc, uint32_t logical,
+                          bool supervisor) {
+  return ap_m68040_atc_lookup(atc, logical, supervisor, AP_M68040_PAGE_4K) <
+         AP_M68040_ATC_WAYS;
+}
+
+#define PFLUSH_SUPERVISOR true
+#define PFLUSH_USER false
+
+static void run_one_supervisor_word(machine_t *m, uint16_t word) {
+  const uint16_t program[] = {word, 0x4E71u, 0x4E71u, 0x4E71u};
+  load(m, program, 4);
+  m->cpu.has_68040_mmu_registers = true;
+  m->cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+}
+
+static void test_pflusha_invalidates_both_atcs_including_global_entries(void) {
+  /* "The PFLUSHA instruction invalidates all entries." All: both caches, both
+   * spaces, global included -- which is exactly what `PFLUSHAN` below does
+   * not do. */
+  machine_t m = {0};
+  run_one_supervisor_word(&m, 0xF518u);
+  attach_pflush_mmus(&m, true);
+  seed_entry(&pflush_atc_instruction, 0x10000u, PFLUSH_SUPERVISOR, true);
+  seed_entry(&pflush_atc_data, 0x20000u, PFLUSH_USER, false);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+
+  TEST_ASSERT_FALSE(
+      entry_present(&pflush_atc_instruction, 0x10000u, PFLUSH_SUPERVISOR));
+  TEST_ASSERT_FALSE(entry_present(&pflush_atc_data, 0x20000u, PFLUSH_USER));
+}
+
+static void test_pflushan_spares_global_entries_in_both_spaces(void) {
+  /* "Global entries are not invalidated by the PFLUSH instruction variants that
+   * specify nonglobal entries" -- and `PFLUSHAN` names no function code, so it
+   * takes both spaces rather than one. */
+  machine_t m = {0};
+  run_one_supervisor_word(&m, 0xF510u);
+  attach_pflush_mmus(&m, true);
+  seed_entry(&pflush_atc_data, 0x10000u, PFLUSH_SUPERVISOR, true);
+  seed_entry(&pflush_atc_data, 0x20000u, PFLUSH_SUPERVISOR, false);
+  seed_entry(&pflush_atc_data, 0x30000u, PFLUSH_USER, false);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+
+  TEST_ASSERT_TRUE(
+      entry_present(&pflush_atc_data, 0x10000u, PFLUSH_SUPERVISOR));
+  TEST_ASSERT_FALSE(
+      entry_present(&pflush_atc_data, 0x20000u, PFLUSH_SUPERVISOR));
+  TEST_ASSERT_FALSE(entry_present(&pflush_atc_data, 0x30000u, PFLUSH_USER));
+}
+
+static void test_pflush_an_flushes_one_page_in_both_atcs(void) {
+  /* "The PFLUSH (An) instruction invalidates the entry in **each** address
+   * translation cache which matches the logical address in An and the specified
+   * function code." Two caches, one address, one instruction. */
+  machine_t m = {0};
+  run_one_supervisor_word(&m, (uint16_t)(0xF508u | 3u)); /* PFLUSH (A3) */
+  attach_pflush_mmus(&m, true);
+  m.cpu.regs.a[3] = 0x10123u;
+  m.cpu.regs.dfc = 5u; /* supervisor data */
+  seed_entry(&pflush_atc_instruction, 0x10000u, PFLUSH_SUPERVISOR, false);
+  seed_entry(&pflush_atc_data, 0x10000u, PFLUSH_SUPERVISOR, false);
+  seed_entry(&pflush_atc_data, 0x20000u, PFLUSH_SUPERVISOR, false);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+
+  TEST_ASSERT_FALSE(
+      entry_present(&pflush_atc_instruction, 0x10000u, PFLUSH_SUPERVISOR));
+  TEST_ASSERT_FALSE(
+      entry_present(&pflush_atc_data, 0x10000u, PFLUSH_SUPERVISOR));
+  /* A different page is untouched: the address is a selection criterion. */
+  TEST_ASSERT_TRUE(
+      entry_present(&pflush_atc_data, 0x20000u, PFLUSH_SUPERVISOR));
+}
+
+static void test_the_dfc_selects_the_space_pflush_flushes(void) {
+  /* The distinction this instruction and `PTEST` use the same register for in
+   * two different ways. Same word, same address, two DFCs, opposite results. */
+  for (unsigned trial = 0; trial < 2u; trial++) {
+    const bool supervisor_dfc = trial == 0u;
+    machine_t m = {0};
+    run_one_supervisor_word(&m, (uint16_t)(0xF508u | 3u));
+    attach_pflush_mmus(&m, true);
+    m.cpu.regs.a[3] = 0x10123u;
+    m.cpu.regs.dfc = supervisor_dfc ? 5u : 1u;
+    seed_entry(&pflush_atc_data, 0x10000u, PFLUSH_SUPERVISOR, false);
+    seed_entry(&pflush_atc_data, 0x10000u, PFLUSH_USER, false);
+
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                          ap_m68030_step(&m.cpu).status);
+
+    TEST_ASSERT_EQUAL_INT(
+        supervisor_dfc ? 0 : 1,
+        entry_present(&pflush_atc_data, 0x10000u, PFLUSH_SUPERVISOR) ? 1 : 0);
+    TEST_ASSERT_EQUAL_INT(
+        supervisor_dfc ? 1 : 0,
+        entry_present(&pflush_atc_data, 0x10000u, PFLUSH_USER) ? 1 : 0);
+  }
+}
+
+static void test_pflushn_an_spares_a_global_page(void) {
+  machine_t m = {0};
+  run_one_supervisor_word(&m, (uint16_t)(0xF500u | 3u)); /* PFLUSHN (A3) */
+  attach_pflush_mmus(&m, true);
+  m.cpu.regs.a[3] = 0x10123u;
+  m.cpu.regs.dfc = 5u;
+  seed_entry(&pflush_atc_data, 0x10000u, PFLUSH_SUPERVISOR, true);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+
+  TEST_ASSERT_TRUE(
+      entry_present(&pflush_atc_data, 0x10000u, PFLUSH_SUPERVISOR));
+}
+
+static void test_pflush_flushes_with_translation_disabled(void) {
+  /* "`PFLUSH` can be executed successfully despite the state of the E-bit", so
+   * an operating system that flushes before switching translation on gets what
+   * it asked for. Only the page size is read out of `TC`. */
+  machine_t m = {0};
+  run_one_supervisor_word(&m, 0xF518u);
+  attach_pflush_mmus(&m, false);
+  seed_entry(&pflush_atc_data, 0x10000u, PFLUSH_SUPERVISOR, false);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+
+  TEST_ASSERT_FALSE(
+      entry_present(&pflush_atc_data, 0x10000u, PFLUSH_SUPERVISOR));
+}
+
 /* **`PTESTR (A4)`, the instruction that killed a DS5500's crash report.**
  *
  * `[PRM]` p. 6-71's figure is `1 1 1 1 0 1 0 1 0 1 R/W 0 1 REGISTER`, so
@@ -10188,6 +10385,12 @@ int main(void) {
   RUN_TEST(test_the_68040s_control_registers_are_reached_by_movec);
   RUN_TEST(test_the_68040s_cache_instructions_execute_only_on_a_68040);
   RUN_TEST(test_the_68040s_pflush_executes_only_where_it_has_an_mmu);
+  RUN_TEST(test_pflusha_invalidates_both_atcs_including_global_entries);
+  RUN_TEST(test_pflushan_spares_global_entries_in_both_spaces);
+  RUN_TEST(test_pflush_an_flushes_one_page_in_both_atcs);
+  RUN_TEST(test_the_dfc_selects_the_space_pflush_flushes);
+  RUN_TEST(test_pflushn_an_spares_a_global_page);
+  RUN_TEST(test_pflush_flushes_with_translation_disabled);
   RUN_TEST(test_the_68040s_ptest_reports_residence_into_the_mmusr);
   RUN_TEST(test_the_access_error_frames_atc_bit_follows_the_faults_origin);
   RUN_TEST(test_a_faulted_push_and_what_it_leaves_in_a7);

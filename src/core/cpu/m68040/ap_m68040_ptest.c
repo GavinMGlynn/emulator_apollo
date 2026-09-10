@@ -50,7 +50,10 @@ ap_m68040_ptest_result_t ap_m68040_ptest(const ap_m68040_mmu_t *mmu,
    * specified by the function code will be flushed by PTEST." Before the
    * search, so the search cannot be short-circuited by the entry that is about
    * to stop existing. */
-  ap_m68040_atc_flush_page(mmu->atc, logical, supervisor, tcr.page_size);
+  /* `false`: §3.7.3's flush carries no global qualifier -- "a matching entry in
+   * the address translation cache ... specified by the function code will be
+   * flushed by PTEST", with no exception for `G`. */
+  ap_m68040_atc_flush_page(mmu->atc, logical, supervisor, tcr.page_size, false);
 
   /* "The PTESTR instruction simulates a read access and sets the U-bit in each
    * descriptor during table searches; PTESTW simulates a write access and also

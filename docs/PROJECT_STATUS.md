@@ -2922,6 +2922,123 @@ question. The writeback stands on its own: it was a documented, named
 `PROVISIONAL` gap on the live translation path, and Table 3-1 is now in the tree
 row for row.
 
+### The doubled fault was `PFLUSH`, and `PFLUSH` was doing nothing
+
+*The instrument was free: the trace was already on disk.* Diffing the two fault
+handlers PC for PC — the pair for page `0091E000`, at steps 1,948,643,958 and
+1,948,647,251 — they agree for **28 instructions** and then part:
+
+```
+7A42E358  4E7B        MOVEC   Dn,DFC
+7A42E35C  F568        PTESTR  (A0)          ; A0 = 0091E000
+7A42E35E  4E7A        MOVEC   MMUSR,D1
+7A42E362  F508        PFLUSH  (A0)
+7A42E364  0801 ....   BTST    #n,D1
+7A42E368  6700 ....   BEQ.W                 ; taken in A, not taken in B
+```
+
+Handler **A** takes the branch and runs **3,293 steps** — the page-in, with two
+more `PFLUSH (A0)` on the page table it edits and a `PFLUSHA` near the end.
+Handler **B** falls through and runs **96 steps**, then returns and the access
+succeeds. **A 96-step handler is not a page-in. It is "there is nothing wrong
+here".**
+
+*So the second fault was spurious, and the reason is one instruction.* Domain/OS
+does exactly what an access-error handler should: `PTESTR` the faulting address,
+then `PFLUSH` it. **`PTEST` fills the ATC** — `[PRM]` p. 6-70's "Completion of
+PTEST results in the creation of a new address translation cache entry" — so
+handler A's own probe left a *non-resident* entry behind before it went off to
+map the page. Its `PFLUSH`es should have removed it. **They did nothing**:
+
+```c
+    } else {
+      cpu->atc_flush_operations++;      /* and that was the whole instruction */
+    }
+```
+
+**The comment beside that line was true when it was written and had been false
+for as long as the ATCs had been attached**: "there is nothing to flush --
+`ap_m68040_atc.*` is a complete module ... attached to no CPU, so a no-op is the
+*correct* effect rather than a convenient one." `ap_m68040_mmu_translate` fills
+and consults those ATCs. **Domain/OS issued 3,515 flushes on one boot and every
+one was a counter increment.** So did the boot report, whose `atc flushes`
+line's comment said the same thing. Both are corrected in the same commit as the
+code — *a stale justification is how a fixed premise keeps an unfixed
+consequence alive*, and this is the second one found today.
+
+**`[PRM]` p. 6-35, read as a page image, and two of its clauses are traps.**
+
+> "Invalidates address translation cache entries in **both the instruction and
+> data** address translation caches. The instruction has two forms. The PFLUSHA
+> instruction invalidates all entries. The PFLUSH (An) instruction invalidates
+> the entry in **each** address translation cache which matches the logical
+> address in An and the specified function code.
+>
+> The function code for PFLUSH is specified in the destination function code
+> register. Destination function code values of **1 or 2** will result in
+> flushing of **user** address translation cache entries in both address
+> translation caches; whereas, values of **5 or 6** will result in flushing of
+> **supervisor** address translation cache entries. PFLUSH is undefined for
+> destination function code values of 0, 3, 4, and 7 and **may cause flushing of
+> an unexpected entry**.
+>
+> The PFLUSHN and PFLUSHAN instructions have a global option specified and
+> invalidate **only nonglobal** entries."
+
+1. **The DFC means something different here than in `PTEST`.** For `PTEST` it
+   picks *which ATC* to search — `2` or `6` is the instruction side. For
+   `PFLUSH` **both** ATCs are flushed and the DFC picks the *space*: `FC2`
+   selects supervisor or user, and `FC1`/`FC0` choose nothing. Two instructions,
+   one register, opposite readings; `step_suite` pins it with the same word and
+   the same address under DFC 5 and DFC 1.
+2. **The undefined codes are undefined in a different way, too.** `PTEST`'s
+   undefined thing is a *value*, so leaving `MMUSR` alone invents nothing and
+   that is what this core does. `PFLUSH`'s undefined thing is *which entry*, and
+   the manual says one is flushed — so `FC2` is honoured for all eight codes and
+   the "unexpected entry" is the one the encoding names.
+
+Opmode is bits 4-3 — `00` `PFLUSHN (An)`, `01` `PFLUSH (An)`, `10` `PFLUSHAN`,
+`11` `PFLUSHA` — read as two flags rather than four cases, because bit 4 is "all
+entries" and bit 3 is "global included". `PFLUSHAN` names no function code and
+its own example is about task swaps, so it takes both spaces.
+
+**And the DS5500 goes from dying to running the restore.** Same disk, same
+cartridge, same script, one instruction changed:
+
+| | Before | After |
+| --- | --- | --- |
+| stop | `ILLEGAL on 77FC` at `009175A8`, in a page of zeros | still executing kernel code at `7A4C74BE` when the bound ran out |
+| MMU faults | 362 | 206 |
+| the copy loop's faults | `PC 008030F0  60 time(s)` | `32 time(s)`, on a **longer** run |
+| exception kinds | vectors 2, 35, 39 | vectors 2, 32, 33, 34, 35, 36, 37, 39, 40 |
+| console | nothing after the kernel banner | see below |
+
+```
+Domain/OS kernel(14), revision 10.4, February 26, 1992  3:05:56 pm
+
+RBAK_BS reloading system software from cartridge tape....
+
+ *** This program will replace system software on your disk.
+Do you wish to proceed? (Y/N): Y
+```
+
+**`RBAK_BS` is the SR10.4 restore program**, the same one the DN3500 runs end to
+end. The DS5500 reaches it, prints its warning, and takes the `Y`. Nine
+exception vectors where there were three is a machine doing work rather than one
+falling over.
+
+*The bound is part of the result.* The run ends at the **2,000,000,000-step**
+bound — `--boot-limit 2000000000`, 1,659,887,636 instructions — with the machine
+still running normally. **The restore did not complete**, and nothing here says
+it would; what is measured is that it started and is progressing.
+
+*Verification*: `step_suite` 321 → 327 — `PFLUSHA` clearing both ATCs including
+global entries, `PFLUSHAN` sparing global in both spaces, `PFLUSH (An)` reaching
+both ATCs and no other page, the DFC selecting the space, `PFLUSHN (An)` sparing
+a global page, and a flush with the `E`-bit clear because "`PFLUSH` can be
+executed successfully despite the state of the E-bit"; `ctest` 147/147 both
+presets; identity `F78D6DBE770CAF47` unmoved.
+
 *This is the fourth time the answer has been on a shelf nobody looked at*, and
 the first three are already memories. The difference is that this shelf had been
 *audited* as complete: twenty-two walk records, every one finished, every one a
@@ -16192,7 +16309,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 state hash (the identity harness's CPU half) | working: every architectural register, the MMU and cache control registers, the pipe, both caches, the ATC, and the accumulated clock — host pointers excluded by construction, since `ap_hash.h` has no pointer helper | `state_suite`, 16 tests sweeping every field; `step_suite`'s same-program-twice check |
 | 68030 addressing mode categories (Data / Memory / Control / Alterable) | working; derived from §2.3's definitions rather than transcribed from Table 2-4, whose Alterable column is exchanged between two row pairs in the scan | `category_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §2.3 |
 | 68030 operand access (read/write through an effective address) | working; a sub-long-word operand is selected from the long word by position, and one straddling two long words is split into a bus cycle per long word in address order | `operand_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` |
-| 68030 instruction step (fetch → decode → execute → advance) | **complete**: the `RESET` instruction costs its **518 clocks** as of 2026-09-07 -- `[030]` §11.6.17's `518(0/0/0)` and `[PRM]`'s "Asserts the RSTO signal for 512 ... clock periods", two independent documents for a figure the arm was charging zero for. The boot PROM does not execute one in the identity window, which the byte-identical clock total proves rather than assumes: **a bit field accesses only the bytes it spans as of 2026-09-06** -- `[PRM]`'s note on every bit field page gives the shapes (byte, word, 3-byte, long word, and long word with byte for a five-byte span) and `[030]` §11.6.14 prices them at one operand read under five bytes and two at five. This core read **one byte per bit** -- thirty-two accesses for a 32-bit field, and a read-modify-write per bit on the write path, so a field written across a device register read and rewrote it eight times a byte. The values were always right, which is why every existing test passed. Measured at 2 and 3 bus reads after, against 33 and 33 before: every one of the 65,536 opcode words executes, and **no word in the space reports `UNIMPLEMENTED`** — a swept property, not a list. The sweep extends through the coprocessor extension space and the MMU extension word, where *which instruction a word is* lives in the extension rather than the opcode; both found real gaps (664 coprocessor forms, 94,316 MMU forms) that an opcode-only sweep could not see. This row used to enumerate the dozen families that worked and end "everything else reports unimplemented, including divide-by-zero", which was stale by the whole instruction set | `step_suite`, 321 tests -- the newest being the **MC68040's** `PTEST`, whose result the DS5500's firmware reads back |
+| 68030 instruction step (fetch → decode → execute → advance) | **complete**: the `RESET` instruction costs its **518 clocks** as of 2026-09-07 -- `[030]` §11.6.17's `518(0/0/0)` and `[PRM]`'s "Asserts the RSTO signal for 512 ... clock periods", two independent documents for a figure the arm was charging zero for. The boot PROM does not execute one in the identity window, which the byte-identical clock total proves rather than assumes: **a bit field accesses only the bytes it spans as of 2026-09-06** -- `[PRM]`'s note on every bit field page gives the shapes (byte, word, 3-byte, long word, and long word with byte for a five-byte span) and `[030]` §11.6.14 prices them at one operand read under five bytes and two at five. This core read **one byte per bit** -- thirty-two accesses for a 32-bit field, and a read-modify-write per bit on the write path, so a field written across a device register read and rewrote it eight times a byte. The values were always right, which is why every existing test passed. Measured at 2 and 3 bus reads after, against 33 and 33 before: every one of the 65,536 opcode words executes, and **no word in the space reports `UNIMPLEMENTED`** — a swept property, not a list. The sweep extends through the coprocessor extension space and the MMU extension word, where *which instruction a word is* lives in the extension rather than the opcode; both found real gaps (664 coprocessor forms, 94,316 MMU forms) that an opcode-only sweep could not see. This row used to enumerate the dozen families that worked and end "everything else reports unimplemented, including divide-by-zero", which was stale by the whole instruction set | `step_suite`, 327 tests -- the newest being the **MC68040's** `PFLUSH`, which now flushes the ATCs it has been counting |
 | 68030 instruction prefetch (pipe driven from memory) | working | `fetch_suite`, 5 tests, `MC68030 User's Manual 3ed` §11.2.2 and §6.1 |
 | 68030 logical memory access path (cache → MMU → bus) | working, reads and writes. **The read half of a read-modify-write is forced to miss the data cache** — `[030]` §6.1.2.2, "always forced to miss", and §11.4's note says it again from the timing end. This core passed a literal `false` for the RMC flag into the cache, so a `TAS` or `CAS` whose operand was already cached answered from the line: no external cycle, and a semaphore read that could not see another master's write. The same constant also hid the RMC from `CBREQ` suppression and *cleared* `bus->rmc` on the read cycle of the indivisible pair. Corrected 2026-09-06 | `access_suite`, 19 tests, `MC68030 User's Manual 3ed` §6.1 -- the newest telling a translation's refusal apart from the bus's, which is the 68040 frame's `ATC` bit |
 | 68030 effective address calculation (with register side effects) | working; memory-indirect modes report the pending indirection | `addr_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` §2.2 |
@@ -16207,7 +16324,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 family 0100 `$4E` control group (TRAP/LINK/UNLK/MOVE USP/RESET/NOP/STOP/RTE/RTD/RTS/TRAPV/RTR/JSR/JMP) | **complete**, and so is the rest of family 0100 — the row said "the rest of family 0100 not yet decoded", which the exhaustive sweep above has contradicted since it was written | `control_suite`, 11 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 |
 | 68030 family 0101 (ADDQ/SUBQ/Scc/DBcc/TRAPcc) decode | working | `quick_suite`, 10 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and each instruction page |
 | 68030 branch family (Bcc/BSR/BRA) decode | working | `branch_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and the Bcc/BRA/BSR pages |
-| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 321 tests -- the newest being the **MC68040's** `PTEST`, whose result the DS5500's firmware reads back, and the per-subsystem suites |
+| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 327 tests -- the newest being the **MC68040's** `PFLUSH`, which now flushes the ATCs it has been counting, and the per-subsystem suites |
 | 68030 operation code map (top-level instruction family) | working | `opcode_suite`, 6 tests, `M68000 Family Programmer's Reference Manual 1992` Table 8-2 |
 | 68030 conditional tests (the 16 Bcc/Scc/DBcc/TRAPcc conditions) | working | `cond_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-19 |
 | 68030 effective address decode (modes, extension words, lengths) | decode and extension-word counts working; address *calculation* needs the instruction unit | `ea_suite`, 17 tests, `M68000 Family Programmer's Reference Manual 1992` §2, Tables 2-1, 2-2, 2-4 |

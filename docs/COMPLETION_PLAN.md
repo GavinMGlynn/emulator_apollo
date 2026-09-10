@@ -5020,6 +5020,22 @@ discipline throughout.
       **And it refutes the reason it was reached for.** The doubled page fault
       in the R/W-data copy was not this: the two runs differ in the writeback
       and in nothing else, and the doubling is unchanged.
+      **The doubled fault was `PFLUSH`, which was a counting no-op, 2026-09-10.**
+      Its "there is nothing to flush -- the ATC is attached to no CPU"
+      justification expired the day the MMU join landed, and Domain/OS issued
+      **3,515 flushes on one boot that all did nothing**, so its own
+      `PTEST`-then-`PFLUSH` fault handler left a stale non-resident entry and
+      every page faulted twice. Now all four variants, both ATCs, `[PRM]`
+      p. 6-35 — where the DFC picks the *space* and not the side, the opposite
+      of `PTEST`'s use of the same register.
+      **The DS5500 now runs the SR10.4 restore.** `RBAK_BS reloading system
+      software from cartridge tape....`, its replace-warning, and the `Y` — from
+      a machine that died in a page of zeros an hour earlier. MMU faults
+      362 -> 206, the copy loop's 60 -> 32, nine exception vectors where there
+      were three. *It ends at the 2,000,000,000-step bound still running: the
+      restore has started, not finished, and that is the next thing to measure.*
+      *Verification: `step_suite` 321 -> 327; `ctest` 147/147 both presets;
+      identity `F78D6DBE770CAF47` unmoved. Detail in `PROJECT_STATUS.md`.*
       **The DS5500 reaches its own monitor, 2026-09-10** — `MD14 REV 2.00,
       1991/03/08.16:20:14` and a `>` prompt, from a machine that could execute
       two of its instructions a day earlier. It cost **one address range**:

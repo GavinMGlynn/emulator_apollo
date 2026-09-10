@@ -2932,10 +2932,13 @@ static void report_state(ap_machine_t *machine) {
     printf("               urp %08X  srp %08X  mmusr %08X  cache ops %llu\n",
            machine->cpu.urp_040, machine->cpu.srp_040, machine->cpu.mmusr_040,
            (unsigned long long)machine->cpu.cache_maintenance_operations);
-    /* `PFLUSH` executions. Beside the cache count and for the same reason: with
-     * the ATC attached to no CPU there is nothing to flush, so the number is
-     * how a run says it *reached* the instruction. Domain/OS's DS5500 loader
-     * executes `PFLUSHA` early, and until 2026-09-10 that was an F-line trap. */
+    /* `PFLUSH` executions, and since 2026-09-10 they flush: the ATCs are
+     * attached, so this counts work rather than arrivals. *It used to read*
+     * "with the ATC attached to no CPU there is nothing to flush, so the number
+     * is how a run says it reached the instruction", which stayed true-sounding
+     * for exactly as long as it took the MMU join to land and made 3,515
+     * flushes a run look accounted for. Domain/OS's DS5500 loader executes
+     * `PFLUSHA` early, and until 2026-09-10 that was an F-line trap. */
     printf("               atc flushes %llu PFLUSH(es)\n",
            (unsigned long long)machine->cpu.atc_flush_operations);
     /* `PTEST` executions, and this one is not "did it reach the instruction"
