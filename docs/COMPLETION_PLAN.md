@@ -4473,9 +4473,14 @@ discipline throughout.
       each trap number is a separate handler with its own dispatch table,
       indexed by the SVC number in `D0`.
       §4 settles the volume units: a disk block is **1024 + 32 = 1056 bytes**, so
-      the DS5500's 4 KB page is four of them — and it raises one question, since
-      the PV and LV labels are "a single disk block" each there against four
-      sectors each measured here. §15 claims **every ISR runs at IL 6**, which is
+      the DS5500's 4 KB page is four of them. The apparent conflict — labels of
+      "a single disk block" each against four sectors each measured here — was
+      settled against `media/dn5500-invol-done.awd`: sectors 0-3 all carry the
+      canned UID `00000200` (the PV label's "200.0") and 4-7 carry `00000201`,
+      with differing bodies, so **the labels occupy one page each and a page is
+      four blocks**. The addressing unit followed the page size, which also turns
+      §27.1's "physical disk blocks 2-B" into sectors 8-47 — the measured
+      figure. §15 claims **every ISR runs at IL 6**, which is
       observable and unchecked. §22's hardware type mask is the DN3xx/DN5xx
       `TMASK`, a third witness for `RING.md` findings 55 and 92 and no help to
       133b. A **second 56-page hardware manual is bound in at pp. 371-426** that

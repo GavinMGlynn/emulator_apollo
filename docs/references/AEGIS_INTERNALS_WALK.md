@@ -316,15 +316,40 @@ software checksum "used only if read-after-write checksumming is turned on", and
 the block's own physical disk address. It exists so that "**SALVOL can
 reconstruct the disk even if the volume table of contents has been destroyed**".
 
-**And one measured number does not line up.** §4.2.1: "INVOL always creates the
-PV label on the **first block (physical DADDR 0)**", it "is a single disk
-block", it has "a canned UID of **200.0**", and §4.3: "The first block of the
-logical volume (**physical block 1** for the first logical volume, logical block
-0) contains the logical volume label." This project measured the DS5500's PV
-label at sectors 0-3 and its LV label at 4-7 — four units each where this
-document gives one block each. Either the labels grew to a page on the DS5500,
-or the two are counting different units. **A question, not a finding**, and
-settleable offline from a disk image already on disk.
+**And one measured number looked wrong until the image was read.** §4.2.1:
+"INVOL always creates the PV label on the **first block (physical DADDR 0)**",
+it "is a single disk block", it has "a canned UID of **200.0**", and §4.3: "The
+first block of the logical volume (**physical block 1** for the first logical
+volume, logical block 0) contains the logical volume label." This project had
+measured the DS5500's PV label at sectors 0-3 and its LV label at 4-7 — four
+units each where the document gives one block each.
+
+*Settled offline against `media/dn5500-invol-done.awd`, and the document is
+right about its own release.* Every 1,056-byte sector begins with the 32-byte
+header §4.1 describes, and its first field is the owning UID:
+
+```
+sector 0  00 00 02 00 00 00 00 00 00 00 00 00  A4 61 60 72 ...   data: ..APOLLODN5500
+sector 1  00 00 02 00 ... (same UID, same timestamp)             data: empty
+sector 2  00 00 02 00 ...                                        data: empty
+sector 3  00 00 02 00 ...                                        data: 4 bytes
+sector 4  00 00 02 01 00 00 00 00 00 00 00 00  A4 61 60 3D ...   data: ..DN5500
+sector 5-7  00 00 02 01 ... (same UID)                           data: empty, empty, 8 bytes
+sector 8  A4 61 5F 51 30 01 23 45 ...                            a real UID, not a canned one
+```
+
+`00000200` is **the canned UID 200.0 this section names**, and it owns four
+consecutive blocks whose bodies differ — so they are four *pages of one object*,
+not four copies. `00000201` owns the next four. **The labels occupy one page
+each, and a DS5500 page is four blocks.**
+
+So the two accounts are the same account in different units: at SR9.0 a page was
+one 1,056-byte block, so "physical DADDR 0" and "sector 0" named the same thing;
+on a DS5500 the page is four blocks and the addressing unit followed it. **The
+same conversion settles §27.1's SYSBOOT**: "physical disk blocks 2-B" is pages
+2-11, which is sectors 8-47 — exactly what this project measured. Nothing was
+wrong; one unit had changed underneath the word "block", which is the kind of
+thing only reading both a document and an image catches.
 
 Also §4.2: a physical volume is the PV label, one or more logical volumes, a
 **badspot cylinder** ("usually one of the last two cylinders") and a
