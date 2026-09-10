@@ -4513,7 +4513,7 @@ discipline throughout.
       three distinguishable things**, and §F.3's `OBJDMP` — a shell command the
       DS5500 already has — dumps exactly those records. That is the cheapest next
       measurement on this question and needs no new instrument.
-      **47 of the 96 remain untouched.** `CONTENT_TRIAGE.md`
+      **46 of the 96 remain untouched.** `CONTENT_TRIAGE.md`
       settled 16 by a full-text scan for the vocabulary a hardware fact is
       written in — and separated 7 brochures the scan *could not read*, which is
       the fifth time this session a check reported clean because it could not
@@ -4525,7 +4525,12 @@ discipline throughout.
       controller's wrong `218` a provenance**: Table 3-1 moved the drive from
       `218-21F` to `200-207` between June 1987 and July 1988, `008778-03` is
       August 1987, and this project had already reached `200` by arithmetic from
-      that table's own physical column. The wrong value was once right, and **`[CFG]` — the configuration guide
+      that table's own physical column. The wrong value was once right.
+      And the **January 1981 preliminary** carries one slide February dropped —
+      `III.15 COMPILED OBJECT`, which states the two-part object format
+      (position-independent code mapped directly, plus a loader database that
+      builds the impure part) **six years before `[ASM]` Appendix F gives it as
+      a byte layout**, and dates position-independent code to the design, and **`[CFG]` — the configuration guide
       the model table has cited since Phase 5 — had never been opened**
       (`CFG_WALK.md`). It supplied the DS5500 figure that was stale, and its
       Series 3500 block reads "Monitor: 19-inch, 1280 by 1024" against a DN3500
