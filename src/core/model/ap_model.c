@@ -238,7 +238,23 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .display = AP_DISPLAY_MONO_1024X800,
         .oracle = AP_ORACLE_MAME,
         .ram_base = 0x1000000u,
-        .ram_max_bytes = 0x2000000u, /* 16-32 MB [CFG] */
+        /* **64 MB, and the source is the release that introduced the machine.**
+         * This was `0x2000000u` citing `[CFG]` -- the *HP-Apollo Products
+         * Configuration Guide* of **December 1989** and its July 1990 quick
+         * reference, both of which predate the DS5500 by two years and cannot
+         * be describing its final configuration.
+         *
+         * `018901-A00`, the SR10.4 release notes of March 1992, §1.4.1: "All
+         * memory modules shipped with the DN3500, DN3550 and DN4500
+         * workstations are also supported. In addition, a **new 16-MB memory
+         * module has been added which gives the DN5500 a total memory capacity
+         * of 64 MB**." SR10.4 is the release that added DS5500 support, so this
+         * is the machine's own document rather than a guide that predates it.
+         *
+         * Nothing in this core defaults to the maximum -- a DS5500 boot runs
+         * with 16 Mbyte -- so this raises a ceiling rather than changing a
+         * machine. */
+        .ram_max_bytes = 0x4000000u,
         .has_ring = true,
         .has_address_translation_map = true,
         .has_active_low_parity_lanes = true,
@@ -337,7 +353,8 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .display = AP_DISPLAY_NONE,
         .oracle = AP_ORACLE_MAME,
         .ram_base = 0x1000000u,
-        .ram_max_bytes = 0x2000000u,
+        /* 64 MB, its workstation sibling's -- see the DN5500 row. */
+        .ram_max_bytes = 0x4000000u,
         .has_ring = true,
         .has_address_translation_map = true,
         .has_active_low_parity_lanes = true,

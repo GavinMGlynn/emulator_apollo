@@ -2480,6 +2480,54 @@ instruction.**
 11 for **before** it decided to print `FAULT IN DOMAIN/OS:`. That is upstream of
 everything here and is where this item goes next.
 
+### The DS5500's memory ceiling was a guide's, from two years before the machine
+
+`018901-A00`, the **SR10.4 release notes of March 1992** — the release that
+introduced DS5500 support, and the first document off this shelf that describes
+the machine this project is bringing up. §1.4.1:
+
+> "SR10.4 provides support for the new Domain Series (DS) 5500, which is an
+> **MC68040-based CPU board upgrade** to the Domain Series 3500, 3550, and 4500
+> personal workstations. ... All memory modules shipped with the DN3500, DN3550
+> and DN4500 workstations are also supported. In addition, a **new 16-MB memory
+> module has been added which gives the DN5500 a total memory capacity of
+> 64 MB**. ... Because the MC68040 combines the MC68030 and MC68882 chip set
+> into one package ... the **Floating-Point Accelerator Board** presently
+> available on the DN3500, DN3550 and DN4500 **is not supported** on the DN5500.
+> **The PC AT bus and onboard I/O are retained on the DN5500.** To optimize
+> performance, a **new memory controller and bus interface** have been designed.
+> **A new I/O protection mechanism has been designed to support the 4-KB page
+> I/O mapping of the MC68040.** The new CPU board uses the **25 MHz** version of
+> the MC68040."
+
+**One field was wrong and is corrected.** `ap_model.c` gave the DN5500
+`ram_max_bytes = 0x2000000` — 32 MB — citing `[CFG]`, the *HP-Apollo Products
+Configuration Guide* of December 1989 and its July 1990 quick reference. **Both
+predate the machine by two years.** The ceiling is **64 MB**, and the DSP5500
+row follows it because `model_suite` requires a headless variant to match its
+workstation in every board respect — which is the test catching the second half
+of the change, not me.
+
+*Nothing else in the paragraph is new, and that is the interesting part.* The
+25 MHz clock, the on-chip FPU with no accelerator board, the retained AT bus and
+onboard I/O — all four were already in the row, derived from other sources. And
+the fifth sentence names something this project found the hard way this session:
+
+> "A new I/O protection mechanism has been designed to support the **4-KB page
+> I/O mapping** of the MC68040."
+
+**That is `board/ap_ioprot.*`.** It was placed because a DS5500 PROM clears four
+long words at `07000000` before it has a stack, and without the region the
+machine died 137 instructions in — `019411-A00` Table 2-5 named the region and
+nothing said what it was *for*. The release note says: it exists because the
+68040 maps I/O in 4 KB pages. **The empirical placement and the documented
+purpose agree, and neither was derived from the other.**
+
+*Verification: `model_suite` 23 → 24, the new test pinning the ceiling and three
+fields to §1.4.1 and saying why a configuration guide is the weaker source here;
+`golden_model_table` updated in the same commit, two rows, memory only;
+`ctest` 147/147.*
+
 ### The prefetch arm too, and the reference hash re-baselines to `F78D6DBE770CAF47`
 
 The `PROVISIONAL` left by the previous entry lasted one commit. The machine's
@@ -15860,7 +15908,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Subsystem | Status | Verification |
 | --- | --- | --- |
 | Build system, presets, CI | working | 4-platform matrix green on first run, plus the `-O0` vs `-O3` output-identity job |
-| Model table (`model/`) | working, 12 models | `model_suite`, 23 tests |
+| Model table (`model/`) | working, 12 models | `model_suite`, 24 tests -- the newest pinning the DS5500's 64 MB ceiling to `018901-A00` §1.4.1, the release note that introduced the machine, against a configuration guide that predates it |
 | Time base (`time/`) | working | `time_suite`, 17 tests |
 | State hash (`state/`) | primitive working | `hash_suite`, 13 tests, incl. published FNV-1a 64 vectors |
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 40 tests sweeping every device field by field |

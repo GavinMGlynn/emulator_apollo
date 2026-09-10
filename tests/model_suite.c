@@ -120,6 +120,42 @@ static void test_every_dsp_model_is_headless(void) {
  * own admission that its display came from a document whose job was selling
  * machines, and a later edit that fills the display in from a manual should
  * have to delete that admission deliberately. */
+/* **The DS5500's memory ceiling, and why its source is not the configuration
+ * guide every other row uses.**
+ *
+ * This field was `0x2000000` -- 32 MB -- citing `[CFG]`, the *HP-Apollo
+ * Products Configuration Guide* of December 1989 and its July 1990 quick
+ * reference. **Both predate the machine.** The DS5500 arrived with SR10.4 in
+ * March 1992, and `018901-A00` §1.4.1 is the release note that introduced it:
+ * "a new 16-MB memory module has been added which gives the DN5500 a total
+ * memory capacity of **64 MB**".
+ *
+ * So this row is pinned to a *later and more specific* document than the guide,
+ * and that is the thing worth asserting: a future edit that "corrects" it back
+ * to the guide's figure would be reverting to a source that could not have
+ * known. The same §1.4.1 supplies the other three fields asserted here, so a
+ * change to any of them contradicts the machine's own release note.
+ *
+ * `has_ring` is *not* asserted from that document: §1.4.1 says only that
+ * existing networks are supported, which is weaker than naming the ring. */
+static void test_the_dn5500s_memory_ceiling_comes_from_its_release_note(void) {
+  const ap_model_t *m = ap_model_by_id(AP_MODEL_DN5500);
+  TEST_ASSERT_NOT_NULL(m);
+
+  /* "which is an MC68040-based CPU board upgrade" and "uses the 25 MHz version
+   * of the MC68040". */
+  TEST_ASSERT_EQUAL_INT(AP_CPU_M68040, (int)m->cpu);
+  TEST_ASSERT_EQUAL_UINT32(25000000u, m->cpu_hz);
+
+  /* "Because the MC68040 combines the MC68030 and MC68882 chip set into one
+   * package ... the Floating-Point Accelerator Board ... is not supported on
+   * the DN5500" -- so the FPU is the part's own and never a separate board. */
+  TEST_ASSERT_EQUAL_INT(AP_FPU_M68040, (int)m->fpu);
+
+  /* The figure this test exists for. */
+  TEST_ASSERT_EQUAL_HEX32(0x4000000u, m->ram_max_bytes);
+}
+
 static void test_the_dn4000s_fields_are_pinned_to_their_sources(void) {
   const ap_model_t *m = ap_model_by_id(AP_MODEL_DN4000);
   TEST_ASSERT_NOT_NULL(m);
@@ -383,6 +419,7 @@ int main(void) {
   RUN_TEST(test_only_the_68020_models_use_an_external_pmmu);
   RUN_TEST(test_every_dsp_model_is_headless);
   RUN_TEST(test_each_dsp_matches_its_dn_sibling);
+  RUN_TEST(test_the_dn5500s_memory_ceiling_comes_from_its_release_note);
   RUN_TEST(test_the_dn4000s_fields_are_pinned_to_their_sources);
   RUN_TEST(test_every_model_supports_the_apollo_token_ring);
   RUN_TEST(test_the_reference_superset_has_a_runnable_oracle);
