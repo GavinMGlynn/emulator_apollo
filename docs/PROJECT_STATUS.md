@@ -2477,7 +2477,43 @@ the frame balance, the stack's size — were all downstream of one missing
 instruction.**
 
 *What is still not measured is the first fault*: what Domain/OS took vector 2 or
-11 for **before** it decided to print `FAULT IN DOMAIN/OS:`. That is upstream of
+11 for **before** it decided to print `FAULT IN DOMAIN/OS:`.
+
+### And the crash line's own fields are now decoded, from a handbook revision nobody had walked
+
+`002398-01` chapter 7 gives `status_t`: bit 31 a **fail** bit ("module couldn't
+handle error"), bits 30-24 a subsystem, bit 23 an **async** bit ("asynchronous
+fault; only set during delivery of fault"), bits 22-16 a **module**, bits 15-0 a
+module-specific code. Its chapter 4 then pairs every code with its text, and
+module **`0x12` is the fault module**.
+
+So the DS5500's **`Crash_Status 0012004B`** is: fail **clear**, subsystem `00`,
+async **clear**, module **fault**, code `004B`. **The clear async bit says the
+fault was *synchronous***, which `[AEGIS]` §18 defines as "a direct result of
+program execution" — and that is what an instruction fetch at `0080000C` is.
+*The code's text is not on this shelf*: the module-12 list runs to `0020` in
+1983, `002C` in 1985 and `003A` in 1987, and SR10.4 is 1992.
+
+**The same chapter identifies what the machine was calling.** Its published
+calling sequence is
+
+```
+MOVE.L ECBADR,A0     GET ADDRESS OF ECB
+JSR    (A0)          jump and push PC
+```
+
+and the callee's entry begins `MOVE.L 6(A0),DB` — "load my data base from ECB".
+**That is `movea.l d(a5),a0; jsr (a0)` exactly**, with `A5` as the data base
+register. So `0091709C` is an **Entry Control Block** address — `[DP]`'s
+"transfer vector" under Apollo's own calling-convention name — and a call into a
+page of zeros hands the callee a **null data base**, which is a sharper failure
+than jumping into nothing.
+
+*And one candidate is withdrawn.* `00120020` is "supervisor fault while resource
+lock(s) set", which is `fault_$while_lock_set`, the routine `[AEGIS]` §18.2.4
+names without a number. `AEGIS_INTERNALS_WALK.md` had recorded it as a possible
+reason a user-mode frame reached the supervisor crash path. **`004B` is not
+`0020`**, so it is not that. That is upstream of
 everything here and is where this item goes next.
 
 ### The DS5500's memory ceiling was a guide's, from two years before the machine
