@@ -5036,6 +5036,17 @@ discipline throughout.
       restore has started, not finished, and that is the next thing to measure.*
       *Verification: `step_suite` 321 -> 327; `ctest` 147/147 both presets;
       identity `F78D6DBE770CAF47` unmoved. Detail in `PROJECT_STATUS.md`.*
+      **Measured at 3,200,000,000 steps: the restore is writing files.** Sixty
+      of them, `com/sh`, `com/login` and `etc/init` among them, off the SR10.4
+      cartridge onto a DS5500 volume. It ends idle rather than broken -- `STOP`
+      executed, tape block **4914 of 104841** against **0** at the shorter bound,
+      so it is progressing and the bound is what stops it. **The whole restore
+      is of the order of 25 G steps**, past a single run here, and it is not
+      re-entrant the way `INVOL` is, so it cannot be chained.
+      *Two things this leaves named.* Finishing it needs one long run. And
+      ~244,000 steps a tape block, nine tenths of them idle, is a rate to
+      explain rather than accept -- the cheap comparison is the DN3500's restore
+      per block.
       **The DS5500 reaches its own monitor, 2026-09-10** — `MD14 REV 2.00,
       1991/03/08.16:20:14` and a `>` prompt, from a machine that could execute
       two of its instructions a day earlier. It cost **one address range**:
