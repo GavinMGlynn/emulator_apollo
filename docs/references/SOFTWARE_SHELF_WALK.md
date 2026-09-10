@@ -1,8 +1,14 @@
 # The Domain/OS software shelf — walk coverage record
 
-**State: 3 of 100 read, 20,770 pages.** `004977-02` walked whole 118/118;
-`AEGIS_Internals` and `014962-A00` passed over in full with their key chapters
-read whole. 97 documents untouched.
+**State: 4 of 100 read, 20,770 pages.** `004977-02` walked whole 118/118;
+`AEGIS_Internals`, `014962-A00` and `008862-01` passed over in full with their
+key chapters read whole. 96 documents untouched.
+
+- `008862-01` *Assembler Reference* — `008862-01_WALK.md`. Read because
+  `[AEGIS]`'s preface pointed at it. **Appendix F is the object module format**,
+  field by field, and it completes a four-document account of what the DS5500 is
+  stuck in — and names a tool the machine already has (`OBJDMP`) that would
+  measure it.
 
 - `004977-02` *Binder and Librarian Reference* — **walked whole, 118/118, 2026-09-10**,
   `004977-02_WALK.md`. It explained the DS5500's remaining symptom and changed no
