@@ -4580,6 +4580,21 @@ discipline throughout.
       addendum.
       Brochures, price lists and catalogues are listed and declared not worth
       walking, which is a judgement on the record rather than an omission.
+      **And `008860-A03` *Installing Domain Software* is now owed a walk,
+      2026-09-11.** 295 pages, scanned at 400 dpi with an Acrobat OCR layer,
+      already cited by this plan for Table 1-1's SAU numbers -- so a document
+      queried and never read, which is the shape `read-the-whole-document`
+      names. Chapter 1 was read for the DN5500 item and gave three facts this
+      project had been reconstructing by running the machine: `minst` starts
+      automatically on login after booting from distribution media, it asks for
+      one distribution cartridge at a time and only for those the chosen
+      template needs, and it is re-runnable with `/install/tools/minst` without
+      re-initialising the disk. **Chapter 3 is "a detailed description of the
+      `invol` utility" and Chapter 4 the same for `calendar`** -- the two
+      dialogues this project learned by running the machine, at the cost of a
+      run each (`tools/dn5500/README.md`'s four corrections to `FINDINGS.md`
+      C50, and the CALENDAR preamble in `install-sau14.cmds`). The page map is
+      built and every chapter boundary is known; what is owed is the reading.
 
 - [ ] **The DS5500 has a SCSI bus and this core models no SCSI.** From the
       `019411-A00` walk, Figure 1-5: a "Disk or SCSI/Disk Controller" drives a
