@@ -4513,12 +4513,17 @@ discipline throughout.
       three distinguishable things**, and §F.3's `OBJDMP` — a shell command the
       DS5500 already has — dumps exactly those records. That is the cheapest next
       measurement on this question and needs no new instrument.
-      **15 of the 96 remain untouched**, and the rest are settled with their
+      **14 of the 96 remain untouched**, and the rest are settled with their
       evidence: a second triage pass extracted **every remaining document's
       hardware-term matches with their context and read them**, which changed
       one verdict (the Pascal reference) and showed twenty-six documents contain
-      no hard hardware term at all. The `Apollo_Price_List` confirmed four
-      DN3000 fields from a source the model table does not cite. And a *language reference* turned out to
+      no hard hardware term at all. The `Apollo_Price_List` turned out to hold
+      **five per-model specification blocks** (`PRICE_LIST_WALK.md`) that agree
+      with `ap_model.c` throughout, settle the DN3500 monitor question a third
+      time, and **name two DN4500 features the table has no field for** — a
+      64 KB physical cache and two-way interleaved memory, recorded on the row
+      as a named gap with its cost to close, because both are timing features
+      and the timing work is on the DN3500 where the oracle is. And a *language reference* turned out to
       hold a hardware source: `000792-A01` Appendix F is Apollo's account of the
       68040's floating-point trap, and its Table F-1 narrows Motorola's
       twenty-seven unimplemented instructions to the **eight** Apollo's

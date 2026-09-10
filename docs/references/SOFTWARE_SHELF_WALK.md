@@ -17,9 +17,11 @@ worth walking (`CONTENT_TRIAGE.md`), 6 in progress plus the **six-document relea
 guide the model table has cited since Phase 5 and nobody had opened — 2 hardware handbook revisions and
 `000959-A00`, which **corrected a rule this project had written down twice** —
 and **10 patents triaged** (`PATENTS_WALK.md`): 1 already a primary source, 1
-kept as a future source, 8 out of scope on their subject. **15 untouched**, all of them documents whose matches were read and found
+kept as a future source, 8 out of scope on their subject. **14 untouched**, all of them documents whose matches were read and found
 derivative or false, and which are listed with that evidence in
-`CONTENT_TRIAGE.md` rather than left as a bare count.
+`CONTENT_TRIAGE.md` rather than left as a bare count. The fifteenth,
+`Apollo_Price_List_Jul88`, turned out to hold **five per-model specification
+blocks** — `PRICE_LIST_WALK.md`.
 
 - `018901-A00`, the **SR10.4 release notes** — `018901-A00_WALK.md`. The release
   this project boots and the one that introduced the DS5500. Its §1.4.1
