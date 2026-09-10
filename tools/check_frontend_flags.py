@@ -191,9 +191,34 @@ def main() -> int:
         # ---- the console script, whose parsing needs no machine ----
         bad = work / "bad.script"
         bad.write_text("wait for something\n")
-        check("--boot-script refuses a line that is not send or expect",
+        check("--boot-script refuses a line that is not send, expect or swap",
               ["--boot-prom", "/nonexistent", "--boot-script", str(bad)],
-              r"not send or expect", want_ok=False)
+              r"not send, expect or swap", want_ok=False)
+
+        # `swap PATH` changes the cartridge, which is what a Domain/OS install
+        # asks for once per distribution tape (`008860-A03` Chapter 1, Step 4).
+        # A swap accepted where there is no drive would stall a dialogue for
+        # ever with nothing said, so the loader takes a flag and the ring path
+        # passes false. Checked in the source: the ring runner reads its boot
+        # PROM before it loads a script, and CI has no PROM, so the refusal
+        # cannot be reached by running the binary here.
+        main_c = (REPO / "src" / "frontend" / "headless" / "main.c").read_text()
+        source_check("a cartridge swap is refused where there is no drive: "
+                     "the loader takes the permission",
+                     "console_script_load(ap_console_script_t *script," in main_c
+                     and "bool allow_swap) {" in main_c)
+        source_check("a cartridge swap is refused where there is no drive: "
+                     "the ring path withholds it",
+                     "console_script_load(&script[i], g_ring_script[i], false)"
+                     in main_c)
+        source_check("a cartridge swap is refused where there is no drive: "
+                     "the single-node path grants it",
+                     "console_script_load(&script, console_script_path, true)"
+                     in main_c)
+        source_check("a cartridge swap names the file it cannot read",
+                     "cannot read cartridge image %s" in main_c)
+        source_check("a cartridge swap refused by the drive's lock says so",
+                     "the drive has the cartridge locked" in main_c)
         missing = work / "absent.script"
         check("--boot-script says so when the file is not there",
               ["--boot-prom", "/nonexistent", "--boot-script", str(missing)],

@@ -251,10 +251,12 @@ static void print_usage(const char *program_name) {
           "                        would be perturbed by being watched\n"
           "  --boot-input TEXT     deliver TEXT to serial port 2 as the\n"
           "                        firmware reads it; scripted, not host input\n"
-          "  --boot-script FILE    a console dialogue: lines of `expect TEXT`\n"
-          "                        and `send TEXT`, in order. Waits for what the\n"
-          "                        machine says before answering, which a fixed\n"
-          "                        --boot-input cannot do\n"
+          "  --boot-script FILE    a console dialogue: lines of `expect TEXT`,\n"
+          "                        `send TEXT` and `swap PATH`, in order. Waits\n"
+          "                        for what the machine says before answering,\n"
+          "                        which a fixed --boot-input cannot do; `swap`\n"
+          "                        changes the cartridge in the drive, which an\n"
+          "                        install asks for once per distribution tape\n"
           "");
   /* Split here only because ISO C99 guarantees just 4095 characters in a
    * string literal, and this list passed it. No flag is grouped by meaning
@@ -1333,8 +1335,29 @@ static bool ring_node_disk(const char *path, uint8_t **bytes, ap_awd_t *image,
  *
  * This is the "scripted input" half of the frontend-flags item, and it is what
  * the item meant: input *at the machine's pace* rather than at ours. */
+typedef enum {
+  AP_CONSOLE_STEP_EXPECT = 0,
+  AP_CONSOLE_STEP_SEND,
+  /* `swap PATH`: change the cartridge in the drive, which is an operator
+   * action rather than something said on the console.
+   *
+   * **It is a script step and not a flag, because *when* is the whole of it.**
+   * `FINDINGS.md` C56: a swap queued behind a bare wait raced the drive and
+   * gave `?(rbak) (open_input_volume) Unable to open backup file. - controller
+   * timeout`. The rule that recovered it is "swap only at a prompt, with the
+   * drive idle", and a prompt is exactly what an `expect` waits for -- so
+   * sequencing the swap in the dialogue is what makes it safe, where a
+   * step-numbered flag would be the guess that failed.
+   *
+   * `008860-A03` Chapter 1 Step 4 is why it exists: `minst` "prompts you to
+   * insert that particular tape volume in the drive", once per distribution
+   * cartridge the chosen template needs, and a machine with one drive and no
+   * way to change its media cannot answer. */
+  AP_CONSOLE_STEP_SWAP,
+} ap_console_step_kind_t;
+
 typedef struct {
-  bool send;      /* false for expect */
+  ap_console_step_kind_t kind;
   char text[128];
 } ap_console_step_t;
 
@@ -1401,8 +1424,13 @@ static void console_script_unescape(char *text) {
   *out = '\0';
 }
 
+/* `swap` is refused where there is no drive to swap in, and refused *here*
+ * rather than at the step: a ring run's two nodes carry no cartridge, so a swap
+ * step in one of their scripts would stall the dialogue for ever with nothing
+ * to say why. A load-time message names the file and the line's intent. */
 [[nodiscard]] static bool console_script_load(ap_console_script_t *script,
-                                              const char *path) {
+                                              const char *path,
+                                              bool allow_swap) {
   FILE *file = fopen(path, "r");
   if (file == NULL) {
     fprintf(stderr, "apollo: cannot read console script %s\n", path);
@@ -1426,18 +1454,34 @@ static void console_script_unescape(char *text) {
     }
     ap_console_step_t *step = &script->step[script->steps];
     if (strncmp(line, "send ", 5u) == 0) {
-      step->send = true;
+      step->kind = AP_CONSOLE_STEP_SEND;
       snprintf(step->text, sizeof step->text, "%s", line + 5);
     } else if (strncmp(line, "expect ", 7u) == 0) {
-      step->send = false;
+      step->kind = AP_CONSOLE_STEP_EXPECT;
       snprintf(step->text, sizeof step->text, "%s", line + 7);
+    } else if (strncmp(line, "swap ", 5u) == 0) {
+      if (!allow_swap) {
+        fprintf(stderr,
+                "apollo: console script %s asks for a cartridge swap, and this "
+                "run has no cartridge drive: %s\n",
+                path, line);
+        ok = false;
+        break;
+      }
+      step->kind = AP_CONSOLE_STEP_SWAP;
+      snprintf(step->text, sizeof step->text, "%s", line + 5);
     } else {
-      fprintf(stderr, "apollo: console script line is not send or expect: %s\n",
+      fprintf(stderr,
+              "apollo: console script line is not send, expect or swap: %s\n",
               line);
       ok = false;
       break;
     }
-    console_script_unescape(step->text);
+    /* **Not unescaped for a swap**: the text is a path, and a Windows-shaped
+     * one would lose its separators to `\r` and `\n`. */
+    if (step->kind != AP_CONSOLE_STEP_SWAP) {
+      console_script_unescape(step->text);
+    }
     script->steps++;
   }
   fclose(file);
@@ -1452,7 +1496,8 @@ static void console_script_unescape(char *text) {
  * a machine that has printed a prompt then stops talking, so there is no later
  * byte to trigger the test. */
 static void console_script_settle(ap_console_script_t *script) {
-  while (script->at < script->steps && !script->step[script->at].send &&
+  while (script->at < script->steps &&
+         script->step[script->at].kind == AP_CONSOLE_STEP_EXPECT &&
          strstr(script->seen, script->step[script->at].text) != NULL) {
     /* Matched: consume the stream so the next `expect` cannot be satisfied by
      * the same text, which is how a script silently skips a prompt. */
@@ -1482,9 +1527,35 @@ static void console_script_saw(ap_console_script_t *script, uint8_t byte) {
   console_script_settle(script);
 }
 
+/* The swap the script is waiting on, or NULL.
+ *
+ * The parser knows nothing about machines and this keeps it that way: the
+ * frontend asks what is pending, changes the media itself, and says so. That is
+ * also what lets the two-node ring runs share this parser untouched -- they
+ * have no cartridge and simply never see one of these steps. */
+[[nodiscard]] static const char *console_script_pending_swap(
+    const ap_console_script_t *script) {
+  if (script->at >= script->steps ||
+      script->step[script->at].kind != AP_CONSOLE_STEP_SWAP) {
+    return NULL;
+  }
+  return script->step[script->at].text;
+}
+
+/* The swap happened. Settles for the same reason `console_script_next` does:
+ * the prompt that follows may already be in the buffer. */
+static void console_script_swapped(ap_console_script_t *script) {
+  script->at++;
+  script->sent = 0u;
+  console_script_settle(script);
+}
+
 /* The next byte to deliver, or -1 when the script is waiting or finished. */
 [[nodiscard]] static int console_script_next(ap_console_script_t *script) {
-  if (script->at >= script->steps || !script->step[script->at].send) {
+  if (script->at >= script->steps ||
+      script->step[script->at].kind != AP_CONSOLE_STEP_SEND) {
+    /* A swap stalls the console the same way an `expect` does. It is the
+     * frontend that performs it, through `console_script_pending_swap`. */
     return -1;
   }
   const char *text = script->step[script->at].text;
@@ -1773,7 +1844,7 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
 #define AP_RING_KNOCK_SLICES 8u
   for (unsigned i = 0; i < NODES; i++) {
     if (g_ring_script[i] != NULL &&
-        !console_script_load(&script[i], g_ring_script[i])) {
+        !console_script_load(&script[i], g_ring_script[i], false)) {
       free(prom);
       free(ring_rom);
       return 2;
@@ -2765,6 +2836,49 @@ static ap_afd_t g_diskette;
 /* And a cartridge in the QIC drive, the same distinction against `--tape`. */
 static const char *g_cartridge_path = NULL;
 static uint8_t *g_cartridge_bytes = NULL;
+
+/* Change the cartridge in the drive, which is what a console script's
+ * `swap PATH` asks for.
+ *
+ * **The eject can be refused, and being told is the point.** `ap_tape_eject`
+ * honours the drive's soft lock, so a swap issued while a transfer holds the
+ * cartridge answers false instead of quietly changing the media under a
+ * running read -- which is `FINDINGS.md` C56's failure with the cause made
+ * visible rather than arriving later as `?(rbak) (open_input_volume) Unable to
+ * open backup file. - controller timeout`.
+ *
+ * The image that leaves is freed: an install walks four cartridges and each is
+ * tens of megabytes, so holding every one of them would be a leak with a size.
+ */
+[[nodiscard]] static bool boot_swap_cartridge(ap_board_t *board,
+                                              const char *path) {
+  if (!ap_tape_eject(&board->tape)) {
+    fprintf(stderr,
+            "apollo: swap %s refused -- the drive has the cartridge locked, so "
+            "a transfer is in progress. Swap at a prompt.\n",
+            path);
+    return false;
+  }
+  long size = 0;
+  uint8_t *bytes = read_file(path, &size);
+  if (bytes == NULL) {
+    fprintf(stderr, "apollo: cannot read cartridge image %s\n", path);
+    return false;
+  }
+  if (!ap_tape_load(&board->tape, bytes, (size_t)size, AP_QIC_CARTRIDGE_DC600A,
+                    true)) {
+    fprintf(stderr, "apollo: %s is not an Apollo cartridge image\n", path);
+    free(bytes);
+    return false;
+  }
+  free(g_cartridge_bytes);
+  g_cartridge_bytes = bytes;
+  g_cartridge_path = path;
+  printf("cartridge %s, %ld bytes, swapped in\n", path, size);
+  (void)fflush(stdout);
+  return true;
+}
+
 static bool g_ring_selftest = false;
 /* Two whole machines on one ring segment, in one process. See
  * `run_ring_two_node`. */
@@ -3918,7 +4032,7 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
    * file happens to be missing first. */
   static ap_console_script_t script;
   if (console_script_path != NULL &&
-      !console_script_load(&script, console_script_path)) {
+      !console_script_load(&script, console_script_path, true)) {
     return 1;
   }
 
@@ -4853,6 +4967,23 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
                           input_rate);
         script_knock_at = ap_machine_now(&machine) + AP_SCRIPT_KNOCK_INTERVAL;
         script_knocks++;
+      }
+      /* A cartridge swap the script has reached. Unconditional on the
+       * console: changing media is an operator's hand at the drive and waits
+       * on nothing the serial port is doing. What sequences it is the `expect`
+       * before it. */
+      {
+        const char *swap_path = console_script_pending_swap(&script);
+        if (swap_path != NULL) {
+          if (!boot_swap_cartridge(board, swap_path)) {
+            printf("  stopped on   a cartridge swap that could not be done, "
+                   "after %llu instruction(s)\n",
+                   (unsigned long long)i);
+            run.executed++;
+            break;
+          }
+          console_script_swapped(&script);
+        }
       }
       if (input_sent >= input_length && script.steps > 0u &&
           ap_machine_now(&machine) >= input_next_at &&

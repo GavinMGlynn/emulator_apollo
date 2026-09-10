@@ -5086,6 +5086,31 @@ discipline throughout.
       `awd_suite`'s composition test cannot catch a wrong constant: it asserts
       that the model honours them, not what they are.*
       Detail in `PROJECT_STATUS.md`.
+      **And the restore is a checkpoint, not a bootable volume -- REFUTING this
+      item's own sentence above, 2026-09-11.** "The image arrives with the RBAK
+      restore" is wrong, and this project's own DN3500 checkpoints settle it
+      offline: `dn3500-sr10.3-osclean.awd`, restore-only, has `55` fill where
+      `SYSBOOT ` goes, and `dn3500-sr10.3-installed.awd`, after MINST, has the
+      signature and the ` M68K    ` tag. `sr10-3-install-route` said so all
+      along -- "MINST writes the boot block, `SYSBOOT REV` appears at `0x870`",
+      which is sector 2's payload `+$10` to the byte.
+      *So the step after the restore is `minst`*, and `008860-A03` Chapter 1 --
+      the manual for this exact procedure, read here for the first time -- says
+      it starts automatically on login, asks for **one distribution cartridge at
+      a time** and only for the ones the chosen template needs, and is
+      **re-runnable** without re-initialising the disk. Unlike the restore, that
+      phase can be spread across runs.
+      **Which needed a cartridge change this frontend could not make, and now
+      can.** `--boot-script` gains `swap PATH`; `ap_tape_eject` is the
+      controller's half of `ap_tape_load`, which did not exist. The drive's half
+      did, with no caller and a header saying so -- "what is absent is a way to
+      ask for it". A step rather than a flag because `FINDINGS.md` C56 is a swap
+      that raced the drive, and "swap only at a prompt" is what an `expect`
+      before it expresses. The soft lock refuses the eject and says so; a `swap`
+      in a ring script is refused when the script is loaded.
+      *Verification: `tape_suite` 30 -> 33, `check_frontend_flags` 26 runnable
+      checks plus five new source checks, `ctest` 147/147 both presets, identity `F78D6DBE770CAF47` unmoved. Detail in
+      `PROJECT_STATUS.md`.*
       **The DS5500 reaches its own monitor, 2026-09-10** — `MD14 REV 2.00,
       1991/03/08.16:20:14` and a `>` prompt, from a machine that could execute
       two of its instructions a day earlier. It cost **one address range**:

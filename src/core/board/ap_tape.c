@@ -120,6 +120,23 @@ bool ap_tape_load(ap_tape_t *tape, uint8_t *data, size_t size,
   return ap_qic_load(&tape->drive, data, size, cartridge, writable);
 }
 
+bool ap_tape_eject(ap_tape_t *tape) {
+  ap_qic_eject(&tape->drive);
+  if (tape->drive.loaded) {
+    /* The soft lock held. Nothing else changes: the block the controller is
+     * part-way through still belongs to the cartridge that is still in. */
+    return false;
+  }
+  memset(tape->block, 0, sizeof tape->block);
+  tape->offset = 0u;
+  tape->block_valid = false;
+  memset(tape->status_block, 0, sizeof tape->status_block);
+  tape->status_offset = 0u;
+  tape->status_valid = false;
+  tape->first_block_pending = true;
+  return true;
+}
+
 /* Fetch the next block if the current one is spent. The drive deals in blocks
  * and the controller in bytes, so the boundary has to live somewhere; putting
  * it here keeps the drive's interface honest about what a tape transfers. */

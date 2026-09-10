@@ -310,6 +310,85 @@ static void test_an_idle_controller_still_reads_as_measured(void) {
   TEST_ASSERT_EQUAL_HEX8(0x00, ap_tape_dma_read(&t));
 }
 
+/* ## The other half of `ap_tape_load`, which had no caller until 2026-09-11
+ *
+ * `device/ap_qic.h` recorded the gap against `ap_qic_eject`: "Nothing in any
+ * frontend removes a cartridge from a running machine ... The drive's side is
+ * right and complete; what is absent is a way to ask for it." The drive's side
+ * still is; what these cover is the *controller's*, which holds bytes of the
+ * cartridge that is leaving and must not hand them to the one that arrives.
+ */
+static void test_ejecting_a_cartridge_empties_the_drive_and_the_buffer(void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_READ);
+  /* Part-way through the first block: the controller is holding 512 bytes of a
+   * cartridge and has handed over one of them. */
+  (void)ap_tape_dma_read(&t);
+  TEST_ASSERT_TRUE(t.block_valid);
+  TEST_ASSERT_TRUE(t.offset > 0u);
+
+  TEST_ASSERT_TRUE(ap_tape_eject(&t));
+  TEST_ASSERT_FALSE(t.drive.loaded);
+  /* The buffered block goes, and so does its position. A byte left here is a
+   * byte of the wrong cartridge. */
+  TEST_ASSERT_FALSE(t.block_valid);
+  TEST_ASSERT_EQUAL_UINT(0u, t.offset);
+  TEST_ASSERT_FALSE(t.status_valid);
+  /* `QIC-02 Rev D` §4.2.7 and §4.2.8: a READ or WRITE "following cartridge
+   * insertion or RESET shall commence at BOT", so the first-block arming that
+   * a reset gives is what an insertion must give too. */
+  TEST_ASSERT_TRUE(t.first_block_pending);
+
+  /* And the drive says so, in the one bit a driver decodes for it. §5.2 makes
+   * `CNI` an operator-correctable *condition* rather than a latch, so it is
+   * true exactly while the drive is empty. */
+  TEST_ASSERT_EQUAL_HEX16(
+      AP_QIC_EXS_NO_CARTRIDGE,
+      ap_qic_exception_word(&t.drive) & AP_QIC_EXS_NO_CARTRIDGE);
+}
+
+/* The soft lock is a lock on the *cartridge*, so it holds against ejection --
+ * and the caller is told, rather than finding the media unchanged and wondering.
+ * This is `FINDINGS.md` C56 with the cause made visible: a swap under a running
+ * transfer is what produced `?(rbak) (open_input_volume) Unable to open backup
+ * file. - controller timeout`, an hour of run later. */
+static void test_a_locked_cartridge_refuses_to_come_out(void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_SELECT_LOCK);
+  TEST_ASSERT_TRUE(t.drive.soft_lock);
+
+  TEST_ASSERT_FALSE(ap_tape_eject(&t));
+  TEST_ASSERT_TRUE(t.drive.loaded);
+}
+
+/* A cartridge that arrives is read from its own beginning, not from where the
+ * one before it had got to. The two images differ in their first byte, so a
+ * position carried across would be visible as data rather than as a number. */
+static void test_a_cartridge_that_arrives_is_read_from_the_beginning(void) {
+  ap_tape_t t;
+  arm(&t);
+  issue(&t, AP_QIC_CMD_READ);
+  /* Spend the whole first block, so the drive's position has moved on. */
+  for (unsigned i = 0; i < AP_CT_BLOCK_SIZE; i++) {
+    (void)ap_tape_dma_read(&t);
+  }
+  TEST_ASSERT_TRUE(t.drive.position > 0u);
+
+  static uint8_t second[AP_CT_BLOCK_SIZE * 2u];
+  for (unsigned i = 0; i < sizeof second; i++) {
+    second[i] = (uint8_t)(0x80u + (i & 0x3Fu));
+  }
+  TEST_ASSERT_TRUE(ap_tape_eject(&t));
+  TEST_ASSERT_TRUE(ap_tape_load(&t, second, sizeof second,
+                                AP_QIC_CARTRIDGE_DC600A, true));
+  TEST_ASSERT_EQUAL_UINT(0u, t.drive.position);
+
+  issue(&t, AP_QIC_CMD_READ);
+  TEST_ASSERT_EQUAL_HEX8(second[0], ap_tape_dma_read(&t));
+}
+
 static void test_a_command_reaches_the_drive_through_the_registers(void) {
   ap_tape_t t;
   arm(&t);
@@ -1029,6 +1108,9 @@ int main(void) {
   RUN_TEST(test_a_command_clears_an_exception);
   RUN_TEST(test_ready_drops_and_returns_at_each_data_block);
   RUN_TEST(test_an_idle_controller_still_reads_as_measured);
+  RUN_TEST(test_ejecting_a_cartridge_empties_the_drive_and_the_buffer);
+  RUN_TEST(test_a_locked_cartridge_refuses_to_come_out);
+  RUN_TEST(test_a_cartridge_that_arrives_is_read_from_the_beginning);
   RUN_TEST(test_a_command_reaches_the_drive_through_the_registers);
   RUN_TEST(test_the_tape_is_read_a_byte_at_a_time_through_dack);
   RUN_TEST(test_a_programmed_read_takes_no_tape_byte);

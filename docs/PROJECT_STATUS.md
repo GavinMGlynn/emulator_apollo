@@ -3252,6 +3252,108 @@ sixths of device time. **The wall clock is the whole of what is left on this
 item**, and that is now what a single long run costs rather than what it cannot
 do.
 
+### The restore does not write the boot area, and a swap verb is what is missing
+
+**Two things were established here without a boot, and the second is a
+correction to this document.**
+
+#### RBAK restores files; `minst` makes the volume bootable
+
+The plan said, of the DS5500 volume, "*INVOL puts no SYSBOOT image in the boot
+file*, on either machine, so this volume is at exactly the stage
+`dn3500-invol-done.awd` is at and the image arrives with the RBAK restore." The
+first half is right and the second is **wrong**, and this project's own two
+DN3500 checkpoints settle it offline — sector 2's payload past the 32-byte
+Domain block header, where `5500_BOOT` and `MD7C` both look:
+
+| volume | stage | payload `+$10` | tag at `+$20` |
+| --- | --- | --- | --- |
+| `dn3500-invol-done.awd` | INVOL only | `UUUUUUUU` | — |
+| `dn3500-sr10.3-osclean.awd` | **RBAK restore only** | `UUUUUUUU` | — |
+| `dn3500-sr10.3-installed.awd` | after `minst` | **`SYSBOOT `** | ` M68K    ` |
+| `dn3500-sr10.4-aa-kept.awd` | after `minst` | **`SYSBOOT `** | ` M68K    ` |
+
+`sr10-3-install-route` had it right all along and said so — "**RBAK skips
+SYSBOOT** (`TFP: Skipping over SYSBOOT found at beginning of volume`), so a
+restored volume is *not* bootable ... **MINST writes the boot block** —
+`SYSBOOT REV` appears at `0x870`" — and `0x870` is sector 2's payload `+$10` to
+the byte. The restore-only volume is the discriminator and it was already on
+disk.
+
+*So the DS5500 restore now running produces a checkpoint, not a bootable
+volume*, and the step after it is `minst`.
+
+#### Which needs a cartridge change, and this frontend could not make one
+
+`008860-A03` Chapter 1 — the manual for exactly the procedure this item is
+executing, and read here for the first time — breaks the install into seven
+steps, of which Step 3 is INVOL plus a boot from the cartridge-tape boot volume
+and **Step 4 is "Load and Install Domain/OS"**, which runs `minst`. Three facts
+from it that this project had been reconstructing by running the machine:
+
+- **`minst` starts automatically on login** after booting from distribution
+  media, identifiable by its `MINST>` prompt. No command is typed for it.
+- **It asks for one distribution cartridge at a time**, and *which* ones depends
+  on the answer: "If one of the Domain/OS distribution tapes does not contain
+  any objects that are part of the template you select, **minst does not prompt
+  you to insert that particular tape volume in the drive**."
+- **It is re-runnable.** "If for some reason you quit `minst` or `minst` aborts
+  before the installation is complete, rerun `minst` by entering the command
+  `/install/tools/minst` at a shell prompt ... **You do not need to initialize
+  the disk again**." Unlike the restore, this phase can be spread across runs.
+
+The boot cartridge is `019593-001` and the distribution is `019594-001`..`004`,
+so even the smallest template needs the drive's media to change at least once.
+**This frontend had no way to change it** — and the core had known that for two
+days. `device/ap_qic.h`, against `ap_qic_eject`:
+
+> **No production caller, and that is a missing route rather than a design.**
+> Nothing in any frontend removes a cartridge from a running machine — media is
+> supplied once, at start-up — so the operator action this models cannot be
+> performed. The drive's side is right and complete; what is absent is a way to
+> ask for it.
+
+#### `swap PATH`, and what it cost
+
+`ap_tape_eject` is the controller's half, which did not exist: the drive's side
+was complete but the SC-499 holds a part-spent data block and a composed status
+block, and those bytes belong to the cartridge that is leaving. It drops both,
+re-arms `first_block_pending` for `QIC-02 Rev D` §4.2.7/§4.2.8 — "a READ or
+WRITE **following cartridge insertion** or RESET shall commence at BOT" — and
+**does not reset the SC-499**, because a cartridge change is an operator's hand
+at the drive rather than a power-on of the card, and §5.2 makes `CNI` an
+operator-correctable *condition rather than a latch*. Both of those were in
+`QIC-02_WALK.md` already; nothing here was invented.
+
+`--boot-script` gains `swap PATH` beside `expect` and `send`. **A step and not a
+flag, because *when* is the whole of it**: `FINDINGS.md` C56 is a swap queued
+behind a bare wait racing the drive into `?(rbak) (open_input_volume) Unable to
+open backup file. - controller timeout`, and the rule that recovered it — "swap
+only at a prompt, with the drive idle" — is precisely what an `expect` before it
+expresses. A step-numbered flag would be the guess that already failed.
+
+*And the refusals are the useful part.* The eject honours the drive's soft lock,
+so a swap issued mid-transfer answers **false** and the run stops with the
+reason named, rather than changing the media under a running read and failing an
+hour later. A `swap` in a **ring** script is refused when the script is loaded,
+because two nodes on a segment carry no drive and the step would otherwise stall
+the dialogue for ever with nothing said.
+
+*Verification: `tape_suite` 30 → 33 — the drive emptied and the controller's
+buffers with it, the locked cartridge refusing to come out, and a cartridge that
+arrives read from its own first byte; `check_frontend_flags` 26 runnable checks, one of them
+re-worded, with **five new source checks** beside them -- the ring runner reads
+its boot PROM before it loads a script and CI has no PROM, so the load-time
+refusal cannot be reached by running the binary; `ctest` 147/147 both presets.*
+
+**`008860-A03` is now a document this core has taken facts from, and it owes a
+full walk.** 295 pages, scanned at 400 dpi with an Acrobat OCR layer; Chapter 3
+is "a detailed description of the invol utility" and Chapter 4 the same for
+`calendar` — the two dialogues this project learned by running the machine, at
+the cost of a run each (`tools/dn5500/README.md`, `FINDINGS.md` C50). The page
+map is built and the chapter boundaries are known. It is named as a plan item
+rather than half-done here.
+
 ### One bit in the fault frame, and Domain/OS starts paging
 
 With `PTEST` in, the DS5500 finished its crash report and printed its own
@@ -16566,7 +16668,7 @@ failure that cost a bit position in the 68020's module entry word.
 | QIC-02 tape drive | **the whole command set**, all eleven of `[SC499]` §1.13: both SELECTs with the sticky selection and the soft lock, BOT, RETENSION, both format selects, READ, READ STATUS, WRITE, WRITE FILE MARK and READ FILE MARK, with ERASE recognised and refused. **WRITE places a block** on a cartridge loaded writable, the distinction `ap_ct_t` now carries; a read-only one refuses. **And the file marks are real, corrected 2026-09-09**: this row said, as four places in `ap_qic` did, that "a `.ct` is a raw block image with no file marks in it", and a mark is one whole block of the repeated word `DEAFFAED` — measured on every cartridge in `media/domainos/`, three on the boot cartridge at exactly the positions ANSI tape labelling requires and 11 to 41 on the others. So a READ **ends** at a mark with `FIL` latched (`QIC-02` §3.6.6 T38, §5.2 byte 0 bit 0), READ FILE MARK spaces forward to the next one (§4.2.9), and WRITE FILE MARK writes one on writable media (§3.6.7's "internally generated" mark). ERASE is still refused, because it would rewrite a whole distribution image. The cartridge *type* is supplied by the caller, because the controller derives it from tape geometry a raw image does not carry. **The two opcodes C25 recorded as lost are recovered**: §1.13's summary table has a previous owner's pen through `H'22'` and `H'26'`, and §1.13.1's numbered descriptions two pages on give the same codes in clean binary, corroborated by the three codes either side of them that this core already had. **READ STATUS now transfers its block**: six bytes, the length `[SC499]` §1.13.1 gives outright, in `QIC-02` §5.1's own byte order — status byte 0, status byte 1, then the data-error and underrun counters high half first, which `002398-04` p. 12-5 numbers a line each — and reading it clears the power-on condition it reports. **The status bits and the SELECT opcode are now the standard's own**, `QIC-02 Rev D` read whole, 29 of 29 pages: SELECT's low nibble is the drive mask §4.2.2 titles it with, so selecting drive 2 is a legal SELECT of an absent drive rather than an unimplemented command, a reset defaults selection to drive 0 as §3.5 pin 32 and §4.2.1 both say, and `USL` and two further `ILL` causes are reachable in consequence; `NDT` with the `UDA` and `BNL` that §5.3 row 8 prints beside it, so a read past the last block reports "no recorded data found on tape" rather than a bare failure, and the two counters cleared by the status read as §5.2 requires of each | `qic_suite`, 30 tests — the thirtieth reading a three-file cartridge shaped like `019593-001`'s and requiring the **21st block of file 3** to be the image's block 43, so that "first block of file 3 = 23" falls out of the two marks rather than being restated; `FINDINGS.md` C25, C264, C266 |
 | Cartridge tape images (`image/ap_ct.c`) | working: block addressing over a raw `.ct` image, refusing any size that is not a whole number of 512-byte blocks, and boot-record parsing that returns the four header words. Their reading as load address and entry point is now **confirmed by the boot code itself** — its first instruction, a PC-relative `LEA`, computes word 0 exactly when executed at word 1, so the image proves its own layout. `ap_ct_boot_image` therefore *names* load address, entry point and length, and refuses a cartridge that does not announce itself, or whose header describes more than the file holds. Takes memory, never a filename, so `src/core` keeps its zero file I/O and the tests need no gitignored media. **And the format has file marks**, found 2026-09-09 after four places in `ap_qic` said it does not: one whole block of the repeated word `DEAFFAED`, measured on every cartridge in the distribution — three on the boot cartridge, at the positions ANSI tape labelling requires, and 11 to 41 on the others. `ap_ct_block_is_file_mark` compares every word of the block, because a data block that opens with the pattern is data. The representation is measured rather than documented and the header says so: `QIC-02` §2 defines a mark and never says what is recorded, so a `.ct` written by another tool could carry another convention | `ct_suite`, 13 tests; `FINDINGS.md` C24, C266 |
 | Apollo display controller (`05D800`, `05E800`) | **identification**: both register blocks decode whether or not a screen is fitted, and the device ID at offset 1 reports `C4P=8`, `19I=9`, `C8P=10` or `15I=11` for the fitted family and `FF` for the other. An absent screen reads `FF` and does **not** bus error — "nothing is fitted" and "nothing is there" are different answers, and getting that wrong cost an investigation. **Drawing**: `CR0`'s mode and shift, `CR1`'s bits named per family, `CR2`'s two plane-select encodings, all sixteen raster operations, the word-level data path with its two active-low fields, and the blit that is the plane loop around them. **Lookup table**: *both* of them -- the 8-plane board's Bt458 behind its data and control ports, active-low chip selects and the FIFO that commits a palette on the release of `CPAL_CS`; and the **4-plane board's own**, three write-only registers carrying sixteen entries of four bits a gun, from `002398-04` p. 12-19. **A/D converter**: the diagnostic register at offset `407`, whose channel byte selects a gun's video output and whose result is hundredths of a volt. **Raster**: both dot clocks, the beam as a function of the instant, and the status register's timing bits gated on `CR1`. **Scanout**: the four geometries, each buffer width being the manual's own printed capacity divided out, planes composed with plane 0 as bit 0 and bit 15 as the leftmost pixel. **Registers**: sixteen of them in two groups of eight, the low group aliased across the block, `CR0`-`CR3B`, the 16-bit write enable and the 32-bit raster operation, with `CR3A` as a bit port onto `CR1`. **Corrected 2026-08-11**: this line previously said the status register, the raster operation's low half and the lookup table's two ports were "still unmodelled and reading `FF`". All three are modelled -- the status register answers from the raster (`graphics_status`), the lookup table has its Bt458 with the release-committed FIFO, and the raster operation's low half reads `FF` because it is **write-only in the hardware**, which is a model of the part rather than a gap in it. What genuinely reads `FF` is the low register group on a board that is not 8-plane, and registers that are write-only -- `FF` rather than zero, because zero is a state a real register can report and these cannot report anything | `graphics_suite`, 89 tests; `FINDINGS.md` C31-C32 |
-| Apollo cartridge tape (`050000`) | working, **controller joined to the drive**: a data-register write with the request bit set is a QIC-02 command, **`DACK` reads** deliver the cartridge a byte at a time across the drive's block boundary while a *programmed* read of the same address takes none, and a refused command or the end of tape raises Exception. The command handshake's **three entry conditions** are modelled — ready, exception, device-holds-the-bus, one figure each — **its timings**, and **all four of READY's edges**: down when REQUEST rises, up when the command completes, down again when the host releases REQUEST, and up once more for whatever comes next, which is a fresh command or the next byte of a device-to-host block. The six status bytes are clocked out by REQUEST, in `QIC-02` §5.1's own byte order. Every interval is `PROVISIONAL`, since §1.13.2 publishes bounds rather than values. Four registers at stride 1, the upper four of each eight floating to `FF`, aliased through the range, on IRQ5 through to vector `A5`. The measured reset dump is reproduced over two aliasing periods | `tape_suite`, 30 tests -- nine of them from 2026-09-09, the thirtieth being the `E0007` defect pinned: **a programmed read of `BASE+0` takes no tape byte**, because tape data leaves this card through `DACK` and through nothing else, and the eight before it each from a step `[SC499]` §1.13.2, `[SC499]` §1.13.3 or `QIC-02` §3.6 numbers and this core had in the wrong order or not at all: READ STATUS's six bytes must come out of the **data register**, a command byte may **precede** the REQUEST that takes it, a command that will deliver ends with the bus **turned round**, **READY is an interlock** whose other two edges answer the host's *release* of REQUEST, a new command abandons a status block nobody took -- the arming the board's own half already abandoned -- a read the *drive* ends also ends the DMA transfer, since the 8237's terminal count is only one of the two ways a transfer can be over, the drive stops **asking** at a file mark rather than answering a cycle with an invented byte, and **RSTSAC resets the drive as well as the card** -- §1.12's NOTE, which the walk record had passed over; `FINDINGS.md` C16-C19, C261-C265 |
+| Apollo cartridge tape (`050000`) | working, **controller joined to the drive**: a data-register write with the request bit set is a QIC-02 command, **`DACK` reads** deliver the cartridge a byte at a time across the drive's block boundary while a *programmed* read of the same address takes none, and a refused command or the end of tape raises Exception. The command handshake's **three entry conditions** are modelled — ready, exception, device-holds-the-bus, one figure each — **its timings**, and **all four of READY's edges**: down when REQUEST rises, up when the command completes, down again when the host releases REQUEST, and up once more for whatever comes next, which is a fresh command or the next byte of a device-to-host block. The six status bytes are clocked out by REQUEST, in `QIC-02` §5.1's own byte order. Every interval is `PROVISIONAL`, since §1.13.2 publishes bounds rather than values. Four registers at stride 1, the upper four of each eight floating to `FF`, aliased through the range, on IRQ5 through to vector `A5`. The measured reset dump is reproduced over two aliasing periods | `tape_suite`, 33 tests -- the three newest (2026-09-11) covering the **cartridge coming out**: `ap_tape_eject` empties the drive and drops the controller's part-spent block and its status block, re-arming `first_block_pending` for `QIC-02 Rev D` §4.2.7/§4.2.8's "a READ or WRITE following cartridge insertion or RESET shall commence at BOT"; the soft lock refuses the eject and *says so*; and a cartridge that arrives is read from its own first byte. Nine of them from 2026-09-09, the thirtieth being the `E0007` defect pinned: **a programmed read of `BASE+0` takes no tape byte**, because tape data leaves this card through `DACK` and through nothing else, and the eight before it each from a step `[SC499]` §1.13.2, `[SC499]` §1.13.3 or `QIC-02` §3.6 numbers and this core had in the wrong order or not at all: READ STATUS's six bytes must come out of the **data register**, a command byte may **precede** the REQUEST that takes it, a command that will deliver ends with the bus **turned round**, **READY is an interlock** whose other two edges answer the host's *release* of REQUEST, a new command abandons a status block nobody took -- the arming the board's own half already abandoned -- a read the *drive* ends also ends the DMA transfer, since the 8237's terminal count is only one of the two ways a transfer can be over, the drive stops **asking** at a file mark rather than answering a cycle with an invented byte, and **RSTSAC resets the drive as well as the card** -- §1.12's NOTE, which the walk record had passed over; `FINDINGS.md` C16-C19, C261-C265 |
 | Archive SC-499 cartridge tape controller (the part) | **register model complete**: all four addresses of `[SC499]` §1.9 — data/command, control-on-write and status-on-read, and the two write-triggered DMA commands — plus the derived interrupt flag, the tri-stated IRQ line, and RSTDMA's documented identity with power-on reset. **The status register's polarity is corrected**: RDY and EXC are asserted *low*, and the interrupt flag is a disjunction rather than a conjunction — see the section below. The QIC-02 command set itself, tape motion and the drive behind it are not modelled. Not yet wired to the board at `050000` | **§1.12's reset protocol is complete**: the 25 us minimum hold is enforced (a narrower pulse resets nothing), it survives a rewrite of the control byte with the bit still up, and RSTDMA is the second documented release path | `sc499_suite`, 29 tests, `Archive SC-499 Information Guide` | **Oracle note:** MAME's own SC-499 models no media change at all, so a cartridge swapped while Domain/OS holds the drive crashes it; `ext/mame` carries a local edit treating insertion as a QIC-02 RESET, per `FINDINGS.md` C56.
 | Apollo disk and floppy (`04D000`, `05F800`) | working: both halves of the one card, placed **74 KB apart** by measurement, each aliased through 1 KB on its own period — four registers for the fixed disk, an eight-address block for the floppy. Interrupts on IRQ14 and IRQ6, separate lines eight apart. The gap is pinned as arithmetic, not constants: the AT window maps `Apollo = 0x040000 + AT × 0x80` | `disk_suite`, 6 tests; `FINDINGS.md` C20, C22, C23 |
 | OMTI command descriptor blocks | working: the 6-byte CDB decoded with the **cylinder reassembled from three bytes** (C10 in byte 1, C09/C08 in byte 2, low eight in byte 3), the command byte exposed both whole and split into class and opcode, and acceptance checked against the ESDI command set — which **refuses** `0C INITIALIZE DRIVE CHARACTERISTICS`, an ST506-only command that would make ESDI geometry look settable | `omti_cdb_suite`, 8 tests; `FINDINGS.md` C27 |

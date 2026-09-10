@@ -208,6 +208,34 @@ void ap_tape_advance(ap_tape_t *tape, ap_time_t now);
 [[nodiscard]] bool ap_tape_load(ap_tape_t *tape, uint8_t *data,
                                 size_t size, ap_qic_cartridge_t cartridge, bool writable);
 
+/* Take the cartridge out, which is the other half of `ap_tape_load` and was
+ * missing until 2026-09-11.
+ *
+ * **The drive's side of this was already complete and had no caller.**
+ * `device/ap_qic.h` says so against `ap_qic_eject`: "Nothing in any frontend
+ * removes a cartridge from a running machine ... The drive's side is right and
+ * complete; what is absent is a way to ask for it." This is that route, and it
+ * exists because a Domain/OS install asks for it -- `008860-A03` Chapter 1's
+ * Step 4 runs `minst`, which asks for each distribution cartridge in turn, and
+ * a machine with one drive and no way to change its media cannot answer.
+ *
+ * **What it clears, and what it deliberately does not.** The controller holds
+ * bytes of the cartridge that is leaving -- a partly-handed-over data block, a
+ * composed status block -- and those must not be handed to a driver reading the
+ * cartridge that arrives, so they go. `first_block_pending` is re-armed because
+ * `QIC-02 Rev D` §4.2.7 and §4.2.8 say a READ or WRITE "following cartridge
+ * insertion or RESET shall commence at BOT". The SC-499 is *not* reset: a
+ * cartridge change is an operator action at the drive, not a power-on of the
+ * card, and §5.2 makes `CNI` an operator-correctable **condition rather than a
+ * latch** -- so an empty drive answers `CNI` while it is empty and stops when
+ * it is not, and there is nothing to latch on the way through.
+ *
+ * Returns whether the cartridge actually came out. It does not when the drive
+ * holds a soft lock, which `ap_qic_eject` honours because the lock is a lock on
+ * the cartridge; a caller that swaps media under a running transfer is told so
+ * rather than left to wonder. */
+[[nodiscard]] bool ap_tape_eject(ap_tape_t *tape);
+
 /* False for the four undecoded addresses of each eight as well as for anything
  * outside the range: the dump reads `FF` there, and folding them onto the
  * registers would give a driver four aliases the hardware does not offer. */
