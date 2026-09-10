@@ -1,6 +1,8 @@
 # The Domain/OS software shelf — walk coverage record
 
-**State: 1 of 100 walked whole, 1 in progress. 20,770 pages.**
+**State: 3 of 100 read, 20,770 pages.** `004977-02` walked whole 118/118;
+`AEGIS_Internals` and `014962-A00` passed over in full with their key chapters
+read whole. 97 documents untouched.
 
 - `004977-02` *Binder and Librarian Reference* — **walked whole, 118/118, 2026-09-10**,
   `004977-02_WALK.md`. It explained the DS5500's remaining symptom and changed no
@@ -56,7 +58,12 @@ only ever counted hardware.
    changing anything, declined to answer `RING.md` question E, and turned out to
    have **a second 56-page document bound in at pp. 371-426** that its filename
    does not mention.
-3. **`014962-A00` Domain/OS Design Principles**, 157 pages.
+3. ~~`014962-A00` Domain/OS Design Principles~~ — **done**,
+   `014962-A00_WALK.md`. It describes **SR10**, the release this project runs,
+   where `[AEGIS]` describes SR9.0, and it names the DS5500's stopping point:
+   the pointer is a **transfer vector**, the loader fills it in from the Known
+   Global Table, and an *unresolved* one is supposed to point at a **dynamic
+   link snapper**, not at zero.
 4. The rest, in the order the groups appear below. **Brochures, price lists and
    catalogues are listed for completeness and are not technical documents**;
    they are the one group that can be declared not worth walking, and that is a

@@ -4486,7 +4486,21 @@ discipline throughout.
       133b. A **second 56-page hardware manual is bound in at pp. 371-426** that
       the filename does not mention — DN330/DN560/DSP90 memory maps and a memory
       control/status register, none of it this core's hardware.
-      Then `014962-A00` *Design Principles* (157).
+      **`014962-A00` *Design Principles* (157) is passed over in full**
+      (`014962-A00_WALK.md`), and it is the one that describes **SR10** rather
+      than SR9.0. It names the DS5500's stopping point: the pointer at
+      `0091709C` is a **transfer vector**, position-independent code puts "an
+      extra level of indirection for each external procedure", the loader fills
+      the vector in from the **Known Global Table**, and **an unresolved vector
+      is supposed to point at a "dynamic link snapper" routine** which loads the
+      library and patches the vector — not at zero. That is the first statement
+      this project has of what the *correct* value would have been. Not acted on:
+      never-patched, patched-into-an-uninitialised-page and patched-then-
+      overwritten are three different bugs and nothing measured separates them.
+      It also gives the KGT's three tables, the four address-space partitions,
+      a **64 MB** virtual address space class `[AEGIS]` does not know (with
+      "some DN3000" in it), and a fourth independent statement of the zero-fill
+      rule. **97 of the 100 documents remain untouched.**
       Brochures, price lists and catalogues are listed and declared not worth
       walking, which is a judgement on the record rather than an omission.
 
