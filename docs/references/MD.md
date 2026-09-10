@@ -572,3 +572,38 @@ have arrived *after* the firmware rewrote its clock select in front of it
 instead, consuming the armed state and leaving the clean character with nothing
 to take it. "One carriage return every 0.4 s, not a pipe delivered at once" was
 recording a requirement, not an incidental of how the capture was driven.
+
+## `UA`, the microcode load, and where this file learned of it
+
+`005809-A00`, the **SR9.7 release notes** of November 1987, prints MD's own boot
+sequences:
+
+```
+EXAMPLE 1: BOOTING OFF YOUR LOCAL NODE:
+  1) RE            - reset
+  2) UA            - microcode load
+  3) RE            - reset, again
+  4) EX AEGIS
+
+EXAMPLE 2: BOOTING OFF A REMOTE NODE:
+  1) RE            - reset
+  2) DI N NODE_ID
+  3) UA            - microcode load
+  4) RE            - reset, again
+  5) DI N NODE_ID
+  6) EX AEGIS
+```
+
+**`UA` appears nowhere else in this project's records**, and neither does a
+microcode load as an MD operation. Every sequence this project drives — the
+DN3500's, the DS5500's, the cartridge and INVOL routes — is `DI` then `EX`, with
+no `UA` and no reset pair around it, and all of them work. So this is recorded
+as a **command that exists and is not needed here**, not as a step anything is
+missing.
+
+*The likely reason it is not needed*: the machines this core models are 68020,
+68030 and 68040 parts whose microcode is in the processor, where a `UA` step
+belongs to the earlier bit-sliced nodes. **That is a reading, not the document's
+statement** — SR9.7 gives the sequence without saying which models need which
+steps, and the note is here so a future reader meeting `UA` in a firmware
+disassembly knows it is a documented command rather than an unknown one.
