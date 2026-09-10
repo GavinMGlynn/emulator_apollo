@@ -3,7 +3,7 @@
 | Tag | File | Pages | Text layer | State |
 | --- | --- | --- | --- | --- |
 | `[ARCH81]` | `bitsavers/Apollo_DOMAIN_Architecture_Feb81.pdf` | 31 | born-digital, heavy OCR damage | **WALKED WHOLE, 31/31, 2026-09-10** |
-| — | `bitsavers/Apollo_Domain_Architecture_Preliminary_Jan81.pdf` | 31 | — | **owed** (the January preliminary of the same paper) |
+| `[ARCH81P]` | `bitsavers/Apollo_Domain_Architecture_Preliminary_Jan81.pdf` | 32 | born-digital, **very** heavy OCR damage | **WALKED WHOLE, 32/32, 2026-09-10** |
 
 **The oldest document on the shelf and the densest.** `CONTENT_TRIAGE.md` ranked
 it first by hardware terms per character — 31 hits in 46 K characters — and 
@@ -84,15 +84,62 @@ reverse-mapped hardware — and both are recorded because `PATENTS_WALK.md` and
 `AEGIS_INTERNALS_WALK.md` both ended up needing somewhere to point if a
 reverse-mapped node is ever modelled. This is that place.
 
+## The January preliminary, and the one slide February removed
+
+`Apollo_Domain_Architecture_Preliminary_Jan81.pdf` is the same deck a month
+earlier, marked **COMPANY CONFIDENTIAL** where February's is not, slide for
+slide in the same order — **with one exception**. January has a
+`III.15 COMPILED OBJECT` between `III.14 COMPILATION/BINDING/EXECUTION` and
+`IV.1 USER ENVIRONMENT OBJECTIVES`; February drops it, and everything after
+shifts up by one. **That slide is the entire reason to read the preliminary.**
+
+> "The compiled object format is comprised of two parts: The first major part is
+> **position independent code and pure data** which is **directly mapped and
+> executed** into a process address space. The second part is **a database used
+> by the loader to create an impure temporary data object** which is
+> subsequently **mapped into the impure part of a process address space**."
+
+**That is `[ASM]` Appendix F's architecture, in one sentence, six years before
+Appendix F.** §F.5.2: read-only sections are "represented by **memory image
+format**" and "The loader **maps** read-only sections with read and execute-only
+rights". §F.5.6: read/write sections are "represented in **template format**", a
+series of records "used to initialize the read/write sections", which the loader
+processes after zeroing. **Two parts, one mapped and one built — the same
+design, stated as an intention in 1981 and as a byte layout in 1987.**
+
+Its figure labels survive the OCR well enough to name the pieces:
+`POSITION INDEPENDENT CODE`, `PURE DATA`, `MODULE DIRECTORY`, `SECTION TABLE`,
+a relocation/external line, `HISTORY INFO`, `SYMBOL TABLES`, and
+`PROCESS ADDRESS SPACE`. `[ASM]` Appendix F has the section index table, the
+global table, the relocation records and the module information records under
+their later names.
+
+**And it dates position-independent code to the design.** `[DP]` chapter 2
+presents PIC as what makes shared libraries possible — "inserting an extra level
+of indirection for each external procedure and each reference to global data" —
+and this slide has it in the object format from the beginning, which is why the
+`A5`-relative transfer vector the DS5500 calls through is not a late addition
+but the shape the system was drawn with.
+
+*Why February dropped it is not stated and is not guessed at here.*
+
 ## Fidelity
 
-*The page count is `pdfinfo`'s 31, not the 32 a form-feed split reports* — the
+*February's page count is `pdfinfo`'s 31, not the 32 a form-feed split reports* — the
 third time this session that split has been one high, and `check_docs` has
 caught every one. **Use `pdfinfo`.**
 
-All 31 slides read from the text layer, which is badly damaged — `DISPLAY`
+All 31 February slides and all 32 January ones read from the text layer.
+February's is badly damaged — `DISPLAY`
 arrives as `OrSPLA Y` and `PHYSICAL` as `PHYSICA~` — but the four ring symbols,
 the four protection levels and the `1024 800` pair are digit strings that survive
 intact and were each read twice. **The commentary paragraphs are prose and were
 read; the slides are figures and their labels are only as good as the OCR**, so
 no figure geometry is claimed here, only the values quoted above.
+
+**January's is far worse** — `MEMORY MANAGEMENT UNIT` arrives as
+`f1[:!J(lIlY IIAIiAGElifWT UIIIT` — and its *commentary paragraphs* survive where
+its slide labels do not, which is the opposite of February's. That is why the
+two were read together: **each edition is legible exactly where the other is
+not**, and the `COMPILED OBJECT` quotation above is from January's commentary,
+which is clean.
