@@ -23,6 +23,8 @@
 #include "cpu/m68020/ap_m68020_module.h"
 #include "unity.h"
 
+#include "cpu/m68040/ap_m68040_mmu.h"
+
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -4299,6 +4301,144 @@ static void test_the_68040s_pflush_executes_only_where_it_has_an_mmu(void) {
     TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
                           ap_m68030_step(&each.cpu).status);
     TEST_ASSERT_EQUAL_UINT64(1u, each.cpu.atc_flush_operations);
+  }
+}
+
+/* **`PTESTR (A4)`, the instruction that killed a DS5500's crash report.**
+ *
+ * `[PRM]` p. 6-71's figure is `1 1 1 1 0 1 0 1 0 1 R/W 0 1 REGISTER`, so
+ * `$F56C` is `PTESTR (A4)` -- and that is the word at boot PROM offset `$58D2`,
+ * four instructions before a `MOVEC MMUSR,D0` that reads the answer. Without
+ * this decode the word took vector 11, Domain/OS's line-F handler ran on the
+ * firmware's 384-byte console stack, and the machine died of a stack overflow
+ * while printing why it had died.
+ *
+ * Three things are decided here and each is asserted: the part flag, the PC
+ * advance, and the MMUSR write. The last one is what makes this different from
+ * `PFLUSH`, which correctly does nothing observable -- a `PTEST` that executed
+ * and left MMUSR alone would hand the firmware a stale answer, which is worse
+ * than the trap it replaces. `m68040_ptest_suite` has the semantics; this has
+ * the decode. */
+static uint32_t ptest_tc;
+static uint32_t ptest_ttr[2];
+static uint32_t ptest_root;
+static ap_m68040_atc_t ptest_atc;
+static ap_m68040_mmu_t ptest_mmu;
+
+static bool ptest_fetch(void *context, uint32_t address, uint32_t *value) {
+  machine_t *m = (machine_t *)context;
+  if (address + 3u >= RAM_BYTES) {
+    return false;
+  }
+  *value = (uint32_t)((uint32_t)m->memory.bytes[address] << 24) |
+           (uint32_t)((uint32_t)m->memory.bytes[address + 1u] << 16) |
+           (uint32_t)((uint32_t)m->memory.bytes[address + 2u] << 8) |
+           (uint32_t)m->memory.bytes[address + 3u];
+  return true;
+}
+
+static void put_descriptor(machine_t *m, uint32_t address, uint32_t value) {
+  m->memory.bytes[address] = (uint8_t)(value >> 24);
+  m->memory.bytes[address + 1u] = (uint8_t)(value >> 16);
+  m->memory.bytes[address + 2u] = (uint8_t)(value >> 8);
+  m->memory.bytes[address + 3u] = (uint8_t)value;
+}
+
+static void attach_ptest_mmu(machine_t *m) {
+  ptest_tc = 0x8000u; /* E set, 4-Kbyte pages */
+  ptest_ttr[0] = 0u;
+  ptest_ttr[1] = 0u;
+  ptest_root = 0x800u;
+  ap_m68040_atc_init(&ptest_atc);
+  /* Root at 0x800 -> pointer table at 0x900 -> page table at 0xA00 -> a frame
+   * at 0x5000, all inside the fixture's RAM. */
+  put_descriptor(m, 0x800u, 0x900u | 0x2u);
+  put_descriptor(m, 0x900u, 0xA00u | 0x2u);
+  put_descriptor(m, 0xA00u, 0x5000u | 0x1u);
+  ptest_mmu = (ap_m68040_mmu_t){.tc = &ptest_tc,
+                                .ttr = ptest_ttr,
+                                .urp = &ptest_root,
+                                .srp = &ptest_root,
+                                .atc = &ptest_atc};
+  m->data_access.mmu_040 = &ptest_mmu;
+  m->data_access.table_fetch_040 = ptest_fetch;
+  m->data_access.context = m;
+}
+
+static void test_the_68040s_ptest_reports_residence_into_the_mmusr(void) {
+  static const uint16_t ptestr_a4[] = {0xF56Cu, 0x4E71u, 0x4E71u, 0x4E71u};
+
+  /* On a 68030 `$F5xx` is coprocessor id 2 and must stay F-line. */
+  machine_t without = {0};
+  load(&without, ptestr_a4, 4);
+  without.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  without.cpu.regs.isp = SUPERVISOR_STACK;
+  plant_vector(&without, AP_M68030_VECTOR_LINE_F, HANDLER);
+  TEST_ASSERT_TRUE(ap_m68030_step(&without.cpu).status !=
+                   AP_M68030_STEP_EXECUTED);
+  TEST_ASSERT_EQUAL_UINT64(0u, without.cpu.mmu_test_operations);
+
+  /* On a 68040 it executes, moves the PC by its two bytes, and leaves the
+   * search's answer in MMUSR. DFC 5 is supervisor data. */
+  machine_t with = {0};
+  load(&with, ptestr_a4, 4);
+  with.cpu.has_68040_mmu_registers = true;
+  with.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  with.cpu.regs.dfc = 5u;
+  with.cpu.regs.a[4] = 0x123u;
+  attach_ptest_mmu(&with);
+  const uint32_t before = with.cpu.regs.pc;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                        ap_m68030_step(&with.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(before + 2u, with.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_UINT64(1u, with.cpu.mmu_test_operations);
+  /* R set, and the frame in bits 31-12. */
+  TEST_ASSERT_EQUAL_HEX32(0x5001u, with.cpu.mmusr_040);
+
+  /* A page the tables say is not there reports `R` clear -- which is the
+   * question the firmware is actually asking. */
+  machine_t absent = {0};
+  load(&absent, ptestr_a4, 4);
+  absent.cpu.has_68040_mmu_registers = true;
+  absent.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  absent.cpu.regs.dfc = 5u;
+  absent.cpu.regs.a[4] = 0x123u;
+  attach_ptest_mmu(&absent);
+  put_descriptor(&absent, 0xA00u, 0x5000u); /* PDT 00: invalid */
+  absent.cpu.mmusr_040 = 0xFFFFFFFFu;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                        ap_m68030_step(&absent.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(0u, absent.cpu.mmusr_040 & 0x1u);
+
+  /* "If Supervisor State ... Else TRAP". */
+  machine_t user = {0};
+  load(&user, ptestr_a4, 4);
+  user.cpu.has_68040_mmu_registers = true;
+  user.cpu.regs.isp = SUPERVISOR_STACK;
+  plant_vector(&user, AP_M68030_VECTOR_PRIVILEGE_VIOLATION, HANDLER);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION,
+                        ap_m68030_step(&user.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(HANDLER, user.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_UINT64(0u, user.cpu.mmu_test_operations);
+
+  /* Both variants and every register field are the instruction: a mask that
+   * caught `$F56C` alone would leave `PTESTW` and seven of eight registers
+   * taking vector 11. */
+  for (unsigned reg = 0; reg < 8u; reg++) {
+    for (unsigned read = 0; read < 2u; read++) {
+      const uint16_t word =
+          (uint16_t)(0xF548u | (read << 5u) | reg);
+      const uint16_t program[] = {word, 0x4E71u, 0x4E71u, 0x4E71u};
+      machine_t each = {0};
+      load(&each, program, 4);
+      each.cpu.has_68040_mmu_registers = true;
+      each.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+      each.cpu.regs.dfc = 5u;
+      attach_ptest_mmu(&each);
+      TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED,
+                            ap_m68030_step(&each.cpu).status);
+      TEST_ASSERT_EQUAL_UINT64(1u, each.cpu.mmu_test_operations);
+    }
   }
 }
 
@@ -9966,6 +10106,7 @@ int main(void) {
   RUN_TEST(test_the_68040s_control_registers_are_reached_by_movec);
   RUN_TEST(test_the_68040s_cache_instructions_execute_only_on_a_68040);
   RUN_TEST(test_the_68040s_pflush_executes_only_where_it_has_an_mmu);
+  RUN_TEST(test_the_68040s_ptest_reports_residence_into_the_mmusr);
   RUN_TEST(test_a_faulted_push_and_what_it_leaves_in_a7);
   RUN_TEST(test_movec_is_privileged);
   RUN_TEST(test_stop_loads_the_status_register_and_then_halts_fetching);

@@ -392,6 +392,12 @@ typedef struct {
    * the count is how a run says it *reached* the instruction. Diagnostic, and
    * outside the state hash as every counter here is. */
   uint64_t atc_flush_operations;
+  /* `PTEST` executions, counted for the same reason: it is the one MMU
+   * instruction whose *result* software reads back, so "did any run" is the
+   * first question when an MMUSR looks wrong. Separate from the flush counter
+   * because a run that flushes and never tests is a different machine from one
+   * that does both. */
+  uint64_t mmu_test_operations;
   /* Which part's `CACR` this is. Not a `has_` flag because the register is not
    * gained or lost but *resized*: four bits on a 68020, eleven on a 68030, two
    * on a 68040. The 68030 is the zero value, so a zero-initialised CPU stays

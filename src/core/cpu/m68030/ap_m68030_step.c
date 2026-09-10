@@ -7,6 +7,7 @@
 
 #include "cpu/m68020/ap_m68020_decode.h"
 #include "cpu/m68040/ap_m68040_cache_timing.h"
+#include "cpu/m68040/ap_m68040_ptest.h"
 #include "cpu/m68030/ap_m68030_ea_timing.h"
 #include "cpu/m68030/ap_m68030_timing_table.h"
 
@@ -6819,9 +6820,55 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     }
   }
 
+  /* **The MC68040's `PTEST`, the third of its three MMU instructions**, and
+   * demanded by software in the same way `PFLUSH` was -- `cpu/m68040/
+   * ap_m68040_ptest.h` has the four instructions of DS5500 firmware that ask
+   * for it and what happened when they did not get it.
+   *
+   * **Unlike `PFLUSH` this one cannot be a no-op.** A flush of an ATC nothing
+   * consults has no observable effect; `PTEST` exists to leave a value in
+   * MMUSR, and executing it without writing one hands the caller a stale
+   * register. So the whole instruction is performed, out of parts that were
+   * already here.
+   *
+   * **The side is chosen by the function code, not by convenience.** A 68040
+   * has separate instruction and data TTRs and ATCs, and `[PRM]` puts the
+   * function code for the test address in DFC. `FC2` set means program space,
+   * so a `PTEST` of `2` or `6` asks the instruction side and one of `1` or `5`
+   * asks the data side. The other four codes are the ones the page calls
+   * undefined, and `ap_m68040_ptest` declines them there rather than here. */
+  const bool mmu_test =
+      cpu->has_68040_mmu_registers && ap_m68040_is_ptest(word);
+  if (mmu_test) {
+    if (!ap_m68030_supervisor(&cpu->regs)) {
+      cpu->pending_vector = AP_M68030_VECTOR_PRIVILEGE_VIOLATION;
+    } else {
+      const unsigned function_code = cpu->regs.dfc & 7u;
+      const ap_m68030_access_ctx_t *side =
+          (function_code == 2u || function_code == 6u) ? cpu->fetch.access
+                                                       : cpu->data;
+      if (side != NULL && side->mmu_040 != NULL) {
+        const unsigned reg = ap_m68040_ptest_register(word);
+        /* A7 is not `regs.a[7]`: it lives in whichever of USP, ISP or MSP the
+         * mode selects, and the array slot reads zero. `PTEST (A7)` is a legal
+         * encoding and a stack address is a plausible thing to test. */
+        const uint32_t address = reg == 7u ? ap_m68030_read_a7(&cpu->regs)
+                                           : cpu->regs.a[reg];
+        const ap_m68040_ptest_result_t tested = ap_m68040_ptest(
+            side->mmu_040, address, function_code,
+            !ap_m68040_ptest_is_read(word), side->table_fetch_040,
+            side->context);
+        if (tested.defined) {
+          cpu->mmusr_040 = ap_m68040_mmusr_encode(&tested.mmusr);
+        }
+        cpu->mmu_test_operations++;
+      }
+    }
+  }
+
   out.kind = decoded.kind;
 
-  if (!cache_maintenance && !mmu_flush &&
+  if (!cache_maintenance && !mmu_flush && !mmu_test &&
       decoded.kind == AP_M68030_DECODED_ILLEGAL) {
     /* `[030]` §8.1.5, p. 8-9: "An illegal instruction is an instruction that
      * contains any bit pattern in its first word that does not correspond to
@@ -7035,7 +7082,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
      * 68040, where `CINV` and `CPUSH` live at exactly that encoding. Handled
      * above, where the part's own flag decides; this breaks out to the tail for
      * the PC advance and any vector it set. */
-    if (cache_maintenance || mmu_flush) {
+    if (cache_maintenance || mmu_flush || mmu_test) {
       break;
     }
     const ap_m68030_coproc_t *coproc = &decoded.as.coproc;

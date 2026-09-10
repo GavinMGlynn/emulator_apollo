@@ -2938,6 +2938,11 @@ static void report_state(ap_machine_t *machine) {
      * executes `PFLUSHA` early, and until 2026-09-10 that was an F-line trap. */
     printf("               atc flushes %llu PFLUSH(es)\n",
            (unsigned long long)machine->cpu.atc_flush_operations);
+    /* `PTEST` executions, and this one is not "did it reach the instruction"
+     * but "is the MMUSR above an answer or a leftover". A run with zero of
+     * these and a non-zero `mmusr` is reporting a register nothing wrote. */
+    printf("               mmu tests %llu PTEST(s)\n",
+           (unsigned long long)machine->cpu.mmu_test_operations);
   }
     /* **What the model declares against what the machine translates with**, and
      * it is printed on every run because the two do not always agree.

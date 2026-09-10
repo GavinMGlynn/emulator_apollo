@@ -2396,14 +2396,142 @@ number that also names `/sau14` and the `MD14` banner. The vector table and the
 service table share a page because the ROM image they are both cut from is one
 1 KB block.
 
-**So the question is now sharp and it is one question**: the operating system
-calls the firmware through `TRAP #15`, the firmware switches `A7` to its own
-384-byte stack at `7FF4092C` (`movea.l a6, a7`, then `bsr.w $2478`), and while
-that stack is current, operating-system code at `7A40C1EC` takes a demand-paging
-fault — whose servicing needs more than the 382 bytes left. What has not been
-measured is *how* kernel code comes to run on that stack: the firmware calling
-back out, or a device interrupt arriving on it. Vectors 160 and 161 fire 151
-times in this run and nothing yet says none of them landed there.
+### The chain, measured end to end — and the machine says it in words
+
+Three runs settled it, each 6m40s to 6m50s, all three from a fresh copy of
+`media/dn5500-invol-done.awd` so they are the same machine: one stopped at the
+first MMU fault with a 400,000-step trace ring, one run to the death with a
+1,000,000-step ring, one stopped on vector 11.
+
+**The console had been saying it all along, one line past where I stopped
+reading.** `sed -n '180,252p'` ended at the kernel banner. Line 253 is:
+
+```
+Domain/OS kernel(14), revision 10.4, February 26, 1992  3:05:56 pm
+
+FAULT IN DOMAIN/OS:
+```
+
+That is the third time `read-the-whole-console-not-the-last-line` has been paid
+for, and the second time with the note loaded.
+
+*What the machine is doing when it dies is printing.* 999,804 of the last
+1,000,000 instructions are firmware, and **two PCs account for 998,963 of
+them** — ROM `$2940` and `$2946`:
+
+```
+02940  btst.b  #$2, $2(a5)
+02946  beq.b   $2940
+02948  bsr.w   $29d6
+0294C  move.b  d1, $6(a5)
+```
+
+`a5` is `7FFFB411`, and `$2(a5)` and `$6(a5)` are the DUART's `SRB` and `THRB`:
+the run report counts **97,688,944** reads of sio1 register 9 and 1,071 writes
+of register 11. It is a transmitter-ready poll at 2400 baud. Pulling `D1` out of
+the trace at every execution of `$294C` gives the last twenty characters the
+machine transmitted: `        BC\r\n7A42D69E:` — MD's crash-record format, the
+same `<address>: <value>` the INVOL session ends with.
+
+**The stack switch is measured, not inferred.** At trace index 427,591:
+
+```
+427590  pc 7FF40D90  a6 7A400180  a7 7A5439E6
+427591  pc 7FF4092C  a6 7A400180  a7 7A400180   movea.l a6, a7
+427592  pc 7FF4092E  a6 7A400180  a7 7A40017C   bsr.w   $2478
+427593  pc 7FF42478  ...
+```
+
+The firmware was already running — on the *kernel's* stack — and at `$92C` it
+overwrites `A7` with its own base, abandoning the caller's. That is a no-return
+path by construction, which is what a crash reporter is. `$2478` is
+`bsr $248C` → `moveq #$D,d1; bsr $239A` / `moveq #$A,d1; bra $239A`: print CR,
+print LF.
+
+**And the killing blow is an instruction this core did not have.** Vector 11 is
+taken **from PC `7FF458D2`**, at instruction 1,652,387,207 — 196 instructions
+before the double fault at 1,652,387,403. Not before the crash report. *Inside*
+it. The word there is `F56C`, and the four instructions around it are:
+
+```
+058D2  F56C            PTESTR (A4)
+058D4  4E7A 0805       MOVEC MMUSR,D0
+058D8  2D40 01D0       MOVE.L D0,$1D0(A6)
+058DC  6706            BEQ.B  $58E4
+058DE  0800 0000       BTST   #0,D0        ; MMUSR's R bit
+```
+
+The firmware is asking whether an address is resident before it dereferences it
+— which is exactly what a crash reporter should do, and exactly what this core
+answered with an F-line trap. Domain/OS's line-F handler at `7A42EDBC` then ran
+on the 384-byte console stack, and `MOVE.L #<data>,-(A7)` at `7A42D77A` ran off
+the bottom of it.
+
+**So the whole chain is one sentence**: Domain/OS faults, calls the PROM console
+through `TRAP #15` to say so, the firmware switches to its own 384-byte stack,
+executes `PTESTR (A4)` to check an address before printing it, this core traps
+it as unimplemented, and the operating system's handler overflows the stack the
+firmware is standing on. **Six of the seven things eliminated along the way —
+the stack-pointer selection, the mapping, the register state, the fault kind,
+the frame balance, the stack's size — were all downstream of one missing
+instruction.**
+
+*What is still not measured is the first fault*: what Domain/OS took vector 2 or
+11 for **before** it decided to print `FAULT IN DOMAIN/OS:`. That is upstream of
+everything here and is where this item goes next.
+
+### `PTEST` implemented, and it could not be the no-op `PFLUSH` was
+
+`[PRM]` pp. 6-70 and 6-71, "PTEST — Test a Logical Address (MC68040,
+MC68LC040)", read as 300-dpi page images. The format figure transcribed bit by
+bit is `1 1 1 1 0 1 0 1 0 1 R/W 0 1 REGISTER`, so `PTESTW` is `$F548 + An`,
+`PTESTR` is `$F568 + An`, the identifying mask is `$FFD8`, and `F56C` is
+`PTESTR (A4)` — the ROM and the figure agree, which is what makes this a reading
+rather than a guess.
+
+**`PFLUSH` landed as a decoded, privilege-checked no-op and that was honest**;
+`PTEST` cannot be. Its entire purpose is the value it leaves in MMUSR, and the
+firmware reads it back four instructions later. A `PTEST` that executed and
+wrote nothing would replace a trap with a confident wrong answer.
+
+`ap_m68040_ptest.*` performs it out of parts that were already built:
+
+- **It never answers out of the ATC.** "A matching entry in the address
+  translation cache (data or instruction) specified by the function code will be
+  flushed by PTEST. Completion of PTEST results in the creation of a new address
+  translation cache entry." So the entry is flushed *first* and the table search
+  is unconditional — which is why this is not a call to
+  `ap_m68040_mmu_translate`, which consults the ATC first and is right to. A
+  test pins it: two `PTEST`s of the same address read the tables twice.
+- **The side follows the function code**, from DFC: `2` and `6` are program
+  space and ask the instruction side's TTRs and ATC, `1` and `5` the data
+  side's.
+- **Four codes are declined.** "A PTEST instruction with a DFC value of 0, 3, 4,
+  or 7 is undefined and will return an unknown value in the MMUSR." Reported as
+  undefined, so the caller leaves MMUSR alone — a legal unknown value and the
+  only one that invents nothing. The same for a search that cannot happen
+  because `E` is clear and no TTR matched (`[040]` §3.1).
+- **`B` and `T` are whole answers, not flags.** `ap_m68040_mmusr_bus_error()`
+  and `ap_m68040_mmusr_transparent()` already existed for exactly that, carrying
+  "if this bit is set, all other bits are zero".
+- **The MMUSR physical-address field masks the whole address, not the frame.**
+  The difference shows only at 8-Kbyte pages, where the descriptor supplies bits
+  31-13 and §3.4 says "physical address bit 12 is driven by logical address bit
+  12" — and `ap_m68040_search` has already ORed the offset in, so one mask gets
+  both cases right.
+
+*The named gap it inherits*: `PTESTR` should set `U` in every descriptor it
+reads and `PTESTW` should set `M` in the page descriptor. `ap_m68040_search`
+reads through a plain callback with no bus to lock, and Table 3-1 makes those
+updates a locked read-modify-write. The ATC entry and the MMUSR get `M`; the
+table does not. `PROVISIONAL`, and the same gap `ap_m68040_mmu.h` already
+records for an ordinary access rather than a new one.
+
+*Verification*: a new `m68040_ptest_suite`, 13 tests, and a step-level test that
+`$F56C` executes on a 68040, advances the PC by two, and leaves `00005001` in
+MMUSR — R set with the frame in bits 31-12 — where a 68030 still takes F-line
+and a user-mode 68040 takes a privilege violation. Both `PTESTR` and `PTESTW`
+across all eight register fields. `ctest` 146/146 → 147/147.
 
 *Recorded without the tempting arithmetic.* A `$7` frame is 60 bytes and six
 would fill a 384-byte stack exactly, against 132 bus errors in the run — but 131
@@ -15534,7 +15662,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 state hash (the identity harness's CPU half) | working: every architectural register, the MMU and cache control registers, the pipe, both caches, the ATC, and the accumulated clock — host pointers excluded by construction, since `ap_hash.h` has no pointer helper | `state_suite`, 16 tests sweeping every field; `step_suite`'s same-program-twice check |
 | 68030 addressing mode categories (Data / Memory / Control / Alterable) | working; derived from §2.3's definitions rather than transcribed from Table 2-4, whose Alterable column is exchanged between two row pairs in the scan | `category_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §2.3 |
 | 68030 operand access (read/write through an effective address) | working; a sub-long-word operand is selected from the long word by position, and one straddling two long words is split into a bus cycle per long word in address order | `operand_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` |
-| 68030 instruction step (fetch → decode → execute → advance) | **complete**: the `RESET` instruction costs its **518 clocks** as of 2026-09-07 -- `[030]` §11.6.17's `518(0/0/0)` and `[PRM]`'s "Asserts the RSTO signal for 512 ... clock periods", two independent documents for a figure the arm was charging zero for. The boot PROM does not execute one in the identity window, which the byte-identical clock total proves rather than assumes: **a bit field accesses only the bytes it spans as of 2026-09-06** -- `[PRM]`'s note on every bit field page gives the shapes (byte, word, 3-byte, long word, and long word with byte for a five-byte span) and `[030]` §11.6.14 prices them at one operand read under five bytes and two at five. This core read **one byte per bit** -- thirty-two accesses for a 32-bit field, and a read-modify-write per bit on the write path, so a field written across a device register read and rewrote it eight times a byte. The values were always right, which is why every existing test passed. Measured at 2 and 3 bus reads after, against 33 and 33 before: every one of the 65,536 opcode words executes, and **no word in the space reports `UNIMPLEMENTED`** — a swept property, not a list. The sweep extends through the coprocessor extension space and the MMU extension word, where *which instruction a word is* lives in the extension rather than the opcode; both found real gaps (664 coprocessor forms, 94,316 MMU forms) that an opcode-only sweep could not see. This row used to enumerate the dozen families that worked and end "everything else reports unimplemented, including divide-by-zero", which was stale by the whole instruction set | `step_suite`, 319 tests -- the two newest being the **MC68040's** control registers through `MOVEC` and its `CINV`/`CPUSH`, gated on the part having them |
+| 68030 instruction step (fetch → decode → execute → advance) | **complete**: the `RESET` instruction costs its **518 clocks** as of 2026-09-07 -- `[030]` §11.6.17's `518(0/0/0)` and `[PRM]`'s "Asserts the RSTO signal for 512 ... clock periods", two independent documents for a figure the arm was charging zero for. The boot PROM does not execute one in the identity window, which the byte-identical clock total proves rather than assumes: **a bit field accesses only the bytes it spans as of 2026-09-06** -- `[PRM]`'s note on every bit field page gives the shapes (byte, word, 3-byte, long word, and long word with byte for a five-byte span) and `[030]` §11.6.14 prices them at one operand read under five bytes and two at five. This core read **one byte per bit** -- thirty-two accesses for a 32-bit field, and a read-modify-write per bit on the write path, so a field written across a device register read and rewrote it eight times a byte. The values were always right, which is why every existing test passed. Measured at 2 and 3 bus reads after, against 33 and 33 before: every one of the 65,536 opcode words executes, and **no word in the space reports `UNIMPLEMENTED`** — a swept property, not a list. The sweep extends through the coprocessor extension space and the MMU extension word, where *which instruction a word is* lives in the extension rather than the opcode; both found real gaps (664 coprocessor forms, 94,316 MMU forms) that an opcode-only sweep could not see. This row used to enumerate the dozen families that worked and end "everything else reports unimplemented, including divide-by-zero", which was stale by the whole instruction set | `step_suite`, 320 tests -- the newest being the **MC68040's** `PTEST`, whose result the DS5500's firmware reads back |
 | 68030 instruction prefetch (pipe driven from memory) | working | `fetch_suite`, 5 tests, `MC68030 User's Manual 3ed` §11.2.2 and §6.1 |
 | 68030 logical memory access path (cache → MMU → bus) | working, reads and writes. **The read half of a read-modify-write is forced to miss the data cache** — `[030]` §6.1.2.2, "always forced to miss", and §11.4's note says it again from the timing end. This core passed a literal `false` for the RMC flag into the cache, so a `TAS` or `CAS` whose operand was already cached answered from the line: no external cycle, and a semaphore read that could not see another master's write. The same constant also hid the RMC from `CBREQ` suppression and *cleared* `bus->rmc` on the read cycle of the indivisible pair. Corrected 2026-09-06 | `access_suite`, 18 tests, `MC68030 User's Manual 3ed` §6.1 |
 | 68030 effective address calculation (with register side effects) | working; memory-indirect modes report the pending indirection | `addr_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` §2.2 |
@@ -15549,7 +15677,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 family 0100 `$4E` control group (TRAP/LINK/UNLK/MOVE USP/RESET/NOP/STOP/RTE/RTD/RTS/TRAPV/RTR/JSR/JMP) | **complete**, and so is the rest of family 0100 — the row said "the rest of family 0100 not yet decoded", which the exhaustive sweep above has contradicted since it was written | `control_suite`, 11 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 |
 | 68030 family 0101 (ADDQ/SUBQ/Scc/DBcc/TRAPcc) decode | working | `quick_suite`, 10 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and each instruction page |
 | 68030 branch family (Bcc/BSR/BRA) decode | working | `branch_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and the Bcc/BRA/BSR pages |
-| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 319 tests -- the two newest being the **MC68040's** control registers through `MOVEC` and its `CINV`/`CPUSH`, gated on the part having them, and the per-subsystem suites |
+| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 320 tests -- the newest being the **MC68040's** `PTEST`, whose result the DS5500's firmware reads back, and the per-subsystem suites |
 | 68030 operation code map (top-level instruction family) | working | `opcode_suite`, 6 tests, `M68000 Family Programmer's Reference Manual 1992` Table 8-2 |
 | 68030 conditional tests (the 16 Bcc/Scc/DBcc/TRAPcc conditions) | working | `cond_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-19 |
 | 68030 effective address decode (modes, extension words, lengths) | decode and extension-word counts working; address *calculation* needs the instruction unit | `ea_suite`, 17 tests, `M68000 Family Programmer's Reference Manual 1992` §2, Tables 2-1, 2-2, 2-4 |

@@ -4742,11 +4742,23 @@ discipline throughout.
       **Control reaches the firmware through `TRAP #15`.** The table is the
       PROM's own 1 KB image relocated by `7FF40000`, with 55 entries taken by
       Domain/OS; the kernel took `TRAP #0`–`#14` and left `#15` holding the
-      PROM's `7FF4041C`. `1 x vector 47` in the run, and the 384-byte stack
-      entered once at `7FF4092E`. `VBR+$100` is the service table, not vectors.
-      **So the open question is one question**: how kernel code (`7A40C1EC`)
-      comes to be running on the firmware's stack when it takes an ordinary
-      demand-paging fault. Detail in `PROJECT_STATUS.md`.
+      PROM's `7FF4041C`. `VBR+$100` is the service table, not vectors.
+      **And the chain is now measured end to end, in one sentence**: Domain/OS
+      faults, prints `FAULT IN DOMAIN/OS:` through the PROM console, the
+      firmware switches to its own 384-byte stack at `7FF4092C`, executes
+      **`PTESTR (A4)`** at `$58D2` to ask whether an address is resident before
+      printing it, this core trapped that as F-line, and the kernel's handler
+      overflowed the stack the firmware was standing on. Vector 11 is taken from
+      PC `7FF458D2`, 196 instructions before the death — *inside* the crash
+      report, not before it. **Six of the seven things eliminated earlier were
+      downstream of one missing instruction.**
+      **`PTEST` is implemented** (`ap_m68040_ptest.*`, `m68040_ptest_suite`,
+      13 tests): it flushes the matching ATC entry and searches unconditionally,
+      picks the side from DFC, declines the four undefined function codes, and
+      leaves the search's answer in MMUSR. It could not be the no-op `PFLUSH`
+      was — the firmware reads the register back four instructions later.
+      **Next on this item**: what Domain/OS faulted on *before* it decided to
+      print. Detail in `PROJECT_STATUS.md`.
       **Five candidates are eliminated by measurement rather than argument**:
       the stack-pointer selection, the mapping, the register state, the fault
       kind, and the frame balance. Detail in `PROJECT_STATUS.md`.
