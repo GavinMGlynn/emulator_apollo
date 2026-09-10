@@ -4780,10 +4780,16 @@ discipline throughout.
       301 → 362 all serviced, `TRAP #3` and `TRAP #7` taken, and the final PC is
       `009175A8` → `013DD5A8` — **a user process running and making system
       calls**, the first time anything here has got past the kernel.
-      **Next on this item**: it stops at `ILLEGAL on 77FC`, a `7`-line word with
-      bit 8 set where `MOVEQ` requires it clear. Whether that is provably
-      illegal rather than merely unknown to this decoder is a `[PRM]` `MOVEQ`
-      page question; Domain/OS does install a vector-4 handler at `7A42DB20`.
+      **The `ILLEGAL on 77FC` it stops at is not a decode gap.**
+      `--dump-logical 00917560:0x80` shows the page is **zeros** and `77FC` a
+      stray word in it; the PC walked 299 four-byte `ORI.B` steps to reach it
+      from `0091709C`, which `00803116 jsr (a0)` called out of the `A5` global
+      pointer area. The page was *written*, by the copy loop three instructions
+      earlier — `PC 008030F0 60 time(s) 00900000-0091E000 invalid on write`, all
+      serviced, no read fault — so the source was resident and held zeros.
+      **Next on this item**: what fills that source. It is a Domain/OS loader
+      question, not a 68040 one: no instruction was refused, no translation was
+      wrong and no fault went unserviced in 1.95 G instructions.
       Detail in `PROJECT_STATUS.md`.
       **Five candidates are eliminated by measurement rather than argument**:
       the stack-pointer selection, the mapping, the register state, the fault

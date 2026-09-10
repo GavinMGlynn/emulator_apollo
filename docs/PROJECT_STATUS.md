@@ -2537,16 +2537,56 @@ Vectors 35 and 39 are two of the fifteen gates Domain/OS installed over
 main memory. **So a user process is running and making system calls**, which is
 the first time anything on this machine has got past the kernel.
 
-*Where it now stops*: `ILLEGAL on 77FC` at `009175A8`. `77FC` is a `7`-line
-word with bit 8 set, and `MOVEQ` — the only instruction in that line on any
-member of the family — requires bit 8 clear. This core reports `ILLEGAL` without
-vectoring for any word it cannot decode, deliberately: `ap_m68030_step.c` takes
-the trap "only where the word can be positively identified as an instruction
-*another member of the family* has and this model does not", so that a gap in
-this decoder cannot be dressed up as the machine behaving correctly. Whether
-`7xxx` with bit 8 set is that case — provably illegal rather than merely
-unknown — is a question for the `[PRM]` `MOVEQ` page and the next increment, and
-Domain/OS does install a vector-4 handler at `7A42DB20`.
+### Where it now stops, and it is not a decode gap
+
+`ILLEGAL on 77FC` at `009175A8` reads like a missing instruction. It is not one,
+and the check that settles it was cheap: `--dump-logical 00917560:0x80`.
+
+```
+013DD5A0  00 00 10 00 00 04 00 00  77 FC 00 00 00 00 00 00
+013DD5B0  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00
+```
+
+**The page is zeros.** `77FC` is a stray word in data, and the trace shows the
+program counter walking to it four bytes at a time — `0000 xxxx` is `ORI.B`, so
+a page of zeros decodes as a long run of it — for **299 steps**, from
+`0091709C` to `009175A8`. Nothing was mis-decoded; the machine was executing a
+page that has nothing in it.
+
+*How it got there is three instructions long:*
+
+```
+008030F8  206D xxxx   movea.l d(a5),a0      ; a0 <- 00917534, used as data
+   ...    2143 / 2142 / 216E                ; three stores through it
+00803112  206D xxxx   movea.l d(a5),a0      ; a0 <- 0091709C
+00803116  4E90        jsr     (a0)
+0091709C  0000 ...
+```
+
+`A5` is the 68k global-data pointer, so both are entries in the program's own
+pointer area — one used as a data address and stored through successfully, the
+next called. **The pointer is plausible and the page it names is empty.**
+
+*And the page was written, not merely mapped.* The instructions immediately
+before are a copy loop:
+
+```
+008030F0  24DB   move.l (a3)+,(a2)+
+008030F2  B5ED   cmpa.l d(a5),a2
+008030F6  65F8   bcs.b  $8030F0
+```
+
+which the run's fault list records as `PC 008030F0  60 time(s)
+00900000-0091E000  invalid on write` — sixty demand-paging faults, every one
+serviced, copying into the region that holds `0091709C`. In the trace's window
+it is running `00852884` → `0091A000`, a constant `$C777C` apart. **There is no
+read fault at that PC**, so the source pages were already resident.
+
+So the destination was filled by a copy that completed, from a source that was
+resident, and what arrived was zeros. **The next question is what fills the
+source**, and it is a question about Domain/OS's loader rather than about the
+68040: no instruction was refused, no translation was wrong, and no fault went
+unserviced in the whole 1.95 G instructions.
 
 ### One bit in the fault frame, and Domain/OS starts paging
 
