@@ -79,6 +79,60 @@ worth a render if a model-table field is ever in dispute*: a brochure prints
 configured specifications, which is exactly the weak-source problem `CFG_WALK.md`
 records, so they would be a last resort rather than a source.
 
+## Second pass: sampled term by term, and it changed one verdict
+
+The ranking below sorts by hardware-term *count*, and a count cannot tell a
+device register from a `troff` register. **So every remaining document's matches
+were extracted with their context and read.** Three outcomes.
+
+### One document was ranked as a false friend and is a hardware source
+
+`000792-A01` *Domain Pascal Language Reference*: 47 hits are `register` in the
+language's sense and **33 are `68040`**, clustered in an appendix on the
+68040's floating-point trap. `000792-A01_WALK.md` has what it gave. **A
+term-count triage ranks; only reading what the terms *are* decides**, and this
+is the document that proved it.
+
+### The expected false friends were exactly that
+
+| Document | Hits | What they are |
+| --- | --- | --- |
+| `005802-00` Text Processing Guide | 154 | **all** `register`, in the `troff`/`-ms` sense — "buffer register, say x" |
+| `002093-A00` C Language Reference | 90 | the `register` storage class, listed among `continue if switch default int typedef` |
+| `002547-A00` Aegis Command Reference | 27 `csr` | a **command named `csr`**, "create a type object module for binding" |
+| `010851/2/3-A00` Managing SysV/Aegis/BSD | 2 each | "Hexadecimal address of a **tcb**" — a TCP control block |
+
+### Only 15 of the 41 contain a *hard* term at all
+
+Re-scanned for part numbers and unambiguous hardware vocabulary only —
+`MC680xx`, `68020/30/40`, `68881/2`, `IRQ`, `DMA channel`, `CSR page`, `jumper`,
+`MHz`, `nanosecond`. **Twenty-six documents contain none of it and are
+settled.** Of the fifteen that do, all but two are one or two incidental hits.
+
+**`Apollo_Price_List_Jul88` — 40 hits, and it confirms four fields of the
+DN3000 row from a source the model table does not cite:**
+
+> "DN3000 PERFORMANCE: 1.5 MIPS  CPU: **12 Mhz MC68020**, **12 Mhz MC68881**
+> MEMORY: **4-8 MB**  GRAPHICS: MONO: **15", 1024 X 800**; 19", 1280 X 1024"
+
+against `ap_model.c`'s `cpu_hz = 12000000`, `fpu = AP_FPU_M68881`,
+`ram_max_bytes = 0x800000` (cited to `[S3K]` by *address range*, where this
+gives the capacity), and `display = AP_DISPLAY_MONO_1024X800` — the 15-inch
+option. **Four independent agreements and nothing to change.** *It also lists
+the 19-inch mono as 1280 x 1024*, which is the same option pairing
+`CFG_WALK.md` untangles for the Series 3500.
+
+**`005694-A00` *Managing Domain/OS and Domain Routing in an Internet*** — 4
+`jumper`, 2 `IRQ` — is the **device descriptor file** from the administrator's
+end: "describes the addresses of Control and Status Registers (CSR) and the
+Interrupt Request Lines (IRQ) used by the controller … `'node_data/dev` contains
+device descriptor files", and "**Jumper settings on the controller determine the
+unit number**". Derivative of `000959-A00`'s chapter 11, which is walked, and
+the same is true of the `crddf` command's options in the Aegis and SysV command
+references — "Specify the hexadecimal address of the **CSR page** for the device
+in the bus address space", "`-dma channel` … used by AT-compatible device".
+**The user interface to facts the GPIO manuals already gave.**
+
 ## Ranked by hardware-term density: what to read next
 
 | Hits | Document |
