@@ -3095,6 +3095,47 @@ number to explain rather than accept — the machine is idle for nine tenths of
 it. Whether the DN3500's restore costs the same per block is the cheap
 comparison that says whether this is the tape model or the DS5500.
 
+### And most of that rate is the drive doing what the manual says
+
+**Answered by arithmetic rather than by a second boot**, from constants already
+derived in `ap_sc499.h` and a file size on disk.
+
+*First a number above is wrong and is corrected here.* The paragraph says
+"1,056-byte tape block"; the block is **512** bytes — `AP_SC499_BLOCK_BYTES`,
+QIC-02 Rev D §4.2, and `AP_CT_BLOCK_SIZE` beside it. The cartridge settles it
+with no room for argument: `019593-001` is **53,678,592 bytes** and
+53,678,592 / 512 = **104,841**, the exact block count the report prints.
+
+| | |
+| --- | --- |
+| `AP_SC499_T_BYTE` | 239,360,000 units = 11.11 us (`21542400000000 / 90000`, exact) |
+| a 512-byte block at the head | 122,552,320,000 units = **5.69 ms** |
+| a DN5500 CPU period at 25 MHz | 861,696 units = 40 ns |
+| so a block's media time | **142,222 CPU periods** |
+| measured idle per block | 1,174,611,437 / 4,914 = **239,034** |
+
+**So 59.5% of the per-block idle is the drive's own 90 KB/s** — `008778-03`
+Table 9-1's rate, on QIC-02 Rev D's block, neither of them invented here. The
+rate is largely a characteristic after all, and the whole-cartridge consequence
+is the part that matters: 104,841 x 512 = **53.7 MB at 90 KB/s is 596 seconds**,
+so **a real DN5500 spends ten minutes on this restore** and a cycle-stepped core
+must step every one of those periods. 14.9 G of the ~25 G estimate is tape time
+that a correct emulator cannot avoid.
+
+*What is still open is the other 40%*: 96,812 CPU periods, **3.9 ms a block**,
+which the media does not account for.
+
+**And the comparison the plan proposed cannot discriminate.** "Whether the
+DN3500's restore costs the same per block" was going to separate the tape model
+from the DS5500 — but the media term is model-independent by construction, the
+same drive at the same rate, so a DN3500 shows the same 142,222-period floor.
+The comparison can only isolate the residual, which is what it should now be
+pointed at.
+*The candidate for the residual is named and unmeasured*: the restore writes
+files to the Winchester between tape blocks and disk access time is modelled,
+so the disk's own latency is idle too. The same report already carries the disk
+counters; this run's were not quoted, which is the one pass that would settle it.
+
 *This is the fourth time the answer has been on a shelf nobody looked at*, and
 the first three are already memories. The difference is that this shelf had been
 *audited* as complete: twenty-two walk records, every one finished, every one a

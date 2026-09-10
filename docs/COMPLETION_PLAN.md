@@ -4955,6 +4955,10 @@ discipline throughout.
       cold-start exception (`FINDINGS.md` C275). **So the next step on this item
       is the tape's power-on handshake on the SAU 14 path**, on a machine whose
       DN3500 counterpart drives the same cartridge through a whole restore.
+      **Superseded 2026-09-10 and kept because it explains the work that
+      followed**: at a longer bound the tape reads 4,914 blocks and the card is
+      `ready, exs 0000`, so the power-on handshake completes on this path. The
+      `first block still owed` reading was the shorter bound's, not a defect.
       Detail in `PROJECT_STATUS.md`.
       **What is left in the core**: the caches the invalidation should act on
       are a complete module attached to no CPU, so the instruction is correctly
@@ -5047,6 +5051,18 @@ discipline throughout.
       ~244,000 steps a tape block, nine tenths of them idle, is a rate to
       explain rather than accept -- the cheap comparison is the DN3500's restore
       per block.
+      **The rate is now 59.5% explained, 2026-09-10, from constants and a file
+      size rather than a second boot.** A block is **512** bytes (the item said
+      1,056; `019593-001` is 53,678,592 bytes and 53,678,592/512 = 104,841
+      exactly), and at `008778-03` Table 9-1's 90 KB/s it costs 5.69 ms =
+      **142,222 CPU periods** against **239,034** measured idle. So the whole
+      cartridge is 53.7 MB at 90 KB/s = **596 seconds**: a real DN5500 spends
+      ten minutes here and a cycle-stepped core must step all of it. *The open
+      part is the residual 3.9 ms a block*, and **the proposed DN3500 comparison
+      cannot discriminate** — the media term is model-independent, so it shows
+      the same floor; it can only isolate the residual. The unmeasured candidate
+      is disk latency between blocks, readable from the same report's disk
+      counters in one pass. Detail in `PROJECT_STATUS.md`.
       **The DS5500 reaches its own monitor, 2026-09-10** — `MD14 REV 2.00,
       1991/03/08.16:20:14` and a `>` prompt, from a machine that could execute
       two of its instructions a day earlier. It cost **one address range**:
