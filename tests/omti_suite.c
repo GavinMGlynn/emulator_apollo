@@ -995,9 +995,12 @@ static void test_the_ready_timeout_is_fifty_seconds(void) {
  * for 40.06% of the DS5500 restore's idle time as 491 of these accesses -- and a
  * number that carries an argument needs an assertion under it.
  *
- * `002398-04` Table 6-5, by way of this file's own derivation: 1/3-stroke seek
- * **30 msec**, which that section argues *is* the average seek; average latency
- * **8.33 msec**; **3600** rpm. */
+ * `008778-03` Table 6-5 -- the *part's* approval table, naming the Maxtor
+ * EXT-4380 this core's image is -- by way of `ap_omti.h`'s derivation:
+ * 1/3-stroke seek **30 msec**, which that section argues *is* the average seek;
+ * average latency **8.33 msec**; nominal **3600** rpm. Not `002398-04` p. 6-3,
+ * whose nineteen-drive summary prints 27 and which the header records as
+ * deliberately not followed. */
 static void test_the_access_time_is_the_drives_published_figures(void) {
   /* Thirty milliseconds, and the base represents it with no remainder. */
   TEST_ASSERT_EQUAL_UINT64(30u, AP_OMTI_AVERAGE_SEEK * 1000u / AP_TIME_BASE_HZ);

@@ -5075,15 +5075,16 @@ discipline throughout.
       counter agreeing independently. *And the traced baseline was re-run
       without its trace before the delta was taken*: every counter identical,
       state hash `81F93FCD7FFA080B` both ways. *So the residual is answered and
-      the
-      unmeasured candidate was the right one.* The whole cartridge is 25.6 G
+      the unmeasured candidate was the right one.* The whole cartridge is 25.6 G
       steps, 14.9 G of tape and 10.0 G of Winchester, both device time a
       cycle-stepped core must step and neither a defect. **What is left on this
       item is wall clock, not knowledge.**
       *Verification: `omti_suite` 47 -> 48 -- the seek, the 3600 rpm rotation and
-      the half-turn latency against `002398-04` Table 6-5's own figures, which
-      `awd_suite`'s composition test could not catch because it asserts the model
-      honours the constants rather than what the constants are.*
+      the half-turn latency against `008778-03` Table 6-5, the part's approval
+      table, and **not** `002398-04` p. 6-3's nineteen-drive summary, which
+      prints 27 ms and which `ap_omti.h` records as deliberately not followed.
+      `awd_suite`'s composition test cannot catch a wrong constant: it asserts
+      that the model honours them, not what they are.*
       Detail in `PROJECT_STATUS.md`.
       **The DS5500 reaches its own monitor, 2026-09-10** — `MD14 REV 2.00,
       1991/03/08.16:20:14` and a `>` prompt, from a machine that could execute

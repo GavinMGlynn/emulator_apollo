@@ -3212,9 +3212,15 @@ report does not carry the sequence.
 
 **98.91% of it.** The 3.9 ms a block the media did not account for is the
 Winchester arriving at the sector, and like the 90 KB/s it is a figure this core
-did not invent: `002398-04` Table 6-5 by way of `ap_omti.h`, where the 30 ms is
-argued from "1/3 stroke *is* the average seek" and the 8.33 ms is that table's
+did not invent: **`008778-03` Table 6-5** by way of `ap_omti.h`, where the 30 ms
+is argued from "1/3 stroke *is* the average seek" and the 8.33 ms is that table's
 own "Average latency" to the digit.
+
+*The document is named twice here because the first attempt named the wrong
+one.* `002398-04` p. 6-3 tabulates the same drive at **27** ms, and `ap_omti.h`
+records at length why 30 is kept over it — a part's approval table against a
+nineteen-drive summary. Citing `002398-04` for this figure would have credited
+the source this core deliberately does not follow.
 
 | the idle | periods | of the idle |
 | --- | --- | --- |
