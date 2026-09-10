@@ -2533,32 +2533,67 @@ names each caller's ECB. **A call-chain traceback, from data this project
 already has and with no new instrument** — which is the next thing to do on this
 item.
 
-### The traceback was run, and it half-fits
+### The traceback was run twice, and the second run settles the frame
 
-`--dump-logical 75D7FF00:0x200` on the current boot, read at `A6 = 75D7FF94`
-against the 1983 frame format:
+The first attempt dumped `75D7FF00:0x200`, which starts *above* `A7 = 75D7FEDC`
+and so missed the pushed return address. The rerun takes the corrected range and
+three more windows in the same pass — `75D7FE00:0x300`, the two code addresses
+the frame names, and `--boot-trace-last 60000`. It reproduces the first run
+exactly: **1,648,173,071 instructions, `ILLEGAL on 77FC` at `009175A8`, state
+hash `646776804810ADF9`, register file identical**, so the two runs are one
+measurement read twice.
 
-| | Read | Rev 1's frame |
-| --- | --- | --- |
-| `[A6+00]` | `75D7FFDC` | caller's `SB` — **fits**, and following it gives `00000000`, so the chain is **one frame deep** |
-| `[A6+04]` | `0080949C` | a pointer to this routine's **ECB** — fits, and it is a plausible user-space address |
-| `[A6+08]` | `0080317E` | "0 (unit list)" — **does not fit**: this is a *code* address, sixteen bytes past the `jsr (a0)` at `00803116` |
+**The frame is a plain `LINK A6` frame, not Apollo's `SB` frame.** Read at
+`A6 = 75D7FF94`:
 
-**So either the frame gained a field between 1983 and SR10.4, or `A6` in this
-routine is a compiler's frame pointer rather than Apollo's `SB`.** Not settled,
-and the two are distinguishable — a routine that follows the convention does
-`LINK #autosize,SB` at entry, and the trace of the instructions before
-`00803116` would show whether one happened.
+| | Read | Plain `LINK A6` | 1983 `SB` frame (p. 7-15) |
+| --- | --- | --- | --- |
+| `[A6+00]` | `75D7FFDC` | saved caller's `A6` ✓ | caller's `SB` ✓ |
+| `[A6+04]` | `0080949C` | **return address** ✓ | pointer to the ECB ✗ |
+| `[A6+08]` | `0080317E` | **first argument** ✓ | unit list, zero ✗ |
+| `[A6+0C]` | `00000000` | a local | caller's `DB` ✗ |
+| `[A6+10]` | `7A480000` | a local | return PC ✗ |
 
-**What the traceback does establish**: the chain is **one frame deep**, so the
-routine that called through the empty ECB was itself called from outside this
-stack — and its own ECB is `0080949C`. **Both ends of the failing call are now
-named**: caller's ECB `0080949C`, callee's ECB `0091709C`, the latter in a page
-of zeros.
+*Three independent discriminators, all pointing the same way.* **The content at
+`0080949C` decides it**: `584F 206D F9D4 4E90` is `addq.w #4,a7; movea.l
+-$62C(a5),a0; jsr (a0)` — a stack cleanup that pops exactly one long argument,
+which is what stands at a *return site*. An ECB's first instruction is
+`MOVE.L DB,-(SP)` (`2F0D`), by the entry sequence on p. 7-8. **Second**, the
+caller pops one long and the frame carries exactly one argument at `+08`; the
+`SB` frame carries none there. **Third**, `A4` at the stop holds the same
+`0080317E`, so the argument is live in a register.
 
-*And the dump range was chosen wrong.* `A7` at the stop is `75D7FEDC`, **below**
-the `75D7FF00` the dump starts at, so the pushed return address and the argument
-pointers are outside it. A rerun should start at `75D7FE00`.
+**So the earlier reading is withdrawn**: `[A6+04]` is a return address, not this
+routine's ECB, and there was never a discrepancy at `[A6+08]` to explain — the
+frame is simply not the one `002398-01` Rev 1 documents. `002398-01_WALK.md`'s
+row carries the correction. The Apollo *call* sequence is still exactly what the
+machine executes; it is the *entry* sequence, and with it the frame, that this
+SR10.4 module does not use.
+
+**And `0080317E` is a string, not code.** `--dump-logical 0080317E:0x20`:
+
+```
+0136A17E  FF 00 55 6E 61 62 6C 65  20 74 6F 20 62 61 63 6B   ..Unable to back
+0136A18E  20 52 2F 57 20 64 61 74  61 2E 20 20 53 74 61 74    R/W data.  Stat
+```
+
+Two bytes `FF 00`, then **`Unable to back R/W data.  Stat…`**. The routine's own
+code reaches the same address a second way — `487A 0054` at `00803128` is
+`pea $54(pc)`, and `0080312A + $54` is `0080317E` — so the module's third call
+pushes this string. **The failing call is the first of three**, and the third is
+the one that would have printed that message.
+
+**The chain is two frames, not one.** `[75D7FFDC] = 00000000` ends it, and that
+outer frame's return address is `[75D7FFE0] = 00800026`, with four stack
+pointers above it (`75D7FFFA`, `75D7FFFC`, `75D7FFF6`, `75D7FFF8`) as its
+arguments. The run's own stack report agrees: stack `75D7` was "entered at PC
+`00800010`".
+
+**The stack below `A7` fits the decoded call byte for byte.** `0080310A`–
+`00803116` is `subq.l #2,a7; clr.w -(a7); pea -$74(a6); movea.l -$510(a5),a0;
+jsr (a0)`, so from `A7 = 75D7FEE8` before it: `75D7FEDC` = `00803118` the return
+address, `75D7FEE0` = `75D7FF20` which is `A6-$74` exactly, `75D7FEE4` = the
+cleared word. All four match the dump.
 
 *And one candidate is withdrawn.* `00120020` is "supervisor fault while resource
 lock(s) set", which is `fault_$while_lock_set`, the routine `[AEGIS]` §18.2.4
@@ -2746,9 +2781,39 @@ and p. 73's librarian map shows a C data section carrying it —
 
 **So there is no fault here to chase**, and the run says so on its own terms: no
 instruction was refused, no translation was wrong, and no fault went unserviced
-in 1.95 G instructions. What remains is a question about *ordering* — the
-program calls through `0091709C` before the pass that fills it — and that is a
-question for `AEGIS_Internals_and_Data_Structures`, next on the shelf.
+in 1.95 G instructions.
+
+*The ordering question is now measured, and the answer is the opposite of the
+guess.* ~~"What remains is a question about *ordering* — the program calls
+through `0091709C` before the pass that fills it."~~ **Refuted by the trace.**
+The copy writes `0091709C` at step 1,948,602,237 (`a2` post-increment
+`009170A0`, `a3` post-increment `0084F924`, so the source longword is
+`0084F920`); the call through it is at step 1,948,647,883, **45,646 steps
+later**. The fill happens *first* and deposits a zero, because the longword it
+copied is zero. **So the slot is not unwritten — it is written with the initial
+image's own zero**, which is what §4.4.1's zero-filled `Zero` section holds
+until something snaps a real entry point into it. The question is no longer
+"why is this page empty" but "what was supposed to write this ECB between the
+copy and the call", and that is a dynamic-link question, not a paging one.
+
+*The copy's own numbers, from the same trace.* The loop starts at
+`a2 = 00915000`, `a3 = 0084D884` and ends at `a2 = 0091E2C0`, `a3 = 00856B44` —
+`0x7224` bytes, the two pointers a constant `0xC777C` apart. Nineteen faults in
+the window, and **every destination page from `00916000` to `0091E000` faults
+exactly twice at the same address, with `a2` and `a3` identical both times and
+about 3,200 steps between them**; only the first page of the window faults once.
+
+**That doubling is the next thing to explain, and there is a candidate in this
+core rather than in Domain/OS.** The same report says `atc fills 18850
+descriptor fetch(es), **0 history update(s)**` and, one line above,
+`mmu declares 68040 on-chip, translates with the 68030's -- a different
+descriptor format (PROVISIONAL)`. The 68040's table search writes the **U** and
+**M** bits back into the descriptor in memory; a search that never writes one
+back leaves the operating system's handler looking at an unmodified descriptor
+after it has already serviced the page. **This is a hypothesis, not a finding** —
+what settles it is the walk the discipline asks for first: every field of every
+68040 MMU register and descriptor against `MC68040UM`, which is on the shelf.
+That is where this item goes, ahead of any further boot.
 
 *This is the fourth time the answer has been on a shelf nobody looked at*, and
 the first three are already memories. The difference is that this shelf had been
