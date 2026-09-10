@@ -4500,7 +4500,20 @@ discipline throughout.
       It also gives the KGT's three tables, the four address-space partitions,
       a **64 MB** virtual address space class `[AEGIS]` does not know (with
       "some DN3000" in it), and a fourth independent statement of the zero-fill
-      rule. **97 of the 100 documents remain untouched.**
+      rule.
+      **`008862-01` *Assembler Reference* is passed over in full**
+      (`008862-01_WALK.md`), read because `[AEGIS]`'s preface pointed at it.
+      Appendix F gives the **object module format** field by field, and with the
+      other three it completes the account: `[ASM]` §1.4 puts an
+      externally-callable routine's entry point in the writable `DATA$` section
+      (which is why the call is `movea.l d(a5),a0; jsr (a0)`), §F.5.6 has the
+      loader **zero the section, then apply text records, then relocations**
+      whose base ID may name a *global reference*, and `[DP]` says an unresolved
+      vector points at a dynamic link snapper. **So a zero in that slot is one of
+      three distinguishable things**, and §F.3's `OBJDMP` — a shell command the
+      DS5500 already has — dumps exactly those records. That is the cheapest next
+      measurement on this question and needs no new instrument.
+      **96 of the 100 documents remain untouched.**
       Brochures, price lists and catalogues are listed and declared not worth
       walking, which is a judgement on the record rather than an omission.
 
