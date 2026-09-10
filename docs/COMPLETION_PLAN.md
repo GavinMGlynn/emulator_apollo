@@ -4513,7 +4513,7 @@ discipline throughout.
       three distinguishable things**, and §F.3's `OBJDMP` — a shell command the
       DS5500 already has — dumps exactly those records. That is the cheapest next
       measurement on this question and needs no new instrument.
-      **46 of the 96 remain untouched.** `CONTENT_TRIAGE.md`
+      **45 of the 96 remain untouched.** `CONTENT_TRIAGE.md`
       settled 16 by a full-text scan for the vocabulary a hardware fact is
       written in — and separated 7 brochures the scan *could not read*, which is
       the fifth time this session a check reported clean because it could not
