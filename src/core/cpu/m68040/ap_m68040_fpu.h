@@ -36,6 +36,46 @@
  * This is the resolution order paying off inside a single document: the
  * sibling section answered what the obvious table got wrong.
  *
+ * ## Which of the twenty-seven this machine's software actually issues
+ *
+ * `000792-A01`, the *Domain Pascal Language Reference* of December 1990,
+ * Appendix F -- "Optimizing Floating-Point Performance on MC68040-Based Domain
+ * Workstations" -- is Apollo's own account of the same trap, and it narrows the
+ * list to what a **DS5500 running Domain/OS will actually hit**:
+ *
+ *   "The 68040 has an on-chip floating-point unit that directly supports only a
+ *    subset of the 68881/68882 architecture. Floating-point functionality that
+ *    is not directly supported in hardware is provided through **system traps**;
+ *    these system traps invoke a **kernel routine** that emulates the missing
+ *    functionality."
+ *
+ * Its **Table F-1, Emulated Intrinsic Functions**, is eight rows -- `SIN`,
+ * `COS`, `TAN`, `ATAN`, `EXP`, `LOG`, `LOG10`, `INT` in FORTRAN, C and Pascal
+ * spellings -- so the instructions Apollo's compilers emit and the hardware
+ * refuses are `FSIN`, `FCOS`, `FTAN`, `FATAN`, `FETOX`, `FLOGN`, `FLOG10` and
+ * `FINT`/`FINTRZ`. **Eight of the twenty-seven.**
+ *
+ * And the rest are never generated at all: "Intrinsic functions other than
+ * those listed ... (such as `ASIN`, `ACOS`, and hyperbolic functions) are
+ * **always performed by run-time libraries that use only hardware-executed
+ * floating-point instructions**. For example, if your FORTRAN program calls the
+ * `SINH` intrinsic, the compiler **never generates the FSINH instruction**;
+ * instead, it generates a call to the `ftn_$dsinh` routine." Only code compiled
+ * `-cpu 3000` (later `-cpu mathchip`) contains any of them; `-cpu any` contains
+ * none.
+ *
+ * **So if these ever need implementing, the eight come first**, and `FSINH`,
+ * `FTANH`, `FACOS`, `FASIN` and the other nineteen may never be reached by this
+ * machine's own software at all. That is a *workload* fact and no Motorola
+ * manual can carry it.
+ *
+ * *And Apollo confirms §3.7.3's divergence from the user's side.* Appendix F.5:
+ * results on a 68040 "may differ slightly from those on 68020-based and
+ * 68030-based platforms ... caused by the algorithms used to approximate
+ * trigonometric and transcendental math functions ... both results can be
+ * acceptably precise approximations". Motorola warns that the FPSP does not
+ * match the 68881/68882; Apollo tells its customers what that looked like.
+ *
  * A **third** source settles it beyond argument. `M68000 Family Programmer's
  * Reference Manual (1992)` Table 5-2, "Indirectly Supported Floating-Point
  * Instructions", is that manual's own list of what the 68040 does not execute
