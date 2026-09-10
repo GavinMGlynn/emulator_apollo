@@ -2,7 +2,7 @@
 
 | Tag | File | Pages | Text layer | State |
 | --- | --- | --- | --- | --- |
-| `[CFG]` | `bitsavers/HP-Apollo_Products_Configuration_Guide_Dec89.pdf` | 384 | born-digital, moderate OCR damage | **IN PROGRESS** — the Series 3500 pages read, the other model sections owed |
+| `[CFG]` | `bitsavers/HP-Apollo_Products_Configuration_Guide_Dec89.pdf` | 383 | born-digital, moderate OCR damage | **IN PROGRESS** — the Series 3500 pages read, the other model sections owed |
 | `[CFG]` | `bitsavers/5952-2149_Apollo_Quick-Reference_Configuration_Guide_Jul90.pdf` | 88 | born-digital | **owed** |
 
 **December 1989, and the model table has been citing it since Phase 5 without
