@@ -133,6 +133,94 @@ references — "Specify the hexadecimal address of the **CSR page** for the devi
 in the bus address space", "`-dma channel` … used by AT-compatible device".
 **The user interface to facts the GPIO manuals already gave.**
 
+## Every remaining document, named, with its hard-term score
+
+**The earlier passes described groups and did not list them**, so thirty-five
+shelf documents were "settled" in prose and named nowhere. A check against the
+walk records found it. **That is the sixth count this session that inference got
+wrong and a direct check corrected** — and the fix is this table, which names
+every one.
+
+Scored for part numbers and unambiguous hardware vocabulary only: `MC680xx`,
+`68020/30/40`, `68881/2`, `IRQ`, `DMA channel`, `CSR page`, `interrupt vector`,
+`jumper`, `nanosecond`, `MHz`, `hexadecimal address`, `bus address`.
+
+| Document | Hard terms | What they are |
+| --- | --- | --- |
+| `005798-A00_SysV_Command_Reference_Jul88` | 7 | `hexadecimal address`×3, `csr page`×2, `bus address`×1 |
+| `002685-07_Technical_Publications_Overview_Jun87` | 6 | `68020`×5, `irq`×1 |
+| `005807-00_Programming_With_DOMAIN_3D_Graphics_Metafile_Resourc` | 4 | `68020`×2, `68881`×2 |
+| `002547-04_DOMAIN_System_Command_Reference_Jun87` | 2 | `hexadecimal address`×2 |
+| `008543-A00_Configuring_and_Managing_TCP_IP_Jul88` | 2 | `hexadecimal address`×2 |
+| `010851-A00_Managing_SYS_V_System_Software_Jun88` | 2 | `hexadecimal address`×2 |
+| `010852-A00_Managing_Aegis_System_Software_May88` | 2 | `hexadecimal address`×2 |
+| `010853-A00_Managing_BSD_System_Software_Jun88` | 2 | `hexadecimal address`×2 |
+| `011242-A00_Domain_Documentation_Master_Index_Jul88` | 2 | `mc68000`×2 |
+| `011435-A02_Making_the_Transition_to_SR10_Operating_System_Rele` | 1 | `mc68020`×1 |
+| `000792-04_DOMAIN_Pascal_Language_Reference_Jan87` | 0 | — |
+| `001525-04_DOMAIN_Language_Level_Debugger_Reference_Jan87` | 0 | — |
+| `002348-01_Getting_Started_With_Your_Domain_System_Oct83` | 0 | — |
+| `003245-01_Programmers_Guide_to_Domain_Graphics_Primitives_Apr8` | 0 | — |
+| `005097-00_Programming_With_DOMAIN_2D_Graphics_Metafile_Resourc` | 0 | — |
+| `005448-00_Operating_the_DN3xx_Sep85` | 0 | — |
+| `005488-02_DOMAIN_System_Users_Guide_Jan87` | 0 | — |
+| `005696-00_Programming_With_System_Calls_For_Interprocess_Commu` | 0 | — |
+| `005801-01_DOMAIN_IX_Programmers_Reference_for_BSD4.2_1987` | 0 | — |
+| `005803-01_DOMAIN_IX_Users_Guide_Dec86` | 0 | — |
+| `007194-01_DOMAIN_Graphics_Primitive_Resource_Call_Reference_Ja` | 0 | — |
+| `007194-02_Domain_Graphics_Primitive_Resource_Call_Reference_Ju` | 0 | — |
+| `008542-00_Programming_With_DOMAIN_Advanced_System_Calls_Nov85` | 0 | — |
+| `008790-A00_Engineering_in_the_DSEE_Environment_Jul88` | 0 | — |
+| `008858-00_Programming_With_General_System_Calls_Mar86` | 0 | — |
+| `009355-00_System_Administration_For_DOMAIN_IX_BSD4.2_Dec86` | 0 | — |
+| `009413-00_DOMAIN-IX_Support_Tools_Guide_Nov86` | 0 | — |
+| `009414-00_DOMAIN_System_Utilities_Sep86` | 0 | — |
+| `010430-a00_Domain_Standard_Graphics_Quick_Reference_GPR_and_CT` | 0 | — |
+| `Apollo_Documentation_and_Software_Replacement_Media_Catalog_Ju` | 0 | — |
+| `HP_Apollo_Documentation_Catalog_Feb91` | 0 | — |
+| `002348-A00_Getting_Started_With_Domain_OS_May88` | 0 | — |
+| `011020-A00_Using_Your_BSD_Environment_Jul88` | 0 | — |
+| `011021-A00_Using_Your_Aegis_Environment_Jul88` | 0 | — |
+| `011022-A00_Using_Your_SysV_Environment_Jul88` | 0 | — |
+
+**Twenty-five of these thirty-five contain not one hard hardware term** in their
+entire text. The ten that do were read in context and every one is derivative or
+false:
+
+- **`005798-A00` / `002547-04`** — the `crddf` command's options, "the
+  hexadecimal address of the **CSR page** for the device in the bus address
+  space", `-dma channel`. The shell form of the device descriptor file
+  `000959-A00` chapter 11 documents.
+- **`002685-07`** — a publications overview describing the DN3000 as "based on
+  the Motorola 68020 microprocessor". *And it names a document this shelf does
+  not hold*: "the **Domain Series 3000 Configuration Worksheet** lists the
+  functional parameters (**DRQ lines, IRQ lines, power required, and address
+  space**) for the DN3000 system and the Apollo optional devices". **A third
+  named absence**, alongside `007861` and `007861-A01`, and the one whose
+  content this project would most obviously use.
+- **`005807-00`** — "A node equipped with a **peb** (performance enhancement
+  board). A DN460 or DN660. Any node equipped with 68020 and 68881 processors.
+  Use **`NETSTAT -CONFIG`** to determine whether your node is equipped with a
+  peb". A requirements list and a query command.
+- **`010851/2/3-A00`, `008543-A00`** — "Hexadecimal address of a **tcb**", a
+  TCP control block.
+- **`011242-A00`** — index entries pointing at the Assembler Reference.
+- **`011435-A02`** — "Many modern processors, such as the MC68020, are designed
+  to transfer data most efficiently if the data is naturally aligned."
+
+## The seven brochures, settled by looking at one
+
+`CONTENT_TRIAGE`'s first pass could not read them — two to six characters of
+text each — and declared them not worth walking **on their subject**, which is a
+weaker basis than a measurement. **`Apollo_Series_3500_Brochure` was rendered
+and looked at**: page one is a photograph of three workstations on plinths under
+the headline "Apollo's Series 3500 Personal Workstation". A product photograph.
+
+*The class is confirmed by inspection rather than assumption*, and the same
+judgement is extended to the other six. Any specification they carry would be
+the selling-document class `PRICE_LIST_WALK.md` already read and found to agree
+with `ap_model.c`.
+
 ## Ranked by hardware-term density: what to read next
 
 | Hits | Document |
