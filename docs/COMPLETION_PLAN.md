@@ -4513,7 +4513,7 @@ discipline throughout.
       three distinguishable things**, and §F.3's `OBJDMP` — a shell command the
       DS5500 already has — dumps exactly those records. That is the cheapest next
       measurement on this question and needs no new instrument.
-      **78 of the 96 remain untouched**, and the
+      **73 of the 96 remain untouched**, and the
       first document read for its own sake — `000959-A00`, the SR10 GPIO driver
       manual — corrected the AT I/O window's mapping formula in two headers
       without changing any behaviour: `AT x 0x80` is the multiple-of-eight case
@@ -4526,6 +4526,14 @@ discipline throughout.
       it. The same paragraph names the *purpose* of the I/O protection region
       this project placed empirically — "to support the 4-KB page I/O mapping of
       the MC68040".
+      **The release-notes shelf** (`RELEASE_NOTES_WALK.md`) then closed a
+      question the Design Principles walk had opened — a DN3000's virtual
+      address space is 256 MB with PMMU hardware and 64 MB with DMMU, which is
+      what `/etc/sys.conf`'s "some DN3000" means — named the FPA as a **Weitek
+      3164**, gave `MD.md` the `UA` microcode-load command it lacked, and made
+      the absence of handbook `007861` a documented fact: two Apollo manuals
+      cite it by order number and revision and this shelf has only its
+      addendum.
       Brochures, price lists and catalogues are listed and declared not worth
       walking, which is a judgement on the record rather than an omission.
 
