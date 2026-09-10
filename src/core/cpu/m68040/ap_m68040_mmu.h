@@ -30,12 +30,13 @@
  * - **The instruction and data sides share this code but not their state.** A
  *   68040 has separate ITTRs, DTTRs and ATCs, and the caller passes the pair
  *   and the cache belonging to the access it is making.
- * - **`M` is not written back to the table.** §3.2.2 makes setting the U and M
- *   bits a locked read-modify-write, and this core's table search reads
- *   descriptors through a plain callback with no bus to lock -- the same gap
- *   `docs/COMPLETION_PLAN.md` records for the 68030's walk. The ATC entry's `M`
- *   is set, so a second write to the same page behaves; the table does not see
- *   it. `PROVISIONAL`.
+ * - **The instruction and data sides' `U` and `M` writebacks go to the same
+ *   tables.** That is the hardware's arrangement too -- one tree, two ATCs --
+ *   and is noted only because the two sides otherwise share no state.
+ *
+ * `M` and `U` *are* written back now; `ap_m68040_search`'s header carries
+ * Table 3-1 and §3.2.5. A NULL `update` here is a translation that must leave
+ * the tables alone, which is what an observer passes.
  */
 #ifndef APOLLO_CPU_M68040_AP_M68040_MMU_H
 #define APOLLO_CPU_M68040_AP_M68040_MMU_H
@@ -94,10 +95,14 @@ typedef struct {
 } ap_m68040_mmu_result_t;
 
 /* Translate one access. `fetch` reads a descriptor longword and returns false
- * on a bus error, exactly as `ap_m68040_search` wants it. */
+ * on a bus error, exactly as `ap_m68040_search` wants it; `update` writes the
+ * history bits back and may be NULL for a translation that must not disturb the
+ * tables. Both callbacks share `context`, because both are the same machine's
+ * bus. */
 [[nodiscard]] ap_m68040_mmu_result_t
 ap_m68040_mmu_translate(const ap_m68040_mmu_t *mmu, uint32_t logical,
                         unsigned function_code, bool write,
-                        ap_m68040_fetch_fn fetch, void *fetch_context);
+                        ap_m68040_fetch_fn fetch, ap_m68040_update_fn update,
+                        void *context);
 
 #endif /* APOLLO_CPU_M68040_AP_M68040_MMU_H */

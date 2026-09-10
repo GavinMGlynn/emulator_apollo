@@ -51,8 +51,8 @@ static bool translate_040(const ap_m68030_access_ctx_t *access,
     return false;
   }
   const ap_m68040_mmu_result_t r = ap_m68040_mmu_translate(
-      access->mmu_040, logical, function_code, write,
-      access->table_fetch_040, access->context);
+      access->mmu_040, logical, function_code, write, access->table_fetch_040,
+      access->table_update_040, access->context);
   *fetches = r.fetches;
   if (r.status == AP_M68040_MMU_FAULT) {
     *fault = true;

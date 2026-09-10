@@ -42,6 +42,29 @@ static void put(memory_t *m, uint32_t address, uint32_t value) {
   m->word[(address - MEMORY_BASE) / 4u] = value;
 }
 
+static uint32_t get(const memory_t *m, uint32_t address) {
+  return m->word[(address - MEMORY_BASE) / 4u];
+}
+
+/* `U` is bit 3 and `M` bit 4 in both descriptor formats, Figures 3-11 and
+ * 3-12. */
+static bool memory_update(void *context, uint32_t address, bool set_used,
+                          bool set_modified, bool locked) {
+  memory_t *m = (memory_t *)context;
+  (void)locked;
+  const uint32_t index = (address - MEMORY_BASE) / 4u;
+  if (index >= MEMORY_LONGS) {
+    return false;
+  }
+  if (set_used) {
+    m->word[index] |= UINT32_C(1) << 3;
+  }
+  if (set_modified) {
+    m->word[index] |= UINT32_C(1) << 4;
+  }
+  return true;
+}
+
 /* Root at 0x1000, pointer table at 0x2000, page table at 0x3000, page frame at
  * 0x50000 -- `m68040_search_suite`'s tree, so the two suites agree about what a
  * resident translation looks like. UDT 10 is resident, PDT 01 is. */
@@ -82,7 +105,7 @@ static void test_translation_disabled_passes_the_address_through(void) {
   const ap_m68040_mmu_t v = mmu();
 
   const ap_m68040_mmu_result_t r =
-      ap_m68040_mmu_translate(&v, 0x12345678u, 5u, false, memory_fetch, &m);
+      ap_m68040_mmu_translate(&v, 0x12345678u, 5u, false, memory_fetch, memory_update, &m);
   TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_UNTRANSLATED, r.status);
   TEST_ASSERT_EQUAL_HEX32(0x12345678u, r.physical);
   TEST_ASSERT_EQUAL_UINT(0u, m.fetches);
@@ -103,7 +126,7 @@ static void test_a_transparent_block_answers_with_translation_disabled(void) {
   const ap_m68040_mmu_t v = mmu();
 
   const ap_m68040_mmu_result_t r =
-      ap_m68040_mmu_translate(&v, 0x01234567u, 5u, false, memory_fetch, &m);
+      ap_m68040_mmu_translate(&v, 0x01234567u, 5u, false, memory_fetch, memory_update, &m);
   TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_TRANSPARENT, r.status);
   TEST_ASSERT_EQUAL_HEX32(0x01234567u, r.physical);
   TEST_ASSERT_EQUAL_UINT(0u, m.fetches);
@@ -111,7 +134,7 @@ static void test_a_transparent_block_answers_with_translation_disabled(void) {
   /* And an address outside the block is not transparent: base `01` with mask
    * `00` covers `01xxxxxx` and nothing else. */
   const ap_m68040_mmu_result_t outside =
-      ap_m68040_mmu_translate(&v, 0x02234567u, 5u, false, memory_fetch, &m);
+      ap_m68040_mmu_translate(&v, 0x02234567u, 5u, false, memory_fetch, memory_update, &m);
   TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_UNTRANSLATED, outside.status);
 }
 
@@ -126,11 +149,11 @@ static void test_a_write_protected_transparent_block_faults_a_write(void) {
 
   TEST_ASSERT_EQUAL_INT(
       AP_M68040_MMU_TRANSPARENT,
-      ap_m68040_mmu_translate(&v, 0x01234567u, 5u, false, memory_fetch, &m)
+      ap_m68040_mmu_translate(&v, 0x01234567u, 5u, false, memory_fetch, memory_update, &m)
           .status);
   TEST_ASSERT_EQUAL_INT(
       AP_M68040_MMU_FAULT,
-      ap_m68040_mmu_translate(&v, 0x01234567u, 5u, true, memory_fetch, &m)
+      ap_m68040_mmu_translate(&v, 0x01234567u, 5u, true, memory_fetch, memory_update, &m)
           .status);
 }
 
@@ -145,7 +168,7 @@ static void test_an_enabled_mmu_searches_and_returns_frame_plus_offset(void) {
   const ap_m68040_mmu_t v = mmu();
 
   const ap_m68040_mmu_result_t r =
-      ap_m68040_mmu_translate(&v, 0x00000123u, 5u, false, memory_fetch, &m);
+      ap_m68040_mmu_translate(&v, 0x00000123u, 5u, false, memory_fetch, memory_update, &m);
   TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_TRANSLATED, r.status);
   TEST_ASSERT_EQUAL_HEX32(0x50123u, r.physical);
   TEST_ASSERT_TRUE(r.fetches > 0u);
@@ -162,12 +185,12 @@ static void test_a_second_access_hits_the_atc_and_reads_no_descriptor(void) {
   g_tc = 0x8000u;
   const ap_m68040_mmu_t v = mmu();
 
-  (void)ap_m68040_mmu_translate(&v, 0x00000123u, 5u, false, memory_fetch, &m);
+  (void)ap_m68040_mmu_translate(&v, 0x00000123u, 5u, false, memory_fetch, memory_update, &m);
   const unsigned after_first = m.fetches;
   TEST_ASSERT_TRUE(after_first > 0u);
 
   const ap_m68040_mmu_result_t again =
-      ap_m68040_mmu_translate(&v, 0x00000456u, 5u, false, memory_fetch, &m);
+      ap_m68040_mmu_translate(&v, 0x00000456u, 5u, false, memory_fetch, memory_update, &m);
   TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_TRANSLATED, again.status);
   TEST_ASSERT_EQUAL_HEX32(0x50456u, again.physical);
   TEST_ASSERT_EQUAL_UINT(after_first, m.fetches);
@@ -188,13 +211,13 @@ static void test_a_nonresident_page_faults_and_the_failure_is_cached(void) {
   const ap_m68040_mmu_t v = mmu();
 
   const ap_m68040_mmu_result_t first =
-      ap_m68040_mmu_translate(&v, 0x00000123u, 5u, false, memory_fetch, &m);
+      ap_m68040_mmu_translate(&v, 0x00000123u, 5u, false, memory_fetch, memory_update, &m);
   TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_FAULT, first.status);
   TEST_ASSERT_TRUE(first.filled);
   const unsigned after_first = m.fetches;
 
   const ap_m68040_mmu_result_t second =
-      ap_m68040_mmu_translate(&v, 0x00000123u, 5u, false, memory_fetch, &m);
+      ap_m68040_mmu_translate(&v, 0x00000123u, 5u, false, memory_fetch, memory_update, &m);
   TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_FAULT, second.status);
   TEST_ASSERT_EQUAL_UINT(after_first, m.fetches);
 }
@@ -210,7 +233,7 @@ static void test_a_bus_error_during_a_search_is_not_cached(void) {
   const ap_m68040_mmu_t v = mmu();
 
   const ap_m68040_mmu_result_t r =
-      ap_m68040_mmu_translate(&v, 0x00000123u, 5u, false, memory_fetch, &m);
+      ap_m68040_mmu_translate(&v, 0x00000123u, 5u, false, memory_fetch, memory_update, &m);
   TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_FAULT, r.status);
   TEST_ASSERT_FALSE(r.filled);
 }
@@ -234,13 +257,13 @@ static void test_the_root_pointer_follows_the_function_code(void) {
   /* FC2 set is supervisor, and takes `SRP`. */
   TEST_ASSERT_EQUAL_HEX32(
       0x50123u,
-      ap_m68040_mmu_translate(&v, 0x00000123u, 5u, false, memory_fetch, &m)
+      ap_m68040_mmu_translate(&v, 0x00000123u, 5u, false, memory_fetch, memory_update, &m)
           .physical);
   /* FC2 clear is user, and takes `URP`. The ATC tags carry FC2, so this is a
    * miss rather than the entry above. */
   TEST_ASSERT_EQUAL_HEX32(
       0x60123u,
-      ap_m68040_mmu_translate(&v, 0x00000123u, 1u, false, memory_fetch, &m)
+      ap_m68040_mmu_translate(&v, 0x00000123u, 1u, false, memory_fetch, memory_update, &m)
           .physical);
 }
 
@@ -257,12 +280,111 @@ static void test_write_protection_from_a_table_descriptor_faults_a_write(void) {
 
   TEST_ASSERT_EQUAL_INT(
       AP_M68040_MMU_TRANSLATED,
-      ap_m68040_mmu_translate(&v, 0x00000123u, 5u, false, memory_fetch, &m)
+      ap_m68040_mmu_translate(&v, 0x00000123u, 5u, false, memory_fetch, memory_update, &m)
           .status);
   TEST_ASSERT_EQUAL_INT(
       AP_M68040_MMU_FAULT,
-      ap_m68040_mmu_translate(&v, 0x00000123u, 5u, true, memory_fetch, &m)
+      ap_m68040_mmu_translate(&v, 0x00000123u, 5u, true, memory_fetch, memory_update, &m)
           .status);
+}
+
+
+/* ---------------------------------------------------------------------------
+ * The history bits reach the tables through the join, `[040]` §3.2.5.
+ * ------------------------------------------------------------------------- */
+
+static void test_a_translated_write_sets_u_and_m_in_the_tables(void) {
+  memory_t m;
+  build(&m);
+  reset_registers();
+  g_tc = 0x8000u;
+  const ap_m68040_mmu_t v = mmu();
+
+  const ap_m68040_mmu_result_t r = ap_m68040_mmu_translate(
+      &v, 0x00000123u, 5u, true, memory_fetch, memory_update, &m);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_TRANSLATED, r.status);
+  TEST_ASSERT_TRUE((get(&m, 0x1000u) & (UINT32_C(1) << 3)) != 0u);
+  TEST_ASSERT_TRUE((get(&m, 0x2000u) & (UINT32_C(1) << 3)) != 0u);
+  TEST_ASSERT_TRUE((get(&m, 0x3000u) & (UINT32_C(1) << 3)) != 0u);
+  TEST_ASSERT_TRUE((get(&m, 0x3000u) & (UINT32_C(1) << 4)) != 0u);
+}
+
+static void test_a_translated_read_leaves_m_clear_in_the_tables(void) {
+  memory_t m;
+  build(&m);
+  reset_registers();
+  g_tc = 0x8000u;
+  const ap_m68040_mmu_t v = mmu();
+
+  const ap_m68040_mmu_result_t r = ap_m68040_mmu_translate(
+      &v, 0x00000123u, 5u, false, memory_fetch, memory_update, &m);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_TRANSLATED, r.status);
+  TEST_ASSERT_TRUE((get(&m, 0x3000u) & (UINT32_C(1) << 3)) != 0u);
+  TEST_ASSERT_TRUE((get(&m, 0x3000u) & (UINT32_C(1) << 4)) == 0u);
+}
+
+static void test_the_atc_entry_caches_the_descriptors_m_and_not_the_access(void) {
+  /* The entry's `M` used to be `search.modified || write`, which set it on a
+   * write to a page Table 3-1 forbids setting `M` on. Write-protected, so the
+   * translation faults *and* the bit must stay clear on both sides. */
+  memory_t m;
+  build(&m);
+  put(&m, 0x3000u, 0x50000u | 0x1u | (UINT32_C(1) << 2)); /* W set */
+  reset_registers();
+  g_tc = 0x8000u;
+  const ap_m68040_mmu_t v = mmu();
+
+  const ap_m68040_mmu_result_t r = ap_m68040_mmu_translate(
+      &v, 0x00000123u, 5u, true, memory_fetch, memory_update, &m);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_FAULT, r.status);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_FAULT_PROTECTION, r.reason);
+  TEST_ASSERT_TRUE((get(&m, 0x3000u) & (UINT32_C(1) << 4)) == 0u);
+  const unsigned set = ap_m68040_atc_set(0x00000123u, AP_M68040_PAGE_4K);
+  bool found = false;
+  for (unsigned way = 0; way < AP_M68040_ATC_WAYS; way++) {
+    if (g_atc.entry[set][way].valid) {
+      found = true;
+      TEST_ASSERT_FALSE(g_atc.entry[set][way].modified);
+    }
+  }
+  TEST_ASSERT_TRUE(found);
+}
+
+static void test_a_null_update_translates_without_touching_the_tables(void) {
+  /* What `ap_machine_translate`'s observer passes, and the reason the argument
+   * exists at all: `--dump-logical` must not set a bit the machine did not. */
+  memory_t m;
+  build(&m);
+  reset_registers();
+  g_tc = 0x8000u;
+  const ap_m68040_mmu_t v = mmu();
+
+  const ap_m68040_mmu_result_t r = ap_m68040_mmu_translate(
+      &v, 0x00000123u, 5u, true, memory_fetch, NULL, &m);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_TRANSLATED, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0x2000u | 0x2u, get(&m, 0x1000u));
+  TEST_ASSERT_EQUAL_HEX32(0x50000u | 0x1u, get(&m, 0x3000u));
+}
+
+static void test_a_transparent_translation_writes_no_descriptor(void) {
+  /* A TTR match ends the access before any table is read, so there is nothing
+   * encountered to set `U` on. */
+  memory_t m;
+  build(&m);
+  reset_registers();
+  g_tc = 0x8000u;
+  g_ttr[0] = 0x0000C000u | 0x8000u; /* enabled, both privilege modes */
+  const ap_m68040_mmu_t v = mmu();
+
+  const ap_m68040_mmu_result_t r = ap_m68040_mmu_translate(
+      &v, 0x00000123u, 5u, true, memory_fetch, memory_update, &m);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_TRANSPARENT, r.status);
+  TEST_ASSERT_EQUAL_HEX32(0x2000u | 0x2u, get(&m, 0x1000u));
 }
 
 int main(void) {
@@ -276,5 +398,10 @@ int main(void) {
   RUN_TEST(test_a_bus_error_during_a_search_is_not_cached);
   RUN_TEST(test_the_root_pointer_follows_the_function_code);
   RUN_TEST(test_write_protection_from_a_table_descriptor_faults_a_write);
+  RUN_TEST(test_a_translated_write_sets_u_and_m_in_the_tables);
+  RUN_TEST(test_a_translated_read_leaves_m_clear_in_the_tables);
+  RUN_TEST(test_the_atc_entry_caches_the_descriptors_m_and_not_the_access);
+  RUN_TEST(test_a_null_update_translates_without_touching_the_tables);
+  RUN_TEST(test_a_transparent_translation_writes_no_descriptor);
   return UNITY_END();
 }

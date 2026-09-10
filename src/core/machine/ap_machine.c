@@ -585,6 +585,27 @@ static bool machine_table_update(void *context, uint32_t physical,
   return table_write(machine, physical, descriptor);
 }
 
+/* The 68040's history-bit writeback. **The bit positions are the same as the
+ * 68030's** -- Figure 3-12 puts `U` at bit 3 and `M` at bit 4 of a page
+ * descriptor, and Figure 3-11 puts `U` at bit 3 of a table descriptor, which is
+ * where `machine_table_update` above already writes them. Two callbacks all the
+ * same, because the parts differ in what they ask for rather than in where the
+ * bits live: this one is told whether the cycle is a locked read-modify-write,
+ * which `[040]` Table 3-1 distinguishes row by row and the 68030's table does
+ * not.
+ *
+ * `locked` is accepted and not acted on. This machine has no bus lock to
+ * assert -- the 68030 path's `rmc` flag is the CPU's, not the table search's --
+ * and inventing one here would be a signal with no consumer. Counted with the
+ * rest so the report's `history update(s)` means the same thing on both parts.
+ */
+static bool machine_table_update_040(void *context, uint32_t physical,
+                                     bool set_used, bool set_modified,
+                                     bool locked) {
+  (void)locked;
+  return machine_table_update(context, physical, set_used, set_modified);
+}
+
 void ap_machine_init(ap_machine_t *machine, uint8_t *ram, uint32_t ram_bytes) {
   ap_machine_init_model(machine, ram, ram_bytes, AP_MODEL_DN3500);
 }
@@ -744,8 +765,10 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
         .atc = &machine->atc_040_data};
     machine->instruction_access.mmu_040 = &machine->mmu_040_instruction;
     machine->instruction_access.table_fetch_040 = machine_table_fetch_040;
+    machine->instruction_access.table_update_040 = machine_table_update_040;
     machine->data_access.mmu_040 = &machine->mmu_040_data;
     machine->data_access.table_fetch_040 = machine_table_fetch_040;
+    machine->data_access.table_update_040 = machine_table_update_040;
   }
 
   /* Installed unconditionally, like the wait-state callback and for the same
@@ -876,7 +899,7 @@ bool ap_machine_translate(ap_machine_t *machine, uint32_t logical,
     ap_m68040_atc_t saved = *machine->mmu_040_data.atc;
     const ap_m68040_mmu_result_t r = ap_m68040_mmu_translate(
         &machine->mmu_040_data, logical, function_code, false,
-        machine->data_access.table_fetch_040, machine);
+        machine->data_access.table_fetch_040, NULL, machine);
     *machine->mmu_040_data.atc = saved;
     if (r.status == AP_M68040_MMU_FAULT) {
       return false;

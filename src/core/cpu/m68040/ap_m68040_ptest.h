@@ -65,15 +65,17 @@
  * sets the M-bit in the descriptors, the address translation cache entry, and
  * the MMU status register."
  *
- * ## Two places this stops short, both named
+ * **So `PTEST` writes the tables, and that is the sentence to read twice.** It
+ * is not a passive query: `PTESTR` sets `U` in every descriptor it walks and
+ * `PTESTW` sets `M` in the page descriptor as well, under exactly the rules
+ * `ap_m68040_search` carries from `[040]` Table 3-1 -- so an operating system's
+ * access-error handler leaves history bits behind it. The instruction is
+ * therefore given the update callback like any other search. The 68030's and
+ * 68851's `PTEST` do not do this, and this core's 68030 path is right to pass
+ * NULL.
  *
- * - **The descriptor writeback does not happen.** `PTESTR` should set `U` in
- *   every descriptor it reads and `PTESTW` should set `M` in the page
- *   descriptor. `ap_m68040_search` reads descriptors through a plain callback
- *   with no bus to lock, and `[040]` Table 3-1 makes those updates a locked
- *   read-modify-write. This is the same `PROVISIONAL` gap
- *   `ap_m68040_mmu.h` records for an ordinary access, inherited rather than
- *   new: the ATC entry and the MMUSR get the M bit, the table does not.
+ * ## One place this stops short, named
+ *
  * - **An undefined result leaves MMUSR alone.** For a DFC of 0, 3, 4 or 7, and
  *   for a search that cannot happen because the TCR's `E` is clear and no TTR
  *   matched (`[040]` §3.1: "PTEST results are undefined if the MMU is disabled
@@ -123,10 +125,12 @@ typedef struct {
   bool filled;
 } ap_m68040_ptest_result_t;
 
-/* Perform one `PTEST`. `write` is `PTESTW`; `function_code` is the DFC. */
+/* Perform one `PTEST`. `write` is `PTESTW`; `function_code` is the DFC.
+ * `update` writes the history bits back and may be NULL only for a caller that
+ * must not disturb the tables -- which the instruction itself never is. */
 [[nodiscard]] ap_m68040_ptest_result_t
 ap_m68040_ptest(const ap_m68040_mmu_t *mmu, uint32_t logical,
                 unsigned function_code, bool write, ap_m68040_fetch_fn fetch,
-                void *fetch_context);
+                ap_m68040_update_fn update, void *context);
 
 #endif /* APOLLO_CPU_M68040_AP_M68040_PTEST_H */

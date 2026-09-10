@@ -6888,7 +6888,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
         const ap_m68040_ptest_result_t tested = ap_m68040_ptest(
             side->mmu_040, address, function_code,
             !ap_m68040_ptest_is_read(word), side->table_fetch_040,
-            side->context);
+            side->table_update_040, side->context);
         if (tested.defined) {
           cpu->mmusr_040 = ap_m68040_mmusr_encode(&tested.mmusr);
         }

@@ -42,6 +42,27 @@ static void put(memory_t *m, uint32_t address, uint32_t value) {
   m->word[(address - MEMORY_BASE) / 4u] = value;
 }
 
+static uint32_t get(const memory_t *m, uint32_t address) {
+  return m->word[(address - MEMORY_BASE) / 4u];
+}
+
+static bool memory_update(void *context, uint32_t address, bool set_used,
+                          bool set_modified, bool locked) {
+  memory_t *m = (memory_t *)context;
+  (void)locked;
+  const uint32_t index = (address - MEMORY_BASE) / 4u;
+  if (index >= MEMORY_LONGS) {
+    return false;
+  }
+  if (set_used) {
+    m->word[index] |= UINT32_C(1) << 3;
+  }
+  if (set_modified) {
+    m->word[index] |= UINT32_C(1) << 4;
+  }
+  return true;
+}
+
 /* `m68040_mmu_suite`'s tree, deliberately: root at 0x1000, pointer table at
  * 0x2000, page table at 0x3000, frame at 0x50000. Three suites agreeing about
  * what a resident translation looks like is worth more than three trees. */
@@ -110,7 +131,7 @@ static void test_a_resident_page_reports_r_and_the_frame(void) {
   const ap_m68040_mmu_t v = mmu();
 
   const ap_m68040_ptest_result_t r =
-      ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, &m);
+      ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, memory_update, &m);
 
   TEST_ASSERT_TRUE(r.defined);
   TEST_ASSERT_TRUE(r.mmusr.resident);
@@ -131,7 +152,7 @@ static void test_a_nonresident_page_reports_r_clear_and_still_fills(void) {
   const ap_m68040_mmu_t v = mmu();
 
   const ap_m68040_ptest_result_t r =
-      ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, &m);
+      ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, memory_update, &m);
 
   TEST_ASSERT_TRUE(r.defined);
   TEST_ASSERT_FALSE(r.mmusr.resident);
@@ -149,12 +170,12 @@ static void test_a_second_ptest_searches_again_rather_than_hitting_the_atc(void)
   reset_registers();
   const ap_m68040_mmu_t v = mmu();
 
-  (void)ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, &m);
+  (void)ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, memory_update, &m);
   const unsigned first = m.fetches;
   TEST_ASSERT_TRUE(first > 0u);
 
   const ap_m68040_ptest_result_t again =
-      ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, &m);
+      ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, memory_update, &m);
 
   TEST_ASSERT_EQUAL_UINT(first, again.fetches);
   TEST_ASSERT_EQUAL_UINT(first * 2u, m.fetches);
@@ -170,7 +191,7 @@ static void test_a_transfer_error_reports_b_alone(void) {
   const ap_m68040_mmu_t v = mmu();
 
   const ap_m68040_ptest_result_t r =
-      ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, &m);
+      ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, memory_update, &m);
 
   TEST_ASSERT_TRUE(r.defined);
   TEST_ASSERT_TRUE(r.mmusr.bus_error);
@@ -193,7 +214,7 @@ static void test_a_transparent_match_reports_t_and_r_and_reads_nothing(void) {
   const ap_m68040_mmu_t v = mmu();
 
   const ap_m68040_ptest_result_t r =
-      ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, &m);
+      ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, memory_update, &m);
 
   TEST_ASSERT_TRUE(r.defined);
   TEST_ASSERT_TRUE(r.mmusr.transparent);
@@ -215,7 +236,7 @@ static void test_the_four_undefined_function_codes_produce_no_result(void) {
   const unsigned undefined[] = {0u, 3u, 4u, 7u};
   for (unsigned i = 0; i < 4u; i++) {
     const ap_m68040_ptest_result_t r =
-        ap_m68040_ptest(&v, 0x00000123u, undefined[i], false, memory_fetch, &m);
+        ap_m68040_ptest(&v, 0x00000123u, undefined[i], false, memory_fetch, memory_update, &m);
     TEST_ASSERT_FALSE(r.defined);
   }
   TEST_ASSERT_EQUAL_UINT(0u, m.fetches);
@@ -233,11 +254,11 @@ static void test_a_disabled_mmu_with_no_transparent_match_is_undefined(void) {
   const ap_m68040_mmu_t v = mmu();
 
   TEST_ASSERT_FALSE(
-      ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, &m).defined);
+      ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, memory_update, &m).defined);
 
   g_ttr[0] = 0x0000C040u;
   const ap_m68040_ptest_result_t transparent =
-      ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, &m);
+      ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, memory_update, &m);
   TEST_ASSERT_TRUE(transparent.defined);
   TEST_ASSERT_TRUE(transparent.mmusr.transparent);
 }
@@ -252,10 +273,10 @@ static void test_ptestw_sets_m_where_ptestr_reports_it(void) {
   const ap_m68040_mmu_t v = mmu();
 
   TEST_ASSERT_FALSE(
-      ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, &m)
+      ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, memory_update, &m)
           .mmusr.modified);
   TEST_ASSERT_TRUE(
-      ap_m68040_ptest(&v, 0x00000123u, 5u, true, memory_fetch, &m)
+      ap_m68040_ptest(&v, 0x00000123u, 5u, true, memory_fetch, memory_update, &m)
           .mmusr.modified);
 }
 
@@ -272,7 +293,7 @@ static void test_a_supervisor_page_tested_from_user_space_still_reports_resident
   const ap_m68040_mmu_t v = mmu();
 
   const ap_m68040_ptest_result_t r =
-      ap_m68040_ptest(&v, 0x00000123u, 1u, false, memory_fetch, &m);
+      ap_m68040_ptest(&v, 0x00000123u, 1u, false, memory_fetch, memory_update, &m);
 
   TEST_ASSERT_TRUE(r.mmusr.resident);
   TEST_ASSERT_TRUE(r.mmusr.supervisor);
@@ -289,7 +310,7 @@ static void test_write_protection_from_a_table_descriptor_reaches_the_mmusr(void
   const ap_m68040_mmu_t v = mmu();
 
   const ap_m68040_ptest_result_t r =
-      ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, &m);
+      ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, memory_update, &m);
 
   TEST_ASSERT_TRUE(r.mmusr.resident);
   TEST_ASSERT_TRUE(r.mmusr.write_protect);
@@ -306,11 +327,96 @@ static void test_the_root_pointer_follows_the_function_code(void) {
   const ap_m68040_mmu_t v = mmu();
 
   TEST_ASSERT_TRUE(
-      ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, &m)
+      ap_m68040_ptest(&v, 0x00000123u, 5u, false, memory_fetch, memory_update, &m)
           .mmusr.resident);
   TEST_ASSERT_FALSE(
-      ap_m68040_ptest(&v, 0x00000123u, 1u, false, memory_fetch, &m)
+      ap_m68040_ptest(&v, 0x00000123u, 1u, false, memory_fetch, memory_update, &m)
           .mmusr.resident);
+}
+
+
+/* ---------------------------------------------------------------------------
+ * `PTEST` writes the tables. `[PRM]` p. 6-70: "The PTESTR instruction simulates
+ * a read access and sets the U-bit in each descriptor during table searches;
+ * PTESTW simulates a write access and also sets the M-bit in the descriptors,
+ * the address translation cache entry, and the MMU status register."
+ * ------------------------------------------------------------------------- */
+
+static void test_ptestr_sets_u_in_every_descriptor_and_leaves_m_alone(void) {
+  memory_t m;
+  build(&m);
+  reset_registers();
+  const ap_m68040_ptest_result_t r =
+      ap_m68040_ptest(&(ap_m68040_mmu_t){.tc = &g_tc,
+                                         .ttr = g_ttr,
+                                         .urp = &g_urp,
+                                         .srp = &g_srp,
+                                         .atc = &g_atc},
+                      0x00000123u, 5u, false, memory_fetch, memory_update, &m);
+
+  TEST_ASSERT_TRUE(r.defined);
+  TEST_ASSERT_TRUE((get(&m, 0x1000u) & (UINT32_C(1) << 3)) != 0u);
+  TEST_ASSERT_TRUE((get(&m, 0x2000u) & (UINT32_C(1) << 3)) != 0u);
+  TEST_ASSERT_TRUE((get(&m, 0x3000u) & (UINT32_C(1) << 3)) != 0u);
+  TEST_ASSERT_TRUE((get(&m, 0x3000u) & (UINT32_C(1) << 4)) == 0u);
+  TEST_ASSERT_FALSE(r.mmusr.modified);
+}
+
+static void test_ptestw_sets_m_in_the_descriptor_the_entry_and_the_register(void) {
+  /* All three of the places the sentence names, checked in one test because the
+   * sentence names them in one breath. */
+  memory_t m;
+  build(&m);
+  reset_registers();
+  const ap_m68040_mmu_t v = mmu();
+  const ap_m68040_ptest_result_t r = ap_m68040_ptest(
+      &v, 0x00000123u, 5u, true, memory_fetch, memory_update, &m);
+
+  TEST_ASSERT_TRUE(r.defined);
+  TEST_ASSERT_TRUE((get(&m, 0x3000u) & (UINT32_C(1) << 4)) != 0u);
+  TEST_ASSERT_TRUE(r.mmusr.modified);
+  const unsigned set = ap_m68040_atc_set(0x00000123u, AP_M68040_PAGE_4K);
+  bool found = false;
+  for (unsigned way = 0; way < AP_M68040_ATC_WAYS; way++) {
+    if (g_atc.entry[set][way].valid) {
+      found = true;
+      TEST_ASSERT_TRUE(g_atc.entry[set][way].modified);
+    }
+  }
+  TEST_ASSERT_TRUE(found);
+}
+
+static void test_ptestw_on_a_write_protected_page_reports_m_without_setting_it(void) {
+  /* Table 3-1's WP = 1 write rows: `U` is set, `M` is not -- and `PTEST`
+   * reports rather than faults, so the register still says what it found. */
+  memory_t m;
+  build(&m);
+  put(&m, 0x3000u, 0x50000u | 0x1u | (UINT32_C(1) << 2));
+  reset_registers();
+  const ap_m68040_mmu_t v = mmu();
+  const ap_m68040_ptest_result_t r = ap_m68040_ptest(
+      &v, 0x00000123u, 5u, true, memory_fetch, memory_update, &m);
+
+  TEST_ASSERT_TRUE(r.defined);
+  TEST_ASSERT_TRUE(r.mmusr.resident);
+  TEST_ASSERT_TRUE(r.mmusr.write_protect);
+  TEST_ASSERT_FALSE(r.mmusr.modified);
+  TEST_ASSERT_TRUE((get(&m, 0x3000u) & (UINT32_C(1) << 4)) == 0u);
+  TEST_ASSERT_TRUE((get(&m, 0x3000u) & (UINT32_C(1) << 3)) != 0u);
+}
+
+static void test_a_ptest_the_manual_leaves_undefined_writes_nothing(void) {
+  /* A DFC of 0, 3, 4 or 7 returns before any search, so there is no descriptor
+   * to have been encountered. */
+  memory_t m;
+  build(&m);
+  reset_registers();
+  const ap_m68040_mmu_t v = mmu();
+  const ap_m68040_ptest_result_t r = ap_m68040_ptest(
+      &v, 0x00000123u, 0u, true, memory_fetch, memory_update, &m);
+
+  TEST_ASSERT_FALSE(r.defined);
+  TEST_ASSERT_EQUAL_HEX32(0x2000u | 0x2u, get(&m, 0x1000u));
 }
 
 int main(void) {
@@ -328,5 +434,9 @@ int main(void) {
   RUN_TEST(test_a_supervisor_page_tested_from_user_space_still_reports_resident);
   RUN_TEST(test_write_protection_from_a_table_descriptor_reaches_the_mmusr);
   RUN_TEST(test_the_root_pointer_follows_the_function_code);
+  RUN_TEST(test_ptestr_sets_u_in_every_descriptor_and_leaves_m_alone);
+  RUN_TEST(test_ptestw_sets_m_in_the_descriptor_the_entry_and_the_register);
+  RUN_TEST(test_ptestw_on_a_write_protected_page_reports_m_without_setting_it);
+  RUN_TEST(test_a_ptest_the_manual_leaves_undefined_writes_nothing);
   return UNITY_END();
 }

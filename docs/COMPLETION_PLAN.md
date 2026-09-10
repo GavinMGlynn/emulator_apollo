@@ -4958,7 +4958,9 @@ discipline throughout.
       Detail in `PROJECT_STATUS.md`.
       **What is left in the core**: the caches the invalidation should act on
       are a complete module attached to no CPU, so the instruction is correctly
-      a no-op; and a 68040 **MMU**, which the `.mmu` item also waits on.
+      a no-op. *The second half of this sentence read "and a 68040 **MMU**,
+      which the `.mmu` item also waits on" and is spent*: the MMU is joined, the
+      `.mmu` item is closed, and the writeback below finishes it.
       **The MMU is measured as not-yet-needed** (`FINDINGS.md` C258): its parts
       are all built — search, ATC, registers, descriptors — and what is missing
       is the join.
@@ -5002,6 +5004,22 @@ discipline throughout.
       So the gate this paragraph names was the wrong one for the MMU half: the
       join is reachable now, and the item's own "unexercised code" argument for
       deferring it no longer holds.
+      **The `U` and `M` writeback is done, 2026-09-10, and it closes the last
+      named `PROVISIONAL` in the 68040 MMU.** `ap_m68040_search` carries
+      `[040]` §3.2.5 and **Table 3-1 row by row** — `U` set on every encountered
+      valid descriptor, `M` only for a write that meets neither suppressor, and
+      the locked/unlocked distinction the table states against each row. An
+      ordinary access, and `PTEST`, both perform it; `[PRM]` p. 6-70 requires
+      `PTEST` to, which the 68030's does not. An observer passes NULL and the
+      tables are left alone.
+      *Verification: `m68040_search_suite` 15 -> 27 including all twelve rows of
+      Table 3-1 driven from a table, `m68040_mmu_suite` 9 -> 14,
+      `m68040_ptest_suite` 13 -> 17; identity `F78D6DBE770CAF47` unmoved; the
+      DS5500 boot **byte-identical** at 1,648,173,071 instructions with
+      `0 -> 938 history update(s)`. Detail in `PROJECT_STATUS.md`.*
+      **And it refutes the reason it was reached for.** The doubled page fault
+      in the R/W-data copy was not this: the two runs differ in the writeback
+      and in nothing else, and the doubling is unchanged.
       **The DS5500 reaches its own monitor, 2026-09-10** — `MD14 REV 2.00,
       1991/03/08.16:20:14` and a `>` prompt, from a machine that could execute
       two of its instructions a day earlier. It cost **one address range**:

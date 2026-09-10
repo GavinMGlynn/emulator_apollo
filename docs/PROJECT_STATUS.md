@@ -2815,6 +2815,113 @@ what settles it is the walk the discipline asks for first: every field of every
 68040 MMU register and descriptor against `MC68040UM`, which is on the shelf.
 That is where this item goes, ahead of any further boot.
 
+### The walk was done, the writeback was missing, and it is there now
+
+*The report line that started this was itself stale, and that is worth naming
+first.* `mmu declares 68040 on-chip, translates with the 68030's -- a different
+descriptor format (PROVISIONAL)` was printed on every DS5500 run **after the
+thing it described had been fixed**: `ap_m68030_access.c`'s `translate_040` has
+put `ap_m68040_mmu_translate` in front of the whole 68030 path since the join
+landed, so a DS5500 walks 68040 descriptors with 68040 geometry. The line's own
+justification — "nothing turns paged translation on yet" — was contradicted two
+lines below it by `translation enabled (68040, 4 KB pages)`. It now reads
+`68040 on-chip, translating 68040 descriptors`. **A stale claim in a report is
+worse than no claim, because a reader trusts it**, and this one sent a session
+after a defect that did not exist. `0 history update(s)` was the *true* half.
+
+**`[040]` §3.2.5 and Table 3-1, read as 300-dpi page images.** §3.2.5: "During a
+table search, the U-bit in each encountered descriptor is checked and set if not
+already set. Similarly, when the table search is for a write access and the
+M-bit of the page descriptor is clear, the processor sets the bit if the table
+search does not encounter a set W-bit **or a supervisor violation**." And: "The
+U-bit and M-bit are updated **before** the M68040 allows a page to be accessed or
+written."
+
+Table 3-1, *Updating U-Bit and M-Bit for Page Descriptors*, transcribed whole —
+its note reads "WP indicates the **accumulated** write-protect status":
+
+| U | M | WP | Access | Update Operation | → U | → M |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | 0 | X | Read | Locked RMW Access to Set U | 1 | 0 |
+| 0 | 1 | X | Read | Locked RMW Access to Set U | 1 | 1 |
+| 1 | 0 | X | Read | None | 1 | 0 |
+| 1 | 1 | X | Read | None | 1 | 1 |
+| 0 | 0 | 0 | Write | **Write** to Set U and M | 1 | 1 |
+| 0 | 1 | 0 | Write | Locked RMW Access to Set U | 1 | 1 |
+| 1 | 0 | 0 | Write | **Write** to Set M | 1 | 1 |
+| 1 | 1 | 0 | Write | None | 1 | 1 |
+| 0 | 0 | 1 | Write | Locked RMW Access to Set U | 1 | 0 |
+| 0 | 1 | 1 | Write | Locked RMW Access to Set U | 1 | 1 |
+| 1 | 0 | 1 | Write | None | 1 | 0 |
+| 1 | 1 | 1 | Write | None | 1 | 1 |
+
+**Four things the table says that a paraphrase loses.**
+
+1. **Not every update is a locked read-modify-write.** Three of the twelve rows
+   are plain writes, and they are exactly the rows that set `M`. So the rule is
+   *locked iff the cycle sets `U` without setting `M`* — which makes every table
+   descriptor's update locked, there being no `M` at those levels. §3.2.5 gives
+   the consequence: "Read-modify-write table search accesses ... are treated as
+   noncachable and force a matching cache line to be pushed and invalidated",
+   where the unlocked ones are "cachable/write-through but do not allocate in the
+   cache for misses". The flag is carried to the callback; this machine has no
+   bus lock to assert with it and says so rather than dropping the distinction.
+2. **The supervisor-violation clause is attached to `M` alone.** Table 3-1 has a
+   `WP` column and no supervisor column, and every one of its rows ends with `U`
+   set. The 68030's walk states the opposite exception explicitly — "except after
+   a supervisor violation is detected" — for `U`. **The two parts differ, and the
+   difference is modelled rather than harmonised.**
+3. **`WP` is accumulated, not the leaf's.** A `W` set on a root or pointer
+   descriptor denies `M` to a write three levels down.
+4. **Three kinds of descriptor have no history bits and must not be written.** An
+   *invalid* one at any level, because `UDT`/`PDT` invalid leaves the other
+   thirty bits to the operating system; an *indirect* page descriptor, because
+   Figure 3-12 gives it as `DESCRIPTOR ADDRESS` in bits 31-2 with `PDT` in 1-0,
+   so bit 3 is part of the pointer and a `U` written there would move the page;
+   and anything past a transfer error.
+
+**And `PTEST` performs the update too**, which the 68030's does not. `[PRM]`
+p. 6-70: "The **PTESTR** instruction simulates a read access and **sets the
+U-bit in each descriptor** during table searches; **PTESTW** simulates a write
+access and **also sets the M-bit in the descriptors**, the address translation
+cache entry, and the MMU status register." An access-error handler therefore
+leaves history bits behind it. `ap_m68040_ptest.c` passes the callback like any
+other search, and its header's "the descriptor writeback does not happen" gap is
+gone.
+
+**One stand-in went with it.** The ATC entry's `M` was `search.modified || write`
+— set on *any* write, including one to a page Table 3-1 forbids setting `M` on.
+The search now decides it, so the entry and the table cannot disagree.
+`m68040_mmu_suite` pins that case: a write-protected page, a faulting write, and
+`M` clear on both sides.
+
+*Verification*: `m68040_search_suite` 15 → 27, including **all twelve rows of
+Table 3-1 driven from a table** — the operation count, whether it was locked, the
+resulting `U` and `M`, and that no row leaves the descriptor in the state
+`ap_m68040_page_descriptor_is_incoherent` names; `m68040_mmu_suite` 9 → 14;
+`m68040_ptest_suite` 13 → 17; `ctest` 147/147; identity `F78D6DBE770CAF47`
+unmoved, the DN3500 having no 68040 MMU to reach.
+
+### And the hypothesis it was reached for is refuted
+
+The DS5500 boot was rerun with the writeback live and **nothing else changed**.
+It is byte-identical: **1,648,173,071 instructions**, `ILLEGAL on 77FC` at
+`009175A8`, `clocks 13125633748`, the same four fault sites, the same 362 MMU
+faults, the same `493 x vector 2`, and `PC 008030F0  60 time(s)
+00900000-0091E000  invalid on write`. **The doubled fault per page is
+unchanged** — every destination page from `00916000` to `0091E000` still faults
+exactly twice at the same address. The only differences are
+`0 -> 938 history update(s)` and the state hash, which covers the descriptor
+bytes the writeback now sets.
+
+**So the doubling is not this**, and the experiment discriminates: one variable,
+two runs, no change in the phenomenon. What the doubling *is* remains open, and
+the next instrument is the trace between the two faults — the handler runs
+~3,200 steps each time, and what it writes to the descriptor between them is the
+question. The writeback stands on its own: it was a documented, named
+`PROVISIONAL` gap on the live translation path, and Table 3-1 is now in the tree
+row for row.
+
 *This is the fourth time the answer has been on a shelf nobody looked at*, and
 the first three are already memories. The difference is that this shelf had been
 *audited* as complete: twenty-two walk records, every one finished, every one a

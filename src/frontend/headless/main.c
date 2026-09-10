@@ -2948,17 +2948,19 @@ static void report_state(ap_machine_t *machine) {
      * it is printed on every run because the two do not always agree.
      *
      * `ap_machine` builds an `ap_m68030_cpu_t` unconditionally, so a row saying
-     * `AP_MMU_M68040` gets the 68040's *registers* -- the block above -- and
-     * the 68030's table walk. That is a declaration the machine does not
-     * honour, and it has been one for as long as the model table has had the
-     * field: `docs/COMPLETION_PLAN.md`'s `.mmu` item, whose remaining work is
-     * exactly this.
+     * `AP_MMU_M68040` gets the 68040's *registers* -- the block above. **What
+     * it translates with is no longer the 68030's walk**:
+     * `ap_m68030_access.c`'s `translate_040` puts `ap_m68040_mmu_translate` in
+     * front of the whole 68030 path when the part has a 68040 MMU, so a DS5500
+     * walks 68040 descriptors with 68040 geometry and writes `U` and `M` back
+     * under Table 3-1. The 68851 row below is the one where the declaration and
+     * the machine still differ.
      *
      * Named rather than left silent, which is the same argument this core makes
      * for reporting an unclaimed address as **unmapped rather than zero**: a
      * divergence nothing prints is one nobody finds. It costs one line and it
-     * turns "the DS5500 translates like a 68030" from something a reader has to
-     * know into something every report says. */
+     * turns which MMU a machine is using from something a reader has to know
+     * into something every report says. */
     if (machine->model != NULL) {
       const char *declared = ap_mmu_name(machine->model->mmu);
       switch (machine->model->mmu) {
@@ -2977,13 +2979,16 @@ static void report_state(ap_machine_t *machine) {
                declared);
         break;
       case AP_MMU_M68040:
-        /* This one is a real divergence: the descriptor format differs, so a
-         * machine that turned paged translation on would walk the wrong tables.
-         * Nothing does yet -- the DS5500's PROM and `/sau14/invol` both report
-         * `translation off` -- which is why it is `PROVISIONAL` and not a bug. */
-        printf("  mmu          declares %s, translates with the 68030's "
-               "-- a different descriptor format (PROVISIONAL)\n",
-               declared);
+        /* **This line said the opposite until 2026-09-10, and said it on every
+         * DS5500 run after the thing it described had been fixed.** It read
+         * "translates with the 68030's -- a different descriptor format
+         * (PROVISIONAL)", justified by "nothing turns paged translation on
+         * yet"; Domain/OS turns it on, `translate_040` was written for exactly
+         * that, and the report went on announcing a gap that was closed. A
+         * stale claim in a report is worse than no claim, because a reader
+         * trusts it -- this one sent a session after a defect that did not
+         * exist. Print what the machine does. */
+        printf("  mmu          %s, translating 68040 descriptors\n", declared);
         break;
       }
     }

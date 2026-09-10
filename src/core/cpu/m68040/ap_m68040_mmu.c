@@ -5,7 +5,8 @@ ap_m68040_mmu_result_t ap_m68040_mmu_translate(const ap_m68040_mmu_t *mmu,
                                                unsigned function_code,
                                                bool write,
                                                ap_m68040_fetch_fn fetch,
-                                               void *fetch_context) {
+                                               ap_m68040_update_fn update,
+                                               void *context) {
   ap_m68040_mmu_result_t out = {.status = AP_M68040_MMU_UNTRANSLATED,
                                 .physical = logical,
                                 .cache_mode = AP_M68040_CM_CACHABLE_WRITE_THROUGH};
@@ -69,8 +70,12 @@ ap_m68040_mmu_result_t ap_m68040_mmu_translate(const ap_m68040_mmu_t *mmu,
   const ap_m68040_search_config_t config = {
       .root_pointer = supervisor ? *mmu->srp : *mmu->urp,
       .page_size = tcr.page_size,
+      .write = write,
+      .supervisor = supervisor,
       .fetch = fetch,
-      .fetch_context = fetch_context};
+      .fetch_context = context,
+      .update = update,
+      .update_context = context};
   const ap_m68040_search_result_t search = ap_m68040_search(&config, logical);
   out.fetches = search.fetches;
 
@@ -101,9 +106,13 @@ ap_m68040_mmu_result_t ap_m68040_mmu_translate(const ap_m68040_mmu_t *mmu,
         .user_attribute_0 = search.user_attribute_0,
         .supervisor = search.supervisor,
         .cache_mode = search.cache_mode,
-        /* Set on a write so a second write to the page does not search again.
-         * The *table* is not updated -- see this module's header. */
-        .modified = search.modified || write,
+        /* The descriptor's `M` as it stands once the search is done, which
+         * is what the hardware caches. It was `search.modified || write`
+         * while the writeback was missing -- a stand-in that set the entry's
+         * bit on any write, including one to a page Table 3-1 forbids setting
+         * `M` on. The search now decides it, so the entry and the table
+         * cannot disagree. */
+        .modified = search.modified,
         .write_protect = search.write_protect,
         .resident = search.status == AP_M68040_SEARCH_RESIDENT,
         .physical_address = frame};

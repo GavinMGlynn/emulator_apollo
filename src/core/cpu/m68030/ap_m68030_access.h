@@ -177,6 +177,11 @@ typedef struct {
    * how a transcription error gets laundered into data. NULL unless `mmu_040`
    * is set. */
   ap_m68040_fetch_fn table_fetch_040;
+  /* The 68040's history-bit writeback, `[040]` Table 3-1. Separate from
+   * `table_update` for the same reason the fetches are separate: this one
+   * carries the locked/unlocked distinction the 68040's table states and the
+   * 68030's does not have. NULL unless `mmu_040` is set. */
+  ap_m68040_update_fn table_update_040;
 
   /* Told whenever a `PMOVE` writes an MMU register. Optional; NULL is a
    * processor that does the same thing and reports nothing.

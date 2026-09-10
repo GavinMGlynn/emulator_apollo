@@ -4,7 +4,8 @@ ap_m68040_ptest_result_t ap_m68040_ptest(const ap_m68040_mmu_t *mmu,
                                          uint32_t logical,
                                          unsigned function_code, bool write,
                                          ap_m68040_fetch_fn fetch,
-                                         void *fetch_context) {
+                                         ap_m68040_update_fn update,
+                                         void *context) {
   ap_m68040_ptest_result_t out = {.defined = false};
 
   /* "A PTEST instruction with a DFC value of 0, 3, 4, or 7 is undefined and
@@ -51,11 +52,19 @@ ap_m68040_ptest_result_t ap_m68040_ptest(const ap_m68040_mmu_t *mmu,
    * to stop existing. */
   ap_m68040_atc_flush_page(mmu->atc, logical, supervisor, tcr.page_size);
 
+  /* "The PTESTR instruction simulates a read access and sets the U-bit in each
+   * descriptor during table searches; PTESTW simulates a write access and also
+   * sets the M-bit in the descriptors" -- so the search is configured exactly
+   * as the simulated access would be, update callback included. */
   const ap_m68040_search_config_t config = {
       .root_pointer = supervisor ? *mmu->srp : *mmu->urp,
       .page_size = tcr.page_size,
+      .write = write,
+      .supervisor = supervisor,
       .fetch = fetch,
-      .fetch_context = fetch_context};
+      .fetch_context = context,
+      .update = update,
+      .update_context = context};
   const ap_m68040_search_result_t search = ap_m68040_search(&config, logical);
   out.fetches = search.fetches;
   out.defined = true;
@@ -84,9 +93,11 @@ ap_m68040_ptest_result_t ap_m68040_ptest(const ap_m68040_mmu_t *mmu,
       .supervisor = search.supervisor,
       .cache_mode = search.cache_mode,
       /* "PTESTW ... also sets the M-bit in the descriptors, the address
-       * translation cache entry, and the MMU status register." Two of those
-       * three happen; the descriptors are this module's named gap. */
-      .modified = search.modified || write,
+       * translation cache entry, and the MMU status register." All three, and
+       * from one place: the search has already set the descriptor's bit where
+       * Table 3-1 allows it, so `search.modified` is what the entry and the
+       * register both take. */
+      .modified = search.modified,
       .write_protect = search.write_protect,
       .resident = search.status == AP_M68040_SEARCH_RESIDENT,
       .physical_address = search.physical_address & ~offset_mask};
@@ -118,7 +129,7 @@ ap_m68040_ptest_result_t ap_m68040_ptest(const ap_m68040_mmu_t *mmu,
        * caller's business to notice. `PTEST` tests, it does not fault. */
       .supervisor = search.supervisor,
       .cache_mode = search.cache_mode,
-      .modified = search.modified || write,
+      .modified = search.modified,
       /* "Set if the W-bit is set in any of the descriptors encountered during
        * the table search", which is what `ap_m68040_search` accumulates. */
       .write_protect = search.write_protect,
