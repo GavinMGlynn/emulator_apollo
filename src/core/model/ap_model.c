@@ -178,6 +178,29 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .mmu = AP_MMU_M68030,
         .fpu = AP_FPU_M68882,
         .display = AP_DISPLAY_MONO_1280X1024, /* Series 4500 mono panel [CFG] */
+        /* **Two DN4500 hardware features this table has no field for**, named
+         * by `Apollo_Price_List_Jul88`'s model block and by nothing else on the
+         * shelf: a **64 KB physical cache** and **8-32 MB two-way interleaved**
+         * memory.
+         *
+         * `has_virtual_cache` above is the DS4000's *virtual* cache, argued
+         * from `[S3K]`'s block diagrams and bus topology because no sentence
+         * names the models; a **physical** cache on a later board is a
+         * different part in a different place. Neither it nor the interleave is
+         * modelled.
+         *
+         * **Recorded as a named gap rather than added**, because a field with
+         * no behaviour behind it is worse than an absence: both of these are
+         * *timing* features, and this core's timing work is on the DN3500,
+         * where the oracle is. The cost to close is a cache model at the board
+         * level and an interleaved memory timing path, and the trigger is
+         * anyone measuring a DN4500.
+         *
+         * *A price list is a selling document*, which is why this is a gap and
+         * not a figure. What would settle both is `007861-A01`, the same
+         * unobtainable handbook `has_virtual_cache` names above — and which
+         * `005809-A00` §1.4.2 and `000959-A00`'s Related Manuals both cite by
+         * order number, so it exists and is not public. */
         .oracle = AP_ORACLE_PAPER_ONLY,
         .ram_base = 0x1000000u,
         .ram_max_bytes = 0x2000000u, /* 4-32 MB [CFG]; Table 2-8 DS4000 [S3K] */
