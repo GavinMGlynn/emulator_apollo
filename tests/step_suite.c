@@ -4442,6 +4442,88 @@ static void test_the_68040s_ptest_reports_residence_into_the_mmusr(void) {
   }
 }
 
+/* **The access-error frame's `ATC` bit, which is one bit and an operating
+ * system's whole diagnosis.**
+ *
+ * `[040]` §8.4.6.2, read as a page image: "This bit is set for an ATC fault due
+ * to a nonresident entry (bus error during table search or invalid descriptor
+ * encountered) or privilege violation (write protected or supervisor only). It
+ * is cleared for a bus-errored instruction, data, or cache line-push access."
+ *
+ * A DS5500 running Domain/OS wrote `7A38139C`, this core refused it as an
+ * invalid descriptor with the bit clear, and the kernel printed
+ * `FF:7008 (B) FA:7A38139C SW:0005` followed by `BUS ERROR` -- declaring the
+ * machine broken over a page it should have paged in.
+ *
+ * Both directions, because a bit that is always set is as wrong as one that
+ * never is: a write-protected transparent block is a translation refusing, and
+ * an unanswered bus cycle at the same address is not. */
+static void test_the_access_error_frames_atc_bit_follows_the_faults_origin(void) {
+  /* MOVE.L D0,(A0) */
+  static const uint16_t program[] = {0x2080u, 0x4E71u, 0x4E71u, 0x4E71u};
+
+  /* A write-protected transparent block at `$02000000`, which leaves the low
+   * addresses -- the stack the frame is pushed onto -- untranslated, so the
+   * exception can complete and be read back. */
+  machine_t refused = {0};
+  load(&refused, program, 4);
+  plant_vector(&refused, AP_M68030_VECTOR_BUS_ERROR, HANDLER);
+  refused.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  refused.cpu.frame_variant = AP_M68030_FRAME_VARIANT_68040;
+  refused.cpu.regs.a[0] = 0x02000000u;
+  ptest_tc = 0u; /* E clear: only the transparent register answers */
+  ptest_ttr[0] = 0x0200C044u; /* base $02, mask $00, E, S 10, CM 10, W */
+  ptest_ttr[1] = 0u;
+  ptest_root = 0u;
+  ap_m68040_atc_init(&ptest_atc);
+  ptest_mmu = (ap_m68040_mmu_t){.tc = &ptest_tc,
+                                .ttr = ptest_ttr,
+                                .urp = &ptest_root,
+                                .srp = &ptest_root,
+                                .atc = &ptest_atc};
+  refused.data_access.mmu_040 = &ptest_mmu;
+  refused.data_access.table_fetch_040 = ptest_fetch;
+  refused.data_access.context = &refused;
+  /* Somewhere the frame can actually be pushed: with `E` clear and the block
+   * based at `$02`, low addresses pass through untranslated. */
+  ap_m68030_write_a7(&refused.cpu.regs, SUPERVISOR_STACK);
+  const uint32_t sp = ap_m68030_read_a7(&refused.cpu.regs);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION,
+                        ap_m68030_step(&refused.cpu).status);
+  const uint32_t frame = sp - AP_M68030_ACCESS_ERROR_WORDS * 2u;
+  const uint16_t ssw =
+      (uint16_t)((uint16_t)refused.memory
+                     .bytes[frame + AP_M68030_ACCESS_ERROR_SSW]
+                 << 8) |
+      refused.memory.bytes[frame + AP_M68030_ACCESS_ERROR_SSW + 1u];
+  /* Bit 10 set, and `RW` clear because it was a write. */
+  TEST_ASSERT_EQUAL_HEX16(0x0400u, ssw & 0x0400u);
+  TEST_ASSERT_EQUAL_HEX16(0u, ssw & 0x0100u);
+
+  /* The same instruction at an address nothing answers: the bus failed, not a
+   * translation, and the bit must be clear. */
+  machine_t unanswered = {0};
+  load(&unanswered, program, 4);
+  plant_vector(&unanswered, AP_M68030_VECTOR_BUS_ERROR, HANDLER);
+  unanswered.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  unanswered.cpu.frame_variant = AP_M68030_FRAME_VARIANT_68040;
+  unanswered.memory.berr_from = 0x0000C000u;
+  unanswered.cpu.regs.a[0] = 0x0000C000u;
+  ap_m68030_write_a7(&unanswered.cpu.regs, SUPERVISOR_STACK);
+  const uint32_t usp = ap_m68030_read_a7(&unanswered.cpu.regs);
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION,
+                        ap_m68030_step(&unanswered.cpu).status);
+  const uint32_t uframe = usp - AP_M68030_ACCESS_ERROR_WORDS * 2u;
+  const uint16_t ussw =
+      (uint16_t)((uint16_t)unanswered.memory
+                     .bytes[uframe + AP_M68030_ACCESS_ERROR_SSW]
+                 << 8) |
+      unanswered.memory.bytes[uframe + AP_M68030_ACCESS_ERROR_SSW + 1u];
+  TEST_ASSERT_EQUAL_HEX16(0u, ussw & 0x0400u);
+}
+
 /* **`CINVA BC`, the second instruction a DN5500 executes.**
  *
  * `M68000PRM`'s CINV page (page image, PDF p. 458) gives
@@ -10107,6 +10189,7 @@ int main(void) {
   RUN_TEST(test_the_68040s_cache_instructions_execute_only_on_a_68040);
   RUN_TEST(test_the_68040s_pflush_executes_only_where_it_has_an_mmu);
   RUN_TEST(test_the_68040s_ptest_reports_residence_into_the_mmusr);
+  RUN_TEST(test_the_access_error_frames_atc_bit_follows_the_faults_origin);
   RUN_TEST(test_a_faulted_push_and_what_it_leaves_in_a7);
   RUN_TEST(test_movec_is_privileged);
   RUN_TEST(test_stop_loads_the_status_register_and_then_halts_fetching);

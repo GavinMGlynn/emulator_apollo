@@ -36,6 +36,11 @@ typedef struct {
   uint32_t value;  /* zero-extended; the caller interprets it by size */
   uint32_t clocks;
   bool fault;
+  /* Whether that fault was the MMU refusing the address or the bus failing to
+   * answer it. `ap_m68030_access_result_t::translation_fault` says why the two
+   * must be told apart; this carries it up to the step, which is where the
+   * stack frame that reports it is built. */
+  bool translation_fault;
   /* **Which address faulted**, which is not always the operand's own.
    *
    * A misaligned operand is several bus cycles at successive addresses -- legal

@@ -286,6 +286,23 @@ typedef struct {
   bool mmu_consulted;  /* false on a cache hit, per §6.1 */
   bool transparent;    /* a TTx register matched */
   bool fault;
+  /* **Whether the fault was the MMU's or the bus's**, which is a distinction a
+   * handler acts on and this result could not previously make.
+   *
+   * `[040]` §8.4.6.2's `ATC` bit: "set for an ATC fault due to a nonresident
+   * entry (bus error during table search or invalid descriptor encountered) or
+   * privilege violation (write protected or supervisor only). It is cleared for
+   * a bus-errored instruction, data, or cache line-push access." So the three
+   * ways a translation can refuse are one answer and an unanswered physical
+   * cycle is the other -- and it is `report_mmu_fault`'s call sites, exactly,
+   * that are the first.
+   *
+   * **Measured cost of not having it**: a DS5500 running Domain/OS wrote
+   * `7A38139C`, this core faulted it as an invalid descriptor, and the frame's
+   * `ATC` bit went out clear -- so the kernel's crash report reads
+   * `FF:7008 (B) FA:7A38139C SW:0005` and says `BUS ERROR` for a page it should
+   * have paged in. */
+  bool translation_fault;
   unsigned descriptor_fetches; /* the table search's cost, when one ran */
 } ap_m68030_access_result_t;
 

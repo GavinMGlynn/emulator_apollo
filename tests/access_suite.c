@@ -29,6 +29,8 @@ typedef struct {
   uint32_t last_store_address;
   uint32_t last_store_value;
   uint32_t last_fill;
+  bool tables_invalid;
+  bool store_refuses;
   unsigned narrow_reads;
   uint32_t last_narrow_address;
   unsigned last_narrow_size;
@@ -42,7 +44,7 @@ static bool memory_store(void *context, uint32_t physical, uint32_t value,
   memory->stores++;
   memory->last_store_address = physical;
   memory->last_store_value = value;
-  return true;
+  return !memory->store_refuses;
 }
 
 static void memory_fill(void *context, uint32_t line_address,
@@ -68,6 +70,10 @@ static bool table_fetch(void *context, uint32_t physical, bool long_format,
   (void)long_format;
   memory_t *memory = (memory_t *)context;
   memory->table_fetches++;
+  if (memory->tables_invalid) {
+    *out = (ap_m68030_descriptor_t){.dt = AP_M68030_DT_INVALID};
+    return true;
+  }
   *out = (ap_m68030_descriptor_t){.dt = AP_M68030_DT_PAGE,
                                   .address_field = PAGE_FRAME >> 8,
                                   .used = true};
@@ -578,8 +584,41 @@ static void test_a_narrow_read_positions_its_byte_by_the_bus_address(void) {
   TEST_ASSERT_TRUE(r.clocks > 0u);
 }
 
+/* **A fault the MMU raised and a fault the bus raised are different faults**,
+ * and until this field the result could not say which.
+ *
+ * `[040]` §8.4.6.2 gives the consequence: the access-error frame's `ATC` bit is
+ * "set for an ATC fault due to a nonresident entry ... or privilege violation"
+ * and "cleared for a bus-errored instruction, data, or cache line-push access".
+ * A kernel reads that bit to decide whether to page the address in or to
+ * declare the machine broken -- and a DS5500 running Domain/OS did declare it
+ * broken, printing `BUS ERROR` over a page it should have serviced, because
+ * this core reported every fault as the bus's. */
+static void test_a_translation_refusal_and_a_bus_error_are_told_apart(void) {
+  machine_t m = make_machine();
+  m.memory.tables_invalid = true;
+  ap_m68030_access_ctx_t ctx = context_of(&m);
+
+  const ap_m68030_access_result_t refused =
+      ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_TRUE(refused.fault);
+  TEST_ASSERT_TRUE(refused.translation_fault);
+
+  /* The same shape from the other side: the tables answer, the store does not.
+   * A cache-inhibited address so the write is not absorbed before the bus. */
+  machine_t n = make_machine();
+  n.memory.store_refuses = true;
+  ap_m68030_access_ctx_t nctx = context_of(&n);
+
+  const ap_m68030_access_result_t unanswered =
+      ap_m68030_access_write(&nctx, ADDRESS, FC_SUPERVISOR_DATA, 0x1234u, 4u);
+  TEST_ASSERT_TRUE(unanswered.fault);
+  TEST_ASSERT_FALSE(unanswered.translation_fault);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_translation_refusal_and_a_bus_error_are_told_apart);
   RUN_TEST(test_a_read_miss_fills_from_the_physical_address);
   RUN_TEST(test_a_cold_access_consults_the_mmu_and_pays_for_it);
   RUN_TEST(test_a_cache_hit_costs_nothing_and_skips_the_mmu);

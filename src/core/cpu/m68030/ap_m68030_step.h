@@ -317,6 +317,12 @@ typedef struct {
   uint8_t fault_function_code;
   bool fault_instruction_stream;
   uint32_t fault_data_output; /* the value a faulted write was carrying */
+  /* **Whether the fault was a translation's or the bus's**, which is what the
+   * 68040's format `$7` frame reports in the special status word's `ATC` bit
+   * and what tells a kernel to page the address in rather than to declare the
+   * machine broken. `[040]` §8.4.6.2, and `ap_m68030_access_result_t::
+   * translation_fault` carries the measurement that made it matter. */
+  bool fault_translation;
 
   /* The interrupt request level standing on IPL2-IPL0, and what it was before,
    * which level 7 needs: it is "transition sensitive", so holding the line at 7

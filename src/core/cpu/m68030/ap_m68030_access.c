@@ -164,6 +164,7 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
     out.descriptor_fetches = fetches_040;
     if (fault_040) {
       report_mmu_fault(access, logical, function_code, false, reason_040);
+      out.translation_fault = true;
       out.fault = true;
       return out;
     }
@@ -186,6 +187,7 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
     } else if (lookup.status == AP_M68030_ATC_FAULT) {
       report_mmu_fault(access, logical, function_code, false,
                        AP_M68030_MMU_FAULT_CACHED);
+      out.translation_fault = true;
       out.fault = true;
       return out;
     } else {
@@ -206,6 +208,7 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
                                            search_access.supervisor)) {
         report_mmu_fault(access, logical, function_code, false,
                          search_fault_reason(&walk));
+        out.translation_fault = true;
         out.fault = true;
         return out;
       }
@@ -327,6 +330,7 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
     out.descriptor_fetches = fetches_040;
     if (fault_040) {
       report_mmu_fault(access, logical, function_code, true, reason_040);
+      out.translation_fault = true;
       out.fault = true;
       return out;
     }
@@ -349,6 +353,7 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
        * and without the write reaching memory. */
       report_mmu_fault(access, logical, function_code, true,
                        AP_M68030_MMU_FAULT_CACHED);
+      out.translation_fault = true;
       out.fault = true;
       return out;
     }
@@ -379,6 +384,7 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
                                            search_access.supervisor)) {
         report_mmu_fault(access, logical, function_code, true,
                          search_fault_reason(&walk));
+        out.translation_fault = true;
         out.fault = true;
         return out;
       }

@@ -65,6 +65,7 @@ step_operand_read(ap_m68030_cpu_t *cpu, ap_m68030_regs_t *regs,
     cpu->fault_function_code = function_code;
     cpu->fault_instruction_stream = false;
     cpu->fault_data_output = 0u;
+    cpu->fault_translation = result.translation_fault;
   }
   return result;
 }
@@ -88,6 +89,7 @@ step_operand_write(ap_m68030_cpu_t *cpu, ap_m68030_regs_t *regs,
      * indicated by the data fault address" -- so the value the write was
      * carrying is not incidental, it is the only copy the handler will get. */
     cpu->fault_data_output = value;
+    cpu->fault_translation = result.translation_fault;
   }
   return result;
 }
@@ -232,6 +234,9 @@ static bool next_word(ap_m68030_cpu_t *cpu, uint32_t *clocks, uint16_t *word) {
      * because its fetch had. */
     cpu->access_faulted = true;
     cpu->fault_instruction_stream = true;
+    /* Clear for the same reason the prefetch arm's is, and it is the same
+     * deferral: see the note there. */
+    cpu->fault_translation = false;
     /* **The word that could not be read, not the instruction that wanted it.**
      * This recorded `regs.pc`, which is the address of the *opcode* -- a word
      * that was read successfully, in a page that is by definition resident. A
@@ -2868,12 +2873,24 @@ take_bus_fault_with(ap_m68030_cpu_t *cpu, unsigned vector,
      * part's word at the right offset -- the failure that is hardest to see,
      * because the frame would still look well formed.
      *
-     * Filled honestly: `RW`, `LK` and `SIZE` come from the access, and `TM`
-     * carries the function code. **`ATC` is left clear and that is
-     * `PROVISIONAL`**: it distinguishes a translation fault from a bus error,
-     * and this core reaches here without being told which. What would settle it
-     * is the fault's origin plumbed through `take_bus_fault_with`, which is a
-     * change to every caller and not to this frame.
+     * Filled honestly: `RW`, `LK` and `SIZE` come from the access, `TM` carries
+     * the function code, and **`ATC` now comes from the fault's origin**.
+     *
+     * §8.4.6.2, read as a page image: "This bit is set for an ATC fault due to
+     * a nonresident entry (bus error during table search or invalid descriptor
+     * encountered) or privilege violation (write protected or supervisor only).
+     * It is cleared for a bus-errored instruction, data, or cache line-push
+     * access." All three of `ap_m68040_mmu_result_t`'s refusal reasons are the
+     * first case -- including the search's own bus error, which the sentence
+     * names explicitly -- and an unanswered physical cycle is the second, so
+     * `report_mmu_fault`'s call sites are exactly the set that sets this bit.
+     *
+     * **It was clear, and a machine noticed.** A DS5500 running Domain/OS wrote
+     * `7A38139C`, this core faulted it as an invalid descriptor with `ATC`
+     * clear, and the kernel printed `FF:7008 (B) FA:7A38139C SW:0005` and then
+     * `BUS ERROR` -- declaring the machine broken over a page it should have
+     * paged in. One bit, and the operating system's whole diagnosis turns on
+     * it.
      *
      * `CP`, `CU`, `CT` and `CM` are the continuation flags for a faulted
      * `MOVEM` or a pending trace or floating-point exception, and this model
@@ -2882,7 +2899,8 @@ take_bus_fault_with(ap_m68030_cpu_t *cpu, unsigned vector,
      * together: the effective address "contains address information when one of
      * the continuation flags CM, CT, CU, or CP in the SSW is set". */
     const uint16_t ssw_040 =
-        (uint16_t)((ssw.read ? 0x0100u : 0u) |
+        (uint16_t)((cpu->fault_translation ? 0x0400u : 0u) |
+                   (ssw.read ? 0x0100u : 0u) |
                    (ssw.read_modify_write ? 0x0200u : 0u) |
                    (((unsigned)ssw.size & 3u) << 5u) |
                    ((unsigned)ssw.function_code & 7u));
@@ -4346,6 +4364,7 @@ static bool execute_misc(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
        * A model that declined the instruction instead would report our gap
        * where the machine has a behaviour. */
       cpu->access_faulted = false;
+  cpu->fault_translation = false;
       cpu->pending_vector = AP_M68030_VECTOR_ILLEGAL_INSTRUCTION;
       return true;
     }
@@ -6571,6 +6590,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
    * instruction report as a fault -- the same conflation this flag exists to
    * end, merely pointing the other way. */
   cpu->access_faulted = false;
+  cpu->fault_translation = false;
   cpu->refused_vector = 0u;
 
   /* Interrupts are group 4.2, "Exception processing begins when current
@@ -6666,6 +6686,14 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     cpu->fault_read = true;
     cpu->fault_function_code = cpu->fetch.function_code;
     cpu->fault_data_output = 0u;
+    /* **`ATC` goes out clear here and that is `PROVISIONAL`**, not a reading.
+     * A prefetch faults when the word is *used*, not when it was fetched --
+     * `ap_m68030_pipe.h`'s opening note -- and what the pipe carries across
+     * that gap is one `abnormal` bit with no room in it for the fault's origin.
+     * Giving the stage a second bit is hashed state and a wider change than
+     * this one; the data path, which is where a demand-paged fault on this
+     * machine actually happens, is plumbed. */
+    cpu->fault_translation = false;
     out.status = fault_or_unimplemented(cpu, &out, instruction_address);
     ap_m68030_charge(cpu, out.clocks);
     return out;

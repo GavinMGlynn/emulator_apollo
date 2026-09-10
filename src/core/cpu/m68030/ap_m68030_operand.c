@@ -87,6 +87,7 @@ ap_m68030_operand_read(ap_m68030_regs_t *regs, ap_m68030_access_ctx_t *access,
     out.clocks += read.clocks;
     if (!read.ok) {
       out.fault = read.fault;
+      out.translation_fault = read.translation_fault;
       /* This cycle's address, not the operand's -- see `fault_address`. */
       out.fault_address = address;
       out.ok = false;
@@ -154,6 +155,7 @@ ap_m68030_operand_write(ap_m68030_regs_t *regs, ap_m68030_access_ctx_t *access,
     out.clocks += written.clocks;
     if (!written.ok) {
       out.fault = written.fault;
+      out.translation_fault = written.translation_fault;
       out.fault_address = address;
       out.ok = false;
       return out;

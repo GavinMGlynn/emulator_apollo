@@ -4757,8 +4757,22 @@ discipline throughout.
       picks the side from DFC, declines the four undefined function codes, and
       leaves the search's answer in MMUSR. It could not be the no-op `PFLUSH`
       was — the firmware reads the register back four instructions later.
-      **Next on this item**: what Domain/OS faulted on *before* it decided to
-      print. Detail in `PROJECT_STATUS.md`.
+      **And then one bit in the frame it prints.** `SW:0005` had the access
+      error frame's `ATC` bit clear, so Domain/OS read an invalid-descriptor
+      fault as a bus error and declared the machine broken over a page it should
+      have paged in. `[040]` §8.4.6.2 sets that bit for every translation
+      refusal; the origin is now plumbed from `ap_m68030_access_result_t`
+      through the operand result to the frame, at exactly the six sites that
+      already call `report_mmu_fault`. **Domain/OS now pages**: MMU faults
+      3 → 301 across thirteen kernel PCs, vector 2 132 → 432, vector 160
+      79 → 1105, `PTEST`s 1 → 301, and the loop at `7A40C1EC` faults eight times
+      and is serviced each time.
+      **Next on this item**: the machine now reaches a *different* failure
+      47 M instructions later — `SR:0000 PC:0080000C FA:0080000C SW:0146`, a
+      **user-mode instruction fetch** (`TM` 6, `RW` set) with `ATC` clear, so
+      translation succeeded and the physical cycle went unanswered. A user
+      process starting at an address nothing on this board answers.
+      Detail in `PROJECT_STATUS.md`.
       **Five candidates are eliminated by measurement rather than argument**:
       the stack-pointer selection, the mapping, the register state, the fault
       kind, and the frame balance. Detail in `PROJECT_STATUS.md`.
