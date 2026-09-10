@@ -4513,7 +4513,14 @@ discipline throughout.
       three distinguishable things**, and §F.3's `OBJDMP` — a shell command the
       DS5500 already has — dumps exactly those records. That is the cheapest next
       measurement on this question and needs no new instrument.
-      **72 of the 96 remain untouched**, and **`[CFG]` — the configuration guide
+      **48 of the 96 remain untouched.** `CONTENT_TRIAGE.md`
+      settled 16 by a full-text scan for the vocabulary a hardware fact is
+      written in — and separated 7 brochures the scan *could not read*, which is
+      the fifth time this session a check reported clean because it could not
+      see. `ARCHITECTURE_1981_WALK.md` walked the shelf's oldest and densest
+      document, 31/31: the ring's four out-of-band symbols kept their nine-bit
+      shape across six years and **swapped meanings**, which changes nothing and
+      would make a reader decode every control symbol wrongly, and **`[CFG]` — the configuration guide
       the model table has cited since Phase 5 — had never been opened**
       (`CFG_WALK.md`). It supplied the DS5500 figure that was stale, and its
       Series 3500 block reads "Monitor: 19-inch, 1280 by 1024" against a DN3500
