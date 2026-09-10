@@ -16,6 +16,23 @@
  * `Apollo = 0x040000 + AT x 0x80`, and `3F0 - 1A0` multiplied by 128 is 74 KB
  * (C23). Within each block the AT addresses then run as consecutive bytes.
  *
+ * **That formula is a special case, and `000959-A00` §3.1 gives the general
+ * one.** "Ten-bit consecutive addresses in the I/O address space are mapped
+ * into processor address space in **groups of eight bytes**, and each group is
+ * assigned the first eight bytes of a different, but consecutive, page (1024
+ * bytes). Thus, the first 1024 addresses in PC AT compatible address space
+ * (0-3FF) map to 128 physical pages (40000-5FFFF)" -- so
+ * `Apollo = 0x040000 + (AT >> 3) * 1024 + (AT & 7)`.
+ *
+ * The two agree exactly when the AT address is a multiple of eight, which
+ * every device this board places is, so nothing here is wrong. They diverge
+ * *within* a group: `AT x 0x80` would put AT `302` at `058100` where the rule
+ * puts it at `058002` -- and `058002` is where this project's own oracle
+ * traffic lands for the EtherLink Plus at AT `300` (`ETHERNET.md` finding 10).
+ * **The measurement already agreed with the manual; only the sentence did
+ * not.** A future device at an AT address that is not a multiple of eight
+ * would be placed wrongly by following the short form.
+ *
  * That rule is worth stating here because it is the first thing that would let
  * a future device's address be *predicted* and then confirmed, rather than
  * hunted for -- every placement on this board so far has cost a differential

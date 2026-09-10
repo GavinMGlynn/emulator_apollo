@@ -509,7 +509,15 @@ ap_board_region_t ap_board_region(const ap_board_t *board, uint32_t address) {
    * same reason: a window checked first reports a fitted card as an empty slot.
    * `ETHERNET.md` finding 2a places it at `058000` -- ISA `300H` through this
    * board's own `0x040000 + (ISA << 7)` -- and finding 10 confirmed that by
-   * traffic, every oracle access landing on `058002` and `058006`. */
+   * traffic, every oracle access landing on `058002` and `058006`.
+   *
+   * **`ISA << 7` is the multiple-of-eight case of a wider rule**, and finding
+   * 10's own evidence shows it: `058002` and `058006` are byte offsets *inside*
+   * a group, which `ISA << 7` cannot produce. `000959-A00` §3.1 states the
+   * rule -- eight consecutive AT addresses occupy the first eight bytes of each
+   * 1024-byte page -- and `board/ap_disk.h` carries it in full. Nothing here
+   * changes: `ap_3c505_decode` takes a base and a byte offset, which is the
+   * rule, and every device this board places sits at a multiple of eight. */
   if (board->ethernet_present &&
       ap_3c505_decode(AP_BOARD_ETHERNET_ADDR, address, NULL)) {
     return AP_BOARD_REGION_ETHERNET;
