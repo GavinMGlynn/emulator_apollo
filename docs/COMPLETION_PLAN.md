@@ -4427,6 +4427,34 @@ discipline throughout.
       past each end excluded, the refusal still a refusal, the access counted
       under its own name, and no other model given the range.*
 
+- [ ] **The Domain/OS software shelf has never been read: 100 documents,
+      20,770 pages, 0 walked.** `docs/references/SOFTWARE_SHELF_WALK.md` is the
+      register. Twenty-two `*_WALK.md` records exist and every one says "walked
+      whole, nothing owed" — and **every one of them is a hardware document**.
+      No walk record covers a Domain/OS software manual, so an audit that
+      counted walk records read as complete while four fifths of the shelf by
+      page count had never been listed.
+      **It is on the critical path, not housekeeping.** The DS5500 now boots
+      Domain/OS, pages, runs a user process and makes system calls; where it
+      stops is a `jsr (a0)` through the `A5` global-data pointer into a page a
+      completed copy loop filled with zeros — which is a question about how a
+      Domain/OS program's global data area and cross-module linkage are built.
+      **`004977-02` *Binder and Librarian Reference* is walked whole, 118/118**
+      (`004977-02_WALK.md`) — the first of the hundred, picked because it was
+      the smallest that bore on the live question, and **it answered it and
+      changed no code**: §4.4.1 and Appendix C's *Zero* attribute say a private
+      per-process data section is zero-filled by the loader at process creation,
+      at the same virtual addresses for every process, and initialised by the
+      program itself on first access. So the zeros at `0091709C` are correct
+      behaviour and the copy loop is that initialisation. It also gives the
+      complete eight-group section attribute set, the 1,024-byte page stated two
+      ways, the 3,072 sections-plus-marked-globals limit (2,048 before SR9.0),
+      and two internal cross-reference errors.
+      Next: `AEGIS_Internals_and_Data_Structures` (426, already cited by title in
+      `RING.md` and never walked), then `014962-A00` *Design Principles* (157).
+      Brochures, price lists and catalogues are listed and declared not worth
+      walking, which is a judgement on the record rather than an omission.
+
 - [ ] **The DS5500 has a SCSI bus and this core models no SCSI.** From the
       `019411-A00` walk, Figure 1-5: a "Disk or SCSI/Disk Controller" drives a
       SCSI bus to magtape and a second cartridge tape. Subsystem-sized, and

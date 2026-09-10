@@ -2583,10 +2583,44 @@ it is running `00852884` → `0091A000`, a constant `$C777C` apart. **There is n
 read fault at that PC**, so the source pages were already resident.
 
 So the destination was filled by a copy that completed, from a source that was
-resident, and what arrived was zeros. **The next question is what fills the
-source**, and it is a question about Domain/OS's loader rather than about the
-68040: no instruction was refused, no translation was wrong, and no fault went
-unserviced in the whole 1.95 G instructions.
+resident, and what arrived was zeros.
+
+### And the answer was on a shelf, not in another boot
+
+**The zeros are correct.** `004977-02` *DOMAIN Binder and Librarian Reference*
+§4.4.1, walked whole this session:
+
+> "If the static data is stored in a section other than `data$`, then the loader
+> ignores the values specified in source code. Instead, when you boot your
+> workstation or create a process, **the loader automatically sets the value of
+> all static data in the section to zero.** Each process has its own private
+> copy of this section, **and the virtual addresses the section occupies are the
+> same for every process.** Most importantly, the loader gives this section the
+> read/write attribute. Therefore, although you cannot force the loader to
+> initialize this section at process creation, **you can initialize the data the
+> first time that a running program accesses the installed library.**"
+
+Private, per-process, fixed virtual addresses, read/write, zero-filled at
+creation, initialised by the program itself. That is `00900000`–`0091E000` term
+for term, and the copy loop at `008030F0` *is* the initialisation — which is why
+it takes sixty demand-paging faults across exactly that range and why every one
+of them is serviced. Appendix C gives the mechanical form, a section attribute
+named **Zero**: "the loader sets all of the section's bytes to zero at runtime",
+and p. 73's librarian map shows a C data section carrying it —
+`00000024 00000000 Concat Data Zero`.
+
+**So there is no fault here to chase**, and the run says so on its own terms: no
+instruction was refused, no translation was wrong, and no fault went unserviced
+in 1.95 G instructions. What remains is a question about *ordering* — the
+program calls through `0091709C` before the pass that fills it — and that is a
+question for `AEGIS_Internals_and_Data_Structures`, next on the shelf.
+
+*This is the fourth time the answer has been on a shelf nobody looked at*, and
+the first three are already memories. The difference is that this shelf had been
+*audited* as complete: twenty-two walk records, every one finished, every one a
+hardware document. `SOFTWARE_SHELF_WALK.md` is the register of the hundred that
+were never listed — 20,770 pages — and `004977-02_WALK.md` is the first of them
+read.
 
 ### One bit in the fault frame, and Domain/OS starts paging
 
