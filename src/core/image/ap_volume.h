@@ -179,6 +179,41 @@
  * the UID of the item being dumped. `.sys_shut_state` is the one to reach for
  * if the fourteen-day rule ever needs more than the timestamps.
  *
+ * ## And `+4C` is not one field but seven, which `002398-03` decodes
+ *
+ * Rev 4 names the `+4C` block "VTOC header" and stops. **Rev 3 p. 2-24 prints
+ * it**, `vtoc_hdr_t` in `vol.ins.pas`, with its own note that "The VTOC header
+ * lives in the logical volume label. Offsets given are from the start of the
+ * label" -- so these are label-relative like everything above:
+ *
+ *     +4C  version | # blocks for hash    .version, .vtoc_size
+ *     +50  number of VTOC blocks used     .vtoc_blocks
+ *     +54  VTOCX of the network root      .net_x
+ *     +58  VTOCX of this volume's root    .root_x
+ *     +5C  **VTOCX of the paging file**   .os_x
+ *     +60  **VTOCX of the boot file**     .boot_x
+ *     +64  VTOC map, 8 entries            .map
+ *     +B0  end
+ *
+ * A VTOC map entry (`vtoc_mape`) is six bytes -- `+00` a count of consecutive
+ * blocks, `+02` the disk address of the extent's first block -- and "VTOC
+ * extents are **preallocated by INVOL** to be near the middle of the logical
+ * volume and to avoid badspots".
+ *
+ * A VTOCX (`vtocx_t` in `base.ins.pas`) is a tagged 32-bit value with three
+ * forms: a local object's `DADDR` of its VTOC block plus an `INDX` (the entry's
+ * index within the block, 0-4, or a file map index, 0-7); a **remote** object's
+ * node ID; and a local object whose `DADDR` is unknown, carrying a `VOLX`,
+ * the logical volume number.
+ *
+ * **Named and not read, for the same reason as `.sys_shut_state`.** Nothing
+ * here needs them yet -- but `.os_x` and `.boot_x` are exactly what a check
+ * that a volume is bootable would read, and this project builds volumes with
+ * `/sau14/invol` and then asks SYSBOOT to find both. `[AEGIS]` §27.1's SYSBOOT
+ * sequence reads the logical volume label and then "the logical volume's root
+ * directory", which is `.root_x`. If a boot ever fails in a way that needs the
+ * volume interrogated rather than the console read, this is the decode.
+ *
  * **Why they are worth modelling.** Domain/OS refuses to boot a volume whose
  * last shutdown is more than fourteen days behind the clock, and a volume that
  * was never cleanly dismounted carries `.dismounted_time` **zero** -- so the
