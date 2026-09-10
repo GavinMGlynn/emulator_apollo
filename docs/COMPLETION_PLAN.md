@@ -4513,7 +4513,16 @@ discipline throughout.
       three distinguishable things**, and §F.3's `OBJDMP` — a shell command the
       DS5500 already has — dumps exactly those records. That is the cheapest next
       measurement on this question and needs no new instrument.
-      **45 of the 96 remain untouched.** `CONTENT_TRIAGE.md`
+      **41 of the 96 remain untouched.** And a *language reference* turned out to
+      hold a hardware source: `000792-A01` Appendix F is Apollo's account of the
+      68040's floating-point trap, and its Table F-1 narrows Motorola's
+      twenty-seven unimplemented instructions to the **eight** Apollo's
+      compilers actually emit — `FSIN FCOS FTAN FATAN FETOX FLOGN FLOG10
+      FINT/FINTRZ` — with the rest "never generated". A workload fact no
+      Motorola manual can carry, and it says which eight come first. It also
+      lands on this session's own finding: vector 11 carries FP emulation as
+      well as the `PTEST` that killed the crash report, through the same handler
+      at `7A42EDBC`. `CONTENT_TRIAGE.md`
       settled 16 by a full-text scan for the vocabulary a hardware fact is
       written in — and separated 7 brochures the scan *could not read*, which is
       the fifth time this session a check reported clean because it could not
