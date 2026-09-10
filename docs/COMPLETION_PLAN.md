@@ -4451,8 +4451,8 @@ discipline throughout.
       ways, the 3,072 sections-plus-marked-globals limit (2,048 before SR9.0),
       and two internal cross-reference errors.
       **`AEGIS_Internals_and_Data_Structures` is in progress**
-      (`AEGIS_INTERNALS_WALK.md`): chapters 9, 21, 26, 27 and Appendix A read
-      whole, 24 chapters and 2 appendices owed. It **confirms six findings this
+      (`AEGIS_INTERNALS_WALK.md`): chapters 9, 18, 19, 21, 26, 27 and Appendix A
+      read whole, 22 chapters and 2 appendices owed. It **confirms six findings this
       project measured off a running DS5500 and explains two of them** — the
       vector table is the PROM's trap page copied and relocated (§26.1.1), the
       service table is machine ID at `100`, auxiliary info at `102`, entry points
@@ -4464,6 +4464,14 @@ discipline throughout.
       *for*: ASID 0 is global space, marked by "a hardware global bit in the MMU
       hardware page tables". §21 **does not** answer `RING.md` question E and
       conflicts with `[MAC]` twice; `[MAC]` kept both times, nothing changed.
+      §18 decodes the crash line field by field — the leading address is the
+      frame's own, `FA`/`SW` appear "only on bus/address errors", and the `(B)`
+      after the format word is the PROM's letter code, which `002398-04` gives
+      as bus error. §18.2.2 depends on this core faulting a user-mode
+      `MOVE from SR` so Domain/OS can no-op it, which `single_suite` already
+      asserts. §19 explains why fifteen `TRAP` vectors are taken and not one:
+      each trap number is a separate handler with its own dispatch table,
+      indexed by the SVC number in `D0`.
       A **second 56-page document is bound in at pp. 371-426** that the filename
       does not mention. Then `014962-A00` *Design Principles* (157).
       Brochures, price lists and catalogues are listed and declared not worth

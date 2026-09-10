@@ -2,7 +2,7 @@
 
 | Tag | File | Pages | Text layer | State |
 | --- | --- | --- | --- | --- |
-| `[AEGIS]` | `bitsavers/AEGIS_Internals_and_Data_Structures_Jan86.pdf` | 426 | born-digital, heavy OCR damage | **IN PROGRESS — 5 chapters and 1 appendix read, 24 chapters and 2 appendices owed** |
+| `[AEGIS]` | `bitsavers/AEGIS_Internals_and_Data_Structures_Jan86.pdf` | 426 | born-digital, heavy OCR damage | **IN PROGRESS — 7 chapters and 1 appendix read, 22 chapters and 2 appendices owed** |
 
 Revision 00, Software Release **9.0**, January 1986. **Cited by title in
 `RING.md` and twice in `PROJECT_STATUS.md` and never walked** — which is how it
@@ -172,6 +172,94 @@ NETBOOT writes a period per page loaded and a byte total every eight pages, and
 after loading asks its partner for the UIDs of the OS paging file, the network
 root directory and the disk entry directory.
 
+## Chapter 18, Fault Handling in the Kernel — read whole (pp. 217-230)
+
+**§18.2.1.1 decodes the crash line this session read off a DS5500**, field by
+field, from a machine three releases older:
+
+```
+FAULT IN AEGIS:
+03077B88: SR:2008 PC:S012CCC FF:B008 (8) FA:3FFFFFF SW:0155
+CRASH STATUS 00040004 ECB 00000000 PIO 0002
+```
+
+against
+
+```
+FAULT IN DOMAIN/OS:
+7A543FC4: SR:0000  PC:0080000C  FF:7008 (B)  FA:0080000C  SW:0146
+Crash_Status 0012004B  PC 7A42D86A pid 0001
+```
+
+- The leading address is **the fault frame's own address on the supervisor
+  stack** — "you must patch the actual frame on the stack (using the address
+  displayed above)". `7A543FC4` is where the frame is, not what faulted.
+- "The routine displays the **fault address (FA) and special status word (SW)
+  only on bus/address errors**." So their presence is itself the classification.
+- "**The frame format word (FF) is followed by the letter error identification
+  from the PROM.**" `FF:7008 (B)` is format `$7`, vector offset `$008`, and `B`
+  — which `002398-04`'s MD code list, already walked, gives as **bus error**
+  (`A` address error, `B` bus error, `S` trap or breakpoint, `U` unimplemented
+  instruction, `Z` divide by zero). Two documents, one letter.
+- "**All registers except the stack pointer (SP) remain as they were when the
+  fault occurred**", and `G,G *+f` returns control to the point of the fault.
+
+**A candidate explanation for something measured and not yet explained, marked
+as a reading rather than a finding.** §18.2.1.1 says `fault_$crash` — the routine
+that prints the block above — is called when the fault occurred *in supervisor
+mode*, and the DS5500's last frame has `SR:0000`, user mode. §18.2.4 supplies a
+second route to the same crash: `fim_$com` "checks to see if the faulting
+process holds any mutex or exclusion locks (via `proc1_$inhibit_check`). If this
+check fails, **the system crashes** with `fault_$while_lock_set` status, since
+there are no circumstances in which the AEGIS kernel should exit to user mode
+with a kernel lock held." A user-mode fault can therefore crash the system.
+**Not verified** — `Crash_Status 0012004B` has not been decoded against any
+status list, and no run has been instrumented for it.
+
+**§18.2.2 is a clause about this core, and this core already satisfies it.** The
+privileged-instruction handler "checks for a **Move from SR** instruction. This
+instruction was not privileged on the 68000, but became privileged on the 68010
+and 68020. If the handler finds that the instruction that incurred the fault was
+a Move from SR, it **ignores the fault (the instruction is No-oped)**." So
+Domain/OS depends on the processor faulting a user-mode `MOVE from SR` in order
+to emulate the 68000's behaviour. `ap_m68030_single.h` documents exactly that
+rule and `single_suite` asserts
+`ap_m68030_single_privileged(AP_M68030_SINGLE_MOVE_FROM_SR)`. Confirmed, nothing
+owed — but it is the kind of dependency that would have been invisible from the
+processor manual alone, which says only that the instruction is privileged.
+
+*Also captured*: the fault interceptor module is two modules, `fim_wired` and
+`fim_unwired`, split by whether a handler "must be able to run without taking a
+page fault; in particular, the **page fault handler itself**". Memory-management
+faults are handled entirely in the kernel and are "generally invisible to
+user-mode programs" — the common path runs only if a manager such as
+`mst_$touch` reports an error, which is why a DS5500 servicing 362 MMU faults
+prints nothing. §18.2.4.2 is a **fault-on-fault** check: a per-process flag
+`fim_$in_fim[asid]`, and on re-entry the process is deleted. §18.2.3 sends
+address, parity and bus errors to `fim_$abcom` rather than `fim_$com`, which
+releases `ec2_$lock` or `pbu_$lock` if held and crashes if "the faulting address
+is above the supervisor global boundary". The diagnostic frame is flagged with
+the pattern **`DFDF`**, "which makes it easy to identify diagnostic frames within
+stack dumps" — a magic word worth having when reading DS5500 memory.
+
+## Chapter 19, SVC Dispatching — read whole (pp. 231-234)
+
+"User-mode code gains access to these modules through the **SVC trap
+instruction**... Each trap handler has a table of entry points to the supervisor
+subroutines, called the **SVC dispatch table**. The **SVC number passed in `D0`**
+is the index into the handler's dispatch table."
+
+That is the arrangement measured today from the other end: Domain/OS replaced
+vectors 32-46 — `TRAP #0` through `TRAP #14`, all fifteen — and left `TRAP #15`
+to the PROM. **Each trap number is a separate handler with its own dispatch
+table**, which is why fifteen of them are taken rather than one, and the DS5500
+run's `1 x vector 35` and `1 x vector 39` are calls through handlers 3 and 7.
+
+§19.2 separates two things that look alike: "Running in supervisor mode is not
+identical to using ASID 0" — the operating system's code lives in shared
+supervisor space, but a process running in supervisor mode still has its own
+ASID for its private space.
+
 ## Appendix A, Boot LED Codes — read whole (pp. 309-311)
 
 The steady-state codes the PROM loads as it initialises, which is what a hung
@@ -214,8 +302,8 @@ three sources, one number.
 | **9 virtual address space layout** | 111-118 | **done** |
 | 10-13 virtual memory, its data structures, mapping/activation/purification, page fault resolution | 119-198 | owed — only §10.6.2's pure/impure page rules read |
 | 14-17 process management, level 2 processes, eventcounts | 199-216 | owed |
-| 18 fault handling in the kernel | 217-230 | owed — bears directly on this session's frame work |
-| 19 SVC dispatching | 231-234 | owed — user/supervisor and ASID |
+| **18 fault handling in the kernel** | 217-230 | **done** |
+| **19 SVC dispatching** | 231-234 | **done** |
 | 20 network overview | 235-242 | owed |
 | **21 ring hardware** | 243-246 | **done** |
 | 22-24 IPC data structures, network support, internet | 247-276 | owed |
@@ -237,7 +325,7 @@ inside it is exactly what a coverage record is for.
 
 ## Fidelity
 
-Chapters 9, 21, 26, 27 and Appendix A read in full from the text layer, which is
+Chapters 9, 18, 19, 21, 26, 27 and Appendix A read in full from the text layer, which is
 born-digital and heavily OCR-damaged in the figures — Figure 9-1's segment
 labels arrive as "Prlv.t. Re.d/Wrlt. 8tor.ge (I .egm.nt.)" — so **every figure
 address and segment count above was cross-checked against the prose**, and where
