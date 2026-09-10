@@ -4513,7 +4513,15 @@ discipline throughout.
       three distinguishable things**, and §F.3's `OBJDMP` — a shell command the
       DS5500 already has — dumps exactly those records. That is the cheapest next
       measurement on this question and needs no new instrument.
-      **73 of the 96 remain untouched**, and the
+      **72 of the 96 remain untouched**, and **`[CFG]` — the configuration guide
+      the model table has cited since Phase 5 — had never been opened**
+      (`CFG_WALK.md`). It supplied the DS5500 figure that was stale, and its
+      Series 3500 block reads "Monitor: 19-inch, 1280 by 1024" against a DN3500
+      row saying `1024x800` with *no citation*. The row is right — `Opt. FM2`
+      "Requires option DM0", the 1280x1024 *controller*, and `008778-03` §11
+      gives the family's monitors as 1024 x 800 at both sizes — and the field is
+      now cited, because an uncited field in the reference row is what invites a
+      plausible wrong change, and the
       first document read for its own sake — `000959-A00`, the SR10 GPIO driver
       manual — corrected the AT I/O window's mapping formula in two headers
       without changing any behaviour: `AT x 0x80` is the multiple-of-eight case
