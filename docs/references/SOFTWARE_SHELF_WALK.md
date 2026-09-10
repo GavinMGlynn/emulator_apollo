@@ -1,6 +1,9 @@
 # The Domain/OS software shelf — walk coverage record
 
-**State: 5 of 100 read (4 in full, 1 in progress), 20,770 pages.** `004977-02` walked whole 118/118;
+**State: 16 of 100 addressed, 20,770 pages.** 4 read in full, 2 hardware
+handbook revisions in progress, **10 patents triaged** (`PATENTS_WALK.md`) —
+1 already a primary source, 1 kept as a future source, 8 out of scope on their
+subject and recorded as such. `004977-02` walked whole 118/118;
 `AEGIS_Internals`, `014962-A00` and `008862-01` passed over in full with their
 key chapters read whole; `002398-01` in progress. 95 documents untouched.
 
@@ -77,7 +80,13 @@ only ever counted hardware.
    the pointer is a **transfer vector**, the loader fills it in from the Known
    Global Table, and an *unresolved* one is supposed to point at a **dynamic
    link snapper**, not at zero.
-4. The rest, in the order the groups appear below. **Brochures, price lists and
+4. ~~The patents~~ — **triaged**, `PATENTS_WALK.md`. Three filed within days
+   of each other in October 1988 describe one machine, a multiprocessor with a
+   vector unit and 64-byte cache lines, and it is not a 68k node. Their titles —
+   arbitration, cache fill, DRAM performance — are exactly what a search for
+   this project's open items surfaces, which is why the negative is written
+   down.
+5. The rest, in the order the groups appear below. **Brochures, price lists and
    catalogues are listed for completeness and are not technical documents**;
    they are the one group that can be declared not worth walking, and that is a
    judgement recorded here rather than an omission.
