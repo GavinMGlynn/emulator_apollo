@@ -204,8 +204,24 @@ Crash_Status 0012004B  PC 7A42D86A pid 0001
 - "**All registers except the stack pointer (SP) remain as they were when the
   fault occurred**", and `G,G *+f` returns control to the point of the fault.
 
-**A candidate explanation for something measured and not yet explained, marked
-as a reading rather than a finding.** §18.2.1.1 says `fault_$crash` — the routine
+**A candidate explanation, since REFUTED — and by the error-code list in a
+handbook revision nobody had walked.** `002398-01` chapter 4 pairs every AEGIS
+error code with its text, and module **`0012` is the fault module**: `00120001`
+odd address error, `00120002` illegal instruction, `0012000C` bus time-out,
+`00120011` access violation, `0012001E` memory parity error — and **`00120020`
+"supervisor fault while resource lock(s) set"**, which is `fault_$while_lock_set`
+by its own words. **The DS5500's `Crash_Status` is `0012004B`, not `00120020`**,
+so the lock-check route below is not what happened. The module is right — the
+crash *is* a fault — and the specific condition is not this one.
+
+*And `004B` cannot be decoded from anything on this shelf.* The module-12 list
+runs to `0020` in Rev 1 (1983), `002C` in Rev 3 (1985) and `003A` in Rev 4
+(1987); `004B` is a later addition and SR10.4 is 1992. **A named gap with a
+known shape**: one of roughly seventeen fault codes added after 1987.
+
+*The refuted reading is kept below because the reasoning was sound and only the
+evidence was missing, which is the difference between a bad guess and an
+unverified one.* §18.2.1.1 says `fault_$crash` — the routine
 that prints the block above — is called when the fault occurred *in supervisor
 mode*, and the DS5500's last frame has `SR:0000`, user mode. §18.2.4 supplies a
 second route to the same crash: `fim_$com` "checks to see if the faulting
