@@ -2,13 +2,14 @@
 
 **State: the shelf is 96, not 100, and 16 of those 96 are addressed.**
 5 read in full — `Apollo_DOMAIN_Architecture` Feb 81 walked whole, 31/31 —
-7 in progress, **16 settled by full-text scan** and 7 brochures declared not
+8 in progress — the newest `000959-10`, whose Table 3-1 gave the tape
+controller's `218` a **provenance** — **16 settled by full-text scan** and 7 brochures declared not
 worth walking (`CONTENT_TRIAGE.md`), 6 in progress plus the **six-document release-notes shelf**
 (`RELEASE_NOTES_WALK.md`) — the newest being **`[CFG]`**, the configuration
 guide the model table has cited since Phase 5 and nobody had opened — 2 hardware handbook revisions and
 `000959-A00`, which **corrected a rule this project had written down twice** —
 and **10 patents triaged** (`PATENTS_WALK.md`): 1 already a primary source, 1
-kept as a future source, 8 out of scope on their subject. **48 untouched.**
+kept as a future source, 8 out of scope on their subject. **47 untouched.**
 
 - `018901-A00`, the **SR10.4 release notes** — `018901-A00_WALK.md`. The release
   this project boots and the one that introduced the DS5500. Its §1.4.1
