@@ -4450,8 +4450,22 @@ discipline throughout.
       complete eight-group section attribute set, the 1,024-byte page stated two
       ways, the 3,072 sections-plus-marked-globals limit (2,048 before SR9.0),
       and two internal cross-reference errors.
-      Next: `AEGIS_Internals_and_Data_Structures` (426, already cited by title in
-      `RING.md` and never walked), then `014962-A00` *Design Principles* (157).
+      **`AEGIS_Internals_and_Data_Structures` is in progress**
+      (`AEGIS_INTERNALS_WALK.md`): chapters 9, 21, 26, 27 and Appendix A read
+      whole, 24 chapters and 2 appendices owed. It **confirms six findings this
+      project measured off a running DS5500 and explains two of them** — the
+      vector table is the PROM's trap page copied and relocated (§26.1.1), the
+      service table is machine ID at `100`, auxiliary info at `102`, entry points
+      from `104` (§26.2.2-4), the SAU number *is* the machine ID (§27.1), boot
+      records occupy blocks 2-B (§27.1), and the firmware carries two stack bases
+      because the PROM runs physical and mapped (§26.1.2). §9 gives both address
+      space layouts, the 1,024-byte page for the third independent time, guard
+      segments either side of the call stack, and what the 68040's `G` bit is
+      *for*: ASID 0 is global space, marked by "a hardware global bit in the MMU
+      hardware page tables". §21 **does not** answer `RING.md` question E and
+      conflicts with `[MAC]` twice; `[MAC]` kept both times, nothing changed.
+      A **second 56-page document is bound in at pp. 371-426** that the filename
+      does not mention. Then `014962-A00` *Design Principles* (157).
       Brochures, price lists and catalogues are listed and declared not worth
       walking, which is a judgement on the record rather than an omission.
 

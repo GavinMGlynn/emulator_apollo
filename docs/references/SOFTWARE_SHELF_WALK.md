@@ -1,6 +1,6 @@
 # The Domain/OS software shelf — walk coverage record
 
-**State: 1 of 100 walked. 20,770 pages, 118 read.**
+**State: 1 of 100 walked whole, 1 in progress. 20,770 pages.**
 
 - `004977-02` *Binder and Librarian Reference* — **walked whole, 118/118, 2026-09-10**,
   `004977-02_WALK.md`. It explained the DS5500's remaining symptom and changed no
@@ -49,12 +49,13 @@ only ever counted hardware.
 
 1. ~~`004977-02` Binder and Librarian Reference~~ — **done**, and it answered the
    question it was picked for. `004977-02_WALK.md`.
-2. **`AEGIS_Internals_and_Data_Structures`**, 426 pages — already cited by title
-   in `RING.md` and twice in `PROJECT_STATUS.md`, never walked. Its system
-   initialisation sequence names the steps this core is watching a process
-   perform: "Resolves the private address space user library", "Determines the
-   high address of the private read/write storage space", "Makes the global data
-   section read-only".
+2. **`AEGIS_Internals_and_Data_Structures`**, 426 pages — **in progress**,
+   `AEGIS_INTERNALS_WALK.md`: chapters 9, 21, 26, 27 and Appendix A read whole,
+   24 chapters and 2 appendices owed. It has already confirmed six measured
+   findings and explained two of them, contradicted `[MAC]` twice without
+   changing anything, declined to answer `RING.md` question E, and turned out to
+   have **a second 56-page document bound in at pp. 371-426** that its filename
+   does not mention.
 3. **`014962-A00` Domain/OS Design Principles**, 157 pages.
 4. The rest, in the order the groups appear below. **Brochures, price lists and
    catalogues are listed for completeness and are not technical documents**;
