@@ -5063,6 +5063,28 @@ discipline throughout.
       the same floor; it can only isolate the residual. The unmeasured candidate
       is disk latency between blocks, readable from the same report's disk
       counters in one pass. Detail in `PROJECT_STATUS.md`.
+      **And the other 40% is the disk, 2026-09-11, from the same two reports.**
+      491 of the phase's 982 disk commands touch a surface -- `READ TO BUFFER`
+      and `WRITE FROM BUFFER`, matched pair for pair by the sector-buffer
+      commands that do not -- and `command_duration` charges each the drive's
+      published 30 ms seek and 8.33 ms latency, **958,333 CPU periods**. That is
+      one access every 10.01 tape blocks, **95,755 periods a block against the
+      96,811 the media left open: 98.91%**. With the tape's 59.50% it is
+      **99.56% of the phase's idle**, and the phase itself closes exactly --
+      `idle` + `clocks` is the elapsed time to the period, with the refresh
+      counter agreeing independently. *And the traced baseline was re-run
+      without its trace before the delta was taken*: every counter identical,
+      state hash `81F93FCD7FFA080B` both ways. *So the residual is answered and
+      the
+      unmeasured candidate was the right one.* The whole cartridge is 25.6 G
+      steps, 14.9 G of tape and 10.0 G of Winchester, both device time a
+      cycle-stepped core must step and neither a defect. **What is left on this
+      item is wall clock, not knowledge.**
+      *Verification: `omti_suite` 47 -> 48 -- the seek, the 3600 rpm rotation and
+      the half-turn latency against `002398-04` Table 6-5's own figures, which
+      `awd_suite`'s composition test could not catch because it asserts the model
+      honours the constants rather than what the constants are.*
+      Detail in `PROJECT_STATUS.md`.
       **The DS5500 reaches its own monitor, 2026-09-10** — `MD14 REV 2.00,
       1991/03/08.16:20:14` and a `>` prompt, from a machine that could execute
       two of its instructions a day earlier. It cost **one address range**:

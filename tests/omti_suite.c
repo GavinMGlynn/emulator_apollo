@@ -986,6 +986,33 @@ static void test_the_ready_timeout_is_fifty_seconds(void) {
  * must say so. This model served every command from the attached drive whatever
  * LUN it carried, so a Domain/OS boot was told a second Winchester was present
  * and healthy -- `DRIVE 1 PASSED.` where the hardware prints `(NOT FOUND)`. */
+/* And the two figures the access time is built from, for the same reason.
+ *
+ * `test_the_access_time_is_a_seek_a_half_turn_and_the_transfer` in `awd_suite`
+ * asserts that the model honours these constants; nothing asserts that the
+ * constants are the *drive's* numbers, so a seek of thirty microseconds would
+ * pass it. They are cited outside this core now -- `PROJECT_STATUS.md` accounts
+ * for 40.06% of the DS5500 restore's idle time as 491 of these accesses -- and a
+ * number that carries an argument needs an assertion under it.
+ *
+ * `002398-04` Table 6-5, by way of this file's own derivation: 1/3-stroke seek
+ * **30 msec**, which that section argues *is* the average seek; average latency
+ * **8.33 msec**; **3600** rpm. */
+static void test_the_access_time_is_the_drives_published_figures(void) {
+  /* Thirty milliseconds, and the base represents it with no remainder. */
+  TEST_ASSERT_EQUAL_UINT64(30u, AP_OMTI_AVERAGE_SEEK * 1000u / AP_TIME_BASE_HZ);
+  TEST_ASSERT_EQUAL_UINT64(0u, AP_OMTI_AVERAGE_SEEK % (AP_TIME_BASE_HZ / 1000u));
+
+  /* 3600 revolutions in a minute, said as the rotation rather than as the
+   * constant's own arithmetic repeated back at it. */
+  TEST_ASSERT_EQUAL_UINT64(AP_TIME_BASE_HZ * 60u,
+                           AP_OMTI_ROTATION_TIME * AP_OMTI_DRIVE_RPM);
+  /* And the latency is half a turn: 8,333 us to the microsecond. */
+  TEST_ASSERT_EQUAL_UINT64(AP_OMTI_ROTATION_TIME, AP_OMTI_AVERAGE_LATENCY * 2u);
+  TEST_ASSERT_EQUAL_UINT64(
+      8333u, AP_OMTI_AVERAGE_LATENCY * 1000000u / AP_TIME_BASE_HZ);
+}
+
 static void test_test_drive_ready_fails_for_a_lun_with_no_drive(void) {
   ap_omti_t o;
   ap_omti_reset(&o);
@@ -1428,6 +1455,7 @@ int main(void) {
   RUN_TEST(test_an_unprogrammed_controller_steps_at_the_drive_minimum);
   RUN_TEST(test_a_drive_that_is_never_ready_costs_the_whole_timeout);
   RUN_TEST(test_the_ready_timeout_is_fifty_seconds);
+  RUN_TEST(test_the_access_time_is_the_drives_published_figures);
   RUN_TEST(test_test_drive_ready_fails_for_a_lun_with_no_drive);
   RUN_TEST(test_the_completion_byte_carries_the_commands_lun);
   RUN_TEST(test_the_measured_fixed_disk_ports_are_reproduced);

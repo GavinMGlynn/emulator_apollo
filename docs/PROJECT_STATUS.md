@@ -3143,6 +3143,109 @@ hardware document. `SOFTWARE_SHELF_WALK.md` is the register of the hundred that
 were never listed — 20,770 pages — and `004977-02_WALK.md` is the first of them
 read.
 
+### And the other 40% is the Winchester arriving at the sector
+
+**Settled from counters the two runs already carried**, which is exactly what the
+paragraph above named as the one pass that would do it. No third boot.
+
+*The phase measured is the 1.2 G steps between the two bounds.* Same binary — no
+code commit between them — and the same inputs, checked by MD5 rather than by
+file name: both runs' disk is `media/dn5500-invol-done.awd` and both cartridges
+are `019593-001`, and all four are byte-identical to the originals afterwards, so
+neither run wrote its own input.
+
+*And the shorter run's trace is not a confound, which was checked rather than
+assumed.* The 2.0 G run carried `--boot-trace-last`, an observer whose read-backs
+the report already accounts for separately — `probe walks 0 descriptor fetch(es)
+by --dump-logical and the per-step trace read-back, not by the machine` — but a
+delta rests on the two runs sharing one trajectory, so the bound was re-run with
+no trace at all. **Every counter is identical**: 1,659,887,636 instructions,
+340,112,364 idle periods, 13,182,916,183 clocks, 36,061,409 refresh cycles, the
+same 131 disk commands in the same mix, `final PC 7A4C74BE`, and the same state
+hash **`81F93FCD7FFA080B`**. The longer run passes through `7A4C74BE` at its own
+2 G mark, which is the same statement from the other side.
+
+| | 2.0 G steps | 3.2 G steps | the phase |
+| --- | --- | --- | --- |
+| tape block | 0 | 4,914 | **4,914** |
+| instructions | 1,659,887,636 | 1,685,276,199 | 25,388,563 |
+| idle periods | 340,112,364 | 1,514,723,801 | **1,174,611,437** |
+| `clocks` | 13,182,916,183 | 13,416,410,032 | 233,493,849 |
+| elapsed, base units | 11,652,739,606,835,712 | 12,866,098,299,360,768 | 1,213,358,692,525,056 |
+| `1E` READ TO BUFFER | 58 | 78 | 20 |
+| `1F` WRITE FROM BUFFER | 6 | 477 | **471** |
+| `0E` / `0F`, the sector buffer | 58 / 6 | 78 / 477 | 20 / 471 |
+
+**The phase's periods close exactly, and that is the first check.**
+1,213,358,692,525,056 base units is **1,408,105,286** CPU periods with no
+remainder, and `idle` + `clocks` is 1,408,105,286 — so `clocks` counts the
+periods the processor executed in, `idle` the periods it stood stopped in, and
+between them they are every period of the phase and nothing else. The refresh
+counter agrees independently: 3,754,947 cycles stolen one every 375 bus ticks is
+1,408,105,125, short by 161, which is one interval's rounding at each end.
+
+| | periods | of the phase |
+| --- | --- | --- |
+| the processor stopped, `STOP` executed | 1,174,611,437 | **83.42%** |
+| the processor executing | 233,493,849 | 16.58% |
+
+**491 of the phase's 982 disk commands touch a surface and the other 491 do
+not.** `ap_omti_cdb_touches_surface` puts `READ TO BUFFER` and `WRITE FROM
+BUFFER` on the platter and `READ SECTOR BUFFER` / `WRITE SECTOR BUFFER` in the
+controller's own buffer, and the phase's counts are equal pair for pair — 20
+`1E` against 20 `0E`, 471 `1F` against 471 `0F`. That is the OMTI sector-buffer
+protocol being driven the way `[OMTI]` describes it: the surface command moves a
+sector between platter and buffer, the buffer command moves it between buffer
+and host, and neither is any use without the other. Counts, not order — the
+report does not carry the sequence.
+
+`command_duration` charges a surface command the drive's own published access:
+
+| | |
+| --- | --- |
+| `AP_OMTI_AVERAGE_SEEK`, the 1/3-stroke seek | 30 ms = **750,000 CPU periods** |
+| `AP_OMTI_AVERAGE_LATENCY`, half a turn at 3600 rpm | 8.33 ms = **208,333** |
+| so one surface command | **958,333 CPU periods** |
+| 491 of them across 4,914 tape blocks | one every **10.01** blocks |
+| so, per tape block | **95,755 periods = 3.83 ms** |
+| the residual the section above left open | **96,811 periods = 3.87 ms** |
+
+**98.91% of it.** The 3.9 ms a block the media did not account for is the
+Winchester arriving at the sector, and like the 90 KB/s it is a figure this core
+did not invent: `002398-04` Table 6-5 by way of `ap_omti.h`, where the 30 ms is
+argued from "1/3 stroke *is* the average seek" and the 8.33 ms is that table's
+own "Average latency" to the digit.
+
+| the idle | periods | of the idle |
+| --- | --- | --- |
+| tape at 90 KB/s, 4,914 x 512 bytes | 698,880,000 | 59.50% |
+| Winchester access, 491 commands | 470,541,667 | 40.06% |
+| unattributed | 5,189,770 | 0.44% |
+
+**Two published media rates are 99.56% of the idle and 83.05% of the whole
+phase.**
+
+*And the 0.44% is not slack to claim — it is smaller than a term the same
+function charges.* `command_duration` adds a transfer time on top of the access,
+and even at one 1,056-byte sector a command that is 9,947,520 periods, which
+would put the device total at 100.4% of the idle rather than 99.6%. Device time
+and instruction execution overlap: a command is issued, the processor runs on,
+and only then does it `STOP`. This accounting cannot separate the two and does
+not claim to. What it establishes is that the idle has no *third* term, not that
+these two are exact to the period.
+
+**So the item's remaining cost is a number rather than a mystery.** 244,200 steps
+a tape block over 104,841 blocks is **25.6 G steps** for the whole cartridge —
+14.9 G of tape and 10.0 G of Winchester, both of them device time that a
+cycle-stepped core must step, and neither of them a defect. The processor's own
+sixth is **9.20 periods an instruction**, which this section does not explain.
+What can be said about it is where it cannot hide: the 68040's caches are a
+complete module attached to no CPU, so every fetch and every operand is a bus
+access, and whatever that costs is inside this sixth rather than inside the five
+sixths of device time. **The wall clock is the whole of what is left on this
+item**, and that is now what a single long run costs rather than what it cannot
+do.
+
 ### One bit in the fault frame, and Domain/OS starts paging
 
 With `PTEST` in, the DS5500 finished its crash report and printed its own
