@@ -4513,7 +4513,13 @@ discipline throughout.
       three distinguishable things**, and §F.3's `OBJDMP` — a shell command the
       DS5500 already has — dumps exactly those records. That is the cheapest next
       measurement on this question and needs no new instrument.
-      **96 of the 100 documents remain untouched.**
+      **79 of the 96 remain untouched**, and the
+      first document read for its own sake — `000959-A00`, the SR10 GPIO driver
+      manual — corrected the AT I/O window's mapping formula in two headers
+      without changing any behaviour: `AT x 0x80` is the multiple-of-eight case
+      of §3.1's "groups of eight bytes ... the first eight bytes of a different,
+      but consecutive, page", and this project's own oracle traffic at `058002`
+      already agreed with the manual rather than the formula.
       Brochures, price lists and catalogues are listed and declared not worth
       walking, which is a judgement on the record rather than an omission.
 
