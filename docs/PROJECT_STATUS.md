@@ -22353,8 +22353,19 @@ only the corroboration.
 
 #### The FPA space, and why the oracle's own handler for it is switched off
 
-`F8000000`-`FFFFFFFF` is the floating-point accelerator's address space. No FPA
-is fitted here, and the question was whether to answer there at all — the
+`F8000000`-`FFFFFFFF` is the floating-point accelerator's address space. **The
+part is a Weitek 3164**, which no hardware document on this shelf names and the
+SR10.1 release notes do: `005809-A03` §2.1.4, "The FPA is based on the **Weitek
+3164** floating point chip. It accelerates both scalar and vector processing and
+is available as an **option** to the DN4000, DN3500, and DN4500 Personal
+Workstations." So it is an option on all three of the 68030 machines this core
+models, and `018901-A00` §1.4.1 later removes it: "the Floating-Point
+Accelerator Board presently available on the DN3500, DN3550 and DN4500 **is not
+supported** on the DN5500", because the 68040 has the FPU on-chip. *A named
+part rather than an address range, which is what a future decision to model one
+would start from.*
+
+No FPA is fitted here, and the question was whether to answer there at all — the
 oracle carries a handler for exactly that range, `apollo_f8_r`, which returns
 `FFFFFFFF`, and four commented-out map lines that would install it. It was
 written and not kept, and the plan recorded it as a hint to be understood
