@@ -4513,13 +4513,19 @@ discipline throughout.
       three distinguishable things**, and §F.3's `OBJDMP` — a shell command the
       DS5500 already has — dumps exactly those records. That is the cheapest next
       measurement on this question and needs no new instrument.
-      **79 of the 96 remain untouched**, and the
+      **78 of the 96 remain untouched**, and the
       first document read for its own sake — `000959-A00`, the SR10 GPIO driver
       manual — corrected the AT I/O window's mapping formula in two headers
       without changing any behaviour: `AT x 0x80` is the multiple-of-eight case
       of §3.1's "groups of eight bytes ... the first eight bytes of a different,
       but consecutive, page", and this project's own oracle traffic at `058002`
       already agreed with the manual rather than the formula.
+      **And `018901-A00`, the SR10.4 release notes, corrected the model table**:
+      the DS5500's memory ceiling was 32 MB from a configuration guide two years
+      older than the machine, against 64 MB in the release note that introduced
+      it. The same paragraph names the *purpose* of the I/O protection region
+      this project placed empirically — "to support the 4-KB page I/O mapping of
+      the MC68040".
       Brochures, price lists and catalogues are listed and declared not worth
       walking, which is a judgement on the record rather than an omission.
 

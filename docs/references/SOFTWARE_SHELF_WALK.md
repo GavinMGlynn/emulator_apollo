@@ -1,10 +1,17 @@
 # The Domain/OS software shelf — walk coverage record
 
 **State: the shelf is 96, not 100, and 16 of those 96 are addressed.**
-4 read in full, 3 in progress — 2 hardware handbook revisions and
+4 read in full, 4 in progress — 2 hardware handbook revisions and
 `000959-A00`, which **corrected a rule this project had written down twice** —
 and **10 patents triaged** (`PATENTS_WALK.md`): 1 already a primary source, 1
-kept as a future source, 8 out of scope on their subject. **79 untouched.**
+kept as a future source, 8 out of scope on their subject. **78 untouched.**
+
+- `018901-A00`, the **SR10.4 release notes** — `018901-A00_WALK.md`. The release
+  this project boots and the one that introduced the DS5500. Its §1.4.1
+  **corrected the model table's memory ceiling** (32 MB from a guide two years
+  older than the machine; 64 MB from the machine's own release note) and named
+  the *purpose* of the I/O protection region this project had placed
+  empirically. A pure scan: every page costs a render.
 
 ### The count was wrong, and the way it was wrong is the point
 
