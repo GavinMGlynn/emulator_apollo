@@ -3,16 +3,16 @@
 # is not yet modelled, so these are lower bounds rather than
 # figures to compare against MC68030 User's Manual ch. 11.
 probe               ran status         d0       pc         clocks berr hash            
-moveq                 2 STOPPED        00000042 00001006        4    0 A983C9341D1928D8
-store-reload          4 STOPPED        00000042 00001012       14    0 CBA9EADC4FB82263
-loop                 14 STOPPED        00000006 0000100C       60    0 A0D3D3C5AB128CDE
-subroutine            4 STOPPED        00000007 00001008       22    0 37CCBF98EC07B9AC
-trap                  4 STOPPED        00000009 00001008       26    0 F456AB4A19A740FA
-wide-arithmetic       4 STOPPED        0003299B 00001012       10    0 8BE38DA6B28E3185
-movem                 7 STOPPED        00000001 00001014       22    0 753A0066E6630345
-pmove                 3 STOPPED        00000000 0000100E       10    0 6C4F71D0F60B57D7
-fpu                   6 STOPPED        00000000 0000101A      165    0 5BE6D47CA1C94E3C
-fpu-transfer          8 STOPPED        00000000 0000102A      155    0 2C739FC56A16594E
+moveq                 2 STOPPED        00000042 00001006        4    0 EA654FE53B91E5DE
+store-reload          4 STOPPED        00000042 00001012       14    0 72C0C737385FB499
+loop                 14 STOPPED        00000006 0000100C       60    0 975FE219F75C1ED8
+subroutine            4 STOPPED        00000007 00001008       22    0 A0427F6EBEA3A5E2
+trap                  4 STOPPED        00000009 00001008       26    0 7AB14F5480471684
+wide-arithmetic       4 STOPPED        0003299B 00001012       10    0 49EAE1E4F9E650AB
+movem                 7 STOPPED        00000001 00001014       22    0 329EBD36754ECB5F
+pmove                 3 STOPPED        00000000 0000100E       10    0 C129C6F351ED0181
+fpu                   6 STOPPED        00000000 0000101A      165    0 124C37C1A546EBE6
+fpu-transfer          8 STOPPED        00000000 0000102A      155    0 97866B05D9CF8E28
 
 # what each probe covers
 # moveq              one register write, the smallest thing that can be wrong

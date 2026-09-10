@@ -71,6 +71,7 @@ static void hash_pipe_stage(ap_hash_t *st, const ap_m68030_pipe_stage_t *stage) 
   ap_hash_u16(st, stage->word);
   hash_bool(st, stage->valid);
   hash_bool(st, stage->abnormal);
+  hash_bool(st, stage->abnormal_translation);
 }
 
 void ap_m68030_hash_pipe(ap_hash_t *st, const ap_m68030_pipe_t *pipe) {
@@ -82,6 +83,7 @@ void ap_m68030_hash_pipe(ap_hash_t *st, const ap_m68030_pipe_t *pipe) {
   ap_hash_u32(st, pipe->holding_address);
   hash_bool(st, pipe->holding_valid);
   hash_bool(st, pipe->holding_abnormal);
+  hash_bool(st, pipe->holding_abnormal_translation);
 }
 
 void ap_m68030_hash_cache(ap_hash_t *st, const ap_m68030_cache_t *cache) {

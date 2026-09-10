@@ -25,7 +25,7 @@ void tearDown(void) {}
 static void test_an_aligned_prefetch_loads_the_high_order_word_into_stage_b(void) {
   ap_m68030_pipe_t pipe;
   ap_m68030_pipe_reset(&pipe);
-  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, false);
+  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, false, false);
   TEST_ASSERT_TRUE(pipe.b.valid);
   TEST_ASSERT_EQUAL_HEX16(HIGH_WORD, pipe.b.word);
 }
@@ -35,7 +35,7 @@ static void test_an_aligned_prefetch_loads_the_high_order_word_into_stage_b(void
 static void test_the_odd_word_of_a_long_word_is_the_low_order_half(void) {
   ap_m68030_pipe_t pipe;
   ap_m68030_pipe_reset(&pipe);
-  ap_m68030_pipe_fill(&pipe, 0x1002, LONGWORD, false);
+  ap_m68030_pipe_fill(&pipe, 0x1002, LONGWORD, false, false);
   TEST_ASSERT_EQUAL_HEX16(LOW_WORD, pipe.b.word);
 }
 
@@ -45,7 +45,7 @@ static void test_the_odd_word_of_a_long_word_is_the_low_order_half(void) {
 static void test_the_next_sequential_word_is_held_after_an_aligned_fill(void) {
   ap_m68030_pipe_t pipe;
   ap_m68030_pipe_reset(&pipe);
-  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, false);
+  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, false, false);
   TEST_ASSERT_TRUE(ap_m68030_pipe_holds(&pipe, 0x1002));
 }
 
@@ -53,7 +53,7 @@ static void test_the_next_sequential_word_is_held_after_an_aligned_fill(void) {
 static void test_a_word_in_the_next_long_word_is_not_held(void) {
   ap_m68030_pipe_t pipe;
   ap_m68030_pipe_reset(&pipe);
-  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, false);
+  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, false, false);
   TEST_ASSERT_FALSE(ap_m68030_pipe_holds(&pipe, 0x1004));
 }
 
@@ -69,7 +69,7 @@ static void test_nothing_is_held_before_the_first_fill(void) {
 static void test_a_word_is_decoded_only_after_it_reaches_the_third_stage(void) {
   ap_m68030_pipe_t pipe;
   ap_m68030_pipe_reset(&pipe);
-  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, false);
+  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, false, false);
 
   TEST_ASSERT_FALSE(ap_m68030_pipe_decoded(&pipe, NULL, NULL));
   ap_m68030_pipe_advance(&pipe); /* B -> C */
@@ -86,7 +86,7 @@ static void test_words_emerge_from_the_pipe_in_the_order_they_entered(void) {
   ap_m68030_pipe_t pipe;
   ap_m68030_pipe_reset(&pipe);
 
-  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, false);
+  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, false, false);
   ap_m68030_pipe_advance(&pipe);
   ap_m68030_pipe_load_from_holding(&pipe, 0x1002);
   ap_m68030_pipe_advance(&pipe);
@@ -108,7 +108,7 @@ static void test_words_emerge_from_the_pipe_in_the_order_they_entered(void) {
 static void test_an_abnormal_termination_follows_its_word_through_the_pipe(void) {
   ap_m68030_pipe_t pipe;
   ap_m68030_pipe_reset(&pipe);
-  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, true);
+  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, true, false);
   ap_m68030_pipe_advance(&pipe);
   ap_m68030_pipe_advance(&pipe);
 
@@ -122,20 +122,67 @@ static void test_an_abnormal_termination_follows_its_word_through_the_pipe(void)
 static void test_a_word_from_an_abnormally_filled_holding_register_is_marked(void) {
   ap_m68030_pipe_t pipe;
   ap_m68030_pipe_reset(&pipe);
-  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, true);
+  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, true, false);
   ap_m68030_pipe_advance(&pipe);
   ap_m68030_pipe_load_from_holding(&pipe, 0x1002);
   TEST_ASSERT_TRUE(pipe.b.abnormal);
+}
+
+/* **Why the word terminated abnormally travels with it too.**
+ *
+ * `[040]` §8.4.6.2 makes the two kinds different faults -- the access-error
+ * frame's `ATC` bit is set for a translation refusing an address and clear for
+ * a bus cycle nothing answered -- and a kernel reads that bit to decide whether
+ * to page the address in or to declare the machine broken. Because a prefetch
+ * faults where the word is *used*, the only place that reason can live between
+ * the access and the fault is the stage.
+ *
+ * Both directions, and through the holding register as well: a DS5500 running
+ * Domain/OS reported `PC 0080000C, 0080000C invalid on read` and printed
+ * `BUS ERROR` for it while this bit did not exist. */
+static void test_why_a_word_is_suspect_follows_it_through_the_pipe(void) {
+  ap_m68030_pipe_t translation;
+  ap_m68030_pipe_reset(&translation);
+  ap_m68030_pipe_fill(&translation, 0x1000, LONGWORD, true, true);
+  ap_m68030_pipe_advance(&translation);
+  ap_m68030_pipe_advance(&translation);
+  bool abnormal = false;
+  TEST_ASSERT_TRUE(ap_m68030_pipe_decoded(&translation, NULL, &abnormal));
+  TEST_ASSERT_TRUE(abnormal);
+  TEST_ASSERT_TRUE(ap_m68030_pipe_decoded_translation(&translation));
+
+  /* The same fault from the bus rather than the MMU: abnormal, not a
+   * translation's doing. */
+  ap_m68030_pipe_t bus;
+  ap_m68030_pipe_reset(&bus);
+  ap_m68030_pipe_fill(&bus, 0x1000, LONGWORD, true, false);
+  ap_m68030_pipe_advance(&bus);
+  ap_m68030_pipe_advance(&bus);
+  TEST_ASSERT_TRUE(ap_m68030_pipe_decoded(&bus, NULL, &abnormal));
+  TEST_ASSERT_TRUE(abnormal);
+  TEST_ASSERT_FALSE(ap_m68030_pipe_decoded_translation(&bus));
+
+  /* And the second word of the same long word inherits it, exactly as the
+   * `abnormal` bit it qualifies does. */
+  ap_m68030_pipe_t holding;
+  ap_m68030_pipe_reset(&holding);
+  ap_m68030_pipe_fill(&holding, 0x1000, LONGWORD, true, true);
+  ap_m68030_pipe_advance(&holding);
+  ap_m68030_pipe_load_from_holding(&holding, 0x1002);
+  TEST_ASSERT_TRUE(holding.b.abnormal);
+  TEST_ASSERT_TRUE(holding.b.abnormal_translation);
 }
 
 /* A clean fetch must not inherit a previous fetch's abnormal status. */
 static void test_a_clean_fill_clears_the_abnormal_status(void) {
   ap_m68030_pipe_t pipe;
   ap_m68030_pipe_reset(&pipe);
-  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, true);
-  ap_m68030_pipe_fill(&pipe, 0x2000, LONGWORD, false);
+  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, true, false);
+  ap_m68030_pipe_fill(&pipe, 0x2000, LONGWORD, false, false);
   TEST_ASSERT_FALSE(pipe.b.abnormal);
   TEST_ASSERT_FALSE(pipe.holding_abnormal);
+  TEST_ASSERT_FALSE(pipe.b.abnormal_translation);
+  TEST_ASSERT_FALSE(pipe.holding_abnormal_translation);
 }
 
 /* Stage B is emptied by an advance, so a stale word cannot be decoded twice.
@@ -144,7 +191,7 @@ static void test_a_clean_fill_clears_the_abnormal_status(void) {
 static void test_an_advance_empties_the_stage_words_enter(void) {
   ap_m68030_pipe_t pipe;
   ap_m68030_pipe_reset(&pipe);
-  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, false);
+  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, false, false);
   ap_m68030_pipe_advance(&pipe);
   TEST_ASSERT_FALSE(pipe.b.valid);
 }
@@ -155,7 +202,7 @@ static void test_an_advance_empties_the_stage_words_enter(void) {
 static void test_loading_a_word_the_holding_register_lacks_leaves_the_stage_empty(void) {
   ap_m68030_pipe_t pipe;
   ap_m68030_pipe_reset(&pipe);
-  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, false);
+  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, false, false);
   ap_m68030_pipe_load_from_holding(&pipe, 0x2000);
   TEST_ASSERT_FALSE(pipe.b.valid);
 }
@@ -188,7 +235,7 @@ static void test_alignment_decides_how_many_bus_cycles_a_run_of_words_costs(void
         ap_m68030_pipe_load_from_holding(&pipe, address);
       } else {
         bus_cycles++;
-        ap_m68030_pipe_fill(&pipe, address, LONGWORD, false);
+        ap_m68030_pipe_fill(&pipe, address, LONGWORD, false, false);
       }
       TEST_ASSERT_TRUE(pipe.b.valid);
       ap_m68030_pipe_advance(&pipe);
@@ -206,7 +253,7 @@ static void test_alignment_decides_how_many_bus_cycles_a_run_of_words_costs(void
 static void test_the_holding_register_saving_does_not_depend_on_the_cache(void) {
   ap_m68030_pipe_t pipe;
   ap_m68030_pipe_reset(&pipe);
-  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, false);
+  ap_m68030_pipe_fill(&pipe, 0x1000, LONGWORD, false, false);
   TEST_ASSERT_TRUE(ap_m68030_pipe_holds(&pipe, 0x1002));
 }
 
@@ -221,6 +268,7 @@ int main(void) {
   RUN_TEST(test_words_emerge_from_the_pipe_in_the_order_they_entered);
   RUN_TEST(test_an_abnormal_termination_follows_its_word_through_the_pipe);
   RUN_TEST(test_a_word_from_an_abnormally_filled_holding_register_is_marked);
+  RUN_TEST(test_why_a_word_is_suspect_follows_it_through_the_pipe);
   RUN_TEST(test_a_clean_fill_clears_the_abnormal_status);
   RUN_TEST(test_an_advance_empties_the_stage_words_enter);
   RUN_TEST(test_loading_a_word_the_holding_register_lacks_leaves_the_stage_empty);

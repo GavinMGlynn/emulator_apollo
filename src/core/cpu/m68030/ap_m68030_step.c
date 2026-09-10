@@ -234,9 +234,10 @@ static bool next_word(ap_m68030_cpu_t *cpu, uint32_t *clocks, uint16_t *word) {
      * because its fetch had. */
     cpu->access_faulted = true;
     cpu->fault_instruction_stream = true;
-    /* Clear for the same reason the prefetch arm's is, and it is the same
-     * deferral: see the note there. */
-    cpu->fault_translation = false;
+    /* From the same place the prefetch arm's comes: the stage that holds the
+     * extension word holds why it could not be trusted. */
+    cpu->fault_translation =
+        ap_m68030_pipe_decoded_translation(&cpu->fetch.pipe);
     /* **The word that could not be read, not the instruction that wanted it.**
      * This recorded `regs.pc`, which is the address of the *opcode* -- a word
      * that was read successfully, in a page that is by definition resident. A
@@ -4378,7 +4379,7 @@ static bool execute_misc(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
      * not advanced here: the step advances it after execution as it does for
      * any instruction, and the replacement is decoded on the next one. */
     ap_m68030_pipe_fill(&cpu->fetch.pipe, cpu->regs.pc,
-                        (uint16_t)acknowledge.value, false);
+                        (uint16_t)acknowledge.value, false, false);
     return true;
   }
 
@@ -6686,14 +6687,16 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     cpu->fault_read = true;
     cpu->fault_function_code = cpu->fetch.function_code;
     cpu->fault_data_output = 0u;
-    /* **`ATC` goes out clear here and that is `PROVISIONAL`**, not a reading.
-     * A prefetch faults when the word is *used*, not when it was fetched --
-     * `ap_m68030_pipe.h`'s opening note -- and what the pipe carries across
-     * that gap is one `abnormal` bit with no room in it for the fault's origin.
-     * Giving the stage a second bit is hashed state and a wider change than
-     * this one; the data path, which is where a demand-paged fault on this
-     * machine actually happens, is plumbed. */
-    cpu->fault_translation = false;
+    /* **The fault's origin, carried across the deferral by the pipe.** A
+     * prefetch faults when the word is *used*, not when it was fetched, so the
+     * access that failed is long over by the time this frame is built -- and
+     * the stage that holds the word holds why it is suspect. This was clear
+     * unconditionally for one commit, and the machine noticed: a DS5500
+     * running Domain/OS reported `PC 0080000C, 0080000C invalid on read` in
+     * its own fault list and printed `BUS ERROR` for it, because the frame
+     * said the bus had failed where the MMU had refused. */
+    cpu->fault_translation =
+        ap_m68030_pipe_decoded_translation(&cpu->fetch.pipe);
     out.status = fault_or_unimplemented(cpu, &out, instruction_address);
     ap_m68030_charge(cpu, out.clocks);
     return out;

@@ -36,7 +36,8 @@ ap_m68030_fetch_result_t ap_m68030_fetch_prefetch(ap_m68030_fetch_t *fetch) {
     /* An abnormally terminated fetch still loads the stage, because the fault
      * must be taken where the word is *used* rather than where it was fetched
      * -- which is the rule ap_m68030_pipe already models. */
-    ap_m68030_pipe_fill(&fetch->pipe, address, 0, true);
+    ap_m68030_pipe_fill(&fetch->pipe, address, 0, true,
+                        access.translation_fault);
     out.fault = true;
     out.clocks = access.clocks;
     fetch->bus_clocks += access.clocks;
@@ -44,7 +45,7 @@ ap_m68030_fetch_result_t ap_m68030_fetch_prefetch(ap_m68030_fetch_t *fetch) {
     return out;
   }
 
-  ap_m68030_pipe_fill(&fetch->pipe, address, access.value, false);
+  ap_m68030_pipe_fill(&fetch->pipe, address, access.value, false, false);
   out.ok = true;
   out.clocks = access.clocks;
   fetch->bus_clocks += access.clocks;

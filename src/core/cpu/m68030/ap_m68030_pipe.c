@@ -36,11 +36,13 @@ bool ap_m68030_pipe_holds(const ap_m68030_pipe_t *pipe, uint32_t address) {
 }
 
 void ap_m68030_pipe_fill(ap_m68030_pipe_t *pipe, uint32_t address,
-                         uint32_t longword, bool abnormal) {
+                         uint32_t longword, bool abnormal,
+                         bool abnormal_translation) {
   pipe->holding_data = longword;
   pipe->holding_address = holding_base(address);
   pipe->holding_valid = true;
   pipe->holding_abnormal = abnormal;
+  pipe->holding_abnormal_translation = abnormal_translation;
 
   /* "...and the high-order word is also loaded into stage B of the pipe."
    * The manual describes the aligned case; a prefetch of the low-order word
@@ -49,6 +51,7 @@ void ap_m68030_pipe_fill(ap_m68030_pipe_t *pipe, uint32_t address,
   pipe->b.word = word_from_holding(longword, address);
   pipe->b.valid = true;
   pipe->b.abnormal = abnormal;
+  pipe->b.abnormal_translation = abnormal_translation;
 }
 
 void ap_m68030_pipe_load_from_holding(ap_m68030_pipe_t *pipe, uint32_t address) {
@@ -65,6 +68,7 @@ void ap_m68030_pipe_load_from_holding(ap_m68030_pipe_t *pipe, uint32_t address) 
   /* The status bit follows the data it came with: a word taken from a holding
    * register filled by an abnormally terminated cycle is itself suspect. */
   pipe->b.abnormal = pipe->holding_abnormal;
+  pipe->b.abnormal_translation = pipe->holding_abnormal_translation;
 }
 
 void ap_m68030_pipe_advance(ap_m68030_pipe_t *pipe) {
@@ -85,4 +89,8 @@ bool ap_m68030_pipe_decoded(const ap_m68030_pipe_t *pipe, uint16_t *word,
     *abnormal = pipe->d.abnormal;
   }
   return true;
+}
+
+bool ap_m68030_pipe_decoded_translation(const ap_m68030_pipe_t *pipe) {
+  return pipe->d.valid && pipe->d.abnormal_translation;
 }

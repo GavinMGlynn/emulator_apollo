@@ -64,6 +64,19 @@ typedef struct {
   uint16_t word;
   bool valid;
   bool abnormal; /* loaded from an abnormally terminated bus cycle */
+  /* **Why it terminated abnormally**, carried with the word because the fault
+   * is raised when the word is *used* and by then the access is long over.
+   *
+   * `[040]` §8.4.6.2 makes the two kinds different faults: the access-error
+   * frame's `ATC` bit is set for a translation refusing the address and clear
+   * for a bus cycle nothing answered, and a kernel reads it to decide whether
+   * to page the address in or to declare the machine broken. Without this the
+   * prefetch path could only ever report the second, and a DS5500 running
+   * Domain/OS printed `BUS ERROR` over a user process's first instruction --
+   * `PC 0080000C, 0080000C invalid on read` in the run's own fault list.
+   *
+   * Meaningless unless `abnormal` is set. */
+  bool abnormal_translation;
 } ap_m68030_pipe_stage_t;
 
 typedef struct {
@@ -76,6 +89,7 @@ typedef struct {
   uint32_t holding_address;
   bool holding_valid;
   bool holding_abnormal;
+  bool holding_abnormal_translation;
 } ap_m68030_pipe_t;
 
 /* Empty the pipe and invalidate the holding register. */
@@ -89,9 +103,17 @@ void ap_m68030_pipe_reset(ap_m68030_pipe_t *pipe);
 
 /* Supply the long word a bus cycle fetched for a prefetch of `address`. Loads
  * the holding register and puts the addressed word into stage B. `abnormal`
- * records that the bus cycle terminated abnormally. */
+ * records that the bus cycle terminated abnormally and `abnormal_translation`
+ * whether it was the MMU that refused it rather than the bus that failed to
+ * answer -- see the stage's own note for why that has to travel with the word.
+ *
+ * It is a parameter here and an accessor below rather than a fourth
+ * out-parameter on `ap_m68030_pipe_decoded`, because the fill is the only way
+ * in and every caller must decide, while the origin is an extra question only
+ * the code building a fault frame has to ask. */
 void ap_m68030_pipe_fill(ap_m68030_pipe_t *pipe, uint32_t address,
-                         uint32_t longword, bool abnormal);
+                         uint32_t longword, bool abnormal,
+                         bool abnormal_translation);
 
 /* Satisfy a prefetch of `address` from the holding register, loading stage B.
  * Only legal when ap_m68030_pipe_holds() is true. */
@@ -104,5 +126,10 @@ void ap_m68030_pipe_advance(ap_m68030_pipe_t *pipe);
 /* The fully decoded stage. Returns false when D holds nothing yet. */
 [[nodiscard]] bool ap_m68030_pipe_decoded(const ap_m68030_pipe_t *pipe,
                                           uint16_t *word, bool *abnormal);
+
+/* Whether stage D's abnormal termination was a translation's refusal. Only
+ * meaningful where `ap_m68030_pipe_decoded` reported `abnormal`. */
+[[nodiscard]] bool
+ap_m68030_pipe_decoded_translation(const ap_m68030_pipe_t *pipe);
 
 #endif /* APOLLO_CPU_M68030_AP_M68030_PIPE_H */

@@ -4767,11 +4767,23 @@ discipline throughout.
       3 → 301 across thirteen kernel PCs, vector 2 132 → 432, vector 160
       79 → 1105, `PTEST`s 1 → 301, and the loop at `7A40C1EC` faults eight times
       and is serviced each time.
-      **Next on this item**: the machine now reaches a *different* failure
-      47 M instructions later — `SR:0000 PC:0080000C FA:0080000C SW:0146`, a
-      **user-mode instruction fetch** (`TM` 6, `RW` set) with `ATC` clear, so
-      translation succeeded and the physical cycle went unanswered. A user
-      process starting at an address nothing on this board answers.
+      **And the prefetch path, one commit later.** That next failure was an
+      *instruction fetch* — `SR:0000 PC:0080000C FA:0080000C SW:0146`, with the
+      run's own list reading `PC 0080000C 0080000C invalid on read`, so the MMU
+      had refused it and the frame still said bus error. The pipe stage now
+      carries `abnormal_translation` beside `abnormal`, because a prefetch
+      faults where the word is *used*. **The reference hash re-baselines to
+      `F78D6DBE770CAF47`** — two bools join `ap_m68030_hash_pipe`; the ten probe
+      goldens are byte-identical in every column but the hash and the identity
+      boot's clocks are unchanged at `1408661906`, so nothing else moved.
+      **`FAULT IN DOMAIN/OS:` is now gone**: vector 2 432 → 493, MMU faults
+      301 → 362 all serviced, `TRAP #3` and `TRAP #7` taken, and the final PC is
+      `009175A8` → `013DD5A8` — **a user process running and making system
+      calls**, the first time anything here has got past the kernel.
+      **Next on this item**: it stops at `ILLEGAL on 77FC`, a `7`-line word with
+      bit 8 set where `MOVEQ` requires it clear. Whether that is provably
+      illegal rather than merely unknown to this decoder is a `[PRM]` `MOVEQ`
+      page question; Domain/OS does install a vector-4 handler at `7A42DB20`.
       Detail in `PROJECT_STATUS.md`.
       **Five candidates are eliminated by measurement rather than argument**:
       the stack-pointer selection, the mapping, the register state, the fault
