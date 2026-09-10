@@ -4,7 +4,9 @@
 6 read in full — both 1981 architecture papers walked whole, and each is
 legible exactly where the other is not — `Apollo_DOMAIN_Architecture` Feb 81 walked whole, 31/31 —
 8 in progress — the newest `000959-10`, whose Table 3-1 gave the tape
-controller's `218` a **provenance** — **21 settled by full-text measurement** — including four sampled term by
+controller's `218` a **provenance** — **47 settled by full-text measurement** — every remaining document's
+hardware-term matches extracted **with their context and read**, which changed
+one verdict and settled twenty-six that contain no hard hardware term at all — — including four sampled term by
 term, three of which were the expected false friends and one of which,
 `000792-A01`, turned out to hold **Apollo's own account of the 68040's
 floating-point trap** — — the newest `AEGIS_Overview`,
@@ -15,7 +17,9 @@ worth walking (`CONTENT_TRIAGE.md`), 6 in progress plus the **six-document relea
 guide the model table has cited since Phase 5 and nobody had opened — 2 hardware handbook revisions and
 `000959-A00`, which **corrected a rule this project had written down twice** —
 and **10 patents triaged** (`PATENTS_WALK.md`): 1 already a primary source, 1
-kept as a future source, 8 out of scope on their subject. **41 untouched.**
+kept as a future source, 8 out of scope on their subject. **15 untouched**, all of them documents whose matches were read and found
+derivative or false, and which are listed with that evidence in
+`CONTENT_TRIAGE.md` rather than left as a bare count.
 
 - `018901-A00`, the **SR10.4 release notes** — `018901-A00_WALK.md`. The release
   this project boots and the one that introduced the DS5500. Its §1.4.1
