@@ -3039,6 +3039,62 @@ a global page, and a flush with the `E`-bit clear because "`PFLUSH` can be
 executed successfully despite the state of the E-bit"; `ctest` 147/147 both
 presets; identity `F78D6DBE770CAF47` unmoved.
 
+### And with a longer bound the DS5500 restores Domain/OS to its disk
+
+3,200,000,000 steps, same script, `--disk-writeback`:
+
+```
+Retensioning cartridge tape... Please wait.
+
+TFP:  Skipping over SYSBOOT found at beginning of volume.
+
+Label:
+   Volume ID:     SR10.4
+   Owner ID:      apollo
+   File number:   1
+   File section:  1
+   File ID:       SR10.4 Boot Volum
+
+Starting restore:
+
+(file) "bscom/cdboot_shell" restored.
+...
+(file) "com/sh" restored.
+(file) "com/login" restored.
+...
+(file) "etc/init" restored.
+...
+(file) "install/tools/cfgsa" restored.
+```
+
+**Sixty-odd files onto the volume, including `com/sh`, `com/login` and
+`etc/init`** — the three a booted system needs. The DS5500 is doing what the
+DN3500 did, off the same cartridge, through a 68040 MMU.
+
+*It ends idle, not broken, and the numbers say which.* `stopped STOPPED on 0000`
+is the processor having executed `STOP`; `final PC 7A443AC0`;
+`idle 1,514,723,801 CPU period(s)`. **It is progressing rather than hung**, and
+the discriminator is free — the two runs' tape counters:
+
+| | 2.0 G steps | 3.2 G steps |
+| --- | --- | --- |
+| tape block | `0 of 104841` | `4914 of 104841` |
+| instructions | 1,659,887,636 | 1,685,276,199 |
+| idle periods | 340,112,364 | 1,514,723,801 |
+| tape card | `status F7, control 40, done, exs 0088` | `status AF, control 30, ready, to host, exs 0000` |
+
+**So the tape is being read and the bound is what stops it.** 4,914 blocks for
+1.2 G extra steps is ~244,000 steps a block, and 104,841 blocks at that rate is
+of the order of **25 G steps** — an hour of wall clock, past what a single run
+here can spend, and the restore is not re-entrant the way `INVOL` is
+(`tools/dn5500/README.md`, `FINDINGS.md` C277), so it cannot be chained.
+
+*And that rate is a question, not a characteristic.* Twenty-five thousand
+instructions and a quarter of a million steps per 1,056-byte tape block is a
+number to explain rather than accept — the machine is idle for nine tenths of
+it. Whether the DN3500's restore costs the same per block is the cheap
+comparison that says whether this is the tape model or the DS5500.
+
 *This is the fourth time the answer has been on a shelf nobody looked at*, and
 the first three are already memories. The difference is that this shelf had been
 *audited* as complete: twenty-two walk records, every one finished, every one a
