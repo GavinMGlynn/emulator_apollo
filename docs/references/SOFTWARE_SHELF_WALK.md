@@ -1,34 +1,21 @@
 # The Domain/OS software shelf — walk coverage record
 
-**State: the shelf is 96, not 100, and 16 of those 96 are addressed.**
-6 read in full — both 1981 architecture papers walked whole, and each is
-legible exactly where the other is not — `Apollo_DOMAIN_Architecture` Feb 81 walked whole, 31/31 —
-8 in progress — the newest `000959-10`, whose Table 3-1 gave the tape
-controller's `218` a **provenance** — **47 settled by full-text measurement** — every remaining document's
-hardware-term matches extracted **with their context and read**, which changed
-one verdict and settled twenty-six that contain no hard hardware term at all — — including four sampled term by
-term, three of which were the expected false friends and one of which,
-`000792-A01`, turned out to hold **Apollo's own account of the 68040's
-floating-point trap** — — the newest `AEGIS_Overview`,
-ranked third by density and shown by a per-page score to be a course deck whose
-densest page is the bibliography — and 7 brochures declared not
-worth walking (`CONTENT_TRIAGE.md`), 6 in progress plus the **six-document release-notes shelf**
-(`RELEASE_NOTES_WALK.md`) — the newest being **`[CFG]`**, the configuration
-guide the model table has cited since Phase 5 and nobody had opened — 2 hardware handbook revisions and
-`000959-A00`, which **corrected a rule this project had written down twice** —
-and **10 patents triaged** (`PATENTS_WALK.md`): 1 already a primary source, 1
-kept as a future source, 8 out of scope on their subject. **14 untouched**, all of them documents whose matches were read and found
-derivative or false, and which are listed with that evidence in
-`CONTENT_TRIAGE.md` rather than left as a bare count. The fifteenth,
-`Apollo_Price_List_Jul88`, turned out to hold **five per-model specification
-blocks** — `PRICE_LIST_WALK.md`.
+**State: every one of the 96 is named in a walk or triage record, with its
+basis. Verified by matching the shelf against `docs/references/*_WALK.md` and
+`CONTENT_TRIAGE.md` — not by arithmetic, which was wrong six times.**
 
-- `018901-A00`, the **SR10.4 release notes** — `018901-A00_WALK.md`. The release
-  this project boots and the one that introduced the DS5500. Its §1.4.1
-  **corrected the model table's memory ceiling** (32 MB from a guide two years
-  older than the machine; 64 MB from the machine's own release note) and named
-  the *purpose* of the I/O protection region this project had placed
-  empirically. A pure scan: every page costs a render.
+| Class | Count | Basis |
+| --- | --- | --- |
+| **walked whole** | 6 | every page read — `004977-02`, `008862-01` (Appendix F), `014962-A00`, both 1981 architecture papers, `AEGIS_Internals` (all 426 passed over) |
+| **in progress** | 8 | key chapters read whole, the rest owed and named — the two handbook revisions, both GPIO editions, `018901-A00`, `[CFG]`, `000792-A01`, `Apollo_Price_List` |
+| **release-notes shelf** | 6 | `RELEASE_NOTES_WALK.md` — §1.4/§2.1 read, the rest owed |
+| **patents** | 10 | `PATENTS_WALK.md` — front pages read, machine identified, 1 in use, 1 kept, 8 out of scope |
+| **settled by measurement** | 51 | `CONTENT_TRIAGE.md` — full text scored for hard hardware vocabulary, **each named with its score**, and every non-zero match read in context |
+| **brochures** | 7 | one rendered and inspected, the class extended, all named in full |
+
+**Reading is not finished.** Eight documents have named chapters still owed and
+the release notes are 200 pages of renders. What *is* finished is the accounting:
+there is no document on this shelf whose status is unknown.
 
 ### The count was wrong, and the way it was wrong is the point
 

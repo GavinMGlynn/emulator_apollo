@@ -217,7 +217,19 @@ and looked at**: page one is a photograph of three workstations on plinths under
 the headline "Apollo's Series 3500 Personal Workstation". A product photograph.
 
 *The class is confirmed by inspection rather than assumption*, and the same
-judgement is extended to the other six. Any specification they carry would be
+judgement is extended to the other six. **Named in full so this record can be
+audited by filename rather than by prose:**
+
+| Document | Pages | Text |
+| --- | --- | --- |
+| `brochures/Apollo_Series_3500_Brochure_Jul88.pdf` | 2 | 2 chars — **rendered and inspected** |
+| `brochures/Apollo_Series_4500_Brochure_Jul88.pdf` | 2 | 2 chars |
+| `brochures/Apollo_Series_10000_Brochure_Jul88.pdf` | — | 6 chars |
+| `brochures/Apollo_Product_Line_Brochure_Jul88.pdf` | — | 6 chars |
+| `brochures/Apollo_DomainOS_Brochure_Jul88.pdf` | — | 6 chars |
+| `brochures/DN590-T_Brochure_May87.pdf` | — | 6 chars |
+| `brochures/DN440_460_Brochure_1983.pdf` | 6 | 6 chars |
+| `Apollo_Documentation_and_Software_Replacement_Media_Catalog_Jun89.pdf` | — | a media catalogue, in the zero-hardware-term table above | Any specification they carry would be
 the selling-document class `PRICE_LIST_WALK.md` already read and found to agree
 with `ap_model.c`.
 
