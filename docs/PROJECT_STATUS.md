@@ -2528,7 +2528,34 @@ leading to the crash.**" The *pre-fix* death run ended with `A0 = 7A42D870` and
 `7A4000D4` should be a frame whose `+00` chains to the caller's and whose `+04`
 names each caller's ECB. **A call-chain traceback, from data this project
 already has and with no new instrument** — which is the next thing to do on this
-item. — `[DP]`'s
+item.
+
+### The traceback was run, and it half-fits
+
+`--dump-logical 75D7FF00:0x200` on the current boot, read at `A6 = 75D7FF94`
+against the 1983 frame format:
+
+| | Read | Rev 1's frame |
+| --- | --- | --- |
+| `[A6+00]` | `75D7FFDC` | caller's `SB` — **fits**, and following it gives `00000000`, so the chain is **one frame deep** |
+| `[A6+04]` | `0080949C` | a pointer to this routine's **ECB** — fits, and it is a plausible user-space address |
+| `[A6+08]` | `0080317E` | "0 (unit list)" — **does not fit**: this is a *code* address, sixteen bytes past the `jsr (a0)` at `00803116` |
+
+**So either the frame gained a field between 1983 and SR10.4, or `A6` in this
+routine is a compiler's frame pointer rather than Apollo's `SB`.** Not settled,
+and the two are distinguishable — a routine that follows the convention does
+`LINK #autosize,SB` at entry, and the trace of the instructions before
+`00803116` would show whether one happened.
+
+**What the traceback does establish**: the chain is **one frame deep**, so the
+routine that called through the empty ECB was itself called from outside this
+stack — and its own ECB is `0080949C`. **Both ends of the failing call are now
+named**: caller's ECB `0080949C`, callee's ECB `0091709C`, the latter in a page
+of zeros.
+
+*And the dump range was chosen wrong.* `A7` at the stop is `75D7FEDC`, **below**
+the `75D7FF00` the dump starts at, so the pushed return address and the argument
+pointers are outside it. A rerun should start at `75D7FE00`. — `[DP]`'s
 "transfer vector" under Apollo's own calling-convention name — and a call into a
 page of zeros hands the callee a **null data base**, which is a sharper failure
 than jumping into nothing.
