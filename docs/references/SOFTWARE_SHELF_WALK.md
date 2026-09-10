@@ -50,8 +50,8 @@ only ever counted hardware.
 1. ~~`004977-02` Binder and Librarian Reference~~ — **done**, and it answered the
    question it was picked for. `004977-02_WALK.md`.
 2. **`AEGIS_Internals_and_Data_Structures`**, 426 pages — **in progress**,
-   `AEGIS_INTERNALS_WALK.md`: chapters 9, 18, 19, 21, 26, 27 and Appendix A read
-   whole, 22 chapters and 2 appendices owed. It has already confirmed six measured
+   `AEGIS_INTERNALS_WALK.md`: **all 426 pages passed over** — 7 chapters and Appendix A read in
+   full, the rest in a condensed page-by-page pass. It has already confirmed six measured
    findings and explained two of them, contradicted `[MAC]` twice without
    changing anything, declined to answer `RING.md` question E, and turned out to
    have **a second 56-page document bound in at pp. 371-426** that its filename

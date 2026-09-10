@@ -2,7 +2,7 @@
 
 | Tag | File | Pages | Text layer | State |
 | --- | --- | --- | --- | --- |
-| `[AEGIS]` | `bitsavers/AEGIS_Internals_and_Data_Structures_Jan86.pdf` | 426 | born-digital, heavy OCR damage | **IN PROGRESS — 7 chapters and 1 appendix read, 22 chapters and 2 appendices owed** |
+| `[AEGIS]` | `bitsavers/AEGIS_Internals_and_Data_Structures_Jan86.pdf` | 426 | born-digital, heavy OCR damage | **ALL 426 PAGES PASSED OVER — 7 chapters and Appendix A read in full; the other 22 chapters and Appendix B read in a condensed pass** |
 
 Revision 00, Software Release **9.0**, January 1986. **Cited by title in
 `RING.md` and twice in `PROJECT_STATUS.md` and never walked** — which is how it
@@ -294,27 +294,151 @@ read "The SYSBOOT read from **records 2 thru B** did not ...", which is §27.1's
 "physical disk blocks 2-B" and this project's measured "boot records 2..11" —
 three sources, one number.
 
+## What the condensed pass over the other chapters gave
+
+Read page by page but not sentence by sentence. Everything here is a quotation
+or a figure this project can check; anything that would need the page image is
+said to.
+
+**Chapter 4, the disk, reconciles this project's volume units.** §4.1: "The
+AEGIS system defines a disk block as **1024 bytes of data plus a 32-byte disk
+block header**. (Floppy disk blocks do not have disk block headers.)" That is
+**1,056 bytes**, which is what this project measured, and it settles the
+relationship §9.1 leaves open: the disk block stayed 1,056 bytes while the
+*memory* page grew from 1,024 bytes to the DS5500's 4,096, so a page went from
+one block to **four**. "A record is a page; a DS5500 page is four 1056-byte
+sectors" is that arithmetic.
+
+The block header carries the owning object's UID, the block's page number within
+the object, the last-written time, the block type (data `0`, or a level 1, 2 or
+3 file map), the object type (file `0`, directory `1`, system directory `2`), a
+software checksum "used only if read-after-write checksumming is turned on", and
+the block's own physical disk address. It exists so that "**SALVOL can
+reconstruct the disk even if the volume table of contents has been destroyed**".
+
+**And one measured number does not line up.** §4.2.1: "INVOL always creates the
+PV label on the **first block (physical DADDR 0)**", it "is a single disk
+block", it has "a canned UID of **200.0**", and §4.3: "The first block of the
+logical volume (**physical block 1** for the first logical volume, logical block
+0) contains the logical volume label." This project measured the DS5500's PV
+label at sectors 0-3 and its LV label at 4-7 — four units each where this
+document gives one block each. Either the labels grew to a page on the DS5500,
+or the two are counting different units. **A question, not a finding**, and
+settleable offline from a disk image already on disk.
+
+Also §4.2: a physical volume is the PV label, one or more logical volumes, a
+**badspot cylinder** ("usually one of the last two cylinders") and a
+**diagnostics cylinder** ("typically the last or next-to-last"); INVOL writes an
+**alternate logical volume label**, "a copy of the logical volume label", and
+records its address in the PV label.
+
+**Chapter 10-13, virtual memory.** Three address spaces: object (network-wide,
+**96-bit** UIDs), virtual (**32-bit**), physical. ASIDs 2-25 for level 2
+processes, 1 always the display manager, 0 supervisor global. §10.7.1 gives the
+reverse-mapped hardware — a **page translation table of 1,023 physical page
+numbers**, mapping "1 megabyte of virtual memory at a time", plus a page frame
+table — which is what Appendix A's LED code `D - PTT enabled` refers to. §10.7.2
+gives the forward-mapped one: 32 regions of 256 segments of 32 pages, a segment
+map per region, 32 hardware region registers. §12.1.2 confirms the guard
+segments from the other end: `mst_$set_guard` "sets the guard bit in the MSTE
+... **The process manager (PM) calls this routine when it sets up the stack
+object**". §13 gives the fault path — FIM → `mst_$touch` → `ast_$touch` →
+`pmap_$touch` — and one sentence that matters here: on forward-mapped MMUs there
+is no install step, because "**the MMU hardware will read in**" the tables
+itself. §13.6: a reverse-mapped MMU "can only recognize **one**
+virtual-to-physical page association at a time", a restriction the DS5500's
+hardware does not have.
+
+**Chapter 15 makes a checkable claim about interrupts**: "The M680x0 processor
+supports seven interrupt levels (IL). **Every interrupt service routine (ISR)
+runs at IL 6.** ... The AEGIS system does not support interrupt priority levels
+for interrupt routines." A DS5500 boot takes vectors 160, 161, 165 and 174, so
+this is observable — the status register's mask inside each handler — and has
+not been checked. *Not verified.*
+
+**Chapter 20-24, the network.** §20.2.1: "The ring hardware sets up **two DMA
+channels** to receive a single packet; one channel receives the packet header,
+while the other receives the packet data." §22.1.1: "the ring hardware **ANDs
+the type bits with its hardware type mask register**" — which is the DN3xx/DN5xx
+`9800`-page `TMASK` at `+04` that `RING.md` findings 55 and 92 already carry, and
+**not** the AT-board generation this core models, whose mask findings 132b-133a
+established is software state signalled with an eventcount. So `[AEGIS]` is a
+third witness for the older controller and leaves finding 133b open exactly as
+it stands. §22.1.1.2's **early acknowledge byte** and the message separator are
+already modelled from `[MAC]` Figure 2-7. Sockets are numbered 1-30; the network
+buffer pool is "**192** at present" virtual pages; a network number is 32 bits
+and there can be at most **64** networks in an internet.
+
+**Chapters 14-17, processes.** Eight of the 32 level 1 processes are reserved to
+the kernel at initialization and 24 remain; new level 2 processes get priority
+bounds 3 to 14; a process is bound, waiting, suspended, suspend-pending, or at
+time-slice end with a resource lock held. The mutex manager guarantees
+first-in/first-out grant.
+
+**Chapters 28-29, initialization.** `COLD_START` then `os_$init`, then the
+bootshell, then ENV, then DM/SH/SPM. `pm_$init_first` "initializes the user
+global space read/write storage (RWS) by creating a backing file for the storage
+(`'node_data/global_data`)" and "attempts to load the correct library, based upon
+the **machine type ID and the PEB kind ID**", falling back to `syslib`. The
+bootshell's command list (Table 29-1) includes `DMTVOL`, `IN` (invoke the loader
+to install a named file), `LD`, `LO` and "copies of the MD debugging commands,
+including the assembler/disassembler".
+
+**Appendix B is seven pages of figures and is owed a page-image read.** Physical
+and virtual memory layouts per node — `400-3FFF`, `4000-7FFF`, `8000-1FFFFF`,
+`200000-AFFFFF`, `700000-7FFFFF` are legible in the text layer and the rest is
+not. No address from it is used here.
+
+## The second document, and it is a hardware manual
+
+pp. 371-426 are **not part of AEGIS Internals**. They are a chapter of a
+hardware manual — "This chapter describes the hardware architectures of the
+memory organization and memory management schemes, **as they are implemented in
+DN330, DN560, and DSP90 nodes**" — bound into the same PDF, with its own chapter
+numbering starting at 2.
+
+It carries seven tables of virtual and physical memory maps for those three
+nodes, a **Memory Control/Status Register** with a frozen parity-error address,
+byte parity error flags at bits 11-8, a bit that "forces any memory write to
+generate a bad parity bit in memory" and one that "enables an MC68020 level-7
+interrupt" on a parity error, and the MMU's mapped-mode behaviour: it
+"translates the **26-bit** virtual address into a **22-bit** physical byte
+address".
+
+**None of it is this core's hardware** — those are 68020-era reverse-mapped
+nodes, where the DN3500 and DS5500 are forward-mapped — so nothing here is owed
+to the model. It is recorded because a 56-page hardware manual invisible inside
+a document named for something else is exactly what a coverage record exists to
+surface, and because if a reverse-mapped node is ever modelled this is where its
+registers are.
+
 ## What is owed
+
+**Full sentence-by-sentence reads**, which is the standard the other walk
+records hold themselves to, are owed for everything not marked **done**. The
+condensed pass above is a genuine page-by-page read and is enough to say what
+each chapter contains and to quote it; it is not enough to promise that no table
+row was missed.
 
 | Chapters | Pages | State |
 | --- | --- | --- |
-| 1-8 design, overview, object storage, locks, naming | 20-110 | owed |
+| 1-8 design, overview, object storage, locks, naming | 20-110 | condensed |
 | **9 virtual address space layout** | 111-118 | **done** |
-| 10-13 virtual memory, its data structures, mapping/activation/purification, page fault resolution | 119-198 | owed — only §10.6.2's pure/impure page rules read |
-| 14-17 process management, level 2 processes, eventcounts | 199-216 | owed |
+| 10-13 virtual memory, its data structures, mapping/activation/purification, page fault resolution | 119-198 | condensed |
+| 14-17 process management, level 2 processes, eventcounts | 199-216 | condensed |
 | **18 fault handling in the kernel** | 217-230 | **done** |
 | **19 SVC dispatching** | 231-234 | **done** |
-| 20 network overview | 235-242 | owed |
+| 20 network overview | 235-242 | condensed |
 | **21 ring hardware** | 243-246 | **done** |
-| 22-24 IPC data structures, network support, internet | 247-276 | owed |
-| 25 introduction to system initialization | 277-278 | owed |
+| 22-24 IPC data structures, network support, internet | 247-276 | condensed |
+| 25 introduction to system initialization | 277-278 | condensed |
 | **26 the bootstrap PROM** | 279-286 | **done** |
 | **27 SYSBOOT, NETBOOT, CTBOOT** | 287-294 | **done** |
-| 28-29 AEGIS initialization, user mode initialization | 295-308 | owed — only the 20-step init sequence's steps 17-20 read |
+| 28-29 AEGIS initialization, user mode initialization | 295-308 | condensed |
 | **A boot LED codes** | 309-311 | **done** |
-| B address space figures | 313-320 | owed |
-| glossary and index | 321-370 | owed |
-| **a second document bound in: *Memory Organization and Management*** | 371-426 | **owed, and not previously known to exist** — introduction, virtual space figures for DN330/DN560, "Memory Management Tables and Registers" for the **reverse-mapped MMU**, MMU operations in mapped mode, and an FPU section |
+| B address space figures | 313-320 | condensed — **owed a 600-dpi read**, the figures do not survive the text layer |
+| glossary and index | 321-370 | condensed |
+| **a second document bound in: *Memory Organization and Management*** | 371-426 | **condensed, and not previously known to exist** — see the section above |
 
 **The bound-in document at pp. 371-426 is the find to flag.** Fifty-six pages of
 memory-management hardware architecture — registers, tables, mapped-mode

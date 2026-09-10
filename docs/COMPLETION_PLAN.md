@@ -4451,8 +4451,8 @@ discipline throughout.
       ways, the 3,072 sections-plus-marked-globals limit (2,048 before SR9.0),
       and two internal cross-reference errors.
       **`AEGIS_Internals_and_Data_Structures` is in progress**
-      (`AEGIS_INTERNALS_WALK.md`): chapters 9, 18, 19, 21, 26, 27 and Appendix A
-      read whole, 22 chapters and 2 appendices owed. It **confirms six findings this
+      (`AEGIS_INTERNALS_WALK.md`): **all 426 pages passed over** — 7 chapters and
+      Appendix A read in full, the rest condensed. It **confirms six findings this
       project measured off a running DS5500 and explains two of them** — the
       vector table is the PROM's trap page copied and relocated (§26.1.1), the
       service table is machine ID at `100`, auxiliary info at `102`, entry points
@@ -4472,8 +4472,16 @@ discipline throughout.
       asserts. §19 explains why fifteen `TRAP` vectors are taken and not one:
       each trap number is a separate handler with its own dispatch table,
       indexed by the SVC number in `D0`.
-      A **second 56-page document is bound in at pp. 371-426** that the filename
-      does not mention. Then `014962-A00` *Design Principles* (157).
+      §4 settles the volume units: a disk block is **1024 + 32 = 1056 bytes**, so
+      the DS5500's 4 KB page is four of them — and it raises one question, since
+      the PV and LV labels are "a single disk block" each there against four
+      sectors each measured here. §15 claims **every ISR runs at IL 6**, which is
+      observable and unchecked. §22's hardware type mask is the DN3xx/DN5xx
+      `TMASK`, a third witness for `RING.md` findings 55 and 92 and no help to
+      133b. A **second 56-page hardware manual is bound in at pp. 371-426** that
+      the filename does not mention — DN330/DN560/DSP90 memory maps and a memory
+      control/status register, none of it this core's hardware.
+      Then `014962-A00` *Design Principles* (157).
       Brochures, price lists and catalogues are listed and declared not worth
       walking, which is a judgement on the record rather than an omission.
 
