@@ -25,6 +25,24 @@
  * the walk recorded is real but is with the *alternate* SPE setting at `218`,
  * which is not where the tape is.
  *
+ * ## And now the `218` has a provenance, which makes it a revision rather than an error
+ *
+ * The two editions of *Writing Device Drivers with GPIO Calls* print the same
+ * Table 3-1 a year apart and **the tape moved between them**:
+ *
+ *     000959-10, Jun 1987   218-21F   Tape Controller
+ *     000959-A00, Jul 1988  200-207   Tape Controller
+ *
+ * `008778-03` is **August 1987** -- contemporary with the first -- so it is not
+ * contradicting itself out of carelessness: its prose carries the address of
+ * its own moment and its physical column carries the one the board decodes.
+ * The SR10 manual prints `200-207` outright.
+ *
+ * **So the arithmetic deduction and a later Apollo manual reach the same
+ * answer independently**, and `002398-04` makes three. The interesting part is
+ * that the wrong value was once right: a reader working from a 1987 document
+ * would place this drive at `218` and be following the manual correctly.
+ *
  * The same table confirms every other device address this core places -- `win`
  * at `4D000`/ISA `1A0`, ethernet at `58000`/`300`, mono at `5D800`/`3B0`,
  * floppy at `5F800`/`3F0` -- and the core-board block: `8000 mmu/cpu`,
