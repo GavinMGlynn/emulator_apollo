@@ -4427,8 +4427,8 @@ discipline throughout.
       past each end excluded, the refusal still a refusal, the access counted
       under its own name, and no other model given the range.*
 
-- [ ] **The Domain/OS software shelf has never been read: 100 documents,
-      20,770 pages, 0 walked.** `docs/references/SOFTWARE_SHELF_WALK.md` is the
+- [ ] **The Domain/OS software shelf has never been read: 96 documents,
+      80 of them still untouched.** `docs/references/SOFTWARE_SHELF_WALK.md` is the
       register. Twenty-two `*_WALK.md` records exist and every one says "walked
       whole, nothing owed" — and **every one of them is a hardware document**.
       No walk record covers a Domain/OS software manual, so an audit that

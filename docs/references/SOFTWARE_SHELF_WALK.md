@@ -1,9 +1,24 @@
 # The Domain/OS software shelf — walk coverage record
 
-**State: 16 of 100 addressed, 20,770 pages.** 4 read in full, 2 hardware
-handbook revisions in progress, **10 patents triaged** (`PATENTS_WALK.md`) —
-1 already a primary source, 1 kept as a future source, 8 out of scope on their
-subject and recorded as such. `004977-02` walked whole 118/118;
+**State: the shelf is 96, not 100, and 16 of those 96 are addressed.**
+4 read in full, 2 hardware handbook revisions in progress, **10 patents
+triaged** (`PATENTS_WALK.md`) — 1 already a primary source, 1 kept as a future
+source, 8 out of scope on their subject. **80 untouched.**
+
+### The count was wrong, and the way it was wrong is the point
+
+**Four of the hundred are already walked whole**: `002398-04` (330/330),
+`008778-03` (209/209), `010005-00` (29/29) and `019411-A00` (10/10). Each has
+its own `*_WALK.md`. They landed on this list because the audit asked "is this
+file's *path* named anywhere under `docs/`?" — and a thoroughly walked document
+is cited by its **tag** (`[EH]`, `[040]`, `[MAC]`) in every place it is used,
+which is precisely why its path appears nowhere.
+
+**So the test was biased against finding the best-walked documents**, and it is
+the third wrong number this audit produced: matching filenames missed titles,
+matching titles missed tags, and matching paths missed walk records. The figure
+that survives is the one cross-checked against `docs/references/*_WALK.md`
+directly, which is what the state line above now is. `004977-02` walked whole 118/118;
 `AEGIS_Internals`, `014962-A00` and `008862-01` passed over in full with their
 key chapters read whole; `002398-01` in progress. 95 documents untouched.
 
