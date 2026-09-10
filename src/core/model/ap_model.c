@@ -86,10 +86,30 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .cpu_hz = 25000000u,
         .mmu = AP_MMU_M68030,
         .fpu = AP_FPU_M68882,
+        /* **`1024 x 800`, and the citation is here because its absence nearly
+         * cost a wrong change.** `[S3K]` §11's three monitors are "15-inch
+         * colour 1024 x 800 at 60 Hz, 19-inch colour 1024 x 800 at 60 Hz" and
+         * §10.1's 4-plane controller is "1024 x 800 x 4" -- so **1024 x 800 is
+         * this board family's resolution and 15 or 19 inches is a size**.
+         *
+         * `[CFG]`'s Series 3500 description block reads "Monitor: 19-inch, 1280
+         * by 1024, 64-Hz Monochrome Monitor", which looks like a contradiction
+         * and is not: the same guide's Series 3500 options list carries
+         * `Opt. FM2` "19" monochrome graphics display ... (**Requires option
+         * DM0**)", and DM0 is the *1280 by 1024 graphics controller*. The
+         * description block describes a configured system, and the thing that
+         * changes the resolution is a different controller -- which is exactly
+         * what the `DN3550` row below is, and why it cites both options.
+         *
+         * A hardware manual beats a configuration guide for a hardware fact,
+         * and an uncited field in the reference row is what invites a
+         * plausible wrong correction. */
         .display = AP_DISPLAY_MONO_1024X800,
         .oracle = AP_ORACLE_MAME,
         .ram_base = 0x1000000u,
-        .ram_max_bytes = 0x2000000u, /* 8-32 MB supported [CFG] */
+        /* "RAM: 4-MB or 8-MB parity, expandable to 32-MB" -- `[CFG]`'s Series
+         * 3500 description block; the two base sizes are Opt. H01 and H02. */
+        .ram_max_bytes = 0x2000000u,
         .has_ring = true,
         .has_address_translation_map = true,
         .has_active_low_parity_lanes = true,
