@@ -1,8 +1,15 @@
 # The Domain/OS software shelf — walk coverage record
 
-**State: 4 of 100 read, 20,770 pages.** `004977-02` walked whole 118/118;
+**State: 5 of 100 read (4 in full, 1 in progress), 20,770 pages.** `004977-02` walked whole 118/118;
 `AEGIS_Internals`, `014962-A00` and `008862-01` passed over in full with their
-key chapters read whole. 96 documents untouched.
+key chapters read whole; `002398-01` in progress. 95 documents untouched.
+
+**And the audit's own blind spot, found by walking it.** `002398-01` and
+`002398-03` are *hardware* documents — earlier revisions of a handbook this
+project walked whole at Rev 4 — sitting on this shelf because the audit sorted
+by "not named by path in `docs/`", not by subject. `RING.md`'s findings 79-79c
+came out of Rev 1 years ago and it was never walked. **An earlier revision of a
+walked document is the easiest thing in a library to believe is covered.**
 
 - `008862-01` *Assembler Reference* — `008862-01_WALK.md`. Read because
   `[AEGIS]`'s preface pointed at it. **Appendix F is the object module format**,
