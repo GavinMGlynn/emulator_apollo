@@ -2504,7 +2504,10 @@ JSR    (A0)          jump and push PC
 
 and the callee's entry begins `MOVE.L 6(A0),DB` — "load my data base from ECB".
 **That is `movea.l d(a5),a0; jsr (a0)` exactly**, with `A5` as the data base
-register. So `0091709C` is an **Entry Control Block** address
+register. So `0091709C` is an **Entry Control Block** address — `[DP]`'s
+"transfer vector" under Apollo's own calling-convention name — and a call into a
+page of zeros hands the callee a **null data base**, which is a sharper failure
+than jumping into nothing.
 
 **And this project's own register dump confirms it without a new run.** The
 current DS5500 boot ends with
@@ -2555,10 +2558,7 @@ of zeros.
 
 *And the dump range was chosen wrong.* `A7` at the stop is `75D7FEDC`, **below**
 the `75D7FF00` the dump starts at, so the pushed return address and the argument
-pointers are outside it. A rerun should start at `75D7FE00`. — `[DP]`'s
-"transfer vector" under Apollo's own calling-convention name — and a call into a
-page of zeros hands the callee a **null data base**, which is a sharper failure
-than jumping into nothing.
+pointers are outside it. A rerun should start at `75D7FE00`.
 
 *And one candidate is withdrawn.* `00120020` is "supervisor fault while resource
 lock(s) set", which is `fault_$while_lock_set`, the routine `[AEGIS]` §18.2.4
