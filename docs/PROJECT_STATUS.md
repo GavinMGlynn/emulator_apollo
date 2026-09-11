@@ -3352,12 +3352,35 @@ the firmware printed `002398-04` p. 4-17's `FF`, "timeout waiting for controller
 done" (`FINDINGS.md` C266) — so the fix is not to undo it but to find what else
 the card says.
 
-**Next, in the resolution order.** `[SC499]` §1.11's DMA sequence and Figure
-1-24's DONE routine are on the shelf and have been walked; re-reading them
-against this specific case is first. The oracle is fourth, and this is the kind
-of disagreement that earns it: same cartridge, same operating system, one side
-restores 401 entries and the other 396, and MAME's `sc499` is instrumented in
-`ext/mame` already.
+**The documents were read first, and they do not settle it.** `[SC499]` §1.11
+and `08845` §11.5 are the same five-step DMA sequence in two documents, and
+neither says what the card presents when a read ends at a file mark with the
+host's count unspent. Both were read as **page images**, which was worth doing
+for a different reason:
+
+- **`08845` §11.5 carries a margin note recording the sequence Apollo actually
+  used** — beside the printed steps, hand-numbered `1`, `3`, `(2 + 4)`, and in
+  the margin "Seq we use:" with "Repeat" under it. So **DMAGO is written before
+  the 8237 is programmed**, and the register set-up and the mask clear happen
+  together. That is an *independent* statement of `FINDINGS.md` C268, which this
+  core derived from a run: "the SR10.4 boot firmware writes DMAGO and then, six
+  instructions later, the AT translation map entry that says where the block
+  goes". The document and the measurement agree, and `ap_sc499.h` already
+  carries the consequence.
+- **`[SC499]` §1.11 carries "block length can be 1024 — (page)"**, which is a
+  third figure beside QIC-02 Rev D §4.2's **512** and `007196-01` Table MTS-1's
+  **2048**. Nothing acts on it yet — this cartridge is 104,841 × 512 exactly and
+  the report's block counter agrees — but it is recorded because a block length
+  is the kind of number a later reader will want three witnesses for.
+- The second annotation on that page is a question rather than an answer: "How
+  does this work when …".
+
+*So the documents are exhausted for this question and the oracle is next*, which
+is the tier this disagreement earns: same cartridge, same operating system, one
+side restores 401 entries and the other 396, and MAME's `sc499` is already built
+and instrumented in `ext/mame`. What to log there is narrow — what the card
+presents at the mark, in what order, and whether its DMA reaches terminal
+count.
 
 ### RETRACTED: the restore *does* write the DS5500's boot area, and the volume mounts
 

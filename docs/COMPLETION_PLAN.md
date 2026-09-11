@@ -4620,9 +4620,18 @@ discipline throughout.
       second half was itself measured (`FINDINGS.md` C266: without it the
       firmware printed "timeout waiting for controller done"), so the fix is not
       to undo it.
-      **Next**: `[SC499]` §1.11's DMA sequence and Figure 1-24's DONE routine,
-      both walked and on the shelf, re-read against this case; the oracle
-      fourth, and this is the kind of disagreement that earns it.
+      **The documents were read first and do not settle it.** `[SC499]` §1.11
+      and `08845` §11.5 are the same five-step sequence in two documents and
+      neither says what the card presents at a mark with the count unspent.
+      Read as page images, which paid for itself twice: `08845`'s margin note
+      hand-numbers the steps `1`, `3`, `(2 + 4)` under "Seq we use:", an
+      **independent** statement of `FINDINGS.md` C268's DMAGO-before-the-8237
+      ordering that this core derived from a run; and `[SC499]`'s reads "block
+      length can be 1024 -- (page)", a third figure beside QIC-02's 512 and
+      `007196-01`'s 2048, recorded but not acted on.
+      **So the oracle is next**, which is the tier this disagreement earns, and
+      what to log there is narrow: what the card presents at the mark, in what
+      order, and whether its DMA reaches terminal count.
       *Verification: the restore reaches 401 entries and `Restore complete.` on
       both models, against `sau14.log`.* Detail in `PROJECT_STATUS.md`.
 
