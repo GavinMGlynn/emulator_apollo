@@ -124,7 +124,14 @@ drive mask made the state reachable. What remains:
   *block* boundary (§3.6.6 T10/T11 "1ST DATA BLOCK READY", T24 for the next;
   §3.6.5's "READY FOR 1st BLOCK"/"2nd BLOCK"/"NEXT BLOCK"), which is
   `ap_sc499_block_boundary`; DIRC turns at T9 and back at T39 on a read and
-  never moves on a write, which is `ap_tape`'s bus direction; and T38
+  never moves on a write, which is `ap_tape`'s bus direction **-- GAP,
+  corrected 2026-09-11: only the T9 half is. Nothing clears DIRECTION at T39 on
+  the data-read path.** `ap_tape`'s only clear is §3.6.1's **T21**, the status
+  block's close, and `ap_sc499`'s is Figure 1-9's command completion; on a data
+  read DIRECTION is set per DACK byte and stays set until a command turns it
+  round. MAME does it here -- `dack_r`'s filemark branch is `&= ~STAT_DIR` --
+  and this core does not. *Original text:* "DIRC turns at T9 and back at T39 on
+  a read and never moves on a write, which is `ap_tape`'s bus direction."; and T38
   "CONTROLLER SETS EXCEPTION" at a file mark is the end-of-read condition
   **-- read again from the page image 2026-09-11, and the order is what
   matters.** The last panel's DATA BUS carries `FILEMARK` as a *valid-data*
@@ -136,7 +143,20 @@ drive mask made the state reachable. What remains:
   as a 512-byte transfer is a mistake this project made for an hour on
   2026-09-11 and caught before writing code; MAME's `dack_read` delivers
   exactly one byte of the mark and drops DRQ, and `FINDINGS.md` C266's
-  `count 01FE (base 01FF)` is this core doing the same. This core stops the read while the position is still on the
+  `count 01FE (base 01FF)` is this core doing the same.
+  **CORRECTED 2026-09-11, later the same day, and the original stands beneath
+  it.** Those last two clauses are wrong twice over. MAME's status register is
+  **active low** (`SC499_STAT_EXC 0x20 // active low`), so `dack_r`'s
+  `&= ~SC499_STAT_EXC` at the mark *asserts* T38 rather than clearing it, and
+  its `&= ~SC499_STAT_DIR` is **T39** -- the oracle walks this figure in order
+  and there is nothing here to out-accurate. And C266's `01FE` is **not** this
+  core doing the same: that byte was the invented `0xFF` from `ap_tape_read`'s
+  failure path, which **C267 removed**. `ap_tape_dma_request` now ends
+  `return !ap_qic_read_exhausted(...)`, so the line drops before the mark's bus
+  cycle and this core transfers **nothing** there. *Original text:* "MAME's
+  `dack_read` delivers exactly one byte of the mark and drops DRQ, and C266's
+  `count 01FE (base 01FF)` is this core doing the same."
+  This core stops the read while the position is still on the
   mark and never transfers it, which makes every such read short by
   construction -- the cause behind both `FINDINGS.md` C266 and the restore's
   `0028001E`. The row above was not wrong; "read ends with ... EXCEPTION" is

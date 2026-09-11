@@ -4770,6 +4770,58 @@ discipline throughout.
       lives in five findings, two manuals and two device models, and its plan
       text is a *summary of* that evidence, not the evidence. The summary has
       now been wrong twice in one session.
+      **CORRECTED A THIRD TIME 2026-09-11, and this one inverts the
+      conclusion: MAME's status register is active *low*, and reading it as
+      active high reversed what the oracle does at a mark.** `sc499.cpp`'s own
+      header says so -- `SC499_STAT_RDY 0x40 // active low`,
+      `SC499_STAT_EXC 0x20 // active low` -- so `m_status &= ~SC499_STAT_EXC`
+      **asserts** EXCEPTION and `|=` clears it. Three places in that file settle
+      it independently of the comment: `do_command`'s `default:` arm sets
+      `ST1_ILL` and then `&= ~EXC`, because an illegal command must except; its
+      `READ_STATUS` arm does `|= EXC`, which is `QIC-02` §3.6.1's **T3
+      "CONTROLLER RESETS EXCEPTION"**; and `TIMER_7`, commented *"reset -- set
+      exception"*, has `&= ~EXC` for a body. **And this project's own measured
+      bytes agree**: C273's `3F`, recorded there as "ready, no exception", has
+      bit `0x20` **set**, and C267's `5F`, recorded as exception, has it clear.
+      So the sentence above -- "MAME delivers the block but **clears**
+      `SC499_STAT_EXC`" -- is exactly backwards, and there is nothing to
+      out-accurate: `dack_r`'s `block_is_filemark()` branch drops DRQ,
+      **asserts** EXCEPTION (T38), **clears DIRECTION** (T39) and then returns
+      one byte. That is §3.6.6, in the figure's own order.
+      **And "this core already delivers the byte" is false of this code.**
+      `ap_tape_dma_request` ends `return !ap_qic_read_exhausted(&tape->drive)`,
+      so the line drops *before* the mark's bus cycle and nothing crosses at
+      all. C266's `count 01FE` was the invented `0xFF` from `ap_tape_read`'s
+      failure path -- which **C267 removed**, under the title "a card cannot
+      transfer a byte the drive never sent". MAME's byte is the mark block's own
+      byte 0. They were never the same byte, and this core now has neither.
+      **So the open question is DONE after all, and the item's first reading of
+      it was the right one.** With EXCEPTION equal on both models, the deltas at
+      a mark are three, and only three:
+
+      | at a file mark, host's count unspent | `QIC-02` §3.6.6 | MAME | this core |
+      | --- | --- | --- | --- |
+      | mark byte on the bus, T34-T37 | one byte | `m_ctape_block_buffer[0]` | **none** |
+      | T38 CONTROLLER SETS EXCEPTION | set | set | set |
+      | T39 CHANGE BUS DIRECTION | yes | `&= ~STAT_DIR` | **no** |
+      | DONE | -- (§1.9: "from DMA logic") | never; `eop_w` only | **raised** |
+
+      T39 is a second documented gap the walk record had recorded as modelled:
+      `ap_tape`'s only direction clear is §3.6.1's **T21**, the status block's
+      close, and `ap_sc499`'s is Figure 1-9's command completion. Neither is
+      this figure, and on the data path DIRECTION stays set until a command
+      turns it round.
+      **And the plan already wrote down what the third delta costs**, eighty
+      lines above: *"a card that asserts DONE while the 8237 is 8,704 bytes from
+      terminal count has left the DMA `not at end of range` word for word."*
+      That is the driver's `0028001E`, stated from the card's state rather than
+      inferred from a run.
+      *What C266 does **not** establish*, which is why "the fix is not to undo
+      it" has to be re-measured rather than quoted: its `FF` was measured on a
+      core that also delivered an invented byte, held DRQ up through the mark,
+      lifted EXCEPTION at the next block boundary (C267) and ORed READY into the
+      interrupt (C274). All four are since fixed. It is a measurement of code
+      that no longer exists.
       *Verification: the restore reaches 401 entries and `Restore complete.` on
       both models, against `sau14.log`.* Detail in `PROJECT_STATUS.md`.
 
