@@ -49801,7 +49801,17 @@ the machine has acted on it. A script whose last step is a `send` would therefor
 stop the run in that gap. Every script in `tools/` ends with an `expect`, which
 is also the only way to know the machine did what was asked.
 
-*Verification: three `source_check`s in `tools/check_frontend_flags.py` — the
-flag parsed, the loop's cursor test, the reason it prints. Reaching it needs a
-boot PROM and `roms/` is gitignored, so it is checked in the source the way the
-cartridge-swap wiring is. `ctest` 147/147 on `linux-debug` and `linux-release`.*
+**And it is verified on a machine, not only in the source.** A DN3500 booted
+with a one-line script — `expect MD7C` — and `--boot-limit 40000000000`:
+
+    MD7C  stopped on   the console script's last step, after 6876591 instruction(s)
+      executed     6876592 instruction(s)
+
+Six million instructions against a bound of forty billion, ended by the match
+itself. That is the whole effect, and it is the check the `source_check`s cannot
+make.
+
+*Verification: the run above, plus three `source_check`s in
+`tools/check_frontend_flags.py` — the flag parsed, the loop's cursor test, the
+reason it prints — because CI has no boot PROM and cannot reach the flag at all.
+`ctest` 147/147 on `linux-debug` and `linux-release`.*
