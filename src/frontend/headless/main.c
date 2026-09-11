@@ -160,7 +160,11 @@ static void print_usage(const char *program_name) {
           "                        machines that reach the same code at\n"
           "                        different absolute counts sample the *same*\n"
           "                        instants and their PCs can be compared\n"
-          "  --boot-stop-pc-then N run N more instructions after the stop\n"
+          "  --boot-stop-pc-then N run N more instructions after the stop --\n"
+          "                        which applies to --boot-stop-pc, to an MMU\n"
+          "                        refusal, and to the watched read and write\n"
+          "                        stops: what a driver *does* with a value is\n"
+          "                        the question more often than how it got there\n"
           "                        address is reached, then end. With a trace\n"
           "                        ring this holds the window *after* an event\n"
           "                        rather than the one before it, which is what\n"
@@ -5331,17 +5335,42 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
                machine.watch_read_value, machine.watch_read_pc,
                (unsigned long long)i);
       }
-      if (stop_on_watch_read != 0u && machine.watch_reads >= stop_on_watch_read) {
-        printf("  stopped on   read %u of %08X after %llu instruction(s)\n",
-               machine.watch_reads, machine.watch_read_address, (unsigned long long)i);
-        run.executed++;
-        break;
+      if (stop_on_watch_read != 0u && machine.watch_reads >= stop_on_watch_read &&
+          !stop_pc_armed) {
+        /* **`--boot-stop-pc-then` applies here too**, for the reason the MMU
+         * refusal already takes it: what the *driver* does with a value is the
+         * question far more often than what it did to reach it, and that is
+         * entirely after the read. Stopping dead on the read leaves the answer
+         * in the instructions the trace does not hold.
+         *
+         * Added 2026-09-12, when the question was what Domain/OS's cartridge
+         * ISR does with the status byte it reads at a file mark: the read is at
+         * one instruction and the error it reports 418 later, and no
+         * combination of the existing flags could put those 418 in a trace. */
+        if (stop_pc_then > 0u) {
+          stop_pc_countdown = stop_pc_then;
+          stop_pc_armed = true;
+        } else {
+          printf("  stopped on   read %u of %08X after %llu instruction(s)\n",
+                 machine.watch_reads, machine.watch_read_address,
+                 (unsigned long long)i);
+          run.executed++;
+          break;
+        }
       }
-      if (stop_on_watch != 0u && machine.watch_writes >= stop_on_watch) {
-        printf("  stopped on   write %u to %08X, after %llu instruction(s)\n",
-               machine.watch_writes, machine.watch_write_address, (unsigned long long)i);
-        run.executed++;
-        break;
+      if (stop_on_watch != 0u && machine.watch_writes >= stop_on_watch &&
+          !stop_pc_armed) {
+        /* The write side of the same window. */
+        if (stop_pc_then > 0u) {
+          stop_pc_countdown = stop_pc_then;
+          stop_pc_armed = true;
+        } else {
+          printf("  stopped on   write %u to %08X, after %llu instruction(s)\n",
+                 machine.watch_writes, machine.watch_write_address,
+                 (unsigned long long)i);
+          run.executed++;
+          break;
+        }
       }
       if (stop_on_refusal &&
           ap_omti_refusals(&board->disk.controller) > 0u) {
@@ -5391,7 +5420,11 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
       if (stop_pc_countdown > 0u && --stop_pc_countdown == 0u) {
         printf("  stopped      %u instruction(s) after %s, at %llu\n",
                stop_pc_then,
-               stop_mmu_fault_at != 0u ? "the MMU refusal" : "the stop PC", (unsigned long long)i);
+               stop_on_watch_read != 0u   ? "the watched read"
+               : stop_on_watch != 0u      ? "the watched write"
+               : stop_mmu_fault_at != 0u  ? "the MMU refusal"
+                                          : "the stop PC",
+               (unsigned long long)i);
         run.executed++;
         break;
       }

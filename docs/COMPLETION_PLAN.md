@@ -4991,6 +4991,27 @@ discipline throughout.
       identity boot could not catch it -- "the identity boot fits no cartridge,
       so no ending here can fire". **An identity boot is not a regression test
       for a device it does not fit.**
+      **AND THE PATH FROM THE MARK TO THE ERROR IS NOW NAMED, 2026-09-12.** The
+      host *is* told: watching the tape's status register, it reads `3F` for the
+      whole data phase -- 7.7 G instructions with no transition -- then `8047`
+      at instruction 9,551,486,034, which is a word read with the status byte
+      **`47`**, byte-identical to the oracle's, taken by `CT_$INT+14`, the
+      **interrupt handler**. `28001E` follows 418 instructions later, and the
+      annotated trace of those instructions is:
+      `ATBUS8_$INT` → **`CT_$INT`** → `EC_$ADVANCE`/`PROC1_$ADD_READY` →
+      `PROC1_$DISPATCH` → `MMU_$INSTALL_ASID` → `EC_$WAIT` → **`CT_WAIT`** →
+      **`PBU_$DMA_STOP`** → `PBU_$PAGE_END` → **`ATBUS_$DMA_STOP`** →
+      `CT_WAIT` → `DO_CTL_CMD`.
+      **So it is neither a missed signal nor a timeout**: the tape's own
+      interrupt wakes the driver, the ISR reads the exception, the scheduler
+      dispatches the waiter, and the driver walks *deliberately* into the DMA
+      stop and asks the 8237 for its count. The gate is the count, as C280
+      measured. **The new lead is in the path itself**: `PBU_$PAGE_START` /
+      `PBU_$PAGE_END` bracket the call, so this DMA is **page-oriented**, and
+      `[AEGIS]` §4's page is 1,024 bytes — *two* tape blocks. The 32 KB base
+      count this item has reasoned about throughout may not be the unit the
+      driver checks, and that is measurable from this side alone.
+      Detail in `FINDINGS.md` C283.
       *How to bound it, written down because deriving it is most of the cost.*
       The route is `tools/dn5500/README.md`'s: `tools/dn5500-md.sh` with
       `--boot-script tools/dn5500/restore.script`, a copy of

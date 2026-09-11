@@ -17208,3 +17208,78 @@ here can fire". That sentence is exactly why the identity boot could not catch
 this: **it is not a regression test for a device it does not fit.** The only
 regression test for the tape is a run with a cartridge in it, taken after the
 change.
+
+
+## C283 -- the path from the file mark to `28001E`, named routine by routine
+
+C281 left the divergence located but not explained: this host issues no tape
+command between the READ DATA that opens the data phase and the failure, where
+the oracle's issues `C0` then `80` three events after its mark. The question was
+what tells the oracle's host and does not reach ours.
+
+**It does reach ours.** Watching the tape's *status* register through a restore,
+with a transitions-only filter (the raw form writes 31 million identical lines a
+minute):
+
+    watch read ... at 00050001 value 0000003F by PC 3C4A69E8 after 1814547243
+    watch read ... at 00050001 value 00008047 by PC 3C4A69E8 after 9551486034
+
+**The status is `3F` for the entire data phase -- 7.7 G instructions with no
+transition -- and then `8047`.** It is a *word* read of `00050000`, so the data
+register is `80` and the status byte is **`47`**: byte-identical to what the
+oracle's card shows at its own mark. The PC is `CT_$INT+14`, the cartridge
+tape's **interrupt handler**. So the interrupt fires, the ISR runs, and it sees
+the exception.
+
+`28001E` follows **418 instructions later**.
+
+### The 418 instructions, which needed a new instrument
+
+`--boot-stop-pc-then` applied only to `--boot-stop-pc` and to an MMU refusal,
+not to the watched-read and watched-write stops -- so a run could stop *on* the
+read and trace what led there, and nothing could trace what followed. The flag's
+own rationale is the one that was needed, and the MMU path had already reused it
+in those words: *"what a fault handler does is the question, and that is
+entirely after"*. Extended to both watch stops; usage text and
+`check_frontend_flags.py` with it.
+
+Stopping at that exact read and running 700 instructions on, the 900-step trace
+annotates through `tools/kernel_symbols.py` to:
+
+    NULL_LOOP                3C43F598   idle
+    IO_$USE_INT_STACK                   interrupt entry
+    ATBUS8_$INT              3C40E7A4   the AT bus interrupt dispatcher
+    CT_$INT                  3C4A69D4   the tape ISR -- reads status 8047
+    EC_$ADVANCE / PROC1_$ADD_READY      event counter advanced, waiter readied
+    PROC1_$INT_EXIT / PREEMPT / DISPATCH
+    MMU_$INSTALL_ASID / CACHE_$CLEAR    context switch
+    EC_$WAITN / EC_$WAIT                the waiting process wakes
+    CT_WAIT                  3C4A4CAC   the driver's wait returns
+    PBU_$DMA_STOP            3C4E2F1C   the peripheral-bus DMA stop
+      PBU_$PAGE_END          3C4E2AE2
+      ATBUS_$DMA_STOP        3C40ED7C   reads the 8237 status and count
+      ML_$SPIN_LOCK / ML_$SPIN_UNLOCK
+      PBU_$PAGE_END
+    CT_WAIT
+    DO_CTL_CMD               3C4A4EEC
+
+### What that settles
+
+**The error is not a missed signal and not a timeout.** The driver is woken by
+the tape's own interrupt, its ISR reads the exception, the scheduler dispatches
+the waiting process, `CT_WAIT` returns normally, and the driver then walks
+*deliberately* into `PBU_$DMA_STOP` -> `ATBUS_$DMA_STOP`, asks the 8237 for its
+count, and does not like the answer. Every step of that is the driver working as
+designed.
+
+So the gate is what C280 measured it to be -- the channel's **current count**,
+which must read `FFFF` -- and the remaining question is narrow and specific:
+**why is the count satisfied on the oracle and not here**, when both cards
+abandon the mark's transfer short and neither reaches terminal count.
+
+**A new lead the path itself supplies**: `PBU_$PAGE_START` / `PBU_$PAGE_END`
+bracket the call, so this DMA is **page-oriented** -- and `[AEGIS]` §4 makes an
+AEGIS page 1,024 bytes, which is *two* 512-byte tape blocks. The 32 KB base
+count this item has reasoned about throughout may not be the unit the driver
+actually checks. That is the next thing to measure, and it is measurable from
+this side alone.
