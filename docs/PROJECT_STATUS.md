@@ -49767,3 +49767,41 @@ build.
 *Verification: `m68040_mmu_suite` 14 → 15, `m68040_atc_suite` 16 → 17; `ctest`
 147/147 on `linux-debug` and `linux-release`; identity `F78D6DBE770CAF47`
 unmoved.*
+
+
+## `--boot-stop-on-script-end`, and why a finished run could not be stopped
+## (2026-09-11)
+
+**The headless frontend writes the disk image once, at exit.** There is no
+signal handler, so a run that has done its work cannot be killed without losing
+the artefact the run exists to produce — and until now nothing ended a run
+because its console script had finished.
+
+The cost is measurable and it is paid every time. `tools/dn5500/restore.script`
+ends `expect Shutdown successful`; the DS5500 restore reaches that near
+**40,000,000,000** steps, and a bound with any headroom is **70,000,000,000**.
+The difference is **30 G steps of an idle machine at the `)` prompt** —
+twenty-nine minutes of wall clock, measured at this core's ~17 M steps/s,
+separating a result already printed on the console from the file that carries
+it.
+
+`--boot-stop-*` had eight forms — PC, PC-then, physical PC, vector, watch read,
+watch write, MMU fault, disk refusal — and none of them was "the script ran
+out of steps".
+
+**Where the test goes is the whole of the design.** It is after the transmitter
+drain, not before: a useful script's last step is an `expect`, and the byte that
+satisfies it is delivered by the drain loop, so a check ahead of it is always one
+step stale. The condition is `script.steps > 0u && script.at >= script.steps` —
+the parser's own cursor, with no new state.
+
+**One limit, stated rather than left to be discovered.** The cursor passes the
+last step as soon as its final byte is handed to the receiver, which is *before*
+the machine has acted on it. A script whose last step is a `send` would therefore
+stop the run in that gap. Every script in `tools/` ends with an `expect`, which
+is also the only way to know the machine did what was asked.
+
+*Verification: three `source_check`s in `tools/check_frontend_flags.py` — the
+flag parsed, the loop's cursor test, the reason it prints. Reaching it needs a
+boot PROM and `roms/` is gitignored, so it is checked in the source the way the
+cartridge-swap wiring is. `ctest` 147/147 on `linux-debug` and `linux-release`.*

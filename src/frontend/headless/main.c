@@ -104,6 +104,11 @@ static void print_usage(const char *program_name) {
           "                        end the run the first time the disk\n"
           "                        controller refuses an address, so a trace\n"
           "                        ring holds what computed it\n"
+          "  --boot-stop-on-script-end\n"
+          "                        end the run when the console script has no\n"
+          "                        steps left, so a finished script does not\n"
+          "                        spend the rest of --boot-limit idle before\n"
+          "                        the disk image is written\n"
           "  --service-mode        set the Normal/Service switch to Service, which\n"
           "                        is what reaches the Mnemonic Debugger\n"
           "  --boot-progress N     report the step count and the program\n"
@@ -4026,7 +4031,8 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
                           bool walk_wanted, const uint32_t *log_pc,
                           unsigned log_pc_count,
                           unsigned stop_pc_then, uint32_t progress_from,
-                          unsigned disk_reads_wanted) {
+                          unsigned disk_reads_wanted,
+                          bool stop_on_script_end) {
   /* Before the PROM is even opened: a script that does not parse is the
    * caller's mistake and should be reported as one, not hidden behind whichever
    * file happens to be missing first. */
@@ -5031,6 +5037,34 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
             console_script_saw(&script, out_byte);
           }
         }
+      }
+      /* The script ran out of steps, and the run was asked to end there.
+       *
+       * Checked **after** the drain, because the last step of a useful script
+       * is an `expect` and the byte that satisfies it is delivered by the loop
+       * above -- a check before it would always be one step stale.
+       *
+       * Why it exists: the disk image is written once, at exit, so a run that
+       * has finished its work cannot simply be killed without losing the
+       * artefact it was started to produce. `tools/dn5500/restore.script` ends
+       * `expect Shutdown successful` at about 40 G steps, and a bound with any
+       * headroom then spends the difference stepping an idle machine --
+       * measured at 30 G steps, twenty-nine minutes, for a result that was
+       * already on the console.
+       *
+       * **A script whose last step is a `send` should end with an `expect` for
+       * the machine's answer.** The cursor passes the last step as soon as its
+       * final byte is handed to the receiver, which is before the machine has
+       * acted on it; this flag would stop the run in that gap. Every script in
+       * `tools/` ends with an `expect`, which is also how you can tell the
+       * machine did what was asked. */
+      if (stop_on_script_end && script.steps > 0u &&
+          script.at >= script.steps) {
+        printf("  stopped on   the console script's last step, after %llu "
+               "instruction(s)\n",
+               (unsigned long long)i);
+        run.executed++;
+        break;
       }
       /* Press the key once the firmware is *waiting* for one, then release on
        * the next opportunity -- self-timed, because a fixed step number would
@@ -6962,6 +6996,7 @@ int main(int argc, char **argv) {
   unsigned boot_log_pc_count = 0u;
   unsigned boot_stop_pc_then = 0u;
   unsigned boot_disk_reads = 0u;
+  bool boot_stop_on_script_end = false;
   uint32_t boot_progress_from = 0u;
   uint32_t boot_stop_physical_pc = 0;
   uint32_t boot_stop_physical_length = 1u;
@@ -7233,6 +7268,11 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--boot-stop-on-disk-refusal") == 0) {
       boot_stop_on_refusal = true;
+      i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--boot-stop-on-script-end") == 0) {
+      boot_stop_on_script_end = true;
       i += 1;
       continue;
     }
@@ -7761,7 +7801,8 @@ int main(int argc, char **argv) {
                           dump_walk_wanted, boot_log_pc,
                           boot_log_pc_count,
                           boot_stop_pc_then,
-                          boot_progress_from, boot_disk_reads);
+                          boot_progress_from, boot_disk_reads,
+                          boot_stop_on_script_end);
   }
 
   if (boot_tape != NULL) {

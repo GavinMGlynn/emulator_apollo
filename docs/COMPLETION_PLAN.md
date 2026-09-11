@@ -4596,6 +4596,20 @@ discipline throughout.
       C50, and the CALENDAR preamble in `install-sau14.cmds`). The page map is
       built and every chapter boundary is known; what is owed is the reading.
 
+- [x] **A finished console script can end its run.**
+      `--boot-stop-on-script-end`. The disk image is written once, at exit, so
+      a run that has finished its work cannot be killed without losing the
+      artefact it was started to produce -- and `tools/dn5500/restore.script`
+      reaches `Shutdown successful` near **40 G** steps while a bound with any
+      headroom is **70 G**. That gap is 30 G steps of pure idle, twenty-nine
+      minutes, on every DS5500 verification. Checked after the transmitter
+      drain, because a useful script's last step is an `expect` and the byte
+      that satisfies it arrives there.
+      *Verification: three `source_check`s in `tools/check_frontend_flags.py`
+      -- the flag parsed, the loop's cursor test, and the reason it prints --
+      since reaching it needs a boot PROM and CI has none; `ctest` 147/147 on
+      both presets. Detail in `PROJECT_STATUS.md`.*
+
 - [x] **The 68040's ATC never wrote `M` back, and its re-search duplicated the
       entry.** Figure 3-21's `M` field, p. 3-27: a write to an entry whose `M`
       is clear "suspends the access, initiates a table search to set the M-bit

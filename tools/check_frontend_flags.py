@@ -219,6 +219,21 @@ def main() -> int:
                      "cannot read cartridge image %s" in main_c)
         source_check("a cartridge swap refused by the drive's lock says so",
                      "the drive has the cartridge locked" in main_c)
+
+        # `--boot-stop-on-script-end` ends a run whose script has no steps left.
+        # The disk image is written once, at exit, so a finished run cannot be
+        # killed without losing the artefact: measured 2026-09-11, the DS5500
+        # restore reaches `Shutdown successful` near 40 G steps and then spends
+        # 30 G more -- twenty-nine minutes -- stepping an idle machine. Needs a
+        # boot PROM to reach, so it is checked in the source.
+        source_check("a finished console script can end its run: the flag is "
+                     "parsed", '"--boot-stop-on-script-end"' in main_c)
+        source_check("a finished console script can end its run: the loop tests "
+                     "the cursor against the step count",
+                     "stop_on_script_end && script.steps > 0u" in main_c
+                     and "script.at >= script.steps" in main_c)
+        source_check("a finished console script says why the run ended",
+                     "the console script's last step" in main_c)
         missing = work / "absent.script"
         check("--boot-script says so when the file is not there",
               ["--boot-prom", "/nonexistent", "--boot-script", str(missing)],
