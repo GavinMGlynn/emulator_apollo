@@ -4762,6 +4762,14 @@ discipline throughout.
       `test_the_drive_stops_asking_at_a_file_mark` both encode the
       stop-before-it reading and would be rewritten to the deliver-then-flag
       one.
+      **Before any code: read `FINDINGS.md` C264-C268 whole.** This item was
+      redesigned three times on 2026-09-11 and twice from summaries rather than
+      sources -- a bus segment read as a block, and C266 described as a
+      measurement it is not. Both were caught the same hour and nothing was
+      written on either, but the pattern is the warning: this item's evidence
+      lives in five findings, two manuals and two device models, and its plan
+      text is a *summary of* that evidence, not the evidence. The summary has
+      now been wrong twice in one session.
       *Verification: the restore reaches 401 entries and `Restore complete.` on
       both models, against `sau14.log`.* Detail in `PROJECT_STATUS.md`.
 
