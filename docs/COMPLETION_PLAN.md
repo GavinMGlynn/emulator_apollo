@@ -4677,9 +4677,23 @@ discipline throughout.
       `dma_active`, so removing only the first call lets the second fire on the
       same advance. The two must be decided together.
       **The two measurements are the same case, and that is the finding.**
-      `FINDINGS.md` C266 is the boot firmware stopping at the mark after block
-      15 with `count 01FE (base 01FF)` -- **one byte of 512 spent** -- printing
-      `FF` because DONE never came. The restore stops at the mark after block
+      *(Citation corrected 2026-09-11: `C266` is the finding that `.ct` files
+      carry file marks and this core said in four places that they do not --
+      its `FF` predates marks existing at all, when the firmware issued one READ
+      and then 34,780 DMAGOs because nothing ever stopped the drive. The
+      `count 01FE (base 01FF)` measurement below is `ap_tape.c`'s own, taken
+      after marks were implemented and cited to C266 there. Written from the
+      plan's summary instead of from the finding, which is what
+      `cite-from-the-code-not-from-recall` is about.)*
+      **And C266's "not delivered" was a decision with a stated reason**, not an
+      oversight: "the block *not* delivered -- a host given it would load 512
+      bytes of `DEAFFAED`." The QIC-02 figure qualifies that reason rather than
+      overturning it -- one byte crosses the bus, not 512 -- so the question is
+      what that byte is for, and the answer is not "so the count reaches
+      terminal".
+      The firmware's read stops at the mark after block 15 with
+      `count 01FE (base 01FF)` -- **one byte of 512 spent** -- printing `FF`
+      because DONE never came. The restore stops at the mark after block
       104,837 with `count 21FF (base 7FFF)` -- **24,064 of 32,768 spent** --
       and gets `0028001E` because DONE *did* come. Both are "the read stopped at
       a file mark with the host's count unspent"; one host wants DONE and the
