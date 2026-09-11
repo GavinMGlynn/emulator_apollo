@@ -4970,6 +4970,27 @@ discipline throughout.
       state was never the question, and the next step is **what tells the
       oracle's host about the mark and is not reaching ours** -- a question
       about the interrupt and the driver's wait. Detail in `FINDINGS.md` C281.
+      **And one thing landed on 2026-09-12 was REVERTED the same night.**
+      `QIC-02` §4.2.9/§3.6.8 end a READ FILE MARK with the controller setting
+      EXCEPTION, and this card ends it with a plain READY. Implemented, tested,
+      pushed -- and it **breaks `EX DOMAIN_OS`**: `28001E`, `280022`, `E0007`,
+      a crash, and **no entries restored at all** where the same route reached
+      396. The kernel issues `A0 A0 80`, so the first RFM's exception is still
+      standing when the next command and its DMAGO arrive, and the
+      trailing-DMAGO rule added in the same session declines to complete a
+      transfer under one. **Which of the two is wrong is not established**, so
+      it is `PROVISIONAL` at `ap_tape.c`'s `issue_command` rather than patched.
+      *What would close it*: the order in which a host clears an exception
+      raised by a **completed command** -- `[SC499]` Figure 1-24's DONE routine
+      implies it and no figure here states it.
+      **Two process failures cost more than the change**, both recorded in
+      `FINDINGS.md` C282: a cartridge-boot regression check was reused although
+      it *predated* the change it was offered for, and a conclusion was drawn
+      from a run that had restored **zero** entries and so never reached the
+      phase it was describing. And C281's own verification line names why the
+      identity boot could not catch it -- "the identity boot fits no cartridge,
+      so no ending here can fire". **An identity boot is not a regression test
+      for a device it does not fit.**
       *How to bound it, written down because deriving it is most of the cost.*
       The route is `tools/dn5500/README.md`'s: `tools/dn5500-md.sh` with
       `--boot-script tools/dn5500/restore.script`, a copy of
@@ -7413,6 +7434,18 @@ same number is what let them diverge once already.
 ## Deferred tails
 
 Nothing is deferred silently. Current list:
+
+- **`--boot-log-watch-reads` needs a transitions-only form.** A watched register
+  that a driver *polls* produces one line per poll: watching the tape's status
+  register `00050001` through a restore wrote **2.4 GB in 31 million lines
+  inside one minute**, and would have filled the disk long before reaching the
+  failure it was aimed at. What a poll log is read for is the value *changing* —
+  filtering to transitions gave the same information in **322 KB**, four orders
+  of magnitude smaller. Done as a temporary edit to `main.c` on 2026-09-12 and
+  reverted; it belongs as a flag beside `--boot-log-watch-reads`, with the usage
+  text and the `check_frontend_flags.py` source checks the others carry. Not
+  urgent, and named here rather than left to be rediscovered the next time a
+  polled register is watched — which this project does often.
 
 - Apollo PRISM / DN10000 — **out of scope**, permanently: different
   architecture, no ROM dumps, no oracle.

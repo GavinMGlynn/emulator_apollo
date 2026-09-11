@@ -500,57 +500,6 @@ static void test_a_read_the_drive_ends_also_ends_the_dma(void) {
                    0u);
 }
 
-/* **READ FILE MARK ends in an EXCEPTION, not in a plain READY.**
- *
- * `QIC-02 Rev D` §4.2.9 and §3.6.8: the sequence "reads data blocks until file
- * mark block found" and the controller then **sets EXCEPTION** -- the same
- * ending §3.6.6 gives a READ DATA that runs into one, because it is the same
- * event. §3.5's `EXC-` then obliges the host to "issue STATUS COMMAND and
- * perform a STATUS INPUT to determine cause", which is how it learns whether
- * the mark was found (`FIL`) or the medium ran out (`NDT`).
- *
- * **This core completed the command with a plain READY**, so a driver following
- * `[SC499]` Figure 1-24 -- whose DONE routine leaves on READY *or* EXCEPTION --
- * left by the wrong door. The drive's half was implemented (`FINDINGS.md`
- * C266 spaces the tape and latches the bit); the controller's was not, and
- * `qic_suite` could not catch it because it exercises the drive alone.
- *
- * **And the kernel issues this command.** Watching writes to `00050000` through
- * a restore: the boot PROM sends `C0 A0 80` and Domain/OS's driver sends `A0`
- * between reads. */
-static void test_read_file_mark_ends_in_an_exception(void) {
-  ap_tape_t t;
-  arm(&t);
-  /* The second of the two blocks is a mark, so there is one to find. */
-  for (unsigned i = 0; i < AP_CT_BLOCK_SIZE; i++) {
-    cartridge[AP_CT_BLOCK_SIZE + i] =
-        (uint8_t)(AP_CT_FILE_MARK_WORD >> (8u * (3u - (i & 3u))));
-  }
-  issue(&t, AP_QIC_CMD_SELECT);
-  /* A clean slate: the SELECT above has already spent the power-on exception,
-   * so what follows is this command's own. */
-  TEST_ASSERT_FALSE(t.controller.exception);
-
-  issue(&t, AP_QIC_CMD_READ_FILE_MARK);
-  /* The drive has done its half -- spaced past the mark and latched `FIL`. */
-  TEST_ASSERT_TRUE(t.drive.file_mark);
-  TEST_ASSERT_EQUAL_UINT64(2u, t.drive.position);
-
-  /* And the controller does its half at the completion, where the tape motion
-   * ends -- not at the instant the command byte landed. */
-  clock_now += ap_sc499_handshake_duration(AP_SC499_ENTRY_READY) * 2u;
-  ap_tape_advance(&t, clock_now);
-  TEST_ASSERT_TRUE(t.controller.exception);
-  /* Figure 1-6: "READY shall not be asserted for an EXCEPTION condition." */
-  TEST_ASSERT_FALSE(t.controller.ready);
-
-  /* *Which* ending it was is the drive's to report, and a host learns it from
-   * the status sequence the exception obliges it to run. `qic_suite` asserts
-   * that block's contents -- `FIL` travelling alone, §5.3's "Filemark read"
-   * row -- and it is not reachable from here without issuing the READ STATUS
-   * that would clear the exception this test is about. */
-}
-
 /* **The drive stops asking before the cycle, not after it.**
  *
  * `QIC-02 Rev D` §3.6.6's T38 asserts EXCEPTION at the file mark, and the drive
@@ -1198,7 +1147,6 @@ int main(void) {
   RUN_TEST(test_a_refused_command_raises_exception);
   RUN_TEST(test_running_off_the_end_raises_exception);
   RUN_TEST(test_a_read_the_drive_ends_also_ends_the_dma);
-  RUN_TEST(test_read_file_mark_ends_in_an_exception);
   RUN_TEST(test_the_drive_stops_asking_at_a_file_mark);
   RUN_TEST(test_the_measured_dump_is_reproduced);
   RUN_TEST(test_the_write_only_commands_are_reachable_by_writing);

@@ -180,21 +180,6 @@ typedef struct {
   bool done;
   bool direction;
   bool dma_active;
-  /* **This command ends in an EXCEPTION rather than in a plain READY.**
-   *
-   * `QIC-02 Rev D` §3.6.8: a READ FILE MARK sequence "reads data blocks until
-   * file mark block found" and then the controller **sets EXCEPTION** -- the
-   * same ending §3.6.6 gives a READ DATA that runs into one, because it is the
-   * same event. §4.2.9 says so from the command side and §3.5's `EXC-` obliges
-   * the host to answer it with a status sequence, which is how it learns
-   * whether the mark was found (`FIL`) or the medium ran out (`NDT`).
-   *
-   * It is a *deferred* flag rather than an immediate assertion because the
-   * exception belongs at the end of the tape motion, not at the instant the
-   * command byte lands: the host polls for the ending, and a card that excepted
-   * before it had moved would be answering a question it had not been asked.
-   * `ap_sc499_advance`'s completion is where the other endings already land. */
-  bool command_excepts;
 
   /* The handshake's clock. The device carries its own cursor rather than being
    * handed the time at each command, because `ap_board_write` has no `now` to

@@ -458,20 +458,6 @@ static void issue_command(ap_tape_t *tape, uint8_t command) {
   /* Whichever of the three figures applies, its effects are the device's to
    * apply, not the board's. */
   ap_sc499_command_accepted(&tape->controller);
-  /* **READ FILE MARK ends in an EXCEPTION**, `QIC-02 Rev D` §3.6.8 and §4.2.9:
-   * it "reads data blocks until file mark block found" and the controller then
-   * sets EXCEPTION, which the host answers with a status sequence to learn
-   * whether it found the mark (`FIL`) or ran off the medium (`NDT`). The drive
-   * has already latched one or the other by now -- `ap_qic_command`'s arm does
-   * the spacing -- and what was missing was the controller's half.
-   *
-   * **The kernel uses this command.** Watching `00050000` through a restore:
-   * the boot PROM issues `C0 A0 80` and Domain/OS's driver issues `A0` between
-   * reads, so a card that ends it with a plain READY is answering a host that
-   * is waiting for the other edge. */
-  if (command == AP_QIC_CMD_READ_FILE_MARK) {
-    tape->controller.command_excepts = true;
-  }
   /* A new command invalidates whatever block was part-read, and whatever status
    * block was part-delivered. */
   tape->block_valid = false;
@@ -493,6 +479,27 @@ static void issue_command(ap_tape_t *tape, uint8_t command) {
   if (command != AP_QIC_CMD_READ_STATUS) {
     tape->drive.status_pending = false;
   }
+  /* **`PROVISIONAL`: READ FILE MARK should end in an EXCEPTION and does not.**
+   *
+   * `QIC-02 Rev D` §4.2.9 and §3.6.8: the sequence "reads data blocks until file
+   * mark block found" and the controller then **sets EXCEPTION**, which §3.5's
+   * `EXC-` obliges the host to answer with a status sequence. The drive's half
+   * is here -- `ap_qic_command`'s arm spaces the tape and latches `FIL` or
+   * `NDT` -- and the controller's half completes with a plain **READY**.
+   *
+   * **It was implemented on 2026-09-12 and reverted the same hour, because it
+   * breaks the machine.** With the exception raised at the command's
+   * completion, `EX DOMAIN_OS` fails where it used to reach RBAK: `bad tape
+   * read -- 28001E`, then `280022`, then `E0007`, and the restore goes from 396
+   * entries to **none**. The kernel issues `A0` twice in a row and then `80`
+   * (measured at `00050000`), so a standing exception from the first is still
+   * up when the next command and its DMAGO arrive -- and `ap_tape_advance`'s
+   * trailing-DMAGO rule now declines to complete a transfer under one. Which of
+   * the two is wrong is not established, and guessing cost a pushed regression.
+   *
+   * *What would close it*: the order in which a host is meant to clear an
+   * exception raised by a *completed* command, which `[SC499]` Figure 1-24's
+   * DONE routine implies and no figure here states. `FINDINGS.md` C282. */
   /* A command that puts the tape back at BOT spends the duplicate rather than
    * re-arming it: what is doubled is the first block after a *reset*, not the
    * first block after every rewind. See `ap_tape_t::first_block_pending`. */

@@ -17142,3 +17142,69 @@ on the old code.
 `final PC 0000269E` unmoved** -- the controlled pair that distinguishes a hashed
 field added to the stream from a behavioural change, and this is the former:
 the identity boot fits no cartridge, so no ending here can fire.*
+
+**REVERTED, and this section's last paragraph is what went wrong.** `tape_suite`
+is back to 33 and the gap is `PROVISIONAL` in `ap_tape.c`. See C282: the change
+breaks `EX DOMAIN_OS`, and the identity boot could not have caught it *because*
+of the very property quoted above -- it fits no cartridge, so no tape ending
+fires in it. **An identity boot is not a regression test for a device it does
+not fit**, and this finding said so in its own verification line without
+noticing.
+
+
+## C282 -- READ FILE MARK's documented EXCEPTION breaks the machine, and a stale regression check let it through
+
+C281 closed a gap: `QIC-02 Rev D` §4.2.9 and §3.6.8 end a READ FILE MARK
+sequence with the controller **setting EXCEPTION**, and this core completed it
+with a plain READY. The drive's half was already there; the controller's was
+not. It was implemented, tested at board level, verified to fail on the old
+code, committed and pushed.
+
+**It breaks `EX DOMAIN_OS`.** On the current binary the restore route reports
+
+    bad tape read - trying normal shell -- 28001E
+    bad tape read - trying normal shell -- 280022
+    can't find bscom/rbak_shell on tape - trying normal shell -- E0007
+    Crash_Status 000E0007  PC 3C457580 pid 0001
+
+and restores **no entries at all**, where the same route reached **396** before.
+Reverted; 53 entries and climbing on the re-run, with the gap recorded
+`PROVISIONAL` at `ap_tape.c`'s `issue_command`.
+
+### The mechanism, as far as it is established -- which is not far
+
+The kernel issues **`A0 A0 80`**, measured at `00050000`. With RFM ending in an
+exception, the first one's is still standing when the next command and its
+DMAGO arrive -- and `ap_tape_advance`'s trailing-DMAGO rule, added in the *same
+session*, declines to complete a transfer under a standing exception.
+
+**Which of the two is wrong is not established.** The exception ending is
+documented; so is `EXC-`'s obligation on the host. What no figure here states is
+the order in which a host clears an exception raised by a **completed command**
+-- `[SC499]` Figure 1-24's DONE routine implies it and does not say it. Guessing
+is what produced this, so it is left named rather than patched.
+
+### The two process failures, which cost more than the change
+
+**1. The regression check was stale, and I reused it.** The cartridge boot was
+run clean and reported as the regression evidence -- but it ran *before* this
+change, covering only the endings work that preceded it. A check that predates
+the change it is offered for is not a check.
+
+**2. A conclusion was drawn from a run that never reached the phase it described.**
+The control-register measurement was reported as "109 writes, the last at
+instruction 1,684,742,204, and the failure at 9,551,486,452" -- interrupts off
+across an 8 G data phase. **That run restored zero entries**: it had already
+failed at `EX DOMAIN_OS`, at ~1.8 G, immediately after its last control write.
+The write count came from it and the failure instant from a different run.
+`confirm-configuration-from-run-output` is the rule, and the question it makes
+you ask -- *did this run reach the thing I am describing?* -- was not asked. The
+claim never reached the living documents; it was stated in conversation and is
+withdrawn here.
+
+**And the tell was in C281's own verification line.** It records the identity
+boot moving hash-only "because the identity boot fits no cartridge, so no ending
+here can fire". That sentence is exactly why the identity boot could not catch
+this: **it is not a regression test for a device it does not fit.** The only
+regression test for the tape is a run with a cartridge in it, taken after the
+change.
