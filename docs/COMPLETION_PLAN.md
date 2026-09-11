@@ -5234,7 +5234,23 @@ discipline throughout.
       idle at `)` and nothing ran `shut`, so Domain/OS's root-directory updates
       stayed in the node's cache. `FINDINGS.md` C192 measured that on a DN3500
       as 3 root entries against 17. `tools/dn5500/restore.script` now ends with
-      it. Detail in `PROJECT_STATUS.md`.
+      it.
+      **And that is REFUTED the same day**: the restore was re-run with `shut`,
+      the guest printed `Shutdown successful`, the volume it wrote is
+      byte-different from the unclean one -- and the DS5500 boots it to exactly
+      the same `boot error: SAU14 not found in root_dir`. So the missing root
+      entry is not (only) a flush. What is known and no more: the objects are
+      there, RBAK's paths for them are root-relative (`sau14/self_test`, then
+      `(dir) "sau14"`), and a clean dismount does not put them in the root.
+      *The discriminator is the DN3500 control*, which restored the same
+      cartridge on this core:
+      `compare-volumes-by-root-directory-block` records a DN3500 root after RBAK
+      holding **20 entries including `sau7 sau8 sau9`**. If our DN3500 volume
+      boots and finds `/sau7` the restore does create root links here and the
+      DS5500's failure is elsewhere; if it does not, no restore on this core
+      creates them and the five entries lost to `0028001E` become the first
+      thing to suspect. The `shut` line stays either way -- `008860-A03` and
+      `sr10-3-install-route` both require it. Detail in `PROJECT_STATUS.md`.
       **The DS5500 reaches its own monitor, 2026-09-10** — `MD14 REV 2.00,
       1991/03/08.16:20:14` and a `>` prompt, from a machine that could execute
       two of its instructions a day earlier. It cost **one address range**:

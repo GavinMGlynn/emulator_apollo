@@ -3483,6 +3483,39 @@ This run ended at its instruction bound with the machine idle at the `)` prompt.
 Nothing ran `shut`, so nothing flushed. The objects are there; the links were
 never written.
 
+**REFUTED the same day, and the run was the right way to find out.** The restore
+was re-run with `shut` in the script; the guest printed
+
+```
+)shut
+So long... 
+Beginning shutdown sequence...
+Shutdown successful
+```
+
+and the volume it wrote is byte-different from the unclean one — so the shutdown
+happened and it *did* write. The DS5500 then boots it to **exactly the same
+line**: `boot error: SAU14 not found in root_dir  status=000E0007`.
+
+*So the missing root entry is not (only) a flush.* What is known, and no more:
+the objects are on the volume and RBAK's own paths for them are **root-relative**
+— `sau14/self_test`, `sau14/rwvol`, `sau14/salvol`, then `(dir) "sau14"` — and
+the root directory still does not name them after a clean dismount.
+
+**The discriminator is already running.** The DN3500 control restored the same
+cartridge on this core and its volume is written by the same bound;
+`compare-volumes-by-root-directory-block` records that a DN3500 root after RBAK
+holds **20 entries including `sau7 sau8 sau9`**, measured on a volume this
+project made through the oracle. If our DN3500 volume boots and finds `/sau7`,
+the restore does create root links here and the DS5500's failure is elsewhere;
+if it does not, no restore on this core creates them, and the five entries lost
+to the `0028001E` defect become the first thing to suspect rather than the last.
+
+*The `shut` line stays in `tools/dn5500/restore.script` regardless.* It is what
+`008860-A03` and `sr10-3-install-route` both require, it costs one command, and
+a volume dismounted cleanly is the right artefact whether or not it was this
+bug.
+
 *The fix is the script's ending, and it is now in it.*
 `tools/dn5500/restore.script` waits for `RBAK version` — the Phase II banner
 RBAK prints on its way out, which occurs exactly once in a run — then sends
