@@ -482,6 +482,10 @@ void ap_board_hash_tape(ap_hash_t *st, const ap_tape_t *tape) {
   hash_bool(st, controller->done);
   hash_bool(st, controller->direction);
   hash_bool(st, controller->dma_active);
+  /* The deferred ending of a READ FILE MARK: set when the command is accepted
+   * and spent at its completion, so a run stopped between the two differs from
+   * one stopped either side. */
+  hash_bool(st, controller->command_excepts);
 
   const ap_qic_t *drive = &tape->drive;
   /* The cartridge by its extent **and its digest**, which closes the

@@ -431,6 +431,17 @@ void ap_qic_eject(ap_qic_t *qic);
  * never sent. `FINDINGS.md` C267. */
 [[nodiscard]] bool ap_qic_read_exhausted(const ap_qic_t *qic);
 
+/* Which of the two endings `ap_qic_read_exhausted` is reporting: a **file
+ * mark** under the head rather than the end of the medium.
+ *
+ * They are one signal to a host -- EXCEPTION, told apart by the status block --
+ * and two different things for the *card* to do, which is what the board asks
+ * this for. A mark ends a file and the host reads the next one; the end of the
+ * medium ends everything. See `ap_tape_advance`, where the difference is DONE
+ * and the bus direction, both measured on the oracle at this event
+ * (`FINDINGS.md` C281). */
+[[nodiscard]] bool ap_qic_at_file_mark(const ap_qic_t *qic);
+
 /* End a READ that `ap_qic_read_exhausted` says has run out: latch `FIL` and
  * step past the mark, or latch `NDT` and stay where the tape ended, and clear
  * the read either way. Does nothing if the read has not run out, so a caller

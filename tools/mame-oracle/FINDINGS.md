@@ -17047,3 +17047,98 @@ path with a short count, or it is supposed to program the last transfer to a
 length the tape can satisfy. Reading `ATBUS_$DMA_STOP`'s own code is the next
 step and needs no new instrument -- the routine's bounds are known and a
 Domain/OS boot can dump it.
+
+
+## C281 -- the oracle at the mark, and the divergence is that this host never reacts to one
+
+C280 left two questions: what the card shows the host at a file mark, and why
+`ATBUS_$DMA_STOP` is reached at all. The oracle was instrumented at the
+cartridge's **last** mark -- armed on `m_tape_pos > 104000`, logging `read_block`,
+`dack_r`, `eop_w`, DMAGO and every command -- and its restore reached **401**.
+
+### What MAME's card does there
+
+    read_blk  104837 0 6f      the last data block
+    dack      428544 511 6f    its 512th byte
+    read_blk  104838 0 6f      the MARK block, read like any other
+    MARKdack  104839 428544 47 DRQ dropped, and status becomes 47
+    cmd       192 104839 27    the host sends C0, READ STATUS
+    cmd       128 104839 27    and then 80, READ DATA -- a new read
+    read_blk  104839 0 6f      EOF1
+    DMAGO / dack / eop         and this transfer completes
+    read_blk  104840 0 7f      EOF2
+    DMAGO / dack / eop         and so does this one
+    read_blk  104841 -1 7f     past the end: nullptr
+    cmd       192 104841 27    READ STATUS again
+
+**The transfer that ran into the mark never gets an `eop` on either model.** It
+is abandoned short, exactly as this core abandons it. What differs is the
+register the host then reads, and what the host does about it:
+
+| status at the mark | oracle (`47`) | this core (`5F`) |
+| --- | --- | --- |
+| EXCEPTION | asserted | asserted |
+| DONE | **clear** | set |
+| DIRECTION | **cleared** | held |
+
+### Both differences were closed, and the restore did not move
+
+`ap_tape_advance` now tells the two endings apart: a **file mark** ends a *file*,
+leaves DONE alone and hands the bus back; the **end of the medium** keeps DONE,
+because nothing follows it. And the trailing-DMAGO rule no longer fires while an
+exception stands -- `QIC-02` §3.5's `EXC-` obliges the host to run a status
+sequence first, and on the oracle there is no orphan DMAGO there at all.
+
+*The two had to be decided together, which the plan item had said in as many
+words.* The first attempt changed only the ending and the test still passed,
+because the trailing-DMAGO rule put DONE straight back up on the same advance.
+
+**Result: the cartridge boot is clean** -- SYSBOOT loads, kernel banner, no
+`Tape read error` -- **and the restore is still 396 and `28001E`.**
+
+### The command register says why, and it reframes the item
+
+Watching writes to `00050000` -- the tape's command register -- through a whole
+restore. **Twenty-three writes, the last at line 286 of the log; the failure is
+at line 693.**
+
+    PROM    C0 80 | C0 A0 80 | C0 21
+    kernel  C0 21 | A0 A0 80 | C0 21 | C0 C0 24 21 80 A0 80 | C0 80
+
+**Between the `80` READ DATA that opens the data phase and the failure, this
+host issues no tape command whatever** -- no `C0` READ STATUS, no `A0` READ FILE
+MARK, no fresh `80`. The oracle's host issues `C0` and `80` at the mark, three
+events after it.
+
+**So the card's register state at the mark was never the question.** This host
+never looks. It runs one READ DATA across the whole file and discovers only at
+the end, through `ATBUS_$DMA_STOP`, that a transfer came up short -- and reports
+the range. Whatever tells the oracle's host about the mark is not reaching ours,
+and *that* is the defect to find. It is a question about the interrupt and the
+driver's wait, not about what the card shows when asked.
+
+*The mark-ending changes are kept*: they match the only direct evidence there is
+about that event, they are behaviour-neutral on the reference boot, and the
+question they were aimed at has moved rather than closed.
+
+### And one documented gap closed on the way, from a command this trace found
+
+The same trace shows both the PROM and the kernel issuing **`A0`, READ FILE
+MARK** -- `C0 A0 80` from the PROM, `A0` between reads from the kernel.
+
+`QIC-02 Rev D` §4.2.9 and §3.6.8: a READ FILE MARK "reads data blocks until file
+mark block found" and the controller then **sets EXCEPTION**. This core did the
+drive's half -- C266 spaces the tape and latches `FIL` or `NDT` -- and completed
+the command with a plain **READY**. A driver following `[SC499]` Figure 1-24,
+whose DONE routine leaves on READY *or* EXCEPTION, therefore left by the wrong
+door.
+
+`qic_suite` could not catch it: it exercises `ap_qic` alone, and the missing half
+is the controller's. The new test is `tape_suite`'s, at board level, and it fails
+on the old code.
+
+*Verification: `tape_suite` 33 -> 34; `ctest` 147/147. Identity boot
+`F78D6DBE770CAF47` -> `CBFF830E9D7C4244` with **`clocks 1408661906` and
+`final PC 0000269E` unmoved** -- the controlled pair that distinguishes a hashed
+field added to the stream from a behavioural change, and this is the former:
+the identity boot fits no cartridge, so no ending here can fire.*

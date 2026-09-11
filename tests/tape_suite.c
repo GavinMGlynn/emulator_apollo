@@ -500,6 +500,57 @@ static void test_a_read_the_drive_ends_also_ends_the_dma(void) {
                    0u);
 }
 
+/* **READ FILE MARK ends in an EXCEPTION, not in a plain READY.**
+ *
+ * `QIC-02 Rev D` §4.2.9 and §3.6.8: the sequence "reads data blocks until file
+ * mark block found" and the controller then **sets EXCEPTION** -- the same
+ * ending §3.6.6 gives a READ DATA that runs into one, because it is the same
+ * event. §3.5's `EXC-` then obliges the host to "issue STATUS COMMAND and
+ * perform a STATUS INPUT to determine cause", which is how it learns whether
+ * the mark was found (`FIL`) or the medium ran out (`NDT`).
+ *
+ * **This core completed the command with a plain READY**, so a driver following
+ * `[SC499]` Figure 1-24 -- whose DONE routine leaves on READY *or* EXCEPTION --
+ * left by the wrong door. The drive's half was implemented (`FINDINGS.md`
+ * C266 spaces the tape and latches the bit); the controller's was not, and
+ * `qic_suite` could not catch it because it exercises the drive alone.
+ *
+ * **And the kernel issues this command.** Watching writes to `00050000` through
+ * a restore: the boot PROM sends `C0 A0 80` and Domain/OS's driver sends `A0`
+ * between reads. */
+static void test_read_file_mark_ends_in_an_exception(void) {
+  ap_tape_t t;
+  arm(&t);
+  /* The second of the two blocks is a mark, so there is one to find. */
+  for (unsigned i = 0; i < AP_CT_BLOCK_SIZE; i++) {
+    cartridge[AP_CT_BLOCK_SIZE + i] =
+        (uint8_t)(AP_CT_FILE_MARK_WORD >> (8u * (3u - (i & 3u))));
+  }
+  issue(&t, AP_QIC_CMD_SELECT);
+  /* A clean slate: the SELECT above has already spent the power-on exception,
+   * so what follows is this command's own. */
+  TEST_ASSERT_FALSE(t.controller.exception);
+
+  issue(&t, AP_QIC_CMD_READ_FILE_MARK);
+  /* The drive has done its half -- spaced past the mark and latched `FIL`. */
+  TEST_ASSERT_TRUE(t.drive.file_mark);
+  TEST_ASSERT_EQUAL_UINT64(2u, t.drive.position);
+
+  /* And the controller does its half at the completion, where the tape motion
+   * ends -- not at the instant the command byte landed. */
+  clock_now += ap_sc499_handshake_duration(AP_SC499_ENTRY_READY) * 2u;
+  ap_tape_advance(&t, clock_now);
+  TEST_ASSERT_TRUE(t.controller.exception);
+  /* Figure 1-6: "READY shall not be asserted for an EXCEPTION condition." */
+  TEST_ASSERT_FALSE(t.controller.ready);
+
+  /* *Which* ending it was is the drive's to report, and a host learns it from
+   * the status sequence the exception obliges it to run. `qic_suite` asserts
+   * that block's contents -- `FIL` travelling alone, §5.3's "Filemark read"
+   * row -- and it is not reachable from here without issuing the READ STATUS
+   * that would clear the exception this test is about. */
+}
+
 /* **The drive stops asking before the cycle, not after it.**
  *
  * `QIC-02 Rev D` §3.6.6's T38 asserts EXCEPTION at the file mark, and the drive
@@ -559,7 +610,21 @@ static void test_the_drive_stops_asking_at_a_file_mark(void) {
   TEST_ASSERT_FALSE(t.drive.reading);
   TEST_ASSERT_TRUE(t.drive.file_mark);
   TEST_ASSERT_TRUE(t.controller.exception);
-  TEST_ASSERT_TRUE(t.controller.done);
+  /* **And DONE stays down, and the bus goes back the host's way.**
+   *
+   * A file mark ends a *file*; the host is expected to read the status and
+   * start the next one, and `QIC-02 Rev D` §3.6.6's own next event is
+   * `HOST SENDS READ STATUS COMMAND`. Measured on the oracle at this exact
+   * event: MAME's card leaves `47` in the status register -- EXCEPTION
+   * asserted, **DONE clear**, **DIRECTION cleared** -- and Domain/OS answers
+   * with `C0` READ STATUS and a fresh `80` READ DATA, with no error at all.
+   *
+   * This asserted `done` true until 2026-09-12, and DONE is what sends the
+   * driver down the *completion* path instead: `ATBUS_$DMA_STOP` then reads the
+   * channel's count, finds it short, and reports `002398-04` p. 4-14's
+   * `(0028001E) dma not at end of range`. `FINDINGS.md` C281. */
+  TEST_ASSERT_FALSE(t.controller.done);
+  TEST_ASSERT_FALSE(t.controller.direction);
   /* Past the mark, so the next READ begins the next file. */
   TEST_ASSERT_EQUAL_UINT64(2u, t.drive.position);
 
@@ -573,16 +638,32 @@ static void test_the_drive_stops_asking_at_a_file_mark(void) {
   TEST_ASSERT_TRUE(t.controller.exception);
   TEST_ASSERT_FALSE(t.controller.ready);
 
-  /* **And the host's next DMAGO does not hang.** A driver that reads a file by
-   * repeating `[SC499]` §1.11's steps 2 to 5 issues one DMAGO per block and
-   * only learns the file has ended when one comes back short -- so there is
-   * always one DMAGO after the last block. It lowers DONE, and if nothing
-   * raised it again the driver would wait for ever, which is `002398-04`
-   * p. 4-17's `FF`. A sequencer with no transfer in front of it has nothing in
-   * flight. */
+  /* **And a DMAGO issued while the exception still stands is not answered.**
+   *
+   * `QIC-02 Rev D` §3.5's `EXC-` obliges the host to "issue STATUS COMMAND and
+   * perform a STATUS INPUT to determine cause", so a card with an
+   * unacknowledged exception is waiting for that rather than completing
+   * transfers -- and on the oracle there is no orphan DMAGO here at all: the
+   * host sends READ STATUS and a new READ DATA first.
+   *
+   * *This asserted the opposite until 2026-09-12*, and the rule it asserted
+   * fired on the same advance as the ending above, putting DONE straight back
+   * up and making a file mark indistinguishable from a completed transfer. The
+   * two had to be decided together, which the plan item had said in as many
+   * words. */
   ap_tape_write(&t, AP_TAPE_ADDR + 2u, 0u);
   TEST_ASSERT_FALSE(t.controller.done);
   TEST_ASSERT_FALSE(ap_tape_dma_request(&t));
+  clock_now += 1u;
+  ap_tape_advance(&t, clock_now);
+  TEST_ASSERT_FALSE(t.controller.done);
+  TEST_ASSERT_TRUE(t.controller.exception);
+
+  /* **And once the host has read the status, it is.** The exception is the only
+   * thing holding the card, so clearing it the way a READ STATUS does restores
+   * the old behaviour for the case that rule was written for: a sequencer with
+   * no transfer in front of it has nothing in flight. */
+  ap_sc499_set_exception(&t.controller, false);
   clock_now += 1u;
   ap_tape_advance(&t, clock_now);
   TEST_ASSERT_TRUE(t.controller.done);
@@ -1117,6 +1198,7 @@ int main(void) {
   RUN_TEST(test_a_refused_command_raises_exception);
   RUN_TEST(test_running_off_the_end_raises_exception);
   RUN_TEST(test_a_read_the_drive_ends_also_ends_the_dma);
+  RUN_TEST(test_read_file_mark_ends_in_an_exception);
   RUN_TEST(test_the_drive_stops_asking_at_a_file_mark);
   RUN_TEST(test_the_measured_dump_is_reproduced);
   RUN_TEST(test_the_write_only_commands_are_reachable_by_writing);

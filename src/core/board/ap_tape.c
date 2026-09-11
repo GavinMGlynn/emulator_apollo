@@ -94,9 +94,39 @@ void ap_tape_advance(ap_tape_t *tape, ap_time_t now) {
    * latches `FIL` or `NDT`, the controller raises EXCEPTION, and the DMA
    * sequencer has nothing left in flight. */
   if (needs_block(tape) && ap_qic_read_exhausted(&tape->drive)) {
+    /* **Which of the two endings decides what the card shows the host**, and the
+     * difference is measured on the oracle at this exact event rather than
+     * reasoned from a figure -- `FINDINGS.md` C281.
+     *
+     * A **file mark** is the end of a *file*, not of the medium, and the host is
+     * expected to carry on: MAME's card leaves `47` in the status register
+     * there -- EXCEPTION asserted, **DONE clear**, **DIRECTION back to the
+     * host's** -- and Domain/OS answers it with `C0` READ STATUS and then a
+     * fresh `80` READ DATA, three instructions later, with no error at all. The
+     * transfer that ran into the mark is simply abandoned short and never
+     * reaches terminal count on either model.
+     *
+     * This core showed `5F` instead -- EXCEPTION **and DONE**, with DIRECTION
+     * still held -- and DONE is what sends the driver down the *completion*
+     * path: `ATBUS_$DMA_STOP` then reads the channel's count, finds `21FF`
+     * against a base of `7FFF`, and reports `002398-04` p. 4-14's
+     * `(0028001E) dma not at end of range`. Measured: 71,065 transfers read
+     * `FFFF` there and the 72nd thousand read `21FF`.
+     *
+     * The **end of the medium** keeps DONE, because nothing follows it and the
+     * host has no next file to read. */
+    const bool at_mark = ap_qic_at_file_mark(&tape->drive);
     ap_qic_end_read(&tape->drive);
     ap_sc499_set_exception(&tape->controller, true);
-    ap_sc499_dma_ended(&tape->controller);
+    if (at_mark) {
+      /* The bus goes back the host's way so the READ STATUS the card is asking
+       * for can be sent. Held until a command needed it before, which is
+       * Figure 1-9's case -- and Figure 1-9 stays reachable through the status
+       * block, which is the delivery that really does hold the bus. */
+      tape->controller.direction = false;
+    } else {
+      ap_sc499_dma_ended(&tape->controller);
+    }
   }
 
   /* **And a DMAGO the drive cannot answer ends at once**, which is the same
@@ -109,8 +139,20 @@ void ap_tape_advance(ap_tape_t *tape, ap_time_t now) {
    * there is always one DMAGO *after* the last block, and it lowers DONE.
    * Nothing would raise it again, and `002398-04` p. 4-17's `FF`, "timeout
    * waiting for controller done", is what a host prints then. */
+  /* **And not while an exception is standing**, which is the other half of the
+   * ending above and has to be decided with it. `QIC-02 Rev D` §3.5's `EXC-`
+   * obliges the host to "issue STATUS COMMAND and perform a STATUS INPUT to
+   * determine cause", and §3.6.6's own next event after the mark is
+   * `HOST SENDS READ STATUS COMMAND`. A card with an unacknowledged exception
+   * is waiting for that, not completing transfers.
+   *
+   * **Measured on the oracle**: after the mark MAME's host sends `C0` READ
+   * STATUS and then `80` READ DATA, and only *then* a DMAGO -- there is no
+   * orphan DMAGO to answer at all (`FINDINGS.md` C281). Without this guard the
+   * rule fired on the same advance as the ending above, put DONE straight back
+   * up, and the file-mark case was indistinguishable from the completion one. */
   if (tape->controller.dma_active && !tape->drive.reading &&
-      !tape->drive.writing) {
+      !tape->drive.writing && !tape->controller.exception) {
     ap_sc499_dma_ended(&tape->controller);
   }
 }
@@ -416,6 +458,20 @@ static void issue_command(ap_tape_t *tape, uint8_t command) {
   /* Whichever of the three figures applies, its effects are the device's to
    * apply, not the board's. */
   ap_sc499_command_accepted(&tape->controller);
+  /* **READ FILE MARK ends in an EXCEPTION**, `QIC-02 Rev D` §3.6.8 and §4.2.9:
+   * it "reads data blocks until file mark block found" and the controller then
+   * sets EXCEPTION, which the host answers with a status sequence to learn
+   * whether it found the mark (`FIL`) or ran off the medium (`NDT`). The drive
+   * has already latched one or the other by now -- `ap_qic_command`'s arm does
+   * the spacing -- and what was missing was the controller's half.
+   *
+   * **The kernel uses this command.** Watching `00050000` through a restore:
+   * the boot PROM issues `C0 A0 80` and Domain/OS's driver issues `A0` between
+   * reads, so a card that ends it with a plain READY is answering a host that
+   * is waiting for the other edge. */
+  if (command == AP_QIC_CMD_READ_FILE_MARK) {
+    tape->controller.command_excepts = true;
+  }
   /* A new command invalidates whatever block was part-read, and whatever status
    * block was part-delivered. */
   tape->block_valid = false;

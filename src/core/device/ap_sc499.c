@@ -204,6 +204,17 @@ void ap_sc499_advance(ap_sc499_t *tape, ap_time_t now) {
     if (tape->entry == AP_SC499_ENTRY_DIRECTION) {
       tape->direction = false;
     }
+    /* **A command whose own ending is an exception**, which until 2026-09-12
+     * only a *refused* command was. `QIC-02` §3.6.8's READ FILE MARK ends by
+     * setting EXCEPTION, and this core completed it with a plain READY -- so a
+     * driver following `[SC499]` Figure 1-24, whose DONE routine leaves on
+     * READY *or* EXCEPTION, left by the wrong door and read a status block it
+     * had not been told to expect. Raised here rather than at the command byte
+     * because the exception belongs after the tape motion. */
+    if (tape->command_excepts) {
+      tape->command_excepts = false;
+      ap_sc499_set_exception(tape, true);
+    }
     /* And in all three figures the device ends by asserting READY: 1-7's T5,
      * 1-8's T4, 1-9's T6 -- but never over a standing exception. Figure 1-6:
      * "READY shall not be asserted for an EXCEPTION condition", which is the

@@ -4946,6 +4946,30 @@ discipline throughout.
       restore is **401 entries** and the five this core loses are named in it --
       `usr/apollo/lib/stcode.db` and four `usr/apollo/lib` directory entries,
       immediately after our 396th. Detail in `FINDINGS.md` C280.
+      **THE DIVERGENCE IS LOCATED, 2026-09-12, and it is not the card's ending.**
+      The oracle was instrumented at the cartridge's *last* mark. Both models
+      abandon the transfer that runs into it short -- **neither reaches terminal
+      count** -- and the difference was two bits of the status register: MAME
+      shows `47` (EXCEPTION, **DONE clear**, **DIRECTION released**) where this
+      core showed `5F`. Both were closed: the file-mark ending now leaves DONE
+      alone and hands the bus back, the end of the medium still keeps DONE, and
+      the trailing-DMAGO rule no longer fires under a standing exception
+      (§3.5's `EXC-` obliges a status sequence first). *The two had to be decided
+      together, exactly as this item said* -- the first attempt changed only the
+      ending and the rule put DONE straight back up on the same advance.
+      **The boot stayed clean and the restore did not move**: still 396,
+      still `28001E`.
+      **Then the command register said why.** Watching `00050000` through a whole
+      restore: **23 writes, the last at log line 286, and the failure at line
+      693.** Between the `80` READ DATA that opens the data phase and the
+      failure this host issues **no tape command at all** -- no `C0`, no `A0`,
+      no fresh `80` -- where the oracle's issues `C0` then `80` three events
+      after the mark. **So this host never reacts to a file mark**: it runs one
+      READ DATA across the whole file and learns only at the end, through
+      `ATBUS_$DMA_STOP`, that a transfer came up short. The card's register
+      state was never the question, and the next step is **what tells the
+      oracle's host about the mark and is not reaching ours** -- a question
+      about the interrupt and the driver's wait. Detail in `FINDINGS.md` C281.
       *How to bound it, written down because deriving it is most of the cost.*
       The route is `tools/dn5500/README.md`'s: `tools/dn5500-md.sh` with
       `--boot-script tools/dn5500/restore.script`, a copy of

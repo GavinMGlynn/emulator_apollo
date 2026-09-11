@@ -339,6 +339,13 @@ bool ap_qic_read_exhausted(const ap_qic_t *qic) {
          qic->position >= ap_ct_blocks(&qic->image);
 }
 
+bool ap_qic_at_file_mark(const ap_qic_t *qic) {
+  if (!qic->reading || !qic->loaded || !qic->selected) {
+    return false;
+  }
+  return ap_ct_block_is_file_mark(&qic->image, qic->position);
+}
+
 void ap_qic_end_read(ap_qic_t *qic) {
   if (!ap_qic_read_exhausted(qic)) {
     return;
