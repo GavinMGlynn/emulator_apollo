@@ -59,6 +59,22 @@ clock at 2002-11-28, and INVOL stamped this volume "Nov. 28, 2002". The DN3500
 route needs CALENDAR because it restores onto a volume whose timestamps are
 years from its clock.
 
+## Booting the volume
+
+    APOLLO_DISK=scratch/restored.awd tools/dn5500-boot.sh
+
+`tools/dn5500-boot.sh` is `dn5500-md.sh` **without `--service-mode`**, which
+`008860-A03` p. 1-12 step 1 says not to use for an install and which turns out to
+be unnecessary anyway: a node with no bootable volume falls back to MD on its
+own. Its console is the discriminator, and each line means something different:
+
+| the machine prints | what it means |
+| --- | --- |
+| `error: sysboot not found` | the boot area is empty or mis-shaped |
+| `error: incorrect sysboot installed` | the records are there and the tag is wrong |
+| `boot error: SAU14 not found in root_dir` | the SYSBOOT **ran** and mounted the volume; a directory is missing |
+| `Loaded: SELF_TEST Revision: …` | the boot path is whole |
+
 ## What comes after the restore, from `008860-A03` rather than from guesswork
 
 The restore leaves a volume that mounts and boots as far as its root directory.
