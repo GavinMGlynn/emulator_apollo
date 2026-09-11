@@ -104,6 +104,34 @@ because its target was a DN3500; a DS5500 run gets `/sau14` for the same reason.
 The **template** number is the aegis/bsd/sys5 size, a different question, and the
 Authorized Area gets *every* SAU regardless (p. 1-24).
 
+**The template names are known without running anything.** `019594-001` carries
+them as file names, and the three prefixes are `008860-A03`'s: `aa.` a selection
+file, `ov.` its override, `cf.` a configuration file.
+
+    aa.aegis_small      aa.aegis_medium        aa.aegis_large    aa.aegis_large3
+    aa.aegis_smallm     aa.aegis_small_prog
+    aa.bsd4.3_medium    aa.bsd4.3_large        aa.bsd4.3_mediumm
+    aa.sys5.3_medium    aa.sys5.3_large        aa.sys5.3_mediumm
+    aa.aegis_bsd4.3_medium   aa.aegis_bsd4.3_large
+    aa.aegis_sys5.3_medium   aa.aegis_sys5.3_large   aa.aegis_sys5.3_large7
+    aa.large   aa.large3   aa.hlp   aa.template
+
+    cf.os   cf.pas   cf.named   cf.dpss_only   cf.tcp_only   cf.tcp_and_dpss
+
+**The product is `os` version `10.4`** — `008860-A03` p. 5-18's sample `config`
+session lists it that way — so the default configuration file a scripted install
+hands to `install -c` is
+
+    AA/install/templates/apollo/os.v.10.4/cf.os
+
+and a subset load hands `distaa` one of the `aa.` paths in the same directory.
+
+**And `select all` is safe on this media.** p. 5-14 warns that `config` prefers
+an **a88k** build (a `.p` version suffix) over the m68k one, and Chapter 12 says
+an ISP mismatch "may prevent the target from booting" — but `019594-001`,
+`019594-002` and `019593-001` carry **zero** `ri.apollo.os.v.10.4.p` against
+97,495, 122,650 and 800 of the plain form. These cartridges are m68k only.
+
 **What is interactive is the media and only the media**: "If the set of
 distribution media contains more than one tape volume, `minst` prompts you in
 sequence to insert each tape into the drive" (p. 10-45). That is what
