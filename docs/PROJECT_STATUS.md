@@ -434,6 +434,64 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## `28001E` measured at its own failure, and the 68040 ATC fix is proven (2026-09-11)
+
+**The item is live.** The 396-entry figure predates four fixes, so the first
+thing established was whether it still reproduces. It does, **identically on
+both models at HEAD** — 396 entries, `(restore_object_data) Unexpected error
+from next_entry.` / `(unrecognized error status 28001E)`, with the DS5500 ending
+`block 104839 of 104841`, `exs 8100`, `status 5F`, byte for byte what this
+document already recorded.
+
+**The driver's own view**, from `--boot-watch-read 10C08 --boot-log-watch-reads`
+on the DN3500 restore — the 8237's status port, C274's instrument:
+
+```
+watch read   71064 at 00010C08 value 00000002 by PC 3C40EE10 after 9546155530
+watch read   71065 at 00010C08 value 00000002 by PC 3C40EE10 after 9549229239
+watch read   71066 at 00010C08 value 00000000 by PC 3C40EE10 after 9551486452
+(restore_object_data) Unexpected error from next_entry.
+(unrecognized error status 28001E)
+```
+
+**71,065 reads return `02`** — channel 1's terminal count — **and the 71,066th
+returns `00`.** One poll per transfer, all from one PC, evenly spaced ~3,073,400
+instructions apart, and the last gap **2,257,213**: the short transfer itself.
+So the driver requires terminal count after every transfer, checks once, and
+does not wait. `002398-04` p. 4-14's name for the code — *"dma not at end of
+range"* — is the literal truth.
+
+**So the defect is the 8237's count and not the tape.** A READ ends at a file
+mark, so a file's last transfer is short by construction and its terminal count
+never arrives. **And C266's `FF` and this `28001E` are one defect seen by two
+drivers**: both are a host waiting for the end of a transfer that a truncated
+read never produces. Detail, and the hypothesis this leaves for the oracle, in
+`FINDINGS.md` C279.
+
+### And the same run proves the 68040 ATC fix
+
+`tools/dn5500/README.md` recorded the DS5500's root directory record coming out
+**byte-identical to the virgin INVOL input** while 50,916 other blocks changed,
+and named the run that would prove the cause — *"the restore re-run on the fixed
+core"*. Never done; this is it.
+
+| root record, blocks 165750–165753 | first 16 bytes |
+| --- | --- |
+| virgin INVOL input | `a4615f80 40012345 00000000 a4616070` |
+| after this restore | `a4615f80 40012345 00000000 a4616ea3` |
+
+**315 of 4,224 bytes differ**, and `sau14/` is among the entries restored. Only
+two commits touch `src/` between the two runs and one is a frontend flag this run
+did not use, so the single variable is `1c2b826`, the 68040 ATC's `M` write-back.
+The single-level store now pages its dirty directory page out on the DS5500.
+
+*An operational note that cost two 35-minute runs*: the first pair was launched
+against a `linux-release` binary six minutes older than the revert it was meant
+to contain, because `ctest` rebuilds **debug**. Both printed the reverted
+change's `Tape read error: FF` and read exactly like a HEAD measurement. Every
+`tools/*.sh` harness resolves the release binary first; the check is one `ls -l`
+of the binary against the sources.
+
 ## `QIC-02`'s data bus is the drive cable, and the tape's file-mark ending is right as it stands (2026-09-11)
 
 **Nothing changed in the core, and that is the result.** The cartridge read's

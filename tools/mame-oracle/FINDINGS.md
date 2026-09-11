@@ -16810,3 +16810,111 @@ captured the 8237 and tape traffic around the **boot** driver's `28001E` in four
 passes, and C274 fixed what it found; nobody has run that instrument at **entry
 396 of the restore**, which is a different driver in a different phase. That is
 the next measurement, and it is the one the plan item's verification turns on.
+
+
+## C279 -- `28001E` measured at its own failure: the driver requires terminal count on every transfer, and the file's last one is short by construction
+
+C278 said the next measurement was the one never taken -- C273's instrument run
+at **entry 396 of the restore** rather than on the boot path C273 and C274
+actually measured. Taken, on both models, and it settles the mechanism.
+
+### First, the item is live and not stale
+
+The 396-entry figure predates four fixes -- C274's `RR` strap, `2f2eac1`'s
+DACK-only data path, C276's SAU 14 volume and `1c2b826`'s 68040 ATC write-back
+-- so the first thing to establish was whether it still reproduces.
+
+**It does, identically, on both models at HEAD:**
+
+    DN3500   396 entries, (restore_object_data) Unexpected error from
+             next_entry. / (unrecognized error status 28001E)
+    DS5500   396 entries, the same two lines, then `Shutdown successful`
+             tape drive   block 104839 of 104841, selected
+             tape card    status 5F, control 00, exception, done, to host,
+                          exs 8100
+
+Byte for byte what `PROJECT_STATUS.md` recorded. Nothing since has touched it.
+
+*And a trap on the way in that cost two 35-minute runs*: the first pair was
+launched against a `linux-release` binary six minutes older than the revert it
+was supposed to contain, because `ctest` rebuilds **debug**. Both printed the
+reverted change's `Tape read error: FF` and looked exactly like a HEAD
+measurement. Every `tools/*.sh` harness resolves the release binary first. The
+check is one `ls -l` of the binary against the sources.
+
+### The driver's own view, which is one poll per transfer
+
+`--boot-watch-read 10C08 --boot-log-watch-reads` on the DN3500 restore -- the
+8237's status port, the instrument C274 used:
+
+    watch read   71062 at 00010C08 value 00000002 by PC 3C40EE10 after 9540008769
+    watch read   71063 at 00010C08 value 00000002 by PC 3C40EE10 after 9543082077
+    watch read   71064 at 00010C08 value 00000002 by PC 3C40EE10 after 9546155530
+    watch read   71065 at 00010C08 value 00000002 by PC 3C40EE10 after 9549229239
+    watch read   71066 at 00010C08 value 00000000 by PC 3C40EE10 after 9551486452
+    (restore_object_data) Unexpected error from next_entry.
+    (unrecognized error status 28001E)
+
+**71,065 reads return `02` and the 71,066th returns `00`.** Bit 1 of the 8237's
+status is channel 1's terminal count. One read per transfer, all from **one PC**,
+evenly spaced ~3,073,400 instructions apart -- and the last gap is **2,257,213**,
+shorter, which is the short transfer itself.
+
+So the driver's contract is exact and now measured rather than inferred: **it
+requires the channel to have reached terminal count after every transfer**, it
+checks once, it does not wait, and the check is the same instruction every time.
+`002398-04` p. 4-14's name for the code it prints when that fails --
+`(0028001E) dma not at end of range` -- is the literal truth.
+
+### What that makes the defect
+
+A READ on this core ends at a file mark, so **the last transfer of every file is
+short by construction** and its terminal count never arrives. The driver reads
+`00` and reports the range. That is not a tape fault, a DONE fault or a status
+fault -- three things this item has spent sessions on -- it is the 8237's count
+not being exhausted.
+
+**And both of this item's symptoms are the same sentence.** C266's `FF`,
+"timeout waiting for controller done", and this `28001E` are a host waiting for
+the *end of a transfer* that a truncated read never produces. The two are one
+defect seen by two drivers.
+
+### The hypothesis the oracle's source supports, stated as a hypothesis
+
+MAME reaches 401. Reading `sc499.cpp`: `dack_r` tests `block_is_filemark()`
+**only on the cycle that loads a block**, so once the mark block is in the buffer
+its remaining 511 bytes are returned unconditionally, and the block after that is
+loaded by the ordinary path with no mark test against it. DRQ, dropped once at
+the mark, returns on the host's next DMAGO -- `set_dma_drq(ASSERT_LINE)` has
+exactly one call site, TIMER_3, reached only from `write_dma_go`. **So MAME does
+not truncate a DMA transfer at a file mark**; it flags `ST0_FM` in the tape
+status and streams on, and the host's count therefore reaches terminal.
+
+That would explain 401, it would explain why `FF` and `28001E` are one defect,
+and it is a statement about the **host side** of the card, so C278's bus
+conflation does not reach it.
+
+**It is not yet measured.** C278's probe never fired, because the cartridge boot
+never reaches a mark -- 16 transfers of a 16-block file, with block 0 handed over
+twice, stop at block 14. Verifying it needs the probe armed during a *restore*,
+which is an hour under the oracle. This finding reasons about `dack_r` for the
+third time and says so; the two previous times were wrong, and the discriminator
+here is that the failing instruction, the value it read and the count it read it
+from are all now measured on this side.
+
+### And the DS5500 run closes a different item's verification
+
+`tools/dn5500/README.md` recorded that the DS5500's root directory record came
+out **byte-identical to the virgin INVOL input** while 50,916 other blocks
+changed, and named the run that would prove the cause: *"the restore re-run on
+the fixed core"*. Never done. This run is it.
+
+    root record, blocks 165750-165753 (four sectors to a record)
+      virgin   a4615f80 40012345 00000000 a4616070 0002...
+      restored a4615f80 40012345 00000000 a4616ea3 0002...
+      315 of 4224 bytes differ
+
+**Only two commits touch `src/` between that run and this one**, and one is a
+frontend flag this run did not use. The single variable is `1c2b826`, the 68040
+ATC's `M` write-back. The single-level store now pages its dirty directory page
+out on the DS5500, and `sau14/` is among the entries restored.

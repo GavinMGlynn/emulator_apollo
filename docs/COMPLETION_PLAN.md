@@ -4896,6 +4896,36 @@ discipline throughout.
       instrument -- the 8237 programming, the command bytes and the transfer
       counts -- run at **entry 396 of the restore**, a different driver in a
       different phase from the boot path C273 and C274 actually measured.
+      **TAKEN 2026-09-11, and it settles the mechanism.** First, the item is
+      live: 396 and `28001E` reproduce **identically on both models at HEAD**,
+      so none of the four fixes since (`RR` strap, DACK-only data, SAU 14, the
+      68040 ATC) closed it. Then the driver's own view, from
+      `--boot-watch-read 10C08`:
+
+          watch read   71065 at 00010C08 value 00000002 by PC 3C40EE10
+          watch read   71066 at 00010C08 value 00000000 by PC 3C40EE10
+          (unrecognized error status 28001E)
+
+      **71,065 reads return `02` -- channel 1's terminal count -- and the
+      71,066th returns `00`.** One poll per transfer, all from one PC, evenly
+      spaced ~3,073,400 instructions apart with the last gap **2,257,213**,
+      which is the short transfer itself. So the driver **requires terminal
+      count after every transfer**, checks once and does not wait.
+      **That makes the defect the 8237's count, not the tape.** A READ ends at a
+      file mark, so the last transfer of every file is short by construction and
+      its terminal count never arrives. *And it makes C266's `FF` and this
+      `28001E` one defect seen by two drivers* -- both are a host waiting for the
+      end of a transfer a truncated read never produces.
+      *The hypothesis, stated as one*: `sc499.cpp` tests `block_is_filemark()`
+      only on the cycle that **loads** a block, so the mark block's remaining 511
+      bytes are returned unconditionally and the next block is loaded with no
+      mark test; DRQ returns on the host's next DMAGO. **So MAME does not
+      truncate a DMA transfer at a mark** -- it flags `ST0_FM` and streams on,
+      and the count reaches terminal. That is a host-side statement, so C278's
+      bus conflation does not reach it. **Not yet measured**: C278's probe never
+      fired because the boot never reaches a mark, and verifying this needs the
+      probe armed during a restore. This item has now reasoned about `dack_r`
+      three times and been wrong twice. Detail in `FINDINGS.md` C279.
       *How to bound it, written down because deriving it is most of the cost.*
       The route is `tools/dn5500/README.md`'s: `tools/dn5500-md.sh` with
       `--boot-script tools/dn5500/restore.script`, a copy of
