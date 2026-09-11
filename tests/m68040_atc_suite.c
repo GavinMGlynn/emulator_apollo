@@ -135,7 +135,7 @@ static void test_four_pages_sharing_a_set_all_fit(void) {
     TEST_ASSERT_EQUAL_UINT(ap_m68040_atc_set(0x1000u, AP_M68040_PAGE_4K),
                            ap_m68040_atc_set(address, AP_M68040_PAGE_4K));
     ap_m68040_atc_fill(
-        &atc, ap_m68040_atc_select_way(&atc, address, AP_M68040_PAGE_4K),
+        &atc, ap_m68040_atc_select_way(&atc, address, true, AP_M68040_PAGE_4K),
         address, AP_M68040_PAGE_4K, mapping(0x90000000u + i));
   }
   for (unsigned i = 0; i < AP_M68040_ATC_WAYS; i++) {
@@ -157,7 +157,7 @@ static void test_an_invalid_way_is_preferred_then_the_counter(void) {
   ap_m68040_atc_init(&atc);
   atc.counter = 3u;
   TEST_ASSERT_EQUAL_UINT(
-      0u, ap_m68040_atc_select_way(&atc, 0x1000u, AP_M68040_PAGE_4K));
+      0u, ap_m68040_atc_select_way(&atc, 0x1000u, true, AP_M68040_PAGE_4K));
 
   for (unsigned i = 0; i < AP_M68040_ATC_WAYS; i++) {
     ap_m68040_atc_fill(&atc, i, 0x1000u + i * 0x10000u, AP_M68040_PAGE_4K,
@@ -166,8 +166,50 @@ static void test_an_invalid_way_is_preferred_then_the_counter(void) {
   for (unsigned n = 0; n < AP_M68040_ATC_WAYS; n++) {
     atc.counter = n;
     TEST_ASSERT_EQUAL_UINT(
-        n, ap_m68040_atc_select_way(&atc, 0x1000u, AP_M68040_PAGE_4K));
+        n, ap_m68040_atc_select_way(&atc, 0x1000u, true, AP_M68040_PAGE_4K));
   }
+}
+
+/* p. 3-27, the `M` field of Figure 3-21: the M-bit search "writes over the old
+ * ATC entry with the current page descriptor information" -- **the old entry**,
+ * not a fresh way. A set holding two valid entries with one tag is a state the
+ * hardware's parallel tag comparison cannot reach, and the stale one is what a
+ * lookup would keep returning. Invisible until the M-bit re-search existed,
+ * because before it the only search for an address was the one that first
+ * cached it. */
+static void test_an_address_already_in_the_set_takes_its_own_way_back(void) {
+  ap_m68040_atc_t atc;
+  ap_m68040_atc_init(&atc);
+  const unsigned first =
+      ap_m68040_atc_select_way(&atc, 0x1000u, USER, AP_M68040_PAGE_4K);
+  ap_m68040_atc_fill(&atc, first, 0x1000u, AP_M68040_PAGE_4K, mapping(0u));
+
+  /* The set still has three invalid ways, and the address takes its own
+   * anyway. */
+  TEST_ASSERT_EQUAL_UINT(
+      first, ap_m68040_atc_select_way(&atc, 0x1000u, USER, AP_M68040_PAGE_4K));
+  /* A different offset in the same page is the same entry too: the tag is the
+   * page. */
+  TEST_ASSERT_EQUAL_UINT(
+      first, ap_m68040_atc_select_way(&atc, 0x1456u, USER, AP_M68040_PAGE_4K));
+  /* The other privilege mode is a different entry -- FC2 is in the tag, and
+   * `mapping` builds a user-space one. */
+  TEST_ASSERT_NOT_EQUAL_UINT(
+      first, ap_m68040_atc_select_way(&atc, 0x1000u, SUPERVISOR,
+                                   AP_M68040_PAGE_4K));
+
+  /* And refilling through it leaves exactly one valid entry for the page. */
+  ap_m68040_atc_fill(
+      &atc, ap_m68040_atc_select_way(&atc, 0x1000u, USER, AP_M68040_PAGE_4K),
+      0x1000u, AP_M68040_PAGE_4K, mapping(0x90000000u));
+  const unsigned set = ap_m68040_atc_set(0x1000u, AP_M68040_PAGE_4K);
+  unsigned valid = 0;
+  for (unsigned way = 0; way < AP_M68040_ATC_WAYS; way++) {
+    if (atc.entry[set][way].valid) {
+      valid++;
+    }
+  }
+  TEST_ASSERT_EQUAL_UINT(1u, valid);
 }
 
 static void test_the_counter_wraps_at_four(void) {
@@ -279,6 +321,7 @@ int main(void) {
   RUN_TEST(test_an_invalid_entry_never_matches);
   RUN_TEST(test_four_pages_sharing_a_set_all_fit);
   RUN_TEST(test_an_invalid_way_is_preferred_then_the_counter);
+  RUN_TEST(test_an_address_already_in_the_set_takes_its_own_way_back);
   RUN_TEST(test_the_counter_wraps_at_four);
   RUN_TEST(test_a_global_entry_survives_a_nonglobal_flush);
   RUN_TEST(test_a_flush_all_takes_global_entries_too);

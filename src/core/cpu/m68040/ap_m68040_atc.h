@@ -113,10 +113,12 @@ void ap_m68040_atc_init(ap_m68040_atc_t *atc);
                                             bool supervisor,
                                             ap_m68040_page_size_t page_size);
 
-/* Choose the way a new entry will occupy: an invalid one if the set has any,
- * else the one the counter points at. */
+/* Choose the way a new entry will occupy: the way already holding this address
+ * if the set has one -- p. 3-27's "writes over the old ATC entry" -- then an
+ * invalid one, else the one the counter points at. */
 [[nodiscard]] unsigned ap_m68040_atc_select_way(const ap_m68040_atc_t *atc,
                                                 uint32_t logical_address,
+                                                bool supervisor,
                                                 ap_m68040_page_size_t page_size);
 
 void ap_m68040_atc_tick(ap_m68040_atc_t *atc);

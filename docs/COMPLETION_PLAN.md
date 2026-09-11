@@ -4596,6 +4596,22 @@ discipline throughout.
       C50, and the CALENDAR preamble in `install-sau14.cmds`). The page map is
       built and every chapter boundary is known; what is owed is the reading.
 
+- [x] **The 68040's ATC never wrote `M` back, and its re-search duplicated the
+      entry.** Figure 3-21's `M` field, p. 3-27: a write to an entry whose `M`
+      is clear "suspends the access, initiates a table search to set the M-bit
+      in the page descriptor, and **writes over the old ATC entry**". This core
+      did neither -- the hit path returned a cached translation for writes, and
+      `ap_m68040_atc_select_way` preferred an invalid way over the one already
+      holding the address. Found by diffing two SR10.4 restores that differ only
+      in the CPU: the 68030's root directory went 3 entries to 17, the 68040's
+      stayed byte-identical while 50,916 other blocks changed.
+      *Verification: `m68040_mmu_suite` 14 -> 15, `m68040_atc_suite` 16 -> 17,
+      `ctest` 147/147 on both presets; identity `F78D6DBE770CAF47` unmoved,
+      the change being 68040-only. `M68040_WALK.md`'s §3 row is corrected: it
+      derived Figures 3-11, 3-12, 3-6 and Table 3-1 and never walked Figure
+      3-21's field definitions, and its claim that this core models a
+      fully-associative ATC was never true. Detail in `PROJECT_STATUS.md`.*
+
 - [ ] **The cartridge read loses a file's last short transfer, on every model.**
       The SR10.4 boot-volume restore reaches **396** entries on this core and
       the oracle reaches **401** with `Restore complete.`, off the same
@@ -5242,15 +5258,23 @@ discipline throughout.
       entry is not (only) a flush. What is known and no more: the objects are
       there, RBAK's paths for them are root-relative (`sau14/self_test`, then
       `(dir) "sau14"`), and a clean dismount does not put them in the root.
-      *The discriminator is the DN3500 control*, which restored the same
-      cartridge on this core:
-      `compare-volumes-by-root-directory-block` records a DN3500 root after RBAK
-      holding **20 entries including `sau7 sau8 sau9`**. If our DN3500 volume
-      boots and finds `/sau7` the restore does create root links here and the
-      DS5500's failure is elsewhere; if it does not, no restore on this core
-      creates them and the five entries lost to `0028001E` become the first
-      thing to suspect. The `shut` line stays either way -- `008860-A03` and
-      `sr10-3-install-route` both require it. Detail in `PROJECT_STATUS.md`.
+      **ANSWERED 2026-09-11, and the answer was the 68040's MMU.** The DN3500
+      control restored the same cartridge on this core and reached the **same
+      396 entries, ending on the same file** -- and its root directory went
+      **3 entries to 17**, with no `shut` at all. The DS5500's, after a clean
+      `Shutdown successful`, is **byte-identical to its virgin INVOL input**
+      while 50,916 other blocks changed. So the restore does create root links
+      on this core, `shut` is not what creates them, and the `0028001E` entries
+      are not implicated: one variable separates the two runs, the CPU.
+      *The failure was that `M` never reached the page descriptor in memory.*
+      The 68040's ATC-hit path returned a cached translation for a write as
+      readily as for a read, so a directory page first touched by a read stayed
+      `M`-clear in its descriptor and a single-level store had nothing to page
+      out. Figure 3-21's `M` field on p. 3-27 states the rule and this core
+      implemented neither half of it; the 68030 has had both since it was
+      written. Fixed, tested and tied to the identity harness -- see the item
+      below. The `shut` line stays -- `008860-A03` and `sr10-3-install-route`
+      both require it. Detail in `PROJECT_STATUS.md`.
       **The DS5500 reaches its own monitor, 2026-09-10** — `MD14 REV 2.00,
       1991/03/08.16:20:14` and a `>` prompt, from a machine that could execute
       two of its instructions a day earlier. It cost **one address range**:

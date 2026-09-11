@@ -43,8 +43,22 @@ unsigned ap_m68040_atc_lookup(const ap_m68040_atc_t *atc,
 }
 
 unsigned ap_m68040_atc_select_way(const ap_m68040_atc_t *atc,
-                                  uint32_t logical_address,
+                                  uint32_t logical_address, bool supervisor,
                                   ap_m68040_page_size_t page_size) {
+  /* An address already in the set takes its own way back. p. 3-27 says the
+   * M-bit search "**writes over the old ATC entry** with the current page
+   * descriptor information", and a search that allocated a fresh way instead
+   * would leave two valid entries with the same tag -- a duplicate the
+   * hardware's tag comparison cannot produce, and one whose stale copy is the
+   * one `ap_m68040_atc_lookup` returns for the rest of its life.
+   *
+   * This was invisible until the M-bit re-search existed, because until then
+   * the only search for an address was the one that first cached it. */
+  const unsigned held =
+      ap_m68040_atc_lookup(atc, logical_address, supervisor, page_size);
+  if (held < AP_M68040_ATC_WAYS) {
+    return held;
+  }
   const unsigned set = ap_m68040_atc_set(logical_address, page_size);
   for (unsigned way = 0; way < AP_M68040_ATC_WAYS; way++) {
     if (!atc->entry[set][way].valid) {

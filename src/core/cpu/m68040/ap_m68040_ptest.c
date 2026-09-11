@@ -105,7 +105,7 @@ ap_m68040_ptest_result_t ap_m68040_ptest(const ap_m68040_mmu_t *mmu,
       .resident = search.status == AP_M68040_SEARCH_RESIDENT,
       .physical_address = search.physical_address & ~offset_mask};
   const unsigned fill =
-      ap_m68040_atc_select_way(mmu->atc, logical, tcr.page_size);
+      ap_m68040_atc_select_way(mmu->atc, logical, supervisor, tcr.page_size);
   ap_m68040_atc_fill(mmu->atc, fill, logical, tcr.page_size, entry);
   ap_m68040_atc_tick(mmu->atc);
   out.filled = true;

@@ -49670,3 +49670,93 @@ STATUS`, and a following command still accepted. `ctest` 145/145. Identity
 `7F793C44586F263B` → `6DF967A63D3D4DA9` from the one new hashed deadline, with
 `clocks 1408661906`, the exception census, 42,579 ATC fills, 261 bus errors,
 1,041 unmapped reads and all 150 console lines unmoved.*
+
+## The 68040 ATC never set `M` in memory, and Figure 3-21 says it twice
+## (2026-09-11)
+
+**Two defects in the MC68040 MMU, both in the ATC-hit path, both stated in the
+field definitions of Figure 3-21 on p. 3-27 — a page `M68040_WALK.md` records as
+read *as text*, where the OCR renders the field name `M~bit`.** The row is
+corrected there and keeps its original wording beneath the correction.
+
+The manual, read as a page image:
+
+> **M—Modified.** The modified bit is set when a valid write access to the
+> logical address corresponding to the entry occurs. If the M-bit is clear and a
+> write access to this logical address is attempted, the M68040 **suspends the
+> access, initiates a table search to set the M-bit in the page descriptor, and
+> writes over the old ATC entry** with the current page descriptor information.
+> The MMU then allows the original write access to be performed. This procedure
+> ensures that the first write operation to a page sets the M-bit in both the
+> ATC and the page descriptor in the translation tables, even when a previous
+> read operation to the page had created an entry for that page in the ATC with
+> the M-bit clear.
+
+**First: no re-search.** `ap_m68040_mmu_translate`'s hit path checked `resident`,
+the supervisor bit and write protection, and then returned the cached
+translation — for a read and a write alike. So a page first touched by a read
+kept `M` clear in its page descriptor **in memory** for as long as the entry
+lived, however many times it was written. The table search is the only thing
+that writes `M` back, and `ap_m68040_search` had been doing it correctly since
+`6aa2d08` walked Table 3-1 row for row; nothing was reaching it.
+
+**Second, and it only becomes visible once the first is fixed: the search
+allocated a fresh way.** `ap_m68040_atc_select_way` preferred any invalid way
+and never considered the one already holding the address, so the re-search left
+**two valid entries with the same tag** in one set — a state the hardware's
+parallel tag comparison cannot reach, and whose stale copy is the one
+`ap_m68040_atc_lookup` returns for the rest of its life. The manual forbids it in
+the same sentence: "writes over **the old ATC entry**". The new test caught it on
+its first run.
+
+**The 68030 has had both since it was written**, citing the same two sentences
+from its own manual — `AP_M68030_ATC_MODIFY` for the re-search, and
+`ap_m68030_atc_insert`'s "an existing entry for this address is replaced rather
+than duplicated". The two parts now agree, which is how it should have read all
+along.
+
+### What found it, and it was not a boot
+
+A one-variable comparison of two artefacts, offline, in about a minute of
+compute. The SR10.4 restore was run twice from the same cartridge on this core —
+once on a DS5500 (68040) and once on a DN3500 (68030) — and both restored the
+**same 396 entries, ending on the same file**. Then the volumes were diffed
+against their own virgin INVOL inputs at 1056-byte block granularity:
+
+| | root directory | before | after |
+| --- | --- | --- | --- |
+| DN3500, 68030, no `shut` | block 165649 | 3 entries | **17** |
+| DS5500, 68040, clean `shut` | blocks 165750–165753 | 3 entries | **3, byte-identical** |
+
+The DS5500 restore wrote **50,916 blocks** and left its root directory record
+untouched. Every DS5500 artefact on disk shows the same three entries — `sys`,
+`lost+found.list`, `sysboot` — which is what a virgin INVOL leaves. A whole-image
+scan for the populated-root signature (`lost+found.list` + `usr` + `node_data`)
+finds it at 165649 on the DN3500 volume and **nowhere at all** on the DS5500's:
+the directory was not misplaced, it was never written.
+
+*The machine named the block itself*, which is worth recording because it cost
+nothing. `--boot-disk-reads 400` on the failing DS5500 boot ends:
+
+    disk reads  332 total, last 400: 165753 165752 165751 165750 160113 ...
+
+— the four-sector record the DS5500's ` M68K_4K ` geometry puts the root
+directory in, read immediately before `boot error: SAU14 not found in root_dir`.
+The two instruments agree on the address without either being told about the
+other.
+
+*And this is what makes it the MMU rather than the tape.* The two restores are
+identical in release, media, script family and entry count; they differ in the
+machine, and therefore in the CPU. A single-level store pages a modified
+directory out by finding `M` set in its descriptor. On the 68040 that bit was
+never set, so the page stayed in memory and the record on disk stayed virgin.
+
+### Not a re-baseline
+
+The DN3500 is a 68030 and the change is 68040-only, so `tools/identity-boot.sh`
+must produce the same hash — and does: `F78D6DBE770CAF47` unmoved, on the release
+build.
+
+*Verification: `m68040_mmu_suite` 14 → 15, `m68040_atc_suite` 16 → 17; `ctest`
+147/147 on `linux-debug` and `linux-release`; identity `F78D6DBE770CAF47`
+unmoved.*

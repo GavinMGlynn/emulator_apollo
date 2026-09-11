@@ -4366,7 +4366,7 @@ static void seed_entry(ap_m68040_atc_t *atc, uint32_t logical, bool supervisor,
       .resident = true,
       .physical_address = 0x5000u};
   ap_m68040_atc_fill(
-      atc, ap_m68040_atc_select_way(atc, logical, AP_M68040_PAGE_4K), logical,
+      atc, ap_m68040_atc_select_way(atc, logical, supervisor, AP_M68040_PAGE_4K), logical,
       AP_M68040_PAGE_4K, entry);
 }
 

@@ -57,11 +57,32 @@ ap_m68040_mmu_result_t ap_m68040_mmu_translate(const ap_m68040_mmu_t *mmu,
       out.reason = AP_M68040_MMU_FAULT_CACHED;
       return out;
     }
-    out.status = AP_M68040_MMU_TRANSLATED;
-    out.physical = entry->physical_address |
-                   ap_m68040_page_offset(logical, tcr.page_size);
-    out.cache_mode = entry->cache_mode;
-    return out;
+    /* p. 3-27, the `M` field of Figure 3-21, and it is why this branch can
+     * fall through to a table search: "If the M-bit is clear and a write
+     * access to this logical address is attempted, the M68040 suspends the
+     * access, initiates a table search to set the M-bit in the page
+     * descriptor, and writes over the old ATC entry with the current page
+     * descriptor information. The MMU then allows the original write access to
+     * be performed. This procedure ensures that the first write operation to a
+     * page sets the M-bit in both the ATC and the page descriptor in the
+     * translation tables, even when a previous read operation to the page had
+     * created an entry for that page in the ATC with the M-bit clear."
+     *
+     * So a write through an unmodified entry is a hit that still costs a
+     * search, and the search is the only thing that sets `M` in the descriptor
+     * *in memory* -- which is what an operating system's page-out scan reads.
+     * The checks above stay ahead of it: the manual's procedure is for a write
+     * the entry permits, and a cached fault still faults without a search. The
+     * 68030 states the same rule in the same words and answers it with
+     * `AP_M68030_ATC_MODIFY`; this part has no separate status because the
+     * search it falls into replaces the entry itself. */
+    if (!write || entry->modified) {
+      out.status = AP_M68040_MMU_TRANSLATED;
+      out.physical = entry->physical_address |
+                     ap_m68040_page_offset(logical, tcr.page_size);
+      out.cache_mode = entry->cache_mode;
+      return out;
+    }
   }
 
   /* A miss pays for a table search, from the root the access's privilege
@@ -117,7 +138,7 @@ ap_m68040_mmu_result_t ap_m68040_mmu_translate(const ap_m68040_mmu_t *mmu,
         .resident = search.status == AP_M68040_SEARCH_RESIDENT,
         .physical_address = frame};
     const unsigned fill =
-        ap_m68040_atc_select_way(mmu->atc, logical, tcr.page_size);
+        ap_m68040_atc_select_way(mmu->atc, logical, supervisor, tcr.page_size);
     ap_m68040_atc_fill(mmu->atc, fill, logical, tcr.page_size, entry);
     ap_m68040_atc_tick(mmu->atc);
     out.filled = true;

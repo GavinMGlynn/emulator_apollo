@@ -353,6 +353,63 @@ static void test_the_atc_entry_caches_the_descriptors_m_and_not_the_access(void)
   TEST_ASSERT_TRUE(found);
 }
 
+/* p. 3-27, the `M` field of Figure 3-21: "If the M-bit is clear and a write
+ * access to this logical address is attempted, the M68040 suspends the access,
+ * initiates a table search to set the M-bit in the page descriptor ... This
+ * procedure ensures that the first write operation to a page sets the M-bit in
+ * both the ATC and the page descriptor in the translation tables, even when a
+ * previous read operation to the page had created an entry for that page in
+ * the ATC with the M-bit clear."
+ *
+ * Without it the descriptor in memory keeps `M` clear for as long as the entry
+ * lives, and an operating system that pages out by scanning descriptors never
+ * writes the page back. Measured on the machine: the SR10.4 restore left the
+ * DS5500's root directory record byte-identical to a virgin volume's while
+ * writing 50,916 other blocks, and the DN3500 -- a 68030, whose ATC has
+ * answered this rule since it was written -- restored the same media onto the
+ * same core and took its root from 3 entries to 17. */
+static void test_a_write_after_a_read_searches_again_to_set_m(void) {
+  memory_t m;
+  build(&m);
+  reset_registers();
+  g_tc = 0x8000u;
+  const ap_m68040_mmu_t v = mmu();
+
+  const ap_m68040_mmu_result_t read = ap_m68040_mmu_translate(
+      &v, 0x00000123u, 5u, false, memory_fetch, memory_update, &m);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_TRANSLATED, read.status);
+  TEST_ASSERT_TRUE((get(&m, 0x3000u) & (UINT32_C(1) << 4)) == 0u);
+  const unsigned after_read = m.fetches;
+  TEST_ASSERT_TRUE(after_read > 0u);
+
+  /* Same page, so the entry is a hit -- and the write still pays for a search
+   * because the entry it hits has `M` clear. */
+  const ap_m68040_mmu_result_t write = ap_m68040_mmu_translate(
+      &v, 0x00000456u, 5u, true, memory_fetch, memory_update, &m);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_TRANSLATED, write.status);
+  TEST_ASSERT_EQUAL_HEX32(0x50456u, write.physical);
+  TEST_ASSERT_TRUE(m.fetches > after_read);
+  TEST_ASSERT_TRUE((get(&m, 0x3000u) & (UINT32_C(1) << 4)) != 0u);
+
+  const unsigned set = ap_m68040_atc_set(0x00000456u, AP_M68040_PAGE_4K);
+  bool found = false;
+  for (unsigned way = 0; way < AP_M68040_ATC_WAYS; way++) {
+    if (g_atc.entry[set][way].valid) {
+      found = true;
+      TEST_ASSERT_TRUE(g_atc.entry[set][way].modified);
+    }
+  }
+  TEST_ASSERT_TRUE(found);
+
+  /* And it is the *first* write that pays: the entry now carries `M`, so a
+   * second one is an ordinary hit. */
+  const unsigned after_write = m.fetches;
+  const ap_m68040_mmu_result_t again = ap_m68040_mmu_translate(
+      &v, 0x00000789u, 5u, true, memory_fetch, memory_update, &m);
+  TEST_ASSERT_EQUAL_INT(AP_M68040_MMU_TRANSLATED, again.status);
+  TEST_ASSERT_EQUAL_UINT(after_write, m.fetches);
+}
+
 static void test_a_null_update_translates_without_touching_the_tables(void) {
   /* What `ap_machine_translate`'s observer passes, and the reason the argument
    * exists at all: `--dump-logical` must not set a bit the machine did not. */
@@ -401,6 +458,7 @@ int main(void) {
   RUN_TEST(test_a_translated_write_sets_u_and_m_in_the_tables);
   RUN_TEST(test_a_translated_read_leaves_m_clear_in_the_tables);
   RUN_TEST(test_the_atc_entry_caches_the_descriptors_m_and_not_the_access);
+  RUN_TEST(test_a_write_after_a_read_searches_again_to_set_m);
   RUN_TEST(test_a_null_update_translates_without_touching_the_tables);
   RUN_TEST(test_a_transparent_translation_writes_no_descriptor);
   return UNITY_END();
