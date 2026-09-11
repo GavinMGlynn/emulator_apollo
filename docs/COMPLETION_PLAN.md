@@ -4747,6 +4747,15 @@ discipline throughout.
          bus access.
       3. **`PFLUSH` has no published timing** and is `PROVISIONAL` for that
          reason; no manual on this shelf gives a figure.
+      4. **Nothing pins the DS5500 against regression.** `tools/identity-boot.sh`
+         is DN3500-only, so a 68040 change cannot move its hash and cannot be
+         caught by it -- which is exactly what happened to the ATC's `M`
+         writeback: `F78D6DBE770CAF47` stayed put while a DS5500 restore was
+         silently failing to write its root directory. A DS5500 baseline with
+         its own bound is the tail this item now owes. The bound is not a free
+         parameter: the restore-and-`shut` script consumed **40,000,000,000**
+         steps exactly, so a baseline must be derived from a run's own
+         `executed` plus `idle` and not chosen for roundness.
       Everything else below is done, refuted or superseded, and says which. Run on 2026-08-19 with `--boot-trace-last`: the machine
       executes `NOP` at `00060C` and then takes **vector 11, the F-line
       emulator trap**, on `F4D8` at `00060E` — `CINVA BC`, a 68040
