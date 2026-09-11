@@ -59,6 +59,49 @@ clock at 2002-11-28, and INVOL stamped this volume "Nov. 28, 2002". The DN3500
 route needs CALENDAR because it restores onto a volume whose timestamps are
 years from its clock.
 
+## What comes after the restore, from `008860-A03` rather than from guesswork
+
+The restore leaves a volume that mounts and boots as far as its root directory.
+What is still missing is `/sau14` **as a root-directory entry**, which is
+Chapter 1's **Step 4**, and the manual's route is:
+
+1. **`GO`** at the `)` prompt. This is the step this project never had: it
+   "starts the DM and the login prompt appears. If you are at a DSP, the SPM is
+   started" (p. 1-17).
+2. Log in as **`user`**. `minst` **starts automatically** on that login after a
+   boot from distribution media (pp. 1-18, 10-44) — no command is typed for it.
+3. Answer `minst`, **or quit it and use the tools directly**. Chapter 10 says
+   both work: "You can do everything `minst` does by invoking other commands
+   directly", and Chapter 5 gives the command lines, every one of which has a
+   known completion line and needs no interactive answer:
+
+       install/tools/rbak_sr10 -dev ct0 -ms -sacl -pdt -force -du -f 1 -all
+       install/tools/distaa -f -m c AA
+       install/tools/install -vx -s AA -c AA/install/templates/apollo/os.v.10.4/cf.<product> //node_<id>
+
+   `config` is skippable because "the default configuration file that ships with
+   every product" can be handed straight to `install` (p. 5-12).
+
+**No SAU selection is needed.** p. 10-46: "novice mode installs only the `/sau`
+directory for the machine type of the target node". The DN3500 run got `/sau7`
+because its target was a DN3500; a DS5500 run gets `/sau14` for the same reason.
+The **template** number is the aegis/bsd/sys5 size, a different question, and the
+Authorized Area gets *every* SAU regardless (p. 1-24).
+
+**What is interactive is the media and only the media**: "If the set of
+distribution media contains more than one tape volume, `minst` prompts you in
+sequence to insert each tape into the drive" (p. 10-45). That is what
+`--boot-script`'s `swap PATH` exists for. The first product volume is
+**`019594-001`, not the boot volume** (p. 5-4), and all four are in
+`media/domainos/`.
+
+*Not scripted here yet, deliberately.* The prompt **texts** are what a script
+needs and they have not been read off a running DS5500;
+`tools/mame-oracle/install-sau14.cmds` drives the DN3500's MINST on time rather
+than on text, which does not translate to this frontend's `expect`. The
+tool-level route above is the one to script, because every step of it ends in a
+line the manual prints.
+
 ## Four things in the dialogue that C50's table does not have
 
 `FINDINGS.md` C50 recorded the DN3500's INVOL dialogue from a MAME session. It
