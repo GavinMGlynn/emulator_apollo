@@ -126,6 +126,15 @@ drive mask made the state reachable. What remains:
   `ap_sc499_block_boundary`; DIRC turns at T9 and back at T39 on a read and
   never moves on a write, which is `ap_tape`'s bus direction; and T38
   "CONTROLLER SETS EXCEPTION" at a file mark is the end-of-read condition
+  **-- read again from the page image 2026-09-11, and the order is what
+  matters.** The last panel's DATA BUS carries `FILEMARK` as a *valid-data*
+  segment between two hatched ones, drawn exactly like `LAST BLOCK`, and T38
+  fires **after** it. So the controller transfers the mark across the bus and
+  *then* excepts. This core stops the read while the position is still on the
+  mark and never transfers it, which makes every such read short by
+  construction -- the cause behind both `FINDINGS.md` C266 and the restore's
+  `0028001E`. The row above was not wrong; "read ends with ... EXCEPTION" is
+  what the figure says, and the load-bearing word was `ends`
   `ap_tape_read` raises when the cartridge is spent.
   **One documented behaviour with no route to it**, recorded rather than
   implemented: §3.6.5 ends "CONTROLLER WILL AUTOMATICALLY WRITE FILE MARK AND

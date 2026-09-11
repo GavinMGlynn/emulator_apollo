@@ -4698,12 +4698,26 @@ discipline throughout.
       for the firmware's single-block read, the host reads `ST0_FM` to learn
       what it hit, and RBAK's 32 KB read ends on a count that *is* at end of
       range. One change, both symptoms.
-      **And it does not contradict `QIC-02 Rev D` §3.6.6's T38**, which this
-      item cites for "the drive stopped at the mark". The drive stopping *after*
-      delivering the mark's block and stopping *before* it are different claims;
-      T38 is about the former, and reading it as the latter is what put this
-      core here. To be confirmed against the page image before the change, with
-      `[SC499]` §1.11's step list beside it.
+      **CONFIRMED FROM THE PAGE IMAGE, and it decides against both models.**
+      `QIC-02 Rev D` §3.6.6's last panel, read at 260 dpi and rotated: the
+      DATA BUS waveform runs
+
+          ///// | LAST BYTE / LAST BLOCK | ///// | FILEMARK | /////
+
+      with `FILEMARK` drawn as a **valid-data segment between two invalid
+      (hatched) ones, exactly like `LAST BLOCK`** -- so the controller puts the
+      file mark on the bus through the same per-byte handshake as any block.
+      Only *then*, after it, does **`T38 CONTROLLER SETS EXCEPTION`** fire,
+      followed by `T39 CHANGE BUS DIRECTION`, `TAPE MOTION STOPS` and
+      `HOST SENDS READ STATUS COMMAND`.
+      So the order is **deliver the mark, then except** -- and this core does
+      neither in that order (it excepts instead of delivering) while MAME
+      delivers the block but **clears** `SC499_STAT_EXC`. *We out-accurate the
+      oracle on the second half and adopt its first*: take the delivery, keep
+      EXCEPTION set as T38 requires, and cite this figure for both. The walk
+      record's row for pp. 13-14 said "read ends with the controller setting
+      EXCEPTION at a filemark"; true, and it is the *ends* that was doing the
+      work -- the mark goes across the bus first.
       *What the change costs*: `tape_suite`'s
       `test_a_read_the_drive_ends_also_ends_the_dma` and
       `test_the_drive_stops_asking_at_a_file_mark` both encode the
