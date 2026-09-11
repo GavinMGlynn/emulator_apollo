@@ -4822,6 +4822,57 @@ discipline throughout.
       lifted EXCEPTION at the next block boundary (C267) and ORed READY into the
       interrupt (C274). All four are since fixed. It is a measurement of code
       that no longer exists.
+      **CORRECTED A FOURTH TIME, and this one is the root of the other three:
+      `QIC-02`'s DATA BUS is the cable to the drive, not the ISA DMA.** §3.5's
+      pin list, two pages from the figure, names pins 12-26 `HB7-`..`HB0-`,
+      "**HOST BUS BIT n** ... of 8-bit host bi-directional data bus", with
+      `XFR-` (34) and `ACK-` (36) as their handshake; §3.0-§3.4 makes it a
+      **50-conductor edge connector** with **up to four devices on it**. So
+      `QIC-02`'s "host" is the SC-499 card and its bus is the drive cable --
+      the standard's own title is *Tape Drive Intelligent **Interface**
+      Standard*. §3.6.6's `FILEMARK` segment is the **drive handing the card**
+      the block that tells it a mark is there, and it says nothing about how
+      many bytes the card forwards into the 68030's memory, which is the only
+      thing `ap_tape`'s DACK path and the 8237's count are about. T39's
+      `CHANGE BUS DIRECTION` is that cable's direction, not the host-visible
+      `DIR` bit.
+      **The walk record said this before any of it**, in the row for PDF 13-14:
+      *"`none` (the byte handshake, which lives a layer down) ... This is the
+      XFER/ACK byte protocol, which `ap_sc499` models from `[SC499]`'s figures
+      rather than from here."* Two commits appended to that row and a third
+      built a table on it; the live text was right and the corrections were the
+      error.
+      **And the machine had already said it.** C267 measured one byte of a mark
+      reaching host memory as `count 01FE (base 01FF)` with MD printing
+      `002398-04` p. 4-17's **`36`, "bad block transferred"**. The figure was
+      never in conflict with that; it was about the other bus.
+      **Both halves were implemented and both were refuted, on 2026-09-11.**
+      The mark's byte was delivered through DACK, T39 applied to the host
+      `DIR` bit, and all three drive-driven DONE raises removed. The cartridge
+      boot answered in one line -- `Tape read error: FF  000002  00  C`, with
+      `count 01FE (base 01FF)`, `exs 8100` and no `done`, which is C266's state
+      number for number -- against a control on the same commit that loads
+      SYSBOOT with no tape error. Reverted whole; `ctest` 147/147 either side.
+      Three rows, each measured here:
+
+      | the mark's byte to host memory | DONE at the ending | MD prints |
+      | --- | --- | --- |
+      | one byte (invented `FF`) | raised | `36`, "bad block transferred" (C267) |
+      | one byte (the mark's `DE`) | left to the 8237 | `FF`, "timeout waiting for controller done" |
+      | none | raised | no tape error; SYSBOOT loads |
+
+      **So the code is right as it stands on both counts, and the open question
+      is narrower than any version of it above.** `QIC-02` is excluded by scope
+      rather than by silence, `[SC499]`'s forty-two pages mention the 16K buffer
+      once (a power-on LED), and neither Apollo tape document says what the card
+      presents to a host when a read ends with the count unspent. **The oracle
+      is due, and the question for it is two facts about `sc499.cpp`, to be
+      measured rather than reasoned about** -- this item has now reasoned about
+      them twice and been wrong twice: how many bytes of the mark block reach
+      host memory (`dack_r` tests `block_is_filemark()` only on the cycle that
+      *loads* a block, so the remaining 511 are returned unconditionally if DRQ
+      returns), and what the status register holds at the mark that ends RBAK's
+      32 KB read. Detail in `FINDINGS.md` C278.
       *Verification: the restore reaches 401 entries and `Restore complete.` on
       both models, against `sau14.log`.* Detail in `PROJECT_STATUS.md`.
 

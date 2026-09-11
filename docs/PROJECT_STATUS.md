@@ -434,6 +434,73 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## `QIC-02`'s data bus is the drive cable, and the tape's file-mark ending is right as it stands (2026-09-11)
+
+**Nothing changed in the core, and that is the result.** The cartridge read's
+open item — the SR10.4 restore stopping at entry 396 with `0028001E` — had been
+redesigned three times on the strength of `QIC-02 Rev D` §3.6.6's last panel,
+which draws `FILEMARK` as a valid-data segment on the DATA BUS with
+`T38 CONTROLLER SETS EXCEPTION` firing after it. The reading was that this core
+ends a read *before* the mark and is therefore short by construction.
+
+**§3.5's pin list, two pages away, says which bus that is.** Pins 12–26 are
+`HB7-`..`HB0-`, "HOST BUS BIT n … of 8-bit host bi-directional data bus",
+handshaken by `XFR-` (34) and `ACK-` (36); §3.0–§3.4 makes it a **50-conductor
+edge connector** carrying **up to four devices**. `QIC-02`'s "host" is the
+SC-499 card and its bus is the cable to the drive — the standard's own title is
+*Tape Drive Intelligent **Interface** Standard*. The mark crossing it is the
+drive handing the card the block that identifies a mark; it bears on nothing in
+`ap_tape`'s DACK path or the 8237's count. `QIC-02_WALK.md`'s original row for
+those pages said exactly this — *"the byte handshake, which lives a layer
+down"* — and was overwritten by two appends and a table.
+
+**Both halves were implemented anyway and both were refuted on the machine.**
+The mark's byte delivered through DACK, T39 applied to the host-visible `DIR`
+bit, and all three drive-driven DONE raises removed:
+
+```
+>EX DOMAIN_OS
+Tape read error: FF  000002  00  C
+
+dma1 ch1     mode 45, address 0001 (base 0000), count 01FE (base 01FF)
+tape drive   block 17 of 104841, selected
+tape card    status 47, control 40, exception, exs 8100
+```
+
+That is `FINDINGS.md` C266's state number for number — one byte of 512,
+`ST0 | FIL`, no `done` — on a core that has since gained C267's ending, C268's
+pacing, C269's repeated first block and C274's interrupt gating. **C266 stands.**
+The control, same invocation and cartridge on the same commit without the
+change, loads SYSBOOT clean: `low: 01002000  high: 01111FFF  start: 01002024`.
+
+| the mark's byte to host memory | DONE at the ending | MD prints |
+| --- | --- | --- |
+| one byte (invented `FF`) | raised | `36`, "bad block transferred" (C267) |
+| one byte (the mark's `DE`) | left to the 8237 | `FF`, "timeout waiting for controller done" |
+| none | raised | no tape error; SYSBOOT loads |
+
+Each row measured here. The third is this core; the first two are the two ways
+the figure was read. **Reverted whole**, `ctest` 147/147 either side.
+
+*What survives as a correction to the oracle's reading*: MAME's status register
+is **active low** for `RDY` and `EXC`, so `sc499.cpp`'s `m_status &= ~EXC` at a
+mark *asserts* the exception rather than clearing it — settled from three places
+in that file (an illegal command asserts it with `&= ~`; `READ_STATUS` clears it
+with `|=`, which is §3.6.1's T3; `TIMER_7`, commented "set exception", is
+`&= ~`) and from this project's own measured bytes, where C273's `3F` = "no
+exception" has bit `0x20` set. The plan had recorded the opposite and concluded
+this core out-accurates the oracle there; it does not, and there was nothing to
+out-accurate.
+
+*The item stays open and its question is now narrower.* `QIC-02` is excluded by
+scope rather than by silence; `[SC499]` mentions the 16K buffer once in
+forty-two pages, as a power-on LED; neither Apollo tape document says what the
+card presents to a host when a read ends with the count unspent. **The oracle is
+due**, for two facts about `sc499.cpp` to be measured rather than reasoned about
+— how many bytes of the mark block reach host memory, and what the status
+register holds at the mark that ends RBAK's 32 KB read. Detail in `FINDINGS.md`
+C278.
+
 ## Devices see time pass while the processor is stalled (2026-09-09)
 
 `ap_machine_tick`'s stall loop was

@@ -16583,3 +16583,160 @@ run**, the DS5500 INVOL route is **one option per run**, chained through
 `--disk-writeback`: the *disk* carries the state between runs even though the
 utility does not. Option 7's badspot list survived as 65,721 changed bytes in
 the written-back image, which is what makes the chain sound rather than hopeful.
+
+## C278 -- `QIC-02`'s data bus is the drive cable, and three commits read it as the ISA DMA
+
+C264-C268 were re-read whole on 2026-09-11, as the plan item's own gate
+required, and the re-reading found the item's last three commits resting on one
+mistake. It is a mistake about *which bus a figure is about*, and it is worth
+the space because nothing in the figure says.
+
+### What the three commits concluded
+
+`1c71f1c` read `QIC-02 Rev D` §3.6.6's last panel as a page image and found the
+`FILEMARK` segment drawn as valid data between two hatched ones, with
+`T38 CONTROLLER SETS EXCEPTION` firing after it. It concluded that the file mark
+"crosses the data bus" and that this core -- which stops the read while the
+position is still on the mark -- was short by construction. `d7b2ef1` narrowed
+the segment from a block to one byte. Both then reasoned from that byte to the
+8237's terminal count, and to `FINDINGS.md` C266's `count 01FE (base 01FF)`.
+
+### The pin list, which is the whole answer
+
+§3.5, PDF page 7, read as an image:
+
+    12  HB7-  B   HOST BUS BIT 7 - most significant bit of 8-bit
+                  host bi-directional data bus
+    ...
+    26  HB0-  B   HOST BUS BIT 0 - least significant bit
+    34  XFR-  D   TRANSFER - host generated control signal which indicates
+                  that data has been placed on the data bus in WRITE MODE
+                  or that data has been taken from the data bus in READ MODE
+    36  ACK-  H   ACKNOWLEDGE - device generated signal which indicates that
+                  data has been taken from the data bus in WRITE MODE or that
+                  data has been placed on the data bus in READ MODE
+
+and §3.0-§3.4, PDF page 6: a **50-conductor edge connector**, 3M 3415-0001,
+TTL, 220/330 termination, 3 m maximum cable, **up to four devices on the
+interface**.
+
+**So `QIC-02`'s "host" is the SC-499 card and its DATA BUS is the cable to the
+drive.** The standard's own title says so -- *1/4 Inch Cartridge Tape Drive
+Intelligent **Interface** Standard* -- and four drives hang off it. The byte
+handshake in §3.6.6 is XFR/ACK on that cable, which is a different protocol from
+the REQ/RDY one §3.6.1 uses for COMMAND and STATUS INPUT mode, and a different
+bus again from the ISA DMA between the card and the 68030.
+
+**The mark crossing that bus is the drive handing the card the block that tells
+it a mark is there.** It says nothing about how many bytes the *card* forwards
+into host memory, which is the only thing `ap_tape`'s DACK path and the 8237's
+count are about.
+
+### The walk record already said this, and was overwritten
+
+`QIC-02_WALK.md`'s row for PDF 13-14 read, before 2026-09-11:
+
+    `none` **(the byte handshake, which lives a layer down)** ... This is the
+    XFER/ACK byte protocol, which `ap_sc499` models from `[SC499]`'s figures
+    rather than from here
+
+That row is correct, it names the right reason, and it was written by the walk
+that read the page. Two commits appended to it and a third built a table on top
+of the append. `stale-comments-outlive-the-walk-that-refutes-them` has this
+shape backwards: here the *live* text was right and the correction was the
+error.
+
+### And the machine had already said it
+
+This is not only a documentary correction. C267 measured what happens when one
+byte of a mark reaches host memory: `dma1 ch1 count 01FE (base 01FF)`,
+`8193 transfers`, and MD printing `002398-04` p. 4-17's **`36`, "bad block
+transferred"** -- which is what a 511-short block is. C267 removed that byte and
+the error moved. The figure was never in conflict with that measurement; it was
+about the other bus.
+
+### The DONE half, measured rather than argued
+
+The same re-reading concluded that DONE should come from the 8237's terminal
+count alone, as `[SC499]` §1.9's "Done, **from DMA logic**" says and as MAME's
+`sc499.cpp` does -- `SC499_STAT_DON` is set in one place, `eop_w`. The three
+drive-driven raises in `ap_tape` were removed, the mark's byte delivered, and
+T39 applied to the host-visible DIRECTION bit.
+
+**The cartridge boot refutes it in one line.** Same invocation as
+`tools/cartridge-boot.sh`, release build, `019593-001`:
+
+    >EX DOMAIN_OS
+    Tape read error: FF  000002  00  C
+
+    dma1 ch1     mode 45, address 0001 (base 0000), count 01FE (base 01FF)
+    tape drive   block 17 of 104841, selected
+    tape card    status 47, control 40, exception, exs 8100
+
+`FF` is p. 4-17's "timeout waiting for controller done" -- C266's error, exactly,
+on a core that has since gained C267's ending, C268's pacing, C269's repeated
+first block and C274's interrupt gating.
+
+**And the register state is C266's, number for number**: `count 01FE (base
+01FF)` is one byte of 512, `exs 8100` is `ST0 | FIL`, and `status 47` carries
+`exception` with **no `done`**. The only difference from C266 is which byte
+crossed -- the mark's own `DE` rather than `ap_tape_read`'s invented `FF` -- and
+the host cannot tell, because it times out waiting for DONE before it can
+object to the short block. **C266's measurement stands**, and the sentence the
+plan doubted -- "the fix is not to undo it" -- is re-established by measurement
+rather than by quotation.
+
+*The control was run and is what makes this a measurement rather than an
+observation*: the same invocation, same cartridge, same commit **without** the
+change -- built in a worktree so the two binaries differ in nothing else --
+loads SYSBOOT with no tape error at all, `low: 01002000  high: 01111FFF
+start: 01002024`. So the `FF` is the change's and not the day's. Both runs were
+diskless, `tools/cartridge-boot.sh`'s default, so what either console does
+*after* SYSBOOT is outside this comparison; the discriminating line is the one
+`EX DOMAIN_OS` prints.
+
+**The three-way table is the useful form**, since each row was measured on this
+machine:
+
+| the mark's byte to host memory | DONE at the ending | MD prints |
+| --- | --- | --- |
+| one byte (invented `FF`) | raised | `36`, "bad block transferred" (C267) |
+| one byte (the mark's `DE`) | left to the 8237 | `FF`, "timeout waiting for controller done" |
+| none | raised | no tape error; SYSBOOT loads |
+
+The third row is this core as it stands, and the first two are the two ways the
+figure was read.
+
+*The whole code change was reverted.* `ctest` 147/147 before and after.
+
+### Why MAME gets away with what this core cannot, and what is actually open
+
+MAME raises DONE only at `eop_w` and reaches `Restore complete.` at 401 entries.
+That is still true and is still the thing to explain -- but it is no longer
+evidence that a drive-driven DONE is wrong, because the two cards differ
+somewhere this core has not yet found, and the QIC-02 figure cannot be the
+place: it is not about this bus.
+
+**What the documents can still be asked** is the card's host side, and C268
+already recorded that they run out there: `[SC499]`'s only mention of the 16K
+RAM buffer in forty-two pages is the power-on test's LED assignment, and neither
+Apollo tape document describes what the card presents to a host when a read ends
+with the count unspent. `QIC-02` is now excluded by scope rather than by
+silence.
+
+**So the oracle is due, and the question for it is narrow**: at the mark that
+ends RBAK's 32 KB read, what does `sc499.cpp` leave in the status register, and
+how many bytes reached host memory? `m_nasty_readahead` and the fact that
+`dack_r` tests `block_is_filemark()` only on the cycle that *loads* a block --
+so the remaining 511 bytes are returned unconditionally if DRQ comes back --
+are the two things to measure rather than to reason about, and this session
+reasoned about them twice and was wrong twice.
+
+### The reusable part
+
+**A timing figure belongs to a bus, and the figure does not say which.** Three
+commits of reasoning, one implementation and two boots came out of reading a
+drive-cable waveform as a DMA transfer. The tell was available free: the
+document's own §3.5 pin list is two pages from the figure and names every line
+`HOST BUS BIT n` on a 50-conductor cable with four drives on it. **Read the pin
+list before reasoning from the waveform** -- it is what says who is talking.

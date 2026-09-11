@@ -124,9 +124,11 @@ drive mask made the state reachable. What remains:
   *block* boundary (§3.6.6 T10/T11 "1ST DATA BLOCK READY", T24 for the next;
   §3.6.5's "READY FOR 1st BLOCK"/"2nd BLOCK"/"NEXT BLOCK"), which is
   `ap_sc499_block_boundary`; DIRC turns at T9 and back at T39 on a read and
-  never moves on a write, which is `ap_tape`'s bus direction **-- GAP,
-  corrected 2026-09-11: only the T9 half is. Nothing clears DIRECTION at T39 on
-  the data-read path.** `ap_tape`'s only clear is §3.6.1's **T21**, the status
+  never moves on a write, which is `ap_tape`'s bus direction **-- the GAP
+  recorded here on 2026-09-11 is WITHDRAWN the same day: T39 is the drive
+  cable's direction, not the host-visible `DIR` bit, so there is nothing here
+  for `ap_tape` to clear.** The withdrawn text read: "only the T9 half is.
+  Nothing clears DIRECTION at T39 on the data-read path."** `ap_tape`'s only clear is §3.6.1's **T21**, the status
   block's close, and `ap_sc499`'s is Figure 1-9's command completion; on a data
   read DIRECTION is set per DACK byte and stays set until a command turns it
   round. MAME does it here -- `dack_r`'s filemark branch is `&= ~STAT_DIR` --
@@ -144,6 +146,18 @@ drive mask made the state reachable. What remains:
   2026-09-11 and caught before writing code; MAME's `dack_read` delivers
   exactly one byte of the mark and drops DRQ, and `FINDINGS.md` C266's
   `count 01FE (base 01FF)` is this core doing the same.
+  **WITHDRAWN WHOLE 2026-09-11 -- this entire appended passage, and the two
+  corrections inside it, read `QIC-02`'s DATA BUS as the ISA DMA path to the
+  68030. It is the cable to the drive.** §3.5 names pins 12-26 `HB7-`..`HB0-`,
+  "HOST BUS BIT n ... 8-bit host bi-directional data bus", handshaken by `XFR-`
+  (34) and `ACK-` (36), on §3.0-§3.4's 50-conductor connector carrying **up to
+  four devices** -- so the "host" here is the SC-499 card. The `FILEMARK`
+  segment is the drive handing the *card* the block that identifies the mark,
+  and it bears on nothing in `ap_tape`'s DACK path. **The original row below was
+  right and this appendix should never have been written**; it cost an
+  implementation and two boots, and `FINDINGS.md` C278 has the measurement that
+  ended it. The rest of this passage is kept only so the wrong reading stays
+  visible beside the right one.
   **CORRECTED 2026-09-11, later the same day, and the original stands beneath
   it.** Those last two clauses are wrong twice over. MAME's status register is
   **active low** (`SC499_STAT_EXC 0x20 // active low`), so `dack_r`'s
