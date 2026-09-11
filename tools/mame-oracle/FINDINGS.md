@@ -16918,3 +16918,132 @@ the fixed core"*. Never done. This run is it.
 frontend flag this run did not use. The single variable is `1c2b826`, the 68040
 ATC's `M` write-back. The single-level store now pages its dirty directory page
 out on the DS5500, and `sau14/` is among the entries restored.
+
+
+## C280 -- a card on this bus cannot apply an external EOP, so the 8237's other terminal-count path has no consumer here
+
+C279 measured the failure: Domain/OS's restore driver polls channel 1's
+terminal-count bit once per transfer and gets `00` on a file's last one, because
+a READ ends at a file mark and that transfer's count can never expire. The
+obvious mechanism for setting that bit anyway is the 8237's **external EOP**,
+and the part models it.
+
+### The audit finding, which is real
+
+`ap_i8237_terminal_count`'s own comment is *"Signal terminal count on a channel:
+the effect an EOP has on the registers"*, and it quotes `[8237]` p. 9 --
+*"Bits 0-3 are set every time a TC is reached by that channel **or an external
+EOP is applied**"* -- against the line that sets the bit.
+
+**Its only callers are `ap_i8237.c`'s own internal count and three
+`i8237_suite` tests that supply the wiring themselves.** No device on the
+machine can produce it. That is `CLAUDE.md`'s `check_what_is_called_by_nobody`
+in the form a green suite hides, and it is why this looked like the defect.
+
+### It was implemented, and the bus refutes it
+
+The card's DMA logic ending a transfer was wired to apply an external EOP on the
+tape's channel -- `ap_sc499_dma_ended_by_card` into a new `board_tape_eop`, with
+the field hashed and a `board_suite` test that **fails with the wiring disabled**
+(104 -> 105). `ctest` 147/147. The restore was then re-run on both models and
+**the outcome did not move**: 396 entries, `28001E`.
+
+**And the document says why, in one line.** `008778-03` Table 2-1 lists the
+62-pin AT signal set a card sees --
+
+    SD0-SD7, SA0-SA19, IOR.L/IOW.L, SMEMR.L/SMEMW.L, AEN, BALE, CLK, OSC,
+    REFRESH.L, OWS.L, IO_CH_CK.L, IO_CH_RDY, RESET_DRV, TC,
+    IRQ3/4/5/6/7/9, DRQ1-DRQ3, DACK1-DACK3
+
+-- and §2.3.2 defines the one DMA-completion signal on it: **`TC` "provides a
+pulse when the terminal count for any DMA channel is reached"**. That is an
+output *to* the card. A card gets `DRQ`, `DACK` and `TC`, and **there is no line
+by which it can terminate a transfer**. The 8237's `EOP` pin is bidirectional at
+the *chip*, which is what `[8237]` Table 1 describes and what the walk record
+recorded; the AT bus brings out only the output direction.
+
+So the tape cannot assert it, and neither can the floppy, the Winchester or the
+ethernet. **`ap_i8237_terminal_count`'s external-EOP path is modelled at the
+part and unreachable on this board** -- a *consumer* closure under `CLAUDE.md`'s
+documentation-absent rule, which names this case exactly: "where the blocker is
+a *consumer* rather than a document: no card that can assert the signal".
+Reopen on contact, if a modelled card ever turns out to drive one.
+
+*Reverted whole; `ctest` 147/147 either side.* `INTEL_WALK.md`'s row for pp. 2-4
+says of `EOP` "**is bidirectional**, an external low terminating a service,
+which is modelled" -- true of the part and the sentence a reader will act on, so
+it now carries the bus qualification beneath it.
+
+### What it costs and what it leaves
+
+The cost was one implementation and two restore runs, and it was avoidable: the
+signal list is in a walk record this project wrote, and the question "can this
+card even drive that pin?" is cheaper than any run. **`a-datasheet-clause-is-not-
+a-bug-report` is the rule that applies** -- find the path the document names
+before calling its absence a defect -- and the path here is a *pin*, which the
+board either has or has not.
+
+**And it sharpens C279's question rather than answering it.** If the bit can
+only be set by the count expiring, and a file's last transfer can never expire,
+then either the driver does not in fact require it on that transfer -- and
+`28001E` is raised by something else in the same routine -- or the driver does
+not program a 64-block transfer for a file's last chunk. The measurement running
+now is the first of those: with a (wrong) EOP in place the driver reads `02`
+instead of `00`, and whether it still prints `28001E` separates a status check
+from a count check. That is worth having even from a machine that is not the
+reference, because it is a question about the *driver*.
+
+### It answered, and the status bit is not the gate at all
+
+The run finished. With the (wrong) EOP in place the **71,066th read returns
+`02`** where it returned `00` before -- so the external EOP did set the bit, the
+wiring worked, and the driver saw terminal count:
+
+    watch read   71065 at 00010C08 value 00000002 by PC 3C40EE10
+    watch read   71066 at 00010C08 value 00000002 by PC 3C40EE10
+    (unrecognized error status 28001E)
+
+**And it printed `28001E` anyway**, on both models. So the 8237's
+terminal-count *status bit* is not what the check turns on, and the whole
+mechanism this item reached for is eliminated -- twice over, once by the bus and
+once by the machine.
+
+### What the check actually is, measured at the same instant
+
+A second pass watched `010C03`, the channel's **current count**. The driver
+reads it **twice** per transfer, low byte then high, at two PCs:
+
+    watch read   3333 at 00010C03 value 000000FF by PC 3C40EE36
+    watch read   3334 at 00010C03 value 000000FF by PC 3C40EE44
+    watch read   3335 at 00010C03 value 000000FF by PC 3C40EE36
+    watch read   3336 at 00010C03 value 00000021 by PC 3C40EE44
+    (unrecognized error status 28001E)
+
+**Every successful transfer reads `FFFF`. The failing one reads `21FF`.**
+`FFFF` is the 8237's own post-terminal-count value for a channel that is not
+autoinitialised -- `[8237]` p. 7, quoted in `ap_i8237.c`: *"if it is not
+Autoinitialized, this register will have a count of FFFFH after TC"*. So the
+check is on the **count register**, and `002398-04`'s name for the code is
+exact: not at end of **range**.
+
+### And the routine has a name, from the volume's own load map
+
+`tools/kernel_symbols.py media/dn3500-sr10.4-aa-kept.awd --build domain_os7`:
+
+    3C40EE10  ATBUS_$DMA_STOP+94
+    3C40EE36  ATBUS_$DMA_STOP+BA
+    3C40EE44  ATBUS_$DMA_STOP+C8
+
+with `ATBUS_$DMA_STOP` at `3C40ED7C`, `ATBUS_$DMA_START` at `3C40EB02` and a
+separate **`ATBUS_$DMA_STATUS`** at `3C40ECDA`. So all three reads are one
+routine, and it is the **generic AT-bus DMA layer** rather than the tape driver
+-- the same routine the floppy and the Winchester stop their transfers through,
+devices whose transfers always complete exactly.
+
+**That is the shape of the remaining question.** A tape file's last transfer is
+short by construction and its count cannot reach `FFFF`; the floppy's and the
+disk's always can. So either the tape's driver is not supposed to reach this
+path with a short count, or it is supposed to program the last transfer to a
+length the tape can satisfy. Reading `ATBUS_$DMA_STOP`'s own code is the next
+step and needs no new instrument -- the routine's bounds are known and a
+Domain/OS boot can dump it.

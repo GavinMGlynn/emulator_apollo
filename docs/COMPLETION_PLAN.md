@@ -4926,6 +4926,26 @@ discipline throughout.
       fired because the boot never reaches a mark, and verifying this needs the
       probe armed during a restore. This item has now reasoned about `dack_r`
       three times and been wrong twice. Detail in `FINDINGS.md` C279.
+      **The external EOP was implemented and is refuted twice over, 2026-09-11.**
+      `ap_i8237_terminal_count` models `[8237]`'s external-EOP path, quotes the
+      datasheet against it, and **is called by nobody** -- the audit finding is
+      real. Wiring the card's ending to it made the driver read `02` where it
+      read `00`, **and it still printed `28001E`**, on both models. And
+      `008778-03` Table 2-1's 62-pin AT signal list gives a card `DRQ`, `DACK`
+      and `TC` only, with §2.3.2 making `TC` an *output* -- **no card on this bus
+      can apply an external EOP**, so the path is a *consumer* closure rather
+      than a defect. Reverted whole.
+      **What the check actually is, measured**: the driver reads the channel's
+      **count** twice per transfer, and every success reads `FFFF` -- the 8237's
+      own post-terminal-count value for a non-autoinit channel -- while the
+      failure reads `21FF`. And the routine has a name, from the volume's own
+      load map: **`ATBUS_$DMA_STOP`** (`3C40ED7C`), the *generic AT-bus DMA
+      layer*, not the tape driver -- the same routine the floppy and the
+      Winchester stop through, devices whose transfers always complete exactly.
+      **And the oracle's own log settles the target**: `sau14.log`'s first
+      restore is **401 entries** and the five this core loses are named in it --
+      `usr/apollo/lib/stcode.db` and four `usr/apollo/lib` directory entries,
+      immediately after our 396th. Detail in `FINDINGS.md` C280.
       *How to bound it, written down because deriving it is most of the cost.*
       The route is `tools/dn5500/README.md`'s: `tools/dn5500-md.sh` with
       `--boot-script tools/dn5500/restore.script`, a copy of
