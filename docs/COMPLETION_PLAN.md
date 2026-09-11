@@ -5124,8 +5124,33 @@ discipline throughout.
       before it expresses. The soft lock refuses the eject and says so; a `swap`
       in a ring script is refused when the script is loaded.
       *Verification: `tape_suite` 30 -> 33, `check_frontend_flags` 26 runnable
-      checks plus five new source checks, `ctest` 147/147 both presets, identity `F78D6DBE770CAF47` unmoved. Detail in
-      `PROJECT_STATUS.md`.*
+      checks plus five new source checks, `ctest` 147/147 both presets, identity
+      `F78D6DBE770CAF47` unmoved. Detail in `PROJECT_STATUS.md`.*
+      **And the paragraph above is RETRACTED for the DS5500, 2026-09-11: the
+      restore *does* write its boot area.** The finished SR10.4 restore was
+      dumped and sector 8 carries `SYSBOOT ` at payload `+$10` with the tag
+      **` M68K_4K `**, in records 2..B at four sectors to a record -- the layout
+      this item derived from the `5500_BOOT` disassembly and had never seen
+      produced. The inference was from two DN3500 checkpoints that differ from
+      this run in **both** release and machine; `sr10-3-install-route`'s "RBAK
+      skips SYSBOOT" stands for the SR10.3 route and does not transfer.
+      **And the DS5500 boots that volume**, from a machine that failed at
+      `error: sysboot not found` the day before:
+
+          Loading SELF_TEST diagnostics from boot device.
+          boot error: SAU14 not found in root_dir
+            status=000E0007
+
+      The PROM read the records at the page stride, matched the tag, executed
+      the SYSBOOT, **mounted the volume** and searched its root directory. The
+      failure has moved from the first sector of the disk to a directory entry.
+      *And `/sau14` was restored* -- `(dir) "sau14" restored.` is in the
+      restore's own console, with eleven entries under it. What is missing is
+      the **link**, not the object: the run ended at its bound with the machine
+      idle at `)` and nothing ran `shut`, so Domain/OS's root-directory updates
+      stayed in the node's cache. `FINDINGS.md` C192 measured that on a DN3500
+      as 3 root entries against 17. `tools/dn5500/restore.script` now ends with
+      it. Detail in `PROJECT_STATUS.md`.
       **The DS5500 reaches its own monitor, 2026-09-10** — `MD14 REV 2.00,
       1991/03/08.16:20:14` and a `>` prompt, from a machine that could execute
       two of its instructions a day earlier. It cost **one address range**:

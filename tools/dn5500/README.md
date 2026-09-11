@@ -31,6 +31,34 @@ now the caller's bound, so these could be merged; they are kept apart because
 one option per run is what was verified and because a failed option costs one
 run rather than three.
 
+## The SR10.4 restore, which is the step after INVOL
+
+`restore.script`, with `tools/dn5500-md.sh` and the boot cartridge:
+
+    cp media/dn5500-invol-done.awd scratch/vol.awd
+    APOLLO_DISK=scratch/vol.awd tools/dn5500-md.sh \
+        --boot-script tools/dn5500/restore.script \
+        --disk-writeback scratch/restored.awd --boot-limit 40000000000
+
+**It ends with `shut`, and that line is the whole difference between a volume
+that boots and one that does not.** Domain/OS is a single-level store: the root
+directory's updated links sit in the node's cache until the *guest* shuts down.
+A run of 2026-09-11 without it restored 396 entries including `(dir) "sau14"`,
+wrote a ` M68K_4K ` SYSBOOT into the boot area, and produced a volume the DS5500
+mounted and then rejected with `boot error: SAU14 not found in root_dir` --
+objects on the disk, links never written. `FINDINGS.md` C192 measured the same
+thing on a DN3500 as 3 root entries against 17.
+
+`shut` belongs to the `)` prompt of the Phase II environment, which is where
+RBAK leaves the machine, so no EOT is needed -- unlike the MINST route, where
+`shut` has to escape a shell first (`sr10-3-install-route`).
+
+**No CALENDAR step**, and that is checked rather than assumed: the 14-day gate
+compares the RTC against the volume's own timestamps, `dn5500-md.sh` starts the
+clock at 2002-11-28, and INVOL stamped this volume "Nov. 28, 2002". The DN3500
+route needs CALENDAR because it restores onto a volume whose timestamps are
+years from its clock.
+
 ## Four things in the dialogue that C50's table does not have
 
 `FINDINGS.md` C50 recorded the DN3500's INVOL dialogue from a MAME session. It

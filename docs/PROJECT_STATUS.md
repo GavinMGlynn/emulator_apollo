@@ -3283,6 +3283,73 @@ disk.
 *So the DS5500 restore now running produces a checkpoint, not a bootable
 volume*, and the step after it is `minst`.
 
+### RETRACTED: the restore *does* write the DS5500's boot area, and the volume mounts
+
+**The section above is wrong about the DS5500, and the machine said so.** The
+claim was "RBAK restores files; `minst` makes the volume bootable", inferred
+from two DN3500 checkpoints. It does not transfer: the finished SR10.4 restore
+on a DS5500 was dumped, and sector 8's payload reads
+
+```
+  sector   8  record 0002  +10 b'SYSBOOT '  <- SYSBOOT, tag b' M68K_4K '
+```
+
+— `SYSBOOT ` at payload `+$10` and **` M68K_4K `** at `+$20`, in records 2..B at
+**four sectors to a record**, which is exactly the layout the DN5500 item derived
+from the `5500_BOOT` disassembly and had never seen produced.
+
+*What the inference got wrong is which variable it was watching.*
+`dn3500-sr10.3-osclean.awd` really does have `55` fill where `SYSBOOT ` goes,
+and `dn3500-sr10.3-installed.awd` really does have the signature — but those two
+differ from this run in **both** release and machine, and the earlier text picked
+one of them. `sr10-3-install-route`'s "RBAK skips SYSBOOT, so a restored volume
+is *not* bootable" is about the **SR10.3** route and is left standing for it.
+
+**And the DS5500 boots that volume.** From a machine that a day earlier failed at
+`error: sysboot not found` and never reached the filesystem:
+
+```
+   Loading SELF_TEST diagnostics from boot device.
+boot error: SAU14 not found in root_dir
+  status=000E0007
+   Could not load /SAU14/SELF_TEST.
+```
+
+Every word of that is progress. The PROM read records 2..B at the page stride,
+matched the ` M68K_4K ` tag, **executed the SYSBOOT**, mounted the volume and
+searched its **root directory** — `000E0007` is module `0E`, "name not found"
+(`e0007-name-not-found`). The boot area, the tag, the four-sector record and the
+mount are all now demonstrated on this core, and the failure has moved from the
+first sector of the disk to a directory entry.
+
+### And `/sau14` *was* restored — what is missing is the link, not the object
+
+`(dir) "sau14" restored.` is in the restore's own console, with eleven entries
+under it, beside `sau7 sau8 sau9 sau11 sau12`. So the directory is on the disk
+and the root directory does not name it.
+
+**That is the single-level store's ending, and this project has measured it
+before.** `sr10-3-install-route`: "Domain/OS is a single-level store: its
+directory updates sit in the node's cache until the *guest* shuts down ... a
+volume whose session ended that way has its objects and not its links."
+`FINDINGS.md` C192 measured it as **3 root entries against 17**, same restore,
+same media, one line different.
+
+This run ended at its instruction bound with the machine idle at the `)` prompt.
+Nothing ran `shut`, so nothing flushed. The objects are there; the links were
+never written.
+
+*The fix is the script's ending, and it is now in it.*
+`tools/dn5500/restore.script` waits for `RBAK version` — the Phase II banner
+RBAK prints on its way out, which occurs exactly once in a run — then sends
+`shut` and waits for `Shutdown successful`. No EOT is needed here, unlike the
+MINST route: `shut` belongs to the `)` prompt and RBAK leaves the machine at it.
+
+*So the item's sequence is now known end to end, with only the last step
+untried*: `invol` (done), the RBAK restore **with its shutdown** (running),
+`minst` for the SAU set (needs the cartridge `swap` verb, which is why that was
+built), then the boot.
+
 #### Which needs a cartridge change, and this frontend could not make one
 
 `008860-A03` Chapter 1 — the manual for exactly the procedure this item is

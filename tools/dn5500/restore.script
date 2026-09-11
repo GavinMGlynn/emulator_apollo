@@ -1,0 +1,34 @@
+# The SR10.4 restore on a DS5500, against a volume INVOLed by /sau14/invol.
+#
+# `MD14`, not `MD7C` -- the banner's digits are the SAU number, so
+# `tools/cartridge-install.script`'s expectation never matches here.
+#
+# No CALENDAR step, and that is checked rather than assumed: the 14-day gate
+# compares the RTC against the volume's own timestamps, `tools/dn5500-md.sh`
+# starts the clock at 2002-11-28, and INVOL stamped this volume
+# "Nov. 28, 2002". The DN3500 route needed CALENDAR because it restored onto a
+# volume whose timestamps were years from its clock.
+expect MD14
+expect >
+send DI C\r
+expect >
+send EX DOMAIN_OS\r
+expect Do you wish to proceed
+send Y\r
+
+# **The ending is part of the recipe**, and leaving it off cost a whole restore.
+# Domain/OS is a single-level store: the root directory's updated links sit in
+# the node's cache until the *guest* shuts down. The run of 2026-09-11 restored
+# `(dir) "sau14"` and 395 other entries, wrote a ` M68K_4K ` SYSBOOT into the
+# boot area, mounted on the next boot -- and then said
+# `boot error: SAU14 not found in root_dir`, because the objects were on the
+# disk and the links were not. `sr10-3-install-route` and `FINDINGS.md` C192
+# measured the same thing on a DN3500: 3 root entries after an unclean end, 17
+# after `shut`.
+#
+# `shut` belongs to the `)` prompt of the Phase II environment, which is where
+# RBAK leaves the machine -- so no EOT is needed here, unlike the MINST route
+# where `shut` has to escape a shell first.
+expect RBAK version
+send shut\r
+expect Shutdown successful
