@@ -49745,11 +49745,18 @@ directory in, read immediately before `boot error: SAU14 not found in root_dir`.
 The two instruments agree on the address without either being told about the
 other.
 
-*And this is what makes it the MMU rather than the tape.* The two restores are
+*And this is what points at the MMU rather than the tape.* The two restores are
 identical in release, media, script family and entry count; they differ in the
 machine, and therefore in the CPU. A single-level store pages a modified
 directory out by finding `M` set in its descriptor. On the 68040 that bit was
 never set, so the page stayed in memory and the record on disk stayed virgin.
+
+**That last step is a mechanism that fits, not a measured cause, and the
+distinction is kept deliberately.** The two defects are established by the
+manual and by the tests, and they would be worth fixing with no restore in
+sight. Whether they are *this* failure's cause is decided by re-running the
+restore on the fixed core, and until that lands the honest statement is the
+elimination: same media, same 396 entries, one variable left.
 
 ### Not a re-baseline
 

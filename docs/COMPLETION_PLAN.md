@@ -5258,22 +5258,26 @@ discipline throughout.
       entry is not (only) a flush. What is known and no more: the objects are
       there, RBAK's paths for them are root-relative (`sau14/self_test`, then
       `(dir) "sau14"`), and a clean dismount does not put them in the root.
-      **ANSWERED 2026-09-11, and the answer was the 68040's MMU.** The DN3500
-      control restored the same cartridge on this core and reached the **same
-      396 entries, ending on the same file** -- and its root directory went
-      **3 entries to 17**, with no `shut` at all. The DS5500's, after a clean
+      **The discriminator returned 2026-09-11, and it eliminates everything
+      but the CPU.** The DN3500 control restored the same cartridge on this core
+      and reached the **same 396 entries, ending on the same file** -- and its
+      root directory went **3 entries to 17**, with no `shut` at all. The DS5500's, after a clean
       `Shutdown successful`, is **byte-identical to its virgin INVOL input**
       while 50,916 other blocks changed. So the restore does create root links
       on this core, `shut` is not what creates them, and the `0028001E` entries
       are not implicated: one variable separates the two runs, the CPU.
-      *The failure was that `M` never reached the page descriptor in memory.*
-      The 68040's ATC-hit path returned a cached translation for a write as
-      readily as for a read, so a directory page first touched by a read stayed
-      `M`-clear in its descriptor and a single-level store had nothing to page
-      out. Figure 3-21's `M` field on p. 3-27 states the rule and this core
-      implemented neither half of it; the 68030 has had both since it was
-      written. Fixed, tested and tied to the identity harness -- see the item
-      below. The `shut` line stays -- `008860-A03` and `sr10-3-install-route`
+      *The mechanism that fits is `M` never reaching the page descriptor in
+      memory.* The 68040's ATC-hit path returned a cached translation for a
+      write as readily as for a read, so a directory page first touched by a
+      read stayed `M`-clear in its descriptor and a single-level store had
+      nothing to page out. Figure 3-21's `M` field on p. 3-27 states the rule
+      and this core implemented neither half of it; the 68030 has had both since
+      it was written. That defect is real, cited and fixed on its own merits --
+      see the item below -- **but it is not yet proven to be *this* failure's
+      cause.** What proves it is the restore re-run on the fixed core, which is
+      the next thing to report: if the DS5500's root directory moves off 3
+      entries, the chain is closed; if it does not, this paragraph is wrong and
+      the elimination above still stands. The `shut` line stays -- `008860-A03` and `sr10-3-install-route`
       both require it. Detail in `PROJECT_STATUS.md`.
       **The DS5500 reaches its own monitor, 2026-09-10** — `MD14 REV 2.00,
       1991/03/08.16:20:14` and a `>` prompt, from a machine that could execute
