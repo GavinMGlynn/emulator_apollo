@@ -4676,14 +4676,39 @@ discipline throughout.
       *The naive fix is ruled out*: `ap_sc499_dma_ended` is what clears
       `dma_active`, so removing only the first call lets the second fire on the
       same advance. The two must be decided together.
-      **What it costs is a re-measurement, which is the next step.**
-      `tape_suite`'s `test_a_read_the_drive_ends_also_ends_the_dma` asserts the
-      behaviour that would go, and it exists because of `FINDINGS.md` C266 --
-      the boot firmware printing `FF`, "timeout waiting for controller done",
-      with DONE clear. That is the *firmware's* path, where the 8237 is
-      programmed for one block (`count 01FE (base 01FF)`), and MAME's own
-      comment records the same 512-byte programming from a real driver, so both
-      readings are about the same case and cannot both stand.
+      **The two measurements are the same case, and that is the finding.**
+      `FINDINGS.md` C266 is the boot firmware stopping at the mark after block
+      15 with `count 01FE (base 01FF)` -- **one byte of 512 spent** -- printing
+      `FF` because DONE never came. The restore stops at the mark after block
+      104,837 with `count 21FF (base 7FFF)` -- **24,064 of 32,768 spent** --
+      and gets `0028001E` because DONE *did* come. Both are "the read stopped at
+      a file mark with the host's count unspent"; one host wants DONE and the
+      other refuses it. **No card does both**, so the defect is upstream of
+      DONE, and neither the drive-driven raise nor its removal can be right.
+      **What is upstream: this core never delivers the file-mark block.**
+      `ap_qic_read_exhausted` returns true while the position is *on* the mark,
+      so the read stops **before** it, and `ap_tape_advance` then raises
+      EXCEPTION and ends the DMA at a count that is short by construction.
+      MAME's `read_block` does the opposite and its comments are unambiguous:
+      the block is read into the buffer like any other, and then
+      `m_status &= ~SC499_STAT_EXC` **clears** EXCEPTION and
+      `tape_status_set(SC499_ST0_FM)` flags the mark in the *tape status*
+      (`sc499.cpp`, the `block_is_filemark()` branch). Deliver the mark's 512
+      bytes and the 8237 reaches terminal count on its own: `eop_w` sets DONE
+      for the firmware's single-block read, the host reads `ST0_FM` to learn
+      what it hit, and RBAK's 32 KB read ends on a count that *is* at end of
+      range. One change, both symptoms.
+      **And it does not contradict `QIC-02 Rev D` §3.6.6's T38**, which this
+      item cites for "the drive stopped at the mark". The drive stopping *after*
+      delivering the mark's block and stopping *before* it are different claims;
+      T38 is about the former, and reading it as the latter is what put this
+      core here. To be confirmed against the page image before the change, with
+      `[SC499]` §1.11's step list beside it.
+      *What the change costs*: `tape_suite`'s
+      `test_a_read_the_drive_ends_also_ends_the_dma` and
+      `test_the_drive_stops_asking_at_a_file_mark` both encode the
+      stop-before-it reading and would be rewritten to the deliver-then-flag
+      one.
       *Verification: the restore reaches 401 entries and `Restore complete.` on
       both models, against `sau14.log`.* Detail in `PROJECT_STATUS.md`.
 
