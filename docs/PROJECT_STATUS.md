@@ -3543,6 +3543,30 @@ open backup file. - controller timeout`, and the rule that recovered it — "swa
 only at a prompt, with the drive idle" — is precisely what an `expect` before it
 expresses. A step-numbered flag would be the guess that already failed.
 
+**And it is verified on a running machine, 2026-09-11**, rather than only in
+`tape_suite`. A DS5500 was taken to its `MD14` prompt with the boot cartridge and
+the script changed the media there, with the drive idle:
+
+```
+cartridge swaptest-1.ct, 53678592 bytes
+>cartridge swaptest-2.ct, 58403328 bytes, swapped in
+  tape drive   block 0 of 114069, selected
+  tape board   no status block open; first block still owed
+  tape card    status 57, control 00, exception, done, exs 0089
+```
+
+Every property the header claims is in those four lines. **`114069`** is the new
+cartridge's own block count — 58,403,328 / 512 exactly, where the boot
+cartridge's is 104,841 — so the drive is reading the media that arrived and not
+the one that left. **`block 0`** is `QIC-02 Rev D` §4.2.7/§4.2.8's "a READ or
+WRITE following cartridge insertion ... shall commence at BOT", and **`exs
+0089`** (`BYTE_1 | BEGINNING_OF_MEDIA | POWER_ON`) is the drive saying so.
+**`first block still owed`** is `first_block_pending` re-armed, which is the
+controller's buffer having been dropped.
+
+*And the run cost 1.5 G steps*, which is the point of testing a verb before a
+long run needs it rather than after.
+
 *And the refusals are the useful part.* The eject honours the drive's soft lock,
 so a swap issued mid-transfer answers **false** and the run stops with the
 reason named, rather than changing the media under a running read and failing an

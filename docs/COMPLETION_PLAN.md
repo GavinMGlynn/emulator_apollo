@@ -5184,6 +5184,13 @@ discipline throughout.
       that raced the drive, and "swap only at a prompt" is what an `expect`
       before it expresses. The soft lock refuses the eject and says so; a `swap`
       in a ring script is refused when the script is loaded.
+      **Verified on a running machine, 2026-09-11**, not only in the suite: a
+      DS5500 at its `MD14` prompt changed media with the drive idle and the
+      report reads `block 0 of 114069` -- the *new* cartridge's own block count,
+      58,403,328/512, against the boot cartridge's 104,841 -- with `exs 0089`
+      (`BYTE_1 | BEGINNING_OF_MEDIA | POWER_ON`) and `first block still owed`.
+      Position at BOT, drive reporting beginning-of-media, controller buffer
+      dropped: every property the header claims, in one 1.5 G-step run.
       *Verification: `tape_suite` 30 -> 33, `check_frontend_flags` 26 runnable
       checks plus five new source checks, `ctest` 147/147 both presets, identity
       `F78D6DBE770CAF47` unmoved. Detail in `PROJECT_STATUS.md`.*
