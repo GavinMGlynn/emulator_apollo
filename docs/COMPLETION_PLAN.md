@@ -4896,6 +4896,20 @@ discipline throughout.
       instrument -- the 8237 programming, the command bytes and the transfer
       counts -- run at **entry 396 of the restore**, a different driver in a
       different phase from the boot path C273 and C274 actually measured.
+      *How to bound it, written down because deriving it is most of the cost.*
+      The route is `tools/dn5500/README.md`'s: `tools/dn5500-md.sh` with
+      `--boot-script tools/dn5500/restore.script`, a copy of
+      `media/dn5500-invol-done.awd`, and `--boot-limit 40000000000`. That is a
+      ~40 G run, so the capture cannot start at instruction 0 and must not be
+      bounded by a count -- `a bound chosen for convenience decides nothing`.
+      **Bound it at the phenomenon**: the failure is the *last* mark on the
+      cartridge, and `ap_ct.h` records where that is, so arm on the drive's
+      position passing **block 104,000** and log everything after it. One pass,
+      every counter at once: channel 1's 8237 programming and its current
+      count, every tape register read and write with its PC, and the drive's
+      block. The end state to reproduce is already on the record -- `tape drive
+      block 104839 of 104841`, `exs 8100`, `dma1 ch1 count 21FF (base 7FFF)` --
+      so the instrument is right when it brackets those three.
       *Verification: the restore reaches 401 entries and `Restore complete.` on
       both models, against `sau14.log`.* Detail in `PROJECT_STATUS.md`.
 
