@@ -4629,9 +4629,31 @@ discipline throughout.
       ordering that this core derived from a run; and `[SC499]`'s reads "block
       length can be 1024 -- (page)", a third figure beside QIC-02's 512 and
       `007196-01`'s 2048, recorded but not acted on.
-      **So the oracle is next**, which is the tier this disagreement earns, and
-      what to log there is narrow: what the card presents at the mark, in what
-      order, and whether its DMA reaches terminal count.
+      **And the oracle answers it from its source, with no instrumentation.**
+      MAME's `sc499.cpp` sets `SC499_STAT_DON` in **exactly one place** --
+      `eop_w`, the ISA end-of-process line -- so **DONE comes from the 8237's
+      terminal count and from nothing else**, which is `[SC499]` §1.9's "Done,
+      from DMA logic" taken literally. `write_dma_go` clears it, and at a file
+      mark the DACK path drops DRQ and asserts EXCEPTION while leaving DONE
+      alone.
+      *This core raises it from three places and two of them are the tape's.*
+      The terminal-count path is right and wired where it belongs
+      (`ap_board.c`'s `if (cycle.terminal_count)` calls `ap_tape_dma_ended`),
+      but `ap_tape_advance` raises DONE twice more from the **drive** running
+      out rather than the controller counting out -- and a card that asserts
+      DONE while the 8237 is 8,704 bytes from terminal count has left the DMA
+      "not at end of range" word for word.
+      *The naive fix is ruled out*: `ap_sc499_dma_ended` is what clears
+      `dma_active`, so removing only the first call lets the second fire on the
+      same advance. The two must be decided together.
+      **What it costs is a re-measurement, which is the next step.**
+      `tape_suite`'s `test_a_read_the_drive_ends_also_ends_the_dma` asserts the
+      behaviour that would go, and it exists because of `FINDINGS.md` C266 --
+      the boot firmware printing `FF`, "timeout waiting for controller done",
+      with DONE clear. That is the *firmware's* path, where the 8237 is
+      programmed for one block (`count 01FE (base 01FF)`), and MAME's own
+      comment records the same 512-byte programming from a real driver, so both
+      readings are about the same case and cannot both stand.
       *Verification: the restore reaches 401 entries and `Restore complete.` on
       both models, against `sau14.log`.* Detail in `PROJECT_STATUS.md`.
 

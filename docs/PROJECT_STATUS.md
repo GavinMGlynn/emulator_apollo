@@ -3375,12 +3375,57 @@ for a different reason:
 - The second annotation on that page is a question rather than an answer: "How
   does this work when …".
 
-*So the documents are exhausted for this question and the oracle is next*, which
-is the tier this disagreement earns: same cartridge, same operating system, one
-side restores 401 entries and the other 396, and MAME's `sc499` is already built
-and instrumented in `ext/mame`. What to log there is narrow — what the card
-presents at the mark, in what order, and whether its DMA reaches terminal
-count.
+*So the documents are exhausted for this question and the oracle is next.*
+
+#### And the oracle answers it from its source, before any instrumentation
+
+`ext/mame/src/devices/bus/isa/sc499.cpp` sets `SC499_STAT_DON` in **exactly one
+place**:
+
+```cpp
+void sc499_device::eop_w(int state)      // the ISA end-of-process line
+{
+    if (state == 0)
+    {
+        m_status |= SC499_STAT_DON;      // 37ec
+        set_dma_drq(CLEAR_LINE);
+```
+
+**DONE comes from the 8237's terminal count and from nothing else.** `write_dma_go`
+*clears* it; `write_dma_reset` sets it; and at a file mark the DACK path drops
+DRQ and asserts EXCEPTION — `m_status &= ~SC499_STAT_EXC`, active low — and
+**does not touch DONE**. That is `[SC499]` §1.9's "Done, **from DMA logic**"
+taken literally.
+
+**This core raises it from three places, and two of them are the tape's.** The
+terminal-count path is right and is wired where it belongs — `ap_board.c`'s
+`if (cycle.terminal_count)` calls `ap_tape_dma_ended`, with the same §1.9
+citation beside it. But `ap_tape_advance` raises DONE twice more, from the
+*drive* running out rather than from the controller counting out:
+
+| `ap_tape.c` | when | MAME |
+| --- | --- | --- |
+| the end-of-read block | the drive reaches a file mark or the end of media | asserts EXCEPTION, drops DRQ, **leaves DONE** |
+| the "DMAGO the drive cannot answer" block | a DMAGO with the drive idle | no equivalent |
+
+**And that is what the error says.** A card that asserts DONE while the 8237 is
+still 8,704 bytes from terminal count *has* left the DMA "not at end of range",
+which is the driver's `0028001E` word for word.
+
+*The naive fix is already ruled out.* Removing only the first call changes
+nothing: `ap_sc499_dma_ended` is what clears `dma_active`, so without it the
+second block's `dma_active && !reading` fires on the same advance and raises
+DONE anyway. The two have to be decided together.
+
+**What the change costs is a re-measurement, which is why it is not made here.**
+`tape_suite`'s `test_a_read_the_drive_ends_also_ends_the_dma` asserts exactly
+the behaviour that would go, and it exists because of `FINDINGS.md` C266 — the
+boot firmware printing `002398-04` p. 4-17's `FF`, "timeout waiting for
+controller done", when DONE stayed clear. That measurement is on the *firmware's*
+path, where the 8237 is programmed for **one block** (`count 01FE (base 01FF)`),
+and MAME's own comment records the same 512-byte programming from a real driver
+— so both readings are about the same case and cannot both be right as they
+stand. Settling it is a run, not an argument.
 
 ### RETRACTED: the restore *does* write the DS5500's boot area, and the volume mounts
 
