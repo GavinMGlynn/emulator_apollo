@@ -4685,6 +4685,31 @@ discipline throughout.
       a file mark with the host's count unspent"; one host wants DONE and the
       other refuses it. **No card does both**, so the defect is upstream of
       DONE, and neither the drive-driven raise nor its removal can be right.
+      **CORRECTED 2026-09-11, same day, before any code was written.** The
+      paragraph below reads the §3.6.6 figure as "deliver the mark's 512 bytes
+      and the 8237 reaches terminal count on its own". **The figure does not say
+      512 bytes**, and the measurement says it is not what happens. In the
+      panels either side, a bus segment is **one byte** -- `LAST DATA BYTE`,
+      `1ST BYTE NEXT BLOCK` -- so `FILEMARK` as a single segment is *one byte*,
+      and exactly one byte-handshake (T34-T37) separates it from `LAST BLOCK`.
+      MAME does the same thing and names it: `dack_read` calls `read_block`,
+      and on `block_is_filemark()` it drops DRQ (`set_dma_drq(CLEAR_LINE)`)
+      **and then still returns `m_ctape_block_buffer[0]`** -- one byte, with the
+      counter beside it called `m_nasty_readahead`.
+      *And C266's own number confirms it for this core too*: `count 01FE (base
+      01FF)` is **one byte transferred of 512**. So this core already delivers
+      the byte the figure shows; what it does not do is get the host past the
+      stop. **Terminal count is not reachable at a mark on either model**, and
+      the "one change, both symptoms" conclusion below does not follow.
+      *What is therefore still open*: MAME reaches 401 entries with DONE coming
+      only from `eop_w`, which at a mark never fires -- so under MAME the boot
+      firmware gets past its 512-byte read **without DONE at all**, and C266's
+      `FF` must have had a different cause in this core than "the drive did not
+      raise DONE". Finding that cause is the next step, and it is a question
+      about EXCEPTION and the read-status sequence (`[SC499]` §1.11 steps 2-5),
+      not about DONE. The paragraph below is kept because it is the reasoning
+      the figure *did* settle -- the order of delivery and exception -- and
+      because the wrong inference from it is worth seeing next to the right one.
       **What is upstream: this core never delivers the file-mark block.**
       `ap_qic_read_exhausted` returns true while the position is *on* the mark,
       so the read stops **before** it, and `ap_tape_advance` then raises

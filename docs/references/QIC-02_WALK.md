@@ -130,7 +130,13 @@ drive mask made the state reachable. What remains:
   matters.** The last panel's DATA BUS carries `FILEMARK` as a *valid-data*
   segment between two hatched ones, drawn exactly like `LAST BLOCK`, and T38
   fires **after** it. So the controller transfers the mark across the bus and
-  *then* excepts. This core stops the read while the position is still on the
+  *then* excepts. **One byte, not a block**: in the neighbouring panels a bus
+  segment is a single byte (`LAST DATA BYTE`, `1ST BYTE NEXT BLOCK`), and one
+  byte-handshake (T34-T37) separates `LAST BLOCK` from `FILEMARK`. Reading it
+  as a 512-byte transfer is a mistake this project made for an hour on
+  2026-09-11 and caught before writing code; MAME's `dack_read` delivers
+  exactly one byte of the mark and drops DRQ, and `FINDINGS.md` C266's
+  `count 01FE (base 01FF)` is this core doing the same. This core stops the read while the position is still on the
   mark and never transfers it, which makes every such read short by
   construction -- the cause behind both `FINDINGS.md` C266 and the restore's
   `0028001E`. The row above was not wrong; "read ends with ... EXCEPTION" is
