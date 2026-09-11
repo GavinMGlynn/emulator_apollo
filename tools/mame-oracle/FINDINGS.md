@@ -17283,3 +17283,79 @@ AEGIS page 1,024 bytes, which is *two* 512-byte tape blocks. The 32 KB base
 count this item has reasoned about throughout may not be the unit the driver
 actually checks. That is the next thing to measure, and it is measurable from
 this side alone.
+
+
+## C284 -- the driver's own instructions, decoded: `PBU_$DMA_STOP` requires a residual count of zero
+
+C283 named the path from the file mark to `28001E`. The trace that named it also
+*contains* the instructions, with their registers, so the three routines on it
+can be read without a disassembler and without a second run.
+
+### `CT_$INT` -- the ISR sees the exception, and gets it right
+
+    3C4A69E0  206D      movea.l d16(a5),a0     ; a0 = the card's base
+    3C4A69E4  4228      clr.b   d16(a0)        ; control := 00
+    3C4A69E8  3010      move.w  (a0),d0        ; d0 = 8047  -- data:status
+    3C4A69EA  0800      btst    #n,d0
+    3C4A69EE  57C0      seq     d0             ; d0.b = FF  <- the bit was 0
+    3C4A69F0  1B40      move.b  d0,d16(a5)     ; flag stored
+    3C4A69FC  4EB9      jsr     EC_$ADVANCE    ; wake the waiter
+
+`d0` is `8047` and `seq` produced `FF`, so the tested bit was **0**. In `0x47`
+the only clear bit below 6 is **bit 5, `EXC`** -- active low, asserted. **So the
+ISR reads this core's exception, recognises it, records it and wakes the
+waiter.** Nothing on this side is missing, and the `80` in the high half --
+this core's data register echoing the last command byte where MAME's `m_data`
+holds a status byte -- is not what is tested.
+
+### `ATBUS_$DMA_STOP` -- it reads the status *and returns the residue*
+
+    3C40EE10  1228      move.b  d16(a0),d1     ; the 8237's status
+    3C40EE14  836D      or.w    d1,d16(a5)     ; OR'd into a frame word
+    3C40EE24  1141      move.b  d1,d16(a0)     ; mask the channel (05)
+    3C40EE36  1030      move.b  (a0,d1),d0     ; count low  = FF
+    3C40EE44  1830      move.b  (a0,d1),d4     ; count high = 21
+    3C40EE48  E14C      lsl.w   #8,d4          ; d4 = 2100
+    3C40EE4A  5244      addq.w  #1,d4          ; d4 = 2101
+    3C40EE4C  D044      add.w   d4,d0          ; d0 = 2200  -- bytes remaining
+    3C40EE5A  2280      move.l  d0,(a1)        ; returned to the caller
+    3C40EEC4  C081      and.l   d1,d0          ; frame & (1 << channel)
+    3C40EEC6  670C      beq     -> store status
+
+### `PBU_$DMA_STOP` -- and **this** is the gate
+
+    3C4E2F78  4E90      jsr     (a0)           ; ATBUS_$DMA_STOP
+    3C4E2F7E  202E      move.l  d16(a6),d0     ; d0 = 2200, the residue
+    3C4E2F88  6708      beq     +8             ; NOT taken
+    3C4E2F8A  4852      pea     (a2)
+    3C4E2F8C  6100      bsr     ...            ; the error path
+
+**`beq` on the residual count.** 0x2200 is 8,704 bytes unspent, so the branch is
+not taken and the error is raised. `002398-04`'s name for the code is the
+instruction: not at end of **range**.
+
+### What this settles, and what it costs
+
+**The gate is the residual count reaching zero -- read from the driver's own
+instructions rather than inferred.** It is not the status bit (C280 measured
+that, and this explains why: `ATBUS_$DMA_STOP` tests the bit for its *own*
+return value, and the caller errors on the count regardless), not the interrupt,
+not the card's register state at the mark, and not the ISR, which does its job
+correctly on this core.
+
+**So the driver as written cannot succeed at a file mark unless the card
+delivers the host's full requested count.** Every mechanism this item has tried
+changed what the card *shows*; none changed what it *delivers*, and the count is
+the only thing this routine looks at.
+
+**That reopens the reading this item started with, and my arithmetic refutation
+of it was wrong in its premise.** C280 refuted "MAME streams past the mark" by
+counting the blocks left on the cartridge -- 47 data, the mark, two trailer
+labels -- and concluding 25,600 bytes could never satisfy a 32,768-byte request.
+**That assumed the card stops at the end of the medium.** MAME's does not: when
+`read_block` returns `nullptr` it leaves `m_ctape_block_index` at 512 and
+`dack_r` indexes past the end of its own buffer, so bytes keep being handed over
+until the host's count expires. Whether that is a defect in the oracle or the
+behaviour of the real card is exactly the question, and it is the one worth
+measuring next -- **on the oracle's 8237**, whose terminal count would say
+directly whether its residue reaches zero.

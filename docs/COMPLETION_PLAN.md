@@ -5012,6 +5012,35 @@ discipline throughout.
       count this item has reasoned about throughout may not be the unit the
       driver checks, and that is measurable from this side alone.
       Detail in `FINDINGS.md` C283.
+      **AND THE DRIVER'S OWN INSTRUCTIONS DECODE IT.** The same trace carries
+      the code, so the three routines read without a disassembler or a second
+      run. `CT_$INT` does `move.w (a0),d0` -> `8047`, `btst #n,d0`, `seq d0` ->
+      `FF`: the tested bit was **0**, and in `47` the only clear bit below 6 is
+      **bit 5, `EXC`** -- so **the ISR reads this core's exception, recognises
+      it and wakes the waiter**. Nothing on this side is missing.
+      `ATBUS_$DMA_STOP` reads the 8237's status, masks the channel, reads the
+      count `21FF`, computes `21FF + 1 = 2200` and **returns that residue to its
+      caller**. And `PBU_$DMA_STOP` is the gate:
+
+          3C4E2F78  jsr     ATBUS_$DMA_STOP
+          3C4E2F7E  move.l  frame,d0        ; d0 = 2200, bytes unspent
+          3C4E2F88  beq     +8              ; NOT taken
+          3C4E2F8A  pea (a2) / bsr          ; the error path
+
+      **So the gate is the residual count reaching zero**, read from the
+      driver's instructions rather than inferred -- not the status bit, not the
+      interrupt, not the card's registers, not the ISR. Every mechanism tried so
+      far changed what the card *shows*; none changed what it **delivers**, and
+      the count is the only thing this routine looks at.
+      **And that reopens the reading this item began with.** C280 refuted
+      "MAME streams past the mark" by counting blocks left on the cartridge and
+      concluding 25,600 bytes could not satisfy a 32,768-byte request. *That
+      assumed the card stops at the end of the medium.* MAME's does not -- when
+      `read_block` returns `nullptr` it leaves `m_ctape_block_index` at 512 and
+      `dack_r` indexes past its own buffer, so bytes keep crossing until the
+      host's count expires. **The next measurement is the oracle's 8237**, whose
+      residue would say directly whether it reaches zero. Detail in
+      `FINDINGS.md` C284.
       *How to bound it, written down because deriving it is most of the cost.*
       The route is `tools/dn5500/README.md`'s: `tools/dn5500-md.sh` with
       `--boot-script tools/dn5500/restore.script`, a copy of
