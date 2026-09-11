@@ -4715,7 +4715,23 @@ discipline throughout.
       read would settle both. Both siblings on disk carry neither section;
       `007861` remains the missing document.
 - [ ] **The DN5500 needs a 68040 instruction core, measured rather than
-      assumed.** Run on 2026-08-19 with `--boot-trace-last`: the machine
+      assumed.**
+      **WHAT IS OPEN, because the rest of this item is 600 lines of closed
+      work.** The plan is read forwards to choose the next thing, and this item
+      has stopped serving that; it keeps its detail because `CLAUDE.md` says a
+      live item may, and it is compressed in the commit that ticks it. Until
+      then, the live parts are only these:
+      1. **The SAU 14 install.** `invol` and the RBAK restore both run and the
+         DS5500 mounts and boots its own volume; what is missing is `/sau14` as
+         a *root-directory entry*, which is `008860-A03` Chapter 1's Step 4 --
+         `GO`, log in, then `minst` or the tool-level route. `tools/dn5500/`
+         has the scripts and the command lines.
+      2. **The 68040's caches are a complete module attached to no CPU**, so
+         `CINV`/`CPUSH` are correctly no-ops and every fetch and operand is a
+         bus access.
+      3. **`PFLUSH` has no published timing** and is `PROVISIONAL` for that
+         reason; no manual on this shelf gives a figure.
+      Everything else below is done, refuted or superseded, and says which. Run on 2026-08-19 with `--boot-trace-last`: the machine
       executes `NOP` at `00060C` and then takes **vector 11, the F-line
       emulator trap**, on `F4D8` at `00060E` — `CINVA BC`, a 68040
       cache-invalidate. `4E7B 0004` follows it, `MOVEC` to `ITT0`, so the PROM
