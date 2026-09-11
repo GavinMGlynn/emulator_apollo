@@ -40,14 +40,27 @@ run rather than three.
         --boot-script tools/dn5500/restore.script \
         --disk-writeback scratch/restored.awd --boot-limit 40000000000
 
-**It ends with `shut`, and that line is the whole difference between a volume
-that boots and one that does not.** Domain/OS is a single-level store: the root
-directory's updated links sit in the node's cache until the *guest* shuts down.
-A run of 2026-09-11 without it restored 396 entries including `(dir) "sau14"`,
-wrote a ` M68K_4K ` SYSBOOT into the boot area, and produced a volume the DS5500
-mounted and then rejected with `boot error: SAU14 not found in root_dir` --
-objects on the disk, links never written. `FINDINGS.md` C192 measured the same
-thing on a DN3500 as 3 root entries against 17.
+**It ends with `shut`, which `008860-A03` and the SR10.3 route both require** --
+Domain/OS is a single-level store and the root directory's updated links sit in
+the node's cache until the *guest* shuts down.
+
+**What `shut` is NOT, corrected 2026-09-11:** it is not what decided whether this
+volume booted, and this file said it was. The restore was re-run *with* it, the
+guest printed `Shutdown successful`, and the DS5500 gave the identical
+`boot error: SAU14 not found in root_dir`. The DN3500 control then restored the
+same cartridge with **no `shut` at all** and took its root directory from 3
+entries to 17. So links are written without it here, and the DS5500's failure was
+elsewhere: its root record (blocks **165750-165753**, four sectors to a record)
+came out **byte-identical to the virgin INVOL input** while 50,916 other blocks
+changed. One variable separated the two runs: the CPU. The 68040's ATC was never
+writing `M` back to the page descriptor, so a single-level store had no dirty
+directory page to page out -- a defect established from the manual and fixed on
+2026-09-11, *and* the mechanism that fits this failure, though the run that
+proves it is the cause is the restore re-run on the fixed core. See
+`PROJECT_STATUS.md`.
+`FINDINGS.md` C192's DN3500 measurement of 3 root entries against 17 stands for
+what it measured, an *unclean end* against a clean one, and does not generalise
+to a run that ends inside its bound.
 
 `shut` belongs to the `)` prompt of the Phase II environment, which is where
 RBAK leaves the machine, so no EOT is needed -- unlike the MINST route, where
