@@ -3283,6 +3283,82 @@ disk.
 *So the DS5500 restore now running produces a checkpoint, not a bootable
 volume*, and the step after it is `minst`.
 
+### The restore loses its last five entries on **both** machines, and the machine names the reason
+
+**A bounded defect, with a control.** The SR10.4 boot-volume restore off
+`019593-001` runs to 396 entries on this core and stops; the oracle, same
+cartridge, same RBAK, restores **401** and prints `Restore complete.`
+
+| | entries | ending |
+| --- | --- | --- |
+| oracle (`sau14.log`, MAME, DN3500) | **401** | `Restore complete.` |
+| this core, **DS5500** | 396 | `(restore_object_data) Unexpected error from next_entry.` / `(unrecognized error status 28001E)` |
+| this core, **DN3500** | 396 | byte-identical to the DS5500's |
+
+*The first 396 are byte-identical to the oracle's on both machines*, and the
+five that are lost are `usr/apollo/lib/stcode.db` and four `usr/apollo/lib`
+directory entries.
+
+**The control is what makes it useful.** A 68030 DN3500 and a 68040 DS5500 fail
+at the same entry with the same status, so this is **not** the DS5500, the
+68040, the MMU or any of the regions placed for it — it is in the tape and DMA
+path the two machines share.
+
+#### The machine's own diagnosis, decoded
+
+`0028001E` is a `status_$t`: `002398-01` chapter 7 gives bit 31 fail, 30-24
+subsystem, 23 async, 22-16 **module**, 15-0 code — so module **`0x28`**, code
+**`0x1E`**. Module `0028` is the **cartridge-tape driver**, and `002398-04`
+p. 4-13 lists its codes:
+
+```
+        (0028001A)   filemark detected
+        (0028001B)   illegal drive command
+        (0028001C)   marginal block detected
+        (0028001D)   unrecognized drive status
+        (0028001E)   dma not at end of range
+```
+
+**"dma not at end of range"**, and RBAK prints `unrecognized error status`
+because that code is not one its own table expects to see here.
+
+#### And the run's report says exactly why the DMA was short
+
+| | |
+| --- | --- |
+| tape at the end | `block 104839 of 104841`, **past** the file mark |
+| the card | `exs 8100` = `ST0 | FIL`, exception and done asserted |
+| the transfer | `dma1 ch1 count 21FF (base 7FFF)` — **24,064 of 32,768 bytes** |
+
+24,064 bytes is **47 blocks**, and the driver had asked for 64. `ap_ct.h`
+records this cartridge's layout, measured across every image in
+`media/domainos/`: the data file is blocks **23-104837** and the mark is block
+**104838** — which the ANSI trailer confirms from the other side, since
+`EOF1 ... 104815` is exactly 104,837 − 23 + 1.
+
+**So no data was lost.** 104,791 + 47 = 104,838: the drive delivered *every
+remaining block of the data file* and stopped at the mark, which is what
+`QIC-02 Rev D` §3.6.6's T38 requires. What the driver refused is the **short
+final transfer** — and the last transfer of any file is short by construction,
+as `tape_suite`'s own comment says: "a card that only raised DONE at the host's
+byte count could never let a host read a file to its end".
+
+*So the question is narrow and answerable*: what does the SC-499 present when a
+read ends at a file mark with the host's DMA count unspent, such that the
+driver reports the mark (`0028001A`) rather than the range (`0028001E`)? This
+core raises EXCEPTION with `FIL` **and** ends the DMA in the same instant
+(`ap_tape_advance`). The ending-the-DMA half was itself measured — without it
+the firmware printed `002398-04` p. 4-17's `FF`, "timeout waiting for controller
+done" (`FINDINGS.md` C266) — so the fix is not to undo it but to find what else
+the card says.
+
+**Next, in the resolution order.** `[SC499]` §1.11's DMA sequence and Figure
+1-24's DONE routine are on the shelf and have been walked; re-reading them
+against this specific case is first. The oracle is fourth, and this is the kind
+of disagreement that earns it: same cartridge, same operating system, one side
+restores 401 entries and the other 396, and MAME's `sc499` is instrumented in
+`ext/mame` already.
+
 ### RETRACTED: the restore *does* write the DS5500's boot area, and the volume mounts
 
 **The section above is wrong about the DS5500, and the machine said so.** The

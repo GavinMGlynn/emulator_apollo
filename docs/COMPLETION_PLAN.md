@@ -4596,6 +4596,36 @@ discipline throughout.
       C50, and the CALENDAR preamble in `install-sau14.cmds`). The page map is
       built and every chapter boundary is known; what is owed is the reading.
 
+- [ ] **The cartridge read loses a file's last short transfer, on every model.**
+      The SR10.4 boot-volume restore reaches **396** entries on this core and
+      the oracle reaches **401** with `Restore complete.`, off the same
+      cartridge. The first 396 are byte-identical, and the ending is the
+      cartridge-tape driver's own code **`0028001E`, "dma not at end of range"**
+      (`002398-04` p. 4-13, module `0028`).
+      **Controlled**: a 68030 DN3500 and a 68040 DS5500 fail at the same entry
+      with the same status, so this is the **tape and DMA path they share**, not
+      the DS5500 or the 68040.
+      *And no data is lost.* At the stop the tape is at block 104,839 of
+      104,841 -- past the file mark at 104,838 that `ap_ct.h` records -- with
+      `exs 8100` (`ST0 | FIL`) and `dma1 ch1 count 21FF (base 7FFF)`: **24,064
+      of 32,768 bytes**, which is 47 blocks of the 64 asked for and *every
+      remaining block of the data file* (23-104,837, the count `EOF1` prints as
+      104,815). The drive stopped at the mark, which `QIC-02 Rev D` §3.6.6's T38
+      requires. What the driver refused is the **short final transfer**, and the
+      last transfer of any file is short by construction.
+      *So the question is narrow*: what does the SC-499 present when a read ends
+      at a file mark with the host's count unspent, such that the driver reports
+      `0028001A` "filemark detected" rather than the range? This core raises
+      EXCEPTION with `FIL` **and** ends the DMA in the same instant, and the
+      second half was itself measured (`FINDINGS.md` C266: without it the
+      firmware printed "timeout waiting for controller done"), so the fix is not
+      to undo it.
+      **Next**: `[SC499]` §1.11's DMA sequence and Figure 1-24's DONE routine,
+      both walked and on the shelf, re-read against this case; the oracle
+      fourth, and this is the kind of disagreement that earns it.
+      *Verification: the restore reaches 401 entries and `Restore complete.` on
+      both models, against `sau14.log`.* Detail in `PROJECT_STATUS.md`.
+
 - [ ] **The DS5500 has a SCSI bus and this core models no SCSI.** From the
       `019411-A00` walk, Figure 1-5: a "Disk or SCSI/Disk Controller" drives a
       SCSI bus to magtape and a second cartridge tape. Subsystem-sized, and
