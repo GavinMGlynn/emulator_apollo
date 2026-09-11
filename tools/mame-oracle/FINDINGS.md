@@ -16740,3 +16740,73 @@ drive-cable waveform as a DMA transfer. The tell was available free: the
 document's own §3.5 pin list is two pages from the figure and names every line
 `HOST BUS BIT n` on a 50-conductor cable with four drives on it. **Read the pin
 list before reasoning from the waveform** -- it is what says who is talking.
+
+### And then the oracle was asked, and the mark is not where the two diverge
+
+`sc499.cpp` was instrumented (temporary, reverted, oracle rebuilt clean and
+verified back to its pre-probe size) to answer the first of this finding's two
+questions. The probe armed on `dack_r`'s `block_is_filemark()` branch and logged
+every byte, DMAGO, `eop_w`, status read and command after it.
+
+**It never fired.** Zero events across the whole cartridge boot -- so MAME's
+**DMA acknowledge path never discovered a mark**. `block_is_filemark()` has
+three sites, and the one that matters is inside `read_block()` itself:
+
+    if (block_is_filemark())
+    {
+        m_status &= ~SC499_STAT_EXC;      // assert EXCEPTION
+        m_status &= ~SC499_STAT_DIR;      // and turn the bus back
+        tape_status_clear(SC499_ST_CLEAR_ALL);
+        tape_status_set(SC499_ST0_FM);    // FIL in the drive's status
+    }
+
+`read_block` is called from the streaming timer as well as from `dack_r`, and
+the probe says it is the **timer** that reaches the mark here. So MAME finds
+marks while streaming, ahead of the host's demand -- which is structurally what
+this core does in `ap_tape_advance`, and it independently vindicates C267's
+"the ending belongs to the tape, not to the demand".
+
+**And the run's console is the other half of the answer:**
+
+    >EX DOMAIN_OS
+    low: 01002000  high: 01111FFF  start: 01002024
+    Domain/OS kernel(7), revision 10.4, February 14, 1992  11:42:25 am
+    Crash_Status 00080024  PC 3C456A9C pid 0001
+
+**That is byte-for-byte this core's diskless control run**, crash status and PC
+included. The two models agree on the diskless cartridge boot to the
+instruction. So that boot is a *regression* check and not a discriminator -- it
+was right for showing the DONE removal broke something, and it cannot show what
+the restore's `0028001E` is.
+
+### The two host-side differences at a mark, and both settle against changing this core
+
+Reading MAME's mark handling against ours leaves exactly two host-visible
+differences, and neither survives:
+
+**DONE.** MAME raises it only at `eop_w`; this core raises it at the ending.
+*Measured*, above: removing it puts `FF` back. C266 stands.
+
+**DIRECTION.** MAME's `read_block` clears `SC499_STAT_DIR` at the mark; this
+core holds it until a command takes the bus back. **The documents settle this
+one, and against the oracle.** `[SC499]` **Figure 1-9** is the entry for a
+device *still holding the bus after a read or a status block*, and
+`ap_sc499_advance` implements its two intervals -- `T3->T4 "< 150 us"` to
+release the bus, `T4->T6 "< 500 us"` to assert READY. A device that dropped
+DIRECTION at the end of every read would make Figure 1-9 unreachable after a
+read, which is the same self-consistency argument C264 used for the T7 window:
+between two readings of one document, take the one that makes it consistent with
+itself. So this core is right here and MAME is not, and no experiment is owed.
+
+### Where that leaves the item
+
+**The file mark is not where the two models diverge.** That eliminates the whole
+hypothesis class this item has worked in -- every version of "what does the card
+present at a mark" -- and it is the useful product of the day, since four
+redesigns were spent inside it.
+
+What has *never* been measured is the restore's own failing exchange. C273
+captured the 8237 and tape traffic around the **boot** driver's `28001E` in four
+passes, and C274 fixed what it found; nobody has run that instrument at **entry
+396 of the restore**, which is a different driver in a different phase. That is
+the next measurement, and it is the one the plan item's verification turns on.

@@ -4873,6 +4873,29 @@ discipline throughout.
       *loads* a block, so the remaining 511 are returned unconditionally if DRQ
       returns), and what the status register holds at the mark that ends RBAK's
       32 KB read. Detail in `FINDINGS.md` C278.
+      **The oracle was asked, and the file mark is NOT where the two models
+      diverge.** `sc499.cpp` was instrumented on `dack_r`'s
+      `block_is_filemark()` branch (temporary, reverted, oracle rebuilt clean)
+      and **never fired once** in a whole cartridge boot: MAME reaches its marks
+      through the *streaming timer*, in `read_block`, ahead of the host's
+      demand -- structurally what `ap_tape_advance` does, and an independent
+      vindication of C267's "the ending belongs to the tape, not to the demand".
+      **And that boot's console is byte-for-byte this core's**, crash status and
+      PC included (`Crash_Status 00080024  PC 3C456A9C`), so the diskless
+      cartridge boot is a regression check and not a discriminator.
+      Reading MAME's mark handling against ours leaves **exactly two**
+      host-visible differences and neither survives: **DONE**, measured above;
+      and **DIRECTION**, which MAME's `read_block` clears at the mark and this
+      core holds until a command takes the bus back -- settled *against the
+      oracle* by `[SC499]` **Figure 1-9**, the entry for a device still holding
+      the bus after a read, whose two intervals `ap_sc499_advance` implements.
+      A device that dropped DIRECTION at every read's end would make Figure 1-9
+      unreachable after a read, which is C264's self-consistency argument again.
+      **So the whole "what does the card present at a mark" hypothesis class is
+      eliminated**, and the next measurement is the one never taken: C273's
+      instrument -- the 8237 programming, the command bytes and the transfer
+      counts -- run at **entry 396 of the restore**, a different driver in a
+      different phase from the boot path C273 and C274 actually measured.
       *Verification: the restore reaches 401 entries and `Restore complete.` on
       both models, against `sau14.log`.* Detail in `PROJECT_STATUS.md`.
 

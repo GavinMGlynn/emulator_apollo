@@ -498,8 +498,36 @@ forty-two pages, as a power-on LED; neither Apollo tape document says what the
 card presents to a host when a read ends with the count unspent. **The oracle is
 due**, for two facts about `sc499.cpp` to be measured rather than reasoned about
 — how many bytes of the mark block reach host memory, and what the status
-register holds at the mark that ends RBAK's 32 KB read. Detail in `FINDINGS.md`
-C278.
+register holds at the mark that ends RBAK's 32 KB read.
+
+**The oracle was asked the same day, and it eliminates the question.**
+`sc499.cpp` instrumented on `dack_r`'s `block_is_filemark()` branch — temporary,
+reverted, oracle rebuilt clean and verified back to its pre-probe size — **never
+fired once** across a whole cartridge boot. MAME reaches its marks through the
+*streaming timer*, inside `read_block`, ahead of the host's demand: structurally
+what `ap_tape_advance` does, and an independent vindication of C267's *"the
+ending belongs to the tape, not to the demand"*. That boot's console is
+byte-for-byte this core's diskless control, `Crash_Status 00080024  PC
+3C456A9C` included — so the two models agree on it to the instruction, and it is
+a regression check rather than a discriminator.
+
+Reading MAME's mark handling against ours leaves **exactly two** host-visible
+differences, and neither survives. **DONE** is measured above. **DIRECTION** —
+MAME's `read_block` clears `SC499_STAT_DIR` at the mark, this core holds it
+until a command takes the bus back — is settled *against the oracle* by
+`[SC499]` **Figure 1-9**, the entry for a device still holding the bus after a
+read, whose two intervals (`T3→T4 "< 150 us"`, `T4→T6 "< 500 us"`)
+`ap_sc499_advance` implements. A device that dropped DIRECTION at every read's
+end would make Figure 1-9 unreachable after a read — C264's self-consistency
+argument again.
+
+**So the file mark is not where the two models diverge**, and the whole
+hypothesis class four redesigns were spent in is eliminated. What has never been
+measured is the restore's own failing exchange: C273 ran its instrument on the
+**boot** driver's `28001E` and C274 fixed what it found, but nobody has run it
+at **entry 396 of the restore**, a different driver in a different phase. That
+is the next measurement and the one the item's verification turns on. Detail in
+`FINDINGS.md` C278.
 
 ## Devices see time pass while the processor is stalled (2026-09-09)
 
