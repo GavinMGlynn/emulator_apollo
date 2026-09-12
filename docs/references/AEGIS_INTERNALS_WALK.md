@@ -229,8 +229,23 @@ process holds any mutex or exclusion locks (via `proc1_$inhibit_check`). If this
 check fails, **the system crashes** with `fault_$while_lock_set` status, since
 there are no circumstances in which the AEGIS kernel should exit to user mode
 with a kernel lock held." A user-mode fault can therefore crash the system.
-**Not verified** — `Crash_Status 0012004B` has not been decoded against any
-status list, and no run has been instrumented for it.
+**Decoded 2026-09-12, as far as the documents allow, and the answer is that they
+do not reach it.** `002398-04` p. 4-6 names module `12` outright — **`OS / fault
+handler`** — and pp. 4-6/4-7 print its codes `0001` through **`003A`**, ending
+there and moving to module `13`. **`4B` is past the end of that list.** Rev 4 is
+January 1987 and this machine runs SR10.4 of 1992, so the handbook is five years
+older than the code; it is not a misprint to hunt for but a range the document
+does not cover. `docs/references/002398-04_WALK.md`'s rows for PDF 74-75 carry
+the module table.
+
+**And §18.2.4's crash is a *different* code, which is the useful half.**
+`(00120020) supervisor fault while resource lock(s) set` is printed there word
+for word — that is `fault_$while_lock_set`, the crash the chapter describes. So
+the observed `0012004B` is **not** the one §18.2.4 predicts, and the chapter's
+route is not what this machine took. *What would settle `4B`*: an SR10-era
+status list, which this project has searched for and not found; the shelf's own
+`002398-01` chapter 7 gives the `status_$t` layout but no module `12` codes.
+Closed as a documentation-absent decode rather than carried as unchecked.
 
 **§18.2.2 is a clause about this core, and this core already satisfies it.** The
 privileged-instruction handler "checks for a **Move from SR** instruction. This
