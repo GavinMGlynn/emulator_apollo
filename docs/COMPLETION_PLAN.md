@@ -4813,16 +4813,22 @@ discipline throughout.
          **Six sub-tests that had never run now pass** — interrupts, timer,
          three DMA and the calendar. Detail, and the three eliminations that
          came before it, in `PROJECT_STATUS.md`.
-      2b. **The DS5500's configuration table has never been initialised.** New
-         2026-09-12, and it is what 2a uncovered: the diagnostic now reaches
-         `CPU (bus error) Test #0` and stops with a **full diagnosis** —
-         `Expected= 00000000, Actual= 00000012, Address= 00010912`, preceded by
-         its own `Configuration information is not initialized. ... type "ex
-         config" ... to initialize the configuration table.` `00010912` is
-         `AP_CALENDAR_ADDR + $12`, battery RAM. **The next step is
-         operational**: run `ex config` once on a DS5500 volume, which this
-         project never has. Only if the table is initialised and the test still
-         fails is there a finding here.
+      2b. ~~**The DS5500's configuration table has never been initialised.**~~
+         **DONE 2026-09-12, the same hour it was opened.** The diagnostic's
+         `Expected= 00000000, Actual= 00000012, Address= 00010912` is
+         `002398-04` p. 12-3's **VALID PATTERN**, and the machine had already
+         said `Configuration information is not initialized ... type "ex
+         config"`. `--configure` seals the table, which is what `ex config`
+         does; `tools/dn5500-boot.sh` now passes it and says why.
+         **`Self tests passed.`** — every sub-test — and the firmware goes on to
+         load and start the kernel: `Domain/OS kernel(14), revision 10.4`. Five
+         stacks, two in mapped supervisor space entered 33 and 32 times, and
+         7,258,933 CPU periods idle waiting for an interrupt.
+      2c. **The DS5500's calendar is more than a minute slow**, which is where
+         the kernel now stops and which the machine names along with its
+         remedy: "Switch to service mode, press reset and run CALENDAR." The
+         same question the DN3500 answered long ago — the RTC must agree with
+         the volume's mount history. Operational, and next.
       3. ~~**`PFLUSH` has no published timing**~~ **— WRONG ON BOTH HALVES,
          checked 2026-09-12.** The M68040 User's Manual **p. 10-12**, §10.5
          MISCELLANEOUS INTEGER UNIT INSTRUCTION TIMINGS, prints it: `PFLUSH`

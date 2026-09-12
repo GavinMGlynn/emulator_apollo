@@ -16,6 +16,16 @@
 #   boot error: SAU14 not found in root_dir   the SYSBOOT ran and mounted the
 #                                         volume; what is missing is a directory
 #   Loaded: SELF_TEST Revision: ...       the boot path is whole
+#   Self tests passed.                    the machine's own diagnostic is clean
+#   Domain/OS kernel(14), revision 10.4   and the kernel is running
+#
+# **`--configure` is not optional here.** Without it the calendar's battery RAM
+# carries no VALID PATTERN at `010912` -- `002398-04` p. 12-3's field -- and the
+# diagnostic's `CPU (bus error) Test #0` stops with
+# `Expected= 00000000, Actual= 00000012, Address= 00010912`, having already told
+# you why: "Configuration information is not initialized ... type \"ex config\"".
+# Sealing the table is what `ex config` would do on the real machine, and with it
+# every sub-test passes and the boot goes on to load Domain/OS.
 #
 # **The cartridge is still fitted**, and deliberately: the firmware's load-path
 # test walks the devices it has, and a DS5500 with no cartridge is a different
@@ -49,6 +59,7 @@ knock=$(awk 'BEGIN { for (i = 0; i < 120; i++) printf "\r" }')
 
 exec "$bin" \
   --model dn5500 \
+  --configure \
   --boot-prom "$root/roms/firmware/5500_BOOT_A1631-80046_1-30-92.bin" \
   --cartridge "$cartridge" \
   --disk "$APOLLO_DISK" \

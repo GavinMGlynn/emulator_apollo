@@ -434,6 +434,55 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## The DS5500 passes its own self-test and boots the Domain/OS kernel (2026-09-12)
+
+    Loaded:  SELF_TEST     Revision:  0.4 LEOPARD
+       CPU  (interrupts)  Test #0 started.
+       CPU  (timer)       Test #0 started.
+       CPU  (dma)         Test #0 started.
+       CPU  (dma)         Test #1 started.
+       CPU  (dma)         Test #2 started.
+       CPU  (calendar)    Test #0 started.
+       CPU  (bus error)   Test #0 started.
+    Self tests passed.
+    low: 01004000 high: 0111886C start: 01004018
+
+    Domain/OS kernel(14), revision 10.4, February 26, 1992  3:05:56 pm
+
+**Every sub-test of the machine's own diagnostic passes**, and the firmware goes
+on to load and start the Domain/OS kernel. Three weeks ago this machine printed
+`boot error: SAU14 not found in root_dir`.
+
+**Two things got it here, and neither was a guess.** The cache status
+register's bit 4, found by disassembling the diagnostic (above); and
+`--configure`, which seals a valid configuration table into the calendar's
+battery RAM. Without it `010912` — `002398-04` p. 12-3's **VALID PATTERN**, the
+one longword the firmware's whole "is this machine configured" judgement rests
+on — reads as never-written, and `CPU (bus error) Test #0` stops with
+`Expected= 00000000, Actual= 00000012, Address= 00010912` after the machine has
+already said `Configuration information is not initialized ... type "ex config"`.
+Sealing the table is what `ex config` does on real hardware.
+`tools/dn5500-boot.sh` now passes `--configure` and says why.
+
+**The kernel runs.** The report shows **five** stacks, two of them in mapped
+supervisor space — `7A546FE4` entered 33 times from `01004220`, and `7A21A000`
+entered 32 times — and **7,258,933 CPU periods idle waiting for an interrupt**,
+which is a scheduler with nothing to do rather than a machine stuck in a loop.
+
+**Where it stops is a known condition with a known remedy**, and the machine
+names both:
+
+    The calendar is more than a minute slow.
+    Switch to service mode, press reset and run CALENDAR.
+
+That is the same calendar question the DN3500 answered long ago — the RTC has to
+agree with the volume's own mount history before Domain/OS will go on. It is the
+next step and it is operational.
+
+*Reproduce*: `APOLLO_DISK=/home/gavin/apollo-scratch/sau/restored.awd
+tools/dn5500-boot.sh`, which now carries `--configure`. 892,741,067
+instructions to the calendar message.
+
 ## `/sau14` is in the volume's root directory, and the DS5500 loads from it (2026-09-12)
 
 The 68040 item's live part 1 asked for `/sau14` as a **root-directory entry** on
