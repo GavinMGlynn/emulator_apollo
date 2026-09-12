@@ -434,6 +434,60 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## `/sau14` is in the volume's root directory, and the DS5500 loads from it (2026-09-12)
+
+The 68040 item's live part 1 asked for `/sau14` as a **root-directory entry** on
+a DS5500 volume. It is there, and the firmware agrees.
+
+**The volume.** The SR10.4 restore re-run with `--disk-writeback` produced
+`restored.awd`, whose root directory (blocks 170933-170936) reads:
+
+    usr  user_data  tmp  node_data  sau9  sau8  sau7  sau14  sau12  sau11
+    5lib  install  etc  dev  acom  a_wp  bscom  sysboot  sys  lost+found.list
+
+The volume it was restored onto has the string `sau14` **nowhere on it** — zero
+occurrences in 364,904,448 bytes — and 25,613,802 bytes differ between the two.
+So the entry is this restore's product and not something the input carried.
+
+**The machine.** `APOLLO_DISK=…/restored.awd tools/dn5500-boot.sh`, the NORMAL-
+mode boot whose header lists the four outcomes it can print:
+
+       network driver search started...
+       above driver type loaded.
+       --- Load paths tested.
+       Loading SELF_TEST diagnostics from boot device.
+    low: 01002000 high: 01003A14 start: 01002020
+
+    Loaded:  SELF_TEST     Revision:  0.4 LEOPARD
+    Last Compiled:  1991/01/14.15:39:54
+
+`Loaded: SELF_TEST Revision: …` is that script's own "**the boot path is
+whole**" discriminator, and `boot error: SAU14 not found in root_dir` — the line
+this machine printed for three weeks — does not appear. The DS5500 mounts its
+volume, finds `/sau14`, and loads and starts a diagnostic out of it at
+`01002020`.
+
+**What it uncovers is the next thing, and it is new ground.** The diagnostic
+then runs:
+
+       CPU  (interrupts)  Test #0 started.
+
+    Self test failed.
+
+     PC= 000067A8
+
+This core has never reached a DS5500 SELF_TEST before, so there is no earlier
+result to compare it against and nothing here is a regression. It is the first
+executable diagnostic this machine has been able to run, which is the hardware's
+own test suite and the thing that was wanted — see `CLAUDE.md` on the ring
+firmware's self-test for why that matters more than a boot going further.
+
+*Reproduce*: `APOLLO_DISK=/home/gavin/apollo-scratch/sau/restored.awd
+tools/dn5500-boot.sh`. The volume is the artefact of the restore run recorded in
+*The SR10.4 restore completes* below; the boot takes about two minutes to the
+failure and then spins on `Do you wish to continue (y,n)?`, because the harness
+types only the console knock and the prompt reads a carriage return as `x`.
+
 ## The DS5500 has an identity baseline at last (2026-09-12)
 
 **`tools/identity-boot.sh` boots a DN3500, and a DN3500 is a 68030.** So a

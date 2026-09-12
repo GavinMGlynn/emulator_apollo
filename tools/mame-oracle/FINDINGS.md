@@ -17737,6 +17737,22 @@ reads -- because that is the only path a driver has to it:
   Bounded at the *device* -- the assertion that the drive stopped asking comes
   first -- so the loop's length is not what ends the transfer.
 
+### And Appendix B.3 names the error for the other case
+
+> `PBU_$DMA_NOT_EOR` -- "DMA channel **not at end of range** (`pbu_$dma_stop`)."
+
+So `pbu_$dma_stop` does not merely subtract; it asks whether the channel reached
+**end of range** -- terminal count -- and has a distinct status for the case
+where it did not. That is the short-transfer test's situation exactly, and it
+means the two branches this core has to get right are the two the driver
+distinguishes: a channel that wrapped to `FFFF` is "at end of range" with a zero
+residual, and one that stopped above zero is not.
+
+The neighbouring entries in the same list are worth the same reading:
+`PBU_$CHANNEL_IN_USE` "Requested DMA channel in use (`pbu_$dma_start`)" and
+`PBU_$CHANNEL_NOT_IN_USE` "(`pbu_$dma_stop`)" are the bookkeeping §7.1.2.1
+describes -- software's own record of who holds a channel, not a register.
+
 *Verification*: `dma_suite` 18 -> 20.
 
 

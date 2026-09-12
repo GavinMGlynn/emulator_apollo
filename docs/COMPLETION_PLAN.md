@@ -4707,11 +4707,19 @@ discipline throughout.
       has stopped serving that; it keeps its detail because `CLAUDE.md` says a
       live item may, and it is compressed in the commit that ticks it. Until
       then, the live parts are only these:
-      1. **The SAU 14 install.** `invol` and the RBAK restore both run and the
-         DS5500 mounts and boots its own volume; what is missing is `/sau14` as
-         a *root-directory entry*, which is `008860-A03` Chapter 1's Step 4 --
-         `GO`, log in, then `minst` or the tool-level route. `tools/dn5500/`
-         has the scripts and the command lines.
+      1. ~~**The SAU 14 install.**~~ **DONE, 2026-09-12.** The restore run with
+         `--disk-writeback` put `sau14` in the volume's own root directory --
+         `usr user_data tmp node_data sau9 sau8 sau7 `**`sau14`**` sau12 sau11
+         5lib install etc dev acom a_wp bscom sysboot sys lost+found.list`,
+         where the pre-restore volume has the string `sau14` **nowhere on it**.
+         And the machine agrees: `tools/dn5500-boot.sh` against the restored
+         volume prints `Loading SELF_TEST diagnostics from boot device.` and
+         `Loaded: SELF_TEST Revision: 0.4 LEOPARD`, which is that script's own
+         "the boot path is whole" discriminator, with no `SAU14 not found in
+         root_dir`. **What it uncovers is the next thing**: the loaded
+         diagnostic's `CPU (interrupts) Test #0` then reports `Self test
+         failed. PC= 000067A8`, which is a DS5500 failure this core has never
+         been able to reach before. Detail in `PROJECT_STATUS.md`.
       2. **The 68040's caches are a complete module attached to no CPU**, so
          `CINV`/`CPUSH` are correctly no-ops and every fetch and operand is a
          bus access.
