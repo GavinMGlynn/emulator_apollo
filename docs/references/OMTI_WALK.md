@@ -515,6 +515,21 @@ manual's normative text as family-wide.
 
 The footer strips carry enough body text to see three things without a full read.
 
+**CORRECTED 2026-09-12 — both halves of this note are stale, and the original
+stands beneath it.** The 100 µs wait **is** modelled: `ap_omti.h` carries
+`AP_OMTI_PHASE_RESET` as a state with a length and `AP_OMTI_RESET_TIME` as
+`AP_TIME_BASE_HZ / 1000000 * 100`, with this very page quoted against it and the
+note that p. 4-3 prints the warning twice. And the **RESET Register is decoded**:
+`AP_OMTI_DISK_STATUS = 1` is commented "read STATUS, write RESET (a function)"
+— port 321 is offset 1 of the four the fixed disk decodes — and the write
+handler calls `ap_omti_disk_reset`. The plan records both as landed 2026-08-21,
+which is *after* this row was written.
+**This is the failure mode `CLAUDE.md` names**: a walk row's "grepping returns
+nothing" is a claim about the *code*, and it goes stale the moment the code
+changes. The grep it rested on was also the wrong one — it looked for the
+literal `0x321`, an ISA port number this board never uses, where the register is
+reached as an offset. *Original text follows.*
+
 **GAP — the 100 µs post-reset wait is not modelled.** p. 4-3: "The RESET STATE
 is entered by applying power to the controller (power-on-reset), by the reset
 signal on the system bus, or by writing the RESET Register (**port 321**).
