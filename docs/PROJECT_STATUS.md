@@ -1212,8 +1212,17 @@ a block with no indirection at all. Withdrawn as a defect in the volume.
 `00000203,0` and `00000204,0`. The second is the VTOC's index — pairs of
 (UID, `vtocx`), 907 blocks on the DN3500 volume and 226 on the DS5500, matching
 `.vtoc_blocks` in each case, which is what `.map[0]` has been describing all
-along. `00000203,0` is not named here; it is 41 blocks and 3 blocks respectively
-and nothing this reader needs points at it.
+along.
+
+**`00000203,0` is the BAT, named 2026-09-13** by `002398-03` p. 2-17's list from
+`/os/nuc/uid_list.asm` — `bat_$uid` — and the arithmetic lands on both volumes:
+41 blocks against the DN3500's 329,388 1-KB blocks (329388/8192 = 40.2) and 3
+against the DS5500's 81,728 4-KB ones (81728/32768 = 2.49). **`00000204,0` is
+not in that list**, so this project's identification of it is an SR10 addition
+rather than something the reading missed. The same page names
+`name_$canned_root_uid` `00000308,0`, which is the `dir_uid` the root
+directory's own VTOC entry carries and which this project had read without
+identifying.
 
 **Bit 31 of a file-map pointer is a flag**, and the address is the low 31 bits.
 160 entries on the DN3500 volume carry it — on the object's last pages in 144 of

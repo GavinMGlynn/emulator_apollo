@@ -16,7 +16,7 @@ import unittest
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
 import awd_read as A
 
-VTOC_PAGE = 20
+VTOC_DADDR = 20   # logical-volume relative, `002398-03` p. 2-10
 ROOT_UID = (0xA4610000, 0x40012345)
 SYS_UID = (0xA4610000, 0x60012345)
 
@@ -63,13 +63,14 @@ def build(pv_block=0, lv_block=1, blocks=64):
     put(pv + 0x38, struct.pack(">HH", 18, 15))
     put(pv + 0x3C, struct.pack(">I", lv_block))
 
-    # The VTOC block. Its page is VTOC_PAGE and it therefore lives at DADDR
-    # VTOC_PAGE + 1 -- the convention every stored address here follows.
-    vtoc_daddr = VTOC_PAGE + 1
-    own(vtoc_daddr, A.VTOC_UID_HIGH, page=VTOC_PAGE)
+    # The VTOC block. Its logical-volume DADDR is VTOC_DADDR, so it sits at
+    # physical block lv_base + VTOC_DADDR -- the convention every stored
+    # address here follows.
+    vtoc_daddr = VTOC_DADDR + 1  # lv_base is 1 in this fixture
+    own(vtoc_daddr, A.VTOC_UID_HIGH, page=VTOC_DADDR)
     v = data_at(vtoc_daddr)
     put(v + A.DATA - A.VTOC_TRAILER_BYTES,
-        struct.pack(">II", A.VTOC_MAGIC, VTOC_PAGE))
+        struct.pack(">II", A.VTOC_MAGIC, VTOC_DADDR))
 
     size = A.VTOCE_BYTES[A.DATA]
 
@@ -92,9 +93,9 @@ def build(pv_block=0, lv_block=1, blocks=64):
         put(data_at(n), text)
 
     heap = [
-        dir_entry("sys", vtocx=(VTOC_PAGE << 4) | 0, uid=SYS_UID),
+        dir_entry("sys", vtocx=(VTOC_DADDR << 4) | 0, uid=SYS_UID),
         dir_entry("tmp", link="`node_data/tmp"),
-        dir_entry("sau7", vtocx=(VTOC_PAGE << 4) | 1, deleted=True),
+        dir_entry("sau7", vtocx=(VTOC_DADDR << 4) | 1, deleted=True),
         # The heap ends with a one-byte NUL name: a stop, not an entry.
         dir_entry("\0", link=""),
     ]
@@ -113,8 +114,8 @@ def build(pv_block=0, lv_block=1, blocks=64):
     put(lv + 0x3C, struct.pack(">I", 0))               # bat .vol_trouble
     put(lv + 0x4C, struct.pack(">HH", 2, 3607))        # vtoc version, size
     put(lv + 0x50, struct.pack(">I", 1))               # vtoc_blocks
-    put(lv + 0x58, struct.pack(">I", (VTOC_PAGE << 4) | 2))    # root_x
-    put(lv + 0x64, struct.pack(">H", 1) + struct.pack(">I", VTOC_PAGE))
+    put(lv + 0x58, struct.pack(">I", (VTOC_DADDR << 4) | 2))    # root_x
+    put(lv + 0x64, struct.pack(">H", 1) + struct.pack(">I", VTOC_DADDR))
     put(lv + 0xBC, struct.pack(">I", 0xA45DF6AB))      # mounted
     put(lv + 0xC0, struct.pack(">I", 0xA45E5C0C))      # dismounted
     put(lv + 0xCE, struct.pack(">H", 0))
@@ -170,7 +171,7 @@ class Labels(unittest.TestCase):
         self.assertEqual(2, lv["vtoc"]["version"])
         self.assertEqual(3607, lv["vtoc"]["vtoc_size"])
         self.assertEqual(1, lv["vtoc"]["vtoc_blocks"])
-        self.assertEqual((1, VTOC_PAGE), lv["vtoc"]["map"][0])
+        self.assertEqual((1, VTOC_DADDR), lv["vtoc"]["map"][0])
         self.assertEqual(0xA45DF6AB, lv["mounted_time"])
         self.assertEqual(0, lv["sys_shut_state"])
 
@@ -185,11 +186,12 @@ class Labels(unittest.TestCase):
 
 
 class Indices(unittest.TestCase):
-    def test_a_vtoc_index_names_a_vtoc_page_not_a_daddr(self):
-        """`002398-03` p. 2-25 calls bits 30-4 a DADDR. It is a VTOC *page*,
-        and the block is at that page plus one -- which the block's own trailer
-        confirms, because it repeats the page."""
-        self.assertEqual({"kind": "local", "page": 20, "indx": 2},
+    def test_a_vtoc_index_carries_a_logical_volume_daddr(self):
+        """`002398-03` p. 2-25: "0 | DADDR OF VTOC BLK OF OBJECT | INDX", bits
+        31-4 and 3-0 -- and p. 2-10 makes that DADDR relative to the logical
+        volume, so the physical block is `lv_base +` it. The block's own
+        trailer repeats the DADDR, which is what makes the decode checkable."""
+        self.assertEqual({"kind": "local", "daddr": 20, "indx": 2},
                          A.vtocx((20 << 4) | 2))
         self.assertEqual({"kind": "remote", "node_id": 0x12345},
                          A.vtocx(0x80012345))
@@ -203,26 +205,26 @@ class Indices(unittest.TestCase):
         vol = build()
         vol.derive_geometry(A.pv_label(vol))
         self.assertEqual(1, vol.lv_base)
-        self.assertEqual(VTOC_PAGE + 1, vol.daddr_of(VTOC_PAGE))
-        self.assertEqual(vol.logical(VTOC_PAGE + 1), vol.pointed_at(VTOC_PAGE))
+        self.assertEqual(VTOC_DADDR + 1, vol.daddr_of(VTOC_DADDR))
+        self.assertEqual(vol.logical(VTOC_DADDR + 1), vol.pointed_at(VTOC_DADDR))
 
         # A logical volume that starts further in moves every stored address
         # with it, which an assumed 1 could not do.
         vol.lv_base = 5
-        self.assertEqual(VTOC_PAGE + 5, vol.daddr_of(VTOC_PAGE))
+        self.assertEqual(VTOC_DADDR + 5, vol.daddr_of(VTOC_DADDR))
 
     def test_the_vtoc_block_is_checked_against_the_page_it_says_it_is(self):
         """The trailer is `FEDCA984` and the block's own page. A block that
         disagrees is not the one the index meant."""
         vol = build()
         vol.derive_geometry(A.pv_label(vol))
-        self.assertIsNotNone(A.vtoc_block(vol, VTOC_PAGE))
+        self.assertIsNotNone(A.vtoc_block(vol, VTOC_DADDR))
         img = bytearray(vol.data)
-        at = (VTOC_PAGE + 1) * A.BLOCK + A.HEADER + A.DATA - 4
-        img[at:at + 4] = struct.pack(">I", VTOC_PAGE + 9)
+        at = (VTOC_DADDR + 1) * A.BLOCK + A.HEADER + A.DATA - 4
+        img[at:at + 4] = struct.pack(">I", VTOC_DADDR + 9)
         broken = A.Volume(bytes(img))
         broken.derive_geometry(A.pv_label(broken))
-        self.assertIsNone(A.vtoc_block(broken, VTOC_PAGE))
+        self.assertIsNone(A.vtoc_block(broken, VTOC_DADDR))
 
     def test_the_entries_and_the_trailer_fill_the_block_exactly(self):
         """Three 0x150-byte entries from +008 end at 0x3F8, where the trailer
@@ -309,13 +311,13 @@ class Entries(unittest.TestCase):
         the UID of a directory that lists it."""
         vol = build()
         self.assertEqual((0, 0), root(vol)["dir_uid"])
-        sysfile = A.vtoc_entry(vol, (VTOC_PAGE << 4) | 0)
+        sysfile = A.vtoc_entry(vol, (VTOC_DADDR << 4) | 0)
         self.assertEqual(ROOT_UID, sysfile["dir_uid"])
 
     def test_a_file_reads_back_its_pages_in_order(self):
         vol = build()
         vol.derive_geometry(A.pv_label(vol))
-        data = A.read_file(vol, A.vtoc_entry(vol, (VTOC_PAGE << 4) | 0))
+        data = A.read_file(vol, A.vtoc_entry(vol, (VTOC_DADDR << 4) | 0))
         self.assertEqual(2 * A.DATA, len(data))
         self.assertTrue(data.startswith(b"first page "))
         self.assertTrue(data[A.DATA:].startswith(b"second page"))
@@ -327,11 +329,11 @@ class Entries(unittest.TestCase):
         vol = build()
         vol.derive_geometry(A.pv_label(vol))
         img = bytearray(vol.data)
-        e = (VTOC_PAGE + 1) * A.BLOCK + A.HEADER + A.VTOCE_FIRST + A.VTOCE_FM
+        e = (VTOC_DADDR + 1) * A.BLOCK + A.HEADER + A.VTOCE_FIRST + A.VTOCE_FM
         img[e:e + 4] = struct.pack(">I", A.VTOCE_FM_FLAG | (40 - 1))
         flagged = A.Volume(bytes(img))
         flagged.derive_geometry(A.pv_label(flagged))
-        entry = A.vtoc_entry(flagged, (VTOC_PAGE << 4) | 0)
+        entry = A.vtoc_entry(flagged, (VTOC_DADDR << 4) | 0)
         self.assertEqual([40, 41], A.file_blocks(flagged, entry))
 
     def test_a_block_the_map_names_is_checked_against_its_own_header(self):
@@ -339,14 +341,14 @@ class Entries(unittest.TestCase):
         its page, so a misread map is reported rather than served as data."""
         vol = build()
         vol.derive_geometry(A.pv_label(vol))
-        entry = A.vtoc_entry(vol, (VTOC_PAGE << 4) | 0)
+        entry = A.vtoc_entry(vol, (VTOC_DADDR << 4) | 0)
         blocks = A.file_blocks(vol, entry)
         self.assertEqual(2, A.file_confirmed(vol, entry, blocks))
         self.assertEqual(0, A.file_confirmed(vol, root(vol), blocks))
 
     def test_the_walk_stops_where_it_is_told(self):
         vol = build()
-        e = A.vtoc_entry(vol, (VTOC_PAGE << 4) | 0)
+        e = A.vtoc_entry(vol, (VTOC_DADDR << 4) | 0)
         self.assertEqual([40], A.file_blocks(vol, e, limit=1))
 
     def test_the_handbooks_maximum_file_size_is_rounded(self):

@@ -49,11 +49,16 @@ construction.
 
 ## The canned UIDs, which is how any of this is found
 
-`00000200,0` is the physical volume label, `00000201,0` the logical volume
-label, `00000202,0` the VTOC, `00000203,0` the one this reader does not name,
-and `00000204,0` the VTOC's index. The last three are **volume-wide objects laid
-out so that page P is at DADDR P+1**, which is what lets a VTOC index name a
-block by page and be resolved in one step with no indirection at all.
+`002398-03` p. 2-17 lists them from `/os/nuc/uid_list.asm`: `00000200,0` the
+physical volume label, `00000201,0` the logical volume label, `00000202,0` the
+VTOC and **`00000203,0` the BAT** -- the last confirmed by arithmetic on both
+volumes, 41 blocks against 329,388 1-KB blocks and 3 against 81,728 4-KB ones.
+`00000204,0` is **not** in that list and is an SR10 addition: measured here as
+the VTOC's UID-to-`vtocx` index, 907 blocks on the DN3500 volume and 226 on the
+DS5500, matching `.vtoc_blocks` in each case.
+
+The same page names `name_$canned_root_uid` **`00000308,0`**, which is the
+`dir_uid` a volume's root directory carries -- its parent is the canned root.
 
 ## A stored block address is relative to the logical volume, and `002398-03` says so
 
@@ -403,18 +408,24 @@ def lv_label(vol):
 
 
 def vtocx(value):
-    """`002398-03` p. 2-25's three forms, with the local one measured.
+    """`002398-03` p. 2-25's three forms.
 
-    The document says "DADDR of a VTOC block in bits 30-4". The field is a VTOC
-    *page*, and the block is the one whose header `daddr` is that page plus one
-    -- proven by the block's own trailer, which repeats the page.
+    The local form is "0 | DADDR OF VTOC BLK OF OBJECT | INDX", bits 31-4 and
+    3-0, and that DADDR is **logical-volume-relative** like every other one
+    (p. 2-10) -- so the physical block is `lv_base + (value >> 4)`, which
+    `Volume.pointed_at` computes. `INDX` is "index of VTOC entry in VTOC block
+    (0-4) or File Map index (0-7)" on an SR9 volume; on the SR10 volumes here
+    the range follows the entries a block holds, three at 1 KB and eight at
+    4 KB, and the block's own trailer repeats its DADDR as a check.
     """
     if value & 0x80000000:
         return {"kind": "remote", "node_id": value & 0x000FFFFF}
-    page = (value >> 4) & 0x0FFFFFFF
-    if page == 0:
+    daddr = (value >> 4) & 0x0FFFFFFF
+    if daddr == 0:
+        # "local, but DADDR is unknown": the low field is a logical volume
+        # number rather than an entry index.
         return {"kind": "volx", "volx": value & 0xF}
-    return {"kind": "local", "page": page, "indx": value & 0xF}
+    return {"kind": "local", "daddr": daddr, "indx": value & 0xF}
 
 
 def vtoce_bytes(vol):
@@ -426,22 +437,22 @@ def vtoce_bytes(vol):
     return size, room // size
 
 
-def vtoc_block(vol, page):
-    """A VTOC block, checked against the page it says it is.
+def vtoc_block(vol, daddr):
+    """A VTOC block, checked against the address it says it is.
 
-    The last eight bytes are `FEDCA984` and the block's own VTOC page. A block
-    that does not say so is not the one the index meant, and this returns None
-    rather than decoding whatever is there.
+    The last eight bytes are `FEDCA984` and the block's own logical-volume
+    DADDR. A block that does not say so is not the one the index meant, and
+    this returns None rather than decoding whatever is there.
     """
     try:
-        b = vol.pointed_at(page)
+        b = vol.pointed_at(daddr)
     except IndexError:
         # An index can name a page off the end of this image -- an object on
         # another volume of the same logical volume. Not this reader's to
         # resolve, and not an error either.
         return None
     at = len(b) - VTOC_TRAILER_BYTES
-    if u32(b, at) != VTOC_MAGIC or u32(b, at + 4) != page:
+    if u32(b, at) != VTOC_MAGIC or u32(b, at + 4) != daddr:
         return None
     return b
 
@@ -454,7 +465,7 @@ def vtoc_entry(vol, x):
     size, per_block = vtoce_bytes(vol)
     if size is None or d["indx"] >= per_block:
         return None
-    b = vtoc_block(vol, d["page"])
+    b = vtoc_block(vol, d["daddr"])
     if b is None:
         return None
     at = VTOCE_FIRST + d["indx"] * size

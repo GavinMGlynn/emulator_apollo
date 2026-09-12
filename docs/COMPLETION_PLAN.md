@@ -4599,7 +4599,15 @@ discipline throughout.
       C50, and the CALENDAR preamble in `install-sau14.cmds`). The page map is
       built and every chapter boundary is known; what is owed is the reading.
       **All 295 read.** Every page as an image — 600 dpi to PDF 255, 400 dpi
-      after — because the OCR drops what this document is made of. Chapter 2 yielded a
+      after — because the OCR drops what this document is made of.
+      **`002398-03` Rev 3 is next and chapters 1 and 2 are read whole**
+      (2026-09-13): a page map from all 260 footers, the ring packet's
+      Early Acknowledge field bit by bit, the boot chain agent by agent,
+      **`bat_$uid` naming `00000203`**, and p. 2-10's rule that a logical
+      volume's DADDRs are relative to its start — which is the `+1`
+      `awd_read.py` had measured and could not explain. Chapters 3-11 and
+      three appendices owed, 201 pages; 7-11 are per-model registers for
+      machines this core does not model. Chapter 2 yielded a
       **route the ring item has been waiting for**: `DI N 0xxx` selects another
       node as the boot device and `EX DOMAIN_OS` boots the target **diskless**
       over the ring, so every page it executes crosses the cable — traffic with
