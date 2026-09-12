@@ -639,6 +639,113 @@ probe at `$002BA0` — byte `+1` of `$0005D800` compared against 9 and `$0B` —
 self-test, though, needs display capture rather than a console, and that is what
 the next attempt has to bring.
 
+### The failing sub-test is identified, and it is about the interrupt-pending bit
+
+`--boot-stop-pc 01003646` — the diagnostic's own failure-report wrapper — stops
+at **409,104,809 instructions**, and the 24-step trace runs straight from
+`0100211C` to `0100218A`, which is the **first** of the wrapper's 35 call sites.
+So the failing sub-test is the code at `01002100`-`0100218A`, and the dump
+decodes it:
+
+    01002100  BSR.W   $01003628           the D5=2 service: print the banner
+    01002104  MOVE.W  SR,D0
+    01002106  OR.W    #$0070,D0
+    0100210A  MOVE.W  D0,SR
+    0100210C  MOVEA.L #$00011000,A0       the master 8259
+    01002112  MOVE.B  #$11,(A0)             ICW1
+    01002116  MOVE.B  #$A0,1(A0)            ICW2
+    0100211C  MOVE.B  #$08,1(A0)            ICW3, slave on IR3
+    01002122  MOVE.B  #$01,1(A0)            ICW4
+    01002128  MOVE.B  #$FF,1(A0)            OCW1 -- mask everything
+    0100212E  MOVEA.L #$00011100,A0       the slave
+    01002134  MOVE.B  #$11,(A0)             ICW1
+    01002138  MOVE.B  #$A8,1(A0)            ICW2
+    0100213E  MOVE.B  #$03,1(A0)            ICW3, "am slave with ID 3"
+    01002144  MOVE.B  #$01,1(A0)            ICW4
+    0100214A  MOVE.B  #$FF,1(A0)            OCW1 -- mask everything
+    01002150  LEA     $00010400,A1
+    01002156  MOVE.B  #$04,$1A(A1)
+    0100215C  MOVE.B  #$80,$1C(A1)
+    01002162  CLR.L   D0
+    01002164  CLR.L   D1
+    01002166  MOVE.W  $00010200,D0        the cache control register
+    0100216C  AND.W   #$0010,D0
+    01002170  CMP.W   #$0000,D0
+    01002174  BEQ.W   $0100218E           pass
+    01002178  MOVE.W  D0,D1               fail: the value,
+    0100217A  MOVE.W  #$0010,D0                 the mask,
+    0100217E  LEA     $00010200,A0              the address,
+    01002184  MOVE.L  #$E0080880,D2             the test's identifier
+    0100218A  BSR.W   $01003646           report
+
+**The assertion is one bit.** `$00010200` is
+`AP_BOARDREG_CACHE_CONTROL_ADDR` and `$0010` is
+`AP_BOARDREG_CACHE_INTERRUPT_PENDING`, which `board/ap_boardreg.h` derives from
+the master 8259's `INT` output. So the sub-test says: **with both controllers
+initialised and every line masked, no interrupt may be pending** — and this core
+answers that one is, which is why the `BEQ` at `01002174` was not taken. The
+`D2` value `E0080880` is the identifier the report carries and matches the
+register dump at the failure.
+
+**And this corrects an earlier reading on this page.** "The diagnostic never
+writes the 8259s — ten writes is exactly the PROM's own initialisation" is
+backwards. The ten writes are *these*, the diagnostic's; if the PROM programmed
+the controllers too the counter would read twenty. `ICW3 = 08` and the slave's
+`ICW3 = 03` are the cascade-on-IR3 pair `FINDINGS.md` C11 measured, written here
+by the diagnostic.
+
+### How the diagnostic talks to the firmware, mapped
+
+`--dump-mem 1002000:1A14` at the failure gives the whole loaded image, and it
+decodes cleanly.
+
+**Entry.** `01002020` sets `A7` to `01002000`, loads `A5` from a table at
+`010037B4`, then
+
+    01002030  MOVEC   VBR,D3
+    01002034  MOVE.L  D3,-(A7)            save the PROM's vector base
+    01002036  MOVE.L  #$01000400,D3
+    0100203C  MOVEC   D3,VBR              install its own
+    01002040  MOVE.L  #$0000041C,$01000480
+    …         sixteen of these, to $010004BC
+
+`01000480` is `VBR + $80`, vector **32**, and `$4BC` is vector **47** — the
+sixteen `TRAP` vectors, all pointed at `0000041C`, which `PROJECT_STATUS` already
+records as one of the PROM's two catch-all dispatcher entry points. So the
+diagnostic reaches the firmware by trapping.
+
+**And by a service call.** Seven wrappers in the image share one shape:
+
+    MOVEM.L D0-D7/A0-A6,-(A7)
+    LEA     $198(A5),A3        …record the arguments…
+    MOVEQ   #2,D0
+    MOVEQ   #n,D5
+    MOVEA.L $140.w,A0          PROM service table entry 15
+    JSR     (A0)
+    MOVEM.L (A7)+,D0-D7/A0-A6
+    RTS
+
+| `D5` | wrapper entry |
+| --- | --- |
+| 0 | `010035D8` |
+| 1 | `010035F6` |
+| 2 | `01003628` |
+| **3** | **`01003646`** |
+| 5 | `010036C6` |
+| 6 | `010036E4` |
+| 7 | `01003702` |
+
+**`D0` is 2 in all seven**, which corrects the reading above: `001CB8`'s jump
+table is not "pass / something / fail" — arm 2 is *"perform a PROM service,
+number in `D5`"*, and `0005C4`'s display setup is on the path of **every**
+service call rather than of failures particularly. `D5 = 1` is the PROM's
+print-string service and `D5 = 3` is its failure report.
+
+**The failure wrapper is called from 35 places** — `0100218A`, `010021A6`,
+`010021C8`, `010021F6`, … `01002FDC` — one per sub-test, which is why the
+console names a test and then fails: the sub-test that calls it is the answer,
+and which one it is is a stop away rather than a disassembly away.
+
 ### And the one level-7 autovector is the PROM testing its own NMI, not a defect
 
 `--boot-stop-on-vector 31` puts it at **PC 00007C26 after 4,409,400
@@ -17592,7 +17699,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68040 MMU | not started | — |
 | MC68882 FPU | **instruction execution timing and its concurrency are both charged as of 2026-09-07**, which is where this row twice named a gap. Corrected 2026-09-07 from `[881]` §8, walked whole: the row used to say "no instruction execution timing", and an `FSIN` cost exactly what an `FMOVE` cost. §8.5.2 splits an FPCP instruction into six phases and says the first three are "almost entirely dependent on the execution characteristics of the main processor" while convert, calculate and round are "dependent **solely on the FPCP**" -- this core charged the first three as real bus cycles and the last three as nothing. `ap_m68882_timing.c` now supplies them from **Table 8-3's `FPn to FPm` column** (394 clocks for `FSIN` against 21 for `FMOVE`, 32 for `FMOVECR`) and from **Tables 8-16/8-17** for the store direction (18 extended, 38 single or double, 50 integer, 1942 typical for packed). The register-to-register column deliberately, because the memory columns differ from it only by the operand transfer -- `FADD` is 56 against 81 for an extended memory operand, and Table 8-4 prices that difference at ten bus cycles this core already performs, so taking a memory column would charge the bus twice. **The concurrency composes across the sequence**: `ap_m68882_timing.c` carries Table 8-3's `H` and `T` beside the total and §8.5.1.3's rule -- the overlap is "the lesser of the effective tail and the effective head", and a `T = *` instruction has no tail of its own but merges its head into the next one's -- and `ap_m68030_step.c` applies it across consecutive floating-point instructions. Checked by composing **Table 8-5's own worked example**, which the model reproduces at **331** clocks for a sequence totalling 470. **`PROVISIONAL` in two named ways**: the calculation is data-dependent and this charges §8.5.1's typical case (Tables 8-14/8-15 give 2 clocks for a zero source to `FADD`, 6 for an infinity, 28 for a NAN), and only Table 8-18's assumed rounding case (6 clocks, extended, no exception) is charged rather than up to 60. **And one thing the manual does not specify**: when a sequence *ends*. §8.5.1.3's tail is "the period during which the MC68882 can begin another floating-point instruction", so a tail meeting an instruction that is not one is discarded rather than held for a later `FADD` -- which charges more than the hardware would, never less. §8.5.1's NOTE that the tables assume an MC68020 host and "actual operation when using the MC68030 always yields better values" does *not* apply to what is transcribed here -- it is about the MPU-dependent phases, which this takes from the tables not at all. §10.4 and §12.6's specs 25/27 cost the interface itself (five clocks for a synchronous read of the response or save CIR, three for every other CIR access) and are not charged, because this core issues no CPU-space cycle for the FPU at all. The item that opened this named the asymmetry as its tell -- the *68040's* floating-point timings transcribed in three modules, for a processor no in-scope model runs, while the 68882 the DN3500 has had none. It now has both halves. Otherwise working, and attached to the 68030 as a *pointer* so a machine without one keeps its line 1111 trap. Every general-type operation executes: the four arithmetic operations, the exactly-specified monadics, the remainders, the single-precision pair, and **all nineteen transcendentals** to within §4.3.2's published bound. All three operand paths run — register-to-register, **`<ea>` to `FPn`** and **`FPn` to `<ea>`**, in all six binary formats from every legal addressing mode. `FMOVEM` of the data registers runs in both directions with its reversed mask orderings, and so do the system control registers, with the FPIAR tracking under §2.4's two conditions. `FMOVECR` returns all 22 published constants, computed and correctly rounded. **Every general-type instruction executes.** **Every instruction type executes**, the conditionals included. **Every 68882 instruction and every data format executes**, `FSAVE` and `FRESTORE` included. **The idle state frame's reserved word and BIU flags are written as the manual defines them** -- corrected 2026-09-07 from §6.4, walked whole: the reserved word is `$FFFF` and the BIU flag word `$7C00FFFF`, where both had been zeros. Figure 6-6's definitions run the *other way* from an uninitialised field (bit 27 "if this bit is zero, an exception is pending"; bit 26 the same for an operand transfer; bits 30-28 = `111` for "No Pending Instruction or Operand CIR Access" where `000` is reserved), and bits 15-0 are "written as ones during save operations" -- so a zeroed word told every handler three false things in the field §6.4.2.2 says exists so a handler can "display the pending exception status". **`FSAVE` negates `EXC PEND`** -- §6.4.1, §7.5.3.1 and §7.5.4.1 each say so, and Figure 7-28's handler (`FSAVE` / body / `BSET #3,(SP,D0)` / `FRESTORE` / `RTE`) shows it cannot be a write to the FPSR, since the `BSET` sets the bit *in the saved frame*. Without it the handler's own first arithmetic instruction re-took the trap it was written to handle: `FMOVEM` being exempt lets a handler move registers, only the `FSAVE` lets it calculate. A one-instruction latch, because the EXC byte "is cleared by the FPCP at the start of most operations". **The version number is no longer `PROVISIONAL`**: §6.4.2.2's NOTE publishes the format words (`$1F18`/`$3F18` for the MC68881, **`$1F38`** for the MC68882) and §6.4.3 repeats it, so `AP_M68882_DEFAULT_VERSION`'s `0x1F` is a transcription; the old note read the prose two paragraphs above the NOTE and concluded no value was published. **`FRESTORE` of an idle frame still ignores the frame's contents**, including the BIU bit 27 that §6.4.2.2 lets a program use to "create a software generated pending exception" -- named, small, and without a caller. **`FCMP` sets `N` alongside `Z` on an equal compare with a negative destination**, `FMOVE <ea>,FPn` **rounds to the FPCR precision** where `FABS` and `FNEG` deliberately do not, all three report `UNFL` for an extended denormalized *source*, `FSCALE` is **exact even when it overflows**, and a conditional predicate's **bit 5 is ignored rather than reserved** -- five corrections from §4.6 and §4.7, walked whole 2026-09-07. The predicate one had the test asserting the code's misreading, from Table 4-8, where §4.7.2's Table 4-20 note 3 defines the encodings outright ("redundant encodings with 0XXXXX"); an `FBNE` assembled as `$2E` fell through every time. **Unnormalized extended operands are folded before use** -- corrected 2026-09-07 from §3.2.2's NOTE, which Appendix A's glossary surfaced: the extended format's explicit integer bit makes redundant encodings possible, "the MC68881 never generates an unnormalized number as the result of any operation", and this core copied the caller's encoding straight through. The fold is exact, because Table 3-3 gives normalized and denormalized the same `(-1)^s x 2^(e-16383) x j.f`. §5's conversion-unit rules and Table 5-5's note **b** are the second and third witnesses that the part treats "unnormalized" as an input data type of its own. **An illegal addressing mode on a coprocessor instruction takes the F-line trap, not a protocol violation** -- corrected 2026-09-06 from `[030]` §10, walked whole. Table 10-6 splits the two, and §10.2.3.3.1, §10.2.3.4.1, §10.4.9 and §10.4.16 each state the F-line outright for the class check while leaving the length and nonalterable-write refusals a protocol violation. The difference is the frame: four-word pre-instruction and a restarted instruction, against the ten-word mid-instruction frame that resumes into a dialogue the processor never opened. A *busy* state frame is deliberately absent: this core's part never suspends, so nothing can generate one — for which the coprocessor's own half (`ap_m68882_condition`) is done and the 68030's dialog is not | `m68882_regs_suite` 19, `m68882_format_suite` 19, `m68882_cir_suite` 8, `m68882_round_suite` 11, `m68882_arith_suite` 43, `m68882_decode_suite` 12, `m68882_accuracy_suite` 11, `m68882_transcendental_suite` 36, `m68882_store_suite` 14, `m68882_timing_suite` 8, plus 51 tests in `step_suite`; `MC68881/MC68882 User's Manual 1ed` |
 | MC68040 FPU | timing tables only — §10.6, §10.7.1/§10.7.2 and §10.7.3's pipeline stages are transcribed; no 68040 arithmetic | `m68040_iu_timing_suite` 99, `m68040_fpu_timing_suite` 32, `m68040_fp_pipeline_suite` 18 |
-| Core-board registers (`010000`-`011600`, `016400`) | working for the four that could be measured: CPU status (bit 15 stuck; a write **acknowledges conditions** and keeps the switch input, the FP trap and bit 15), CPU control and latch-page-on-parity (16 bits of storage), cache control (a *byte*, mirrored into both halves of a 16-bit read, one writable bit), each aliased across its 256-byte range. Plus the **selective clear locations**, the one range where the low bits are the decode rather than an alias — five functions, one address each, from `019411-A00`. Width and storage came from measurement; the status register's conditions now have pages behind them. **Task alias and master request are modelled too**, as the byte-wide storage Table 2-8 says exists: the master request register's width is the firmware's own evidence — all 29 write sites across three PROMs are `CLR.B` or `MOVE.B`, and none reads it back — and both read back what was written. What is still *not* invented is the meaning of a bit: `008778-03` §2.4.7 says setting one asserts an external master's DMA request and does not say which, so nothing acts on any of them and `ap_boardreg_master_request` exposes the byte for a model built on evidence later. **The DS5500's memory present register (`011400`) is complete**, and it is the one register in this file whose values were published rather than measured: `019411-A00` §4.2.1.18 gives the bit layout, the slot-to-pair mapping and a table of the register's value for all **35** configurations, and all 35 are asserted. Read-only, eight bits, four slots of two bits, and the two-bit code — recovered from the value table, not from prose, because §4.2.1.18 never states it — is `11` no board, `10` 4 MB, `00` 8 MB, `01` 16 MB, which is deliberately *not* ordered by capacity. Placed by the DS5500 map alone; Table 2-8 has no such row, so a DN3500 still bus-errors on the address. **And the DS5500's `010200` is now its own register**: §4.2.1.14 makes it 8-bit **read-only** with `HSI Present <3>` and `MEM Time <0>`, where Table 2-8's row at that address is the writable cache *control* register this core measured on a DN3500. Both bits are derived rather than stored — `MEM Time` reports the same condition the CPU status register latches, so `016408` "Clear Bus Error Status" clears both by clearing one, and `HSI Present` follows the model's display, which is what makes a DSP5500 differ from a DN5500 in the bit that means "a graphics device is in the HSI connector". **One reading rests on how the document is written rather than what it says** and is flagged as such: bit 0's polarity is unstated, and it is taken as active *high* because the same figure marks `HSI Present` "cleared (0) to indicate" and marks bit 0 nothing. The bits Figure 4-9 calls "not used" read as undriven, all ones, which is `PROVISIONAL` — no DS5500 runs on either this core or the oracle, so one read would settle it | `boardreg_suite`, 32 tests; `008778-03` §3.2 and §3.3, `019411-A00` §4.2.1, §4.2.1.18 and Table 2-5, `FINDINGS.md` C10, `tools/mame-oracle/regprobe.lua` |
+| Core-board registers (`010000`-`011600`, `016400`) | working for the four that could be measured: CPU status (bit 15 stuck; a write **acknowledges conditions** and keeps the switch input, the FP trap and bit 15), CPU control and latch-page-on-parity (16 bits of storage), cache control (a *byte*, mirrored into both halves of a 16-bit read, one writable bit), each aliased across its 256-byte range. Plus the **selective clear locations**, the one range where the low bits are the decode rather than an alias — five functions, one address each, from `019411-A00`. Width and storage came from measurement; the status register's conditions now have pages behind them. **Task alias and master request are modelled too**, as the byte-wide storage Table 2-8 says exists: the master request register's width is the firmware's own evidence — all 29 write sites across three PROMs are `CLR.B` or `MOVE.B`, and none reads it back — and both read back what was written. What is still *not* invented is the meaning of a bit: `008778-03` §2.4.7 says setting one asserts an external master's DMA request and does not say which, so nothing acts on any of them and `ap_boardreg_master_request` exposes the byte for a model built on evidence later. **The DS5500's memory present register (`011400`) is complete**, and it is the one register in this file whose values were published rather than measured: `019411-A00` §4.2.1.18 gives the bit layout, the slot-to-pair mapping and a table of the register's value for all **35** configurations, and all 35 are asserted. Read-only, eight bits, four slots of two bits, and the two-bit code — recovered from the value table, not from prose, because §4.2.1.18 never states it — is `11` no board, `10` 4 MB, `00` 8 MB, `01` 16 MB, which is deliberately *not* ordered by capacity. Placed by the DS5500 map alone; Table 2-8 has no such row, so a DN3500 still bus-errors on the address. **And the DS5500's `010200` is now its own register**: §4.2.1.14 makes it 8-bit **read-only** with `HSI Present <3>` and `MEM Time <0>`, where Table 2-8's row at that address is the writable cache *control* register this core measured on a DN3500. Both bits are derived rather than stored — `MEM Time` reports the same condition the CPU status register latches, so `016408` "Clear Bus Error Status" clears both by clearing one, and `HSI Present` follows the model's display, which is what makes a DSP5500 differ from a DN5500 in the bit that means "a graphics device is in the HSI connector". **One reading rests on how the document is written rather than what it says** and is flagged as such: bit 0's polarity is unstated, and it is taken as active *high* because the same figure marks `HSI Present` "cleared (0) to indicate" and marks bit 0 nothing. The bits Figure 4-9 calls "not used" read as undriven, all ones, which is `PROVISIONAL` — no DS5500 runs on either this core or the oracle, so one read would settle it | `boardreg_suite`, 34 tests -- the two newest settling the DS5500 cache status register's **bit 4** from `/sau14/self_test`, which programs both 8259s, masks every line and requires it clear: it is the master's `INT`, not one of `019411-A00` SS4.2.1.14's "not used" bits, and the other three of that group stay `PROVISIONAL`; `008778-03` §3.2 and §3.3, `019411-A00` §4.2.1, §4.2.1.18 and Table 2-5, `FINDINGS.md` C10, `tools/mame-oracle/regprobe.lua` |
 | Address translation map (`017000`) | working: the translation itself, both DMA widths, and the register file. Between the AT bus and physical memory, not the CPU's MMU -- a DMA controller has no MMU, and this is what lets it see scattered physical pages as one contiguous run. Present on DN3500/4500/5500 and absent on DN3000, from the model table. The board splits a 16-bit entry into its two byte lanes, big-endian, which it did not until a DMA transfer failed to arrive. **`[GPIO]` p. B-61 states the same reach as buffer sizes** — `pbu2_$dma_start` is bounded at 64 KB for 8-bit devices, 128 KB for 16-bit and 512 KB for bus-master — which is 64, 128 and 512 pages. The first two are §4.2.1.4's numbers from the software side, an independent check on the reach-against-storage distinction this file was once corrected for; the third lands on `AP_ATMAP_WINDOW_FIRST_ENTRY`, which stays under trial because a software policy and a hardware limit are indistinguishable here | `atmap_suite`, 22 tests, `019411-A00` §4.2.1.4, `008778-03` §1.2, §2.5, `FINDINGS.md` C290 |
 | Board cache (`012000` RAM, `014000` condition codes) | not started. The shared **bus arbitration point** is done and has its own row above | — |
 | Apollo interrupt controllers (`011000`, `011100`) | working: the two 8259As cascaded on **IR3** (measured, not IR2 as the AT convention would have it), vector bases `A0`/`A8` from the boot PROM's own ICW2, giving levels `A0`-`AF`. Priority order matches `008778-03` Table 2-3, which with the cascade on IR3 has no anomaly. The CPU interrupt level is **6**, also measured — neither manual states it, and it took starting the interval timer by hand to make anything request at all | `intr_suite`, 14 tests; `FINDINGS.md` C11, `tools/mame-oracle/writetrace.lua` |

@@ -223,6 +223,12 @@ static uint16_t value_of(const ap_boardreg_t *regs, ap_boardreg_id_t id) {
       if ((regs->cpu_status & AP_BOARDREG_STATUS_BUS_ERROR) != 0u) {
         status |= AP_BOARDREG_CACHE_STATUS_MEM_TIME;
       }
+      /* Bit 4 is the master's `INT` here too, which the addendum calls "not
+       * used" and `/sau14/self_test` requires clear with every line masked.
+       * Same derivation as the branch below. */
+      if (regs->interrupt_pending) {
+        status |= AP_BOARDREG_CACHE_INTERRUPT_PENDING;
+      }
       return status;
     }
     /* Eight bits. Only bit 7 is storage, the rest read a fixed pattern -- and

@@ -803,6 +803,72 @@ static void test_the_channel_check_bit_is_named_and_raised_by_nothing(void) {
                               AP_BOARDREG_STATUS_BUS_ERROR);
 }
 
+/* The DS5500's cache status register carries the interrupt-pending bit too, and
+ * the machine's own diagnostic is what says so.
+ *
+ * `019411-A00` §4.2.1.14 calls bits 7:4 "not used", and this file read all four
+ * as undriven ones -- `PROVISIONAL`, with the block comment ending "a DS5500
+ * that runs would settle it in one read". One does. `/sau14/self_test`'s first
+ * sub-test programs the master 8259 (`ICW1 11`, `ICW2 A0`, `ICW3 08`, `ICW4
+ * 01`, `OCW1 FF`) and the slave (`11`, `A8`, `03`, `01`, `FF`), masking every
+ * line, and then requires `$00010200 & $0010` to be **zero**:
+ *
+ *     01002166  MOVE.W  $00010200,D0
+ *     0100216C  AND.W   #$0010,D0
+ *     01002170  CMP.W   #$0000,D0
+ *     01002174  BEQ.W   pass
+ *
+ * With `UNUSED` at `F6` the read came back `F7` and the branch was not taken.
+ *
+ * The other three of the addendum's "7:4" are untouched and stay `PROVISIONAL`:
+ * the diagnostic constrains one bit and says nothing about the rest. */
+static void test_the_ds5500_cache_status_carries_interrupt_pending(void) {
+  ap_boardreg_t regs;
+  ap_boardreg_init(&regs);
+  ap_boardreg_set_ds5500_cache_status(&regs, true);
+
+  ap_boardreg_set_interrupt_pending(&regs, false);
+  TEST_ASSERT_EQUAL_HEX8(
+      0u, ap_boardreg_read8(&regs, AP_BOARDREG_CACHE_CONTROL_ADDR) &
+              AP_BOARDREG_CACHE_INTERRUPT_PENDING);
+
+  ap_boardreg_set_interrupt_pending(&regs, true);
+  TEST_ASSERT_EQUAL_HEX8(
+      AP_BOARDREG_CACHE_INTERRUPT_PENDING,
+      ap_boardreg_read8(&regs, AP_BOARDREG_CACHE_CONTROL_ADDR) &
+          AP_BOARDREG_CACHE_INTERRUPT_PENDING);
+}
+
+/* And the bit is not in the undriven set any more, on either branch.
+ *
+ * Asserted as a relation rather than as two literals so that a later change to
+ * what the *other* unused bits read cannot quietly put bit 4 back among them --
+ * which is exactly how it got there. */
+static void test_bit_four_is_not_an_undriven_bit_on_either_model(void) {
+  TEST_ASSERT_EQUAL_HEX8(0u, AP_BOARDREG_CACHE_STATUS_UNUSED &
+                                 AP_BOARDREG_CACHE_INTERRUPT_PENDING);
+  TEST_ASSERT_EQUAL_HEX8(
+      0u, AP_BOARDREG_CACHE_FIXED & AP_BOARDREG_CACHE_INTERRUPT_PENDING);
+
+  /* The two models answer the same question the same way. */
+  ap_boardreg_t ds5500;
+  ap_boardreg_init(&ds5500);
+  ap_boardreg_set_ds5500_cache_status(&ds5500, true);
+  ap_boardreg_t other;
+  ap_boardreg_init(&other);
+  for (unsigned pending = 0; pending < 2u; pending++) {
+    ap_boardreg_set_interrupt_pending(&ds5500, pending != 0u);
+    ap_boardreg_set_interrupt_pending(&other, pending != 0u);
+    const uint8_t a =
+        ap_boardreg_read8(&ds5500, AP_BOARDREG_CACHE_CONTROL_ADDR) &
+        AP_BOARDREG_CACHE_INTERRUPT_PENDING;
+    const uint8_t b =
+        ap_boardreg_read8(&other, AP_BOARDREG_CACHE_CONTROL_ADDR) &
+        AP_BOARDREG_CACHE_INTERRUPT_PENDING;
+    TEST_ASSERT_EQUAL_HEX8(a, b);
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_posted_code_is_named_for_the_evidenced_run);
@@ -837,5 +903,7 @@ int main(void) {
   RUN_TEST(test_mem_time_follows_the_latched_bus_error);
   RUN_TEST(test_the_status_register_fields_sit_where_the_figure_draws_them);
   RUN_TEST(test_the_channel_check_bit_is_named_and_raised_by_nothing);
+  RUN_TEST(test_the_ds5500_cache_status_carries_interrupt_pending);
+  RUN_TEST(test_bit_four_is_not_an_undriven_bit_on_either_model);
   return UNITY_END();
 }

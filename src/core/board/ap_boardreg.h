@@ -255,17 +255,36 @@ typedef enum {
  * board and has none, which is what makes the bit worth deriving rather than
  * fixing.
  *
- * ## What the unused bits read
+ * ## What the unused bits read, and the one of them that is not unused
  *
- * Not stated, and not measurable -- the oracle has no working DS5500 and this
- * core cannot yet run one. All ones, which is what `FINDINGS.md` C10 measured
- * nothing-driving-this-machine's-bus to look like and what the selective clear
- * range already answers for the same reason. `PROVISIONAL`; a DS5500 that runs
- * would settle it in one read. */
+ * This block used to end "a DS5500 that runs would settle it in one read".
+ * **One does, and it did** -- `/sau14/self_test`, the machine's own diagnostic,
+ * loaded off the volume this project restored.
+ *
+ * Its first sub-test (`01002100`-`0100218A`) programs the **master 8259** with
+ * `ICW1 11`, `ICW2 A0`, `ICW3 08`, `ICW4 01`, `OCW1 FF` and the **slave** with
+ * `11`, `A8`, `03`, `01`, `FF` -- every line masked -- and then
+ *
+ *     MOVE.W  $00010200,D0
+ *     AND.W   #$0010,D0
+ *     CMP.W   #$0000,D0
+ *     BEQ.W   pass
+ *
+ * So **bit 4 must read zero when nothing is pending**, and `019411-A00`
+ * §4.2.1.14's "bits 7:4 not used" is wrong about that bit on the running
+ * machine. It is `AP_BOARDREG_CACHE_INTERRUPT_PENDING`, the master's `INT`
+ * output, exactly as it is on every other model in this table -- which is the
+ * reading the DN3000/DN3500 branch below has always had, and the addendum
+ * simply does not mention.
+ *
+ * **Bits 7:5 and 2:1 are untouched by this and stay `PROVISIONAL`.** The
+ * diagnostic constrains one bit; it says nothing about the others, and they
+ * keep the all-ones reading `FINDINGS.md` C10 measured for an undriven bus. */
 #define AP_BOARDREG_CACHE_STATUS_HSI_PRESENT 0x08u
 #define AP_BOARDREG_CACHE_STATUS_MEM_TIME 0x01u
-/* Bits 7:4 and 2:1: named "not used" and read as undriven. PROVISIONAL. */
-#define AP_BOARDREG_CACHE_STATUS_UNUSED 0xF6u
+/* Bits 7:5 and 2:1: named "not used" and read as undriven. PROVISIONAL.
+ * **Bit 4 is not among them** -- see above. */
+#define AP_BOARDREG_CACHE_STATUS_UNUSED 0xE6u
 
 /* ## The selective clear locations, which are the one part of this file with a
  * ## page behind it
