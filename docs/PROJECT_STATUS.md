@@ -491,10 +491,22 @@ indistinguishable with `TEST_ASSERT_EQUAL_MEMORY`. Rewritten to §1.11's three
 named effects *and* the drive's condition surviving; it fails on the old
 reading.
 
-*Verification: 401 entries and `Restore complete.` on the DN3500, against
-`sau14.log`; `sc499_suite` 29 and `tape_suite` 34; `ctest` 147/147. The DS5500
-control is the item's other half and is running. Detail in `FINDINGS.md` C285,
-C286.*
+### Both models
+
+| | entries | ending |
+| --- | --- | --- |
+| oracle (`sau14.log`, MAME, DN3500) | 401 | `Restore complete.` |
+| this core, **DN3500** | **401** | **`Restore complete.`** |
+| this core, **DS5500** | **401** | **`Restore complete.`** |
+
+The DS5500's ending is the same five entries and the same line, so the control
+that opened this item — *a 68030 DN3500 and a 68040 DS5500 failing at the same
+entry with the same status, which made it the tape and DMA path they share* —
+closes on the same reading it opened with.
+
+*Verification: 401 entries and `Restore complete.` on **both** models, against
+`sau14.log`; `sc499_suite` 29 and `tape_suite` 34, each new test failing on the
+code it replaced; `ctest` 147/147. Detail in `FINDINGS.md` C285, C286.*
 
 ## The tape's two endings, and why `28001E` is not about either (2026-09-12)
 
