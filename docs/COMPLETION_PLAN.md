@@ -4598,6 +4598,18 @@ discipline throughout.
       run each (`tools/dn5500/README.md`'s four corrections to `FINDINGS.md`
       C50, and the CALENDAR preamble in `install-sau14.cmds`). The page map is
       built and every chapter boundary is known; what is owed is the reading.
+      **123 of 295 read as of 2026-09-12** — the Part 1 introduction and
+      Chapter 2 added, so Chapters 1-5 and 12 are whole. Chapter 2 yielded a
+      **route the ring item has been waiting for**: `DI N 0xxx` selects another
+      node as the boot device and `EX DOMAIN_OS` boots the target **diskless**
+      over the ring, so every page it executes crosses the cable — traffic with
+      no shell, no `lcnode` and no `siologin`, which is what `FINDINGS.md` C229
+      said was missing. It also states that **a net ID other than 0 hangs
+      Domain/OS at the standard daemons**, names `crp -on`, `ctnode`,
+      `lcnode -me` and `shutspm`, and fixes that **SR10.4 media is cartridge or
+      magtape with a cartridge boot volume either way**. Detail in
+      `docs/references/008860-A03_WALK.md`. **What is owed: chapters 6-9, the
+      rest of 10 and 11, the glossary and the index — 172 pages.**
 
 - [x] **A finished console script can end its run.**
       `--boot-stop-on-script-end`. The disk image is written once, at exit, so
@@ -5978,6 +5990,16 @@ Only after the reference core is proven, and only under an identity harness.
       reply: p. 7-31's `TMASK` makes `20` *thank you*, and across 104 delivered
       frames the census holds only `0090` (`broadcast | please`) and `0094`.
       **Domain/OS never answers**, which is this item's work and not the ring's.
+      **A route that needs no reply at all, found 2026-09-12 in `008860-A03`
+      chapter 2**: `DI N 0xxx` selects another node as the boot device and
+      `EX DOMAIN_OS` boots the target **diskless** from it. A diskless node has
+      no disk to read, so *every page it executes* crosses the cable — the
+      heaviest ring workload Domain/OS has, and it needs no shell, no `lcnode`
+      and no `siologin`. The partner must be running Domain/OS and **`netman`**
+      (`cps /sys/net/netman`), and must hold the target's `/sau`*x* directory,
+      both of which the node-A volume has. That makes this item startable
+      against real traffic rather than against a reply Domain/OS declines to
+      send. Detail in `docs/references/008860-A03_WALK.md`.
       **The second install now works and this item is startable** (C199): node
       B's volume boots. What had stopped it was this frontend never giving a
       machine its disk's node on the `--disk` path, so a volume recording node
