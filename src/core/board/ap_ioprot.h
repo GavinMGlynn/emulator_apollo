@@ -10,6 +10,21 @@
  * `019411-A00` walk, and recorded there as searched. So the *meaning* of a byte
  * in here is `PROVISIONAL` and this module invents none of it.
  *
+ * **One sentence about its purpose has since turned up**, in the release notes
+ * for the release that introduced the machine. `[RN104]` SS1.4.1: "The PC AT bus
+ * and onboard I/O are retained on the DN5500. To optimize performance, a new
+ * memory controller and bus interface have been designed. **A new I/O
+ * protection mechanism has been designed to support the 4-KB page I/O mapping
+ * of the MC68040.** The new CPU board uses the 25 MHz version of the MC68040."
+ *
+ * That is a *purpose*, not a layout, and the `PROVISIONAL` stands. What it does
+ * settle is why the region exists at all and why it is new to this model: the
+ * 68030 pages at 1 KB here and the 68040 at 4 KB, so the older machines' I/O
+ * protection could not express a 68040 page and a new mechanism was built. It
+ * also bounds the entry count from the other end -- 64 KB of region against a
+ * 4 KB page -- if a later document ever gives the width. Nothing is inferred
+ * from it here.
+ *
  * **What is measured is that the region must answer.** The DS5500 boot PROM
  * clears the first four longwords at reset --
  *
