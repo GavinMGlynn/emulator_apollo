@@ -3504,10 +3504,24 @@ checks show it:
   recorded at `PROJECT_STATUS.md`'s `default hash FE2BB02AEF1F4624` line, over
   the same 350,000,000 instructions.
 
-Same work, same time, different digest. **`F78D6DBE770CAF47` is the reference
+Same work, same time, different digest. **`F78D6DBE770CAF47` was the reference
 hash from 2026-09-10**, measured with `tools/identity-boot.sh`; the previous
-`6DF967A63D3D4DA9` is correct for every commit before this one and the entries
+`6DF967A63D3D4DA9` is correct for every commit before that one and the entries
 above that cite it are records, not claims about the tree.
+
+**The reference is `B6D94F0A99F1B276` as of 2026-09-12**, and what moved it is
+the cartridge-tape work: `ap_tape_t` gained `mark_byte_sent`, which
+`ap_board_state.c` hashes, so the digest moves whether or not any behaviour
+does. Every plan entry citing `F78D6DBE770CAF47` is likewise a record of when it
+was written.
+
+*Measured rather than argued.* The same day's `ap_boardreg` change — the DS5500
+cache status register's bit 4 — is gated on `model == AP_MODEL_DN5500`, so it
+should not touch a DN3500. Checking that by reasoning is not the standard here,
+so it was checked by running: `git checkout` of the two files to their
+pre-change state, rebuild, identity boot, `B6D94F0A99F1B276` and **clocks
+1,408,661,906** — then the change restored, rebuild, identity boot, the same
+hash and the same clock count to the tick. The gate holds.
 
 *Verification, on the machine, and it is the largest single step this item has
 taken.* **`FAULT IN DOMAIN/OS:` does not appear at all.** The console prints the
