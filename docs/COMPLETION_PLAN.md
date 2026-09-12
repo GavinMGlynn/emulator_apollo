@@ -4583,8 +4583,8 @@ discipline throughout.
       addendum.
       Brochures, price lists and catalogues are listed and declared not worth
       walking, which is a judgement on the record rather than an omission.
-      **And `008860-A03` *Installing Domain Software* is now owed a walk,
-      2026-09-11.** 295 pages, scanned at 400 dpi with an Acrobat OCR layer,
+      **And `008860-A03` *Installing Domain Software* is WALKED WHOLE,
+      295/295, finished 2026-09-13.** 295 pages, scanned at 400 dpi with an Acrobat OCR layer,
       already cited by this plan for Table 1-1's SAU numbers -- so a document
       queried and never read, which is the shape `read-the-whole-document`
       names. Chapter 1 was read for the DN5500 item and gave three facts this
@@ -4598,8 +4598,8 @@ discipline throughout.
       run each (`tools/dn5500/README.md`'s four corrections to `FINDINGS.md`
       C50, and the CALENDAR preamble in `install-sau14.cmds`). The page map is
       built and every chapter boundary is known; what is owed is the reading.
-      **182 of 295 read as of 2026-09-12** — the Part 1 introduction and
-      Chapters 2 and 6 through 9 added, so Chapters 1-9 and 12 are whole. Chapter 2 yielded a
+      **All 295 read.** Every page as an image — 600 dpi to PDF 255, 400 dpi
+      after — because the OCR drops what this document is made of. Chapter 2 yielded a
       **route the ring item has been waiting for**: `DI N 0xxx` selects another
       node as the boot device and `EX DOMAIN_OS` boots the target **diskless**
       over the ring, so every page it executes crosses the cable — traffic with
@@ -4615,8 +4615,14 @@ discipline throughout.
       the SAU table, `sau14 - dn5500`. Chapter 9 names the node's own
       install state (`install/baseline`, `not_installed`, `preserve.list`,
       `install/doc`) and labels the first product cartridge
-      **`CRTG_STD_SFW_1`**. **What is owed: the rest of 10 and 11, the
-      glossary and the index — 113 pages.**
+      **`CRTG_STD_SFW_1`**. Chapter 11 states the media layout outright — all
+      media in `wbak` format, **file 1 the administrative objects and files
+      2..n the release indexes and products**, the Domain/OS release index
+      always file 2 — and Chapter 10 gives the diskless precondition: **novice
+      mode installs only the target's own `/sau`**, so other machine types
+      cannot boot diskless from it. The glossary calls a node ID
+      "unique, **unchangeable**, assigned during the manufacturing process".
+      **Nothing is owed.**
 
 - [x] **A finished console script can end its run.**
       `--boot-stop-on-script-end`. The disk image is written once, at exit, so
