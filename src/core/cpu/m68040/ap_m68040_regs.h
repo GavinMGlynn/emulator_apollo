@@ -61,7 +61,15 @@
 
 typedef struct {
   bool enable;                    /* E, bit 15 */
-  ap_m68040_page_size_t page_size; /* P, bit 14 */
+  /* P, bit 14. Both sizes are modelled; which one a DS5500 actually runs is a
+   * fact about the software, and `[RN104]` SS5.5 states it: "The maximum file
+   * size on **SAUs 10, 11, 12, 14 (4K-page machines)** has been increased from
+   * 2 to 4 gigabytes." SAU 14 is the DN5500, so Domain/OS on this machine is a
+   * **4 KB** page system and this field should read `P = 0` once the DS5500
+   * boot reaches the point of turning translation on. It has not: every DS5500
+   * run so far ends with `translation off` and `tc 00000000`. Recorded as a
+   * prediction rather than enforced, so an 8 KB reading is a finding. */
+  ap_m68040_page_size_t page_size;
 } ap_m68040_tcr_t;
 
 /* "Bits 13-0 are undefined (reserved)" and "all unimplemented bits of this
