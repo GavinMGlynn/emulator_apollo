@@ -483,6 +483,39 @@ a document named for something else is exactly what a coverage record exists to
 surface, and because if a reverse-mapped node is ever modelled this is where its
 registers are.
 
+## Chapter 8's directory figures read at 600 dpi (2026-09-12), and what they settle
+
+Read against one question: **does anything on this shelf give the SR10
+directory entry format?** §8.3 and Figures 8-5 to 8-7 were read as page images.
+
+A directory is "a linear list of directory entries", a hash thread table whose
+contents point to directory entry blocks, and the entry blocks themselves — the
+same five regions `[EH3]` p. 2-4 draws. Table 8-1 gives the header's contents:
+list size, pool size, entries per block, high block, free chain.
+
+**Figure 8-7, Directory Entry Format**, is the answer and it is a negative one:
+
+    +00  Name (32 bytes)
+    +20  Network Number Hint
+    +22  Unused
+    +24  Reserved
+    +26  Entry Type | Length
+    +28  one of: nothing (type 0), a UID (8 bytes, type 1), or a link
+         descriptor (1 word of link-text length, 2 words pointing at the
+         entry blocks holding the text) (type 3)
+
+That is `[EH3]` p. 2-5's `dir_entry_t` again — a **32-byte fixed name first** —
+and it is *not* what an SR10.4 volume carries. So all three candidates on this
+shelf agree with each other and disagree with the machine: `[EH1]` (Apr 83),
+`[EH3]` (Feb 85), `002398-04` (Feb 87) and this (Jan 86, SR9.0) all predate
+SR10, and **the SR10 directory entry format is a documentary absence**, searched
+for and not found rather than merely unlooked-for.
+
+One incidental worth keeping: the **Network Number Hint** at `+20` is a field
+`[EH3]` prints as "UNUSED / Reserved" — so the 1985 handbook's three reserved
+words were already carrying a hint field a year later, which is a caution
+against reading "Reserved" in any of these figures as "zero".
+
 ## What is owed
 
 **Full sentence-by-sentence reads**, which is the standard the other walk

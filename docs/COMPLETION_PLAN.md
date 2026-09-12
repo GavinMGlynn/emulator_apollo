@@ -4703,11 +4703,21 @@ discipline throughout.
       a living document and had to be corrected. A reader that followed
       `.root_x` would have been right by construction. It would also answer
       "is this volume bootable" from `.os_x`/`.boot_x` rather than from a boot.
-      **What is *not* documented**: the SR10 directory's own entry format. Rev
-      3's `dir_entry_t` describes a 1985 layout an SR10.4 volume does not use --
-      measured, in the walk record -- so the reader stops at the root directory
-      until that is settled, which is a question for `002398-04` or `[AEGIS]`
-      rather than for more measurement.
+      **What is *not* documented, and this is now established rather than
+      assumed**: the SR10 directory's own entry format. All four candidates on
+      this shelf print the same 1985 layout — a **32-byte fixed name first** —
+      and none of them is what an SR10.4 volume carries: `[EH1]` (Apr 83),
+      `[EH3]` p. 2-5 (Feb 85), `[AEGIS]` **Figure 8-7** (Jan 86, SR9.0, read at
+      600 dpi 2026-09-12) and `002398-04` p. 39 (Feb 87). The measured SR10 form
+      is header-first and variable-length; it is in
+      `docs/references/002398-03_WALK.md` at exactly the strength of a
+      measurement.
+      **So the reader is specified down to the root directory and `PROVISIONAL`
+      beyond it**, which is what `CLAUDE.md` asks for when a document is absent
+      rather than unfound. Everything above the directory — label, VTOC header,
+      VTOC block, VTOC entry, file map, block header — is documented and
+      buildable now, and would already have caught the wrong block number that
+      grepping for names produced.
 
 - [x] **The DS5500's address translation map is 4 KB — implemented 2026-08-22.**
       `019411-A00` Table 2-5 gives `017000`-`017FFF` against `[S3K]` §2.5's
