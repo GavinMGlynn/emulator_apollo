@@ -523,6 +523,52 @@ its extension word — and `--boot-stop-pc 000067A8` never fires, so the printed
 value is something the reporter read rather than a PC the machine executed.
 That is the first thing to settle and it is on the plan.
 
+### `PC= 000067A8` carries no information, and now that is established
+
+The address is not an instruction boundary and `--boot-stop-pc` on it never
+fires. Disassembling the boot PROM says why, and the answer removes a red
+herring rather than finding the fault.
+
+**It is the PROM's service dispatcher**, at `006780`:
+
+    006784  MOVEA.L #$01000800,A5      the diagnostic/PROM communication area
+    0067A0  LEA     $24(PC),A3         the service table at 0067C6
+    0067A4  LSL.L   #2,D5              D5 selects a service
+    0067A6  MOVEA.L (0,A3,D5.L),A3
+    0067AA  JSR     (A3)
+    0067AC  MOVEA.L $74(A5),A3
+
+and the reporter at `006982` prints ` PC= ` followed by
+
+    00698A  MOVE.L  $3C(A7),D0         the return address, 60 bytes into the frame
+    00698E  SUBQ.L  #4,D0              back up over a four-byte call
+
+The call at `0067AA` is a **two**-byte `JSR (A3)`, so the return address is
+`0067AC` and the reporter's `SUBQ #4` overshoots by two. **`000067A8` is
+therefore a constant** — the dispatcher's own call site, printed for every
+failure reported through the service, and telling nothing about where the test
+failed.
+
+The service table at `0067C6` confirms the reading: `[1]` is `6C1A` and `[6]` is
+`6C74`, which are exactly the print-string and print-hex-longword subroutines the
+reporter itself `BSR`s to, and `[3]` is `693C`, immediately above the failure
+reporter. So entry 3 is "report a self-test failure" and the diagnostic reached
+it the ordinary way.
+
+### And the one level-7 autovector is the PROM testing its own NMI, not a defect
+
+`--boot-stop-on-vector 31` puts it at **PC 00007C26 after 4,409,400
+instructions** — inside `CPU Test # 7`, millions of instructions before
+SELF_TEST is loaded. The core registers at that point read `status 80F1,
+control 8F01`, and `AP_BOARDREG_CONTROL_NMI_ENABLE` is bit 0 of the control
+register: the PROM has **deliberately enabled the NMI and provoked a parity
+error** to exercise the level-7 path, and this core delivers it. Test #7 then
+completes and Test #8 runs.
+
+So the level-7 is expected behaviour and is eliminated. What remains unexplained
+is the `CPU (interrupts) Test #0` failure itself, and the place to look is inside
+the loaded diagnostic at `01002000`-`01003A14`, not in the PROM.
+
 *Reproduce*: `APOLLO_DISK=/home/gavin/apollo-scratch/sau/restored.awd
 tools/dn5500-boot.sh`. The volume is the artefact of the restore run recorded in
 *The SR10.4 restore completes* below; the boot takes about two minutes to the
