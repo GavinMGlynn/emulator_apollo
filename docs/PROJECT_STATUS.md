@@ -639,6 +639,44 @@ probe at `$002BA0` — byte `+1` of `$0005D800` compared against 9 and `$0B` —
 self-test, though, needs display capture rather than a console, and that is what
 the next attempt has to bring.
 
+### Fixed, and the diagnostic now runs six more sub-tests and diagnoses itself
+
+`AP_BOARDREG_CACHE_STATUS_UNUSED` went `F6` → `E6` and the DS5500 branch now
+derives bit 4 from the master's `INT`, the same way every other model's branch
+always has. The same boot, re-run:
+
+       CPU  (interrupts)  Test #0 started.
+       CPU  (timer)       Test #0 started.
+       CPU  (dma)         Test #0 started.
+       CPU  (dma)         Test #1 started.
+       CPU  (dma)         Test #2 started.
+       CPU  (calendar)    Test #0 started.
+       CPU  (bus error)   Test #0 started.
+
+    Configuration information is not initialized.
+    Press <<return>> and type "ex config" at the prompt to initialize the
+    configuration table.
+
+    Self test failed.
+     Expected= 00000000, Actual= 00000012, Address= 00010912
+
+**Six sub-tests that had never run now pass** — interrupts, timer, three DMA
+tests and the calendar — and the diagnostic prints a full diagnosis instead of a
+bare failure, because it got far enough to have one.
+
+**And the remaining failure is not a core defect on the evidence.** `00010912`
+is `AP_CALENDAR_ADDR + $12`, inside the MC146818's battery RAM, and the machine
+says in its own words what is wrong with it: *the configuration table has never
+been initialised*, and `ex config` at the MD prompt is what initialises it. This
+project has never run `ex config` on a DS5500 volume. So the next step here is
+an **operational** one, not a change to the core — and if the table is
+initialised and the test still fails, *then* it is a finding.
+
+*What this cost and what it bought*: one register bit, found by disassembling
+the diagnostic rather than by guessing, with the machine's own test suite as the
+source. `CLAUDE.md` says the ring firmware's self-test is "the hardware's test
+suite, for free"; this is that, on the DS5500, and it paid immediately.
+
 ### The failing sub-test is identified, and it is about the interrupt-pending bit
 
 `--boot-stop-pc 01003646` — the diagnostic's own failure-report wrapper — stops

@@ -4800,61 +4800,29 @@ discipline throughout.
          failure would be inventing behaviour, so the decision when this core is
          written is to implement the architectural behaviour and record the
          divergence. Detail in the walk record.
-      2a. **The DS5500's own SELF_TEST fails its `CPU (interrupts) Test #0`**
-         -- new as of 2026-09-12, because part 1 above is what made the
-         diagnostic reachable. Measured: the diagnostic **never writes the
-         8259s** (10 writes in 1.4 G instructions is exactly the PROM's own
-         initialisation, master `IMR FF`), and the only interrupt taken in the
-         whole run is **one level-7 autovector**, whose only source in this core
-         is the parity NMI.
-         **Two things are eliminated, same day.** `PC= 000067A8` **carries no
-         information**: the PROM's service dispatcher at `006780` calls a
-         service with a *two*-byte `JSR (A3)` at `0067AA`, and the failure
-         reporter at `006982` backs up over a *four*-byte call, so the printed
-         address is a constant that overshoots the dispatch site by two and is
-         the same for every failure reported through that service. That is why
-         it is not an instruction boundary and why `--boot-stop-pc` on it never
-         fired. And the single level-7 autovector is the **PROM testing its own
-         NMI** inside `CPU Test # 7` -- `--boot-stop-on-vector 31` puts it at
-         PC `00007C26` after 4,409,400 instructions, with `NMI_ENABLE` set and
-         a parity bit in the status register, 4 M instructions before SELF_TEST
-         loads. This core delivers it and Test #7 passes.
-         **And the verdict is made in the PROM, not in the diagnostic.**
-         `--boot-stop-pc 0000693C` -- the failure service's own entry -- stops
-         at 409,104,809 instructions with **no `0100xxxx` address anywhere in
-         the 200-step window**. The path is `001CB8` -> `BSR $0005C4` -> a jump
-         table at `001CD2` indexed by `D0`, whose **entry 2** is `0000677C`, the
-         service dispatcher. `D0` is *saved* by `001CB8`'s `MOVEM` and written
-         by nothing in `0005C4`'s chain, so the verdict is the caller's.
-         **And the caller is the diagnostic.** No `BSR`/`BRA`/`JSR`/`JMP` in the
-         PROM reaches `001CB8`; the address is a **longword at PROM offset
-         `000140`**, entry **15** of the service table (`[AEGIS]` §26.2.2-4,
-         machine ID `000E` at `100`, entry points from `104`, `144` onward a
-         stub). So `/sau14/self_test` calls PROM service 15 with `D0` as the
-         outcome -- 0, 1, or **2 = report a self-test failure** -- and the PROM
-         owns only the printing. **The verdict is the diagnostic's**, which is
-         where this item said to look before the PROM trail distracted it.
-         `0005C4` turns out to be **display setup**, not the test: `$002750` is
-         `MOVEC VBR,A0` + `BTST #7,(A0)`, and the arm it selects, `$002BA0`,
-         probes byte `+1` of `$0005E800` for an ID of 8 or `$0A` and byte `+1`
-         of `$0005D800` for 9 or `$0B` -- `AP_GRAPHICS_COLOUR_ADDR` and
-         `AP_GRAPHICS_MONO_ADDR`, ISA `3D0` and `3B0`. This core's DS5500 boot
-         runs with **`fitted display none`**, so neither answers.
-         **`--screen` was tried and is not a discriminator.** With `--screen
-         19i` the run prints *nothing* -- the firmware elects the display as the
-         console and spends 500 M instructions on 1,049,399 reads and 1,048,915
-         writes to the display controller. The probe answering is a positive
-         result about the graphics model; seeing the self-test through it needs
-         display capture, not a console. Nothing so far says the verdict is
-         *wrong*; a real DS5500 may fail this test too. Detail in
-         `PROJECT_STATUS.md`. Detail in `PROJECT_STATUS.md`.
-         **One instrument named and not used**: a fault diagnostic record
-         (`fault_$diag_t`) begins with the pattern **`DFDF`**, which `[EH1]`,
-         `[EH3]` p. 1-8 and Rev 4 all give and `[AEGIS]` §18.2.4.1 says the
-         common fault handler writes, so one left in memory is findable with
-         `--dump-mem` and a search for that halfword. *Whether a stand-alone
-         diagnostic writes one at all is unknown* -- the handler that does is
-         AEGIS's, and SELF_TEST runs without AEGIS.
+      2a. ~~**The DS5500's own SELF_TEST fails its `CPU (interrupts) Test
+         #0`.**~~ **DONE 2026-09-12.** One register bit, found by disassembling
+         the diagnostic rather than by guessing. `/sau14/self_test`'s first
+         sub-test programs both 8259s, masks every line, and requires bit 4 of
+         the cache status register at `010200` to read zero;
+         `019411-A00` §4.2.1.14 calls bits 7:4 "not used" and this core read all
+         four as undriven ones, so it read `F7` and the test failed. Bit 4 is
+         the master's `INT`, the same derivation every other model's branch has
+         always had. `AP_BOARDREG_CACHE_STATUS_UNUSED` `F6` → `E6`;
+         `boardreg_suite` 32 → 34; bits 7:5 and 2:1 stay `PROVISIONAL`.
+         **Six sub-tests that had never run now pass** — interrupts, timer,
+         three DMA and the calendar. Detail, and the three eliminations that
+         came before it, in `PROJECT_STATUS.md`.
+      2b. **The DS5500's configuration table has never been initialised.** New
+         2026-09-12, and it is what 2a uncovered: the diagnostic now reaches
+         `CPU (bus error) Test #0` and stops with a **full diagnosis** —
+         `Expected= 00000000, Actual= 00000012, Address= 00010912`, preceded by
+         its own `Configuration information is not initialized. ... type "ex
+         config" ... to initialize the configuration table.` `00010912` is
+         `AP_CALENDAR_ADDR + $12`, battery RAM. **The next step is
+         operational**: run `ex config` once on a DS5500 volume, which this
+         project never has. Only if the table is initialised and the test still
+         fails is there a finding here.
       3. ~~**`PFLUSH` has no published timing**~~ **— WRONG ON BOTH HALVES,
          checked 2026-09-12.** The M68040 User's Manual **p. 10-12**, §10.5
          MISCELLANEOUS INTEGER UNIT INSTRUCTION TIMINGS, prints it: `PFLUSH`
