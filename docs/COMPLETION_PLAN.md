@@ -4686,6 +4686,27 @@ discipline throughout.
       So the booted system hammers exactly the block a WD7000-ASC would occupy,
       and our DS5500 answers as the tape controller **because that is what the
       model fits it with**. The 8,435,090 `FF` reads are elsewhere.
+  - [x] **The ASC's host interface — `device/ap_wd7000`, 2026-09-12.** The four
+        registers, both status bytes, the host control register, reset with
+        §5.1.1's 25 µs minimum enforced and §6.2.14's two diagnostics, the
+        command port's ten opcodes and two sequences, Table A-8's mailbox
+        arithmetic, the 32-deep interrupt queue and Appendix A.8's 26 defaults.
+        **Not wired to any board yet**, and everything that would reach the
+        SCSI bus is `PROVISIONAL` at its own site. Detail in
+        `PROJECT_STATUS.md`.
+        *Verification: `wd7000_suite`, 30 tests, including the four status
+        values `scsi14.drvr` accepts and the driver's own reset sequence.*
+  - [ ] **Wire it to the board and let a run choose which controller is at ISA
+        `200`.** The block is `AP_TAPE_ADDR`'s, so the region table does not
+        move; what changes is which device answers, which is a *run* choice
+        like `--ring` and not a model property. Needs a new
+        `AP_BOARD_REGION_SCSI` chosen inside `ap_board_region`, the read, write,
+        reset, advance and IRQ paths branched, a hash contribution that is empty
+        when the card is absent — the `ds5500_11500` pattern, so no existing
+        model's state hash moves — and a frontend flag.
+  - [ ] **The SCSI bus and its targets.** Arbitration, selection, the CDB and
+        data phases over first-party DMA, and at least one target. The same
+        split the tape has between `ap_sc499` and `ap_qic`.
       **Which names the work precisely.** An exerciser needs the DS5500 refitted
       with the ASC *instead of* the SC-499 — which is what `[RN104]` §3.3.6 says
       a real machine must do — so the subsystem is `device/ap_wd7000.{h,c}` plus

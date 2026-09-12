@@ -149,10 +149,27 @@ engine, all of them written down here with their defaults.
    Command (`81`), Set Bus On/Off Times (`91`) and Open Outbound Data Buffer
    (`90`). A model of a 1991 Apollo board has to decide which firmware revision
    it carries; without this page the question would never have been asked.
-5. **The document contradicts itself twice, and both are recorded.** A rejected
-   command byte is `60H` on pp. 22 and 70 and `70H` on p. 23; and Table A-4
-   labels the mail-block address `05` LSB through `07` MSB where Table 6-2 and
-   Table A-8's own mailbox layout are MSB-first.
+5. **The document contradicts itself once, not twice.** Table A-4 labels the
+   mail-block address `05` LSB through `07` MSB where Table 6-2 and Table A-8's
+   own mailbox layout are MSB-first; three against one, and a little-endian
+   field in a structure whose every other pointer is MSB-first would be the
+   only one, so this part takes MSB-first and says so.
+
+   > **CORRECTED 2026-09-12, while implementing it.** This entry said the
+   > document contradicts itself *twice*, the second being that a rejected
+   > command byte is `60H` on pp. 22 and 70 and `70H` on p. 23. **It is not a
+   > contradiction.** `60` is `READY | REJECTED` and `70` is
+   > `READY | REJECTED | INITIALIZED`, and both pages that say `60` are
+   > describing a rejected *initialization* byte, which by definition arrives
+   > before that flag is set. The bit definitions produce both values with no
+   > special case, which `wd7000_suite`'s
+   > `test_sixty_and_seventy_are_the_same_rejection` asserts on the model.
+   > *Original text, kept because a walk that reported a contradiction and a
+   > later reading that dissolved it are two different claims and the record
+   > should hold both:* "**The document contradicts itself twice, and both are
+   > recorded.** A rejected command byte is `60H` on pp. 22 and 70 and `70H` on
+   > p. 23; and Table A-4 labels the mail-block address `05` LSB through `07`
+   > MSB where Table 6-2 and Table A-8's own mailbox layout are MSB-first."
 
 **Where the part's own manual stops.** The SBIC's registers are not here —
 "refer to the WD33C93 data sheet" is said three times, for the synchronous-rate

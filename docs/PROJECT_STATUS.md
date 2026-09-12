@@ -914,6 +914,57 @@ tools/dn5500-boot.sh`. The volume is the artefact of the restore run recorded in
 failure and then spins on `Do you wish to continue (y,n)?`, because the harness
 types only the console knock and the prompt reads a carriage return as `x`.
 
+## `device/ap_wd7000`: the ASC's host interface, complete and not yet wired (2026-09-12)
+
+**Read the second half of that heading first.** `src/core/device/ap_wd7000.c`
+implements the WD7000-ASC's **host interface** and nothing else, and no board
+routes an address to it yet. It is not a working SCSI controller and must not be
+described as one.
+
+**What is complete**, against `[WD7000]` chapter 5 and Appendix A: the four
+registers of Table A-1; the ASC status byte with all four flags and the undriven
+low nibble; the host control register with all four bits and the unused upper
+nibble; the interrupt-status/diagnostic-code register; reset, including §5.1.1's
+**25 µs minimum pulse width** enforced and §6.2.14's long-on-power-up,
+short-on-warm diagnostic; the command port with all ten opcodes, their legality
+per state, and both multi-byte sequences; Table A-8's mailbox arithmetic; the
+32-deep interrupt queue with §5.2.4's one-visible-at-a-time rule; and Appendix
+A.8's 26-byte parameter block with every printed default.
+
+**What is `PROVISIONAL`, marked at its own site in the source**: everything that
+would reach the SCSI bus. Starting a command block (`80`-`FF`) is accepted and
+then does nothing, and the soft reset's message is recorded and not sent,
+because there is no target to send it to. That is the same split the cartridge
+tape already has — `ap_sc499.h` is the controller and `ap_qic.h` the drive — and
+the target layer is a plan item rather than a gap in this part.
+
+**Two timing figures are `PROVISIONAL`** because the document publishes them as
+ranges, which is `CLAUDE.md`'s rule for exactly this: `AP_WD7000_T_SHORT_DIAGNOSTIC`
+is §6.2.14.1's "under 250 ms" and `AP_WD7000_T_LONG_DIAGNOSTIC` §5.1.1's "about
+2 seconds". Both are taken at the stated figure, so a run is at the slow end of
+what the part permits, in a knowable direction.
+
+**A contradiction the walk recorded turns out not to be one.** §5.1.1 and
+§6.2.14.1 say a rejected command byte posts `60`; §5.2.1 says `70`. `60` is
+`READY | REJECTED` and `70` adds `INITIALIZED`, and both pages that say `60` are
+describing a rejected *initialization* byte, which by definition arrives before
+that flag is set. The bit definitions produce both values with no special case,
+which is what `test_sixty_and_seventy_are_the_same_rejection` asserts, and the
+walk record is corrected with its original text kept beneath.
+
+**One modelling decision worth naming.** Held in reset, the status port reads
+`0F` — the upper nibble goes quiet because the reset D-FF holds the LCPU and the
+part drives nothing, rather than because four flags were cleared. That reading
+is what lets a pulse narrower than 25 µs leave the part as it was instead of
+half-cleared, and it matches §5.2.1's "on reset the upper nibble clears" and
+§5.2.1.4's "D4 is reset by ... the ASC reset port" at once.
+
+*Verification: `wd7000_suite`, 30 tests, CTest entry `wd7000_suite`. Among them:
+the four status values `scsi14.drvr` accepts, read off this model; the driver's
+own `03`-then-`00` reset sequence; a pulse one tick short of the minimum
+changing nothing; every reserved opcode from `07` to `7F` rejected; and every
+one of Appendix A.8's 26 defaults.*
+
 ## The DS5500's SCSI controller is a WD7000-ASC at ISA `200`, and that is the tape's address (2026-09-12)
 
 **No SCSI is implemented.** This section records what the plan item was missing,
