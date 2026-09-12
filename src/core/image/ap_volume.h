@@ -179,6 +179,32 @@
  * the UID of the item being dumped. `.sys_shut_state` is the one to reach for
  * if the fourteen-day rule ever needs more than the timestamps.
  *
+ * ## And `+2C` is not one field but six, from the same handbook
+ *
+ * Rev 4 names `+2C` "BAT header" and stops. **Rev 3 p. 2-3 prints it**,
+ * `bat_hdr_t` in `vol.ins.pas`, read at 600 dpi on 2026-09-12, with its own
+ * note "BAT header lives in logical volume label. Offsets given are from start
+ * of label":
+ *
+ *     +2C  number of blocks represented   .n_blk
+ *     +30  number of free blocks          .n_free
+ *     +34  DADDR of first BAT block       .daddr
+ *     +38  block # represented by the     .base_add
+ *          first bit in the BAT
+ *     +3C  V C B flags | BAT ...          .vol_trouble
+ *     +40  step                           .bat_step
+ *     +4C  end
+ *
+ * **`V` is the flag a salvage is about**: "Volume trouble, set by OS if volume
+ * needs salvaging, cleared by SALVOL." `C` is "volume CHUVOLed" and `B`
+ * "volume being CHUVOLed". `[RN104]` SS5.5 warns that a disk last mounted under
+ * SR10.3 should be salvoled by an SR10.4 `salvol` before being mounted under
+ * SR10.4 and vice versa, because the two write directory reference counts
+ * differently -- so this bit and that warning are the same subject, and a
+ * volume this project builds under one release and mounts under another is
+ * exactly the case. Named and not read, on the same terms as everything else
+ * here.
+ *
  * ## And `+4C` is not one field but seven, which `002398-03` decodes
  *
  * Rev 4 names the `+4C` block "VTOC header" and stops. **Rev 3 p. 2-24 prints
@@ -193,7 +219,12 @@
  *     +5C  **VTOCX of the paging file**   .os_x
  *     +60  **VTOCX of the boot file**     .boot_x
  *     +64  VTOC map, 8 entries            .map
+ *     +94  unused                         .pad
  *     +B0  end
+ *
+ * (The `.pad` row is from the **600-dpi page-image read** of 2026-09-12; the
+ * transcription above it had been taken from Rev 3's damaged text layer and is
+ * confirmed offset for offset. Eight entries of six bytes fill `+64`-`+93`.)
  *
  * A VTOC map entry (`vtoc_mape`) is six bytes -- `+00` a count of consecutive
  * blocks, `+02` the disk address of the extent's first block -- and "VTOC
