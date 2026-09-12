@@ -27,6 +27,20 @@
 # Sealing the table is what `ex config` would do on the real machine, and with it
 # every sub-test passes and the boot goes on to load Domain/OS.
 #
+# **And `--clock` must be later than the volume's own dismount**, or the kernel
+# stops with "The calendar is more than a minute slow. Switch to service mode,
+# press reset and run CALENDAR." The volume says when that was --
+# `apollo-headless --volume <image>` prints `dismounted`, which for the restored
+# DS5500 volume is `2002-11-28 12:25:11` -- so the `2002-11-28` below, which is
+# midnight, is twelve hours *early*. Pass a later instant for a boot that is
+# meant to reach Domain/OS:
+#
+#   APOLLO_DISK=... tools/dn5500-boot.sh --clock 2002-11-28T12:30:00
+#
+# The default is left at the date rather than the instant because it is what
+# every recorded DS5500 measurement so far used, and moving it would silently
+# invalidate their comparability.
+#
 # **The cartridge is still fitted**, and deliberately: the firmware's load-path
 # test walks the devices it has, and a DS5500 with no cartridge is a different
 # machine from the one this project has been measuring. A copy, always -- see

@@ -4824,11 +4824,20 @@ discipline throughout.
          load and start the kernel: `Domain/OS kernel(14), revision 10.4`. Five
          stacks, two in mapped supervisor space entered 33 and 32 times, and
          7,258,933 CPU periods idle waiting for an interrupt.
-      2c. **The DS5500's calendar is more than a minute slow**, which is where
-         the kernel now stops and which the machine names along with its
-         remedy: "Switch to service mode, press reset and run CALENDAR." The
-         same question the DN3500 answered long ago — the RTC must agree with
-         the volume's mount history. Operational, and next.
+      2c. ~~**The DS5500's calendar is more than a minute slow.**~~ **DONE
+         2026-09-12, and it was one flag.** The clock must be later than the
+         volume's own `.dismounted_time`; the restored volume was dismounted at
+         **2002-11-28 12:25:11** and the harness powers on at midnight.
+         `--clock 2002-11-28T12:30:00` is the whole difference — and that number
+         came from `apollo-headless --volume`, which could not read a DS5500
+         volume at all until this morning's label fix.
+         **The DS5500 now boots Domain/OS to the Server Process Manager**:
+         kernel, Phase II environment, `Init`, global libraries, `/etc/rc`'s
+         node startup, the daemons, the window system, `SPM system init
+         complete. Node ID = 12345`. 668,928,312 instructions executed against
+         **831,071,688 idle**, 1,296 MMU faults, and vectors 160/161/173/174
+         taken 2,805/870/1/552 times — device interrupts serviced, not merely
+         armed. Detail in `PROJECT_STATUS.md`.
       3. ~~**`PFLUSH` has no published timing**~~ **— WRONG ON BOTH HALVES,
          checked 2026-09-12.** The M68040 User's Manual **p. 10-12**, §10.5
          MISCELLANEOUS INTEGER UNIT INSTRUCTION TIMINGS, prints it: `PFLUSH`

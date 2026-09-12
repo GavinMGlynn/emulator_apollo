@@ -434,6 +434,67 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## The DS5500 boots Domain/OS to the Server Process Manager (2026-09-12)
+
+    Self tests passed.
+    Domain/OS kernel(14), revision 10.4, February 26, 1992  3:05:56 pm
+    Apollo Phase II Environment   Revision 10.4   Jan 25, 1992  12:59:03 pm
+    Loading Init.
+    ... loading global libraries
+    ... global libraries loaded.
+    *****  Node startup … Preserving … Clearing /tmp
+    Initializing /etc/mnttab
+    Starting standard daemons: .
+    Starting window …
+    SPM system init complete.
+    Node ID = 12345
+    **********************************************************
+        SERVER_PROCESS_MANAGER, Version 10.2, 89/07/31
+     SPM Initialized on Tuesday, December 3, 2002 at 20:32:23
+    **********************************************************
+      20:32:23   MBX_HELPER not running.  Starting one.
+
+**The whole sequence** — kernel, Phase II environment, `Init`, global libraries,
+`/etc/rc`'s node startup, the daemons, the window system, and the Server Process
+Manager reporting the node's own ID.
+
+**The report says it is running rather than merely reached.**
+
+| | |
+| --- | --- |
+| executed | 668,928,312 instructions |
+| **idle** | **831,071,688 CPU periods stopped, waiting for an interrupt** |
+| mmu faults | 1,296 |
+| exceptions | TRAPs 32-40, and vectors **160, 161, 173, 174** |
+| final PC | `7A443AC0 -> 01048AC0`, mapped supervisor space |
+
+More time idle than executing is a scheduler with nothing to do. The 1,296 MMU
+faults are demand paging. And vectors 160 and 161 are `ICW2 = A0`'s first two
+device vectors — 2,805 and 870 of them — so **device interrupts are being taken
+and serviced**, which is the half of the machine the self-test had only proved
+could be *armed*.
+
+**The last step was one flag, and the volume said which.** `--clock` must be
+later than the volume's own `.dismounted_time` or Domain/OS stops with *"The
+calendar is more than a minute slow."* The restored DS5500 volume was dismounted
+at **2002-11-28 12:25:11**, and `tools/dn5500-boot.sh` powers on at
+`2002-11-28` — midnight, twelve hours early. `--clock 2002-11-28T12:30:00` is
+the whole difference.
+
+*That number came from `apollo-headless --volume`*, which **could not read a
+DS5500 volume at all until this morning** — the label reader was pinned to a
+DN3500's block layout. The fix that made the mount history readable is what made
+this diagnosable.
+
+*Reproduce*: `APOLLO_DISK=/home/gavin/apollo-scratch/sau/restored.awd
+tools/dn5500-boot.sh --clock 2002-11-28T12:30:00 --boot-limit 1500000000`. The
+harness's default clock is deliberately left alone; see its header.
+
+*One observation not explained*: the SPM reports **December 3** where the
+machine powered on November 28. Five days of drift in about a minute of
+emulated machine time is not the emulated clock advancing, and it is not
+investigated here — recorded so it is not mistaken for a boot detail.
+
 ## The DS5500 passes its own self-test and boots the Domain/OS kernel (2026-09-12)
 
     Loaded:  SELF_TEST     Revision:  0.4 LEOPARD
