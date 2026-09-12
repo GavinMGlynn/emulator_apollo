@@ -4825,9 +4825,15 @@ discipline throughout.
          the 200-step window**. The path is `001CB8` -> `BSR $0005C4` -> a jump
          table at `001CD2` indexed by `D0`, whose **entry 2** is `0000677C`, the
          service dispatcher. `D0` is *saved* by `001CB8`'s `MOVEM` and written
-         by nothing in `0005C4`'s chain, so the verdict is the caller's:
-         **whoever called `001CB8` with `D0 = 2`**, which is the thing still to
-         find.
+         by nothing in `0005C4`'s chain, so the verdict is the caller's.
+         **And the caller is the diagnostic.** No `BSR`/`BRA`/`JSR`/`JMP` in the
+         PROM reaches `001CB8`; the address is a **longword at PROM offset
+         `000140`**, entry **15** of the service table (`[AEGIS]` §26.2.2-4,
+         machine ID `000E` at `100`, entry points from `104`, `144` onward a
+         stub). So `/sau14/self_test` calls PROM service 15 with `D0` as the
+         outcome -- 0, 1, or **2 = report a self-test failure** -- and the PROM
+         owns only the printing. **The verdict is the diagnostic's**, which is
+         where this item said to look before the PROM trail distracted it.
          `0005C4` turns out to be **display setup**, not the test: `$002750` is
          `MOVEC VBR,A0` + `BTST #7,(A0)`, and the arm it selects, `$002BA0`,
          probes byte `+1` of `$0005E800` for an ID of 8 or `$0A` and byte `+1`

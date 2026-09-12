@@ -571,8 +571,22 @@ address in that window is in `0100xxxx`**. The whole path is PROM:
     001CD2: 00001CE2  00001D32  0000677C  …
 
 `0000677C` falls into the service dispatcher at `006780`, so **table entry 2 is
-"report a self-test failure"** and the jump took it. The verdict is made in the
-PROM, before the loaded diagnostic is involved at all.
+"report a self-test failure"** and the jump took it.
+
+**And `001CB8` is a PROM *service*, which puts the verdict back where the plan
+item first looked.** Nothing in the PROM branches to it — a scan of every
+`BSR`/`BRA`/`JSR`/`JMP` form finds no reference — but the address appears as a
+**longword at PROM offset `000140`**, which is entry **15** of the service table
+`[AEGIS]` §26.2.2-4 describes and this project's `prom-service-table` memory
+records: machine ID at `100` (`000E`, SAU 14), auxiliary info at `102`, entry
+points from `104`. Entries 0-15 are real and `144` onward are all `00000418`, a
+stub.
+
+So the **loaded diagnostic calls PROM service 15 with `D0` as the outcome**, and
+the PROM dispatches it: 0 to `001CE2`, 1 to `001D32`, **2 to the failure
+report**. The verdict is `/sau14/self_test`'s, and an earlier reading of this
+page that placed it in the PROM was wrong about that — what the PROM owns is the
+printing.
 
 **`0005C4` is not the test, and an earlier reading of this page said it was.**
 `MOVEM.L D0/…,-(A7)` at `001CB8` saves `D0` and neither `0005C4` nor anything it
