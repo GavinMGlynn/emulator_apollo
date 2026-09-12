@@ -53,21 +53,52 @@ static void test_a_reset_controller_is_not_ready_and_is_done(void) {
   TEST_ASSERT_EQUAL_HEX8(AP_SC499_ST_EXC, status & AP_SC499_ST_EXC);
 }
 
-static void test_resetting_the_dma_is_the_same_as_a_power_on_reset(void) {
-  ap_sc499_t after_write;
-  ap_sc499_t after_power_on;
+/* **RSTDMA resets the DMA sequencer and leaves the drive's condition alone.**
+ *
+ * `[SC499]` §1.11 gives it three effects and no more: it "initializes the DMA
+ * sequencer, clears all Control Register bits to 0, and sets DONE to 1
+ * (power-on reset from the IBM PC performs the same functions)".
+ *
+ * **The parenthesis runs one way**, and until 2026-09-12 this test and the code
+ * both read it backwards. The test was called
+ * `test_resetting_the_dma_is_the_same_as_a_power_on_reset` and asserted the two
+ * were *indistinguishable*, `TEST_ASSERT_EQUAL_MEMORY` over the whole part --
+ * which is the sentence inverted. A power-on reset performing RSTDMA's
+ * functions does not make RSTDMA a power-on reset, and the difference is
+ * everything the drive has to say.
+ *
+ * **What the old reading cost, measured**: after a READ ends at a file mark the
+ * driver issues RSTDMA to ready the sequencer for its next transfer -- §1.11's
+ * own step 2, "repeat from step 2 for each subsequent block" -- and this card
+ * answered by discarding the EXCEPTION and the `FIL` the host had not yet read.
+ * The restore then ended in `002398-04` p. 4-14's `(00280022) controller
+ * timeout`. The oracle agrees by construction: `sc499.cpp`'s `write_dma_reset`
+ * touches the DONE bit and the control register and nothing else.
+ * `FINDINGS.md` C286. */
+static void test_resetting_the_dma_leaves_the_drives_condition_alone(void) {
+  ap_sc499_t t;
+  ap_sc499_reset(&t);
+  ap_sc499_advance(&t, 1000000u);
 
-  /* "RSTDMA initializes the DMA sequencer, clears all Control Register bits to
-   * 0, and sets DONE to 1 (power-on reset from the IBM PC performs the same
-   * functions)." A command defined as equal to power-on reset is the cheapest
-   * possible test of both at once: they must be indistinguishable. */
-  ap_sc499_reset(&after_write);
-  ap_sc499_write(&after_write, AP_SC499_CONTROL_STATUS, 0x30);
-  ap_sc499_write(&after_write, AP_SC499_DMAGO, 0xFF);
-  ap_sc499_write(&after_write, AP_SC499_RSTDMA, 0x00);
+  /* A card mid-transfer with a condition the host has not read yet. */
+  ap_sc499_write(&t, AP_SC499_CONTROL_STATUS, 0x30);
+  ap_sc499_write(&t, AP_SC499_DMAGO, 0xFF);
+  ap_sc499_set_exception(&t, true);
+  t.direction = true;
+  TEST_ASSERT_TRUE(t.dma_active);
+  TEST_ASSERT_FALSE(t.done);
 
-  ap_sc499_reset(&after_power_on);
-  TEST_ASSERT_EQUAL_MEMORY(&after_power_on, &after_write, sizeof after_write);
+  ap_sc499_write(&t, AP_SC499_RSTDMA, 0x00);
+
+  /* The three §1.11 states, and only those. */
+  TEST_ASSERT_FALSE(t.dma_active);
+  TEST_ASSERT_EQUAL_HEX8(0x00, t.control);
+  TEST_ASSERT_TRUE(t.done);
+
+  /* **And the drive's condition survives it**, which is the whole point: the
+   * host still has to read the status to find out what ended its transfer. */
+  TEST_ASSERT_TRUE(t.exception);
+  TEST_ASSERT_TRUE(t.direction);
 }
 
 static void test_the_dma_commands_ignore_what_is_written(void) {
@@ -750,7 +781,7 @@ int main(void) {
   RUN_TEST(test_advancing_is_idempotent_and_refuses_to_go_backwards);
   RUN_TEST(test_ready_and_exception_are_asserted_low);
   RUN_TEST(test_a_reset_controller_is_not_ready_and_is_done);
-  RUN_TEST(test_resetting_the_dma_is_the_same_as_a_power_on_reset);
+  RUN_TEST(test_resetting_the_dma_leaves_the_drives_condition_alone);
   RUN_TEST(test_the_dma_commands_ignore_what_is_written);
   RUN_TEST(test_the_command_addresses_read_as_nothing);
   RUN_TEST(test_a_masked_controller_drives_no_interrupt);

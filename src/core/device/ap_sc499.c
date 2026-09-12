@@ -481,20 +481,47 @@ void ap_sc499_write(ap_sc499_t *tape, unsigned reg, uint8_t value) {
     tape->done = false;
     return;
   case AP_SC499_RSTDMA: {
-    /* Defined as equal to power-on reset -- and §1.12 gives it a second job:
-     * RSTSAC is "cleared by either writing a 0 to Control Register Bit 7 **or by
-     * a RSTDMA**". So a RSTDMA issued while the host is holding RSTSAC is a
-     * release, and releases are what start the POC test that ends in an
-     * exception. Modelling only the control-register path would leave a
-     * documented way to reset the controller silently inert.
+    /* **RSTDMA resets the DMA sequencer, and not the controller.** `[SC499]`
+     * §1.11 gives it three effects and no more: it "initializes the DMA
+     * sequencer, clears all Control Register bits to 0, and sets DONE to 1
+     * (power-on reset from the IBM PC performs the same functions)".
      *
-     * Computed before the reset, which clears both the control byte that says
-     * the bit was held and the clock the hold is measured against. */
+     * **That parenthesis runs one way.** It says a power-on reset performs the
+     * same functions as *this*; it does not say this performs the same
+     * functions as a power-on reset. Until 2026-09-12 the comment here read
+     * "Defined as equal to power-on reset" and the code called
+     * `ap_sc499_reset`, which is the implication taken backwards -- and it
+     * threw away EXCEPTION, READY, DIRECTION and the drive's latched status
+     * along with the DMA state.
+     *
+     * **What that cost, measured.** After a READ ends at a file mark the driver
+     * issues RSTDMA to ready the sequencer for its next transfer -- `[SC499]`
+     * §1.11's own step 2, "repeat from step 2 for each subsequent block". This
+     * card answered by discarding the exception and the `FIL` the host had not
+     * read yet, so there was nothing left to interrogate and the wait ended in
+     * `002398-04` p. 4-14's `(00280022) controller timeout`. Found by logging
+     * every site that clears the exception through a restore: the last one is
+     * this reset, at the mark. The oracle agrees by construction --
+     * `sc499.cpp`'s `write_dma_reset` touches `m_status`'s DONE bit and
+     * `m_control`, and nothing else.
+     *
+     * §1.12's second job stands: RSTSAC is "cleared by either writing a 0 to
+     * Control Register Bit 7 **or by a RSTDMA**", so a RSTDMA issued while the
+     * host holds RSTSAC is a release, and a release is what starts the POC test
+     * that ends in an exception. Computed before the control byte is cleared,
+     * because that byte is what says the bit was held. */
     const bool was_held = (tape->control & AP_SC499_CTL_RESET) != 0u;
     const bool wide_enough = was_held && tape->hold_dated &&
                              tape->now - tape->held_since >
                                  AP_SC499_T_RESET_MIN_HOLD;
-    ap_sc499_reset(tape);
+    /* "Initializes the DMA sequencer" -- nothing is in flight. */
+    tape->dma_active = false;
+    /* "Clears all Control Register bits to 0." */
+    tape->control = 0u;
+    tape->hold_dating = false;
+    tape->hold_dated = false;
+    /* "And sets DONE to 1." */
+    tape->done = true;
     if (wide_enough) {
       tape->reset_arming = true;
     }

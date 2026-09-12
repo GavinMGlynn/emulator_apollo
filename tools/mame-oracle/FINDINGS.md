@@ -17429,3 +17429,88 @@ in time.
 *Verification: the boot gate passes -- no `Tape read error`, `Do you wish to
 proceed? (Y/N): Y`, and the restore runs -- where every previous attempt to
 deliver the byte died at `EX DOMAIN_OS`. `ctest` 147/147.*
+
+
+## C286 -- RSTDMA is not a power-on reset, and the restore completes
+
+C285 removed `28001E` and left `(00280022) controller timeout` in its place: the
+restore still stopped at 396, and the driver's ISR was measured reading the
+exception correctly before the wait failed.
+
+### Finding it, by instrumenting rather than reasoning
+
+Three registers had been watched through a restore -- the command register
+(`00050000`), the control register (`00050001`) and the status side of the same
+address. The control trace showed the shape of the driver's discipline:
+`DO_CTL_CMD+574` writes `30` (`IEN|DNIEN`) before every transfer and
+`CT_$INT+10` writes `00` to disarm, 3,514 times, one pair per transfer -- and
+the **last** write is the ISR's `00` at instruction 9,551,486,127, one
+instruction before it reads the status. It never re-arms.
+
+That left a contradiction: 691 instructions later the status reads `F7`,
+**exception clear and DONE set**, with no write that should have done either.
+So every site in `ap_sc499.c` that clears the exception was made to print, and
+the run answered in one line:
+
+    EXCCLR reset            now=34898445567000576
+
+**A reset.** And the one register never watched is `00050003`, **RSTDMA**.
+
+### What the document says, and the direction of its parenthesis
+
+`[SC499]` §1.11:
+
+> RSTDMA "initializes the DMA sequencer, clears all Control Register bits to 0,
+> and sets DONE to 1 **(power-on reset from the IBM PC performs the same
+> functions)**".
+
+**The parenthesis runs one way.** It says a power-on reset performs *RSTDMA's*
+functions. It does not say RSTDMA performs a power-on reset's. This core had it
+backwards -- the comment read "Defined as equal to power-on reset" and the code
+called `ap_sc499_reset`, which discards EXCEPTION, READY, DIRECTION and the
+drive's latched status along with the DMA state.
+
+**And that is exactly the failure.** §1.11's own step 5 is "repeat above from
+step 2 for each subsequent block", so a driver readying the sequencer for its
+next transfer issues RSTDMA as a matter of course. After a READ ends at a file
+mark this card answered by throwing away the exception and the `FIL` the host
+had not yet read -- leaving nothing to interrogate, which is what a controller
+timeout is. **The oracle agrees by construction**: `sc499.cpp`'s
+`write_dma_reset` touches the DONE bit and `m_control`, and nothing else.
+
+### The test encoded the same misreading
+
+`test_resetting_the_dma_is_the_same_as_a_power_on_reset` asserted the two states
+were **indistinguishable**, `TEST_ASSERT_EQUAL_MEMORY` across the whole part.
+That is the sentence inverted, and it is `CLAUDE.md`'s case exactly: a green
+suite that encodes the code's own misreading. Rewritten to assert §1.11's three
+effects *and* that the drive's condition survives, and it fails on the old
+reading.
+
+### The result
+
+**The SR10.4 restore reaches 401 entries and prints `Restore complete.`** The
+ending is the oracle's `sau14.log` byte for byte, including the five entries
+this core had been losing since the item was opened:
+
+    (dir)  "usr/apollo/bin" restored.
+    (file) "usr/apollo/lib/stcode.db" restored.
+    (dir)  "usr/apollo/lib" restored.
+    (dir)  "usr/apollo/lib" restored.
+    (dir)  "usr/apollo/lib" restored.
+    (dir)  "usr/apollo/lib" restored.
+
+    Restore complete.
+
+*Verification: `sc499_suite` 29, the rewritten test failing on the old reading;
+`ctest` 147/147. DN3500 measured; the DS5500 control is the item's other half.*
+
+### The reusable part
+
+**A parenthesis that says two things perform the same functions has a
+direction**, and the code took it the wrong way for as long as the part has
+existed. The tell was available the whole time: the sentence lists three effects
+by name, and a model that performs *more* than the three named effects is not
+implementing the sentence. Where a document enumerates, the enumeration is the
+specification -- and "equal to X" in a comment, with no page cited for the
+equality, is where to look first.

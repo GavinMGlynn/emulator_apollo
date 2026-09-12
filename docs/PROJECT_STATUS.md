@@ -434,6 +434,68 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## The SR10.4 restore completes: 401 entries and `Restore complete.` (2026-09-12)
+
+**The item's DN3500 half is met.** The ending is the oracle's `sau14.log` byte
+for byte, including the five entries this core had been losing:
+
+```
+(dir)  "usr/apollo/bin" restored.
+(file) "usr/apollo/lib/stcode.db" restored.
+(dir)  "usr/apollo/lib" restored.      x4
+
+Restore complete.
+```
+
+Two defects, both found by instrumenting rather than by reasoning.
+
+### One: the mark's byte, and when it crosses
+
+At the cartridge's last mark the oracle's driver reads the channel's count as
+`21FE` where this core left `21FF` — 24,065 bytes against 24,064, which is 47
+whole blocks plus **one byte**, `m_ctape_block_buffer[0]`. But delivering it
+unconditionally breaks the boot, which reports p. 4-17's `FF`: MD tolerates a
+transfer in which nothing moved and not one in which a single byte did.
+
+Both are right. Instrumenting **both** of MAME's mark branches shows
+`MARK-in-read_block` firing at the boot's marks — `dack_r`'s never fires there —
+and `MARK-in-dack_r` at the restore's. **The byte crosses only when the host's
+DMA is the thing that discovers the mark**, and `sc499.cpp`'s flow control says
+when that is: the read-ahead's `m_read_block_pending` is cleared by `eop_w`, so
+the card reads one block ahead of the host's *completed* transfers.
+`dma_active` is that question here. That removed `28001E`.
+
+### Two: RSTDMA is not a power-on reset
+
+`[SC499]` §1.11: RSTDMA *"initializes the DMA sequencer, clears all Control
+Register bits to 0, and sets DONE to 1 (power-on reset from the IBM PC performs
+the same functions)"*.
+
+**The parenthesis runs one way** — a power-on reset performs *RSTDMA's*
+functions, not the reverse. This core had it backwards, its comment reading
+"Defined as equal to power-on reset" and its code calling `ap_sc499_reset`,
+which discards EXCEPTION, READY, DIRECTION and the drive's latched status.
+§1.11's step 5 has the driver issue RSTDMA before every subsequent block, so
+after a READ ended at a file mark this card threw away the exception and the
+`FIL` the host had not yet read — leaving nothing to interrogate, which is
+`(00280022) controller timeout`. MAME's `write_dma_reset` touches the DONE bit
+and the control register and nothing else.
+
+Found by making every exception-clearing site print through a whole restore. The
+answer was one line — `EXCCLR reset` — and RSTDMA at `00050003` was the one
+register never watched.
+
+**The test encoded the same misreading**:
+`test_resetting_the_dma_is_the_same_as_a_power_on_reset` asserted the two states
+indistinguishable with `TEST_ASSERT_EQUAL_MEMORY`. Rewritten to §1.11's three
+named effects *and* the drive's condition surviving; it fails on the old
+reading.
+
+*Verification: 401 entries and `Restore complete.` on the DN3500, against
+`sau14.log`; `sc499_suite` 29 and `tape_suite` 34; `ctest` 147/147. The DS5500
+control is the item's other half and is running. Detail in `FINDINGS.md` C285,
+C286.*
+
 ## The tape's two endings, and why `28001E` is not about either (2026-09-12)
 
 **The oracle was instrumented at the cartridge's last file mark** — armed on
