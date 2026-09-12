@@ -4671,6 +4671,21 @@ discipline throughout.
       SCSI, and `/sau14/scsi14.drvr` is a **Domain/OS** driver — so the exerciser
       is still the operating system, which still waits on a DS5500-bootable
       volume. Detail in `PROJECT_STATUS.md`.
+      **And the gate moved again on 2026-09-12**: the volume exists and boots,
+      `/sau14` is a root-directory entry, and the firmware loads SELF_TEST out
+      of it. What stands between here and a SCSI exerciser is now item 2a, the
+      `CPU (interrupts) Test #0` failure.
+      **One constraint to carry into the design.** `[RN104]` §3.3.6 replaces a
+      notice in *Using the CD-ROM Reader* with: "You cannot use a CD-ROM drive
+      in a Series 35xx, 4000, or 4500 system that **uses a non-SCSI cartridge
+      tape drive**. You must either remove the ctape controller from the system
+      or replace your non-SCSI ctape drive with a SCSI ctape drive." The
+      non-SCSI ctape drive **is the SC-499 this core models**, and a DS5500 is a
+      CPU upgrade to exactly those machines — so a real one could not carry both
+      controllers. The notice does not say why and nothing is inferred; it means
+      a SCSI subsystem here is a *replacement* for the cartridge path on this
+      machine class, not an addition beside it, and the model table will have to
+      say which a given machine has.
 
 - [x] **The DS5500's address translation map is 4 KB — implemented 2026-08-22.**
       `019411-A00` Table 2-5 gives `017000`-`017FFF` against `[S3K]` §2.5's
