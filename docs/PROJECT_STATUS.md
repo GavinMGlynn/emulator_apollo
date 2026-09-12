@@ -571,10 +571,13 @@ address in that window is in `0100xxxx`**. The whole path is PROM:
     001CD2: 00001CE2  00001D32  0000677C  …
 
 `0000677C` falls into the service dispatcher at `006780`, so **table entry 2 is
-"report a self-test failure"** and the test at `0005C4` returned `D0 = 2`. That
-is the verdict, and it is made before the diagnostic is involved at all.
+"report a self-test failure"** and the jump took it. The verdict is made in the
+PROM, before the loaded diagnostic is involved at all.
 
-The test itself:
+**`0005C4` is not the test, and an earlier reading of this page said it was.**
+`MOVEM.L D0/…,-(A7)` at `001CB8` saves `D0` and neither `0005C4` nor anything it
+calls writes it, so the dispatch index is the value `001CB8`'s *caller* passed
+in. What `0005C4` does is configure the display:
 
     0005C4  ORI.W   #$0700,SR          mask every interrupt
     0005C8  MOVE.L  A6,-(A7)
@@ -588,18 +591,26 @@ The test itself:
     0005E6  MOVE.L  (A7)+,$66(A5)      the result, into the PROM/diagnostic area
     0005EA  RTS
 
-**Which branch ran is decided by a counter rather than by the trace**, because
-both arms return to `0005E6`: the `$7A400180` arm writes five longwords at
-`$12C`-`$15C` off that base, which is `7A4002AC`-`7A4002DC` and outside every
-region this core maps — and the boot report says `unmapped 1041 read, **0
-written**`. So no such write happened, the `BEQ` at `0005D4` was taken, and the
-arm that ran is `$002BA0` with `A6` at the reset SSP.
+`$002750` is four instructions — `MOVEC VBR,A0` then `BTST #7,(A0)` — so the
+branch turns on **bit 7 of the first byte of the exception vector table**, and
+the `$7A400180` arm writes five longwords at `7A4002AC`-`7A4002DC`, outside
+every region this core maps. The boot report says `unmapped 1041 read, **0
+written**`, so that arm did not run: the `BEQ` was taken and `$002BA0` ran with
+`A6` at the reset SSP.
 
-**What this pins down**: the failing verdict is `0005C4`'s, reached with
-interrupts masked at IPL 7, and the two subroutines to read next are `$002750`
-(whose zero/non-zero result picks the arm) and `$002BA0`. Nothing beyond that is
-established, and in particular nothing here says whether the verdict is right —
-a real DS5500 may fail this test too.
+**And `$002BA0` is the display probe.** It reads byte `+1` of `$0005E800` and
+compares it with `8` and `$0A`; failing both it reads byte `+1` of `$0005D800`
+and compares with `9` and `$0B`, setting a size and base pair in `$13C(A6)` and
+`$138(A6)` from whichever answers. Those two addresses are
+`AP_GRAPHICS_COLOUR_ADDR` and `AP_GRAPHICS_MONO_ADDR` — ISA `3D0` and `3B0`,
+`[GPIO]` Table 3-1's colour and monochrome graphics — and this core's DS5500
+boot is run with **`fitted display none`**, so neither answers and the routine
+falls through leaving the colour defaults in place.
+
+**What this pins down, and what it does not.** The verdict is the PROM's, made by
+whatever called `001CB8` with `D0 = 2`; `0005C4` is display setup on the way
+there. Whether the absent display is *why* is untested — the next experiment is
+`--screen`, which the harness does not currently pass.
 
 ### And the one level-7 autovector is the PROM testing its own NMI, not a defect
 

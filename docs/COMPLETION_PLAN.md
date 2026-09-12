@@ -4805,16 +4805,20 @@ discipline throughout.
          `--boot-stop-pc 0000693C` -- the failure service's own entry -- stops
          at 409,104,809 instructions with **no `0100xxxx` address anywhere in
          the 200-step window**. The path is `001CB8` -> `BSR $0005C4` -> a jump
-         table at `001CD2` indexed by the returned `D0`, whose **entry 2** is
-         `0000677C`, the service dispatcher. So `D0 = 2` is the failure verdict
-         and `0005C4` is the test: it masks interrupts with `ORI.W #$0700,SR`,
-         points `A6` at the reset SSP, calls `$002750`, and on a zero result
-         calls `$002BA0` -- which is the arm that ran, deduced from the report's
-         `unmapped ... 0 written` because the other arm writes outside every
-         mapped region.
-         **Next is to read `$002750` and `$002BA0`.** Nothing so far says the
-         verdict is *wrong*; a real DS5500 may fail this test too. Detail in
-         `PROJECT_STATUS.md`. Detail in `PROJECT_STATUS.md`.
+         table at `001CD2` indexed by `D0`, whose **entry 2** is `0000677C`, the
+         service dispatcher. `D0` is *saved* by `001CB8`'s `MOVEM` and written
+         by nothing in `0005C4`'s chain, so the verdict is the caller's:
+         **whoever called `001CB8` with `D0 = 2`**, which is the thing still to
+         find.
+         `0005C4` turns out to be **display setup**, not the test: `$002750` is
+         `MOVEC VBR,A0` + `BTST #7,(A0)`, and the arm it selects, `$002BA0`,
+         probes byte `+1` of `$0005E800` for an ID of 8 or `$0A` and byte `+1`
+         of `$0005D800` for 9 or `$0B` -- `AP_GRAPHICS_COLOUR_ADDR` and
+         `AP_GRAPHICS_MONO_ADDR`, ISA `3D0` and `3B0`. This core's DS5500 boot
+         runs with **`fitted display none`**, so neither answers.
+         **Next experiment is `--screen`**, which `tools/dn5500-boot.sh` does
+         not pass. Nothing so far says the verdict is *wrong*; a real DS5500 may
+         fail this test too. Detail in `PROJECT_STATUS.md`. Detail in `PROJECT_STATUS.md`.
          **One instrument named and not used**: a fault diagnostic record
          (`fault_$diag_t`) begins with the pattern **`DFDF`**, which `[EH1]`,
          `[EH3]` p. 1-8 and Rev 4 all give and `[AEGIS]` §18.2.4.1 says the
