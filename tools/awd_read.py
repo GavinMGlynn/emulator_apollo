@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Read an Apollo `.awd` disk image down to a file's blocks.
+"""Read an Apollo `.awd` disk image down to a named file's bytes.
 
-Everything this walks is on paper. The chain is the one `002398-03` chapter 2
-draws and `002398-04` and `019411-A00` corroborate, and it was read at 600 dpi
-in September 2026 -- see `docs/references/002398-03_WALK.md`. Nothing here is
-inferred from an image.
+Everything down to the VTOC header is on paper. The chain is the one
+`002398-03` chapter 2 draws and `002398-04` and `019411-A00` corroborate, and it
+was read at 600 dpi in September 2026 -- see `docs/references/002398-03_WALK.md`.
+The last two links -- the SR10 VTOC entry and the SR10 directory entry -- are
+**measured**, because the documents that print them do not exist on this shelf;
+what was searched, and how each field was proven, is under *The two structures
+no document on this shelf prints* below.
 
 ## Why it exists
 
@@ -28,29 +31,86 @@ construction.
                                          for the root directory, the paging file
                                          and the boot file -- and an 8-entry map
                                          of the VTOC's own extents
-    VTOC index (vtocx_t)                 DADDR of a VTOC block in bits 30-4 and
-                                         an entry index in bits 3-0
-    VTOC block (vtoc_blk_t)              a next-in-hash-bucket pointer and five
-                                         204-byte entries; or 256 file-map
-                                         entries when a VTOCE's .fm2 points here
-    VTOC entry (vtoce)                   the object's UID, type, ACL, length and
-                                         dates, then its file map
-    file map                             32 direct block numbers, then three
-                                         indirect levels of 256
+    VTOC index (vtocx_t)                 a VTOC page in bits 31-4 and an entry
+                                         index in bits 3-0
+    VTOC block                           entries from +008, then an 8-byte
+                                         trailer: `FEDCA984` and the block's
+                                         own VTOC page, which is the self-check
+    VTOC entry (vtoce)                   the object's UID, its system type, the
+                                         UID of the directory it is in, and its
+                                         file map
+    file map                             32 direct block numbers on a volume
+                                         whose block is 1 KB, 64 where it is
+                                         4 KB
+    directory block                      a header, a sorted index of entry
+                                         offsets, and a heap of variable-length
+                                         entries growing down from the block's
+                                         end
 
-## What does not resolve on a real image, stated rather than fudged
+## The canned UIDs, which is how any of this is found
 
-On the DS5500 volume this project builds, the labels read cleanly -- name,
-UIDs, mount and dismount times, shut state, BAT free count -- and the VTOC
-header is **internally consistent**: `.vtoc_blocks` is 226 and `.map[0]` is
-"226 blocks at DADDR 40901", the same number from two fields.
+`00000200,0` is the physical volume label, `00000201,0` the logical volume
+label, `00000202,0` the VTOC, `00000203,0` the one this reader does not name,
+and `00000204,0` the VTOC's index. The last three are **volume-wide objects laid
+out so that page P is at DADDR P+1**, which is what lets a VTOC index name a
+block by page and be resolved in one step with no indirection at all.
 
-But `.root_x` decodes to DADDR **39730**, which is *below* that extent, and the
-block there is zeros. So the VTOCX-to-block step does not land, and this tool
-prints the decode and the empty result rather than inventing a base to make it
-fit.
+## Every stored block address is one less than the DADDR it names
 
-**A DS5500 block is four sectors, and the layout is per cylinder.**
+A block number stored in a VTOC entry's file map, in a `vtocx`, or in the VTOC
+header's extent map is **one less** than the `daddr` the target block's own
+header carries. Zero therefore means *no block*, which is what a file map needs
+and what a plain DADDR could not give it, since DADDR 0 is the physical volume
+label and DADDR 1 the logical one -- neither can ever be a file's page.
+
+Measured, not inferred: over the two volumes this project holds, **76,576**
+file-map pointers were checked against the object UID *and* the page number in
+the target block's header. 76,576 resolve at `stored + 1`; **not one resolves at
+`stored`**. `.lv_list` is the exception that proves it is a property of the
+structures and not of the image -- it stores a plain DADDR, and the logical
+volume label is at DADDR 1 on both volumes.
+
+## The two structures no document on this shelf prints
+
+**Searched, not merely unfound.** `[EH1]` Apr 83 p. 5-22, `[EH3]` Feb 85
+p. 2-23/2-24, `[AEGIS]` Fig 8-7 Jan 86 and `002398-04` Feb 87 all print the same
+SR9 pair: a 204-byte VTOC entry and a directory entry with a 32-byte fixed name.
+An SR10.4 volume uses neither. So both were derived from the volumes, and every
+field below is either proven by a cross-check named here or left unnamed.
+
+**The VTOC entry.** Entries start at **+008** of the VTOC block and are
+**0x150 bytes** where the volume's block is 1 KB and **0x1D0** where it is 4 KB;
+the block ends with `FEDCA984` and its own VTOC page number. Proven four ways:
+the stride is exact and constant over 4,024 VTOC blocks; three entries fill a
+1 KB block to the byte (`0x008 + 3*0x150 = 0x3F8`, where the trailer starts);
+the trailer's page equals `root_x >> 4` on both volumes; and `root_x`'s entry is
+the object whose UID the root directory's own data block carries in its header.
+Named fields are `.version` (+00), `.sys_type` (+01), `.uid` (+04),
+`.dir_uid` (+3C) and the file map (+D0) -- the last three each confirmed by a
+consistency check this reader still makes. The bytes between +0C and +CF are
+**not named**: they hold timestamps and rights masks whose meanings no document
+here gives, and inventing names for them would be the opposite of what this
+tool is for.
+
+**The directory entry.** Entries occupy the block from the offset at header
+**+10** to the block's end, walked linearly, each
+
+    +00 u8   flags: 0x02 an entry, 0x04 a link, bit 7 set means deleted
+    +01 u8   length of the name
+    +02 u16  length of the link text, 0 when this is not a link
+    +04 uid  the object's UID, `FFFF0000,0` on a link
+    +0C u32  the object's `vtocx` -- **absent on a link**
+    +10      the name, then the link text, padded to a longword
+             (a link's text starts at +0C, since it has no `vtocx`)
+
+Proven by reading both volumes' root directories whole: every entry's length
+lands exactly on the next entry's header, the last lands exactly on the block's
+end, `sysboot`'s `vtocx` on the DN3500 volume **is** that volume's `.boot_x` to
+the bit, and the entries the sorted index at +80 omits are exactly those with
+bit 7 set -- `sau7`, `sau8`, `sau9`, `sau11` and `sau12` on a volume whose SAU 14
+was installed over them.
+
+## A DS5500 block is four sectors, and the layout is per cylinder
 
 Four consecutive 1056-byte sectors carry one logical block, all four with the
 same header -- UID, page and DADDR. That is the **4 KB block** `[RN104]` names
@@ -79,24 +139,7 @@ both families.
 
 **The VTOC header is not what changed** -- `[EH1]` Apr 83 p. 5-22 and `[EH3]`
 Feb 85 p. 2-24 print it identically, and this reads it coherently off a 1992
-volume. **The VTOC *entry* is.** Searching every entry slot in a DS5500 image
-for the root directory's object UID finds one, and the bytes around it do not
-fit p. 2-23: where the figure puts `.version | .sys_type | flags` there is the
-tail of a UID, and where it puts `.cur_len` and `.blocks_used` there are three
-*consecutive small numbers* -- the shape of a file map. So SR10 changed the VTOC
-entry as well as the directory entry, and the layouts it changed to are
-documented nowhere on this shelf. Detail in
-`docs/references/002398-03_WALK.md`.
-
-## Where it stops, and why that is not a gap in the reading
-
-At the **root directory's contents**. Every document on this shelf -- `[EH1]`
-Apr 83, `[EH3]` Feb 85, `[AEGIS]` Fig 8-7 Jan 86, `002398-04` Feb 87 -- prints
-the same directory entry: a 32-byte fixed name first. An SR10.4 volume does not
-use it; its entries are header-first and variable length, measured and recorded
-in the walk record at exactly that strength. The format is a **documentary
-absence**, searched for and not found, so this tool reports the root directory's
-VTOC entry and its blocks and does not pretend to parse them.
+volume. The VTOC *entry* and the directory entry are.
 """
 
 import argparse
@@ -109,8 +152,33 @@ DATA = 1024
 
 PV_LABEL_UID_HIGH = 0x00000200
 LV_LABEL_UID_HIGH = 0x00000201
+VTOC_UID_HIGH = 0x00000202
+VTOC_INDEX_UID_HIGH = 0x00000204
+
+# The VTOC block's trailer, and the entries in front of it.
+VTOC_MAGIC = 0xFEDCA984
+VTOC_TRAILER_BYTES = 8
+VTOCE_FIRST = 0x008
+VTOCE_FM = 0x0D0
+# One per block size; both measured, and each fills its block exactly.
+VTOCE_BYTES = {1024: 0x150, 4096: 0x1D0}
+
+# Directory block: the header word holding the lowest entry offset, and the
+# entry's own fields.
+DIR_HEAP_OFFSET = 0x10
+DIR_ENTRY_DELETED = 0x80
+DIR_ENTRY_LINK = 0x04
+DIR_ENTRY_UID = 0x04
+DIR_ENTRY_VTOCX = 0x0C
+DIR_TEXT_AT = {False: 0x10, True: 0x0C}
 
 SHUT_STATE = {0: "dismounted", 1: "mounted", 2: "salvaged"}
+# Measured: over 11,825 entries on the DN3500 volume exactly two are type 2 --
+# the ones `.root_x` and `.net_x` name -- and every entry a directory block
+# lists as a subdirectory is type 1. 3, 4 and 5 occur and are not named.
+SYS_TYPE = {0: "file", 1: "directory", 2: "root directory",
+            3: "?3", 4: "?4", 5: "?5"}
+DIRECTORY_TYPES = (1, 2)
 
 
 def u16(b, off):
@@ -133,6 +201,10 @@ class Volume:
         self.sectors_per_block = sectors_per_block or 1
         self.sectors_per_cylinder = sectors_per_cylinder or 0
 
+    def block_bytes(self):
+        """The volume's logical block: 1024 on a DN3500, 4096 on a DS5500."""
+        return self.sectors_per_block * DATA
+
     def blocks_per_cylinder(self):
         """Whole blocks in a cylinder; the remainder of the division is spare."""
         if self.sectors_per_cylinder == 0 or self.sectors_per_block == 0:
@@ -140,12 +212,6 @@ class Volume:
         return self.sectors_per_cylinder // self.sectors_per_block
 
     def sector_of(self, daddr):
-        """The first sector of the block a DADDR names.
-
-        Identity where a block is one sector. Otherwise the cylinder walk
-        above, because `sectors_per_cylinder` need not divide by the block's
-        size and the leftover sectors are skipped rather than packed.
-        """
         if self.sectors_per_block == 1:
             return daddr
         per = self.blocks_per_cylinder()
@@ -158,7 +224,7 @@ class Volume:
         return len(self.data) // BLOCK
 
     def block(self, n):
-        """The 1024 bytes of file data in block `n`, past its header."""
+        """The 1024 bytes of file data in sector `n`, past its header."""
         at = n * BLOCK + HEADER
         if at + DATA > len(self.data):
             raise IndexError(f"block {n} is past the end of the image")
@@ -179,12 +245,22 @@ class Volume:
             "daddr": u32(h, 0x1C),
         }
 
-    def block_of_daddr(self, daddr):
-        """The 1024 bytes of data of the block a DADDR names."""
-        return self.block(self.sector_of(daddr))
+    def logical(self, daddr):
+        """One whole logical block: every sector's data, concatenated."""
+        first = self.sector_of(daddr)
+        return b"".join(self.block(first + i)
+                        for i in range(self.sectors_per_block))
 
     def header_of_daddr(self, daddr):
         return self.block_header(self.sector_of(daddr))
+
+    def pointed_at(self, stored):
+        """The logical block a stored address names; see the module docstring.
+
+        Every block address inside a VTOC entry, a `vtocx` or the VTOC header's
+        extent map is one less than the target's own `daddr`.
+        """
+        return self.logical(stored + 1)
 
     def derive_geometry(self, pv):
         """Fill `sectors_per_block` and `sectors_per_cylinder` from the volume.
@@ -291,17 +367,41 @@ def lv_label(vol):
 
 
 def vtocx(value):
-    """`002398-03` p. 2-25's three forms."""
+    """`002398-03` p. 2-25's three forms, with the local one measured.
+
+    The document says "DADDR of a VTOC block in bits 30-4". The field is a VTOC
+    *page*, and the block is the one whose header `daddr` is that page plus one
+    -- proven by the block's own trailer, which repeats the page.
+    """
     if value & 0x80000000:
         return {"kind": "remote", "node_id": value & 0x000FFFFF}
-    daddr = (value >> 4) & 0x0FFFFFFF
-    if daddr == 0:
+    page = (value >> 4) & 0x0FFFFFFF
+    if page == 0:
         return {"kind": "volx", "volx": value & 0xF}
-    return {"kind": "local", "daddr": daddr, "indx": value & 0xF}
+    return {"kind": "local", "page": page, "indx": value & 0xF}
 
 
-VTOCE_BYTES = 0xCC
-VTOCE_AT = (0x04, 0xD0, 0x19C, 0x268, 0x334)
+def vtoce_bytes(vol):
+    """The VTOC entry's size on this volume, and how many fit in a block."""
+    size = VTOCE_BYTES.get(vol.block_bytes())
+    if size is None:
+        return None, 0
+    room = vol.block_bytes() - VTOCE_FIRST - VTOC_TRAILER_BYTES
+    return size, room // size
+
+
+def vtoc_block(vol, page):
+    """A VTOC block, checked against the page it says it is.
+
+    The last eight bytes are `FEDCA984` and the block's own VTOC page. A block
+    that does not say so is not the one the index meant, and this returns None
+    rather than decoding whatever is there.
+    """
+    b = vol.pointed_at(page)
+    at = len(b) - VTOC_TRAILER_BYTES
+    if u32(b, at) != VTOC_MAGIC or u32(b, at + 4) != page:
+        return None
+    return b
 
 
 def vtoc_entry(vol, x):
@@ -309,64 +409,123 @@ def vtoc_entry(vol, x):
     d = vtocx(x)
     if d["kind"] != "local":
         return None
-    b = vol.block(d["daddr"])
-    if d["indx"] >= len(VTOCE_AT):
+    size, per_block = vtoce_bytes(vol)
+    if size is None or d["indx"] >= per_block:
         return None
-    e = b[VTOCE_AT[d["indx"]]:VTOCE_AT[d["indx"]] + VTOCE_BYTES]
+    b = vtoc_block(vol, d["page"])
+    if b is None:
+        return None
+    at = VTOCE_FIRST + d["indx"] * size
+    e = b[at:at + size]
+    if e[0x00] != 1:
+        return None
     return {
         "vtocx": d,
-        "next_add": u32(b, 0x00),
         "version": e[0x00],
         "sys_type": e[0x01],
-        "flags": u16(e, 0x02),
         "uid": uid(e, 0x04),
-        "type_uid": uid(e, 0x0C),
-        "acl_uid": uid(e, 0x14),
-        "cur_len": u32(e, 0x1C),
-        "blocks_used": u32(e, 0x20),
-        "dtu": u32(e, 0x24),
-        "dtm": u32(e, 0x28),
-        "dir_uid": uid(e, 0x2C),
-        "fm": [u32(e, 0x40 + 4 * i) for i in range(32)],
-        "fm2": [u32(e, 0xC0 + 4 * i) for i in range(3)],
+        "dir_uid": uid(e, 0x3C),
+        "fm": [u32(e, VTOCE_FM + 4 * i)
+               for i in range((size - VTOCE_FM) // 4)],
     }
 
 
 def file_blocks(vol, entry, limit=None):
-    """The object's data block numbers, in order, following the file map.
+    """The object's data block DADDRs, in order, following the file map.
 
-    `002398-03` p. 2-11: 32 direct, then a level-1 block of 256, then level 2
-    and level 3, each 256 pointers to the level below. The maximum is
-    (32 + 256 + 256**2 + 256**3) blocks; `limit` stops a walk early.
+    Direct pointers only: the file map fills the entry to its last byte -- 32
+    pointers where the block is 1 KB, 64 where it is 4 KB -- so the indirect
+    levels `002398-03` p. 2-11 describes are somewhere in the entry's unnamed
+    middle, and this reader does not guess which longword. A file longer than
+    the direct map is reported short, and `file_is_whole` says so.
     """
     out = []
-
-    def take(daddr):
-        if daddr == 0:
-            return False
-        out.append(daddr)
-        return limit is None or len(out) < limit
-
-    def level(daddr, depth):
-        if daddr == 0:
-            return True
-        b = vol.block(daddr)
-        for i in range(256):
-            p = u32(b, 4 * i)
-            if p == 0:
-                continue
-            ok = level(p, depth - 1) if depth > 1 else take(p)
-            if not ok:
-                return False
-        return True
-
-    for d in entry["fm"]:
-        if d and not take(d):
-            return out
-    for depth, d in enumerate(entry["fm2"], start=1):
-        if d and not level(d, depth):
-            return out
+    for stored in entry["fm"]:
+        if stored == 0:
+            continue
+        out.append(stored + 1)
+        if limit is not None and len(out) >= limit:
+            break
     return out
+
+
+def file_is_whole(vol, entry, blocks):
+    """Whether the direct map held the whole object.
+
+    True when the map's last slot is empty, which is the only evidence in the
+    entry that nothing spilled into an indirect level.
+    """
+    return entry["fm"][-1] == 0
+
+
+def read_file(vol, entry):
+    """An object's bytes, its pages in order."""
+    return b"".join(vol.logical(d) for d in file_blocks(vol, entry))
+
+
+def dir_entries(vol, block):
+    """Every entry in one directory block, deleted ones included.
+
+    Walked linearly from the heap offset the header carries at +10 to the end
+    of the block; an entry's own length is what finds the next.
+    """
+    out = []
+    at = u16(block, DIR_HEAP_OFFSET)
+    while at + DIR_ENTRY_VTOCX <= len(block):
+        flags = block[at]
+        name_len = block[at + 1]
+        link_len = u16(block, at + 2)
+        link = (flags & ~DIR_ENTRY_DELETED) == DIR_ENTRY_LINK
+        text_at = DIR_TEXT_AT[link]
+        size = text_at + ((name_len + link_len + 3) & ~3)
+        if size <= text_at and name_len == 0 and link_len == 0:
+            break
+        if at + size > len(block):
+            break
+        text = block[at + text_at:at + text_at + name_len + link_len]
+        out.append({
+            "offset": at,
+            "flags": flags,
+            "deleted": bool(flags & DIR_ENTRY_DELETED),
+            "link": link,
+            "name": text[:name_len].decode("latin-1"),
+            "link_text": text[name_len:].decode("latin-1"),
+            "uid": uid(block, at + DIR_ENTRY_UID),
+            "vtocx": None if link else u32(block, at + DIR_ENTRY_VTOCX),
+        })
+        at += size
+    return out
+
+
+def directory(vol, entry):
+    """Every live entry of a directory object, its blocks in order."""
+    out = []
+    for daddr in file_blocks(vol, entry):
+        for e in dir_entries(vol, vol.logical(daddr)):
+            # The heap ends with a one-byte NUL name: a stop, not an entry.
+            if not e["deleted"] and e["name"] and "\0" not in e["name"]:
+                out.append(e)
+    return out
+
+
+def resolve(vol, root_x, path):
+    """Walk a `/`-separated path from the root directory.
+
+    Returns (entry, trail) where `trail` names each component that resolved, so
+    a caller can say which one failed.
+    """
+    entry = vtoc_entry(vol, root_x)
+    trail = []
+    for part in [p for p in path.split("/") if p]:
+        if entry is None or entry["sys_type"] not in DIRECTORY_TYPES:
+            return None, trail
+        hit = next((e for e in directory(vol, entry)
+                    if e["name"].lower() == part.lower()), None)
+        if hit is None or hit["vtocx"] is None:
+            return None, trail
+        entry = vtoc_entry(vol, hit["vtocx"])
+        trail.append(part)
+    return entry, trail
 
 
 def show(path, args):
@@ -387,9 +546,11 @@ def show(path, args):
     print(f"    geometry       {pv['blocks_per_track']} blocks/track, "
           f"{pv['tracks_per_cyl']} tracks/cylinder")
     print(f"    lv_list        {[hex(x) for x in pv['lv_list'] if x]}")
-    print(f"    block          {vol.sectors_per_block} sector(s); "
-          f"{vol.blocks_per_cylinder()} per {vol.sectors_per_cylinder}-sector "
-          f"cylinder, {vol.sectors_per_cylinder - vol.blocks_per_cylinder() * vol.sectors_per_block} spare")
+    spare = (vol.sectors_per_cylinder -
+             vol.blocks_per_cylinder() * vol.sectors_per_block)
+    print(f"    block          {vol.block_bytes()} bytes in "
+          f"{vol.sectors_per_block} sector(s); {vol.blocks_per_cylinder()} per "
+          f"{vol.sectors_per_cylinder}-sector cylinder, {spare} spare")
     if lv is None:
         print("  logical label    absent")
         return 0
@@ -403,33 +564,66 @@ def show(path, args):
     print(f"    dismounted     {lv['dismounted_time']:08X}")
     print(f"    bat            {lv['bat']['n_free']} free of "
           f"{lv['bat']['n_blk']} blocks, trouble {lv['bat']['vol_trouble']:08X}")
+    size, per_block = vtoce_bytes(vol)
     print(f"    vtoc           version {v['version']}, {v['vtoc_blocks']} "
           f"blocks used, hash over {v['vtoc_size']}")
-    for i, (count, add) in enumerate(v["map"]):
+    if size:
+        print(f"    vtoc entry     {size} bytes, {per_block} per block, "
+              f"{(size - VTOCE_FM) // 4} direct file-map pointers")
+    for count, add in v["map"]:
         if count == 0 and add == 0:
             continue
-        sector = vol.sector_of(add)
-        head = vol.block_header(sector)
-        agree = "agrees" if head["daddr"] == add else f"says {head['daddr']}"
-        print(f"    vtoc extent    {count} blocks at DADDR {add} "
-              f"-> sector {sector}, whose header {agree}")
+        head = vol.header_of_daddr(add + 1)
+        agree = "agrees" if head["daddr"] == add + 1 else f"says {head['daddr']}"
+        print(f"    vtoc extent    {count} blocks at DADDR {add} + 1 "
+              f"-> sector {vol.sector_of(add + 1)}, whose header {agree}")
     for name in ("net_x", "root_x", "os_x", "boot_x"):
-        d = vtocx(v[name])
-        print(f"    {name:<14} {v[name]:08X}  {d}")
+        print(f"    {name:<14} {v[name]:08X}  {vtocx(v[name])}")
+    if args.path is not None:
+        return walk(vol, v["root_x"], args)
     for name, x in (("root", v["root_x"]), ("os", v["os_x"]),
                     ("boot", v["boot_x"])):
         e = vtoc_entry(vol, x)
         if e is None:
+            print(f"  {name} object       does not resolve")
             continue
         blocks = file_blocks(vol, e, limit=args.max_blocks)
         print(f"  {name} object")
         print(f"    uid            {e['uid'][0]:08X}{e['uid'][1]:08X}")
         print(f"    sys_type       {e['sys_type']} "
-              f"({'file directory system-directory'.split()[e['sys_type']] if e['sys_type'] < 3 else '?'})")
-        print(f"    length         {e['cur_len']} bytes in "
-              f"{e['blocks_used']} blocks")
-        print(f"    first blocks   {blocks[:8]}"
+              f"({SYS_TYPE.get(e['sys_type'], '?')})")
+        print(f"    dir_uid        {e['dir_uid'][0]:08X}{e['dir_uid'][1]:08X}")
+        print(f"    blocks         {blocks[:8]}"
               f"{' ...' if len(blocks) > 8 else ''}")
+    return 0
+
+
+def walk(vol, root_x, args):
+    entry, trail = resolve(vol, root_x, args.path)
+    where = "/" + "/".join(trail)
+    if entry is None:
+        print(f"  {args.path}: stops at {where}", file=sys.stderr)
+        return 1
+    blocks = file_blocks(vol, entry)
+    whole = file_is_whole(vol, entry, blocks)
+    print(f"  {where or '/'}")
+    print(f"    uid            {entry['uid'][0]:08X}{entry['uid'][1]:08X}")
+    print(f"    sys_type       {entry['sys_type']} "
+          f"({SYS_TYPE.get(entry['sys_type'], '?')})")
+    print(f"    blocks         {len(blocks)}"
+          f"{'' if whole else ', and the direct map is full -- short'}")
+    if entry["sys_type"] in DIRECTORY_TYPES:
+        for e in directory(vol, entry):
+            if e["link"]:
+                print(f"    {e['name']:<24} -> {e['link_text']}")
+            else:
+                print(f"    {e['name']:<24} vtocx {e['vtocx']:08X}  uid "
+                      f"{e['uid'][0]:08X}{e['uid'][1]:08X}")
+    elif args.extract:
+        data = read_file(vol, entry)
+        with open(args.extract, "wb") as f:
+            f.write(data)
+        print(f"    wrote          {len(data)} bytes to {args.extract}")
     return 0
 
 
@@ -438,6 +632,10 @@ def main(argv=None):
     ap.add_argument("image", nargs="+")
     ap.add_argument("--max-blocks", type=int, default=64,
                     help="stop a file-map walk after this many blocks")
+    ap.add_argument("--path",
+                    help="resolve this path from the root directory")
+    ap.add_argument("--extract", metavar="FILE",
+                    help="write the object --path names to FILE")
     args = ap.parse_args(argv)
     rc = 0
     for path in args.image:

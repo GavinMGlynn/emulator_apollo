@@ -914,49 +914,79 @@ tools/dn5500-boot.sh`. The volume is the artefact of the restore run recorded in
 failure and then spins on `Do you wish to continue (y,n)?`, because the harness
 types only the console knock and the prompt reads a carriage return as `x`.
 
-## `tools/awd_read.py`: the documented volume chain, and where it stops (2026-09-12)
+## `tools/awd_read.py`: a volume read end to end, and the two structures measured (2026-09-12)
 
 The project had been reading volumes by **grepping the raw image for names**.
 That is how a wrong root-directory block number reached this file earlier the
 same day: the byte offsets were right and the block numbers derived from them
 assumed a 1024-byte block, where an Apollo block is 1056. A reader that follows
-the structure is right by construction, and the structure is now entirely on
-paper — `002398-03` chapter 2's figures were read at 600 dpi, `002398-04` and
-`019411-A00` corroborate, and `docs/references/002398-03_WALK.md` records it.
+the structure is right by construction, and the structure down to the VTOC
+header is entirely on paper — `002398-03` chapter 2's figures were read at
+600 dpi, `002398-04` and `019411-A00` corroborate, and
+`docs/references/002398-03_WALK.md` records it.
 
-**What it walks**: the 32-byte block header that says which object and which
-page every block is; the physical volume label, found by the block whose header
-UID is `pv_label_$uid`; its `.lv_list`; the logical volume label at
-`lv_label_$uid`, with the BAT header at `+2C` and the VTOC header at `+4C`;
-`.root_x`, `.os_x` and `.boot_x`; the VTOC index's three forms; the VTOC block's
-five 204-byte entries; and the file map's 32 direct pointers and three indirect
-levels.
+**It now resolves a path.** `--path /sau14` on the restored DS5500 volume lists
+`self_test salvol rwvol invol domain_os.map domain_os dex config chuvol
+calendar`, and `--path /` on the DN3500 volume lists that volume's root with its
+five links (`sys5`→`sys5.3`, `bin`→`$(SYSTYPE)/bin`, and three more). `--extract`
+writes an object's bytes out.
 
-**Where it stops, twice, and both are recorded rather than papered over.**
+**Three things had to be measured, because no document on this shelf prints
+them.** Each is stated here with what proves it, because a measured layout that
+does not carry its evidence is indistinguishable from a guess.
 
-*Below the VTOC header, on a real image.* The labels read cleanly and the VTOC
-header is internally consistent — `.vtoc_blocks` 226 and `.map[0]` "226 blocks
-at DADDR 40901", one number from two fields. But `.root_x` decodes to DADDR
-39730, *below* that extent, and the block there is zeros; `.net_x` and `.os_x`
-decode to entry indices 5 and 7, which p. 2-25 allows only for the file-map use.
-**The VTOC header is not what changed**: `[EH1]` Apr 83 p. 5-22 and `[EH3]`
-Feb 85 p. 2-24 print it identically, offset for offset, and this core reads it
-coherently off a 1992 volume. **The VTOC *entry* is.** Searching every entry
-slot in the image for the root directory's object UID — `a4615f80.40012345`,
-the UID in the block headers of image blocks 165750-165753 — finds one at image
-block 160572 slot 3, and the bytes do not fit p. 2-23: where the figure puts
-`.version | .sys_type | flags` there is the tail of a UID, and where it puts
-`.cur_len` and `.blocks_used` there are **4371, 4372, 4373** — three consecutive
-small numbers, which is the shape of a file map and is why an earlier reading of
-that entry reported "4371 bytes in 4372 blocks".
+*A stored block address is one less than the DADDR it names.* Every pointer in a
+VTOC entry's file map, in a `vtocx` and in the VTOC header's extent map. Checked
+by resolving **76,576** file-map pointers across both volumes against the object
+UID *and* the page number in the target block's header: 76,576 resolve at
+`stored + 1` and **not one** resolves at `stored`. Zero can therefore mean *no
+block*, which is what a file map needs and a plain DADDR could not give it.
+`.lv_list` is the control — it stores a plain DADDR, and the logical volume
+label is at DADDR 1 on both volumes.
 
-So SR10 changed the VTOC entry as well as the directory entry, and both new
-layouts are documented nowhere on this shelf while both old ones are documented
-four times over. The tool prints the decode and the empty result.
+*The SR10 VTOC entry.* Entries start at **+008** of the VTOC block and are
+**0x150 bytes** where the volume's block is 1 KB, **0x1D0** where it is 4 KB;
+the block ends with `FEDCA984` and its own VTOC page. Proven four ways: the
+stride is exact and constant over 4,024 VTOC blocks; three entries fill a 1 KB
+block to the byte (`0x008 + 3*0x150 = 0x3F8`, where the trailer starts); the
+trailer's page equals `root_x >> 4` on both volumes; and `root_x`'s entry is the
+object whose UID the root directory's own data block carries in its header.
+Named: `.version` +00, `.sys_type` +01, `.uid` +04, `.dir_uid` +3C, file map
++D0. **The bytes from +0C to +CF are deliberately not named** — timestamps and
+rights masks whose meanings no document here gives. The file map fills the entry
+to its last byte, 32 pointers at 1 KB and 64 at 4 KB, so the indirect levels
+`002398-03` p. 2-11 describes are somewhere in that unnamed middle; the reader
+reports a file short rather than guessing which longword.
 
-*At the root directory's contents.* All four documents on this shelf print a
-32-byte-fixed-name entry an SR10.4 volume does not use. A documentary absence,
-searched for and not found.
+*The SR10 directory entry.* `+00` flags (`02` an entry, `04` a link, bit 7
+deleted), `+01` the name's length, `+02` the link text's, `+04` the UID
+(`FFFF0000,0` on a link), `+0C` the `vtocx` — **absent on a link** — then the
+name and the link text padded to a longword. Entries run from the offset at the
+block header's `+10` to the block's end. Proven by reading both root directories
+whole: every entry's length lands on the next and the last on the block's end;
+`sysboot`'s `vtocx` on the DN3500 volume **is** that volume's `.boot_x` to the
+bit; and the entries the sorted index at `+80` omits are exactly those with bit
+7 set — `sau7`, `sau8`, `sau9`, `sau11` and `sau12` on a volume whose SAU 14 was
+installed over them.
+
+**`.root_x` was never stale.** The oddity this item carried — "names DADDR 39730
+and no block in the image carries it" — was the `vtocx` field being read as a
+DADDR when it is a **VTOC page**, and the page's block being at page + 1. The
+VTOC, its index (`00000204,0`) and the object at `00000203,0` are volume-wide
+objects laid out so page P is at DADDR P+1, which is what lets a VTOC index name
+a block with no indirection at all. Withdrawn as a defect in the volume.
+
+**Two new canned UIDs**, beyond the three this project already used:
+`00000203,0` and `00000204,0`. The second is the VTOC's index — pairs of
+(UID, `vtocx`), 907 blocks on the DN3500 volume and 226 on the DS5500, matching
+`.vtoc_blocks` in each case, which is what `.map[0]` has been describing all
+along. `00000203,0` is not named here; it is 41 blocks and 3 blocks respectively
+and nothing this reader needs points at it.
+
+**And `sys_type`**: 0 is a file, 1 a directory, 2 the root. Measured — over
+11,825 entries on the DN3500 volume exactly two are type 2, the ones `.root_x`
+and `.net_x` name, and every subdirectory a directory block lists is type 1.
+3, 4 and 5 occur and are not named.
 
 **One thing it caught on the way**: p. 2-11 prints "Maximum file size =
 (32+256+256**2+256**3)*1024 bytes = **17,247,300,000** bytes", and the
@@ -965,7 +995,7 @@ expression is the figure. Asserted, because checking a document's own arithmetic
 is cheap and a reader who took the round number would size a buffer 27 KB too
 large.
 
-*Verification: `tools/test_awd_read.py`, 10 checks, CTest entry `awd_read`.
+*Verification: `tools/test_awd_read.py`, 26 checks, CTest entry `awd_read`.
 Every fixture is built by the test — `media/` is gitignored, so a test that read
 a real volume would pass here and fail everywhere else. The label-location test
 places the pair at blocks 0/1, 0/4 and 3/5, so it tests a reader that finds the

@@ -4695,73 +4695,22 @@ discipline throughout.
       machine class, not an addition beside it, and the model table will have to
       say which a given machine has.
 
-- [ ] **An offline volume reader, now that the whole chain is documented.**
-      New 2026-09-12, from the `002398-03` 600-dpi figure read. Every link from
-      a raw `.awd` to a named file is on paper and in the walk record: the
-      **physical volume label** in the block whose header UID is `00000200,0`,
-      its `.lv_list[1..10]`; the **logical volume label** at `00000201,0`, whose
-      `+4C` VTOC header gives `.root_x`, `.os_x` and `.boot_x`; the **VTOC
-      block**, 4 + five 0xCC-byte **VTOC entries**; the entry's **file map**,
-      32 direct pointers and three indirect levels; and the **block header**
-      that says which object and which page every 1056-byte block is.
-      `image/ap_volume.c` now walks the first of those and nothing walks the
-      rest.
-      **Why it is worth having**: the `sau14` check of 2026-09-12 was done by
-      grepping the image for names, which is how a wrong block number got into
-      a living document and had to be corrected. A reader that followed
-      `.root_x` would have been right by construction. It would also answer
-      "is this volume bootable" from `.os_x`/`.boot_x` rather than from a boot.
-      **What is *not* documented, and this is now established rather than
-      assumed**: the SR10 directory's own entry format. All four candidates on
-      this shelf print the same 1985 layout — a **32-byte fixed name first** —
-      and none of them is what an SR10.4 volume carries: `[EH1]` (Apr 83),
-      `[EH3]` p. 2-5 (Feb 85), `[AEGIS]` **Figure 8-7** (Jan 86, SR9.0, read at
-      600 dpi 2026-09-12) and `002398-04` p. 39 (Feb 87). The measured SR10 form
-      is header-first and variable-length; it is in
-      `docs/references/002398-03_WALK.md` at exactly the strength of a
-      measurement.
-      **`tools/awd_read.py` exists as of 2026-09-12 and reads the chain down to
-      the VTOC header**, with `tools/test_awd_read.py` (10 checks, CTest entry
-      `awd_read`) against a volume the test builds, because `media/` is
-      gitignored. On the DS5500 volume the labels read cleanly and the VTOC
-      header is internally consistent — `.vtoc_blocks` 226 and `.map[0]` "226
-      blocks at DADDR 40901", one number from two fields.
-      **Why a DADDR does not land, answered 2026-09-12**: a DS5500 block is
-      **four consecutive 1056-byte sectors**, all four carrying the same header
-      (UID, page, DADDR) -- the 4-KB block `[RN104]` §4.10.3 and §5.5 name for
-      SAU 11/12/14. So a DADDR indexes blocks and not sectors, `vtoc_entry` read
-      zeros because it took one for the other, and
-      `tools/kernel_symbols.py`'s long-standing "blocks' DADDRs do not match
-      their positions" rejection of these volumes is **correct**.
-      **And the mapping is solved**: it is per *cylinder*, from the label's own
-      geometry. 18 blocks/track × 15 tracks/cylinder = **270 sectors**, which
-      does not divide by 4, so a cylinder holds **67 blocks and 2 sectors go
-      spare** — `sector = (daddr // 67) * 270 + (daddr % 67) * 4`. Verified on
-      541 sampled blocks and on both landmarks the volume names itself; a
-      DN3500 volume derives one sector per block by the same route and the
-      formula becomes the identity. `tools/awd_read.py` implements it,
-      `tools/test_awd_read.py` 10 → 15.
-      **What is left is one measured oddity, not a parsing question**: this
-      volume's `.root_x` names DADDR 39730 and **no block in the image carries
-      that DADDR**, while the same field on the DN3500 volume resolves exactly
-      as documented — and the DS5500 volume boots Domain/OS regardless. Whether
-      SR10 redefined the field or the restore leaves it stale is not
-      established.
-      **Settled which structure changed**: not the VTOC *header* -- `[EH1]`
-      Apr 83 and `[EH3]` Feb 85 print it identically and this core reads it
-      coherently off a 1992 volume -- but the VTOC **entry**. The root
-      directory's object UID appears in one entry slot in the image and the
-      bytes around it do not fit p. 2-23: a UID tail where the figure puts
-      `.version | .sys_type | flags`, and three consecutive small numbers where
-      it puts `.cur_len` and `.blocks_used`. So SR10 changed the VTOC entry as
-      well as the directory entry, and **both** new layouts are a documentary
-      absence while both old ones are documented four times over. Detail in
-      `docs/references/002398-03_WALK.md`.
-      **What that leaves the item as**: the reader is complete and tested for
-      everything the shelf documents, and the two structures it stops at are
-      `PROVISIONAL` for want of a document rather than for want of work. Under
-      `CLAUDE.md`'s standing rule this is as closed as it can be until an SR10
-      internals document turns up.
+- [x] **An offline volume reader — `tools/awd_read.py`, finished 2026-09-12.**
+      Reads a raw `.awd` from the block header to a named file's bytes:
+      `--path /sau14` lists that directory, `--extract` writes an object out.
+      Three structures had to be **measured** because no document on this shelf
+      prints them, and each carries what proves it: a stored block address is
+      **one less** than the DADDR it names (76,576 pointers checked across both
+      volumes, none resolving otherwise); the SR10 **VTOC entry**, 0x150 bytes
+      at 1 KB and 0x1D0 at 4 KB from +008, with a `FEDCA984` trailer repeating
+      the block's own page; and the SR10 **directory entry**, header-first and
+      variable-length. The `.root_x` oddity this item carried is **withdrawn** —
+      a `vtocx` names a VTOC *page*, not a DADDR. Two further canned UIDs found:
+      `00000204,0` is the VTOC's index, `00000203,0` is unnamed.
+      A VTOC entry's +0C-+CF are unnamed, the file map's indirect levels among
+      them, so an over-long file is reported short. Detail in `PROJECT_STATUS.md`.
+      *Verification: `tools/test_awd_read.py` 15 → 26, CTest entry `awd_read`,
+      every fixture built by the test because `media/` is gitignored.*
 
 - [x] **The DS5500's address translation map is 4 KB — implemented 2026-08-22.**
       `019411-A00` Table 2-5 gives `017000`-`017FFF` against `[S3K]` §2.5's
