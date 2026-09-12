@@ -4643,20 +4643,16 @@ discipline throughout.
       DS5500, against `sau14.log`; `sc499_suite` 29, `tape_suite` 34, each new
       test failing on the code it replaced; `ctest` 147/147. Detail in
       `PROJECT_STATUS.md`.*
-- [ ] **`check_frontend_flags.py` says "all reachable flags exercised" and it
-      covers 38 of 90.** Found 2026-09-12 while adding `--scsi`. The script's
-      own comment names the failure — "this file's summary line says *all
-      reachable flags exercised* and it is a hand-kept list; a flag in neither
-      list makes that sentence false without failing anything" — and the list
-      has since drifted: `main.c` parses **90** distinct flags and **52** are
-      mentioned in neither the checks nor the needs-firmware skips, including
-      `--3c505`, `--matrox`, `--ring-two-node`, `--clock`, `--configure`,
-      `--service-mode` and every `--boot-stop-*`.
-      **The fix is to stop hand-keeping it**: enumerate the flags from
-      `main.c`'s `strcmp(argv[i], "--…")` sites, subtract the two lists, and
-      fail on the remainder — then classify the 52 once, each with a reason.
-      Until then the summary line is a claim nothing checks, which is the exact
-      shape of defect this project's own guards exist to catch.
+- [x] **`check_frontend_flags.py` said "all reachable flags exercised" and
+      covered 38 of 90 — fixed 2026-09-12.** The script's own comment had
+      predicted it: "a flag in neither list makes that sentence false without
+      failing anything." The flags are now read from `main.c`'s parser — not
+      from `--help`, because a flag the help forgets is still a flag — and one
+      in neither list fails. The 52 were classified: three run without firmware
+      and are checks now, 49 need a machine and are named in the skip list.
+      Detail in `PROJECT_STATUS.md`.
+      *Verification: `check_frontend_flags` 26 → 29, plus a source check that
+      all 90 are accounted for; `doc_claims` green.*
 
 - [ ] **The DS5500 has a SCSI bus and this core models no SCSI.** From the
       `019411-A00` walk, Figure 1-5: a "Disk or SCSI/Disk Controller" drives a
@@ -5402,7 +5398,7 @@ discipline throughout.
       (`BYTE_1 | BEGINNING_OF_MEDIA | POWER_ON`) and `first block still owed`.
       Position at BOT, drive reporting beginning-of-media, controller buffer
       dropped: every property the header claims, in one 1.5 G-step run.
-      *Verification: `tape_suite` 30 -> 33, `check_frontend_flags` 26 runnable
+      *Verification: `tape_suite` 30 -> 33, `check_frontend_flags` 29 runnable
       checks plus five new source checks, `ctest` 147/147 both presets, identity
       `F78D6DBE770CAF47` unmoved. Detail in `PROJECT_STATUS.md`.*
       **And the paragraph above is RETRACTED for the DS5500, 2026-09-11: the
@@ -5544,7 +5540,7 @@ discipline throughout.
       `machine_suite` 63 → 65 — the discriminating test costs **one instruction
       rather than four billion**, because `0x100000000` narrowed to `unsigned`
       is *zero* and a `MOVEQ`+`STOP` separates "honoured" from "truncated";
-      `check_frontend_flags` 25 → 26; identity `6DF967A63D3D4DA9` unmoved;
+      `check_frontend_flags` 25 → 29; identity `6DF967A63D3D4DA9` unmoved;
       `ctest` 145/145 both presets.*
       *So what is left of the gate is the wall clock, not the counter*: ~15 G
       instructions is now a legal single run, and how long it takes is the next

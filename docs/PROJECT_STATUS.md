@@ -914,6 +914,38 @@ tools/dn5500-boot.sh`. The volume is the artefact of the restore run recorded in
 failure and then spins on `Do you wish to continue (y,n)?`, because the harness
 types only the console knock and the prompt reads a carriage return as `x`.
 
+## `check_frontend_flags.py` said "all reachable flags exercised" and covered 38 of 90 (2026-09-12)
+
+Found while adding `--scsi` and asking where to record it. The script's own
+comment had predicted the failure exactly: "this file's summary line says *all
+reachable flags exercised* and it is a hand-kept list — a flag in neither list
+makes that sentence false without failing anything." The list had drifted to
+**38 of the 90 flags `main.c` parses**, and the 52 missing included `--3c505`,
+`--matrox`, `--clock`, `--configure`, `--service-mode` and every
+`--boot-stop-*`.
+
+**The lists are still hand-kept; what is no longer hand-kept is noticing.** The
+flags are enumerated from `main.c`'s `strcmp(argv[i], "--…")` sites, the two
+lists are subtracted, and anything left fails. A reason is a sentence a person
+writes, so the classification stays human — but a flag that is added and never
+classified now stops the build.
+
+**Read from the parser, not from `--help`.** A flag the help forgets is still a
+flag, and enumerating the help would make the guard agree with the documentation
+instead of with the program.
+
+**Three of the 52 needed no firmware and are checks now**: `--list-oracle-quirks`
+prints the quirk table, `--oracle-quirk` refuses a name that does not exist, and
+`--clock` refuses a stamp that is not a time. The other 49 are named in the
+needs-firmware list, grouped by why — everything a boot run steers or watches,
+the ring runner's six (it reads its boot PROM before it does anything else), the
+five card fittings, and the run modes and dumps.
+
+*Verification: `check_frontend_flags` 26 → 29, with a source check reporting
+that all 90 are accounted for; `doc_claims` green. Every count of these checks
+in these two documents is kept current, which is what `doc_claims` enforces and
+why a delta's post-arrow number is the tree's count rather than that commit's.*
+
 ## The SCSI adapter is fitted in the cartridge tape's slot, and `--scsi` exchanges them (2026-09-12)
 
 `ap_board_attach_scsi` puts the WD7000-ASC where the SC-499 was. It is an
@@ -4780,7 +4812,7 @@ the dialogue for ever with nothing said.
 
 *Verification: `tape_suite` 30 → 33 — the drive emptied and the controller's
 buffers with it, the locked cartridge refusing to come out, and a cartridge that
-arrives read from its own first byte; `check_frontend_flags` 26 runnable checks, one of them
+arrives read from its own first byte; `check_frontend_flags` 29 runnable checks, one of them
 re-worded, with **five new source checks** beside them -- the ring runner reads
 its boot PROM before it loads a script and CI has no PROM, so the load-time
 refusal cannot be reached by running the binary; `ctest` 147/147 both presets.*
@@ -5316,7 +5348,7 @@ one and costs **one instruction rather than four billion**: `0x100000000` is
 exactly 2^32, so a limit that narrowed to `unsigned` would be **zero**, and a
 program of one `MOVEQ` followed by `STOP` separates the two — honoured it
 executes and halts, truncated it executes nothing. The second asserts the count
-is the same width as the bound. `check_frontend_flags` 25 → 26: the ceiling check
+is the same width as the bound. `check_frontend_flags` 25 → 29: the ceiling check
 is replaced by one that the bound past 2^32 is now *accepted*, witnessed by the
 run falling through to "cannot run dn3500 yet" rather than to a refusal, plus a
 check that a non-numeric bound is still refused.*
@@ -11034,7 +11066,7 @@ checksum ...` per node, because a configuration table is an input that leaves no
 other trace and that is why the defect survived. `dev bits` `00000010` →
 `0000000F`, and `0000001F` with `--ring-rom`.
 
-*Verification: `ctest` 139/139 on both presets, `check_frontend_flags` 19 → 26
+*Verification: `ctest` 139/139 on both presets, `check_frontend_flags` 19 → 29
 with a check that needs no boot PROM, identity boot `03EE415450926A89`
 unchanged. `FINDINGS.md` C186.*
 
@@ -11102,7 +11134,7 @@ the machine's own identity, because nothing in the report named it.
 
 Fixed, with the `disk` line now naming the node it gives the machine: an input
 that leaves no trace in the report is one that can be wrong for four sessions.
-*Verification: `ctest` 139/139, `check_frontend_flags` 19 → 26 with a
+*Verification: `ctest` 139/139, `check_frontend_flags` 19 → 29 with a
 synthesised label so it needs no media, identity boot `03EE415450926A89`
 unchanged. `FINDINGS.md` C199.*
 

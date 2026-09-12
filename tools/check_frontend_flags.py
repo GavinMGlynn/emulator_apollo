@@ -108,6 +108,14 @@ def main() -> int:
 
         # ---- flags that need only the binary ----
         check("--help lists the flags", ["--help"], r"--dump-mem")
+        check("--list-oracle-quirks names each quirk and what it does",
+              ["--list-oracle-quirks"], r"graphics-id-always-colour")
+        check("--oracle-quirk refuses a quirk that does not exist",
+              ["--oracle-quirk", "nosuchquirk", "--list-models"],
+              r"unknown oracle quirk", want_ok=False)
+        check("--clock refuses a stamp that is not a time",
+              ["--clock", "notatime", "--list-models"],
+              r"--clock wants YYYY-MM", want_ok=False)
         check("--list-models prints the table and the time base",
               ["--list-models"], r"time base: \d+ Hz")
         check("--model selects a machine", ["--model", "dn3000", "--list-models"],
@@ -481,6 +489,30 @@ def main() -> int:
               ["--sio-input-at", "1:04"], r"--sio-input-at wants N:UNIT:HEX",
               want_ok=False)
 
+        # ---- every flag is in one list or the other, and this is checked ----
+        #
+        # This file's summary line says "all reachable flags exercised", and it
+        # was a **hand-kept** list that had drifted to 38 of the 90 flags
+        # `main.c` parses -- the failure its own comment below predicted, a
+        # flag in neither list making that sentence false without failing
+        # anything. The lists are still hand-kept, because a reason is a
+        # sentence a person writes; what is no longer hand-kept is *noticing*.
+        #
+        # The flags are read from the parser rather than from `--help`: a flag
+        # the help forgets is still a flag, and reading the help would make
+        # this guard agree with the documentation instead of with the program.
+        parsed = sorted(set(re.findall(
+            r'strcmp\(argv\[i\],\s*"(--[a-z0-9-]+)"\)',
+            (REPO / "src/frontend/headless/main.c").read_text())))
+        mine = Path(__file__).read_text()
+        unlisted = [f for f in parsed if f not in mine]
+        for flag in unlisted:
+            fail("every flag `main.c` parses is exercised or named as needing "
+                 "firmware: %s" % flag,
+                 "in neither list, so the summary line below is false for it")
+        source_check("every one of the %d flags `main.c` parses is exercised "
+                     "or named as needing firmware" % len(parsed), not unlisted)
+
         # ---- what needs firmware, named rather than omitted ----
         for flag in ("--boot-prom", "--boot-limit", "--boot-trace",
                      "--boot-watch", "--boot-console", "--boot-input",
@@ -496,7 +528,39 @@ def main() -> int:
                      "its parsing)",
                      "--sio-input-at (the timed change, as opposed to its "
                      "parsing)",
-                     "--scsi (the card fitted, as opposed to its listing)"):
+                     # Everything a boot run steers, stops on, watches, types
+                     # or reports. All of it needs a machine that runs.
+                     "--boot-disk-reads", "--boot-input-channel",
+                     "--boot-input-port", "--boot-log-pc",
+                     "--boot-log-watch-reads", "--boot-log-watch-writes",
+                     "--boot-progress", "--boot-progress-from", "--boot-report",
+                     "--boot-stop-on-disk-refusal",
+                     "--boot-stop-on-mmu-fault-at", "--boot-stop-on-vector",
+                     "--boot-stop-on-watch-read", "--boot-stop-on-watch-write",
+                     "--boot-stop-pc-skip", "--boot-stop-pc-then",
+                     "--boot-stop-physical-pc", "--boot-tape",
+                     "--boot-type-after-os", "--boot-type-await-pushback",
+                     "--boot-type-quiet", "--boot-type-settled",
+                     "--boot-type-then", "--boot-type-then-after-pc",
+                     "--boot-watch-read", "--boot-watch-write",
+                     # The ring runner reads its boot PROM before it does
+                     # anything else, so not one of its flags is reachable.
+                     "--ring-console", "--ring-disk-a", "--ring-disk-b",
+                     "--ring-script-b", "--ring-selftest", "--run-ring-probes",
+                     # Fitting a card needs a machine to fit it into.
+                     "--3c505", "--3c505-rom", "--3c505-tap", "--matrox",
+                     "--matrox-screenshot",
+                     "--scsi (the card fitted, as opposed to its listing)",
+                     # Run modes and dumps, which need something to run.
+                     "--calendar-ram",
+                     "--clock (the epoch reaching the calendar, as opposed to "
+                     "its parsing)",
+                     "--configure", "--cycle-stepped", "--disk-writeback",
+                     "--dump-logical", "--dump-state", "--dump-walk",
+                     "--mid-access-devices",
+                     "--oracle-quirk (the quirk applied, as opposed to its "
+                     "refusal)",
+                     "--service-mode", "--tape", "--time-instructions"):
             skip(flag, "needs a boot PROM; roms/ is gitignored and CI has none")
 
     for name, why in skipped:
