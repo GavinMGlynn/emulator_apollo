@@ -50,6 +50,19 @@ block there is zeros. So the VTOCX-to-block step does not land, and this tool
 prints the decode and the empty result rather than inventing a base to make it
 fit.
 
+**A DS5500 block is four sectors, which is why a DADDR does not index one.**
+Four consecutive 1056-byte sectors carry one logical block, all four with the
+same header -- UID, page and DADDR. That is the **4 KB block** `[RN104]` names
+for SAU 11, 12 and 14 (SS4.10.3 "4-KB disk block size", SS5.5 "4K-page machines").
+On a DN3500 volume every block's `daddr` equals its sector index; on a DS5500
+volume almost none does, which is the check `tools/kernel_symbols.py` has always
+made and which that volume has always failed.
+
+`vtoc_entry` below therefore reads zeros on a DS5500 image: it takes a DADDR for
+a sector index. **The mapping is not a single affine `4*daddr + c`** -- near the
+start `c` is 0 and at sector 165750 it is 1226 -- so it is not applied here, and
+the tool prints the decode and the empty result rather than guessing one.
+
 **The VTOC header is not what changed** -- `[EH1]` Apr 83 p. 5-22 and `[EH3]`
 Feb 85 p. 2-24 print it identically, and this reads it coherently off a 1992
 volume. **The VTOC *entry* is.** Searching every entry slot in a DS5500 image

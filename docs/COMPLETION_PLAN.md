@@ -4726,9 +4726,17 @@ discipline throughout.
       gitignored. On the DS5500 volume the labels read cleanly and the VTOC
       header is internally consistent — `.vtoc_blocks` 226 and `.map[0]` "226
       blocks at DADDR 40901", one number from two fields.
-      **What is still open is below that**: `.root_x` decodes to a DADDR *below*
-      the VTOC extent and the block there is zeros, and `.net_x`/`.os_x` decode
-      to entry indices 5 and 7 which p. 2-25 allows only for the file-map use.
+      **Why a DADDR does not land, answered 2026-09-12**: a DS5500 block is
+      **four consecutive 1056-byte sectors**, all four carrying the same header
+      (UID, page, DADDR) -- the 4-KB block `[RN104]` §4.10.3 and §5.5 name for
+      SAU 11/12/14. So a DADDR indexes blocks and not sectors, `vtoc_entry` read
+      zeros because it took one for the other, and
+      `tools/kernel_symbols.py`'s long-standing "blocks' DADDRs do not match
+      their positions" rejection of these volumes is **correct**.
+      **Still open**: the mapping is not a single affine `4·daddr + c` -- near
+      the start `c` is 0, at sector 165750 it is 1226 -- and what inserts the
+      difference is not established. The tool prints the decode and the empty
+      result rather than guessing a base.
       **Settled which structure changed**: not the VTOC *header* -- `[EH1]`
       Apr 83 and `[EH3]` Feb 85 print it identically and this core reads it
       coherently off a 1992 volume -- but the VTOC **entry**. The root
