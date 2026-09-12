@@ -17559,6 +17559,25 @@ units 4-7. So **unit 3 occupies master IR2's priority slot** -- Apollo's "IRQ3"
 *is* master IR2 -- and the slave block sitting at 4-11 is the cascade on IR3
 seen from the software side.
 
+**And unit 2 is the missing half of the argument.** It is the one row with no
+priority at all -- a dash, not a number -- and it carries the `*` that means
+"used by the processor and not available on the bus". Under the reading above
+that is exactly what unit 2 has to be: master IR3 is the cascade, the cascade is
+not a device line, and so the unit number that corresponds to it can have no
+priority and can never be assigned. The table is self-consistent only if units 2
+and 3 name master IR3 and master IR2 in that order. *Stated as an inference,
+because the manual does not say it* -- the dash and the footnote are what it
+prints.
+
+**This also explains a label that disagrees with this core's own citation.**
+`ap_board.h` cites `002398-04` p. 12-28 for "**`IRQ 2` ring**, `IRQ 3 ---> slave
+pic to master`", and `[GPIO]` calls the same line unit/IRQ **3**. The two
+documents differ on exactly the two numbers this paragraph is about and agree
+everywhere else -- tape 5, floppy 6, winchester 14, calendar 8, the two ethernet
+boards 9 and 10. So they are two numberings of one machine, not a contradiction:
+`002398-04` prints the hardware line, `[GPIO]` the unit number a driver writes
+into its DDF.
+
 **Which reading that leaves standing**: the naming convention, not a scan
 transposition. A transposition in `008778-03` Table 2-3 would be an artefact of
 *that* scan; a different manual, a different publisher's department and a year
@@ -17592,3 +17611,87 @@ without a strap.
 162 under the boot PROM's `ICW2 = A0`. Two documents and a measurement now agree
 on IR2; the vector agrees with neither, and nothing here is adjusted to make it.
 Recorded, not resolved.
+
+
+## C288 -- `[GPIO]` SS3.1 and `cvt_at` give the whole AT I/O map, and every device in this core lands on its printed row
+
+The walk record for `000959-A00` already recorded that SS3.1 corrects a rule two
+headers stated as `Apollo = AT * 0x80`:
+
+> "Ten-bit consecutive addresses in the I/O address space are mapped into
+> processor address space in **groups of eight bytes**, and each group is
+> assigned the first eight bytes of a different, but consecutive, page (1024
+> bytes). Thus, the first 1024 addresses in PC AT compatible address space
+> (0-3FF) map to **128 physical pages (40000-5FFFF)** in processor address
+> space."
+
+**What that record could not do is check it.** The two forms are identical at
+every multiple of eight, and every base address on this board is a multiple of
+eight, so one device proves nothing. Appendix A's `cvt_at` command and Table 3-1
+together make it checkable.
+
+### The sixteen-bit fold, which SS3.1 states only as "folded"
+
+Figure 3-3 splits an AT address into `[15:10]`, `[9:3]` and `[2:0]` and SS3.1
+says the high six bits are "folded and mapped to different locations on the same
+set of 128 physical pages", without saying which locations. `cvt_at`'s three
+worked examples pin it:
+
+| AT | Domain physical | page | offset | CSR iova |
+| --- | --- | --- | --- | --- |
+| `5100` | `48140` | `120` | `140` | `100` |
+| `01A4` | `4D004` | `134` | `004` | `1A4` |
+| `41A4` | `4D104` | `134` | `104` | `1A4` |
+
+All three come out of
+
+    physical = 0x040000
+             + ((AT >> 3) & 0x7F) * 1024   /* the group's page */
+             + ((AT >> 10) & 0x3F) * 16    /* the fold */
+             + (AT & 7);                   /* the byte in the group */
+
+and the `iova` a driver hands `crddf -csr_page` is simply `AT & 0x3FF`, which is
+why `41A4` and `1A4` are configured with the same one. Examples 1 and 3 are the
+only evidence for the fold's `* 16` -- the high field is zero in every ten-bit
+address -- and they have `AT >> 10` of `0x14` and `0x10`, two different values,
+both landing.
+
+### Seven devices, each placed years ago, each on its Table 3-1 row
+
+| Table 3-1 ISA | rule gives | this core |
+| --- | --- | --- |
+| `1A0-1A7` Disk Controller | `04D000` | `AP_DISK_FIXED_ADDR` |
+| `200-207` Tape Controller | `050000` | `AP_TAPE_ADDR` |
+| `220-23F` Apollo Token Ring | `051000` | `AP_RING_CTL_UNIT0_A1` |
+| `300-307` 802.3 Network Controller-AT | `058000` | `AP_BOARD_ETHERNET_ADDR` |
+| `320-33F` Apollo Token Ring | `059000` | `AP_RING_CTL_UNIT0_A2` |
+| `3B0-3BF` Monochrome Graphics | `05D800` | `AP_GRAPHICS_MONO_ADDR` |
+| `3D0-3DF` Color Graphics | `05E800` | `AP_GRAPHICS_COLOUR_ADDR` |
+| `3F0-3F7` Disk Controller | `05F800` | `AP_DISK_FLOPPY_ADDR` |
+
+Eight rows, no adjustment to any of them. They were placed from `008778-03`
+Table 2-8, from `ETHERNET.md`'s oracle tap, and from `RING.md` finding 38's
+firmware measurement -- three different methods, none of which was this rule.
+`cvt_at`'s example 2 confirms the disk a second time *by name*: its warning text
+is "may occupy same physical page as DOMAIN device, if present: **winchester
+(4D000)**".
+
+### Two things this changes
+
+**The ring's four windows stop being an unexplained measurement.** Finding 38
+found them in firmware with no document to place them. Unit 0's two are exactly
+Table 3-1's two printed ranges; unit 1's two are the next 32-byte ISA block
+after each -- `240` and `340`, which Table 3-1 calls customer space -- which is
+where a second board has to sit when the manual documents one pair.
+
+**Finding 12's four "banks" are not banks.** `220-23F` is 32 bytes, four
+eight-byte groups, and SS3.1 gives each group a page of its own. So `+000`,
+`+400`, `+800` and `+C00` are ISA `220-227`, `228-22F`, `230-237` and `238-23F`
+-- one contiguous register file that the page mapping spreads out, and
+`AP_RING_CTL_SLOT_MASK`'s bits 2:1 are the word register inside a group. MISC_STAT
+at `059400` is ISA `328`. No address and no behaviour changes; the description
+was what was wrong.
+
+*Verification*: `atbus_suite` 16 -> 20. The three `cvt_at` examples are asserted
+against literal expected values, so the formula cannot be fitted to them after
+the fact.

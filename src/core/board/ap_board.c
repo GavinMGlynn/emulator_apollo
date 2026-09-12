@@ -1958,7 +1958,18 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     /* The window decodes and nothing drives the data lines, so the pull-ups
      * answer. `FF` rather than unmapped: the cycle terminates normally on the
      * real machine, and reporting a fault here would crash an expansion ROM
-     * scan that is supposed to simply find nothing. */
+     * scan that is supposed to simply find nothing.
+     *
+     * **That last sentence is now a cited fact rather than an inference.**
+     * `[GPIO]` states it twice: SS3.3, "The PC AT compatible bus does not
+     * generate bus time-outs. Therefore, you cannot use the GPIO calls
+     * `pbu_$read_csr` or `pbu_$write_csr` to test for controller presence on
+     * the bus"; and SS6.1.3's NOTE, which says the same and tells a driver to
+     * "tweak the appropriate device register and see if it responds" instead.
+     * Apollo wrote the workaround down because the bus really does answer a
+     * dead address, which is exactly this branch. The MULTIBUS and VMEbus *do*
+     * time out -- SS6.1.3's body -- so this is a property of the AT bus alone
+     * and not a general one. */
     if (board->atbus_empty_reads == 0u) {
       board->first_atbus_empty_read = address;
     }

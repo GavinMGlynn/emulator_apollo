@@ -201,7 +201,14 @@ typedef struct {
   /* `#25` CLOCK cycle time and `#26` BUS CLOCK cycle time, both maxima -- so
    * the rates are 12/6 MHz and 16/8 MHz. Carried because they are what makes
    * the two tables comparable, and because the derivation above is checked
-   * against them rather than asserted. */
+   * against them rather than asserted.
+   *
+   * **A second document gives the 3000 family's pair in words.** `[GPIO]`
+   * SS7.3, arguing that programmed I/O beats DMA on a DN3000: "the MC68020
+   * programmed I/O transfer rate is **12 MHz** versus the specification for
+   * the PC AT compatible bus DMA transfer rate of **6 MHz**." Same two
+   * numbers, from a manual written for driver authors rather than from a
+   * timing appendix, which is as independent as this shelf gets. */
   uint32_t clock_hz;
   uint32_t bus_clock_hz;
 

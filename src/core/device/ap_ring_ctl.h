@@ -106,14 +106,34 @@
 #include "ring/ap_ring_station.h"
 #include "time/ap_time.h"
 
-/* Finding 38's four windows, as Apollo physical addresses. */
+/* Finding 38's four windows, as Apollo physical addresses.
+ *
+ * **Placed by measurement; confirmed by `[GPIO]` Table 3-1 afterwards.** That
+ * table gives the "Apollo Token Ring Network Controller-AT" two ISA ranges,
+ * `220-23F` and `320-33F`, and SS3.1's mapping rule -- `0x040000 + (ISA >> 3) *
+ * 1024 + (ISA & 7)`, see `board/ap_atbus.h` and `atbus_suite` -- carries them
+ * to `051000` and `059000`, which are unit 0's two windows exactly. Unit 1's
+ * are the next 32-byte ISA block after each, `240` and `340`, which Table 3-1
+ * calls customer space: a second board strapped one block up, which is the only
+ * place a second board could go when the manual documents one pair. */
 #define AP_RING_CTL_UNIT0_A1 0x051000u
 #define AP_RING_CTL_UNIT0_A2 0x059000u
 #define AP_RING_CTL_UNIT1_A1 0x052000u
 #define AP_RING_CTL_UNIT1_A2 0x05A000u
+/* Four Apollo pages, because the ISA range is 32 bytes and SS3.1 gives each
+ * eight-byte group a page of its own. */
 #define AP_RING_CTL_WINDOW 0x1000u
 
-/* Finding 12's banks. */
+/* Finding 12's banks -- **which are not banks**.
+ *
+ * They were named from the firmware, which sees four blocks a page apart and
+ * has no reason to call them anything else. `[GPIO]` SS3.1 says what they are:
+ * one contiguous 32-byte ISA register file at `220-23F`, whose four eight-byte
+ * groups each land on the first eight bytes of a consecutive page. So `+000` is
+ * ISA `220-227`, `+400` is `228-22F`, `+800` is `230-237` and `+C00` is
+ * `238-23F`, and `AP_RING_CTL_SLOT_MASK`'s bits 2:1 are the word register
+ * inside a group. The addresses do not change and neither does any behaviour;
+ * the names were the only thing missing, as with MISC_STAT below. */
 #define AP_RING_CTL_BANK_ID 0x000u
 #define AP_RING_CTL_BANK_STATUS 0x400u
 #define AP_RING_CTL_BANK_TIMER_A 0x800u

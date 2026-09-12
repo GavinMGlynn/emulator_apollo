@@ -10,6 +10,10 @@
 
 #include "board/ap_atbus.h"
 #include "board/ap_board.h"
+#include "board/ap_disk.h"
+#include "board/ap_graphics.h"
+#include "board/ap_tape.h"
+#include "device/ap_ring_ctl.h"
 #include "device/ap_mc146818.h"
 #include "cpu/m68030/ap_m68030_access.h"
 #include "machine/ap_machine.h"
@@ -448,6 +452,121 @@ static void test_the_dram_figures_are_the_parts_not_the_boards(void) {
                                         true));
 }
 
+/* ---------------------------------------------------------------------------
+ * `[GPIO]` SS3.1: where an AT I/O address lands in processor address space
+ * ------------------------------------------------------------------------- */
+
+/* The mapping, exactly as `000959-A00` SS3.1 and Figure 3-3 give it.
+ *
+ * "Ten-bit consecutive addresses in the I/O address space are mapped into
+ * processor address space in **groups of eight bytes**, and each group is
+ * assigned the first eight bytes of a different, but consecutive, page (1024
+ * bytes). Thus, the first 1024 addresses in PC AT compatible address space
+ * (0-3FF) map to **128 physical pages (40000-5FFFF)**."
+ *
+ * Figure 3-3 then splits a *sixteen*-bit AT address three ways -- `[15:10]`,
+ * `[9:3]`, `[2:0]` -- and SS3.1 says the high bits are "folded and mapped to
+ * different locations on the same set of 128 physical pages". Which locations
+ * the figure does not say in words, but Appendix A's `cvt_at` worked examples
+ * do, and the third term below is what reproduces all three of them. */
+static uint32_t at_io_to_physical(uint32_t at) {
+  return AP_BOARD_ATBUS_IO_BASE + (((at >> 3) & 0x7Fu) * 1024u) +
+         (((at >> 10) & 0x3Fu) * 16u) + (at & 7u);
+}
+
+static void test_the_at_map_reproduces_cvt_ats_worked_examples(void) {
+  /* Appendix A, `cvt_at`, all three examples as printed -- AT address, Domain
+   * physical address, page number, offset within the page, and the CSR `iova`
+   * that is handed to `crddf -csr_page`.
+   *
+   * They are the only place on this shelf that pins the *fold*: a ten-bit
+   * address alone cannot distinguish `(at >> 10) * 16` from any other function
+   * of the high bits, because that field is zero in every one of them. Example
+   * 1 has `at >> 10 == 0x14` and example 3 `0x10`, and both land. */
+  TEST_ASSERT_EQUAL_HEX32(0x048140u, at_io_to_physical(0x5100u));
+  TEST_ASSERT_EQUAL_HEX32(0x04D004u, at_io_to_physical(0x01A4u));
+  TEST_ASSERT_EQUAL_HEX32(0x04D104u, at_io_to_physical(0x41A4u));
+
+  /* The page numbers the command prints in its own column. */
+  TEST_ASSERT_EQUAL_HEX32(0x120u, at_io_to_physical(0x5100u) >> 10);
+  TEST_ASSERT_EQUAL_HEX32(0x134u, at_io_to_physical(0x01A4u) >> 10);
+  TEST_ASSERT_EQUAL_HEX32(0x134u, at_io_to_physical(0x41A4u) >> 10);
+
+  /* And the `iova`, which is simply the low ten bits -- which is why `41A4`
+   * and `1A4` are configured with the same one. */
+  TEST_ASSERT_EQUAL_HEX32(0x100u, 0x5100u & 0x3FFu);
+  TEST_ASSERT_EQUAL_HEX32(0x1A4u, 0x41A4u & 0x3FFu);
+}
+
+static void test_every_at_device_address_is_its_table_3_1_row(void) {
+  /* `[GPIO]` Table 3-1, "I/O Address Space Allocated for Domain
+   * System-Supplied Devices", against the addresses this core actually
+   * decodes. Each row is the ISA address the manual prints; the assertion is
+   * that SS3.1's rule carries it to the constant we use.
+   *
+   * This is the check that makes the SS3.1 correction more than an argument.
+   * The walk record settled the *rule* -- `0x040000 + (AT >> 3) * 1024 +
+   * (AT & 7)` rather than the `AT * 0x80` two headers used to state -- but a
+   * rule agreed with by only one address proves nothing, since the two forms
+   * are identical at every multiple of eight. Seven independent devices, each
+   * placed years ago from a different source, all landing on their documented
+   * ISA address is what makes it a map rather than a coincidence. */
+  TEST_ASSERT_EQUAL_HEX32(AP_TAPE_ADDR, at_io_to_physical(0x200u));
+  TEST_ASSERT_EQUAL_HEX32(AP_DISK_FIXED_ADDR, at_io_to_physical(0x1A0u));
+  TEST_ASSERT_EQUAL_HEX32(AP_DISK_FLOPPY_ADDR, at_io_to_physical(0x3F0u));
+  TEST_ASSERT_EQUAL_HEX32(AP_BOARD_ETHERNET_ADDR, at_io_to_physical(0x300u));
+  TEST_ASSERT_EQUAL_HEX32(AP_GRAPHICS_MONO_ADDR, at_io_to_physical(0x3B0u));
+  TEST_ASSERT_EQUAL_HEX32(AP_GRAPHICS_COLOUR_ADDR, at_io_to_physical(0x3D0u));
+
+  /* `cvt_at`'s example 2 names `4D000` in its own warning text -- "may occupy
+   * same physical page as DOMAIN device, if present: **winchester (4D000)**"
+   * -- so the fixed disk's base is confirmed by the manual twice over, once
+   * through Table 3-1's `1A0-1A7` row and once by name. */
+  TEST_ASSERT_EQUAL_HEX32(0x04D000u, AP_DISK_FIXED_ADDR);
+}
+
+static void test_the_rings_two_documented_windows_are_unit_zeros(void) {
+  /* Table 3-1 gives the "Apollo Token Ring Network Controller-AT" two ranges,
+   * `220-23F` and `320-33F`, and `RING.md` finding 38 found four windows by
+   * measurement without a document to place them. Unit 0's two are exactly the
+   * documented pair. */
+  TEST_ASSERT_EQUAL_HEX32(AP_RING_CTL_UNIT0_A1, at_io_to_physical(0x220u));
+  TEST_ASSERT_EQUAL_HEX32(AP_RING_CTL_UNIT0_A2, at_io_to_physical(0x320u));
+
+  /* Unit 1's two are the next 32-byte block after each, which Table 3-1 calls
+   * customer space -- a second board strapped one block up, which is what a
+   * second board has to do when the manual documents only one pair. */
+  TEST_ASSERT_EQUAL_HEX32(AP_RING_CTL_UNIT1_A1, at_io_to_physical(0x240u));
+  TEST_ASSERT_EQUAL_HEX32(AP_RING_CTL_UNIT1_A2, at_io_to_physical(0x340u));
+
+  /* And the window is four pages because the ISA range is 32 bytes: four
+   * eight-byte groups, each taking a page of its own under SS3.1's rule. So
+   * finding 12's four "banks" at `+000`, `+400`, `+800` and `+C00` are not
+   * banks at all -- they are one contiguous ISA register file, `220-23F`. */
+  TEST_ASSERT_EQUAL_HEX32(4u * 1024u, AP_RING_CTL_WINDOW);
+  TEST_ASSERT_EQUAL_HEX32(at_io_to_physical(0x228u),
+                          AP_RING_CTL_UNIT0_A1 + AP_RING_CTL_BANK_STATUS);
+  TEST_ASSERT_EQUAL_HEX32(at_io_to_physical(0x230u),
+                          AP_RING_CTL_UNIT0_A1 + AP_RING_CTL_BANK_TIMER_A);
+  TEST_ASSERT_EQUAL_HEX32(at_io_to_physical(0x238u),
+                          AP_RING_CTL_UNIT0_A1 + AP_RING_CTL_BANK_TIMER_B);
+}
+
+static void test_the_at_io_window_is_exactly_one_hundred_and_twenty_eight_pages(
+    void) {
+  /* SS3.1 says the 1024 AT addresses map to "128 physical pages
+   * (40000-5FFFF)", which is the window this board decodes. */
+  TEST_ASSERT_EQUAL_HEX32(0x040000u, AP_BOARD_ATBUS_IO_BASE);
+  TEST_ASSERT_EQUAL_HEX32(0x05FFFFu, AP_BOARD_ATBUS_IO_END);
+  TEST_ASSERT_EQUAL_UINT32(
+      128u * 1024u, AP_BOARD_ATBUS_IO_END - AP_BOARD_ATBUS_IO_BASE + 1u);
+
+  /* The last ten-bit address lands in the last page, and the first byte of the
+   * window is AT address zero. */
+  TEST_ASSERT_EQUAL_HEX32(AP_BOARD_ATBUS_IO_BASE, at_io_to_physical(0x000u));
+  TEST_ASSERT_EQUAL_HEX32(0x05FC07u, at_io_to_physical(0x3FFu));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_each_appendix_runs_its_bus_at_half_its_clock);
@@ -466,5 +585,9 @@ int main(void) {
   RUN_TEST(test_the_ds4000s_refresh_period_is_not_the_manuals_four_ms);
   RUN_TEST(test_the_io_ch_rdy_ceiling_is_two_and_a_half_microseconds);
   RUN_TEST(test_the_dram_figures_are_the_parts_not_the_boards);
+  RUN_TEST(test_the_at_map_reproduces_cvt_ats_worked_examples);
+  RUN_TEST(test_every_at_device_address_is_its_table_3_1_row);
+  RUN_TEST(test_the_rings_two_documented_windows_are_unit_zeros);
+  RUN_TEST(test_the_at_io_window_is_exactly_one_hundred_and_twenty_eight_pages);
   return UNITY_END();
 }

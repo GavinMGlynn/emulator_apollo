@@ -227,7 +227,17 @@ typedef enum {
  * below it — the SPE controller, ISA `3F8-3FF`, physical `05FC00-05FF80` —
  * reproduces the formula for a *different* card at the other end of the I/O
  * space. The mapping had one device and an oracle tap behind it; it now has a
- * second device's printed physical range in a second document. */
+ * second device's printed physical range in a second document.
+ *
+ * **`(ISA << 7)` is a special case, and `[GPIO]` SS3.1 gives the general rule**:
+ * `0x040000 + (ISA >> 3) * 1024 + (ISA & 7)`, eight bytes of every 1024-byte
+ * page. The two agree at every multiple of eight -- which every base address on
+ * this board is -- and diverge inside a group, where `<< 7` puts ISA `302` at
+ * `058100` and the rule puts it at `058002`, the offset the oracle tap actually
+ * saw. Figure 3-3 extends it to sixteen-bit addresses by folding bits `[15:10]`
+ * into the page at 16 bytes each. `atbus_suite` checks the whole map: three
+ * `cvt_at` worked examples and every AT device address this core defines
+ * against its printed Table 3-1 ISA row. */
 #define AP_BOARD_ETHERNET_IRQ 10u
 
 /* **The ring is on master IRQ 2, and it is documented** -- `RING.md` 107.
