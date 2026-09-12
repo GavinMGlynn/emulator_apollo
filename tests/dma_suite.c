@@ -704,6 +704,102 @@ static void test_the_ethernet_card_moves_a_byte_over_drq6_and_sees_its_tc(void) 
               (uint8_t)(1u << AP_DMA_ETHERNET_CHANNEL));
 }
 
+/* ---------------------------------------------------------------------------
+ * The residual count AEGIS reads back, `[GPIO]` Appendix B
+ * ------------------------------------------------------------------------- */
+
+/* Read a channel's current word count back the way a driver has to: clear the
+ * byte-pointer flip-flop, then two reads of the count register. */
+static uint16_t read_count_over_the_bus(ap_board_t *b, unsigned channel) {
+  bool ok = false;
+  ap_board_write(b, AP_DMA1_ADDR + AP_I8237_REG_CLEAR_FLIPFLOP, 0u, &ok);
+  const uint8_t low = ap_board_read(b, AP_DMA1_ADDR + channel * 2u + 1u, &ok);
+  const uint8_t high = ap_board_read(b, AP_DMA1_ADDR + channel * 2u + 1u, &ok);
+  return (uint16_t)(low | ((uint16_t)high << 8));
+}
+
+/* `pbu_$dma_stop`'s return value is "the residual count **in bytes** of the
+ * amount of data (if any) that was not transferred during the last DMA
+ * operation. **This return value should only be 0 if there is nothing left to
+ * transfer.**" -- `[GPIO]` Appendix B, p. B-28.
+ *
+ * That is a contract on *this* model, not on AEGIS: the residual can only come
+ * from the channel's count register, and `[8237]`'s terminal count is the
+ * borrow out of zero, so a channel that finished reads `FFFF` and the driver's
+ * arithmetic is `count + 1` truncated to sixteen bits. If this model left a
+ * finished channel at `0000` instead, `pbu_$dma_stop` would report one byte
+ * still owed on every completed transfer, and a driver that believes it --
+ * which the manual instructs it to -- starts a second DMA that the device has
+ * nothing to fill.
+ *
+ * It is asserted here because it is the only place the two halves meet. The
+ * register value is `[8237]`'s, the interpretation is `[GPIO]`'s, and nothing
+ * fails if they disagree until a real driver runs. */
+static void test_a_finished_channel_reports_no_residual_to_the_driver(void) {
+  build();
+  map_entry_zero_to_ram(&dma_board);
+  start_tape_read(&dma_board);
+
+  arm_channel_for_device(&dma_board, AP_DMA_TAPE_CHANNEL,
+                         (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (1u << 2)),
+                         0x0200u, 15u);
+  for (unsigned i = 0; i < 16u * 300u; i++) {
+    dma_bus_tick(&dma_board);
+  }
+  TEST_ASSERT_EQUAL_UINT(16u, dma_board.dma_transfers);
+
+  /* The borrow out of zero, read back over the bus rather than out of the
+   * struct -- a driver has no other way to see it. */
+  const uint16_t count = read_count_over_the_bus(&dma_board, AP_DMA_TAPE_CHANNEL);
+  TEST_ASSERT_EQUAL_HEX16(0xFFFFu, count);
+
+  /* And the arithmetic the manual's sentence requires. */
+  TEST_ASSERT_EQUAL_HEX16(0u, (uint16_t)(count + 1u));
+}
+
+static void test_a_short_transfer_reports_what_is_still_owed(void) {
+  /* The other half of the same sentence: a transfer the *device* ended leaves
+   * a residual that is not zero, and its value says how much of the buffer is
+   * still unfilled -- "the purpose of this parameter is to tell the driver if
+   * it needs to perform another DMA operation, and if so, how large the buffer
+   * length parameter for `pbu[2]_$dma_start` should be."
+   *
+   * Same arrangement as `test_the_request_line_gates_a_block_not_a_word`,
+   * which is where the 1,536 comes from: 4,096 bytes asked for, and the drive
+   * hands over the cartridge plus the first block a second time and then stops
+   * asking. Bounded the way that test is -- long enough that the *device* is
+   * what ends the transfer and not the loop, which is the difference between
+   * measuring this model and measuring the bound. */
+  build();
+  map_entry_zero_to_ram(&dma_board);
+  start_tape_read(&dma_board);
+
+  const unsigned wanted = 4096u;
+  arm_channel_for_device(&dma_board, AP_DMA_TAPE_CHANNEL,
+                         (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (1u << 2)),
+                         0x0000u, (uint16_t)(wanted - 1u));
+  for (unsigned i = 0;
+       i < (sizeof cartridge + AP_CT_BLOCK_SIZE) * 300u *
+               (dma_board.dma_transfer_ticks + 1u);
+       i++) {
+    dma_bus_tick(&dma_board);
+  }
+
+  /* The device stopped, not the count: the channel never reached terminal. */
+  TEST_ASSERT_FALSE(ap_tape_dma_request(&dma_board.tape));
+  TEST_ASSERT_EQUAL_UINT(sizeof cartridge + AP_CT_BLOCK_SIZE,
+                         dma_board.dma_transfers);
+
+  const uint16_t count =
+      read_count_over_the_bus(&dma_board, AP_DMA_TAPE_CHANNEL);
+  const uint16_t residual = (uint16_t)(count + 1u);
+  TEST_ASSERT_TRUE(residual != 0u);
+  /* And it is exactly the part of the buffer nothing filled, which is the
+   * length the driver's next `pbu_$dma_start` would carry. */
+  TEST_ASSERT_EQUAL_UINT(wanted - (sizeof cartridge + AP_CT_BLOCK_SIZE),
+                         residual);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_request_lines_follow_their_polarity_bits);
@@ -724,5 +820,7 @@ int main(void) {
   RUN_TEST(test_the_two_controllers_are_independent);
   RUN_TEST(test_nothing_outside_the_two_ranges_decodes);
   RUN_TEST(test_the_ethernet_card_moves_a_byte_over_drq6_and_sees_its_tc);
+  RUN_TEST(test_a_finished_channel_reports_no_residual_to_the_driver);
+  RUN_TEST(test_a_short_transfer_reports_what_is_still_owed);
   return UNITY_END();
 }

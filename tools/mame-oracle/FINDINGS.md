@@ -17695,3 +17695,46 @@ was what was wrong.
 *Verification*: `atbus_suite` 16 -> 20. The three `cvt_at` examples are asserted
 against literal expected values, so the formula cannot be fitted to them after
 the fact.
+
+
+## C289 -- `pbu_$dma_stop`'s residual count is a contract on this model, and it is now asserted
+
+`[GPIO]` Appendix B, p. B-28, describes what `pbu_$dma_stop` returns:
+
+> "A 4-byte integer that specifies the residual count in bytes of the amount of
+> data (if any) that was not transferred during the last DMA operation. **This
+> return value should only be 0 if there is nothing left to transfer.** The
+> purpose of this parameter is to tell the driver if it needs to perform another
+> DMA operation, and if so, how large the buffer length parameter for
+> `pbu[2]_$dma_start` should be."
+
+**That is a statement about our 8237, not about AEGIS.** The residual has only
+one possible source -- the channel's current word count register -- and
+`[8237]`'s terminal count is the *borrow out of zero*, so a channel that
+finished reads `FFFF` and the driver's arithmetic must be `count + 1`
+truncated to sixteen bits. Nothing in this core asserted either half.
+
+If a finished channel left `0000` here instead, `pbu_$dma_stop` would report one
+byte still owed on **every** completed transfer, and a driver that believes it --
+which this page instructs it to -- starts a second DMA the device has nothing to
+fill. That is the same shape as the two defects the cartridge-restore item
+closed, and it would have been invisible to every existing test, because each of
+them asks whether the right bytes arrived rather than what the register says
+afterwards.
+
+### What was checked
+
+The count is already right: `ap_i8237.c` takes `expired = current_count == 0`
+*before* decrementing, so a finished channel wraps to `FFFF` exactly as the
+datasheet requires. No code changed. Two tests now hold it there, and both read
+the register **back over the bus** -- clear the byte-pointer flip-flop, two byte
+reads -- because that is the only path a driver has to it:
+
+- `test_a_finished_channel_reports_no_residual_to_the_driver`: sixteen cartridge
+  bytes against a count of sixteen, then `count == FFFF` and `count + 1 == 0`.
+- `test_a_short_transfer_reports_what_is_still_owed`: 4,096 bytes asked for
+  against a cartridge that hands over 1,536, and the residual is exactly 2,560.
+  Bounded at the *device* -- the assertion that the drive stopped asking comes
+  first -- so the loop's length is not what ends the transfer.
+
+*Verification*: `dma_suite` 18 -> 20.
