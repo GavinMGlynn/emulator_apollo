@@ -5041,6 +5041,30 @@ discipline throughout.
       host's count expires. **The next measurement is the oracle's 8237**, whose
       residue would say directly whether it reaches zero. Detail in
       `FINDINGS.md` C284.
+      **`28001E` IS GONE, 2026-09-12.** The oracle's 8237 at the last mark reads
+      count `21FE` where this core left `21FF` -- 24,065 bytes against 24,064,
+      **47 whole blocks plus one byte**, which is `dack_r` returning
+      `m_ctape_block_buffer[0]` on the cycle that discovers the mark.
+      **But the byte cannot simply be delivered**: unconditionally it breaks the
+      boot, which reports p. 4-17's `FF` and never starts the restore -- MD
+      tolerates a transfer in which nothing moved and not one in which a single
+      byte did. **Both are right, and instrumenting *both* of MAME's mark
+      branches shows why**: `MARK-in-read_block` fires at the boot's marks and
+      `dack_r`'s branch never does, while the restore's mark is `dack_r`'s. So
+      **the byte crosses only when the host's DMA is the thing that finds it**,
+      and `sc499.cpp`'s flow control says when that is -- the read-ahead's
+      `m_read_block_pending` is set after each block and **cleared by `eop_w`**,
+      so the card reads one block ahead of the host's *completed* transfers.
+      `dma_active` is that question here, and gating the byte on it passes the
+      boot and still delivers at the restore.
+      *A block-time race was tried first and was a fudge*, letting the byte
+      cross at the boot's mark too; the flow-control reading is derived rather
+      than tuned.
+      **What remains is a later, different failure**: the restore still stops at
+      396, now on `002398-04` p. 4-14's **`(00280022) controller timeout`** --
+      read from the page image. The residual-count gate this item has been about
+      since C271 is satisfied; the driver now issues its next command and the
+      controller does not answer in time. Detail in `FINDINGS.md` C285.
       *How to bound it, written down because deriving it is most of the cost.*
       The route is `tools/dn5500/README.md`'s: `tools/dn5500-md.sh` with
       `--boot-script tools/dn5500/restore.script`, a copy of

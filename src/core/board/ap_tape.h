@@ -190,6 +190,18 @@ typedef struct {
    * the block. A document describing the card's buffer, or a probe of real
    * hardware, closes it. */
   bool first_block_pending;
+  /* **The file mark's one byte has crossed the host's bus.**
+   *
+   * A READ that runs into a mark hands the host **one** more byte -- the mark
+   * block's first -- and then stops. Measured on the oracle at the cartridge's
+   * last mark, where its driver reads the channel's count as `21FE` against
+   * this core's `21FF`: 24,065 bytes against 24,064, which is 47 whole blocks
+   * plus one. `FINDINGS.md` C285.
+   *
+   * It is *not* the block: 512 bytes of `DEAFFAED` would land in whatever the
+   * host was loading, and `FINDINGS.md` C266 is the measurement that says so.
+   * One byte, once, and the ending follows it. */
+  bool mark_byte_sent;
 } ap_tape_t;
 
 /* First use. See `ap_qic_init`: the drive's reset keeps its media, so it cannot

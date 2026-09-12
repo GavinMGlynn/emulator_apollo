@@ -17359,3 +17359,73 @@ until the host's count expires. Whether that is a defect in the oracle or the
 behaviour of the real card is exactly the question, and it is the one worth
 measuring next -- **on the oracle's 8237**, whose terminal count would say
 directly whether its residue reaches zero.
+
+
+## C285 -- the mark's byte crosses only when the host's DMA finds it, and `28001E` is gone
+
+C284 established from the driver's instructions that `PBU_$DMA_STOP` gates on
+the residual count. The oracle's 8237 was then watched at the cartridge's last
+mark, and the difference from this core is **one byte**.
+
+### The measurement
+
+MAME's driver runs `ATBUS_$DMA_STOP` there at the *same PCs* as ours, reads the
+same status, and reads a different count:
+
+    APX dmaR 08 = 00 pc=3c40ee14      the 8237's status: no terminal count
+    APX dmaW 0a = 05 pc=3c40ee28      mask the channel
+    APX dmaR 03 = fe pc=3c40ee3a      count low
+    APX dmaR 03 = 21 pc=3c40ee48      count high  -> 21FE
+    APX cmd c0 pos=104839 status=27   READ STATUS
+    APX cmd 80 pos=104839 status=27   READ DATA -- and on it goes
+
+`21FE` against this core's `21FF`: **24,065 bytes transferred against 24,064**,
+which is 47 whole blocks plus **one byte**. MAME's `dack_r` returns
+`m_ctape_block_buffer[0]` on the cycle that discovers the mark.
+
+### Why the byte cannot simply be delivered, which cost two runs
+
+Delivering it unconditionally **breaks the boot**: `EX DOMAIN_OS` reports
+`002398-04` p. 4-17's `FF`, "timeout waiting for controller done", and the
+restore never starts. MD tolerates a transfer in which *nothing* moved and not
+one in which a single byte did.
+
+**Both are right, and the oracle does both.** Instrumenting *both* of MAME's
+mark branches settles it:
+
+    APB MARK-in-read_block pos=17 status=7f     the boot's first mark
+    APB MARK-in-read_block pos=23 status=67     its second
+    (MARK-in-dack_r never fires during the boot)
+
+against the restore's, where `MARK-in-dack_r` is the one that fires. **The byte
+crosses only when the host's DMA is the thing that discovers the mark.**
+
+### And `sc499.cpp`'s flow control says why
+
+`m_read_block_pending` is set by the read-ahead timer after each block and
+**cleared by `eop_w`**, so the card reads one block *ahead of the host's
+completed transfers*. The boot issues sixteen transfers, each reaching terminal
+count; after the sixteenth there is nothing in flight, the read-ahead takes the
+mark, and no byte crosses. The restore runs one continuous 64-block transfer
+whose DACKs never stop, so the demand reaches the mark first and one byte does.
+
+**`dma_active` is that question on this card** -- the DMAGO latch, cleared at
+terminal count -- so the byte is owed only while it is set. Three call sites, no
+new state beyond the one bit that says the byte has gone.
+
+*A block-time race was tried first and was a fudge*: it let the byte cross at the
+boot's mark too, because this core's DACK pacing never falls a block behind. The
+flow-control reading replaced it, and it is derived rather than tuned.
+
+### The result
+
+**`28001E` is gone.** The restore reaches the same 396 entries and stops on
+`002398-04` p. 4-14's **`(00280022) controller timeout`** instead -- read from
+the page image, not inferred. So the residual-count gate that this item has been
+about since C271 is satisfied, and what remains is a later and different
+failure: the driver issues its next command and the controller does not answer
+in time.
+
+*Verification: the boot gate passes -- no `Tape read error`, `Do you wish to
+proceed? (Y/N): Y`, and the restore runs -- where every previous attempt to
+deliver the byte died at `EX DOMAIN_OS`. `ctest` 147/147.*

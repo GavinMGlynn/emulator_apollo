@@ -500,6 +500,63 @@ static void test_a_read_the_drive_ends_also_ends_the_dma(void) {
                    0u);
 }
 
+/* **With nothing in flight the card's own read-ahead takes the mark, and no
+ * byte crosses.**
+ *
+ * The pair to the test below, and the distinction is the whole of
+ * `FINDINGS.md` C285. Instrumenting *both* of MAME's mark branches shows which
+ * fires where: at the SR10.4 boot's marks it is `MARK-in-read_block`, the
+ * read-ahead timer, and `dack_r`'s branch never fires at all; at the restore's
+ * last mark it is `dack_r`. `sc499.cpp`'s flow control says why --
+ * `m_read_block_pending` is set by the timer after each block and **cleared by
+ * `eop_w`**, so the card reads one block ahead of the host's *completed*
+ * transfers.
+ *
+ * **And the boot is what enforces it.** Hand the byte over regardless and
+ * `EX DOMAIN_OS` reports `002398-04` p. 4-17's `FF`, "timeout waiting for
+ * controller done": MD tolerates a transfer in which nothing moved and not one
+ * in which a single byte did. `dma_active` -- the DMAGO latch, cleared at
+ * terminal count -- is that question on this card. */
+static void test_a_mark_found_with_nothing_in_flight_sends_no_byte(void) {
+  ap_tape_t t;
+  arm(&t);
+  /* The second of the two blocks is a mark, so the first is a whole file. */
+  for (unsigned i = 0; i < AP_CT_BLOCK_SIZE; i++) {
+    cartridge[AP_CT_BLOCK_SIZE + i] =
+        (uint8_t)(AP_CT_FILE_MARK_WORD >> (8u * (3u - (i & 3u))));
+  }
+  issue(&t, AP_QIC_CMD_SELECT);
+  issue(&t, AP_QIC_CMD_READ);
+
+  /* **No DMAGO**: the host has nothing outstanding, which is the state the
+   * boot's sixteenth transfer leaves behind when its terminal count clears the
+   * latch. */
+  TEST_ASSERT_FALSE(t.controller.dma_active);
+
+  /* Run the first block out through DACK, then let the tape reach the mark. */
+  for (unsigned i = 0; i < AP_CT_BLOCK_SIZE; i++) {
+    if (i > 0u) {
+      clock_now += AP_SC499_T_BYTE;
+      ap_tape_advance(&t, clock_now);
+    }
+    (void)ap_tape_dma_read(&t);
+  }
+  clock_now += AP_SC499_T_BYTE;
+  ap_tape_advance(&t, clock_now);
+
+  /* **The line is not raised for the mark's byte**, because nothing is in
+   * flight to take it. */
+  TEST_ASSERT_FALSE(ap_tape_dma_request(&t));
+
+  /* And the ending lands on the clock with no byte owed. */
+  clock_now += 1u;
+  ap_tape_advance(&t, clock_now);
+  TEST_ASSERT_FALSE(t.drive.reading);
+  TEST_ASSERT_TRUE(t.drive.file_mark);
+  TEST_ASSERT_TRUE(t.controller.exception);
+  TEST_ASSERT_FALSE(t.mark_byte_sent);
+}
+
 /* **The drive stops asking before the cycle, not after it.**
  *
  * `QIC-02 Rev D` §3.6.6's T38 asserts EXCEPTION at the file mark, and the drive
@@ -550,10 +607,32 @@ static void test_the_drive_stops_asking_at_a_file_mark(void) {
   TEST_ASSERT_FALSE(ap_tape_dma_request(&t));
   TEST_ASSERT_TRUE(t.drive.reading);
 
-  /* The ending lands with the clock, where the tape reaches the mark: `FIL`
-   * latched, EXCEPTION up, and the sequencer with nothing in flight. One tick
-   * is enough -- the ending is a fact about the tape's position, not a
-   * deadline. */
+  /* **And then the line comes back up for exactly one more byte: the mark's.**
+   *
+   * Measured on the oracle at the cartridge's last mark. Its driver stops the
+   * DMA there and reads the channel's current count as `21FE` where this core
+   * left `21FF` -- 24,065 bytes transferred against 24,064, which is 47 whole
+   * blocks plus **one byte**. MAME's `dack_r` returns
+   * `m_ctape_block_buffer[0]` on the cycle that discovers the mark, and that
+   * single byte is the whole difference between a restore that reaches 401
+   * entries and one that stops at 396. `FINDINGS.md` C285.
+   *
+   * **One byte, not the block**: 512 bytes of `DEAFFAED` would land in whatever
+   * the host was loading, which is what `FINDINGS.md` C266 refused and was
+   * right to. */
+  clock_now += AP_SC499_T_BYTE;
+  ap_tape_advance(&t, clock_now);
+  TEST_ASSERT_TRUE(ap_tape_dma_request(&t));
+  TEST_ASSERT_TRUE(t.drive.reading);
+  TEST_ASSERT_FALSE(t.controller.exception);
+  TEST_ASSERT_EQUAL_HEX8((uint8_t)(AP_CT_FILE_MARK_WORD >> 24u),
+                         ap_tape_dma_read(&t));
+  /* And only one: a second cycle would put tape structure in the buffer. */
+  TEST_ASSERT_FALSE(ap_tape_dma_request(&t));
+
+  /* Then the ending lands with the clock: `FIL` latched, EXCEPTION up, and the
+   * sequencer with nothing in flight. One tick is enough -- the ending is a
+   * fact about the tape's position, not a deadline. */
   clock_now += 1u;
   ap_tape_advance(&t, clock_now);
   TEST_ASSERT_FALSE(t.drive.reading);
@@ -1147,6 +1226,7 @@ int main(void) {
   RUN_TEST(test_a_refused_command_raises_exception);
   RUN_TEST(test_running_off_the_end_raises_exception);
   RUN_TEST(test_a_read_the_drive_ends_also_ends_the_dma);
+  RUN_TEST(test_a_mark_found_with_nothing_in_flight_sends_no_byte);
   RUN_TEST(test_the_drive_stops_asking_at_a_file_mark);
   RUN_TEST(test_the_measured_dump_is_reproduced);
   RUN_TEST(test_the_write_only_commands_are_reachable_by_writing);

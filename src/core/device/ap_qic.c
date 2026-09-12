@@ -346,6 +346,11 @@ bool ap_qic_at_file_mark(const ap_qic_t *qic) {
   return ap_ct_block_is_file_mark(&qic->image, qic->position);
 }
 
+uint8_t ap_qic_file_mark_byte(const ap_qic_t *qic) {
+  (void)qic;
+  return (uint8_t)(AP_CT_FILE_MARK_WORD >> 24);
+}
+
 void ap_qic_end_read(ap_qic_t *qic) {
   if (!ap_qic_read_exhausted(qic)) {
     return;

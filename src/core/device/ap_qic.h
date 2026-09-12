@@ -442,6 +442,23 @@ void ap_qic_eject(ap_qic_t *qic);
  * (`FINDINGS.md` C281). */
 [[nodiscard]] bool ap_qic_at_file_mark(const ap_qic_t *qic);
 
+/* The one byte a file mark puts on the host's bus, which is the mark block's
+ * first.
+ *
+ * **Measured on the oracle at the cartridge's last mark** (`FINDINGS.md` C285):
+ * its driver stops the DMA there with the channel's count at `21FE` where this
+ * core left `21FF` -- 24,065 bytes transferred against 24,064, which is 47 whole
+ * blocks plus **one byte**. MAME's `dack_r` returns
+ * `m_ctape_block_buffer[0]` on the cycle that discovers the mark, and that byte
+ * is the whole of the difference between a restore that reaches 401 entries and
+ * one that stops at 396.
+ *
+ * Every word of a mark block is `AP_CT_FILE_MARK_WORD` -- which is what
+ * `ap_ct_block_is_file_mark` has established of the block at this position,
+ * comparing all 128 of them -- so its first byte is that word's most
+ * significant, the format being big-endian. */
+[[nodiscard]] uint8_t ap_qic_file_mark_byte(const ap_qic_t *qic);
+
 /* End a READ that `ap_qic_read_exhausted` says has run out: latch `FIL` and
  * step past the mark, or latch `NDT` and stay where the tape ended, and clear
  * the read either way. Does nothing if the read has not run out, so a caller

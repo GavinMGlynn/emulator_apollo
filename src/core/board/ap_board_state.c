@@ -565,6 +565,10 @@ void ap_board_hash_tape(ap_hash_t *st, const ap_tape_t *tape) {
     ap_hash_bytes(st, tape->status_block, AP_QIC_STATUS_BYTES);
   }
   hash_bool(st, tape->first_block_pending);
+  /* The mark's one byte, spent between the cycle that carries it and the
+   * ending that follows: a run stopped between the two differs from one
+   * stopped either side. */
+  hash_bool(st, tape->mark_byte_sent);
 }
 
 void ap_board_hash_graphics(ap_hash_t *st, const ap_graphics_t *graphics) {

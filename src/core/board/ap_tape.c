@@ -32,6 +32,7 @@ void ap_tape_reset(ap_tape_t *tape) {
   tape->status_offset = 0u;
   tape->status_valid = false;
   tape->next_byte_at = 0u;
+  tape->mark_byte_sent = false;
   /* Armed by the reset, which is where the tape is at BOT. */
   tape->first_block_pending = true;
 
@@ -116,6 +117,32 @@ void ap_tape_advance(ap_tape_t *tape, ap_time_t now) {
      * The **end of the medium** keeps DONE, because nothing follows it and the
      * host has no next file to read. */
     const bool at_mark = ap_qic_at_file_mark(&tape->drive);
+    /* **A mark's byte crosses only if the host's DMA is the thing that finds
+     * it**, and that is a race this core has to hold open rather than decide.
+     *
+     * Measured on both sides of the oracle. At the SR10.4 boot's marks (blocks
+     * 16 and 22) MAME reaches them through its **read-ahead timer** --
+     * `MARK-in-read_block`, and `dack_r`'s branch never fires -- so **no byte
+     * crosses**, and MD is satisfied. At the restore's last mark (104,838) it
+     * is `dack_r` that discovers it, **one byte crosses**, and the driver reads
+     * the channel's count as `21FE` where this core left `21FF`.
+     *
+     * **The difference is whether a transfer was still in flight**, and
+     * `sc499.cpp`'s flow control says so exactly: its read-ahead timer sets
+     * `m_read_block_pending` after each block and **`eop_w` clears it**, so the
+     * card reads one block *ahead of the host's completed transfers*. After the
+     * boot's sixteenth transfer reaches terminal count there is nothing in
+     * flight, the read-ahead takes the mark, and no byte crosses. Through the
+     * restore's single 64-block transfer the DACKs never stop, so the demand
+     * reaches it first and one byte does.
+     *
+     * `dma_active` is that question on this card -- the DMAGO latch, cleared at
+     * terminal count -- so the byte is owed only while it is set.
+     * `FINDINGS.md` C285. */
+    if (at_mark && tape->controller.dma_active && !tape->mark_byte_sent) {
+      return;
+    }
+    tape->mark_byte_sent = false;
     ap_qic_end_read(&tape->drive);
     ap_sc499_set_exception(&tape->controller, true);
     if (at_mark) {
@@ -310,6 +337,17 @@ static uint8_t tape_read_impl(ap_tape_t *tape, uint32_t address,
      * all, which is how the reads were shown to fall *between* transfers). */
     if (!via_dack) {
       return 0x00u;
+    }
+    /* **The mark's one byte**, before the ending and before any attempt to
+     * fetch a block that is not there. See `ap_tape_t::mark_byte_sent`: the
+     * oracle's driver reads the channel's count one byte further on than this
+     * core left it, and that byte is this one. */
+    if (needs_block(tape) && !tape->mark_byte_sent &&
+        tape->controller.dma_active && ap_qic_at_file_mark(&tape->drive)) {
+      tape->mark_byte_sent = true;
+      tape->controller.direction = true;
+      tape->next_byte_at = tape->controller.now + AP_SC499_T_BYTE;
+      return ap_qic_file_mark_byte(&tape->drive);
     }
     if (!ensure_block(tape)) {
       ap_sc499_set_exception(&tape->controller, true);
@@ -652,6 +690,16 @@ bool ap_tape_dma_request(const ap_tape_t *tape) {
   }
   if (!needs_block(tape)) {
     return true;
+  }
+  /* **A file mark is one byte the drive does have.** The line stays up for
+   * exactly one more cycle here and goes down once that byte has gone; the end
+   * of the medium is the other ending and has nothing to send.
+   * `FINDINGS.md` C285. */
+  if (ap_qic_at_file_mark(&tape->drive)) {
+    /* Offered only while a transfer is in flight -- see `ap_tape_advance`: with
+     * nothing in flight the card's own read-ahead takes the mark and no byte
+     * crosses. */
+    return tape->controller.dma_active && !tape->mark_byte_sent;
   }
   return !ap_qic_read_exhausted(&tape->drive);
 }
