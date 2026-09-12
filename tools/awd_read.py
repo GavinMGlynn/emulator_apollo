@@ -50,18 +50,32 @@ block there is zeros. So the VTOCX-to-block step does not land, and this tool
 prints the decode and the empty result rather than inventing a base to make it
 fit.
 
-**A DS5500 block is four sectors, which is why a DADDR does not index one.**
+**A DS5500 block is four sectors, and the layout is per cylinder.**
+
 Four consecutive 1056-byte sectors carry one logical block, all four with the
 same header -- UID, page and DADDR. That is the **4 KB block** `[RN104]` names
-for SAU 11, 12 and 14 (SS4.10.3 "4-KB disk block size", SS5.5 "4K-page machines").
-On a DN3500 volume every block's `daddr` equals its sector index; on a DS5500
-volume almost none does, which is the check `tools/kernel_symbols.py` has always
-made and which that volume has always failed.
+for SAU 11, 12 and 14 (SS4.10.3 "4-KB disk block size", SS5.5 "4K-page
+machines"). On a DN3500 volume every block's `daddr` equals its sector index; on
+a DS5500 volume almost none does, which is the check `tools/kernel_symbols.py`
+has always made and which that volume has always failed -- correctly.
 
-`vtoc_entry` below therefore reads zeros on a DS5500 image: it takes a DADDR for
-a sector index. **The mapping is not a single affine `4*daddr + c`** -- near the
-start `c` is 0 and at sector 165750 it is 1226 -- so it is not applied here, and
-the tool prints the decode and the empty result rather than guessing one.
+**The mapping is not affine, it is per cylinder, and the label supplies every
+term.** The physical label gives 18 blocks per track and 15 tracks per cylinder,
+so a cylinder is **270 sectors**; 270 does not divide by 4, so a cylinder holds
+**67 blocks and two sectors go spare**:
+
+    sector = (daddr // 67) * 270 + (daddr % 67) * 4
+
+Verified on 541 sampled blocks of the restored DS5500 volume -- every one whose
+header is a real header agrees -- and on the two landmarks the volume names
+itself: the VTOC's first extent, `daddr 40901`, lands on sector 164824 whose own
+header reads `daddr 40901`; and the root directory's page 0, `daddr 41131`,
+lands on sector 165750, which is where a search for its UID had already found
+it.
+
+`sectors_per_block` is derived rather than assumed -- 1 where a label block's
+`daddr` equals its sector index, 4 where it does not -- so the same code reads
+both families.
 
 **The VTOC header is not what changed** -- `[EH1]` Apr 83 p. 5-22 and `[EH3]`
 Feb 85 p. 2-24 print it identically, and this reads it coherently off a 1992
@@ -112,8 +126,33 @@ def uid(b, off):
 
 
 class Volume:
-    def __init__(self, data):
+    def __init__(self, data, sectors_per_block=None, sectors_per_cylinder=None):
         self.data = data
+        # Both are derived from the image itself below, once the physical label
+        # has been read; the arguments exist so a test can state them.
+        self.sectors_per_block = sectors_per_block or 1
+        self.sectors_per_cylinder = sectors_per_cylinder or 0
+
+    def blocks_per_cylinder(self):
+        """Whole blocks in a cylinder; the remainder of the division is spare."""
+        if self.sectors_per_cylinder == 0 or self.sectors_per_block == 0:
+            return 0
+        return self.sectors_per_cylinder // self.sectors_per_block
+
+    def sector_of(self, daddr):
+        """The first sector of the block a DADDR names.
+
+        Identity where a block is one sector. Otherwise the cylinder walk
+        above, because `sectors_per_cylinder` need not divide by the block's
+        size and the leftover sectors are skipped rather than packed.
+        """
+        if self.sectors_per_block == 1:
+            return daddr
+        per = self.blocks_per_cylinder()
+        if per == 0:
+            return daddr
+        return ((daddr // per) * self.sectors_per_cylinder +
+                (daddr % per) * self.sectors_per_block)
 
     def blocks(self):
         return len(self.data) // BLOCK
@@ -139,6 +178,37 @@ class Volume:
             "chksum": u16(h, 0x1A),
             "daddr": u32(h, 0x1C),
         }
+
+    def block_of_daddr(self, daddr):
+        """The 1024 bytes of data of the block a DADDR names."""
+        return self.block(self.sector_of(daddr))
+
+    def header_of_daddr(self, daddr):
+        return self.block_header(self.sector_of(daddr))
+
+    def derive_geometry(self, pv):
+        """Fill `sectors_per_block` and `sectors_per_cylinder` from the volume.
+
+        The physical label gives the cylinder; the block's size in sectors is
+        read off the labels themselves -- a block that is one sector has a
+        header whose `daddr` is its own index, and one that is four does not.
+        """
+        self.sectors_per_cylinder = (pv["blocks_per_track"] *
+                                     pv["tracks_per_cyl"])
+        self.sectors_per_block = 1
+        lv = self.find_label(LV_LABEL_UID_HIGH)
+        if lv is None:
+            return
+        head = self.block_header(lv)
+        if head["daddr"] != lv and head["daddr"] != 0:
+            # Four is the only other size this shelf documents: `[RN104]`'s
+            # 4-KB block against a 1024-byte one. Checked rather than assumed.
+            for candidate in (4, 2, 8):
+                self.sectors_per_block = candidate
+                if self.sector_of(head["daddr"]) <= lv < (
+                        self.sector_of(head["daddr"]) + candidate):
+                    return
+            self.sectors_per_block = 1
 
     def find_label(self, uid_high, search=8):
         """The block index of the first block claimed by a canned label UID."""
@@ -305,6 +375,7 @@ def show(path, args):
     if pv is None:
         print(f"{path}: no Apollo physical volume label", file=sys.stderr)
         return 1
+    vol.derive_geometry(pv)
     lv = lv_label(vol)
     print(f"{path}: {vol.blocks()} blocks of {BLOCK} "
           f"({HEADER} header + {DATA} data)")
@@ -316,6 +387,9 @@ def show(path, args):
     print(f"    geometry       {pv['blocks_per_track']} blocks/track, "
           f"{pv['tracks_per_cyl']} tracks/cylinder")
     print(f"    lv_list        {[hex(x) for x in pv['lv_list'] if x]}")
+    print(f"    block          {vol.sectors_per_block} sector(s); "
+          f"{vol.blocks_per_cylinder()} per {vol.sectors_per_cylinder}-sector "
+          f"cylinder, {vol.sectors_per_cylinder - vol.blocks_per_cylinder() * vol.sectors_per_block} spare")
     if lv is None:
         print("  logical label    absent")
         return 0
@@ -331,6 +405,14 @@ def show(path, args):
           f"{lv['bat']['n_blk']} blocks, trouble {lv['bat']['vol_trouble']:08X}")
     print(f"    vtoc           version {v['version']}, {v['vtoc_blocks']} "
           f"blocks used, hash over {v['vtoc_size']}")
+    for i, (count, add) in enumerate(v["map"]):
+        if count == 0 and add == 0:
+            continue
+        sector = vol.sector_of(add)
+        head = vol.block_header(sector)
+        agree = "agrees" if head["daddr"] == add else f"says {head['daddr']}"
+        print(f"    vtoc extent    {count} blocks at DADDR {add} "
+              f"-> sector {sector}, whose header {agree}")
     for name in ("net_x", "root_x", "os_x", "boot_x"):
         d = vtocx(v[name])
         print(f"    {name:<14} {v[name]:08X}  {d}")

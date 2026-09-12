@@ -144,6 +144,59 @@ class Indices(unittest.TestCase):
         self.assertEqual((0x04, 0xD0, 0x19C, 0x268, 0x334), A.VTOCE_AT)
 
 
+class Geometry(unittest.TestCase):
+    """A DADDR names a block; a block need not be one sector.
+
+    The restored DS5500 volume's own numbers: 18 blocks per track and 15 tracks
+    per cylinder from the physical label, four sectors to a 4-KB block, so 67
+    blocks per 270-sector cylinder and **two sectors spare** -- 270 does not
+    divide by four. Both landmarks the volume names itself land exactly:
+
+        daddr 40901 (the VTOC's first extent) -> sector 164824
+        daddr 41131 (the root directory, page 0) -> sector 165750
+    """
+
+    def ds5500(self):
+        return A.Volume(b"", sectors_per_block=4, sectors_per_cylinder=270)
+
+    def test_a_cylinder_holds_whole_blocks_and_spares_the_remainder(self):
+        v = self.ds5500()
+        self.assertEqual(67, v.blocks_per_cylinder())
+        self.assertEqual(
+            2, v.sectors_per_cylinder - v.blocks_per_cylinder() * v.sectors_per_block)
+
+    def test_the_two_landmarks_the_volume_names_itself(self):
+        v = self.ds5500()
+        self.assertEqual(164824, v.sector_of(40901))
+        self.assertEqual(165750, v.sector_of(41131))
+
+    def test_the_first_blocks_are_where_a_naive_reading_expects(self):
+        """Which is why the mapping was invisible for so long: it agrees with
+        `4 * daddr` for the whole first cylinder and diverges after it."""
+        v = self.ds5500()
+        for daddr in range(0, 67):
+            self.assertEqual(4 * daddr, v.sector_of(daddr))
+        self.assertEqual(270, v.sector_of(67))
+        self.assertNotEqual(4 * 67, v.sector_of(67))
+
+    def test_a_one_sector_block_is_the_identity(self):
+        """A DN3500 volume, where `daddr == index` for every block -- which is
+        the check `tools/kernel_symbols.py` makes."""
+        v = A.Volume(b"", sectors_per_block=1, sectors_per_cylinder=270)
+        self.assertEqual(270, v.blocks_per_cylinder())
+        for daddr in (0, 1, 269, 270, 160110, 164701):
+            self.assertEqual(daddr, v.sector_of(daddr))
+
+    def test_the_block_size_is_derived_from_the_labels(self):
+        """Not assumed: a label block whose header `daddr` is its own index is
+        one sector, and one whose is not is four."""
+        vol = build()
+        pv = A.pv_label(vol)
+        vol.derive_geometry(pv)
+        self.assertEqual(18 * 15, vol.sectors_per_cylinder)
+        self.assertEqual(1, vol.sectors_per_block)
+
+
 class FileMap(unittest.TestCase):
     def test_the_entry_and_its_file_map_read_back(self):
         vol = build()

@@ -4733,10 +4733,20 @@ discipline throughout.
       zeros because it took one for the other, and
       `tools/kernel_symbols.py`'s long-standing "blocks' DADDRs do not match
       their positions" rejection of these volumes is **correct**.
-      **Still open**: the mapping is not a single affine `4·daddr + c` -- near
-      the start `c` is 0, at sector 165750 it is 1226 -- and what inserts the
-      difference is not established. The tool prints the decode and the empty
-      result rather than guessing a base.
+      **And the mapping is solved**: it is per *cylinder*, from the label's own
+      geometry. 18 blocks/track × 15 tracks/cylinder = **270 sectors**, which
+      does not divide by 4, so a cylinder holds **67 blocks and 2 sectors go
+      spare** — `sector = (daddr // 67) * 270 + (daddr % 67) * 4`. Verified on
+      541 sampled blocks and on both landmarks the volume names itself; a
+      DN3500 volume derives one sector per block by the same route and the
+      formula becomes the identity. `tools/awd_read.py` implements it,
+      `tools/test_awd_read.py` 10 → 15.
+      **What is left is one measured oddity, not a parsing question**: this
+      volume's `.root_x` names DADDR 39730 and **no block in the image carries
+      that DADDR**, while the same field on the DN3500 volume resolves exactly
+      as documented — and the DS5500 volume boots Domain/OS regardless. Whether
+      SR10 redefined the field or the restore leaves it stale is not
+      established.
       **Settled which structure changed**: not the VTOC *header* -- `[EH1]`
       Apr 83 and `[EH3]` Feb 85 print it identically and this core reads it
       coherently off a 1992 volume -- but the VTOC **entry**. The root
