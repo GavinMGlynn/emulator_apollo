@@ -4598,8 +4598,8 @@ discipline throughout.
       run each (`tools/dn5500/README.md`'s four corrections to `FINDINGS.md`
       C50, and the CALENDAR preamble in `install-sau14.cmds`). The page map is
       built and every chapter boundary is known; what is owed is the reading.
-      **132 of 295 read as of 2026-09-12** — the Part 1 introduction and
-      Chapters 2 and 6 added, so Chapters 1-6 and 12 are whole. Chapter 2 yielded a
+      **182 of 295 read as of 2026-09-12** — the Part 1 introduction and
+      Chapters 2 and 6 through 9 added, so Chapters 1-9 and 12 are whole. Chapter 2 yielded a
       **route the ring item has been waiting for**: `DI N 0xxx` selects another
       node as the boot device and `EX DOMAIN_OS` boots the target **diskless**
       over the ring, so every page it executes crosses the cable — traffic with
@@ -4608,8 +4608,15 @@ discipline throughout.
       Domain/OS at the standard daemons**, names `crp -on`, `ctnode`,
       `lcnode -me` and `shutspm`, and fixes that **SR10.4 media is cartridge or
       magtape with a cartridge boot volume either way**. Detail in
-      `docs/references/008860-A03_WALK.md`. **What is owed: chapters 7-9, the
-      rest of 10 and 11, the glossary and the index — 163 pages.**
+      `docs/references/008860-A03_WALK.md`. **Chapter 7 gives the media's file layout** — file 1 the administrative
+      objects, **file 2 always the release index**, later files the products,
+      and a worked ANSI label (`Volume ID`, `Owner ID`, `File number`,
+      `File section`, `File ID`, `File written`) — plus a second witness to
+      the SAU table, `sau14 - dn5500`. Chapter 9 names the node's own
+      install state (`install/baseline`, `not_installed`, `preserve.list`,
+      `install/doc`) and labels the first product cartridge
+      **`CRTG_STD_SFW_1`**. **What is owed: the rest of 10 and 11, the
+      glossary and the index — 113 pages.**
 
 - [x] **A finished console script can end its run.**
       `--boot-stop-on-script-end`. The disk image is written once, at exit, so
