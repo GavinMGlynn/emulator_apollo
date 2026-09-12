@@ -4715,8 +4715,21 @@ discipline throughout.
       2. **The 68040's caches are a complete module attached to no CPU**, so
          `CINV`/`CPUSH` are correctly no-ops and every fetch and operand is a
          bus access.
-      3. **`PFLUSH` has no published timing** and is `PROVISIONAL` for that
-         reason; no manual on this shelf gives a figure.
+      3. ~~**`PFLUSH` has no published timing**~~ **— WRONG ON BOTH HALVES,
+         checked 2026-09-12.** The M68040 User's Manual **p. 10-12**, §10.5
+         MISCELLANEOUS INTEGER UNIT INSTRUCTION TIMINGS, prints it: `PFLUSH`
+         and `PFLUSHA` **11 / 1ᴸ+10**, `PFLUSHAN` **27 / 1ᴸ+26**, `PFLUSHN (An)`
+         **11 / 1ᴸ+10**, with `PTESTR/PTESTW` **25 / 11ᴸ+14** beside them; note
+         **b** makes the figures *typical* and note **e** gives `PTEST`'s
+         conditions — "three-level table search with no descriptor writes, no
+         entries cached, and four-clock memory access times". **And the code
+         already carries them**: `ap_m68040_misc_timing.c` has those five rows
+         with exactly those numbers, marked `TYP`. There is **no `PROVISIONAL`
+         anywhere in `src/core/cpu/m68040/`** — zero occurrences. So there was
+         nothing provisional and nothing missing; the claim was stale on both
+         counts. *Original text: "`PFLUSH` has no published timing and is
+         `PROVISIONAL` for that reason; no manual on this shelf gives a
+         figure."*
       4. ~~**Nothing pins the DS5500 against regression.**~~ **DONE
          2026-09-12: `tools/dn5500-identity.sh`.** The bound derives itself --
          `--boot-stop-on-script-end` stops the run when `dn5500-md.script`'s
