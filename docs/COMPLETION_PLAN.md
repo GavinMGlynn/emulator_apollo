@@ -4778,21 +4778,30 @@ discipline throughout.
          8259s** (10 writes in 1.4 G instructions is exactly the PROM's own
          initialisation, master `IMR FF`), and the only interrupt taken in the
          whole run is **one level-7 autovector**, whose only source in this core
-         is the parity NMI. `PC= 000067A8` is *not* an instruction boundary in
-         the PROM and `--boot-stop-pc` on it never fires, so the printed value
-         is read from somewhere rather than executed. **First step is to find
-         out what Test #0 asserts**: the diagnostic is `/sau14/self_test`,
+         is the parity NMI.
+         **Two things are eliminated, same day.** `PC= 000067A8` **carries no
+         information**: the PROM's service dispatcher at `006780` calls a
+         service with a *two*-byte `JSR (A3)` at `0067AA`, and the failure
+         reporter at `006982` backs up over a *four*-byte call, so the printed
+         address is a constant that overshoots the dispatch site by two and is
+         the same for every failure reported through that service. That is why
+         it is not an instruction boundary and why `--boot-stop-pc` on it never
+         fired. And the single level-7 autovector is the **PROM testing its own
+         NMI** inside `CPU Test # 7` -- `--boot-stop-on-vector 31` puts it at
+         PC `00007C26` after 4,409,400 instructions, with `NMI_ENABLE` set and
+         a parity bit in the status register, 4 M instructions before SELF_TEST
+         loads. This core delivers it and Test #7 passes.
+         **What remains is what Test #0 asserts**, and the place to look is
+         inside the loaded diagnostic rather than the PROM: `/sau14/self_test`,
          loaded at `01002000`-`01003A14`, entered at `01002020`, and nothing has
          disassembled it. Detail in `PROJECT_STATUS.md`.
-         **A cheap instrument exists and has not been used**: a fault diagnostic
-         record (`fault_$diag_t`) begins with the magic pattern **`DFDF`**, which
-         `[EH1]`, `[EH3]` p. 1-8 and `[EH3]`'s Rev 4 counterpart all give and
-         `[AEGIS]` §18.2.4.1 says the common fault handler writes — so one is
-         findable in a memory dump by searching for that halfword, and it
-         carries the status word, the register file, `bus_info` (read/write,
-         instruction-or-not, and the FC2-FC0 function code) and flags. If the
-         failing test left one, dumping memory and grepping `DFDF` answers what
-         `PC= 000067A8` means without disassembling anything.
+         **One instrument named and not used**: a fault diagnostic record
+         (`fault_$diag_t`) begins with the pattern **`DFDF`**, which `[EH1]`,
+         `[EH3]` p. 1-8 and Rev 4 all give and `[AEGIS]` §18.2.4.1 says the
+         common fault handler writes, so one left in memory is findable with
+         `--dump-mem` and a search for that halfword. *Whether a stand-alone
+         diagnostic writes one at all is unknown* -- the handler that does is
+         AEGIS's, and SELF_TEST runs without AEGIS.
       3. ~~**`PFLUSH` has no published timing**~~ **— WRONG ON BOTH HALVES,
          checked 2026-09-12.** The M68040 User's Manual **p. 10-12**, §10.5
          MISCELLANEOUS INTEGER UNIT INSTRUCTION TIMINGS, prints it: `PFLUSH`
