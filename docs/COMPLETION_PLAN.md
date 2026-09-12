@@ -4687,6 +4687,28 @@ discipline throughout.
       machine class, not an addition beside it, and the model table will have to
       say which a given machine has.
 
+- [ ] **An offline volume reader, now that the whole chain is documented.**
+      New 2026-09-12, from the `002398-03` 600-dpi figure read. Every link from
+      a raw `.awd` to a named file is on paper and in the walk record: the
+      **physical volume label** in the block whose header UID is `00000200,0`,
+      its `.lv_list[1..10]`; the **logical volume label** at `00000201,0`, whose
+      `+4C` VTOC header gives `.root_x`, `.os_x` and `.boot_x`; the **VTOC
+      block**, 4 + five 0xCC-byte **VTOC entries**; the entry's **file map**,
+      32 direct pointers and three indirect levels; and the **block header**
+      that says which object and which page every 1056-byte block is.
+      `image/ap_volume.c` now walks the first of those and nothing walks the
+      rest.
+      **Why it is worth having**: the `sau14` check of 2026-09-12 was done by
+      grepping the image for names, which is how a wrong block number got into
+      a living document and had to be corrected. A reader that followed
+      `.root_x` would have been right by construction. It would also answer
+      "is this volume bootable" from `.os_x`/`.boot_x` rather than from a boot.
+      **What is *not* documented**: the SR10 directory's own entry format. Rev
+      3's `dir_entry_t` describes a 1985 layout an SR10.4 volume does not use --
+      measured, in the walk record -- so the reader stops at the root directory
+      until that is settled, which is a question for `002398-04` or `[AEGIS]`
+      rather than for more measurement.
+
 - [x] **The DS5500's address translation map is 4 KB — implemented 2026-08-22.**
       `019411-A00` Table 2-5 gives `017000`-`017FFF` against `[S3K]` §2.5's
       `017000`-`0177FF`. **The firmware evidence checked first, as this item
