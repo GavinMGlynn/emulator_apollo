@@ -4801,10 +4801,20 @@ discipline throughout.
          PC `00007C26` after 4,409,400 instructions, with `NMI_ENABLE` set and
          a parity bit in the status register, 4 M instructions before SELF_TEST
          loads. This core delivers it and Test #7 passes.
-         **What remains is what Test #0 asserts**, and the place to look is
-         inside the loaded diagnostic rather than the PROM: `/sau14/self_test`,
-         loaded at `01002000`-`01003A14`, entered at `01002020`, and nothing has
-         disassembled it. Detail in `PROJECT_STATUS.md`.
+         **And the verdict is made in the PROM, not in the diagnostic.**
+         `--boot-stop-pc 0000693C` -- the failure service's own entry -- stops
+         at 409,104,809 instructions with **no `0100xxxx` address anywhere in
+         the 200-step window**. The path is `001CB8` -> `BSR $0005C4` -> a jump
+         table at `001CD2` indexed by the returned `D0`, whose **entry 2** is
+         `0000677C`, the service dispatcher. So `D0 = 2` is the failure verdict
+         and `0005C4` is the test: it masks interrupts with `ORI.W #$0700,SR`,
+         points `A6` at the reset SSP, calls `$002750`, and on a zero result
+         calls `$002BA0` -- which is the arm that ran, deduced from the report's
+         `unmapped ... 0 written` because the other arm writes outside every
+         mapped region.
+         **Next is to read `$002750` and `$002BA0`.** Nothing so far says the
+         verdict is *wrong*; a real DS5500 may fail this test too. Detail in
+         `PROJECT_STATUS.md`. Detail in `PROJECT_STATUS.md`.
          **One instrument named and not used**: a fault diagnostic record
          (`fault_$diag_t`) begins with the pattern **`DFDF`**, which `[EH1]`,
          `[EH3]` p. 1-8 and Rev 4 all give and `[AEGIS]` §18.2.4.1 says the

@@ -555,6 +555,52 @@ reporter itself `BSR`s to, and `[3]` is `693C`, immediately above the failure
 reporter. So entry 3 is "report a self-test failure" and the diagnostic reached
 it the ordinary way.
 
+### The verdict is made in the boot PROM, not in the loaded diagnostic
+
+`--boot-stop-pc 0000693C` — the failure service's own entry, table slot 3 —
+stops at **409,104,809 instructions** with a 200-step trace, and **not one
+address in that window is in `0100xxxx`**. The whole path is PROM:
+
+    001CB8  MOVEM.L D0/A0/A5/A6,-(A7)
+    001CBC  BSR.W   $0005C4            the test
+    001CC0  LEA     $10(PC),A0         a table at 001CD2
+    001CC4  LSL.L   #2,D0
+    001CC6  MOVEA.L (0,A0,D0.L),A0
+    001CCA  JMP     (A0)
+
+    001CD2: 00001CE2  00001D32  0000677C  …
+
+`0000677C` falls into the service dispatcher at `006780`, so **table entry 2 is
+"report a self-test failure"** and the test at `0005C4` returned `D0 = 2`. That
+is the verdict, and it is made before the diagnostic is involved at all.
+
+The test itself:
+
+    0005C4  ORI.W   #$0700,SR          mask every interrupt
+    0005C8  MOVE.L  A6,-(A7)
+    0005CA  LEA     $01000180,A6       the reset SSP
+    0005D0  BSR.W   $002750
+    0005D4  BEQ.S   $0005E2
+    0005D6  LEA     $7A400180,A6       a second base
+    0005DC  BSR.W   $002AD4
+    0005E0  BRA.S   $0005E6
+    0005E2  BSR.W   $002BA0
+    0005E6  MOVE.L  (A7)+,$66(A5)      the result, into the PROM/diagnostic area
+    0005EA  RTS
+
+**Which branch ran is decided by a counter rather than by the trace**, because
+both arms return to `0005E6`: the `$7A400180` arm writes five longwords at
+`$12C`-`$15C` off that base, which is `7A4002AC`-`7A4002DC` and outside every
+region this core maps — and the boot report says `unmapped 1041 read, **0
+written**`. So no such write happened, the `BEQ` at `0005D4` was taken, and the
+arm that ran is `$002BA0` with `A6` at the reset SSP.
+
+**What this pins down**: the failing verdict is `0005C4`'s, reached with
+interrupts masked at IPL 7, and the two subroutines to read next are `$002750`
+(whose zero/non-zero result picks the arm) and `$002BA0`. Nothing beyond that is
+established, and in particular nothing here says whether the verdict is right —
+a real DS5500 may fail this test too.
+
 ### And the one level-7 autovector is the PROM testing its own NMI, not a defect
 
 `--boot-stop-on-vector 31` puts it at **PC 00007C26 after 4,409,400
