@@ -160,6 +160,12 @@ VTOC_MAGIC = 0xFEDCA984
 VTOC_TRAILER_BYTES = 8
 VTOCE_FIRST = 0x008
 VTOCE_FM = 0x0D0
+# Bit 31 of a file-map pointer is a flag and the address is the low 31 bits.
+# Measured on the DN3500 volume: 160 entries carry it, on the object's last
+# pages in 144 of them and elsewhere in 16, so it is not "the final page" and
+# is not named here. Masking it takes the pointers that resolve against their
+# own block headers from 74,642 to 74,869 of 74,920.
+VTOCE_FM_FLAG = 0x80000000
 # One per block size; both measured, and each fills its block exactly.
 VTOCE_BYTES = {1024: 0x150, 4096: 0x1D0}
 
@@ -397,7 +403,13 @@ def vtoc_block(vol, page):
     that does not say so is not the one the index meant, and this returns None
     rather than decoding whatever is there.
     """
-    b = vol.pointed_at(page)
+    try:
+        b = vol.pointed_at(page)
+    except IndexError:
+        # An index can name a page off the end of this image -- an object on
+        # another volume of the same logical volume. Not this reader's to
+        # resolve, and not an error either.
+        return None
     at = len(b) - VTOC_TRAILER_BYTES
     if u32(b, at) != VTOC_MAGIC or u32(b, at + 4) != page:
         return None
@@ -443,10 +455,28 @@ def file_blocks(vol, entry, limit=None):
     for stored in entry["fm"]:
         if stored == 0:
             continue
-        out.append(stored + 1)
+        out.append((stored & ~VTOCE_FM_FLAG) + 1)
         if limit is not None and len(out) >= limit:
             break
     return out
+
+
+def file_confirmed(vol, entry, blocks):
+    """How many of `blocks` their own block headers agree with.
+
+    A block the file map names should carry the object's UID and its index in
+    the map as its page. Checked rather than assumed, so a map this reader
+    reads wrongly is reported as a disagreement instead of as file content.
+    """
+    agree = 0
+    for page, daddr in enumerate(blocks):
+        try:
+            head = vol.header_of_daddr(daddr)
+        except IndexError:
+            continue
+        if head["uid"] == entry["uid"] and head["page"] == page:
+            agree += 1
+    return agree
 
 
 def file_is_whole(vol, entry, blocks):
@@ -610,8 +640,9 @@ def walk(vol, root_x, args):
     print(f"    uid            {entry['uid'][0]:08X}{entry['uid'][1]:08X}")
     print(f"    sys_type       {entry['sys_type']} "
           f"({SYS_TYPE.get(entry['sys_type'], '?')})")
-    print(f"    blocks         {len(blocks)}"
-          f"{'' if whole else ', and the direct map is full -- short'}")
+    agree = file_confirmed(vol, entry, blocks)
+    print(f"    blocks         {len(blocks)}, {agree} confirmed by their own "
+          f"headers{'' if whole else '; the direct map is full -- short'}")
     if entry["sys_type"] in DIRECTORY_TYPES:
         for e in directory(vol, entry):
             if e["link"]:

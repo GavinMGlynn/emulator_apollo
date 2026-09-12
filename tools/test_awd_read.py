@@ -309,6 +309,30 @@ class Entries(unittest.TestCase):
         self.assertTrue(data.startswith(b"first page "))
         self.assertTrue(data[A.DATA:].startswith(b"second page"))
 
+    def test_bit_thirty_one_of_a_file_map_pointer_is_a_flag(self):
+        """The address is the low 31 bits either way. Masking it takes the
+        pointers that resolve against their own block headers on the DN3500
+        volume from 74,642 to 74,869 of 74,920."""
+        vol = build()
+        vol.derive_geometry(A.pv_label(vol))
+        img = bytearray(vol.data)
+        e = (VTOC_PAGE + 1) * A.BLOCK + A.HEADER + A.VTOCE_FIRST + A.VTOCE_FM
+        img[e:e + 4] = struct.pack(">I", A.VTOCE_FM_FLAG | (40 - 1))
+        flagged = A.Volume(bytes(img))
+        flagged.derive_geometry(A.pv_label(flagged))
+        entry = A.vtoc_entry(flagged, (VTOC_PAGE << 4) | 0)
+        self.assertEqual([40, 41], A.file_blocks(flagged, entry))
+
+    def test_a_block_the_map_names_is_checked_against_its_own_header(self):
+        """The block should carry the object's UID and its index in the map as
+        its page, so a misread map is reported rather than served as data."""
+        vol = build()
+        vol.derive_geometry(A.pv_label(vol))
+        entry = A.vtoc_entry(vol, (VTOC_PAGE << 4) | 0)
+        blocks = A.file_blocks(vol, entry)
+        self.assertEqual(2, A.file_confirmed(vol, entry, blocks))
+        self.assertEqual(0, A.file_confirmed(vol, root(vol), blocks))
+
     def test_the_walk_stops_where_it_is_told(self):
         vol = build()
         e = A.vtoc_entry(vol, (VTOC_PAGE << 4) | 0)

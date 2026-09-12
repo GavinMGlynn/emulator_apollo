@@ -983,6 +983,14 @@ a block with no indirection at all. Withdrawn as a defect in the volume.
 along. `00000203,0` is not named here; it is 41 blocks and 3 blocks respectively
 and nothing this reader needs points at it.
 
+**Bit 31 of a file-map pointer is a flag**, and the address is the low 31 bits.
+160 entries on the DN3500 volume carry it — on the object's last pages in 144 of
+them and elsewhere in 16 — so it is not "the final page" and is not named.
+Masking it takes the pointers that resolve against their own block headers from
+74,642 to **74,869 of 74,920**; the remaining 51, and 64 on the DS5500, are why
+`--path` prints how many of a file's blocks their own headers confirm rather
+than serving whatever the map named.
+
 **And `sys_type`**: 0 is a file, 1 a directory, 2 the root. Measured — over
 11,825 entries on the DN3500 volume exactly two are type 2, the ones `.root_x`
 and `.net_x` name, and every subdirectory a directory block lists is type 1.
@@ -995,7 +1003,7 @@ expression is the figure. Asserted, because checking a document's own arithmetic
 is cheap and a reader who took the round number would size a buffer 27 KB too
 large.
 
-*Verification: `tools/test_awd_read.py`, 26 checks, CTest entry `awd_read`.
+*Verification: `tools/test_awd_read.py`, 28 checks, CTest entry `awd_read`.
 Every fixture is built by the test — `media/` is gitignored, so a test that read
 a real volume would pass here and fail everywhere else. The label-location test
 places the pair at blocks 0/1, 0/4 and 3/5, so it tests a reader that finds the

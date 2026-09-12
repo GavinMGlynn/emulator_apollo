@@ -4709,7 +4709,7 @@ discipline throughout.
       `00000204,0` is the VTOC's index, `00000203,0` is unnamed.
       A VTOC entry's +0C-+CF are unnamed, the file map's indirect levels among
       them, so an over-long file is reported short. Detail in `PROJECT_STATUS.md`.
-      *Verification: `tools/test_awd_read.py` 15 → 26, CTest entry `awd_read`,
+      *Verification: `tools/test_awd_read.py` 15 → 28, CTest entry `awd_read`,
       every fixture built by the test because `media/` is gitignored.*
 
 - [x] **The DS5500's address translation map is 4 KB — implemented 2026-08-22.**
