@@ -214,6 +214,12 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .board_of = AP_MODEL_DN4000,
         .name = "dn4000",
         .description = "DN4000 (DS4000) workstation, 25 MHz 68020 with 68851",
+        /* **And the operating system's own table says 68020 too.** `[RN104]`
+         * SS5.2's *Supported Machine Types* lists `sau7` as dn3500 68030,
+         * **dn4000 68020**, dn4500 68030 -- the map AEGIS uses to pick which
+         * SAU binary loads on which machine, so a wrong CPU type in it would
+         * not have booted. `model_suite` checks that row and the five others
+         * this table shares with it. */
         /* ## Two names, and the sources use different ones
          *
          * `002398-04` Figure 1-2 is headed "**DS4000** Functional Block Diagram"

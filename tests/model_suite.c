@@ -407,6 +407,42 @@ static void test_every_68040_model_runs_at_a_rated_frequency(void) {
   TEST_ASSERT_TRUE(checked > 0u);
 }
 
+/* `[RN104]` SS5.2's *Supported Machine Types* against this table's CPU column.
+ *
+ * The release notes for the release this project boots print the whole SAU map
+ * — "SR10.4 runs on SAU 7 -- SAU 14" — with a CPU type beside every node name:
+ *
+ *     sau7   dn3500  68030   sau9   dn2500     68030
+ *            dn4000  68020   sau10  dn10000    Prism
+ *            dn4500  68030   sau11  9000/425*  68040
+ *     sau8   dn3000  68020   sau12  9000/400*  68030
+ *            dn3010  68020   sau14  dn5500     68040
+ *
+ * Six of those rows are models this core carries, and the operating system had
+ * to be right about all six or it could not have loaded the right SAU on the
+ * right machine. **The DN4000's 68020 is the row worth having**: `ap_model.c`
+ * argues for it at length against `[CFG]`'s overview table, which the comment
+ * there records as contradicting itself, and this is a fourth source that
+ * agrees — from the software that had to pick a binary for the part.
+ *
+ * `dn3010` and the 9000-series rows are not models in this table and are not
+ * asserted; `dn10000` is the Prism the patent shelf turned out to be about. */
+static void test_the_release_notes_sau_table_agrees_about_every_cpu(void) {
+  static const struct {
+    const char *name;
+    ap_cpu_t cpu;
+  } sr104[] = {
+      {"dn3500", AP_CPU_M68030}, {"dn4000", AP_CPU_M68020},
+      {"dn4500", AP_CPU_M68030}, {"dn3000", AP_CPU_M68020},
+      {"dn2500", AP_CPU_M68030}, {"dn5500", AP_CPU_M68040},
+  };
+  for (size_t i = 0; i < sizeof sr104 / sizeof sr104[0]; ++i) {
+    const ap_model_t *m = ap_model_by_name(sr104[i].name);
+    TEST_ASSERT_NOT_NULL_MESSAGE(m, sr104[i].name);
+    TEST_ASSERT_EQUAL_MESSAGE((int)sr104[i].cpu, (int)m->cpu, sr104[i].name);
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_dn2500_main_memory_matches_its_boot_proms_sizing_code);
@@ -433,5 +469,6 @@ int main(void) {
   RUN_TEST(test_every_board_is_a_model_and_a_workstation_is_its_own);
   RUN_TEST(test_a_headless_variant_is_its_workstation_in_every_board_respect);
   RUN_TEST(test_every_68040_model_runs_at_a_rated_frequency);
+  RUN_TEST(test_the_release_notes_sau_table_agrees_about_every_cpu);
   return UNITY_END();
 }
