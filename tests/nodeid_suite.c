@@ -137,18 +137,21 @@ static void test_a_volumes_node_reaches_the_proms_registers(void) {
    * gitignored -- see `volume_suite`. */
   uint8_t blocks[AP_VOLUME_LABEL_BYTES];
   memset(blocks, 0, sizeof blocks);
-  const uint32_t magic = AP_VOLUME_MAGIC;
-  blocks[AP_VOLUME_MAGIC_OFFSET + 0u] = (uint8_t)(magic >> 24);
-  blocks[AP_VOLUME_MAGIC_OFFSET + 1u] = (uint8_t)(magic >> 16);
-  blocks[AP_VOLUME_MAGIC_OFFSET + 2u] = (uint8_t)(magic >> 8);
-  blocks[AP_VOLUME_MAGIC_OFFSET + 3u] = (uint8_t)magic;
-  memset(&blocks[AP_VOLUME_NAME_OFFSET], ' ', AP_VOLUME_NAME_BYTES);
-  memcpy(&blocks[AP_VOLUME_APOLLO_OFFSET], "APOLLO",
+  /* The two canned label UIDs in their block headers, which is how the labels
+   * are found -- `002398-04` p. 2-8 and p. 2-16, and `volume_suite` for why a
+   * fixture that skips them cannot test the reader. */
+  blocks[2u] = (uint8_t)(AP_VOLUME_PV_LABEL_UID_HIGH >> 8);
+  blocks[3u] = (uint8_t)AP_VOLUME_PV_LABEL_UID_HIGH;
+  blocks[AP_VOLUME_BLOCK_BYTES + 2u] = (uint8_t)(AP_VOLUME_LV_LABEL_UID_HIGH >> 8);
+  blocks[AP_VOLUME_BLOCK_BYTES + 3u] = (uint8_t)AP_VOLUME_LV_LABEL_UID_HIGH;
+  const size_t pv = AP_VOLUME_BLOCK_HEADER_BYTES;
+  memset(&blocks[pv + AP_VOLUME_NAME_OFFSET], ' ', AP_VOLUME_NAME_BYTES);
+  memcpy(&blocks[pv + AP_VOLUME_APOLLO_OFFSET], "APOLLO",
          AP_VOLUME_APOLLO_BYTES);
-  memcpy(&blocks[AP_VOLUME_NAME_OFFSET], "DN3500", 6u);
+  memcpy(&blocks[pv + AP_VOLUME_NAME_OFFSET], "DN3500", 6u);
   const uint8_t uid[8] = {0xA4u, 0x5Au, 0xA6u, 0x73u,
                           0x10u, 0x01u, 0x23u, 0x45u};
-  memcpy(&blocks[AP_VOLUME_CREATOR_UID_OFFSET], uid, sizeof uid);
+  memcpy(&blocks[pv + AP_VOLUME_CREATOR_UID_OFFSET], uid, sizeof uid);
 
   ap_volume_label_t label;
   TEST_ASSERT_TRUE(ap_volume_read_label(blocks, sizeof blocks, &label));

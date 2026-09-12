@@ -268,12 +268,26 @@ def main() -> int:
         # installed volume happens to *be* 12345 and is a node that shuts itself
         # down when it is not (FINDINGS.md C199). The label is synthesised here
         # -- `media/` is gitignored and CI has none -- and it exercises the same
-        # reader both flags now use: the creator UID at block 0 0x48, whose low
-        # three bytes are the node.
+        # reader both flags now use: the creator UID at the physical label's
+        # `+28`, whose low three bytes are the node.
+        #
+        # **The two block headers are written, and they are what locates the
+        # labels.** A Domain block is 1056 bytes -- a 32-byte header then 1024
+        # of data -- and the header's first field is the UID of the object the
+        # block belongs to: `00000200,0` for the physical label and
+        # `00000201,0` for the logical one. A DS5500 volume puts the physical
+        # label in blocks 0-3 and the logical one in block 4, so a fixture that
+        # placed the fields at a DN3500's absolute offsets could not tell a
+        # reader that finds them from one that assumes.
         label = Path(tmp) / "node.awd"
-        blob = bytearray(2048)
-        blob[0x418:0x41C] = (0xFEDCA986).to_bytes(4, "big")     # the magic
-        blob[0x48:0x50] = bytes.fromhex("A45AA673") + bytes([0x10, 0x03, 0x33, 0x33])
+        BLK, HDR = 1056, 32
+        blob = bytearray(BLK * 8)
+        blob[0:8] = (0x00000200).to_bytes(4, "big") + bytes(4)
+        blob[BLK:BLK + 8] = (0x00000201).to_bytes(4, "big") + bytes(4)
+        pv = HDR
+        blob[pv + 0x02:pv + 0x08] = b"APOLLO"
+        blob[pv + 0x08:pv + 0x28] = b" " * 32
+        blob[pv + 0x28:pv + 0x30] = bytes.fromhex("A45AA673") + bytes([0x10, 0x03, 0x33, 0x33])
         label.write_bytes(bytes(blob))
         # `want_ok=False`: `--volume` reports a label and then declines to
         # build a machine, because without a boot PROM there is nothing to run.

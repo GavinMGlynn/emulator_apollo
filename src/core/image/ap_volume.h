@@ -61,16 +61,55 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* How much of the image the label needs. Two 1024-byte units historically, and
- * kept at that size because it covers every measured offset with room to
- * spare -- not because the image is framed that way. */
-#define AP_VOLUME_LABEL_BYTES 2048u
+/* ## The labels are found by their block headers, not at fixed offsets
+ *
+ * **This was `0x440` for both, and that is a DN3500 fact rather than a Domain
+ * one.** `002398-04` p. 2-8 gives every block on a volume a **32-byte header**
+ * whose first field is the UID of the object the block belongs to, and p. 2-16
+ * names two canned UIDs: `pv_label_$uid` is `00000200,0` and `lv_label_$uid` is
+ * `00000201,0`. The block comment below derived `0x440` from those on
+ * `media/dn3500-sr10.4-installed.awd`, where block 0 is the physical label and
+ * block 1 the logical one.
+ *
+ * **A DS5500 volume is not framed that way**, measured 2026-09-12 on the two
+ * this project built:
+ *
+ *     dn3500-sr10.4-installed.awd  block 0 `00000200`  block 1 `00000201`
+ *     DS5500 `restored.awd`        blocks 0-3 `00000200`  blocks 4-5 `00000201`
+ *
+ * So its logical label sits at `0x10A0` and a reader pinned to `0x440` finds
+ * zeros. That reader **returned false**, so nothing was ever read wrong -- but
+ * the mount-history check that decides whether a volume can be booted was
+ * silently unavailable on the one machine this project is bringing up. Found by
+ * reading `[EH3]` p. 2-19/2-21's label figures at 600 dpi and then looking.
+ *
+ * The labels are therefore located by walking the block headers. The offsets
+ * below are **label-relative**, which is how every manual prints them. */
+#define AP_VOLUME_BLOCK_BYTES 1056u
+#define AP_VOLUME_BLOCK_HEADER_BYTES 32u
+#define AP_VOLUME_PV_LABEL_UID_HIGH 0x00000200u
+#define AP_VOLUME_LV_LABEL_UID_HIGH 0x00000201u
 
-/* Absolute offset `0x418`. Named for what it is rather than what it might stand
- * for: no manual here explains the value, and it is a signature by behaviour --
- * present on every volume, absent everywhere else. */
+/* How many blocks from the start of the image to search. Six would do for both
+ * layouts in hand; eight leaves room for a physical label that reserves more
+ * blocks still, and costs one 8 KB read. */
+#define AP_VOLUME_LABEL_SEARCH_BLOCKS 8u
+#define AP_VOLUME_LABEL_BYTES \
+  (AP_VOLUME_BLOCK_BYTES * AP_VOLUME_LABEL_SEARCH_BLOCKS)
+
+/* Offset `0x3F8` **within the physical label's block**, which is `0x418`
+ * absolute on a DN3500 volume and is where this constant's name came from.
+ * Named for what it is rather than what it might stand for: no manual here
+ * explains the value.
+ *
+ * **It is no longer the gate.** Both DS5500 volumes have zeros there while
+ * carrying a perfectly good `APOLLO` signature and both label block headers, so
+ * "present on every volume" was a claim about the volumes that had been looked
+ * at. The signature at label `+02` is the check, and this is kept because a
+ * value that appears on one family and not another is worth being able to
+ * recognise. */
 #define AP_VOLUME_MAGIC 0xFEDCA986u
-#define AP_VOLUME_MAGIC_OFFSET 0x418u
+#define AP_VOLUME_MAGIC_BLOCK_OFFSET 0x3F8u
 
 /* ## The physical label's fields, and the six characters that were part of the
  * name
@@ -99,11 +138,11 @@
  * The signature is kept as its own constant rather than dropped: a block whose
  * label does not begin `APOLLO` is not a Domain physical volume, and that is a
  * check this file can now make instead of a prefix it used to report. */
-#define AP_VOLUME_APOLLO_OFFSET 0x22u
+#define AP_VOLUME_APOLLO_OFFSET 0x02u
 #define AP_VOLUME_APOLLO_BYTES 6u
-#define AP_VOLUME_NAME_OFFSET 0x28u
+#define AP_VOLUME_NAME_OFFSET 0x08u
 #define AP_VOLUME_NAME_BYTES 32u
-#define AP_VOLUME_CREATOR_UID_OFFSET 0x48u
+#define AP_VOLUME_CREATOR_UID_OFFSET 0x28u
 
 /* The *mount history*, and it decides whether a volume can be booted at all.
  *
@@ -251,14 +290,21 @@
  * difference is the whole of the clock at *every* clock and no power-on date can
  * satisfy it. Three clocks were tried against such a volume before its label
  * was read, which is three more than were needed. `FINDINGS.md` C132. */
-#define AP_VOLUME_LABEL_BASE 0x440u
-#define AP_VOLUME_LABEL_WRITE_TIME_OFFSET (AP_VOLUME_LABEL_BASE + 0xB0u)
-#define AP_VOLUME_LAST_MOUNTED_NODE_OFFSET (AP_VOLUME_LABEL_BASE + 0xB4u)
-#define AP_VOLUME_NODE_BOOT_TIME_OFFSET (AP_VOLUME_LABEL_BASE + 0xB8u)
-#define AP_VOLUME_MOUNTED_TIME_OFFSET (AP_VOLUME_LABEL_BASE + 0xBCu)
-#define AP_VOLUME_DISMOUNTED_TIME_OFFSET (AP_VOLUME_LABEL_BASE + 0xC0u)
-#define AP_VOLUME_SALVAGE_NODE_OFFSET (AP_VOLUME_LABEL_BASE + 0xC4u)
-#define AP_VOLUME_SALVAGE_TIME_OFFSET (AP_VOLUME_LABEL_BASE + 0xC8u)
+#define AP_VOLUME_LABEL_WRITE_TIME_OFFSET 0xB0u
+#define AP_VOLUME_LAST_MOUNTED_NODE_OFFSET 0xB4u
+#define AP_VOLUME_NODE_BOOT_TIME_OFFSET 0xB8u
+#define AP_VOLUME_MOUNTED_TIME_OFFSET 0xBCu
+#define AP_VOLUME_DISMOUNTED_TIME_OFFSET 0xC0u
+#define AP_VOLUME_SALVAGE_NODE_OFFSET 0xC4u
+#define AP_VOLUME_SALVAGE_TIME_OFFSET 0xC8u
+#define AP_VOLUME_SALVAGE_MODE_OFFSET 0xCCu
+#define AP_VOLUME_SHUT_STATE_OFFSET 0xCEu
+
+/* `.sys_shut_state`'s values, which `002398-04` names and does not enumerate.
+ * `[EH3]` p. 2-20 prints them, read at 600 dpi: */
+#define AP_VOLUME_SHUT_DISMOUNTED 0u
+#define AP_VOLUME_SHUT_MOUNTED 1u
+#define AP_VOLUME_SHUT_SALVAGED 2u
 
 /* A label time is the **high 32 bits of Apollo's 48-bit 4 microsecond clock**,
  * counted from 1980-01-01. So one tick is `4 us * 65536 = 262144 us`, about
@@ -311,6 +357,13 @@ typedef struct {
   uint32_t dismounted_time;
   uint32_t salvage_node;
   uint32_t salvage_time;
+
+  /* `.sys_shut_state`, which this file used to name and not read. `[EH3]`
+   * p. 2-20 enumerates it -- 0 dismounted, 1 mounted, 2 salvaged -- so a volume
+   * left `AP_VOLUME_SHUT_MOUNTED` is one that was never cleanly dismounted,
+   * which is the other half of the boot refusal `.dismounted_time` describes.
+   * Read and reported; nothing decides on it yet. */
+  uint16_t shut_state;
 } ap_volume_label_t;
 
 /* Whether Domain/OS can boot this volume without salvaging it first.
@@ -331,6 +384,17 @@ typedef struct {
  * refusal rather than a default, because a node ID invented from a file that is
  * not a Domain volume would configure a machine to lie about its identity, and
  * every object the file system then created would carry it. */
+/* The byte offset of the *data* of the first block whose 32-byte header names
+ * `uid_high` as the object it belongs to, or `SIZE_MAX` if no block in the
+ * searched prefix does.
+ *
+ * Exposed because it is the only honest way to find either label -- see the
+ * block comment at `AP_VOLUME_BLOCK_BYTES` -- and because a caller that wants
+ * the physical label and a caller that wants the logical one need the same
+ * walk with a different UID. */
+[[nodiscard]] size_t ap_volume_find_label(const uint8_t *blocks, size_t bytes,
+                                          uint32_t uid_high);
+
 [[nodiscard]] bool ap_volume_read_label(const uint8_t *blocks, size_t bytes,
                                         ap_volume_label_t *out);
 

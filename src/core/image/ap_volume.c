@@ -15,13 +15,50 @@ uint32_t ap_uid_node_id(ap_uid_t uid) {
   return uid.low & 0x000FFFFFu;
 }
 
+size_t ap_volume_find_label(const uint8_t *blocks, size_t bytes,
+                            uint32_t uid_high) {
+  if (blocks == nullptr) {
+    return SIZE_MAX;
+  }
+  for (unsigned block = 0; block < AP_VOLUME_LABEL_SEARCH_BLOCKS; block++) {
+    const size_t at = (size_t)block * AP_VOLUME_BLOCK_BYTES;
+    if (at + AP_VOLUME_BLOCK_BYTES > bytes) {
+      return SIZE_MAX;
+    }
+    /* The header's first longword is the high half of the object's UID, and the
+     * canned label UIDs have a zero low half -- `002398-04` p. 2-16. Both
+     * halves are checked, because `00000200` alone would also match a file
+     * whose UID happened to begin that way. */
+    if (be32(&blocks[at]) == uid_high && be32(&blocks[at + 4u]) == 0u) {
+      return at + AP_VOLUME_BLOCK_HEADER_BYTES;
+    }
+  }
+  return SIZE_MAX;
+}
+
 bool ap_volume_read_label(const uint8_t *blocks, size_t bytes,
                           ap_volume_label_t *out) {
-  if (blocks == nullptr || out == nullptr || bytes < AP_VOLUME_LABEL_BYTES) {
+  if (blocks == nullptr || out == nullptr) {
     return false;
   }
-  if (be32(&blocks[AP_VOLUME_MAGIC_OFFSET]) != AP_VOLUME_MAGIC) {
+
+  const size_t pv = ap_volume_find_label(blocks, bytes,
+                                         AP_VOLUME_PV_LABEL_UID_HIGH);
+  const size_t lv = ap_volume_find_label(blocks, bytes,
+                                         AP_VOLUME_LV_LABEL_UID_HIGH);
+  if (pv == SIZE_MAX || lv == SIZE_MAX) {
     return false;
+  }
+
+  /* "A block whose label does not begin `APOLLO` is not a Domain physical
+   * volume", which is the check this file makes instead of the `0x418` value it
+   * used to gate on -- that value is absent from both DS5500 volumes. */
+  static const char signature[AP_VOLUME_APOLLO_BYTES] = {'A', 'P', 'O',
+                                                         'L', 'L', 'O'};
+  for (unsigned i = 0; i < AP_VOLUME_APOLLO_BYTES; i++) {
+    if (blocks[pv + AP_VOLUME_APOLLO_OFFSET + i] != (uint8_t)signature[i]) {
+      return false;
+    }
   }
 
   *out = (ap_volume_label_t){0};
@@ -36,28 +73,31 @@ bool ap_volume_read_label(const uint8_t *blocks, size_t bytes,
      * spaces, then a **NUL** in the last byte -- so a trim that stopped at the
      * first non-space stopped on that NUL and kept every space in front of it.
      * The volume is called `DN3500`, not `DN3500` and twenty-five blanks. */
-    const uint8_t last = blocks[AP_VOLUME_NAME_OFFSET + length - 1u];
+    const uint8_t last = blocks[pv + AP_VOLUME_NAME_OFFSET + length - 1u];
     if (last != (uint8_t)' ' && last != 0u) {
       break;
     }
     length--;
   }
   for (unsigned i = 0; i < length; i++) {
-    out->name[i] = (char)blocks[AP_VOLUME_NAME_OFFSET + i];
+    out->name[i] = (char)blocks[pv + AP_VOLUME_NAME_OFFSET + i];
   }
   out->name[length] = '\0';
 
-  out->creator.high = be32(&blocks[AP_VOLUME_CREATOR_UID_OFFSET]);
-  out->creator.low = be32(&blocks[AP_VOLUME_CREATOR_UID_OFFSET + 4u]);
+  out->creator.high = be32(&blocks[pv + AP_VOLUME_CREATOR_UID_OFFSET]);
+  out->creator.low = be32(&blocks[pv + AP_VOLUME_CREATOR_UID_OFFSET + 4u]);
   out->node_id = ap_uid_node_id(out->creator);
 
-  out->label_write_time = be32(&blocks[AP_VOLUME_LABEL_WRITE_TIME_OFFSET]);
-  out->last_mounted_node = be32(&blocks[AP_VOLUME_LAST_MOUNTED_NODE_OFFSET]);
-  out->node_boot_time = be32(&blocks[AP_VOLUME_NODE_BOOT_TIME_OFFSET]);
-  out->mounted_time = be32(&blocks[AP_VOLUME_MOUNTED_TIME_OFFSET]);
-  out->dismounted_time = be32(&blocks[AP_VOLUME_DISMOUNTED_TIME_OFFSET]);
-  out->salvage_node = be32(&blocks[AP_VOLUME_SALVAGE_NODE_OFFSET]);
-  out->salvage_time = be32(&blocks[AP_VOLUME_SALVAGE_TIME_OFFSET]);
+  out->label_write_time = be32(&blocks[lv + AP_VOLUME_LABEL_WRITE_TIME_OFFSET]);
+  out->last_mounted_node =
+      be32(&blocks[lv + AP_VOLUME_LAST_MOUNTED_NODE_OFFSET]);
+  out->node_boot_time = be32(&blocks[lv + AP_VOLUME_NODE_BOOT_TIME_OFFSET]);
+  out->mounted_time = be32(&blocks[lv + AP_VOLUME_MOUNTED_TIME_OFFSET]);
+  out->dismounted_time = be32(&blocks[lv + AP_VOLUME_DISMOUNTED_TIME_OFFSET]);
+  out->salvage_node = be32(&blocks[lv + AP_VOLUME_SALVAGE_NODE_OFFSET]);
+  out->salvage_time = be32(&blocks[lv + AP_VOLUME_SALVAGE_TIME_OFFSET]);
+  out->shut_state = (uint16_t)((blocks[lv + AP_VOLUME_SHUT_STATE_OFFSET] << 8) |
+                               blocks[lv + AP_VOLUME_SHUT_STATE_OFFSET + 1u]);
   return true;
 }
 

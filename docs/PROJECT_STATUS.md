@@ -529,6 +529,62 @@ tools/dn5500-boot.sh`. The volume is the artefact of the restore run recorded in
 failure and then spins on `Do you wish to continue (y,n)?`, because the harness
 types only the console knock and the prompt reads a carriage return as `x`.
 
+## A DS5500 volume's labels are four blocks further in, and the reader found neither (2026-09-12)
+
+`image/ap_volume.c` located the physical volume label at image offset `0x20` and
+the logical one at `0x440`, and both were *derived* rather than assumed —
+`002398-04` p. 2-8 gives every block a 32-byte header whose first field is the
+UID of the object it belongs to, p. 2-16 names `pv_label_$uid` `00000200,0` and
+`lv_label_$uid` `00000201,0`, and `media/dn3500-sr10.4-installed.awd` has them
+in blocks 0 and 1. The derivation was right about that volume and wrong as a
+rule.
+
+**Measured on the two DS5500 volumes this project built:**
+
+| image | `00000200` | `00000201` |
+| --- | --- | --- |
+| `dn3500-sr10.4-installed.awd` | block 0 | block **1** |
+| DS5500 `vol.awd`, `restored.awd` | blocks 0-3 | blocks **4**-5 |
+
+So a DS5500's logical label sits at `0x10A0`. The reader looked at `0x440`,
+found zeros, failed its signature check and **returned false** — so nothing was
+ever read wrong, and that is the only good thing about it. What it cost is that
+the mount-history check which decides whether Domain/OS will boot a volume was
+**silently unavailable on the machine this project is bringing up**, at the
+exact moment that machine started producing volumes.
+
+**The fix is the derivation, applied**: `ap_volume_find_label` walks the block
+headers for a given label UID and returns that block's data offset, and
+`ap_volume_read_label` uses it for both labels. Every offset is now
+label-relative, which is how the manuals print them. `AP_VOLUME_MAGIC`'s
+`0xFEDCA986` is no longer the gate — it is absent from both DS5500 volumes,
+which carry a perfectly good `APOLLO` signature — so the signature at label
+`+02` is what refuses a file that is not a volume.
+
+**All three images behave**, checked through `--volume`:
+
+    media/dn3500-sr10.4-installed.awd   DN3500, node 12345, dismounted 2002-11-27 21:45:12
+    DS5500 vol.awd (INVOL only)         DN5500, node 12345, never cleanly dismounted
+    DS5500 restored.awd                 DN5500, node 12345, dismounted 2002-11-28 12:25:11
+
+The middle row is the warning this file describes for an INVOL-only volume, on a
+volume that had never been readable before; the last is the restore's own clean
+`shut`, which is why that volume boots.
+
+**Found by reading, not by running.** `[EH3]` pp. 2-19 to 2-21's volume-label
+figures were read at 600 dpi to lift a caveat in their walk record, the physical
+label's `.lv_list` was decoded to see where the logical one should be, and the
+block headers were dumped to check. Detail in
+`docs/references/002398-03_WALK.md`.
+
+*Verification: `volume_suite` 9 → 12 — one placing the labels at blocks 0 and 4
+and then 0 and 5, so the search is tested rather than the layout; one refusing a
+volume with no logical label at all, which would otherwise read the physical
+label's name bytes as a mount history; one reading `.sys_shut_state`, whose
+values `[EH3]` p. 2-20 enumerates (0 dismounted, 1 mounted, 2 salvaged) and
+`002398-04` only names. `nodeid_suite` and `check_frontend_flags.py` build their
+fixtures with block headers now, for the same reason.*
+
 ## The DS5500 has an identity baseline at last (2026-09-12)
 
 **`tools/identity-boot.sh` boots a DN3500, and a DN3500 is a 68030.** So a

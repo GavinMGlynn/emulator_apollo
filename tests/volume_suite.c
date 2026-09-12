@@ -36,14 +36,54 @@ static void put_be32(unsigned offset, uint32_t value) {
  * glue on. `002398-04` p. 2-20 puts `.apollo` at label `+02` and `.name` at
  * `+08`, and the reference image agrees byte for byte -- so a fixture that does
  * not separate them cannot tell a corrected parser from the old one. */
-static void build(const char *name, uint32_t uid_high, uint32_t uid_low) {
+static size_t pv_at;
+static size_t lv_at;
+
+/* Mark a block as belonging to one of the canned label UIDs -- `002398-04`
+ * p. 2-8's 32-byte header, whose first field is the object's UID. */
+static void own(unsigned block, uint32_t uid_high) {
+  put_be32((unsigned)(block * AP_VOLUME_BLOCK_BYTES), uid_high);
+  put_be32((unsigned)(block * AP_VOLUME_BLOCK_BYTES) + 4u, 0u);
+}
+
+static size_t data_of(unsigned block) {
+  return (size_t)block * AP_VOLUME_BLOCK_BYTES + AP_VOLUME_BLOCK_HEADER_BYTES;
+}
+
+/* A volume laid out as `media/dn3500-sr10.4-installed.awd` is: the physical
+ * label in block 0, the logical label in block 1, each behind its own block
+ * header, with the `APOLLO` signature ahead of a space-padded name and a
+ * creator UID whose low twenty bits are the node.
+ *
+ * **The block headers are written now, and that is the point.** This fixture
+ * used to place the fields at the absolute offsets a DN3500 volume happens to
+ * put them at, so it could not tell a reader that *finds* the labels from one
+ * that assumes where they are -- and the assumption is wrong on a DS5500.
+ *
+ * **The signature is written separately from the name.** These tests used to
+ * build the name as `"APOLLODN3500"` at an offset that was the signature's, so
+ * they asserted the six-character prefix this parser used to glue on.
+ * `002398-04` p. 2-20 puts `.apollo` at label `+02` and `.name` at `+08`, and
+ * the reference image agrees byte for byte -- so a fixture that does not
+ * separate them cannot tell a corrected parser from the old one. */
+static void build_at(unsigned pv_block, unsigned lv_block, const char *name,
+                     uint32_t uid_high, uint32_t uid_low) {
   memset(label, 0, sizeof label);
-  put_be32(AP_VOLUME_MAGIC_OFFSET, AP_VOLUME_MAGIC);
-  memcpy(&label[AP_VOLUME_APOLLO_OFFSET], "APOLLO", AP_VOLUME_APOLLO_BYTES);
-  memset(&label[AP_VOLUME_NAME_OFFSET], ' ', AP_VOLUME_NAME_BYTES);
-  memcpy(&label[AP_VOLUME_NAME_OFFSET], name, strlen(name));
-  put_be32(AP_VOLUME_CREATOR_UID_OFFSET, uid_high);
-  put_be32(AP_VOLUME_CREATOR_UID_OFFSET + 4u, uid_low);
+  own(pv_block, AP_VOLUME_PV_LABEL_UID_HIGH);
+  own(lv_block, AP_VOLUME_LV_LABEL_UID_HIGH);
+  pv_at = data_of(pv_block);
+  lv_at = data_of(lv_block);
+  put_be32((unsigned)(pv_at + AP_VOLUME_MAGIC_BLOCK_OFFSET), AP_VOLUME_MAGIC);
+  memcpy(&label[pv_at + AP_VOLUME_APOLLO_OFFSET], "APOLLO",
+         AP_VOLUME_APOLLO_BYTES);
+  memset(&label[pv_at + AP_VOLUME_NAME_OFFSET], ' ', AP_VOLUME_NAME_BYTES);
+  memcpy(&label[pv_at + AP_VOLUME_NAME_OFFSET], name, strlen(name));
+  put_be32((unsigned)(pv_at + AP_VOLUME_CREATOR_UID_OFFSET), uid_high);
+  put_be32((unsigned)(pv_at + AP_VOLUME_CREATOR_UID_OFFSET) + 4u, uid_low);
+}
+
+static void build(const char *name, uint32_t uid_high, uint32_t uid_low) {
+  build_at(0u, 1u, name, uid_high, uid_low);
 }
 
 /* The reading, on the exact bytes eleven images carry. */
@@ -108,16 +148,25 @@ static void test_the_name_is_trimmed_of_its_padding(void) {
  * run and cannot be traced back to the moment it was chosen. */
 static void test_something_that_is_not_a_volume_is_refused(void) {
   build("DN3500", 0xA45AA673u, 0x10012345u);
-  put_be32(AP_VOLUME_MAGIC_OFFSET, 0xDEADBEEFu);
+  memset(&label[pv_at + AP_VOLUME_APOLLO_OFFSET], 'Z',
+         AP_VOLUME_APOLLO_BYTES);
 
   ap_volume_label_t out;
   TEST_ASSERT_FALSE(ap_volume_read_label(label, sizeof label, &out));
 
-  /* And a file too short to hold a label, which is the other way a caller
-   * arrives here with something that is not one. */
+  /* And a file too short to hold the blocks the labels are in, which is the
+   * other way a caller arrives here with something that is not one. A whole
+   * block is required rather than the first `0x400` bytes of it: a truncated
+   * image is not a volume, and accepting one would put the boundary somewhere
+   * no document draws it. */
   build("DN3500", 0xA45AA673u, 0x10012345u);
   TEST_ASSERT_FALSE(
-      ap_volume_read_label(label, AP_VOLUME_LABEL_BYTES - 1u, &out));
+      ap_volume_read_label(label, 2u * AP_VOLUME_BLOCK_BYTES - 1u, &out));
+  TEST_ASSERT_FALSE(
+      ap_volume_read_label(label, AP_VOLUME_BLOCK_BYTES - 1u, &out));
+  /* Two whole blocks is enough, because that is where both labels are. */
+  TEST_ASSERT_TRUE(
+      ap_volume_read_label(label, 2u * AP_VOLUME_BLOCK_BYTES, &out));
   TEST_ASSERT_FALSE(ap_volume_read_label(nullptr, sizeof label, &out));
 }
 
@@ -130,13 +179,13 @@ static void test_something_that_is_not_a_volume_is_refused(void) {
  * a date -- which is the whole point of keeping the ticks raw. */
 static void test_the_mount_history_reads_back_from_the_labels_own_base(void) {
   build("DN3500", 0xA45AA673u, 0x10012345u);
-  put_be32(AP_VOLUME_LABEL_WRITE_TIME_OFFSET, 0xA45E5C0Cu);
-  put_be32(AP_VOLUME_LAST_MOUNTED_NODE_OFFSET, 0x00012345u);
-  put_be32(AP_VOLUME_NODE_BOOT_TIME_OFFSET, 0xA45DF69Bu);
-  put_be32(AP_VOLUME_MOUNTED_TIME_OFFSET, 0xA45DF6ABu);
-  put_be32(AP_VOLUME_DISMOUNTED_TIME_OFFSET, 0xA45E5C0Cu);
-  put_be32(AP_VOLUME_SALVAGE_NODE_OFFSET, 0x00000002u);
-  put_be32(AP_VOLUME_SALVAGE_TIME_OFFSET, 0x00010001u);
+  put_be32((unsigned)(lv_at + AP_VOLUME_LABEL_WRITE_TIME_OFFSET), 0xA45E5C0Cu);
+  put_be32((unsigned)(lv_at + AP_VOLUME_LAST_MOUNTED_NODE_OFFSET), 0x00012345u);
+  put_be32((unsigned)(lv_at + AP_VOLUME_NODE_BOOT_TIME_OFFSET), 0xA45DF69Bu);
+  put_be32((unsigned)(lv_at + AP_VOLUME_MOUNTED_TIME_OFFSET), 0xA45DF6ABu);
+  put_be32((unsigned)(lv_at + AP_VOLUME_DISMOUNTED_TIME_OFFSET), 0xA45E5C0Cu);
+  put_be32((unsigned)(lv_at + AP_VOLUME_SALVAGE_NODE_OFFSET), 0x00000002u);
+  put_be32((unsigned)(lv_at + AP_VOLUME_SALVAGE_TIME_OFFSET), 0x00010001u);
 
   ap_volume_label_t out;
   TEST_ASSERT_TRUE(ap_volume_read_label(label, sizeof label, &out));
@@ -161,8 +210,8 @@ static void test_the_mount_history_reads_back_from_the_labels_own_base(void) {
  * was read. */
 static void test_a_zero_dismount_time_is_never_dismounted_at_any_clock(void) {
   build("DN3500", 0xA45AA673u, 0x10012345u);
-  put_be32(AP_VOLUME_MOUNTED_TIME_OFFSET, 0xFFF808EEu);
-  put_be32(AP_VOLUME_DISMOUNTED_TIME_OFFSET, 0x00000000u);
+  put_be32((unsigned)(lv_at + AP_VOLUME_MOUNTED_TIME_OFFSET), 0xFFF808EEu);
+  put_be32((unsigned)(lv_at + AP_VOLUME_DISMOUNTED_TIME_OFFSET), 0x00000000u);
 
   ap_volume_label_t out;
   TEST_ASSERT_TRUE(ap_volume_read_label(label, sizeof label, &out));
@@ -211,6 +260,64 @@ static void test_no_label_is_not_a_clean_dismount(void) {
   TEST_ASSERT_FALSE(ap_volume_cleanly_dismounted(nullptr));
 }
 
+/* A DS5500 volume, which is framed differently and used to read as not a
+ * volume at all.
+ *
+ * Measured 2026-09-12 on the two this project built: their block headers say
+ * `00000200` for blocks **0 to 3** and `00000201` for blocks 4 and 5, where
+ * `media/dn3500-sr10.4-installed.awd` says `00000200` for block 0 and
+ * `00000201` for block 1. So the logical label sits at `0x10A0` rather than
+ * `0x440`, and a reader pinned to `0x440` found zeros and refused the volume --
+ * which meant the mount-history check that decides whether a volume can boot
+ * was silently unavailable on the machine this project is bringing up.
+ *
+ * The same fields, at the same label-relative offsets, four blocks further on.
+ * This test fails against a reader that assumes the layout and passes against
+ * one that finds it. */
+static void test_a_volume_whose_labels_sit_further_in_still_reads(void) {
+  build_at(0u, 4u, "DN5500", 0xA4615F23u, 0x10012345u);
+  put_be32((unsigned)(lv_at + AP_VOLUME_MOUNTED_TIME_OFFSET), 0xA45DF6ABu);
+  put_be32((unsigned)(lv_at + AP_VOLUME_DISMOUNTED_TIME_OFFSET), 0xA45E5C0Cu);
+
+  ap_volume_label_t out;
+  TEST_ASSERT_TRUE(ap_volume_read_label(label, sizeof label, &out));
+  TEST_ASSERT_EQUAL_STRING("DN5500", out.name);
+  TEST_ASSERT_EQUAL_HEX32(0x012345u, out.node_id);
+  TEST_ASSERT_EQUAL_HEX32(0xA45DF6ABu, out.mounted_time);
+  TEST_ASSERT_TRUE(ap_volume_cleanly_dismounted(&out));
+
+  /* And the search is by the block's own header, not by position: the same
+   * volume with its logical label in block 5 reads identically. */
+  build_at(0u, 5u, "DN5500", 0xA4615F23u, 0x10012345u);
+  put_be32((unsigned)(lv_at + AP_VOLUME_MOUNTED_TIME_OFFSET), 0xA45DF6ABu);
+  TEST_ASSERT_TRUE(ap_volume_read_label(label, sizeof label, &out));
+  TEST_ASSERT_EQUAL_HEX32(0xA45DF6ABu, out.mounted_time);
+}
+
+/* A volume with no logical label at all is refused rather than read with the
+ * physical label's bytes standing in for the mount history -- which would
+ * report a dismount time that is really part of the volume name. */
+static void test_a_volume_with_no_logical_label_is_refused(void) {
+  build("DN3500", 0xA45AA673u, 0x10012345u);
+  put_be32(AP_VOLUME_BLOCK_BYTES, 0u); /* unmark block 1 */
+  ap_volume_label_t out;
+  TEST_ASSERT_FALSE(ap_volume_read_label(label, sizeof label, &out));
+}
+
+/* `[EH3]` p. 2-20's enumeration, which `002398-04` names and does not print. */
+static void test_the_shutdown_state_reads_back(void) {
+  build("DN3500", 0u, 0u);
+  label[lv_at + AP_VOLUME_SHUT_STATE_OFFSET] = 0u;
+  label[lv_at + AP_VOLUME_SHUT_STATE_OFFSET + 1u] = AP_VOLUME_SHUT_MOUNTED;
+  ap_volume_label_t out;
+  TEST_ASSERT_TRUE(ap_volume_read_label(label, sizeof label, &out));
+  TEST_ASSERT_EQUAL_UINT(AP_VOLUME_SHUT_MOUNTED, out.shut_state);
+
+  label[lv_at + AP_VOLUME_SHUT_STATE_OFFSET + 1u] = AP_VOLUME_SHUT_SALVAGED;
+  TEST_ASSERT_TRUE(ap_volume_read_label(label, sizeof label, &out));
+  TEST_ASSERT_EQUAL_UINT(AP_VOLUME_SHUT_SALVAGED, out.shut_state);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_measured_label_reads_back_as_measured);
@@ -222,5 +329,8 @@ int main(void) {
   RUN_TEST(test_a_uid_with_no_machine_behind_it_has_node_zero);
   RUN_TEST(test_the_name_is_trimmed_of_its_padding);
   RUN_TEST(test_something_that_is_not_a_volume_is_refused);
+  RUN_TEST(test_a_volume_whose_labels_sit_further_in_still_reads);
+  RUN_TEST(test_a_volume_with_no_logical_label_is_refused);
+  RUN_TEST(test_the_shutdown_state_reads_back);
   return UNITY_END();
 }

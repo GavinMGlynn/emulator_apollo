@@ -1,0 +1,28 @@
+# `GO` at the `)` prompt, and then listen.
+#
+# This is `restore.script` with its ending changed, and the two endings are
+# alternatives rather than a sequence: `008860-A03` Chapter 1 Step 4 says `GO`
+# "starts the DM and the login prompt appears", while `shut` dismounts and stops.
+# A run can do one or the other.
+#
+# **It deliberately expects nothing after `GO`.** What the DS5500 prints once the
+# DM starts has never been seen on this core, and an `expect` for a prompt this
+# project has not read is a guess that costs a whole run when it is wrong --
+# `console-script-expect-is-edge-triggered`, twice. So this script ends by
+# sending `GO` and lets the console recorder capture whatever follows; the
+# dialogue is written from the transcript, not before it.
+#
+# Pair it with a generous `--boot-limit` and **no** `--boot-stop-on-script-end`:
+# the point of this run is the part *after* the last step.
+expect MD14
+expect >
+send DI C\r
+expect >
+send EX DOMAIN_OS\r
+expect Do you wish to proceed
+send Y\r
+
+# RBAK's Phase II banner on the way out, which occurs exactly once in a run --
+# `RBAK_BS` at the start is a different string.
+expect RBAK version
+send GO\r
