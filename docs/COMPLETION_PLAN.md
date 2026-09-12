@@ -4723,6 +4723,18 @@ discipline throughout.
       2. **The 68040's caches are a complete module attached to no CPU**, so
          `CINV`/`CPUSH` are correctly no-ops and every fetch and operand is a
          bus access.
+         **Four errata belong to this part when it is written** -- `[RN104]`
+         §4.12, read 2026-09-12: `MOVE16` needs a preceding `NOP` "in order to
+         work correctly"; an indirect access whose *intermediate* fetch is to a
+         serialized page "causes the CPU to lock up"; `FMOVE`/`FMOVEM`/`MOVEM`
+         "can cause double writes ... unless they are preceded and followed by a
+         NOP"; and "the `FScc -(Ay)` instruction does not work". None is
+         reachable today -- `MOVE16` has a bus-access type and a timing row and
+         no decoder, and there is no `FScc` at all. Three of the four say Domain
+         compilers never generate the construct. Reproducing an *unstated*
+         failure would be inventing behaviour, so the decision when this core is
+         written is to implement the architectural behaviour and record the
+         divergence. Detail in the walk record.
       2a. **The DS5500's own SELF_TEST fails its `CPU (interrupts) Test #0`**
          -- new as of 2026-09-12, because part 1 above is what made the
          diagnostic reachable. Measured: the diagnostic **never writes the
