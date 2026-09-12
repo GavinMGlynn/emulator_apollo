@@ -4712,12 +4712,20 @@ discipline throughout.
       is header-first and variable-length; it is in
       `docs/references/002398-03_WALK.md` at exactly the strength of a
       measurement.
-      **So the reader is specified down to the root directory and `PROVISIONAL`
-      beyond it**, which is what `CLAUDE.md` asks for when a document is absent
-      rather than unfound. Everything above the directory — label, VTOC header,
-      VTOC block, VTOC entry, file map, block header — is documented and
-      buildable now, and would already have caught the wrong block number that
-      grepping for names produced.
+      **`tools/awd_read.py` exists as of 2026-09-12 and reads the chain down to
+      the VTOC header**, with `tools/test_awd_read.py` (10 checks, CTest entry
+      `awd_read`) against a volume the test builds, because `media/` is
+      gitignored. On the DS5500 volume the labels read cleanly and the VTOC
+      header is internally consistent — `.vtoc_blocks` 226 and `.map[0]` "226
+      blocks at DADDR 40901", one number from two fields.
+      **What is still open is below that**: `.root_x` decodes to a DADDR *below*
+      the VTOC extent and the block there is zeros, and `.net_x`/`.os_x` decode
+      to entry indices 5 and 7 which p. 2-25 allows only for the file-map use.
+      `.vtoc_hdr.version` reads 2. The suspicion is that the VTOC header changed
+      between Feb 1985 and SR10.4 — the directory entry format demonstrably did
+      — but that is a suspicion and the tool prints the decode and the empty
+      result rather than inventing a base. Detail in
+      `docs/references/002398-03_WALK.md`.
 
 - [x] **The DS5500's address translation map is 4 KB — implemented 2026-08-22.**
       `019411-A00` Table 2-5 gives `017000`-`017FFF` against `[S3K]` §2.5's

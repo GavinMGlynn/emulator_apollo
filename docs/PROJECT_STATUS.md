@@ -632,6 +632,52 @@ tools/dn5500-boot.sh`. The volume is the artefact of the restore run recorded in
 failure and then spins on `Do you wish to continue (y,n)?`, because the harness
 types only the console knock and the prompt reads a carriage return as `x`.
 
+## `tools/awd_read.py`: the documented volume chain, and where it stops (2026-09-12)
+
+The project had been reading volumes by **grepping the raw image for names**.
+That is how a wrong root-directory block number reached this file earlier the
+same day: the byte offsets were right and the block numbers derived from them
+assumed a 1024-byte block, where an Apollo block is 1056. A reader that follows
+the structure is right by construction, and the structure is now entirely on
+paper — `002398-03` chapter 2's figures were read at 600 dpi, `002398-04` and
+`019411-A00` corroborate, and `docs/references/002398-03_WALK.md` records it.
+
+**What it walks**: the 32-byte block header that says which object and which
+page every block is; the physical volume label, found by the block whose header
+UID is `pv_label_$uid`; its `.lv_list`; the logical volume label at
+`lv_label_$uid`, with the BAT header at `+2C` and the VTOC header at `+4C`;
+`.root_x`, `.os_x` and `.boot_x`; the VTOC index's three forms; the VTOC block's
+five 204-byte entries; and the file map's 32 direct pointers and three indirect
+levels.
+
+**Where it stops, twice, and both are recorded rather than papered over.**
+
+*Below the VTOC header, on a real image.* The labels read cleanly and the VTOC
+header is internally consistent — `.vtoc_blocks` 226 and `.map[0]` "226 blocks
+at DADDR 40901", one number from two fields. But `.root_x` decodes to DADDR
+39730, *below* that extent, and the block there is zeros; `.net_x` and `.os_x`
+decode to entry indices 5 and 7, which p. 2-25 allows only for the file-map use.
+`.vtoc_hdr.version` reads 2. The suspicion is that the VTOC header changed
+between Feb 1985 and SR10.4 — the directory entry format demonstrably did — and
+it is a suspicion. The tool prints the decode and the empty result.
+
+*At the root directory's contents.* All four documents on this shelf print a
+32-byte-fixed-name entry an SR10.4 volume does not use. A documentary absence,
+searched for and not found.
+
+**One thing it caught on the way**: p. 2-11 prints "Maximum file size =
+(32+256+256**2+256**3)*1024 bytes = **17,247,300,000** bytes", and the
+expression comes to **17,247,272,960**. The printed total is rounded; the
+expression is the figure. Asserted, because checking a document's own arithmetic
+is cheap and a reader who took the round number would size a buffer 27 KB too
+large.
+
+*Verification: `tools/test_awd_read.py`, 10 checks, CTest entry `awd_read`.
+Every fixture is built by the test — `media/` is gitignored, so a test that read
+a real volume would pass here and fail everywhere else. The label-location test
+places the pair at blocks 0/1, 0/4 and 3/5, so it tests a reader that finds the
+labels rather than one that assumes.*
+
 ## A DS5500 volume's labels are four blocks further in, and the reader found neither (2026-09-12)
 
 `image/ap_volume.c` located the physical volume label at image offset `0x20` and

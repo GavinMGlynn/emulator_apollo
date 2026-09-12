@@ -260,6 +260,10 @@ if(Python3_Interpreter_FOUND AND NOT WIN32)
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/test_ct_extract.py)
   set_tests_properties(ct_extract PROPERTIES LABELS tools)
 
+  add_test(NAME awd_read
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/test_awd_read.py)
+  set_tests_properties(awd_read PROPERTIES LABELS tools)
+
   # The headless frontend's flags, each one. Phase 5 asks for exactly this and
   # until it existed not one was checked -- and the flags are the project's own
   # instruments, so one that breaks silently takes a measurement with it. Needs
