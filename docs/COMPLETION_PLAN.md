@@ -4677,12 +4677,21 @@ discipline throughout.
       `SPM system init complete. Node ID = 12345`. The exerciser this item has
       been waiting for since 2026-09-08 is running. What is left is the work
       itself, which is subsystem-sized and has no evidence gap.
-      **First measurement to make, before any code**: does the booted system
-      touch SCSI at all? The boot's region counters say it reads **8,435,090**
-      AT-bus addresses that answer `FF`, spanning `0004D400`-`00FFF003`, and
-      whether any of those is a SCSI controller decides whether the OS *is* an
-      exerciser or merely could be. A watch on one of them names the driver
-      through `tools/kernel_symbols.py`.
+      **That measurement is answered, and it did not need a boot.** The
+      question this item set — does the booted system touch SCSI at all? — is
+      settled by the Domain/OS run already on disk, now that the address is
+      known. Its region counters read the **cartridge tape** region
+      `050000`-`0500FF` **276,194 times against 5 writes**, which is a status
+      poll, and the run ends with the SC-499 at `status 57, exception, done`.
+      So the booted system hammers exactly the block a WD7000-ASC would occupy,
+      and our DS5500 answers as the tape controller **because that is what the
+      model fits it with**. The 8,435,090 `FF` reads are elsewhere.
+      **Which names the work precisely.** An exerciser needs the DS5500 refitted
+      with the ASC *instead of* the SC-499 — which is what `[RN104]` §3.3.6 says
+      a real machine must do — so the subsystem is `device/ap_wd7000.{h,c}` plus
+      a model-table choice between the two controllers at ISA `200`, after which
+      Domain/OS's own `/sys/mgrs/rmt_scsi` is the exerciser. Nothing is gated on
+      evidence any more; what remains is the module.
       **The part, the address and the manual, all found 2026-09-12 — and the
       item is no longer short of evidence.** `019411-A00`'s text layer has
       **zero** occurrences of "SCSI"; Figure 1-5 at 600 dpi carries the label

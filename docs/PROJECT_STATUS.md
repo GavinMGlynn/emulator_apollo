@@ -984,6 +984,22 @@ written down. Five findings a targeted read would have missed:
   the mail-block address's byte order, and both are recorded rather than
   resolved.
 
+**And the booted system hammers that address.** The Domain/OS run of
+2026-09-12 reads the **cartridge tape** region `050000`-`0500FF` **276,194
+times against 5 writes** — a status poll — and ends with the SC-499 at
+`status 57, exception, done`. So the question this plan item set, *does the
+booted system touch SCSI at all*, is answered without another boot: it touches
+exactly the block a WD7000-ASC would occupy, and this core answers as the tape
+controller because that is what the model fits. The 8,435,090 AT reads that
+return `FF` are elsewhere, spanning `0004D400`-`00FFF003`.
+
+**Which names the remaining work exactly.** An exerciser needs the DS5500
+refitted with the ASC *instead of* the SC-499 — which is what `[RN104]` §3.3.6
+says a real machine must do — so the subsystem is `device/ap_wd7000.{h,c}` plus
+a model-table choice between the two controllers at ISA `200`, after which
+Domain/OS's own `/sys/mgrs/rmt_scsi` is the exerciser. Nothing is gated on
+evidence; what remains is the module.
+
 **What the part's own manual does not carry**: the WD33C93 SBIC's registers,
 deferred to its data sheet three times and **not on this shelf**. Named as the
 next document to fetch, not as a blocker — the ASC's firmware does the
