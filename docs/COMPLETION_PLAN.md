@@ -4683,6 +4683,27 @@ discipline throughout.
       whether any of those is a SCSI controller decides whether the OS *is* an
       exerciser or merely could be. A watch on one of them names the driver
       through `tools/kernel_symbols.py`.
+      **The part, the address and the manual, all found 2026-09-12 — and the
+      item is no longer short of evidence.** `019411-A00`'s text layer has
+      **zero** occurrences of "SCSI"; Figure 1-5 at 600 dpi carries the label
+      and no part number and no address; `[GPIO]` Table 3-1 allocates no SCSI
+      address and Table 2-5 names none. The machine's own software does.
+      `tools/awd_read.py` extracted
+      `/install/ri.apollo.os.v.10.4/sau14/scsi14.drvr` — 22,528 bytes, all 22
+      blocks confirmed by their own headers — off the DN3500 volume, and it
+      says outright **"Western Digital WD7000-ASC SCSI Host Adapter"**, with an
+      error message naming the board's own **"i/o address space (w3) jumpers"**.
+      Its reset routine writes 3, 0, 2, 0 to **`050002`** and polls
+      **`050000`** masked `F0`, which is Table A-1 of the part's own spec to the
+      byte: address 0 reads ASC Status, address 2 writes the Host Control
+      register. So the controller is at **ISA `200`, physical `050000`-`050003`**.
+      **`96-000494X3_WD7000-ASC_Engineering_Spec_Aug88.pdf`**, 140 pages, is now
+      in `docs/references/westernDigital/` and must be walked whole.
+      **And that settles the `[RN104]` §3.3.6 notice below**, which this item
+      recorded as unexplained: ISA `200`-`207` is where `[GPIO]` Table 3-1 puts
+      the **Tape Controller** and where `AP_TAPE_ADDR` already is. The WD7000
+      and the SC-499 decode the same block, so a machine cannot carry both —
+      measured from the driver, and exactly what the notice requires.
       **One constraint to carry into the design.** `[RN104]` §3.3.6 replaces a
       notice in *Using the CD-ROM Reader* with: "You cannot use a CD-ROM drive
       in a Series 35xx, 4000, or 4500 system that **uses a non-SCSI cartridge

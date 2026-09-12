@@ -914,6 +914,55 @@ tools/dn5500-boot.sh`. The volume is the artefact of the restore run recorded in
 failure and then spins on `Do you wish to continue (y,n)?`, because the harness
 types only the console knock and the prompt reads a carriage return as `x`.
 
+## The DS5500's SCSI controller is a WD7000-ASC at ISA `200`, and that is the tape's address (2026-09-12)
+
+**No SCSI is implemented.** This section records what the plan item was missing,
+which was the part and its address, and both are now established.
+
+**What the shelf does not have, searched rather than assumed.** `019411-A00` is
+the DS5500's own hardware addendum and the plan item's only cited source; its
+text layer contains **zero** occurrences of "SCSI", and Figure 1-5 read at
+600 dpi carries the label "Disk or SCSI/Disk Controller" with **no part number
+and no address**. `[GPIO]` Table 3-1, walked whole this session, allocates no
+SCSI address. `019411-A00` Table 2-5, the DS5500's own map, names none.
+
+**What the machine's own software has.** `tools/awd_read.py` extracted
+`/install/ri.apollo.os.v.10.4/sau14/scsi14.drvr` from the DN3500 volume —
+22,528 bytes, all 22 blocks confirmed by their own block headers — and it says
+outright **"Western Digital WD7000-ASC SCSI Host Adapter"**. It carries the
+board's power-up diagnostics by name (RAM, FIFO, SBIC, initialization F-F, host
+IRQ F-F, ROM checksum) and an error message that names the board's own
+**"i/o address space (w3) jumpers"**.
+
+**And the address, from the code.** Disassembled, its reset routine writes 3, 0,
+2, 0 to **`050002`** with 500 ms and 100 ms waits between, then reads
+**`050000`** and masks `F0`, accepting `40`, `50`, `4F` and `5F`. Table A-1 of
+the part's own engineering specification gives address 0 as *ASC Status* on read
+and address 2 as the *Host Control register* on write, D3-D0 — the same two
+registers in the same directions. The only other absolute addresses in the
+driver are `011600`, the DS5500's master request register, and `017000`, its
+address translation map, both already modelled here.
+
+So the controller is at **ISA `200`, physical `050000`-`050003`**.
+
+**Which is where the cartridge tape is.** `AP_TAPE_ADDR` is `0x050000`, and
+`[GPIO]` Table 3-1 gives ISA `200`-`207` to the *Tape Controller* —
+`src/core/board/ap_tape.h` derives that address three independent ways. The
+WD7000-ASC and the SC-499 decode the same block. That is the mechanism behind
+`[RN104]` §3.3.6, which the plan item recorded as stated-but-unexplained: "You
+cannot use a CD-ROM drive in a Series 35xx, 4000, or 4500 system that uses a
+non-SCSI cartridge tape drive. You must either remove the ctape controller from
+the system or replace your non-SCSI ctape drive with a SCSI ctape drive." The
+notice does not say why; the driver does. **A model of this machine will have to
+make the two mutually exclusive**, which is a model-table question rather than a
+device one.
+
+**The part's own manual is now on the shelf.**
+`docs/references/westernDigital/96-000494X3_WD7000-ASC_Engineering_Spec_Aug88.pdf`,
+140 pages, 400-dpi scans with an OCR text layer. Under `CLAUDE.md`'s standing
+rule it is a document that must be read whole, and the walk record is
+`docs/references/WD7000_WALK.md`.
+
 ## `tools/awd_read.py`: a volume read end to end, and the two structures measured (2026-09-12)
 
 The project had been reading volumes by **grepping the raw image for names**.
