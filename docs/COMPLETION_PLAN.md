@@ -4492,6 +4492,15 @@ discipline throughout.
       **`014962-A00` *Design Principles* (157) is passed over in full**
       (`014962-A00_WALK.md`), and it is the one that describes **SR10** rather
       than SR9.0. It names the DS5500's stopping point: the pointer at
+      **And `002398-03` p. 3-7 gives the structure that vector points at**, read
+      2026-09-13: an **Entry Control Block** is `+00` a six-byte **JMP to the
+      procedure**, `+06` a pointer to the data area, `+0A` five flag bits
+      including "DB register not saved", `+0C` debug info. p. 3-4's calling
+      sequence is `MOVE.L ECBADR,A0 / JSR (A0)` and then `MOVE.L 6(A0),DB`, so
+      `jsr (a0)` jumps *into* the ECB and the callee loads its own data base from
+      it. A zero in that slot is therefore not a zeroed function pointer but a
+      missing ECB, and "points at a dynamic link snapper" is a statement about
+      what sits at an ECB's `+00`.
       `0091709C` is a **transfer vector**, position-independent code puts "an
       extra level of indirection for each external procedure", the loader fills
       the vector in from the **Known Global Table**, and **an unresolved vector
