@@ -440,7 +440,8 @@ The 68040 item's live part 1 asked for `/sau14` as a **root-directory entry** on
 a DS5500 volume. It is there, and the firmware agrees.
 
 **The volume.** The SR10.4 restore re-run with `--disk-writeback` produced
-`restored.awd`, whose root directory (blocks 170933-170936) reads:
+`restored.awd`, whose root directory — **blocks 165750-165753**, the same record
+`tools/dn5500/README.md` names — reads:
 
     usr  user_data  tmp  node_data  sau9  sau8  sau7  sau14  sau12  sau11
     5lib  install  etc  dev  acom  a_wp  bscom  sysboot  sys  lost+found.list

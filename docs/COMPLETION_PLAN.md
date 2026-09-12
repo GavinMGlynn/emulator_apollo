@@ -4762,6 +4762,15 @@ discipline throughout.
          out what Test #0 asserts**: the diagnostic is `/sau14/self_test`,
          loaded at `01002000`-`01003A14`, entered at `01002020`, and nothing has
          disassembled it. Detail in `PROJECT_STATUS.md`.
+         **A cheap instrument exists and has not been used**: a fault diagnostic
+         record (`fault_$diag_t`) begins with the magic pattern **`DFDF`**, which
+         `[EH1]`, `[EH3]` p. 1-8 and `[EH3]`'s Rev 4 counterpart all give and
+         `[AEGIS]` §18.2.4.1 says the common fault handler writes — so one is
+         findable in a memory dump by searching for that halfword, and it
+         carries the status word, the register file, `bus_info` (read/write,
+         instruction-or-not, and the FC2-FC0 function code) and flags. If the
+         failing test left one, dumping memory and grepping `DFDF` answers what
+         `PC= 000067A8` means without disassembling anything.
       3. ~~**`PFLUSH` has no published timing**~~ **— WRONG ON BOTH HALVES,
          checked 2026-09-12.** The M68040 User's Manual **p. 10-12**, §10.5
          MISCELLANEOUS INTEGER UNIT INSTRUCTION TIMINGS, prints it: `PFLUSH`
