@@ -434,6 +434,45 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## The DS5500 has an identity baseline at last (2026-09-12)
+
+**`tools/identity-boot.sh` boots a DN3500, and a DN3500 is a 68030.** So a
+change to `src/core/cpu/m68040/` could not move its hash and could not be caught
+by it — which is not hypothetical: the 68040 ATC's `M` write-back was missing,
+`F78D6DBE770CAF47` stayed exactly where it was, and a DS5500 restore was
+silently failing to write its root directory for three weeks. The defect was
+found by diffing two restores, not by any harness.
+
+`tools/dn5500-identity.sh` closes that. **Its bound derives itself**, which is
+what the plan required when it said the bound "is not a free parameter" — the
+previous restore consumed 40,000,000,000 steps *exactly*, a bound being hit
+rather than a cost measured. `--boot-stop-on-script-end` stops the run when
+`dn5500-md.script`'s last step is satisfied, so the count is the machine's own
+answer:
+
+```
+executed     8592258 instruction(s)
+state hash   C3F77989268973A3
+final PC     00002918 (boot PROM)
+clocks       27923652
+```
+
+Reproduced across two runs. Report `executed` and `final PC` beside the hash,
+as the DN3500 harness does: together they distinguish state being added from
+behaviour changing.
+
+**What it covers**: the boot PROM's path on a 68040 — the I/O protection map,
+the transparent translation registers, the caches, and the MMU the PROM programs
+two instructions in — in 8.6 M instructions and about two seconds, cheap enough
+to run on every 68040 change.
+
+**What it does not**, and the script says so in its own header: Domain/OS
+paging, the ATC's write-back and the single-level store are exercised by the
+*restore*, at ~40 G steps and three quarters of an hour. A fast baseline that
+catches most things is not an argument against the slow one that catches the
+rest — which is the lesson a `READ FILE MARK` regression taught this same day,
+shipped on a check that could not see the device it changed.
+
 ## The SR10.4 restore completes: 401 entries and `Restore complete.` (2026-09-12)
 
 **The item's DN3500 half is met.** The ending is the oracle's `sau14.log` byte

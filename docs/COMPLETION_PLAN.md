@@ -4717,15 +4717,26 @@ discipline throughout.
          bus access.
       3. **`PFLUSH` has no published timing** and is `PROVISIONAL` for that
          reason; no manual on this shelf gives a figure.
-      4. **Nothing pins the DS5500 against regression.** `tools/identity-boot.sh`
-         is DN3500-only, so a 68040 change cannot move its hash and cannot be
+      4. ~~**Nothing pins the DS5500 against regression.**~~ **DONE
+         2026-09-12: `tools/dn5500-identity.sh`.** The bound derives itself --
+         `--boot-stop-on-script-end` stops the run when `dn5500-md.script`'s
+         last step is satisfied, so the instruction count is the machine's
+         answer and not a parameter, which is what "not chosen for roundness"
+         required. Reference, reproduced across two runs: `executed 8592258`,
+         `state hash C3F77989268973A3`, `final PC 00002918`, `clocks 27923652`.
+         It covers the boot PROM's path on a 68040 -- the I/O protection map,
+         the transparent translation registers, the caches, the MMU the PROM
+         programs two instructions in -- in 8.6 M instructions and about two
+         seconds, so it is cheap enough to run on every 68040 change. **It is
+         not the deep check**, and the script says so: Domain/OS paging, the
+         ATC's write-back and the single-level store are exercised by the
+         *restore*, at ~40 G steps, which is the route `tools/dn5500/README.md`
+         carries. The original text of this part is below, because it is the
+         defect that argued for the tool: `tools/identity-boot.sh` is
+         DN3500-only, so a 68040 change cannot move its hash and cannot be
          caught by it -- which is exactly what happened to the ATC's `M`
-         writeback: `F78D6DBE770CAF47` stayed put while a DS5500 restore was
-         silently failing to write its root directory. A DS5500 baseline with
-         its own bound is the tail this item now owes. The bound is not a free
-         parameter: the restore-and-`shut` script consumed **40,000,000,000**
-         steps exactly, so a baseline must be derived from a run's own
-         `executed` plus `idle` and not chosen for roundness.
+         writeback, `F78D6DBE770CAF47` staying put while a DS5500 restore was
+         silently failing to write its root directory.
       Everything else below is done, refuted or superseded, and says which. Run on 2026-08-19 with `--boot-trace-last`: the machine
       executes `NOP` at `00060C` and then takes **vector 11, the F-line
       emulator trap**, on `F4D8` at `00060E` — `CINVA BC`, a 68040
