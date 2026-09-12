@@ -4671,10 +4671,18 @@ discipline throughout.
       SCSI, and `/sau14/scsi14.drvr` is a **Domain/OS** driver — so the exerciser
       is still the operating system, which still waits on a DS5500-bootable
       volume. Detail in `PROJECT_STATUS.md`.
-      **And the gate moved again on 2026-09-12**: the volume exists and boots,
-      `/sau14` is a root-directory entry, and the firmware loads SELF_TEST out
-      of it. What stands between here and a SCSI exerciser is now item 2a, the
-      `CPU (interrupts) Test #0` failure.
+      **The gate is open as of 2026-09-12.** The volume exists, `/sau14` is a
+      root-directory entry, the machine's own SELF_TEST **passes every
+      sub-test**, and **Domain/OS boots to the Server Process Manager** —
+      `SPM system init complete. Node ID = 12345`. The exerciser this item has
+      been waiting for since 2026-09-08 is running. What is left is the work
+      itself, which is subsystem-sized and has no evidence gap.
+      **First measurement to make, before any code**: does the booted system
+      touch SCSI at all? The boot's region counters say it reads **8,435,090**
+      AT-bus addresses that answer `FF`, spanning `0004D400`-`00FFF003`, and
+      whether any of those is a SCSI controller decides whether the OS *is* an
+      exerciser or merely could be. A watch on one of them names the driver
+      through `tools/kernel_symbols.py`.
       **One constraint to carry into the design.** `[RN104]` §3.3.6 replaces a
       notice in *Using the CD-ROM Reader* with: "You cannot use a CD-ROM drive
       in a Series 35xx, 4000, or 4500 system that **uses a non-SCSI cartridge
