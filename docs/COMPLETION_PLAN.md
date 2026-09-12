@@ -4643,6 +4643,21 @@ discipline throughout.
       DS5500, against `sau14.log`; `sc499_suite` 29, `tape_suite` 34, each new
       test failing on the code it replaced; `ctest` 147/147. Detail in
       `PROJECT_STATUS.md`.*
+- [ ] **`check_frontend_flags.py` says "all reachable flags exercised" and it
+      covers 38 of 90.** Found 2026-09-12 while adding `--scsi`. The script's
+      own comment names the failure — "this file's summary line says *all
+      reachable flags exercised* and it is a hand-kept list; a flag in neither
+      list makes that sentence false without failing anything" — and the list
+      has since drifted: `main.c` parses **90** distinct flags and **52** are
+      mentioned in neither the checks nor the needs-firmware skips, including
+      `--3c505`, `--matrox`, `--ring-two-node`, `--clock`, `--configure`,
+      `--service-mode` and every `--boot-stop-*`.
+      **The fix is to stop hand-keeping it**: enumerate the flags from
+      `main.c`'s `strcmp(argv[i], "--…")` sites, subtract the two lists, and
+      fail on the remainder — then classify the 52 once, each with a reason.
+      Until then the summary line is a claim nothing checks, which is the exact
+      shape of defect this project's own guards exist to catch.
+
 - [ ] **The DS5500 has a SCSI bus and this core models no SCSI.** From the
       `019411-A00` walk, Figure 1-5: a "Disk or SCSI/Disk Controller" drives a
       SCSI bus to magtape and a second cartridge tape. Subsystem-sized, and
@@ -4696,14 +4711,16 @@ discipline throughout.
         `PROJECT_STATUS.md`.
         *Verification: `wd7000_suite`, 30 tests, including the four status
         values `scsi14.drvr` accepts and the driver's own reset sequence.*
-  - [ ] **Wire it to the board and let a run choose which controller is at ISA
-        `200`.** The block is `AP_TAPE_ADDR`'s, so the region table does not
-        move; what changes is which device answers, which is a *run* choice
-        like `--ring` and not a model property. Needs a new
-        `AP_BOARD_REGION_SCSI` chosen inside `ap_board_region`, the read, write,
-        reset, advance and IRQ paths branched, a hash contribution that is empty
-        when the card is absent — the `ds5500_11500` pattern, so no existing
-        model's state hash moves — and a frontend flag.
+  - [x] **Wired to the board, and `--scsi` exchanges the two cards — 2026-09-12.**
+        `AP_BOARD_REGION_SCSI` chosen inside `ap_board_region`; read, write,
+        reset, both advance paths, the DMA-possible set and the interrupt line
+        branched; a hash contribution that is empty when the card is absent, so
+        no existing model's state hash moves. The interrupt line is
+        `PROVISIONAL` — the card takes the tape's `IRQ5` and nothing says which
+        of the ten `[WD7000]` §7.4.4 offers an Apollo board straps. Detail in
+        `PROJECT_STATUS.md`.
+        *Verification: `board_suite` 104 → 106; identity harness re-run after
+        the change, `B6D94F0A99F1B276` unmoved.*
   - [ ] **The SCSI bus and its targets.** Arbitration, selection, the CDB and
         data phases over first-party DMA, and at least one target. The same
         split the tape has between `ap_sc499` and `ap_qic`.

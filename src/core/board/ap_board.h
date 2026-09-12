@@ -56,6 +56,7 @@
 #include "device/ap_ring_ctl.h"
 #include "model/ap_quirk.h"
 #include "board/ap_tape.h"
+#include "device/ap_wd7000.h"
 #include "board/ap_timer.h"
 
 /* `008778-03` Table 2-8. */
@@ -150,6 +151,14 @@ typedef enum {
   AP_BOARD_REGION_DMA_PAGE,
   AP_BOARD_REGION_DISK,
   AP_BOARD_REGION_TAPE,
+  /* The same block of addresses as the tape's, answered by a different card.
+   * `[GPIO]` Table 3-1 gives ISA `200`-`207` to the *Tape Controller* and
+   * `scsi14.drvr` drives a WD7000-ASC at physical `050000`, so the two decode
+   * the same eight addresses -- which is the mechanism behind `[RN104]`
+   * §3.3.6's ban on carrying a non-SCSI cartridge tape drive alongside SCSI.
+   * A board therefore has one or the other, never both, and `ap_board_region`
+   * answers with whichever is fitted. */
+  AP_BOARD_REGION_SCSI,
   AP_BOARD_REGION_GRAPHICS,
 /* The EtherLink Plus's sixteen I/O locations. `ETHERNET.md` findings 2a and 10:
  * ISA `300H` through this board's `physical = 0x040000 + (ISA << 7)` is
@@ -514,6 +523,13 @@ typedef struct ap_board {
   ap_nodeid_t node_id;
   ap_disk_t disk;
   ap_tape_t tape;
+  /* The SCSI host adapter, in the cartridge tape's slot. Absent until
+   * `ap_board_attach_scsi` fits it, and fitting it *removes* the tape: the two
+   * decode the same addresses, which is why `[RN104]` §3.3.6 says a machine
+   * may not have both. Default absent, because the machine this core is the
+   * reference for is sold with the tape. */
+  ap_wd7000_t scsi;
+  bool scsi_fitted;
   ap_graphics_t graphics;
   /* Absent until `ap_board_attach_ring` fits it. A DN3500 is not sold with a
    * ring board in it and this core has no ring option ROM installed, so the
@@ -1191,6 +1207,11 @@ void ap_board_set_quirks(ap_board_t *board, ap_quirks_t quirks);
  * serial ports at `008400` where a DS3500 puts them at `010400`. */
 [[nodiscard]] ap_board_region_t ap_board_region(const ap_board_t *board,
                                                 uint32_t address);
+/* Fit the SCSI host adapter in place of the cartridge tape. The two decode the
+ * same addresses, so this is an exchange and not an addition: after it the
+ * tape's block answers as the ASC and `ap_board_region` says so. */
+void ap_board_attach_scsi(ap_board_t *board);
+
 [[nodiscard]] const char *ap_board_region_name(ap_board_region_t region);
 
 /* How long this address takes to answer, in `AP_TIME_BASE_HZ` units. Zero means

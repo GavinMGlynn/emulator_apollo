@@ -477,6 +477,14 @@ ap_board_region_t ap_board_region(const ap_board_t *board, uint32_t address) {
   ap_board_region_t region = AP_BOARD_REGION_UNMAPPED;
   uint32_t canonical = 0;
   if (locate(board, address, &region, &canonical)) {
+    /* One substitution happens after the table rather than in it: the SCSI
+     * host adapter occupies the cartridge tape's block, so the placement is
+     * the same row and only the card differs. Done here so the tables stay one
+     * row per *address*, which is what makes them checkable against the
+     * handbooks. */
+    if (region == AP_BOARD_REGION_TAPE && board->scsi_fitted) {
+      return AP_BOARD_REGION_SCSI;
+    }
     return region;
   }
 
@@ -662,8 +670,18 @@ void ap_board_sample_interrupts(ap_board_t *board) {
                                     ap_intr_pending(&board->interrupts));
   ap_intr_set_request(&board->interrupts, AP_CALENDAR_IRQ,
                       ap_calendar_irq(&board->calendar));
+  /* The cartridge tape's line, or the SCSI adapter's -- one card is in that
+   * slot and one line comes off it. `008778-03` Table 2-3 gives `IRQ5` to
+   * "Tape Drive or User Device", and `[WD7000]` §7.4.4 lists `IRQ5` among the
+   * ten the ASC's W1/W2 can select, so the exchange does not move the line.
+   * **Which of the ten an Apollo board straps is not established**: the part's
+   * own standard is `IRQ3`, this machine's tape line is `IRQ5`, and nothing on
+   * either shelf says what the Apollo card does. Taken as the tape's, because
+   * the card is in the tape's slot at the tape's address; `PROVISIONAL`, and
+   * named in `docs/PROJECT_STATUS.md`. */
   ap_intr_set_request(&board->interrupts, AP_TAPE_IRQ,
-                      ap_tape_irq(&board->tape));
+                      board->scsi_fitted ? ap_wd7000_irq(&board->scsi)
+                                         : ap_tape_irq(&board->tape));
   /* The fixed disk's `IRQ14`, which the controller now derives from `IREQ` and
    * the MASK register's enable bit -- both of which it already keeps, so
    * nothing here is invented. The floppy's own line follows below, from the
@@ -1326,6 +1344,9 @@ void ap_board_advance_one(ap_board_t *board, uint32_t address, ap_time_t now) {
   case AP_BOARD_REGION_TAPE:
     ap_tape_advance(&board->tape, now);
     return;
+  case AP_BOARD_REGION_SCSI:
+    ap_wd7000_advance(&board->scsi, now);
+    return;
   /* Every other region falls back to the whole walk: slower and never wrong,
    * which is the right way round. Listed rather than defaulted because
    * `-Wswitch-enum` then makes a *new* region a compile error instead of a
@@ -1433,6 +1454,13 @@ void ap_board_advance(ap_board_t *board, ap_time_t now) {
   /* The tape's command handshake, which is the only part of the drive that
    * moves with time -- §1.13.2's edges, at the bounds the figures publish. */
   ap_tape_advance(&board->tape, now);
+  /* The ASC's diagnostics and its command port's 70 us, when one is fitted.
+   * Gated rather than run unconditionally: an unfitted card has no clock, and
+   * advancing one would make the two fittings differ in a field nothing can
+   * read. */
+  if (board->scsi_fitted) {
+    ap_wd7000_advance(&board->scsi, now);
+  }
   /* The Winchester's access time. A command that moved the heads completes here
    * rather than in the register write that issued it, and the interrupt it
    * raises is the one Domain/OS requires not to be instantaneous. */
@@ -1578,6 +1606,7 @@ bool ap_board_cache_inhibited(const ap_board_t *board, uint32_t address) {
   case AP_BOARD_REGION_DMA_PAGE:
   case AP_BOARD_REGION_DISK:
   case AP_BOARD_REGION_TAPE:
+  case AP_BOARD_REGION_SCSI:
   case AP_BOARD_REGION_GRAPHICS:
   case AP_BOARD_REGION_ETHERNET:
   case AP_BOARD_REGION_RING:
@@ -1596,6 +1625,16 @@ bool ap_board_processor_may_run(const ap_board_t *board) {
    * which is why they answer through one predicate. */
   return !board->refresh_holding &&
          ap_arbiter_processor_may_run(&board->arbiter);
+}
+
+void ap_board_attach_scsi(ap_board_t *board) {
+  /* An exchange, not an addition. The tape is reset back to its unfitted state
+   * so nothing of it can be read through a block it no longer answers -- the
+   * two cards decode the same eight addresses, which is `[RN104]` §3.3.6's
+   * reason a machine may not carry both. */
+  ap_tape_reset(&board->tape);
+  ap_wd7000_power_on(&board->scsi);
+  board->scsi_fitted = true;
 }
 
 const char *ap_board_region_name(ap_board_region_t region) {
@@ -1620,6 +1659,7 @@ const char *ap_board_region_name(ap_board_region_t region) {
   case AP_BOARD_REGION_DMA_PAGE: return "DMA page register";
   case AP_BOARD_REGION_DISK: return "disk/floppy";
   case AP_BOARD_REGION_TAPE: return "cartridge tape";
+  case AP_BOARD_REGION_SCSI: return "SCSI (WD7000-ASC)";
   case AP_BOARD_REGION_GRAPHICS: return "display controller";
   case AP_BOARD_REGION_RING: return "token ring controller";
   case AP_BOARD_REGION_MATROX: return "Matrox graphics";
@@ -1769,6 +1809,12 @@ bool ap_board_init_model(ap_board_t *board, uint8_t *ram, uint32_t ram_bytes,
   ap_nodeid_init(&board->node_id, node_id);
   ap_disk_reset(&board->disk);
   ap_tape_reset(&board->tape);
+  /* And no SCSI adapter fitted: `ap_board_attach_scsi` exchanges it for the
+   * tape. `ap_wd7000_power_on` is run anyway so an unfitted part is a part in
+   * a known state rather than the `memset`'s zeros -- the same reason the ring
+   * controller is reset with `present` false above. */
+  ap_wd7000_power_on(&board->scsi);
+  board->scsi_fitted = false;
   /* No display controller fitted by default. The blocks still decode -- a
    * DN3500 answers there whether or not a screen is present -- and the ID
    * register reads `FF`, which is how the firmware learns there is none. */
@@ -1853,7 +1899,7 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
    * over-inclusive is the work that was already being done. This switch is the
    * auditable set of sites the flag needs. */
   if (counted == AP_BOARD_REGION_DISK || counted == AP_BOARD_REGION_TAPE ||
-      counted == AP_BOARD_REGION_DMA ||
+      counted == AP_BOARD_REGION_SCSI || counted == AP_BOARD_REGION_DMA ||
       counted == AP_BOARD_REGION_ETHERNET) {
     board->dma_possible = true;
   }
@@ -1915,6 +1961,18 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
     return ap_disk_read(&board->disk, address);
   case AP_BOARD_REGION_TAPE:
     return ap_tape_read(&board->tape, address);
+  case AP_BOARD_REGION_SCSI:
+    /* `[WD7000]` Table 7-5: "the LSB 3 bits are used to select onboard ASC
+     * registers", so the card decodes **eight** addresses and Table A-1 defines
+     * four of them. The other four are not aliases of the first four -- they
+     * are addresses the part does not answer, which on this bus reads `FF`.
+     * The same shape the SC-499 in this slot was *measured* to have: four
+     * registers at stride 1 and "the upper four addresses of each eight not
+     * decoded", repeating on an eight-byte period through the block. */
+    if ((address & 0x4u) != 0u) {
+      return 0xFFu;
+    }
+    return ap_wd7000_read(&board->scsi, address & (AP_WD7000_REGISTERS - 1u));
   case AP_BOARD_REGION_GRAPHICS:
     return ap_graphics_read(&board->graphics, address);
   case AP_BOARD_REGION_ETHERNET: {
@@ -2057,7 +2115,7 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
    * over-inclusive is the work that was already being done. This switch is the
    * auditable set of sites the flag needs. */
   if (counted == AP_BOARD_REGION_DISK || counted == AP_BOARD_REGION_TAPE ||
-      counted == AP_BOARD_REGION_DMA ||
+      counted == AP_BOARD_REGION_SCSI || counted == AP_BOARD_REGION_DMA ||
       counted == AP_BOARD_REGION_ETHERNET) {
     board->dma_possible = true;
   }
@@ -2156,6 +2214,12 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
     return;
   case AP_BOARD_REGION_TAPE:
     ap_tape_write(&board->tape, address, value);
+    return;
+  case AP_BOARD_REGION_SCSI:
+    if ((address & 0x4u) != 0u) {
+      return;
+    }
+    ap_wd7000_write(&board->scsi, address & (AP_WD7000_REGISTERS - 1u), value);
     return;
   case AP_BOARD_REGION_GRAPHICS:
     ap_graphics_write(&board->graphics, address, value);

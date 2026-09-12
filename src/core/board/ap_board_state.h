@@ -83,6 +83,9 @@ void ap_board_hash_sio(ap_hash_t *st, const ap_sio_t *sio);
 void ap_board_hash_node_id(ap_hash_t *st, const ap_nodeid_t *node_id);
 void ap_board_hash_disk(ap_hash_t *st, const ap_disk_t *disk);
 void ap_board_hash_tape(ap_hash_t *st, const ap_tape_t *tape);
+/* The SCSI host adapter in the tape's slot. Called only when one is fitted, so
+ * a machine without one contributes nothing to the digest. */
+void ap_board_hash_scsi(ap_hash_t *st, const ap_wd7000_t *asc);
 void ap_board_hash_graphics(ap_hash_t *st, const ap_graphics_t *graphics);
 void ap_board_hash_ring(ap_hash_t *st, const ap_ring_ctl_t *ring);
 void ap_board_hash_keyboard(ap_hash_t *st, const ap_kbd_t *keyboard);

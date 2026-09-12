@@ -495,7 +495,8 @@ def main() -> int:
                      "--sio-input (the pins reaching the DUART, as opposed to "
                      "its parsing)",
                      "--sio-input-at (the timed change, as opposed to its "
-                     "parsing)"):
+                     "parsing)",
+                     "--scsi (the card fitted, as opposed to its listing)"):
             skip(flag, "needs a boot PROM; roms/ is gitignored and CI has none")
 
     for name, why in skipped:

@@ -378,6 +378,10 @@ static void print_usage(const char *program_name) {
           "  --3c505-tap IFACE     the same, with its wire on a Linux TAP\n"
           "                        device. **Not deterministic** -- no state\n"
           "                        hash is reported for such a run\n"
+          "  --scsi                fit the WD7000-ASC SCSI host adapter in the\n"
+          "                        cartridge tape's slot. An exchange, not an\n"
+          "                        addition: both decode ISA 200 and a real\n"
+          "                        machine cannot carry the two together\n"
           "");
   /* And split again, for the same reason and on the same rule: no flag is
    * grouped by meaning across the break. */
@@ -2710,6 +2714,12 @@ static ap_quirks_t g_quirks;
 /* The EtherLink Plus, on the same terms and for the same reason: fitted where
  * the board is built, selected where the arguments are read. */
 static bool g_fit_ethernet = false;
+/* The SCSI host adapter, which *replaces* the cartridge tape rather than
+ * joining it: `[GPIO]` Table 3-1 puts the tape controller at ISA `200` and
+ * `scsi14.drvr` drives the WD7000-ASC at the same eight addresses, which is
+ * why `[RN104]` SS3.3.6 forbids a machine from carrying both. Off by default,
+ * because the reference machine is sold with the tape. */
+static bool g_fit_scsi = false;
 static const char *g_tap_device = NULL;
 static ap_tap_t g_tap = {.fd = -1};
 
@@ -4186,6 +4196,13 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
       printf("  option ROM   %s, %ld bytes at %06X, no card fitted\n",
              g_option_rom_path, rom_size, AP_BOARD_ATBUS_MEMORY_BASE);
     }
+  }
+  if (g_fit_scsi) {
+    /* An exchange, so it runs before the cards that are additions: whatever
+     * else a run fits, the tape's slot holds one card. */
+    ap_board_attach_scsi(board);
+    printf("  scsi         WD7000-ASC at %06X, in the cartridge tape's slot\n",
+           AP_TAPE_ADDR);
   }
   if (g_fit_ethernet) {
     /* The address PROM is left zero rather than given an invented address: a
@@ -6807,6 +6824,13 @@ static int boot_from_tape(const char *path, uint64_t limit) {
              g_option_rom_path, rom_size, AP_BOARD_ATBUS_MEMORY_BASE);
     }
   }
+  if (g_fit_scsi) {
+    /* An exchange, so it runs before the cards that are additions: whatever
+     * else a run fits, the tape's slot holds one card. */
+    ap_board_attach_scsi(board);
+    printf("  scsi         WD7000-ASC at %06X, in the cartridge tape's slot\n",
+           AP_TAPE_ADDR);
+  }
   if (g_fit_ethernet) {
     /* The address PROM is left zero rather than given an invented address: a
      * card whose PROM has not been programmed is a real state, and a plausible
@@ -7542,6 +7566,11 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--3c505") == 0) {
       g_fit_ethernet = true;
+      i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--scsi") == 0) {
+      g_fit_scsi = true;
       i += 1;
       continue;
     }

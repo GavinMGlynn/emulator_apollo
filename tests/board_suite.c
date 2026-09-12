@@ -13,6 +13,7 @@
 #include "model/ap_model.h"
 #include "device/ap_mc68681.h"
 #include "board/ap_sio.h"
+#include "board/ap_tape.h"
 #include "board/ap_dmapage.h"
 #include "board/ap_atmap.h"
 #include "board/ap_boardreg.h"
@@ -1565,6 +1566,61 @@ static void test_the_ethernet_card_is_absent_until_it_is_fitted(void) {
   ap_board_attach_ethernet(&board, false, NULL);
   TEST_ASSERT_EQUAL_INT(AP_BOARD_REGION_ATBUS,
                         ap_board_region(&board, AP_BOARD_ETHERNET_ADDR));
+}
+
+/* `[GPIO]` Table 3-1 gives ISA `200`-`207` to the *Tape Controller*, and
+ * `scsi14.drvr` drives a WD7000-ASC at physical `050000`, which is the same
+ * eight addresses. So the two cards are alternatives and `[RN104]` §3.3.6 says
+ * outright that a machine may not carry both. The board answers with whichever
+ * is fitted, and the tape is the default because that is what a DN3500 is sold
+ * with. */
+static void test_the_scsi_adapter_is_fitted_in_the_tapes_slot(void) {
+  ap_board_t board;
+  init(&board);
+
+  TEST_ASSERT_EQUAL_INT(AP_BOARD_REGION_TAPE,
+                        ap_board_region(&board, AP_TAPE_ADDR));
+  TEST_ASSERT_FALSE(board.scsi_fitted);
+
+  ap_board_attach_scsi(&board);
+  TEST_ASSERT_EQUAL_INT(AP_BOARD_REGION_SCSI,
+                        ap_board_region(&board, AP_TAPE_ADDR));
+  /* The whole block, not just the first four addresses: the tape's range is
+   * what decodes, and the ASC's four registers alias through it the way the
+   * SC-499's four do. */
+  TEST_ASSERT_EQUAL_INT(AP_BOARD_REGION_SCSI,
+                        ap_board_region(&board, AP_TAPE_ADDR + AP_TAPE_RANGE - 1u));
+  TEST_ASSERT_NOT_EQUAL(AP_BOARD_REGION_SCSI,
+                        ap_board_region(&board, AP_TAPE_ADDR + AP_TAPE_RANGE));
+}
+
+/* And the card in the slot is the one that answers. A reset ASC's status port
+ * reads `0F` while its diagnostics run, which is a value the SC-499's status
+ * register cannot produce -- its bit 4 is DONE and reads one at reset. */
+static void test_the_fitted_card_is_the_one_that_answers(void) {
+  ap_board_t board;
+  init(&board);
+  bool ok = false;
+  const uint8_t tape = ap_board_read(&board, AP_TAPE_ADDR + 1u, &ok);
+  TEST_ASSERT_TRUE(ok);
+
+  ap_board_attach_scsi(&board);
+  TEST_ASSERT_EQUAL_HEX8(0x0Fu, ap_board_read(&board, AP_TAPE_ADDR, &ok));
+  ap_board_advance(&board, AP_WD7000_T_LONG_DIAGNOSTIC);
+  TEST_ASSERT_EQUAL_HEX8(0x4Fu, ap_board_read(&board, AP_TAPE_ADDR, &ok));
+  /* The card decodes eight addresses and answers on four: `+4` is not an
+   * alias of `+0`, it is an address the part does not drive -- the same shape
+   * the SC-499 in this slot was measured to have. */
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_board_read(&board, AP_TAPE_ADDR + 4u, &ok));
+  /* And the eight-byte period repeats through the block. */
+  TEST_ASSERT_EQUAL_HEX8(0x4Fu, ap_board_read(&board, AP_TAPE_ADDR + 8u, &ok));
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_DIAG_OK,
+                         ap_board_read(&board, AP_TAPE_ADDR + 1u, &ok));
+  TEST_ASSERT_TRUE(ok);
+
+  /* And the tape is not reachable through it any more, which is the point of
+   * the exchange. */
+  TEST_ASSERT_NOT_EQUAL(tape, ap_board_read(&board, AP_TAPE_ADDR + 1u, &ok));
 }
 
 /* Sixteen I/O locations and not one more: `ETHERNET.md` finding 2 gives the
@@ -3460,6 +3516,8 @@ static void test_the_s2500_control_block_reaches_the_hash_only_where_it_exists(
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_ethernet_card_is_absent_until_it_is_fitted);
+  RUN_TEST(test_the_scsi_adapter_is_fitted_in_the_tapes_slot);
+  RUN_TEST(test_the_fitted_card_is_the_one_that_answers);
   RUN_TEST(test_the_ethernet_card_answers_exactly_sixteen_locations);
   RUN_TEST(test_the_at_bus_mapping_reproduces_both_printed_ranges);
   RUN_TEST(test_the_probe_bytes_come_back_through_the_bus);

@@ -472,6 +472,61 @@ void ap_board_hash_disk(ap_hash_t *st, const ap_disk_t *disk) {
   hash_bool(st, omti->fdc_track_read_nd);
 }
 
+void ap_board_hash_scsi(ap_hash_t *st, const ap_wd7000_t *asc) {
+  ap_hash_scope(st, "scsi");
+  /* The four host-visible flags, as a byte, because that is the one thing a
+   * driver can read and two parts differing in it are two different machines. */
+  ap_hash_u32(st, ap_wd7000_status(asc));
+  ap_hash_u32(st, asc->int_status);
+  ap_hash_u32(st, asc->control);
+  ap_hash_u64(st, asc->now);
+
+  /* Reset and diagnostics. `powered_on` decides which diagnostic a reset runs,
+   * so two parts differing only in it diverge at the next reset. */
+  hash_bool(st, asc->in_reset);
+  hash_bool(st, asc->hold_dating);
+  hash_bool(st, asc->hold_dated);
+  ap_hash_u64(st, asc->held_since);
+  hash_bool(st, asc->powered_on);
+  hash_bool(st, asc->diagnosing);
+  ap_hash_u64(st, asc->diagnose_at);
+  hash_bool(st, asc->led);
+
+  /* The command port's turn-round, and whatever sequence is part-way through
+   * it. The parameter bytes are hashed whole: a sequence interrupted after
+   * three bytes is a different machine from one interrupted after four. */
+  hash_bool(st, asc->busy);
+  ap_hash_u64(st, asc->ready_at);
+  ap_hash_u32(st, (uint32_t)asc->sequence);
+  ap_hash_u32(st, asc->taken);
+  ap_hash_bytes(st, asc->parameter, sizeof asc->parameter);
+
+  /* What initialization established. */
+  ap_hash_u32(st, asc->scsi_id);
+  ap_hash_u32(st, asc->bus_on);
+  ap_hash_u32(st, asc->bus_off);
+  ap_hash_u32(st, asc->mail_base);
+  ap_hash_u32(st, asc->ogmb_count);
+  ap_hash_u32(st, asc->icmb_count);
+  ap_hash_bytes(st, asc->parameters, sizeof asc->parameters);
+
+  /* The interrupt queue. Only the live entries: the ring buffer's unused slots
+   * hold whatever a previous interrupt left there, and two queues holding the
+   * same interrupts in the same order are the same queue however they got
+   * there. */
+  ap_hash_u32(st, asc->queue_count);
+  ap_hash_group_begin(st, "queue");
+  for (unsigned i = 0; i < asc->queue_count; ++i) {
+    ap_hash_u32(st, asc->queue[(asc->queue_head + i) % AP_WD7000_IRQ_QUEUE]);
+  }
+  ap_hash_group_end(st);
+  hash_bool(st, asc->awaiting_ack);
+
+  hash_bool(st, asc->interrupt_on_free_ogmb);
+  hash_bool(st, asc->pseudo_idle);
+  hash_bool(st, asc->scsi_reset);
+}
+
 void ap_board_hash_tape(ap_hash_t *st, const ap_tape_t *tape) {
   ap_hash_scope(st, "tape");
   const ap_sc499_t *controller = &tape->controller;
@@ -1089,6 +1144,17 @@ void ap_board_hash(ap_hash_t *st, const ap_board_t *board) {
   ap_board_hash_node_id(st, &board->node_id);
   ap_board_hash_disk(st, &board->disk);
   ap_board_hash_tape(st, &board->tape);
+  /* The SCSI adapter, on the `ds5500_11500` pattern: a scope and a note cost
+   * the digest nothing, and the group is empty when no card is fitted -- so a
+   * machine without one hashes exactly as it did before this device existed,
+   * and the DN3500 reference is unmoved. */
+  ap_hash_scope(st, "scsi");
+  ap_hash_note_u32(st, "fitted", board->scsi_fitted ? 1u : 0u);
+  ap_hash_group_begin(st, "fitted");
+  if (board->scsi_fitted) {
+    ap_board_hash_scsi(st, &board->scsi);
+  }
+  ap_hash_group_end(st);
   ap_board_hash_graphics(st, &board->graphics);
   ap_board_hash_ring(st, &board->ring);
   ap_board_hash_keyboard(st, &board->keyboard);
