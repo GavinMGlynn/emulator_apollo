@@ -392,6 +392,58 @@ static void test_a_map_larger_than_the_storage_is_clamped(void) {
   TEST_ASSERT_EQUAL_UINT(AP_ATMAP_ENTRIES_MAX, map.entries);
 }
 
+/* ---------------------------------------------------------------------------
+ * `[GPIO]` p. B-61 states the same two numbers as buffer sizes
+ * ------------------------------------------------------------------------- */
+
+/* `pbu2_$dma_start`'s `length` "must be greater than 0 and less than or equal
+ * to **64 KB for 8-bit devices, 128 KB for 16-bit devices, and 512 KB for
+ * bus-master devices**".
+ *
+ * Those are this map, counted in bytes of buffer rather than in entries. A
+ * page is 1 KB, so 64 KB is 64 entries and 128 KB is 128 -- exactly what
+ * `[ADD]` §4.2.1.4 gives as the *reach of an index*, "they select one of the 64
+ * entries contained within it" and "one of the 128 entries", from address bits
+ * `<15:10>` and `<16:10>`.
+ *
+ * Worth asserting because the distinction the two numbers belong to -- reach
+ * against storage -- is one this file had to be corrected for: 64 and 128 were
+ * read as the map's *size* and the 2 KB region was aliased down onto 128
+ * entries every 256 bytes, which the machine's own `SELF_TEST` diagnostic
+ * caught. A second document arriving at the same two numbers from the software
+ * side, where a buffer length has nothing to do with how many words the region
+ * holds, is as independent a check on that correction as this shelf offers. */
+static void test_the_drivers_buffer_limits_are_this_maps_reach(void) {
+  TEST_ASSERT_EQUAL_UINT(64u * 1024u,
+                         ap_atmap_reachable_entries(AP_ATMAP_TRANSFER_8BIT) *
+                             AP_ATMAP_PAGE_SIZE);
+  TEST_ASSERT_EQUAL_UINT(128u * 1024u,
+                         ap_atmap_reachable_entries(AP_ATMAP_TRANSFER_16BIT) *
+                             AP_ATMAP_PAGE_SIZE);
+}
+
+static void test_a_bus_master_reaches_the_maps_upper_half(void) {
+  /* And the third limit, 512 KB, is 512 entries -- which is the *whole of the
+   * map above* `AP_ATMAP_WINDOW_FIRST_ENTRY` on a Series 4000, and nothing
+   * else in the map is that size.
+   *
+   * `AP_ATMAP_WINDOW_FIRST_ENTRY` was derived from the AT memory window's base
+   * alone: a DMA address is an offset within `080000`, and `080000 >> 10` is
+   * 512. That derivation is marked "under trial" in `board/ap_atmap.h`. This
+   * arrives at the same place from the other end -- if the window's entries
+   * began anywhere lower, a bus-master device would reach more than 512 KB,
+   * and if they began higher it would reach less.
+   *
+   * *What it does not settle*: 512 KB could be a software policy rather than
+   * the hardware's limit, and this test cannot tell those apart. It records
+   * that two independent derivations agree, which is why the trial stands
+   * rather than closes. */
+  TEST_ASSERT_EQUAL_UINT(512u, AP_ATMAP_WINDOW_FIRST_ENTRY);
+  TEST_ASSERT_EQUAL_UINT(
+      512u * 1024u,
+      (AP_ATMAP_ENTRIES - AP_ATMAP_WINDOW_FIRST_ENTRY) * AP_ATMAP_PAGE_SIZE);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_an_entry_written_as_two_bytes_keeps_both_halves);
@@ -414,5 +466,7 @@ int main(void) {
   RUN_TEST(test_a_fresh_map_translates_everything_to_page_zero);
   RUN_TEST(test_only_the_series_4000_generation_has_a_translation_map);
   RUN_TEST(test_a_headless_server_matches_the_board_it_is_built_from);
+  RUN_TEST(test_the_drivers_buffer_limits_are_this_maps_reach);
+  RUN_TEST(test_a_bus_master_reaches_the_maps_upper_half);
   return UNITY_END();
 }

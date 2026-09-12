@@ -17738,3 +17738,34 @@ reads -- because that is the only path a driver has to it:
   first -- so the loop's length is not what ends the transfer.
 
 *Verification*: `dma_suite` 18 -> 20.
+
+
+## C290 -- `[GPIO]` states the translation map's reach as buffer sizes, and agrees
+
+`pbu2_$dma_start`, p. B-61: the `length` parameter "must be greater than 0 and
+less than or equal to **64 KB for 8-bit devices, 128 KB for 16-bit devices, and
+512 KB for bus-master devices**."
+
+A translation-map page is 1 KB, so those are **64, 128 and 512 entries**.
+
+The first two are exactly `[ADD]` §4.2.1.4's numbers -- "address bits `<15:10>`
+provide an index into the Address Translation Map; they select one of the **64**
+entries contained within it", and `<16:10>` selecting one of **128**. What makes
+this worth recording is *which* mistake it guards. `ap_atmap.h` was corrected
+once for reading 64 and 128 as the map's **size** rather than the reach of an
+index, aliasing the 2 KB region down onto 128 entries every 256 bytes; the
+machine's own `SELF_TEST` diagnostic at `01002BF6` caught it. A driver's buffer
+length has nothing to say about how many words a region holds, so `[GPIO]`
+arriving at the same two numbers is an independent check on the distinction
+rather than a restatement of it.
+
+**And the third number lands on `AP_ATMAP_WINDOW_FIRST_ENTRY`.** 512 KB is 512
+pages, which is the whole of a Series 4000 map above entry 512 -- and 512 is
+where this core places the window's first entry, derived from the AT memory
+window's base alone (`080000 >> 10`). A window starting lower would let a
+bus-master device reach more than 512 KB and one starting higher less. That
+derivation is marked "under trial" in the header and **stays under trial**: 512
+KB could be a software policy rather than the hardware's limit, and nothing here
+tells those apart. Two independent routes agreeing is what is recorded.
+
+*Verification*: `atmap_suite` 20 -> 22.

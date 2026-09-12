@@ -101,7 +101,14 @@
  *
  * `ap_atmap_reachable_entries` keeps the manual's numbers, because a *transfer*
  * still indexes only 64 or 128 of them. Storage and reach are different
- * questions and conflating them is what this was. */
+ * questions and conflating them is what this was.
+ *
+ * **A second document states the reach in bytes, and agrees.** `[GPIO]` p. B-61
+ * bounds `pbu2_$dma_start`'s buffer at "64 KB for 8-bit devices, 128 KB for
+ * 16-bit devices, and 512 KB for bus-master devices". A page is 1 KB, so those
+ * are 64, 128 and 512 *entries* -- the first two exactly SS4.2.1.4's, arrived at
+ * from the software side where a buffer length has nothing to say about how
+ * many words the region holds. `atmap_suite`, `FINDINGS.md` C290. */
 #define AP_ATMAP_ENTRIES 1024u
 
 /* **And the DS5500's map is twice that.** `019411-A00` Table 2-5 gives it
@@ -129,7 +136,15 @@
  * a transfer reaches and which bits select them, and not where in the map those
  * entries begin. A DMA address is an offset within the AT bus memory window at
  * `080000`, and `080000 >> 10` is 512 -- the entry where the boot diagnostic
- * writes its ascending page numbers. Under trial; see `PROJECT_STATUS.md`. */
+ * writes its ascending page numbers. Under trial; see `PROJECT_STATUS.md`.
+ *
+ * **A second derivation lands here too.** `[GPIO]` p. B-61 caps a bus-master
+ * device's buffer at 512 KB, which is 512 pages -- the whole of a Series 4000
+ * map *above this entry*, and nothing else in the map is that size. A window
+ * starting lower would let a bus master reach more, one starting higher less.
+ * It does not close the trial, because 512 KB could be a software policy rather
+ * than the hardware's limit and nothing here distinguishes those; it records
+ * that two independent routes agree. `FINDINGS.md` C290. */
 #define AP_ATMAP_WINDOW_FIRST_ENTRY 512u
 
 /* Bits <9:0> of the physical address: a 1 KB page. */
