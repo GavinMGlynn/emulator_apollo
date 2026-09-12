@@ -482,6 +482,46 @@ executable diagnostic this machine has been able to run, which is the hardware's
 own test suite and the thing that was wanted — see `CLAUDE.md` on the ring
 firmware's self-test for why that matters more than a boot going further.
 
+### What the report says about the failure, measured rather than guessed
+
+A second run bounded at 1,400,000,000 instructions — long enough to be past the
+failure, and the console in the same file confirms it is — reports:
+
+| | |
+| --- | --- |
+| `exceptions` | **261 x vector 2, 1 x vector 31** |
+| `interrupt controller` | **0 read, 10 written** |
+| master 8259 | `IRR 00 IMR FF, nothing pending` |
+| `vbr` | `01000400` (main memory) |
+| `core register` | 12 read, 34 written |
+
+**The diagnostic never touches the 8259s.** Ten writes is exactly the boot
+PROM's own initialisation — `ICW1`-`ICW4` and `OCW1` for each of the two parts —
+and the master's mask is still `FF`. So no device interrupt could reach the CPU
+at any point in the run, and none did: the only interrupt taken in 1.4 billion
+instructions is **one level-7 autovector**, vector 31.
+
+**In this core the only source of level 7 is the parity NMI** —
+`ap_board_interrupt_level` returns `AP_BOARD_PARITY_LEVEL` when a status parity
+bit is set *and* `AP_BOARDREG_CONTROL_NMI_ENABLE` is on, per `008778-03` §3.2's
+"non-maskable interrupt to the CPU ... Level 7". The diagnostic did write the
+core registers 34 times. So the shape of `CPU (interrupts) Test #0` is most
+likely the NMI path, exercised once and judged wrong — but *which* half is
+wrong is not measured, and nothing here should be read as saying it is.
+
+The 261 bus errors are probes and are not the failure: `PC 000010B8` and `PC
+00008F4A` each fault 128 times across `FD800000`-`FD87F000`, which is the PROM
+walking a region it expects to be absent, and `PC 00007FCE` faults twice at
+`02000000`, one page past the top of the 16 MB fitted.
+
+*What is not known*: what Test #0 actually asserts. The diagnostic is
+`/sau14/self_test` on the volume, loaded at `01002000`-`01003A14` and entered at
+`01002020`; nothing has disassembled it. **`PC= 000067A8` is not an instruction
+boundary in the boot PROM** — `0067A6` is `MOVEA.L (0,A3,D5.L),A3` and `67A8` is
+its extension word — and `--boot-stop-pc 000067A8` never fires, so the printed
+value is something the reporter read rather than a PC the machine executed.
+That is the first thing to settle and it is on the plan.
+
 *Reproduce*: `APOLLO_DISK=/home/gavin/apollo-scratch/sau/restored.awd
 tools/dn5500-boot.sh`. The volume is the artefact of the restore run recorded in
 *The SR10.4 restore completes* below; the boot takes about two minutes to the

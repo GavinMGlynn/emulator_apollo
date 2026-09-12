@@ -4723,6 +4723,18 @@ discipline throughout.
       2. **The 68040's caches are a complete module attached to no CPU**, so
          `CINV`/`CPUSH` are correctly no-ops and every fetch and operand is a
          bus access.
+      2a. **The DS5500's own SELF_TEST fails its `CPU (interrupts) Test #0`**
+         -- new as of 2026-09-12, because part 1 above is what made the
+         diagnostic reachable. Measured: the diagnostic **never writes the
+         8259s** (10 writes in 1.4 G instructions is exactly the PROM's own
+         initialisation, master `IMR FF`), and the only interrupt taken in the
+         whole run is **one level-7 autovector**, whose only source in this core
+         is the parity NMI. `PC= 000067A8` is *not* an instruction boundary in
+         the PROM and `--boot-stop-pc` on it never fires, so the printed value
+         is read from somewhere rather than executed. **First step is to find
+         out what Test #0 asserts**: the diagnostic is `/sau14/self_test`,
+         loaded at `01002000`-`01003A14`, entered at `01002020`, and nothing has
+         disassembled it. Detail in `PROJECT_STATUS.md`.
       3. ~~**`PFLUSH` has no published timing**~~ **— WRONG ON BOTH HALVES,
          checked 2026-09-12.** The M68040 User's Manual **p. 10-12**, §10.5
          MISCELLANEOUS INTEGER UNIT INSTRUCTION TIMINGS, prints it: `PFLUSH`
