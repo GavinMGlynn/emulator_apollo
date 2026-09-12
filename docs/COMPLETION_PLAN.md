@@ -4480,8 +4480,11 @@ discipline throughout.
       with differing bodies, so **the labels occupy one page each and a page is
       four blocks**. The addressing unit followed the page size, which also turns
       §27.1's "physical disk blocks 2-B" into sectors 8-47 — the measured
-      figure. §15 claims **every ISR runs at IL 6**, which is
-      observable and unchecked. §22's hardware type mask is the DN3xx/DN5xx
+      figure. §15 claims **every ISR runs at IL 6** — **checked 2026-09-12 and this core
+      agrees**: `AP_INTR_CPU_LEVEL` is 6, measured in `FINDINGS.md` C12 by
+      sweeping the CPU's mask because no hardware document states it, and every
+      device reaches the CPU through the two 8259s. The one level-7 source is
+      the parity NMI, which is not an ISR. §22's hardware type mask is the DN3xx/DN5xx
       `TMASK`, a third witness for `RING.md` findings 55 and 92 and no help to
       133b. A **second 56-page hardware manual is bound in at pp. 371-426** that
       the filename does not mention — DN330/DN560/DSP90 memory maps and a memory

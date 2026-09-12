@@ -394,8 +394,23 @@ hardware does not have.
 supports seven interrupt levels (IL). **Every interrupt service routine (ISR)
 runs at IL 6.** ... The AEGIS system does not support interrupt priority levels
 for interrupt routines." A DS5500 boot takes vectors 160, 161, 165 and 174, so
-this is observable — the status register's mask inside each handler — and has
-not been checked. *Not verified.*
+this is observable — the status register's mask inside each handler.
+**CHECKED 2026-09-12, and this core agrees, from a measurement taken
+independently of the claim.** `AP_INTR_CPU_LEVEL` is **6**: the level the 8259
+master's `INT` output drives, measured in `FINDINGS.md` C12 by sweeping the
+CPU's interrupt mask — a mask of 6 permits only level 7 and blocks it, a mask of
+5 lets it through — with the control experiment that makes the reading sound
+(nothing able to interrupt, so a forced `SR` stays where it is put). Neither
+`008778-03` nor `019411-A00` states the level, so C12 had to measure it, and
+§15 is a third party arriving at the same number.
+**Every device reaches the CPU through those two parts** — the slave cascades
+into the master on `AP_INTR_CASCADE_LINE` — so every ISR dispatched through the
+interrupt controller runs at IL 6, which is the claim. **The one exception is
+not an ISR**: `AP_BOARD_PARITY_LEVEL` is **7**, and `ap_board.c` takes it first
+because "it is level 7 and nothing the 8259s can raise" — a parity NMI, not an
+interrupt service routine. *Verified; nothing owed.* The original text of this
+row said "has not been checked. *Not verified.*", and
+`a-recorded-check-is-not-a-done-check` is why it did not stay that way.
 
 **Chapter 20-24, the network.** §20.2.1: "The ring hardware sets up **two DMA
 channels** to receive a single packet; one channel receives the packet header,
