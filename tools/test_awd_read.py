@@ -195,10 +195,21 @@ class Indices(unittest.TestCase):
                          A.vtocx(0x80012345))
         self.assertEqual({"kind": "volx", "volx": 3}, A.vtocx(3))
 
-    def test_a_stored_address_is_one_less_than_the_daddr_it_names(self):
+    def test_a_stored_address_is_relative_to_the_logical_volume(self):
+        """`002398-03` p. 2-10: "all disk addresses (DADDRs) in a logical
+        volume are relative to the start of a logical volume". The base is
+        `.lv_list[0]`, not the constant 1 it happens to be on every volume this
+        project holds."""
         vol = build()
         vol.derive_geometry(A.pv_label(vol))
+        self.assertEqual(1, vol.lv_base)
+        self.assertEqual(VTOC_PAGE + 1, vol.daddr_of(VTOC_PAGE))
         self.assertEqual(vol.logical(VTOC_PAGE + 1), vol.pointed_at(VTOC_PAGE))
+
+        # A logical volume that starts further in moves every stored address
+        # with it, which an assumed 1 could not do.
+        vol.lv_base = 5
+        self.assertEqual(VTOC_PAGE + 5, vol.daddr_of(VTOC_PAGE))
 
     def test_the_vtoc_block_is_checked_against_the_page_it_says_it_is(self):
         """The trailer is `FEDCA984` and the block's own page. A block that

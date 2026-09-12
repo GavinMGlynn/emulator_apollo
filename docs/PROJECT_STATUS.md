@@ -1156,14 +1156,25 @@ writes an object's bytes out.
 them.** Each is stated here with what proves it, because a measured layout that
 does not carry its evidence is indistinguishable from a guess.
 
-*A stored block address is one less than the DADDR it names.* Every pointer in a
+*A stored block address is relative to the logical volume.* Every pointer in a
 VTOC entry's file map, in a `vtocx` and in the VTOC header's extent map. Checked
 by resolving **76,576** file-map pointers across both volumes against the object
 UID *and* the page number in the target block's header: 76,576 resolve at
-`stored + 1` and **not one** resolves at `stored`. Zero can therefore mean *no
-block*, which is what a file map needs and a plain DADDR could not give it.
-`.lv_list` is the control — it stores a plain DADDR, and the logical volume
-label is at DADDR 1 on both volumes.
+`stored + 1` and **not one** resolves at `stored`. `.lv_list` was the control —
+it stores a plain *physical* DADDR, and the logical volume label is at physical
+block 1 on both volumes.
+
+**CORRECTED 2026-09-13, and by a document rather than another measurement.**
+This paragraph said "one less than the DADDR it names", which was the
+measurement and not the rule. `002398-03` p. 2-10, under DISK/VOLUME FORMAT:
+"**all disk addresses (DADDRs) in a logical volume are relative to the start of
+a logical volume**." The offset is **`lv_base`** — `.lv_list[0]`, the logical
+volume's own first physical block — which is 1 on both volumes here because the
+logical volume starts immediately after the physical label. `awd_read.py` now
+reads it off the label (`Volume.daddr_of`) instead of assuming 1, and the same
+page says why that matters: "there may be dead space between logical volumes".
+Zero still means *no block*, because block 0 of a logical volume is its own
+label.
 
 *The SR10 VTOC entry.* Entries start at **+008** of the VTOC block and are
 **0x150 bytes** where the volume's block is 1 KB, **0x1D0** where it is 4 KB;

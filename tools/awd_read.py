@@ -55,20 +55,30 @@ and `00000204,0` the VTOC's index. The last three are **volume-wide objects laid
 out so that page P is at DADDR P+1**, which is what lets a VTOC index name a
 block by page and be resolved in one step with no indirection at all.
 
-## Every stored block address is one less than the DADDR it names
+## A stored block address is relative to the logical volume, and `002398-03` says so
 
 A block number stored in a VTOC entry's file map, in a `vtocx`, or in the VTOC
-header's extent map is **one less** than the `daddr` the target block's own
-header carries. Zero therefore means *no block*, which is what a file map needs
-and what a plain DADDR could not give it, since DADDR 0 is the physical volume
-label and DADDR 1 the logical one -- neither can ever be a file's page.
+header's extent map resolves at **`lv_base + stored`**, where `lv_base` is the
+logical volume's own first physical block -- `.lv_list[0]` in the physical
+volume label, and 1 on both volumes this project holds.
 
-Measured, not inferred: over the two volumes this project holds, **76,576**
-file-map pointers were checked against the object UID *and* the page number in
-the target block's header. 76,576 resolve at `stored + 1`; **not one resolves at
-`stored`**. `.lv_list` is the exception that proves it is a property of the
-structures and not of the image -- it stores a plain DADDR, and the logical
-volume label is at DADDR 1 on both volumes.
+**Measured first, then explained.** Over the two volumes, **76,576** file-map
+pointers were checked against the object UID *and* the page number in the target
+block's header: 76,576 resolve at `stored + 1` and **not one resolves at
+`stored`**. `.lv_list` was the control -- it stores a plain *physical* DADDR,
+and the logical volume label is at physical block 1 on both.
+
+**`002398-03` p. 2-10 states the rule outright**, under DISK/VOLUME FORMAT:
+"**all disk addresses (DADDRs) in a logical volume are relative to the start of
+a logical volume**". So the constant is not one; it is `lv_base`, which `dvte_t`
+at `+16` calls `.lv_base` and which this reader now takes from the physical
+label instead of assuming. On a volume whose logical volume began anywhere else
+the assumed 1 would have been silently wrong, and the same page warns that it
+can: "there may be dead space between logical volumes".
+
+Zero therefore still means *no block*: block 0 of a logical volume is its own
+label, which can never be a file's page.
+
 
 ## The two structures no document on this shelf prints
 
@@ -179,10 +189,13 @@ DIR_ENTRY_VTOCX = 0x0C
 DIR_TEXT_AT = {False: 0x10, True: 0x0C}
 
 SHUT_STATE = {0: "dismounted", 1: "mounted", 2: "salvaged"}
-# Measured: over 11,825 entries on the DN3500 volume exactly two are type 2 --
-# the ones `.root_x` and `.net_x` name -- and every entry a directory block
-# lists as a subdirectory is type 1. 3, 4 and 5 occur and are not named.
-SYS_TYPE = {0: "file", 1: "directory", 2: "root directory",
+# `002398-03` p. 2-8 names the first three: "SYSTYP: 0 - File, 1 - Directory,
+# 2 - System directory", the same field as the block header's. The measurement
+# agrees and says which objects are which: over 11,825 entries on the DN3500
+# volume exactly two are type 2 -- the ones `.root_x` and `.net_x` name -- and
+# every entry a directory block lists as a subdirectory is type 1. 3, 4 and 5
+# occur on real volumes and that page does not name them.
+SYS_TYPE = {0: "file", 1: "directory", 2: "system directory",
             3: "?3", 4: "?4", 5: "?5"}
 DIRECTORY_TYPES = (1, 2)
 
@@ -206,6 +219,10 @@ class Volume:
         # has been read; the arguments exist so a test can state them.
         self.sectors_per_block = sectors_per_block or 1
         self.sectors_per_cylinder = sectors_per_cylinder or 0
+        # The logical volume's first physical block, from `.lv_list[0]`.
+        # Defaulted to 1 so a `Volume` built by hand behaves as every volume
+        # this project holds does; `derive_geometry` sets it from the label.
+        self.lv_base = 1
 
     def block_bytes(self):
         """The volume's logical block: 1024 on a DN3500, 4096 on a DS5500."""
@@ -260,13 +277,24 @@ class Volume:
     def header_of_daddr(self, daddr):
         return self.block_header(self.sector_of(daddr))
 
+    def daddr_of(self, stored):
+        """The physical DADDR a logical-volume-relative address names.
+
+        `002398-03` p. 2-10: "all disk addresses (DADDRs) in a logical volume
+        are relative to the start of a logical volume". `lv_base` is that
+        start, read off the physical label rather than assumed -- it is 1 on
+        both volumes this project holds, which is why an assumed 1 was right
+        and would not have stayed right.
+        """
+        return self.lv_base + stored
+
     def pointed_at(self, stored):
         """The logical block a stored address names; see the module docstring.
 
         Every block address inside a VTOC entry, a `vtocx` or the VTOC header's
         extent map is one less than the target's own `daddr`.
         """
-        return self.logical(stored + 1)
+        return self.logical(self.daddr_of(stored))
 
     def derive_geometry(self, pv):
         """Fill `sectors_per_block` and `sectors_per_cylinder` from the volume.
@@ -277,6 +305,8 @@ class Volume:
         """
         self.sectors_per_cylinder = (pv["blocks_per_track"] *
                                      pv["tracks_per_cyl"])
+        if pv["lv_list"][0] != 0:
+            self.lv_base = pv["lv_list"][0]
         self.sectors_per_block = 1
         lv = self.find_label(LV_LABEL_UID_HIGH)
         if lv is None:
@@ -455,7 +485,7 @@ def file_blocks(vol, entry, limit=None):
     for stored in entry["fm"]:
         if stored == 0:
             continue
-        out.append((stored & ~VTOCE_FM_FLAG) + 1)
+        out.append(vol.daddr_of(stored & ~VTOCE_FM_FLAG))
         if limit is not None and len(out) >= limit:
             break
     return out
@@ -603,10 +633,12 @@ def show(path, args):
     for count, add in v["map"]:
         if count == 0 and add == 0:
             continue
-        head = vol.header_of_daddr(add + 1)
-        agree = "agrees" if head["daddr"] == add + 1 else f"says {head['daddr']}"
-        print(f"    vtoc extent    {count} blocks at DADDR {add} + 1 "
-              f"-> sector {vol.sector_of(add + 1)}, whose header {agree}")
+        physical = vol.daddr_of(add)
+        head = vol.header_of_daddr(physical)
+        agree = "agrees" if head["daddr"] == physical else f"says {head['daddr']}"
+        print(f"    vtoc extent    {count} blocks at LV DADDR {add} "
+              f"-> physical {physical}, sector {vol.sector_of(physical)}, "
+              f"whose header {agree}")
     for name in ("net_x", "root_x", "os_x", "boot_x"):
         print(f"    {name:<14} {v[name]:08X}  {vtocx(v[name])}")
     if args.path is not None:
