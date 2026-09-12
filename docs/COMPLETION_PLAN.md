@@ -4824,9 +4824,14 @@ discipline throughout.
          of `$0005D800` for 9 or `$0B` -- `AP_GRAPHICS_COLOUR_ADDR` and
          `AP_GRAPHICS_MONO_ADDR`, ISA `3D0` and `3B0`. This core's DS5500 boot
          runs with **`fitted display none`**, so neither answers.
-         **Next experiment is `--screen`**, which `tools/dn5500-boot.sh` does
-         not pass. Nothing so far says the verdict is *wrong*; a real DS5500 may
-         fail this test too. Detail in `PROJECT_STATUS.md`. Detail in `PROJECT_STATUS.md`.
+         **`--screen` was tried and is not a discriminator.** With `--screen
+         19i` the run prints *nothing* -- the firmware elects the display as the
+         console and spends 500 M instructions on 1,049,399 reads and 1,048,915
+         writes to the display controller. The probe answering is a positive
+         result about the graphics model; seeing the self-test through it needs
+         display capture, not a console. Nothing so far says the verdict is
+         *wrong*; a real DS5500 may fail this test too. Detail in
+         `PROJECT_STATUS.md`. Detail in `PROJECT_STATUS.md`.
          **One instrument named and not used**: a fault diagnostic record
          (`fault_$diag_t`) begins with the pattern **`DFDF`**, which `[EH1]`,
          `[EH3]` p. 1-8 and Rev 4 all give and `[AEGIS]` §18.2.4.1 says the

@@ -609,8 +609,21 @@ falls through leaving the colour defaults in place.
 
 **What this pins down, and what it does not.** The verdict is the PROM's, made by
 whatever called `001CB8` with `D0 = 2`; `0005C4` is display setup on the way
-there. Whether the absent display is *why* is untested — the next experiment is
-`--screen`, which the harness does not currently pass.
+there.
+
+**`--screen` was tried and is not a usable discriminator**, which is worth
+writing down so it is not tried again. With `--screen 19i` the run produces
+**no console output at all** — not even `Self tests in progress.` — and the
+region counters say why: **1,049,399 reads and 1,048,915 writes to the display
+controller** in 500 M instructions. The firmware detects the display, elects it
+as the console, and goes off testing its memory, so the serial console falls
+silent and the failure cannot be seen from there.
+
+*That is a positive result about the graphics model on its own terms*: the PROM's
+probe at `$002BA0` — byte `+1` of `$0005D800` compared against 9 and `$0B` —
+**answers**, or the console would not have moved. Using it to test the
+self-test, though, needs display capture rather than a console, and that is what
+the next attempt has to bring.
 
 ### And the one level-7 autovector is the PROM testing its own NMI, not a defect
 
