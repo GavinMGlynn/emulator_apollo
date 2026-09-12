@@ -670,9 +670,20 @@ header is internally consistent — `.vtoc_blocks` 226 and `.map[0]` "226 blocks
 at DADDR 40901", one number from two fields. But `.root_x` decodes to DADDR
 39730, *below* that extent, and the block there is zeros; `.net_x` and `.os_x`
 decode to entry indices 5 and 7, which p. 2-25 allows only for the file-map use.
-`.vtoc_hdr.version` reads 2. The suspicion is that the VTOC header changed
-between Feb 1985 and SR10.4 — the directory entry format demonstrably did — and
-it is a suspicion. The tool prints the decode and the empty result.
+**The VTOC header is not what changed**: `[EH1]` Apr 83 p. 5-22 and `[EH3]`
+Feb 85 p. 2-24 print it identically, offset for offset, and this core reads it
+coherently off a 1992 volume. **The VTOC *entry* is.** Searching every entry
+slot in the image for the root directory's object UID — `a4615f80.40012345`,
+the UID in the block headers of image blocks 165750-165753 — finds one at image
+block 160572 slot 3, and the bytes do not fit p. 2-23: where the figure puts
+`.version | .sys_type | flags` there is the tail of a UID, and where it puts
+`.cur_len` and `.blocks_used` there are **4371, 4372, 4373** — three consecutive
+small numbers, which is the shape of a file map and is why an earlier reading of
+that entry reported "4371 bytes in 4372 blocks".
+
+So SR10 changed the VTOC entry as well as the directory entry, and both new
+layouts are documented nowhere on this shelf while both old ones are documented
+four times over. The tool prints the decode and the empty result.
 
 *At the root directory's contents.* All four documents on this shelf print a
 32-byte-fixed-name entry an SR10.4 volume does not use. A documentary absence,

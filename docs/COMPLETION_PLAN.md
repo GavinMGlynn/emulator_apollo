@@ -4721,11 +4721,21 @@ discipline throughout.
       **What is still open is below that**: `.root_x` decodes to a DADDR *below*
       the VTOC extent and the block there is zeros, and `.net_x`/`.os_x` decode
       to entry indices 5 and 7 which p. 2-25 allows only for the file-map use.
-      `.vtoc_hdr.version` reads 2. The suspicion is that the VTOC header changed
-      between Feb 1985 and SR10.4 — the directory entry format demonstrably did
-      — but that is a suspicion and the tool prints the decode and the empty
-      result rather than inventing a base. Detail in
+      **Settled which structure changed**: not the VTOC *header* -- `[EH1]`
+      Apr 83 and `[EH3]` Feb 85 print it identically and this core reads it
+      coherently off a 1992 volume -- but the VTOC **entry**. The root
+      directory's object UID appears in one entry slot in the image and the
+      bytes around it do not fit p. 2-23: a UID tail where the figure puts
+      `.version | .sys_type | flags`, and three consecutive small numbers where
+      it puts `.cur_len` and `.blocks_used`. So SR10 changed the VTOC entry as
+      well as the directory entry, and **both** new layouts are a documentary
+      absence while both old ones are documented four times over. Detail in
       `docs/references/002398-03_WALK.md`.
+      **What that leaves the item as**: the reader is complete and tested for
+      everything the shelf documents, and the two structures it stops at are
+      `PROVISIONAL` for want of a document rather than for want of work. Under
+      `CLAUDE.md`'s standing rule this is as closed as it can be until an SR10
+      internals document turns up.
 
 - [x] **The DS5500's address translation map is 4 KB — implemented 2026-08-22.**
       `019411-A00` Table 2-5 gives `017000`-`017FFF` against `[S3K]` §2.5's

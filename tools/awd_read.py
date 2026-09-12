@@ -48,10 +48,17 @@ header is **internally consistent**: `.vtoc_blocks` is 226 and `.map[0]` is
 But `.root_x` decodes to DADDR **39730**, which is *below* that extent, and the
 block there is zeros. So the VTOCX-to-block step does not land, and this tool
 prints the decode and the empty result rather than inventing a base to make it
-fit. `.vtoc_hdr.version` reads **2**; `002398-03` is Feb 1985 and SR10.4 is Mar
-1992, and the directory entry format is known to have changed across that gap
-(below), so a changed VTOC header is the obvious suspect and is **not**
-established. Recorded as an open question in
+fit.
+
+**The VTOC header is not what changed** -- `[EH1]` Apr 83 p. 5-22 and `[EH3]`
+Feb 85 p. 2-24 print it identically, and this reads it coherently off a 1992
+volume. **The VTOC *entry* is.** Searching every entry slot in a DS5500 image
+for the root directory's object UID finds one, and the bytes around it do not
+fit p. 2-23: where the figure puts `.version | .sys_type | flags` there is the
+tail of a UID, and where it puts `.cur_len` and `.blocks_used` there are three
+*consecutive small numbers* -- the shape of a file map. So SR10 changed the VTOC
+entry as well as the directory entry, and the layouts it changed to are
+documented nowhere on this shelf. Detail in
 `docs/references/002398-03_WALK.md`.
 
 ## Where it stops, and why that is not a gap in the reading
