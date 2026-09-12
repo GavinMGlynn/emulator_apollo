@@ -261,6 +261,16 @@ typedef enum {
  * Network Board" is the row that cannot stand -- IRQ3 is the cascade on this
  * machine, measured and documented.
  *
+ * **A second manual confirms it directly rather than by elimination.**
+ * `[GPIO]` Table 3-3 (`000959-A00` p. 3-7, read as a page image) lists the
+ * "Apollo Token Ring Network Controller-AT" as **unit 3** at **priority 3**,
+ * with priorities 4-11 going to units 8-15 and 12-15 to units 4-7. That
+ * priority order is exactly a cascade on IR3 with unit 3 sitting in master
+ * IR2's slot -- so Apollo's "IRQ3" *is* master IR2, and `[S3K]` Table 2-3's
+ * row is a naming convention rather than a transposed scan. `FINDINGS.md`
+ * C287. The same table agrees with `AP_TAPE_IRQ` 5, `AP_DISK_FLOPPY_IRQ` 6,
+ * `AP_DISK_FIXED_IRQ` 14 and `AP_CALENDAR_IRQ` 8.
+ *
  * **One tension is recorded rather than resolved**: finding 53d put
  * `RING8_$INT` at vector **163**, and master IRQ 2 with the boot PROM's own
  * `ICW2 = A0` is vector `A2` = **162**. 163 is `A3`, the cascade's own line.

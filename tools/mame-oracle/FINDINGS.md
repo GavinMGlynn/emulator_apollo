@@ -774,6 +774,10 @@ does not follow. Worth recording as its own kind of error: not a
 mis-transcription, but a fact carried in from a *neighbouring* system and never
 checked against this one.
 
+**CLOSED by C287** -- `[GPIO]` Table 3-3's priority column is a second,
+independent witness for the naming convention. The paragraph below is kept as it
+stood, because it states the question C287 answers.
+
 **Still open, and now sharper.** Whether Apollo's IRQ numbering maps "IRQ3" to
 master IR2 as a naming convention, or whether Table 2-3's IRQ2 and IRQ3 labels
 are simply transposed in the scan. The two readings predict identical behaviour
@@ -17514,3 +17518,77 @@ by name, and a model that performs *more* than the three named effects is not
 implementing the sentence. Where a document enumerates, the enumeration is the
 specification -- and "equal to X" in a comment, with no page cited for the
 equality, is where to look first.
+
+
+## C287 -- `[GPIO]` Table 3-3 settles C11's open question, and confirms four IRQs besides
+
+C11 measured the interrupt cascade on master **IR3** -- master `ICW3 = 08`, slave
+ID 3, the two agreeing -- and left one thing open in as many words:
+
+> Whether Apollo's IRQ numbering maps "IRQ3" to master IR2 as a naming
+> convention, or whether Table 2-3's IRQ2 and IRQ3 labels are simply transposed
+> in the scan. The two readings predict identical behaviour ... so nothing in
+> this core depends on settling it.
+
+**A second manual settles it.** `000959-A00` *Writing Device Drivers with GPIO
+Calls* (July 1988), **Table 3-3**, read as a page image at 190 dpi:
+
+    Unit No./IRQ   Priority   Device
+      0*              1       Timer
+      1*              2       Keyboard
+      2*              -       Reserved
+      3               3       Apollo Token Ring Network Controller-AT
+      4              12       SPE - Serial Line 1 or User Device
+      5              13       Tape Controller
+      6              14       Disk Controller or User Device
+      7              15       SPE - Parallel Line or User Device
+      8*              4       Calendar - Serial Lines 1 and 2
+      9               5       ETHERNET 2, SPE - Serial Line 2 or User Device
+     10               6       ETHERNET 1 or User Device
+     11               7       PC Coprocessor or User Device
+     12               8       User Device
+     13*              9       Reserved
+     14              10       Disk Controller
+     15              11       PC Coprocessor Alternate or User Device
+    *This IRQ line is used by the processor and is not available on the bus.
+
+**The priority column is the proof.** C11's measured cascade predicts the order
+`IR0, IR1, IR2, [slave 8-15], IR4..IR7`, and this table prints precisely that:
+priority 1 = unit 0, 2 = unit 1, **3 = unit 3**, 4-11 = units 8-15, 12-15 =
+units 4-7. So **unit 3 occupies master IR2's priority slot** -- Apollo's "IRQ3"
+*is* master IR2 -- and the slave block sitting at 4-11 is the cascade on IR3
+seen from the software side.
+
+**Which reading that leaves standing**: the naming convention, not a scan
+transposition. A transposition in `008778-03` Table 2-3 would be an artefact of
+*that* scan; a different manual, a different publisher's department and a year
+later, reproducing the same unit-3/priority-3 pairing is not an artefact. C11's
+question is closed.
+
+**And `AP_BOARD_RING_IRQ 2` is confirmed by it.** `ap_board.h` assigns the ring
+master IR2 by elimination -- the cascade is on IR3, so `[S3K]` Table 2-3's
+"IRQ3 = Network Board" cannot mean master IR3 -- and this table gives the same
+answer directly: the ring is unit 3, and unit 3 is IR2.
+
+### Four more rows, checked against the core
+
+| Table 3-3 | this core | |
+| --- | --- | --- |
+| unit 5, Tape Controller | `AP_TAPE_IRQ 5` | agrees |
+| unit 6, Disk Controller or User Device | `AP_DISK_FLOPPY_IRQ 6` | agrees |
+| unit 14, Disk Controller | `AP_DISK_FIXED_IRQ 14` | agrees |
+| unit 8, Calendar - Serial Lines 1 and 2 | `AP_CALENDAR_IRQ 8` | agrees |
+
+Five independent agreements and nothing to change, which is the ordinary result
+of reading a table and the reason the walk is worth finishing. **The `*` note is
+new information**: units 0, 1, 2, 8 and 13 are "used by the processor and not
+available on the bus", so the calendar's IRQ 8 is one of them -- a line an
+expansion card cannot take, which is why it can be shared with the serial pair
+without a strap.
+
+### And the tension C11 recorded is unchanged
+
+`RING8_$INT` at vector **163** (`A3`) still disagrees with master IR2's `A2` =
+162 under the boot PROM's `ICW2 = A0`. Two documents and a measurement now agree
+on IR2; the vector agrees with neither, and nothing here is adjusted to make it.
+Recorded, not resolved.
