@@ -957,11 +957,38 @@ notice does not say why; the driver does. **A model of this machine will have to
 make the two mutually exclusive**, which is a model-table question rather than a
 device one.
 
-**The part's own manual is now on the shelf.**
+**The part's own manual is now on the shelf, and is read whole.**
 `docs/references/westernDigital/96-000494X3_WD7000-ASC_Engineering_Spec_Aug88.pdf`,
-140 pages, 400-dpi scans with an OCR text layer. Under `CLAUDE.md`'s standing
-rule it is a document that must be read whole, and the walk record is
-`docs/references/WD7000_WALK.md`.
+140 pages, 400-dpi scans whose OCR is unusable for the tables, so every page was
+read as a 600-dpi image. `docs/references/WD7000_WALK.md` records all 140.
+
+**What the walk bounds.** A WD7000-ASC model is four host registers, a mailbox
+protocol, ten command-port opcodes and eighteen ICB opcodes, a 32-byte SCB, a
+46-code error vocabulary and a first-party DMA engine — all with their defaults
+written down. Five findings a targeted read would have missed:
+
+- **Table 7-5 lists all 32 W3 jumper settings and they run `300H` to `3F8H`.**
+  The Apollo card is at `200`, which its own part cannot be jumpered to — so the
+  DS5500 carries a WD7000-ASC *design* with an Apollo address decoder, exactly
+  as the Winchester controller sits at ISA `1A0` where a PC AT's is `1F0`.
+- **The driver's reset routine is §5.2.5.2 verbatim**, and the four status
+  values it accepts are §5.1.1's and Figure B-1's. Two independent artefacts
+  agreeing to the byte is what makes the identification safe.
+- **First-party DMA binds our own 8237.** The AT's 8237 does arbitration only;
+  the channel goes into cascade mode and the mask is cleared, and because the
+  ASC tri-states DRQn whenever Host Control bit 2 is clear, the channel must be
+  masked *before* the card's DMA is enabled or disabled.
+- **The last page is errata for this revision** — a memo of 8-12-88 naming four
+  operations that do not function, including two ICB commands.
+- **The document contradicts itself twice**, on the rejected-byte status and on
+  the mail-block address's byte order, and both are recorded rather than
+  resolved.
+
+**What the part's own manual does not carry**: the WD33C93 SBIC's registers,
+deferred to its data sheet three times and **not on this shelf**. Named as the
+next document to fetch, not as a blocker — the ASC's firmware does the
+negotiating and the host sees only the parameter-block bytes this document
+defines.
 
 ## `tools/awd_read.py`: a volume read end to end, and the two structures measured (2026-09-12)
 

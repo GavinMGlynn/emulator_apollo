@@ -4698,7 +4698,17 @@ discipline throughout.
       byte: address 0 reads ASC Status, address 2 writes the Host Control
       register. So the controller is at **ISA `200`, physical `050000`-`050003`**.
       **`96-000494X3_WD7000-ASC_Engineering_Spec_Aug88.pdf`**, 140 pages, is now
-      in `docs/references/westernDigital/` and must be walked whole.
+      in `docs/references/westernDigital/` and is **walked whole, 140/140**,
+      `docs/references/WD7000_WALK.md`. The part is fully specified and the work
+      is bounded: four host registers, a mailbox protocol, ten command-port and
+      eighteen ICB opcodes, a 32-byte SCB, 46 error codes, first-party DMA
+      through the AT 8237 in **cascade mode**. Table 7-5 lists all 32 W3 jumper
+      settings and they run `300H`-`3F8H`, so the Apollo card decodes an address
+      its own part cannot be jumpered to — the same thing Apollo did to the
+      Winchester controller at ISA `1A0`. **One document still to fetch**: the
+      **WD33C93 SBIC** data sheet, deferred to three times and not on this
+      shelf; it is needed only for synchronous-rate negotiation, which the ASC's
+      own firmware performs. Detail in `PROJECT_STATUS.md`.
       **And that settles the `[RN104]` §3.3.6 notice below**, which this item
       recorded as unexplained: ISA `200`-`207` is where `[GPIO]` Table 3-1 puts
       the **Tape Controller** and where `AP_TAPE_ADDR` already is. The WD7000
