@@ -4637,6 +4637,12 @@ discipline throughout.
       bit turns `RING.md` finding 32 from a derivation into a statement —
       "an additional seven-bit delay into the length of the network ... to
       support the recirculation of the token, **which is nine bits**".
+      **Chapter 9 found a second**: the DNx60 is "a micro-coded machine with a
+      **forward-mapped address translation mechanism (using in-memory page
+      tables)**" whose three-level walk carries a **global bit** and whose `MOVEC`
+      control registers give a three-granularity TLB purge — Apollo had the
+      68030/68040's MMU shape a decade early, which is the lineage `[AEGIS]`
+      §9 and §11.2.3 are talking about.
       **And chapter 7 establishes that Rev 4 reprints them**:
       five of its tables (the ring registers with `0014`/`0012`, the receive
       status's "before me" wording, `TMASK`, the SC2681 baud groups, the PROM
