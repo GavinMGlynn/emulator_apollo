@@ -4848,8 +4848,8 @@ discipline throughout.
         the **1,024-byte physical block**, the **eight-block track** and the gap
         track after it, and the tension/drum idle timers. **`[EXBPS]` is still
         owed**, 70 of its 74 pages; nothing is implemented until it is read,
-        which is `read-the-whole-document`. **Its chapters 1-5 and 8 are read
-        whole** (2026-09-13): ch. 3 is the timing a model charges — **950 µs
+        which is `read-the-whole-document`. **It is WALKED WHOLE, 74/74,
+        2026-09-13, so both documents are read and 215 of 215 pages are done**: ch. 3 is the timing a model charges — **950 µs
         write access, 900 µs read access, a reposition time published as the
         *range* 1,082-1,115 ms**, 33.3 ms drum period, rewind = metres × 1.224,
         and **246 KB/s sustained**, below which the drive stops streaming; ch. 2
@@ -4858,10 +4858,17 @@ discipline throughout.
         2 CRC); ch. 4 decomposes a filemark into erase gap + 11-track ATM +
         10-track DTM, which is exactly the 270 and 60 tracks the User's Manual
         quotes; ch. 5 states the twelve-write and ten-read retry limits as
-        reliability definitions, agreeing with the command chapters. Owed:
-        chapters 6, 7, 9, 10 and 11, the front matter and the glossary — 42
-        pages of power, environmental, installation, operation and cleaning
-        specifications, none of which bears on modelled behaviour.
+        reliability definitions, agreeing with the command chapters; ch. 9
+        adds that **the SCSI ID is sensed only at power-up, bus reset and
+        device reset** and the LUN is hard-wired 0, and ch. 10 that
+        **self-test and initialization take 65 seconds maximum**, which is the
+        Level 2 MX memory-test switch. Chapters 6, 7 and 11 are power,
+        environmental and cleaning limits and yield nothing.
+        **No document is owed. What remains is the code**, and the one
+        unfetched datasheet — the WD33C93 SBIC — is needed only for
+        synchronous-rate negotiation, which **neither end of this bus
+        performs**: the ASC defaults to `40H` asynchronous and the drive
+        supports asynchronous transfer and no extended messages.
       **Which names the work precisely.** An exerciser needs the DS5500 refitted
       with the ASC *instead of* the SC-499 — which is what `[RN104]` §3.3.6 says
       a real machine must do — so the subsystem is `device/ap_wd7000.{h,c}` plus

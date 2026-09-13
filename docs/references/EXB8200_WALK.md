@@ -8,7 +8,7 @@ and matches `EXABYTE EXB-8200        `; detail in `docs/PROJECT_STATUS.md`,
 | Tag | File | Pages | Text layer | State |
 | --- | --- | --- | --- | --- |
 | `[EXB]` | `docs/references/exabyte/510006-007_EXB-8200_User.pdf` | 141 | **born-digital** — `pdfimages -list` returns nothing at all | **READ WHOLE — 141 of 141, 2026-09-13.** Every chapter, the appendix and the glossary |
-| `[EXBPS]` | `docs/references/exabyte/510005-006_Exabyte_EXB-8200_Product_Spec_Oct1990.pdf` | 74 | 600-dpi JBIG2 scan with an Acrobat OCR layer | **IN PROGRESS** — **chapters 1-5 and 8 read whole as page images, 2026-09-13**; 6, 7, 9, 10, 11, the front matter and the glossary owed |
+| `[EXBPS]` | `docs/references/exabyte/510005-006_Exabyte_EXB-8200_Product_Spec_Oct1990.pdf` | 74 | 600-dpi JBIG2 scan with an Acrobat OCR layer | **READ WHOLE — 74 of 74, 2026-09-13.** Every chapter, the front matter, the glossary and the response card, all as page images |
 
 Two more are on the shelf and not yet opened: `510003-001` *Maintenance* (21
 pages) and `510007-000` *Theory of Operation* (9 pages).
@@ -19,11 +19,17 @@ pages) and `510007-000` *Theory of Operation* (9 pages).
 SCSI bus and its targets" is the last open sub-item of the SCSI plan item, and
 a target needs the target's own manual. `fetch-the-parts-own-datasheet`.
 
-**Owed:** `[EXBPS]` chapters **6 Power, 7 Environmental, 9 Installation,
-10 Operation and 11 Cleaning**, its front matter and its glossary — PDF 1-10,
-39-50 and 55-74, 42 pages, none of which bears on behaviour this core can
-model. `[EXB]` is finished. Nothing is implemented yet and nothing should be
-until both are read — `read-the-whole-document`.
+**Owed: nothing. Both documents are read whole, 215 of 215 pages,
+2026-09-13.** What remains is the implementation, which is the plan item
+*The SCSI bus and its targets*.
+
+**One document is still unfetched and is not a blocker**: the **WD33C93 SBIC**
+datasheet, named by `[EXBPS]` §1.4 and by `[WD7000]` three times. Both ends of
+this bus carry that part, and it is needed only for **synchronous-rate
+negotiation** — which neither end performs here: the ASC's parameter block
+defaults to `40H`, asynchronous, and `[EXB]` §3.1 says the drive supports
+"asynchronous data transfer" and no extended messages. Recorded as a named,
+evidenced absence rather than a gap.
 
 ## `[EXB]` chapter map, from the running heads
 
@@ -412,3 +418,42 @@ definitions and agree exactly: **a permanent write error is eleven rewrite
 attempts, twelve writes in all**, and **a permanent read error is nine rereads,
 ten reads in all**. Rates: permanent write **1.0 × 10⁻¹² bit / 8.2 × 10⁻⁹
 block**, permanent read **1.0 × 10⁻¹³ / 8.2 × 10⁻¹⁰**.
+
+## `[EXBPS]` chapters 6 to 11, the front matter and the glossary, read whole 2026-09-13
+
+**Ch. 6 Power**, **ch. 7 Environmental** and **ch. 11 Cleaning** are limits no
+emulator can have: +5 V ±5% and +12 V ±10% with their surge and ripple figures,
+Table 6-2's per-function consumption, an operating range of 5-40 °C and 20-80%
+RH with Figure 7-1's psychrometric envelope, particulate, shock, vibration,
+ESD, acoustic and EMI limits, and a cleaning cycle every month or 30 GB.
+Recorded as read and yielding nothing.
+
+**Ch. 9 Installation yields one modelled fact and one to carry.** §9.3: **the
+SCSI ID is 0 through 7, set by jumpers or DIP switches, and is sensed at
+power-up, at SCSI bus reset and at device reset** — not read continuously — and
+**the device LUN is hard-wired to 0**, which is the third statement of that in
+these two manuals. Table 9-2 gives the remote connector's three ID bits, MSB
+first on pin 1.
+
+**Ch. 10 Operation gives the power-up number ch. 23 of the User's Manual does
+not.** §10.1.2: both LEDs are lit while the power-on self-test runs, and
+**self-test and initialization take 65 seconds maximum** — which is exactly
+Level 2 MX switch 1's "Run Memory Test on Power-On Reset (65 Sec)" against
+"Bypass (8 Sec)", so the two documents agree and the switch is what chooses
+between them. The green LED then means *a cartridge is loaded and the drive is
+ready*, and the amber LED blinks on SCSI activity.
+
+**The revision history is worth one line**: this is revision 006, and its own
+change list says **RESERVE UNIT and RELEASE UNIT were added to the command set
+for 2600-level MX code**, which is the same firmware-revision boundary the
+User's Manual marks on those two commands and on the Abort-message behaviour.
+A model of a 1991 Apollo machine takes the 2600-level side of it.
+
+## The two documents are read whole
+
+**215 of 215 pages, 2026-09-13** — `[EXB]` 141/141 from its text layer, which
+is the document (it is born-digital), and `[EXBPS]` 74/74 as page images at
+400 and 600 dpi. Every command, every CDB field, every termination, every
+sense bit, every published timing figure and every default is above or in the
+chapters recorded before it. **Nothing in either document is owed, and nothing
+of either is implemented yet.**
