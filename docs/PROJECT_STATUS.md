@@ -434,6 +434,59 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## A DN3500's Domain/OS polls the SCSI card 163,171 times (2026-09-13)
+
+The SCSI item's integration check, and its **control** — which turned out to
+carry the result.
+
+**The check needed a DS5500 and this is not one.** `scsi14.drvr` lives in
+`/sau14`; a DN3500 boots `/sau7` and has no SCSI driver at all. So this run
+was set up as the control: fit the card on a machine whose operating system
+cannot drive it, and see what happens.
+
+    tools/spm-boot.sh <copy of dn3500-sr10.4-installed.awd> --scsi --scsi-drive
+
+**It reached `SPM system init complete.`** — the card does not break a boot —
+and the card's own report says it was never driven:
+
+    scsi card    status 4F, control 00, not initialised, int 01
+    scsi mail    base 000000, 0 out, 0 in; 0 started, 0 empty, 0 scans
+    scsi dma     0 reads, 0 writes, 0 refused
+    scsi bus     0 selections, 0 timed out, 0 commands
+
+`4F` is `READY` over the undriven low nibble and `int 01` is "no diagnostic
+error", so the ASC powered up, ran its diagnostics and sat there. Exactly
+right for an operating system with no driver for it.
+
+**And then the region counters say what the operating system *was* doing:**
+
+    SCSI (WD7000-ASC)        163171        5
+
+**163,171 reads against 5 writes, of a card nothing ever initialised.** That
+is not the SCSI driver: it is the *tape* driver, polling `050000` for an
+SC-499 that is not there and reading the ASC's status register instead. The
+shape matches the figure already on record for the same block with the tape
+fitted — 276,194 reads against 5 writes, "which is a status poll".
+
+**So `[RN104]` §3.3.6 is visible rather than inferred.** The release note says
+a Series 35xx, 4000 or 4500 "cannot use a CD-ROM drive ... that uses a
+non-SCSI cartridge tape drive. You must either remove the ctape controller
+from the system or replace your non-SCSI ctape drive with a SCSI ctape drive",
+and says nothing about why. This is why: both cards decode ISA `200`, and an
+operating system configured for one polls the other a hundred and sixty
+thousand times a boot. The collision was derived from `[GPIO]` Table 3-1 and
+`scsi14.drvr`'s addresses; it is now *measured*, on a booting machine.
+
+**What it does not settle**, and the DS5500 run is what will: whether
+Domain/OS on a machine that *has* `scsi14.drvr` resets the card, initialises
+it and issues an SCB. Recorded separately when that lands.
+
+*Verification: one boot to SPM, `tools/spm-boot.sh` with `--scsi
+--scsi-drive`. The end-of-run SCSI report was added before the run rather than
+after — `measure-in-one-pass-not-per-question` — so the card, its mailboxes,
+its DMA, the bus and the drive are all in this one result.*
+
+
 ## The 68040's caches are attached, and CINV and CPUSH act (2026-09-13)
 
 The 68040 item's one live sub-item read "the 68040's caches are a complete
