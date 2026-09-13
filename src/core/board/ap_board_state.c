@@ -472,6 +472,53 @@ void ap_board_hash_disk(ap_hash_t *st, const ap_disk_t *disk) {
   hash_bool(st, omti->fdc_track_read_nd);
 }
 
+void ap_board_hash_exb8200(ap_hash_t *st, const ap_exb8200_t *drive) {
+  ap_hash_scope(st, "exb8200");
+  /* Where the head is and what is in the drive: two tapes at different
+   * positions are two different machines. */
+  ap_hash_u32(st, (uint32_t)drive->where);
+  ap_hash_u32(st, drive->at);
+  hash_bool(st, drive->loaded);
+  hash_bool(st, drive->present);
+  hash_bool(st, drive->prevented);
+  hash_bool(st, drive->unit_attention);
+  hash_bool(st, drive->sense_valid);
+  ap_hash_bytes(st, drive->sense, sizeof drive->sense);
+
+  /* The mode parameters, all of which a MODE SELECT can change and every one
+   * of which changes what a later READ or WRITE does. */
+  hash_bool(st, drive->buffered);
+  ap_hash_u32(st, drive->block_length);
+  ap_hash_u32(st, drive->vendor_flags);
+  hash_bool(st, drive->p5);
+  ap_hash_u32(st, drive->motion_threshold);
+  ap_hash_u32(st, drive->reconnect_threshold);
+  ap_hash_u32(st, drive->gap_threshold);
+  hash_bool(st, drive->reserved);
+  ap_hash_u32(st, drive->reserved_by);
+  ap_hash_u32(st, drive->error_counter);
+
+  /* The medium. The record table is hashed whole and the data by its used
+   * extent, which is what makes two tapes holding different bytes different
+   * machines -- `ap_ct_t` takes a digest at open for the same reason, and this
+   * takes one per hash because a tape this run has written is not the tape it
+   * loaded. */
+  ap_hash_u32(st, drive->media.records);
+  for (unsigned i = 0; i < drive->media.records; i++) {
+    const ap_exb8200_record_t *record = &drive->media.record[i];
+    ap_hash_u32(st, (uint32_t)record->kind);
+    ap_hash_u32(st, record->offset);
+    ap_hash_u32(st, record->length);
+    hash_bool(st, record->short_mark);
+  }
+  hash_bool(st, drive->media.writable);
+  ap_hash_u32(st, drive->media.medium_type);
+  ap_hash_u32(st, drive->media.blocks_to_leot);
+  if (drive->media.data != nullptr) {
+    ap_hash_bytes(st, drive->media.data, drive->media.data_used);
+  }
+}
+
 void ap_board_hash_scsi_bus(ap_hash_t *st, const ap_scsi_bus_t *bus) {
   ap_hash_scope(st, "scsibus");
   /* The clock and the reset silence, which are the only two things on the bus
@@ -1171,6 +1218,9 @@ void ap_board_hash(ap_hash_t *st, const ap_board_t *board) {
   if (board->scsi_fitted) {
     ap_board_hash_scsi(st, &board->scsi);
     ap_board_hash_scsi_bus(st, &board->scsi_bus);
+    if (board->scsi_drive_fitted) {
+      ap_board_hash_exb8200(st, &board->scsi_drive);
+    }
   }
   ap_hash_group_end(st);
   ap_board_hash_graphics(st, &board->graphics);

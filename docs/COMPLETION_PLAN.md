@@ -4491,8 +4491,20 @@ Five named deliverables, each its own commit with its own suite:
      Request and not Blank Check**. A tape is a sequence of records; the
      physical format appears only as capacity. Detail in `PROJECT_STATUS.md`.
      *Verification: `exb8200_suite`, 36 tests; `ctest` 150 → 151.*
-  5. `.exa` media plus board wiring, then Domain/OS `/sys/mgrs/rmt_scsi` as
-     the integration check.
+  5. ~~Media plus board wiring.~~ **DONE 2026-09-13**, and the container is
+     the **SIMH magtape format** rather than one invented here — SIMH, E11 and
+     MAME read and write it, so a tape written by this emulator is not a tape
+     only this emulator can read. `image/ap_tap.{h,c}`, `--scsi-drive` and
+     `--scsi-tape FILE`. The one thing the format cannot carry is the
+     short-versus-long filemark, which loads as long and is asserted rather
+     than left to be found. Detail in `PROJECT_STATUS.md`.
+     *Verification: `tap_suite`, 12 tests; `ctest` 151 → 152; the drive and its
+     medium are hashed. And it found a defect in `check_frontend_flags.py`:
+     its own failure path called a `fail()` the file never defined.*
+     **What is left of this item is the integration check**: Domain/OS
+     `/sys/mgrs/rmt_scsi` driving the drive, which is a boot rather than a
+     build and is the first time any of this is exercised by software instead
+     of a suite.
 
 **2. The 68040 item is one live sub-item, and its title is stale.** Everything
 numbered in it is struck through except **"the 68040's caches are a complete

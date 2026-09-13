@@ -434,6 +434,60 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## The SCSI subsystem is wired end to end (2026-09-13)
+
+Fifth and last of the SCSI item's deliverables. **A `--scsi --scsi-tape FILE`
+run now fits a WD7000-ASC, puts an EXB-8200 on its bus at ID 0 and loads a tape
+into it**, and a command written into an OGMB reaches that tape's records.
+
+**The medium is the SIMH magtape format, not one this project invented.** An
+8mm tape is a sequence of variable-length records and filemarks, so it cannot
+be a raw block image the way `.ct` is — something has to carry the boundaries.
+Rather than define a container, `image/ap_tap.{h,c}` reads and writes the one
+SIMH, E11 and MAME already use (`simh/doc/simh_magtape.txt`): a 32-bit
+little-endian length, the data padded to an even count, then **the same length
+again**, which is what makes the format readable backwards and is therefore
+what makes a reverse SPACE implementable. `00000000` is a tape mark,
+`FFFFFFFF` end of medium, `FFFFFFFE` an erase gap, and bit 31 marks a bad
+record.
+
+**What the container cannot carry, named rather than discovered later.** The
+EXB-8200 has **two** filemark kinds and SIMH has one, so a tape mark loads as a
+**long** filemark — which is the right default twice over: it is what a clear
+byte 05 bit 7 writes, and it is the only kind a later write may append into
+(`[EXB]` §22's erase gap). The short/long distinction survives within a run and
+is lost across a save, and `tap_suite` asserts that rather than leaving it to be
+found. Bad-record flags and erase gaps are dropped, because this drive has no
+way to report either that is not a medium error it did not have.
+
+**Two flags**, both named in `--help` and in the frontend guard: `--scsi-drive`
+fits a drive with no cartridge — which is a real state, the one `[EXB]` §20.2
+gives its own sense key — and `--scsi-tape FILE` fits one with that tape in.
+The record and byte limits are the *run's* allocation, not the drive's, and a
+tape that does not fit is refused by name rather than truncated.
+
+**A defect in the frontend guard, found by tripping it.**
+`check_frontend_flags.py`'s "every flag `main.c` parses is exercised or named"
+check called a `fail()` the file does not define, so the first new flag to hit
+it reported a Python `NameError` traceback instead of the one sentence a reader
+needs. Fixed to use `source_check`, which is what every other claim in that file
+reports through. A check whose failure path does not run is not a check —
+the same shape as `check-what-is-called-by-nobody`, one level up.
+
+**The drive and its medium are hashed**, `ap_board_hash_exb8200`: where the
+head is, what is in the drive, every mode parameter a MODE SELECT can change,
+the record table whole and the data by its used extent. A run that has written
+a tape is not in the state it loaded, so the digest is taken per hash rather
+than once at open — the one place this differs from `ap_ct_t`, and for a stated
+reason.
+
+*Verification: `tap_suite`, 12 tests; `ctest` 151 → 152. The container is
+checked in both directions, including the two structural refusals — a trailing
+length that disagrees with its leader, and a length past the end of the image —
+and a tape that exceeds the caller's table, which is refused rather than
+truncated.*
+
+
 ## `device/ap_exb8200`: the target, all eighteen commands (2026-09-13)
 
 Fourth of the SCSI item's five deliverables, and the last of its design. **The

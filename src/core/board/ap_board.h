@@ -56,6 +56,7 @@
 #include "device/ap_ring_ctl.h"
 #include "model/ap_quirk.h"
 #include "board/ap_tape.h"
+#include "device/ap_exb8200.h"
 #include "device/ap_wd7000.h"
 #include "board/ap_timer.h"
 
@@ -533,6 +534,11 @@ typedef struct ap_board {
    * the two are separate parts -- the same split `ap_sc499` and `ap_qic` have,
    * and the reason a target can be fitted without editing the controller. */
   ap_scsi_bus_t scsi_bus;
+  /* One target, at ID 0. `[EXBPS]` §9.3 lets a drive be jumpered anywhere from
+   * 0 to 7 and the model fits it at 0 because that is where a single-target
+   * chain conventionally sits and `scsi14.drvr` scans upwards. */
+  ap_exb8200_t scsi_drive;
+  bool scsi_drive_fitted;
   bool scsi_fitted;
   ap_graphics_t graphics;
   /* Absent until `ap_board_attach_ring` fits it. A DN3500 is not sold with a
@@ -1215,6 +1221,14 @@ void ap_board_set_quirks(ap_board_t *board, ap_quirks_t quirks);
  * same addresses, so this is an exchange and not an addition: after it the
  * tape's block answers as the ASC and `ap_board_region` says so. */
 void ap_board_attach_scsi(ap_board_t *board);
+
+/* Where a single target sits on this machine's chain. */
+#define AP_BOARD_SCSI_DRIVE_ID 0u
+
+/* Put an EXB-8200 on the bus, with a cartridge or without one. Fails when the
+ * card is not fitted -- a drive with no controller is not a configuration. */
+bool ap_board_attach_scsi_drive(ap_board_t *board,
+                                const ap_exb8200_media_t *media);
 
 [[nodiscard]] const char *ap_board_region_name(ap_board_region_t region);
 

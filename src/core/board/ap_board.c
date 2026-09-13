@@ -1672,6 +1672,27 @@ void ap_board_attach_scsi(ap_board_t *board) {
   board->scsi_fitted = true;
 }
 
+/* Put an EXB-8200 on the bus. Separate from fitting the card, because a
+ * controller with nothing cabled to it is a real configuration -- `scsi14.drvr`
+ * resets and initialises the ASC before it scans for anything, and that path
+ * has to work with an empty chain. */
+bool ap_board_attach_scsi_drive(ap_board_t *board,
+                                const ap_exb8200_media_t *media) {
+  if (board == nullptr || !board->scsi_fitted) {
+    return false;
+  }
+  ap_exb8200_power_on(&board->scsi_drive);
+  if (media != nullptr && !ap_exb8200_insert(&board->scsi_drive, media)) {
+    return false;
+  }
+  const ap_scsi_target_t target = ap_exb8200_target(&board->scsi_drive);
+  if (!ap_scsi_attach(&board->scsi_bus, AP_BOARD_SCSI_DRIVE_ID, &target)) {
+    return false;
+  }
+  board->scsi_drive_fitted = true;
+  return true;
+}
+
 const char *ap_board_region_name(ap_board_region_t region) {
   switch (region) {
   case AP_BOARD_REGION_ETHERNET: return "EtherLink Plus";

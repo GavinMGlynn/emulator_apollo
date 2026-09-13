@@ -506,14 +506,23 @@ def main() -> int:
             (REPO / "src/frontend/headless/main.c").read_text())))
         mine = Path(__file__).read_text()
         unlisted = [f for f in parsed if f not in mine]
+        # `source_check` is the reporter here, not a `fail` this file never
+        # had: the crash that found this is the guard's own failure path
+        # raising `NameError` instead of naming the flag, so a new flag
+        # reported as a Python traceback rather than as the one sentence a
+        # reader needs. A check whose failure path does not run is not a check.
         for flag in unlisted:
-            fail("every flag `main.c` parses is exercised or named as needing "
-                 "firmware: %s" % flag,
-                 "in neither list, so the summary line below is false for it")
+            source_check("`%s` is exercised or named as needing firmware"
+                         % flag, False)
         source_check("every one of the %d flags `main.c` parses is exercised "
                      "or named as needing firmware" % len(parsed), not unlisted)
 
         # ---- what needs firmware, named rather than omitted ----
+        # `--scsi-drive` and `--scsi-tape` fit an EXB-8200 on the SCSI bus, and
+        # the card they need is itself in the skip list below: a run with no
+        # firmware fits the controller and then has nothing to drive it, so the
+        # drive's own behaviour is `exb8200_suite`'s and the container's is
+        # `tap_suite`'s. Named here rather than checked, for the card's reason.
         for flag in ("--boot-prom", "--boot-limit", "--boot-trace",
                      "--boot-watch", "--boot-console", "--boot-input",
                      "--boot-input-rate", "--boot-input-interval",
@@ -551,6 +560,7 @@ def main() -> int:
                      "--3c505", "--3c505-rom", "--3c505-tap", "--matrox",
                      "--matrox-screenshot",
                      "--scsi (the card fitted, as opposed to its listing)",
+                     "--scsi-drive", "--scsi-tape",
                      # Run modes and dumps, which need something to run.
                      "--calendar-ram",
                      "--clock (the epoch reaching the calendar, as opposed to "

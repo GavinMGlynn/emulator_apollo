@@ -91,6 +91,10 @@ void ap_board_hash_scsi(ap_hash_t *st, const ap_wd7000_t *asc);
  * differ are two different machines and the controller's own state does not
  * say so. Only when the card is fitted, like the controller's. */
 void ap_board_hash_scsi_bus(ap_hash_t *st, const ap_scsi_bus_t *bus);
+
+/* The target on it, when one is fitted. Its medium is hashed with it: a run
+ * that has written a tape is not in the state it loaded. */
+void ap_board_hash_exb8200(ap_hash_t *st, const ap_exb8200_t *drive);
 void ap_board_hash_graphics(ap_hash_t *st, const ap_graphics_t *graphics);
 void ap_board_hash_ring(ap_hash_t *st, const ap_ring_ctl_t *ring);
 void ap_board_hash_keyboard(ap_hash_t *st, const ap_kbd_t *keyboard);

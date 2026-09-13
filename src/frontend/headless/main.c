@@ -35,6 +35,7 @@
 
 #include "device/ap_qic.h"
 #include "image/ap_ct.h"
+#include "image/ap_tap.h"
 #include "image/ap_afd.h"
 #include "image/ap_awd.h"
 #include "image/ap_volume.h"
@@ -382,6 +383,11 @@ static void print_usage(const char *program_name) {
           "                        cartridge tape's slot. An exchange, not an\n"
           "                        addition: both decode ISA 200 and a real\n"
           "                        machine cannot carry the two together\n"
+          "  --scsi-drive          put an EXABYTE EXB-8200 on the SCSI bus at\n"
+          "                        ID 0, with no cartridge in it\n"
+          "  --scsi-tape FILE      the same, with FILE loaded. A SIMH magtape\n"
+          "                        image (.tap), which SIMH, E11 and MAME also\n"
+          "                        read and write\n"
           "");
   /* And split again, for the same reason and on the same rule: no flag is
    * grouped by meaning across the break. */
@@ -2720,6 +2726,19 @@ static bool g_fit_ethernet = false;
  * why `[RN104]` SS3.3.6 forbids a machine from carrying both. Off by default,
  * because the reference machine is sold with the tape. */
 static bool g_fit_scsi = false;
+/* The tape an EXB-8200 is loaded with, and the storage behind it. A medium is
+ * caller-owned -- `ap_ct_t`'s rule -- and the frontend is that caller.
+ *
+ * The sizes are this *run's* allocation and not a property of the drive: a
+ * 112 m cartridge holds 2.4 GB, which a headless run has no reason to make
+ * room for. A tape that does not fit is refused with its own message rather
+ * than silently truncated, so the limit is visible where it bites. */
+#define SCSI_TAPE_RECORDS 65536u
+#define SCSI_TAPE_BYTES (64u * 1024u * 1024u)
+static const char *g_scsi_tape_path = nullptr;
+static bool g_scsi_drive = false;
+static ap_exb8200_record_t *g_scsi_records = nullptr;
+static uint8_t *g_scsi_tape = nullptr;
 static const char *g_tap_device = NULL;
 static ap_tap_t g_tap = {.fd = -1};
 
@@ -4203,6 +4222,55 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
     ap_board_attach_scsi(board);
     printf("  scsi         WD7000-ASC at %06X, in the cartridge tape's slot\n",
            AP_TAPE_ADDR);
+    if (g_scsi_drive) {
+      if (g_scsi_records == nullptr) {
+        g_scsi_records = calloc(SCSI_TAPE_RECORDS, sizeof *g_scsi_records);
+        g_scsi_tape = calloc(SCSI_TAPE_BYTES, 1u);
+        if (g_scsi_records == nullptr || g_scsi_tape == nullptr) {
+          fprintf(stderr, "cannot allocate the SCSI tape\n");
+          return 1;
+        }
+      }
+      ap_exb8200_media_t media = {.record = g_scsi_records,
+                                  .records = 0u,
+                                  .capacity = SCSI_TAPE_RECORDS,
+                                  .data = g_scsi_tape,
+                                  .data_bytes = SCSI_TAPE_BYTES,
+                                  .data_used = 0u,
+                                  .writable = true,
+                                  /* `[EXB]` Table 9-1's P6-120, the largest P6
+                                   * size, chosen because a run's own limit is
+                                   * what bounds the tape here rather than the
+                                   * cartridge's. */
+                                  .medium_type = 0x85u,
+                                  .blocks_to_leot = 0x22FC20u};
+      if (g_scsi_tape_path != nullptr) {
+        long tape_size = 0;
+        uint8_t *tape_image = read_file(g_scsi_tape_path, &tape_size);
+        if (tape_image == nullptr) {
+          fprintf(stderr, "cannot read %s\n", g_scsi_tape_path);
+          return 1;
+        }
+        const bool parsed =
+            ap_tap_load(&media, tape_image, (size_t)tape_size);
+        free(tape_image);
+        if (!parsed) {
+          fprintf(stderr,
+                  "%s is not a SIMH magtape image this run can hold "
+                  "(%u records, %u bytes)\n",
+                  g_scsi_tape_path, SCSI_TAPE_RECORDS, SCSI_TAPE_BYTES);
+          return 1;
+        }
+      }
+      if (!ap_board_attach_scsi_drive(board, &media)) {
+        fprintf(stderr, "cannot attach the SCSI drive\n");
+        return 1;
+      }
+      printf("  scsi drive   EXABYTE EXB-8200 at ID %u, %u records%s%s\n",
+             AP_BOARD_SCSI_DRIVE_ID, media.records,
+             g_scsi_tape_path != nullptr ? ", from " : ", blank",
+             g_scsi_tape_path != nullptr ? g_scsi_tape_path : "");
+    }
   }
   if (g_fit_ethernet) {
     /* The address PROM is left zero rather than given an invented address: a
@@ -6830,6 +6898,55 @@ static int boot_from_tape(const char *path, uint64_t limit) {
     ap_board_attach_scsi(board);
     printf("  scsi         WD7000-ASC at %06X, in the cartridge tape's slot\n",
            AP_TAPE_ADDR);
+    if (g_scsi_drive) {
+      if (g_scsi_records == nullptr) {
+        g_scsi_records = calloc(SCSI_TAPE_RECORDS, sizeof *g_scsi_records);
+        g_scsi_tape = calloc(SCSI_TAPE_BYTES, 1u);
+        if (g_scsi_records == nullptr || g_scsi_tape == nullptr) {
+          fprintf(stderr, "cannot allocate the SCSI tape\n");
+          return 1;
+        }
+      }
+      ap_exb8200_media_t media = {.record = g_scsi_records,
+                                  .records = 0u,
+                                  .capacity = SCSI_TAPE_RECORDS,
+                                  .data = g_scsi_tape,
+                                  .data_bytes = SCSI_TAPE_BYTES,
+                                  .data_used = 0u,
+                                  .writable = true,
+                                  /* `[EXB]` Table 9-1's P6-120, the largest P6
+                                   * size, chosen because a run's own limit is
+                                   * what bounds the tape here rather than the
+                                   * cartridge's. */
+                                  .medium_type = 0x85u,
+                                  .blocks_to_leot = 0x22FC20u};
+      if (g_scsi_tape_path != nullptr) {
+        long tape_size = 0;
+        uint8_t *tape_image = read_file(g_scsi_tape_path, &tape_size);
+        if (tape_image == nullptr) {
+          fprintf(stderr, "cannot read %s\n", g_scsi_tape_path);
+          return 1;
+        }
+        const bool parsed =
+            ap_tap_load(&media, tape_image, (size_t)tape_size);
+        free(tape_image);
+        if (!parsed) {
+          fprintf(stderr,
+                  "%s is not a SIMH magtape image this run can hold "
+                  "(%u records, %u bytes)\n",
+                  g_scsi_tape_path, SCSI_TAPE_RECORDS, SCSI_TAPE_BYTES);
+          return 1;
+        }
+      }
+      if (!ap_board_attach_scsi_drive(board, &media)) {
+        fprintf(stderr, "cannot attach the SCSI drive\n");
+        return 1;
+      }
+      printf("  scsi drive   EXABYTE EXB-8200 at ID %u, %u records%s%s\n",
+             AP_BOARD_SCSI_DRIVE_ID, media.records,
+             g_scsi_tape_path != nullptr ? ", from " : ", blank",
+             g_scsi_tape_path != nullptr ? g_scsi_tape_path : "");
+    }
   }
   if (g_fit_ethernet) {
     /* The address PROM is left zero rather than given an invented address: a
@@ -7572,6 +7689,19 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--scsi") == 0) {
       g_fit_scsi = true;
       i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--scsi-drive") == 0) {
+      g_scsi_drive = true;
+      i += 1;
+      continue;
+    }
+    if (strcmp(argv[i], "--scsi-tape") == 0 && i + 1 < argc) {
+      /* A tape implies a drive to put it in; a drive without one is the
+       * cartridge-less state `[EXB]` §20.2 gives its own sense key. */
+      g_scsi_drive = true;
+      g_scsi_tape_path = argv[i + 1];
+      i += 2;
       continue;
     }
     if (strcmp(argv[i], "--matrox-screenshot") == 0 && i + 1 < argc) {
