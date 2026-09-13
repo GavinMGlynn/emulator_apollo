@@ -109,8 +109,9 @@ static void test_table_12_1_gives_the_codes_the_prom_translates(void) {
   TEST_ASSERT_NOT_NULL(k);
   TEST_ASSERT_EQUAL_HEX16(0xCBu, k->unshifted);
   TEST_ASSERT_EQUAL_HEX16(0xDBu, k->shifted);
-  /* RETURN has no control code and no up-transition code. */
-  TEST_ASSERT_EQUAL_HEX16(AP_KBD_NO_CODE, k->control);
+  /* RETURN's control code is `FB`, which Table 12-1 prints two rows above it
+   * -- see `ap_kbd.h`. It has no up-transition code. */
+  TEST_ASSERT_EQUAL_HEX16(0xFBu, k->control);
   TEST_ASSERT_EQUAL_HEX16(AP_KBD_NO_CODE, k->up_trans);
 
   k = ap_kbd_ascii_find("C1"); /* TAB: three codes, all three in the PROM table */
@@ -839,8 +840,8 @@ static const char *p613_key(const char *cell) {
 }
 
 /* The whole page, cell by cell, against the map computed from Table 12-1.
- * Every named cell agrees except the three the header names, and those three
- * are asserted to differ in exactly the documented way -- so neither a silent
+ * Every named cell agrees except the one the header names, and that one is
+ * asserted to differ in exactly the documented way -- so neither a silent
  * agreement nor a silent divergence can survive. */
 static void test_the_ascii_chart_agrees_with_table_12_1(void) {
   unsigned named = 0, agreed = 0;
@@ -853,15 +854,15 @@ static void test_the_ascii_chart_agrees_with_table_12_1(void) {
     const ap_kbd_ascii_t *key = nullptr;
     ap_kbd_mod_t mod = AP_KBD_MOD_NONE;
     TEST_ASSERT_TRUE(ap_kbd_ascii_decode((uint16_t)code, &key, &mod));
-    if (code == 0xC7u || code == 0xF8u || code == 0xFBu) {
-      continue; /* the three findings, asserted individually below */
+    if (code == 0xC7u) {
+      continue; /* the `AB` misprint, asserted individually below */
     }
     TEST_ASSERT_EQUAL_STRING(p613_key(cell), key->key);
     TEST_ASSERT_EQUAL_UINT(p613_modifier(cell), mod);
     agreed++;
   }
   TEST_ASSERT_EQUAL_UINT(241u, named);
-  TEST_ASSERT_EQUAL_UINT(238u, agreed);
+  TEST_ASSERT_EQUAL_UINT(240u, agreed);
 }
 
 /* `C7` prints `AB`, and no key `AB` exists: p. 6-12's map runs `A0`-`A9`. It is
@@ -886,26 +887,54 @@ static void test_the_chart_s_ab_is_a8_misprinted(void) {
   }
 }
 
-/* The one place the two manuals name different keys for the same byte. The
- * decode follows Table 12-1; the chart's reading is recorded beside it so the
- * disagreement is a fact under test rather than a sentence in a comment. */
-static void test_two_control_codes_are_claimed_by_two_different_keys(void) {
+/* A key whose unshifted code is in `C0`-`CC` sends that code plus `0x30` under
+ * CTRL. Eleven of Table 12-1's own rows say so, and this asserts every one of
+ * them -- because it is the rule that convicts the two rows the page gets
+ * wrong, and a rule with an exception nobody checks is not a rule. */
+static void test_a_c_block_key_s_control_code_is_its_own_plus_thirty(void) {
+  static const char *const C_BLOCK[] = {"A1",  "A2",  "A3",  "A4", "A5", "A6",
+                                        "A7",  "A8",  "D14", "C1", "D13",
+                                        "E11"};
+  for (unsigned i = 0; i < sizeof C_BLOCK / sizeof C_BLOCK[0]; i++) {
+    const ap_kbd_ascii_t *key = ap_kbd_ascii_find(C_BLOCK[i]);
+    TEST_ASSERT_NOT_NULL(key);
+    TEST_ASSERT_TRUE(key->unshifted >= 0xC0u && key->unshifted <= 0xCCu);
+    TEST_ASSERT_EQUAL_UINT16((uint16_t)(key->unshifted + 0x30u), key->control);
+  }
+  /* `C9` is `D14`'s *shifted* form, the one break in the C block's own
+   * layout, so `F9` names nothing -- which is why the page leaves it blank. */
+  const ap_kbd_ascii_t *key = nullptr;
+  ap_kbd_mod_t mod = AP_KBD_MOD_NONE;
+  TEST_ASSERT_FALSE(ap_kbd_ascii_decode(0xF9u, &key, &mod));
+}
+
+/* The two bytes Table 12-1 hands to the wrong keys. `002398-03` p. 6-10 names
+ * them `^\` and `CRC` by legend, `002398-04` p. 6-13 names them `^D14` and
+ * `^D13` by number, and the rule above derives the same answer from Table
+ * 12-1's eleven other C-block rows. The decode follows all three. */
+static void test_f8_and_fb_are_the_backslash_and_return_controls(void) {
   TEST_ASSERT_EQUAL_STRING("^D14", P613[0xF8]);
   TEST_ASSERT_EQUAL_STRING("^D13", P613[0xFB]);
 
   const ap_kbd_ascii_t *key = nullptr;
   ap_kbd_mod_t mod = AP_KBD_MOD_NONE;
   TEST_ASSERT_TRUE(ap_kbd_ascii_decode(0xF8u, &key, &mod));
-  TEST_ASSERT_EQUAL_STRING("D12", key->key);
+  TEST_ASSERT_EQUAL_STRING("D14", key->key);
+  TEST_ASSERT_EQUAL_STRING("| \\", key->legend);
   TEST_ASSERT_EQUAL_UINT(AP_KBD_MOD_CONTROL, mod);
   TEST_ASSERT_TRUE(ap_kbd_ascii_decode(0xFBu, &key, &mod));
-  TEST_ASSERT_EQUAL_STRING("D11", key->key);
+  TEST_ASSERT_EQUAL_STRING("D13", key->key);
+  TEST_ASSERT_EQUAL_STRING("RETURN", key->legend);
   TEST_ASSERT_EQUAL_UINT(AP_KBD_MOD_CONTROL, mod);
 
-  /* Neither key the chart names has a control code of its own in Table 12-1,
-   * which is what leaves the byte free for the other reading. */
-  TEST_ASSERT_EQUAL_UINT16(AP_KBD_NO_CODE, ap_kbd_ascii_find("D13")->control);
-  TEST_ASSERT_EQUAL_UINT16(AP_KBD_NO_CODE, ap_kbd_ascii_find("D14")->control);
+  /* And the two keys the printed page gave them to have no control code: `;`
+   * and `'` are `3B` and `27`, and `+ 0x30` would collide with `k` and `W`. */
+  TEST_ASSERT_EQUAL_UINT16(AP_KBD_NO_CODE, ap_kbd_ascii_find("D11")->control);
+  TEST_ASSERT_EQUAL_UINT16(AP_KBD_NO_CODE, ap_kbd_ascii_find("D12")->control);
+  TEST_ASSERT_EQUAL_UINT16(0x3Bu, ap_kbd_ascii_find("D11")->unshifted);
+  TEST_ASSERT_EQUAL_UINT16(0x27u, ap_kbd_ascii_find("D12")->unshifted);
+  TEST_ASSERT_EQUAL_UINT16(0x6Bu, ap_kbd_ascii_find("D9")->unshifted);  /* K */
+  TEST_ASSERT_EQUAL_UINT16(0x57u, ap_kbd_ascii_find("C3")->shifted);    /* W */
 }
 
 /* Five bytes Table 12-1 defines that the page leaves blank -- four of them the
@@ -974,6 +1003,239 @@ static void test_a_byte_two_keys_send_decodes_to_the_chart_s_choice(void) {
   TEST_ASSERT_TRUE(ap_kbd_ascii_decode(0x1Bu, &key, &mod));
   TEST_ASSERT_EQUAL_STRING("B1", key->key);
   TEST_ASSERT_EQUAL_UINT(AP_KBD_MOD_NONE, mod);
+}
+
+
+/* ---- `002398-03` p. 6-10, the third witness ------------------------------- */
+
+/* The *Low-Profile Keyboard Chart -- Physical*, February 1985: the same map as
+ * p. 6-13 but printed by **legend** rather than by key number, which is what
+ * makes it a witness rather than a reprint. Read from the page image at the
+ * scan's native 600 ppi; `nullptr` is a blank cell. `^X` here is the page's
+ * own way of writing "the control character X produces", not a key number
+ * under a modifier prefix. */
+static const char *const P610[256] = {
+         "^SP",       "^A",       "^B",       "^C",  /* 00 */
+          "^D",       "^E",       "^F",       "^G",  /* 04 */
+          "^H",       "^I",       "^J",       "^K",  /* 08 */
+          "^L",       "^M",       "^N",       "^O",  /* 0C */
+          "^P",       "^Q",       "^R",       "^S",  /* 10 */
+          "^T",       "^U",       "^V",       "^W",  /* 14 */
+          "^X",       "^Y",       "^Z",      "ESC",  /* 18 */
+       nullptr,       "^]",       "^~",    nullptr,  /* 1C */
+          "SP",        "!",       "\"",        "#",  /* 20 */
+           "$",        "%",        "&",        "'",  /* 24 */
+           "(",        ")",        "*",        "+",  /* 28 */
+           ",",        "-",        ".",    nullptr,  /* 2C */
+           "0",        "1",        "2",        "3",  /* 30 */
+           "4",        "5",        "6",        "7",  /* 34 */
+           "8",        "9",        ":",        ";",  /* 38 */
+           "<",        "=",        ">",    nullptr,  /* 3C */
+           "@",        "A",        "B",        "C",  /* 40 */
+           "D",        "E",        "F",        "G",  /* 44 */
+           "H",        "I",        "J",        "K",  /* 48 */
+           "L",        "M",        "N",        "O",  /* 4C */
+           "P",        "Q",        "R",        "S",  /* 50 */
+           "T",        "U",        "V",        "W",  /* 54 */
+           "X",        "Y",        "Z",        "{",  /* 58 */
+       nullptr,        "}",        "^",        "_",  /* 5C */
+           "`",        "a",        "b",        "c",  /* 60 */
+           "d",        "e",        "f",        "g",  /* 64 */
+           "h",        "i",        "j",        "k",  /* 68 */
+           "l",        "m",        "n",        "o",  /* 6C */
+           "p",        "q",        "r",        "s",  /* 70 */
+           "t",        "u",        "v",        "w",  /* 74 */
+           "x",        "y",        "z",        "[",  /* 78 */
+       nullptr,        "]",        "~",      "DEL",  /* 7C */
+          "R1",       "L1",       "L2",       "L3",  /* 80 */
+          "L4",       "L5",       "L6",       "L7",  /* 84 */
+          "L8",       "L9",       "LA",       "LB",  /* 88 */
+          "LC",       "LD",       "LE",       "LF",  /* 8C */
+         "R1S",      "L1S",      "L2S",      "L3S",  /* 90 */
+         "L4S",      "L5S",      "L6S",      "L7S",  /* 94 */
+         "L8S",      "L9S",      "LAS",      "LBS",  /* 98 */
+         "LCS",      "LDS",      "LES",      "LFS",  /* 9C */
+         "R1U",      "L1U",      "L2U",      "L3U",  /* A0 */
+         "L4U",      "L5U",      "L6U",      "L7U",  /* A4 */
+         "L8U",      "L9U",      "LAU",      "LBU",  /* A8 */
+         "LCU",      "LDU",      "LEU",      "LFU",  /* AC */
+         "L1A",      "L2A",      "L3A",       "R6",  /* B0 */
+        "L1AS",     "L2AS",     "L3AS",      "R6S",  /* B4 */
+        "L1AU",     "L2AU",     "L3AU",      "R6U",  /* B8 */
+       nullptr,    nullptr,    nullptr,    nullptr,  /* BC */
+          "F1",       "F2",       "F3",       "F4",  /* C0 */
+          "F5",       "F6",       "F7",       "F8",  /* C4 */
+          "\\",        "|",      "TAB",       "CR",  /* C8 */
+           "/",       "R2",       "R3",       "R4",  /* CC */
+         "F1S",      "F2S",      "F3S",      "F4S",  /* D0 */
+         "F5S",      "F6S",      "F7S",      "F8S",  /* D4 */
+       nullptr,    nullptr,     "TABS",      "CRS",  /* D8 */
+           "?",       "R5",       "BS",     "mous",  /* DC */
+         "F1U",      "F2U",      "F3U",      "F4U",  /* E0 */
+         "F5U",      "F6U",      "F7U",      "F8U",  /* E4 */
+        "tpad",      "R2S",      "R3S",      "R4S",  /* E8 */
+         "R5S",      "R2U",      "R3U",      "R4U",  /* EC */
+         "F1C",      "F2C",      "F3C",      "F4C",  /* F0 */
+         "F5C",      "F6C",      "F7C",      "F8C",  /* F4 */
+         "^\\",    nullptr,     "TABC",      "CRC",  /* F8 */
+          "^/",      "R5U",    nullptr,    nullptr,  /* FC */
+};
+
+/* Both pages name exactly 241 cells, which is the first thing to check about a
+ * second copy of a map: a different count would mean a different keyboard. */
+static void test_both_charts_name_the_same_number_of_cells(void) {
+  unsigned p610 = 0, p613 = 0;
+  for (unsigned c = 0; c < 256; c++) {
+    p610 += P610[c] != nullptr;
+    p613 += P613[c] != nullptr;
+  }
+  TEST_ASSERT_EQUAL_UINT(241u, p610);
+  TEST_ASSERT_EQUAL_UINT(241u, p613);
+}
+
+/* Every defect `ap_kbd.h` records on p. 6-13 -- the `AB` typo, the two control
+ * codes, and the five blanks -- is printed correctly on p. 6-10, and every one
+ * of them agrees with the model. Eight cells, one document, no defect left. */
+static void test_p610_settles_every_defect_on_p613(void) {
+  static const struct {
+    uint16_t code;
+    const char *p610;   /* what the 1985 page prints */
+    const char *key;    /* the key the model decodes it to */
+    ap_kbd_mod_t mod;
+  } SETTLED[] = {
+      {0xC7u, "F8", "A8", AP_KBD_MOD_NONE},        /* p. 6-13 prints `AB` */
+      {0xF8u, "^\\", "D14", AP_KBD_MOD_CONTROL}, /* p. 6-13 `^D14` */
+      {0xFBu, "CRC", "D13", AP_KBD_MOD_CONTROL},   /* p. 6-13 `^D13` */
+      {0x22u, "\"", "D12", AP_KBD_MOD_SHIFT},     /* blank on p. 6-13 */
+      {0x3Au, ":", "D11", AP_KBD_MOD_SHIFT},
+      {0xC9u, "|", "D14", AP_KBD_MOD_SHIFT},
+      {0xDBu, "CRS", "D13", AP_KBD_MOD_SHIFT},
+      {0xDDu, "R5", "RA3", AP_KBD_MOD_NONE},
+  };
+  for (unsigned i = 0; i < sizeof SETTLED / sizeof SETTLED[0]; i++) {
+    TEST_ASSERT_EQUAL_STRING(SETTLED[i].p610, P610[SETTLED[i].code]);
+    const ap_kbd_ascii_t *key = nullptr;
+    ap_kbd_mod_t mod = AP_KBD_MOD_NONE;
+    TEST_ASSERT_TRUE(ap_kbd_ascii_decode(SETTLED[i].code, &key, &mod));
+    TEST_ASSERT_EQUAL_STRING(SETTLED[i].key, key->key);
+    TEST_ASSERT_EQUAL_UINT(SETTLED[i].mod, mod);
+  }
+  /* And the five were blank on the newer page, which is why they needed it. */
+  TEST_ASSERT_NULL(P613[0x22]);
+  TEST_ASSERT_NULL(P613[0xDD]);
+  TEST_ASSERT_EQUAL_STRING("AB", P613[0xC7]);
+}
+
+/* Which bytes the keyboard can send at all, page against model, all 256. The
+ * eleven that differ are the two keyboards differing and are listed here by
+ * name -- a twelfth would be a defect in one of them. */
+static void test_p610_and_the_model_agree_on_which_bytes_exist(void) {
+  /* Named on the page, absent from Table 12-1's set. */
+  static const uint16_t PAGE_ONLY[] = {0x00u, 0xDFu, 0xE8u};
+  /* In Table 12-1's set, blank on the page: key `A0` (keycap F0) and key `A9`
+   * (keycap F9), which the 1985 low-profile keyboard does not have. */
+  static const uint16_t MODEL_ONLY[] = {0x1Cu, 0x5Cu, 0x7Cu, 0xBCu,
+                                        0x1Fu, 0x2Fu, 0x3Fu, 0xBDu};
+  unsigned page_only = 0, model_only = 0, agreed = 0;
+  for (unsigned c = 0; c < 256; c++) {
+    const ap_kbd_ascii_t *key = nullptr;
+    ap_kbd_mod_t mod = AP_KBD_MOD_NONE;
+    const bool ours = ap_kbd_ascii_decode((uint16_t)c, &key, &mod);
+    const bool page = P610[c] != nullptr;
+    if (page && !ours) {
+      page_only++;
+    } else if (ours && !page) {
+      model_only++;
+    } else {
+      agreed++;
+    }
+  }
+  TEST_ASSERT_EQUAL_UINT(3u, page_only);
+  TEST_ASSERT_EQUAL_UINT(8u, model_only);
+  TEST_ASSERT_EQUAL_UINT(245u, agreed);
+
+  const ap_kbd_ascii_t *key = nullptr;
+  ap_kbd_mod_t mod = AP_KBD_MOD_NONE;
+  for (unsigned i = 0; i < sizeof PAGE_ONLY / sizeof PAGE_ONLY[0]; i++) {
+    TEST_ASSERT_NOT_NULL(P610[PAGE_ONLY[i]]);
+    TEST_ASSERT_FALSE(ap_kbd_ascii_decode(PAGE_ONLY[i], &key, &mod));
+  }
+  for (unsigned i = 0; i < sizeof MODEL_ONLY / sizeof MODEL_ONLY[0]; i++) {
+    TEST_ASSERT_NULL(P610[MODEL_ONLY[i]]);
+    TEST_ASSERT_TRUE(ap_kbd_ascii_decode(MODEL_ONLY[i], &key, &mod));
+    /* Every one of the eight belongs to one of the two missing keys. */
+    TEST_ASSERT_TRUE(strcmp(key->key, "A0") == 0 || strcmp(key->key, "A9") == 0);
+  }
+}
+
+/* The two keyboards' function rows, which is what those eight bytes are: the
+ * 1985 low-profile has `F1`-`F8` and nothing either side of them. */
+static void test_the_low_profile_function_row_stops_at_f8(void) {
+  for (unsigned i = 0; i < 8; i++) {
+    char legend[4];
+    (void)snprintf(legend, sizeof legend, "F%u", i + 1);
+    TEST_ASSERT_EQUAL_STRING(legend, P610[0xC0u + i]);
+  }
+  TEST_ASSERT_EQUAL_STRING("F0", ap_kbd_ascii_find("A0")->legend);
+  TEST_ASSERT_EQUAL_STRING("F9", ap_kbd_ascii_find("A9")->legend);
+  /* Neither has a C-block code, which is why neither shows up in that row. */
+  TEST_ASSERT_EQUAL_UINT16(0x1Cu, ap_kbd_ascii_find("A0")->unshifted);
+  TEST_ASSERT_EQUAL_UINT16(0x1Fu, ap_kbd_ascii_find("A9")->unshifted);
+}
+
+/* `DF` and `E8` are not keys. They are the two pointing-device escapes, and a
+ * third document names them -- `E8`'s device being the **touchpad**, which is
+ * what `AP_KBD_MOUSE_ESCAPE_ABSOLUTE` is for. */
+static void test_p610_names_the_two_pointing_device_escapes(void) {
+  TEST_ASSERT_EQUAL_STRING("mous", P610[AP_KBD_MOUSE_ESCAPE_RELATIVE]);
+  TEST_ASSERT_EQUAL_STRING("tpad", P610[AP_KBD_MOUSE_ESCAPE_ABSOLUTE]);
+  TEST_ASSERT_EQUAL_HEX8(0xDFu, AP_KBD_MOUSE_ESCAPE_RELATIVE);
+  TEST_ASSERT_EQUAL_HEX8(0xE8u, AP_KBD_MOUSE_ESCAPE_ABSOLUTE);
+}
+
+/* The bracket swap the boot PROM undoes, attested by a document that is not
+ * Table 12-1 and not the firmware: the byte `5B` is the keycap `{`. */
+static void test_p610_confirms_the_brackets_are_sent_swapped(void) {
+  TEST_ASSERT_EQUAL_STRING("{", P610[0x5B]);
+  TEST_ASSERT_EQUAL_STRING("[", P610[0x7B]);
+  TEST_ASSERT_EQUAL_STRING("}", P610[0x5D]);
+  TEST_ASSERT_EQUAL_STRING("]", P610[0x7D]);
+  TEST_ASSERT_EQUAL_UINT16(0x7Bu, ap_kbd_ascii_find("C12")->unshifted);
+  TEST_ASSERT_EQUAL_UINT16(0x5Bu, ap_kbd_ascii_find("C12")->shifted);
+  TEST_ASSERT_EQUAL_UINT16(0x5Bu, ap_kbd_prom_ascii(0x7Bu));
+  TEST_ASSERT_EQUAL_UINT16(0x7Bu, ap_kbd_prom_ascii(0x5Bu));
+}
+
+/* Outside the four brackets the page is ASCII, which is the check that the
+ * transcription above is a transcription: 86 printable cells whose legend is
+ * the character the byte already is, and 28 `^X` cells at `X & 0x1F` --
+ * `^A`-`^Z` plus `^]` at `1D` and `^~` at `1E`. */
+static void test_p610_s_ascii_region_is_ascii(void) {
+  unsigned printable = 0, control = 0;
+  for (unsigned c = 0x20; c <= 0x7Eu; c++) {
+    const char *cell = P610[c];
+    if (cell == nullptr || strlen(cell) != 1) {
+      continue; /* `SP`, `DEL` and the blanks */
+    }
+    if (c == 0x5Bu || c == 0x5Du || c == 0x7Bu || c == 0x7Du) {
+      continue; /* the swapped brackets, asserted above */
+    }
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)c, (uint8_t)cell[0]);
+    printable++;
+  }
+  for (unsigned c = 0x00u; c <= 0x1Fu; c++) {
+    const char *cell = P610[c];
+    if (cell == nullptr || cell[0] != '^' || strlen(cell) != 2) {
+      continue;
+    }
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)c, (uint8_t)(cell[1] & 0x1F));
+    control++;
+  }
+  TEST_ASSERT_EQUAL_UINT(86u, printable);
+  TEST_ASSERT_EQUAL_UINT(28u, control);
+  TEST_ASSERT_EQUAL_STRING("SP", P610[0x20]);
+  TEST_ASSERT_EQUAL_STRING("DEL", P610[0x7F]);
+  TEST_ASSERT_EQUAL_STRING("ESC", P610[0x1B]);
 }
 
 
@@ -1468,11 +1730,19 @@ int main(void) {
   RUN_TEST(test_a_repeated_press_cannot_desynchronise_the_lamp);
   RUN_TEST(test_the_ascii_chart_agrees_with_table_12_1);
   RUN_TEST(test_the_chart_s_ab_is_a8_misprinted);
-  RUN_TEST(test_two_control_codes_are_claimed_by_two_different_keys);
+  RUN_TEST(test_a_c_block_key_s_control_code_is_its_own_plus_thirty);
+  RUN_TEST(test_f8_and_fb_are_the_backslash_and_return_controls);
   RUN_TEST(test_the_chart_omits_five_codes_the_sibling_manual_has);
   RUN_TEST(test_a_byte_decodes_to_a_key_that_sends_it_back);
   RUN_TEST(test_an_unreachable_byte_decodes_to_nothing);
   RUN_TEST(test_a_byte_two_keys_send_decodes_to_the_chart_s_choice);
+  RUN_TEST(test_both_charts_name_the_same_number_of_cells);
+  RUN_TEST(test_p610_settles_every_defect_on_p613);
+  RUN_TEST(test_p610_and_the_model_agree_on_which_bytes_exist);
+  RUN_TEST(test_the_low_profile_function_row_stops_at_f8);
+  RUN_TEST(test_p610_names_the_two_pointing_device_escapes);
+  RUN_TEST(test_p610_confirms_the_brackets_are_sent_swapped);
+  RUN_TEST(test_p610_s_ascii_region_is_ascii);
   RUN_TEST(test_the_buffer_takes_sixteen_bytes_and_inhibits_the_seventeenth);
   RUN_TEST(test_the_buffer_drains_at_one_byte_per_character_time);
   RUN_TEST(test_the_buffer_keeps_its_order_across_the_ring_s_wrap);

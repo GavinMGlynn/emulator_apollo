@@ -140,10 +140,15 @@ static const ap_kbd_ascii_t ASCII[] = {
     {"D8", "J", 0x6Au, 0x4Au, 0x0Au, 0x4Au, AP_KBD_NO_CODE, false},
     {"D9", "K", 0x6Bu, 0x4Bu, 0x0Bu, 0x4Bu, AP_KBD_NO_CODE, false},
     {"D10", "L", 0x6Cu, 0x4Cu, 0x0Cu, 0x4Cu, AP_KBD_NO_CODE, false},
-    {"D11", ": ;", 0x3Bu, 0x3Au, 0xFBu, 0x3Bu, AP_KBD_NO_CODE, false},
-    {"D12", "\" '", 0x27u, 0x22u, 0xF8u, 0x27u, AP_KBD_NO_CODE, false},
-    {"D13", "RETURN", 0xCBu, 0xDBu, AP_KBD_NO_CODE, 0xCBu, AP_KBD_NO_CODE, false},
-    {"D14", "| \\", 0xC8u, 0xC9u, AP_KBD_NO_CODE, 0xC8u, AP_KBD_NO_CODE, false},
+    /* These four carry the one correction this table makes to Table 12-1, and
+     * the header says why: the printed page gives `FB` and `F8` to `D11` and
+     * `D12` and leaves `D13` and `D14` without control codes, which breaks the
+     * `control = unshifted + 0x30` rule its own eleven other `C0`-`CC` keys
+     * obey. `002398-03` p. 6-10 names the two cells `CRC` and `^\`. */
+    {"D11", ": ;", 0x3Bu, 0x3Au, AP_KBD_NO_CODE, 0x3Bu, AP_KBD_NO_CODE, false},
+    {"D12", "\" '", 0x27u, 0x22u, AP_KBD_NO_CODE, 0x27u, AP_KBD_NO_CODE, false},
+    {"D13", "RETURN", 0xCBu, 0xDBu, 0xFBu, 0xCBu, AP_KBD_NO_CODE, false},
+    {"D14", "| \\", 0xC8u, 0xC9u, 0xF8u, 0xC8u, AP_KBD_NO_CODE, false},
     {"RD1", "keypad 4", 0xFE34u, 0xFE24u, AP_KBD_NO_CODE, 0xFE34u, AP_KBD_NO_CODE, false},
     {"RD2", "keypad 5", 0xFE35u, 0xFE25u, AP_KBD_NO_CODE, 0xFE35u, AP_KBD_NO_CODE, false},
     {"RD3", "keypad 6", 0xFE36u, 0xFE5Eu, AP_KBD_NO_CODE, 0xFE36u, AP_KBD_NO_CODE, false},
@@ -235,14 +240,16 @@ bool ap_kbd_ascii_decode(uint16_t code, const ap_kbd_ascii_t **key,
  * transcribed here so `ap_kbd_encode` can consult it -- the part itself knows
  * nothing of this.
  *
- * Every code on the left is a Table 12-1 entry: `CB`/`DB` are RETURN's two,
- * `CA`/`DA`/`FA` TAB's three, `DE` BACK SPACE's, `CC`/`DC`/`FC` the `? /`
- * key's, `C8`/`C9` the `| \\` key's. The four in the middle are the firmware
- * correcting the bracket keys, which Table 12-1 shows sending `7B` unshifted
- * and `5B` shifted -- the opposite way round from the US convention. */
+ * Every code on the left is a Table 12-1 entry: `CB`/`DB`/`FB` are RETURN's
+ * three, `CA`/`DA`/`FA` TAB's three, `DE` BACK SPACE's, `CC`/`DC`/`FC` the
+ * `? /` key's, `C8`/`C9`/`F8` the `| \\` key's. The four in the middle are the
+ * firmware correcting the bracket keys, which Table 12-1 shows sending `7B`
+ * unshifted and `5B` shifted -- the opposite way round from the US convention,
+ * and which `002398-03` p. 6-10 independently prints the same way (`5B` = `{`,
+ * `7B` = `[`), so the swap is the keyboard's and not a transcription of it. */
 static const struct { uint8_t code; uint8_t ascii; } PROM[] = {
     {0xCBu, 0x0Du}, {0xDBu, 0x0Du}, /* RETURN -> CR */
-    {0xFBu, 0x1Bu},                 /* `: ;` control -> ESC */
+    {0xFBu, 0x1Bu},                 /* RETURN control -> ESC */
     {0xC8u, 0x5Cu}, {0xD8u, 0x5Cu}, {0xF8u, 0x5Cu}, /* -> backslash */
     {0xC9u, 0x7Cu}, {0xD9u, 0x7Cu},                 /* -> bar */
     {0xF9u, 0x7Fu},                                 /* -> DEL */

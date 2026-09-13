@@ -4427,18 +4427,20 @@ discipline throughout.
       past each end excluded, the refusal still a refusal, the access counted
       under its own name, and no other model given the range.*
 
-- [ ] **Cross-check `ap_kbd.c`'s code table against `002398-03`'s four keyboard
-      charts.** Named 2026-09-13 while reading chapter 6. It prints the **880**
-      and the **Low-Profile** keyboards each in *physical* and *translated (user
-      mode)* form — four 16 × 16 charts, 256 cells apiece — where `ap_kbd.c`'s
-      table comes from the keyboard's own manual `[KBD]` and is keyed by key
-      rather than by code. They are the inverse mapping and therefore a **second
-      witness**, which is exactly the kind of source a transposition survives.
-      **One landmark is checked**: the Low-Profile translated chart's `1B` is
-      `ESC` and `ap_kbd.c`'s `B1`/ESC sends `0x1B`. The rest is not, and the
-      cost is a careful transcription of 256 cells from a 600-dpi image against
-      a table of 100-odd keys — half a session, with a real chance of finding a
-      wrong byte and a real chance of finding nothing.
+- [x] **Cross-check `ap_kbd.c`'s code table against `002398-03`'s keyboard
+      charts.** Done 2026-09-13. p. 6-10, the Low-Profile chart in *physical*
+      form, is p. 6-13's map printed by legend instead of by key number, and
+      **it settles all eight defects p. 6-13 had left**: `C7`'s impossible `AB`
+      is `A8`, and the two `PROVISIONAL` cells are `D14` control (`^\`) and
+      `D13` control (`CRC`), not `D12`'s and `D11`'s — which Table 12-1's own
+      `control = unshifted + 0x30` rule, obeyed by eleven other C-block keys,
+      independently requires. Four table rows corrected. It also confirms the
+      two pointing-device escapes (`DF` `mous`, `E8` `tpad` — so the
+      absolute-mode device is the touchpad) and the bracket swap, and shows
+      eleven cells that differ between the two *keyboards* rather than the two
+      documents. *Verification: `kbd_suite` 62 → 69, p. 6-10 transcribed and
+      checked cell by cell; agreement with p. 6-13 rises 238 → 240 of 241.
+      Detail in `PROJECT_STATUS.md`.*
 
 - [ ] **The Domain/OS software shelf has never been read: 96 documents,
       80 of them still untouched.** `docs/references/SOFTWARE_SHELF_WALK.md` is the

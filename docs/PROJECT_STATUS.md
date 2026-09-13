@@ -434,6 +434,70 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## The keyboard's third witness settles both `PROVISIONAL` cells (2026-09-13)
+
+`002398-03` p. 6-10, the *Low-Profile Keyboard Chart -- Physical*, is the same
+256-cell map as `002398-04` p. 6-13 printed **by legend** instead of by key
+number, two years earlier. That difference is what makes it evidence rather
+than a reprint: a legend names the key, so it cannot inherit a mis-set key
+number. It names 241 cells, exactly as p. 6-13 does.
+
+**It settles every defect on p. 6-13, all eight of them, and no cell of it is
+in dispute with anything.**
+
+| Byte | p. 6-13 | Table 12-1 + MAME | p. 6-10 | Now |
+| --- | --- | --- | --- | --- |
+| `C7` | `AB` (no such key) | `A8` unshifted | `F8` — the eighth function key | `A8` |
+| `F8` | `^D14` | `D12` control | `^\` | **`D14` control** |
+| `FB` | `^D13` | `D11` control | `CRC` | **`D13` control** |
+| `22` `3A` `C9` `DB` `DD` | blank | `"` `:` `\|` `+D13` `RA3` | all five printed | as Table 12-1 |
+
+**What convicts Table 12-1 is Table 12-1.** Every other key whose unshifted
+code lies in `C0`-`CC` has `control = unshifted + 0x30`, and the page prints
+eleven of them: `A1`-`A8` at `C0`-`C7` with `F0`-`F7`, TAB at `CA` with `FA`,
+and `? /` at `CC` with `FC`. The only two C-block keys that break the rule are
+`D14` (`C8`) and `D13` (`CB`) — whose control codes the page instead hands to
+`D11` (`;`, unshifted `3B`) and `D12` (`'`, `27`), two keys for which `+ 0x30`
+would land on `6B` and `57`, already `k` and `W`. Applying the rule the table
+obeys eleven times gives `C8 + 0x30 = F8` and `CB + 0x30 = FB`, which is what
+both handbook pages print. **MAME is not a witness**: `apollo_kbd.cpp` carries
+Table 12-1's `D11`/`D12` rows verbatim and its `D14` row is a *German* layout
+(`' #`) with no `| \` key, so it is one more copy of the page under dispute.
+
+**And the boot PROM's `FB` → ESC, previously recorded as pulling the other way,
+discriminates nothing** and is withdrawn as evidence: control-RETURN sending
+ESC and control-semicolon sending ESC are equally arbitrary, and the firmware's
+other control entries do not decide it either (`FA` maps to HT like TAB's own
+code, `FC` to `3F` like its shifted form).
+
+**Three more results from the same page, none of them a defect.** `DF` is
+`mous` and `E8` is `tpad` — the two pointing-device escapes, `0xDF` and `0xE8`,
+confirmed by a third document, and `E8`'s device *named*: the absolute-mode
+device is the **touchpad**, which `002398-03` Appendix C lists as a low-profile
+keyboard part. The **bracket swap** the boot PROM undoes (`5B` is the keycap
+`{`, `7B` is `[`) is attested by a document that is neither Table 12-1 nor the
+firmware. And eleven cells differ between the two keyboards rather than between
+the two documents: `00` is `^SP` where Table 12-1 gives the space bar `20` in a
+column that prints `-` for keys without one, and the eight codes of keys `A0`
+and `A9` (keycaps F0 and F9) are blank because the 1985 low-profile function
+row is `F1`-`F8`. This core models Table 12-1's keyboard and keeps both.
+
+**No identity-harness run.** The change is confined to the `control` column of
+four rows of the ASCII table, and `ap_kbd_encode` — the only path from that
+table into the core, through `ap_board.c` — reads `unshifted` and `shifted` and
+never `control`. Nothing a boot executes can observe it.
+
+*Verification: `kbd_suite` 62 → 69. p. 6-10 is transcribed cell by cell like
+p. 6-13 and checked the same way: both charts name 241 cells; the eight
+settled bytes are asserted with the page's own legend beside the model's key;
+the 245-agree/3-page-only/8-model-only split over all 256 codes, with each of
+the eleven named; the `+ 0x30` rule asserted across all twelve C-block keys
+with `F9` refused; the two escapes; the bracket swap; and 86 printable plus 28
+`^X` cells checked to be the ASCII they claim, which is what makes the
+transcription a transcription. p. 6-13's agreement rises 238 → 240 of 241, the
+`AB` typo being all that is left.*
+
+
 ## `002398-03` is walked whole — 260 of 260 pages (2026-09-13)
 
 The *Domain Engineering Handbook* Rev 3, February 1985: eleven chapters, three
@@ -8985,8 +9049,15 @@ apart. The exceptions:
 | Byte | p. 6-13 | `008778-03` + MAME | Verdict |
 | --- | --- | --- | --- |
 | `C7` | `AB` | `A8` unshifted | **typo**; decode as `A8` |
-| `F8` | `^D14` | `D12` control | **unsettled**, `PROVISIONAL` |
-| `FB` | `^D13` | `D11` control | **unsettled**, `PROVISIONAL` |
+| `F8` | `^D14` | `D12` control | **p. 6-13 is right**, settled 2026-09-13 |
+| `FB` | `^D13` | `D11` control | **p. 6-13 is right**, settled 2026-09-13 |
+
+**SETTLED 2026-09-13 by `002398-03` p. 6-10** — see *The keyboard's third
+witness* near the top of this file. The two rows above used to read
+"**unsettled**, `PROVISIONAL`", and the paragraphs below are the reasoning as
+it stood while they did; the sentence "closing this wants the keyboard's own
+specification, which this project does not have" is **withdrawn** — it wanted a
+document that was on the shelf, unread, in the same handbook series.
 
 `AB` is a typo and not a disagreement: p. 6-12's key-number map runs `A0`-`A9`,
 so no key `AB` exists, and `A1`-`A8` occupy `C0`-`C7` unshifted with `C7` the

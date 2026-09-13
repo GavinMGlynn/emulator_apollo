@@ -643,9 +643,9 @@ typedef struct {
  * and the drift is silent. The inverse is computed from Table 12-1 by
  * `ap_kbd_ascii_decode`, and p. 6-13 is spent instead on *checking* it: the
  * suite walks all 241 named cells of that page against the computed answer.
- * 238 agree exactly. The three that do not, and the five the page omits, are
- * findings about the page and are listed below -- each asserted individually,
- * so this paragraph cannot rot without a test going red.
+ * **240 agree exactly.** The one that does not, and the five the page omits,
+ * are findings about the page and are listed below -- each asserted
+ * individually, so this paragraph cannot rot without a test going red.
  *
  * **`C7` is a typographical error.** The page prints `AB`. No key `AB` exists:
  * p. 6-12's own key-number map runs `A0`-`A9`. `A1`-`A8` occupy `C0`-`C7`
@@ -653,28 +653,98 @@ typedef struct {
  * is the one break in that block. Table 12-1 and MAME both read `A8`. Decoded
  * as `A8`.
  *
- * **`F8` and `FB` are attributed to different keys by the two manuals**, and
- * this is a real disagreement rather than a misreading -- the cells were
- * re-rendered at the scan's native 600 ppi beside known `D11`/`D12`/`D13`/`D14`
- * cells and the digits are unambiguous.
+ * **`F8` and `FB` belong to `D14` and `D13`, and Table 12-1's rows for them
+ * are two keys out of place. RESOLVED 2026-09-13, and no longer
+ * `PROVISIONAL`.** What settles it is a rule derived from Table 12-1's own
+ * data plus a third document.
  *
- *   - `F8`: p. 6-13 says `^D14`, Table 12-1 and MAME say `D12` control.
- *   - `FB`: p. 6-13 says `^D13`, Table 12-1 and MAME say `D11` control.
+ * **The rule.** Every other key whose unshifted code lies in `C0`-`CC` has
+ * `control = unshifted + 0x30`, and Table 12-1 prints all eleven of them:
+ * `A1`-`A8` at `C0`-`C7` with controls `F0`-`F7`, `C1` TAB at `CA` with `FA`,
+ * and `E11` `? /` at `CC` with `FC`. The only two C-column keys that break it
+ * are `D14` (`C8`) and `D13` (`CB`), whose control codes the page instead
+ * hands to `D11` (`;`, unshifted `3B`) and `D12` (`'`, unshifted `27`) -- two
+ * low-region keys for which `+ 0x30` would produce `6B` and `57`, codes that
+ * are already `K` and `W`. Applying the rule the table itself obeys eleven
+ * times: `C8 + 0x30 = F8` is `D14`'s and `CB + 0x30 = FB` is `D13`'s.
  *
- * The boot PROM's own table does not settle it and pulls both ways: it maps
- * `F8` to backslash alongside `C8` and `D8`, which are `D14`'s -- favouring
- * p. 6-13 -- but maps `FB` to ESC rather than to CR alongside RETURN's `CB`
- * and `DB`, which argues `FB` is not `D13`'s. `PROVISIONAL`: the decode follows
- * Table 12-1, being the newer and model-specific document, and the open
- * question is named in `PROJECT_STATUS.md`. Closing it wants the keyboard's own
- * specification, which this project does not have.
+ * **The third document.** `002398-03` p. 6-10, the *Low-Profile Keyboard Chart
+ * -- Physical*, is the same 256-cell map printed by **legend** rather than by
+ * key number, two years before Rev 4 -- so it names the key rather than a
+ * number that could be mis-set. It reads `C8` = `\`, `C9` = `|`, `F8` = `^\`;
+ * and `CA` = `TAB`, `DA` = `TABS`, `FA` = `TABC`; `CB` = `CR`, `DB` = `CRS`,
+ * `FB` = `CRC`; `CC` = `/`, `DC` = `?`, `FC` = `^/`. `D14`'s legend is `| \`
+ * and `D13`'s is RETURN, so both cells name exactly the keys p. 6-13 numbers.
+ *
+ * **The oracle is not a witness here.** MAME's `apollo_kbd.cpp` carries
+ * Table 12-1's `D11`/`D12` rows verbatim, `FB` and `F8` included, and its
+ * `D14` row is a *German* layout (`' #`, code `23`) with no `| \` key at all
+ * -- so it is one more copy of the page under dispute rather than a second
+ * reading of the hardware, which is the trap `omti-manuals-share-source-text`
+ * names.
+ *
+ * The boot PROM's table agrees on `F8`, which it maps to backslash alongside
+ * `C8` and `D8`. It maps `FB` to ESC rather than to CR, which **discriminates
+ * nothing**: control-RETURN sending ESC and control-semicolon sending ESC are
+ * equally arbitrary, and the firmware's other control entries do not settle it
+ * either (`FA`, TAB's control, maps to HT like TAB's own; `FC`, the `? /`
+ * key's, maps to `3F` like its shifted form). It is recorded as neutral rather
+ * than as evidence, which is the correction this paragraph makes to itself.
+ *
+ * *Original text, kept because it is the reading the table was built on and
+ * the reason the decode looked the way it did:* "**`F8` and `FB` are
+ * attributed to different keys by the two manuals**, and this is a real
+ * disagreement rather than a misreading -- the cells were re-rendered at the
+ * scan's native 600 ppi beside known `D11`/`D12`/`D13`/`D14` cells and the
+ * digits are unambiguous. `F8`: p. 6-13 says `^D14`, Table 12-1 and MAME say
+ * `D12` control. `FB`: p. 6-13 says `^D13`, Table 12-1 and MAME say `D11`
+ * control. ... `PROVISIONAL`: the decode follows Table 12-1, being the newer
+ * and model-specific document, and the open question is named in
+ * `PROJECT_STATUS.md`. Closing it wants the keyboard's own specification,
+ * which this project does not have."
  *
  * **Five bytes Table 12-1 defines are blank on p. 6-13**: `22` (`"`), `3A`
  * (`:`), `C9`, `DB` and `DD`. Verified blank at 600 ppi -- no faint stroke the
  * scan's 1-bit JBIG2 coding dropped. Four are the shifted forms of `D11`-`D14`
  * and the fifth is `RA3` unshifted, so every defect on the page falls in the
  * `D11`-`D14`/`RA3`/`A8` region and nowhere else. Decoding answers from
- * Table 12-1, which has them. */
+ * Table 12-1, which has them -- and **`002398-03` p. 6-10 names all five**
+ * (`"`, `:`, `|`, `CRS`, `R5`) and agrees with Table 12-1 on every one, so
+ * they are omissions of the page rather than codes the keyboard lacks. */
+
+/* ---- The third witness, `002398-03` p. 6-10 ------------------------------- */
+
+/* The *Low-Profile Keyboard Chart -- Physical*, February 1985: the same
+ * 256-cell map as p. 6-13, two years earlier, indexed by the same emitted byte
+ * but printed by **legend** (`\`, `CR`, `TAB`, `F1`-`F8`, `L1`-`LF`, `R1`-`R6`,
+ * `BS`, `DEL`, `mous`, `tpad`) rather than by key number. That difference is
+ * what makes it a witness rather than a reprint: a legend names the key, so it
+ * cannot inherit a mis-set key number from either of the others.
+ *
+ * **It names 241 cells, and it settles every defect on p. 6-13**: `C7` is `F8`
+ * (Series 3000/4000 key `A8`), not the impossible `AB`; `F8` is `^\` and `FB`
+ * is `CRC`; and the five blanks are all printed and all agree. Transcribed in
+ * `kbd_suite.c` and checked cell by cell, like p. 6-13.
+ *
+ * **Three cells it names that this table does not hold, and they are not
+ * gaps.** `DF` is `mous` and `E8` is `tpad` -- not keys at all but the two
+ * pointing-device escapes, `AP_KBD_MOUSE_ESCAPE_RELATIVE` and
+ * `AP_KBD_MOUSE_ESCAPE_ABSOLUTE`, confirmed here by a third document and,
+ * for `E8`, *named*: the absolute-mode device is the **touchpad**, which
+ * `002398-03` Appendix C lists as a low-profile keyboard part. `00` is `^SP`,
+ * where Table 12-1 gives the space bar a control code of `20` in a column that
+ * prints `-` for every key without one -- a difference between the two
+ * keyboards, stated positively by both, and this core models Table 12-1's.
+ *
+ * **Eight codes this table holds that the page leaves blank**, and likewise a
+ * difference rather than an error: `1C`/`5C`/`7C`/`BC` are key `A0` (keycap
+ * F0) and `1F`/`2F`/`3F`/`BD` are key `A9` (keycap F9). The 1985 low-profile
+ * keyboard's function row is `F1`-`F8` and the Series 3000/4000's is
+ * `F0`-`F9`, which is exactly the two keys and exactly the eight codes.
+ *
+ * **And it confirms the bracket swap** the boot PROM corrects: `5B` is `{` and
+ * `7B` is `[`, the opposite way round from ASCII, which until now was attested
+ * only by Table 12-1 and by the firmware that undoes it. */
 
 /* Which column of Table 12-1 a byte came from. `caps_lock` is not decodable:
  * its column duplicates `unshifted` or `shifted` for every key in the table, so
