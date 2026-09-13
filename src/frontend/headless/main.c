@@ -6110,6 +6110,44 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
              c->channel[ch].base_count);
     }
   }
+  /* The SCSI card, when one is fitted, and the same shape as the tape block
+   * below: what the *host* did to it, what it did on the bus, and what the
+   * target saw. One block rather than three questions, because a boot costs
+   * minutes and adding a counter afterwards costs another one. */
+  if (board->scsi_fitted) {
+    const ap_wd7000_t *asc = &board->scsi;
+    printf("  scsi card    status %02X, control %02X, %s%s, int %02X\n",
+           ap_wd7000_status(asc), asc->control,
+           asc->initialized ? "initialised" : "not initialised",
+           asc->in_reset ? ", in reset" : "", asc->int_status);
+    printf("  scsi mail    base %06X, %u out, %u in; %llu started, %llu empty,"
+           " %llu not a SCSI command, %llu scans\n",
+           asc->mail_base, asc->ogmb_count, asc->icmb_count,
+           (unsigned long long)asc->scbs_started,
+           (unsigned long long)asc->scbs_empty,
+           (unsigned long long)asc->scbs_unsupported,
+           (unsigned long long)asc->scan_signatures);
+    printf("  scsi dma     %llu reads, %llu writes, %llu refused\n",
+           (unsigned long long)asc->dma_reads,
+           (unsigned long long)asc->dma_writes,
+           (unsigned long long)asc->dma_refused);
+    printf("  scsi bus     %llu selections, %llu timed out, %llu commands,"
+           " %llu check conditions\n",
+           (unsigned long long)board->scsi_bus.selections,
+           (unsigned long long)board->scsi_bus.selection_timeouts,
+           (unsigned long long)board->scsi_bus.commands,
+           (unsigned long long)board->scsi_bus.check_conditions);
+    if (board->scsi_drive_fitted) {
+      const ap_exb8200_t *drive = &board->scsi_drive;
+      printf("  scsi drive   %s, %s, record %u of %u, %llu commands,"
+             " %llu check conditions, sense key %X\n",
+             drive->present ? "cartridge in" : "no cartridge",
+             drive->loaded ? "loaded" : "unloaded", drive->at,
+             drive->media.records, (unsigned long long)drive->commands,
+             (unsigned long long)drive->check_conditions,
+             drive->sense[2] & AP_EXB8200_SENSE_KEY_MASK);
+    }
+  }
   /* The cartridge drive, when one is loaded. The DMA block above says a
    * transfer ran and how far its count got; it cannot say whether the *drive*
    * still had tape to give, which is the other half of every question about a
