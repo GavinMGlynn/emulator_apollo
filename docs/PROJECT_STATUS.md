@@ -434,6 +434,65 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## `device/ap_exb8200`: the target, all eighteen commands (2026-09-13)
+
+Fourth of the SCSI item's five deliverables, and the last of its design. **The
+EXB-8200 as a SCSI target**: every command in `[EXB]` Table 4-1, the 26-byte
+Error Class 7 sense, both filemark kinds, the mode parameters and the position
+rules of chapter 24.
+
+**What a tape is here.** A **sequence of records**, each a data block of any
+length or a filemark of one of the two kinds. That is the logical format
+`[EXB]` §4.3 describes and it is the level the command set addresses: no
+command can observe a physical block, a gap byte or a track. The physical
+format is modelled in exactly the two places where it is host-visible, and both
+are *capacity* facts computed rather than stored — `[EXBPS]` §4.3.5's filemark
+of an erase gap plus an 11-track ATM plus a 10-track DTM, which is the 270 and
+60 tracks §22 quotes, and §23.5's 1,024-byte physical block, which is what makes
+a 1,536-byte logical block cost two of them.
+
+**The rule chapter 24 exists for, and which the command chapters leave
+implicit**: after a WRITE or WRITE FILEMARKS, a READ or a forward SPACE block is
+**Illegal Request, not Blank Check** — the head is inside the gap track rather
+than at end of data. That is the only reason the head's position is an enum here
+and not an index.
+
+**Two distinctions only the part's own manual carries, both implemented:**
+
+- §20.2: an unload done with the **front-panel button** leaves the drive
+  answering **Unit Attention** with TNP, where the UNLOAD *command* leaves
+  **Not Ready** — a different sense key for the same physical state.
+- §6.2: INQUIRY answers a bad LUN with **device type `7F`** rather than
+  refusing it, which is how a host discovers the LUN is invalid. Every other
+  command reports an error.
+
+**One defect the tests found in the first draft, and it is the kind that would
+have wedged a boot.** The Unit Attention *condition* and the sense buffer that
+reports it are two different things. Table 15-1 clears the key "after it
+receives the next command from the initiator", so the condition fires exactly
+once while the sense stays for the REQUEST SENSE that follows. Modelled as one
+thing, every command after a reset answered Unit Attention forever — which is
+what `rmt_scsi` would have seen on its first INQUIRY.
+
+**Everything is cited**: §15.1's allocation of 0 transferring four sense bytes
+rather than none; §11.3's four terminations with SILI suppressing **only** ILI;
+§8.5's cross-command rule that Fixed and the block length must agree; §21.5's
+three valid write positions; §5.1's ERASE accepting a clear Long bit and doing
+nothing; §8.4's threshold bounds and the gap threshold saturating at `07h`;
+Table 8-1's legal parameter list lengths, where the vendor bytes follow the
+header alone or the header and descriptor; §18.3's five legal diagnostic tests;
+§12.1's block limits in both No-Disconnect states.
+
+**Not attached to a board yet**, which is deliverable 5 along with the `.exa`
+media. The one figure taken from an example rather than a specification is the
+firmware revision string, `[EXB]` §6.3's "for example, `4.25`", and it is named
+as such in the header.
+
+*Verification: `exb8200_suite`, 36 tests; `ctest` 150 → 151. One test was wrong
+and the model right — it placed the MODE SELECT vendor bytes at a fixed offset
+where Table 8-1's whole point is that they follow whatever precedes them.*
+
+
 ## The SCB executes: mailbox to target to ICMB (2026-09-13)
 
 Third of the SCSI item's five deliverables, and the one that closes the ASC's

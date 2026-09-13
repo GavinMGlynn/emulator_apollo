@@ -4483,9 +4483,14 @@ Five named deliverables, each its own commit with its own suite:
      `PROJECT_STATUS.md`.
      *Verification: `wd7000_suite` 36 → 46; the bus is hashed beside the
      controller, only when the card is fitted.*
-  4. `src/core/device/ap_exb8200.{h,c}` — the target: eighteen Group 0
-     commands, the 26-byte Error Class 7 sense, buffered and non-buffered
-     modes, both filemark kinds, and ch. 24's position rules.
+  4. ~~`src/core/device/ap_exb8200.{h,c}` — the target.~~ **DONE 2026-09-13.**
+     All eighteen commands, the 26-byte Error Class 7 sense with its
+     vendor-unique `9h` key and nineteen unit-sense bits, both filemark kinds,
+     the mode parameters, and ch. 24's position rules — including the one the
+     command chapters leave implicit, that a READ after a WRITE is **Illegal
+     Request and not Blank Check**. A tape is a sequence of records; the
+     physical format appears only as capacity. Detail in `PROJECT_STATUS.md`.
+     *Verification: `exb8200_suite`, 36 tests; `ctest` 150 → 151.*
   5. `.exa` media plus board wiring, then Domain/OS `/sys/mgrs/rmt_scsi` as
      the integration check.
 
