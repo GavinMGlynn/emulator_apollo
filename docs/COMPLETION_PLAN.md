@@ -4444,6 +4444,23 @@ discipline throughout.
 
 ## The route to finish — seven open items, 2026-09-13
 
+**PAUSED 2026-09-13 — resume here.** State when work stopped:
+
+- **SCSI**: all five deliverables landed (`d9d5fcd8` bus, `2231d461` DMA,
+  `c752bbb7` SCB execution, `70d055d3` EXB-8200, `0fd77fb8` media and wiring).
+  The DN3500 control boot is done and recorded (`cd2728e8`). **The DS5500
+  integration boot stalled at "The calendar is more than a minute slow"** —
+  not a SCSI fault: `tools/dn5500-boot.sh` defaults to `--clock 2002-11-28`
+  (midnight) and the restored volume was dismounted at 12:25:11, which item 2c
+  below already solved. **Next command, exactly:**
+  `APOLLO_DISK=/home/gavin/apollo-scratch/ds5500-scsi.awd tools/dn5500-boot.sh --clock 2002-11-28T12:30:00 --scsi --scsi-drive`
+  then read the four `scsi` lines of the end-of-run report.
+- **68040**: caches attached and `CINV`/`CPUSH` real (`b32be427`); the fill on
+  fetch and operand remains.
+- **Shelf, multi-node**: untouched this session.
+- **Sequencer / exact-skip / cross-node**: still awaiting the decision below.
+
+
 Written because the plan had 172 ticked items and no statement of what closing
 the remaining seven actually takes. **Four are work with no unknowns. Three are
 deferrals whose own text says not to start them, and they need a decision
