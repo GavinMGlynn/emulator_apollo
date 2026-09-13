@@ -4462,8 +4462,17 @@ Five named deliverables, each its own commit with its own suite:
      **transaction, not wires**, because the ASC's Z80 owns every bus phase —
      reasoning and the two named approximations in `PROJECT_STATUS.md`.
      *Verification: `scsi_suite`, 18 tests; `ctest` 149 → 150.*
-  2. First-party DMA: a host-memory read/write hook from `ap_board` into
-     `ap_wd7000`, with Appendix C's 8237 cascade-mode rule.
+  2. ~~First-party DMA: a host-memory hook from `ap_board` into
+     `ap_wd7000`.~~ **DONE 2026-09-13.** The ASC is a *bus master*, so its
+     addresses go through `019411-A00` §4.2.1.4's "512-KB window through which
+     external AT compatible bus masters can access CPU main memory" — a new
+     `AP_ATMAP_TRANSFER_BUS_MASTER` whose 512 entries come from `[GPIO]`
+     p. B-61 and whose ten-bit offset comes from the ASC driving its own A0.
+     Gated by Host Control bit 2 and by reset; MSB-first three-byte pointers;
+     `PROVISIONAL` on whether 512 KB is policy or index width, with its
+     discriminator named. Detail in `PROJECT_STATUS.md`.
+     *Verification: `wd7000_suite` 30 → 36, `atmap_suite` 22 → 26; the
+     identity hash is unmoved because the hasher names its fields.*
   3. `ap_wd7000` SCB execution: mailbox scan on `80`-`BF`/`C0`-`FF`, the
      32-byte SCB fetched and written back, ICMB posted, IRQ raised.
   4. `src/core/device/ap_exb8200.{h,c}` — the target: eighteen Group 0

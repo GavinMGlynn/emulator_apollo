@@ -444,8 +444,63 @@ static void test_a_bus_master_reaches_the_maps_upper_half(void) {
       (AP_ATMAP_ENTRIES - AP_ATMAP_WINDOW_FIRST_ENTRY) * AP_ATMAP_PAGE_SIZE);
 }
 
+/* ---- The bus-master width, `[ADD]` §4.2.1.4 and `[GPIO]` p. B-61 ---------- */
+
+/* 512 entries, because a page is 1 KB and `[GPIO]` p. B-61 caps a bus-master
+ * device's buffer at 512 KB -- the same route that gives 64 and 128 for the two
+ * DMA widths §4.2.1.4 states directly. */
+static void test_a_bus_master_reaches_five_hundred_and_twelve_entries(void) {
+  TEST_ASSERT_EQUAL_UINT(64u,
+                         ap_atmap_reachable_entries(AP_ATMAP_TRANSFER_8BIT));
+  TEST_ASSERT_EQUAL_UINT(128u,
+                         ap_atmap_reachable_entries(AP_ATMAP_TRANSFER_16BIT));
+  TEST_ASSERT_EQUAL_UINT(
+      512u, ap_atmap_reachable_entries(AP_ATMAP_TRANSFER_BUS_MASTER));
+}
+
+/* Starting at the window's first entry, 512 of them is exactly entries
+ * 512-1023: the whole of a Series 3000/4000 map above the window, and nothing
+ * else in it is that size. */
+static void test_the_bus_master_window_is_the_upper_half_of_the_map(void) {
+  TEST_ASSERT_EQUAL_UINT(512u, AP_ATMAP_WINDOW_FIRST_ENTRY);
+  TEST_ASSERT_EQUAL_UINT(
+      512u, ap_atmap_index(0x080000u, AP_ATMAP_TRANSFER_BUS_MASTER));
+  TEST_ASSERT_EQUAL_UINT(
+      1023u, ap_atmap_index(0x0FFC00u, AP_ATMAP_TRANSFER_BUS_MASTER));
+  /* And it wraps at the top of its reach rather than running into the DS5500's
+   * extra entries -- which is the `PROVISIONAL` the header names. */
+  TEST_ASSERT_EQUAL_UINT(
+      512u, ap_atmap_index(0x100000u, AP_ATMAP_TRANSFER_BUS_MASTER));
+}
+
+/* Ten bits of offset, not nine: a bus master drives its own A0, so an odd byte
+ * address is expressible where a 16-bit DMA channel cannot express one. */
+static void test_a_bus_master_can_address_an_odd_byte(void) {
+  TEST_ASSERT_EQUAL_HEX32(
+      0x3FFu, ap_atmap_offset(0x0803FFu, AP_ATMAP_TRANSFER_BUS_MASTER));
+  TEST_ASSERT_EQUAL_HEX32(
+      0x001u, ap_atmap_offset(0x080001u, AP_ATMAP_TRANSFER_BUS_MASTER));
+  /* The 16-bit DMA case, for contrast, loses it. */
+  TEST_ASSERT_EQUAL_HEX32(
+      0x000u, ap_atmap_offset(0x080001u, AP_ATMAP_TRANSFER_16BIT));
+}
+
+/* And the translation composes: an entry's page number with the byte offset. */
+static void test_a_bus_master_translation_is_page_plus_byte_offset(void) {
+  ap_atmap_t map;
+  ap_atmap_init(&map);
+  map.entry[512] = 0x1234u;
+  TEST_ASSERT_EQUAL_HEX32(
+      (0x1234u << 10) | 0x2Bu,
+      ap_atmap_translate(&map, 0x08002Bu, AP_ATMAP_TRANSFER_BUS_MASTER));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_bus_master_reaches_five_hundred_and_twelve_entries);
+  RUN_TEST(test_the_bus_master_window_is_the_upper_half_of_the_map);
+  RUN_TEST(test_a_bus_master_can_address_an_odd_byte);
+  RUN_TEST(test_a_bus_master_translation_is_page_plus_byte_offset);
   RUN_TEST(test_an_entry_written_as_two_bytes_keeps_both_halves);
   RUN_TEST(test_a_map_entry_supplies_the_high_sixteen_bits_of_the_address);
   RUN_TEST(test_the_map_translates_into_a_twenty_six_bit_address_space);

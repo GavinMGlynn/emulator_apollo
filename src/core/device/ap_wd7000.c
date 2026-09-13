@@ -400,3 +400,107 @@ void ap_wd7000_advance(ap_wd7000_t *asc, ap_time_t now) {
     asc->ready = true;
   }
 }
+
+/* ---- First-party DMA ------------------------------------------------------ */
+
+void ap_wd7000_attach_memory(ap_wd7000_t *asc,
+                             const ap_wd7000_memory_t *memory) {
+  if (asc == nullptr) {
+    return;
+  }
+  if (memory == nullptr || memory->read == nullptr ||
+      memory->write == nullptr) {
+    asc->memory_attached = false;
+    return;
+  }
+  asc->memory = *memory;
+  asc->memory_attached = true;
+}
+
+bool ap_wd7000_memory_attached(const ap_wd7000_t *asc) {
+  return asc != nullptr && asc->memory_attached;
+}
+
+/* Whether a master cycle can start. `[WD7000]` §5.2.5.3: Host Control bit 2
+ * gates DRQ, "so that several cards can share a channel", and a tri-stated DRQ
+ * is a card that never asks for the bus. A part in reset cannot master either --
+ * §5.2.5.1's falling edge is what starts the ASC, and before it there is no Z80
+ * running to issue a cycle. */
+static bool can_master(const ap_wd7000_t *asc) {
+  return asc->memory_attached && !asc->in_reset &&
+         (asc->control & AP_WD7000_CTL_DMA_ENABLE) != 0u;
+}
+
+uint8_t ap_wd7000_memory_read(ap_wd7000_t *asc, uint32_t address, bool *ok) {
+  if (ok != nullptr) {
+    *ok = false;
+  }
+  if (asc == nullptr || !can_master(asc)) {
+    if (asc != nullptr) {
+      asc->dma_refused++;
+    }
+    return 0u;
+  }
+  asc->dma_reads++;
+  if (ok != nullptr) {
+    *ok = true;
+  }
+  return asc->memory.read(asc->memory.context, address);
+}
+
+void ap_wd7000_memory_write(ap_wd7000_t *asc, uint32_t address, uint8_t value,
+                            bool *ok) {
+  if (ok != nullptr) {
+    *ok = false;
+  }
+  if (asc == nullptr || !can_master(asc)) {
+    if (asc != nullptr) {
+      asc->dma_refused++;
+    }
+    return;
+  }
+  asc->dma_writes++;
+  if (ok != nullptr) {
+    *ok = true;
+  }
+  asc->memory.write(asc->memory.context, address, value);
+}
+
+uint32_t ap_wd7000_memory_read24(ap_wd7000_t *asc, uint32_t address,
+                                 bool *ok) {
+  uint32_t value = 0u;
+  for (unsigned i = 0; i < 3u; i++) {
+    bool one = false;
+    const uint8_t byte = ap_wd7000_memory_read(asc, address + i, &one);
+    if (!one) {
+      if (ok != nullptr) {
+        *ok = false;
+      }
+      return 0u;
+    }
+    /* MSB first: the byte at the lowest address is the most significant. */
+    value = (value << 8) | byte;
+  }
+  if (ok != nullptr) {
+    *ok = true;
+  }
+  return value;
+}
+
+void ap_wd7000_memory_write24(ap_wd7000_t *asc, uint32_t address,
+                              uint32_t value, bool *ok) {
+  for (unsigned i = 0; i < 3u; i++) {
+    bool one = false;
+    const uint8_t byte = (uint8_t)((value >> (8u * (2u - i))) & 0xFFu);
+    ap_wd7000_memory_write(asc, address + i, byte, &one);
+    if (!one) {
+      if (ok != nullptr) {
+        *ok = false;
+      }
+      return;
+    }
+  }
+  if (ok != nullptr) {
+    *ok = true;
+  }
+}

@@ -538,8 +538,152 @@ static void test_the_timing_constants_are_exact_in_base_units(void) {
                            AP_WD7000_T_LONG_DIAGNOSTIC);
 }
 
+/* ---- First-party DMA, §3 and Appendix C ---------------------------------- */
+
+/* A tiny host memory for the part to master. */
+typedef struct {
+  uint8_t byte[64];
+  unsigned reads;
+  unsigned writes;
+  uint32_t last;
+} host_t;
+
+static uint8_t host_read(void *context, uint32_t address) {
+  host_t *host = (host_t *)context;
+  host->reads++;
+  host->last = address;
+  return host->byte[address % (sizeof host->byte)];
+}
+
+static void host_write(void *context, uint32_t address, uint8_t value) {
+  host_t *host = (host_t *)context;
+  host->writes++;
+  host->last = address;
+  host->byte[address % (sizeof host->byte)] = value;
+}
+
+/* A diagnosed part with memory attached and DMA enabled, which is Figure B-1's
+ * own order: control `04` after the init bytes, never before. */
+static void mastering(ap_wd7000_t *asc, host_t *host) {
+  memset(host, 0, sizeof *host);
+  diagnosed(asc);
+  const ap_wd7000_memory_t memory = {
+      .context = host, .read = host_read, .write = host_write};
+  ap_wd7000_attach_memory(asc, &memory);
+  ap_wd7000_write(asc, AP_WD7000_CONTROL, AP_WD7000_CTL_DMA_ENABLE);
+}
+
+/* A part with no memory attached cannot master, and says so rather than
+ * returning a plausible zero. */
+static void test_a_part_with_no_memory_refuses_every_cycle(void) {
+  ap_wd7000_t asc;
+  diagnosed(&asc);
+  ap_wd7000_write(&asc, AP_WD7000_CONTROL, AP_WD7000_CTL_DMA_ENABLE);
+  TEST_ASSERT_FALSE(ap_wd7000_memory_attached(&asc));
+
+  bool ok = true;
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_wd7000_memory_read(&asc, 0x080000u, &ok));
+  TEST_ASSERT_FALSE(ok);
+  ok = true;
+  ap_wd7000_memory_write(&asc, 0x080000u, 0x5Au, &ok);
+  TEST_ASSERT_FALSE(ok);
+  TEST_ASSERT_EQUAL_UINT32(2u, asc.dma_refused);
+}
+
+/* §5.2.5.3: Host Control bit 2 tri-states DRQ, and a tri-stated DRQ is a card
+ * that never asks for the bus. So a cycle with DMA disabled does not happen. */
+static void test_a_cycle_needs_host_control_bit_two(void) {
+  ap_wd7000_t asc;
+  host_t host;
+  mastering(&asc, &host);
+
+  bool ok = false;
+  (void)ap_wd7000_memory_read(&asc, 0x10u, &ok);
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_UINT(1u, host.reads);
+
+  /* Clear bit 2 and the same cycle is refused. */
+  ap_wd7000_write(&asc, AP_WD7000_CONTROL, 0u);
+  ok = true;
+  (void)ap_wd7000_memory_read(&asc, 0x10u, &ok);
+  TEST_ASSERT_FALSE(ok);
+  TEST_ASSERT_EQUAL_UINT(1u, host.reads);
+  TEST_ASSERT_EQUAL_UINT32(1u, asc.dma_refused);
+  TEST_ASSERT_FALSE(ap_wd7000_drq_driven(&asc));
+}
+
+/* A part held in reset has no Z80 running to issue a cycle. */
+static void test_a_part_in_reset_cannot_master(void) {
+  ap_wd7000_t asc;
+  host_t host;
+  mastering(&asc, &host);
+  ap_wd7000_write(&asc, AP_WD7000_CONTROL,
+                  AP_WD7000_CTL_DMA_ENABLE | AP_WD7000_CTL_ASC_RESET);
+  bool ok = true;
+  (void)ap_wd7000_memory_read(&asc, 0x10u, &ok);
+  TEST_ASSERT_FALSE(ok);
+  TEST_ASSERT_EQUAL_UINT(0u, host.reads);
+}
+
+/* Bytes go through and are counted on both sides. */
+static void test_a_byte_reaches_host_memory_both_ways(void) {
+  ap_wd7000_t asc;
+  host_t host;
+  mastering(&asc, &host);
+  host.byte[7] = 0xC3u;
+
+  bool ok = false;
+  TEST_ASSERT_EQUAL_HEX8(0xC3u, ap_wd7000_memory_read(&asc, 7u, &ok));
+  TEST_ASSERT_TRUE(ok);
+  ap_wd7000_memory_write(&asc, 9u, 0x5Au, &ok);
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, host.byte[9]);
+  TEST_ASSERT_EQUAL_UINT32(1u, asc.dma_reads);
+  TEST_ASSERT_EQUAL_UINT32(1u, asc.dma_writes);
+  TEST_ASSERT_EQUAL_UINT32(0u, asc.dma_refused);
+}
+
+/* §5.3.2.1: "multi-byte parameter fields are MSB first", which is what every
+ * SCB and mailbox pointer is made of. The byte at the lowest address is the
+ * most significant -- Table A-4's one contrary label is resolved three against
+ * one in `WD7000_WALK.md`. */
+static void test_a_three_byte_pointer_is_msb_first(void) {
+  ap_wd7000_t asc;
+  host_t host;
+  mastering(&asc, &host);
+  host.byte[0] = 0x12u;
+  host.byte[1] = 0x34u;
+  host.byte[2] = 0x56u;
+
+  bool ok = false;
+  TEST_ASSERT_EQUAL_HEX32(0x123456u, ap_wd7000_memory_read24(&asc, 0u, &ok));
+  TEST_ASSERT_TRUE(ok);
+
+  ap_wd7000_memory_write24(&asc, 16u, 0xABCDEFu, &ok);
+  TEST_ASSERT_TRUE(ok);
+  TEST_ASSERT_EQUAL_HEX8(0xABu, host.byte[16]);
+  TEST_ASSERT_EQUAL_HEX8(0xCDu, host.byte[17]);
+  TEST_ASSERT_EQUAL_HEX8(0xEFu, host.byte[18]);
+}
+
+/* A pointer read that cannot master returns nothing rather than a partial
+ * value assembled from refused cycles. */
+static void test_a_refused_pointer_read_returns_nothing(void) {
+  ap_wd7000_t asc;
+  diagnosed(&asc);
+  bool ok = true;
+  TEST_ASSERT_EQUAL_HEX32(0u, ap_wd7000_memory_read24(&asc, 0u, &ok));
+  TEST_ASSERT_FALSE(ok);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_a_part_with_no_memory_refuses_every_cycle);
+  RUN_TEST(test_a_cycle_needs_host_control_bit_two);
+  RUN_TEST(test_a_part_in_reset_cannot_master);
+  RUN_TEST(test_a_byte_reaches_host_memory_both_ways);
+  RUN_TEST(test_a_three_byte_pointer_is_msb_first);
+  RUN_TEST(test_a_refused_pointer_read_returns_nothing);
   RUN_TEST(test_the_low_nibble_of_the_status_port_is_not_driven);
   RUN_TEST(test_the_four_values_the_apollo_driver_accepts);
   RUN_TEST(test_sixty_and_seventy_are_the_same_rejection);

@@ -25,6 +25,11 @@ unsigned ap_atmap_reachable_entries(ap_atmap_transfer_t transfer) {
   case AP_ATMAP_TRANSFER_16BIT:
     /* "address bits <16:10> ... select one of the 128 entries". Seven bits. */
     return 128u;
+  case AP_ATMAP_TRANSFER_BUS_MASTER:
+    /* `[GPIO]` p. B-61's "512 KB for bus-master devices", a page being 1 KB.
+     * Nine bits, `<18:10>`. See the enum's comment for why this is the figure
+     * and what makes it `PROVISIONAL`. */
+    return 512u;
   }
   return 0u;
 }
@@ -58,6 +63,11 @@ uint32_t ap_atmap_offset(uint32_t dma_address, ap_atmap_transfer_t transfer) {
      * <9:0> here instead would let an odd DMA address produce an odd physical
      * address, which this transfer width cannot express. */
     return dma_address & (AP_ATMAP_PAGE_SIZE - 2u);
+  case AP_ATMAP_TRANSFER_BUS_MASTER:
+    /* Ten bits, like the 8-bit case: a bus master drives its own A0, so an odd
+     * byte address is expressible. `[WD7000]` §3.1, "even or odd DMA start
+     * address". */
+    return dma_address & (AP_ATMAP_PAGE_SIZE - 1u);
   }
   return 0u;
 }

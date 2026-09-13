@@ -1627,6 +1627,29 @@ bool ap_board_processor_may_run(const ap_board_t *board) {
          ap_arbiter_processor_may_run(&board->arbiter);
 }
 
+/* The ASC's own memory cycles. It is a **bus master**, not a DMA channel: the
+ * AT's 8237 is in cascade mode doing arbitration only (`[WD7000]` Appendix C),
+ * so the address on the bus is the card's and the translation is
+ * `019411-A00` §4.2.1.4's "512-KB window through which external AT compatible
+ * bus masters can access CPU main memory" -- `AP_ATMAP_TRANSFER_BUS_MASTER`,
+ * whose width and offset are derived in `ap_atmap.h`. */
+static uint32_t scsi_physical(const ap_board_t *board, uint32_t at_address) {
+  return ap_atmap_translate(&board->translation_map, at_address,
+                            AP_ATMAP_TRANSFER_BUS_MASTER);
+}
+
+static uint8_t scsi_memory_read(void *context, uint32_t address) {
+  ap_board_t *board = (ap_board_t *)context;
+  bool ok = false;
+  return ap_board_read(board, scsi_physical(board, address), &ok);
+}
+
+static void scsi_memory_write(void *context, uint32_t address, uint8_t value) {
+  ap_board_t *board = (ap_board_t *)context;
+  bool ok = false;
+  ap_board_write(board, scsi_physical(board, address), value, &ok);
+}
+
 void ap_board_attach_scsi(ap_board_t *board) {
   /* An exchange, not an addition. The tape is reset back to its unfitted state
    * so nothing of it can be read through a block it no longer answers -- the
@@ -1634,6 +1657,12 @@ void ap_board_attach_scsi(ap_board_t *board) {
    * reason a machine may not carry both. */
   ap_tape_reset(&board->tape);
   ap_wd7000_power_on(&board->scsi);
+  /* The part cannot reach memory until a board gives it a way to, which is what
+   * keeps a suite-built ASC from touching an address it was never handed. */
+  const ap_wd7000_memory_t memory = {.context = board,
+                                     .read = scsi_memory_read,
+                                     .write = scsi_memory_write};
+  ap_wd7000_attach_memory(&board->scsi, &memory);
   board->scsi_fitted = true;
 }
 

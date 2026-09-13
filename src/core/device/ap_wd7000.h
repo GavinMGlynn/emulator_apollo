@@ -282,6 +282,30 @@ typedef enum {
   AP_WD7000_SEQ_SOFT_RESET,
 } ap_wd7000_sequence_t;
 
+/* ---- First-party DMA, `[WD7000]` §3 and Appendix C ----------------------- */
+
+/* The ASC is a **bus master**: it reads the SCB, the CDB's data buffer and the
+ * mailboxes out of host memory itself, and the AT's 8237 "does arbitration
+ * only" with its channel in **cascade mode** and its mask cleared. So this part
+ * needs a way to reach memory that is not a DMA controller, and this is it.
+ *
+ * Appendix C's sequencing rule is the host's, not ours: because the ASC
+ * tri-states DRQn whenever Host Control bit 2 is clear, the 8237 channel must
+ * be masked *before* the card's DMA is enabled or disabled "or the system is
+ * likely to hang". `ap_wd7000_drq_driven` already reports that line; nothing
+ * here enforces a rule about the host's own controller.
+ *
+ * **Addresses are AT bus addresses, not physical ones.** `019411-A00` §4.2.1.4:
+ * the address translation map "provides a 512-KB window through which external
+ * AT compatible bus masters can access CPU main memory". The board's hook is
+ * what applies it -- `AP_ATMAP_TRANSFER_BUS_MASTER` -- and this part passes the
+ * address through as the SCB gave it. */
+typedef struct {
+  void *context;
+  uint8_t (*read)(void *context, uint32_t address);
+  void (*write)(void *context, uint32_t address, uint8_t value);
+} ap_wd7000_memory_t;
+
 typedef struct {
   /* Host-visible state. */
   bool ready;        /* status D6 */
@@ -349,6 +373,18 @@ typedef struct {
   bool pseudo_idle;
   /* A SCSI bus reset the host asked for through control bit 1. */
   bool scsi_reset;
+
+  /* First-party DMA. Absent until a board attaches one, which is what makes a
+   * part built by a suite unable to touch memory it was never given. */
+  ap_wd7000_memory_t memory;
+  bool memory_attached;
+  uint32_t dma_reads;
+  uint32_t dma_writes;
+  /* Accesses refused because Host Control bit 2 was clear. `[WD7000]` §5.2.5.3:
+   * the DRQ line is tri-stated then, so a master cycle cannot start -- counted
+   * rather than asserted, because a host that has not enabled DMA yet is in an
+   * ordinary state and not an error. */
+  uint32_t dma_refused;
 } ap_wd7000_t;
 
 /* Power-on. Clears everything, including `powered_on`, so the first diagnostic
@@ -385,6 +421,28 @@ uint32_t ap_wd7000_icmb_address(const ap_wd7000_t *asc, unsigned m);
  * one. Returns false when the queue is full, which §5.5's flowchart B-7 treats
  * by marking the spot and retrying. */
 bool ap_wd7000_post_interrupt(ap_wd7000_t *asc, uint8_t status);
+
+/* Give the part a way to reach host memory. A board does this once at attach;
+ * a part with none refuses every access and counts it. */
+void ap_wd7000_attach_memory(ap_wd7000_t *asc, const ap_wd7000_memory_t *memory);
+[[nodiscard]] bool ap_wd7000_memory_attached(const ap_wd7000_t *asc);
+
+/* One byte of host memory, as a bus master. `ok` reports whether the cycle
+ * happened at all: it does not when no memory is attached, and it does not when
+ * Host Control bit 2 is clear. */
+uint8_t ap_wd7000_memory_read(ap_wd7000_t *asc, uint32_t address, bool *ok);
+void ap_wd7000_memory_write(ap_wd7000_t *asc, uint32_t address, uint8_t value,
+                            bool *ok);
+
+/* The three-byte pointers the SCB and the mailboxes are made of. `[WD7000]`
+ * §5.3.2.1: "multi-byte parameter fields are MSB first", which Table A-8's own
+ * mailbox layout and Table 6-2's mail-block address both follow -- and which
+ * Table A-4 contradicts once, recorded in `WD7000_WALK.md` and resolved three
+ * against one. */
+[[nodiscard]] uint32_t ap_wd7000_memory_read24(ap_wd7000_t *asc,
+                                               uint32_t address, bool *ok);
+void ap_wd7000_memory_write24(ap_wd7000_t *asc, uint32_t address,
+                              uint32_t value, bool *ok);
 
 /* The status byte as the host would read it, without the side effects of a
  * read. Exposed so a report can print it. */

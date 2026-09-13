@@ -165,6 +165,31 @@
 typedef enum {
   AP_ATMAP_TRANSFER_8BIT = 0,
   AP_ATMAP_TRANSFER_16BIT,
+  /* An external AT bus master, which `[ADD]` §4.2.1.4 names in the same breath
+   * as the DMA case -- the map "provides a 512-KB window through which external
+   * AT compatible bus masters can access CPU main memory" -- and then does not
+   * give an index width for. Two things fix it anyway.
+   *
+   * **The reach is stated in bytes.** `[GPIO]` p. B-61 caps `pbu2_$dma_start`'s
+   * buffer at "64 KB for 8-bit devices, 128 KB for 16-bit devices, and 512 KB
+   * for bus-master devices". A page is 1 KB, so the first two are exactly
+   * §4.2.1.4's 64 and 128 entries, arrived at from the software side -- which
+   * is what makes the third one usable: **512 entries**. Starting at
+   * `AP_ATMAP_WINDOW_FIRST_ENTRY`, that is entries 512-1023, the whole of a
+   * Series 3000/4000 map above the window and nothing else in it that size.
+   *
+   * **The offset is ten bits, not nine.** The 16-bit case drops bit 0 because
+   * an 8237 counts words and has no A0 to drive. A bus master drives its own
+   * address, and `[WD7000]` §3.1 lists "even or odd DMA start address" among
+   * the ASC's features -- so an odd byte address is expressible here where it
+   * is not for a 16-bit DMA channel.
+   *
+   * `PROVISIONAL` in one named way: the 512 KB could be a software policy
+   * rather than the hardware's index width, and nothing on this shelf
+   * distinguishes those. The discriminator is a bus master programmed above
+   * `0FFFFF` -- which wraps here and would not on hardware with a wider index.
+   * Named in `docs/PROJECT_STATUS.md`. */
+  AP_ATMAP_TRANSFER_BUS_MASTER,
 } ap_atmap_transfer_t;
 
 typedef struct {
