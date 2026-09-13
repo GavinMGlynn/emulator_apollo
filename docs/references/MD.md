@@ -607,3 +607,81 @@ belongs to the earlier bit-sliced nodes. **That is a reading, not the document's
 statement** — SR9.7 gives the sequence without saying which models need which
 steps, and the note is here so a future reader meeting `UA` in a firmware
 disassembly knows it is a documented command rather than an unknown one.
+
+
+## `002398-03` chapter 5 prints the whole command set, and two commands answer questions this project asked by hand (2026-09-13)
+
+The Rev 3 Engineering Handbook's *System Debugging* chapter documents the
+Mnemonic Debugger command by command — the 1985 PROM's, not the 1992 one, so a
+command here may be absent from `MD14` and `H` remains the authority for what a
+given PROM has. What it adds is **meaning**, which `H`'s table does not carry.
+
+**`LD` — "List directory displays the contents of the `SAU` directory of the
+boot device."** This project spent a session on `boot error: SAU14 not found in
+root_dir` and the machine could have been asked directly.
+
+**`STCODE <status-code>` — "print text definition of status code"**, a *boot
+shell* command rather than an MD one. Every status code this project has looked
+up by hand against chapter 4's catalogue is printable on the machine.
+
+**`DI <W>|<F>|<N> [<nn>]|<S> <0-3> <1-10>`** — "Disk defines the boot device:
+Winchester, Floppy, node (nn), storage module unit 0-3, and logical volume 1-10.
+**Defaults are: W, 0, 1.**" That is `DI C`'s family, and `DI N nn` is the
+diskless-boot selector `008860-A03` chapter 2 uses — two documents agreeing on
+one command.
+
+**`EY <filename>` is `EX` with two traps**, and the second is an instrument this
+project has wanted: "If you are executing AEGIS, AEGIS will trap again **after
+establishing the OS mapping and before calling `OS_$INIT`**. AEGIS can then be
+patched or examined using the virtual addresses from **`AEGIS.MAP`** in the
+appropriate SAU directory. Type `G`, `G*+2` to continue." The DS5500 volume
+carries `/sau14/domain_os.map`, which `tools/awd_read.py` lists and can extract.
+"Older boot PROMs may not support the EY command."
+
+**The rest of the command set**, with what each is for: `A` access, `B`
+breakpoint ("not inserted until the `G` command is given; previous instruction is
+reinstalled on the breakpoint entry or vector entry"), `C` copy, `CA` call ("all
+registers saved from the last entry **except A0** are restored immediately prior
+to the call"), `D` dump, `DL` down-line loader, `EX`/`EY` load and execute, `F`
+fill, `G` jump ("after inserting a breakpoint (if any), restoring all registers
+and SR"), `LD` list SAU directory, `LO` load, `M` map address space and enable
+MMU, `RE` reset ("executes the RESET instruction ... also enables the POWER-OFF
+key"), `S` search, `SH <0-3>` spin down a Winchester, `P` unmap ("MMU is assumed
+at `FFB400`"), `V` verify.
+
+**And the command grammar**, which a parser wants:
+
+    <command>[<size_spec>] [<parameter_list>][<base_spec>]
+    <size_spec> ::= :I | :B | :W | :L      instruction, byte, word, long
+    <base_spec> ::= :O | :D | :H | :A      octal, decimal, hex, ASCII
+    <num>       ::= <simple_number> | $<simple_number>
+                  | <base>$<simple_number> | -<num> | <quoted_string>
+
+with **"all numeric input defaults to hexadecimal"**, `$num` explicitly hex, and
+`<base>$num` in that base — `8$777` octal, `2$1001` binary. A parameter may be a
+saved register (`Dn`, `An`, `CCR`, `SR`) or an address computed from one
+(`num(An)`); up to four, unspecified ones zero. **"All addresses and offsets are
+printed in hexadecimal regardless of `<base_spec>`."**
+
+**The boot shell's own command list** is on the same chapter's first page —
+`CF CHN CRD CRF CRL CTNODE CTOB DEBUG DLF DLL DM DMTVOL GLOB GO H IN LD LI LO
+MA MTVOL ND REL SH SHUT SPM STCODE TB TI TR UCTNODE UCTOB UMA WD` — including
+**`MTVOL {W|S|F} <lvno> [<pathname>]`** with its exact syntax, which is the
+command [[compare-volumes-by-root-directory-block]] records as silently not
+mounting.
+
+**Crash analysis, from the same chapter**: "Most fatal errors recognized by
+AEGIS are reported by the `crash_system` routine, which prints a status code
+..., **the address of the ECB for the failing routine**, and the process ID
+(PID) of the current process. AEGIS then executes a TRAP instruction, causing
+entry to the PROM mnemonic debugger with an **`S` code**." And if the machine
+appears hung: "make sure the NORMAL/SERVICE switch is in the SERVICE position
+and type **CTRL/\<RETURN\>**".
+
+**A system dump is four commands**: `RE`, `<RETURN>`, `DI F|C|N nn`, then
+**`G 100C00`** to dump to floppy or tape or **`G 100C04`** to dump to another
+node — the target node running `NETMAN` with "30 blocks plus 1024 blocks for
+each megabyte of memory on the dumping node" free. "When the dump routine is
+complete, it executes a **TRAP $F** instruction and returns to MD." Addresses
+for a DNx60 are `20A000`/`20A004`; neither pair is this project's machine and
+the *procedure* is what transfers.
