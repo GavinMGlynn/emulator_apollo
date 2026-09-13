@@ -8,7 +8,7 @@ and matches `EXABYTE EXB-8200        `; detail in `docs/PROJECT_STATUS.md`,
 | Tag | File | Pages | Text layer | State |
 | --- | --- | --- | --- | --- |
 | `[EXB]` | `docs/references/exabyte/510006-007_EXB-8200_User.pdf` | 141 | **born-digital** — `pdfimages -list` returns nothing at all | **READ WHOLE — 141 of 141, 2026-09-13.** Every chapter, the appendix and the glossary |
-| `[EXBPS]` | `docs/references/exabyte/510005-006_Exabyte_EXB-8200_Product_Spec_Oct1990.pdf` | 74 | 600-dpi JBIG2 scan with an Acrobat OCR layer | **IN PROGRESS** — §8 read whole as page images, 2026-09-13 |
+| `[EXBPS]` | `docs/references/exabyte/510005-006_Exabyte_EXB-8200_Product_Spec_Oct1990.pdf` | 74 | 600-dpi JBIG2 scan with an Acrobat OCR layer | **IN PROGRESS** — **chapters 1-5 and 8 read whole as page images, 2026-09-13**; 6, 7, 9, 10, 11, the front matter and the glossary owed |
 
 Two more are on the shelf and not yet opened: `510003-001` *Maintenance* (21
 pages) and `510007-000` *Theory of Operation* (9 pages).
@@ -19,9 +19,11 @@ pages) and `510007-000` *Theory of Operation* (9 pages).
 SCSI bus and its targets" is the last open sub-item of the SCSI plan item, and
 a target needs the target's own manual. `fetch-the-parts-own-datasheet`.
 
-**Owed:** `[EXBPS]` everything but §8 — 70 of its 74 pages. `[EXB]` is
-finished. Nothing is implemented yet and nothing should be until both are read
-— `read-the-whole-document`.
+**Owed:** `[EXBPS]` chapters **6 Power, 7 Environmental, 9 Installation,
+10 Operation and 11 Cleaning**, its front matter and its glossary — PDF 1-10,
+39-50 and 55-74, 42 pages, none of which bears on behaviour this core can
+model. `[EXB]` is finished. Nothing is implemented yet and nothing should be
+until both are read — `read-the-whole-document`.
 
 ## `[EXB]` chapter map, from the running heads
 
@@ -351,3 +353,62 @@ wrong card.
 chapters use without defining: **PBOT is where the tape meets the leader**,
 **LBOT is where a load or rewind leaves it**, **LEOT is the warning point
 before PEOT**, and **PEOT is where the tape meets the trailer**.
+
+## `[EXBPS]` chapters 1 to 5, read whole 2026-09-13 (PDF 11-38)
+
+**Ch. 1** is the manual's own map and §1.4's related documents — the User's
+Manual `510006-006`, ANSI X3.131-1986, and **both WD33C9x datasheets**, which
+is the third place this project has been pointed at the SBIC.
+
+**Ch. 2, and two numbers a model needs.** The drive is a **5.25-inch form
+factor**, 2.045 kg, with a **256-KByte DRAM data buffer** organised as a
+nine-bit-wide dual-port circular memory — which is what the MODE SELECT motion
+(128 KB) and reconnect (160 KB) thresholds sit inside, and why their limits
+stop at `D0h` (208 KB). Cartridges are **15 m / 287 MB, 54 m / 1,146 MB and
+112 m / 2,413 MB**, up to 2.5 GB formatted. **Figure 2-3, the recorded track**:
+eight fixed-length data blocks plus a **1,200-byte servo zone**, each block
+**14 bytes address + 1,024 user + 400 ECC + 2 CRC = 1,440 bytes**, so a track
+carries **8,192 bytes of user data**. Read-after-write is the drum's own doing:
+**the first 180° of rotation writes a track and the second 180° reads it back**
+(Figure 2-4), and the erase head runs ahead of the write head so tape is always
+erased before it is written. ECC is **Reed/Solomon correcting a 264-byte burst
+plus 80 random errors per block**. §2.2.11: the drive **streams only if the
+initiator sustains 246 KB/s**, and otherwise starts and stops on the buffer
+thresholds.
+
+**Ch. 3 is the timing chapter, and it is what a model charges.**
+**Write access time, last CDB byte to the first data REQ: 950 µs maximum.**
+**Read access time, with data already in the buffer: 900 µs maximum.**
+Nominal tape speed **10.89 mm/s**, short-term variation ±3% over any 66.6 ms,
+long-term ±0.5%; **file search is 10×** (108.9 mm/s) and **rewind averages 75×**
+(816.7 mm/s). **Rewind time in seconds = length in metres × 1.224**, and Table
+3-1 gives the nine cartridge sizes (P6-15 0:18 through P5-90 2:16).
+**Reposition time is 1,082 to 1,115 ms** — a *range*, so a model that charges a
+point value inside it is `PROVISIONAL` by `CLAUDE.md`'s rule. **Drum period
+33.3 ms (1800 RPM ±0.1%)**, head-to-tape **3.76 m/s**. Burst transfer **≤ 1.5
+MB/s, typically 1.2**; **sustained 246 KB/s**, the same number §2.2.11 uses.
+
+**Ch. 4, the format.** Table 4-1's recording parameters (2,126 FR/mm, 0.025 mm
+track width, 0.031 mm pitch, 4.9° track angle, 221° wrap, **77.1 mm recorded
+track length**) are physics this core does not model. The **logical** format is
+the part that matters and it agrees with the User's Manual chapter 23 line for
+line: a logical block is **1 byte to 240 KB**, split into **1,024-byte physical
+blocks**; **gap bytes** pad a short physical block, **gap blocks** pad a short
+track to eight, and a whole **gap track** follows the last data track to give
+the next write its orientation. §4.3.5 adds what the User's Manual does not:
+a filemark is **an erase gap, then an analog tape mark (ATM) of 11 identical
+servo tracks carrying a 184 kHz signal, then a digital tape mark (DTM) of 10
+tracks carrying the filemark's number** — so **long = 249 + 11 + 10 = 270
+tracks and short = 39 + 11 + 10 = 60**, which is exactly the 2,160 KB and
+480 KB the User's Manual quotes. §4.2: **PBOT and PEOT are optical-sensor
+positions** at the translucent leader and trailer; **LBOT is written by a write
+operation** and is rewritten in place whenever a write starts at LBOT on a used
+tape, with **one retry** if writing it fails.
+
+**Ch. 5, reliability.** Five-year service life; **MTBF 40,000 hours** at a 10%
+duty cycle for units built after 1 November 1990. The two retry limits the
+User's Manual states as command behaviour are stated here as *reliability*
+definitions and agree exactly: **a permanent write error is eleven rewrite
+attempts, twelve writes in all**, and **a permanent read error is nine rereads,
+ten reads in all**. Rates: permanent write **1.0 × 10⁻¹² bit / 8.2 × 10⁻⁹
+block**, permanent read **1.0 × 10⁻¹³ / 8.2 × 10⁻¹⁰**.
