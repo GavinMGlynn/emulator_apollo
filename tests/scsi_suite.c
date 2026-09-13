@@ -30,7 +30,8 @@ typedef struct {
 } probe_t;
 
 static bool probe_execute(void *device, uint8_t lun, const uint8_t *cdb,
-                          unsigned cdb_length, uint8_t *data, unsigned capacity,
+                          unsigned cdb_length, const ap_scsi_memory_t *memory,
+                          uint32_t buffer, unsigned capacity,
                           ap_scsi_result_t *result) {
   probe_t *probe = (probe_t *)device;
   probe->executes++;
@@ -43,12 +44,26 @@ static bool probe_execute(void *device, uint8_t lun, const uint8_t *cdb,
   result->status = probe->status;
   result->direction = probe->direction;
   result->transferred = probe->transferred;
-  if (probe->direction == AP_SCSI_DATA_IN && data != nullptr) {
+  if (probe->direction == AP_SCSI_DATA_IN && memory != nullptr) {
     for (unsigned i = 0; i < probe->transferred && i < capacity; i++) {
-      data[i] = (uint8_t)(0xA0u + i);
+      memory->write(memory->context, buffer + i, (uint8_t)(0xA0u + i));
     }
   }
   return true;
+}
+
+/* A byte-addressed stand-in for host memory, so a target has somewhere to put
+ * what it moved. */
+typedef struct {
+  uint8_t byte[64];
+} store_t;
+
+static uint8_t store_read(void *context, uint32_t address) {
+  return ((store_t *)context)->byte[address % 64u];
+}
+
+static void store_write(void *context, uint32_t address, uint8_t value) {
+  ((store_t *)context)->byte[address % 64u] = value;
 }
 
 static void probe_reset(void *device) { ((probe_t *)device)->resets++; }
@@ -131,7 +146,7 @@ static void test_an_empty_address_times_out_rather_than_failing(void) {
   ap_scsi_result_t result;
   TEST_ASSERT_FALSE(ap_scsi_selectable(&bus, 4u));
   TEST_ASSERT_FALSE(
-      ap_scsi_command(&bus, 4u, 0u, cdb, sizeof cdb, nullptr, 0u, &result));
+      ap_scsi_command(&bus, 4u, 0u, cdb, sizeof cdb, nullptr, 0u, 0u, &result));
   TEST_ASSERT_EQUAL_UINT32(1u, bus.selections);
   TEST_ASSERT_EQUAL_UINT32(1u, bus.selection_timeouts);
   TEST_ASSERT_EQUAL_UINT32(0u, bus.commands);
@@ -151,7 +166,7 @@ static void test_an_absent_target_is_a_timeout_not_a_busy_status(void) {
   const uint8_t cdb[6] = {0x00u};
   ap_scsi_result_t result;
   TEST_ASSERT_FALSE(
-      ap_scsi_command(&bus, 0u, 0u, cdb, sizeof cdb, nullptr, 0u, &result));
+      ap_scsi_command(&bus, 0u, 0u, cdb, sizeof cdb, nullptr, 0u, 0u, &result));
   TEST_ASSERT_EQUAL_UINT(0u, probe.executes);
   TEST_ASSERT_EQUAL_UINT32(1u, bus.selection_timeouts);
 }
@@ -277,7 +292,7 @@ static void test_a_command_reaches_the_target_with_its_lun(void) {
   const uint8_t cdb[6] = {0x08u, 0x01u, 0x00u, 0x00u, 0x04u, 0x00u};
   ap_scsi_result_t result;
   TEST_ASSERT_TRUE(
-      ap_scsi_command(&bus, 0u, 3u, cdb, sizeof cdb, nullptr, 0u, &result));
+      ap_scsi_command(&bus, 0u, 3u, cdb, sizeof cdb, nullptr, 0u, 0u, &result));
   TEST_ASSERT_EQUAL_UINT(1u, probe.executes);
   TEST_ASSERT_EQUAL_UINT8(3u, probe.last_lun);
   TEST_ASSERT_EQUAL_UINT(6u, probe.last_cdb_length);
@@ -294,16 +309,18 @@ static void test_a_data_in_phase_fills_the_initiators_buffer(void) {
   probe.direction = AP_SCSI_DATA_IN;
   probe.transferred = 4u;
 
-  uint8_t data[8] = {0};
+  store_t store = {0};
+  const ap_scsi_memory_t memory = {
+      .context = &store, .read = store_read, .write = store_write};
   const uint8_t cdb[6] = {0x12u, 0u, 0u, 0u, 8u, 0u}; /* INQUIRY */
   ap_scsi_result_t result;
-  TEST_ASSERT_TRUE(ap_scsi_command(&bus, 0u, 0u, cdb, sizeof cdb, data,
-                                   sizeof data, &result));
+  TEST_ASSERT_TRUE(ap_scsi_command(&bus, 0u, 0u, cdb, sizeof cdb, &memory, 0u,
+                                   8u, &result));
   TEST_ASSERT_EQUAL_UINT(AP_SCSI_DATA_IN, result.direction);
   TEST_ASSERT_EQUAL_UINT(4u, result.transferred);
-  TEST_ASSERT_EQUAL_UINT8(0xA0u, data[0]);
-  TEST_ASSERT_EQUAL_UINT8(0xA3u, data[3]);
-  TEST_ASSERT_EQUAL_UINT8(0x00u, data[4]);
+  TEST_ASSERT_EQUAL_UINT8(0xA0u, store.byte[0]);
+  TEST_ASSERT_EQUAL_UINT8(0xA3u, store.byte[3]);
+  TEST_ASSERT_EQUAL_UINT8(0x00u, store.byte[4]);
 }
 
 /* `[WD7000]` SCB bytes 16-18 are "the runaway-target guard", and this is where
@@ -315,12 +332,14 @@ static void test_a_target_cannot_claim_more_than_the_allocation(void) {
   probe.direction = AP_SCSI_DATA_IN;
   probe.transferred = 4096u;
 
-  uint8_t data[8] = {0};
+  store_t store = {0};
+  const ap_scsi_memory_t memory = {
+      .context = &store, .read = store_read, .write = store_write};
   const uint8_t cdb[6] = {0x08u, 0u, 0u, 0u, 1u, 0u};
   ap_scsi_result_t result;
-  TEST_ASSERT_TRUE(ap_scsi_command(&bus, 0u, 0u, cdb, sizeof cdb, data,
-                                   sizeof data, &result));
-  TEST_ASSERT_EQUAL_UINT(sizeof data, result.transferred);
+  TEST_ASSERT_TRUE(ap_scsi_command(&bus, 0u, 0u, cdb, sizeof cdb, &memory, 0u,
+                                   8u, &result));
+  TEST_ASSERT_EQUAL_UINT(8u, result.transferred);
 }
 
 /* A target that answered selection and then could not run is Check Condition,
@@ -334,7 +353,7 @@ static void test_a_target_that_cannot_run_gives_check_condition(void) {
   const uint8_t cdb[6] = {0x00u};
   ap_scsi_result_t result;
   TEST_ASSERT_TRUE(
-      ap_scsi_command(&bus, 0u, 0u, cdb, sizeof cdb, nullptr, 0u, &result));
+      ap_scsi_command(&bus, 0u, 0u, cdb, sizeof cdb, nullptr, 0u, 0u, &result));
   TEST_ASSERT_EQUAL_UINT8(AP_SCSI_STATUS_CHECK_CONDITION, result.status);
   TEST_ASSERT_EQUAL_UINT(AP_SCSI_DATA_NONE, result.direction);
   TEST_ASSERT_EQUAL_UINT32(0u, bus.selection_timeouts);
@@ -367,12 +386,12 @@ static void test_a_cdb_must_fit_the_scbs_twelve_bytes(void) {
 
   uint8_t cdb[AP_SCSI_CDB_MAX + 1u] = {0};
   ap_scsi_result_t result;
-  TEST_ASSERT_FALSE(ap_scsi_command(&bus, 0u, 0u, cdb, 0u, nullptr, 0u,
+  TEST_ASSERT_FALSE(ap_scsi_command(&bus, 0u, 0u, cdb, 0u, nullptr, 0u, 0u,
                                     &result));
-  TEST_ASSERT_FALSE(ap_scsi_command(&bus, 0u, 0u, cdb, sizeof cdb, nullptr, 0u,
+  TEST_ASSERT_FALSE(ap_scsi_command(&bus, 0u, 0u, cdb, sizeof cdb, nullptr, 0u, 0u,
                                     &result));
   TEST_ASSERT_TRUE(ap_scsi_command(&bus, 0u, 0u, cdb, AP_SCSI_CDB_MAX, nullptr,
-                                   0u, &result));
+                                   0u, 0u, &result));
   TEST_ASSERT_EQUAL_UINT(12u, AP_SCSI_CDB_MAX);
 }
 

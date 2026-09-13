@@ -139,7 +139,8 @@ unsigned ap_scsi_cdb_length(uint8_t opcode) {
 }
 
 bool ap_scsi_command(ap_scsi_bus_t *bus, uint8_t id, uint8_t lun,
-                     const uint8_t *cdb, unsigned cdb_length, uint8_t *data,
+                     const uint8_t *cdb, unsigned cdb_length,
+                     const ap_scsi_memory_t *memory, uint32_t buffer,
                      unsigned capacity, ap_scsi_result_t *result) {
   if (bus == nullptr || result == nullptr || cdb == nullptr) {
     return false;
@@ -167,7 +168,7 @@ bool ap_scsi_command(ap_scsi_bus_t *bus, uint8_t id, uint8_t lun,
   result->direction = AP_SCSI_DATA_NONE;
 
   if (!bus->target[id].execute(bus->target[id].device, lun, cdb, cdb_length,
-                               data, capacity, result)) {
+                               memory, buffer, capacity, result)) {
     /* A target that answered selection and then could not run at all is a
      * hardware failure, not a timeout: it has been selected, so the
      * transaction exists and carries Check Condition. */

@@ -676,6 +676,326 @@ static void test_a_refused_pointer_read_returns_nothing(void) {
   TEST_ASSERT_FALSE(ok);
 }
 
+/* ---- SCB execution, §6.1.8 and Table 5-6 --------------------------------- */
+
+/* A target that answers a fixed status and moves a fixed number of bytes. */
+typedef struct {
+  unsigned executes;
+  uint8_t cdb[AP_SCSI_CDB_MAX];
+  uint8_t lun;
+  uint8_t status;
+  ap_scsi_dir_t direction;
+  unsigned transferred;
+  bool short_transfer;
+  uint32_t buffer;
+  unsigned capacity;
+} drive_t;
+
+static bool drive_execute(void *device, uint8_t lun, const uint8_t *cdb,
+                          unsigned cdb_length, const ap_scsi_memory_t *memory,
+                          uint32_t buffer, unsigned capacity,
+                          ap_scsi_result_t *result) {
+  drive_t *drive = (drive_t *)device;
+  drive->executes++;
+  drive->lun = lun;
+  drive->buffer = buffer;
+  drive->capacity = capacity;
+  memcpy(drive->cdb, cdb, cdb_length < AP_SCSI_CDB_MAX ? cdb_length
+                                                       : AP_SCSI_CDB_MAX);
+  result->status = drive->status;
+  result->direction = drive->direction;
+  result->transferred = drive->transferred;
+  result->short_transfer = drive->short_transfer;
+  if (drive->direction == AP_SCSI_DATA_IN && memory != nullptr) {
+    for (unsigned i = 0; i < drive->transferred && i < capacity; i++) {
+      memory->write(memory->context, buffer + i, (uint8_t)(0x40u + i));
+    }
+  }
+  return true;
+}
+
+static void drive_reset(void *device) { (void)device; }
+static bool drive_present(const void *device) {
+  (void)device;
+  return true;
+}
+
+/* A 1 KB host memory, big enough for a mail block, an SCB and a buffer. */
+typedef struct {
+  uint8_t byte[1024];
+} ram_t;
+
+static uint8_t ram_read(void *context, uint32_t address) {
+  return ((ram_t *)context)->byte[address % 1024u];
+}
+
+static void ram_write(void *context, uint32_t address, uint8_t value) {
+  ((ram_t *)context)->byte[address % 1024u] = value;
+}
+
+/* The mail block layout this suite uses: base `0100`, two OGMBs then two
+ * ICMBs, an SCB at `0200` and a data buffer at `0300`. */
+#define MAIL 0x0100u
+#define SCB 0x0200u
+#define BUF 0x0300u
+
+/* A part initialised onto that mail block, with memory, DMA and a bus. */
+static void wired(ap_wd7000_t *asc, ram_t *ram, ap_scsi_bus_t *bus,
+                  drive_t *drive) {
+  memset(ram, 0, sizeof *ram);
+  memset(drive, 0, sizeof *drive);
+  drive->status = AP_SCSI_STATUS_GOOD;
+  diagnosed(asc);
+  const ap_wd7000_memory_t memory = {
+      .context = ram, .read = ram_read, .write = ram_write};
+  ap_wd7000_attach_memory(asc, &memory);
+  initialize(asc, MAIL, 2u, 2u);
+  /* Figure B-1's own order: the ASC's DMA and IRQ control to `04` then `0C`,
+   * after the init bytes and before the system's own controller. `0C` is what
+   * makes §5.2.5.4's line leave tri-state, so a part left at `04` completes
+   * commands and raises nothing. */
+  ap_wd7000_write(asc, AP_WD7000_CONTROL,
+                  AP_WD7000_CTL_DMA_ENABLE | AP_WD7000_CTL_IRQ_ENABLE);
+
+  ap_scsi_bus_init(bus, 7u);
+  const ap_scsi_target_t target = {.device = drive,
+                                   .execute = drive_execute,
+                                   .reset = drive_reset,
+                                   .present = drive_present};
+  TEST_ASSERT_TRUE(ap_scsi_attach(bus, 0u, &target));
+  ap_wd7000_attach_bus(asc, bus);
+}
+
+/* Put an SCB for target 0 LUN 0 in memory and point OGMB 0 at it. */
+static void place_scb(ram_t *ram, const uint8_t *cdb, bool to_host,
+                      uint32_t capacity) {
+  ram->byte[MAIL] = 0x01u; /* non-zero: the box is full */
+  ram->byte[MAIL + 1u] = (uint8_t)(SCB >> 16);
+  ram->byte[MAIL + 2u] = (uint8_t)(SCB >> 8);
+  ram->byte[MAIL + 3u] = (uint8_t)SCB;
+
+  ram->byte[SCB + AP_WD7000_SCB_OPCODE] = AP_WD7000_SCB_INITIATOR_COMMAND;
+  ram->byte[SCB + AP_WD7000_SCB_TARGET] = 0x00u; /* target 0, LUN 0 */
+  memcpy(&ram->byte[SCB + AP_WD7000_SCB_CDB], cdb, 6u);
+  ram->byte[SCB + AP_WD7000_SCB_MAX_LENGTH] = (uint8_t)(capacity >> 16);
+  ram->byte[SCB + AP_WD7000_SCB_MAX_LENGTH + 1u] = (uint8_t)(capacity >> 8);
+  ram->byte[SCB + AP_WD7000_SCB_MAX_LENGTH + 2u] = (uint8_t)capacity;
+  ram->byte[SCB + AP_WD7000_SCB_DATA_POINTER] = (uint8_t)(BUF >> 16);
+  ram->byte[SCB + AP_WD7000_SCB_DATA_POINTER + 1u] = (uint8_t)(BUF >> 8);
+  ram->byte[SCB + AP_WD7000_SCB_DATA_POINTER + 2u] = (uint8_t)BUF;
+  ram->byte[SCB + AP_WD7000_SCB_DIRECTION] =
+      to_host ? AP_WD7000_SCB_TO_HOST : 0x00u;
+}
+
+/* Table 5-6's offsets are decimal, which is what makes the CDB twelve bytes
+ * and the block close at 32. */
+static void test_the_scbs_offsets_are_decimal(void) {
+  TEST_ASSERT_EQUAL_UINT(2u, AP_WD7000_SCB_CDB);
+  TEST_ASSERT_EQUAL_UINT(12u, AP_WD7000_SCB_STATUS - AP_WD7000_SCB_CDB);
+  TEST_ASSERT_EQUAL_UINT(14u, AP_WD7000_SCB_STATUS);
+  TEST_ASSERT_EQUAL_UINT(15u, AP_WD7000_SCB_VUE);
+  TEST_ASSERT_EQUAL_UINT(25u, AP_WD7000_SCB_DIRECTION);
+  /* 26-31 reserved, so the block is 32. */
+  TEST_ASSERT_EQUAL_UINT(32u, AP_WD7000_SCB_BYTES);
+}
+
+/* The whole loop: a full mailbox, an SCB read, the CDB on the bus, the status
+ * written back, the box freed and an ICMB posted with an interrupt. */
+static void test_a_full_mailbox_runs_its_scb_and_posts_a_completion(void) {
+  ap_wd7000_t asc;
+  ram_t ram;
+  ap_scsi_bus_t bus;
+  drive_t drive;
+  wired(&asc, &ram, &bus, &drive);
+
+  const uint8_t cdb[6] = {0x08u, 0x00u, 0x00u, 0x00u, 0x04u, 0x00u};
+  place_scb(&ram, cdb, true, 8u);
+  drive.direction = AP_SCSI_DATA_IN;
+  drive.transferred = 4u;
+
+  command(&asc, (uint8_t)(AP_WD7000_CMD_START_OGMB | 0u));
+
+  TEST_ASSERT_EQUAL_UINT(1u, drive.executes);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(cdb, drive.cdb, 6u);
+  TEST_ASSERT_EQUAL_UINT32(BUF, drive.buffer);
+  TEST_ASSERT_EQUAL_UINT(8u, drive.capacity);
+  /* The data landed in host memory through first-party DMA. */
+  TEST_ASSERT_EQUAL_HEX8(0x40u, ram.byte[BUF]);
+  TEST_ASSERT_EQUAL_HEX8(0x43u, ram.byte[BUF + 3u]);
+  /* Status and vue written back; §5.4.1's byte 14 is the target's own. */
+  TEST_ASSERT_EQUAL_HEX8(AP_SCSI_STATUS_GOOD, ram.byte[SCB + 14u]);
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_VUE_NONE, ram.byte[SCB + 15u]);
+  /* The mail was taken. */
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_MAILBOX_EMPTY, ram.byte[MAIL]);
+  /* ICMB 0 carries `01` and the SCB's address, and the interrupt names it. */
+  const uint32_t icmb = ap_wd7000_icmb_address(&asc, 0u);
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_ICMB_COMPLETE, ram.byte[icmb]);
+  TEST_ASSERT_EQUAL_HEX8((uint8_t)(SCB >> 8), ram.byte[icmb + 2u]);
+  TEST_ASSERT_TRUE(ap_wd7000_irq(&asc));
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_INT_ICMB_SERVICE | 0u,
+                         ap_wd7000_read(&asc, AP_WD7000_INTSTAT_ACK));
+  TEST_ASSERT_EQUAL_UINT32(1u, asc.scbs_started);
+}
+
+/* §5.7.1: the SCSI status byte is never modified, and anything but `00` forces
+ * ICMB `02`. */
+static void test_a_non_good_status_forces_completion_two(void) {
+  ap_wd7000_t asc;
+  ram_t ram;
+  ap_scsi_bus_t bus;
+  drive_t drive;
+  wired(&asc, &ram, &bus, &drive);
+  const uint8_t cdb[6] = {0x00u, 0u, 0u, 0u, 0u, 0u};
+  place_scb(&ram, cdb, false, 0u);
+  drive.status = AP_SCSI_STATUS_CHECK_CONDITION;
+
+  command(&asc, (uint8_t)(AP_WD7000_CMD_START_OGMB | 0u));
+  TEST_ASSERT_EQUAL_HEX8(AP_SCSI_STATUS_CHECK_CONDITION, ram.byte[SCB + 14u]);
+  const uint32_t icmb = ap_wd7000_icmb_address(&asc, 0u);
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_ICMB_COMPLETE_ERROR, ram.byte[icmb]);
+}
+
+/* §A.7 vue `20`: a start command naming a box the ASC has already emptied. */
+static void test_an_empty_mailbox_is_vue_twenty(void) {
+  ap_wd7000_t asc;
+  ram_t ram;
+  ap_scsi_bus_t bus;
+  drive_t drive;
+  wired(&asc, &ram, &bus, &drive);
+  /* Mailbox left at zero. */
+  TEST_ASSERT_FALSE(ap_wd7000_start_ogmb(&asc, 0u));
+  TEST_ASSERT_EQUAL_UINT(0u, drive.executes);
+  TEST_ASSERT_EQUAL_UINT32(1u, asc.scbs_empty);
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_VUE_OGMB_EMPTY, 0x20u);
+  const uint32_t icmb = ap_wd7000_icmb_address(&asc, 0u);
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_ICMB_COMPLETE_ERROR, ram.byte[icmb]);
+}
+
+/* An empty address on the bus is vue `4D` and ICMB `04`, "failed without SCSI
+ * status" -- there was no status phase to take a byte from. */
+static void test_an_unanswered_target_is_vue_four_d(void) {
+  ap_wd7000_t asc;
+  ram_t ram;
+  ap_scsi_bus_t bus;
+  drive_t drive;
+  wired(&asc, &ram, &bus, &drive);
+  const uint8_t cdb[6] = {0x00u, 0u, 0u, 0u, 0u, 0u};
+  place_scb(&ram, cdb, false, 0u);
+  /* Target 3, where nothing is fitted. */
+  ram.byte[SCB + AP_WD7000_SCB_TARGET] = (uint8_t)(3u << 5);
+
+  command(&asc, (uint8_t)(AP_WD7000_CMD_START_OGMB | 0u));
+  TEST_ASSERT_EQUAL_UINT(0u, drive.executes);
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_VUE_SELECTION_TIMEOUT, ram.byte[SCB + 15u]);
+  const uint32_t icmb = ap_wd7000_icmb_address(&asc, 0u);
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_ICMB_NO_SCSI_STATUS, ram.byte[icmb]);
+}
+
+/* §A.7 `40` is a warning, not a failure: the target moved less than the
+ * allocation allowed. */
+static void test_a_short_transfer_is_vue_forty(void) {
+  ap_wd7000_t asc;
+  ram_t ram;
+  ap_scsi_bus_t bus;
+  drive_t drive;
+  wired(&asc, &ram, &bus, &drive);
+  const uint8_t cdb[6] = {0x08u, 0u, 0u, 0u, 0x08u, 0u};
+  place_scb(&ram, cdb, true, 8u);
+  drive.direction = AP_SCSI_DATA_IN;
+  drive.transferred = 2u;
+  drive.short_transfer = true;
+
+  command(&asc, (uint8_t)(AP_WD7000_CMD_START_OGMB | 0u));
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_VUE_SHORT_TRANSFER, ram.byte[SCB + 15u]);
+  TEST_ASSERT_EQUAL_HEX8(AP_SCSI_STATUS_GOOD, ram.byte[SCB + 14u]);
+}
+
+/* §6.2.11.8 user flag bit 2 turns bytes 16-18 into the residual count, at the
+ * cost of the maximum transfer count that was there. Off by default. */
+static void test_the_residual_count_is_written_only_when_the_flag_is_set(void) {
+  ap_wd7000_t asc;
+  ram_t ram;
+  ap_scsi_bus_t bus;
+  drive_t drive;
+  wired(&asc, &ram, &bus, &drive);
+  const uint8_t cdb[6] = {0x08u, 0u, 0u, 0u, 0x08u, 0u};
+  place_scb(&ram, cdb, true, 8u);
+  drive.direction = AP_SCSI_DATA_IN;
+  drive.transferred = 3u;
+
+  command(&asc, (uint8_t)(AP_WD7000_CMD_START_OGMB | 0u));
+  /* Default: the allocation is still there. */
+  TEST_ASSERT_EQUAL_HEX8(8u, ram.byte[SCB + AP_WD7000_SCB_MAX_LENGTH + 2u]);
+
+  asc.parameters[AP_WD7000_PARAM_USER_FLAGS] |= AP_WD7000_USER_FLAG_RESIDUAL;
+  place_scb(&ram, cdb, true, 8u);
+  command(&asc, (uint8_t)(AP_WD7000_CMD_START_OGMB | 0u));
+  TEST_ASSERT_EQUAL_HEX8(5u, ram.byte[SCB + AP_WD7000_SCB_MAX_LENGTH + 2u]);
+}
+
+/* §6.1.9: a scan starts every full box and then raises its own completion,
+ * Table A-11's `03`. */
+static void test_a_scan_starts_every_full_box_and_completes(void) {
+  ap_wd7000_t asc;
+  ram_t ram;
+  ap_scsi_bus_t bus;
+  drive_t drive;
+  wired(&asc, &ram, &bus, &drive);
+  const uint8_t cdb[6] = {0x00u, 0u, 0u, 0u, 0u, 0u};
+  place_scb(&ram, cdb, false, 0u);
+  /* OGMB 1 points at the same SCB, so both boxes are full. */
+  const uint32_t second = ap_wd7000_ogmb_address(&asc, 1u);
+  ram.byte[second] = 0x01u;
+  ram.byte[second + 1u] = (uint8_t)(SCB >> 16);
+  ram.byte[second + 2u] = (uint8_t)(SCB >> 8);
+  ram.byte[second + 3u] = (uint8_t)SCB;
+
+  TEST_ASSERT_EQUAL_UINT(2u, ap_wd7000_scan(&asc, 0x0Au));
+  TEST_ASSERT_EQUAL_UINT(2u, drive.executes);
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_MAILBOX_EMPTY, ram.byte[MAIL]);
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_MAILBOX_EMPTY, ram.byte[second]);
+  TEST_ASSERT_EQUAL_UINT32(1u, asc.scan_signatures);
+  /* Three completions: two commands and the scan's own. */
+  const uint32_t icmb0 = ap_wd7000_icmb_address(&asc, 0u);
+  const uint32_t icmb1 = ap_wd7000_icmb_address(&asc, 1u);
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_ICMB_COMPLETE, ram.byte[icmb0]);
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_ICMB_COMPLETE, ram.byte[icmb1]);
+}
+
+/* Byte 00 `80`-`FF` is an ICB -- a command to the ASC itself, none of which is
+ * implemented -- so it is answered with vue `21` rather than run. */
+static void test_an_icb_opcode_is_refused_with_illegal_parameter(void) {
+  ap_wd7000_t asc;
+  ram_t ram;
+  ap_scsi_bus_t bus;
+  drive_t drive;
+  wired(&asc, &ram, &bus, &drive);
+  const uint8_t cdb[6] = {0x00u, 0u, 0u, 0u, 0u, 0u};
+  place_scb(&ram, cdb, false, 0u);
+  ram.byte[SCB + AP_WD7000_SCB_OPCODE] = AP_WD7000_ICB_READ_FIRMWARE;
+
+  command(&asc, (uint8_t)(AP_WD7000_CMD_START_OGMB | 0u));
+  TEST_ASSERT_EQUAL_UINT(0u, drive.executes);
+  TEST_ASSERT_EQUAL_UINT32(1u, asc.scbs_unsupported);
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_VUE_ILLEGAL_PARAMETER, ram.byte[SCB + 15u]);
+}
+
+/* A part with no bus answers a start with the same selection timeout an empty
+ * address gives, which is what an ASC with nothing cabled to it does. */
+static void test_a_part_with_no_bus_times_out(void) {
+  ap_wd7000_t asc;
+  ram_t ram;
+  ap_scsi_bus_t bus;
+  drive_t drive;
+  wired(&asc, &ram, &bus, &drive);
+  ap_wd7000_attach_bus(&asc, nullptr);
+  const uint8_t cdb[6] = {0x00u, 0u, 0u, 0u, 0u, 0u};
+  place_scb(&ram, cdb, false, 0u);
+
+  command(&asc, (uint8_t)(AP_WD7000_CMD_START_OGMB | 0u));
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_VUE_SELECTION_TIMEOUT, ram.byte[SCB + 15u]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_part_with_no_memory_refuses_every_cycle);
@@ -684,6 +1004,16 @@ int main(void) {
   RUN_TEST(test_a_byte_reaches_host_memory_both_ways);
   RUN_TEST(test_a_three_byte_pointer_is_msb_first);
   RUN_TEST(test_a_refused_pointer_read_returns_nothing);
+  RUN_TEST(test_the_scbs_offsets_are_decimal);
+  RUN_TEST(test_a_full_mailbox_runs_its_scb_and_posts_a_completion);
+  RUN_TEST(test_a_non_good_status_forces_completion_two);
+  RUN_TEST(test_an_empty_mailbox_is_vue_twenty);
+  RUN_TEST(test_an_unanswered_target_is_vue_four_d);
+  RUN_TEST(test_a_short_transfer_is_vue_forty);
+  RUN_TEST(test_the_residual_count_is_written_only_when_the_flag_is_set);
+  RUN_TEST(test_a_scan_starts_every_full_box_and_completes);
+  RUN_TEST(test_an_icb_opcode_is_refused_with_illegal_parameter);
+  RUN_TEST(test_a_part_with_no_bus_times_out);
   RUN_TEST(test_the_low_nibble_of_the_status_port_is_not_driven);
   RUN_TEST(test_the_four_values_the_apollo_driver_accepts);
   RUN_TEST(test_sixty_and_seventy_are_the_same_rejection);

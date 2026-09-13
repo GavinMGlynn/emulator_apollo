@@ -271,12 +271,17 @@ static void ap_wd7000_command(ap_wd7000_t *asc, uint8_t value) {
     asc->pseudo_idle = !asc->pseudo_idle;
     break;
   default:
-    /* `80`-`FF`. Starting a command block means reading it over the bus and
-     * handing it to the SBIC. **PROVISIONAL**: accepted, because §5.2.1.3's
-     * rejection is for an illegal opcode or a full queue and this is neither,
-     * and then nothing happens -- there is no target. The mailbox the opcode
-     * names is `value & AP_WD7000_INT_BOX_MASK` and the address is
-     * `ap_wd7000_ogmb_address`. Named in `docs/PROJECT_STATUS.md`. */
+    /* `80`-`BF` starts one mailbox, `C0`-`FF` scans them all: §6.1.8's
+     * `10NNNNNN` and §6.1.9's `11NNNNNN`, the box or signature in the low six
+     * bits. Both run here rather than at the end of the command port's 70 us,
+     * because §5.2.1.2's turn-round is the *port* accepting the byte and the
+     * ASC's own execution is behind it -- the host learns of a completion
+     * through an ICMB and an interrupt, never through the port. */
+    if (value >= AP_WD7000_CMD_SCAN) {
+      (void)ap_wd7000_scan(asc, (uint8_t)(value & AP_WD7000_INT_BOX_MASK));
+    } else {
+      (void)ap_wd7000_start_ogmb(asc, value & AP_WD7000_INT_BOX_MASK);
+    }
     break;
   }
   ap_wd7000_take(asc, true);
@@ -503,4 +508,214 @@ void ap_wd7000_memory_write24(ap_wd7000_t *asc, uint32_t address,
   if (ok != nullptr) {
     *ok = true;
   }
+}
+
+/* ---- SCB execution, `[WD7000]` §6.1.8 and Table 5-6 ----------------------- */
+
+void ap_wd7000_attach_bus(ap_wd7000_t *asc, struct ap_scsi_bus *bus) {
+  if (asc != nullptr) {
+    asc->bus = bus;
+  }
+}
+
+/* The ASC's own view of host memory, handed to a target so it can move its data
+ * where the hardware would: through first-party DMA, `[WD7000]` §3. */
+static uint8_t scb_memory_read(void *context, uint32_t address) {
+  bool ok = false;
+  return ap_wd7000_memory_read((ap_wd7000_t *)context, address, &ok);
+}
+
+static void scb_memory_write(void *context, uint32_t address, uint8_t value) {
+  bool ok = false;
+  ap_wd7000_memory_write((ap_wd7000_t *)context, address, value, &ok);
+}
+
+/* Find a free incoming mailbox and post a completion in it. §5.3: an ICMB's
+ * first byte is the completion code and the next three the CDB address,
+ * `FFFFFF` when meaningless. The interrupt that follows is `11MMMMMM`,
+ * `AP_WD7000_INT_ICMB_SERVICE | m`. */
+static bool post_icmb(ap_wd7000_t *asc, uint8_t code, uint32_t cdb_address) {
+  for (unsigned m = 0; m < asc->icmb_count; m++) {
+    const uint32_t address = ap_wd7000_icmb_address(asc, m);
+    if (address == 0u) {
+      continue;
+    }
+    bool ok = false;
+    const uint8_t status = ap_wd7000_memory_read(asc, address, &ok);
+    if (!ok) {
+      return false;
+    }
+    if (status != AP_WD7000_MAILBOX_EMPTY) {
+      continue; /* still holding a completion the host has not taken */
+    }
+    ap_wd7000_memory_write(asc, address, code, &ok);
+    ap_wd7000_memory_write24(asc, address + 1u, cdb_address, &ok);
+    return ap_wd7000_post_interrupt(
+        asc, (uint8_t)(AP_WD7000_INT_ICMB_SERVICE |
+                       (m & AP_WD7000_INT_BOX_MASK)));
+  }
+  /* Every ICMB full. §5.5's flowchart B-7 marks the spot and retries; this part
+   * has no retry queue, so the completion is dropped and counted -- which is
+   * the same shape `ap_wd7000_post_interrupt` already has for a full IRQ
+   * queue. */
+  return false;
+}
+
+bool ap_wd7000_start_ogmb(ap_wd7000_t *asc, unsigned n) {
+  if (asc == nullptr || !asc->initialized) {
+    return false;
+  }
+  const uint32_t box = ap_wd7000_ogmb_address(asc, n);
+  if (box == 0u) {
+    return false;
+  }
+  bool ok = false;
+  const uint8_t mail = ap_wd7000_memory_read(asc, box, &ok);
+  if (!ok) {
+    return false;
+  }
+  if (mail == AP_WD7000_MAILBOX_EMPTY) {
+    /* §A.7 vue `20`: "command issued with the OGMB marked empty". It is a
+     * completion, not a silent no-op -- the host asked for something. */
+    asc->scbs_empty++;
+    (void)post_icmb(asc, AP_WD7000_ICMB_COMPLETE_ERROR,
+                    AP_WD7000_ICMB_NO_ADDRESS);
+    return false;
+  }
+
+  const uint32_t scb = ap_wd7000_memory_read24(asc, box + 1u, &ok);
+  if (!ok) {
+    return false;
+  }
+  asc->scbs_started++;
+
+  /* The block. Only the fields Table 5-6 defines are read; `26`-`31` are
+   * "reserved, to be zeroed" and reading them would be reading nothing. */
+  uint8_t block[AP_WD7000_SCB_DIRECTION + 1u];
+  for (unsigned i = 0; i < sizeof block; i++) {
+    block[i] = ap_wd7000_memory_read(asc, scb + i, &ok);
+    if (!ok) {
+      return false;
+    }
+  }
+
+  /* The mail is taken the moment the block is read: §5.3's "an OGMB status of
+   * zero means the ASC has taken the mail". A host polling for a free box sees
+   * it free from here, which is what makes `Interrupt on Free OGMB` a
+   * one-shot rather than a level. */
+  ap_wd7000_memory_write(asc, box, AP_WD7000_MAILBOX_EMPTY, &ok);
+  if (asc->interrupt_on_free_ogmb) {
+    asc->interrupt_on_free_ogmb = false;
+    (void)ap_wd7000_post_interrupt(
+        asc, (uint8_t)(AP_WD7000_INT_OGMB_FREE |
+                       ((uint8_t)n & AP_WD7000_INT_BOX_MASK)));
+  }
+
+  if (block[AP_WD7000_SCB_OPCODE] != AP_WD7000_SCB_INITIATOR_COMMAND) {
+    /* `80`-`FF` are the eighteen ICB opcodes and `01`-`7F` are reserved.
+     * **PROVISIONAL**: an ICB is a command to the ASC itself rather than to a
+     * target, and none of the eighteen is implemented -- so it is counted and
+     * answered with vue `21`, "illegal parameter", rather than run. Named in
+     * `docs/PROJECT_STATUS.md`; the eighteen are a deliverable of their own. */
+    asc->scbs_unsupported++;
+    ap_wd7000_memory_write(asc, scb + AP_WD7000_SCB_VUE,
+                           AP_WD7000_VUE_ILLEGAL_PARAMETER, &ok);
+    (void)post_icmb(asc, AP_WD7000_ICMB_NO_SCSI_STATUS, scb);
+    return true;
+  }
+
+  const uint8_t addressing = block[AP_WD7000_SCB_TARGET];
+  const uint8_t id = (uint8_t)((addressing >> AP_WD7000_SCB_TARGET_SHIFT) &
+                               AP_WD7000_SCB_TARGET_MASK);
+  const uint8_t lun = (uint8_t)(addressing & AP_WD7000_SCB_LUN_MASK);
+
+  uint32_t capacity = 0u;
+  for (unsigned i = 0; i < 3u; i++) {
+    capacity = (capacity << 8) | block[AP_WD7000_SCB_MAX_LENGTH + i];
+  }
+  uint32_t buffer = 0u;
+  for (unsigned i = 0; i < 3u; i++) {
+    buffer = (buffer << 8) | block[AP_WD7000_SCB_DATA_POINTER + i];
+  }
+
+  const ap_scsi_memory_t memory = {
+      .context = asc, .read = scb_memory_read, .write = scb_memory_write};
+  ap_scsi_result_t result = {0};
+  const bool selected =
+      asc->bus != nullptr &&
+      ap_scsi_command(asc->bus, id, lun, &block[AP_WD7000_SCB_CDB],
+                      AP_SCSI_CDB_MAX, &memory, buffer, (unsigned)capacity,
+                      &result);
+
+  uint8_t vue = AP_WD7000_VUE_NONE;
+  uint8_t completion;
+  if (!selected) {
+    /* §A.7 `4D`: "selection/reselection timeout". §5.7.1's ICMB `04` is
+     * "failed without SCSI status, see vue", which is exactly this case --
+     * there was no status phase to take a byte from. */
+    result.status = 0u;
+    vue = AP_WD7000_VUE_SELECTION_TIMEOUT;
+    completion = AP_WD7000_ICMB_NO_SCSI_STATUS;
+  } else if (result.status != AP_SCSI_STATUS_GOOD) {
+    /* §5.7.1: "the SCSI status byte in SCB 14 is never modified by the ASC;
+     * anything but `00` forces ICMB `02`". */
+    completion = AP_WD7000_ICMB_COMPLETE_ERROR;
+  } else if (result.short_transfer) {
+    /* §A.7 `40`: "target sent less than the allocation length", and §5.4.1
+     * says byte 15 "is not always a failure" -- `40H` means exactly this. The
+     * completion is still `02`, because §5.7.1 gives `01` only to a clean
+     * status-phase completion. */
+    vue = AP_WD7000_VUE_SHORT_TRANSFER;
+    completion = AP_WD7000_ICMB_COMPLETE_ERROR;
+  } else {
+    completion = AP_WD7000_ICMB_COMPLETE;
+  }
+
+  ap_wd7000_memory_write(asc, scb + AP_WD7000_SCB_STATUS, result.status, &ok);
+  ap_wd7000_memory_write(asc, scb + AP_WD7000_SCB_VUE, vue, &ok);
+  /* §6.2.11.8 user flag bit 2: "return the SBIC's residual count in SCB bytes
+   * 16-18", at the cost of the maximum transfer count that was there. Off by
+   * default, and this is the only writer of those three bytes. */
+  if ((asc->parameters[AP_WD7000_PARAM_USER_FLAGS] &
+       AP_WD7000_USER_FLAG_RESIDUAL) != 0u) {
+    const uint32_t residual = capacity > result.transferred
+                                  ? capacity - (uint32_t)result.transferred
+                                  : 0u;
+    ap_wd7000_memory_write24(asc, scb + AP_WD7000_SCB_MAX_LENGTH, residual,
+                             &ok);
+  }
+  (void)post_icmb(asc, completion, scb);
+  return true;
+}
+
+unsigned ap_wd7000_scan(ap_wd7000_t *asc, uint8_t signature) {
+  if (asc == nullptr || !asc->initialized) {
+    return 0u;
+  }
+  asc->scan_signatures++;
+  unsigned started = 0u;
+  /* §6.1.9: the scan "scans the mailbox memory 16 bytes per poll from the base
+   * address", so a command in a late OGMB costs more -- an ordering fact, not
+   * a limit, and every full box is started. */
+  for (unsigned n = 0; n < asc->ogmb_count; n++) {
+    const uint32_t box = ap_wd7000_ogmb_address(asc, n);
+    if (box == 0u) {
+      continue;
+    }
+    bool ok = false;
+    const uint8_t mail = ap_wd7000_memory_read(asc, box, &ok);
+    if (!ok || mail == AP_WD7000_MAILBOX_EMPTY) {
+      continue;
+    }
+    if (ap_wd7000_start_ogmb(asc, n)) {
+      started++;
+    }
+  }
+  /* "the scan itself raises an extra completion interrupt", §6.1.9, and
+   * Table A-11 gives it `03` -- "scan OGMB completed", whose bytes 1-3 are
+   * `FF`. The signature the host chose comes back with it so a host running
+   * more than one scan can tell them apart. */
+  (void)signature;
+  (void)post_icmb(asc, AP_WD7000_ICMB_SCAN_COMPLETE, AP_WD7000_ICMB_NO_ADDRESS);
+  return started;
 }

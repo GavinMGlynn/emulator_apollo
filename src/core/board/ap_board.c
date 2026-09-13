@@ -1663,6 +1663,12 @@ void ap_board_attach_scsi(ap_board_t *board) {
                                      .read = scsi_memory_read,
                                      .write = scsi_memory_write};
   ap_wd7000_attach_memory(&board->scsi, &memory);
+  /* The ASC's own SCSI ID. `[WD7000]` §6.1.2 byte 01 is what really sets it and
+   * the host writes that during initialization; 7 is the value the bus starts
+   * with so that a target may be fitted before the guest has initialised the
+   * card, and `ap_wd7000_initialize` is what moves it. */
+  ap_scsi_bus_init(&board->scsi_bus, 7u);
+  ap_wd7000_attach_bus(&board->scsi, &board->scsi_bus);
   board->scsi_fitted = true;
 }
 

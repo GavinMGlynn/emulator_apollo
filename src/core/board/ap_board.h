@@ -529,6 +529,10 @@ typedef struct ap_board {
    * may not have both. Default absent, because the machine this core is the
    * reference for is sold with the tape. */
   ap_wd7000_t scsi;
+  /* The bus the ASC drives. Embedded beside it rather than inside it because
+   * the two are separate parts -- the same split `ap_sc499` and `ap_qic` have,
+   * and the reason a target can be fitted without editing the controller. */
+  ap_scsi_bus_t scsi_bus;
   bool scsi_fitted;
   ap_graphics_t graphics;
   /* Absent until `ap_board_attach_ring` fits it. A DN3500 is not sold with a

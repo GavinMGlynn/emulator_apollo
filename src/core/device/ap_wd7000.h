@@ -86,6 +86,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "device/ap_scsi.h"
 #include "time/ap_time.h"
 
 #define AP_WD7000_REGISTERS 4u
@@ -201,6 +202,10 @@ typedef enum {
 #define AP_WD7000_VUE_INDEX_OUT_OF_RANGE 0x24u
 #define AP_WD7000_VUE_COUNT_OUT_OF_RANGE 0x25u
 #define AP_WD7000_VUE_COMMAND_IN_PROGRESS 0x26u
+/* §A.7's SCSI-protocol band, the three this part posts. `40` is explicitly a
+ * *warning*: "target sent less than the allocation length". */
+#define AP_WD7000_VUE_SHORT_TRANSFER 0x40u
+#define AP_WD7000_VUE_SELECTION_TIMEOUT 0x4Du
 #define AP_WD7000_VUE_NONE 0xFFu
 
 /* Mailboxes, §5.3 and Table A-8. Four bytes each: a status byte then a
@@ -281,6 +286,46 @@ typedef enum {
   AP_WD7000_SEQ_INITIALIZE,
   AP_WD7000_SEQ_SOFT_RESET,
 } ap_wd7000_sequence_t;
+
+/* ---- The SCB, `[WD7000]` Table 5-6 and Table A-5 -------------------------- */
+
+/* Thirty-two bytes, and **the offsets are decimal**: the table numbers them
+ * `00` through `31` and the CDB occupies `02`-`13`, which is twelve bytes only
+ * if those are decimal. Read as hex the CDB would be eighteen and the block
+ * would not close at 32. */
+#define AP_WD7000_SCB_OPCODE 0u
+#define AP_WD7000_SCB_TARGET 1u
+#define AP_WD7000_SCB_CDB 2u
+#define AP_WD7000_SCB_STATUS 14u
+#define AP_WD7000_SCB_VUE 15u
+#define AP_WD7000_SCB_MAX_LENGTH 16u   /* 16-18, MSB first */
+#define AP_WD7000_SCB_DATA_POINTER 19u /* 19-21, MSB first */
+#define AP_WD7000_SCB_LINK 22u         /* 22-24, MSB first */
+#define AP_WD7000_SCB_DIRECTION 25u
+/* `26`-`31` are "reserved, to be zeroed" and are not read. */
+
+/* Byte 00: "`00` means a SCSI command with the ASC as initiator, `01`-`7F`
+ * reserved, `80`-`FF` ASC command codes". */
+#define AP_WD7000_SCB_INITIATOR_COMMAND 0x00u
+
+/* Byte 01: "Target ID in bits 7-5, two zero bits, LUN in bits 2-0". */
+#define AP_WD7000_SCB_TARGET_SHIFT 5u
+#define AP_WD7000_SCB_TARGET_MASK 0x07u
+#define AP_WD7000_SCB_LUN_MASK 0x07u
+
+/* Byte 25 bit 7: "direction, set when data is written to the host, so every
+ * SCSI read sets it and every write clears it". */
+#define AP_WD7000_SCB_TO_HOST 0x80u
+
+/* Table 5-5: an OGMB status of zero means the ASC has taken the mail, non-zero
+ * means full. So the ASC clears it when it takes the block, and a start
+ * command naming a box that already reads zero is vue `20`, "command issued
+ * with the OGMB marked empty". */
+#define AP_WD7000_MAILBOX_EMPTY 0x00u
+
+/* An ICMB's first byte is the completion code and the next three the CDB
+ * address, "`FFFFFF` when meaningless". */
+#define AP_WD7000_ICMB_NO_ADDRESS 0xFFFFFFu
 
 /* ---- First-party DMA, `[WD7000]` §3 and Appendix C ----------------------- */
 
@@ -374,6 +419,16 @@ typedef struct {
   /* A SCSI bus reset the host asked for through control bit 1. */
   bool scsi_reset;
 
+  /* The bus, absent until a board attaches one. A part with no bus answers
+   * every start command with vue `4D` -- which is what an ASC with nothing
+   * cabled to it does. */
+  struct ap_scsi_bus *bus;
+  /* What the SCB path has done, for the boot report. */
+  uint32_t scbs_started;
+  uint32_t scbs_empty;      /* vue `20`: the box was already taken */
+  uint32_t scbs_unsupported; /* byte 00 was not `00`: an ICB, not a SCSI command */
+  uint32_t scan_signatures;
+
   /* First-party DMA. Absent until a board attaches one, which is what makes a
    * part built by a suite unable to touch memory it was never given. */
   ap_wd7000_memory_t memory;
@@ -421,6 +476,19 @@ uint32_t ap_wd7000_icmb_address(const ap_wd7000_t *asc, unsigned m);
  * one. Returns false when the queue is full, which §5.5's flowchart B-7 treats
  * by marking the spot and retrying. */
 bool ap_wd7000_post_interrupt(ap_wd7000_t *asc, uint8_t status);
+
+/* Give the part a bus to drive. A board does this once at attach. */
+void ap_wd7000_attach_bus(ap_wd7000_t *asc, struct ap_scsi_bus *bus);
+
+/* Execute the SCB one OGMB points at: `[WD7000]` §6.1.8's `10NNNNNN`. Reads the
+ * mailbox, fetches the block, runs it on the bus, writes back bytes 14 and 15,
+ * frees the mailbox and posts an ICMB. Returns false when the box was empty --
+ * which is vue `20` and an ICMB of its own, not a silent no-op. */
+bool ap_wd7000_start_ogmb(ap_wd7000_t *asc, unsigned n);
+
+/* §6.1.9's `11NNNNNN`: scan every OGMB from the base address and start each
+ * full one, then raise the scan's own completion. */
+unsigned ap_wd7000_scan(ap_wd7000_t *asc, uint8_t signature);
 
 /* Give the part a way to reach host memory. A board does this once at attach;
  * a part with none refuses every access and counts it. */

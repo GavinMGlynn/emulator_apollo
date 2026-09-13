@@ -86,6 +86,11 @@ void ap_board_hash_tape(ap_hash_t *st, const ap_tape_t *tape);
 /* The SCSI host adapter in the tape's slot. Called only when one is fitted, so
  * a machine without one contributes nothing to the digest. */
 void ap_board_hash_scsi(ap_hash_t *st, const ap_wd7000_t *asc);
+
+/* The bus the ASC drives, hashed beside it because two machines whose targets
+ * differ are two different machines and the controller's own state does not
+ * say so. Only when the card is fitted, like the controller's. */
+void ap_board_hash_scsi_bus(ap_hash_t *st, const ap_scsi_bus_t *bus);
 void ap_board_hash_graphics(ap_hash_t *st, const ap_graphics_t *graphics);
 void ap_board_hash_ring(ap_hash_t *st, const ap_ring_ctl_t *ring);
 void ap_board_hash_keyboard(ap_hash_t *st, const ap_kbd_t *keyboard);

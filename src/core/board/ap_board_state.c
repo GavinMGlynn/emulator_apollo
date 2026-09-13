@@ -472,6 +472,23 @@ void ap_board_hash_disk(ap_hash_t *st, const ap_disk_t *disk) {
   hash_bool(st, omti->fdc_track_read_nd);
 }
 
+void ap_board_hash_scsi_bus(ap_hash_t *st, const ap_scsi_bus_t *bus) {
+  ap_hash_scope(st, "scsibus");
+  /* The clock and the reset silence, which are the only two things on the bus
+   * that decide whether the *next* selection answers. */
+  ap_hash_u64(st, bus->now);
+  ap_hash_u64(st, bus->quiet_until);
+  ap_hash_u32(st, bus->initiator_id);
+  /* Which addresses answer. Not the targets' own state -- each target hashes
+   * itself, the same way `ap_qic` does behind `ap_sc499`. */
+  for (unsigned id = 0; id < AP_SCSI_IDS; id++) {
+    hash_bool(st, bus->fitted[id]);
+  }
+  /* The counters are diagnostic, like the controller's own, and are not
+   * hashed: two machines differing only in how many selections have timed out
+   * are the same machine. */
+}
+
 void ap_board_hash_scsi(ap_hash_t *st, const ap_wd7000_t *asc) {
   ap_hash_scope(st, "scsi");
   /* The four host-visible flags, as a byte, because that is the one thing a
@@ -1153,6 +1170,7 @@ void ap_board_hash(ap_hash_t *st, const ap_board_t *board) {
   ap_hash_group_begin(st, "fitted");
   if (board->scsi_fitted) {
     ap_board_hash_scsi(st, &board->scsi);
+    ap_board_hash_scsi_bus(st, &board->scsi_bus);
   }
   ap_hash_group_end(st);
   ap_board_hash_graphics(st, &board->graphics);

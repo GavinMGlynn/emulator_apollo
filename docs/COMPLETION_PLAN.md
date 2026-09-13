@@ -4473,8 +4473,16 @@ Five named deliverables, each its own commit with its own suite:
      discriminator named. Detail in `PROJECT_STATUS.md`.
      *Verification: `wd7000_suite` 30 → 36, `atmap_suite` 22 → 26; the
      identity hash is unmoved because the hasher names its fields.*
-  3. `ap_wd7000` SCB execution: mailbox scan on `80`-`BF`/`C0`-`FF`, the
-     32-byte SCB fetched and written back, ICMB posted, IRQ raised.
+  3. ~~`ap_wd7000` SCB execution.~~ **DONE 2026-09-13.** Start and scan, the
+     32-byte SCB fetched and written back, the mailbox freed, an ICMB posted
+     and the IRQ raised — and Table 5-6's offsets are **decimal**, which is
+     what makes the CDB twelve bytes and the block close at 32. Closes the
+     `default:` arm that used to accept `80`-`FF` and do nothing. Byte 00 in
+     `80`-`FF` is an ICB and stays `PROVISIONAL`: none of the eighteen is
+     implemented and they are a deliverable of their own. Detail in
+     `PROJECT_STATUS.md`.
+     *Verification: `wd7000_suite` 36 → 46; the bus is hashed beside the
+     controller, only when the card is fitted.*
   4. `src/core/device/ap_exb8200.{h,c}` — the target: eighteen Group 0
      commands, the 26-byte Error Class 7 sense, buffered and non-buffered
      modes, both filemark kinds, and ch. 24's position rules.

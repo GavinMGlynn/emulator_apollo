@@ -434,6 +434,76 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## The SCB executes: mailbox to target to ICMB (2026-09-13)
+
+Third of the SCSI item's five deliverables, and the one that closes the ASC's
+`PROVISIONAL` `default:` arm — `80`-`FF` used to be accepted and then do
+nothing, "because there is no target". There is one now.
+
+**The whole loop, `[WD7000]` §6.1.8 and Table 5-6.** A start command names an
+OGMB; the ASC reads its status byte, follows its three-byte pointer to a 32-byte
+SCB, reads the block, frees the mailbox, runs the CDB on the bus, writes bytes
+14 and 15 back and posts an ICMB with an interrupt.
+
+**Table 5-6's offsets are decimal, and that is not a detail.** The table numbers
+the block `00` through `31` and puts the CDB at `02`-`13` — twelve bytes only if
+those are decimal. Read as hex the CDB would be eighteen bytes and the block
+would not close at 32. `test_the_scbs_offsets_are_decimal` pins it.
+
+**Every rule in the completion path is cited:**
+
+- §5.3, Table 5-5: **an OGMB status of zero means the ASC has taken the mail**,
+  non-zero means full. So the box is freed the moment the block is read — which
+  is what makes Interrupt on Free OGMB a one-shot rather than a level — and a
+  start naming an already-empty box is **vue `20`** with a completion of its
+  own, not a silent no-op.
+- §5.4.1: **byte 14 is the target's status byte "unmodified by the ASC"**, and
+  §5.7.1's rule follows from it: anything but `00` forces **ICMB `02`**.
+- §A.7 **`4D`**, selection/reselection timeout, with **ICMB `04`** — "failed
+  without SCSI status", which is exactly right because there was no status
+  phase to take a byte from. An ASC with no bus attached answers the same way,
+  which is what an uncabled card does.
+- §A.7 **`40`** is a *warning*: "target sent less than the allocation length".
+  The completion is still `02`, because §5.7.1 gives `01` only to a clean
+  status-phase completion.
+- §6.2.11.8 user flag **bit 2** turns bytes 16-18 into the residual count "at
+  the cost of the maximum transfer count that was there" — off by default, and
+  this is the only writer of those three bytes.
+- §6.1.9's scan starts every full box and then raises **its own** completion,
+  Table A-11's `03`.
+- An ICMB is found by walking for a box whose first byte is zero; the interrupt
+  is `11MMMMMM`, `AP_WD7000_INT_ICMB_SERVICE | m`.
+
+**The data never passes through this core.** A target writes into host memory
+through the ASC's own first-party DMA hook, one address at a time, so a 1 MB
+fixed-mode READ needs no buffer here. That is why `ap_scsi_target_t::execute`
+takes an `ap_scsi_memory_t` and a buffer address rather than a flat array — the
+alternative was a staging buffer whose size no document states, and
+`[EXB]` READ BLOCK LIMITS puts a single block at up to 240 KB with a fixed READ
+free to ask for many. Changed one commit after the bus landed, deliberately.
+
+**One `PROVISIONAL` remains and it is a deliverable, not a gap**: SCB byte 00
+in `80`-`FF` is an **ICB**, a command to the ASC itself, and none of the
+eighteen is implemented — so it is counted and answered with vue `21`, illegal
+parameter, rather than run. `scsi14.drvr` issues none of them during the reset
+and initialisation this project has traced.
+
+**The bus is hashed beside the controller**, `ap_board_hash_scsi_bus`: its
+clock, its reset silence, its initiator ID and which addresses answer. Not the
+targets' own state — each target hashes itself, the way `ap_qic` does behind
+`ap_sc499` — and not the counters, which are diagnostic. Only when the card is
+fitted, so no existing model's hash moves.
+
+*Verification: `wd7000_suite` 36 → 46; `ctest` 150. The ten new tests cover the
+decimal offsets, the whole loop end to end with the data landing in host memory
+and the interrupt naming its ICMB, a non-Good status forcing `02`, both vue
+codes, the residual flag in both states, a scan of two boxes plus its own
+completion, the ICB refusal and the no-bus case. One test was wrong and the
+model right: it left Host Control at `04`, where Figure B-1's own sequence
+writes `04` then `0C` — §5.2.5.4 tri-states the IRQ line without bit 3, so a
+part at `04` completes commands and raises nothing.*
+
+
 ## First-party DMA: the ASC masters the bus through the AT map (2026-09-13)
 
 Second of the SCSI item's five deliverables. **The ASC can now reach host

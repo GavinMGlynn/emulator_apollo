@@ -119,18 +119,41 @@ typedef struct {
   ap_time_t duration;
 } ap_scsi_result_t;
 
+/* How a target reaches the initiator's data buffer.
+ *
+ * **Not a flat array, and the reason is a number.** A target's transfer is
+ * bounded by the SCB's three-byte maximum transfer length -- 16 MB -- and
+ * `[EXB]` READ BLOCK LIMITS puts a single *block* at up to 240 KB with a fixed
+ * READ free to ask for many of them. Staging that through a buffer owned by
+ * this core would mean choosing a cap no document states, which is exactly the
+ * invented number `CLAUDE.md` forbids.
+ *
+ * So the target moves bytes the way the hardware does: through the initiator's
+ * own first-party DMA, one address at a time. `ap_wd7000` supplies this from
+ * its memory hook, so a byte the target writes goes through the AT translation
+ * map and into host memory with no copy in between -- which is what the ASC
+ * actually does, `[WD7000]` §3's "first-party DMA carries command, data and
+ * status". */
+typedef struct {
+  void *context;
+  uint8_t (*read)(void *context, uint32_t address);
+  void (*write)(void *context, uint32_t address, uint8_t value);
+} ap_scsi_memory_t;
+
 /* One target's behaviour. Function pointers rather than an enum switch,
  * following `ap_3c505.h`'s `transmit` hook: the bus must not know what kinds
  * of target exist, or adding the second one edits the first one's file. */
 typedef struct {
   void *device; /* the target's own state, e.g. an `ap_exb8200_t *` */
 
-  /* Execute one CDB. `data` is the initiator's buffer: for `AP_SCSI_DATA_OUT`
-   * it already holds `capacity` bytes to be consumed, for `AP_SCSI_DATA_IN` it
-   * is filled. Returns false only when the target cannot be selected at all --
-   * a refusal *is* a transaction, and comes back as Check Condition. */
+  /* Execute one CDB. `buffer` is where the initiator's data lives and
+   * `capacity` is how much of it the SCB allowed; the target reads or writes
+   * it through `memory`, which may be null for a command with no data phase.
+   * Returns false only when the target cannot run at all -- a refusal *is* a
+   * transaction, and comes back as Check Condition. */
   bool (*execute)(void *device, uint8_t lun, const uint8_t *cdb,
-                  unsigned cdb_length, uint8_t *data, unsigned capacity,
+                  unsigned cdb_length, const ap_scsi_memory_t *memory,
+                  uint32_t buffer, unsigned capacity,
                   ap_scsi_result_t *result);
 
   /* `[EXB]` §3.4: a Bus Device Reset "aborts all operations and re-initialises
@@ -156,7 +179,7 @@ typedef struct {
  * target, because it is the interval during which *selection* fails. */
 #define AP_SCSI_T_RESET_SILENCE ((ap_time_t)AP_TIME_BASE_HZ * 3u / 10u)
 
-typedef struct {
+typedef struct ap_scsi_bus {
   ap_scsi_target_t target[AP_SCSI_IDS];
   bool fitted[AP_SCSI_IDS];
   /* The initiator's own ID, `[WD7000]` §6.1.2 byte 01, three bits. A host that
@@ -205,7 +228,8 @@ bool ap_scsi_message(ap_scsi_bus_t *bus, uint8_t id, uint8_t lun,
  * filled and true is returned, *including* for a Check Condition: a target
  * that refuses a command has still been selected. */
 bool ap_scsi_command(ap_scsi_bus_t *bus, uint8_t id, uint8_t lun,
-                     const uint8_t *cdb, unsigned cdb_length, uint8_t *data,
+                     const uint8_t *cdb, unsigned cdb_length,
+                     const ap_scsi_memory_t *memory, uint32_t buffer,
                      unsigned capacity, ap_scsi_result_t *result);
 
 /* The CDB length a group code implies, or 0 for a group this bus does not
