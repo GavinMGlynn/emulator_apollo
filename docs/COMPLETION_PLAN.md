@@ -4633,7 +4633,14 @@ discipline throughout.
       `LD`, `STCODE` and `EY`; and chapter 6's **DTYPE class-and-drive** reading
       of the `0504` both volumes carry. Chapters 7-11 and three appendices owed,
       **139 pages, all of them per-model registers for machines this core does
-      not model**. Chapter 2 yielded a
+      not model** — and **chapter 7 establishes that Rev 4 reprints them**:
+      five of its tables (the ring registers with `0014`/`0012`, the receive
+      status's "before me" wording, `TMASK`, the SC2681 baud groups, the PROM
+      entry points) are already in `RING.md`, `ap_mc68681.h` and the
+      `prom-service-table` memory, every one cited to `002398-04`. So those
+      chapters are expected to be **one witness printed twice** rather than new
+      facts — which is worth knowing before reading them and is not a reason
+      not to. Chapter 2 yielded a
       **route the ring item has been waiting for**: `DI N 0xxx` selects another
       node as the boot device and `EX DOMAIN_OS` boots the target **diskless**
       over the ring, so every page it executes crosses the cable — traffic with
