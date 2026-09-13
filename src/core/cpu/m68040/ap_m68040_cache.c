@@ -35,6 +35,121 @@ void ap_m68040_cache_invalidate_all(ap_m68040_cache_t *cache) {
   }
 }
 
+/* One line, wherever in its set it lives. */
+static void drop(ap_m68040_cache_line_t *line) {
+  line->valid = false;
+  for (unsigned i = 0; i < AP_M68040_CACHE_LINE_LONGS; i++) {
+    line->dirty[i] = false;
+  }
+}
+
+bool ap_m68040_cache_invalidate_line(ap_m68040_cache_t *cache,
+                                     uint32_t address) {
+  const unsigned way = ap_m68040_cache_lookup(cache, address);
+  if (way >= AP_M68040_CACHE_WAYS) {
+    return false;
+  }
+  /* "Without regard to its dirty state": a dirty line's data is lost, which is
+   * the whole difference between CINV and CPUSH. */
+  drop(&cache->line[ap_m68040_cache_set(address)][way]);
+  return true;
+}
+
+/* Walk every line the page covers. A page is 4 KB or 8 KB and a line is 16
+ * bytes, so this is 256 or 512 lines -- but only the sets the page reaches,
+ * because a 4 KB page spans every set exactly four times and an 8 KB page
+ * eight. Walking the whole cache and testing each tag is both simpler and
+ * exact, and the cache is 256 lines. */
+static unsigned over_page(ap_m68040_cache_t *cache, uint32_t address,
+                          uint32_t page_bytes, unsigned *dirty_lines,
+                          bool push) {
+  if (page_bytes == 0u) {
+    return 0u;
+  }
+  const uint32_t base = address & ~(page_bytes - 1u);
+  unsigned touched = 0u;
+  for (unsigned set = 0; set < AP_M68040_CACHE_SETS; set++) {
+    for (unsigned way = 0; way < AP_M68040_CACHE_WAYS; way++) {
+      ap_m68040_cache_line_t *line = &cache->line[set][way];
+      if (!line->valid) {
+        continue;
+      }
+      /* The tag is the upper 22 bits and the set index supplies bits 9-4, so
+       * the line's physical address is the two put back together. */
+      const uint32_t line_address =
+          (line->tag << AP_M68040_CACHE_TAG_SHIFT) |
+          (uint32_t)(set << AP_M68040_CACHE_SET_SHIFT);
+      if ((line_address & ~(page_bytes - 1u)) != base) {
+        continue;
+      }
+      if (push && dirty_lines != nullptr &&
+          ap_m68040_cache_writeback_mask(line) != 0u) {
+        (*dirty_lines)++;
+      }
+      drop(line);
+      touched++;
+    }
+  }
+  return touched;
+}
+
+unsigned ap_m68040_cache_invalidate_page(ap_m68040_cache_t *cache,
+                                         uint32_t address,
+                                         uint32_t page_bytes) {
+  return over_page(cache, address, page_bytes, nullptr, false);
+}
+
+unsigned ap_m68040_cache_push_line(ap_m68040_cache_t *cache, uint32_t address,
+                                   unsigned *writeback) {
+  const unsigned way = ap_m68040_cache_lookup(cache, address);
+  if (writeback != nullptr) {
+    *writeback = 0u;
+  }
+  if (way >= AP_M68040_CACHE_WAYS) {
+    return 0u;
+  }
+  ap_m68040_cache_line_t *line =
+      &cache->line[ap_m68040_cache_set(address)][way];
+  const unsigned mask = ap_m68040_cache_writeback_mask(line);
+  if (writeback != nullptr) {
+    *writeback = mask;
+  }
+  drop(line);
+  return 1u;
+}
+
+unsigned ap_m68040_cache_push_page(ap_m68040_cache_t *cache, uint32_t address,
+                                   uint32_t page_bytes,
+                                   unsigned *dirty_lines) {
+  if (dirty_lines != nullptr) {
+    *dirty_lines = 0u;
+  }
+  return over_page(cache, address, page_bytes, dirty_lines, true);
+}
+
+unsigned ap_m68040_cache_push_all(ap_m68040_cache_t *cache,
+                                  unsigned *dirty_lines) {
+  unsigned touched = 0u;
+  if (dirty_lines != nullptr) {
+    *dirty_lines = 0u;
+  }
+  for (unsigned set = 0; set < AP_M68040_CACHE_SETS; set++) {
+    for (unsigned way = 0; way < AP_M68040_CACHE_WAYS; way++) {
+      ap_m68040_cache_line_t *line = &cache->line[set][way];
+      if (!line->valid) {
+        continue;
+      }
+      if (dirty_lines != nullptr &&
+          ap_m68040_cache_writeback_mask(line) != 0u) {
+        (*dirty_lines)++;
+      }
+      drop(line);
+      touched++;
+    }
+  }
+  return touched;
+}
+
 unsigned ap_m68040_cache_set(uint32_t address) {
   /* 64 sets of 16-byte lines: bits 9-4. */
   return (unsigned)((address >> 4) & 0x3Fu);

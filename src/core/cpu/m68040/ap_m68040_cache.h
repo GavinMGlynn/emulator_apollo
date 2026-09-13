@@ -102,6 +102,12 @@
 
 #define AP_M68040_CACHE_SETS 64u
 #define AP_M68040_CACHE_WAYS 4u
+/* Where the set index and the tag sit in a physical address: 64 sets of
+ * 16-byte lines account for the low ten bits, so the set is bits 9-4 and the
+ * tag the 22 above it. Named because putting a line's address back together
+ * from its tag and its set index is what a page-scoped operation has to do. */
+#define AP_M68040_CACHE_SET_SHIFT 4u
+#define AP_M68040_CACHE_TAG_SHIFT 10u
 #define AP_M68040_CACHE_LINE_LONGS 4u
 #define AP_M68040_CACHE_LINE_BYTES 16u
 #define AP_M68040_CACHE_BYTES 4096u
@@ -145,6 +151,38 @@ void ap_m68040_cache_init(ap_m68040_cache_t *cache, bool has_dirty_state);
 /* Invalidate every line. Not what reset does -- see the header -- but what
  * `CINV` with an "all" scope does, and what software must issue after reset. */
 void ap_m68040_cache_invalidate_all(ap_m68040_cache_t *cache);
+
+/* Invalidate the line holding this physical address, in whichever way holds
+ * it, and report whether one did. `CINV` with a line scope.
+ *
+ * "The CINV instruction invalidates the cache line without regard to its dirty
+ * state", `M68000PRM`'s CINV page -- so a dirty line's data is **lost**, which
+ * is exactly the difference between CINV and CPUSH and the reason the two are
+ * separate instructions rather than one with a flag. */
+bool ap_m68040_cache_invalidate_line(ap_m68040_cache_t *cache,
+                                     uint32_t address);
+
+/* The same over every line whose address falls in the page containing
+ * `address`. `page_bytes` is the MMU's page size, 4 KB or 8 KB -- `[040]`
+ * §3's `TCR` bit 14 -- because a "page" is the MMU's unit and not the cache's.
+ * Returns how many lines were invalidated. */
+unsigned ap_m68040_cache_invalidate_page(ap_m68040_cache_t *cache,
+                                         uint32_t address, uint32_t page_bytes);
+
+/* Push: write back what is dirty, then invalidate. The caller does the bus
+ * writes -- this reports the long words through `writeback`, one mask per line
+ * pushed, and returns how many lines that was.
+ *
+ * `M68000PRM`'s CPUSH page: "for the data cache, the CPUSH instruction pushes
+ * (writes) the cache line to memory if it is dirty and then invalidates the
+ * line". For the instruction cache there is nothing to push and it degenerates
+ * to CINV, which is why a cache with no dirty state reports no writebacks. */
+unsigned ap_m68040_cache_push_line(ap_m68040_cache_t *cache, uint32_t address,
+                                   unsigned *writeback);
+unsigned ap_m68040_cache_push_page(ap_m68040_cache_t *cache, uint32_t address,
+                                   uint32_t page_bytes, unsigned *dirty_lines);
+unsigned ap_m68040_cache_push_all(ap_m68040_cache_t *cache,
+                                  unsigned *dirty_lines);
 
 /* The set index: address bits 9-4, since 64 sets of 16-byte lines account for
  * the low ten bits. */

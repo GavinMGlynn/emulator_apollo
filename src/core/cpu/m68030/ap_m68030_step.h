@@ -62,6 +62,7 @@
 #include <stdint.h>
 
 #include "cpu/m68030/ap_m68030_cache.h"
+#include "cpu/m68040/ap_m68040_cache.h"
 #include "cpu/m68030/ap_m68030_decode.h"
 #include "cpu/m68030/ap_m68030_fetch.h"
 #include "cpu/m68030/ap_m68030_ssw.h"
@@ -392,6 +393,31 @@ typedef struct {
    * gets that far. Diagnostic, and outside the state hash as every counter
    * here is. */
   uint64_t cache_maintenance_operations;
+  /* What those operations act on. `[040]` §4.1: two four-way set-associative
+   * caches of 64 sets by four 16-byte lines, physically tagged, and only the
+   * data cache has dirty state.
+   *
+   * Attached 2026-09-13, closing the gap the CINV/CPUSH comment named: the
+   * module was complete and reachable by nobody, so an invalidation had
+   * nothing to invalidate. **They are state and maintenance only** -- a fetch
+   * or an operand does not yet look in them, which is the remaining half and
+   * is named in `docs/PROJECT_STATUS.md` with its reason: the caches are
+   * *physically* tagged, so a fill needs the MMU's output at every access, and
+   * that is a change to this file's access paths whose check is a DS5500 boot
+   * rather than an assertion.
+   *
+   * `[040]` §4.1 again, and it is a reset trap: "both caches should be
+   * explicitly cleared after a hardware reset of the processor since reset
+   * does not invalidate the cache lines." So these are initialised once at
+   * power-on and a reset leaves them alone. */
+  ap_m68040_cache_t icache;
+  ap_m68040_cache_t dcache;
+  /* Lines a CPUSH found dirty and wrote back, and lines either instruction
+   * invalidated. Counters rather than assertions, because a maintenance
+   * instruction over an empty cache is an ordinary thing for firmware to do --
+   * the DN5500's PROM does it as its second instruction. */
+  uint64_t cache_lines_invalidated;
+  uint64_t cache_lines_pushed;
   /* `PFLUSH` executions, on the same terms and for the same reason: the ATC it
    * would flush is a complete module (`cpu/m68040/ap_m68040_atc.*`, with all
    * four of the instruction's variants already written) attached to no CPU, so

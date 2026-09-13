@@ -517,8 +517,136 @@ static void test_a_push_to_the_instruction_cache_writes_nothing_back(void) {
   TEST_ASSERT_EQUAL_INT(AP_M68040_LINE_INVALID, (int)push.next);
 }
 
+/* ---- Line and page maintenance, `M68000PRM`'s CINV and CPUSH -------------- */
+
+/* Fill one line at a known physical address. */
+static void place(ap_m68040_cache_t *cache, uint32_t address,
+                  unsigned dirty_mask) {
+  const uint32_t data[AP_M68040_CACHE_LINE_LONGS] = {1u, 2u, 3u, 4u};
+  const unsigned way = ap_m68040_cache_select_way(cache, address);
+  ap_m68040_cache_fill(cache, way, address, data, dirty_mask);
+}
+
+/* The set index and the tag put a line's address back together, which is what
+ * a page-scoped operation has to do. */
+static void test_the_set_and_tag_shifts_reconstruct_an_address(void) {
+  TEST_ASSERT_EQUAL_UINT(4u, AP_M68040_CACHE_SET_SHIFT);
+  TEST_ASSERT_EQUAL_UINT(10u, AP_M68040_CACHE_TAG_SHIFT);
+  const uint32_t address = 0x00123450u;
+  const uint32_t rebuilt =
+      (ap_m68040_cache_tag(address) << AP_M68040_CACHE_TAG_SHIFT) |
+      ((uint32_t)ap_m68040_cache_set(address) << AP_M68040_CACHE_SET_SHIFT);
+  TEST_ASSERT_EQUAL_HEX32(address & ~0xFu, rebuilt);
+}
+
+/* CINV over one line drops it "without regard to its dirty state" -- which is
+ * the whole difference between CINV and CPUSH. */
+static void test_cinv_of_a_line_discards_dirty_data(void) {
+  ap_m68040_cache_t cache;
+  ap_m68040_cache_init(&cache, true);
+  place(&cache, 0x00010000u, 0x3u);
+  TEST_ASSERT_TRUE(ap_m68040_cache_lookup(&cache, 0x00010000u) <
+                   AP_M68040_CACHE_WAYS);
+
+  TEST_ASSERT_TRUE(ap_m68040_cache_invalidate_line(&cache, 0x00010000u));
+  TEST_ASSERT_EQUAL_UINT(AP_M68040_CACHE_WAYS,
+                         ap_m68040_cache_lookup(&cache, 0x00010000u));
+  /* And a line that is not there is not an error. */
+  TEST_ASSERT_FALSE(ap_m68040_cache_invalidate_line(&cache, 0x00020000u));
+}
+
+/* CPUSH reports what a dirty line owes memory and then invalidates it. */
+static void test_cpush_of_a_line_reports_its_writeback(void) {
+  ap_m68040_cache_t cache;
+  ap_m68040_cache_init(&cache, true);
+  place(&cache, 0x00010000u, 0x5u); /* long words 0 and 2 dirty */
+
+  unsigned mask = 0u;
+  TEST_ASSERT_EQUAL_UINT(1u,
+                         ap_m68040_cache_push_line(&cache, 0x00010000u, &mask));
+  TEST_ASSERT_EQUAL_HEX8(0x5u, mask);
+  TEST_ASSERT_EQUAL_UINT(AP_M68040_CACHE_WAYS,
+                         ap_m68040_cache_lookup(&cache, 0x00010000u));
+}
+
+/* An instruction cache has no dirty state, so a push there finds nothing to
+ * write back and degenerates to an invalidate. */
+static void test_a_push_of_the_instruction_cache_writes_nothing_back(void) {
+  ap_m68040_cache_t cache;
+  ap_m68040_cache_init(&cache, false);
+  place(&cache, 0x00010000u, 0xFu);
+  unsigned mask = 0xFu;
+  TEST_ASSERT_EQUAL_UINT(1u,
+                         ap_m68040_cache_push_line(&cache, 0x00010000u, &mask));
+  TEST_ASSERT_EQUAL_HEX8(0u, mask);
+}
+
+/* A page scope reaches every line inside the page and none outside it. A page
+ * is the MMU's unit, so the size is passed in. */
+static void test_a_page_scope_reaches_only_that_page(void) {
+  ap_m68040_cache_t cache;
+  ap_m68040_cache_init(&cache, true);
+  /* Three lines inside one 4 KB page, and one in the next. */
+  place(&cache, 0x00010000u, 0u);
+  place(&cache, 0x00010010u, 0u);
+  place(&cache, 0x00010FF0u, 0u);
+  place(&cache, 0x00011000u, 0u);
+
+  TEST_ASSERT_EQUAL_UINT(
+      3u, ap_m68040_cache_invalidate_page(&cache, 0x00010800u, 4096u));
+  TEST_ASSERT_EQUAL_UINT(AP_M68040_CACHE_WAYS,
+                         ap_m68040_cache_lookup(&cache, 0x00010000u));
+  /* The line in the next page is untouched. */
+  TEST_ASSERT_TRUE(ap_m68040_cache_lookup(&cache, 0x00011000u) <
+                   AP_M68040_CACHE_WAYS);
+
+  /* And an 8 KB page takes both, `[040]` §3's `TCR` bit 14. */
+  TEST_ASSERT_EQUAL_UINT(
+      1u, ap_m68040_cache_invalidate_page(&cache, 0x00010000u, 8192u));
+}
+
+/* A page push counts the dirty lines it wrote back, not every line it
+ * invalidated. */
+static void test_a_page_push_counts_only_the_dirty_lines(void) {
+  ap_m68040_cache_t cache;
+  ap_m68040_cache_init(&cache, true);
+  place(&cache, 0x00010000u, 0u);
+  place(&cache, 0x00010010u, 0x1u);
+  place(&cache, 0x00010020u, 0x8u);
+
+  unsigned dirty = 0u;
+  TEST_ASSERT_EQUAL_UINT(
+      3u, ap_m68040_cache_push_page(&cache, 0x00010000u, 4096u, &dirty));
+  TEST_ASSERT_EQUAL_UINT(2u, dirty);
+}
+
+/* An "all" push empties the cache and counts what it owed memory. */
+static void test_an_all_push_empties_the_cache(void) {
+  ap_m68040_cache_t cache;
+  ap_m68040_cache_init(&cache, true);
+  place(&cache, 0x00010000u, 0x1u);
+  place(&cache, 0x00020000u, 0u);
+  place(&cache, 0x00030000u, 0xFu);
+
+  unsigned dirty = 0u;
+  TEST_ASSERT_EQUAL_UINT(3u, ap_m68040_cache_push_all(&cache, &dirty));
+  TEST_ASSERT_EQUAL_UINT(2u, dirty);
+  for (unsigned set = 0; set < AP_M68040_CACHE_SETS; set++) {
+    for (unsigned way = 0; way < AP_M68040_CACHE_WAYS; way++) {
+      TEST_ASSERT_FALSE(cache.line[set][way].valid);
+    }
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_set_and_tag_shifts_reconstruct_an_address);
+  RUN_TEST(test_cinv_of_a_line_discards_dirty_data);
+  RUN_TEST(test_cpush_of_a_line_reports_its_writeback);
+  RUN_TEST(test_a_push_of_the_instruction_cache_writes_nothing_back);
+  RUN_TEST(test_a_page_scope_reaches_only_that_page);
+  RUN_TEST(test_a_page_push_counts_only_the_dirty_lines);
+  RUN_TEST(test_an_all_push_empties_the_cache);
   RUN_TEST(test_the_geometry_accounts_for_four_kilobytes);
   RUN_TEST(test_this_cache_is_sixteen_times_the_68020s);
   RUN_TEST(test_the_address_splits_into_tag_set_and_long_word);

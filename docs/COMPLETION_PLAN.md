@@ -5073,9 +5073,21 @@ substance. They are the only items here with no route that is simply work.
          diagnostic's `CPU (interrupts) Test #0` then reports `Self test
          failed. PC= 000067A8`, which is a DS5500 failure this core has never
          been able to reach before. Detail in `PROJECT_STATUS.md`.
-      2. **The 68040's caches are a complete module attached to no CPU**, so
-         `CINV`/`CPUSH` are correctly no-ops and every fetch and operand is a
-         bus access.
+      2. ~~**The 68040's caches are a complete module attached to no CPU.**~~
+         **HALF DONE 2026-09-13, and the halves are named.** They are attached:
+         on the CPU, gated by `has_cache_maintenance` so no earlier part's hash
+         moves, initialised once at power-on because `[040]` §4.1 says reset
+         does not invalidate them, and hashed. **`CINV` and `CPUSH` now act** --
+         the CACHE field honoured with `00` a no-operation, all three scopes,
+         the operand address read from `An` as a physical address, a page sized
+         by the MMU, and `CINV` discarding dirty data where `CPUSH` reports
+         what it owes memory first.
+         **What is left is the fill**: a fetch or an operand still does not look
+         in them, because the caches are *physically* tagged and a fill needs
+         the MMU's output at every access -- a change to `ap_m68030_step.c`'s
+         access paths whose check is a DS5500 boot rather than an assertion.
+         *Verification: `m68040_cache_suite` 33 -> 40.* Detail in
+         `PROJECT_STATUS.md`.
          **Four errata belong to this part when it is written** -- `[RN104]`
          §4.12, read 2026-09-12: `MOVE16` needs a preceding `NOP` "in order to
          work correctly"; an indirect access whose *intermediate* fetch is to a

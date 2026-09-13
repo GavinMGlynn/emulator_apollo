@@ -666,6 +666,15 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
                                   features.has_module_calls;
   machine->cpu.has_cache_maintenance = machine->model != NULL &&
                                        features.has_cache_maintenance;
+  if (machine->cpu.has_cache_maintenance) {
+    /* `[040]` §4.1: only the data cache has dirty state -- "the status
+     * information for the instruction cache line address tag consists of a
+     * single valid bit for the entire line", where the data cache's carries
+     * four dirty bits. Initialised here and not at reset, because §4.1 also
+     * says "reset does not invalidate the cache lines". */
+    ap_m68040_cache_init(&machine->cpu.icache, false);
+    ap_m68040_cache_init(&machine->cpu.dcache, true);
+  }
   machine->cpu.has_68040_mmu_registers =
       machine->model != NULL && features.has_68040_mmu_registers;
   /* The `CACR` is *resized* by part rather than gained or lost, so it takes a

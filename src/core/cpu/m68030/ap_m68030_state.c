@@ -254,8 +254,36 @@ void ap_m68030_hash_fpu(ap_hash_t *st, const ap_m68882_t *fpu) {
   hash_bool(st, fpu->executed);
 }
 
+/* The 68040's two caches, hashed only on a part that has them so no earlier
+ * model's hash moves. Lines only, and only the valid ones: an invalid line
+ * holds whatever the last one left there, and two caches holding the same
+ * lines are the same cache however they got there -- the same rule
+ * `ap_board_hash_scsi`'s interrupt queue follows. */
+static void hash_m68040_cache(ap_hash_t *st, const ap_m68040_cache_t *cache) {
+  ap_hash_u32(st, cache->counter);
+  for (unsigned set = 0; set < AP_M68040_CACHE_SETS; set++) {
+    for (unsigned way = 0; way < AP_M68040_CACHE_WAYS; way++) {
+      const ap_m68040_cache_line_t *line = &cache->line[set][way];
+      ap_hash_u32(st, line->valid ? 1u : 0u);
+      if (!line->valid) {
+        continue;
+      }
+      ap_hash_u32(st, line->tag);
+      for (unsigned i = 0; i < AP_M68040_CACHE_LINE_LONGS; i++) {
+        ap_hash_u32(st, line->data[i]);
+        ap_hash_u32(st, line->dirty[i] ? 1u : 0u);
+      }
+    }
+  }
+}
+
 void ap_m68030_hash_cpu(ap_hash_t *st, const ap_m68030_cpu_t *cpu) {
   ap_m68030_hash_regs(st, &cpu->regs);
+  if (cpu->has_cache_maintenance) {
+    ap_hash_scope(st, "cpu.caches");
+    hash_m68040_cache(st, &cpu->icache);
+    hash_m68040_cache(st, &cpu->dcache);
+  }
   ap_hash_scope(st, "cpu.mmu");
 
   /* The MMU registers live on the CPU because there is one MMU and two access

@@ -6787,8 +6787,86 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       /* "00 -- Illegal (causes illegal instruction trap)", which the page says
        * outright: the hardware's verdict, not this model's gap. */
       cpu->pending_vector = AP_M68030_VECTOR_ILLEGAL_INSTRUCTION;
+    } else if (((word >> 6) & 0x3u) == 0u) {
+      /* CACHE `00` is "no operation" on both pages: the instruction is legal,
+       * privileged and costs its decode, and names no cache to act on. This
+       * used to fall through and charge a scope's worth of clocks for a cache
+       * nobody asked about. */
+      cpu->cache_maintenance_operations++;
     } else {
       const bool push = (word & 0x0020u) != 0u;
+      /* CACHE: `01` data, `10` instruction, `11` both. */
+      const unsigned which = (unsigned)((word >> 6) & 0x3u);
+      /* The address a line- or page-scoped operation acts on is the address
+       * register the low three bits name -- `M68000PRM`'s CINV and CPUSH
+       * pages both read "An" for the operand. It is a *physical* address:
+       * §4.1's caches are physically tagged, and the pages say the operand is
+       * used without translation. */
+      const uint32_t address =
+          ap_m68030_read_address_register(&cpu->regs, word & 0x7u);
+      /* A page is the MMU's unit, and this core already holds its size as
+       * `[030]` §9's page-size *bits* -- eight for 256 bytes through fifteen
+       * for 32 KB. A 68040 has only 4 KB and 8 KB, `[040]` §3's `TCR` bit 14,
+       * and both are expressible in the same field. */
+      const uint32_t page_bytes = 1u << mmu_page_size_bits(cpu);
+      unsigned invalidated = 0u;
+      unsigned pushed = 0u;
+      for (unsigned pass = 0; pass < 2u; pass++) {
+        const bool data = pass == 0u;
+        if ((which & (data ? 1u : 2u)) == 0u) {
+          continue;
+        }
+        ap_m68040_cache_t *cache = data ? &cpu->dcache : &cpu->icache;
+        unsigned dirty = 0u;
+        if (push) {
+          /* "Pushes (writes) the cache line to memory if it is dirty and then
+           * invalidates the line." The instruction cache has no dirty state,
+           * so a push there degenerates to an invalidate -- which is what the
+           * module reports by finding no writeback. */
+          switch (scope) {
+          case 1u: {
+            unsigned mask = 0u;
+            invalidated += ap_m68040_cache_push_line(cache, address, &mask);
+            pushed += mask != 0u ? 1u : 0u;
+            break;
+          }
+          case 2u:
+            invalidated +=
+                ap_m68040_cache_push_page(cache, address, page_bytes, &dirty);
+            pushed += dirty;
+            break;
+          default:
+            invalidated += ap_m68040_cache_push_all(cache, &dirty);
+            pushed += dirty;
+            break;
+          }
+        } else {
+          switch (scope) {
+          case 1u:
+            invalidated += ap_m68040_cache_invalidate_line(cache, address)
+                               ? 1u
+                               : 0u;
+            break;
+          case 2u:
+            invalidated +=
+                ap_m68040_cache_invalidate_page(cache, address, page_bytes);
+            break;
+          default: {
+            /* `ap_m68040_cache_invalidate_all` does not count, so the lines it
+             * drops are counted here by walking for valid ones first. */
+            for (unsigned set = 0; set < AP_M68040_CACHE_SETS; set++) {
+              for (unsigned way = 0; way < AP_M68040_CACHE_WAYS; way++) {
+                invalidated += cache->line[set][way].valid ? 1u : 0u;
+              }
+            }
+            ap_m68040_cache_invalidate_all(cache);
+            break;
+          }
+          }
+        }
+      }
+      cpu->cache_lines_invalidated += invalidated;
+      cpu->cache_lines_pushed += pushed;
       /* Table 10-3 and Table 10-4, through the timing module that already
        * holds them. A push over no dirty lines is Table 10-4's **best case**,
        * which is what `ap_m68040_cpush_best_case` is -- the worst case is

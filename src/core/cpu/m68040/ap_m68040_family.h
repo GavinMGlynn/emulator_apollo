@@ -111,6 +111,36 @@
  * MC68040's 184, and the manual states outright that it is not publishing the
  * layout. That is why §6 excludes them, and it is a gap no further reading of
  * this document can close.
+ *
+ * ## The four errata Apollo's own release notes carry, and the decision on them
+ *
+ * `[RN104]` *Domain/OS SR10.4 Release Notes* §4.12, read 2026-09-12, lists four
+ * MC68040 defects that Apollo shipped software around. They are recorded here
+ * because they belong to the part rather than to any one instruction, and
+ * because the decision about them has to be made once:
+ *
+ *   1. **`MOVE16` needs a preceding `NOP`** "in order to work correctly".
+ *   2. **An indirect access whose *intermediate* fetch is to a serialized page
+ *      "causes the CPU to lock up".**
+ *   3. **`FMOVE`, `FMOVEM` and `MOVEM` "can cause double writes ... unless they
+ *      are preceded and followed by a NOP".**
+ *   4. **"The `FScc -(Ay)` instruction does not work."**
+ *
+ * **The decision: implement the architectural behaviour and record the
+ * divergence.** Three of the four say in their own text that Domain compilers
+ * never generate the construct, so nothing this core runs can reach them; and
+ * reproducing an *unstated* failure -- what "does not work" and "causes the CPU
+ * to lock up" actually do on silicon -- would be inventing behaviour, which is
+ * the one thing `CLAUDE.md` forbids outright. A model that locked up where a
+ * real 68040 locks up would be guessing at the shape of the lock-up.
+ *
+ * Two of them are not reachable in this core for a second, structural reason:
+ * `MOVE16` has a bus-access type (`AP_M68040_ACCESS_MOVE16`) and a timing row
+ * (`AP_M68040_MOVE16_SUCCESSIVE_PENALTY`) and **no decoder**, and there is no
+ * `FScc` at all. So the errata are a statement about the hardware this core
+ * deliberately does not reproduce, not a list of gaps.
+ *
+ * Detail in `docs/references/M68040_WALK.md` and `docs/PROJECT_STATUS.md`.
  */
 
 #ifndef APOLLO_CPU_M68040_AP_M68040_FAMILY_H

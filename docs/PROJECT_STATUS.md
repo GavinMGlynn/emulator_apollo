@@ -434,6 +434,69 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## The 68040's caches are attached, and CINV and CPUSH act (2026-09-13)
+
+The 68040 item's one live sub-item read "the 68040's caches are a complete
+module attached to no CPU, so `CINV`/`CPUSH` are correctly no-ops and every
+fetch and operand is a bus access". **The first half is closed.**
+
+`ap_m68040_cache.*` was a finished module — 64 sets by four 16-byte lines,
+physically tagged, a dirty bit per long word, the whole of §4.7's transition
+tables — **reachable by nobody**. It now lives on the CPU, on a part that has
+one: `has_cache_maintenance` gates both the storage and the hashing, so no
+68020 or 68030 model's state hash moves.
+
+**`[040]` §4.1's reset trap is honoured**: "both caches should be explicitly
+cleared after a hardware reset of the processor since reset does not invalidate
+the cache lines." They are initialised once at power-on and a reset leaves them
+alone — which is why the DN5500's PROM clears them as its second instruction,
+and why that instruction now has something to clear.
+
+**What `CINV` and `CPUSH` do, from `M68000PRM`'s own two pages:**
+
+- The **CACHE field** is honoured, and `00` is "no operation". It used to be
+  ignored, so a `F400`-family word naming no cache still paid a scope's worth
+  of clocks for work nobody asked about.
+- **Scope `01` line, `10` page, `11` all**, with the operand address taken from
+  the address register the low three bits name and treated as physical — the
+  caches are physically tagged and the pages use the operand untranslated. A
+  page is the **MMU's** unit, so its size comes from the translation control
+  rather than from the cache.
+- **`CINV` discards a dirty line "without regard to its dirty state"**, which
+  is the whole difference between the two instructions and the reason they are
+  two. `CPUSH` reports what each dirty line owes memory and then invalidates
+  it; on the instruction cache, which has no dirty state, it finds nothing to
+  write back and degenerates to `CINV`.
+- Two counters, `cache_lines_invalidated` and `cache_lines_pushed`, because a
+  maintenance instruction over an empty cache is an ordinary thing for firmware
+  to do and not an error.
+
+**The remaining half, with its reason rather than a shrug.** A fetch or an
+operand still does not look in them. The caches are *physically* tagged, so a
+fill needs the MMU's output at every access — and this core's access paths run
+through `ap_m68030_step.c`'s 6,966 lines rather than one choke point. That is a
+change whose check is a DS5500 boot, not an assertion, and it is named as the
+sub-item's second half rather than folded into this one.
+
+**The four errata are recorded and the decision made.** `[RN104]` §4.12 lists
+four MC68040 defects Apollo shipped software around: `MOVE16` needing a
+preceding `NOP`, an indirect access through a serialized intermediate page
+locking the CPU up, `FMOVE`/`FMOVEM`/`MOVEM` double writes without surrounding
+`NOP`s, and `FScc -(Ay)` not working. **The decision is to implement the
+architectural behaviour and record the divergence**, in
+`cpu/m68040/ap_m68040_family.h`: three of the four say in their own text that
+Domain compilers never generate the construct, and reproducing an *unstated*
+failure — what "does not work" actually does on silicon — would be inventing
+behaviour. Two are unreachable here for a second reason: `MOVE16` has a bus
+type and a timing row and **no decoder**, and there is no `FScc` at all.
+
+*Verification: `m68040_cache_suite` 33 → 40; `ctest` 152. The seven new tests
+cover the address reconstruction a page scope depends on, `CINV` discarding
+dirty data, `CPUSH` reporting a writeback mask, the instruction cache finding
+nothing to push, a page scope reaching inside its page and not outside it at
+both 4 KB and 8 KB, and an all-scope push counting only what was dirty.*
+
+
 ## The SCSI subsystem is wired end to end (2026-09-13)
 
 Fifth and last of the SCSI item's deliverables. **A `--scsi --scsi-tape FILE`
