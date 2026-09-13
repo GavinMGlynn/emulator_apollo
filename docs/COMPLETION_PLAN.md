@@ -4838,9 +4838,17 @@ discipline throughout.
         same part the ASC carries, so the SBIC datasheet named as "next to
         fetch" is now owed by both ends of the bus. `510006-007` *User's
         Manual* (141 pages, **born-digital**, `pdfimages -list` empty) is the
-        command reference itself, one chapter per command. **Both are owed a
-        whole-document walk before any target code is written**, which is
-        `read-the-whole-document`; 215 pages, and the larger half is text.
+        command reference itself, one chapter per command, and it is
+        **WALKED WHOLE, 141/141, 2026-09-13** —
+        `docs/references/EXB8200_WALK.md`. Every command's CDB, every
+        termination, the 26-byte Error Class 7 sense with its vendor-unique
+        `9h` EXABYTE key and nineteen unit-sense bits, both filemark kinds, the
+        buffered/non-buffered rules, and ch. 23's numbers no command chapter
+        states — **300 ms** before the drive answers the bus after any reset,
+        the **1,024-byte physical block**, the **eight-block track** and the gap
+        track after it, and the tension/drum idle timers. **`[EXBPS]` is still
+        owed**, 70 of its 74 pages; nothing is implemented until it is read,
+        which is `read-the-whole-document`.
       **Which names the work precisely.** An exerciser needs the DS5500 refitted
       with the ASC *instead of* the SC-499 — which is what `[RN104]` §3.3.6 says
       a real machine must do — so the subsystem is `device/ap_wd7000.{h,c}` plus
