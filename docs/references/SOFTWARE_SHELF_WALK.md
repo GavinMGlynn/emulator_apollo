@@ -6,11 +6,11 @@ basis. Verified by matching the shelf against `docs/references/*_WALK.md` and
 
 | Class | Count | Basis |
 | --- | --- | --- |
-| **walked whole** | 6 | every page read — `004977-02`, `008862-01` (Appendix F), `014962-A00`, both 1981 architecture papers, `AEGIS_Internals` (all 426 passed over) |
-| **in progress** | 8 | key chapters read whole, the rest owed and named — the two handbook revisions, both GPIO editions, `018901-A00`, `[CFG]`, `000792-A01`, `Apollo_Price_List` |
+| **walked whole** | 8 | every page read — `004977-02`, `008862-01` (Appendix F), `014962-A00`, both 1981 architecture papers, `AEGIS_Internals` (all 426 passed over), **`008860-A03` (295/295)** and **`002398-03` (260/260)**, both finished 2026-09-13 |
+| **in progress** | 7 | key chapters read whole, the rest owed and named — `002398-01` Rev 1, both GPIO editions, `018901-A00`, `[CFG]`, `000792-A01`, `Apollo_Price_List` |
 | **release-notes shelf** | 6 | `RELEASE_NOTES_WALK.md` — §1.4/§2.1 read, the rest owed |
 | **patents** | 10 | `PATENTS_WALK.md` — front pages read, machine identified, 1 in use, 1 kept, 8 out of scope |
-| **settled by measurement** | 51 | `CONTENT_TRIAGE.md` — full text scored for hard hardware vocabulary, **each named with its score**, and every non-zero match read in context |
+| **settled by measurement** | 50 | `CONTENT_TRIAGE.md` — full text scored for hard hardware vocabulary, **each named with its score**, and every non-zero match read in context. **One moved out**: `008860-A03` scored 452,048 and was then walked whole, which is what a high score is supposed to lead to |
 | **brochures** | 7 | one rendered and inspected, the class extended, all named in full |
 
 **Reading is not finished.** Eight documents have named chapters still owed and

@@ -434,6 +434,53 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## `002398-03` is walked whole — 260 of 260 pages (2026-09-13)
+
+The *Domain Engineering Handbook* Rev 3, February 1985: eleven chapters, three
+appendices, a six-page index and the reader's-response card, **every page read
+as an image** because the scan's OCR layer turns `ACTIVE SEGMENT TABLE` into
+`ACI'IVE SEX;MENT mBLE`. Coverage page by page in
+`docs/references/002398-03_WALK.md`.
+
+**What it changed** is recorded in this file already, chapter by chapter: the
+volume-label search (chapter 2's figures at 600 dpi), `bat_$uid` naming
+`00000203`, p. 2-10's rule that a logical volume's DADDRs are relative to its
+start — which explained the `+1` `tools/awd_read.py` had measured and could not
+account for — the five error codes, the SYSBOOT list, the MD command set, and
+chapter 8's `DELAY` bit, which turned `RING.md` finding 32 from a derivation
+into a quotation.
+
+**What the last three chapters changed is nothing, and that is the result.**
+Chapters 10 and 11 and the appendices are per-model registers for the DN550 and
+the DSP80, machines this core does not model. They were read whole anyway, under
+*read the WHOLE document*, and they produced **four independent confirmations**:
+
+- **p. 10-9 prints the QIC-02 status bytes** with a decode table — a third
+  witness to what `device/ap_qic.h` models, and the first from outside the OMTI
+  family, whose three manuals `omti-manuals-share-source-text` records as one
+  witness printed three times. Every bit agrees.
+- **pp. 10-17 and 11-8 print the boot PROM's service table twice more** —
+  `5 => stingray` and `3 => DSP80, no aux info`, then the same eleven entries
+  (`getc putc init_dsk read_dsk reload_font pollc quiet_ret write_disk log_error
+  crash led_update`) at the same offsets `104`-`12C`. The machine-type word is a
+  machine type, not a family, and the layout has not moved in three revisions.
+- **p. 10-19's "bit 11 of transmitter header count = 1 => data length = 0"** is
+  the DN550's `CH1DIS`, matching `RING.md` finding 32b from a second board.
+- **p. 11-8: the DSP80 "uses only the Signetics SC2681 DUART (there is no
+  keyboard interface)"** — which is why its own fault-vector table still lists
+  vector `1A` as "(Keyboard input)", in parentheses. A server has no keyboard,
+  so the channel a workstation spends on one is free.
+
+**One thing worth knowing and costing nothing**: Appendix A's ASCII chart is not
+a plain one. `0E RRS`, `0F BRS`, `10 RCP`, `12 HLF` and `14 HLR` carry Apollo's
+display-manager names where ASCII has SO, SI, DLE, DC2 and DC4. Those are
+interpreted by Domain/OS in software above the frame buffer, not by any register
+here, so a stream of `0E`/`0F` bytes out of a guest is display control and not a
+protocol error.
+
+*Verification: none — no code changed. The evidence is the walk record, which is
+page by page, and the four agreements above, each cited to its page.*
+
 ## The DS5500 boots Domain/OS to the Server Process Manager (2026-09-12)
 
     Self tests passed.
@@ -6377,6 +6424,23 @@ two booted nodes each reporting the other. It is launched.
 
 "Every document read" is a claim this file has made in pieces and never in one
 place, so it is collected here with what backs it.
+
+**CORRECTED 2026-09-13: `docs/references/` now holds 41 walk records, and they
+do not all say walked whole.** The twenty named below are still twenty finished
+documents and the sentence is still accurate about *them*; what changed is the
+directory around them. Finished since and verified today by their own state
+lines: **`000959-A00` 314/314, `004977-02` 118/118, `008860-A03` 295/295,
+`002398-03` 260/260, `96-000494X3` (WD7000) 140/140, `ARCHITECTURE_1981` 31/31,
+`[020]` 452/452 and `[040]` 719/719.** The remaining growth is records that say
+something other than whole and say it in their own first line — `002398-01` and
+`[CFG]` in progress, `018901-A00` walked but part-read, `008862-01`,
+`014962-A00` and `AEGIS_Internals` passed over, `AEGIS_Overview` triaged, and
+the four shelf records (`PATENTS`, `PRICE_LIST`, `RELEASE_NOTES`,
+`SOFTWARE_SHELF`), which are inventories rather than documents. **Read the state
+line, not this paragraph** — that is the whole point of the records.
+
+*Original text, kept because it is the evidence this section was written to
+collect:*
 
 **Twenty walk records in `docs/references/`, and every one says walked whole**:
 `002398-04` 330/330, `007196-01` 722/722, `008778-03` 209/209, `010005-00`

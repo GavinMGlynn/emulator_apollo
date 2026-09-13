@@ -4622,8 +4622,7 @@ discipline throughout.
       built and every chapter boundary is known; what is owed is the reading.
       **All 295 read.** Every page as an image — 600 dpi to PDF 255, 400 dpi
       after — because the OCR drops what this document is made of.
-      **`002398-03` Rev 3 is next and chapters 1 to 6 are read whole**
-      (2026-09-13): a page map from all 260 footers; the ring packet's Early
+      **`002398-03` Rev 3 is WALKED WHOLE, 260/260, finished 2026-09-13**: a page map from all 260 footers; the ring packet's Early
       Acknowledge field bit by bit; the boot chain agent by agent;
       **`bat_$uid` naming `00000203`**; p. 2-10's rule that a logical volume's
       DADDRs are relative to its start — the `+1` `awd_read.py` had measured
@@ -4631,9 +4630,9 @@ discipline throughout.
       measurement**, `00120020` among them; the **SYSBOOT error list** with the
       string the DS5500 printed; the **MD command set with meanings**, including
       `LD`, `STCODE` and `EY`; and chapter 6's **DTYPE class-and-drive** reading
-      of the `0504` both volumes carry. Chapters 7-11 and three appendices owed,
-      **139 pages, all of them per-model registers for machines this core does
-      not model**, though **chapter 8 found one anyway**: p. 8-38's `DELAY`
+      of the `0504` both volumes carry. Chapters 7 to 11 and the three appendices
+      are **per-model registers for machines this core does not model** and
+      were expected to yield nothing, though **chapter 8 found one anyway**: p. 8-38's `DELAY`
       bit turns `RING.md` finding 32 from a derivation into a statement —
       "an additional seven-bit delay into the length of the network ... to
       support the recirculation of the token, **which is nine bits**".
@@ -4643,6 +4642,20 @@ discipline throughout.
       control registers give a three-granularity TLB purge — Apollo had the
       68030/68040's MMU shape a decade early, which is the lineage `[AEGIS]`
       §9 and §11.2.3 are talking about.
+      **Chapters 10 and 11 found no third defect and confirmed four things
+      instead**, which is the result: p. 10-9 prints the **QIC-02 status
+      bytes** with a decode table — an independent third witness to
+      `device/ap_qic.h` from a document outside the OMTI family, every bit
+      agreeing; pp. 10-17 and 11-8 print **the boot PROM's service table twice
+      more**, `5 => stingray` and `3 => DSP80`, same eleven entries at the same
+      offsets; p. 10-19's **"bit 11 of transmitter header count = 1 => data
+      length = 0"** is the DN550's `CH1DIS`, matching `RING.md` finding 32b; and
+      p. 11-8 states the DSP80 "uses **only the Signetics SC2681 DUART** (there
+      is **no keyboard interface**)", which is why its vector `1A` reads
+      "(Keyboard input)" in parentheses. The appendices are an ASCII chart
+      whose `0E`-`14` carry Apollo's own display-manager names, powers of two,
+      and the F.A.R. service codes — no register and no timing, and the parts
+      lists confirm `DN550 (STINGRAY)` and `DN460/660 (TERN)`.
       **And chapter 7 establishes that Rev 4 reprints them**:
       five of its tables (the ring registers with `0014`/`0012`, the receive
       status's "before me" wording, `TMASK`, the SC2681 baud groups, the PROM
