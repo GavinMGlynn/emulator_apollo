@@ -4442,6 +4442,57 @@ discipline throughout.
       checked cell by cell; agreement with p. 6-13 rises 238 → 240 of 241.
       Detail in `PROJECT_STATUS.md`.*
 
+## The route to finish — seven open items, 2026-09-13
+
+Written because the plan had 172 ticked items and no statement of what closing
+the remaining seven actually takes. **Four are work with no unknowns. Three are
+deferrals whose own text says not to start them, and they need a decision
+rather than a session.** Ordered by what unblocks what.
+
+**1. The SCSI bus and its targets — code only, no document is owed.**
+`[WD7000]` 140/140, `[EXB]` 141/141 and `[EXBPS]` 74/74 are walked whole; the
+one unfetched datasheet is needed only for a negotiation neither end performs.
+Five named deliverables, each its own commit with its own suite:
+  1. `src/core/device/ap_scsi.{h,c}` — the bus: eight IDs x eight LUNs, a
+     target registration table, selection with `[WD7000]` §6.2.11.5's 250 ms
+     timeout posting vue `4D`, the CDB and data phases, the status byte, and
+     the eleven messages `[EXB]` Table 3-1 allows and no others.
+  2. First-party DMA: a host-memory read/write hook from `ap_board` into
+     `ap_wd7000`, with Appendix C's 8237 cascade-mode rule.
+  3. `ap_wd7000` SCB execution: mailbox scan on `80`-`BF`/`C0`-`FF`, the
+     32-byte SCB fetched and written back, ICMB posted, IRQ raised.
+  4. `src/core/device/ap_exb8200.{h,c}` — the target: eighteen Group 0
+     commands, the 26-byte Error Class 7 sense, buffered and non-buffered
+     modes, both filemark kinds, and ch. 24's position rules.
+  5. `.exa` media plus board wiring, then Domain/OS `/sys/mgrs/rmt_scsi` as
+     the integration check.
+
+**2. The 68040 item is one live sub-item, and its title is stale.** Everything
+numbered in it is struck through except **"the 68040's caches are a complete
+module attached to no CPU"**: attach them, so `CINV`/`CPUSH` stop being no-ops
+and fetches and operands go through the caches instead of straight to the bus,
+and record `[RN104]` §4.12's four errata as documented divergences. One
+change, one suite, one commit. Not a new instruction core.
+
+**3. The Domain/OS software shelf — bounded reading, no blockers.** ~80
+untouched documents, seven part-read records naming their own owed chapters,
+and the 805-page release-notes shelf. Finishable; the only question is pace.
+
+**4. Real multi-node Domain workloads — startable today.** It needs a second
+*genuinely installed* volume (its own INVOL and `minst`, not a relabelled
+copy, for the UID reason the item states), then `lcnode`, remote file access
+and distributed single-level store across two booted nodes.
+
+**5, 6, 7 — the performance chain, and it needs a decision, not a session.**
+A resumable sequencer, then exact-skip scheduling, then exact-skip across
+nodes. Each says in its own text that it should not be spent until something
+measured needs it, and the 350 M A/B says nothing on this machine can tell the
+difference today. **Two honest endings, and the choice is the project's, not
+the plan's**: authorise the sequencer rewrite and take the chain in order, or
+close all three under `CLAUDE.md`'s *deliberate approximations are fine —
+documented, with reason and cost to close*, which is what they already are in
+substance. They are the only items here with no route that is simply work.
+
 - [ ] **The Domain/OS software shelf has never been read: 96 documents,
       80 of them still untouched.** `docs/references/SOFTWARE_SHELF_WALK.md` is the
       register. Twenty-two `*_WALK.md` records exist and every one says "walked
