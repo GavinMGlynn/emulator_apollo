@@ -4453,10 +4453,15 @@ rather than a session.** Ordered by what unblocks what.
 `[WD7000]` 140/140, `[EXB]` 141/141 and `[EXBPS]` 74/74 are walked whole; the
 one unfetched datasheet is needed only for a negotiation neither end performs.
 Five named deliverables, each its own commit with its own suite:
-  1. `src/core/device/ap_scsi.{h,c}` — the bus: eight IDs x eight LUNs, a
-     target registration table, selection with `[WD7000]` §6.2.11.5's 250 ms
-     timeout posting vue `4D`, the CDB and data phases, the status byte, and
-     the eleven messages `[EXB]` Table 3-1 allows and no others.
+  1. ~~`src/core/device/ap_scsi.{h,c}` — the bus.~~ **DONE 2026-09-13.**
+     Eight IDs by eight LUNs with the initiator's slot refused, selection
+     against the target's own presence so a dead drive is a timeout and not a
+     Busy, the 250 ms selection timeout and the 300 ms reset silence, Table
+     3-1's eleven messages and no others, the four status codes, Group 0 as
+     the only length, and the runaway-target guard. Modelled as a
+     **transaction, not wires**, because the ASC's Z80 owns every bus phase —
+     reasoning and the two named approximations in `PROJECT_STATUS.md`.
+     *Verification: `scsi_suite`, 18 tests; `ctest` 149 → 150.*
   2. First-party DMA: a host-memory read/write hook from `ap_board` into
      `ap_wd7000`, with Appendix C's 8237 cascade-mode rule.
   3. `ap_wd7000` SCB execution: mailbox scan on `80`-`BF`/`C0`-`FF`, the

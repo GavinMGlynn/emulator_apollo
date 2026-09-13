@@ -82,6 +82,7 @@ add_library(apollo_core STATIC
   device/ap_omti_cdb.c
   device/ap_qic.c
   device/ap_sc499.c
+  device/ap_scsi.c
   device/ap_wd7000.c
   device/ap_mc68681.c
   device/ap_bt458.c

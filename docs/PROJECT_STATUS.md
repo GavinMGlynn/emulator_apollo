@@ -434,6 +434,57 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## `device/ap_scsi`: the bus, and why it is a transaction (2026-09-13)
+
+The first of the SCSI item's five deliverables. **The bus between the
+WD7000-ASC and its targets: addressing, selection and its timeout, the reset
+silence, the message set, and one transaction.**
+
+**Why a transaction and not wires, stated because it is the design decision
+this subsystem turns on.** `[WD7000]` §3: the ASC carries an on-board **Z80**,
+and the SBIC "does arbitration, selection, disconnection and reselection" under
+its firmware. The host never sees a bus phase — it writes a 32-byte SCB into
+memory, rings a mailbox and is interrupted with a completion code. So the
+boundary that has to be exact is the **SCB and its ICMB**, and REQ/ACK below it
+is an interface no software on this machine can observe. Modelling it would be
+inventing behaviour, which is the same reason `ap_kbd` models the
+keyboard-to-CPU packet rather than the mouse's quadrature clocks.
+
+**What that costs, named rather than hidden.** A disconnect-reconnect is not a
+bus event here: a target that would disconnect simply takes longer, and nothing
+in the SCB records that it happened — `[WD7000]` §5.7.1 posts the same ICMB
+either way. The discriminator that would reopen it is a driver timing a command
+finely enough to see the gap, which `scsi14.drvr` does not. The same applies to
+an Abort arriving mid-transfer: `[EXB]` §3.4 says that for every command but
+READ, WRITE, SPACE and ERASE the operation completes anyway, which is what this
+does; for the other four it is a deliberate approximation.
+
+**What is exact**: eight IDs by eight LUNs with the initiator's own slot
+refused (`[WD7000]` Table 6-5 calls it "a placeholder"); the three-bit host ID;
+selection against a target's own `present`, so a powered-off drive is a
+**timeout and not a Busy status**; `[WD7000]` §6.2.11.4's **250 ms** default
+timeout, which is what vue `4D` names; `[EXB]` §23.2 and `[EXBPS]` §10.1.2's
+**300 ms reset silence**, restarted rather than shortened by a second reset;
+`[EXB]` Table 3-1's **eleven messages and no others**, with Identify read as a
+field (bit 7 identifies, bit 6 grants disconnect privilege, bits 2-0 the LUN)
+and everything outside the table rejected rather than ignored; Bus Device Reset
+reaching one target where a bus RST reaches all; the four status codes of Table
+4-2 with bit 0 always zero and bits 7-5 reserved; Group 0's six bytes as the
+only length, `[EXB]` §4.3; and SCB bytes 16-18's **runaway-target guard**, so a
+target cannot claim to have moved more than the initiator offered.
+
+**Not wired to anything yet, which is the honest state after one of five.**
+`ap_scsi` is called by its suite and by nothing else; the ASC does not fetch an
+SCB yet and there is no target. Deliverables 2 to 5 — the first-party DMA hook,
+SCB execution in `ap_wd7000`, the EXB-8200 target itself, and the media plus
+board wiring — are named in `COMPLETION_PLAN.md`'s *route to finish*.
+
+*Verification: `scsi_suite`, 18 tests; `ctest` 149 → 150. Each test states a
+bus fact and cites it — the timeout and silence constants are asserted against
+their derived values, the status codes against Table 4-2's shape, and the group
+rule across all 256 opcodes.*
+
+
 ## The SCSI target is an EXABYTE EXB-8200, and the guest named it (2026-09-13)
 
 The SCSI plan item's last open sub-item is "the bus and its targets", and
