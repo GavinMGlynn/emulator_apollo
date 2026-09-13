@@ -327,6 +327,7 @@ USER_SUPPLIED = (
     "docs/references/motorola/",
     "docs/references/omti/",
     "docs/references/bitsavers/",
+    "docs/references/exabyte/",
     "docs/references/westernDigital/",
     "tools/mame-oracle/out/",
     "roms/",

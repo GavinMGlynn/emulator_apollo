@@ -4811,6 +4811,36 @@ discipline throughout.
   - [ ] **The SCSI bus and its targets.** Arbitration, selection, the CDB and
         data phases over first-party DMA, and at least one target. The same
         split the tape has between `ap_sc499` and `ap_qic`.
+        **The target is identified, 2026-09-13, and it is an EXABYTE EXB-8200.**
+        `tools/awd_read.py` extracted `/sys/mgrs/rmt_scsi` — the Domain/OS
+        manager this item has been calling "the exerciser" — off the SR10.4
+        volume, and it carries a four-entry **INQUIRY vendor+product table**,
+        24 bytes each, which is how it decides what it is talking to:
+        `CDC     92185           `, `EXABYTE EXB-8200        `,
+        `EXABYTE EXB-8200 (OLD)  ` and `HP      HP35470A        `. It also
+        carries the string "Filemark flag false when Exabyte space filemark
+        error detected" and 38 `rmt_scsi_$` entry points that are a
+        sequential-access tape device's, `$space_file`, `$write_file_mark`,
+        `$retension`, `$set_density` and `$erase_record` among them. Third use
+        of the method in `the-guest-driver-names-the-part`.
+        **The documents are fetched and the command set is bounded.**
+        `docs/references/exabyte/` now holds four EXB-8200 manuals from
+        bitsavers. `510005-006` *Product Specification* (74 pages, 600-dpi
+        scan) §8.3 Table 8-2 gives **the whole command set — 18 Group 0
+        sequential-access commands**: `00` TEST UNIT READY, `01` REWIND, `03`
+        REQUEST SENSE, `05` READ BLOCK LIMITS, `08` READ, `0A` WRITE, `10`
+        WRITE FILEMARKS, `11` SPACE, `12` INQUIRY, `15` MODE SELECT, `16`
+        RESERVE UNIT, `17` RELEASE UNIT, `19` ERASE, `1A` MODE SENSE, `1B`
+        LOAD/UNLOAD, `1C` RECEIVE DIAGNOSTIC RESULTS, `1D` SEND DIAGNOSTICS,
+        `1E` PREVENT/ALLOW MEDIA REMOVAL; Table 8-1 gives the eleven messages,
+        **no extended messages and no linked commands**; and §8 states ANSI
+        X3.131-1986 Rev 17B conformance level 2 and a **WD33C93** SBIC — the
+        same part the ASC carries, so the SBIC datasheet named as "next to
+        fetch" is now owed by both ends of the bus. `510006-007` *User's
+        Manual* (141 pages, **born-digital**, `pdfimages -list` empty) is the
+        command reference itself, one chapter per command. **Both are owed a
+        whole-document walk before any target code is written**, which is
+        `read-the-whole-document`; 215 pages, and the larger half is text.
       **Which names the work precisely.** An exerciser needs the DS5500 refitted
       with the ASC *instead of* the SC-499 — which is what `[RN104]` §3.3.6 says
       a real machine must do — so the subsystem is `device/ap_wd7000.{h,c}` plus

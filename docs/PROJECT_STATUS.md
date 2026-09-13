@@ -434,6 +434,65 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## The SCSI target is an EXABYTE EXB-8200, and the guest named it (2026-09-13)
+
+The SCSI plan item's last open sub-item is "the bus and its targets", and
+"at least one target" had never been decided. It is decided now, and not by
+choosing: the machine's own software says which.
+
+`tools/awd_read.py` extracted **`/sys/mgrs/rmt_scsi`** — the Domain/OS manager
+this item has been calling the exerciser — off the SR10.4 volume. It carries a
+four-entry table of **INQUIRY vendor-plus-product strings**, 24 bytes each,
+each behind its own `00 18` length, which is how it decides what is on the bus:
+
+    CDC     92185           
+    EXABYTE EXB-8200        
+    EXABYTE EXB-8200 (OLD)  
+    HP      HP35470A        
+
+and a diagnostic that names one of them outright — "Filemark flag false when
+Exabyte space filemark error detected" — beside 38 `rmt_scsi_$` entry points
+that are a sequential-access tape device's: `$space_file`, `$space_record`,
+`$write_file_mark`, `$retension`, `$set_density`, `$inq_tape_speed`,
+`$erase_record`, `$unload`. So the target class is **SCSI sequential access**,
+and the part to model is the **EXB-8200**. Third use of the method in
+`the-guest-driver-names-the-part`, after the WD7000-ASC and the SC-499.
+
+**The documents are on the shelf and the command set is bounded.**
+`docs/references/exabyte/` holds four EXB-8200 manuals fetched from bitsavers.
+`510005-006` *Product Specification*, 74 pages, 600-dpi JBIG2 scan, §8:
+
+- **§8 conformance**: ANSI SCSI **X3.131-1986 Rev 17B, conformance level 2**,
+  sequential access; the drive's own bus controller is a **WD33C93** — the
+  same part the ASC carries, so the SBIC datasheet the WD7000 walk named as
+  "next to fetch" is now owed by both ends of the bus.
+- **Table 8-2, the whole command set — 18 Group 0 commands**: `00` TEST UNIT
+  READY, `01` REWIND, `03` REQUEST SENSE, `05` READ BLOCK LIMITS, `08` READ,
+  `0A` WRITE, `10` WRITE FILEMARKS, `11` SPACE, `12` INQUIRY, `15` MODE
+  SELECT, `16` RESERVE UNIT, `17` RELEASE UNIT, `19` ERASE, `1A` MODE SENSE,
+  `1B` LOAD/UNLOAD, `1C` RECEIVE DIAGNOSTIC RESULTS, `1D` SEND DIAGNOSTICS,
+  `1E` PREVENT/ALLOW MEDIA REMOVAL. RESERVE and RELEASE are marked "2600-level
+  MX code and above only", which is a firmware-revision choice a model has to
+  make, the same question `[WD7000]`'s errata page raised for the ASC.
+- **Table 8-1, the eleven messages**, and the sentence that bounds them: the
+  EXB-8200 "does not support the extended message format or the use of linked
+  commands". So no synchronous negotiation from this end — which meets the
+  ASC's own default of `40H`, asynchronous, from the other.
+
+`510006-007` *User's Manual*, **141 pages and born-digital** — `pdfimages
+-list` returns nothing at all — is the command reference, one chapter per
+command, chapters 5 to 22.
+
+**Nothing is implemented yet, and both documents are owed a whole-document
+walk before anything is** — 215 pages, the larger half text rather than
+images. That is `read-the-whole-document`, and the two documents landed
+together for the reason `fetch-the-parts-own-datasheet` records: the board
+manual named the chip and nobody had searched for the chip's own manual.
+
+*Verification: none — no code yet. The identification is checked the way the
+WD7000's was: an artefact off the guest's own volume, read at the byte.*
+
+
 ## The keyboard's third witness settles both `PROVISIONAL` cells (2026-09-13)
 
 `002398-03` p. 6-10, the *Low-Profile Keyboard Chart -- Physical*, is the same
