@@ -4633,7 +4633,11 @@ discipline throughout.
       `LD`, `STCODE` and `EY`; and chapter 6's **DTYPE class-and-drive** reading
       of the `0504` both volumes carry. Chapters 7-11 and three appendices owed,
       **139 pages, all of them per-model registers for machines this core does
-      not model** — and **chapter 7 establishes that Rev 4 reprints them**:
+      not model**, though **chapter 8 found one anyway**: p. 8-38's `DELAY`
+      bit turns `RING.md` finding 32 from a derivation into a statement —
+      "an additional seven-bit delay into the length of the network ... to
+      support the recirculation of the token, **which is nine bits**".
+      **And chapter 7 establishes that Rev 4 reprints them**:
       five of its tables (the ring registers with `0014`/`0012`, the receive
       status's "before me" wording, `TMASK`, the SC2681 baud groups, the PROM
       entry points) are already in `RING.md`, `ap_mc68681.h` and the
