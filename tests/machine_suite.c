@@ -880,6 +880,11 @@ static void test_every_transcribed_row_matches_both_published_columns(void) {
       {0xE298u, "ROR.L #1,D0"},   {0xE290u, "ROXR.L #1,D0"},
       /* §11.6.16: NOP, whose 2 clocks the oracle measured independently. */
       {0x4E71u, "NOP"},
+      /* §11.6.7's single-word register forms. */
+      {0x4840u, "SWAP D0"},       {0xC141u, "EXG D0,D1"},
+      {0x40C0u, "MOVE SR,D0"},    {0x42C0u, "MOVE CCR,D0"},
+      {0x44C0u, "MOVE D0,CCR"},   {0x4E68u, "MOVE USP,A0"},
+      {0x4E60u, "MOVE A0,USP"},
   };
 
   for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
@@ -981,6 +986,59 @@ static void test_the_scsi_wait_loops_memory_forms_compose_from_their_tables(
     TEST_ASSERT_EQUAL_UINT64_MESSAGE(
         fea->timing.no_cache_case + row->timing.no_cache_case,
         (total + 3u) / 4u, CASES[c].what);
+  }
+}
+
+/* §11.6.16's address forms on a running machine, each composed with its own
+ * effective address table: `LEA` and `PEA` through §11.6.3's `(An)`, `JMP` and
+ * `JSR` through §11.6.5's. The expected figures come from the table API, so
+ * what this asserts is that the step composes what the tables say.
+ *
+ * The jumps are checked warm only. A cold sample walks forward through fresh
+ * memory, and a jump does not walk forward: every step lands at `(A0)`. */
+static void test_the_address_forms_compose_from_their_own_tables(void) {
+  static const struct {
+    uint16_t word;
+    ap_m68030_ea_time_t table;
+    bool cold;
+    const char *what;
+  } CASES[] = {
+      {0x43D0u, AP_M68030_EA_TIME_CALCULATE, true, "LEA (A0),A1"},
+      {0x4850u, AP_M68030_EA_TIME_CALCULATE, true, "PEA (A0)"},
+      {0x4ED0u, AP_M68030_EA_TIME_JUMP, false, "JMP (A0)"},
+      {0x4E90u, AP_M68030_EA_TIME_JUMP, false, "JSR (A0)"},
+  };
+
+  for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
+    const ap_m68030_table_entry_t *row =
+        ap_m68030_timing_for_word(CASES[c].word);
+    TEST_ASSERT_NOT_NULL_MESSAGE(row, CASES[c].what);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(CASES[c].table, row->effective_address_time,
+                                  CASES[c].what);
+    const ap_m68030_ea_timing_t *ea =
+        CASES[c].table == AP_M68030_EA_TIME_JUMP
+            ? ap_m68030_ea_jump_timing(AP_M68030_EA_ADDRESS_INDIRECT)
+            : ap_m68030_ea_calculate_timing(AP_M68030_EA_ADDRESS_INDIRECT);
+    TEST_ASSERT_NOT_NULL(ea);
+
+    ap_m68030_overlap_state_t composed = ap_m68030_overlap_begin();
+    ap_m68030_ea_timing_compose(&composed, ea, &row->timing);
+    const uint64_t cache_case = ap_m68030_overlap_total(&composed);
+
+    uint64_t warm[4];
+    sample_memory_form(CASES[c].word, true, warm, 4u);
+    for (unsigned i = 0; i < 4u; i++) {
+      TEST_ASSERT_EQUAL_UINT64_MESSAGE(cache_case, warm[i], CASES[c].what);
+    }
+
+    if (CASES[c].cold) {
+      uint64_t cold[4];
+      sample_memory_form(CASES[c].word, false, cold, 4u);
+      const uint64_t total = cold[0] + cold[1] + cold[2] + cold[3];
+      TEST_ASSERT_EQUAL_UINT64_MESSAGE(
+          ea->timing.no_cache_case + row->timing.no_cache_case,
+          (total + 3u) / 4u, CASES[c].what);
+    }
   }
 }
 
@@ -2958,6 +3016,7 @@ int main(void) {
   RUN_TEST(test_a_run_bound_above_two_to_the_thirty_two_is_not_truncated);
   RUN_TEST(test_the_executed_count_can_hold_more_than_a_32_bit_run);
   RUN_TEST(test_every_transcribed_row_matches_both_published_columns);
+  RUN_TEST(test_the_address_forms_compose_from_their_own_tables);
   RUN_TEST(test_the_footnoted_memory_forms_compose_to_the_manuals_total);
   RUN_TEST(test_the_scsi_wait_loops_memory_forms_compose_from_their_tables);
   RUN_TEST(test_the_unfootnoted_memory_moves_match_both_columns);

@@ -175,6 +175,28 @@ enum {
   ROW_RO_DX,
   ROW_RO_MEM,
   ROW_ROX_MEM,
+  /* §11.6.16's address forms, and §11.6.7's rows the instruction word
+   * selects. */
+  ROW_JMP,
+  ROW_JSR,
+  ROW_LEA,
+  ROW_PEA,
+  ROW_EXG,
+  ROW_MOVEC_CR_RN,
+  ROW_MOVE_CCR_DN,
+  ROW_MOVE_CCR_MEM,
+  ROW_MOVE_DN_CCR,
+  ROW_MOVE_EA_CCR,
+  ROW_MOVE_SR_DN,
+  ROW_MOVE_SR_MEM,
+  ROW_MOVE_EA_SR,
+  ROW_MOVEP_W_TO_MEM,
+  ROW_MOVEP_W_FROM_MEM,
+  ROW_MOVEP_L_TO_MEM,
+  ROW_MOVEP_L_FROM_MEM,
+  ROW_MOVE_USP_AN,
+  ROW_MOVE_AN_USP,
+  ROW_SWAP,
   ROW_COUNT,
 };
 
@@ -497,6 +519,57 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     [ROW_RO_DX] = {"ROd Dx,Dy", {.head = 6, .tail = 0, .cache_case = 8, .no_cache_case = 8, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
     [ROW_RO_MEM] = {"ROd Mem by 1", {.head = 0, .tail = 0, .cache_case = 6, .no_cache_case = 6, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
     [ROW_ROX_MEM] = {"ROXd Mem by 1", {.head = 0, .tail = 0, .cache_case = 4, .no_cache_case = 4, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+
+    /* §11.6.16's address forms, from the page image (p. 11-49). `JMP` and `JSR`
+     * are `%`, "Add Jump Effective Address Time", §11.6.5; `LEA` and `PEA` are
+     * `**`, §11.6.3. The two jumps refill the pipe at their target, so both
+     * publish two prefetches and neither depends on alignment -- `BSR`'s shape,
+     * and `JSR`'s figures are `BSR`'s less the displacement word. */
+    [ROW_JMP] = {"JMP", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 6, .prefetches = 2}, false, AP_M68030_EA_TIME_JUMP, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_JSR] = {"JSR", {.head = 0, .tail = 0, .cache_case = 4, .no_cache_case = 7, .writes = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_JUMP, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_LEA] = {"LEA", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_PEA] = {"PEA", {.head = 0, .tail = 2, .cache_case = 4, .no_cache_case = 4, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE, AP_M68030_PREFETCH_SINGLE_WORD},
+
+    /* §11.6.7, Special-Purpose MOVE, from the page image (p. 11-39): the rows
+     * the instruction word selects. **Its footnote symbols are its own**: `*`
+     * is Calculate Effective Address, `#` Fetch, and `%` Calculate Immediate --
+     * the reverse of §11.6.8's `*` and a third meaning for §11.6.16's `%`.
+     *
+     * **`MOVE EA,CCR` is priced by the fetch table, against its footnote.** The
+     * page marks it `*`, calculate, and prints no read in its row, so taken
+     * literally a move into CCR from memory reads nothing anywhere. The
+     * `MC68020 User's Manual` §9.2.7 marks the same instruction `*` as well --
+     * but there `*` is "Add Fetch Effective Address time" and `#` is the
+     * calculate table. The 68030 page swapped what the two symbols mean, moved
+     * `MOVE EA,SR` and the two moves to memory with them, and left `EA,CCR`
+     * under the old symbol. `MOVE EA,SR` is fetch on both pages. A symbol
+     * carried over, then, and the instruction's operand read is what decides
+     * it.
+     *
+     * Owed from this table: `MOVEC Rn,Cr` (the extension word picks group A or
+     * B), both `MOVES` rows (the extension word picks the direction, priced
+     * through §11.6.4) and both `MOVEM` rows (a formula in the register count
+     * and wait states). */
+    [ROW_EXG] = {"EXG Ry,Rx", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_MOVEC_CR_RN] = {"MOVEC Cr,Rn", {.head = 6, .tail = 0, .cache_case = 6, .no_cache_case = 6, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_MOVE_CCR_DN] = {"MOVE CCR,Dn", {.head = 2, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_MOVE_CCR_MEM] = {"MOVE CCR,Mem", {.head = 2, .tail = 0, .cache_case = 4, .no_cache_case = 5, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_MOVE_DN_CCR] = {"MOVE Dn,CCR", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_MOVE_EA_CCR] = {"MOVE EA,CCR", {.head = 0, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_MOVE_SR_DN] = {"MOVE SR,Dn", {.head = 2, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_MOVE_SR_MEM] = {"MOVE SR,Mem", {.head = 2, .tail = 0, .cache_case = 4, .no_cache_case = 5, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE, AP_M68030_PREFETCH_SINGLE_WORD},
+    /* A status register write refills the pipe -- two prefetches, as
+     * `ANDI #<data>,SR` has -- and a refill costs the same at either alignment. */
+    [ROW_MOVE_EA_SR] = {"MOVE EA,SR", {.head = 0, .tail = 0, .cache_case = 8, .no_cache_case = 10, .prefetches = 2}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    /* Two words each: the displacement is the instruction's own, not an
+     * effective address's, so it is in the row. */
+    [ROW_MOVEP_W_TO_MEM] = {"MOVEP.W Dn,(d16,An)", {.head = 4, .tail = 0, .cache_case = 10, .no_cache_case = 10, .writes = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_MOVEP_W_FROM_MEM] = {"MOVEP.W (d16,An),Dn", {.head = 2, .tail = 0, .cache_case = 10, .no_cache_case = 10, .reads = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_MOVEP_L_TO_MEM] = {"MOVEP.L Dn,(d16,An)", {.head = 4, .tail = 0, .cache_case = 14, .no_cache_case = 14, .writes = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_MOVEP_L_FROM_MEM] = {"MOVEP.L (d16,An),Dn", {.head = 2, .tail = 0, .cache_case = 14, .no_cache_case = 14, .reads = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_MOVE_USP_AN] = {"MOVE USP,An", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_MOVE_AN_USP] = {"MOVE An,USP", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_SWAP] = {"SWAP Dn", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
 };
 
 #define TABLE_COUNT (sizeof TABLE / sizeof TABLE[0])
@@ -531,6 +604,11 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
     return &TABLE[ROW_RTR];
   case 0x4E74u:
     return &TABLE[ROW_RTD];
+  case 0x4E7Au:
+    /* `MOVEC Cr,Rn`, one row for every control register. The other direction
+     * splits by register group, which only the extension word names, so
+     * `$4E7B` has no row here. */
+    return &TABLE[ROW_MOVEC_CR_RN];
   default:
     break;
   }
@@ -545,6 +623,13 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
   }
   if ((instruction & 0xFFF8u) == 0x4808u) {
     return &TABLE[ROW_LINK_L];
+  }
+  /* §11.6.7's user stack pointer pair, `$4E6x`, bit 3 the direction. */
+  if ((instruction & 0xFFF8u) == 0x4E60u) {
+    return &TABLE[ROW_MOVE_AN_USP];
+  }
+  if ((instruction & 0xFFF8u) == 0x4E68u) {
+    return &TABLE[ROW_MOVE_USP_AN];
   }
 
   /* Family 0000: the immediates of §11.6.9, the bit operations of §11.6.13 and
@@ -567,7 +652,12 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
       /* `0000 rrr1 tt mode reg`, where mode 001 is `MOVEP` instead. `tt` is
        * the operation, not a size. */
       if (mode == 0x1u) {
-        return nullptr;
+        /* §11.6.7's `MOVEP`: bit 7 is the direction, 0 memory to register,
+         * and bit 6 the size, 0 a word. */
+        static const unsigned MOVEP[4] = {
+            ROW_MOVEP_W_FROM_MEM, ROW_MOVEP_L_FROM_MEM, ROW_MOVEP_W_TO_MEM,
+            ROW_MOVEP_L_TO_MEM};
+        return &TABLE[MOVEP[size_field]];
       }
       /* Only `BTST` may test a bit of immediate data; the other three would
        * be writing to it. */
@@ -652,6 +742,65 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
   if (family == 0x4u) {
     const unsigned row = (unsigned)((instruction >> 9) & 0x7u);
     const unsigned size_field = (unsigned)((instruction >> 6) & 0x3u);
+    const unsigned ea_register = (unsigned)(instruction & 0x7u);
+
+    /* §11.6.16's address forms: `JMP` and `JSR` through §11.6.5, `LEA` and
+     * `PEA` through §11.6.3. Only the control modes are instructions -- `(An)`,
+     * `(d16,An)`, mode 6, the absolutes and the two PC-relative forms. */
+    const bool control_mode = mode == 0x2u || mode == 0x5u || mode == 0x6u ||
+                              (mode == 0x7u && ea_register <= 0x3u);
+    if (control_mode) {
+      if ((instruction & 0xFFC0u) == 0x4EC0u) {
+        return &TABLE[ROW_JMP];
+      }
+      if ((instruction & 0xFFC0u) == 0x4E80u) {
+        return &TABLE[ROW_JSR];
+      }
+      if ((instruction & 0xF1C0u) == 0x41C0u) {
+        return &TABLE[ROW_LEA];
+      }
+      if ((instruction & 0xFFC0u) == 0x4840u) {
+        return &TABLE[ROW_PEA];
+      }
+    }
+    /* §11.6.7's forms in this family. `SWAP` is `PEA`'s group with a data
+     * register, and the four status moves take the size field's `11`. */
+    if ((instruction & 0xFFF8u) == 0x4840u) {
+      return &TABLE[ROW_SWAP];
+    }
+    const bool data_alterable = mode == 0x0u || (mode >= 0x2u && mode <= 0x6u) ||
+                                (mode == 0x7u && ea_register <= 0x1u);
+    const bool data_source =
+        mode != 0x1u && !(mode == 0x7u && ea_register > 0x4u);
+    switch (instruction & 0xFFC0u) {
+    case 0x40C0u: /* MOVE SR,<ea> */
+      if (!data_alterable) {
+        return nullptr;
+      }
+      return &TABLE[mode == 0x0u ? ROW_MOVE_SR_DN : ROW_MOVE_SR_MEM];
+    case 0x42C0u: /* MOVE CCR,<ea> */
+      if (!data_alterable) {
+        return nullptr;
+      }
+      return &TABLE[mode == 0x0u ? ROW_MOVE_CCR_DN : ROW_MOVE_CCR_MEM];
+    case 0x44C0u: /* MOVE <ea>,CCR */
+      if (!data_source) {
+        return nullptr;
+      }
+      return &TABLE[mode == 0x0u ? ROW_MOVE_DN_CCR : ROW_MOVE_EA_CCR];
+    case 0x46C0u: /* MOVE <ea>,SR -- the table has no separate `Dn,SR` row */
+      return data_source ? &TABLE[ROW_MOVE_EA_SR] : nullptr;
+    default:
+      break;
+    }
+
+    /* **Bit 8 set is none of §11.6.11's operations.** `NEGX`, `CLR`, `NEG`,
+     * `NOT`, `TST` and `NBCD` all have it clear; with it set, bits 8-6 are
+     * `CHK`'s `1s0` or `LEA`'s `111`. The blocks below read bits 11-9 and 7-6
+     * only, so until 2026-09-14 `CHK.W (A0),D0` came back as `NEGX Mem` and
+     * `CHK.L D0,D1` as `CLR Dn` -- the same trap §11.6.10's instructions had.
+     * `EXTB.L`, the one bit-8 form with a row, is matched by its whole word. */
+    const bool single_operand_group = ((instruction >> 8) & 1u) == 0u;
     /* Two rows this block used to refuse before reaching: `EXT` is `$488x`
      * (word), `$48Cx` (long) and `$49Cx` (`EXTB.L`), and `TAS Dn` is `$4ACx`
      * -- the size field reads `11` in three of the four, which the refusal
@@ -665,7 +814,7 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
       if ((instruction & 0xFFC0u) == 0x4AC0u) {
         return instruction == 0x4AFCu ? nullptr : &TABLE[ROW_TAS_MEM];
       }
-      if (size_field != 0x3u) {
+      if (size_field != 0x3u && single_operand_group) {
         switch (row) {
         case 0x0u:
           return &TABLE[ROW_NEGX_MEM];
@@ -691,7 +840,7 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
         return &TABLE[ROW_TAS_DN];
       }
     }
-    if (size_field == 0x3u || mode != 0x0u) {
+    if (size_field == 0x3u || mode != 0x0u || !single_operand_group) {
       return nullptr;
     }
     switch (row) {
@@ -862,6 +1011,15 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
   {
     const bool predecrement = ((instruction >> 3) & 1u) != 0u;
     const bool sized = ((instruction >> 6) & 0x3u) != 0x3u;
+    /* §11.6.7's `EXG`: `$C140` a data pair, `$C148` an address pair, `$C188`
+     * one of each. It is `AND`'s register-to-memory direction with a register
+     * where the memory would be, and until 2026-09-14 it came back as
+     * `AND Dn,Dn`. */
+    if ((instruction & 0xF1F8u) == 0xC140u ||
+        (instruction & 0xF1F8u) == 0xC148u ||
+        (instruction & 0xF1F8u) == 0xC188u) {
+      return &TABLE[ROW_EXG];
+    }
     if ((instruction & 0xF1F0u) == 0xC100u) {
       return &TABLE[predecrement ? ROW_ABCD_PREDEC : ROW_ABCD_DN];
     }

@@ -74,6 +74,10 @@ typedef enum {
    * symbols mean different tables on different pages, which is why rows carry
    * the table and not the symbol. */
   AP_M68030_EA_TIME_CALCULATE,
+  /* §11.6.16's `%`, "Add Jump Effective Address Time" -- §11.6.5, for `JMP`
+   * and `JSR`. §11.6.7 uses the same `%` for *Calculate Immediate*, which is
+   * the reason again. */
+  AP_M68030_EA_TIME_JUMP,
 } ap_m68030_ea_time_t;
 
 typedef struct {

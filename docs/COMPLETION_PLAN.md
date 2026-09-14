@@ -4446,76 +4446,19 @@ discipline throughout.
 
 **Resumed 2026-09-14.** State (the 2026-09-13 pause point is kept below it):
 
-- **SCSI integration — the DS5500 boot ran, and the card is reset and never
-  initialised.** `--clock 2002-11-28T12:30:00 --scsi --scsi-drive` reached SPM
-  with `163171` reads / `5` writes of the card, `status 4F, not initialised`,
-  zero selections — **the same counts as the DN3500 run**. That run was not a
-  control: **`/sau7` carries `scsi7.drvr`**, so the 2026-09-13 status entry's
-  "no SCSI driver at all" is wrong. A watched boot shows the kernel at
-  `3C459A2A` writing `03`, `00` to `050002` (§5.2.5.2's reset) and then polling
-  status 160,003 times reading `0F` — READY clear — so **it gives up before the
-  short diagnostic ends**. Candidate: `AP_WD7000_T_SHORT_DIAGNOSTIC` is §6.2.14.1's
-  bound "under 250 ms" taken as the value, `PROVISIONAL`. **Next**: the boot
-  stopped at the 160,003rd poll, with a dump of the loop and the diagnostic
-  time remaining, which measures the margin rather than arguing it.
-  **Measured, and the cause is not the ASC.** The poll is `3C4E4612`, a
-  **count** of 160,000 (`cmpi.l #$27100`), not a timer: 39.0001 clocks an
-  iteration, 249.6 ms, **395 µs** short of the 250 ms diagnostic. Three of its
-  six instructions had **no `[030]` §11.6 row**, so the loop ran at bus time.
-  **With them priced, the card is initialised** (`status 5F, control 0C`,
-  64/64 mailboxes). Domain/OS starts no SCB at boot, so **what is left is a
-  tape command**: a shell on a booted `--scsi --scsi-drive` machine, and
-  `/sys/mgrs/rmt_scsi` driving the EXB-8200. Detail in `PROJECT_STATUS.md`.
-  **The device is `-dev ct`** (`m0` is the reel manager's), found by asking
-  the guest, since no document names it. Its first answer was "device in use
-  (OS/SCSI manager)", and both causes were ours: a reset `memset` the ASC's
-  memory hook and bus away, and OGMB 0 at the kernel's base `000000` read as
-  "no box". Both are fixed with tests. **Next**: the rerun boot's SCSI report
-  — a selection and a REWIND on the bus is the integration check passing.
-  **That rerun reached the drive and crashed the kernel** (`Crash_Status
-  00380012`): the CDB was `04 18 00 00` three times, read 512 pages from the
-  mail block. A bus master indexes the translation map from entry 0 (§4.2.1.4,
-  and the kernel programs entries 0-2), not from 512. That is fixed with tests.
-  **That boot sent a real command**: TEST UNIT READY to ID 0, answered with
-  Unit Attention, which is correct. But `rbak` still says "device in use", and
-  after that the driver only selected empty IDs. Reading why found
-  `ap_scsi_reset` and `ap_scsi_advance` with no callers: the ASC's bit-1 SCSI
-  reset never reached the bus, and the bus never had a clock. Both are wired,
-  with a test. **Next**: the traced boot's `scsi trace` lines, the driver's
-  whole command sequence, read against `[EXB]` for what it expected.
-  **Read, and it was the card again.** The driver probes bus 0-3 × ID 0-7 with
-  TEST UNIT READY, and "device in use" is only its last status, ID 7's. The
-  real cause is that the driver's `3C4E45AA` maps SCB byte 15 `01` to success
-  and anything else to hardware failure, and this ASC wrote `FF`. Fixed to
-  `01`. **Next**: the boot with that fix; REWIND (`01`) on the bus closes the
-  integration check.
-  **That boot sent INQUIRY and READ BLOCK LIMITS, both answered correctly**,
-  and the driver still refused. The Apollo FAQ §5.3 gave the reason: 8 mm drives
-  must be SCSI IDs 1-4 (`m0` = ID 1, `/dev/rmts8`), and ID 0 is the cartridge
-  tape's. The drive was fitted at 0. `AP_BOARD_SCSI_DRIVE_ID` is now 1.
-  **Next**: `rbak -dev m0 -rewind` and `mt /dev/rmts8 -scsi rewind` on that
-  boot.
-  **It worked.** `rbak -dev m0 -rewind` completed without error: TEST UNIT
-  READY, REQUEST SENSE, INQUIRY, READ BLOCK LIMITS, SPACE and REQUEST SENSE to
-  ID 1, all answered as `[EXB]` says. The command path is done. **Left**: the
-  data path — a `wbak` to `m0` and an `rbak -index` back — for WRITE, filemarks
-  and READ.
-  **The data path ran and exposed a drive defect.** `wbak` wrote six records
-  and both commands then refused the tape, "first label on volume is not VOL1".
-  The new record listing showed HDR1/FM/FM/EOF1/FM/FM: the EXB-8200 model
-  refused every WRITE after a WRITE, so the second label failed and `tfp`'s
-  recovery wrote over VOL1. Fixed per `[EXB]` ch. 21, with a test. **Next**:
-  the same `wbak`/`rbak -index` boot with the fix.
-  **`wbak` then wrote a complete labelled backup** ("Write complete.";
-  VOL1/UVL1/HDR1/HDR2/UHL1, two 8 KB data blocks, EOF1/EOF2, tape marks). The
-  write path is done. `rbak -index` straight after failed in the magtape manager
-  before any read, "operation attempted before waiting". **Next**: an
-  `rbak -dev m0 -rewind` between them, as the FAQ recommends, then the index.
-  **The rewind failed too, at command #65, and the report said why**: "64
-  posted". The ASC model called an ICMB free when the host zeroed it, and
-  `[WD7000]` §5.2.4 frees it on the acknowledge. Domain/OS never zeroes it, so
-  the 65th completion was dropped. Fixed, with two tests. **Next**: the same
-  boot with the fix.
+- **SCSI integration — the DN3500 round trip works, 2026-09-14.** `wbak -dev
+  m0` wrote a complete ANSI-labelled backup to the EXB-8200, and `rbak -dev m0
+  -f 1 -index -all` read its labels and catalogue back ("Index complete."):
+  102 commands, 102 completions. Nine defects stood between, each found by one
+  run's report and fixed with a test: three unpriced instructions in the
+  kernel's 160,000-poll wait loop (§11.6 stage 1); the ASC's reset forgetting
+  its wiring; OGMB 0 at address 0 read as no box; the bus-master map indexed
+  from entry 512; `ap_scsi_reset`/`advance` called by nothing; vue `FF` read as
+  hardware failure; the drive at ID 0 where 8 mm drives are IDs 1-4; a WRITE
+  refused after a WRITE; and an ICMB freed only when the host zeroed it, where
+  `[WD7000]` §5.2.4 frees it on the acknowledge. Detail in `PROJECT_STATUS.md`.
+  **Next**: the same round trip on the DS5500, which the SCSI item below is
+  about; its earlier boot stalled in the same wait loop.
 - [ ] **`[030]` §11.6 is not fully transcribed, and the boot is timed by it.**
   "Instruction execution time — Closed" is true of the rows transcribed and
   said nothing of coverage. **Stage 1 landed 2026-09-14**: §11.6.9 and
@@ -4525,11 +4468,16 @@ discipline throughout.
   had been pricing as the arithmetic they share bits with — 97 → 124.
   **Stage 3**: §11.6.11 and §11.6.12's memory forms, and the step composing
   §11.6.3's calculate table — 124 → 138.
+  **Stage 4a**: §11.6.5's jump table composed into the step; `JMP`, `JSR`,
+  `LEA`, `PEA`; §11.6.7's word-selected rows; and two decode traps (`CHK` read
+  as `NEGX`/`CLR`, `EXG` as `AND`) — 138 → 158.
   **Owed, all read as page images**: §11.6.6 brief/full-format destinations
-  (needs the extension word), §11.6.7, §11.6.14, §11.6.16's rest, §11.6.17,
-  §11.6.18, and **the §11.6.4 (calculate immediate) and §11.6.5 (jump) tables,
-  which do not exist in the code** despite the ticked "§11.6.1–§11.6.5" item
-  above.
+  (needs the extension word), §11.6.14, §11.6.17, §11.6.18, **§11.6.4's table**
+  with its consumers (bit fields, `CAS`, `MOVES`), `MOVEC Rn,Cr`, `MOVEM`,
+  `CAS2`, `CHK`/`CHK2` by outcome, and §11.6.4's and §11.6.5's full-format rows.
+  *(Before stage 4a this list also named §11.6.7, §11.6.16's rest and "the
+  §11.6.4 (calculate immediate) and §11.6.5 (jump) tables, which do not exist
+  in the code".)*
 
 *Paused 2026-09-13, kept as the record of what the next step was then:*
 
@@ -5013,87 +4961,6 @@ substance. They are the only items here with no route that is simply work.
       So the booted system hammers exactly the block a WD7000-ASC would occupy,
       and our DS5500 answers as the tape controller **because that is what the
       model fits it with**. The 8,435,090 `FF` reads are elsewhere.
-  - [x] **The ASC's host interface — `device/ap_wd7000`, 2026-09-12.** The four
-        registers, both status bytes, the host control register, reset with
-        §5.1.1's 25 µs minimum enforced and §6.2.14's two diagnostics, the
-        command port's ten opcodes and two sequences, Table A-8's mailbox
-        arithmetic, the 32-deep interrupt queue and Appendix A.8's 26 defaults.
-        **Not wired to any board yet**, and everything that would reach the
-        SCSI bus is `PROVISIONAL` at its own site. Detail in
-        `PROJECT_STATUS.md`.
-        *Verification: `wd7000_suite`, 30 tests, including the four status
-        values `scsi14.drvr` accepts and the driver's own reset sequence.*
-  - [x] **Wired to the board, and `--scsi` exchanges the two cards — 2026-09-12.**
-        `AP_BOARD_REGION_SCSI` chosen inside `ap_board_region`; read, write,
-        reset, both advance paths, the DMA-possible set and the interrupt line
-        branched; a hash contribution that is empty when the card is absent, so
-        no existing model's state hash moves. The interrupt line is
-        `PROVISIONAL` — the card takes the tape's `IRQ5` and nothing says which
-        of the ten `[WD7000]` §7.4.4 offers an Apollo board straps. Detail in
-        `PROJECT_STATUS.md`.
-        *Verification: `board_suite` 104 → 106; identity harness re-run after
-        the change, `B6D94F0A99F1B276` unmoved.*
-  - [ ] **The SCSI bus and its targets.** Arbitration, selection, the CDB and
-        data phases over first-party DMA, and at least one target. The same
-        split the tape has between `ap_sc499` and `ap_qic`.
-        **The target is identified, 2026-09-13, and it is an EXABYTE EXB-8200.**
-        `tools/awd_read.py` extracted `/sys/mgrs/rmt_scsi` — the Domain/OS
-        manager this item has been calling "the exerciser" — off the SR10.4
-        volume, and it carries a four-entry **INQUIRY vendor+product table**,
-        24 bytes each, which is how it decides what it is talking to:
-        `CDC     92185           `, `EXABYTE EXB-8200        `,
-        `EXABYTE EXB-8200 (OLD)  ` and `HP      HP35470A        `. It also
-        carries the string "Filemark flag false when Exabyte space filemark
-        error detected" and 38 `rmt_scsi_$` entry points that are a
-        sequential-access tape device's, `$space_file`, `$write_file_mark`,
-        `$retension`, `$set_density` and `$erase_record` among them. Third use
-        of the method in `the-guest-driver-names-the-part`.
-        **The documents are fetched and the command set is bounded.**
-        `docs/references/exabyte/` now holds four EXB-8200 manuals from
-        bitsavers. `510005-006` *Product Specification* (74 pages, 600-dpi
-        scan) §8.3 Table 8-2 gives **the whole command set — 18 Group 0
-        sequential-access commands**: `00` TEST UNIT READY, `01` REWIND, `03`
-        REQUEST SENSE, `05` READ BLOCK LIMITS, `08` READ, `0A` WRITE, `10`
-        WRITE FILEMARKS, `11` SPACE, `12` INQUIRY, `15` MODE SELECT, `16`
-        RESERVE UNIT, `17` RELEASE UNIT, `19` ERASE, `1A` MODE SENSE, `1B`
-        LOAD/UNLOAD, `1C` RECEIVE DIAGNOSTIC RESULTS, `1D` SEND DIAGNOSTICS,
-        `1E` PREVENT/ALLOW MEDIA REMOVAL; Table 8-1 gives the eleven messages,
-        **no extended messages and no linked commands**; and §8 states ANSI
-        X3.131-1986 Rev 17B conformance level 2 and a **WD33C93** SBIC — the
-        same part the ASC carries, so the SBIC datasheet named as "next to
-        fetch" is now owed by both ends of the bus. `510006-007` *User's
-        Manual* (141 pages, **born-digital**, `pdfimages -list` empty) is the
-        command reference itself, one chapter per command, and it is
-        **WALKED WHOLE, 141/141, 2026-09-13** —
-        `docs/references/EXB8200_WALK.md`. Every command's CDB, every
-        termination, the 26-byte Error Class 7 sense with its vendor-unique
-        `9h` EXABYTE key and nineteen unit-sense bits, both filemark kinds, the
-        buffered/non-buffered rules, and ch. 23's numbers no command chapter
-        states — **300 ms** before the drive answers the bus after any reset,
-        the **1,024-byte physical block**, the **eight-block track** and the gap
-        track after it, and the tension/drum idle timers. **`[EXBPS]` is still
-        owed**, 70 of its 74 pages; nothing is implemented until it is read,
-        which is `read-the-whole-document`. **It is WALKED WHOLE, 74/74,
-        2026-09-13, so both documents are read and 215 of 215 pages are done**: ch. 3 is the timing a model charges — **950 µs
-        write access, 900 µs read access, a reposition time published as the
-        *range* 1,082-1,115 ms**, 33.3 ms drum period, rewind = metres × 1.224,
-        and **246 KB/s sustained**, below which the drive stops streaming; ch. 2
-        gives the **256 KB buffer** the MODE SELECT thresholds sit inside and
-        the **1,440-byte physical block** (14 address + 1,024 data + 400 ECC +
-        2 CRC); ch. 4 decomposes a filemark into erase gap + 11-track ATM +
-        10-track DTM, which is exactly the 270 and 60 tracks the User's Manual
-        quotes; ch. 5 states the twelve-write and ten-read retry limits as
-        reliability definitions, agreeing with the command chapters; ch. 9
-        adds that **the SCSI ID is sensed only at power-up, bus reset and
-        device reset** and the LUN is hard-wired 0, and ch. 10 that
-        **self-test and initialization take 65 seconds maximum**, which is the
-        Level 2 MX memory-test switch. Chapters 6, 7 and 11 are power,
-        environmental and cleaning limits and yield nothing.
-        **No document is owed. What remains is the code**, and the one
-        unfetched datasheet — the WD33C93 SBIC — is needed only for
-        synchronous-rate negotiation, which **neither end of this bus
-        performs**: the ASC defaults to `40H` asynchronous and the drive
-        supports asynchronous transfer and no extended messages.
       **Which names the work precisely.** An exerciser needs the DS5500 refitted
       with the ASC *instead of* the SC-499 — which is what `[RN104]` §3.3.6 says
       a real machine must do — so the subsystem is `device/ap_wd7000.{h,c}` plus
@@ -5142,6 +5009,42 @@ substance. They are the only items here with no route that is simply work.
       a SCSI subsystem here is a *replacement* for the cartridge path on this
       machine class, not an addition beside it, and the model table will have to
       say which a given machine has.
+      **Awaiting:** the DS5500 round trip -- `wbak` to `m0` and `rbak -index`
+      back on a `--scsi --scsi-drive` DS5500, as the DN3500 did on 2026-09-14.
+      Every child below is done.
+  - [x] **The ASC's host interface — `device/ap_wd7000`, 2026-09-12.** The four
+        registers, both status bytes, the host control register, reset with
+        §5.1.1's 25 µs minimum enforced and §6.2.14's two diagnostics, the
+        command port's ten opcodes and two sequences, Table A-8's mailbox
+        arithmetic, the 32-deep interrupt queue and Appendix A.8's 26 defaults.
+        **Not wired to any board yet**, and everything that would reach the
+        SCSI bus is `PROVISIONAL` at its own site. Detail in
+        `PROJECT_STATUS.md`.
+        *Verification: `wd7000_suite`, 30 tests, including the four status
+        values `scsi14.drvr` accepts and the driver's own reset sequence.*
+  - [x] **Wired to the board, and `--scsi` exchanges the two cards — 2026-09-12.**
+        `AP_BOARD_REGION_SCSI` chosen inside `ap_board_region`; read, write,
+        reset, both advance paths, the DMA-possible set and the interrupt line
+        branched; a hash contribution that is empty when the card is absent, so
+        no existing model's state hash moves. The interrupt line is
+        `PROVISIONAL` — the card takes the tape's `IRQ5` and nothing says which
+        of the ten `[WD7000]` §7.4.4 offers an Apollo board straps. Detail in
+        `PROJECT_STATUS.md`.
+        *Verification: `board_suite` 104 → 106; identity harness re-run after
+        the change, `B6D94F0A99F1B276` unmoved.*
+  - [x] **The SCSI bus and its targets — done 2026-09-13, and verified through
+        Domain/OS 2026-09-14.** `device/ap_scsi` (arbitration, selection, the
+        CDB, status and data phases over the ASC's first-party DMA), SCB
+        execution in `ap_wd7000`, and the EXABYTE EXB-8200 as the target in
+        `device/ap_exb8200`. The target was identified from
+        `/sys/mgrs/rmt_scsi`'s INQUIRY table and built from `510006-007` and
+        `510005-006`, both walked whole, 215/215 pages (`EXB8200_WALK.md`). The
+        WD33C93 datasheet is not needed: neither end negotiates a synchronous
+        rate.
+        *Verification: `scsi_suite`, `exb8200_suite` and `wd7000_suite`; and on
+        the DN3500, `wbak` to `m0` and `rbak -index` back through the whole
+        chain, 102 commands and 102 completions. Detail in
+        `PROJECT_STATUS.md`.*
 
 - [x] **An offline volume reader — `tools/awd_read.py`, finished 2026-09-12.**
       Reads a raw `.awd` from the block header to a named file's bytes:

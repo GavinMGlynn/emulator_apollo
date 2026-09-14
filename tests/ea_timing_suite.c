@@ -722,8 +722,53 @@ static void test_the_immediate_register_rows_have_relative_heads(void) {
   TEST_ASSERT_EQUAL_UINT(1u, ap_m68030_ea_timing_head(to_memory, 2u));
 }
 
+/* §11.6.5, Jump Effective Address. Every row reads nothing and fetches nothing
+ * in either column, and every head is relative to the operation. The `MC68020
+ * User's Manual` §9.2.5 publishes the same five cache-case figures, which is the
+ * check on this transcription that does not come from the same page. */
+static void test_the_jump_table_reads_nothing_and_agrees_with_the_68020(void) {
+  static const struct {
+    ap_m68030_ea_kind_t kind;
+    unsigned clocks;
+  } ROWS[] = {
+      {AP_M68030_EA_ADDRESS_INDIRECT, 2u}, {AP_M68030_EA_DISPLACEMENT, 4u},
+      {AP_M68030_EA_ABSOLUTE_SHORT, 2u},   {AP_M68030_EA_ABSOLUTE_LONG, 2u},
+      {AP_M68030_EA_INDEXED, 6u},
+  };
+  for (unsigned i = 0; i < sizeof ROWS / sizeof ROWS[0]; i++) {
+    const ap_m68030_ea_timing_t *jump = ap_m68030_ea_jump_timing(ROWS[i].kind);
+    TEST_ASSERT_NOT_NULL(jump);
+    TEST_ASSERT_EQUAL_UINT(ROWS[i].clocks, jump->timing.cache_case);
+    TEST_ASSERT_EQUAL_UINT(ROWS[i].clocks, jump->timing.no_cache_case);
+    TEST_ASSERT_EQUAL_UINT(0u, jump->timing.reads + jump->timing.writes +
+                                   jump->timing.prefetches);
+    TEST_ASSERT_TRUE(jump->head_adds_operation);
+    TEST_ASSERT_EQUAL_UINT(ROWS[i].clocks + 4u,
+                           ap_m68030_ea_timing_head(jump, 4u));
+  }
+}
+
+/* A jump goes through a control mode or it is not an instruction, and the table
+ * prints nothing else. The PC-relative forms share their register rows:
+ * `(d8,PC,Xn)` as the page writes it, `(d16,PC)` by the reading the `.c` file
+ * cites. */
+static void test_a_jump_through_a_non_control_mode_has_no_row(void) {
+  TEST_ASSERT_NULL(ap_m68030_ea_jump_timing(AP_M68030_EA_DATA_REGISTER));
+  TEST_ASSERT_NULL(ap_m68030_ea_jump_timing(AP_M68030_EA_ADDRESS_REGISTER));
+  TEST_ASSERT_NULL(ap_m68030_ea_jump_timing(AP_M68030_EA_POSTINCREMENT));
+  TEST_ASSERT_NULL(ap_m68030_ea_jump_timing(AP_M68030_EA_PREDECREMENT));
+  TEST_ASSERT_NULL(ap_m68030_ea_jump_timing(AP_M68030_EA_IMMEDIATE));
+  TEST_ASSERT_NULL(ap_m68030_ea_jump_timing(AP_M68030_EA_INVALID));
+  TEST_ASSERT_EQUAL_PTR(ap_m68030_ea_jump_timing(AP_M68030_EA_DISPLACEMENT),
+                        ap_m68030_ea_jump_timing(AP_M68030_EA_PC_DISPLACEMENT));
+  TEST_ASSERT_EQUAL_PTR(ap_m68030_ea_jump_timing(AP_M68030_EA_INDEXED),
+                        ap_m68030_ea_jump_timing(AP_M68030_EA_PC_INDEXED));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_jump_table_reads_nothing_and_agrees_with_the_68020);
+  RUN_TEST(test_a_jump_through_a_non_control_mode_has_no_row);
   RUN_TEST(test_the_immediate_table_is_not_a_scaling_of_one_column);
   RUN_TEST(test_a_long_immediate_never_costs_less_than_a_word_one);
   RUN_TEST(test_the_immediate_table_declines_what_it_does_not_publish);

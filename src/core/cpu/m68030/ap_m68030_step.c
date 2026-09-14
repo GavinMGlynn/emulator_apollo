@@ -7967,6 +7967,11 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
        * difference from `NEG Mem`'s fetch. */
       ea_timing = ap_m68030_ea_calculate_timing(ea.kind);
       break;
+    case AP_M68030_EA_TIME_JUMP:
+      /* §11.6.5: where `JMP` or `JSR` goes. Its rows read nothing and fetch
+       * nothing -- the refill at the target is in the operation's own row. */
+      ea_timing = ap_m68030_ea_jump_timing(ea.kind);
+      break;
     case AP_M68030_EA_TIME_NONE:
       break;
     }

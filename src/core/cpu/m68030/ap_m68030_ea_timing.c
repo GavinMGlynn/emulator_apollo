@@ -66,6 +66,60 @@ static const ap_m68030_ea_timing_t CALCULATE_ABSOLUTE_LONG = {
 static const ap_m68030_ea_timing_t CALCULATE_INDEXED = {
     "(d8,An,Xn) or (d8,PC,Xn)", {4, 0, 4, 4, .prefetches = 1}, true, true};
 
+/* §11.6.5, Jump Effective Address, from the page image (p. 11-35): the address
+ * `JMP` or `JSR` goes to. Every row is `n(0/0/0)` in **both** columns -- no
+ * operand read, and no prefetch of its own, because the refill at the target
+ * belongs to the operation's row. Every head is written "+op head".
+ *
+ * Only the control modes have rows. A jump through `(An)+`, `-(An)`, a register
+ * or an immediate is not an instruction, and the table prints nothing for them.
+ *
+ * The single-address block names `(d16,An)` alone, where §11.6.1, §11.6.3 and
+ * this table's own brief and full-format blocks write "or (d16,PC)" with one
+ * figure for both. `(d16,PC)` takes the `(d16,An)` row, the reading §11.6.2's
+ * transcription already makes for the same omission. The `MC68020 User's
+ * Manual` §9.2.5 omits it identically, and its cache-case column agrees with
+ * every figure here: 2, 4, 2, 2 and 6. */
+static const ap_m68030_ea_timing_t JUMP_INDIRECT = {
+    "(An)", {2, 0, 2, 2, .prefetches = 0}, true, true};
+static const ap_m68030_ea_timing_t JUMP_DISPLACEMENT = {
+    "(d16,An)", {4, 0, 4, 4, .prefetches = 0}, true, true};
+static const ap_m68030_ea_timing_t JUMP_ABSOLUTE_SHORT = {
+    "(xxx).W", {2, 0, 2, 2, .prefetches = 0}, true, true};
+/* No dearer than the short form, unlike every other table: the address is
+ * already in the pipe and nothing has to be sign-extended. */
+static const ap_m68030_ea_timing_t JUMP_ABSOLUTE_LONG = {
+    "(xxx).L", {2, 0, 2, 2, .prefetches = 0}, true, true};
+static const ap_m68030_ea_timing_t JUMP_INDEXED = {
+    "(d8,An,Xn) or (d8,PC,Xn)", {6, 0, 6, 6, .prefetches = 0}, true, true};
+
+const ap_m68030_ea_timing_t *ap_m68030_ea_jump_timing(ap_m68030_ea_kind_t kind) {
+  switch (kind) {
+  case AP_M68030_EA_ADDRESS_INDIRECT:
+    return &JUMP_INDIRECT;
+  case AP_M68030_EA_DISPLACEMENT:
+  case AP_M68030_EA_PC_DISPLACEMENT:
+    return &JUMP_DISPLACEMENT;
+  case AP_M68030_EA_ABSOLUTE_SHORT:
+    return &JUMP_ABSOLUTE_SHORT;
+  case AP_M68030_EA_ABSOLUTE_LONG:
+    return &JUMP_ABSOLUTE_LONG;
+  case AP_M68030_EA_INDEXED:
+  case AP_M68030_EA_PC_INDEXED:
+    /* The brief format only, as in the other tables: the full-format rows of
+     * p. 11-36 are selected by the extension word. */
+    return &JUMP_INDEXED;
+  case AP_M68030_EA_DATA_REGISTER:
+  case AP_M68030_EA_ADDRESS_REGISTER:
+  case AP_M68030_EA_POSTINCREMENT:
+  case AP_M68030_EA_PREDECREMENT:
+  case AP_M68030_EA_IMMEDIATE:
+  case AP_M68030_EA_INVALID:
+    break;
+  }
+  return nullptr;
+}
+
 
 /* §11.6.2, Fetch Immediate Effective Address, from the page image.
  *

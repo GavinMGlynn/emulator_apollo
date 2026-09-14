@@ -67,6 +67,14 @@ ap_m68030_ea_fetch_timing(ap_m68030_ea_kind_t kind, unsigned operand_size);
 [[nodiscard]] const ap_m68030_ea_timing_t *
 ap_m68030_ea_calculate_timing(ap_m68030_ea_kind_t kind);
 
+/* §11.6.5, Jump Effective Address: where `JMP` or `JSR` goes, calculated and
+ * not read. NULL for every mode a jump cannot take -- `(An)+`, `-(An)`, a
+ * register, an immediate -- and the brief-format row for mode 6, as the other
+ * tables do. `(d16,PC)` shares `(d16,An)`'s row, which the table does not print;
+ * the `.c` file cites the reading. */
+[[nodiscard]] const ap_m68030_ea_timing_t *
+ap_m68030_ea_jump_timing(ap_m68030_ea_kind_t kind);
+
 /* §11.6.2, Fetch Immediate Effective Address -- the table the `**` footnote
  * names, and the reason a `**` row cannot be priced off §11.6.1.
  *

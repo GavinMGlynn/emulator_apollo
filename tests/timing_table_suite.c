@@ -142,11 +142,11 @@ static void test_what_is_not_transcribed_is_reported_as_absent(void) {
   /* MULU.L (A0),D0 -- the long multiplies share `$4C00` with each other and
    * are told apart by the extension word. */
   TEST_ASSERT_NULL(ap_m68030_timing_for_word(0x4C10u));
-  /* SWAP, which lives in §11.6.13's miscellaneous table and has not been read
-   * yet. NOP stood here until §11.6.16 was transcribed -- a placeholder for
-   * "not covered" needs replacing whenever coverage grows, which is the right
-   * kind of churn. */
-  TEST_ASSERT_NULL(ap_m68030_timing_for_word(0x4840u)); /* SWAP D0 */
+  /* `MOVEC Rn,Cr`, whose row §11.6.7 splits by control register group -- which
+   * only the extension word names. `SWAP` stood here until §11.6.7 was
+   * transcribed, and NOP before it: a placeholder for "not covered" needs
+   * replacing whenever coverage grows, which is the right kind of churn. */
+  TEST_ASSERT_NULL(ap_m68030_timing_for_word(0x4E7Bu)); /* MOVEC Rn,Cr */
   /* A register-count shift, whose cost the table marks as count-dependent. */
   TEST_ASSERT_NULL(ap_m68030_timing_for_word(0xE2A8u)); /* LSR.L D1,D0 */
 }
@@ -288,6 +288,7 @@ static void test_every_inexact_prefetch_cost_is_named(void) {
   static const char *const KNOWN_INEXACT[] = {
       "MOVE EA,xxx.L", /* (7-6)/2 = 0.5, LINK.L's shape: three words */
       "BSR",     /* (9−6)/2 = 1.5 */
+      "JSR",     /* (7−4)/2 = 1.5, BSR's shape */
       "LINK.L",  /* (7−6)/2 = 0.5 */
   };
 
@@ -504,7 +505,8 @@ static void test_the_immediate_bit_and_move_forms_find_their_rows(void) {
       {0x0880u, "BCLR #<data>,Dn", "BCLR #,D0 -- tt 10 is not a size"},
       {0x0100u, "BTST Dn,Dn", "BTST D0,D0"},
       {0x01D0u, "BSET Dn,Mem", "BSET D0,(A0)"},
-      {0x0108u, nullptr, "MOVEP -- mode 001 among the bit operations"},
+      {0x0108u, "MOVEP.W (d16,An),Dn", "MOVEP -- mode 001 among the bit operations"},
+      {0x01C9u, "MOVEP.L Dn,(d16,An)", "MOVEP.L D0,(d,A1) -- bits 7-6 of 11"},
       {0x013Cu, "BTST Dn,Mem", "BTST D0,#<data>"},
       {0x2250u, "MOVE EA,An", "MOVEA.L (A0),A1"},
       {0x2010u, "MOVE EA,Dn", "MOVE.L (A0),D0"},
@@ -563,6 +565,33 @@ static void test_the_immediate_bit_and_move_forms_find_their_rows(void) {
       {0xE3A0u, "ASL Dx,Dy", "ASL.L D1,D0"},
       {0xE2A0u, nullptr, "ASR.L D1,D0 -- count-dependent"},
       {0xE3B8u, "ROd Dx,Dy", "ROL.L D1,D0"},
+      /* §11.6.16's address forms, and the modes that are not instructions. */
+      {0x4ED0u, "JMP", "JMP (A0)"},
+      {0x4EFAu, "JMP", "JMP (d16,PC)"},
+      {0x4ED8u, nullptr, "JMP (A0)+ is not an instruction"},
+      {0x4E90u, "JSR", "JSR (A0)"},
+      {0x43D0u, "LEA", "LEA (A0),A1"},
+      {0x41FCu, nullptr, "LEA #<data>,A0 is not an instruction"},
+      {0x4850u, "PEA", "PEA (A0)"},
+      {0x4840u, "SWAP Dn", "SWAP D0 -- PEA's group with a data register"},
+      {0x4848u, nullptr, "BKPT #0 -- PEA's group with an address register"},
+      /* §11.6.7, and the two traps that sat in front of it. */
+      {0xC141u, "EXG Ry,Rx", "EXG D0,D1, not AND"},
+      {0xC148u, "EXG Ry,Rx", "EXG A0,A0"},
+      {0xC189u, "EXG Ry,Rx", "EXG D0,A1"},
+      {0x4190u, nullptr, "CHK.W (A0),D0 -- bit 8 set is not NEGX"},
+      {0x4300u, nullptr, "CHK.L D0,D1 -- bit 8 set is not CLR"},
+      {0x49C0u, "EXT Dn", "EXTB.L D0 still EXT"},
+      {0x40C0u, "MOVE SR,Dn", "MOVE SR,D0"},
+      {0x40D0u, "MOVE SR,Mem", "MOVE SR,(A0)"},
+      {0x42C0u, "MOVE CCR,Dn", "MOVE CCR,D0"},
+      {0x44C0u, "MOVE Dn,CCR", "MOVE D0,CCR"},
+      {0x44FCu, "MOVE EA,CCR", "MOVE #<data>,CCR"},
+      {0x44C8u, nullptr, "MOVE A0,CCR is not an instruction"},
+      {0x46C0u, "MOVE EA,SR", "MOVE D0,SR -- no separate register row"},
+      {0x4E60u, "MOVE An,USP", "MOVE A0,USP"},
+      {0x4E6Fu, "MOVE USP,An", "MOVE USP,A7"},
+      {0x4E7Au, "MOVEC Cr,Rn", "MOVEC Cr,Rn"},
   };
   for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
     const ap_m68030_table_entry_t *row =
@@ -613,6 +642,19 @@ static void test_the_rows_that_are_not_single_word_are_classified_as_such(void) 
       {"RTR", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
       {"RTD", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
       {"BSR", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
+      {"JMP", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
+      {"JSR", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
+      {"MOVE EA,SR", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "a status register write refills the pipe"},
+      {"MOVEC Cr,Rn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"MOVEP.W Dn,(d16,An)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "two words"},
+      {"MOVEP.W (d16,An),Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "two words"},
+      {"MOVEP.L Dn,(d16,An)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "two words"},
+      {"MOVEP.L (d16,An),Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "two words"},
       {"Bcc (Taken)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
       {"DBcc (cc False, Count Not Expired)",
        AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "it branches"},
