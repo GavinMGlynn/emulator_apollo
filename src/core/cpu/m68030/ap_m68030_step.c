@@ -2688,6 +2688,23 @@ static bool write_frame_field(ap_m68030_cpu_t *cpu, uint32_t address,
   return wrote.ok;
 }
 
+/* What §11.6.17 charges for an exception beyond the bus it publishes: the row's
+ * cache case less two clocks for every read and write, which this core has
+ * already run and measured. The handler's refill -- the row's no-cache
+ * prefetches -- is the next step's, measured there. Zero for an exception the
+ * page does not print, which keeps the bus time it always had. */
+static uint32_t exception_microcode(const ap_m68030_table_entry_t *row) {
+  return row == nullptr ? 0u : ap_m68030_microcode_clocks(&row->timing);
+}
+
+/* §11.6.17's interrupt rows count two reads: the vector's, which this core
+ * runs, and the interrupt acknowledge cycle, which the acknowledge callback
+ * answers without a bus. It is charged as the two-clock read "all timing data
+ * assumes". `PROVISIONAL`: no board here reports an acknowledge's wait states,
+ * and an autovectored one is terminated by `AVEC`, whose timing is not this
+ * read's. */
+#define INTERRUPT_ACKNOWLEDGE_CLOCKS 2u
+
 /* A fault frame's bytes, assembled before any is written, so the frame can go
  * out in long words whatever field boundaries it has. The 68030's long frame is
  * the largest, 46 words. */
@@ -3145,6 +3162,10 @@ static ap_m68030_step_status_t fault_or_unimplemented(
           ap_m68030_take_exception(cpu, cpu->refused_vector,
                                    instruction_address, instruction_address);
       out->clocks += taken.clocks;
+      if (taken.ok) {
+        out->clocks += exception_microcode(
+            ap_m68030_timing_for_vector(cpu->refused_vector, out->instruction));
+      }
       return taken.ok ? AP_M68030_STEP_EXCEPTION : AP_M68030_STEP_FAULT;
     }
     return AP_M68030_STEP_UNIMPLEMENTED;
@@ -6714,12 +6735,19 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
    * instruction or previous exception processing is completed" -- so they are
    * recognised *between* instructions, which is here and not in the middle of
    * one. */
+  /* Which stack the interrupt is taken on, read before taking it: on the master
+   * stack it builds a second, throwaway frame, and §11.6.17 prices the two
+   * cases apart. */
+  const bool interrupting_master = ap_m68030_master(&cpu->regs);
   const ap_m68030_exception_result_t interrupt = ap_m68030_take_interrupt(cpu);
   if (interrupt.ok) {
     /* An interrupt is what a stopped processor is waiting for, so taking one
      * also ends the stop. */
     cpu->stopped = false;
-    out.clocks = interrupt.clocks;
+    out.clocks = interrupt.clocks + INTERRUPT_ACKNOWLEDGE_CLOCKS +
+                 exception_microcode(ap_m68030_timing_for_exception(
+                     interrupting_master ? AP_M68030_EXCEPTION_INTERRUPT_M_STACK
+                                         : AP_M68030_EXCEPTION_INTERRUPT_I_STACK));
     out.status = AP_M68030_STEP_EXCEPTION;
 
     ap_m68030_charge(cpu, out.clocks);
@@ -7198,6 +7226,10 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
           ap_m68030_take_exception(cpu, AP_M68030_VECTOR_ILLEGAL_INSTRUCTION,
                                    instruction_address, instruction_address);
       out.clocks += taken.clocks;
+      if (taken.ok) {
+        out.clocks += exception_microcode(ap_m68030_timing_for_vector(
+            AP_M68030_VECTOR_ILLEGAL_INSTRUCTION, word));
+      }
       out.status = taken.ok ? AP_M68030_STEP_EXCEPTION : AP_M68030_STEP_FAULT;
       ap_m68030_charge(cpu, out.clocks);
       return out;
@@ -7916,6 +7948,16 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       return out;
     }
     out.status = AP_M68030_STEP_EXCEPTION;
+    /* §11.6.17's row covers the instruction and its exception together, and
+     * this path returns before the pricing below -- so the row's microcode is
+     * added here to the bus both of them ran. A `BKPT` nothing acknowledged is
+     * both of its rows: the acknowledge, then the illegal instruction. */
+    out.clocks += exception_microcode(
+        ap_m68030_timing_for_vector(vector, out.instruction));
+    if (vector == AP_M68030_VECTOR_ILLEGAL_INSTRUCTION &&
+        (out.instruction & 0xFFF8u) == 0x4848u) {
+      out.clocks += exception_microcode(ap_m68030_timing_for_word(out.instruction));
+    }
 
     if (traced) {
       /* "If an instruction forces an exception as part of its normal
@@ -7930,6 +7972,9 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       out.clocks += traced_after.clocks;
       if (!traced_after.ok) {
         out.status = AP_M68030_STEP_FAULT;
+      } else {
+        out.clocks += exception_microcode(
+            ap_m68030_timing_for_exception(AP_M68030_EXCEPTION_TRACE));
       }
     }
     ap_m68030_charge(cpu, out.clocks);
@@ -8150,6 +8195,10 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     const ap_m68030_exception_result_t taken_trace = ap_m68030_take_exception(
         cpu, AP_M68030_VECTOR_TRACE, cpu->regs.pc, instruction_address);
     out.clocks += taken_trace.clocks;
+    if (taken_trace.ok) {
+      out.clocks += exception_microcode(
+          ap_m68030_timing_for_exception(AP_M68030_EXCEPTION_TRACE));
+    }
     out.status = taken_trace.ok ? AP_M68030_STEP_EXCEPTION
                                 : AP_M68030_STEP_FAULT;
   }

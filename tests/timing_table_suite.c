@@ -290,6 +290,10 @@ static void test_every_inexact_prefetch_cost_is_named(void) {
       "MOVE EA,xxx.L", /* (7-6)/2 = 0.5, LINK.L's shape: three words */
       "BSR",     /* (9−6)/2 = 1.5 */
       "JSR",     /* (7−4)/2 = 1.5, BSR's shape */
+      "Interrupt (I-Stack)", /* (24−23)/2 = 0.5 */
+      "Interrupt (M-Stack)", /* (34−33)/2 = 0.5 */
+      "TRAPcc.W (Trap)",     /* (26−24)/3, the operand word's and the refill's */
+      "TRAPcc.L (Trap)",     /* (28−26)/3 */
       "LINK.L",  /* (7−6)/2 = 0.5 */
   };
 
@@ -485,6 +489,24 @@ static void test_every_row_is_returned_by_some_instruction(void) {
       reached[row - table] = true;
     }
   }
+  /* §11.6.17's exception rows, which no instruction word reaches: by name, and
+   * by every vector against the four words vector 7 is told apart by. */
+  static const ap_m68030_exception_row_t NAMED[] = {
+      AP_M68030_EXCEPTION_INTERRUPT_I_STACK,
+      AP_M68030_EXCEPTION_INTERRUPT_M_STACK, AP_M68030_EXCEPTION_TRACE};
+  for (unsigned k = 0; k < sizeof NAMED / sizeof NAMED[0]; k++) {
+    reached[ap_m68030_timing_for_exception(NAMED[k]) - table] = true;
+  }
+  static const uint16_t RAISERS[] = {0x4E76u, 0x51FAu, 0x51FBu, 0x51FCu, 0u};
+  for (unsigned vector = 0; vector < 256u; vector++) {
+    for (unsigned w = 0; w < sizeof RAISERS / sizeof RAISERS[0]; w++) {
+      const ap_m68030_table_entry_t *row =
+          ap_m68030_timing_for_vector(vector, RAISERS[w]);
+      if (row != nullptr) {
+        reached[row - table] = true;
+      }
+    }
+  }
 
   for (unsigned i = 0; i < count; i++) {
     if (form_is(&table[i], "DIVS.L Dn,Dn") ||
@@ -569,7 +591,7 @@ static void test_the_immediate_bit_and_move_forms_find_their_rows(void) {
       {0x4AFCu, nullptr, "ILLEGAL, inside TAS's group"},
       {0x57D0u, "Scc Mem", "SEQ (A0)"},
       {0x51C8u, nullptr, "DBF D0 -- mode 1 is DBcc, priced by branch"},
-      {0x51FAu, nullptr, "TRAPF.W -- mode 7 register 2"},
+      {0x51FAu, "TRAPcc.W (No Trap)", "TRAPF.W -- mode 7 register 2"},
       /* §11.6.12. */
       {0xE1D0u, "ASL Mem by 1", "ASL (A0)"},
       {0xE3D0u, "LSd Mem by 1", "LSL (A0) -- bits 10-9 of 01"},
@@ -591,7 +613,7 @@ static void test_the_immediate_bit_and_move_forms_find_their_rows(void) {
       {0x41FCu, nullptr, "LEA #<data>,A0 is not an instruction"},
       {0x4850u, "PEA", "PEA (A0)"},
       {0x4840u, "SWAP Dn", "SWAP D0 -- PEA's group with a data register"},
-      {0x4848u, nullptr, "BKPT #0 -- PEA's group with an address register"},
+      {0x4848u, "BKPT", "BKPT #0 -- PEA's group with an address register"},
       /* §11.6.7, and the two traps that sat in front of it. */
       {0xC141u, "EXG Ry,Rx", "EXG D0,D1, not AND"},
       {0xC148u, "EXG Ry,Rx", "EXG A0,A0"},
@@ -609,6 +631,12 @@ static void test_the_immediate_bit_and_move_forms_find_their_rows(void) {
       {0x4E60u, "MOVE An,USP", "MOVE A0,USP"},
       {0x4E6Fu, "MOVE USP,An", "MOVE USP,A7"},
       {0x4E7Au, "MOVEC Cr,Rn", "MOVEC Cr,Rn"},
+      /* §11.6.17's instruction rows: the forms that do not trap. */
+      {0x4E72u, "STOP", "STOP #"},
+      {0x4E76u, "TRAPV (No Trap)", "TRAPV"},
+      {0x51FCu, "TRAPcc (No Trap)", "TRAPF"},
+      {0x57FBu, "TRAPcc.L (No Trap)", "TRAPEQ.L"},
+      {0x57F8u, "Scc Mem", "SEQ (xxx).W -- mode 7 register 0 is still Scc"},
   };
   for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
     const ap_m68030_table_entry_t *row =
@@ -667,6 +695,58 @@ static void test_the_rows_an_extension_or_outcome_selects_are_found(void) {
                                CASES[c].what);
     }
   }
+}
+
+/* §11.6.17's exceptions are found by the vector an instruction raised, and
+ * vector 7 by the instruction as well: `TRAPV` and the three `TRAPcc` sizes share
+ * it at four different costs. The vectors the page does not print have no row,
+ * so they keep the bus time they always had rather than borrowing a figure. */
+static void test_an_exception_is_priced_by_its_vector_and_its_instruction(void) {
+  static const struct {
+    unsigned vector;
+    uint16_t word;
+    const char *form; /* nullptr: no row, by design */
+    const char *what;
+  } CASES[] = {
+      {32u, 0x4E40u, "TRAP #n", "TRAP #0"},
+      {47u, 0x4E4Fu, "TRAP #n", "TRAP #15"},
+      {48u, 0x0000u, nullptr, "vector 48 is the FPCP's, not a TRAP"},
+      {4u, 0x4AFCu, "Illegal Instruction", "ILLEGAL"},
+      {10u, 0xA000u, "A-Line Trap", "an A-line word"},
+      {11u, 0xF000u, "F-Line Trap", "an F-line word"},
+      {8u, 0x4E73u, "Privilege Violation", "RTE in user state"},
+      {7u, 0x4E76u, "TRAPV (Trap)", "TRAPV"},
+      {7u, 0x51FCu, "TRAPcc (Trap)", "TRAPF -- though it never traps"},
+      {7u, 0x57FAu, "TRAPcc.W (Trap)", "TRAPEQ.W"},
+      {7u, 0x57FBu, "TRAPcc.L (Trap)", "TRAPEQ.L"},
+      {7u, 0xF27Au, nullptr, "cpTRAPcc -- not on the page"},
+      {5u, 0x81FCu, nullptr, "zero divide"},
+      {6u, 0x4180u, nullptr, "CHK -- §11.6.16's, owed"},
+      {14u, 0x4E73u, nullptr, "format error"},
+  };
+  for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
+    const ap_m68030_table_entry_t *row =
+        ap_m68030_timing_for_vector(CASES[c].vector, CASES[c].word);
+    if (CASES[c].form == nullptr) {
+      TEST_ASSERT_NULL_MESSAGE(row, CASES[c].what);
+    } else {
+      TEST_ASSERT_TRUE_MESSAGE(form_is(row, CASES[c].form), CASES[c].what);
+    }
+  }
+  TEST_ASSERT_TRUE(form_is(
+      ap_m68030_timing_for_exception(AP_M68030_EXCEPTION_TRACE), "TRACE"));
+  TEST_ASSERT_TRUE(
+      form_is(ap_m68030_timing_for_exception(AP_M68030_EXCEPTION_INTERRUPT_M_STACK),
+              "Interrupt (M-Stack)"));
+
+  /* The interrupt on the master stack costs ten more than on the interrupt
+   * stack, and it writes four more: the throwaway frame's. */
+  const ap_m68030_table_entry_t *i_stack =
+      ap_m68030_timing_for_exception(AP_M68030_EXCEPTION_INTERRUPT_I_STACK);
+  const ap_m68030_table_entry_t *m_stack =
+      ap_m68030_timing_for_exception(AP_M68030_EXCEPTION_INTERRUPT_M_STACK);
+  TEST_ASSERT_EQUAL_UINT(10u, m_stack->timing.cache_case - i_stack->timing.cache_case);
+  TEST_ASSERT_EQUAL_UINT(4u, m_stack->timing.writes - i_stack->timing.writes);
 }
 
 /* **Domain/OS's SCSI wait loop, priced in every instruction.** The kernel's
@@ -757,6 +837,23 @@ static void test_the_rows_that_are_not_single_word_are_classified_as_such(void) 
       {"CAS2 (Successful Compare)", AP_M68030_PREFETCH_ODD_WORDS, "three words"},
       {"CAS2 (Unsuccessful Compare)", AP_M68030_PREFETCH_ODD_WORDS,
        "three words"},
+      /* §11.6.17: the instruction forms by their length, and every exception
+       * by its handler's refill, which is two fetches at either alignment. */
+      {"STOP", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"TRAPcc.W (No Trap)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"TRAPcc.L (No Trap)", AP_M68030_PREFETCH_ODD_WORDS, "three words"},
+      {"Interrupt (I-Stack)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "refill"},
+      {"Interrupt (M-Stack)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "refill"},
+      {"TRACE", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "refill"},
+      {"TRAP #n", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "refill"},
+      {"Illegal Instruction", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "refill"},
+      {"A-Line Trap", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "refill"},
+      {"F-Line Trap", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "refill"},
+      {"Privilege Violation", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "refill"},
+      {"TRAPcc (Trap)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "refill"},
+      {"TRAPcc.W (Trap)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "refill"},
+      {"TRAPcc.L (Trap)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "refill"},
+      {"TRAPV (Trap)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "refill"},
       {"Bcc (Taken)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
       {"DBcc (cc False, Count Not Expired)",
        AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "it branches"},
@@ -911,6 +1008,7 @@ int main(void) {
   RUN_TEST(test_every_row_is_returned_by_some_instruction);
   RUN_TEST(test_the_immediate_bit_and_move_forms_find_their_rows);
   RUN_TEST(test_the_rows_an_extension_or_outcome_selects_are_found);
+  RUN_TEST(test_an_exception_is_priced_by_its_vector_and_its_instruction);
   RUN_TEST(test_the_scsi_drivers_wait_loop_is_priced_in_every_instruction);
   RUN_TEST(test_the_rows_that_expose_a_prefetch_are_the_memory_forms);
   RUN_TEST(test_an_exact_prefetch_cost_is_not_always_zero_or_one);

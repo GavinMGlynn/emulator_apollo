@@ -4479,11 +4479,14 @@ discipline throughout.
   10 and 25; `RTE` reads a fault frame whole. **Next**: 5b §11.6.17's
   microcode at the exception sites with `STOP`/`TRAPcc`/`TRAPV`; 5c §11.6.18's
   `RTE` and fault rows; 5d `CHK`/`CHK2`.
+  **Stage 5b**: §11.6.17 whole — 190 → 208 — charged at every exception site,
+  interrupts with their acknowledge read. **Next**: 5c §11.6.18's `RTE` and
+  fault rows; 5d `CHK`/`CHK2`.
   **Owed, all read as page images**: §11.6.6 brief/full-format destinations
-  (needs the extension word), §11.6.17, §11.6.18, `MOVEM`, `CHK`/`CHK2` (their
-  exception rows belong with §11.6.17), the long multiplies and divides, and
+  (needs the extension word), §11.6.18, `MOVEM`, `CHK`/`CHK2`, the long
+  multiplies and divides, and
   §11.6.4's and §11.6.5's full-format rows. *(Before stage 4b this also named
-  §11.6.14, §11.6.4's table, `MOVEC Rn,Cr` and `CAS2`.)*
+  §11.6.14, §11.6.4's table, `MOVEC Rn,Cr` and `CAS2`; before 5b, §11.6.17.)*
   *(Before stage 4a this list also named §11.6.7, §11.6.16's rest and "the
   §11.6.4 (calculate immediate) and §11.6.5 (jump) tables, which do not exist
   in the code".)*

@@ -3,6 +3,8 @@
 
 #include "cpu/m68030/ap_m68030_timing_table.h"
 
+#include "cpu/m68030/ap_m68030_exception.h"
+
 /* Every row here has an instruction-cache case of the form `n(0/0/0)` in
  * §11.6.8 or §11.6.9 -- no reads, no prefetches, no writes -- so `n` is pure
  * microcode time. The head and tail are the same tables' first two columns.
@@ -231,6 +233,25 @@ enum {
   ROW_CAS_MISMATCH,
   ROW_CAS2_MATCH,
   ROW_CAS2_MISMATCH,
+  /* §11.6.17's remaining rows, beside `RESET`. */
+  ROW_BKPT,
+  ROW_INTERRUPT_I,
+  ROW_INTERRUPT_M,
+  ROW_STOP,
+  ROW_TRACE,
+  ROW_TRAP_N,
+  ROW_ILLEGAL,
+  ROW_LINE_A,
+  ROW_LINE_F,
+  ROW_PRIVILEGE,
+  ROW_TRAPCC_TRAP,
+  ROW_TRAPCC_NO_TRAP,
+  ROW_TRAPCC_W_TRAP,
+  ROW_TRAPCC_W_NO_TRAP,
+  ROW_TRAPCC_L_TRAP,
+  ROW_TRAPCC_L_NO_TRAP,
+  ROW_TRAPV_TRAP,
+  ROW_TRAPV_NO_TRAP,
   ROW_COUNT,
 };
 
@@ -666,6 +687,41 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     [ROW_CAS_MISMATCH] = {"CAS (Unsuccessful Compare)", {.head = 1, .tail = 0, .cache_case = 11, .no_cache_case = 11, .reads = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_CAS2_MATCH] = {"CAS2 (Successful Compare)", {.head = 2, .tail = 0, .cache_case = 24, .no_cache_case = 26, .reads = 2, .writes = 2, .prefetches = 2}, true, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ODD_WORDS},
     [ROW_CAS2_MISMATCH] = {"CAS2 (Unsuccessful Compare)", {.head = 2, .tail = 0, .cache_case = 24, .no_cache_case = 24, .reads = 2, .prefetches = 2}, true, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ODD_WORDS},
+
+    /* §11.6.17, Exception-Related Instructions and Operations, from the page
+     * image (p. 11-50), beside `RESET` above. "No additional tables are needed
+     * to calculate total effective execution time for these operations."
+     *
+     * The rows that take an exception publish the instruction and the
+     * exception together: `TRAP #n`'s `18(1/0/4)` is the trap, the four-word
+     * frame's four writes and the vector's one read. The step runs the frame
+     * and measures that bus, so what it takes from these rows is the rest --
+     * `ap_m68030_microcode_clocks` -- and the handler's refill, the no-cache
+     * column's two prefetches, is measured in the next step. Their class is the
+     * refill's: two fetches at either alignment.
+     *
+     * The `(No Trap)` rows are ordinary instructions and the word lookup's.
+     * `TRAPcc` comes in three sizes of operand, the size deciding both rows;
+     * `.W` and `.L` publish three prefetches when they trap, the operand's and
+     * the refill's. */
+    [ROW_BKPT] = {"BKPT", {.head = 1, .tail = 0, .cache_case = 9, .no_cache_case = 9, .reads = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_INTERRUPT_I] = {"Interrupt (I-Stack)", {.head = 0, .tail = 0, .cache_case = 23, .no_cache_case = 24, .reads = 2, .writes = 4, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_INTERRUPT_M] = {"Interrupt (M-Stack)", {.head = 0, .tail = 0, .cache_case = 33, .no_cache_case = 34, .reads = 2, .writes = 8, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_STOP] = {"STOP", {.head = 0, .tail = 0, .cache_case = 8, .no_cache_case = 8, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_TRACE] = {"TRACE", {.head = 0, .tail = 0, .cache_case = 22, .no_cache_case = 24, .reads = 1, .writes = 5, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_TRAP_N] = {"TRAP #n", {.head = 0, .tail = 0, .cache_case = 18, .no_cache_case = 20, .reads = 1, .writes = 4, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_ILLEGAL] = {"Illegal Instruction", {.head = 0, .tail = 0, .cache_case = 18, .no_cache_case = 20, .reads = 1, .writes = 4, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_LINE_A] = {"A-Line Trap", {.head = 0, .tail = 0, .cache_case = 18, .no_cache_case = 20, .reads = 1, .writes = 4, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_LINE_F] = {"F-Line Trap", {.head = 0, .tail = 0, .cache_case = 18, .no_cache_case = 20, .reads = 1, .writes = 4, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_PRIVILEGE] = {"Privilege Violation", {.head = 0, .tail = 0, .cache_case = 18, .no_cache_case = 20, .reads = 1, .writes = 4, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_TRAPCC_TRAP] = {"TRAPcc (Trap)", {.head = 2, .tail = 0, .cache_case = 22, .no_cache_case = 24, .reads = 1, .writes = 5, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_TRAPCC_NO_TRAP] = {"TRAPcc (No Trap)", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_TRAPCC_W_TRAP] = {"TRAPcc.W (Trap)", {.head = 5, .tail = 0, .cache_case = 24, .no_cache_case = 26, .reads = 1, .writes = 5, .prefetches = 3}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_TRAPCC_W_NO_TRAP] = {"TRAPcc.W (No Trap)", {.head = 6, .tail = 0, .cache_case = 6, .no_cache_case = 6, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_TRAPCC_L_TRAP] = {"TRAPcc.L (Trap)", {.head = 6, .tail = 0, .cache_case = 26, .no_cache_case = 28, .reads = 1, .writes = 5, .prefetches = 3}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_TRAPCC_L_NO_TRAP] = {"TRAPcc.L (No Trap)", {.head = 8, .tail = 0, .cache_case = 8, .no_cache_case = 8, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ODD_WORDS},
+    [ROW_TRAPV_TRAP] = {"TRAPV (Trap)", {.head = 2, .tail = 0, .cache_case = 22, .no_cache_case = 24, .reads = 1, .writes = 5, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_TRAPV_NO_TRAP] = {"TRAPV (No Trap)", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
 };
 
 #define TABLE_COUNT (sizeof TABLE / sizeof TABLE[0])
@@ -675,6 +731,56 @@ const ap_m68030_table_entry_t *ap_m68030_timing_table(unsigned *count) {
   return TABLE;
 }
 
+
+const ap_m68030_table_entry_t *
+ap_m68030_timing_for_exception(ap_m68030_exception_row_t row) {
+  switch (row) {
+  case AP_M68030_EXCEPTION_INTERRUPT_I_STACK:
+    return &TABLE[ROW_INTERRUPT_I];
+  case AP_M68030_EXCEPTION_INTERRUPT_M_STACK:
+    return &TABLE[ROW_INTERRUPT_M];
+  case AP_M68030_EXCEPTION_TRACE:
+    return &TABLE[ROW_TRACE];
+  }
+  return nullptr;
+}
+
+const ap_m68030_table_entry_t *ap_m68030_timing_for_vector(unsigned vector,
+                                                           uint16_t instruction) {
+  if (vector >= AP_M68030_VECTOR_TRAP_BASE &&
+      vector < AP_M68030_VECTOR_TRAP_BASE + 16u) {
+    return &TABLE[ROW_TRAP_N];
+  }
+  switch (vector) {
+  case AP_M68030_VECTOR_ILLEGAL_INSTRUCTION:
+    return &TABLE[ROW_ILLEGAL];
+  case AP_M68030_VECTOR_LINE_A:
+    return &TABLE[ROW_LINE_A];
+  case AP_M68030_VECTOR_LINE_F:
+    return &TABLE[ROW_LINE_F];
+  case AP_M68030_VECTOR_PRIVILEGE_VIOLATION:
+    return &TABLE[ROW_PRIVILEGE];
+  case AP_M68030_VECTOR_TRAPCC:
+    /* Four instructions share the vector at four costs, and only the word
+     * says which. A coprocessor's `cpTRAPcc` shares it too and is not on the
+     * page. */
+    if (instruction == 0x4E76u) {
+      return &TABLE[ROW_TRAPV_TRAP];
+    }
+    switch (instruction & 0xF0FFu) {
+    case 0x50FAu:
+      return &TABLE[ROW_TRAPCC_W_TRAP];
+    case 0x50FBu:
+      return &TABLE[ROW_TRAPCC_L_TRAP];
+    case 0x50FCu:
+      return &TABLE[ROW_TRAPCC_TRAP];
+    default:
+      return nullptr;
+    }
+  default:
+    return nullptr;
+  }
+}
 
 const ap_m68030_table_entry_t *
 ap_m68030_timing_for_selected(uint16_t instruction, uint16_t extension,
@@ -770,6 +876,12 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
      * splits by register group, which only the extension word names, so
      * `$4E7B` has no row here. */
     return &TABLE[ROW_MOVEC_CR_RN];
+  case 0x4E72u:
+    return &TABLE[ROW_STOP];
+  case 0x4E76u:
+    /* The row when V is clear. A set V traps, and that is the exception's row,
+     * found by its vector. */
+    return &TABLE[ROW_TRAPV_NO_TRAP];
   default:
     break;
   }
@@ -878,6 +990,21 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
    * memory-destination block below, which reads bits 8-6 as an arithmetic
    * opmode and would send a `SUBQ` to no row. A size of `11` is `Scc`/`DBcc`/
    * `TRAPcc`, which are not these. */
+  /* `TRAPcc`, the `Scc` group's mode 7 registers 2-4: a word operand, a long,
+   * or none. These are the rows when the condition is false; a trap is the
+   * exception's row, found by its vector. */
+  if (family == 0x5u && ((instruction >> 6) & 0x3u) == 0x3u && mode == 0x7u) {
+    switch (instruction & 0x7u) {
+    case 0x2u:
+      return &TABLE[ROW_TRAPCC_W_NO_TRAP];
+    case 0x3u:
+      return &TABLE[ROW_TRAPCC_L_NO_TRAP];
+    case 0x4u:
+      return &TABLE[ROW_TRAPCC_NO_TRAP];
+    default:
+      break;
+    }
+  }
   /* `Scc Dn`, the other row nothing returned: size `11` with mode 000. Mode
    * 001 is `DBcc`, priced through `ap_m68030_timing_for_dbcc`. */
   if (family == 0x5u && ((instruction >> 6) & 0x3u) == 0x3u && mode == 0x0u) {
@@ -928,6 +1055,12 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
      * register, and the four status moves take the size field's `11`. */
     if ((instruction & 0xFFF8u) == 0x4840u) {
       return &TABLE[ROW_SWAP];
+    }
+    /* And `BKPT` is the same group with an address register: the breakpoint
+     * acknowledge cycle. One that nothing answers becomes an illegal
+     * instruction, priced by that exception's row as well. */
+    if ((instruction & 0xFFF8u) == 0x4848u) {
+      return &TABLE[ROW_BKPT];
     }
     const bool data_alterable = mode == 0x0u || (mode >= 0x2u && mode <= 0x6u) ||
                                 (mode == 0x7u && ea_register <= 0x1u);

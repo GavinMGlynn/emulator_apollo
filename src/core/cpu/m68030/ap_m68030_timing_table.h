@@ -134,6 +134,26 @@ ap_m68030_timing_for_word(uint16_t instruction);
 ap_m68030_timing_for_selected(uint16_t instruction, uint16_t extension,
                               bool outcome);
 
+/* §11.6.17's rows that belong to no instruction word: the two interrupts, told
+ * apart by the stack they are taken on, and trace. */
+typedef enum {
+  AP_M68030_EXCEPTION_INTERRUPT_I_STACK,
+  AP_M68030_EXCEPTION_INTERRUPT_M_STACK,
+  AP_M68030_EXCEPTION_TRACE,
+} ap_m68030_exception_row_t;
+
+[[nodiscard]] const ap_m68030_table_entry_t *
+ap_m68030_timing_for_exception(ap_m68030_exception_row_t row);
+
+/* The §11.6.17 row for an exception an instruction raised, by its vector --
+ * and, for vector 7, by the instruction, since `TRAPV` and the three `TRAPcc`
+ * forms share the vector at four costs. NULL for a vector the page does not
+ * print: zero divide, `CHK`, format error, MMU configuration, a coprocessor's
+ * `cpTRAPcc`. A refused `BKPT` is vector 4 and gets Illegal Instruction's row;
+ * the breakpoint acknowledge's own row is the word lookup's. */
+[[nodiscard]] const ap_m68030_table_entry_t *
+ap_m68030_timing_for_vector(unsigned vector, uint16_t instruction);
+
 /* ---------------------------------------------------------------------------
  * The branches, whose cost is not a function of the instruction word.
  *

@@ -992,6 +992,39 @@ static void test_the_scsi_wait_loops_memory_forms_compose_from_their_tables(
   }
 }
 
+/* §11.6.17's `TRAP #n` on a running machine, warm: `18(1/0/4)` is the trap,
+ * the four-word frame and the vector, and on a long-aligned stack with the data
+ * cache off the step runs exactly that bus -- the status register, a program
+ * counter straddling a long-word boundary as two writes, the format word, and
+ * the vector's read -- and adds the row's eight clocks of microcode. The
+ * handler's refill is the next step's. Until 2026-09-14 this cost 10, the bus
+ * alone. */
+static void test_a_trap_costs_its_published_cache_case_warm(void) {
+  const ap_m68030_table_entry_t *row =
+      ap_m68030_timing_for_vector(AP_M68030_VECTOR_TRAP_BASE, 0x4E40u);
+  TEST_ASSERT_NOT_NULL(row);
+
+  /* `sample_instruction`'s loop, but a trap's step reports EXCEPTION rather
+   * than EXECUTED. The handler is address 0 -- the vector table is blank -- and
+   * is never run: each sample goes back to the trap. */
+  blank();
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+  ap_machine_reset(&m, PROGRAM, STACK);
+  write_cacr(&m, CACR_EI);
+  TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM, 2u, 0x4E40u));
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_machine_step(&m).status);
+  uint64_t previous = m.cpu.clocks;
+  for (unsigned i = 0; i < 4u; i++) {
+    m.cpu.regs.pc = PROGRAM;
+    ap_m68030_fetch_reset(&m.cpu.fetch, PROGRAM);
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_machine_step(&m).status);
+    TEST_ASSERT_EQUAL_UINT64(row->timing.cache_case, m.cpu.clocks - previous);
+    previous = m.cpu.clocks;
+  }
+}
+
 /* §11.6.16's address forms on a running machine, each composed with its own
  * effective address table: `LEA` and `PEA` through §11.6.3's `(An)`, `JMP` and
  * `JSR` through §11.6.5's. The expected figures come from the table API, so
@@ -3029,6 +3062,7 @@ int main(void) {
   RUN_TEST(test_the_executed_count_can_hold_more_than_a_32_bit_run);
   RUN_TEST(test_every_transcribed_row_matches_both_published_columns);
   RUN_TEST(test_the_address_forms_compose_from_their_own_tables);
+  RUN_TEST(test_a_trap_costs_its_published_cache_case_warm);
   RUN_TEST(test_the_footnoted_memory_forms_compose_to_the_manuals_total);
   RUN_TEST(test_the_scsi_wait_loops_memory_forms_compose_from_their_tables);
   RUN_TEST(test_the_unfootnoted_memory_moves_match_both_columns);
