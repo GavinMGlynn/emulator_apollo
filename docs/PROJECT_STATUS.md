@@ -468,8 +468,69 @@ one record per command.
 *Verification: `exb8200_suite`'s new test writes one block, then a second in a
 separate command, both GOOD. It writes a filemark, rewinds, and reads both back
 with the second record's changed byte intact. The read-after-write test still
-holds. `ctest` 152/152. The `wbak`/`rbak` boot with the fix is recorded when it
-lands.*
+holds. `ctest` 152/152, and the boot below.*
+
+**With the fix, Domain/OS wrote a complete backup to the EXB-8200.** `wbak -dev
+m0 -f 1 -vid SCSI01 -fid scsitest /com/lcnode` printed its label and
+"Write complete.", and the drive holds a standard ANSI-labelled volume:
+
+    #0  VOL1SCSI01          #5  filemark               #9   EOF1scsitest
+    #1  UVL1A4615A88.B00    #6  8192 bytes of backup   #10  EOF2F0819208192
+    #2  HDR1scsitest        #7  8192 bytes of backup   #11  filemark
+    #3  HDR2F0819208192     #8  filemark               #12  filemark
+    #4  UHL1A4615A81.A00
+
+That is VOL1, Apollo's UVL1, HDR1/HDR2 with the file ID and the 8,192-byte
+block size, Apollo's UHL1, the data, and the EOF trailer and closing tape
+marks, all through the SCSI manager, the ASC's mailboxes and first-party DMA,
+the translation map, the bus and the drive. **The write path of the
+integration check is done.**
+
+**`rbak -dev m0 -f 1 -index -all` straight after it failed differently**:
+"(open_input_volume) Unable to open volume. - operation attempted before
+waiting (OS/magtape manager)". `wbak` finished by spacing back over its last
+tape mark. `rbak`'s open then sent TEST UNIT READY twice and INQUIRY, and
+stopped **before** READ BLOCK LIMITS. No command was refused. The error is the
+manager's own, from state `wbak` left, not the drive's.
+
+### The magtape manager's missing completion (2026-09-14)
+
+**`wbak` left nothing outstanding. The ASC model had run out of incoming
+mailboxes.** A second boot put `rbak -dev m0 -rewind` between `wbak` and the
+index, as the FAQ recommends. It failed as well, "Unable to acquire tape -
+operation attempted before waiting", where the same rewind had succeeded on a
+boot with no `wbak` before it. The message is status 24 of `mt_$`'s table on
+the volume, next to "wait attempted before go issued": the manager refusing a
+new operation while an earlier one is uncollected.
+
+The end-of-run report decided it. 68 commands started and all 68 have a
+completion in the ring, but the part's own counter read **"64 posted"**,
+exactly the mail block's ICMB count. Both failing opens broke at command #65,
+`rbak`'s INQUIRY, and the boot whose rewind succeeded never reached 64
+commands.
+
+`[WD7000]` §5.2.4, read as the page image: "The interrupt acknowledge signal
+clears the previous IRQ signal and also frees up an ICMB so that it can be
+re-used." §5.5's Figure 5-1 puts "IRQ if previous ACKed, frees ICMB" on the
+interrupt queue and "ICMB avail." on the path into it. The model instead called
+a box free when its status byte in host memory read zero. No page of §5.3 asks
+a host to clear that byte, and Domain/OS's driver does not. So boxes 0-63 each
+took one completion, the 65th found none and was dropped, and the manager
+waited for an operation that had already finished.
+
+Fixed: `icmb_in_use`, one bit a box. It is set when a completion's interrupt is
+queued and cleared by the acknowledge that retires `11MMMMMM`, and it is hashed
+with the rest of the part. The DN3500 identity reference is unmoved, since the
+ASC is hashed only when one is fitted.
+
+*Verification: `wd7000_suite`'s
+`test_an_acknowledged_icmb_is_reused_without_the_host_clearing_it` runs five
+commands through two boxes, acknowledging each and never touching the ICMB
+bytes; the old rule dropped the third.
+`test_an_unacknowledged_icmb_stays_held_even_if_the_host_zeroes_it` is the
+discriminating half: a box the host zeroed but did not acknowledge is still
+held, and the next completion goes to box 1. `ctest` 152/152. The boot with the
+fix is recorded when it lands.*
 
 
 ## §11.6 stage 3: the single-operand and shift memory forms, and the calculate table (2026-09-14)
@@ -1205,8 +1266,13 @@ would not close at 32. `test_the_scbs_offsets_are_decimal` pins it.
   this is the only writer of those three bytes.
 - §6.1.9's scan starts every full box and then raises **its own** completion,
   Table A-11's `03`.
-- An ICMB is found by walking for a box whose first byte is zero; the interrupt
-  is `11MMMMMM`, `AP_WD7000_INT_ICMB_SERVICE | m`.
+- An ICMB is the lowest box the part is not holding for an unacknowledged
+  interrupt, and the acknowledge frees the one its interrupt names (§5.2.4,
+  Figure 5-1). The interrupt is `11MMMMMM`, `AP_WD7000_INT_ICMB_SERVICE | m`.
+  *Corrected 2026-09-14. The original read:* "An ICMB is found by walking for
+  a box whose first byte is zero". *No page of §5.3 asks a host to clear that
+  byte, and Domain/OS's driver does not, so the part ran out of boxes at the
+  65th completion. See "The magtape manager's missing completion".*
 
 **The data never passes through this core.** A target writes into host memory
 through the ASC's own first-party DMA hook, one address at a time, so a 1 MB

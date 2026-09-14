@@ -853,6 +853,63 @@ static void test_a_full_mailbox_runs_its_scb_and_posts_a_completion(void) {
   TEST_ASSERT_EQUAL_UINT32(1u, asc.scbs_started);
 }
 
+/* §5.2.4: the acknowledge "frees up an ICMB so that it can be re-used". A host
+ * that acknowledges and never touches the box's status byte -- Domain/OS's
+ * driver -- must still get every completion. With two ICMBs, reading the byte
+ * as "free" posted two and dropped the third; in the boot, with 64, it dropped
+ * the 65th and the magtape manager refused every operation after it. */
+static void test_an_acknowledged_icmb_is_reused_without_the_host_clearing_it(
+    void) {
+  ap_wd7000_t asc;
+  ram_t ram;
+  ap_scsi_bus_t bus;
+  drive_t drive;
+  wired(&asc, &ram, &bus, &drive);
+  const uint8_t test_unit_ready[6] = {0u};
+
+  for (unsigned i = 0; i < 5u; i++) {
+    place_scb(&ram, test_unit_ready, false, 0u);
+    command(&asc, (uint8_t)(AP_WD7000_CMD_START_OGMB | 0u));
+    TEST_ASSERT_EQUAL_UINT(i + 1u, drive.executes);
+    TEST_ASSERT_TRUE(ap_wd7000_irq(&asc));
+    TEST_ASSERT_EQUAL_HEX8(AP_WD7000_INT_ICMB_SERVICE | 0u,
+                           ap_wd7000_read(&asc, AP_WD7000_INTSTAT_ACK));
+    TEST_ASSERT_EQUAL_HEX8(AP_WD7000_ICMB_COMPLETE, ram.byte[icmb_at(&asc, 0u)]);
+    ap_wd7000_write(&asc, AP_WD7000_INTSTAT_ACK, 0u);
+  }
+  TEST_ASSERT_EQUAL_UINT32(5u, asc.icmbs_posted);
+}
+
+/* And the other half, which tells the part's record from the byte: a host that
+ * zeroes a box it has **not** acknowledged has not freed it, so the next
+ * completion goes to box 1. */
+static void test_an_unacknowledged_icmb_stays_held_even_if_the_host_zeroes_it(
+    void) {
+  ap_wd7000_t asc;
+  ram_t ram;
+  ap_scsi_bus_t bus;
+  drive_t drive;
+  wired(&asc, &ram, &bus, &drive);
+  const uint8_t test_unit_ready[6] = {0u};
+
+  place_scb(&ram, test_unit_ready, false, 0u);
+  command(&asc, (uint8_t)(AP_WD7000_CMD_START_OGMB | 0u));
+  ram.byte[icmb_at(&asc, 0u)] = AP_WD7000_MAILBOX_EMPTY;
+
+  place_scb(&ram, test_unit_ready, false, 0u);
+  command(&asc, (uint8_t)(AP_WD7000_CMD_START_OGMB | 0u));
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_ICMB_COMPLETE, ram.byte[icmb_at(&asc, 1u)]);
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_MAILBOX_EMPTY, ram.byte[icmb_at(&asc, 0u)]);
+
+  /* Only the head is visible, and acknowledging it frees box 0 alone. */
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_INT_ICMB_SERVICE | 0u,
+                         ap_wd7000_read(&asc, AP_WD7000_INTSTAT_ACK));
+  ap_wd7000_write(&asc, AP_WD7000_INTSTAT_ACK, 0u);
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_INT_ICMB_SERVICE | 1u,
+                         ap_wd7000_read(&asc, AP_WD7000_INTSTAT_ACK));
+  TEST_ASSERT_EQUAL_UINT64(UINT64_C(1) << 1, asc.icmb_in_use);
+}
+
 /* §5.7.1: the SCSI status byte is never modified, and anything but `00` forces
  * ICMB `02`. */
 static void test_a_non_good_status_forces_completion_two(void) {
@@ -1171,5 +1228,7 @@ int main(void) {
   RUN_TEST(test_advancing_is_idempotent_and_refuses_to_go_backwards);
   RUN_TEST(test_two_controllers_brought_up_alike_hold_identical_state);
   RUN_TEST(test_the_timing_constants_are_exact_in_base_units);
+  RUN_TEST(test_an_acknowledged_icmb_is_reused_without_the_host_clearing_it);
+  RUN_TEST(test_an_unacknowledged_icmb_stays_held_even_if_the_host_zeroes_it);
   return UNITY_END();
 }

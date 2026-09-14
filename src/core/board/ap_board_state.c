@@ -585,6 +585,9 @@ void ap_board_hash_scsi(ap_hash_t *st, const ap_wd7000_t *asc) {
   }
   ap_hash_group_end(st);
   hash_bool(st, asc->awaiting_ack);
+  /* Which incoming boxes are held for an unacknowledged interrupt: two parts
+   * differing only here post their next completion to different boxes. */
+  ap_hash_u64(st, asc->icmb_in_use);
 
   hash_bool(st, asc->interrupt_on_free_ogmb);
   hash_bool(st, asc->pseudo_idle);

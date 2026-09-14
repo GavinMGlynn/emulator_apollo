@@ -4506,6 +4506,16 @@ discipline throughout.
   refused every WRITE after a WRITE, so the second label failed and `tfp`'s
   recovery wrote over VOL1. Fixed per `[EXB]` ch. 21, with a test. **Next**:
   the same `wbak`/`rbak -index` boot with the fix.
+  **`wbak` then wrote a complete labelled backup** ("Write complete.";
+  VOL1/UVL1/HDR1/HDR2/UHL1, two 8 KB data blocks, EOF1/EOF2, tape marks). The
+  write path is done. `rbak -index` straight after failed in the magtape manager
+  before any read, "operation attempted before waiting". **Next**: an
+  `rbak -dev m0 -rewind` between them, as the FAQ recommends, then the index.
+  **The rewind failed too, at command #65, and the report said why**: "64
+  posted". The ASC model called an ICMB free when the host zeroed it, and
+  `[WD7000]` §5.2.4 frees it on the acknowledge. Domain/OS never zeroes it, so
+  the 65th completion was dropped. Fixed, with two tests. **Next**: the same
+  boot with the fix.
 - [ ] **`[030]` §11.6 is not fully transcribed, and the boot is timed by it.**
   "Instruction execution time — Closed" is true of the rows transcribed and
   said nothing of coverage. **Stage 1 landed 2026-09-14**: §11.6.9 and

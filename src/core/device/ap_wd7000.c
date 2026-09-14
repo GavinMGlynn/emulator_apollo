@@ -174,6 +174,13 @@ static void ap_wd7000_acknowledge(ap_wd7000_t *asc) {
     asc->interrupt = false;
     return;
   }
+  /* §5.2.4: the acknowledge "also frees up an ICMB so that it can be re-used"
+   * -- the one this interrupt names, when it names one. */
+  const uint8_t acknowledged = asc->queue[asc->queue_head];
+  if ((acknowledged & AP_WD7000_INT_ICMB_SERVICE) == AP_WD7000_INT_ICMB_SERVICE) {
+    asc->icmb_in_use &=
+        ~(UINT64_C(1) << (acknowledged & AP_WD7000_INT_BOX_MASK));
+  }
   asc->queue_head = (asc->queue_head + 1u) % AP_WD7000_IRQ_QUEUE;
   asc->queue_count -= 1u;
   asc->awaiting_ack = false;
@@ -585,29 +592,42 @@ static void scb_memory_write(void *context, uint32_t address, uint8_t value) {
 /* Find a free incoming mailbox and post a completion in it. §5.3: an ICMB's
  * first byte is the completion code and the next three the CDB address,
  * `FFFFFF` when meaningless. The interrupt that follows is `11MMMMMM`,
- * `AP_WD7000_INT_ICMB_SERVICE | m`. */
+ * `AP_WD7000_INT_ICMB_SERVICE | m`.
+ *
+ * **Free is the part's own record, not the box's status byte.** §5.2.4 and
+ * Figure 5-1 free an ICMB when its interrupt is acknowledged. This used to read
+ * the byte in host memory and call a box free when it was zero, which no page
+ * of §5.3 asks a host to do and Domain/OS's driver never does -- so every box
+ * looked full after 64 completions, the 65th was dropped, and the magtape
+ * manager refused every later operation with "operation attempted before
+ * waiting". */
 static bool post_icmb(ap_wd7000_t *asc, uint8_t code, uint32_t cdb_address) {
   for (unsigned m = 0; m < asc->icmb_count; m++) {
     uint32_t address = 0u;
     if (!ap_wd7000_icmb_address(asc, m, &address)) {
       continue;
     }
+    if ((asc->icmb_in_use & (UINT64_C(1) << m)) != 0u) {
+      continue; /* its interrupt has not been acknowledged */
+    }
     bool ok = false;
-    const uint8_t status = ap_wd7000_memory_read(asc, address, &ok);
+    ap_wd7000_memory_write(asc, address, code, &ok);
     if (!ok) {
       return false;
     }
-    if (status != AP_WD7000_MAILBOX_EMPTY) {
-      continue; /* still holding a completion the host has not taken */
-    }
-    ap_wd7000_memory_write(asc, address, code, &ok);
     ap_wd7000_memory_write24(asc, address + 1u, cdb_address, &ok);
     asc->icmbs_posted++;
     asc->last_icmb_code = code;
     asc->last_icmb_scb = cdb_address;
-    return ap_wd7000_post_interrupt(
+    /* Held only once its interrupt is queued: an interrupt the queue refused
+     * will never be acknowledged, and a box marked for it would never free. */
+    const bool queued = ap_wd7000_post_interrupt(
         asc, (uint8_t)(AP_WD7000_INT_ICMB_SERVICE |
                        (m & AP_WD7000_INT_BOX_MASK)));
+    if (queued) {
+      asc->icmb_in_use |= UINT64_C(1) << m;
+    }
+    return queued;
   }
   /* Every ICMB full. §5.5's flowchart B-7 marks the spot and retries; this part
    * has no retry queue, so the completion is dropped and counted -- which is

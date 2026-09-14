@@ -420,6 +420,14 @@ typedef struct {
    * "the ASC will not raise the next interrupt until the previous one is
    * acknowledged". */
   bool awaiting_ack;
+  /* Which incoming mailboxes hold a completion whose interrupt the host has not
+   * acknowledged, bit m for ICMB m -- up to 64, §5.3. §5.2.4: "The interrupt
+   * acknowledge signal clears the previous IRQ signal and also frees up an ICMB
+   * so that it can be re-used", and Figure 5-1 completes a command only when an
+   * "ICMB [is] avail.". The part owns this. Nothing in §5.3 has the host clear
+   * a box's status byte, and Domain/OS's driver does not -- which is why reading
+   * that byte as "free" ran out of boxes at the 65th completion. */
+  uint64_t icmb_in_use;
 
   /* §6.1.5: one-shot, "used only when Interrupt on Free OGMB has been issued". */
   bool interrupt_on_free_ogmb;
