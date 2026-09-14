@@ -745,7 +745,7 @@ bool ap_wd7000_start_ogmb(ap_wd7000_t *asc, unsigned n) {
                              &ok);
   }
   {
-    const unsigned slot = asc->completions % 16u;
+    const unsigned slot = asc->completions % 64u;
     asc->completions++;
     asc->completion[slot].code = completion;
     asc->completion[slot].vue = vue;

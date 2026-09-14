@@ -434,6 +434,44 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## A WRITE may follow a WRITE: the tape had lost its VOL1 label (2026-09-14)
+
+**`wbak -dev m0 -f 1 -vid SCSI01 -fid scsitest /com/lcnode` wrote to the drive
+and then refused it**: "first label on volume is not VOL1 label (library/tfp)",
+and `rbak -dev m0 -f 1 -index -all` said the same. So the data path was
+running. Six records went onto a blank tape, and an 80-byte READ came back
+clean. What `tfp` read was the problem.
+
+**The report now lists the tape's records**, with kind, length and leading
+bytes. The trace and completion rings are 64 entries, so a whole `wbak` fits:
+
+    #0  80 byte(s): HDR1 ...     #3  80 byte(s): EOF1 ...
+    #1  filemark                 #4  filemark
+    #2  filemark                 #5  filemark
+
+**No VOL1.** The trace shows how it went. WRITE 80 (VOL1) was GOOD. The next
+WRITE 80 (HDR1) drew **CHECK CONDITION**. `tfp` recovered by spacing back one
+block and writing again, which landed on VOL1's place. The next write failed
+the same way and was recovered the same way, and the label set finished
+HDR1/FM/FM/EOF1/FM/FM.
+
+**`writable_here` refused every WRITE after a WRITE.** It accepts LBOT, blank
+tape, or the BOT side of a long filemark, and the position after the drive's
+own write is marked `AP_EXB8200_AFTER_WRITE`, which it did not accept. `[EXB]`
+ch. 21: "write mode lasts from the first WRITE until a REWIND, UNLOAD, LOAD,
+SPACE or WRITE FILEMARKS". So a second WRITE is still in write mode, and
+§24.11 restricts only a READ or forward SPACE at that position. WRITE FILEMARKS
+already carried the exception; WRITE did not. **The suite missed it because its
+round trip wrote two blocks in *one* WRITE command**, and a label writer issues
+one record per command.
+
+*Verification: `exb8200_suite`'s new test writes one block, then a second in a
+separate command, both GOOD. It writes a filemark, rewinds, and reads both back
+with the second record's changed byte intact. The read-after-write test still
+holds. `ctest` 152/152. The `wbak`/`rbak` boot with the fix is recorded when it
+lands.*
+
+
 ## §11.6 stage 3: the single-operand and shift memory forms, and the calculate table (2026-09-14)
 
 §11.6.11 and §11.6.12's memory rows, from pp. 11-44 and 11-45 as page images,

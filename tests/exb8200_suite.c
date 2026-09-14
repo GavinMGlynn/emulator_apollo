@@ -465,6 +465,38 @@ static void test_a_write_in_the_middle_of_data_is_illegal(void) {
   TEST_ASSERT_EQUAL_HEX8(AP_EXB8200_KEY_ILLEGAL_REQUEST, key(&drive));
 }
 
+/* **A WRITE may follow a WRITE.** Write mode lasts until REWIND, UNLOAD, LOAD,
+ * SPACE or WRITE FILEMARKS (ch. 21), and a label writer issues one record per
+ * command -- Domain/OS writes VOL1 and HDR1 as two WRITEs. The round trip above
+ * wrote two blocks in a single command and could not see a refused second
+ * command, which is how a whole tape of labels came out without its VOL1. */
+static void test_a_write_may_follow_a_write(void) {
+  ap_exb8200_t drive;
+  loaded(&drive, true);
+  ap_scsi_result_t result;
+  for (unsigned i = 0; i < 2048u; i++) {
+    host[i] = (uint8_t)(i & 0xFFu);
+  }
+  const uint8_t write[6] = {AP_EXB8200_CMD_WRITE, 0x01u, 0, 0, 1u, 0};
+  TEST_ASSERT_EQUAL_HEX8(AP_SCSI_STATUS_GOOD, run(&drive, write, &result));
+  host[0] = 0xAAu;
+  TEST_ASSERT_EQUAL_HEX8(AP_SCSI_STATUS_GOOD, run(&drive, write, &result));
+  TEST_ASSERT_EQUAL_UINT(2u, drive.media.records);
+
+  const uint8_t mark[6] = {AP_EXB8200_CMD_WRITE_FILEMARKS, 0, 0, 0, 1u, 0};
+  TEST_ASSERT_EQUAL_HEX8(AP_SCSI_STATUS_GOOD, run(&drive, mark, &result));
+  const uint8_t rewind[6] = {AP_EXB8200_CMD_REWIND, 0, 0, 0, 0, 0};
+  TEST_ASSERT_EQUAL_HEX8(AP_SCSI_STATUS_GOOD, run(&drive, rewind, &result));
+
+  memset(host, 0, sizeof host);
+  const uint8_t read[6] = {AP_EXB8200_CMD_READ, 0x01u, 0, 0, 2u, 0};
+  TEST_ASSERT_EQUAL_HEX8(AP_SCSI_STATUS_GOOD, run(&drive, read, &result));
+  TEST_ASSERT_EQUAL_UINT(2048u, result.transferred);
+  /* The first record kept its first byte and the second carried the change. */
+  TEST_ASSERT_EQUAL_HEX8(0x00u, host[0]);
+  TEST_ASSERT_EQUAL_HEX8(0xAAu, host[1024]);
+}
+
 /* ---- WRITE FILEMARKS, ch. 22 ---------------------------------------------- */
 
 /* Byte 05 bit 7 picks the kind, and §22 sizes them: 270 tracks long, 60 short.
@@ -801,6 +833,7 @@ int main(void) {
   RUN_TEST(test_sili_in_fixed_mode_is_illegal_request);
   RUN_TEST(test_a_read_after_a_write_is_illegal_request);
   RUN_TEST(test_a_write_in_the_middle_of_data_is_illegal);
+  RUN_TEST(test_a_write_may_follow_a_write);
   RUN_TEST(test_both_filemark_kinds_and_a_count_of_zero);
   RUN_TEST(test_space_codes_two_and_three_are_refused);
   RUN_TEST(test_a_backward_space_past_lbot_stops_there);

@@ -99,7 +99,18 @@ uint32_t ap_exb8200_physical_blocks(const ap_exb8200_t *drive) {
  * records, and the BOT side of a long filemark is a position whose next record
  * is a long one. */
 static bool writable_here(const ap_exb8200_t *drive) {
-  if (drive->where == AP_EXB8200_AT_LBOT) {
+  /* **Just after this drive's own write is blank tape, and a write may go
+   * there.** Ch. 21: "write mode lasts from the first WRITE until a REWIND,
+   * UNLOAD, LOAD, SPACE or WRITE FILEMARKS", so a second WRITE is still in it.
+   * §24.11 makes a READ or forward SPACE Illegal Request there, not a WRITE.
+   * This returned false, so every WRITE after a WRITE was refused. Domain/OS's
+   * `tfp` writes VOL1 and then HDR1 as two commands; the second failed, its
+   * recovery spaced back over VOL1, and the tape ended HDR1/FM/FM/EOF1/FM/FM,
+   * which `wbak` and `rbak` both rejected as "first label on volume is not VOL1
+   * label". The suite missed it because its round trip wrote two blocks in
+   * *one* command. */
+  if (drive->where == AP_EXB8200_AT_LBOT ||
+      drive->where == AP_EXB8200_AFTER_WRITE) {
     return true;
   }
   if (drive->where != AP_EXB8200_IN_DATA) {

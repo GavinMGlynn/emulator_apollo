@@ -470,7 +470,7 @@ typedef struct {
     uint32_t transferred;
     uint32_t capacity;
     uint32_t buffer; /* the SCB's data pointer, bus-master space */
-  } completion[16];
+  } completion[64];
   uint32_t completions;
 } ap_wd7000_t;
 

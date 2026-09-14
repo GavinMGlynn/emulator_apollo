@@ -4500,6 +4500,12 @@ discipline throughout.
   ID 1, all answered as `[EXB]` says. The command path is done. **Left**: the
   data path — a `wbak` to `m0` and an `rbak -index` back — for WRITE, filemarks
   and READ.
+  **The data path ran and exposed a drive defect.** `wbak` wrote six records
+  and both commands then refused the tape, "first label on volume is not VOL1".
+  The new record listing showed HDR1/FM/FM/EOF1/FM/FM: the EXB-8200 model
+  refused every WRITE after a WRITE, so the second label failed and `tfp`'s
+  recovery wrote over VOL1. Fixed per `[EXB]` ch. 21, with a test. **Next**:
+  the same `wbak`/`rbak -index` boot with the fix.
 - [ ] **`[030]` §11.6 is not fully transcribed, and the boot is timed by it.**
   "Instruction execution time — Closed" is true of the rows transcribed and
   said nothing of coverage. **Stage 1 landed 2026-09-14**: §11.6.9 and

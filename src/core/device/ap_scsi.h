@@ -209,11 +209,11 @@ typedef struct ap_scsi_bus {
     uint8_t cdb[6];
     uint8_t status;
     bool timed_out;
-  } trace[16];
+  } trace[64];
   uint32_t trace_count;
 } ap_scsi_bus_t;
 
-#define AP_SCSI_TRACE 16u
+#define AP_SCSI_TRACE 64u
 
 /* Power-on: every address empty, no initiator, no silence outstanding. */
 void ap_scsi_bus_init(ap_scsi_bus_t *bus, uint8_t initiator_id);

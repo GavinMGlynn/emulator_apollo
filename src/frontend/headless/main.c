@@ -6183,10 +6183,10 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
            asc->last_icmb_scb);
     /* What the driver was told for each recent command, oldest first. */
     {
-      const uint32_t kept = asc->completions < 16u ? asc->completions : 16u;
+      const uint32_t kept = asc->completions < 64u ? asc->completions : 64u;
       for (uint32_t k = 0; k < kept; k++) {
         const uint32_t n = asc->completions - kept + k;
-        const unsigned slot = n % 16u;
+        const unsigned slot = n % 64u;
         printf("  scsi done    #%u ICMB %02X vue %02X status %02X, %u of %u"
                " byte(s)",
                (unsigned)(n + 1u), asc->completion[slot].code,
@@ -6231,6 +6231,28 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
         printf(" %02X", drive->sense[i]);
       }
       printf("\n");
+      /* What is on the tape: a write-then-read check can only be judged
+       * against the records the drive actually holds. Up to the first 16, each
+       * with its kind, length and leading bytes in hex and ASCII. */
+      for (unsigned r = 0; r < drive->media.records && r < 16u; r++) {
+        const ap_exb8200_record_t *record = &drive->media.record[r];
+        if (record->kind == AP_EXB8200_RECORD_FILEMARK) {
+          printf("  scsi record  #%u filemark%s\n", r,
+                 record->short_mark ? " (short)" : "");
+          continue;
+        }
+        printf("  scsi record  #%u %u byte(s):", r, (unsigned)record->length);
+        const unsigned shown = record->length < 16u ? record->length : 16u;
+        for (unsigned b = 0; b < shown; b++) {
+          printf(" %02X", drive->media.data[record->offset + b]);
+        }
+        printf("  ");
+        for (unsigned b = 0; b < shown; b++) {
+          const uint8_t c = drive->media.data[record->offset + b];
+          putchar(c >= 0x20u && c < 0x7Fu ? (int)c : '.');
+        }
+        printf("\n");
+      }
     }
   }
   /* The cartridge drive, when one is loaded. The DMA block above says a
