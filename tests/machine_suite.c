@@ -885,6 +885,9 @@ static void test_every_transcribed_row_matches_both_published_columns(void) {
       {0x40C0u, "MOVE SR,D0"},    {0x42C0u, "MOVE CCR,D0"},
       {0x44C0u, "MOVE D0,CCR"},   {0x4E68u, "MOVE USP,A0"},
       {0x4E60u, "MOVE A0,USP"},
+      /* §11.6.14's register form, two words: repeated, its extension takes
+       * the offset from D3 and the width from D0, both zero. */
+      {0xE8C0u, "BFTST D0"},
   };
 
   for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
@@ -1007,17 +1010,26 @@ static void test_the_address_forms_compose_from_their_own_tables(void) {
       {0x4850u, AP_M68030_EA_TIME_CALCULATE, true, "PEA (A0)"},
       {0x4ED0u, AP_M68030_EA_TIME_JUMP, false, "JMP (A0)"},
       {0x4E90u, AP_M68030_EA_TIME_JUMP, false, "JSR (A0)"},
+      /* §11.6.14 through §11.6.4. Repeated, the extension word takes a 16-bit
+       * field at offset D3 = 0: two bytes, so the `<5 Bytes` row. */
+      {0xE8D0u, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, true, "BFTST (A0)"},
   };
 
   for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
     const ap_m68030_table_entry_t *row =
         ap_m68030_timing_for_word(CASES[c].word);
+    if (row == nullptr) {
+      row = ap_m68030_timing_for_selected(CASES[c].word, CASES[c].word, false);
+    }
     TEST_ASSERT_NOT_NULL_MESSAGE(row, CASES[c].what);
     TEST_ASSERT_EQUAL_INT_MESSAGE(CASES[c].table, row->effective_address_time,
                                   CASES[c].what);
     const ap_m68030_ea_timing_t *ea =
         CASES[c].table == AP_M68030_EA_TIME_JUMP
             ? ap_m68030_ea_jump_timing(AP_M68030_EA_ADDRESS_INDIRECT)
+        : CASES[c].table == AP_M68030_EA_TIME_CALCULATE_IMMEDIATE
+            ? ap_m68030_ea_calculate_immediate_timing(
+                  AP_M68030_EA_ADDRESS_INDIRECT, false)
             : ap_m68030_ea_calculate_timing(AP_M68030_EA_ADDRESS_INDIRECT);
     TEST_ASSERT_NOT_NULL(ea);
 

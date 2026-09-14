@@ -93,6 +93,84 @@ static const ap_m68030_ea_timing_t JUMP_ABSOLUTE_LONG = {
 static const ap_m68030_ea_timing_t JUMP_INDEXED = {
     "(d8,An,Xn) or (d8,PC,Xn)", {6, 0, 6, 6, .prefetches = 0}, true, true};
 
+/* §11.6.4, Calculate Immediate Effective Address, from the page image
+ * (p. 11-33): "the number of clock periods needed for the processor to fetch the
+ * immediate source operand and calculate the specified destination effective
+ * address", and for a two-word instruction "to fetch the second word of the
+ * instruction and calculate the specified source operand or single operand".
+ * The second reading is every consumer this core has, so the word column is the
+ * one used; the long column is here because the page prints it.
+ *
+ * Nothing is read in either column, and the no-cache `p` is the extension
+ * word's own fetch. `(An)+` is the one plain head, as in §11.6.3. `(d16,PC)`
+ * shares `(d16,An)`'s row, the reading §11.6.2 and §11.6.5 make for the same
+ * omission. */
+static const ap_m68030_ea_timing_t CIEA_W_DN = {
+    "#(data).W,Dn", {2, 0, 2, 2, .prefetches = 1}, true, true};
+static const ap_m68030_ea_timing_t CIEA_L_DN = {
+    "#(data).L,Dn", {4, 0, 4, 4, .prefetches = 1}, true, true};
+static const ap_m68030_ea_timing_t CIEA_W_INDIRECT = {
+    "#(data).W,(An)", {2, 0, 2, 2, .prefetches = 1}, true, true};
+static const ap_m68030_ea_timing_t CIEA_L_INDIRECT = {
+    "#(data).L,(An)", {4, 0, 4, 4, .prefetches = 1}, true, true};
+static const ap_m68030_ea_timing_t CIEA_W_POSTINCREMENT = {
+    "#(data).W,(An)+", {2, 0, 4, 4, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t CIEA_L_POSTINCREMENT = {
+    "#(data).L,(An)+", {4, 0, 6, 6, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t CIEA_W_PREDECREMENT = {
+    "#(data).W,-(An)", {2, 0, 2, 2, .prefetches = 1}, true, true};
+static const ap_m68030_ea_timing_t CIEA_L_PREDECREMENT = {
+    "#(data).L,-(An)", {4, 0, 4, 4, .prefetches = 1}, true, true};
+static const ap_m68030_ea_timing_t CIEA_W_DISPLACEMENT = {
+    "#(data).W,(d16,An)", {4, 0, 4, 4, .prefetches = 1}, true, true};
+static const ap_m68030_ea_timing_t CIEA_L_DISPLACEMENT = {
+    "#(data).L,(d16,An)", {6, 0, 6, 7, .prefetches = 2}, true, true};
+static const ap_m68030_ea_timing_t CIEA_W_ABSOLUTE_SHORT = {
+    "#(data).W,$XXX.W", {4, 0, 4, 4, .prefetches = 1}, true, true};
+static const ap_m68030_ea_timing_t CIEA_L_ABSOLUTE_SHORT = {
+    "#(data).L,$XXX.W", {6, 0, 6, 6, .prefetches = 2}, true, true};
+static const ap_m68030_ea_timing_t CIEA_W_ABSOLUTE_LONG = {
+    "#(data).W,$XXX.L", {6, 0, 6, 6, .prefetches = 2}, true, true};
+static const ap_m68030_ea_timing_t CIEA_L_ABSOLUTE_LONG = {
+    "#(data).L,$XXX.L", {8, 0, 8, 8, .prefetches = 2}, true, true};
+static const ap_m68030_ea_timing_t CIEA_W_INDEXED = {
+    "#(data).W,(d8,An,Xn) or (d8,PC,Xn)", {6, 0, 6, 6, .prefetches = 2}, true,
+    true};
+static const ap_m68030_ea_timing_t CIEA_L_INDEXED = {
+    "#(data).L,(d8,An,Xn) or (d8,PC,Xn)", {8, 0, 8, 8, .prefetches = 2}, true,
+    true};
+
+const ap_m68030_ea_timing_t *
+ap_m68030_ea_calculate_immediate_timing(ap_m68030_ea_kind_t kind,
+                                        bool immediate_long) {
+  switch (kind) {
+  case AP_M68030_EA_DATA_REGISTER:
+    return immediate_long ? &CIEA_L_DN : &CIEA_W_DN;
+  case AP_M68030_EA_ADDRESS_INDIRECT:
+    return immediate_long ? &CIEA_L_INDIRECT : &CIEA_W_INDIRECT;
+  case AP_M68030_EA_POSTINCREMENT:
+    return immediate_long ? &CIEA_L_POSTINCREMENT : &CIEA_W_POSTINCREMENT;
+  case AP_M68030_EA_PREDECREMENT:
+    return immediate_long ? &CIEA_L_PREDECREMENT : &CIEA_W_PREDECREMENT;
+  case AP_M68030_EA_DISPLACEMENT:
+  case AP_M68030_EA_PC_DISPLACEMENT:
+    return immediate_long ? &CIEA_L_DISPLACEMENT : &CIEA_W_DISPLACEMENT;
+  case AP_M68030_EA_ABSOLUTE_SHORT:
+    return immediate_long ? &CIEA_L_ABSOLUTE_SHORT : &CIEA_W_ABSOLUTE_SHORT;
+  case AP_M68030_EA_ABSOLUTE_LONG:
+    return immediate_long ? &CIEA_L_ABSOLUTE_LONG : &CIEA_W_ABSOLUTE_LONG;
+  case AP_M68030_EA_INDEXED:
+  case AP_M68030_EA_PC_INDEXED:
+    /* The brief format only, as in the other tables. */
+    return immediate_long ? &CIEA_L_INDEXED : &CIEA_W_INDEXED;
+  case AP_M68030_EA_ADDRESS_REGISTER:
+  case AP_M68030_EA_IMMEDIATE:
+  case AP_M68030_EA_INVALID:
+    break;
+  }
+  return nullptr;
+}
+
 const ap_m68030_ea_timing_t *ap_m68030_ea_jump_timing(ap_m68030_ea_kind_t kind) {
   switch (kind) {
   case AP_M68030_EA_ADDRESS_INDIRECT:

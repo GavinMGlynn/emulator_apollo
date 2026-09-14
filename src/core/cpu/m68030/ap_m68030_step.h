@@ -358,6 +358,14 @@ typedef struct {
    * only the execution knows and only the timing tail needs it. */
   bool dbcc_condition_true;
   bool dbcc_count_expired;
+  /* The same, for the §11.6 rows an extension word or an outcome selects:
+   * `MOVEC Rn,Cr`'s register group and `MOVES`' direction are in the extension
+   * word, and whether a bit field spanned five bytes or a `CAS` matched is known
+   * only once it has run. Reset at the start of every step and read by that
+   * step's timing, so -- like the `dbcc_` pair -- they carry nothing across a
+   * step boundary and are not hashed. */
+  uint16_t timing_extension;
+  bool timing_outcome;
 
   /* An exception an executing instruction raised, held until the step can take
    * it: an executor knows a divide had a zero divisor, but not the length of

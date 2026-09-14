@@ -765,8 +765,59 @@ static void test_a_jump_through_a_non_control_mode_has_no_row(void) {
                         ap_m68030_ea_jump_timing(AP_M68030_EA_PC_INDEXED));
 }
 
+/* §11.6.4, Calculate Immediate Effective Address. Nothing is read in either
+ * column, a long immediate never costs less than a word one, and every head but
+ * `(An)+`'s is relative to the operation. */
+static void test_the_calculate_immediate_table_reads_nothing(void) {
+  static const ap_m68030_ea_kind_t KINDS[] = {
+      AP_M68030_EA_DATA_REGISTER,   AP_M68030_EA_ADDRESS_INDIRECT,
+      AP_M68030_EA_POSTINCREMENT,   AP_M68030_EA_PREDECREMENT,
+      AP_M68030_EA_DISPLACEMENT,    AP_M68030_EA_ABSOLUTE_SHORT,
+      AP_M68030_EA_ABSOLUTE_LONG,   AP_M68030_EA_INDEXED,
+  };
+  for (unsigned i = 0; i < sizeof KINDS / sizeof KINDS[0]; i++) {
+    const ap_m68030_ea_timing_t *word =
+        ap_m68030_ea_calculate_immediate_timing(KINDS[i], false);
+    const ap_m68030_ea_timing_t *wide =
+        ap_m68030_ea_calculate_immediate_timing(KINDS[i], true);
+    TEST_ASSERT_NOT_NULL(word);
+    TEST_ASSERT_NOT_NULL(wide);
+    TEST_ASSERT_EQUAL_UINT(0u, word->timing.reads + word->timing.writes);
+    TEST_ASSERT_EQUAL_UINT(0u, wide->timing.reads + wide->timing.writes);
+    TEST_ASSERT_TRUE(wide->timing.cache_case >= word->timing.cache_case);
+    TEST_ASSERT_TRUE(word->timing.prefetches >= 1u);
+    TEST_ASSERT_EQUAL(KINDS[i] != AP_M68030_EA_POSTINCREMENT,
+                      word->head_adds_operation);
+  }
+  /* Two figures the page prints that no pattern gives: the long `(d16,An)`
+   * row's no-cache case exceeds its cache case, and `(An)+` costs 4. */
+  TEST_ASSERT_EQUAL_UINT(
+      7u, ap_m68030_ea_calculate_immediate_timing(AP_M68030_EA_DISPLACEMENT, true)
+              ->timing.no_cache_case);
+  TEST_ASSERT_EQUAL_UINT(
+      4u,
+      ap_m68030_ea_calculate_immediate_timing(AP_M68030_EA_POSTINCREMENT, false)
+          ->timing.cache_case);
+}
+
+/* The page prints no address register, immediate or unassigned row. */
+static void test_the_calculate_immediate_table_declines_what_it_does_not_print(
+    void) {
+  TEST_ASSERT_NULL(ap_m68030_ea_calculate_immediate_timing(
+      AP_M68030_EA_ADDRESS_REGISTER, false));
+  TEST_ASSERT_NULL(
+      ap_m68030_ea_calculate_immediate_timing(AP_M68030_EA_IMMEDIATE, false));
+  TEST_ASSERT_NULL(
+      ap_m68030_ea_calculate_immediate_timing(AP_M68030_EA_INVALID, true));
+  TEST_ASSERT_EQUAL_PTR(
+      ap_m68030_ea_calculate_immediate_timing(AP_M68030_EA_INDEXED, false),
+      ap_m68030_ea_calculate_immediate_timing(AP_M68030_EA_PC_INDEXED, false));
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_the_calculate_immediate_table_reads_nothing);
+  RUN_TEST(test_the_calculate_immediate_table_declines_what_it_does_not_print);
   RUN_TEST(test_the_jump_table_reads_nothing_and_agrees_with_the_68020);
   RUN_TEST(test_a_jump_through_a_non_control_mode_has_no_row);
   RUN_TEST(test_the_immediate_table_is_not_a_scaling_of_one_column);

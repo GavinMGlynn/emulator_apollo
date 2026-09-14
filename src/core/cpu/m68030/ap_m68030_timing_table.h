@@ -78,6 +78,9 @@ typedef enum {
    * and `JSR`. §11.6.7 uses the same `%` for *Calculate Immediate*, which is
    * the reason again. */
   AP_M68030_EA_TIME_JUMP,
+  /* §11.6.14's `*`, §11.6.16's `##` and §11.6.7's `%` -- "Add Calculate
+   * Immediate Effective Address Time", §11.6.4. Three symbols for one table. */
+  AP_M68030_EA_TIME_CALCULATE_IMMEDIATE,
 } ap_m68030_ea_time_t;
 
 typedef struct {
@@ -121,6 +124,15 @@ ap_m68030_timing_table(unsigned *count);
  * default. */
 [[nodiscard]] const ap_m68030_table_entry_t *
 ap_m68030_timing_for_word(uint16_t instruction);
+
+/* The rows no instruction word selects alone. `MOVEC Rn,Cr` by register group
+ * and `MOVES` by direction come from `extension`; §11.6.14's memory bit fields
+ * by whether the field spanned five bytes, and `CAS` and `CAS2` by whether the
+ * compare succeeded, come from `outcome`. NULL for every other word, and for a
+ * `MOVEC` code that is not a 68030 register. */
+[[nodiscard]] const ap_m68030_table_entry_t *
+ap_m68030_timing_for_selected(uint16_t instruction, uint16_t extension,
+                              bool outcome);
 
 /* ---------------------------------------------------------------------------
  * The branches, whose cost is not a function of the instruction word.

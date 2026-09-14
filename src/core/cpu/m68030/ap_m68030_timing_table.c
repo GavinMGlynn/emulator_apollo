@@ -197,6 +197,40 @@ enum {
   ROW_MOVE_USP_AN,
   ROW_MOVE_AN_USP,
   ROW_SWAP,
+  /* The rows an extension word or an outcome selects: §11.6.7, §11.6.14 and
+   * §11.6.16. */
+  ROW_MOVEC_RN_CR_A,
+  ROW_MOVEC_RN_CR_B,
+  ROW_MOVES_EA_RN,
+  ROW_MOVES_RN_EA,
+  ROW_BFTST_DN,
+  ROW_BFTST_MEM,
+  ROW_BFTST_MEM5,
+  ROW_BFCHG_DN,
+  ROW_BFCHG_MEM,
+  ROW_BFCHG_MEM5,
+  ROW_BFCLR_DN,
+  ROW_BFCLR_MEM,
+  ROW_BFCLR_MEM5,
+  ROW_BFSET_DN,
+  ROW_BFSET_MEM,
+  ROW_BFSET_MEM5,
+  ROW_BFEXTS_DN,
+  ROW_BFEXTS_MEM,
+  ROW_BFEXTS_MEM5,
+  ROW_BFEXTU_DN,
+  ROW_BFEXTU_MEM,
+  ROW_BFEXTU_MEM5,
+  ROW_BFINS_DN,
+  ROW_BFINS_MEM,
+  ROW_BFINS_MEM5,
+  ROW_BFFFO_DN,
+  ROW_BFFFO_MEM,
+  ROW_BFFFO_MEM5,
+  ROW_CAS_MATCH,
+  ROW_CAS_MISMATCH,
+  ROW_CAS2_MATCH,
+  ROW_CAS2_MISMATCH,
   ROW_COUNT,
 };
 
@@ -570,6 +604,68 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     [ROW_MOVE_USP_AN] = {"MOVE USP,An", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
     [ROW_MOVE_AN_USP] = {"MOVE An,USP", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
     [ROW_SWAP] = {"SWAP Dn", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+
+    /* §11.6.7's rows the extension word selects. `MOVEC Rn,Cr` splits by the
+     * page's register groups: A is USP, VBR, CAAR, MSP and ISP; B is SFC, DFC
+     * and CACR, and costs twice as much. **The page prints group B's cache case
+     * as `12(0/1/0)`**, a prefetch with the cache on -- writing CACR can flush
+     * the cache under the instruction. The no-cache count is the one carried, as
+     * for every row.
+     *
+     * `MOVES` is `%`, §11.6.4 through its extension word. **The page disagrees
+     * with itself on both rows**: `MOVES EA,Rn` prints a prefetch in its cache
+     * case, `7(1/1/0)`, and `MOVES Rn,EA` a read in its no-cache case only,
+     * `5(0/0/1)` against `6(1/1/1)`. A move into memory has nothing to read, so
+     * the cache case's read and write counts are taken, `ROXd Mem by 1`'s
+     * ruling. */
+    [ROW_MOVEC_RN_CR_A] = {"MOVEC Rn,Cr-A", {.head = 6, .tail = 0, .cache_case = 6, .no_cache_case = 6, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_MOVEC_RN_CR_B] = {"MOVEC Rn,Cr-B", {.head = 4, .tail = 0, .cache_case = 12, .no_cache_case = 12, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_MOVES_EA_RN] = {"MOVES EA,Rn", {.head = 3, .tail = 0, .cache_case = 7, .no_cache_case = 7, .reads = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_MOVES_RN_EA] = {"MOVES Rn,EA", {.head = 2, .tail = 1, .cache_case = 5, .no_cache_case = 6, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+
+    /* §11.6.14, Bit Field Manipulation, from the page image (p. 11-47). The data
+     * register forms are whole. The memory forms are `*`, which on this page is
+     * "Add Calculate Immediate Effective Address Time" -- §11.6.4, a third
+     * meaning for the symbol -- and each has two rows by the page's own note: "A
+     * bit field of 32 bits may span 5 bytes that require two operand cycles to
+     * access or may span 4 bytes that require only one operand cycle". Which ran
+     * is the executor's `bitfield_span_t`, left as the step's outcome. Every
+     * form is two words. */
+    [ROW_BFTST_DN] = {"BFTST Dn", {.head = 8, .tail = 0, .cache_case = 8, .no_cache_case = 8, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFTST_MEM] = {"BFTST Mem (<5 Bytes)", {.head = 6, .tail = 0, .cache_case = 10, .no_cache_case = 10, .reads = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFTST_MEM5] = {"BFTST Mem (5 Bytes)", {.head = 6, .tail = 0, .cache_case = 14, .no_cache_case = 14, .reads = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFCHG_DN] = {"BFCHG Dn", {.head = 14, .tail = 0, .cache_case = 14, .no_cache_case = 14, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFCHG_MEM] = {"BFCHG Mem (<5 Bytes)", {.head = 6, .tail = 0, .cache_case = 14, .no_cache_case = 14, .reads = 1, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFCHG_MEM5] = {"BFCHG Mem (5 Bytes)", {.head = 6, .tail = 0, .cache_case = 22, .no_cache_case = 22, .reads = 2, .writes = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFCLR_DN] = {"BFCLR Dn", {.head = 14, .tail = 0, .cache_case = 14, .no_cache_case = 14, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFCLR_MEM] = {"BFCLR Mem (<5 Bytes)", {.head = 6, .tail = 0, .cache_case = 14, .no_cache_case = 14, .reads = 1, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFCLR_MEM5] = {"BFCLR Mem (5 Bytes)", {.head = 6, .tail = 0, .cache_case = 22, .no_cache_case = 22, .reads = 2, .writes = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFSET_DN] = {"BFSET Dn", {.head = 14, .tail = 0, .cache_case = 14, .no_cache_case = 14, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFSET_MEM] = {"BFSET Mem (<5 Bytes)", {.head = 6, .tail = 0, .cache_case = 14, .no_cache_case = 14, .reads = 1, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFSET_MEM5] = {"BFSET Mem (5 Bytes)", {.head = 6, .tail = 0, .cache_case = 22, .no_cache_case = 22, .reads = 2, .writes = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFEXTS_DN] = {"BFEXTS Dn", {.head = 10, .tail = 0, .cache_case = 10, .no_cache_case = 10, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFEXTS_MEM] = {"BFEXTS Mem (<5 Bytes)", {.head = 6, .tail = 0, .cache_case = 12, .no_cache_case = 12, .reads = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFEXTS_MEM5] = {"BFEXTS Mem (5 Bytes)", {.head = 6, .tail = 0, .cache_case = 18, .no_cache_case = 18, .reads = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFEXTU_DN] = {"BFEXTU Dn", {.head = 10, .tail = 0, .cache_case = 10, .no_cache_case = 10, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFEXTU_MEM] = {"BFEXTU Mem (<5 Bytes)", {.head = 6, .tail = 0, .cache_case = 12, .no_cache_case = 12, .reads = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFEXTU_MEM5] = {"BFEXTU Mem (5 Bytes)", {.head = 6, .tail = 0, .cache_case = 18, .no_cache_case = 18, .reads = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFINS_DN] = {"BFINS Dn", {.head = 12, .tail = 0, .cache_case = 12, .no_cache_case = 12, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFINS_MEM] = {"BFINS Mem (<5 Bytes)", {.head = 6, .tail = 0, .cache_case = 12, .no_cache_case = 12, .reads = 1, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFINS_MEM5] = {"BFINS Mem (5 Bytes)", {.head = 6, .tail = 0, .cache_case = 18, .no_cache_case = 18, .reads = 2, .writes = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFFFO_DN] = {"BFFFO Dn", {.head = 20, .tail = 0, .cache_case = 20, .no_cache_case = 20, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFFFO_MEM] = {"BFFFO Mem (<5 Bytes)", {.head = 6, .tail = 0, .cache_case = 22, .no_cache_case = 22, .reads = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BFFFO_MEM5] = {"BFFFO Mem (5 Bytes)", {.head = 6, .tail = 0, .cache_case = 28, .no_cache_case = 28, .reads = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+
+    /* §11.6.16's compare-and-swap rows, by outcome. `CAS` is `##`, §11.6.4
+     * through its extension word; a mismatch writes the operand into `Dc`, a
+     * register, which is why that row prints no write. `CAS2` is `+`,
+     * "Indicates Maximum Time", so both its rows are `PROVISIONAL` as the divides
+     * are, and it names no effective address table: both addresses are register
+     * indirect through its two extension words, three words in all. */
+    [ROW_CAS_MATCH] = {"CAS (Successful Compare)", {.head = 1, .tail = 0, .cache_case = 13, .no_cache_case = 13, .reads = 1, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_CAS_MISMATCH] = {"CAS (Unsuccessful Compare)", {.head = 1, .tail = 0, .cache_case = 11, .no_cache_case = 11, .reads = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_CAS2_MATCH] = {"CAS2 (Successful Compare)", {.head = 2, .tail = 0, .cache_case = 24, .no_cache_case = 26, .reads = 2, .writes = 2, .prefetches = 2}, true, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ODD_WORDS},
+    [ROW_CAS2_MISMATCH] = {"CAS2 (Unsuccessful Compare)", {.head = 2, .tail = 0, .cache_case = 24, .no_cache_case = 24, .reads = 2, .prefetches = 2}, true, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ODD_WORDS},
 };
 
 #define TABLE_COUNT (sizeof TABLE / sizeof TABLE[0])
@@ -579,6 +675,71 @@ const ap_m68030_table_entry_t *ap_m68030_timing_table(unsigned *count) {
   return TABLE;
 }
 
+
+const ap_m68030_table_entry_t *
+ap_m68030_timing_for_selected(uint16_t instruction, uint16_t extension,
+                              bool outcome) {
+  const unsigned mode = (unsigned)((instruction >> 3) & 0x7u);
+  const unsigned reg = (unsigned)(instruction & 0x7u);
+  const bool control = mode == 0x2u || mode == 0x5u || mode == 0x6u ||
+                       (mode == 0x7u && reg <= 0x3u);
+  const bool control_alterable = mode == 0x2u || mode == 0x5u ||
+                                 mode == 0x6u || (mode == 0x7u && reg <= 0x1u);
+  const bool memory_alterable = (mode >= 0x2u && mode <= 0x6u) ||
+                                (mode == 0x7u && reg <= 0x1u);
+
+  /* `MOVEC Rn,Cr`. §11.6.7's groups are by name, and these are their codes;
+   * any other code is not a 68030 register and the instruction does not run. */
+  if (instruction == 0x4E7Bu) {
+    const unsigned which = extension & 0x0FFFu;
+    if (which <= 0x002u) {
+      return &TABLE[ROW_MOVEC_RN_CR_B]; /* SFC, DFC, CACR */
+    }
+    if (which >= 0x800u && which <= 0x804u) {
+      return &TABLE[ROW_MOVEC_RN_CR_A]; /* USP, VBR, CAAR, MSP, ISP */
+    }
+    return nullptr;
+  }
+
+  /* `CAS2`, `$0CFC` and `$0EFC` -- ahead of `CAS`, whose group they sit in with
+   * a mode that `CAS` itself cannot take. */
+  if (instruction == 0x0CFCu || instruction == 0x0EFCu) {
+    return &TABLE[outcome ? ROW_CAS2_MATCH : ROW_CAS2_MISMATCH];
+  }
+  /* `CAS`, `0000 1ss0 11` with a size of `01`-`11`; `00` there is `BSET #`. */
+  if ((instruction & 0xF9C0u) == 0x08C0u && ((instruction >> 9) & 0x3u) != 0u) {
+    if (!memory_alterable) {
+      return nullptr;
+    }
+    return &TABLE[outcome ? ROW_CAS_MATCH : ROW_CAS_MISMATCH];
+  }
+  /* `MOVES`, `0000 1110 ss` with a size of `00`-`10`; `11` is `CAS.L`.
+   * Extension bit 11 is the direction, 1 register to memory. */
+  if ((instruction & 0xFF00u) == 0x0E00u && ((instruction >> 6) & 0x3u) != 0x3u) {
+    if (!memory_alterable) {
+      return nullptr;
+    }
+    return &TABLE[(extension & 0x0800u) != 0u ? ROW_MOVES_RN_EA
+                                              : ROW_MOVES_EA_RN];
+  }
+  /* §11.6.14's bit fields in memory, `1110 1ttt 11`. The four that write take
+   * control alterable modes, the four that only read any control mode. */
+  if ((instruction & 0xF8C0u) == 0xE8C0u && mode != 0x0u) {
+    const unsigned type = (unsigned)((instruction >> 8) & 7u);
+    const bool writes = type == 2u || type == 4u || type == 6u || type == 7u;
+    if (!(writes ? control_alterable : control)) {
+      return nullptr;
+    }
+    static const unsigned FEWER[8] = {
+        ROW_BFTST_MEM, ROW_BFEXTU_MEM, ROW_BFCHG_MEM, ROW_BFEXTS_MEM,
+        ROW_BFCLR_MEM, ROW_BFFFO_MEM,  ROW_BFSET_MEM, ROW_BFINS_MEM};
+    static const unsigned FIVE[8] = {
+        ROW_BFTST_MEM5, ROW_BFEXTU_MEM5, ROW_BFCHG_MEM5, ROW_BFEXTS_MEM5,
+        ROW_BFCLR_MEM5, ROW_BFFFO_MEM5,  ROW_BFSET_MEM5, ROW_BFINS_MEM5};
+    return &TABLE[outcome ? FIVE[type] : FEWER[type]];
+  }
+  return nullptr;
+}
 
 const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
   const unsigned family = (unsigned)((instruction >> 12) & 0xFu);
@@ -897,7 +1058,17 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
        * direction. **Bit 11 set is not a shift at all** -- `$E8C0` upward are
        * the bit-field instructions -- so only bit 11 clear reaches a row. */
       if ((instruction & 0x0800u) != 0u) {
-        return nullptr;
+        /* §11.6.14's bit fields. Only the data register form is fixed by the
+         * word: a memory form's row depends on whether the field spans five
+         * bytes, which `ap_m68030_timing_for_selected` takes from the run. Bits
+         * 10-8 name the instruction. */
+        if (mode != 0x0u) {
+          return nullptr;
+        }
+        static const unsigned BITFIELD_DN[8] = {
+            ROW_BFTST_DN, ROW_BFEXTU_DN, ROW_BFCHG_DN, ROW_BFEXTS_DN,
+            ROW_BFCLR_DN, ROW_BFFFO_DN,  ROW_BFSET_DN, ROW_BFINS_DN};
+        return &TABLE[BITFIELD_DN[(instruction >> 8) & 7u]];
       }
       const bool memory_left = ((instruction >> 8) & 1u) != 0u;
       switch ((instruction >> 9) & 0x3u) {

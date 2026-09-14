@@ -971,6 +971,7 @@ static bool execute_moves(ap_m68030_cpu_t *cpu, const ap_m68030_immediate_t *imm
   if (!next_word(cpu, clocks, &extension)) {
     return false;
   }
+  cpu->timing_extension = extension; /* §11.6.7 prices by its direction */
 
   /* "Only memory alterable addressing modes can be used" -- and that is the
    * category for *both* directions, so a read through `MOVES` still refuses a
@@ -2170,6 +2171,9 @@ static bool execute_bitfield(ap_m68030_cpu_t *cpu,
     /* Only within a register is the offset reduced: memory has no wrap. */
     spec.offset = (int32_t)((uint32_t)spec.offset & 31u);
   }
+  /* §11.6.14 prices a memory field by this: "may span 5 bytes that require two
+   * operand cycles to access or may span 4 bytes that require only one". */
+  cpu->timing_outcome = !spec.to_register && bitfield_span_of(&spec).bytes == 5u;
 
   uint32_t base_address = 0;
   if (!spec.to_register) {
@@ -3660,6 +3664,7 @@ static bool execute_control(ap_m68030_cpu_t *cpu,
     if (!next_word(cpu, clocks, &extension)) {
       return false;
     }
+    cpu->timing_extension = extension; /* §11.6.7 prices by register group */
     const bool general_is_address = (extension & 0x8000u) != 0u;
     const unsigned general = (unsigned)((extension >> 12) & 0x7u);
     const unsigned which = (unsigned)(extension & 0x0FFFu);
@@ -6343,6 +6348,7 @@ static bool execute_cas2(ap_m68030_cpu_t *cpu, const ap_m68030_bounds_t *bounds,
     codes = second;
   }
   ap_m68030_write_ccr(&cpu->regs, ap_m68030_alu_apply(ccr, &codes));
+  cpu->timing_outcome = matched; /* §11.6.16's two rows */
 
   bool ok = true;
   if (matched) {
@@ -6439,6 +6445,7 @@ static bool execute_cas(ap_m68030_cpu_t *cpu, const ap_m68030_bounds_t *bounds,
   const ap_m68030_alu_result_t compared = ap_m68030_alu_sub(
       read.value, cpu->regs.d[compare_reg], bounds->size);
   ap_m68030_write_ccr(&cpu->regs, ap_m68030_alu_apply(ccr, &compared));
+  cpu->timing_outcome = compared.z; /* §11.6.16's two rows */
 
   bool ok = true;
   if (compared.z) {
@@ -6695,6 +6702,8 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   }
 
   cpu->extension_words = 0;
+  cpu->timing_extension = 0;
+  cpu->timing_outcome = false;
 
   /* "The state of these bits when an instruction begins execution determines
    * whether the instruction generates a trace exception after the instruction
@@ -7912,6 +7921,13 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
                                           cpu->dbcc_count_expired);
   } else {
     published = ap_m68030_timing_for_word(out.instruction);
+    if (published == nullptr) {
+      /* The rows only the run can choose between: `MOVEC Rn,Cr` and `MOVES` by
+       * their extension word, the memory bit fields by their span, `CAS` and
+       * `CAS2` by their compare. The executors left both where this reads. */
+      published = ap_m68030_timing_for_selected(
+          out.instruction, cpu->timing_extension, cpu->timing_outcome);
+    }
   }
   /* A row footnoted `*` publishes a *component*: `ADD Dn,EA` is 3 clocks, and
    * the effective address it reads through is another 3 or 4 from §11.6.1. Both
@@ -7966,6 +7982,13 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
        * its destination without reading it first, which is the whole
        * difference from `NEG Mem`'s fetch. */
       ea_timing = ap_m68030_ea_calculate_timing(ea.kind);
+      break;
+    case AP_M68030_EA_TIME_CALCULATE_IMMEDIATE:
+      /* §11.6.4. Every consumer's "immediate" is its own extension word -- the
+       * bit fields', `CAS`'s, `MOVES`' -- so the word column: the page's "fetch
+       * the second word of the instruction and calculate the specified source
+       * operand or single operand". */
+      ea_timing = ap_m68030_ea_calculate_immediate_timing(ea.kind, false);
       break;
     case AP_M68030_EA_TIME_JUMP:
       /* §11.6.5: where `JMP` or `JSR` goes. Its rows read nothing and fetch

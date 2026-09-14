@@ -4471,10 +4471,14 @@ discipline throughout.
   **Stage 4a**: §11.6.5's jump table composed into the step; `JMP`, `JSR`,
   `LEA`, `PEA`; §11.6.7's word-selected rows; and two decode traps (`CHK` read
   as `NEGX`/`CLR`, `EXG` as `AND`) — 138 → 158.
+  **Stage 4b**: §11.6.4 composed, and the rows only a run can choose —
+  `MOVEC Rn,Cr`, `MOVES`, the bit fields, `CAS`, `CAS2` — priced from what
+  their executors record — 158 → 190.
   **Owed, all read as page images**: §11.6.6 brief/full-format destinations
-  (needs the extension word), §11.6.14, §11.6.17, §11.6.18, **§11.6.4's table**
-  with its consumers (bit fields, `CAS`, `MOVES`), `MOVEC Rn,Cr`, `MOVEM`,
-  `CAS2`, `CHK`/`CHK2` by outcome, and §11.6.4's and §11.6.5's full-format rows.
+  (needs the extension word), §11.6.17, §11.6.18, `MOVEM`, `CHK`/`CHK2` (their
+  exception rows belong with §11.6.17), the long multiplies and divides, and
+  §11.6.4's and §11.6.5's full-format rows. *(Before stage 4b this also named
+  §11.6.14, §11.6.4's table, `MOVEC Rn,Cr` and `CAS2`.)*
   *(Before stage 4a this list also named §11.6.7, §11.6.16's rest and "the
   §11.6.4 (calculate immediate) and §11.6.5 (jump) tables, which do not exist
   in the code".)*

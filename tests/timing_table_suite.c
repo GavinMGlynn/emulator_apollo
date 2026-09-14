@@ -125,9 +125,10 @@ static void test_the_divides_are_marked_data_dependent(void) {
       marked++;
     }
   }
-  /* DIVS.W, DIVS.L, DIVU.W, DIVU.L, and §11.6.8's four `EA,Dn` forms of the
-   * word multiplies and divides, which carry `*+`. */
-  TEST_ASSERT_EQUAL_UINT(8u, marked);
+  /* DIVS.W, DIVS.L, DIVU.W, DIVU.L, §11.6.8's four `EA,Dn` forms of the word
+   * multiplies and divides, which carry `*+`, and §11.6.16's two `CAS2` rows,
+   * which carry `+`. */
+  TEST_ASSERT_EQUAL_UINT(10u, marked);
 }
 
 /* The lookup returns NULL for what is not transcribed, and that is the honest
@@ -451,11 +452,24 @@ static void test_every_row_is_returned_by_some_instruction(void) {
   TEST_ASSERT_TRUE(count <= 256u);
   bool reached[256] = {false};
 
+  /* The selected lookup's inputs are an extension word and an outcome, and it
+   * reads only the register code and the direction bit of the one: a group B
+   * code, a group A code, and each with bit 11 set, reach every combination. */
+  static const uint16_t EXTENSIONS[] = {0x0002u, 0x0801u, 0x0802u, 0x0000u};
   for (uint32_t word = 0; word <= 0xFFFFu; word++) {
     const ap_m68030_table_entry_t *row =
         ap_m68030_timing_for_word((uint16_t)word);
     if (row != nullptr) {
       reached[row - table] = true;
+    }
+    for (unsigned e = 0; e < sizeof EXTENSIONS / sizeof EXTENSIONS[0]; e++) {
+      for (unsigned outcome = 0; outcome < 2u; outcome++) {
+        row = ap_m68030_timing_for_selected((uint16_t)word, EXTENSIONS[e],
+                                            outcome != 0u);
+        if (row != nullptr) {
+          reached[row - table] = true;
+        }
+      }
     }
     for (unsigned taken = 0; taken < 2u; taken++) {
       row = ap_m68030_timing_for_branch((uint16_t)word, taken != 0u);
@@ -565,6 +579,9 @@ static void test_the_immediate_bit_and_move_forms_find_their_rows(void) {
       {0xE3A0u, "ASL Dx,Dy", "ASL.L D1,D0"},
       {0xE2A0u, nullptr, "ASR.L D1,D0 -- count-dependent"},
       {0xE3B8u, "ROd Dx,Dy", "ROL.L D1,D0"},
+      {0xE8C0u, "BFTST Dn", "BFTST D0 -- the register form is the word's"},
+      {0xEFC7u, "BFINS Dn", "BFINS D7"},
+      {0xEFC8u, nullptr, "BFINS A0 is not an instruction"},
       /* §11.6.16's address forms, and the modes that are not instructions. */
       {0x4ED0u, "JMP", "JMP (A0)"},
       {0x4EFAu, "JMP", "JMP (d16,PC)"},
@@ -600,6 +617,54 @@ static void test_the_immediate_bit_and_move_forms_find_their_rows(void) {
       TEST_ASSERT_NULL_MESSAGE(row, CASES[c].what);
     } else {
       TEST_ASSERT_TRUE_MESSAGE(form_is(row, CASES[c].form), CASES[c].what);
+    }
+  }
+}
+
+/* The rows only a run can choose between, each found by its encoding, its
+ * extension word or its outcome -- and the neighbours in their groups that are
+ * not them. `MOVES` and `CAS.L` share `$0Ex`, `CAS2` sits in `CAS`'s group with
+ * a mode `CAS` cannot take, and `BSET #` is `CAS`'s encoding with a size of
+ * `00`. */
+static void test_the_rows_an_extension_or_outcome_selects_are_found(void) {
+  static const struct {
+    uint16_t word;
+    uint16_t extension;
+    bool outcome;
+    const char *form; /* nullptr: no row, by design */
+    const char *what;
+  } CASES[] = {
+      {0x4E7Bu, 0x0002u, false, "MOVEC Rn,Cr-B", "MOVEC D0,CACR"},
+      {0x4E7Bu, 0x8801u, false, "MOVEC Rn,Cr-A", "MOVEC A0,VBR"},
+      {0x4E7Bu, 0x0003u, false, nullptr, "MOVEC D0,TC -- a 68040 register"},
+      {0x0E50u, 0x0000u, false, "MOVES EA,Rn", "MOVES.W (A0),D0"},
+      {0x0E90u, 0x0800u, false, "MOVES Rn,EA", "MOVES.L D0,(A0)"},
+      {0x0E40u, 0x0800u, false, nullptr, "MOVES.W D0,D0 is not an instruction"},
+      {0x0ED0u, 0x0000u, true, "CAS (Successful Compare)", "CAS.L (A0) -- not MOVES"},
+      {0x0AD0u, 0x0000u, false, "CAS (Unsuccessful Compare)", "CAS.B (A0)"},
+      {0x08D0u, 0x0000u, true, nullptr, "BSET #,(A0) -- CAS with size 00"},
+      {0x0CFCu, 0x0000u, true, "CAS2 (Successful Compare)", "CAS2.W"},
+      {0x0EFCu, 0x0000u, false, "CAS2 (Unsuccessful Compare)", "CAS2.L"},
+      {0xE8D0u, 0x0000u, false, "BFTST Mem (<5 Bytes)", "BFTST (A0)"},
+      {0xE8FAu, 0x0000u, true, "BFTST Mem (5 Bytes)", "BFTST (d16,PC)"},
+      {0xEAFAu, 0x0000u, false, nullptr, "BFCHG (d16,PC) -- not alterable"},
+      {0xEDD0u, 0x0000u, true, "BFFFO Mem (5 Bytes)", "BFFFO (A0)"},
+      {0xE8C0u, 0x0000u, false, nullptr, "BFTST D0 -- the word lookup's"},
+      {0xD200u, 0x0000u, false, nullptr, "ADD.B D0,D1 -- not selected at all"},
+  };
+  for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
+    const ap_m68030_table_entry_t *row = ap_m68030_timing_for_selected(
+        CASES[c].word, CASES[c].extension, CASES[c].outcome);
+    if (CASES[c].form == nullptr) {
+      TEST_ASSERT_NULL_MESSAGE(row, CASES[c].what);
+    } else {
+      TEST_ASSERT_TRUE_MESSAGE(form_is(row, CASES[c].form), CASES[c].what);
+    }
+    /* And the word lookup leaves every row this one finds alone. The refusals
+     * are not all the word lookup's to refuse: `BSET #,(A0)` is its row. */
+    if (CASES[c].form != nullptr) {
+      TEST_ASSERT_NULL_MESSAGE(ap_m68030_timing_for_word(CASES[c].word),
+                               CASES[c].what);
     }
   }
 }
@@ -655,6 +720,43 @@ static void test_the_rows_that_are_not_single_word_are_classified_as_such(void) 
        "two words"},
       {"MOVEP.L (d16,An),Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
        "two words"},
+      /* The rows an extension word or an outcome selects: every one carries
+       * its extension word, and `CAS2` carries two. */
+      {"MOVEC Rn,Cr-A", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"MOVEC Rn,Cr-B", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"MOVES EA,Rn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"MOVES Rn,EA", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFTST Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFTST Mem (<5 Bytes)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFTST Mem (5 Bytes)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFCHG Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFCHG Mem (<5 Bytes)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFCHG Mem (5 Bytes)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFCLR Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFCLR Mem (<5 Bytes)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFCLR Mem (5 Bytes)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFSET Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFSET Mem (<5 Bytes)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFSET Mem (5 Bytes)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFEXTS Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFEXTS Mem (<5 Bytes)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFEXTS Mem (5 Bytes)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFEXTU Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFEXTU Mem (<5 Bytes)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFEXTU Mem (5 Bytes)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFINS Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFINS Mem (<5 Bytes)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFINS Mem (5 Bytes)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFFFO Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFFFO Mem (<5 Bytes)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"BFFFO Mem (5 Bytes)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"CAS (Successful Compare)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "two words"},
+      {"CAS (Unsuccessful Compare)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "two words"},
+      {"CAS2 (Successful Compare)", AP_M68030_PREFETCH_ODD_WORDS, "three words"},
+      {"CAS2 (Unsuccessful Compare)", AP_M68030_PREFETCH_ODD_WORDS,
+       "three words"},
       {"Bcc (Taken)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
       {"DBcc (cc False, Count Not Expired)",
        AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "it branches"},
@@ -808,6 +910,7 @@ int main(void) {
   RUN_TEST(test_the_rows_that_are_not_single_word_are_classified_as_such);
   RUN_TEST(test_every_row_is_returned_by_some_instruction);
   RUN_TEST(test_the_immediate_bit_and_move_forms_find_their_rows);
+  RUN_TEST(test_the_rows_an_extension_or_outcome_selects_are_found);
   RUN_TEST(test_the_scsi_drivers_wait_loop_is_priced_in_every_instruction);
   RUN_TEST(test_the_rows_that_expose_a_prefetch_are_the_memory_forms);
   RUN_TEST(test_an_exact_prefetch_cost_is_not_always_zero_or_one);

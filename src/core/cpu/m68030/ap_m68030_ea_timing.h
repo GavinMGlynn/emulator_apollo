@@ -75,6 +75,15 @@ ap_m68030_ea_calculate_timing(ap_m68030_ea_kind_t kind);
 [[nodiscard]] const ap_m68030_ea_timing_t *
 ap_m68030_ea_jump_timing(ap_m68030_ea_kind_t kind);
 
+/* §11.6.4, Calculate Immediate Effective Address: an immediate or an extension
+ * word fetched, and an address calculated but not read. Split by the immediate's
+ * size like §11.6.2. NULL for an address register, an immediate destination and
+ * an unassigned mode, which the page does not print; the brief-format row for
+ * mode 6. */
+[[nodiscard]] const ap_m68030_ea_timing_t *
+ap_m68030_ea_calculate_immediate_timing(ap_m68030_ea_kind_t kind,
+                                        bool immediate_long);
+
 /* §11.6.2, Fetch Immediate Effective Address -- the table the `**` footnote
  * names, and the reason a `**` row cannot be priced off §11.6.1.
  *
