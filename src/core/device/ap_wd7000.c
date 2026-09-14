@@ -744,6 +744,16 @@ bool ap_wd7000_start_ogmb(ap_wd7000_t *asc, unsigned n) {
     ap_wd7000_memory_write24(asc, scb + AP_WD7000_SCB_MAX_LENGTH, residual,
                              &ok);
   }
+  {
+    const unsigned slot = asc->completions % 16u;
+    asc->completions++;
+    asc->completion[slot].code = completion;
+    asc->completion[slot].vue = vue;
+    asc->completion[slot].status = result.status;
+    asc->completion[slot].transferred = (uint32_t)result.transferred;
+    asc->completion[slot].capacity = capacity;
+    asc->completion[slot].buffer = buffer;
+  }
   (void)post_icmb(asc, completion, scb);
   return true;
 }

@@ -434,6 +434,42 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## The EXB-8200 belongs at SCSI ID 1: 8 mm drives are IDs 1-4 (2026-09-14)
+
+**With byte 15 fixed, the driver interrogated the drive and still refused
+it.** The trace for the second `rbak -dev ct` reads TEST UNIT READY (GOOD),
+INQUIRY for 36 bytes (GOOD), READ BLOCK LIMITS (GOOD), then IDs 1-6 time out.
+A per-completion log in the report settled the data path. Every completion
+was ICMB `01`, byte 15 `01`, status `00`, and the bytes read back from the
+driver's own buffers were right:
+
+    #12 ICMB 01 vue 01 status 00, 36 of 36, buffer 000ECA -> 011012CA: 01 80 01 00 33 ...
+    #13 ICMB 01 vue 01 status 00,  6 of 6,  buffer 000EEE -> 011012EE: 00 03 C0 00 00 01
+
+That is sequential access, removable, ANSI 1, and a block-limits reply of 240
+KB and one byte. Vendor and product match `rmt_scsi`'s table byte for byte. So
+the refusal was the manager's own choice, made after a correct INQUIRY, and
+the documents were the next step before any more boots.
+
+**The Apollo FAQ §5.3 names the rule** (David Krowitz and others, 1993-94):
+"The 8mm tape drives must be SCSI ids 1,2,3, or 4. These correspond to devices
+rmts8, 9, 10, and 11 (12-14 for non-rewinding devices). Although wbak is not
+officially supported on 8mm drives, it works fine at 10.3+ ... Use m0 for SCSI
+id 1, m1 for SCSI id 2, etc." ID 0 is the SCSI cartridge tape's; `018901-A00`
+§4.14 says SAX fails if it is set elsewhere. So an EXB-8200 at ID 0 sat where
+`-dev ct` looks for a cartridge. The manager read an 8 mm drive's INQUIRY where
+it wanted a quarter-inch cartridge, and gave up. And `-dev m0` looked at ID 1
+and found nothing: "invalid mt unit number". The FAQ adds why the older tools
+struggle: `wbak`/`rbak`/`rwmt` go through `tfp_$`, and Apollo's 8 mm drive was
+supported by a *new* tape library reached through `/dev/rmts8`-`15`.
+
+**`AP_BOARD_SCSI_DRIVE_ID` is 1.** It was 0 by default, not by any source, and
+now carries the FAQ's rule and §4.14's. No test depended on it.
+
+*Verification: `ctest` 152/152. The boot with `rbak -dev m0 -rewind` and
+`mt /dev/rmts8 -scsi rewind` is recorded when it lands.*
+
+
 ## "Device in use" was the probe's last word: SCB byte 15 is `01` on success (2026-09-14)
 
 **The traced boot showed the driver's whole sequence, and it pointed away from

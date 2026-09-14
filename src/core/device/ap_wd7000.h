@@ -458,6 +458,20 @@ typedef struct {
   uint32_t icmbs_posted;
   uint8_t last_icmb_code;
   uint32_t last_icmb_scb;
+  /* The last 16 SCB completions as the host received them: ICMB code, byte 15,
+   * the SCSI status, and bytes moved against the SCB's maximum. The bus trace
+   * gives what the target said; this gives what the driver was told, and a
+   * GOOD status can reach the host as a failure through byte 15 alone. Report
+   * instruments, not hashed. */
+  struct {
+    uint8_t code;
+    uint8_t vue;
+    uint8_t status;
+    uint32_t transferred;
+    uint32_t capacity;
+    uint32_t buffer; /* the SCB's data pointer, bus-master space */
+  } completion[16];
+  uint32_t completions;
 } ap_wd7000_t;
 
 /* Power-on. Clears everything, including `powered_on`, so the first diagnostic

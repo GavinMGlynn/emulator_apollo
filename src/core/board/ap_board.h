@@ -1223,7 +1223,15 @@ void ap_board_set_quirks(ap_board_t *board, ap_quirks_t quirks);
 void ap_board_attach_scsi(ap_board_t *board);
 
 /* Where a single target sits on this machine's chain. */
-#define AP_BOARD_SCSI_DRIVE_ID 0u
+/* **SCSI ID 1, and it was 0.** The Apollo FAQ §5.3: "The 8mm tape drives must
+ * be SCSI ids 1,2,3, or 4. These correspond to devices rmts8, 9, 10, and 11
+ * ... Use m0 for SCSI id 1, m1 for SCSI id 2, etc." ID 0 is the SCSI
+ * *cartridge* tape's (`018901-A00` §4.14: "If the ID of a SCSI cartridge tape
+ * is not set to 0, SAX fails"). With the EXB-8200 at 0, Domain/OS's
+ * `rbak -dev ct` probed it, read an 8 mm drive's INQUIRY where it wanted a
+ * cartridge, and gave up with the probe's last status, "device in use". And
+ * `-dev m0` looked at ID 1, found nothing, and said "invalid mt unit number". */
+#define AP_BOARD_SCSI_DRIVE_ID 1u
 
 /* Put an EXB-8200 on the bus, with a cartridge or without one. Fails when the
  * card is not fitted -- a drive with no controller is not a configuration. */

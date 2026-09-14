@@ -6181,6 +6181,39 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
     printf("  scsi icmb    %llu posted, last code %02X for SCB %06X\n",
            (unsigned long long)asc->icmbs_posted, asc->last_icmb_code,
            asc->last_icmb_scb);
+    /* What the driver was told for each recent command, oldest first. */
+    {
+      const uint32_t kept = asc->completions < 16u ? asc->completions : 16u;
+      for (uint32_t k = 0; k < kept; k++) {
+        const uint32_t n = asc->completions - kept + k;
+        const unsigned slot = n % 16u;
+        printf("  scsi done    #%u ICMB %02X vue %02X status %02X, %u of %u"
+               " byte(s)",
+               (unsigned)(n + 1u), asc->completion[slot].code,
+               asc->completion[slot].vue, asc->completion[slot].status,
+               (unsigned)asc->completion[slot].transferred,
+               (unsigned)asc->completion[slot].capacity);
+        /* Where the data went, and what host memory holds there now: the
+         * check that a target's reply landed where the driver reads it. A
+         * later command may have reused the buffer, so this is evidence
+         * about the last user of those bytes. */
+        if (asc->completion[slot].transferred > 0u) {
+          const uint32_t physical = ap_atmap_translate(
+              &board->translation_map, asc->completion[slot].buffer,
+              AP_ATMAP_TRANSFER_BUS_MASTER);
+          printf(", buffer %06X -> %08X:", asc->completion[slot].buffer,
+                 physical);
+          const uint32_t shown = asc->completion[slot].transferred < 8u
+                                     ? asc->completion[slot].transferred
+                                     : 8u;
+          for (uint32_t b = 0; b < shown; b++) {
+            bool ok = false;
+            printf(" %02X", ap_board_read(board, physical + b, &ok));
+          }
+        }
+        printf("\n");
+      }
+    }
     if (board->scsi_drive_fitted) {
       const ap_exb8200_t *drive = &board->scsi_drive;
       printf("  scsi drive   %s, %s, record %u of %u, %llu commands,"

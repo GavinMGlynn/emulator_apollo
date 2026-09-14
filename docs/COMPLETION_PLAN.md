@@ -4489,6 +4489,12 @@ discipline throughout.
   and anything else to hardware failure, and this ASC wrote `FF`. Fixed to
   `01`. **Next**: the boot with that fix; REWIND (`01`) on the bus closes the
   integration check.
+  **That boot sent INQUIRY and READ BLOCK LIMITS, both answered correctly**,
+  and the driver still refused. The Apollo FAQ §5.3 gave the reason: 8 mm drives
+  must be SCSI IDs 1-4 (`m0` = ID 1, `/dev/rmts8`), and ID 0 is the cartridge
+  tape's. The drive was fitted at 0. `AP_BOARD_SCSI_DRIVE_ID` is now 1.
+  **Next**: `rbak -dev m0 -rewind` and `mt /dev/rmts8 -scsi rewind` on that
+  boot.
 - [ ] **`[030]` §11.6 is not fully transcribed, and the boot is timed by it.**
   "Instruction execution time — Closed" is true of the rows transcribed and
   said nothing of coverage. **Stage 1 landed 2026-09-14**: §11.6.9 and
