@@ -6158,6 +6158,26 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
       }
       printf(", status %02X\n", board->scsi_bus.last_status);
     }
+    /* The whole recent sequence, oldest first. */
+    {
+      const ap_scsi_bus_t *bus = &board->scsi_bus;
+      const uint32_t kept =
+          bus->trace_count < AP_SCSI_TRACE ? bus->trace_count : AP_SCSI_TRACE;
+      for (uint32_t k = 0; k < kept; k++) {
+        const uint32_t n = bus->trace_count - kept + k;
+        const unsigned slot = n % AP_SCSI_TRACE;
+        printf("  scsi trace   #%u ID %u CDB %02X %02X %02X %02X %02X %02X, %s",
+               (unsigned)(n + 1u), bus->trace[slot].id, bus->trace[slot].cdb[0],
+               bus->trace[slot].cdb[1], bus->trace[slot].cdb[2],
+               bus->trace[slot].cdb[3], bus->trace[slot].cdb[4],
+               bus->trace[slot].cdb[5],
+               bus->trace[slot].timed_out ? "selection timeout" : "status");
+        if (!bus->trace[slot].timed_out) {
+          printf(" %02X", bus->trace[slot].status);
+        }
+        printf("\n");
+      }
+    }
     printf("  scsi icmb    %llu posted, last code %02X for SCB %06X\n",
            (unsigned long long)asc->icmbs_posted, asc->last_icmb_code,
            asc->last_icmb_scb);

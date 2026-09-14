@@ -334,8 +334,19 @@ static void ap_wd7000_control(ap_wd7000_t *asc, uint8_t value) {
   asc->control = value;
 
   /* Bit 1, the SCSI port reset. §5.2.5.2: it resets the SBIC and, deliberately,
-   * not the LCPU, so the host command queue survives. Recorded as a level. */
-  asc->scsi_reset = (value & AP_WD7000_CTL_SCSI_RESET) != 0u;
+   * not the LCPU, so the host command queue survives. Recorded as a level.
+   *
+   * **And it resets the bus.** §5.2.5.2 calls it "the SCSI hardware reset", and
+   * the card holds the bus it was fitted with, but nothing passed the reset on:
+   * `ap_scsi_reset` had no caller in `src/`. So the drive never saw the reset
+   * Domain/OS sends with its `03` write, and never took its 300 ms of silence.
+   * The rising edge is the reset. A level held high is one reset, not one per
+   * write. */
+  const bool scsi_reset = (value & AP_WD7000_CTL_SCSI_RESET) != 0u;
+  if (scsi_reset && (before & AP_WD7000_CTL_SCSI_RESET) == 0u) {
+    ap_scsi_reset(asc->bus);
+  }
+  asc->scsi_reset = scsi_reset;
 
   const bool held = (value & AP_WD7000_CTL_ASC_RESET) != 0u;
   const bool was_held = (before & AP_WD7000_CTL_ASC_RESET) != 0u;

@@ -155,11 +155,18 @@ bool ap_scsi_command(ap_scsi_bus_t *bus, uint8_t id, uint8_t lun,
     return false;
   }
   bus->selections++;
+  const unsigned slot = bus->trace_count % AP_SCSI_TRACE;
+  bus->trace_count++;
+  bus->trace[slot].id = id;
+  memcpy(bus->trace[slot].cdb, cdb, cdb_length < 6u ? cdb_length : 6u);
+  bus->trace[slot].status = 0u;
+  bus->trace[slot].timed_out = false;
   if (!ap_scsi_selectable(bus, id)) {
     /* The caller charges `AP_SCSI_T_SELECTION_TIMEOUT` and posts vue `4D`.
      * Counted here rather than there because the bus is what knows the
      * address was empty. */
     bus->selection_timeouts++;
+    bus->trace[slot].timed_out = true;
     return false;
   }
 
@@ -184,6 +191,7 @@ bool ap_scsi_command(ap_scsi_bus_t *bus, uint8_t id, uint8_t lun,
   bus->last_cdb_length = (uint8_t)cdb_length;
   bus->last_id = id;
   bus->last_status = result->status;
+  bus->trace[slot].status = result->status;
   /* A target may not claim to have moved more than the initiator offered.
    * `[WD7000]` SCB bytes 16-18 are "maximum data transfer length, the
    * runaway-target guard", and this is where that guard lives. */

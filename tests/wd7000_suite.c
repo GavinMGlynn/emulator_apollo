@@ -895,6 +895,10 @@ static void test_a_reset_leaves_the_card_wired_to_host_memory_and_the_bus(
   initialize(&asc, MAIL, 2u, 2u);
   ap_wd7000_write(&asc, AP_WD7000_CONTROL,
                   AP_WD7000_CTL_DMA_ENABLE | AP_WD7000_CTL_IRQ_ENABLE);
+  /* The `03` reset the SCSI bus too, and the drive is silent for 300 ms --
+   * longer than the ASC's 250 ms diagnostic -- so the bus's clock has to pass
+   * it, as the board's does. */
+  ap_scsi_advance(&bus, bus.now + AP_SCSI_T_RESET_SILENCE);
   const uint8_t cdb[6] = {0x00u, 0u, 0u, 0u, 0u, 0u};
   place_scb(&ram, cdb, false, 0u);
   command(&asc, (uint8_t)(AP_WD7000_CMD_START_OGMB | 0u));
@@ -902,6 +906,36 @@ static void test_a_reset_leaves_the_card_wired_to_host_memory_and_the_bus(
   TEST_ASSERT_EQUAL_UINT(1u, drive.executes);
   TEST_ASSERT_EQUAL_UINT32(0u, asc.dma_refused);
   TEST_ASSERT_EQUAL_HEX8(AP_WD7000_ICMB_COMPLETE, ram.byte[icmb_at(&asc, 0u)]);
+}
+
+/* **Host Control bit 1 resets the SCSI bus, not just a flag.** §5.2.5.2 names
+ * it the SCSI hardware reset. The drive then cannot answer selection for
+ * `[EXB]` §23.2's 300 ms, so a command started inside that window times out
+ * like an empty address. One started after the window reaches the drive. This
+ * was a level recorded and passed to nobody. */
+static void test_the_scsi_port_reset_silences_the_bus_for_its_window(void) {
+  ap_wd7000_t asc;
+  ram_t ram;
+  ap_scsi_bus_t bus;
+  drive_t drive;
+  wired(&asc, &ram, &bus, &drive);
+
+  ap_wd7000_write(&asc, AP_WD7000_CONTROL,
+                  AP_WD7000_CTL_SCSI_RESET | AP_WD7000_CTL_DMA_ENABLE |
+                      AP_WD7000_CTL_IRQ_ENABLE);
+  ap_wd7000_write(&asc, AP_WD7000_CONTROL,
+                  AP_WD7000_CTL_DMA_ENABLE | AP_WD7000_CTL_IRQ_ENABLE);
+
+  const uint8_t cdb[6] = {0x00u, 0u, 0u, 0u, 0u, 0u};
+  place_scb(&ram, cdb, false, 0u);
+  command(&asc, (uint8_t)(AP_WD7000_CMD_START_OGMB | 0u));
+  TEST_ASSERT_EQUAL_UINT(0u, drive.executes);
+  TEST_ASSERT_EQUAL_UINT32(1u, bus.selection_timeouts);
+
+  ap_scsi_advance(&bus, bus.now + AP_SCSI_T_RESET_SILENCE);
+  place_scb(&ram, cdb, false, 0u);
+  command(&asc, (uint8_t)(AP_WD7000_CMD_START_OGMB | 0u));
+  TEST_ASSERT_EQUAL_UINT(1u, drive.executes);
 }
 
 /* **A mail block at address zero is a mail block.** Domain/OS's ten bytes are
@@ -925,6 +959,8 @@ static void test_a_mail_block_at_address_zero_runs_its_first_box(void) {
   ap_wd7000_write(&asc, AP_WD7000_CONTROL,
                   AP_WD7000_CTL_DMA_ENABLE | AP_WD7000_CTL_IRQ_ENABLE);
   TEST_ASSERT_EQUAL_HEX32(0u, ogmb_at(&asc, 0u));
+  /* Past the bus's 300 ms of silence after the `03`. */
+  ap_scsi_advance(&bus, bus.now + AP_SCSI_T_RESET_SILENCE);
 
   const uint8_t cdb[6] = {0x00u, 0u, 0u, 0u, 0u, 0u};
   place_scb(&ram, cdb, false, 0u);
@@ -1094,6 +1130,7 @@ int main(void) {
   RUN_TEST(test_a_full_mailbox_runs_its_scb_and_posts_a_completion);
   RUN_TEST(test_a_reset_leaves_the_card_wired_to_host_memory_and_the_bus);
   RUN_TEST(test_a_mail_block_at_address_zero_runs_its_first_box);
+  RUN_TEST(test_the_scsi_port_reset_silences_the_bus_for_its_window);
   RUN_TEST(test_a_non_good_status_forces_completion_two);
   RUN_TEST(test_an_empty_mailbox_is_vue_twenty);
   RUN_TEST(test_an_unanswered_target_is_vue_four_d);

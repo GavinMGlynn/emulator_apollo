@@ -1460,6 +1460,11 @@ void ap_board_advance(ap_board_t *board, ap_time_t now) {
    * read. */
   if (board->scsi_fitted) {
     ap_wd7000_advance(&board->scsi, now);
+    /* And the bus the card drives. Its clock is what ends a reset's 300 ms of
+     * silence (`[EXB]` §23.2), and nothing advanced it: `ap_scsi_advance` had
+     * no caller in `src/`, so a silence begun at any time would have lasted
+     * for ever. */
+    ap_scsi_advance(&board->scsi_bus, now);
   }
   /* The Winchester's access time. A command that moved the heads completes here
    * rather than in the register write that issued it, and the interrupt it

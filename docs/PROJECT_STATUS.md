@@ -434,6 +434,41 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## The ASC's SCSI reset reaches the bus, and the bus has a clock (2026-09-14)
+
+**With the translation map fixed, Domain/OS's first full SCSI exchange ran.**
+`rbak -dev ct -rewind`:
+- 7 mailboxes started, 238 DMA reads and 49 writes, none refused.
+- 7 selections, 6 of them timing out on IDs with nothing fitted.
+- 1 command, `00 00 00 00 00 00` TEST UNIT READY to ID 0, answered CHECK
+  CONDITION with sense key **6, Unit Attention**. That is correct: `[EXB]` gives
+  a first command after power-on Unit Attention.
+- `rbak` still reported "device in use (OS/SCSI manager)".
+
+**Reading why found two paths called by nobody.**
+- **`ap_scsi_reset` had no caller in `src/`.** `[WD7000]` §5.2.5.2 names Host
+  Control bit 1 the SCSI hardware reset, and the card recorded it as a level
+  and told no one. Domain/OS's `03` write asserts it, so the drive never saw
+  the reset and never took `[EXB]` §23.2's 300 ms of silence. The rising edge
+  now calls `ap_scsi_reset` on the card's bus.
+- **`ap_scsi_advance` had no caller either.** The board advanced the card and
+  not the bus, so any silence a reset started would have lasted for ever. The
+  board now advances the bus with the card.
+
+The soft-reset command (`05`) still only records the level. Its abort and
+bus-device-reset messages are the `PROVISIONAL` already named at that site.
+
+**And the report now traces the sequence.** A driver's order of commands is
+what one "last command" line cannot show. `scsi trace` prints the last 16
+transactions, oldest first: target ID, the first six CDB bytes, and the status
+or "selection timeout". None of it is hashed.
+
+*Verification: `wd7000_suite` 48 → 49. A wired card that raises bit 1 times out
+a command inside the 300 ms and reaches the drive once the bus clock passes it.
+Two earlier tests that ran the driver's `03`/`00` now advance the bus past the
+silence, as the board does. The traced boot is recorded when it lands.*
+
+
 ## A bus master indexes the translation map from entry 0, not 512 (2026-09-14)
 
 **The SCSI card's DMA landed 512 pages from where Domain/OS put its

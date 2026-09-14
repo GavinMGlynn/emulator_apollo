@@ -201,7 +201,19 @@ typedef struct ap_scsi_bus {
   uint8_t last_cdb_length;
   uint8_t last_id;
   uint8_t last_status;
+  /* The last `AP_SCSI_TRACE` transactions in order, timeouts included -- a
+   * driver's *sequence* is what a single last command cannot show. Report
+   * instruments, not hashed. */
+  struct {
+    uint8_t id;
+    uint8_t cdb[6];
+    uint8_t status;
+    bool timed_out;
+  } trace[16];
+  uint32_t trace_count;
 } ap_scsi_bus_t;
+
+#define AP_SCSI_TRACE 16u
 
 /* Power-on: every address empty, no initiator, no silence outstanding. */
 void ap_scsi_bus_init(ap_scsi_bus_t *bus, uint8_t initiator_id);

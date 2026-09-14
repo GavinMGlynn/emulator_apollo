@@ -4476,8 +4476,13 @@ discipline throughout.
   00380012`): the CDB was `04 18 00 00` three times, read 512 pages from the
   mail block. A bus master indexes the translation map from entry 0 (§4.2.1.4,
   and the kernel programs entries 0-2), not from 512. That is fixed with tests.
-  **Next**: the boot with that fix; its `scsi last` line should read a real
-  REWIND (`01`).
+  **That boot sent a real command**: TEST UNIT READY to ID 0, answered with
+  Unit Attention, which is correct. But `rbak` still says "device in use", and
+  after that the driver only selected empty IDs. Reading why found
+  `ap_scsi_reset` and `ap_scsi_advance` with no callers: the ASC's bit-1 SCSI
+  reset never reached the bus, and the bus never had a clock. Both are wired,
+  with a test. **Next**: the traced boot's `scsi trace` lines, the driver's
+  whole command sequence, read against `[EXB]` for what it expected.
 - [ ] **`[030]` §11.6 is not fully transcribed, and the boot is timed by it.**
   "Instruction execution time — Closed" is true of the rows transcribed and
   said nothing of coverage. **Stage 1 landed 2026-09-14**: §11.6.9 and
