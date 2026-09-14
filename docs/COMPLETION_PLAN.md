@@ -4495,6 +4495,11 @@ discipline throughout.
   tape's. The drive was fitted at 0. `AP_BOARD_SCSI_DRIVE_ID` is now 1.
   **Next**: `rbak -dev m0 -rewind` and `mt /dev/rmts8 -scsi rewind` on that
   boot.
+  **It worked.** `rbak -dev m0 -rewind` completed without error: TEST UNIT
+  READY, REQUEST SENSE, INQUIRY, READ BLOCK LIMITS, SPACE and REQUEST SENSE to
+  ID 1, all answered as `[EXB]` says. The command path is done. **Left**: the
+  data path — a `wbak` to `m0` and an `rbak -index` back — for WRITE, filemarks
+  and READ.
 - [ ] **`[030]` §11.6 is not fully transcribed, and the boot is timed by it.**
   "Instruction execution time — Closed" is true of the rows transcribed and
   said nothing of coverage. **Stage 1 landed 2026-09-14**: §11.6.9 and

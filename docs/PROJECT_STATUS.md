@@ -466,8 +466,29 @@ supported by a *new* tape library reached through `/dev/rmts8`-`15`.
 **`AP_BOARD_SCSI_DRIVE_ID` is 1.** It was 0 by default, not by any source, and
 now carries the FAQ's rule and §4.14's. No test depended on it.
 
-*Verification: `ctest` 152/152. The boot with `rbak -dev m0 -rewind` and
-`mt /dev/rmts8 -scsi rewind` is recorded when it lands.*
+*Verification: `ctest` 152/152, and the boot below.*
+
+**Domain/OS then drove the drive, end to end.** `rbak -dev m0 -rewind` returned
+to the prompt with no error, the first tape command of the whole chain to do
+so. The trace:
+
+    #1 ID 1 TEST UNIT READY          status 02  ICMB 02  Unit Attention, as §4.4 says
+    #2 ID 1 REQUEST SENSE (255)      status 00  ICMB 01  26 bytes
+    #3 ID 1 TEST UNIT READY          status 00  ICMB 01
+    #4 ID 1 INQUIRY (32)             status 00  ICMB 01  32 bytes
+    #5 ID 1 READ BLOCK LIMITS        status 00  ICMB 01  6 bytes
+    #6 ID 1 SPACE -1 block           status 02  ICMB 02  at BOT
+    #7 ID 1 REQUEST SENSE (255)      status 00  ICMB 01  F0 00 40 FF FF FF FF 12 ...
+
+No selection timed out, and every completion carries byte 15 `01`. The manager
+implements the rewind as a one-block backward SPACE, not REWIND (`01`). At the
+beginning of tape that SPACE draws CHECK CONDITION, and the sense reads what
+`[EXB]` §19 predicts: current error, no key, end-of-medium bit set, residual
+`FFFFFFFF`. `mt /dev/rmts8 -scsi rewind` failed as a command line, not on the
+drive: SR10's `mt(1)` is `mt [-f tapename] command`, and the FAQ's form was for
+another release. **This is the integration check's command path: the card, its
+first-party DMA through the map, the bus, the target and the manager all
+agree.** A data path — WRITE, filemarks, READ — is the next boot.
 
 
 ## "Device in use" was the probe's last word: SCB byte 15 is `01` on success (2026-09-14)
