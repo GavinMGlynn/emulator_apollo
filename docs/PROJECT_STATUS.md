@@ -434,6 +434,45 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## `rbak -dev ct` reaches the SCSI manager, and a reset unplugged the ASC (2026-09-14)
+
+**The SCSI tape is `-dev ct`.** One boot to a shell (`tools/md-shell.sh` with
+`--scsi --scsi-drive` and a script of two commands) answered the device name.
+No document on the shelf gives it. `[002547-A00]`'s `rbak` page lists `m`
+(reel-to-reel), `ct` and `f`. The Survival Guide and the release notes name
+no SCSI tape at all. Domain/OS said it in its own words:
+
+    $ rbak -dev m0 -rewind
+    ?(rbak) Unable to acquire tape - invalid mt unit number (OS/magtape manager)
+    $ rbak -dev ct -rewind
+    ?(rbak) device in use (OS/SCSI manager)
+
+`/sys/mgrs` holds `mt`, `uct` and `rmt_scsi`, and `ct` is the one that reaches
+the SCSI manager.
+
+**And "device in use" was ours, twice over.** The kernel wrote `80` through `89`
+to the command port, which starts OGMBs 0 through 9. It waited on each and moved
+to the next. The card's report said **0 started, 9 DMA refused**:
+
+- **A reset detached the card from the board.** `ap_wd7000_clear` `memset` the
+  whole part, including the memory hook and SCSI bus that
+  `ap_board_attach_scsi` fits. The kernel resets the card before initialising
+  it, so from then on `can_master` was false. Every mailbox read was refused,
+  and no completion or interrupt was posted, so the driver timed out. A reset
+  stops the ASC's Z80; it does not unplug the card. The wiring and the report
+  counters now survive it.
+- **OGMB 0 at address zero was treated as absent.** The kernel's base is
+  `000000`, and `ap_wd7000_ogmb_address` returned zero for "no such box". Its
+  own comment called zero "not a legal mail block base". No document says so,
+  and the guest disagrees. So the tenth start was dropped before any read. Both
+  address functions now answer existence separately.
+
+*Verification: `wd7000_suite` 46 → 48. One test runs the driver's reset on a
+wired card, re-initialises it and requires the next command to reach the drive
+with no DMA refused. The other runs OGMB 0 at base zero and finds its ICMB at
+address 8. The boot that exercises both is recorded when it lands.*
+
+
 ## §11.6 stage 2: the memory-source arithmetic, and seven instructions priced as others (2026-09-14)
 
 This stage added §11.6.8's memory-source rows and all of §11.6.10, read from

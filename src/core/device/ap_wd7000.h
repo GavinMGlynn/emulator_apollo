@@ -464,12 +464,21 @@ void ap_wd7000_advance(ap_wd7000_t *asc, ap_time_t now);
 bool ap_wd7000_irq(const ap_wd7000_t *asc);
 bool ap_wd7000_drq_driven(const ap_wd7000_t *asc);
 
-/* Mailbox addressing, Table A-8. Both return the host physical address of the
- * four-byte box; `n` and `m` are offsets from zero. A box outside the
- * configured count has no address and these return zero, which is not a legal
- * mail block base. */
-uint32_t ap_wd7000_ogmb_address(const ap_wd7000_t *asc, unsigned n);
-uint32_t ap_wd7000_icmb_address(const ap_wd7000_t *asc, unsigned m);
+/* Mailbox addressing, Table A-8. Each answers whether the box exists and, if
+ * so, writes the host address of the four-byte box; `n` and `m` are offsets
+ * from zero.
+ *
+ * **Existence is a separate answer, not a sentinel address.** These returned
+ * zero for "no such box", and this comment called zero "not a legal mail block
+ * base". **Domain/OS initialises the ASC with a base of `000000`**. Its ten
+ * bytes are `01 07 70 0A 00 00 00 00 40 40`, and they reach the card at
+ * `3C459D2C`. So OGMB 0's address was zero, read as absent, and every start
+ * command for it was dropped with no completion. Nothing on the shelf forbids
+ * the value; the sentinel was ours. */
+bool ap_wd7000_ogmb_address(const ap_wd7000_t *asc, unsigned n,
+                            uint32_t *address);
+bool ap_wd7000_icmb_address(const ap_wd7000_t *asc, unsigned m,
+                            uint32_t *address);
 
 /* Queue an interrupt status byte. Used by the command port for the interrupts
  * it raises itself, and by the bus half for command completions when there is

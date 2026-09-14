@@ -19,13 +19,44 @@ static void ap_wd7000_default_parameters(ap_wd7000_t *asc) {
       AP_WD7000_PARITY_RETRIES_DEFAULT;
 }
 
-/* Everything a reset clears, which is everything except the power-up key. */
+/* Everything a reset clears: the part's own state, except the power-up key.
+ *
+ * **Not the board's wiring, and not the report's counters.** This was
+ * `memset` over the whole struct, which also detached the memory hook and the
+ * SCSI bus that `ap_board_attach_scsi` fits. That cost nothing while no guest
+ * reset the card. Domain/OS does reset it, `03` then `00` to Host Control,
+ * before initialising it, and from then on every mailbox read was refused as
+ * "no memory attached". The kernel's ten start commands produced **zero
+ * completions and nine refusals**, and `rbak -dev ct` reported "device in use".
+ * A reset stops the ASC's Z80; it does not unplug the card from the AT bus or
+ * the SCSI cable. The counters are this model's instruments, and a reset of
+ * the part is not a reason to forget what it did. */
 static void ap_wd7000_clear(ap_wd7000_t *asc) {
   const bool powered_on = asc->powered_on;
   const ap_time_t now = asc->now;
+  const ap_wd7000_memory_t memory = asc->memory;
+  const bool memory_attached = asc->memory_attached;
+  struct ap_scsi_bus *const bus = asc->bus;
+  const uint32_t scbs_started = asc->scbs_started;
+  const uint32_t scbs_empty = asc->scbs_empty;
+  const uint32_t scbs_unsupported = asc->scbs_unsupported;
+  const uint32_t scan_signatures = asc->scan_signatures;
+  const uint32_t dma_reads = asc->dma_reads;
+  const uint32_t dma_writes = asc->dma_writes;
+  const uint32_t dma_refused = asc->dma_refused;
   memset(asc, 0, sizeof *asc);
   asc->powered_on = powered_on;
   asc->now = now;
+  asc->memory = memory;
+  asc->memory_attached = memory_attached;
+  asc->bus = bus;
+  asc->scbs_started = scbs_started;
+  asc->scbs_empty = scbs_empty;
+  asc->scbs_unsupported = scbs_unsupported;
+  asc->scan_signatures = scan_signatures;
+  asc->dma_reads = dma_reads;
+  asc->dma_writes = dma_writes;
+  asc->dma_refused = dma_refused;
   ap_wd7000_default_parameters(asc);
   /* §5.2.1: the upper nibble clears, so READY is down and the port reads `0F`
    * until the diagnostics finish. §4.9.1: the LED is lit while they run and
@@ -89,22 +120,26 @@ bool ap_wd7000_drq_driven(const ap_wd7000_t *asc) {
   return (asc->control & AP_WD7000_CTL_DMA_ENABLE) != 0u;
 }
 
-uint32_t ap_wd7000_ogmb_address(const ap_wd7000_t *asc, unsigned n) {
+bool ap_wd7000_ogmb_address(const ap_wd7000_t *asc, unsigned n,
+                            uint32_t *address) {
   if (!asc->initialized || n >= asc->ogmb_count) {
-    return 0u;
+    return false;
   }
-  return asc->mail_base + n * AP_WD7000_MAILBOX_BYTES;
+  *address = asc->mail_base + n * AP_WD7000_MAILBOX_BYTES;
+  return true;
 }
 
-uint32_t ap_wd7000_icmb_address(const ap_wd7000_t *asc, unsigned m) {
+bool ap_wd7000_icmb_address(const ap_wd7000_t *asc, unsigned m,
+                            uint32_t *address) {
   if (!asc->initialized || m >= asc->icmb_count) {
-    return 0u;
+    return false;
   }
   /* "ICMB Address = Starting address of mail block + mail box number m x 4 +
    * 4 (total number of OGMB's)" -- all the outgoing boxes first, then all the
    * incoming ones, and the counts are independent. */
-  return asc->mail_base + m * AP_WD7000_MAILBOX_BYTES +
-         AP_WD7000_MAILBOX_BYTES * asc->ogmb_count;
+  *address = asc->mail_base + m * AP_WD7000_MAILBOX_BYTES +
+             AP_WD7000_MAILBOX_BYTES * asc->ogmb_count;
+  return true;
 }
 
 bool ap_wd7000_post_interrupt(ap_wd7000_t *asc, uint8_t status) {
@@ -536,8 +571,8 @@ static void scb_memory_write(void *context, uint32_t address, uint8_t value) {
  * `AP_WD7000_INT_ICMB_SERVICE | m`. */
 static bool post_icmb(ap_wd7000_t *asc, uint8_t code, uint32_t cdb_address) {
   for (unsigned m = 0; m < asc->icmb_count; m++) {
-    const uint32_t address = ap_wd7000_icmb_address(asc, m);
-    if (address == 0u) {
+    uint32_t address = 0u;
+    if (!ap_wd7000_icmb_address(asc, m, &address)) {
       continue;
     }
     bool ok = false;
@@ -565,8 +600,8 @@ bool ap_wd7000_start_ogmb(ap_wd7000_t *asc, unsigned n) {
   if (asc == nullptr || !asc->initialized) {
     return false;
   }
-  const uint32_t box = ap_wd7000_ogmb_address(asc, n);
-  if (box == 0u) {
+  uint32_t box = 0u;
+  if (!ap_wd7000_ogmb_address(asc, n, &box)) {
     return false;
   }
   bool ok = false;
@@ -698,8 +733,8 @@ unsigned ap_wd7000_scan(ap_wd7000_t *asc, uint8_t signature) {
    * address", so a command in a late OGMB costs more -- an ordering fact, not
    * a limit, and every full box is started. */
   for (unsigned n = 0; n < asc->ogmb_count; n++) {
-    const uint32_t box = ap_wd7000_ogmb_address(asc, n);
-    if (box == 0u) {
+    uint32_t box = 0u;
+    if (!ap_wd7000_ogmb_address(asc, n, &box)) {
       continue;
     }
     bool ok = false;

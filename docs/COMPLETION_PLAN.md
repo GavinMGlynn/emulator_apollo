@@ -4466,6 +4466,12 @@ discipline throughout.
   64/64 mailboxes). Domain/OS starts no SCB at boot, so **what is left is a
   tape command**: a shell on a booted `--scsi --scsi-drive` machine, and
   `/sys/mgrs/rmt_scsi` driving the EXB-8200. Detail in `PROJECT_STATUS.md`.
+  **The device is `-dev ct`** (`m0` is the reel manager's), found by asking
+  the guest, since no document names it. Its first answer was "device in use
+  (OS/SCSI manager)", and both causes were ours: a reset `memset` the ASC's
+  memory hook and bus away, and OGMB 0 at the kernel's base `000000` read as
+  "no box". Both are fixed with tests. **Next**: the rerun boot's SCSI report
+  — a selection and a REWIND on the bus is the integration check passing.
 - [ ] **`[030]` §11.6 is not fully transcribed, and the boot is timed by it.**
   "Instruction execution time — Closed" is true of the rows transcribed and
   said nothing of coverage. **Stage 1 landed 2026-09-14**: §11.6.9 and

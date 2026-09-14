@@ -138,6 +138,19 @@ static void test_the_diagnostic_led_goes_out_on_a_pass(void) {
   TEST_ASSERT_FALSE(asc.led);
 }
 
+/* A box's address for a test that needs the box to exist. */
+static uint32_t ogmb_at(const ap_wd7000_t *asc, unsigned n) {
+  uint32_t address = 0u;
+  TEST_ASSERT_TRUE(ap_wd7000_ogmb_address(asc, n, &address));
+  return address;
+}
+
+static uint32_t icmb_at(const ap_wd7000_t *asc, unsigned m) {
+  uint32_t address = 0u;
+  TEST_ASSERT_TRUE(ap_wd7000_icmb_address(asc, m, &address));
+  return address;
+}
+
 /* §5.2.5.2: "both the ASC reset and the SCSI hardware resets can be asserted
  * simultaneously by writing a `03H` to this port followed by a `00H`" -- which
  * is `scsi14.drvr`'s first two writes to `050002`, byte for byte. */
@@ -192,13 +205,14 @@ static void test_the_ten_initialization_bytes_place_every_mailbox(void) {
   TEST_ASSERT_EQUAL_UINT8(0x0Fu, asc.bus_off);
   TEST_ASSERT_EQUAL_HEX32(0x0123456u, asc.mail_base);
 
-  TEST_ASSERT_EQUAL_HEX32(0x0123456u, ap_wd7000_ogmb_address(&asc, 0u));
-  TEST_ASSERT_EQUAL_HEX32(0x0123456u + 12u, ap_wd7000_ogmb_address(&asc, 3u));
-  TEST_ASSERT_EQUAL_HEX32(0u, ap_wd7000_ogmb_address(&asc, 4u));
+  TEST_ASSERT_EQUAL_HEX32(0x0123456u, ogmb_at(&asc, 0u));
+  TEST_ASSERT_EQUAL_HEX32(0x0123456u + 12u, ogmb_at(&asc, 3u));
+  uint32_t none = 0u;
+  TEST_ASSERT_FALSE(ap_wd7000_ogmb_address(&asc, 4u, &none));
   /* The incoming boxes start past all four outgoing ones. */
-  TEST_ASSERT_EQUAL_HEX32(0x0123456u + 16u, ap_wd7000_icmb_address(&asc, 0u));
-  TEST_ASSERT_EQUAL_HEX32(0x0123456u + 20u, ap_wd7000_icmb_address(&asc, 1u));
-  TEST_ASSERT_EQUAL_HEX32(0u, ap_wd7000_icmb_address(&asc, 2u));
+  TEST_ASSERT_EQUAL_HEX32(0x0123456u + 16u, icmb_at(&asc, 0u));
+  TEST_ASSERT_EQUAL_HEX32(0x0123456u + 20u, icmb_at(&asc, 1u));
+  TEST_ASSERT_FALSE(ap_wd7000_icmb_address(&asc, 2u, &none));
 }
 
 /* Table 6-2 byte 08/09: "max. 64 (0,1 = 1)" -- zero and one both mean one box. */
@@ -208,7 +222,7 @@ static void test_a_mailbox_count_of_zero_means_one(void) {
   initialize(&asc, 0x010000u, 0u, 0u);
   TEST_ASSERT_EQUAL_UINT(1u, asc.ogmb_count);
   TEST_ASSERT_EQUAL_UINT(1u, asc.icmb_count);
-  TEST_ASSERT_EQUAL_HEX32(0x010004u, ap_wd7000_icmb_address(&asc, 0u));
+  TEST_ASSERT_EQUAL_HEX32(0x010004u, icmb_at(&asc, 0u));
 }
 
 /* Bytes 05-07 are MSB first. Table A-4 labels them the other way round; Table
@@ -828,7 +842,7 @@ static void test_a_full_mailbox_runs_its_scb_and_posts_a_completion(void) {
   /* The mail was taken. */
   TEST_ASSERT_EQUAL_HEX8(AP_WD7000_MAILBOX_EMPTY, ram.byte[MAIL]);
   /* ICMB 0 carries `01` and the SCB's address, and the interrupt names it. */
-  const uint32_t icmb = ap_wd7000_icmb_address(&asc, 0u);
+  const uint32_t icmb = icmb_at(&asc, 0u);
   TEST_ASSERT_EQUAL_HEX8(AP_WD7000_ICMB_COMPLETE, ram.byte[icmb]);
   TEST_ASSERT_EQUAL_HEX8((uint8_t)(SCB >> 8), ram.byte[icmb + 2u]);
   TEST_ASSERT_TRUE(ap_wd7000_irq(&asc));
@@ -851,8 +865,80 @@ static void test_a_non_good_status_forces_completion_two(void) {
 
   command(&asc, (uint8_t)(AP_WD7000_CMD_START_OGMB | 0u));
   TEST_ASSERT_EQUAL_HEX8(AP_SCSI_STATUS_CHECK_CONDITION, ram.byte[SCB + 14u]);
-  const uint32_t icmb = ap_wd7000_icmb_address(&asc, 0u);
+  const uint32_t icmb = icmb_at(&asc, 0u);
   TEST_ASSERT_EQUAL_HEX8(AP_WD7000_ICMB_COMPLETE_ERROR, ram.byte[icmb]);
+}
+
+/* **A reset stops the ASC; it does not unplug it.** Domain/OS resets the card
+ * (`03`, `00` to Host Control) before initialising it, and `ap_wd7000_clear`
+ * used to `memset` the whole part -- the memory hook and the bus with it -- so
+ * every mailbox read after that was refused and the kernel's start commands
+ * produced nothing at all. This runs the driver's own reset on a wired card,
+ * initialises it again, and requires the next command to reach the drive
+ * through first-party DMA. */
+static void test_a_reset_leaves_the_card_wired_to_host_memory_and_the_bus(
+    void) {
+  ap_wd7000_t asc;
+  ram_t ram;
+  ap_scsi_bus_t bus;
+  drive_t drive;
+  wired(&asc, &ram, &bus, &drive);
+
+  ap_wd7000_write(&asc, AP_WD7000_CONTROL, 0x03u);
+  ap_wd7000_advance(&asc, asc.now);
+  ap_wd7000_advance(&asc, asc.now + AP_WD7000_T_RESET_MIN);
+  ap_wd7000_write(&asc, AP_WD7000_CONTROL, 0x00u);
+  ap_wd7000_advance(&asc, asc.now + AP_WD7000_T_SHORT_DIAGNOSTIC);
+  TEST_ASSERT_FALSE(asc.initialized);
+  TEST_ASSERT_TRUE(ap_wd7000_memory_attached(&asc));
+
+  initialize(&asc, MAIL, 2u, 2u);
+  ap_wd7000_write(&asc, AP_WD7000_CONTROL,
+                  AP_WD7000_CTL_DMA_ENABLE | AP_WD7000_CTL_IRQ_ENABLE);
+  const uint8_t cdb[6] = {0x00u, 0u, 0u, 0u, 0u, 0u};
+  place_scb(&ram, cdb, false, 0u);
+  command(&asc, (uint8_t)(AP_WD7000_CMD_START_OGMB | 0u));
+
+  TEST_ASSERT_EQUAL_UINT(1u, drive.executes);
+  TEST_ASSERT_EQUAL_UINT32(0u, asc.dma_refused);
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_ICMB_COMPLETE, ram.byte[icmb_at(&asc, 0u)]);
+}
+
+/* **A mail block at address zero is a mail block.** Domain/OS's ten bytes are
+ * `01 07 70 0A 00 00 00 00 40 40`, so its OGMB 0 lives at `000000`, and the
+ * zero-means-absent sentinel this part's addressing used to return dropped
+ * every start command for that box. */
+static void test_a_mail_block_at_address_zero_runs_its_first_box(void) {
+  ap_wd7000_t asc;
+  ram_t ram;
+  ap_scsi_bus_t bus;
+  drive_t drive;
+  wired(&asc, &ram, &bus, &drive);
+
+  /* Re-initialise onto base zero, as the kernel does, after a reset. */
+  ap_wd7000_write(&asc, AP_WD7000_CONTROL, 0x03u);
+  ap_wd7000_advance(&asc, asc.now);
+  ap_wd7000_advance(&asc, asc.now + AP_WD7000_T_RESET_MIN);
+  ap_wd7000_write(&asc, AP_WD7000_CONTROL, 0x00u);
+  ap_wd7000_advance(&asc, asc.now + AP_WD7000_T_SHORT_DIAGNOSTIC);
+  initialize(&asc, 0x000000u, 2u, 2u);
+  ap_wd7000_write(&asc, AP_WD7000_CONTROL,
+                  AP_WD7000_CTL_DMA_ENABLE | AP_WD7000_CTL_IRQ_ENABLE);
+  TEST_ASSERT_EQUAL_HEX32(0u, ogmb_at(&asc, 0u));
+
+  const uint8_t cdb[6] = {0x00u, 0u, 0u, 0u, 0u, 0u};
+  place_scb(&ram, cdb, false, 0u);
+  /* `place_scb` fills OGMB 0 at `MAIL`; move that box to address zero. */
+  memcpy(&ram.byte[0], &ram.byte[MAIL], 4u);
+  memset(&ram.byte[MAIL], 0, 4u);
+
+  command(&asc, (uint8_t)(AP_WD7000_CMD_START_OGMB | 0u));
+
+  TEST_ASSERT_EQUAL_UINT(1u, drive.executes);
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_MAILBOX_EMPTY, ram.byte[0]);
+  /* ICMB 0 follows both OGMBs: address 8. */
+  TEST_ASSERT_EQUAL_HEX32(8u, icmb_at(&asc, 0u));
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_ICMB_COMPLETE, ram.byte[8]);
 }
 
 /* §A.7 vue `20`: a start command naming a box the ASC has already emptied. */
@@ -867,7 +953,7 @@ static void test_an_empty_mailbox_is_vue_twenty(void) {
   TEST_ASSERT_EQUAL_UINT(0u, drive.executes);
   TEST_ASSERT_EQUAL_UINT32(1u, asc.scbs_empty);
   TEST_ASSERT_EQUAL_HEX8(AP_WD7000_VUE_OGMB_EMPTY, 0x20u);
-  const uint32_t icmb = ap_wd7000_icmb_address(&asc, 0u);
+  const uint32_t icmb = icmb_at(&asc, 0u);
   TEST_ASSERT_EQUAL_HEX8(AP_WD7000_ICMB_COMPLETE_ERROR, ram.byte[icmb]);
 }
 
@@ -887,7 +973,7 @@ static void test_an_unanswered_target_is_vue_four_d(void) {
   command(&asc, (uint8_t)(AP_WD7000_CMD_START_OGMB | 0u));
   TEST_ASSERT_EQUAL_UINT(0u, drive.executes);
   TEST_ASSERT_EQUAL_HEX8(AP_WD7000_VUE_SELECTION_TIMEOUT, ram.byte[SCB + 15u]);
-  const uint32_t icmb = ap_wd7000_icmb_address(&asc, 0u);
+  const uint32_t icmb = icmb_at(&asc, 0u);
   TEST_ASSERT_EQUAL_HEX8(AP_WD7000_ICMB_NO_SCSI_STATUS, ram.byte[icmb]);
 }
 
@@ -944,7 +1030,7 @@ static void test_a_scan_starts_every_full_box_and_completes(void) {
   const uint8_t cdb[6] = {0x00u, 0u, 0u, 0u, 0u, 0u};
   place_scb(&ram, cdb, false, 0u);
   /* OGMB 1 points at the same SCB, so both boxes are full. */
-  const uint32_t second = ap_wd7000_ogmb_address(&asc, 1u);
+  const uint32_t second = ogmb_at(&asc, 1u);
   ram.byte[second] = 0x01u;
   ram.byte[second + 1u] = (uint8_t)(SCB >> 16);
   ram.byte[second + 2u] = (uint8_t)(SCB >> 8);
@@ -956,8 +1042,8 @@ static void test_a_scan_starts_every_full_box_and_completes(void) {
   TEST_ASSERT_EQUAL_HEX8(AP_WD7000_MAILBOX_EMPTY, ram.byte[second]);
   TEST_ASSERT_EQUAL_UINT32(1u, asc.scan_signatures);
   /* Three completions: two commands and the scan's own. */
-  const uint32_t icmb0 = ap_wd7000_icmb_address(&asc, 0u);
-  const uint32_t icmb1 = ap_wd7000_icmb_address(&asc, 1u);
+  const uint32_t icmb0 = icmb_at(&asc, 0u);
+  const uint32_t icmb1 = icmb_at(&asc, 1u);
   TEST_ASSERT_EQUAL_HEX8(AP_WD7000_ICMB_COMPLETE, ram.byte[icmb0]);
   TEST_ASSERT_EQUAL_HEX8(AP_WD7000_ICMB_COMPLETE, ram.byte[icmb1]);
 }
@@ -1006,6 +1092,8 @@ int main(void) {
   RUN_TEST(test_a_refused_pointer_read_returns_nothing);
   RUN_TEST(test_the_scbs_offsets_are_decimal);
   RUN_TEST(test_a_full_mailbox_runs_its_scb_and_posts_a_completion);
+  RUN_TEST(test_a_reset_leaves_the_card_wired_to_host_memory_and_the_bus);
+  RUN_TEST(test_a_mail_block_at_address_zero_runs_its_first_box);
   RUN_TEST(test_a_non_good_status_forces_completion_two);
   RUN_TEST(test_an_empty_mailbox_is_vue_twenty);
   RUN_TEST(test_an_unanswered_target_is_vue_four_d);
