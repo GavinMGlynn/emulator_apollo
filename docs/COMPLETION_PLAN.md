@@ -4483,6 +4483,12 @@ discipline throughout.
   reset never reached the bus, and the bus never had a clock. Both are wired,
   with a test. **Next**: the traced boot's `scsi trace` lines, the driver's
   whole command sequence, read against `[EXB]` for what it expected.
+  **Read, and it was the card again.** The driver probes bus 0-3 × ID 0-7 with
+  TEST UNIT READY, and "device in use" is only its last status, ID 7's. The
+  real cause is that the driver's `3C4E45AA` maps SCB byte 15 `01` to success
+  and anything else to hardware failure, and this ASC wrote `FF`. Fixed to
+  `01`. **Next**: the boot with that fix; REWIND (`01`) on the bus closes the
+  integration check.
 - [ ] **`[030]` §11.6 is not fully transcribed, and the boot is timed by it.**
   "Instruction execution time — Closed" is true of the rows transcribed and
   said nothing of coverage. **Stage 1 landed 2026-09-14**: §11.6.9 and

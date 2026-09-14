@@ -838,7 +838,9 @@ static void test_a_full_mailbox_runs_its_scb_and_posts_a_completion(void) {
   TEST_ASSERT_EQUAL_HEX8(0x43u, ram.byte[BUF + 3u]);
   /* Status and vue written back; §5.4.1's byte 14 is the target's own. */
   TEST_ASSERT_EQUAL_HEX8(AP_SCSI_STATUS_GOOD, ram.byte[SCB + 14u]);
-  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_VUE_NONE, ram.byte[SCB + 15u]);
+  /* `01`, which is what Domain/OS's driver maps to success. `FF` -- what this
+   * part wrote until 2026-09-14 -- maps to "hardware failure". */
+  TEST_ASSERT_EQUAL_HEX8(AP_WD7000_VUE_NO_ERROR, ram.byte[SCB + 15u]);
   /* The mail was taken. */
   TEST_ASSERT_EQUAL_HEX8(AP_WD7000_MAILBOX_EMPTY, ram.byte[MAIL]);
   /* ICMB 0 carries `01` and the SCB's address, and the interrupt names it. */

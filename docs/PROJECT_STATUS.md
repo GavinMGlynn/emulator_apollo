@@ -434,6 +434,45 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## "Device in use" was the probe's last word: SCB byte 15 is `01` on success (2026-09-14)
+
+**The traced boot showed the driver's whole sequence, and it pointed away from
+the drive.** Both `rbak` commands issued TEST UNIT READY to IDs 0-6: fourteen
+selections, twelve timeouts. ID 0 answered CHECK CONDITION with Unit Attention
+the first time and **GOOD** the second. After that the driver sent nothing: no
+REQUEST SENSE, INQUIRY or REWIND. Both commands still reported "device in use".
+
+**What "device in use" means, from the guest's own tables.** `/sys/errors` does
+not exist on this volume. A raw search of the image for the text found the
+`OS / SCSI manager` message table, 1-based, which matches the driver's own
+codes: `0038000B` "bad length" is set on a length above `8000`, and `00380012`
+is "hardware failure". **"Device in use" is `00380003`**, and it is set at four
+kernel sites. Two refuse an acquire whose target is **ID 7**, the host's own
+ID. Two refuse a device-table entry already owned by another process.
+
+**A boot logging those sites (`--boot-log-pc`, 8 addresses) caught the
+loop.** The acquire at `3C4E54BC` walks bus 0-3 × ID 0-7. On bus 0, IDs 0-6 are
+acquired, pass the owner check at `3C4E451A`, and get their TEST UNIT READY.
+**ID 7 is refused at `3C4E54C4`**, and buses 1-3 end the same way. So the
+status `rbak` printed was the probe's *last* one, from bus 3 ID 7. It was not
+the reason ID 0 went unused.
+
+**The reason was the ASC's completion byte.** The driver's completion handler
+passes SCB byte 15, the vendor-unique code, through `3C4E45AA` before it looks
+at the status byte. That routine maps `01` to success, `26`/`4D`/`40`/`41` to
+their own statuses, and **everything else to `00380012`, hardware failure**.
+This part wrote `FF` on success. `[WD7000]` §A.7 gives `FF` as "not
+applicable" and `01` as the diagnostic band's "no error", and says neither is
+what a clean SCB carries. **The driver settles it: `01`.** So every command the
+drive completed, the GOOD TEST UNIT READY included, reached the SCSI manager
+as a hardware failure. Selection timeout (`4D`) and short transfer (`40`) keep
+their codes; a CHECK CONDITION now carries `01` too, because its error is the
+status byte.
+
+*Verification: `ctest` 152/152; `wd7000_suite`'s completion test requires
+`01`. The boot with the fix is recorded when it lands.*
+
+
 ## The ASC's SCSI reset reaches the bus, and the bus has a clock (2026-09-14)
 
 **With the translation map fixed, Domain/OS's first full SCSI exchange ran.**

@@ -702,7 +702,12 @@ bool ap_wd7000_start_ogmb(ap_wd7000_t *asc, unsigned n) {
                       AP_SCSI_CDB_MAX, &memory, buffer, (unsigned)capacity,
                       &result);
 
-  uint8_t vue = AP_WD7000_VUE_NONE;
+  /* `01` unless something below says otherwise -- for a CHECK CONDITION too,
+   * whose error is the status byte and not the ASC's. The Apollo driver reads
+   * byte 15 before byte 14 and maps anything but `01`, `26`, `4D`, `40` and
+   * `41` to hardware failure, so `FF` here hid every status behind it. See
+   * `AP_WD7000_VUE_NO_ERROR`. */
+  uint8_t vue = AP_WD7000_VUE_NO_ERROR;
   uint8_t completion;
   if (!selected) {
     /* §A.7 `4D`: "selection/reselection timeout". §5.7.1's ICMB `04` is

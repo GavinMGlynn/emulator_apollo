@@ -207,6 +207,16 @@ typedef enum {
 #define AP_WD7000_VUE_SHORT_TRANSFER 0x40u
 #define AP_WD7000_VUE_SELECTION_TIMEOUT 0x4Du
 #define AP_WD7000_VUE_NONE 0xFFu
+/* **What a command that went cleanly leaves in byte 15: `01`, not `FF`.** §A.7
+ * lists `00`-`07` as the diagnostic codes, with `01` "no error", and `FF` as
+ * "not applicable". Neither page says which one a successful SCB carries. The
+ * Apollo driver does: its conversion at `3C4E45AA` maps `01` to success, `26`,
+ * `4D`, `40` and `41` to their own statuses, and **everything else to
+ * `00380012`, "hardware failure"**. This part wrote `FF` on success, so every
+ * clean command -- including a GOOD TEST UNIT READY from the EXB-8200 -- reached
+ * Domain/OS's SCSI manager as a hardware failure. The drive was never used,
+ * and `rbak` reported the probe's last status, ID 7's "device in use". */
+#define AP_WD7000_VUE_NO_ERROR 0x01u
 
 /* Mailboxes, §5.3 and Table A-8. Four bytes each: a status byte then a
  * three-byte command-block pointer, MSB first. All the outgoing boxes are
