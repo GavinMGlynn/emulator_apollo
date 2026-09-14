@@ -45,8 +45,16 @@ static const uint16_t probe_store_reload[] = {
 };
 
 /* A countdown loop: six iterations of DBF, which exercises the branch path and
- * the instruction cache answering a second time round. */
+ * the instruction cache answering a second time round.
+ *
+ * The cache is turned on first, by the program, because reset leaves it off
+ * (`[030]` §8.1.1, step 5) and a probe starts from reset. Until construction
+ * obeyed `CACR` this probe inherited a cache that was answering with the
+ * register clear, and its 60 clocks were measured on a machine that does not
+ * exist. */
 static const uint16_t probe_loop[] = {
+    0x7401u,          /* MOVEQ #1,D2     */
+    0x4E7Bu, 0x2002u, /* MOVEC D2,CACR   -- EI */
     0x7205u,          /* MOVEQ #5,D1     */
     0x5200u,          /* ADDQ.B #1,D0    */
     0x51C9u, 0xFFFCu, /* DBF D1,-4       */

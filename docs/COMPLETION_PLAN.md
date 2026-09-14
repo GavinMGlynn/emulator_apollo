@@ -4457,6 +4457,10 @@ discipline throughout.
   then read the four `scsi` lines of the end-of-run report.
 - **68040**: caches attached and `CINV`/`CPUSH` real (`b32be427`); the fill on
   fetch and operand remains.
+- **`CACR` defect, found and closed 2026-09-14** while reading for that fill:
+  the access path never read the register, so construction's
+  `cache_enabled = true` outlived reset and every `MOVEC`. Identity reference
+  now `421FD9A6F120455E`. Detail in `PROJECT_STATUS.md`.
 - **Shelf, multi-node**: untouched this session.
 - **Sequencer / exact-skip / cross-node**: still awaiting the decision below.
 

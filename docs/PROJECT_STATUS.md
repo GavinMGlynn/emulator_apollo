@@ -434,6 +434,55 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## The access path never read `CACR`: the caches obeyed construction, not the register (2026-09-14)
+
+Found while reading the access path for the 68040 cache fill, and it is a
+68030 defect older than any of the timing work that depended on it.
+
+`ap_machine_init` built the instruction access context with
+`.cache_enabled = true`, and **nothing afterwards ever copied `CACR` into
+either access context**. `ap_m68030_reset_state` zeroed `cpu->cacr` —
+`[030]` §8.1.1, step 5, "both caches disabled" — and every `MOVEC` to `CACR`,
+26 of them in the DN3500's PROM with the first at `006A0`, changed a register
+the access path never looked at. So from power-on the instruction cache
+answered whatever the register said, the data cache answered only where a test
+forced it, and freeze, burst enable and write allocate were never live at all —
+including the `2101 → 2901` write-allocate write Domain/OS makes.
+
+**The fix is one function**, `ap_m68030_cacr_publish`: EI, FI and IBE to the
+instruction context, ED, FD, DBE and WA to the data context, called at
+construction, at reset and after every `CACR` write. A 68040's two bits arrive
+through `ap_m68030_cacr_write_variant` as the two enables and the rest stay
+false, so one function serves every part.
+
+**What moved, and why each is the machine being right rather than a
+regression:**
+
+- **`machine_suite`, five tests**, all measuring `[030]` §11.6's
+  instruction-cache case on a machine whose `CACR` was zero. They now turn the
+  cache on through the register, as firmware does — `write_cacr`, EI alone, or
+  EI|ED for the test that the two caches are separate objects. §11.6's "the data
+  cache is not enabled" is now stated *as a register value* instead of by
+  poking an access context that reset used to leave alone.
+- **`golden_probes`.** `loop`, whose stated purpose is "the instruction cache on
+  the second pass", enables it itself — `MOVEQ #1,D2; MOVEC D2,CACR` — so 14 →
+  16 instructions and 60 → 62 clocks. `trap` now runs uncached, 26 → 30. Every
+  hash moves because the hashed access contexts no longer carry a
+  `cache_enabled` nothing had set. No oracle figure moved: `FINDINGS.md` C76
+  compared the loop's instruction count and `D0`, never its clocks.
+- **The identity boot**, below: `B6D94F0A99F1B276` → **`421FD9A6F120455E`**,
+  clocks **1,408,661,906 → 1,420,855,289** (+12,193,383, +0.87%) over the same
+  350,000,000 instructions. Boot PROM reads 466,264 → 3,172,780 and main-memory
+  reads 58,610,209 → 80,322,465: prefetches the ungated cache used to answer go
+  to the bus while `CACR` is clear, which is before the PROM's first `MOVEC` and
+  wherever software turns the cache off. The run ends in the same PROM loop
+  (`269E` → `2698`, `D7` one count further).
+
+*Verification: `ctest` 152/152. The attribution is measured, not argued: the
+parent commit built in a separate worktree gives `B6D94F0A99F1B276` and
+1,408,661,906 clocks to the tick, and this change alone gives the new figures.*
+
+
 ## A DN3500's Domain/OS polls the SCSI card 163,171 times (2026-09-13)
 
 The SCSI item's integration check, and its **control** — which turned out to
@@ -4486,6 +4535,13 @@ the cartridge-tape work: `ap_tape_t` gained `mark_byte_sent`, which
 `ap_board_state.c` hashes, so the digest moves whether or not any behaviour
 does. Every plan entry citing `F78D6DBE770CAF47` is likewise a record of when it
 was written.
+
+**The reference is `421FD9A6F120455E` as of 2026-09-14**, at **1,420,855,289
+clocks**, and this one moved because behaviour did: the access path now obeys
+`CACR`, so the instruction cache is off from reset until software turns it on.
+Measured against the parent commit built separately, which still gives
+`B6D94F0A99F1B276` and 1,408,661,906 — see "The access path never read `CACR`".
+Every entry above citing `B6D94F0A99F1B276` is a record of when it was written.
 
 *Measured rather than argued.* The same day's `ap_boardreg` change — the DS5500
 cache status register's bit 4 — is gated on `model == AP_MODEL_DN5500`, so it

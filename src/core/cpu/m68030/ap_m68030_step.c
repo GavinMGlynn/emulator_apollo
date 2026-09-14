@@ -94,6 +94,20 @@ step_operand_write(ap_m68030_cpu_t *cpu, ap_m68030_regs_t *regs,
   return result;
 }
 
+void ap_m68030_cacr_publish(ap_m68030_cpu_t *cpu) {
+  if (cpu->fetch.access != nullptr) {
+    cpu->fetch.access->cache_enabled = cpu->cacr.enable_instruction;
+    cpu->fetch.access->cache_frozen = cpu->cacr.freeze_instruction;
+    cpu->fetch.access->burst_enabled = cpu->cacr.instruction_burst_enable;
+  }
+  if (cpu->data != nullptr) {
+    cpu->data->cache_enabled = cpu->cacr.enable_data;
+    cpu->data->cache_frozen = cpu->cacr.freeze_data;
+    cpu->data->burst_enabled = cpu->cacr.data_burst_enable;
+    cpu->data->write_allocate = cpu->cacr.write_allocate;
+  }
+}
+
 void ap_m68030_reset_state(ap_m68030_cpu_t *cpu) {
   /* Steps 1-3: trace off, supervisor *interrupt* mode -- S set and M clear --
    * and the mask at 7. */
@@ -110,6 +124,8 @@ void ap_m68030_reset_state(ap_m68030_cpu_t *cpu) {
   /* Step 5: both caches disabled, unfrozen, not bursting, and the data cache's
    * write allocation off. */
   cpu->cacr = (ap_m68030_cacr_t){0};
+  /* And the access path told so, which is the half that was missing. */
+  ap_m68030_cacr_publish(cpu);
 
   /* Step 6: "Invalidates all entries in the instruction and data caches." Only
    * the caches -- step 7's own text and the closing paragraph are explicit that
@@ -3635,6 +3651,7 @@ static bool execute_control(ap_m68030_cpu_t *cpu,
                                      cpu->fetch.access->cache,
                                      cpu->data->cache, cpu->caar,
                                      cpu->cacr_variant);
+        ap_m68030_cacr_publish(cpu);
         return true;
       case AP_M68030_CONTROL_USP:
         cpu->regs.usp = value;

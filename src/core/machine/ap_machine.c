@@ -716,7 +716,6 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
       .root = &machine->cpu.crp,
       .tt0 = &machine->cpu.tt0,
       .tt1 = &machine->cpu.tt1,
-      .cache_enabled = true,
       .fill = machine_fill,
       .store = machine_store,
       .table_fetch = machine_table_fetch,
@@ -790,6 +789,10 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
   machine->cpu.fetch.function_code = AP_M68030_FC_SUPERVISOR_PROGRAM;
   machine->cpu.data = &machine->data_access;
   machine->cpu.data_function_code = AP_M68030_FC_SUPERVISOR_DATA;
+  /* The cache controls come from the CACR and nowhere else. This used to be a
+   * literal `cache_enabled = true` in the initialiser above, which is the
+   * defect `ap_m68030_cacr_publish` describes. */
+  ap_m68030_cacr_publish(&machine->cpu);
 }
 
 void ap_machine_reset(ap_machine_t *machine, uint32_t pc, uint32_t stack) {

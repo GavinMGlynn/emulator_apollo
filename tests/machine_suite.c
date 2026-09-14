@@ -49,6 +49,20 @@ static void load(ap_machine_t *machine, const uint16_t *words, unsigned count) {
   }
 }
 
+/* Write `CACR` the way a `MOVEC` does. Reset leaves "both caches disabled"
+ * (`[030]` §8.1.1, step 5), so a test that measures the instruction-cache case
+ * has to turn the cache on, as firmware does, rather than inherit it from
+ * construction -- which is what these tests silently did until construction
+ * started obeying the register. */
+static void write_cacr(ap_machine_t *machine, uint32_t word) {
+  ap_m68030_cacr_write(&machine->cpu.cacr, word, &machine->instruction_cache,
+                       &machine->data_cache, machine->cpu.caar);
+  ap_m68030_cacr_publish(&machine->cpu);
+}
+
+#define CACR_EI (1u << AP_M68030_CACR_EI_BIT)
+#define CACR_ED (1u << AP_M68030_CACR_ED_BIT)
+
 /* The whole cycle a probe performs: construct, poke, run, read back. If this
  * works, a probe needs no firmware and no boot. */
 /* **No opcode is declined for want of work.** All 65536, stepped on a real
@@ -738,6 +752,7 @@ static void test_the_instruction_and_data_caches_are_not_the_same_cache(void) {
   ap_machine_t m;
   ap_machine_init(&m, ram, RAM_BYTES);
   ap_machine_reset(&m, PROGRAM, STACK);
+  write_cacr(&m, CACR_EI | CACR_ED);
 
   TEST_ASSERT_EQUAL_PTR(&m.instruction_cache, m.instruction_access.cache);
   TEST_ASSERT_EQUAL_PTR(&m.data_cache, m.data_access.cache);
@@ -807,8 +822,8 @@ static void sample_instruction(uint16_t word, bool warm, uint64_t *out,
   blank();
   ap_machine_t m;
   ap_machine_init(&m, ram, RAM_BYTES);
-  m.data_access.cache_enabled = false;
   ap_machine_reset(&m, PROGRAM, STACK);
+  write_cacr(&m, CACR_EI);
 
   for (unsigned i = 0; i < samples + 8u; i++) {
     TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM + i * 2u, 2u, word));
@@ -903,9 +918,9 @@ static void sample_memory_form(uint16_t word, bool warm, uint64_t *out,
   ap_machine_init(&m, ram, RAM_BYTES);
   /* As above: §11.6's figures assume the data cache is not enabled, and for a
    * memory operand that assumption is the difference between a read costing two
-   * clocks and costing none. */
-  m.data_access.cache_enabled = false;
+   * clocks and costing none. So `CACR` carries EI and not ED. */
   ap_machine_reset(&m, PROGRAM, STACK);
+  write_cacr(&m, CACR_EI);
 
   for (unsigned i = 0; i < samples + 8u; i++) {
     TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM + i * 2u, 2u, word));
@@ -1131,6 +1146,8 @@ static void test_a_taken_branch_costs_more_than_an_untaken_one(void) {
     TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM + i * 2u, 2u, 0x6702u));
   }
   (void)program;
+  /* §11.6.15's figures are the instruction-cache case. */
+  write_cacr(&m, CACR_EI);
 
   /* Z clear: not taken, and the byte form is 4 clocks. */
   ap_m68030_write_ccr(&m.cpu.regs, 0);
@@ -1167,6 +1184,7 @@ static void test_leaving_a_dbcc_loop_costs_more_than_going_round(void) {
   ap_machine_t m;
   ap_machine_init(&m, ram, RAM_BYTES);
   ap_machine_reset(&m, PROGRAM, STACK);
+  write_cacr(&m, CACR_EI); /* the instruction-cache case, as above */
   for (unsigned i = 0; i < 5u; i++) {
     TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM + i * 2u, 2u, program[i]));
   }

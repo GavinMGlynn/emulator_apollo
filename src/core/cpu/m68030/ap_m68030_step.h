@@ -508,6 +508,24 @@ void ap_m68030_cpu_reset(ap_m68030_cpu_t *cpu, uint32_t pc);
  * struct is already zero) and wrong on every later one. */
 void ap_m68030_reset_state(ap_m68030_cpu_t *cpu);
 
+/* Copy the CACR into the two access contexts, which is where the access path
+ * reads the cache controls from.
+ *
+ * **These were never connected, and it was a defect.** `ap_m68030_access_ctx_t`
+ * carries `cache_enabled`, `cache_frozen`, `burst_enabled` and
+ * `write_allocate`, and the access path consults every one of them -- but
+ * nothing ever wrote them from `cpu->cacr`. `ap_machine` built the contexts with
+ * `cache_enabled = true` and the rest false, and they stayed that way. So reset
+ * step 5's "both caches disabled" cleared `cpu->cacr` and left the caches
+ * *answering*, and every `MOVEC` to `CACR` -- 26 of them in the DN3500's PROM,
+ * the first at `006A0` -- changed a register the access path never looked at.
+ *
+ * Called at construction, at reset, and after every `CACR` write. A 68040's two
+ * bits land on `enable_instruction` and `enable_data` through
+ * `ap_m68030_cacr_write_variant`, and its absent freeze, burst and write
+ * allocate stay false, so one function serves every part. */
+void ap_m68030_cacr_publish(ap_m68030_cpu_t *cpu);
+
 /* Execute one instruction. */
 /* Charge `n` clocks and record that they happened here.
  *
