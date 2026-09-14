@@ -2688,6 +2688,23 @@ static bool write_frame_field(ap_m68030_cpu_t *cpu, uint32_t address,
   return wrote.ok;
 }
 
+/* A fault frame's bytes, assembled before any is written, so the frame can go
+ * out in long words whatever field boundaries it has. The 68030's long frame is
+ * the largest, 46 words. */
+#define FAULT_FRAME_IMAGE_BYTES 96u
+
+static void frame_image_put(uint8_t *image, uint32_t offset, unsigned size,
+                            uint32_t value) {
+  for (unsigned i = 0; i < size; i++) {
+    image[offset + i] = (uint8_t)(value >> (8u * (size - 1u - i)));
+  }
+}
+
+static uint32_t frame_image_long(const uint8_t *image, uint32_t offset) {
+  return ((uint32_t)image[offset] << 24) | ((uint32_t)image[offset + 1u] << 16) |
+         ((uint32_t)image[offset + 2u] << 8) | (uint32_t)image[offset + 3u];
+}
+
 /* The body of taking an exception, with the stacked status register supplied
  * rather than read here. Every exception but an interrupt stacks the register as
  * it stood on entry; an interrupt raises the priority mask first and must stack
@@ -2908,10 +2925,23 @@ take_bus_fault_with(ap_m68030_cpu_t *cpu, unsigned vector,
    * rather than skipped -- a frame that only filled its named fields would
    * leave whatever the stack already held in the gaps, and a handler reading
    * those would act on the previous program's data. Zero is a stated value; a
-   * skipped word is an unstated one. */
+   * skipped word is an unstated one.
+   *
+   * **How they are written is the part's, not a second pass.** Until
+   * 2026-09-14 every word went out as zero first and the named fields were
+   * written over them: 16 and 46 word cycles before a single field. `[030]`
+   * §8.4: "When the MC68030 writes or reads a stack frame, it uses long-word
+   * operand transfers wherever possible." So the 68020/68030 frames below are
+   * assembled and written once -- status register, program counter and format
+   * word, then long words from `$08` to the end -- which on a long-aligned stack
+   * is 10 cycles for the short frame and 25 for the long, what §11.6.18's own
+   * `RTE` rows count reading them back. The 68040's format `$7` keeps its
+   * pass: its part is not the one §8.4 describes. */
   bool wrote = true;
-  for (uint32_t offset = 0; offset < bytes && wrote; offset += 2u) {
-    wrote = write_frame_field(cpu, frame + offset, 2u, 0u, &out.clocks);
+  if (access_error_frame) {
+    for (uint32_t offset = 0; offset < bytes && wrote; offset += 2u) {
+      wrote = write_frame_field(cpu, frame + offset, 2u, 0u, &out.clocks);
+    }
   }
 
   wrote = wrote && write_frame_field(cpu, frame + 0u, 2u, saved_sr, &out.clocks);
@@ -2993,27 +3023,31 @@ take_bus_fault_with(ap_m68030_cpu_t *cpu, unsigned vector,
             write_frame_field(cpu, frame + AP_M68030_ACCESS_ERROR_FAULT_ADDRESS,
                               4u, fault_address, &out.clocks);
   } else {
-  wrote = wrote && write_frame_field(cpu, frame + AP_M68030_BUS_FAULT_SSW, 2u,
-                                     ap_m68030_ssw_encode(&ssw), &out.clocks);
-  /* The pipe images, so a handler can repair the instruction stream. These are
-   * the words the pipe actually holds, not a reconstruction. */
-  wrote = wrote && write_frame_field(cpu, frame + AP_M68030_BUS_FAULT_STAGE_C,
-                                     2u, cpu->fetch.pipe.c.word, &out.clocks);
-  wrote = wrote && write_frame_field(cpu, frame + AP_M68030_BUS_FAULT_STAGE_B,
-                                     2u, cpu->fetch.pipe.b.word, &out.clocks);
-  wrote = wrote && write_frame_field(cpu, frame + AP_M68030_BUS_FAULT_ADDRESS,
-                                     4u, fault_address, &out.clocks);
-  /* And its offset moves with the part in the long frame: `$18` on a 68030,
-   * which keeps it there in both frames, and `$28` on a 68020, which does not.
-   * A short frame is `$18` on either. */
-  wrote = wrote &&
-          write_frame_field(
-              cpu,
-              frame + (format == AP_M68030_FRAME_LONG_BUS_FAULT
-                           ? ap_m68030_long_frame_data_output(
-                                 cpu->frame_variant)
-                           : AP_M68030_BUS_FAULT_DATA_OUTPUT),
-              4u, data_output, &out.clocks);
+    uint8_t image[FAULT_FRAME_IMAGE_BYTES] = {0};
+    if (bytes > sizeof image) {
+      return out;
+    }
+    frame_image_put(image, AP_M68030_BUS_FAULT_SSW, 2u,
+                    ap_m68030_ssw_encode(&ssw));
+    /* The pipe images, so a handler can repair the instruction stream. These
+     * are the words the pipe actually holds, not a reconstruction. */
+    frame_image_put(image, AP_M68030_BUS_FAULT_STAGE_C, 2u,
+                    cpu->fetch.pipe.c.word);
+    frame_image_put(image, AP_M68030_BUS_FAULT_STAGE_B, 2u,
+                    cpu->fetch.pipe.b.word);
+    frame_image_put(image, AP_M68030_BUS_FAULT_ADDRESS, 4u, fault_address);
+    /* And its offset moves with the part in the long frame: `$18` on a 68030,
+     * which keeps it there in both frames, and `$28` on a 68020, which does not.
+     * A short frame is `$18` on either. */
+    frame_image_put(image,
+                    format == AP_M68030_FRAME_LONG_BUS_FAULT
+                        ? ap_m68030_long_frame_data_output(cpu->frame_variant)
+                        : AP_M68030_BUS_FAULT_DATA_OUTPUT,
+                    4u, data_output);
+    for (uint32_t offset = 8u; offset < bytes && wrote; offset += 4u) {
+      wrote = write_frame_field(cpu, frame + offset, 4u,
+                                frame_image_long(image, offset), &out.clocks);
+    }
   }
   if (!wrote) {
     /* A fault while stacking is a double fault, which halts the real part. As
@@ -3347,9 +3381,30 @@ static bool execute_rte(ap_m68030_cpu_t *cpu, uint32_t *clocks) {
     if (!read_stack(cpu, 2u, 4u, clocks, &saved_pc)) {
       return false;
     }
-    ap_m68030_write_a7(&cpu->regs,
-                       ap_m68030_read_a7(&cpu->regs) +
-                           ap_m68030_frame_words(format) * 2u);
+    /* A long fault frame's size is the part's: 46 words on a 68030 and 44 on a
+     * 68020, which is what stacked it. `ap_m68030_frame_words` knows only the
+     * 68030's, and popping 92 bytes of a 68020's 88 would return with the stack
+     * two words out. */
+    const uint32_t frame_bytes =
+        (format == AP_M68030_FRAME_LONG_BUS_FAULT
+             ? ap_m68030_long_frame_words(cpu->frame_variant)
+             : ap_m68030_frame_words(format)) *
+        2u;
+    if (format == AP_M68030_FRAME_SHORT_BUS_FAULT ||
+        format == AP_M68030_FRAME_LONG_BUS_FAULT) {
+      /* **The rest of a fault frame is read, in long words**, `[030]` §8.4's
+       * rule for reading as for writing -- 10 reads for the short frame and 25
+       * for the long, §11.6.18's own counts. The part restores its internal
+       * state from them; this model has none, so the values are read and not
+       * used, and what the reads keep is the bus the part would drive. */
+      for (uint32_t offset = 8u; offset < frame_bytes; offset += 4u) {
+        uint32_t discarded = 0;
+        if (!read_stack(cpu, offset, 4u, clocks, &discarded)) {
+          return false;
+        }
+      }
+    }
+    ap_m68030_write_a7(&cpu->regs, ap_m68030_read_a7(&cpu->regs) + frame_bytes);
     /* The status register goes back *whole*, system byte included -- that is
      * what returns a user program to user state. Writing only the CCR would
      * leave the handler's supervisor bit in place. */

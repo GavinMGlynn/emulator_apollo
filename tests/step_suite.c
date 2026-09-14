@@ -70,6 +70,14 @@ typedef struct {
    * runs at a very low address, so no address bound can refuse it without also
    * refusing the vector table. */
   bool berr_on_cpu_space;
+
+  /* Cycles answered inside `[watch_low, watch_high)`, so a test can count a
+   * stack frame's reads and writes apart from the prefetches and operands
+   * around them. Zero bounds watch nothing. */
+  uint32_t watch_low;
+  uint32_t watch_high;
+  unsigned watched_fills;
+  unsigned watched_stores;
 } memory_t;
 
 static bool memory_store(void *context, uint32_t physical, uint32_t value,
@@ -86,6 +94,9 @@ static bool memory_store(void *context, uint32_t physical, uint32_t value,
     memory->store_value[memory->stores] = value;
   }
   memory->stores++;
+  if (physical >= memory->watch_low && physical < memory->watch_high) {
+    memory->watched_stores++;
+  }
 
   /* Big endian: the operand's most significant byte goes to the lowest
    * address, which is what makes a split write and a split read agree. */
@@ -125,6 +136,9 @@ static void memory_fill(void *context, uint32_t line_address,
   }
   out->termination = AP_M68030_TERM_STERM;
   out->burst_acknowledge = false;
+  if (line_address >= memory->watch_low && line_address < memory->watch_high) {
+    memory->watched_fills++;
+  }
 
   uint32_t value = 0;
   for (unsigned i = 0; i < 4u; i++) {
@@ -184,6 +198,10 @@ static void load(machine_t *m, const uint16_t *words, unsigned count) {
   m->memory.berr_on_cpu_space = false;
   m->memory.cpu_space_address = 0u;
   m->memory.cpu_space_cycles = 0u;
+  m->memory.watch_low = 0u;
+  m->memory.watch_high = 0u;
+  m->memory.watched_fills = 0u;
+  m->memory.watched_stores = 0u;
   m->access = (ap_m68030_access_ctx_t){
       .cache = &m->cache,
       .atc = &m->atc,
@@ -1259,6 +1277,57 @@ static void test_no_mmu_extension_form_reports_unimplemented(void) {
                    (unsigned)first_extension);
     TEST_FAIL_MESSAGE(message);
   }
+}
+
+/* `[030]` §8.4: "When the MC68030 writes or reads a stack frame, it uses
+ * long-word operand transfers wherever possible." On a long-aligned stack that
+ * makes the long bus fault frame 25 cycles each way -- the status register, a
+ * program counter straddling a long-word boundary and so two, the format word,
+ * then 21 long words -- which is §11.6.18's `RTE (Long Fault)` count of 25
+ * reads. Until 2026-09-14 the frame went out as 46 zero words and then its
+ * fields over them, and `RTE` read three of its fields and none of the rest. */
+static void test_a_long_fault_frame_goes_out_and_back_in_long_words(void) {
+  static const uint16_t program[] = {0x0C2Du, 0x0008u, 0x0001u, 0x4E71u};
+  machine_t m = {0};
+  load(&m, program, 4);
+  plant_vector(&m, AP_M68030_VECTOR_BUS_ERROR, HANDLER);
+  m.memory.bytes[HANDLER] = 0x4Eu; /* RTE */
+  m.memory.bytes[HANDLER + 1u] = 0x73u;
+  m.cpu.regs.sr = (uint16_t)(1u << AP_M68030_SR_S_BIT);
+  m.cpu.regs.isp = SUPERVISOR_STACK; /* long-aligned */
+  m.cpu.regs.a[5] = 0x0000C000u;
+  m.memory.berr_from = 0x0000C000u;
+  m.memory.watch_low = SUPERVISOR_STACK - 92u;
+  m.memory.watch_high = SUPERVISOR_STACK;
+
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK - 92u, m.cpu.regs.isp);
+  TEST_ASSERT_EQUAL_UINT(25u, m.memory.watched_stores);
+
+  /* And back, reading the same frame the same way -- **with the data cache
+   * off**, as §11.6 assumes ("The data cache is not enabled"). With it on, the
+   * format word and the status register fill the two long-word lines the first
+   * four fields share, and the program counter's two halves come out of the
+   * cache: 23 reads, which is what the part would do too, and what the first
+   * run of this test counted. */
+  const ap_m68030_cpu_t stacked = m.cpu;
+  const memory_t stacked_memory = m.memory;
+  m.memory.berr_from = 0u;
+  m.memory.watched_fills = 0u;
+  m.data_access.cache_enabled = false;
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_UINT(25u, m.memory.watched_fills);
+  TEST_ASSERT_EQUAL_HEX32(SUPERVISOR_STACK, m.cpu.regs.isp);
+  TEST_ASSERT_EQUAL_HEX32(PROGRAM_BASE, m.cpu.regs.pc);
+
+  m.cpu = stacked;
+  m.memory = stacked_memory;
+  m.memory.berr_from = 0u;
+  m.memory.watched_fills = 0u;
+  m.data_access.cache_enabled = true;
+  ap_m68030_cache_clear(&m.data_cache);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_m68030_step(&m.cpu).status);
+  TEST_ASSERT_EQUAL_UINT(23u, m.memory.watched_fills);
 }
 
 /* The stacked fault address is the **faulted bus cycle's**, not the operand's.
@@ -10240,6 +10309,7 @@ int main(void) {
   RUN_TEST(test_fmovem_predecrement_steps_the_active_stack_pointer);
   RUN_TEST(test_no_mmu_extension_form_reports_unimplemented);
   RUN_TEST(test_the_stacked_fault_address_is_the_cycle_that_faulted);
+  RUN_TEST(test_a_long_fault_frame_goes_out_and_back_in_long_words);
   RUN_TEST(test_a_faulted_access_leaves_its_address_register_alone);
   RUN_TEST(test_an_access_that_answers_still_increments);
   RUN_TEST(test_a_faulted_predecrement_leaves_its_register_alone);

@@ -4474,6 +4474,11 @@ discipline throughout.
   **Stage 4b**: §11.6.4 composed, and the rows only a run can choose —
   `MOVEC Rn,Cr`, `MOVES`, the bit fields, `CAS`, `CAS2` — priced from what
   their executors record — 158 → 190.
+  **Stage 5a**: fault frames written and read in long words, `[030]` §8.4 —
+  the bus fault frames were 16 and 46 zero-word writes plus their fields, now
+  10 and 25; `RTE` reads a fault frame whole. **Next**: 5b §11.6.17's
+  microcode at the exception sites with `STOP`/`TRAPcc`/`TRAPV`; 5c §11.6.18's
+  `RTE` and fault rows; 5d `CHK`/`CHK2`.
   **Owed, all read as page images**: §11.6.6 brief/full-format destinations
   (needs the extension word), §11.6.17, §11.6.18, `MOVEM`, `CHK`/`CHK2` (their
   exception rows belong with §11.6.17), the long multiplies and divides, and

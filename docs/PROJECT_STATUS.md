@@ -726,6 +726,66 @@ where it read `61`, a pin sampled at the run's last instant, which is now
 12,163 clocks later.*
 
 
+## §11.6 stage 5a: exception frames go out and come back in long words (2026-09-14)
+
+Stage 5 is §11.6.17 and §11.6.18, which price exception processing and the
+return from it. Before any of their microcode can be charged, a frame's bus
+cycles have to be the part's: the step substitutes the bus it measured for the
+bus a row publishes, so a frame with the wrong cycles is priced wrong by exactly
+the difference.
+
+**The rule is `[030]` §8.4's**, read as the page image: "When the MC68030 writes
+or reads a stack frame, it uses long-word operand transfers wherever possible.
+Using a long-word-aligned stack pointer with memory that is on a 32-bit port
+greatly enhances exception processing performance. The processor does not
+necessarily read or write the stack frame data in sequential order." Applied
+field by field on a long-aligned stack, with the PC at SP + 2 straddling a
+long-word boundary as the operand path already models, it reproduces the
+published counts:
+
+- the four-word frame: status register, the PC as two cycles, format word. 4,
+  `TRAP #n`'s `(1/0/4)`.
+- the six-word frame: those, plus the instruction address as one long. 5,
+  `Trace`'s `(1/0/5)`.
+- the short bus fault frame: 4, plus six longs from `$08`. 10, `(1/0/10)`.
+- `RTE` from a coprocessor mid-instruction frame: 4, the address, and two longs
+  of internal registers. 7, `(7/0/0)`.
+- `RTE` from a long fault frame: 4 plus 21 longs. 25, `(25/0/0)`.
+
+**`Bus Cycle Fault (Long)`'s 24 writes is the 68020's figure.** `[020]` §9.2.18
+prints `(1/0/24)` for its 44-word long frame, which the same rule makes exactly
+24. The 68030's frame is 46 words, and its own `RTE (Long Fault)` row reads 25:
+a row carried across without the two extra words.
+
+**The four-word and six-word frames and a normal `RTE` already matched**, since
+the operand path splits a straddling long. **The bus fault frames did not.**
+`take_bus_fault_with` wrote every word of the frame as zero, 16 and 46 word
+cycles, and then the named fields over them. It now assembles the frame and
+writes it once: 10 cycles short, 25 long. **And `RTE` read three fields of a
+fault frame and nothing else.** It now reads the rest in long words, 10 and 25.
+The 68040's format `$7` keeps its own path, since §8.4 describes the 68030.
+
+**One defect on the way**: `RTE` popped a long fault frame by
+`ap_m68030_frame_words`, which is 46 words for every part, where a 68020 stacks
+44. It now pops by `ap_m68030_long_frame_words(variant)`, the helper the
+stacking side already used.
+
+**Next**: 5b charges §11.6.17's microcode at the exception sites and adds the
+`STOP`, `TRAPcc` and `TRAPV` rows; 5c prices `RTE` by frame format and the
+bus fault rows from §11.6.18; 5d is `CHK` and `CHK2`.
+
+*Verification: `step_suite`'s
+`test_a_long_fault_frame_goes_out_and_back_in_long_words` counts 25 writes
+stacking `CMPI.B #$08,(1,A5)`'s long frame and 25 reads returning from it with
+the data cache off, as §11.6 assumes. The first run had it on and read 23: the
+cache answered the second access to each of the two long-word lines the first
+four fields share, which the part would do too, and the test now pins both.
+`ctest` 152/152; no golden moved. Identity `551FAE4B2E6CE982` →
+**`2C9735824E7B7512`**, clocks 1,809,448,101 → **1,809,424,089** (−24,012),
+final PC `2EE8` → `2EE6`. Main memory writes 91,214,053 → 91,205,451, the zero
+pass the boot's bus faults no longer run. No console line moved.*
+
+
 ## The EXB-8200 belongs at SCSI ID 1: 8 mm drives are IDs 1-4 (2026-09-14)
 
 **With byte 15 fixed, the driver interrogated the drive and still refused
@@ -5249,6 +5309,11 @@ hash.
 **The reference is `551FAE4B2E6CE982` as of §11.6 stage 4b, 2026-09-14**, at
 **1,809,448,101 clocks**. No console line moved; see "§11.6 stage 4b".
 `5D28E1996727DE65` held for the commits between.
+
+**The reference is `2C9735824E7B7512` as of §11.6 stage 5a, 2026-09-14**, at
+**1,809,424,089 clocks**: fault frames written and read in long words. No
+console line moved; see "§11.6 stage 5a". `551FAE4B2E6CE982` held for the
+commits between.
 
 *Measured rather than argued.* The same day's `ap_boardreg` change — the DS5500
 cache status register's bit 4 — is gated on `model == AP_MODEL_DN5500`, so it
@@ -19478,7 +19543,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 state hash (the identity harness's CPU half) | working: every architectural register, the MMU and cache control registers, the pipe, both caches, the ATC, and the accumulated clock — host pointers excluded by construction, since `ap_hash.h` has no pointer helper | `state_suite`, 16 tests sweeping every field; `step_suite`'s same-program-twice check |
 | 68030 addressing mode categories (Data / Memory / Control / Alterable) | working; derived from §2.3's definitions rather than transcribed from Table 2-4, whose Alterable column is exchanged between two row pairs in the scan | `category_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §2.3 |
 | 68030 operand access (read/write through an effective address) | working; a sub-long-word operand is selected from the long word by position, and one straddling two long words is split into a bus cycle per long word in address order | `operand_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` |
-| 68030 instruction step (fetch → decode → execute → advance) | **complete**: the `RESET` instruction costs its **518 clocks** as of 2026-09-07 -- `[030]` §11.6.17's `518(0/0/0)` and `[PRM]`'s "Asserts the RSTO signal for 512 ... clock periods", two independent documents for a figure the arm was charging zero for. The boot PROM does not execute one in the identity window, which the byte-identical clock total proves rather than assumes: **a bit field accesses only the bytes it spans as of 2026-09-06** -- `[PRM]`'s note on every bit field page gives the shapes (byte, word, 3-byte, long word, and long word with byte for a five-byte span) and `[030]` §11.6.14 prices them at one operand read under five bytes and two at five. This core read **one byte per bit** -- thirty-two accesses for a 32-bit field, and a read-modify-write per bit on the write path, so a field written across a device register read and rewrote it eight times a byte. The values were always right, which is why every existing test passed. Measured at 2 and 3 bus reads after, against 33 and 33 before: every one of the 65,536 opcode words executes, and **no word in the space reports `UNIMPLEMENTED`** — a swept property, not a list. The sweep extends through the coprocessor extension space and the MMU extension word, where *which instruction a word is* lives in the extension rather than the opcode; both found real gaps (664 coprocessor forms, 94,316 MMU forms) that an opcode-only sweep could not see. This row used to enumerate the dozen families that worked and end "everything else reports unimplemented, including divide-by-zero", which was stale by the whole instruction set | `step_suite`, 327 tests -- the newest being the **MC68040's** `PFLUSH`, which now flushes the ATCs it has been counting |
+| 68030 instruction step (fetch → decode → execute → advance) | **complete**: the `RESET` instruction costs its **518 clocks** as of 2026-09-07 -- `[030]` §11.6.17's `518(0/0/0)` and `[PRM]`'s "Asserts the RSTO signal for 512 ... clock periods", two independent documents for a figure the arm was charging zero for. The boot PROM does not execute one in the identity window, which the byte-identical clock total proves rather than assumes: **a bit field accesses only the bytes it spans as of 2026-09-06** -- `[PRM]`'s note on every bit field page gives the shapes (byte, word, 3-byte, long word, and long word with byte for a five-byte span) and `[030]` §11.6.14 prices them at one operand read under five bytes and two at five. This core read **one byte per bit** -- thirty-two accesses for a 32-bit field, and a read-modify-write per bit on the write path, so a field written across a device register read and rewrote it eight times a byte. The values were always right, which is why every existing test passed. Measured at 2 and 3 bus reads after, against 33 and 33 before: every one of the 65,536 opcode words executes, and **no word in the space reports `UNIMPLEMENTED`** — a swept property, not a list. The sweep extends through the coprocessor extension space and the MMU extension word, where *which instruction a word is* lives in the extension rather than the opcode; both found real gaps (664 coprocessor forms, 94,316 MMU forms) that an opcode-only sweep could not see. This row used to enumerate the dozen families that worked and end "everything else reports unimplemented, including divide-by-zero", which was stale by the whole instruction set | `step_suite`, 328 tests -- the newest being the **MC68040's** `PFLUSH`, which now flushes the ATCs it has been counting |
 | 68030 instruction prefetch (pipe driven from memory) | working | `fetch_suite`, 5 tests, `MC68030 User's Manual 3ed` §11.2.2 and §6.1 |
 | 68030 logical memory access path (cache → MMU → bus) | working, reads and writes. **The read half of a read-modify-write is forced to miss the data cache** — `[030]` §6.1.2.2, "always forced to miss", and §11.4's note says it again from the timing end. This core passed a literal `false` for the RMC flag into the cache, so a `TAS` or `CAS` whose operand was already cached answered from the line: no external cycle, and a semaphore read that could not see another master's write. The same constant also hid the RMC from `CBREQ` suppression and *cleared* `bus->rmc` on the read cycle of the indivisible pair. Corrected 2026-09-06 | `access_suite`, 19 tests, `MC68030 User's Manual 3ed` §6.1 -- the newest telling a translation's refusal apart from the bus's, which is the 68040 frame's `ATC` bit |
 | 68030 effective address calculation (with register side effects) | working; memory-indirect modes report the pending indirection | `addr_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` §2.2 |
@@ -19493,7 +19558,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 family 0100 `$4E` control group (TRAP/LINK/UNLK/MOVE USP/RESET/NOP/STOP/RTE/RTD/RTS/TRAPV/RTR/JSR/JMP) | **complete**, and so is the rest of family 0100 — the row said "the rest of family 0100 not yet decoded", which the exhaustive sweep above has contradicted since it was written | `control_suite`, 11 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 |
 | 68030 family 0101 (ADDQ/SUBQ/Scc/DBcc/TRAPcc) decode | working | `quick_suite`, 10 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and each instruction page |
 | 68030 branch family (Bcc/BSR/BRA) decode | working | `branch_suite`, 8 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and the Bcc/BRA/BSR pages |
-| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 327 tests -- the newest being the **MC68040's** `PFLUSH`, which now flushes the ATCs it has been counting, and the per-subsystem suites |
+| MC68030 CPU | working: the whole opcode map decodes and all but `BKPT`, `CAS`, `CAS2`, `CMP2`, `CHK2` and the non-MMU coprocessor instructions execute. Pipe, caches, bus state machine, MMU, exceptions and bus arbitration each have their own rows below | `step_suite`, 328 tests -- the newest being the **MC68040's** `PFLUSH`, which now flushes the ATCs it has been counting, and the per-subsystem suites |
 | 68030 operation code map (top-level instruction family) | working | `opcode_suite`, 6 tests, `M68000 Family Programmer's Reference Manual 1992` Table 8-2 |
 | 68030 conditional tests (the 16 Bcc/Scc/DBcc/TRAPcc conditions) | working | `cond_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` Table 3-19 |
 | 68030 effective address decode (modes, extension words, lengths) | decode and extension-word counts working; address *calculation* needs the instruction unit | `ea_suite`, 17 tests, `M68000 Family Programmer's Reference Manual 1992` §2, Tables 2-1, 2-2, 2-4 |
