@@ -8,7 +8,7 @@ store-reload          4 STOPPED        00000042 00001012       20    0 EEF6E7358
 loop                 16 STOPPED        00000006 00001012       62    0 AFC916323692E9C1
 subroutine            4 STOPPED        00000007 00001008       22    0 866CFB0CDCE8DD9C
 trap                  4 STOPPED        00000009 00001008       30    0 D84579BF2DF34E0E
-wide-arithmetic       4 STOPPED        0003299B 00001012       16    0 58ED34369CADB2ED
+wide-arithmetic       4 STOPPED        0003299B 00001012       88    0 2868C49F135B5286
 movem                 7 STOPPED        00000001 00001014       22    0 0A1599925EE411E1
 pmove                 3 STOPPED        00000000 0000100E       16    0 5C901D479051DBFD
 fpu                   6 STOPPED        00000000 0000101A      171    0 CD38AE8D9470167F

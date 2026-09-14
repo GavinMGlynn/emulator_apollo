@@ -125,7 +125,9 @@ static void test_the_divides_are_marked_data_dependent(void) {
       marked++;
     }
   }
-  TEST_ASSERT_EQUAL_UINT(4u, marked); /* DIVS.W, DIVS.L, DIVU.W, DIVU.L */
+  /* DIVS.W, DIVS.L, DIVU.W, DIVU.L, and §11.6.8's four `EA,Dn` forms of the
+   * word multiplies and divides, which carry `*+`. */
+  TEST_ASSERT_EQUAL_UINT(8u, marked);
 }
 
 /* The lookup returns NULL for what is not transcribed, and that is the honest
@@ -133,11 +135,13 @@ static void test_the_divides_are_marked_data_dependent(void) {
  * needs an effective address time this module does not carry, so returning the
  * register row for it would under-count by a whole memory access. */
 static void test_what_is_not_transcribed_is_reported_as_absent(void) {
-  /* ADD.B (A0),D0 -- a memory source, whose row is footnoted "Add Fetch
-   * Effective Address Time". */
-  TEST_ASSERT_NULL(ap_m68030_timing_for_word(0xD010u));
-  /* MULU.W D0,D0 -- family 1100's wide form, not transcribed. */
-  TEST_ASSERT_NULL(ap_m68030_timing_for_word(0xC0C0u));
+  /* CLR.W (A0) -- §11.6.11's memory form, footnoted "Add Calculate Effective
+   * Address Time", which the step does not compose yet. `ADD.B (A0),D0` and
+   * `MULU.W D0,D0` stood here until §11.6.8's `EA` rows were transcribed. */
+  TEST_ASSERT_NULL(ap_m68030_timing_for_word(0x4250u));
+  /* MULU.L (A0),D0 -- the long multiplies share `$4C00` with each other and
+   * are told apart by the extension word. */
+  TEST_ASSERT_NULL(ap_m68030_timing_for_word(0x4C10u));
   /* SWAP, which lives in §11.6.13's miscellaneous table and has not been read
    * yet. NOP stood here until §11.6.16 was transcribed -- a placeholder for
    * "not covered" needs replacing whenever coverage grows, which is the right
@@ -520,6 +524,29 @@ static void test_the_immediate_bit_and_move_forms_find_their_rows(void) {
       {0x48C0u, "EXT Dn", "EXT.L D0"},
       {0x49C0u, "EXT Dn", "EXTB.L D0"},
       {0x4AC0u, "TAS Dn", "TAS D0"},
+      /* §11.6.8's memory sources and the wide forms. */
+      {0xD010u, "ADD EA,Dn", "ADD.B (A0),D0"},
+      {0xD0D0u, "ADD.W EA,An", "ADDA.W (A0),A0"},
+      {0xD1D0u, "ADDA.L EA,An", "ADDA.L (A0),A0"},
+      {0xB010u, "CMP EA,Dn", "CMP.B (A0),D0"},
+      {0xB1D0u, "CMPA EA,An", "CMPA.L (A0),A0"},
+      {0xC0C0u, "MULU.W EA,Dn", "MULU.W D0,D0 -- only an EA row exists"},
+      {0xC1D0u, "MULS.W EA,Dn", "MULS.W (A0),D0"},
+      {0x80D0u, "DIVU.W EA,Dn", "DIVU.W (A0),D0"},
+      {0x80C0u, "DIVU.W Dn,Dn", "DIVU.W D0,D0 -- the register row"},
+      {0xC150u, "AND Dn,EA", "AND.W D0,(A0) -- the other direction"},
+      /* §11.6.10: each of these used to come back as the arithmetic it
+       * shares bits with. */
+      {0xC100u, "ABCD Dn,Dn", "ABCD D0,D0, not AND"},
+      {0xC309u, "ABCD -(An),-(An)", "ABCD -(A1),-(A1)"},
+      {0x8100u, "SBCD Dn,Dn", "SBCD D0,D0, not OR"},
+      {0x8148u, "PACK -(An),-(An),#<data>", "PACK -(A0),-(A0),#"},
+      {0x8180u, "UNPK Dn,Dn,#<data>", "UNPK D0,D0,#"},
+      {0xD180u, "ADDX Dn,Dn", "ADDX.L D0,D0, not ADD"},
+      {0x9149u, "SUBX -(An),-(An)", "SUBX.W -(A1),-(A0)"},
+      {0xB148u, "CMPM (An)+,(An)+", "CMPM.W (A0)+,(A0)+, not EOR"},
+      {0xB140u, "EOR Dn,Dn", "EOR.W D0,D0 still EOR"},
+      {0xD1C0u, "ADDA.L Rn,An", "ADDA.L D0,A0, a size of 11 is not ADDX"},
   };
   for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
     const ap_m68030_table_entry_t *row =
@@ -613,6 +640,13 @@ static void test_the_rows_that_are_not_single_word_are_classified_as_such(void) 
       {"MOVE EA,(d16,An)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
       {"MOVE EA,xxx.W", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
       {"MOVE EA,xxx.L", AP_M68030_PREFETCH_ODD_WORDS, "three words"},
+      /* §11.6.10's adjustment-word pair. */
+      {"PACK Dn,Dn,#<data>", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"PACK -(An),-(An),#<data>", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "two words"},
+      {"UNPK Dn,Dn,#<data>", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"UNPK -(An),-(An),#<data>", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "two words"},
   };
 
   unsigned count = 0;

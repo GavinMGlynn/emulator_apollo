@@ -130,6 +130,35 @@ enum {
   ROW_MOVE_EA_D16_AN,
   ROW_MOVE_EA_ABS_W,
   ROW_MOVE_EA_ABS_L,
+  /* §11.6.8's memory-source `*` rows. */
+  ROW_ADD_EA_DN,
+  ROW_ADDA_W_EA,
+  ROW_ADDA_L_EA,
+  ROW_AND_EA_DN,
+  ROW_OR_EA_DN,
+  ROW_SUB_EA_DN,
+  ROW_SUBA_W_EA,
+  ROW_SUBA_L_EA,
+  ROW_CMP_EA_DN,
+  ROW_CMPA_EA_AN,
+  ROW_MULS_W_EA,
+  ROW_MULU_W_EA,
+  ROW_DIVS_W_EA,
+  ROW_DIVU_W_EA,
+  /* §11.6.10, whole. */
+  ROW_ABCD_DN,
+  ROW_ABCD_PREDEC,
+  ROW_SBCD_DN,
+  ROW_SBCD_PREDEC,
+  ROW_ADDX_DN,
+  ROW_ADDX_PREDEC,
+  ROW_SUBX_DN,
+  ROW_SUBX_PREDEC,
+  ROW_CMPM,
+  ROW_PACK_DN,
+  ROW_PACK_PREDEC,
+  ROW_UNPK_DN,
+  ROW_UNPK_PREDEC,
   ROW_COUNT,
 };
 
@@ -150,9 +179,12 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     /* The divides, marked `+` in the table: "Indicates Maximum Time (Actual
      * time is data dependent)". PROVISIONAL. */
     [ROW_DIVS_W] = {"DIVS.W Dn,Dn", {.head = 2, .tail = 0, .cache_case = 56, .no_cache_case = 56, .prefetches = 1}, true, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
-    [ROW_DIVS_L] = {"DIVS.L Dn,Dn", {.head = 6, .tail = 0, .cache_case = 90, .no_cache_case = 90, .prefetches = 1}, true, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    /* The long divides are `**` on the page, not unmarked as they were first
+     * written here: the extension word is fetched through §11.6.2. Unreachable
+     * by a one-word lookup either way, so this is fidelity, not a price. */
+    [ROW_DIVS_L] = {"DIVS.L Dn,Dn", {.head = 6, .tail = 0, .cache_case = 90, .no_cache_case = 90, .prefetches = 1}, true, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_SINGLE_WORD},
     [ROW_DIVU_W] = {"DIVU.W Dn,Dn", {.head = 2, .tail = 0, .cache_case = 44, .no_cache_case = 44, .prefetches = 1}, true, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
-    [ROW_DIVU_L] = {"DIVU.L Dn,Dn", {.head = 6, .tail = 0, .cache_case = 78, .no_cache_case = 78, .prefetches = 1}, true, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_DIVU_L] = {"DIVU.L Dn,Dn", {.head = 6, .tail = 0, .cache_case = 78, .no_cache_case = 78, .prefetches = 1}, true, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_SINGLE_WORD},
 
     /* The memory-destination forms. These are the first rows whose `NCC`
      * exceeds their `CC`: `3(0/0/1)` against `4(0/1/1)`, so the write hides
@@ -361,6 +393,59 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     [ROW_MOVE_EA_D16_AN] = {"MOVE EA,(d16,An)", {.head = 2, .tail = 0, .cache_case = 4, .no_cache_case = 5, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_MOVE_EA_ABS_W] = {"MOVE EA,xxx.W", {.head = 2, .tail = 0, .cache_case = 4, .no_cache_case = 5, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_MOVE_EA_ABS_L] = {"MOVE EA,xxx.L", {.head = 0, .tail = 0, .cache_case = 6, .no_cache_case = 7, .writes = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ODD_WORDS},
+
+    /* §11.6.8's `*` rows for a memory source, pp. 11-40 and 11-41 as page
+     * images. Each is its register row with the head taken away -- `ADD Rn,Dn`
+     * is head 2 and `ADD EA,Dn` head 0 -- because the effective address
+     * calculation now sits in front of the operation and is what overlaps the
+     * previous instruction's tail. The totals do not change: the word-size
+     * address forms are still 4 and the long ones 2.
+     *
+     * The multiplies appear **only** as `EA,Dn`, never as `Dn,Dn`, so a
+     * register multiply is this row composed with §11.6.1's register row. The
+     * word multiplies and divides carry `+`, so they are `PROVISIONAL` with the
+     * divides already here. The long forms are `**` and selected by their
+     * extension word, which a one-word lookup cannot see. */
+    [ROW_ADD_EA_DN] = {"ADD EA,Dn", {.head = 0, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_ADDA_W_EA] = {"ADD.W EA,An", {.head = 0, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_ADDA_L_EA] = {"ADDA.L EA,An", {.head = 0, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_AND_EA_DN] = {"AND EA,Dn", {.head = 0, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_OR_EA_DN] = {"OR EA,Dn", {.head = 0, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_SUB_EA_DN] = {"SUB EA,Dn", {.head = 0, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_SUBA_W_EA] = {"SUBA.W EA,An", {.head = 0, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_SUBA_L_EA] = {"SUBA.L EA,An", {.head = 0, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_CMP_EA_DN] = {"CMP EA,Dn", {.head = 0, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_CMPA_EA_AN] = {"CMPA EA,An", {.head = 0, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_MULS_W_EA] = {"MULS.W EA,Dn", {.head = 2, .tail = 0, .cache_case = 28, .no_cache_case = 28, .prefetches = 1}, true, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_MULU_W_EA] = {"MULU.W EA,Dn", {.head = 2, .tail = 0, .cache_case = 28, .no_cache_case = 28, .prefetches = 1}, true, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_DIVS_W_EA] = {"DIVS.W EA,Dn", {.head = 0, .tail = 0, .cache_case = 56, .no_cache_case = 56, .prefetches = 1}, true, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_DIVU_W_EA] = {"DIVU.W EA,Dn", {.head = 0, .tail = 0, .cache_case = 44, .no_cache_case = 44, .prefetches = 1}, true, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+
+    /* §11.6.10, Binary-Coded Decimal and Extended Instructions, whole (p. 11-43
+     * as page image). "No additional tables are needed", so every row is a
+     * whole cost.
+     *
+     * These seven share their families' bits with the register arithmetic --
+     * `ABCD` is `AND`'s family with the direction bit set and a register
+     * operand -- and until they had rows **the lookup priced them as that
+     * arithmetic**: `ABCD -(A0),-(A1)` came back as `AND Dn,Dn`, 2 clocks for
+     * an instruction the table gives 13, with two reads and a write. The
+     * predecrement forms are the expensive ones, and the BCD pair costs four
+     * clocks more than `ADDX`/`SUBX` for the decimal adjust. `PACK` and `UNPK`
+     * carry an adjustment word, so they are two words. */
+    [ROW_ABCD_DN] = {"ABCD Dn,Dn", {.head = 0, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_ABCD_PREDEC] = {"ABCD -(An),-(An)", {.head = 2, .tail = 1, .cache_case = 13, .no_cache_case = 14, .reads = 2, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_SBCD_DN] = {"SBCD Dn,Dn", {.head = 0, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_SBCD_PREDEC] = {"SBCD -(An),-(An)", {.head = 2, .tail = 1, .cache_case = 13, .no_cache_case = 14, .reads = 2, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_ADDX_DN] = {"ADDX Dn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_ADDX_PREDEC] = {"ADDX -(An),-(An)", {.head = 2, .tail = 1, .cache_case = 9, .no_cache_case = 10, .reads = 2, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_SUBX_DN] = {"SUBX Dn,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_SUBX_PREDEC] = {"SUBX -(An),-(An)", {.head = 2, .tail = 1, .cache_case = 9, .no_cache_case = 10, .reads = 2, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_CMPM] = {"CMPM (An)+,(An)+", {.head = 0, .tail = 0, .cache_case = 8, .no_cache_case = 8, .reads = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_PACK_DN] = {"PACK Dn,Dn,#<data>", {.head = 6, .tail = 0, .cache_case = 6, .no_cache_case = 6, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_PACK_PREDEC] = {"PACK -(An),-(An),#<data>", {.head = 2, .tail = 1, .cache_case = 11, .no_cache_case = 11, .reads = 1, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_UNPK_DN] = {"UNPK Dn,Dn,#<data>", {.head = 8, .tail = 0, .cache_case = 8, .no_cache_case = 8, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_UNPK_PREDEC] = {"UNPK -(An),-(An),#<data>", {.head = 2, .tail = 1, .cache_case = 11, .no_cache_case = 11, .reads = 1, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
 };
 
 #define TABLE_COUNT (sizeof TABLE / sizeof TABLE[0])
@@ -660,6 +745,36 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
     return &TABLE[ROW_MOVEQ];
   }
 
+  /* §11.6.10's instructions, decoded before the arithmetic they share bits
+   * with. Bit 3 is the operand form: 0 a data register pair, 1 predecrement.
+   * A size of `11` in `ADDX`/`SUBX`/`CMPM`'s field is the address form of the
+   * arithmetic instead. */
+  {
+    const bool predecrement = ((instruction >> 3) & 1u) != 0u;
+    const bool sized = ((instruction >> 6) & 0x3u) != 0x3u;
+    if ((instruction & 0xF1F0u) == 0xC100u) {
+      return &TABLE[predecrement ? ROW_ABCD_PREDEC : ROW_ABCD_DN];
+    }
+    if ((instruction & 0xF1F0u) == 0x8100u) {
+      return &TABLE[predecrement ? ROW_SBCD_PREDEC : ROW_SBCD_DN];
+    }
+    if ((instruction & 0xF1F0u) == 0x8140u) {
+      return &TABLE[predecrement ? ROW_PACK_PREDEC : ROW_PACK_DN];
+    }
+    if ((instruction & 0xF1F0u) == 0x8180u) {
+      return &TABLE[predecrement ? ROW_UNPK_PREDEC : ROW_UNPK_DN];
+    }
+    if ((instruction & 0xF130u) == 0xD100u && sized) {
+      return &TABLE[predecrement ? ROW_ADDX_PREDEC : ROW_ADDX_DN];
+    }
+    if ((instruction & 0xF130u) == 0x9100u && sized) {
+      return &TABLE[predecrement ? ROW_SUBX_PREDEC : ROW_SUBX_DN];
+    }
+    if ((instruction & 0xF138u) == 0xB108u && sized) {
+      return &TABLE[ROW_CMPM];
+    }
+  }
+
   /* The memory-destination direction: opmodes 100-110 write the result to the
    * effective address. Those rows are transcribed for a memory destination
    * only -- a register destination in that direction is a different
@@ -684,7 +799,30 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
   }
 
   if (!register_source) {
-    return nullptr;
+    /* §11.6.8's memory-source rows: the register direction with an operand
+     * read from memory. Opmode 011/111 is the wide form, whose meaning is the
+     * family's -- `ADDA`/`SUBA`/`CMPA`, or the word `MULU`/`MULS` and
+     * `DIVU`/`DIVS`. */
+    const bool wide = (opmode == 0x3u) || (opmode == 0x7u);
+    const bool wide_long = (opmode == 0x7u);
+    switch (family) {
+    case 0xDu:
+      return &TABLE[wide ? (wide_long ? ROW_ADDA_L_EA : ROW_ADDA_W_EA)
+                         : ROW_ADD_EA_DN];
+    case 0x9u:
+      return &TABLE[wide ? (wide_long ? ROW_SUBA_L_EA : ROW_SUBA_W_EA)
+                         : ROW_SUB_EA_DN];
+    case 0xBu:
+      return &TABLE[wide ? ROW_CMPA_EA_AN : ROW_CMP_EA_DN];
+    case 0xCu:
+      return &TABLE[wide ? (wide_long ? ROW_MULS_W_EA : ROW_MULU_W_EA)
+                         : ROW_AND_EA_DN];
+    case 0x8u:
+      return &TABLE[wide ? (wide_long ? ROW_DIVS_W_EA : ROW_DIVU_W_EA)
+                         : ROW_OR_EA_DN];
+    default:
+      return nullptr;
+    }
   }
 
   /* ADDQ and SUBQ share family 0101 with Scc and DBcc, which are told apart by
@@ -723,9 +861,11 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
     }
     return &TABLE[ROW_CMP_RN_DN];
 
-  case 0xCu: /* AND, and the wide forms MULU/MULS which are not transcribed */
+  case 0xCu: /* AND, and the wide forms MULU/MULS */
     if (address_form) {
-      return nullptr;
+      /* §11.6.8 gives the word multiplies only as `EA,Dn`, so a register
+       * operand is that row composed with §11.6.1's register row. */
+      return long_size ? &TABLE[ROW_MULS_W_EA] : &TABLE[ROW_MULU_W_EA];
     }
     return &TABLE[ROW_AND_DN_DN];
 

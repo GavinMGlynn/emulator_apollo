@@ -434,6 +434,48 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## §11.6 stage 2: the memory-source arithmetic, and seven instructions priced as others (2026-09-14)
+
+This stage added §11.6.8's memory-source rows and all of §11.6.10, read from
+pp. 11-40, 11-41 and 11-43 as page images. The table goes from 97 to 124 rows.
+
+**The defect this stage closes is in the lookup.** `ABCD`, `SBCD`, `ADDX`,
+`SUBX`, `CMPM`, `PACK` and `UNPK` share bits with the register arithmetic. For
+example, `ABCD` is `AND`'s family with the direction bit set and a register
+operand. The lookup never told them apart, so it answered with that
+arithmetic's row. `ABCD -(A0),-(A1)` was priced as `AND Dn,Dn`: 2 clocks, for
+an instruction the table gives 13, with two reads and a write. The seven are now
+decoded ahead of the arithmetic. `timing_table_suite`'s decode test holds each
+one to its own row, and holds `EOR` and `ADDA.L` to theirs.
+
+**The memory-source rows** are their register rows with the head removed,
+because the effective address calculation now sits in front of the operation.
+The word multiplies appear only as `EA,Dn`, so a register multiply is priced as
+that row composed with §11.6.1's register row. `MULU.W`, `MULS.W`, `DIVU.W` and
+`DIVS.W` `EA,Dn` carry `+` and join the `PROVISIONAL` divides, which makes 8
+data-dependent rows. The long forms stay unreachable, because only the extension
+word selects them. Their register rows were written with no footnote; the page
+marks them `**`, and they now carry it.
+
+**The step now takes an immediate source's size from the instruction's own
+field** (`fetch_operand_size`). MOVE's size is in its family. The arithmetic's is
+in bits 7-6, except the wide forms: `ADDA`/`SUBA`/`CMPA` by opmode, and the
+word multiplies and divides are always word. A long default would have priced
+`ADD.W #<data>,D0` off §11.6.1's long immediate row.
+
+**What moved.**
+- **Probe goldens:** one line. `wide-arithmetic` goes 16 → 88 clocks, exactly
+  `MULU.W`'s 28 plus `DIVU.W`'s 44.
+- **Identity reference:** `2B2263E7CE58912C` → **`8EB9AB7563073F29`**, clocks
+  1,648,267,315 → **1,797,986,197** (+9.1%). The console from "Self tests in
+  progress" to the instruction limit is **byte-identical** to stage 1's, and
+  the final PC is the same, so the machine took the same path and only the
+  price of it changed.
+
+*Verification: `ctest` 152/152; `timing_table_suite` holds the 8 data-dependent
+rows, 20 new decode cases and every row reachable.*
+
+
 ## The kernel resets the ASC and gives up 395 µs before READY (2026-09-14)
 
 **The cause was the 68030's timing table, not the SCSI card, and fixing it
@@ -4668,6 +4710,11 @@ which the boot runs constantly. The run's console is identical to the old one
 up to the old cutoff, and then goes further in the same instruction count. See
 "The kernel resets the ASC and gives up 395 µs before READY". `421FD9A6F120455E`
 held for one commit.
+
+**The reference is `8EB9AB7563073F29` as of §11.6 stage 2, 2026-09-14**, at
+**1,797,986,197 clocks**. The console is byte-identical to stage 1's and the
+final PC is the same, so only the price of the path moved — see "§11.6 stage 2".
+`2B2263E7CE58912C` held for one commit.
 
 *Measured rather than argued.* The same day's `ap_boardreg` change — the DS5500
 cache status register's bit 4 — is gated on `model == AP_MODEL_DN5500`, so it
@@ -18889,7 +18936,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Per-instruction timing report (`--time-instructions`) | bus and cache time only, pinned as a golden; the 0/2 alternation is the cache holding register serving two instruction words per fetch | `tests/goldens/timing.txt`; oracle side by `tools/mame-oracle/steptime.lua` |
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
 | Constructed machine (`machine/`) | **An indivisible read-modify-write holds the bus as of 2026-09-06** -- `[030]` §7.7.1 has the arbitration state machine "ignore bus requests" during one, §11.9 and Appendix A restate it. Two failures compounded: `ap_m68030_arb_set_rmc` modelled the lock in full, three states because §7.7.4 distinguishes the first read cycle, and was called by `arb_suite` and by **nothing in `src/`** -- so a DMA channel asking during a semaphore operation was granted the bus; and `TAS`, the one instruction the architecture provides for semaphores, never asserted `RMC` at all, only `CAS` and `CAS2` did. Both fixed. The lock is held for the whole instruction where the hardware allows arbitration during the first read cycle -- narrowing it needs the per-cycle processor and is a named plan item. A 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and **stalls while another master holds the bus** — demonstrated rather than asserted: a cascaded AT master taken to ownership makes `ap_board_processor_may_run` false and costs the processor `AP_MACHINE_STALL_LIMIT` clocks for one instruction — and advances the devices that keep time | `machine_suite`, 70 tests -- two of them driving `ap_machine_tick`, which no test drove at all before 2026-09-08, one boardless and one on a real board; and one composing the SCSI wait loop's two memory forms from their tables on a running machine |
-| 68030 published timings (§11.6) | **Not complete: 97 rows**, and §11.6 has more. §11.6.9 and §11.6.13 whole; §11.6.6's single-effective-address rows (the brief- and full-format destinations are not, since mode 6's format lives in the extension word); the register forms of §11.6.8, §11.6.11 and §11.6.12; §11.6.15; part of §11.6.16. **Owed**: §11.6.7, §11.6.10, §11.6.14, §11.6.17, §11.6.18, the memory forms of §11.6.8/§11.6.11/§11.6.12, the rest of §11.6.16 — all read as page images 2026-09-14 — and the calculate-address footnotes `**`/`##`/`%`, which the step does not compose yet. Scheduled as exposed microcode + measured operand bus + prefetch exposure (plain `max(microcode, bus)` was the retired first model — see above and `M68030_TIMING.md`), with `*` rows composed through §11.6.1 and `**`/`#` rows through §11.6.2. Branches are reached through their run-time outcome. Seven instructions agree with the oracle (`FINDINGS.md` C8). **Every row is reachable**, which six were not until 2026-09-14 (`ADDI #,Dn`, the SR/CCR forms, `EXT`, `TAS`, `Scc`, after `NBCD`); `DIVS.L`/`DIVU.L` are the named exceptions, selected by their extension word. The four divides carry the manual's data-dependent marker and are `PROVISIONAL` | `timing_table_suite`, 19 tests, one walking all 65,536 words for reachability; both published columns checked on a running machine by `machine_suite` |
+| 68030 published timings (§11.6) | **Not complete: 124 rows**, and §11.6 has more. Whole: §11.6.9, §11.6.10, §11.6.13, §11.6.15. §11.6.8 is complete except the long multiplies and divides, which are selected by the extension word. §11.6.6's single-effective-address rows are in; the brief- and full-format destinations are not, since mode 6's format lives in the extension word. Also in: the register forms of §11.6.11 and §11.6.12, and part of §11.6.16. **Owed**: §11.6.7, §11.6.14, §11.6.17, §11.6.18, the memory forms of §11.6.11 and §11.6.12, and the rest of §11.6.16. All have been read as page images, 2026-09-14. The step also does not yet compose the calculate-address footnotes `**`/`##`/`%`. §11.6.10's seven instructions used to come back as the register arithmetic they share bits with: `ABCD -(An),-(An)` was priced as `AND Dn,Dn`. Scheduled as exposed microcode + measured operand bus + prefetch exposure (plain `max(microcode, bus)` was the retired first model — see above and `M68030_TIMING.md`), with `*` rows composed through §11.6.1 and `**`/`#` rows through §11.6.2. Branches are reached through their run-time outcome. Seven instructions agree with the oracle (`FINDINGS.md` C8). **Every row is reachable**, which six were not until 2026-09-14 (`ADDI #,Dn`, the SR/CCR forms, `EXT`, `TAS`, `Scc`, after `NBCD`); `DIVS.L`/`DIVU.L` are the named exceptions, selected by their extension word. The four divides carry the manual's data-dependent marker and are `PROVISIONAL` | `timing_table_suite`, 19 tests, one walking all 65,536 words for reachability; both published columns checked on a running machine by `machine_suite` |
 | 68030 ATC replacement | the history bit now means *recently used*, per `MC68851 PMMU User's Manual` §5.2.1.3 — a translating hit marks it, a `PTEST` probe does not. `PROVISIONAL` narrowed to victim choice among clear-history entries | `atc_suite`, 24 tests |
 | 68030 prefetch marginal cost | `NCC − CC` over the published prefetch count, computed in code across every row; the two rows where it is not integral are named in the test rather than rounded away | `timing_table_suite`, 19 tests |
 | 68030 effective address timings (§11.6.1, §11.6.3) | fetch and calculate rows for the non-full-format modes, with the table's `-` and "2+op head" notations carried rather than flattened. Not yet composed into the step | `ea_timing_suite`, 26 tests |

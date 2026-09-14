@@ -94,6 +94,43 @@ step_operand_write(ap_m68030_cpu_t *cpu, ap_m68030_regs_t *regs,
   return result;
 }
 
+/* The operand size §11.6.1's immediate rows are split by, for a `*` row whose
+ * source is `#<data>`. Read only for an immediate: every other mode ignores it.
+ *
+ * `MOVE` carries its size in the family -- 0001 byte, 0011 word, 0010 long. The
+ * register-direction arithmetic carries it in bits 7-6, except the wide forms:
+ * `ADDA`/`SUBA`/`CMPA` are word or long by opmode 011/111, and the word
+ * multiplies and divides take a word whichever opmode. `BTST Dn,#<data>` tests a
+ * byte. A byte immediate occupies a word of instruction stream, which is why the
+ * table has no byte row and 1 reads as the word row. */
+static unsigned fetch_operand_size(uint16_t instruction) {
+  const unsigned family = (instruction >> 12) & 0xFu;
+  const unsigned opmode = (instruction >> 6) & 0x7u;
+  switch (family) {
+  case 0x1u:
+    return 1u;
+  case 0x2u:
+    return 4u;
+  case 0x3u:
+    return 2u;
+  case 0x8u:
+  case 0x9u:
+  case 0xBu:
+  case 0xCu:
+  case 0xDu:
+    if (opmode == 0x3u || opmode == 0x7u) {
+      const bool address_register = family == 0x9u || family == 0xBu ||
+                                    family == 0xDu;
+      return (address_register && opmode == 0x7u) ? 4u : 2u;
+    }
+    return ((instruction >> 6) & 0x3u) == 0x0u   ? 1u
+           : ((instruction >> 6) & 0x3u) == 0x1u ? 2u
+                                                 : 4u;
+  default:
+    return 1u;
+  }
+}
+
 void ap_m68030_cacr_publish(ap_m68030_cpu_t *cpu) {
   if (cpu->fetch.access != nullptr) {
     cpu->fetch.access->cache_enabled = cpu->cacr.enable_instruction;
@@ -7901,17 +7938,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
        * back -- so the figure passed here is never the one used, and a long is
        * the safe reading if that ever changes: it is the larger of the two. */
       ea_timing = ap_m68030_ea_fetch_timing(
-          ea.kind,
-          /* Read only for an immediate source, which §11.6.6's `*` rows now
-           * admit -- `MOVE #<data>,(An)` -- so the size is `MOVE`'s own: family
-           * 0001 byte, 0011 word, 0010 long. A byte immediate occupies a word
-           * of instruction stream and takes the word row. Every other `*` row
-           * writes its address back and cannot name an immediate, except
-           * `BTST Dn,#<data>`, whose data is a byte. */
-          ((out.instruction >> 12) & 0xFu) == 0x2u   ? 4u
-          : ((out.instruction >> 12) & 0xFu) == 0x3u ? 2u
-          : ((out.instruction >> 12) & 0xFu) <= 0x1u ? 1u
-                                                     : 4u);
+          ea.kind, fetch_operand_size(out.instruction));
       break;
     case AP_M68030_EA_TIME_FETCH_IMMEDIATE:
       /* §11.6.2, whose entry covers the immediate *and* the destination
