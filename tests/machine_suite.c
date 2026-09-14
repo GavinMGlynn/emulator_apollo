@@ -941,6 +941,49 @@ static void sample_memory_form(uint16_t word, bool warm, uint64_t *out,
   }
 }
 
+/* **The two memory forms in Domain/OS's SCSI wait loop, on a running
+ * machine.** `MOVEA.L (A0),A1` is §11.6.6's `MOVE EA,An` and `BTST D0,(A0)`
+ * §11.6.13's `BTST Dn,Mem`, both `*`, so each is its own row composed with
+ * §11.6.1's `(An)` through Equation (11-2) warm, and the two no-cache figures
+ * added cold -- the same two checks C9's row is held to below. The expected
+ * figures come from the table API, so what this asserts is that the step
+ * composes what the tables say, not a number typed here. */
+static void test_the_scsi_wait_loops_memory_forms_compose_from_their_tables(
+    void) {
+  static const struct {
+    uint16_t word;
+    const char *what;
+  } CASES[] = {{0x2250u, "MOVEA.L (A0),A1"}, {0x0110u, "BTST D0,(A0)"}};
+
+  for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
+    const ap_m68030_table_entry_t *row =
+        ap_m68030_timing_for_word(CASES[c].word);
+    TEST_ASSERT_NOT_NULL_MESSAGE(row, CASES[c].what);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_EA_TIME_FETCH,
+                                  row->effective_address_time, CASES[c].what);
+    const ap_m68030_ea_timing_t *fea =
+        ap_m68030_ea_fetch_timing(AP_M68030_EA_ADDRESS_INDIRECT, 4u);
+    TEST_ASSERT_NOT_NULL(fea);
+
+    ap_m68030_overlap_state_t composed = ap_m68030_overlap_begin();
+    ap_m68030_ea_timing_compose(&composed, fea, &row->timing);
+    const uint64_t cache_case = ap_m68030_overlap_total(&composed);
+
+    uint64_t warm[4];
+    sample_memory_form(CASES[c].word, true, warm, 4u);
+    for (unsigned i = 0; i < 4u; i++) {
+      TEST_ASSERT_EQUAL_UINT64_MESSAGE(cache_case, warm[i], CASES[c].what);
+    }
+
+    uint64_t cold[4];
+    sample_memory_form(CASES[c].word, false, cold, 4u);
+    const uint64_t total = cold[0] + cold[1] + cold[2] + cold[3];
+    TEST_ASSERT_EQUAL_UINT64_MESSAGE(
+        fea->timing.no_cache_case + row->timing.no_cache_case,
+        (total + 3u) / 4u, CASES[c].what);
+  }
+}
+
 /* **C9's row, closed.** §11.6.8 footnotes `ADD Dn,EA` with "Add Fetch Effective
  * Address Time", so its published 3 is a *component*; §11.6.1 gives `(An)`
  * another 3, and Equation (11-2) composes them to 6 in the cache case. The
@@ -2916,6 +2959,7 @@ int main(void) {
   RUN_TEST(test_the_executed_count_can_hold_more_than_a_32_bit_run);
   RUN_TEST(test_every_transcribed_row_matches_both_published_columns);
   RUN_TEST(test_the_footnoted_memory_forms_compose_to_the_manuals_total);
+  RUN_TEST(test_the_scsi_wait_loops_memory_forms_compose_from_their_tables);
   RUN_TEST(test_the_unfootnoted_memory_moves_match_both_columns);
   RUN_TEST(test_the_predecrement_move_costs_more_than_the_postincrement);
   RUN_TEST(test_the_left_arithmetic_shift_costs_more_than_the_right);

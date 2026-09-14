@@ -285,6 +285,7 @@ static void test_every_inexact_prefetch_cost_is_named(void) {
    * (rounded up)", so a true count of one-and-a-half is published as two and
    * the division inherits the rounding -- which is what these look like. */
   static const char *const KNOWN_INEXACT[] = {
+      "MOVE EA,xxx.L", /* (7-6)/2 = 0.5, LINK.L's shape: three words */
       "BSR",     /* (9−6)/2 = 1.5 */
       "LINK.L",  /* (7−6)/2 = 0.5 */
   };
@@ -421,6 +422,132 @@ static void test_a_single_word_prefetch_either_hides_completely_or_not_at_all(
   TEST_ASSERT_TRUE(hidden > 0u);
 }
 
+static bool form_is(const ap_m68030_table_entry_t *row, const char *form) {
+  if (row == nullptr) {
+    return false;
+  }
+  unsigned j = 0;
+  while (row->form[j] != '\0' && form[j] != '\0' && row->form[j] == form[j]) {
+    j++;
+  }
+  return row->form[j] == '\0' && form[j] == '\0';
+}
+
+/* **Every row is returned by some instruction.** Six rows were not -- `NBCD`
+ * first, then `ADDI #<data>,Dn`, the status-register forms, `EXT`, `TAS` and
+ * `Scc` -- each transcribed, tested for its figures, and charged to nothing,
+ * because a test of a row's numbers cannot see that no lookup reaches it. This
+ * walks the whole opcode map through the three lookups and requires every row
+ * to be reached.
+ *
+ * Two are named exceptions and not gaps: `DIVS.L` and `DIVU.L` share their
+ * instruction word with each other and with `MULS.L`/`MULU.L`, and only bit 11
+ * of the extension word tells them apart. A lookup given one word cannot. */
+static void test_every_row_is_returned_by_some_instruction(void) {
+  unsigned count = 0;
+  const ap_m68030_table_entry_t *table = ap_m68030_timing_table(&count);
+  TEST_ASSERT_TRUE(count <= 256u);
+  bool reached[256] = {false};
+
+  for (uint32_t word = 0; word <= 0xFFFFu; word++) {
+    const ap_m68030_table_entry_t *row =
+        ap_m68030_timing_for_word((uint16_t)word);
+    if (row != nullptr) {
+      reached[row - table] = true;
+    }
+    for (unsigned taken = 0; taken < 2u; taken++) {
+      row = ap_m68030_timing_for_branch((uint16_t)word, taken != 0u);
+      if (row != nullptr) {
+        reached[row - table] = true;
+      }
+    }
+  }
+  for (unsigned c = 0; c < 4u; c++) {
+    const ap_m68030_table_entry_t *row =
+        ap_m68030_timing_for_dbcc((c & 1u) != 0u, (c & 2u) != 0u);
+    if (row != nullptr) {
+      reached[row - table] = true;
+    }
+  }
+
+  for (unsigned i = 0; i < count; i++) {
+    if (form_is(&table[i], "DIVS.L Dn,Dn") ||
+        form_is(&table[i], "DIVU.L Dn,Dn")) {
+      TEST_ASSERT_FALSE_MESSAGE(reached[i], table[i].form);
+      continue;
+    }
+    TEST_ASSERT_TRUE_MESSAGE(reached[i], table[i].form);
+  }
+}
+
+/* The new families decode to their own rows, and the neighbours that share
+ * their bits do not borrow one. Each case is a trap in the encoding: `MOVEP`
+ * inside the dynamic bit operations, `BCLR`'s operation field reading like a
+ * long size, `CMP2` behind a size of `11`, a register source moving into an
+ * absolute address, and mode 6 whose format lives in the extension. */
+static void test_the_immediate_bit_and_move_forms_find_their_rows(void) {
+  static const struct {
+    uint16_t word;
+    const char *form; /* nullptr: no row, by design */
+    const char *what;
+  } CASES[] = {
+      {0x0C80u, "CMPI #<data>,Dn", "CMPI.L #,D0"},
+      {0x0C50u, "CMPI #<data>,Mem", "CMPI.W #,(A0)"},
+      {0x0610u, "ADDI #<data>,Mem", "ADDI.B #,(A0)"},
+      {0x0280u, "ANDI #<data>,Dn", "ANDI.L #,D0"},
+      {0x007Cu, "ANDI/EORI/ORI to SR or CCR", "ORI #,SR"},
+      {0x023Cu, "ANDI/EORI/ORI to SR or CCR", "ANDI #,CCR"},
+      {0x0C3Cu, nullptr, "CMPI to CCR is not an instruction"},
+      {0x00D0u, nullptr, "CMP2.B (A0) -- size 11"},
+      {0x0811u, "BTST #<data>,Mem", "BTST #6,(A1)"},
+      {0x0880u, "BCLR #<data>,Dn", "BCLR #,D0 -- tt 10 is not a size"},
+      {0x0100u, "BTST Dn,Dn", "BTST D0,D0"},
+      {0x01D0u, "BSET Dn,Mem", "BSET D0,(A0)"},
+      {0x0108u, nullptr, "MOVEP -- mode 001 among the bit operations"},
+      {0x013Cu, "BTST Dn,Mem", "BTST D0,#<data>"},
+      {0x2250u, "MOVE EA,An", "MOVEA.L (A0),A1"},
+      {0x2010u, "MOVE EA,Dn", "MOVE.L (A0),D0"},
+      {0x3080u, "MOVE Rn,(An)", "MOVE.W D0,(A0) -- a register source"},
+      {0x3090u, "MOVE SOURCE,(An)", "MOVE.W (A0),(A0)"},
+      {0x30BCu, "MOVE SOURCE,(An)", "MOVE.W #<data>,(A0)"},
+      {0x21C0u, "MOVE EA,xxx.W", "MOVE.L D0,xxx.W"},
+      {0x23C0u, "MOVE EA,xxx.L", "MOVE.L D0,xxx.L"},
+      {0x2140u, "MOVE EA,(d16,An)", "MOVE.L D0,(d16,A0)"},
+      {0x2180u, nullptr, "MOVE.L D0,(d8,A0,Xn) -- mode 6"},
+      {0x5290u, "ADDQ #<data>,Mem", "ADDQ.L #1,(A0)"},
+      {0x5390u, "SUBQ #<data>,Mem", "SUBQ.L #1,(A0)"},
+      {0x57C0u, "Scc Dn", "SEQ D0"},
+      {0x48C0u, "EXT Dn", "EXT.L D0"},
+      {0x49C0u, "EXT Dn", "EXTB.L D0"},
+      {0x4AC0u, "TAS Dn", "TAS D0"},
+  };
+  for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
+    const ap_m68030_table_entry_t *row =
+        ap_m68030_timing_for_word(CASES[c].word);
+    if (CASES[c].form == nullptr) {
+      TEST_ASSERT_NULL_MESSAGE(row, CASES[c].what);
+    } else {
+      TEST_ASSERT_TRUE_MESSAGE(form_is(row, CASES[c].form), CASES[c].what);
+    }
+  }
+}
+
+/* **Domain/OS's SCSI wait loop, priced in every instruction.** The kernel's
+ * `3C4E4612` polls the ASC 160,000 times and gives up; three of its six
+ * instructions had no row, so the loop ran at 39 clocks an iteration and
+ * expired 395 us before the controller's diagnostic ended. A count-limited
+ * poll is only as long as its instructions are, which makes this the smallest
+ * test that says the boot's timing is not a lower bound here. */
+static void test_the_scsi_drivers_wait_loop_is_priced_in_every_instruction(
+    void) {
+  TEST_ASSERT_NOT_NULL(ap_m68030_timing_for_word(0x2250u)); /* MOVEA.L (A0),A1 */
+  TEST_ASSERT_NOT_NULL(ap_m68030_timing_for_word(0x0811u)); /* BTST #6,(A1) */
+  TEST_ASSERT_NOT_NULL(ap_m68030_timing_for_word(0x5280u)); /* ADDQ.L #1,D0 */
+  TEST_ASSERT_NOT_NULL(ap_m68030_timing_for_word(0x0C80u)); /* CMPI.L #,D0 */
+  TEST_ASSERT_NOT_NULL(ap_m68030_timing_for_branch(0x6704u, false)); /* BEQ */
+  TEST_ASSERT_NOT_NULL(ap_m68030_timing_for_branch(0x66EAu, true));  /* BNE */
+}
+
 /* The classification itself, which is the part that could be wrong without any
  * arithmetic being wrong. It is a claim about each instruction's *length* and
  * whether it changes flow, so it is checked against those facts rather than
@@ -460,6 +587,32 @@ static void test_the_rows_that_are_not_single_word_are_classified_as_such(void) 
        * alignments genuinely differ by one fetch. */
       {"LINK.L", AP_M68030_PREFETCH_ODD_WORDS, "three words"},
       {"Bcc.L (Not Taken)", AP_M68030_PREFETCH_ODD_WORDS, "three words"},
+      /* §11.6.9 and §11.6.13's immediate forms, `ADDI #<data>,Dn`'s
+       * convention: the immediate is an extension word, so never one. */
+      {"ADDI #<data>,Mem", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "immediate"},
+      {"ANDI #<data>,Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "immediate"},
+      {"ANDI #<data>,Mem", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "immediate"},
+      {"EORI #<data>,Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "immediate"},
+      {"EORI #<data>,Mem", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "immediate"},
+      {"ORI #<data>,Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "immediate"},
+      {"ORI #<data>,Mem", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "immediate"},
+      {"SUBI #<data>,Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "immediate"},
+      {"SUBI #<data>,Mem", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "immediate"},
+      {"CMPI #<data>,Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "immediate"},
+      {"CMPI #<data>,Mem", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "immediate"},
+      {"BTST #<data>,Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "bit number"},
+      {"BTST #<data>,Mem", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "bit number"},
+      {"BCHG #<data>,Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "bit number"},
+      {"BCHG #<data>,Mem", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "bit number"},
+      {"BCLR #<data>,Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "bit number"},
+      {"BCLR #<data>,Mem", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "bit number"},
+      {"BSET #<data>,Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "bit number"},
+      {"BSET #<data>,Mem", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "bit number"},
+      /* §11.6.6's destinations with extension words of their own: one word
+       * of displacement or short address is two words, a long address three. */
+      {"MOVE EA,(d16,An)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"MOVE EA,xxx.W", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"MOVE EA,xxx.L", AP_M68030_PREFETCH_ODD_WORDS, "three words"},
   };
 
   unsigned count = 0;
@@ -561,6 +714,9 @@ int main(void) {
   RUN_TEST(test_the_decomposition_separates_the_predecrement_extra_clock);
   RUN_TEST(test_a_single_word_prefetch_either_hides_completely_or_not_at_all);
   RUN_TEST(test_the_rows_that_are_not_single_word_are_classified_as_such);
+  RUN_TEST(test_every_row_is_returned_by_some_instruction);
+  RUN_TEST(test_the_immediate_bit_and_move_forms_find_their_rows);
+  RUN_TEST(test_the_scsi_drivers_wait_loop_is_priced_in_every_instruction);
   RUN_TEST(test_the_rows_that_expose_a_prefetch_are_the_memory_forms);
   RUN_TEST(test_an_exact_prefetch_cost_is_not_always_zero_or_one);
   RUN_TEST(test_the_figures_compose_through_the_overlap_rule);

@@ -4444,7 +4444,39 @@ discipline throughout.
 
 ## The route to finish — seven open items, 2026-09-13
 
-**PAUSED 2026-09-13 — resume here.** State when work stopped:
+**Resumed 2026-09-14.** State (the 2026-09-13 pause point is kept below it):
+
+- **SCSI integration — the DS5500 boot ran, and the card is reset and never
+  initialised.** `--clock 2002-11-28T12:30:00 --scsi --scsi-drive` reached SPM
+  with `163171` reads / `5` writes of the card, `status 4F, not initialised`,
+  zero selections — **the same counts as the DN3500 run**. That run was not a
+  control: **`/sau7` carries `scsi7.drvr`**, so the 2026-09-13 status entry's
+  "no SCSI driver at all" is wrong. A watched boot shows the kernel at
+  `3C459A2A` writing `03`, `00` to `050002` (§5.2.5.2's reset) and then polling
+  status 160,003 times reading `0F` — READY clear — so **it gives up before the
+  short diagnostic ends**. Candidate: `AP_WD7000_T_SHORT_DIAGNOSTIC` is §6.2.14.1's
+  bound "under 250 ms" taken as the value, `PROVISIONAL`. **Next**: the boot
+  stopped at the 160,003rd poll, with a dump of the loop and the diagnostic
+  time remaining, which measures the margin rather than arguing it.
+  **Measured, and the cause is not the ASC.** The poll is `3C4E4612`, a
+  **count** of 160,000 (`cmpi.l #$27100`), not a timer: 39.0001 clocks an
+  iteration, 249.6 ms, **395 µs** short of the 250 ms diagnostic. Three of its
+  six instructions had **no `[030]` §11.6 row**, so the loop ran at bus time.
+  **With them priced, the card is initialised** (`status 5F, control 0C`,
+  64/64 mailboxes). Domain/OS starts no SCB at boot, so **what is left is a
+  tape command**: a shell on a booted `--scsi --scsi-drive` machine, and
+  `/sys/mgrs/rmt_scsi` driving the EXB-8200. Detail in `PROJECT_STATUS.md`.
+- [ ] **`[030]` §11.6 is not fully transcribed, and the boot is timed by it.**
+  "Instruction execution time — Closed" is true of the rows transcribed and
+  said nothing of coverage. **Stage 1 landed 2026-09-14**: §11.6.9 and
+  §11.6.13 whole, §11.6.6's single-address rows, and six rows no lookup
+  returned made reachable — 60 → 97 rows. **Owed, all read as page images**:
+  §11.6.6 brief/full-format destinations (needs the extension word), §11.6.7,
+  §11.6.8/§11.6.11/§11.6.12 memory forms, §11.6.10, §11.6.14, §11.6.16's
+  rest, §11.6.17, §11.6.18, and composing the calculate footnotes
+  (`**` §11.6.3, `##` §11.6.4, `%` §11.6.5) in the step.
+
+*Paused 2026-09-13, kept as the record of what the next step was then:*
 
 - **SCSI**: all five deliverables landed (`d9d5fcd8` bus, `2231d461` DMA,
   `c752bbb7` SCB execution, `70d055d3` EXB-8200, `0fd77fb8` media and wiring).
@@ -4533,6 +4565,33 @@ module attached to no CPU"**: attach them, so `CINV`/`CPUSH` stop being no-ops
 and fetches and operands go through the caches instead of straight to the bus,
 and record `[RN104]` §4.12's four errata as documented divergences. One
 change, one suite, one commit. Not a new instruction core.
+**The fill's design, from `[040]` pp. 4-7 to 4-12 and 7-59/7-60 read as page
+images, 2026-09-14** — live detail, compressed when ticked:
+  - **Where**: `ap_m68030_access.c`, *after* `translate_040`, keyed by the
+    physical address — the 68040's caches are physically tagged, so a DS5500
+    must stop consulting the 68030's logical cache first, which it does today.
+  - **What decides each access is Table 4-3/4-4 through
+    `ap_m68040_cache_transition`**, not rules re-derived at the call site: read
+    miss reads the whole 16-byte line and fills (§4.4.1); write-through miss
+    writes memory and allocates nothing (§4.4.2); copyback miss reads the line,
+    writes into it and sets the D-bits, with **no memory write** (§4.4.2);
+    write-through hit updates both; copyback hit updates the line and sets D.
+  - **Noncachable CM** bypasses the cache and pushes a dirty resident line or
+    invalidates a valid one (§4.3.2). Translation off and no TTR match is
+    write-through cachable — `ap_m68040_mmu.c`'s default, so the PROM caches.
+  - **Special accesses** (§4.3.3): exception stacking, vector fetches and table
+    searches never *allocate* a data-cache line; their hits are normal. Frames
+    and vectors reach memory through `step_operand_write`/`read` today with no
+    way to say so — the context needs a flag. Table searches already bypass
+    the access path.
+  - **Replacement** (§4.6.2): the replaced line goes to the push buffer; a dirty
+    one is written back, and restored if the new read is cache-inhibited or
+    bus-errors.
+  - **Snooping has no document on this board.** `019411-A00`'s text layer has
+    no "snoop", "SC0", "SC1" or "UPA". §7.9.1: `SCx = $0` is snoop-inhibited
+    and memory answers at once. Which the DS5500 straps is the one
+    `PROVISIONAL`, and it decides whether a DMA write into a cached line leaves
+    it stale (§4.5: "caches can be snooped even if they are disabled").
 
 **3. The Domain/OS software shelf — bounded reading, no blockers.** ~80
 untouched documents, seven part-read records naming their own owed chapters,

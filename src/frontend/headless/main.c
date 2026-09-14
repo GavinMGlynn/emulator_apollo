@@ -6120,7 +6120,18 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
            ap_wd7000_status(asc), asc->control,
            asc->initialized ? "initialised" : "not initialised",
            asc->in_reset ? ", in reset" : "", asc->int_status);
-    printf("  scsi mail    base %06X, %u out, %u in; %llu started, %llu empty,"
+    /* How much of a diagnostic is still to run, in microseconds. A driver that
+     * gives up polling for READY is only diagnosable against this: the status
+     * byte says "not ready" and not "ready in how long". */
+    if (asc->diagnosing) {
+      printf("  scsi diag    %s diagnostic running, %llu us to go\n",
+             asc->powered_on ? "short" : "long",
+             asc->diagnose_at > asc->now
+                 ? (unsigned long long)((asc->diagnose_at - asc->now) /
+                                        (AP_TIME_BASE_HZ / 1000000u))
+                 : 0ull);
+    }
+    printf("  scsi mail   base %06X, %u out, %u in; %llu started, %llu empty,"
            " %llu not a SCSI command, %llu scans\n",
            asc->mail_base, asc->ogmb_count, asc->icmb_count,
            (unsigned long long)asc->scbs_started,

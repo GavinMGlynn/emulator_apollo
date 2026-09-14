@@ -7900,7 +7900,18 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
        * *take* an immediate -- every one of them writes its effective address
        * back -- so the figure passed here is never the one used, and a long is
        * the safe reading if that ever changes: it is the larger of the two. */
-      ea_timing = ap_m68030_ea_fetch_timing(ea.kind, 4u);
+      ea_timing = ap_m68030_ea_fetch_timing(
+          ea.kind,
+          /* Read only for an immediate source, which §11.6.6's `*` rows now
+           * admit -- `MOVE #<data>,(An)` -- so the size is `MOVE`'s own: family
+           * 0001 byte, 0011 word, 0010 long. A byte immediate occupies a word
+           * of instruction stream and takes the word row. Every other `*` row
+           * writes its address back and cannot name an immediate, except
+           * `BTST Dn,#<data>`, whose data is a byte. */
+          ((out.instruction >> 12) & 0xFu) == 0x2u   ? 4u
+          : ((out.instruction >> 12) & 0xFu) == 0x3u ? 2u
+          : ((out.instruction >> 12) & 0xFu) <= 0x1u ? 1u
+                                                     : 4u);
       break;
     case AP_M68030_EA_TIME_FETCH_IMMEDIATE:
       /* §11.6.2, whose entry covers the immediate *and* the destination
@@ -7916,8 +7927,12 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
        * rows carry it -- `00` byte, `01` word, `10` long. Every `**` row in the
        * transcription is one of those, so this is read where the manual puts it
        * rather than inferred. */
+      /* Except the static bit operations, `0000 1000 tt`, whose bits 7-6 name
+       * the operation: their bit number is always one extension word, so
+       * reading `BCLR`'s `10` as a size would price it off the long column. */
       ea_timing = ap_m68030_ea_fetch_immediate_timing(
-          ea.kind, ((out.instruction >> 6) & 3u) == 2u);
+          ea.kind, (out.instruction & 0xFF00u) != 0x0800u &&
+                       ((out.instruction >> 6) & 3u) == 2u);
       break;
     case AP_M68030_EA_TIME_NONE:
       break;

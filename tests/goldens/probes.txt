@@ -4,15 +4,15 @@
 # figures to compare against MC68030 User's Manual ch. 11.
 probe               ran status         d0       pc         clocks berr hash            
 moveq                 2 STOPPED        00000042 00001006        4    0 17D423A83BD0D0B3
-store-reload          4 STOPPED        00000042 00001012       14    0 2FDF67F34ABFA937
+store-reload          4 STOPPED        00000042 00001012       20    0 EEF6E7358CB7382E
 loop                 16 STOPPED        00000006 00001012       62    0 AFC916323692E9C1
 subroutine            4 STOPPED        00000007 00001008       22    0 866CFB0CDCE8DD9C
 trap                  4 STOPPED        00000009 00001008       30    0 D84579BF2DF34E0E
-wide-arithmetic       4 STOPPED        0003299B 00001012       10    0 0AAA72712E3D7628
+wide-arithmetic       4 STOPPED        0003299B 00001012       16    0 58ED34369CADB2ED
 movem                 7 STOPPED        00000001 00001014       22    0 0A1599925EE411E1
-pmove                 3 STOPPED        00000000 0000100E       10    0 399A896E08C51DD0
-fpu                   6 STOPPED        00000000 0000101A      165    0 EDDA0FB7F1D4199E
-fpu-transfer          8 STOPPED        00000000 0000102A      155    0 1FF753F0C0281B90
+pmove                 3 STOPPED        00000000 0000100E       16    0 5C901D479051DBFD
+fpu                   6 STOPPED        00000000 0000101A      171    0 CD38AE8D9470167F
+fpu-transfer          8 STOPPED        00000000 0000102A      179    0 217131215C0BA515
 
 # what each probe covers
 # moveq              one register write, the smallest thing that can be wrong

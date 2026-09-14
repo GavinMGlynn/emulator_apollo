@@ -66,7 +66,9 @@
 typedef enum {
   AP_M68030_EA_TIME_NONE = 0,  /* the figure is the whole cost */
   AP_M68030_EA_TIME_FETCH,     /* `*`  -- §11.6.1, transcribed */
-  AP_M68030_EA_TIME_FETCH_IMMEDIATE, /* `**` -- §11.6.2, not transcribed */
+  /* `**`, and §11.6.13's `#` for the same table -- §11.6.2, transcribed.
+   * (This said "not transcribed" after it was.) */
+  AP_M68030_EA_TIME_FETCH_IMMEDIATE,
 } ap_m68030_ea_time_t;
 
 typedef struct {

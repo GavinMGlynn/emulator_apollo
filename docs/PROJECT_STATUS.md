@@ -434,6 +434,112 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## The kernel resets the ASC and gives up 395 µs before READY (2026-09-14)
+
+**The cause was the 68030's timing table, not the SCSI card, and fixing it
+got the card initialised.** Domain/OS now resets the WD7000-ASC, waits for
+READY, and sends it the whole initialization sequence.
+
+**How it was found, one measurement per step:**
+
+1. The DS5500 integration boot (`--clock 2002-11-28T12:30:00 --scsi
+   --scsi-drive`) reached SPM with **163,171 reads and 5 writes** of the card and
+   `status 4F, not initialised`. Those are exactly the DN3500 run's counts, and
+   that run was supposed to be the control. **It wasn't:** `/sau7` carries
+   `scsi7.drvr`. So the two identical counts were one driver running on both
+   machines. The 2026-09-13 section below is corrected in place.
+2. A watched boot (`--boot-watch-write 050002 --boot-log-watch-writes
+   --boot-watch-read 050000`) put the writer in the kernel. At `3C459A2A` it
+   writes `03`, then `00` about 3,000 instructions later, to Host Control.
+   That is `[WD7000]` §5.2.5.2's reset pulse. It then polls status reading `0F`,
+   READY clear.
+3. A boot stopped on the 160,003rd poll (`--boot-stop-on-watch-read`), with the
+   new `scsi diag` report line, showed **395 µs** of the ASC's 250 ms short
+   diagnostic still to run.
+4. A `--dump-logical` of the loop, disassembled, shows the wait is **a count and
+   not a timer**. `3C4E4612` is `MOVEA.L (A0),A1; BTST #6,(A1); BEQ; ADDQ.L
+   #1,D0; CMPI.L #$27100,D0; BNE`, giving up after 160,000 iterations with
+   `00380012`. Its caller checks READY once more and fails silently; nothing
+   reaches the console.
+5. Stopping a second boot at the 4th poll and subtracting gave **39.0001 clocks
+   per iteration** (6,239,977 clocks over 159,999 iterations). That comes to
+   249.6 ms at 25 MHz. Of that, 25 clocks are the 8-bit AT I/O cycle
+   (`008778-03` §3.4, 1 µs). **Three of the six instructions had no `[030]`
+   §11.6 row**, so they cost bus time only.
+
+A count-limited poll lasts as long as its instructions take, so the loop was
+fast by exactly the microcode those three rows publish. **The ASC's diagnostic
+constant is unchanged**: `AP_WD7000_T_SHORT_DIAGNOSTIC` remains §6.2.14.1's bound
+"less than 250 ms" and remains `PROVISIONAL`. The guest now implies a real limit
+only through the loop's real cost, and that is not a figure to set the constant
+by.
+
+**The fix is §11.6, stage 1.** All pages were read as images: pp. 11-36 to
+11-51, which is §11.6.5 to §11.6.18. The table goes from 60 rows to 97:
+
+- **§11.6.9 whole.** The `ANDI/EORI/ORI/SUBI/CMPI #<data>,Dn` forms, every
+  `#<data>,Mem` form, and `ADDQ`/`SUBQ` to memory. `CMPI #<data>,Mem` is the
+  odd one out, `2(0/0/0)` with no tail, because a compare never writes back.
+- **§11.6.13 whole**, sixteen rows. `BTST` is two clocks cheaper than the other
+  three in every form. Its `#` footnote names §11.6.2. **Trap:** a static bit
+  operation's bits 7-6 are the operation, not a size. The step read `BCLR`'s
+  `10` as a long immediate until it was told `0000 1000` apart.
+- **§11.6.6's single-effective-address `*` rows**, composed with §11.6.1 for the
+  source. A register source into `(d16,An)` or an absolute address is one of
+  them, because the table has `MOVE EA,xxx.L` and no `MOVE Rn,xxx.L`. The step
+  now takes an immediate source's size from `MOVE`'s own size field. **Not
+  here:** destination mode 6, whose brief or full format is decided by an
+  extension word the lookup is not given.
+- **Six rows no lookup returned, now reachable**: `ADDI #<data>,Dn`, the
+  `ANDI/EORI/ORI` to `SR`/`CCR` forms (every `ORI #$0700,SR` the PROM runs was
+  bus time alone), `EXT`/`EXTB`, `TAS Dn` and `Scc Dn`. That is the same defect
+  `NBCD` had, and the same question found it: what calls this row?
+  `test_every_row_is_returned_by_some_instruction` now walks all 65,536 words.
+  `DIVS.L`/`DIVU.L` are the named exceptions, since only bit 11 of the extension
+  word tells them from each other and from the long multiplies.
+
+**What remains of §11.6 is an open plan item:** §11.6.7, §11.6.10, §11.6.14,
+§11.6.17 and §11.6.18; the memory forms of §11.6.8, §11.6.11 and §11.6.12; the
+rest of §11.6.16; mode-6 destinations; and composing the calculate-address
+footnotes, which the step does not do yet.
+
+**On the running machine.** The DN3500 SPM boot with `--scsi --scsi-drive` now
+writes `01 07 70 0A 00 00 00 00 40 40` to the command port from `3C459D2C`.
+That is §6.1.2's initialization: host ID 7, bus-on `70` and bus-off `0A` in
+125 ns units, mailboxes at `000000` in the bus-master window, and 64 outgoing
+and 64 incoming. The card ends at `status 5F, control 0C, initialised, int 01`:
+DMA and interrupt enabled, and 118,257 reads against 17 writes. **No SCB is
+started, and nothing selects the drive**, because Domain/OS brings the
+controller up at boot and leaves the tape alone until something asks. So the
+integration check's last clause is a tape command, `/sys/mgrs/rmt_scsi`
+driving the EXB-8200, and it still needs a shell.
+
+**What moved.**
+- **Probe goldens.** Every change is clocks, and every probe's instruction
+  count, `D0` and final PC are the same. `store-reload`, `wide-arithmetic`,
+  `pmove` and `fpu` each gain 6 (their `MOVE` memory and absolute forms), and
+  `fpu-transfer` gains 24.
+- **Identity reference.** `421FD9A6F120455E` → **`2B2263E7CE58912C`**, and
+  clocks go **1,420,855,289 → 1,648,267,315** (+16.0%) over the same
+  350,000,000 instructions.
+
+**The identity change is progress, not a regression.** Compared line by line,
+the two consoles are identical up to the old run's cutoff inside `CPU (dma)
+Test #1`. The new run gets further in the same instruction count, through
+`dma #2`, `calendar`, `fp trap` and `bus error`, because the PROM's
+timer-bounded waits now finish in fewer instructions. There it prints
+"Configuration information is not initialized ... Self test failed ...
+Address= 00010912", then "Self tests passed". **That message is not new**:
+the pre-change SPM boot prints the same four lines at console lines 41-48,
+because neither script passes `--configure`.
+
+*Verification: `ctest` 152/152. `timing_table_suite` 16 → 19, with every row's
+figures from the page image, the decode traps and the reachability walk.
+`machine_suite` 69 → 70, composing both of the loop's memory forms from their
+tables on a running machine, warm and cold. And one boot to SPM, whose SCSI
+report is the result above.*
+
+
 ## The access path never read `CACR`: the caches obeyed construction, not the register (2026-09-14)
 
 Found while reading the access path for the 68040 cache fill, and it is a
@@ -487,6 +593,18 @@ parent commit built in a separate worktree gives `B6D94F0A99F1B276` and
 
 The SCSI item's integration check, and its **control** — which turned out to
 carry the result.
+
+> **CORRECTION, 2026-09-14: this was not a control, and the section's premise
+> is false.** `tools/awd_read.py media/dn3500-sr10.4-installed.awd --path
+> /sau7` lists **`scsi7.drvr`** beside `magtape7.drvr` and `vtape7.drvr`, so a
+> DN3500 *has* a SCSI driver. The DS5500 run then gave the identical 163,171
+> reads and 5 writes, which is one driver running on both machines. A watched
+> boot puts the polling in the kernel: at `3C459A2A` it writes `03` then `00`
+> to `050002`, which is `[WD7000]` §5.2.5.2's reset, and waits for READY. At
+> its last read the ASC's short diagnostic still had **395 µs** to run, so the
+> driver's "tape poll" reading below is wrong too. It is the SCSI driver timing
+> out. See "The kernel resets the ASC and gives up 395 µs before READY".
+> The original text follows, kept because it is what the record said.
 
 **The check needed a DS5500 and this is not one.** `scsi14.drvr` lives in
 `/sau14`; a DN3500 boots `/sau7` and has no SCSI driver at all. So this run
@@ -4542,6 +4660,14 @@ clocks**, and this one moved because behaviour did: the access path now obeys
 Measured against the parent commit built separately, which still gives
 `B6D94F0A99F1B276` and 1,408,661,906 — see "The access path never read `CACR`".
 Every entry above citing `B6D94F0A99F1B276` is a record of when it was written.
+
+**The reference is `2B2263E7CE58912C` as of 2026-09-14, the same day**, at
+**1,648,267,315 clocks**. It moved because `[030]` §11.6's first transcription
+stage prices `MOVE`'s memory forms, the immediates and the bit operations,
+which the boot runs constantly. The run's console is identical to the old one
+up to the old cutoff, and then goes further in the same instruction count. See
+"The kernel resets the ASC and gives up 395 µs before READY". `421FD9A6F120455E`
+held for one commit.
 
 *Measured rather than argued.* The same day's `ap_boardreg` change — the DS5500
 cache status register's bit 4 — is gated on `model == AP_MODEL_DN5500`, so it
@@ -18750,7 +18876,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Time base (`time/`) | working | `time_suite`, 17 tests |
 | State hash (`state/`) | primitive working | `hash_suite`, 13 tests, incl. published FNV-1a 64 vectors |
 | Core board state hash (the identity harness's board half) | working: the board registers, the translation map, both interrupt controllers, the interval timer with its three clocks, the calendar with both cursors, both DMA controllers, both serial ports, the node ID, the disk and tape controllers, the graphics memories, the keyboard matrix and the boot PROM. The diagnostic counters are deliberately outside it and reported beside it | `board_state_suite`, 40 tests sweeping every device field by field |
-| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 69 tests -- two of them driving `ap_machine_tick`, which no test drove at all before 2026-09-08, one boardless and one on a real board, incl. the same workload run twice on two boards agreeing at every step |
+| Full-machine state hash (`ap_machine_hash`, `ap_machine_state`) | working: the processor, main memory, the board when one is attached, and elapsed time — with the clock, the PC and the bus-error count reported beside the number | `machine_suite`, 70 tests -- two of them driving `ap_machine_tick`, which no test drove at all before 2026-09-08, one boardless and one on a real board, incl. the same workload run twice on two boards agreeing at every step |
 | Ring protocol stack (`ring/ap_ring_{mac,frame,framer,phy,medium,station}.*`) | **JOINED TO THE CONTROLLER, and two boards on one segment exchange a frame; not yet reachable from a *booting* machine.** `ap_ring_ctl_attach_ring` is the wire `RING.md` 85e opened and 104 closed: a transmit command assembles the frame in the board's buffer and hands it to the station, MISC_CMD's `nct` drives §3.5's bypass relay and RCV_CMD's `rcv` the receiver, and the board's node ID becomes the station's ring address. The medium now has a home: `ap_board_t` owns the **station** (the card) and `ap_board_join_ring` lends it a **shared segment** (the cable), because a board that owned a medium would make every ring single-node by construction. `board_suite` drives two boards through their register interfaces and the header arrives in the other's buffer. `--ring` now owns a **segment** and joins the card to it, `ap_board_advance` polls the ring when the card has a cable, and the card's **interrupt line is wired** — master IRQ 2, documented at last (`RING.md` 107). **A frame now crosses under `ap_board_advance`** — the ring's 12 Mbit/s bit clock is driven from board time, with only the segment's lowest attached slot stepping the shared cable, and `board_suite` advances two boards' *clocks* and requires the frame to arrive. **And `ap_ring_sched` is wired**: `ap_board_join_ring_sched` registers a board as a ring participant at the medium's own bit rate, so nodes of different models can share one segment against `AP_TIME_BASE_HZ` — `board_suite` runs a real exchange through it and asserts the scheduler's phase hash is identical across two runs. **And a segment now crosses process boundaries**: `frontend/common/ap_ring_link.*` carries the cable's cells between two emulator instances in strict lock-step, batched a cable-length at a time — which `[MAC]` §3.4 makes free, since a bit cannot reach the next node for 64 bit times anyway. **The DMA question is answered and it was the wrong question**: `002398-04` p. 12-23 enumerates the DN3000's DMA Channel Usage in full — SDLC, floppy, cascade, the rest available — and the ring is not among them, so there is no host channel to model. The host reaches the buffer through `RAM_ADDR`/`RAM_DATA`, which is what this core does; finding 79's "loop xmit DMA to rcv DMA" is the gate array's own internal DMA. **And `--ring-two-node [N]` runs two whole machines on one segment** — two boards with distinct node IDs on one `ap_ring_sched`, each machine run a slice at a time with the ring advanced only to the time *both* have reached, reporting each node's PC and the ring's phase hash, reproducibly and without needing firmware. **Domain/OS now accepts the card** (`RING.md` 119): with a sealed configuration table, the device bits set from what is fitted, register `2B` = 2 and a ring option ROM, the SR10.4 diagnostic runs `network driver search` and an Apollo Token Ring test — and fails on `Expected= 0000FC03, Actual= 0000FC00, Address= 00059800`, which is SUBTEST 32's number reached by a second, independent path. **What is still missing**: that one count, and 80c's loopback residual. *The clause that used to follow -- "so the plan's `lcnode` check needs a booted Domain/OS per node, a disk question rather than a ring one" -- was answered on 2026-08-19*: both nodes now boot Domain/OS from their own installed volumes on one segment, each reaching `Domain/OS kernel(7)` with `Apollo Token Ring test passed.` and its driver loaded. `lcnode` itself moved to the multi-node workloads item, because it needs a *shell*, which needs `siologin`, which is a separate open thread (`FINDINGS.md` C222); this item's verification was rewritten to the ring property it is actually about -- two booted nodes exchanging frames, which the runner now reports as it happens. What else is done, and audited line by line against `[MAC]` chapters 1-3 and Appendix A (findings 85-94): bit stuffing and the four out-of-band characters, the three separators, all five framing sequences and the CRC, the bi-phase physical layer with both clock domains, §3.5's bypass relay in both halves, per-hop cable delay, and the station's §2.1 transmit sequence, §2.2.2.2 destination and broadcast matching, and both acknowledge fields modified in flight. **The buffer defect was NOT what held `claims_made` at zero, and that is now measured.** The first two-node run with both buffers lent (`fr4`, 2026-08-19, `--ring-two-node 1200000000`) took **both** nodes to `Domain/OS kernel(7) revision 10.4`, `Apollo Token Ring test passed.`, `SPM system init complete.` and `siomonit` started, with distinct node IDs — `Node ID = 12345` and `Node ID = 22222` — on one segment. **And `ring claims` stayed at zero for both — confirmed at the end of the run, not merely mid-run.** The full budget completed: `node 0 pc 3C43F5A8 ran 1200000000 executed (op 60FA) ring claims 0 frames seen 0 copied 0` and the identical line for node 1, with `ring hash 3BC182783938C47C`. Both nodes ended at the **same PC executing the same branch**, which is what two idle booted nodes in the same wait loop look like, and the last console line was `MBX_HELPER not running. Starting one.` — ordinary Domain/OS startup, not a hang. That is `FINDINGS.md` C229's pre-registered **reading 1, "nothing asked"**: the operating system never armed a transmit, so no frame was ever offered to the station. It is not reading 2 (a ring defect) and not reading 3 (success). The honest conclusion about the buffer fix is that it repaired a real and separate defect — transmit was *impossible* before it — and repairing it changed nothing here, which **locates the remaining problem above the station entirely**. C222 predicted exactly this: two booted nodes sitting idle exchange no frames at all, because "responded" is the language of a request and a reply. The item's verification needs *traffic*, which needs `lcnode`, which needs a shell. **And the station's two buffers are now lent by the board, which nothing was doing.** `ap_ring_station` allocates nothing, so both the transmit bit stream and the received frame live in caller storage — and `ap_ring_station_attach_tx` was called by **tests only** while `ap_ring_station_attach_rx` was called by **nothing at all**. On a running machine `ap_ring_station_queue_frame` therefore returned false on its first line (`tx_bits == NULL`), so a booting node could never transmit, and every received byte was discarded without even setting the overrun flag, which needs a non-NULL buffer to report against. Every ring suite passed throughout, because each one attached its own buffer — the failure mode where the test supplies the wiring the board does not. Found by sweeping `src/core`'s exported functions for ones nothing calls. The board owns the storage now, sized from `[EH]` p. 12-29's 1 KB header plus 1 KB data, and the three board tests that used to attach their own no longer do — so they exercise the machine's wiring rather than their own. **And a transmit now completes when the ring has carried it, not when the command was written.** `RING.md` 73b parked the completion *duration* "until `ap_ring_station` drives it" — and the station could not drive anything while nothing lent it a transmit buffer, so that blocker was the one above. A frame that genuinely goes onto a cable now finishes the operation when it has been driven, and the duration is **emergent** from the frame's own length at 12 Mbit/s: nothing here chooses a number, which is what 73a's refusal to pick a value inside its 8–85 µs bracket required. **The change is confined to the path where a frame is really on a wire**, which is `RING.md` 108a's rule expressed in code rather than as a blanket approximation — the deferral needs a queued frame, an attached medium, and digital loopback off. So the ring firmware's own self-test, which loops transmit DMA to receive DMA with no medium at all, keeps finding 66's immediate completion, and is **byte-identical** across the change: 7,263,778 steps, same registers, same elapsed, same 1,321,914 reads and 927,828 writes, checked by running it either side. Findings 66, 69 and 73's self-test bracket are therefore untouched and still open; what closed is 73b's blocker, not 69. The row said "not started", which was stale by six modules | `ring_mac_suite`, 11 tests; `ring_frame_suite`, 9 tests; `ring_framer_suite`, 12 tests; `ring_phy_suite`, 10 tests; `ring_medium_suite`, 13 tests, including a three-station ring circulating a token and a **bypassed node still carrying its cable** -- §3.5's relays join input coax to output coax, so a relay shortens no ring; `ring_station_suite`, 24 tests, including a frame delivered to its addressee with a bystander required *not* to accept it, and a **transmitter reading back the acknowledge its own frame returned with** -- `[MAC]` §2.2.2.5, the only way a sender ever learns whether anybody took its packet (`RING.md` 137), and **the pairing `002398-04` p. 7-29 publishes** -- `icopy|copy` on a copy and `icopy|wack` on a WACK, the second of which this core could not produce until 2026-09-08; `ring_sched_suite`, 7 tests |
 | Ring controller (`device/ap_ring_ctl.*`) | **register interface working**, wired into the AT decode: a unit's two windows, the ID register, the presence gate and its two Intel 8254 timers, all from the firmware disassembly that is this board's only specification. Fitted only on request -- an empty slot reads `FF`, which `RING.md` finding 40 makes the successful outcome of the firmware's probe. The dual-ported RAM buffer is **64 KB reached through the `+406` data port**, not a memory window -- findings 46, 46a and 47, which correct finding 42. **Nothing is blocked on a source any more**: `+400` MISC_STAT, `+402` XMIT_STAT and `+404` RCV_STAT are named bit for bit from `002398-04` pp. 12-30/12-31, and `ring8a.drvr` corroborates them from the board's own driver (`RING.md` 93, 97). The row said the meanings were blocked, which was stale by two findings | `ring_ctl_suite`, 26 tests -- one requiring a **second** transmit command to arm a second frame, which needed the harness to poll the controller as a board does before the deferred-completion path was reachable from this suite at all, and one requiring the card's own delivery count to agree with the station's `frames_copied` and its type census to carry the type the sender wrote, one of which is the firmware's own 64 KB memory test, one of which decomposes all three idle words into their named bits, one of which walks the first window's eight write-only registers, one of which reads that window as the node ID PROM it is -- four ID lanes, eleven unused slots and a checksum (`RING.md` 136) -- and one of which resets the board through `BOARD_RESET` at `59000`; the three receive counters are clocked individually since `[EH]` pp. 12-30/12-31 show header and data are separate phases on this board (`RING.md` 95a-95c); `i8254_suite`, 8 tests -- the newest driving the **GATE** pin, which no board wires and no test exercised until 2026-09-08; `board_suite` 38 -> 40 |
 | 68030 instruction pipe + cache holding register | working | `pipe_suite`, 15 tests, `MC68030 User's Manual 3ed` §11.2.2 |
@@ -18762,10 +18888,10 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 family `0000` size-11 escape (`CMP2`/`CHK2`/`CAS`/`CAS2`) | decoded; the opcode map now has no holes. Semantics open: `CAS`/`CAS2` need an indivisible read-modify-write | `bounds_suite`, 9 tests, `M68000 Family Programmer's Reference Manual 1992` |
 | Per-instruction timing report (`--time-instructions`) | bus and cache time only, pinned as a golden; the 0/2 alternation is the cache holding register serving two instruction words per fetch | `tests/goldens/timing.txt`; oracle side by `tools/mame-oracle/steptime.lua` |
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
-| Constructed machine (`machine/`) | **An indivisible read-modify-write holds the bus as of 2026-09-06** -- `[030]` §7.7.1 has the arbitration state machine "ignore bus requests" during one, §11.9 and Appendix A restate it. Two failures compounded: `ap_m68030_arb_set_rmc` modelled the lock in full, three states because §7.7.4 distinguishes the first read cycle, and was called by `arb_suite` and by **nothing in `src/`** -- so a DMA channel asking during a semaphore operation was granted the bus; and `TAS`, the one instruction the architecture provides for semaphores, never asserted `RMC` at all, only `CAS` and `CAS2` did. Both fixed. The lock is held for the whole instruction where the hardware allows arbitration during the first read cycle -- narrowing it needs the per-cycle processor and is a named plan item. A 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and **stalls while another master holds the bus** — demonstrated rather than asserted: a cascaded AT master taken to ownership makes `ap_board_processor_may_run` false and costs the processor `AP_MACHINE_STALL_LIMIT` clocks for one instruction — and advances the devices that keep time | `machine_suite`, 69 tests -- two of them driving `ap_machine_tick`, which no test drove at all before 2026-09-08, one boardless and one on a real board |
-| 68030 published timings (§11.6) | 59 rows from §11.6.6, §11.6.8, §11.6.9, §11.6.11, §11.6.12, §11.6.15 and §11.6.16, scheduled into the step as exposed microcode + measured operand bus + prefetch exposure, since the tables show a prefetch overlaps execution while an operand the operation consumes cannot (plain `max(microcode, bus)` was the retired first model — see above and `M68030_TIMING.md`). Branches are reached through their run-time outcome rather than by opcode. Seven instructions agree with the oracle (`FINDINGS.md` C8). Rows footnoted "Add Fetch Effective Address Time" are **declined**, not part-priced: their published figure is a component and the composition is open (C9). The four divides carry the manual's data-dependent marker and are `PROVISIONAL` | `timing_table_suite`, 16 tests; both published columns checked on a running machine by `machine_suite` |
+| Constructed machine (`machine/`) | **An indivisible read-modify-write holds the bus as of 2026-09-06** -- `[030]` §7.7.1 has the arbitration state machine "ignore bus requests" during one, §11.9 and Appendix A restate it. Two failures compounded: `ap_m68030_arb_set_rmc` modelled the lock in full, three states because §7.7.4 distinguishes the first read cycle, and was called by `arb_suite` and by **nothing in `src/`** -- so a DMA channel asking during a semaphore operation was granted the bus; and `TAS`, the one instruction the architecture provides for semaphores, never asserted `RMC` at all, only `CAS` and `CAS2` did. Both fixed. The lock is held for the whole instruction where the hardware allows arbitration during the first read cycle -- narrowing it needs the per-cycle processor and is a named plan item. A 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and **stalls while another master holds the bus** — demonstrated rather than asserted: a cascaded AT master taken to ownership makes `ap_board_processor_may_run` false and costs the processor `AP_MACHINE_STALL_LIMIT` clocks for one instruction — and advances the devices that keep time | `machine_suite`, 70 tests -- two of them driving `ap_machine_tick`, which no test drove at all before 2026-09-08, one boardless and one on a real board; and one composing the SCSI wait loop's two memory forms from their tables on a running machine |
+| 68030 published timings (§11.6) | **Not complete: 97 rows**, and §11.6 has more. §11.6.9 and §11.6.13 whole; §11.6.6's single-effective-address rows (the brief- and full-format destinations are not, since mode 6's format lives in the extension word); the register forms of §11.6.8, §11.6.11 and §11.6.12; §11.6.15; part of §11.6.16. **Owed**: §11.6.7, §11.6.10, §11.6.14, §11.6.17, §11.6.18, the memory forms of §11.6.8/§11.6.11/§11.6.12, the rest of §11.6.16 — all read as page images 2026-09-14 — and the calculate-address footnotes `**`/`##`/`%`, which the step does not compose yet. Scheduled as exposed microcode + measured operand bus + prefetch exposure (plain `max(microcode, bus)` was the retired first model — see above and `M68030_TIMING.md`), with `*` rows composed through §11.6.1 and `**`/`#` rows through §11.6.2. Branches are reached through their run-time outcome. Seven instructions agree with the oracle (`FINDINGS.md` C8). **Every row is reachable**, which six were not until 2026-09-14 (`ADDI #,Dn`, the SR/CCR forms, `EXT`, `TAS`, `Scc`, after `NBCD`); `DIVS.L`/`DIVU.L` are the named exceptions, selected by their extension word. The four divides carry the manual's data-dependent marker and are `PROVISIONAL` | `timing_table_suite`, 19 tests, one walking all 65,536 words for reachability; both published columns checked on a running machine by `machine_suite` |
 | 68030 ATC replacement | the history bit now means *recently used*, per `MC68851 PMMU User's Manual` §5.2.1.3 — a translating hit marks it, a `PTEST` probe does not. `PROVISIONAL` narrowed to victim choice among clear-history entries | `atc_suite`, 24 tests |
-| 68030 prefetch marginal cost | `NCC − CC` over the published prefetch count, computed in code across every row; the two rows where it is not integral are named in the test rather than rounded away | `timing_table_suite`, 16 tests |
+| 68030 prefetch marginal cost | `NCC − CC` over the published prefetch count, computed in code across every row; the two rows where it is not integral are named in the test rather than rounded away | `timing_table_suite`, 19 tests |
 | 68030 effective address timings (§11.6.1, §11.6.3) | fetch and calculate rows for the non-full-format modes, with the table's `-` and "2+op head" notations carried rather than flattened. Not yet composed into the step | `ea_timing_suite`, 26 tests |
 | 68030 instruction overlap (§11.3's Equations 11-1 and 11-2) | both compositions, deliberately without §11.6's per-instruction figures — those must be measured, not transcribed. The cache case through head and tail, the no-cache case by plain addition, and (11-2) shown to be (11-1) over *components* rather than a second rule | `overlap_suite`, 15 tests and `ea_timing_suite`, 12 — including both of the manual's own worked examples, at 6 clocks and **40** |
 | 68030 state hash (the identity harness's CPU half) | working: every architectural register, the MMU and cache control registers, the pipe, both caches, the ATC, and the accumulated clock — host pointers excluded by construction, since `ap_hash.h` has no pointer helper | `state_suite`, 16 tests sweeping every field; `step_suite`'s same-program-twice check |

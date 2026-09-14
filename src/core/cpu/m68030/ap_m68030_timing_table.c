@@ -89,6 +89,47 @@ enum {
   ROW_ADDQ,
   ROW_SUBQ,
   ROW_ADDI_DN,
+  /* §11.6.9's remaining rows, 2026-09-14. */
+  ROW_ADDQ_MEM,
+  ROW_SUBQ_MEM,
+  ROW_ADDI_MEM,
+  ROW_ANDI_DN,
+  ROW_ANDI_MEM,
+  ROW_EORI_DN,
+  ROW_EORI_MEM,
+  ROW_ORI_DN,
+  ROW_ORI_MEM,
+  ROW_SUBI_DN,
+  ROW_SUBI_MEM,
+  ROW_CMPI_DN,
+  ROW_CMPI_MEM,
+  /* §11.6.13, whole. */
+  ROW_BTST_IMM_DN,
+  ROW_BTST_DN_DN,
+  ROW_BTST_IMM_MEM,
+  ROW_BTST_DN_MEM,
+  ROW_BCHG_IMM_DN,
+  ROW_BCHG_DN_DN,
+  ROW_BCHG_IMM_MEM,
+  ROW_BCHG_DN_MEM,
+  ROW_BCLR_IMM_DN,
+  ROW_BCLR_DN_DN,
+  ROW_BCLR_IMM_MEM,
+  ROW_BCLR_DN_MEM,
+  ROW_BSET_IMM_DN,
+  ROW_BSET_DN_DN,
+  ROW_BSET_IMM_MEM,
+  ROW_BSET_DN_MEM,
+  /* §11.6.6's single effective address format, the memory and immediate
+   * sources. */
+  ROW_MOVE_EA_DN,
+  ROW_MOVE_EA_AN,
+  ROW_MOVE_SOURCE_IND,
+  ROW_MOVE_SOURCE_POSTINC,
+  ROW_MOVE_SOURCE_PREDEC,
+  ROW_MOVE_EA_D16_AN,
+  ROW_MOVE_EA_ABS_W,
+  ROW_MOVE_EA_ABS_L,
   ROW_COUNT,
 };
 
@@ -246,6 +287,80 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     /* `**` in the table: the immediate is fetched through a separate effective
      * address time, so this figure is not the whole cost. */
     [ROW_ADDI_DN] = {"ADDI #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+
+    /* The rest of §11.6.9, read as the page image (p. 11-42), 2026-09-14.
+     *
+     * The five `#<data>,Dn` forms are `ADDI`'s row five more times, and the
+     * memory forms are `ADD Dn,EA`'s shape -- `3(0/0/1)` against `4(0/1/1)`,
+     * one write -- except **`CMPI #<data>,Mem`**, which is `2(0/0/0)` with a
+     * tail of 0: a compare reads its destination and never writes it back, so
+     * the write and the tail it would have left both go. `ADDQ`/`SUBQ` to
+     * memory are `*`, fetch effective address; every `I` form is `**`, the
+     * immediate-and-destination table. */
+    [ROW_ADDQ_MEM] = {"ADDQ #<data>,Mem", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_SUBQ_MEM] = {"SUBQ #<data>,Mem", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_ADDI_MEM] = {"ADDI #<data>,Mem", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_ANDI_DN] = {"ANDI #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_ANDI_MEM] = {"ANDI #<data>,Mem", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_EORI_DN] = {"EORI #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_EORI_MEM] = {"EORI #<data>,Mem", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_ORI_DN] = {"ORI #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_ORI_MEM] = {"ORI #<data>,Mem", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_SUBI_DN] = {"SUBI #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_SUBI_MEM] = {"SUBI #<data>,Mem", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_CMPI_DN] = {"CMPI #<data>,Dn", {.head = 2, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_CMPI_MEM] = {"CMPI #<data>,Mem", {.head = 0, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+
+    /* §11.6.13, Bit Manipulation Instructions, whole (p. 11-46, page image).
+     *
+     * **`BTST` is two clocks cheaper than the other three in every form**, 4
+     * against 6 -- and it is the only one of the four with no write in its
+     * memory forms, so that is not the whole difference: the register forms,
+     * which write nothing either, still differ by two. The `#<data>` register
+     * forms are two words, the bit number riding in an extension, and carry no
+     * footnote because the table prices that word itself; the memory forms are
+     * `#`, "Add Fetch Immediate Effective Address Time", the same §11.6.2 table
+     * `**` names elsewhere, and `*` for the dynamic `Dn,Mem` forms. */
+    [ROW_BTST_IMM_DN] = {"BTST #<data>,Dn", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BTST_DN_DN] = {"BTST Dn,Dn", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_BTST_IMM_MEM] = {"BTST #<data>,Mem", {.head = 0, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BTST_DN_MEM] = {"BTST Dn,Mem", {.head = 0, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_BCHG_IMM_DN] = {"BCHG #<data>,Dn", {.head = 6, .tail = 0, .cache_case = 6, .no_cache_case = 6, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BCHG_DN_DN] = {"BCHG Dn,Dn", {.head = 6, .tail = 0, .cache_case = 6, .no_cache_case = 6, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_BCHG_IMM_MEM] = {"BCHG #<data>,Mem", {.head = 0, .tail = 0, .cache_case = 6, .no_cache_case = 6, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BCHG_DN_MEM] = {"BCHG Dn,Mem", {.head = 0, .tail = 0, .cache_case = 6, .no_cache_case = 6, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_BCLR_IMM_DN] = {"BCLR #<data>,Dn", {.head = 6, .tail = 0, .cache_case = 6, .no_cache_case = 6, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BCLR_DN_DN] = {"BCLR Dn,Dn", {.head = 6, .tail = 0, .cache_case = 6, .no_cache_case = 6, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_BCLR_IMM_MEM] = {"BCLR #<data>,Mem", {.head = 0, .tail = 0, .cache_case = 6, .no_cache_case = 6, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BCLR_DN_MEM] = {"BCLR Dn,Mem", {.head = 0, .tail = 0, .cache_case = 6, .no_cache_case = 6, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_BSET_IMM_DN] = {"BSET #<data>,Dn", {.head = 6, .tail = 0, .cache_case = 6, .no_cache_case = 6, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BSET_DN_DN] = {"BSET Dn,Dn", {.head = 6, .tail = 0, .cache_case = 6, .no_cache_case = 6, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_BSET_IMM_MEM] = {"BSET #<data>,Mem", {.head = 0, .tail = 0, .cache_case = 6, .no_cache_case = 6, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BSET_DN_MEM] = {"BSET Dn,Mem", {.head = 0, .tail = 0, .cache_case = 6, .no_cache_case = 6, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+
+    /* §11.6.6, the single effective address format's `*` rows (p. 11-37,
+     * page image): every source that is not a register, composed with §11.6.1
+     * for the source, since "the fetch effective address table is needed on
+     * most MOVE operations (source, destination dependent)" and the MOVE
+     * table's own figure already includes the destination address.
+     *
+     * **A register source moving into `(d16,An)` or an absolute address is one
+     * of these rows too**: the table has no `MOVE Rn,xxx.L`, only `MOVE
+     * EA,xxx.L`, and `EA` "is any Effective Address". §11.6.1's register rows
+     * are what make that composition cost nothing extra.
+     *
+     * The brief-format row `MOVE EA,(d8,An,Xn)` and every full-format row are
+     * **not** here: mode 6 is one field for both formats, and which one it is
+     * lives in an extension word this lookup is not given. Named rather than
+     * guessed. */
+    [ROW_MOVE_EA_DN] = {"MOVE EA,Dn", {.head = 0, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_MOVE_EA_AN] = {"MOVE EA,An", {.head = 0, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_MOVE_SOURCE_IND] = {"MOVE SOURCE,(An)", {.head = 2, .tail = 0, .cache_case = 4, .no_cache_case = 5, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_MOVE_SOURCE_POSTINC] = {"MOVE SOURCE,(An)+", {.head = 2, .tail = 0, .cache_case = 4, .no_cache_case = 5, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_MOVE_SOURCE_PREDEC] = {"MOVE SOURCE,-(An)", {.head = 2, .tail = 0, .cache_case = 4, .no_cache_case = 5, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_MOVE_EA_D16_AN] = {"MOVE EA,(d16,An)", {.head = 2, .tail = 0, .cache_case = 4, .no_cache_case = 5, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_MOVE_EA_ABS_W] = {"MOVE EA,xxx.W", {.head = 2, .tail = 0, .cache_case = 4, .no_cache_case = 5, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_MOVE_EA_ABS_L] = {"MOVE EA,xxx.L", {.head = 0, .tail = 0, .cache_case = 6, .no_cache_case = 7, .writes = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ODD_WORDS},
 };
 
 #define TABLE_COUNT (sizeof TABLE / sizeof TABLE[0])
@@ -296,6 +411,97 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
     return &TABLE[ROW_LINK_L];
   }
 
+  /* Family 0000: the immediates of §11.6.9, the bit operations of §11.6.13 and
+   * the logical-to-status forms of §11.6.16.
+   *
+   * **`ADDI #<data>,Dn` and the status forms were rows nothing returned** --
+   * both sat in the table from the day they were transcribed and no branch of
+   * this function reached them, so every `ORI #$0700,SR` the boot PROM runs was
+   * charged bus time alone. The same defect `NBCD` had, found by the same
+   * question: what is the row called by? `timing_table_suite` now asks it of
+   * every row. */
+  if (family == 0x0u) {
+    const unsigned size_field = (unsigned)((instruction >> 6) & 0x3u);
+    const unsigned reg = (unsigned)(instruction & 0x7u);
+    const bool dynamic_bit = ((instruction >> 8) & 1u) != 0u;
+    const unsigned operation = (unsigned)((instruction >> 9) & 0x7u);
+    const bool immediate_destination = (mode == 0x7u) && (reg == 0x4u);
+
+    if (dynamic_bit) {
+      /* `0000 rrr1 tt mode reg`, where mode 001 is `MOVEP` instead. `tt` is
+       * the operation, not a size. */
+      if (mode == 0x1u) {
+        return nullptr;
+      }
+      /* Only `BTST` may test a bit of immediate data; the other three would
+       * be writing to it. */
+      if (immediate_destination && size_field != 0x0u) {
+        return nullptr;
+      }
+      static const unsigned DN_DN[4] = {ROW_BTST_DN_DN, ROW_BCHG_DN_DN,
+                                        ROW_BCLR_DN_DN, ROW_BSET_DN_DN};
+      static const unsigned DN_MEM[4] = {ROW_BTST_DN_MEM, ROW_BCHG_DN_MEM,
+                                         ROW_BCLR_DN_MEM, ROW_BSET_DN_MEM};
+      return &TABLE[mode == 0x0u ? DN_DN[size_field] : DN_MEM[size_field]];
+    }
+
+    if (operation == 0x4u) {
+      /* `0000 1000 tt mode reg`, the static forms: the bit number is in an
+       * extension word. */
+      if (mode == 0x1u || immediate_destination) {
+        return nullptr;
+      }
+      static const unsigned IMM_DN[4] = {ROW_BTST_IMM_DN, ROW_BCHG_IMM_DN,
+                                         ROW_BCLR_IMM_DN, ROW_BSET_IMM_DN};
+      static const unsigned IMM_MEM[4] = {ROW_BTST_IMM_MEM, ROW_BCHG_IMM_MEM,
+                                          ROW_BCLR_IMM_MEM, ROW_BSET_IMM_MEM};
+      return &TABLE[mode == 0x0u ? IMM_DN[size_field] : IMM_MEM[size_field]];
+    }
+
+    /* A size of `11` is `CMP2`/`CHK2`/`CALLM`/`RTM`, and operation 111 is
+     * `MOVES` and `CAS` -- different instructions, not wider immediates. */
+    if (size_field == 0x3u || operation == 0x7u || mode == 0x1u) {
+      return nullptr;
+    }
+
+    if (immediate_destination) {
+      /* `ORI`, `ANDI` and `EORI` to `CCR` (size 00) or `SR` (size 01). */
+      const bool logical =
+          operation == 0x0u || operation == 0x1u || operation == 0x5u;
+      if (logical && size_field <= 0x1u) {
+        return &TABLE[ROW_LOGICAL_TO_SR];
+      }
+      return nullptr;
+    }
+
+    static const unsigned IMMEDIATE_DN[8] = {ROW_ORI_DN,  ROW_ANDI_DN,
+                                             ROW_SUBI_DN, ROW_ADDI_DN,
+                                             ROW_COUNT,   ROW_EORI_DN,
+                                             ROW_CMPI_DN, ROW_COUNT};
+    static const unsigned IMMEDIATE_MEM[8] = {ROW_ORI_MEM,  ROW_ANDI_MEM,
+                                              ROW_SUBI_MEM, ROW_ADDI_MEM,
+                                              ROW_COUNT,    ROW_EORI_MEM,
+                                              ROW_CMPI_MEM, ROW_COUNT};
+    const unsigned row =
+        mode == 0x0u ? IMMEDIATE_DN[operation] : IMMEDIATE_MEM[operation];
+    return row == ROW_COUNT ? nullptr : &TABLE[row];
+  }
+
+  /* `ADDQ` and `SUBQ` to memory, §11.6.9's `*` rows. Ahead of the
+   * memory-destination block below, which reads bits 8-6 as an arithmetic
+   * opmode and would send a `SUBQ` to no row. A size of `11` is `Scc`/`DBcc`/
+   * `TRAPcc`, which are not these. */
+  /* `Scc Dn`, the other row nothing returned: size `11` with mode 000. Mode
+   * 001 is `DBcc`, priced through `ap_m68030_timing_for_dbcc`. */
+  if (family == 0x5u && ((instruction >> 6) & 0x3u) == 0x3u && mode == 0x0u) {
+    return &TABLE[ROW_SCC_DN];
+  }
+  if (family == 0x5u && ((instruction >> 6) & 0x3u) != 0x3u &&
+      !register_source) {
+    const bool subtract = ((instruction >> 8) & 1u) != 0u;
+    return subtract ? &TABLE[ROW_SUBQ_MEM] : &TABLE[ROW_ADDQ_MEM];
+  }
+
   /* §11.6.11's single-operand forms, family 0100. Bits 11-9 choose the
    * operation and bits 7-6 the size, with `11` an escape to a different
    * instruction entirely -- so a size of `11` is not a wider operand here and
@@ -304,6 +510,20 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
   if (family == 0x4u) {
     const unsigned row = (unsigned)((instruction >> 9) & 0x7u);
     const unsigned size_field = (unsigned)((instruction >> 6) & 0x3u);
+    /* Two rows this block used to refuse before reaching: `EXT` is `$488x`
+     * (word), `$48Cx` (long) and `$49Cx` (`EXTB.L`), and `TAS Dn` is `$4ACx`
+     * -- the size field reads `11` in three of the four, which the refusal
+     * below treats as an escape. Both rows sat in the table returned by
+     * nothing. */
+    if (mode == 0x0u) {
+      if ((instruction & 0xFFB8u) == 0x4880u ||
+          (instruction & 0xFFF8u) == 0x49C0u) {
+        return &TABLE[ROW_EXT_DN];
+      }
+      if ((instruction & 0xFFF8u) == 0x4AC0u) {
+        return &TABLE[ROW_TAS_DN];
+      }
+    }
     if (size_field == 0x3u || mode != 0x0u) {
       return nullptr;
     }
@@ -381,26 +601,56 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
 
   /* MOVE and MOVEA, families 0001, 0010 and 0011. The destination's mode sits
    * in bits 8-6 and its register in 11-9, reversed from the source -- which is
-   * the field order that has caught this project out before. Only a register
-   * source is transcribed; a memory source needs a fetch effective address time
-   * this module does not carry. */
+   * the field order that has caught this project out before.
+   *
+   * A register source into a register or a simple indirect destination has
+   * its own row. Every other combination is one of §11.6.6's `*` rows, priced
+   * with §11.6.1's fetch time for the source -- which the comment here used to
+   * say "this module does not carry", true when it was written and not since
+   * §11.6.1 landed. */
   if (family >= 0x1u && family <= 0x3u) {
     const unsigned destination_mode = (unsigned)((instruction >> 6) & 0x7u);
-    if (!register_source) {
-      return nullptr;
+    const unsigned destination_register =
+        (unsigned)((instruction >> 9) & 0x7u);
+    if (register_source) {
+      switch (destination_mode) {
+      case 0x0u:
+        return &TABLE[ROW_MOVE_RN_DN];
+      case 0x1u:
+        return &TABLE[ROW_MOVE_RN_AN];
+      case 0x2u:
+        return &TABLE[ROW_MOVE_RN_IND];
+      case 0x3u:
+        return &TABLE[ROW_MOVE_RN_POSTINC];
+      case 0x4u:
+        return &TABLE[ROW_MOVE_RN_PREDEC];
+      default:
+        break;
+      }
     }
     switch (destination_mode) {
     case 0x0u:
-      return &TABLE[ROW_MOVE_RN_DN];
+      return &TABLE[ROW_MOVE_EA_DN];
     case 0x1u:
-      return &TABLE[ROW_MOVE_RN_AN];
+      return &TABLE[ROW_MOVE_EA_AN];
     case 0x2u:
-      return &TABLE[ROW_MOVE_RN_IND];
+      return &TABLE[ROW_MOVE_SOURCE_IND];
     case 0x3u:
-      return &TABLE[ROW_MOVE_RN_POSTINC];
+      return &TABLE[ROW_MOVE_SOURCE_POSTINC];
     case 0x4u:
-      return &TABLE[ROW_MOVE_RN_PREDEC];
+      return &TABLE[ROW_MOVE_SOURCE_PREDEC];
+    case 0x5u:
+      return &TABLE[ROW_MOVE_EA_D16_AN];
+    case 0x7u:
+      if (destination_register == 0x0u) {
+        return &TABLE[ROW_MOVE_EA_ABS_W];
+      }
+      if (destination_register == 0x1u) {
+        return &TABLE[ROW_MOVE_EA_ABS_L];
+      }
+      return nullptr;
     default:
+      /* Mode 6: brief or full format, told apart only by the extension. */
       return nullptr;
     }
   }
