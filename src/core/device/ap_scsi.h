@@ -193,6 +193,14 @@ typedef struct ap_scsi_bus {
   uint32_t selection_timeouts;
   uint32_t commands;
   uint32_t check_conditions;
+  /* The last transaction, for the boot report and for nothing else -- which
+   * is why `ap_board_hash_scsi_bus` does not name them. A count of check
+   * conditions says a target refused something; which command, and what it
+   * answered, is what makes the refusal checkable against the target's manual. */
+  uint8_t last_cdb[AP_SCSI_CDB_MAX];
+  uint8_t last_cdb_length;
+  uint8_t last_id;
+  uint8_t last_status;
 } ap_scsi_bus_t;
 
 /* Power-on: every address empty, no initiator, no silence outstanding. */

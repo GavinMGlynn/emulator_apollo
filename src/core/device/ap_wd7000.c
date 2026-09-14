@@ -44,6 +44,9 @@ static void ap_wd7000_clear(ap_wd7000_t *asc) {
   const uint32_t dma_reads = asc->dma_reads;
   const uint32_t dma_writes = asc->dma_writes;
   const uint32_t dma_refused = asc->dma_refused;
+  const uint32_t icmbs_posted = asc->icmbs_posted;
+  const uint8_t last_icmb_code = asc->last_icmb_code;
+  const uint32_t last_icmb_scb = asc->last_icmb_scb;
   memset(asc, 0, sizeof *asc);
   asc->powered_on = powered_on;
   asc->now = now;
@@ -57,6 +60,9 @@ static void ap_wd7000_clear(ap_wd7000_t *asc) {
   asc->dma_reads = dma_reads;
   asc->dma_writes = dma_writes;
   asc->dma_refused = dma_refused;
+  asc->icmbs_posted = icmbs_posted;
+  asc->last_icmb_code = last_icmb_code;
+  asc->last_icmb_scb = last_icmb_scb;
   ap_wd7000_default_parameters(asc);
   /* §5.2.1: the upper nibble clears, so READY is down and the port reads `0F`
    * until the diagnostics finish. §4.9.1: the LED is lit while they run and
@@ -585,6 +591,9 @@ static bool post_icmb(ap_wd7000_t *asc, uint8_t code, uint32_t cdb_address) {
     }
     ap_wd7000_memory_write(asc, address, code, &ok);
     ap_wd7000_memory_write24(asc, address + 1u, cdb_address, &ok);
+    asc->icmbs_posted++;
+    asc->last_icmb_code = code;
+    asc->last_icmb_scb = cdb_address;
     return ap_wd7000_post_interrupt(
         asc, (uint8_t)(AP_WD7000_INT_ICMB_SERVICE |
                        (m & AP_WD7000_INT_BOX_MASK)));

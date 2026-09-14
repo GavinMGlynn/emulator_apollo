@@ -42,6 +42,19 @@ unsigned ap_atmap_index(uint32_t dma_address, ap_atmap_transfer_t transfer) {
   if (reachable == 0u) {
     return 0u;
   }
+  /* **A bus master indexes from entry 0.** Its address is not an offset into
+   * the AT memory window the way an 8237's is. `[ADD]` §4.2.1.4 says
+   * "`000000`-`07FFFF` is the space the map uses when an external master holds
+   * the bus", so bits <18:10> *are* the entry. This used
+   * `AP_ATMAP_WINDOW_FIRST_ENTRY` for every width. Domain/OS showed otherwise
+   * by what it wrote: the SCSI driver's mail block is physical `0106A400`, and
+   * the kernel programs **entries 0, 1 and 2** with `41A9`, `41AA` and `41AB`.
+   * Entries 512 onwards stay zero. So the ASC's reads and writes landed 512
+   * pages away, a garbage CDB reached the drive, and a completion went where
+   * the driver never looked. */
+  if (transfer == AP_ATMAP_TRANSFER_BUS_MASTER) {
+    return (unsigned)(raw & (reachable - 1u));
+  }
   /* Wrapped in the *Series 3000/4000* map's size deliberately. A DMA index is
    * §4.2.1.4's, and that section describes the map every model has; a machine
    * with a larger one has more storage, not a wider DMA index. Widening this

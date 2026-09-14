@@ -6148,6 +6148,19 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
            (unsigned long long)board->scsi_bus.selection_timeouts,
            (unsigned long long)board->scsi_bus.commands,
            (unsigned long long)board->scsi_bus.check_conditions);
+    /* Which command, to whom, and what came back: the counts above say a
+     * target refused something, and this is what makes the refusal checkable
+     * against the target's own manual. */
+    if (board->scsi_bus.commands > 0u) {
+      printf("  scsi last    ID %u, CDB", board->scsi_bus.last_id);
+      for (unsigned i = 0; i < board->scsi_bus.last_cdb_length; i++) {
+        printf(" %02X", board->scsi_bus.last_cdb[i]);
+      }
+      printf(", status %02X\n", board->scsi_bus.last_status);
+    }
+    printf("  scsi icmb    %llu posted, last code %02X for SCB %06X\n",
+           (unsigned long long)asc->icmbs_posted, asc->last_icmb_code,
+           asc->last_icmb_scb);
     if (board->scsi_drive_fitted) {
       const ap_exb8200_t *drive = &board->scsi_drive;
       printf("  scsi drive   %s, %s, record %u of %u, %llu commands,"
@@ -6157,6 +6170,14 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
              drive->media.records, (unsigned long long)drive->commands,
              (unsigned long long)drive->check_conditions,
              drive->sense[2] & AP_EXB8200_SENSE_KEY_MASK);
+      /* The whole Error Class 7 block: the key alone says "Illegal Request",
+       * and the bytes after it are where the drive says which part of the
+       * request. */
+      printf("  scsi sense  ");
+      for (unsigned i = 0; i < AP_EXB8200_SENSE_BYTES; i++) {
+        printf(" %02X", drive->sense[i]);
+      }
+      printf("\n");
     }
   }
   /* The cartridge drive, when one is loaded. The DMA block above says a

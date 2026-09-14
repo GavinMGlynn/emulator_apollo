@@ -440,6 +440,14 @@ typedef struct {
    * rather than asserted, because a host that has not enabled DMA yet is in an
    * ordinary state and not an error. */
   uint32_t dma_refused;
+
+  /* The completions this part posted, and the last one's code and SCB -- report
+   * instruments, not state, and so not hashed. The host's reaction to a
+   * completion is decided by its code, which is otherwise visible only in host
+   * memory a later command may already have reused. */
+  uint32_t icmbs_posted;
+  uint8_t last_icmb_code;
+  uint32_t last_icmb_scb;
 } ap_wd7000_t;
 
 /* Power-on. Clears everything, including `powered_on`, so the first diagnostic

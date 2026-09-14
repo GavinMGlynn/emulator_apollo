@@ -174,9 +174,16 @@ typedef enum {
    * buffer at "64 KB for 8-bit devices, 128 KB for 16-bit devices, and 512 KB
    * for bus-master devices". A page is 1 KB, so the first two are exactly
    * §4.2.1.4's 64 and 128 entries, arrived at from the software side -- which
-   * is what makes the third one usable: **512 entries**. Starting at
-   * `AP_ATMAP_WINDOW_FIRST_ENTRY`, that is entries 512-1023, the whole of a
-   * Series 3000/4000 map above the window and nothing else in it that size.
+   * is what makes the third one usable: **512 entries**.
+   *
+   * **CORRECTED 2026-09-14: those are entries 0-511, not 512-1023.** §4.2.1.4
+   * gives the bus master's own address range, "`000000`-`07FFFF` is the space
+   * the map uses when an external master holds the bus". Domain/OS confirms
+   * it: its SCSI driver programs entries 0-2 for the mail block and leaves 512
+   * onwards empty (`ap_atmap_index`). What this said, kept because it explains
+   * the code before the correction: "Starting at `AP_ATMAP_WINDOW_FIRST_ENTRY`,
+   * that is entries 512-1023, the whole of a Series 3000/4000 map above the
+   * window and nothing else in it that size."
    *
    * **The offset is ten bits, not nine.** The 16-bit case drops bit 0 because
    * an 8237 counts words and has no A0 to drive. A bus master drives its own

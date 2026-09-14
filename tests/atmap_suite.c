@@ -458,19 +458,29 @@ static void test_a_bus_master_reaches_five_hundred_and_twelve_entries(void) {
       512u, ap_atmap_reachable_entries(AP_ATMAP_TRANSFER_BUS_MASTER));
 }
 
-/* Starting at the window's first entry, 512 of them is exactly entries
- * 512-1023: the whole of a Series 3000/4000 map above the window, and nothing
- * else in it is that size. */
-static void test_the_bus_master_window_is_the_upper_half_of_the_map(void) {
+/* **A bus master indexes the map from entry 0; an 8237 does not.** `[ADD]`
+ * §4.2.1.4: "`000000`-`07FFFF` is the space the map uses when an external
+ * master holds the bus" -- the master's own address, not an offset into the AT
+ * memory window at `080000` the way a DMA channel's is.
+ *
+ * This test used to say the window was entries 512-1023, and the code agreed.
+ * **Domain/OS says otherwise by what it writes**: its SCSI driver's mail block is
+ * physical `0106A400`, and it programs entries 0, 1 and 2 with `41A9`, `41AA`,
+ * `41AB` while leaving 512 onwards zero. Every DMA cycle the ASC ran went 512
+ * pages astray, which is how a garbage CDB reached the drive. */
+static void test_a_bus_master_indexes_the_map_from_entry_zero(void) {
+  TEST_ASSERT_EQUAL_UINT(
+      0u, ap_atmap_index(0x000000u, AP_ATMAP_TRANSFER_BUS_MASTER));
+  TEST_ASSERT_EQUAL_UINT(
+      511u, ap_atmap_index(0x07FC00u, AP_ATMAP_TRANSFER_BUS_MASTER));
+  /* It wraps at the top of its reach -- the `PROVISIONAL` the header names,
+   * whose discriminator is a master programmed above `07FFFF`. */
+  TEST_ASSERT_EQUAL_UINT(
+      0u, ap_atmap_index(0x080000u, AP_ATMAP_TRANSFER_BUS_MASTER));
+  /* And the DMA widths still start at the window's first entry. */
   TEST_ASSERT_EQUAL_UINT(512u, AP_ATMAP_WINDOW_FIRST_ENTRY);
-  TEST_ASSERT_EQUAL_UINT(
-      512u, ap_atmap_index(0x080000u, AP_ATMAP_TRANSFER_BUS_MASTER));
-  TEST_ASSERT_EQUAL_UINT(
-      1023u, ap_atmap_index(0x0FFC00u, AP_ATMAP_TRANSFER_BUS_MASTER));
-  /* And it wraps at the top of its reach rather than running into the DS5500's
-   * extra entries -- which is the `PROVISIONAL` the header names. */
-  TEST_ASSERT_EQUAL_UINT(
-      512u, ap_atmap_index(0x100000u, AP_ATMAP_TRANSFER_BUS_MASTER));
+  TEST_ASSERT_EQUAL_UINT(512u,
+                         ap_atmap_index(0x000000u, AP_ATMAP_TRANSFER_8BIT));
 }
 
 /* Ten bits of offset, not nine: a bus master drives its own A0, so an odd byte
@@ -485,20 +495,26 @@ static void test_a_bus_master_can_address_an_odd_byte(void) {
       0x000u, ap_atmap_offset(0x080001u, AP_ATMAP_TRANSFER_16BIT));
 }
 
-/* And the translation composes: an entry's page number with the byte offset. */
+/* And the translation composes: an entry's page number with the byte offset.
+ * The values are the guest's own -- Domain/OS's mail block page in entry 0, and
+ * its OGMB 0 naming an SCB at `000400`, which is entry 1. */
 static void test_a_bus_master_translation_is_page_plus_byte_offset(void) {
   ap_atmap_t map;
   ap_atmap_init(&map);
-  map.entry[512] = 0x1234u;
+  map.entry[0] = 0x41A9u;
+  map.entry[1] = 0x41AAu;
   TEST_ASSERT_EQUAL_HEX32(
-      (0x1234u << 10) | 0x2Bu,
-      ap_atmap_translate(&map, 0x08002Bu, AP_ATMAP_TRANSFER_BUS_MASTER));
+      0x0106A400u,
+      ap_atmap_translate(&map, 0x000000u, AP_ATMAP_TRANSFER_BUS_MASTER));
+  TEST_ASSERT_EQUAL_HEX32(
+      (0x41AAu << 10) | 0x2Bu,
+      ap_atmap_translate(&map, 0x00042Bu, AP_ATMAP_TRANSFER_BUS_MASTER));
 }
 
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_a_bus_master_reaches_five_hundred_and_twelve_entries);
-  RUN_TEST(test_the_bus_master_window_is_the_upper_half_of_the_map);
+  RUN_TEST(test_a_bus_master_indexes_the_map_from_entry_zero);
   RUN_TEST(test_a_bus_master_can_address_an_odd_byte);
   RUN_TEST(test_a_bus_master_translation_is_page_plus_byte_offset);
   RUN_TEST(test_an_entry_written_as_two_bytes_keeps_both_halves);

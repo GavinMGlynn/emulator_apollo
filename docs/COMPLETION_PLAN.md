@@ -4472,6 +4472,12 @@ discipline throughout.
   memory hook and bus away, and OGMB 0 at the kernel's base `000000` read as
   "no box". Both are fixed with tests. **Next**: the rerun boot's SCSI report
   — a selection and a REWIND on the bus is the integration check passing.
+  **That rerun reached the drive and crashed the kernel** (`Crash_Status
+  00380012`): the CDB was `04 18 00 00` three times, read 512 pages from the
+  mail block. A bus master indexes the translation map from entry 0 (§4.2.1.4,
+  and the kernel programs entries 0-2), not from 512. That is fixed with tests.
+  **Next**: the boot with that fix; its `scsi last` line should read a real
+  REWIND (`01`).
 - [ ] **`[030]` §11.6 is not fully transcribed, and the boot is timed by it.**
   "Instruction execution time — Closed" is true of the rows transcribed and
   said nothing of coverage. **Stage 1 landed 2026-09-14**: §11.6.9 and

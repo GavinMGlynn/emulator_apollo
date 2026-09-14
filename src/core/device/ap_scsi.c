@@ -180,6 +180,10 @@ bool ap_scsi_command(ap_scsi_bus_t *bus, uint8_t id, uint8_t lun,
   if (result->status == AP_SCSI_STATUS_CHECK_CONDITION) {
     bus->check_conditions++;
   }
+  memcpy(bus->last_cdb, cdb, cdb_length);
+  bus->last_cdb_length = (uint8_t)cdb_length;
+  bus->last_id = id;
+  bus->last_status = result->status;
   /* A target may not claim to have moved more than the initiator offered.
    * `[WD7000]` SCB bytes 16-18 are "maximum data transfer length, the
    * runaway-target guard", and this is where that guard lives. */
