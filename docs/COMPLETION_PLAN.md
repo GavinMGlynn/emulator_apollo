@@ -4507,10 +4507,13 @@ discipline throughout.
   returned made reachable — 60 → 97 rows. **Stage 2, same day**: §11.6.8's
   memory-source rows and §11.6.10 whole — whose seven instructions the lookup
   had been pricing as the arithmetic they share bits with — 97 → 124.
+  **Stage 3**: §11.6.11 and §11.6.12's memory forms, and the step composing
+  §11.6.3's calculate table — 124 → 138.
   **Owed, all read as page images**: §11.6.6 brief/full-format destinations
-  (needs the extension word), §11.6.7, §11.6.11/§11.6.12 memory forms,
-  §11.6.14, §11.6.16's rest, §11.6.17, §11.6.18, and composing the calculate
-  footnotes (`**` §11.6.3, `##` §11.6.4, `%` §11.6.5) in the step.
+  (needs the extension word), §11.6.7, §11.6.14, §11.6.16's rest, §11.6.17,
+  §11.6.18, and **the §11.6.4 (calculate immediate) and §11.6.5 (jump) tables,
+  which do not exist in the code** despite the ticked "§11.6.1–§11.6.5" item
+  above.
 
 *Paused 2026-09-13, kept as the record of what the next step was then:*
 

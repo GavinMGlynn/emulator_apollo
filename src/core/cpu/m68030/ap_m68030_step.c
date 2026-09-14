@@ -7961,6 +7961,12 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
           ea.kind, (out.instruction & 0xFF00u) != 0x0800u &&
                        ((out.instruction >> 6) & 3u) == 2u);
       break;
+    case AP_M68030_EA_TIME_CALCULATE:
+      /* §11.6.3: the address calculated and nothing read -- `CLR Mem` writes
+       * its destination without reading it first, which is the whole
+       * difference from `NEG Mem`'s fetch. */
+      ea_timing = ap_m68030_ea_calculate_timing(ea.kind);
+      break;
     case AP_M68030_EA_TIME_NONE:
       break;
     }

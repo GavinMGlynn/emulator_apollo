@@ -69,6 +69,11 @@ typedef enum {
   /* `**`, and §11.6.13's `#` for the same table -- §11.6.2, transcribed.
    * (This said "not transcribed" after it was.) */
   AP_M68030_EA_TIME_FETCH_IMMEDIATE,
+  /* §11.6.11's `**` and §11.6.7's `*` -- "Add Calculate Effective Address
+   * Time", §11.6.3: the address computed and nothing read. The footnote
+   * symbols mean different tables on different pages, which is why rows carry
+   * the table and not the symbol. */
+  AP_M68030_EA_TIME_CALCULATE,
 } ap_m68030_ea_time_t;
 
 typedef struct {

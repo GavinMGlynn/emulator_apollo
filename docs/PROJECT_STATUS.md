@@ -434,6 +434,48 @@ disk, closing the first-boot gate; the completion plan's finished items
 summarised, with their reasoning moved to the end of this file.
 
 
+## §11.6 stage 3: the single-operand and shift memory forms, and the calculate table (2026-09-14)
+
+§11.6.11 and §11.6.12's memory rows, from pp. 11-44 and 11-45 as page images,
+take the table from 124 to 138 rows.
+
+**The step now composes §11.6.3.** `AP_M68030_EA_TIME_CALCULATE` joins fetch
+and fetch-immediate, routed through `ap_m68030_ea_calculate_timing`, which had
+existed since the effective-address work and been used by no row. The page's
+two footnotes split §11.6.11 by what an instruction does to its operand.
+`NEG`, `NEGX`, `NOT` and `TST Mem` read it, so they carry `*`, fetch.
+`CLR` and `Scc Mem` write a value that does not depend on the old one, so
+they carry `**`, calculate. **`TAS Mem` is `**` and still carries a read,
+`12(1/0/1)`**: its read is half of the indivisible read-modify-write and is
+priced in the row, which is also why its head is 3.
+
+**§11.6.12 prints two register-count rows without `%` or `+`**: `ASL Dx,Dy` and
+`ROd Dx,Dy`, 8 clocks whatever the count. They were declined along with the
+count-dependent `LSd` and `ASR`, and are now reachable. **The page disagrees
+with itself on `ROXd Mem by 1`**, `4(0/0/1)` against `4(0/1/0)`. The instruction
+writes its operand back, so the cache case's count is taken, and the
+disagreement is recorded at the row.
+
+**And a stale tick, found while checking the calculate table.** The plan's
+"Effective address times, §11.6.1–§11.6.5" item is ticked, but
+`ap_m68030_ea_timing.c` has no §11.6.4 (calculate immediate) or §11.6.5 (jump)
+table under any name. Those are now named as owed.
+
+Decode traps the tests pin: `ILLEGAL` (`4AFC`) inside `TAS`'s group, `DBcc`
+and `TRAPcc` inside `Scc`'s, and the bit-field instructions (bit 11 set) inside
+the memory shifts'. One of the new decode cases was wrong the first time I
+wrote it. `E3D0` is `LSL (A0)`, not `ASL`, and the lookup said so.
+`test_a_status_register_write_costs_a_pipe_refill` found its row as "the one
+that costs 12"; `TAS Mem` also costs 12, so the test now looks the row up by
+`ANDI #,SR`.
+
+*Verification: `ctest` 152/152; no probe golden moved. Identity
+`8EB9AB7563073F29` → **`27A91756DC1A4FC5`**, clocks 1,797,986,197 →
+**1,809,346,575** (+0.63%). The console from "Self tests in progress" to the
+instruction limit is byte-identical to stage 2's, and the final PC is `2EE4`
+against `2EDC` in the same PROM loop. The same path, priced higher.*
+
+
 ## The EXB-8200 belongs at SCSI ID 1: 8 mm drives are IDs 1-4 (2026-09-14)
 
 **With byte 15 fixed, the driver interrogated the drive and still refused
@@ -4938,6 +4980,10 @@ held for one commit.
 **1,797,986,197 clocks**. The console is byte-identical to stage 1's and the
 final PC is the same, so only the price of the path moved — see "§11.6 stage 2".
 `2B2263E7CE58912C` held for one commit.
+
+**The reference is `27A91756DC1A4FC5` as of §11.6 stage 3, 2026-09-14**, at
+**1,809,346,575 clocks**. The console is byte-identical to stage 2's; see
+"§11.6 stage 3". `8EB9AB7563073F29` held for the commits between.
 
 *Measured rather than argued.* The same day's `ap_boardreg` change — the DS5500
 cache status register's bit 4 — is gated on `model == AP_MODEL_DN5500`, so it
@@ -19159,7 +19205,7 @@ failure that cost a bit position in the 68020's module entry word.
 | Per-instruction timing report (`--time-instructions`) | bus and cache time only, pinned as a golden; the 0/2 alternation is the cache holding register serving two instruction words per fetch | `tests/goldens/timing.txt`; oracle side by `tools/mame-oracle/steptime.lua` |
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
 | Constructed machine (`machine/`) | **An indivisible read-modify-write holds the bus as of 2026-09-06** -- `[030]` §7.7.1 has the arbitration state machine "ignore bus requests" during one, §11.9 and Appendix A restate it. Two failures compounded: `ap_m68030_arb_set_rmc` modelled the lock in full, three states because §7.7.4 distinguishes the first read cycle, and was called by `arb_suite` and by **nothing in `src/`** -- so a DMA channel asking during a semaphore operation was granted the bus; and `TAS`, the one instruction the architecture provides for semaphores, never asserted `RMC` at all, only `CAS` and `CAS2` did. Both fixed. The lock is held for the whole instruction where the hardware allows arbitration during the first read cycle -- narrowing it needs the per-cycle processor and is a named plan item. A 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and **stalls while another master holds the bus** — demonstrated rather than asserted: a cascaded AT master taken to ownership makes `ap_board_processor_may_run` false and costs the processor `AP_MACHINE_STALL_LIMIT` clocks for one instruction — and advances the devices that keep time | `machine_suite`, 70 tests -- two of them driving `ap_machine_tick`, which no test drove at all before 2026-09-08, one boardless and one on a real board; and one composing the SCSI wait loop's two memory forms from their tables on a running machine |
-| 68030 published timings (§11.6) | **Not complete: 124 rows**, and §11.6 has more. Whole: §11.6.9, §11.6.10, §11.6.13, §11.6.15. §11.6.8 is complete except the long multiplies and divides, which are selected by the extension word. §11.6.6's single-effective-address rows are in; the brief- and full-format destinations are not, since mode 6's format lives in the extension word. Also in: the register forms of §11.6.11 and §11.6.12, and part of §11.6.16. **Owed**: §11.6.7, §11.6.14, §11.6.17, §11.6.18, the memory forms of §11.6.11 and §11.6.12, and the rest of §11.6.16. All have been read as page images, 2026-09-14. The step also does not yet compose the calculate-address footnotes `**`/`##`/`%`. §11.6.10's seven instructions used to come back as the register arithmetic they share bits with: `ABCD -(An),-(An)` was priced as `AND Dn,Dn`. Scheduled as exposed microcode + measured operand bus + prefetch exposure (plain `max(microcode, bus)` was the retired first model — see above and `M68030_TIMING.md`), with `*` rows composed through §11.6.1 and `**`/`#` rows through §11.6.2. Branches are reached through their run-time outcome. Seven instructions agree with the oracle (`FINDINGS.md` C8). **Every row is reachable**, which six were not until 2026-09-14 (`ADDI #,Dn`, the SR/CCR forms, `EXT`, `TAS`, `Scc`, after `NBCD`); `DIVS.L`/`DIVU.L` are the named exceptions, selected by their extension word. The four divides carry the manual's data-dependent marker and are `PROVISIONAL` | `timing_table_suite`, 19 tests, one walking all 65,536 words for reachability; both published columns checked on a running machine by `machine_suite` |
+| 68030 published timings (§11.6) | **Not complete: 138 rows**, and §11.6 has more. Whole: §11.6.9, §11.6.10, §11.6.11, §11.6.13, §11.6.15. §11.6.12 is whole except `LSd` and `ASR` by register count, which the page marks `%`/`+` as count-dependent. §11.6.8 is complete except the long multiplies and divides, which the extension word selects. §11.6.6's single-effective-address rows are in; the brief- and full-format destinations are not, since mode 6's format lives in the extension word. Part of §11.6.16. **Owed**: §11.6.7, §11.6.14, §11.6.17, §11.6.18, the rest of §11.6.16 — all read as page images 2026-09-14 — and **the §11.6.4 and §11.6.5 address tables, which were never transcribed** though an old plan item says "§11.6.1–§11.6.5". The step composes §11.6.1, §11.6.2 and, since stage 3, §11.6.3. §11.6.10's seven instructions used to come back as the register arithmetic they share bits with: `ABCD -(An),-(An)` was priced as `AND Dn,Dn`. Scheduled as exposed microcode + measured operand bus + prefetch exposure (plain `max(microcode, bus)` was the retired first model — see above and `M68030_TIMING.md`), with `*` rows composed through §11.6.1 and `**`/`#` rows through §11.6.2. Branches are reached through their run-time outcome. Seven instructions agree with the oracle (`FINDINGS.md` C8). **Every row is reachable**, which six were not until 2026-09-14 (`ADDI #,Dn`, the SR/CCR forms, `EXT`, `TAS`, `Scc`, after `NBCD`); `DIVS.L`/`DIVU.L` are the named exceptions, selected by their extension word. The four divides carry the manual's data-dependent marker and are `PROVISIONAL` | `timing_table_suite`, 19 tests, one walking all 65,536 words for reachability; both published columns checked on a running machine by `machine_suite` |
 | 68030 ATC replacement | the history bit now means *recently used*, per `MC68851 PMMU User's Manual` §5.2.1.3 — a translating hit marks it, a `PTEST` probe does not. `PROVISIONAL` narrowed to victim choice among clear-history entries | `atc_suite`, 24 tests |
 | 68030 prefetch marginal cost | `NCC − CC` over the published prefetch count, computed in code across every row; the two rows where it is not integral are named in the test rather than rounded away | `timing_table_suite`, 19 tests |
 | 68030 effective address timings (§11.6.1, §11.6.3) | fetch and calculate rows for the non-full-format modes, with the table's `-` and "2+op head" notations carried rather than flattened. Not yet composed into the step | `ea_timing_suite`, 26 tests |

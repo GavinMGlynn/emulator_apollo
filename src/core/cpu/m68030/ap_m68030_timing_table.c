@@ -159,6 +159,22 @@ enum {
   ROW_PACK_PREDEC,
   ROW_UNPK_DN,
   ROW_UNPK_PREDEC,
+  /* §11.6.11's memory forms. */
+  ROW_CLR_MEM,
+  ROW_NEG_MEM,
+  ROW_NEGX_MEM,
+  ROW_NOT_MEM,
+  ROW_SCC_MEM,
+  ROW_TAS_MEM,
+  ROW_TST_MEM,
+  /* §11.6.12's memory shifts and the two fixed register-count rows. */
+  ROW_LS_MEM,
+  ROW_ASL_DX,
+  ROW_ASL_MEM,
+  ROW_ASR_MEM,
+  ROW_RO_DX,
+  ROW_RO_MEM,
+  ROW_ROX_MEM,
   ROW_COUNT,
 };
 
@@ -446,6 +462,41 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     [ROW_PACK_PREDEC] = {"PACK -(An),-(An),#<data>", {.head = 2, .tail = 1, .cache_case = 11, .no_cache_case = 11, .reads = 1, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_UNPK_DN] = {"UNPK Dn,Dn,#<data>", {.head = 8, .tail = 0, .cache_case = 8, .no_cache_case = 8, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_UNPK_PREDEC] = {"UNPK -(An),-(An),#<data>", {.head = 2, .tail = 1, .cache_case = 11, .no_cache_case = 11, .reads = 1, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+
+    /* §11.6.11's memory forms, p. 11-44 as page image. The footnotes split the
+     * table in two and mean what they say: `NEG`, `NEGX`, `NOT` and `TST` are
+     * `*`, fetch -- they read their operand -- while `CLR`, `Scc` and `TAS` are
+     * `**`, calculate. `CLR` and `Scc` write a value that does not depend on
+     * the old one, so there is no read to fetch. **`TAS` is `**` and still
+     * carries a read**, `12(1/0/1)`: its read is the indivisible half of the
+     * read-modify-write, and it is priced in the row rather than in the
+     * address. That is also why its head is 3 where the others are 0. */
+    [ROW_CLR_MEM] = {"CLR Mem", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_NEG_MEM] = {"NEG Mem", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_NEGX_MEM] = {"NEGX Mem", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_NOT_MEM] = {"NOT Mem", {.head = 0, .tail = 1, .cache_case = 3, .no_cache_case = 4, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_SCC_MEM] = {"Scc Mem", {.head = 0, .tail = 1, .cache_case = 5, .no_cache_case = 5, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_TAS_MEM] = {"TAS Mem", {.head = 3, .tail = 0, .cache_case = 12, .no_cache_case = 12, .reads = 1, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_CALCULATE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_TST_MEM] = {"TST Mem", {.head = 0, .tail = 0, .cache_case = 2, .no_cache_case = 2, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+
+    /* §11.6.12's memory shifts, all `*` and all by one bit, and the two
+     * register-count rows the page prints **without** `%` or `+`: `ASL Dx,Dy`
+     * and `ROd Dx,Dy` cost 8 whatever the count, where `LSd` and `ASR` split
+     * by count and stay unpriced. `ASL` is again dearer than `ASR` in memory, 6
+     * against 4, for the same reason as the register form: it watches the sign.
+     *
+     * **`ROXd Mem by 1` disagrees with itself on the page**: `4(0/0/1)` in the
+     * cache case and `4(0/1/0)` in the no-cache case, a write in one and not
+     * the other. The instruction writes its operand back, so the cache case's
+     * count is taken, and the other is recorded here rather than silently
+     * dropped. */
+    [ROW_LS_MEM] = {"LSd Mem by 1", {.head = 0, .tail = 0, .cache_case = 4, .no_cache_case = 4, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_ASL_DX] = {"ASL Dx,Dy", {.head = 4, .tail = 0, .cache_case = 8, .no_cache_case = 8, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_ASL_MEM] = {"ASL Mem by 1", {.head = 0, .tail = 0, .cache_case = 6, .no_cache_case = 6, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_ASR_MEM] = {"ASR Mem by 1", {.head = 0, .tail = 0, .cache_case = 4, .no_cache_case = 4, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_RO_DX] = {"ROd Dx,Dy", {.head = 6, .tail = 0, .cache_case = 8, .no_cache_case = 8, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_RO_MEM] = {"ROd Mem by 1", {.head = 0, .tail = 0, .cache_case = 6, .no_cache_case = 6, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_ROX_MEM] = {"ROXd Mem by 1", {.head = 0, .tail = 0, .cache_case = 4, .no_cache_case = 4, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
 };
 
 #define TABLE_COUNT (sizeof TABLE / sizeof TABLE[0])
@@ -581,6 +632,12 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
   if (family == 0x5u && ((instruction >> 6) & 0x3u) == 0x3u && mode == 0x0u) {
     return &TABLE[ROW_SCC_DN];
   }
+  /* `Scc Mem`, §11.6.11's `**` row. Mode 7 registers 2-4 in this group are
+   * `TRAPcc` with its word, long and no operand, not a set of an immediate. */
+  if (family == 0x5u && ((instruction >> 6) & 0x3u) == 0x3u && mode >= 0x2u &&
+      !(mode == 0x7u && (instruction & 0x7u) >= 0x2u)) {
+    return &TABLE[ROW_SCC_MEM];
+  }
   if (family == 0x5u && ((instruction >> 6) & 0x3u) != 0x3u &&
       !register_source) {
     const bool subtract = ((instruction >> 8) & 1u) != 0u;
@@ -600,6 +657,31 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
      * -- the size field reads `11` in three of the four, which the refusal
      * below treats as an escape. Both rows sat in the table returned by
      * nothing. */
+    /* §11.6.11's memory forms: the same operations with an address, mode 2
+     * and up. `TAS` is `$4AC0` with a size of `11`; `$4AFC` inside it is
+     * `ILLEGAL`, mode 7 register 4, which is not a `TAS` of an immediate. Row
+     * 4 with a memory operand is `NBCD Mem`, which the table does not print. */
+    if (mode >= 0x2u) {
+      if ((instruction & 0xFFC0u) == 0x4AC0u) {
+        return instruction == 0x4AFCu ? nullptr : &TABLE[ROW_TAS_MEM];
+      }
+      if (size_field != 0x3u) {
+        switch (row) {
+        case 0x0u:
+          return &TABLE[ROW_NEGX_MEM];
+        case 0x1u:
+          return &TABLE[ROW_CLR_MEM];
+        case 0x2u:
+          return &TABLE[ROW_NEG_MEM];
+        case 0x3u:
+          return &TABLE[ROW_NOT_MEM];
+        case 0x5u:
+          return &TABLE[ROW_TST_MEM];
+        default:
+          break;
+        }
+      }
+    }
     if (mode == 0x0u) {
       if ((instruction & 0xFFB8u) == 0x4880u ||
           (instruction & 0xFFF8u) == 0x49C0u) {
@@ -662,13 +744,41 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
      * Reading bits 5-3 as a mode here is what an earlier version did, and it
      * rejected ROR while admitting LSR purely by where their type bits fell. */
     if (((instruction >> 6) & 0x3u) == 0x3u) {
-      return nullptr;
+      /* The memory shifts, by one bit: bits 10-9 are the type and bit 8 the
+       * direction. **Bit 11 set is not a shift at all** -- `$E8C0` upward are
+       * the bit-field instructions -- so only bit 11 clear reaches a row. */
+      if ((instruction & 0x0800u) != 0u) {
+        return nullptr;
+      }
+      const bool memory_left = ((instruction >> 8) & 1u) != 0u;
+      switch ((instruction >> 9) & 0x3u) {
+      case 0x0u:
+        return memory_left ? &TABLE[ROW_ASL_MEM] : &TABLE[ROW_ASR_MEM];
+      case 0x1u:
+        return &TABLE[ROW_LS_MEM];
+      case 0x2u:
+        return &TABLE[ROW_ROX_MEM];
+      default:
+        return &TABLE[ROW_RO_MEM];
+      }
     }
     const unsigned type = (unsigned)((instruction >> 3) & 0x3u);
     const bool count_in_register = ((instruction >> 5) & 1u) != 0u;
     const bool left = ((instruction >> 8) & 1u) != 0u;
     if (count_in_register) {
-      return nullptr; /* count-dependent; see the table's %% and + markers */
+      /* Only `LSd` and `ASR` are count-dependent -- they carry `%` and `+`.
+       * `ASL Dx,Dy` and `ROd Dx,Dy` are printed once, unmarked, and `ROXd`'s
+       * one row is written `Dn` with no count at all. */
+      switch (type) {
+      case 0x0u:
+        return left ? &TABLE[ROW_ASL_DX] : nullptr;
+      case 0x2u:
+        return &TABLE[ROW_ROX_DN];
+      case 0x3u:
+        return &TABLE[ROW_RO_DX];
+      default:
+        return nullptr; /* LSd: see the table's % and + markers */
+      }
     }
     switch (type) {
     case 0x0u: /* arithmetic: the one direction that costs more than the other */

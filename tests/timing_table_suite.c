@@ -138,7 +138,7 @@ static void test_what_is_not_transcribed_is_reported_as_absent(void) {
   /* CLR.W (A0) -- §11.6.11's memory form, footnoted "Add Calculate Effective
    * Address Time", which the step does not compose yet. `ADD.B (A0),D0` and
    * `MULU.W D0,D0` stood here until §11.6.8's `EA` rows were transcribed. */
-  TEST_ASSERT_NULL(ap_m68030_timing_for_word(0x4250u));
+  TEST_ASSERT_NULL(ap_m68030_timing_for_word(0x4810u)); /* NBCD (A0), unprinted */
   /* MULU.L (A0),D0 -- the long multiplies share `$4C00` with each other and
    * are told apart by the extension word. */
   TEST_ASSERT_NULL(ap_m68030_timing_for_word(0x4C10u));
@@ -253,16 +253,13 @@ static void test_the_control_instructions_are_found_by_their_encodings(void) {
  * data-register sibling, would contradict the trace rule this core already
  * implements. */
 static void test_a_status_register_write_costs_a_pipe_refill(void) {
-  unsigned count = 0;
-  const ap_m68030_table_entry_t *table = ap_m68030_timing_table(&count);
-
-  const ap_m68030_table_entry_t *status = nullptr;
-  for (unsigned i = 0; i < count; i++) {
-    if (table[i].timing.cache_case == 12u) {
-      status = &table[i];
-    }
-  }
+  /* Found by its instruction, `ANDI #<data>,SR`, and not by being "the row that
+   * costs 12": that was unique until `TAS Mem` joined the table at 12 too, and
+   * a test that finds a row by a number other rows may share tests the search,
+   * not the row. */
+  const ap_m68030_table_entry_t *status = ap_m68030_timing_for_word(0x027Cu);
   TEST_ASSERT_NOT_NULL(status);
+  TEST_ASSERT_EQUAL_UINT(12u, status->timing.cache_case);
   TEST_ASSERT_EQUAL_UINT(14u, status->timing.no_cache_case);
 
   /* Six times the register-operand form of the same logical operation. */
@@ -547,6 +544,25 @@ static void test_the_immediate_bit_and_move_forms_find_their_rows(void) {
       {0xB148u, "CMPM (An)+,(An)+", "CMPM.W (A0)+,(A0)+, not EOR"},
       {0xB140u, "EOR Dn,Dn", "EOR.W D0,D0 still EOR"},
       {0xD1C0u, "ADDA.L Rn,An", "ADDA.L D0,A0, a size of 11 is not ADDX"},
+      /* §11.6.11's memory forms, and the words inside their groups that are
+       * something else. */
+      {0x4250u, "CLR Mem", "CLR.W (A0)"},
+      {0x4410u, "NEG Mem", "NEG.B (A0)"},
+      {0x4A90u, "TST Mem", "TST.L (A0)"},
+      {0x4AD0u, "TAS Mem", "TAS (A0)"},
+      {0x4AFCu, nullptr, "ILLEGAL, inside TAS's group"},
+      {0x57D0u, "Scc Mem", "SEQ (A0)"},
+      {0x51C8u, nullptr, "DBF D0 -- mode 1 is DBcc, priced by branch"},
+      {0x51FAu, nullptr, "TRAPF.W -- mode 7 register 2"},
+      /* §11.6.12. */
+      {0xE1D0u, "ASL Mem by 1", "ASL (A0)"},
+      {0xE3D0u, "LSd Mem by 1", "LSL (A0) -- bits 10-9 of 01"},
+      {0xE0D0u, "ASR Mem by 1", "ASR (A0)"},
+      {0xE7D0u, "ROd Mem by 1", "ROL (A0)"},
+      {0xE8D0u, nullptr, "BFTST (A0) -- bit 11 set is a bit field"},
+      {0xE3A0u, "ASL Dx,Dy", "ASL.L D1,D0"},
+      {0xE2A0u, nullptr, "ASR.L D1,D0 -- count-dependent"},
+      {0xE3B8u, "ROd Dx,Dy", "ROL.L D1,D0"},
   };
   for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
     const ap_m68030_table_entry_t *row =
