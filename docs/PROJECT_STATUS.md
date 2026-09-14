@@ -553,6 +553,26 @@ integration check the SCSI work was scheduled to end with.** It does not
 extract file contents (`rbak` without `-index`), and it covers one drive at one
 ID.
 
+### The DS5500 round trip needs the software install first (2026-09-14)
+
+The SCSI item's last step is the same round trip on a DS5500, and the DS5500's
+volume cannot run it. `restored.awd` is the boot cartridge's restore and nothing
+after it. `tools/awd_read.py` finds no `/com/rbak` or `/com/wbak`; `/sys/mgrs`
+holds `mt` and no `rmt_scsi`; `/sau14` has ten entries (`self_test`, `salvol`,
+`rwvol`, `invol`, `domain_os.map`, `domain_os`, `dex`, `config`, `chuvol`,
+`calendar`) and no `scsi14.drvr`; and `/install` has no `ri.apollo.os.v.10.4`
+tree. The DN3500's installed `/sau7` carries `scsi7.drvr`, `magtape7.drvr`,
+both `ctape7` drivers and the rest.
+
+The media are not the gap. `tools/ct_extract.py --list` finds
+`install/ri.apollo.os.v.10.4/sau14/scsi14.drvr` (22,508 bytes),
+`magtape14.drvr`, both `ctape14` drivers and `com/wbak` on `019594-002`. What
+is missing is the DS5500's own post-restore install (GO, log in, `minst` across
+the four `019594` cartridges), which `tools/dn5500/README.md` specifies from
+`008860-A03` and has not scripted. Phase A's `dn3500-sr10.4-aa-kept.awd` cannot
+stand in, since a DS5500 page is four sectors and a DN3500 volume cannot be
+patched into one.
+
 
 ## §11.6 stage 3: the single-operand and shift memory forms, and the calculate table (2026-09-14)
 

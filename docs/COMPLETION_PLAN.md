@@ -5011,7 +5011,18 @@ substance. They are the only items here with no route that is simply work.
       say which a given machine has.
       **Awaiting:** the DS5500 round trip -- `wbak` to `m0` and `rbak -index`
       back on a `--scsi --scsi-drive` DS5500, as the DN3500 did on 2026-09-14.
-      Every child below is done.
+      Every child below is done. **And that round trip is gated on the DS5500's
+      software install, not on SCSI work**: `restored.awd` is the boot
+      cartridge's restore alone. `tools/awd_read.py` finds no `/com/rbak`,
+      no `/com/wbak`, no `/sys/mgrs/rmt_scsi` and no `/sau14/scsi14.drvr`
+      (its `/sau14` has ten entries where the DN3500's `/sau7` has ~40), and
+      its `/install` has no `ri.apollo.os.v.10.4` tree. The media carry them:
+      `tools/ct_extract.py` finds `sau14/scsi14.drvr` and `com/wbak` on
+      `019594-002`. What is missing is the DS5500's own post-restore install
+      (GO, log in, `minst` across the four `019594` cartridges), which
+      `tools/dn5500/README.md` specifies and has not scripted. Phase A's volume
+      cannot stand in: it is a DN3500 layout, and a DS5500 page is four
+      sectors.
   - [x] **The ASC's host interface — `device/ap_wd7000`, 2026-09-12.** The four
         registers, both status bytes, the host control register, reset with
         §5.1.1's 25 µs minimum enforced and §6.2.14's two diagnostics, the
