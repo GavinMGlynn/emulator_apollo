@@ -4579,10 +4579,16 @@ no-ops and fetches and operands go through the caches".)*
 untouched documents, seven part-read records naming their own owed chapters,
 and the 805-page release-notes shelf. Finishable; the only question is pace.
 
-**4. Real multi-node Domain workloads — startable today.** It needs a second
-*genuinely installed* volume (its own INVOL and `minst`, not a relabelled
-copy, for the UID reason the item states), then `lcnode`, remote file access
-and distributed single-level store across two booted nodes.
+**4. Real multi-node Domain workloads — closed 2026-09-15.** Two booted
+DN3500 nodes run `lcnode`, remote file access (`ctnode -update`, `ld`, `catf`
+across the ring) and the distributed single-level store (`netstat -l`: one
+remote page-in issued and one serviced each way), after seven defects between
+card and driver, each fixed with a test (`FINDINGS.md` C292-C294). Detail, and
+the UID reason a relabelled copy was refused, in `PROJECT_STATUS.md`. *(Until
+then: "startable today. It needs a second *genuinely installed* volume (its own
+INVOL and `minst`, not a relabelled copy, for the UID reason the item states),
+then `lcnode`, remote file access and distributed single-level store across two
+booted nodes.")*
 
 **5, 6, 7 — the performance chain, and it needs a decision, not a session.**
 A resumable sequencer, then exact-skip scheduling, then exact-skip across
@@ -5380,69 +5386,21 @@ Only after the reference core is proven, and only under an identity harness.
       `VAL`, `SCC`, `AC` or the `BAD`/`BAC` files brings the 68851 half back.
       Detail, and the item's own text, in `PROJECT_STATUS.md`.
 
-- [ ] Real multi-node Domain workloads: distributed single-level store across
+- [x] Real multi-node Domain workloads: distributed single-level store across
       nodes, `lcnode`, remote file access. *Verification: content finds what
-      unit tests did not; each finding lands with a test.*
-      **Not blocked — startable, and unstarted.** The head of this item read
-      "**Blocked on a second *installed* volume, and this objection still stands
-      after C180**", which its own last paragraph has contradicted since C199;
-      corrected 2026-09-08, the original kept here because it is what explains
-      the paragraph that follows.
-      *That paragraph is still the reason the shortcut is refused*, and it
-      matters more than the blocker did. Every workload here is a thing two
-      booted nodes do.
-      Patching a copy's label -- which is how the Phase 6 item's two nodes are
-      now made -- is **not** the route for *this* item: the objects on the copy
-      were created by the first node and carry its ID, so distributed
-      single-level store and remote file access would be reading two volumes
-      whose UIDs collide, and the findings would be findings about a fiction.
-      The boundary is exact: ring **membership** is a function of the node a
-      machine presents, and C180's relabelling settles that; anything reading
-      **object UIDs across the ring** is not, and this item is all of that.
-      **`lcnode`'s ring half is done and its OS half is located** (2026-09-08,
-      `FINDINGS.md` C253). Two booted nodes exchange frames and each reports the
-      other; the card delivers **every** frame its station copies — `deposits`
-      equal to `frames_copied` on both nodes, `refused 0`, one `ri` each — and
-      the driver reads them, ~370 card accesses a frame. What never appears is a
-      reply: p. 7-31's `TMASK` makes `20` *thank you*, and across 104 delivered
-      frames the census holds only `0090` (`broadcast | please`) and `0094`.
-      **Domain/OS never answers**, which is this item's work and not the ring's.
-      **A route that needs no reply at all, found 2026-09-12 in `008860-A03`
-      chapter 2**: `DI N 0xxx` selects another node as the boot device and
-      `EX DOMAIN_OS` boots the target **diskless** from it. A diskless node has
-      no disk to read, so *every page it executes* crosses the cable — the
-      heaviest ring workload Domain/OS has, and it needs no shell, no `lcnode`
-      and no `siologin`. The partner must be running Domain/OS and **`netman`**
-      (`cps /sys/net/netman`), and must hold the target's `/sau`*x* directory,
-      both of which the node-A volume has. That makes this item startable
-      against real traffic rather than against a reply Domain/OS declines to
-      send. Detail in `docs/references/008860-A03_WALK.md`.
-      **The second install now works and this item is startable** (C199): node
-      B's volume boots. What had stopped it was this frontend never giving a
-      machine its disk's node on the `--disk` path, so a volume recording node
-      `22222` ran on a machine calling itself `12345` and Domain/OS declined to
-      run as a node its disk contradicts. Given its own node the same volume
-      reaches `Starting standard daemons:.`, hash `5671D8D76ACDC046`.
-      **2026-09-15: `lcnode`'s silence narrowed to the receive path, and a
-      transmit defect found on the way** (`FINDINGS.md` C292). A transmit census
-      shows no node ever sends a thank-you; `netsvc` gives `ALL` and network ID
-      0 on both nodes; `netstat -l` gave `NACKs 45` against `Xmit count 7`. The
-      second byte of each `move.w #$0200` completed the transmit before the
-      frame left -- fixed, `NACKs 0`. What remains is `rcvs = 0` with no receive
-      error counted: `RING8_$INT_DEFERRED` takes the packet lengths from the
-      receive 8254s, and `[8254]` p. 6-157's load-on-the-next-clock is not what
-      `ap_i8254` does (`RING.md` 145c). *(Then: "**Next: that part, then the
-      run.**")*
-      **Done the same day: `lcnode` answers on two booted nodes** (`FINDINGS.md`
-      C293). The 8254 walked whole, then five dump runs of the driver's own drop
-      counters found a transmit extent one word short, the station never
-      keeping a frame's data, a buffer layout the driver contradicts, and the
-      acknowledge of a wire transmit clocking the receive counters.
-      `RING_$BAD_DATA_CNT` 0 against 26/27 receive interrupts; "1 other node
-      responded" on both nodes. **What remains of this item**: remote file
-      access and the distributed single-level store, which need the nodes
-      catalogued (`ctnode`, `008860-A03` ch. 2) -- `lcnode` shows each as "node
-      not catalogued".
+      unit tests did not; each finding lands with a test.* **Closed 2026-09-15.**
+      Two genuinely installed DN3500 volumes (their own INVOL and `minst`, so no
+      UID collisions -- a relabelled copy was refused for exactly that reason)
+      boot on one ring and run all three: `lcnode` names the other node, `ctnode
+      -update` catalogues it, `ld` and `catf` read the far disk, and `netstat -l`
+      shows the read as one remote page-in issued and one serviced on each node.
+      Content found seven defects, each with a test: the second byte of a
+      transmit command completing it (C292), the 8254 loading at the write, a
+      transmit extent one word short, the station never keeping data, a buffer
+      layout the driver contradicts, a posted receive staying armed, and a wire
+      transmit's acknowledge clocking the receive counters (C293). *Verification
+      run: `RING_$BAD_DATA_CNT` 0, NACKs 0, WACKs 0, ring hash `F9FAA93BDDA9156E`
+      (C294).* Detail in `PROJECT_STATUS.md`.
 
 ## The `002398-04` whole-document walk
 

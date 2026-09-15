@@ -18018,3 +18018,40 @@ CLK pulse does, and the reference is re-baselined.
 all be the counters' OUT pins, and the driver tests only `rc2`); the ring window's
 operation flags are not in the state hash; remote file access and the
 distributed single-level store are untried.
+
+## C294 -- the two nodes read each other's disks, and the read pages across the ring
+
+With `lcnode` answered (C293), the rest of the multi-node item was a workload,
+not a defect hunt. The dialogue is `Managing Aegis System Software` Procedure
+2-1, per node, each script naming the other node:
+
+    $ /etc/ctnode -update -l
+    1 other nodes responded.
+    Node 22222 cataloged as "node_22222"
+    1 names cataloged
+    $ /com/ld //node_22222/sys/node_data
+    Directory "//node_22222/sys/node_data":
+    locks  node_owners  null_hint_file  siomonit_file  spm_control  spm_mbx
+    startup  startup.08.18  startup.1280bw  ...  startup.spm  startup_sio.sh
+    $ /com/catf //node_22222/sys/node_data/startup.spm
+    cps /com/tctl -line 1 -insync
+    cps /sys/siologin/siomonit -n siomonit /sys/node_data/siomonit_file
+
+**Each answer is the far disk's.** Node 0's listing has node 1's dated start-up
+backups (`startup.08.18`); node 1's has node 0's (`startup.06.26`). The `catf`
+wait-point was `siomonit_file`, which only the file's bytes print -- the typed
+command does not contain it.
+
+**And the read went through the single-level store.** `netstat -l` on each node:
+
+    1 page-in  requests issued.
+    1 page-in  requests serviced.
+
+A Domain/OS file is read by mapping it, so reading a remote file is a remote
+page-in; each node issued one to the other and serviced one from it. The card
+saw it too: `0008`, the paging type (`002398-04` p. 7-31), six frames each way,
+beside 14 addressed requests and 22 thank-yous each way.
+
+**Clean at the card and at the driver**: deposits 51/52 with none refused,
+`RING_$RCV_INT_CNT` 51/52 with `RING_$BAD_DATA_CNT` and `RING_$ABORT_CNT` 0,
+NACKs 0, WACKs 0. `ring hash F9FAA93BDDA9156E`. No code changed.

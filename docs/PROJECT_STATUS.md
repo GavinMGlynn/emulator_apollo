@@ -1364,6 +1364,47 @@ is 2,744 instructions and 331 clocks**, the eight-clock line fills and free hits
 in the PROM's path. The new reference is `386D6B4E902E34A1`.
 
 
+## Two booted nodes read each other's disks: remote file access and network paging (2026-09-15)
+
+    node 0 | Node 22222 cataloged as "node_22222"
+    node 0 | Directory "//node_22222/sys/node_data":   ... startup.08.18 ... startup.spm ...
+    node 0 | cps /sys/siologin/siomonit -n siomonit /sys/node_data/siomonit_file
+    node 0 |   1 page-in  requests issued.      1 page-in  requests serviced.
+
+**Two DN3500s running SR10.4 catalogue each other, list each other's
+directories and read each other's files across the token ring**, and the file
+read goes through Domain/OS's network paging -- the distributed single-level
+store -- in both directions. No code changed for this: it is the first workload
+on the ring the previous section made work, and it ran clean.
+
+**Why these two volumes, and not a relabelled copy.** Patching a copy's label is
+how the ring item's two nodes were first made, and it was refused for *this*
+work: the objects on a copy were created by the first node and carry its ID, so
+remote file access and the distributed single-level store would read two
+volumes whose UIDs collide, and the findings would be findings about a fiction.
+Ring **membership** is a function of the node a machine presents, which
+relabelling settles; anything reading **object UIDs across the ring** is not.
+Node B's volume is its own INVOL and `minst` (C199). The diskless-boot route
+`008860-A03` chapter 2 offers (`DI N 0xxx`, `EX DOMAIN_OS` from a `netman`
+partner) was recorded as the fallback for a Domain/OS that never replied, and was
+not needed.
+
+**The dialogue**, from `Managing Aegis System Software` Procedure 2-1: log in,
+`/etc/ctnode -update -l` ("adds node name-ID associations for other nodes on the
+network to this node's master root directory"), then `/com/ld
+//node_nnnnn/sys/node_data` and `/com/catf //node_nnnnn/sys/node_data/startup.spm`
+naming the *other* node. Each listing is the far disk's and not the near one's:
+node 0 sees node 1's dated start-up backups (`startup.08.18`), node 1 sees node
+0's (`startup.06.26`). The `catf` wait-point is `siomonit_file`, which only the
+file's contents print.
+
+*Verification: `--ring-two-node 3000000000` with per-node scripts; `ctnode`
+"1 names cataloged" on both nodes; `netstat -l` 1 page-in issued and 1 serviced
+on each, `rcvs` 51/52 against 52 transmits, NACKs 0, WACKs 0; the driver's
+`RING_$RCV_INT_CNT` 51/52 with `RING_$BAD_DATA_CNT` and `RING_$ABORT_CNT` 0; the
+card's census carries `0008` paging frames (6 each way) beside 14 requests and 22
+thank-yous each way; ring hash `F9FAA93BDDA9156E`. `FINDINGS.md` C294.*
+
 ## Two booted nodes answer `lcnode`: the 8254 walked whole, and six defects between card and driver (2026-09-15)
 
     node 0 | 1 other node responded.     Net I/O: rcvs = 26  xmits = 27   NACKs 0  WACKs 0
