@@ -6,14 +6,15 @@ basis. Verified by matching the shelf against `docs/references/*_WALK.md` and
 
 | Class | Count | Basis |
 | --- | --- | --- |
-| **walked whole** | 9 | every page read — `004977-02`, `008862-01` (Appendix F), `014962-A00`, both 1981 architecture papers, `AEGIS_Internals` (all 426 passed over), **`008860-A03` (295/295)** and **`002398-03` (260/260)**, both finished 2026-09-13, and **`002398-01` Rev 1 (215/215, every page as an image, 2026-09-15)** |
-| **in progress** | 6 | key chapters read whole, the rest owed and named — *`002398-01` Rev 1 moved to walked whole 2026-09-15; the count was 8 and 7* — both GPIO editions, `018901-A00`, `[CFG]`, `000792-A01`, `Apollo_Price_List` |
+| **walked whole** | 10 | every page read — `004977-02`, `008862-01` (Appendix F), `014962-A00`, both 1981 architecture papers, `AEGIS_Internals` (all 426 passed over), **`008860-A03` (295/295)** and **`002398-03` (260/260)**, both finished 2026-09-13, and **`002398-01` Rev 1 (215/215, every page as an image, 2026-09-15)**, and **`000959-A00` (314/314)**, whose own record has said FINISHED since 2026-09-12 |
+| **read on their own terms, nothing owed** | 4 | each record's *What is owed* says nothing: `000959-10` (chapters 1-3 read, the rest differenced against the SR10 edition), `018901-A00` (202/202 triaged, ~45 pages as images), `Apollo_Price_List` (specification blocks whole, prices triaged), `000792-A01` (Appendix F whole, the language triaged; Appendix E only if the 68882 model needs a workload fact) |
+| **in progress** | 1 | `[CFG]` — model description blocks and the July 1990 quick reference read 2026-09-15; option pages, Series 10000 and the upgrade matrices owed. *Corrected 2026-09-15: this row said 6 — "both GPIO editions, `018901-A00`, `[CFG]`, `000792-A01`, `Apollo_Price_List`" — and five of them had records saying nothing was owed; the register had not been updated when they finished* |
 | **release-notes shelf** | 6 | `RELEASE_NOTES_WALK.md` — §1.4/§2.1 read, **the SR10.4 addendum read whole (5/5, 2026-09-15)**, the rest owed |
 | **patents** | 10 | `PATENTS_WALK.md` — front pages read, machine identified, 1 in use, 1 kept, 8 out of scope |
 | **settled by measurement** | 50 | `CONTENT_TRIAGE.md` — full text scored for hard hardware vocabulary, **each named with its score**, and every non-zero match read in context. **One moved out**: `008860-A03` scored 452,048 and was then walked whole, which is what a high score is supposed to lead to |
 | **brochures** | 7 | one rendered and inspected, the class extended, all named in full |
 
-*`002398-01` was finished 2026-09-15, so seven now; this said "Eight".*
+*Recounted 2026-09-15 against each record's own owed section: one document, `[CFG]`, has named pages owed, beside the release-notes shelf. This said "Eight", then "seven".*
 **Reading is not finished.** Eight documents have named chapters still owed and
 the release notes are 200 pages of renders. What *is* finished is the accounting:
 there is no document on this shelf whose status is unknown.
