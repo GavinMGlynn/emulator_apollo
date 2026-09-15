@@ -1004,7 +1004,7 @@ static void test_the_scsi_wait_loops_memory_forms_compose_from_their_tables(
  * which is zero, so each writes the long word at A0 plus nothing. */
 static void test_mode_six_is_priced_by_its_extension_word_on_a_machine(void) {
   static const struct {
-    uint16_t words[4];
+    uint16_t words[6];
     unsigned count;
     uint64_t warm;
     const char *what;
@@ -1013,6 +1013,17 @@ static void test_mode_six_is_priced_by_its_extension_word_on_a_machine(void) {
       {{0x2180u, 0x0110u}, 2u, 8u, "MOVE.L D0,(A0,D0.W) full format"},
       {{0x2030u, 0x01B0u, 0x0000u, 0x4000u}, 4u, 14u,
        "MOVE.L ($4000,D0.W),D0 full format, base suppressed"},
+      /* Stage 7's tables, each of which had no full-format row before it:
+       * §11.6.2's `#<data>.W,(d32,B)` `14(1/0/0)` under `ORI Mem`'s 3 is 17;
+       * §11.6.4's `#(data).W,(d32,B)` `14` under `BFTST Mem`'s 10 is 24, the
+       * bit field's own word ahead of the address's; §11.6.5's `(d32,B)` `12`
+       * under `JMP`'s 4 is 16, the jump landing on itself. */
+      {{0x0030u, 0x0001u, 0x01B0u, 0x0000u, 0x4000u}, 5u, 17u,
+       "ORI.B #1,($4000,D0.W) full format"},
+      {{0xE8F0u, 0x0010u, 0x01B0u, 0x0000u, 0x4000u}, 5u, 24u,
+       "BFTST ($4000,D0.W){0:16} full format"},
+      {{0x4EF0u, 0x01B0u, 0x0000u, 0x1000u}, 4u, 16u,
+       "JMP ($1000,D0.W) full format"},
   };
 
   for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {

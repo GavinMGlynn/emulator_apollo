@@ -171,6 +171,267 @@ ap_m68030_ea_calculate_immediate_timing(ap_m68030_ea_kind_t kind,
   return nullptr;
 }
 
+/* Which of a full-format table's seventeen figure sets an extension word
+ * selects: group A -- a word base displacement off a register, the reading
+ * `ap_m68030_ea_fetch_timing_full` sets out -- by indirection and outer size,
+ * its non-indirect row split by the index; group B by base size against
+ * indirection and outer size. -1 for a word no row can take. */
+enum {
+  FULL_A_NONE,
+  FULL_A_NONE_INDEXED,
+  FULL_A_OD_NULL,
+  FULL_A_OD_WORD,
+  FULL_A_OD_LONG,
+  FULL_B_NONE_BD_NULL,
+  FULL_B_NONE_BD_WORD,
+  FULL_B_NONE_BD_LONG,
+  FULL_B_OD_NULL_BD_NULL,
+  FULL_B_OD_NULL_BD_WORD,
+  FULL_B_OD_NULL_BD_LONG,
+  FULL_B_OD_WORD_BD_NULL,
+  FULL_B_OD_WORD_BD_WORD,
+  FULL_B_OD_WORD_BD_LONG,
+  FULL_B_OD_LONG_BD_NULL,
+  FULL_B_OD_LONG_BD_WORD,
+  FULL_B_OD_LONG_BD_LONG,
+  FULL_SLOTS,
+};
+
+static int full_slot(const ap_m68030_extension_t *e) {
+  if (e == nullptr || !e->full_format || e->reserved ||
+      e->base_displacement_size == AP_M68030_BD_RESERVED ||
+      e->indirect == AP_M68030_INDIRECT_RESERVED) {
+    return -1;
+  }
+  const bool word_based =
+      e->base_displacement_size == AP_M68030_BD_WORD && !e->base_suppressed;
+  const int bd = e->base_displacement_size == AP_M68030_BD_NULL   ? 0
+                 : e->base_displacement_size == AP_M68030_BD_WORD ? 1
+                                                                  : 2;
+  if (e->indirect == AP_M68030_INDIRECT_NONE) {
+    if (word_based) {
+      return e->index_suppressed ? FULL_A_NONE : FULL_A_NONE_INDEXED;
+    }
+    return FULL_B_NONE_BD_NULL + bd;
+  }
+  int od;
+  switch (e->outer_displacement_size) {
+  case AP_M68030_OD_NULL: od = 0; break;
+  case AP_M68030_OD_WORD: od = 1; break;
+  case AP_M68030_OD_LONG: od = 2; break;
+  case AP_M68030_OD_NONE:
+  default:
+    return -1;
+  }
+  if (word_based) {
+    return FULL_A_OD_NULL + od;
+  }
+  return FULL_B_OD_NULL_BD_NULL + 3 * od + bd;
+}
+
+/* §11.6.2's FULL FORMAT EXTENSION WORD(S) rows, from the page images
+ * (pp. 11-29, 11-30), a word and a long immediate apiece. Reads are the
+ * destination's and, behind an indirection, its first level's. The index shows
+ * in the non-indirect group A head, 4 against 6 for a word immediate, as it does
+ * in §11.6.5's; every other row is the same with or without it. Group A equals
+ * group B less its base displacement on this table too. */
+static const ap_m68030_ea_timing_t FIEA_FULL_W[FULL_SLOTS] = {
+    [FULL_A_NONE] = {"#<data>.W,(d16,An) or (d16,PC)", {4, 0, 8, 9, .reads = 1, .prefetches = 2}, true, false},
+    [FULL_A_NONE_INDEXED] = {"#<data>.W,(d16,An,Xn) or (d16,PC,Xn)", {6, 0, 8, 9, .reads = 1, .prefetches = 2}, true, false},
+    [FULL_A_OD_NULL] = {"#<data>.W,([d16,An]) or ([d16,PC])", {4, 0, 12, 12, .reads = 2, .prefetches = 2}, true, false},
+    [FULL_A_OD_WORD] = {"#<data>.W,([d16,An],d16) or ([d16,PC],d16)", {4, 0, 14, 15, .reads = 2, .prefetches = 2}, true, false},
+    [FULL_A_OD_LONG] = {"#<data>.W,([d16,An],d32) or ([d16,PC],d32)", {4, 0, 14, 16, .reads = 2, .prefetches = 3}, true, false},
+    [FULL_B_NONE_BD_NULL] = {"#<data>.W,(B)", {6, 0, 8, 9, .reads = 1, .prefetches = 1}, true, false},
+    [FULL_B_NONE_BD_WORD] = {"#<data>.W,(d16,B)", {6, 0, 10, 12, .reads = 1, .prefetches = 2}, true, false},
+    [FULL_B_NONE_BD_LONG] = {"#<data>.W,(d32,B)", {10, 0, 14, 16, .reads = 1, .prefetches = 2}, true, false},
+    [FULL_B_OD_NULL_BD_NULL] = {"#<data>.W,([B])", {6, 0, 12, 12, .reads = 2, .prefetches = 1}, true, false},
+    [FULL_B_OD_NULL_BD_WORD] = {"#<data>.W,([d16,B])", {6, 0, 14, 15, .reads = 2, .prefetches = 2}, true, false},
+    [FULL_B_OD_NULL_BD_LONG] = {"#<data>.W,([d32,B])", {6, 0, 18, 19, .reads = 2, .prefetches = 2}, true, false},
+    [FULL_B_OD_WORD_BD_NULL] = {"#<data>.W,([B],d16)", {6, 0, 14, 15, .reads = 2, .prefetches = 2}, true, false},
+    [FULL_B_OD_WORD_BD_WORD] = {"#<data>.W,([d16,B],d16)", {6, 0, 16, 18, .reads = 2, .prefetches = 2}, true, false},
+    [FULL_B_OD_WORD_BD_LONG] = {"#<data>.W,([d32,B],d16)", {6, 0, 20, 22, .reads = 2, .prefetches = 3}, true, false},
+    [FULL_B_OD_LONG_BD_NULL] = {"#<data>.W,([B],d32)", {6, 0, 14, 16, .reads = 2, .prefetches = 2}, true, false},
+    [FULL_B_OD_LONG_BD_WORD] = {"#<data>.W,([d16,B],d32)", {6, 0, 16, 19, .reads = 2, .prefetches = 3}, true, false},
+    [FULL_B_OD_LONG_BD_LONG] = {"#<data>.W,([d32,B],d32)", {6, 0, 20, 23, .reads = 2, .prefetches = 3}, true, false},
+};
+static const ap_m68030_ea_timing_t FIEA_FULL_L[FULL_SLOTS] = {
+    [FULL_A_NONE] = {"#<data>.L,(d16,An) or (d16,PC)", {6, 0, 10, 11, .reads = 1, .prefetches = 2}, true, false},
+    [FULL_A_NONE_INDEXED] = {"#<data>.L,(d16,An,Xn) or (d16,PC,Xn)", {8, 0, 10, 11, .reads = 1, .prefetches = 2}, true, false},
+    [FULL_A_OD_NULL] = {"#<data>.L,([d16,An]) or ([d16,PC])", {6, 0, 14, 14, .reads = 2, .prefetches = 2}, true, false},
+    [FULL_A_OD_WORD] = {"#<data>.L,([d16,An],d16) or ([d16,PC],d16)", {6, 0, 16, 17, .reads = 2, .prefetches = 3}, true, false},
+    [FULL_A_OD_LONG] = {"#<data>.L,([d16,An],d32) or ([d16,PC],d32)", {6, 0, 16, 18, .reads = 2, .prefetches = 3}, true, false},
+    [FULL_B_NONE_BD_NULL] = {"#<data>.L,(B)", {8, 0, 10, 11, .reads = 1, .prefetches = 2}, true, false},
+    [FULL_B_NONE_BD_WORD] = {"#<data>.L,(d16,B)", {8, 0, 12, 14, .reads = 1, .prefetches = 2}, true, false},
+    [FULL_B_NONE_BD_LONG] = {"#<data>.L,(d32,B)", {12, 0, 16, 18, .reads = 1, .prefetches = 3}, true, false},
+    [FULL_B_OD_NULL_BD_NULL] = {"#<data>.L,([B])", {8, 0, 14, 14, .reads = 2, .prefetches = 2}, true, false},
+    [FULL_B_OD_NULL_BD_WORD] = {"#<data>.L,([d16,B])", {8, 0, 16, 17, .reads = 2, .prefetches = 2}, true, false},
+    [FULL_B_OD_NULL_BD_LONG] = {"#<data>.L,([d32,B])", {8, 0, 20, 21, .reads = 2, .prefetches = 3}, true, false},
+    [FULL_B_OD_WORD_BD_NULL] = {"#<data>.L,([B],d16)", {8, 0, 16, 17, .reads = 2, .prefetches = 2}, true, false},
+    [FULL_B_OD_WORD_BD_WORD] = {"#<data>.L,([d16,B],d16)", {8, 0, 18, 20, .reads = 2, .prefetches = 3}, true, false},
+    [FULL_B_OD_WORD_BD_LONG] = {"#<data>.L,([d32,B],d16)", {8, 0, 22, 24, .reads = 2, .prefetches = 3}, true, false},
+    [FULL_B_OD_LONG_BD_NULL] = {"#<data>.L,([B],d32)", {8, 0, 16, 18, .reads = 2, .prefetches = 3}, true, false},
+    [FULL_B_OD_LONG_BD_WORD] = {"#<data>.L,([d16,B],d32)", {8, 0, 18, 21, .reads = 2, .prefetches = 3}, true, false},
+    [FULL_B_OD_LONG_BD_LONG] = {"#<data>.L,([d32,B],d32)", {8, 0, 22, 25, .reads = 2, .prefetches = 4}, true, false},
+};
+
+/* §11.6.4's FULL FORMAT EXTENSION WORD(S) rows, from the page images
+ * (pp. 11-33 to 11-35). Nothing is read but the first level of indirection. The
+ * index shows in the non-indirect group A head again, "8+op" against 4, and
+ * the `(B)` rows' heads are "+op" too.
+ *
+ * **Two figures are readings.** `#(data).W,([d16,An],d32)` prints its no-cache
+ * case as `16(1/3/0)`, where the same row with an index prints 15 and group B's
+ * `([B],d32)` -- which group A equals everywhere else -- prints 15: taken as 15.
+ * And `#(data).L,([B],I,d16)` prints `16(2/0/0)`, two reads where every row
+ * about it has one; the same slip §11.6.3's `([B],I,d32)` makes: taken as one.
+ * Both recorded in `M68030_WALK.md`. */
+static const ap_m68030_ea_timing_t CIEA_FULL_W[FULL_SLOTS] = {
+    [FULL_A_NONE] = {"#(data).W,(d16,An) or (d16,PC)", {4, 0, 8, 8, .prefetches = 2}, true, false},
+    [FULL_A_NONE_INDEXED] = {"#(data).W,(d16,An,Xn) or (d16,PC,Xn)", {8, 0, 8, 8, .prefetches = 2}, true, true},
+    [FULL_A_OD_NULL] = {"#(data).W,([d16,An]) or ([d16,PC])", {4, 0, 12, 12, .reads = 1, .prefetches = 2}, true, false},
+    [FULL_A_OD_WORD] = {"#(data).W,([d16,An],d16) or ([d16,PC],d16)", {4, 0, 14, 15, .reads = 1, .prefetches = 2}, true, false},
+    [FULL_A_OD_LONG] = {"#(data).W,([d16,An],d32) or ([d16,PC],d32)", {4, 0, 14, 15, .reads = 1, .prefetches = 3}, true, false},
+    [FULL_B_NONE_BD_NULL] = {"#(data).W,(B)", {8, 0, 8, 8, .prefetches = 1}, true, true},
+    [FULL_B_NONE_BD_WORD] = {"#(data).W,(d16,B)", {6, 0, 10, 11, .prefetches = 2}, true, false},
+    [FULL_B_NONE_BD_LONG] = {"#(data).W,(d32,B)", {6, 0, 14, 15, .prefetches = 2}, true, false},
+    [FULL_B_OD_NULL_BD_NULL] = {"#(data).W,([B])", {6, 0, 12, 12, .reads = 1, .prefetches = 1}, true, false},
+    [FULL_B_OD_NULL_BD_WORD] = {"#(data).W,([d16,B])", {6, 0, 14, 15, .reads = 1, .prefetches = 2}, true, false},
+    [FULL_B_OD_NULL_BD_LONG] = {"#(data).W,([d32,B])", {6, 0, 18, 19, .reads = 1, .prefetches = 2}, true, false},
+    [FULL_B_OD_WORD_BD_NULL] = {"#(data).W,([B],d16)", {6, 0, 14, 15, .reads = 1, .prefetches = 2}, true, false},
+    [FULL_B_OD_WORD_BD_WORD] = {"#(data).W,([d16,B],d16)", {6, 0, 16, 18, .reads = 1, .prefetches = 2}, true, false},
+    [FULL_B_OD_WORD_BD_LONG] = {"#(data).W,([d32,B],d16)", {6, 0, 20, 22, .reads = 1, .prefetches = 3}, true, false},
+    [FULL_B_OD_LONG_BD_NULL] = {"#(data).W,([B],d32)", {6, 0, 14, 15, .reads = 1, .prefetches = 2}, true, false},
+    [FULL_B_OD_LONG_BD_WORD] = {"#(data).W,([d16,B],d32)", {6, 0, 16, 18, .reads = 1, .prefetches = 3}, true, false},
+    [FULL_B_OD_LONG_BD_LONG] = {"#(data).W,([d32,B],d32)", {6, 0, 20, 22, .reads = 1, .prefetches = 3}, true, false},
+};
+static const ap_m68030_ea_timing_t CIEA_FULL_L[FULL_SLOTS] = {
+    [FULL_A_NONE] = {"#(data).L,(d16,An) or (d16,PC)", {6, 0, 10, 10, .prefetches = 2}, true, false},
+    [FULL_A_NONE_INDEXED] = {"#(data).L,(d16,An,Xn) or (d16,PC,Xn)", {10, 0, 10, 10, .prefetches = 2}, true, true},
+    [FULL_A_OD_NULL] = {"#(data).L,([d16,An]) or ([d16,PC])", {6, 0, 14, 14, .reads = 1, .prefetches = 1}, true, false},
+    [FULL_A_OD_WORD] = {"#(data).L,([d16,An],d16) or ([d16,PC],d16)", {6, 0, 16, 17, .reads = 1, .prefetches = 3}, true, false},
+    [FULL_A_OD_LONG] = {"#(data).L,([d16,An],d32) or ([d16,PC],d32)", {6, 0, 16, 17, .reads = 1, .prefetches = 3}, true, false},
+    [FULL_B_NONE_BD_NULL] = {"#(data).L,(B)", {10, 0, 10, 10, .prefetches = 2}, true, true},
+    [FULL_B_NONE_BD_WORD] = {"#(data).L,(d16,B)", {8, 0, 12, 13, .prefetches = 2}, true, false},
+    [FULL_B_NONE_BD_LONG] = {"#(data).L,(d32,B)", {8, 0, 16, 17, .prefetches = 3}, true, false},
+    [FULL_B_OD_NULL_BD_NULL] = {"#(data).L,([B])", {8, 0, 14, 14, .reads = 1, .prefetches = 2}, true, false},
+    [FULL_B_OD_NULL_BD_WORD] = {"#(data).L,([d16,B])", {8, 0, 16, 17, .reads = 1, .prefetches = 2}, true, false},
+    [FULL_B_OD_NULL_BD_LONG] = {"#(data).L,([d32,B])", {8, 0, 20, 21, .reads = 1, .prefetches = 3}, true, false},
+    [FULL_B_OD_WORD_BD_NULL] = {"#(data).L,([B],d16)", {8, 0, 16, 17, .reads = 1, .prefetches = 2}, true, false},
+    [FULL_B_OD_WORD_BD_WORD] = {"#(data).L,([d16,B],d16)", {8, 0, 18, 20, .reads = 1, .prefetches = 3}, true, false},
+    [FULL_B_OD_WORD_BD_LONG] = {"#(data).L,([d32,B],d16)", {8, 0, 22, 24, .reads = 1, .prefetches = 3}, true, false},
+    [FULL_B_OD_LONG_BD_NULL] = {"#(data).L,([B],d32)", {8, 0, 16, 17, .reads = 1, .prefetches = 3}, true, false},
+    [FULL_B_OD_LONG_BD_WORD] = {"#(data).L,([d16,B],d32)", {8, 0, 18, 20, .reads = 1, .prefetches = 3}, true, false},
+    [FULL_B_OD_LONG_BD_LONG] = {"#(data).L,([d32,B],d32)", {8, 0, 22, 24, .reads = 1, .prefetches = 4}, true, false},
+};
+
+const ap_m68030_ea_timing_t *
+ap_m68030_ea_fetch_immediate_timing_full(const ap_m68030_extension_t *extension,
+                                         bool immediate_long) {
+  const int slot = full_slot(extension);
+  if (slot < 0) {
+    return nullptr;
+  }
+  return immediate_long ? &FIEA_FULL_L[slot] : &FIEA_FULL_W[slot];
+}
+
+const ap_m68030_ea_timing_t *ap_m68030_ea_calculate_immediate_timing_full(
+    const ap_m68030_extension_t *extension, bool immediate_long) {
+  const int slot = full_slot(extension);
+  if (slot < 0) {
+    return nullptr;
+  }
+  return immediate_long ? &CIEA_FULL_L[slot] : &CIEA_FULL_W[slot];
+}
+
+/* §11.6.5's FULL FORMAT EXTENSION WORD(S) rows, from the page image
+ * (p. 11-36). The same two groups as §11.6.1's, and the same reading chooses
+ * between them: every group A row equals its group B row with the base
+ * displacement dropped.
+ *
+ * Two things differ from the fetch table. **The index shows in the head of the
+ * non-indirect group A row** -- `(d16,An)` has a head of 2 where `(d16,An,Xn)`
+ * has "6+op head", on the same 6 clocks -- so that row splits on the index
+ * suppress bit. And **a word and a long outer displacement cost the same**, 12
+ * behind `([d16,An])` and `([B])`, 14 behind `([d16,B])`, 18 behind
+ * `([d32,B])`. Reads are one throughout, the first level of indirection's.
+ *
+ * The page lists `([B],d32)` twice with identical figures; `M68030_WALK.md`
+ * records it. */
+static const ap_m68030_ea_timing_t JUMP_FULL_A_NONE = {
+    "(d16,An) or (d16,PC)", {2, 0, 6, 6, .prefetches = 0}, true, false};
+static const ap_m68030_ea_timing_t JUMP_FULL_A_NONE_INDEXED = {
+    "(d16,An,Xn) or (d16,PC,Xn)", {6, 0, 6, 6, .prefetches = 0}, true, true};
+static const ap_m68030_ea_timing_t JUMP_FULL_A_OD_NULL = {
+    "([d16,An]) or ([d16,PC])", {2, 0, 10, 10, .reads = 1, .prefetches = 1},
+    true, false};
+static const ap_m68030_ea_timing_t JUMP_FULL_A_OD = {
+    "([d16,An],d16) or ([d16,PC],d16)", {2, 0, 12, 12, .reads = 1, .prefetches = 1},
+    true, false};
+static const ap_m68030_ea_timing_t JUMP_FULL_NONE_BD_NULL = {
+    "(B)", {6, 0, 6, 6, .prefetches = 0}, true, true};
+static const ap_m68030_ea_timing_t JUMP_FULL_NONE_BD_WORD = {
+    "(d16,B)", {4, 0, 8, 9, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t JUMP_FULL_NONE_BD_LONG = {
+    "(d32,B)", {4, 0, 12, 13, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t JUMP_FULL_OD_NULL_BD_NULL = {
+    "([B])", {4, 0, 10, 10, .reads = 1, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t JUMP_FULL_OD_BD_NULL = {
+    "([B],d16)", {4, 0, 12, 12, .reads = 1, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t JUMP_FULL_OD_NULL_BD_WORD = {
+    "([d16,B])", {4, 0, 12, 13, .reads = 1, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t JUMP_FULL_OD_BD_WORD = {
+    "([d16,B],d16)", {4, 0, 14, 15, .reads = 1, .prefetches = 1}, true, false};
+static const ap_m68030_ea_timing_t JUMP_FULL_OD_NULL_BD_LONG = {
+    "([d32,B])", {4, 0, 16, 17, .reads = 1, .prefetches = 2}, true, false};
+static const ap_m68030_ea_timing_t JUMP_FULL_OD_BD_LONG = {
+    "([d32,B],d16)", {4, 0, 18, 19, .reads = 1, .prefetches = 2}, true, false};
+
+const ap_m68030_ea_timing_t *
+ap_m68030_ea_jump_timing_full(const ap_m68030_extension_t *extension) {
+  if (extension == nullptr || !extension->full_format || extension->reserved) {
+    return nullptr;
+  }
+  const bool word_based = extension->base_displacement_size == AP_M68030_BD_WORD &&
+                          !extension->base_suppressed;
+  if (extension->base_displacement_size == AP_M68030_BD_RESERVED ||
+      extension->indirect == AP_M68030_INDIRECT_RESERVED) {
+    return nullptr;
+  }
+
+  if (extension->indirect == AP_M68030_INDIRECT_NONE) {
+    if (word_based) {
+      return extension->index_suppressed ? &JUMP_FULL_A_NONE
+                                         : &JUMP_FULL_A_NONE_INDEXED;
+    }
+    switch (extension->base_displacement_size) {
+    case AP_M68030_BD_NULL: return &JUMP_FULL_NONE_BD_NULL;
+    case AP_M68030_BD_WORD: return &JUMP_FULL_NONE_BD_WORD;
+    case AP_M68030_BD_LONG: return &JUMP_FULL_NONE_BD_LONG;
+    case AP_M68030_BD_RESERVED: break;
+    }
+    return nullptr;
+  }
+
+  if (extension->outer_displacement_size == AP_M68030_OD_NONE) {
+    return nullptr; /* an indirect action always names an outer size */
+  }
+  const bool outer = extension->outer_displacement_size != AP_M68030_OD_NULL;
+  if (word_based) {
+    return outer ? &JUMP_FULL_A_OD : &JUMP_FULL_A_OD_NULL;
+  }
+  switch (extension->base_displacement_size) {
+  case AP_M68030_BD_NULL:
+    return outer ? &JUMP_FULL_OD_BD_NULL : &JUMP_FULL_OD_NULL_BD_NULL;
+  case AP_M68030_BD_WORD:
+    return outer ? &JUMP_FULL_OD_BD_WORD : &JUMP_FULL_OD_NULL_BD_WORD;
+  case AP_M68030_BD_LONG:
+    return outer ? &JUMP_FULL_OD_BD_LONG : &JUMP_FULL_OD_NULL_BD_LONG;
+  case AP_M68030_BD_RESERVED:
+    break;
+  }
+  return nullptr;
+}
+
 const ap_m68030_ea_timing_t *ap_m68030_ea_jump_timing(ap_m68030_ea_kind_t kind) {
   switch (kind) {
   case AP_M68030_EA_ADDRESS_INDIRECT:

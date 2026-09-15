@@ -814,8 +814,89 @@ static void test_the_calculate_immediate_table_declines_what_it_does_not_print(
       ap_m68030_ea_calculate_immediate_timing(AP_M68030_EA_PC_INDEXED, false));
 }
 
+/* Every legal full-format extension word has a row in each of stage 7's three
+ * tables, as `test_every_full_format_combination_has_a_row` holds §11.6.1 to: a
+ * word the step could meet and price as nothing would be the brief figure's
+ * under-count by another name. */
+static void test_every_full_format_word_has_a_row_in_every_table(void) {
+  unsigned legal = 0;
+  for (uint32_t word = 0; word <= 0xFFFFu; word++) {
+    const ap_m68030_extension_t e = ap_m68030_ea_decode_extension((uint16_t)word);
+    if (!e.full_format || e.reserved ||
+        e.base_displacement_size == AP_M68030_BD_RESERVED ||
+        e.indirect == AP_M68030_INDIRECT_RESERVED ||
+        (e.indirect != AP_M68030_INDIRECT_NONE &&
+         e.outer_displacement_size == AP_M68030_OD_NONE)) {
+      continue;
+    }
+    legal++;
+    TEST_ASSERT_NOT_NULL(ap_m68030_ea_fetch_immediate_timing_full(&e, false));
+    TEST_ASSERT_NOT_NULL(ap_m68030_ea_fetch_immediate_timing_full(&e, true));
+    TEST_ASSERT_NOT_NULL(ap_m68030_ea_calculate_immediate_timing_full(&e, false));
+    TEST_ASSERT_NOT_NULL(ap_m68030_ea_calculate_immediate_timing_full(&e, true));
+    TEST_ASSERT_NOT_NULL(ap_m68030_ea_jump_timing_full(&e));
+  }
+  TEST_ASSERT_TRUE(legal > 0u);
+}
+
+/* The reading every full-format table has borne out: group A -- a word base
+ * displacement off a register -- equals group B with the base displacement
+ * dropped. Checked on the cache case of stage 7's tables, which the extension
+ * words below pair up: `$0160` group A with its index suppressed against `$0110`
+ * `(B)`, `$0161` `([d16,An])` against `$0111` `([B])`, and `$0162` against
+ * `$0112` with a word outer displacement. */
+static void test_group_a_is_group_b_less_its_base_displacement_in_stage_7(void) {
+  static const uint16_t PAIRS[][2] = {
+      {0x0160u, 0x0110u}, {0x0121u, 0x0111u}, {0x0122u, 0x0112u},
+      {0x0123u, 0x0113u}};
+  for (unsigned p = 0; p < sizeof PAIRS / sizeof PAIRS[0]; p++) {
+    const ap_m68030_extension_t a = ap_m68030_ea_decode_extension(PAIRS[p][0]);
+    const ap_m68030_extension_t b = ap_m68030_ea_decode_extension(PAIRS[p][1]);
+    for (unsigned wide = 0; wide < 2u; wide++) {
+      TEST_ASSERT_EQUAL_UINT(
+          ap_m68030_ea_fetch_immediate_timing_full(&b, wide != 0u)->timing.cache_case,
+          ap_m68030_ea_fetch_immediate_timing_full(&a, wide != 0u)->timing.cache_case);
+      TEST_ASSERT_EQUAL_UINT(
+          ap_m68030_ea_calculate_immediate_timing_full(&b, wide != 0u)->timing.cache_case,
+          ap_m68030_ea_calculate_immediate_timing_full(&a, wide != 0u)->timing.cache_case);
+    }
+    TEST_ASSERT_EQUAL_UINT(ap_m68030_ea_jump_timing_full(&b)->timing.cache_case,
+                           ap_m68030_ea_jump_timing_full(&a)->timing.cache_case);
+  }
+}
+
+/* The index shows in one head on each of stage 7's tables -- group A's
+ * non-indirect row -- and nowhere else: `$0160` suppresses it and `$0120` does
+ * not. And the two figures taken as readings stay taken. */
+static void test_the_index_moves_one_head_and_the_readings_hold(void) {
+  const ap_m68030_extension_t plain = ap_m68030_ea_decode_extension(0x0160u);
+  const ap_m68030_extension_t indexed = ap_m68030_ea_decode_extension(0x0120u);
+  TEST_ASSERT_EQUAL_UINT(
+      4u, ap_m68030_ea_fetch_immediate_timing_full(&plain, false)->timing.head);
+  TEST_ASSERT_EQUAL_UINT(
+      6u, ap_m68030_ea_fetch_immediate_timing_full(&indexed, false)->timing.head);
+  TEST_ASSERT_FALSE(ap_m68030_ea_jump_timing_full(&plain)->head_adds_operation);
+  TEST_ASSERT_TRUE(ap_m68030_ea_jump_timing_full(&indexed)->head_adds_operation);
+  TEST_ASSERT_EQUAL_UINT(8u,
+                         ap_m68030_ea_calculate_immediate_timing_full(&indexed, false)
+                             ->timing.head);
+
+  /* §11.6.4's `.W,([d16,An],d32)`: 15, not the printed 16. */
+  const ap_m68030_extension_t a_od_long = ap_m68030_ea_decode_extension(0x0123u);
+  TEST_ASSERT_EQUAL_UINT(
+      15u, ap_m68030_ea_calculate_immediate_timing_full(&a_od_long, false)
+               ->timing.no_cache_case);
+  /* §11.6.4's `.L,([B],I,d16)`: one read, not the printed two. */
+  const ap_m68030_extension_t b_od_word = ap_m68030_ea_decode_extension(0x0112u);
+  TEST_ASSERT_EQUAL_UINT(
+      1u, ap_m68030_ea_calculate_immediate_timing_full(&b_od_word, true)->timing.reads);
+}
+
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_every_full_format_word_has_a_row_in_every_table);
+  RUN_TEST(test_group_a_is_group_b_less_its_base_displacement_in_stage_7);
+  RUN_TEST(test_the_index_moves_one_head_and_the_readings_hold);
   RUN_TEST(test_the_calculate_immediate_table_reads_nothing);
   RUN_TEST(test_the_calculate_immediate_table_declines_what_it_does_not_print);
   RUN_TEST(test_the_jump_table_reads_nothing_and_agrees_with_the_68020);

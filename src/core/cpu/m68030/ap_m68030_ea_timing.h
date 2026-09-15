@@ -75,6 +75,20 @@ ap_m68030_ea_calculate_timing(ap_m68030_ea_kind_t kind);
 [[nodiscard]] const ap_m68030_ea_timing_t *
 ap_m68030_ea_jump_timing(ap_m68030_ea_kind_t kind);
 
+/* §11.6.5's full-format rows, selected by the extension word as §11.6.1's are,
+ * with the index distinguishing the non-indirect group A row's head. */
+[[nodiscard]] const ap_m68030_ea_timing_t *
+ap_m68030_ea_jump_timing_full(const ap_m68030_extension_t *extension);
+
+/* §11.6.2's and §11.6.4's full-format rows, a word and a long immediate apiece,
+ * selected as §11.6.5's are: the non-indirect group A row split by the index. */
+[[nodiscard]] const ap_m68030_ea_timing_t *
+ap_m68030_ea_fetch_immediate_timing_full(const ap_m68030_extension_t *extension,
+                                         bool immediate_long);
+[[nodiscard]] const ap_m68030_ea_timing_t *
+ap_m68030_ea_calculate_immediate_timing_full(
+    const ap_m68030_extension_t *extension, bool immediate_long);
+
 /* §11.6.4, Calculate Immediate Effective Address: an immediate or an extension
  * word fetched, and an address calculated but not read. Split by the immediate's
  * size like §11.6.2. NULL for an address register, an immediate destination and

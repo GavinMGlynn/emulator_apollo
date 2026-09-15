@@ -2714,9 +2714,11 @@ row_ea_timing(const ap_m68030_table_entry_t *row, uint16_t instruction,
   /* **Mode 6 in the full format has rows of its own**, chosen by the extension
    * word -- sixteen figures behind one mode field, from 6 clocks to 18 --
    * where until 2026-09-15 every mode-6 address was priced as the brief
-   * format. §11.6.1's and §11.6.3's full-format rows are transcribed and used
-   * here. §11.6.2's, §11.6.4's and §11.6.5's are not, so a full-format address
-   * through those tables has no row rather than the brief one's figure. */
+   * format. All five tables' full-format rows are transcribed and used here:
+   * §11.6.1's and §11.6.3's since the effective-address work, §11.6.2's,
+   * §11.6.4's and §11.6.5's since stage 7. */
+  const bool immediate_long = (instruction & 0xFF00u) != 0x0800u &&
+                              ((instruction >> 6) & 3u) == 2u;
   if (extension != nullptr &&
       (ea.kind == AP_M68030_EA_INDEXED || ea.kind == AP_M68030_EA_PC_INDEXED)) {
     const ap_m68030_extension_t decoded = ap_m68030_ea_decode_extension(*extension);
@@ -2727,8 +2729,11 @@ row_ea_timing(const ap_m68030_table_entry_t *row, uint16_t instruction,
       case AP_M68030_EA_TIME_CALCULATE:
         return ap_m68030_ea_calculate_timing_full(&decoded);
       case AP_M68030_EA_TIME_FETCH_IMMEDIATE:
+        return ap_m68030_ea_fetch_immediate_timing_full(&decoded, immediate_long);
       case AP_M68030_EA_TIME_CALCULATE_IMMEDIATE:
+        return ap_m68030_ea_calculate_immediate_timing_full(&decoded, false);
       case AP_M68030_EA_TIME_JUMP:
+        return ap_m68030_ea_jump_timing_full(&decoded);
       case AP_M68030_EA_TIME_NONE:
         return nullptr;
       }

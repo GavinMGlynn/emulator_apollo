@@ -4501,10 +4501,12 @@ discipline throughout.
   destinations, 227 → 244, and §11.6.1/§11.6.3's full-format rows composed.
   **Next**: §11.6.2's, §11.6.4's and §11.6.5's full-format rows; the address
   rows' own no-cache difference in the prefetch exposure.
-  **Owed, all read as page images**: the address rows' own no-cache difference in
-  the prefetch exposure, and
-  §11.6.2's, §11.6.4's and §11.6.5's full-format rows. *(Before stage 4b this also named
-  §11.6.14, §11.6.4's table, `MOVEC Rn,Cr` and `CAS2`; before 5b, §11.6.17; before 5c, §11.6.18; before 5d, `CHK`/`CHK2`; before 5e, `MOVEM`; before 5f, the long multiplies and divides; before 6, §11.6.6's mode-6 destinations.)*
+  **Stage 7**: the full-format rows of §11.6.2, §11.6.4 and §11.6.5, every
+  address now priced by its own row. **Next**: the address rows' own no-cache
+  difference in the prefetch exposure, the last owed part of §11.6.
+  **Owed**: the address rows' own no-cache difference in the prefetch exposure.
+  *(Before stage 4b this also named
+  §11.6.14, §11.6.4's table, `MOVEC Rn,Cr` and `CAS2`; before 5b, §11.6.17; before 5c, §11.6.18; before 5d, `CHK`/`CHK2`; before 5e, `MOVEM`; before 5f, the long multiplies and divides; before 6, §11.6.6's mode-6 destinations; before 7, the full-format rows of §11.6.2, §11.6.4 and §11.6.5.)*
   *(Before stage 4a this list also named §11.6.7, §11.6.16's rest and "the
   §11.6.4 (calculate immediate) and §11.6.5 (jump) tables, which do not exist
   in the code".)*
